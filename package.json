@@ -1,0 +1,17 @@
+{
+  "name": "memory-engine",
+  "module": "index.ts",
+  "type": "module",
+  "private": true,
+  "workspaces": ["scripts"],
+  "scripts": {
+    "sandbox:build": "bun scripts/sandbox-build.ts",
+    "sandbox:create": "bun scripts/sandbox-create.ts"
+  },
+  "devDependencies": {
+    "@types/bun": "latest"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  }
+}
