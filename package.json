@@ -3,12 +3,24 @@
   "module": "index.ts",
   "type": "module",
   "private": true,
-  "workspaces": ["scripts"],
+  "workspaces": ["packages/*", "scripts"],
   "scripts": {
+    "postinstall": "bun scripts/postinstall.ts",
+    "check": "bun run format && bun run lint && bun run typecheck",
+    "format": "biome check --linter-enabled=false",
+    "format:fix": "biome check --write --linter-enabled=false",
+    "lint": "biome check --formatter-enabled=false",
+    "lint:fix": "biome check --write --formatter-enabled=false",
+    "typecheck": "tsc --noEmit",
     "sandbox:build": "bun scripts/sandbox-build.ts",
     "sandbox:create": "bun scripts/sandbox-create.ts"
   },
   "devDependencies": {
+    "@biomejs/biome": "2.4.6",
+    "@biomejs/cli-darwin-arm64": "2.4.6",
+    "@biomejs/cli-linux-arm64": "2.4.6",
+    "@biomejs/cli-linux-arm64-musl": "2.4.6",
+    "@biomejs/cli-linux-x64": "2.4.6",
     "@types/bun": "latest"
   },
   "peerDependencies": {
