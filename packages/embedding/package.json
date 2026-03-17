@@ -1,0 +1,16 @@
+{
+  "name": "@memory-engine/embedding",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "index.ts",
+  "dependencies": {
+    "ai": "^4.0.0",
+    "@ai-sdk/openai": "^1.0.0",
+    "@ai-sdk/cohere": "^1.0.0",
+    "@ai-sdk/mistral": "^1.0.0",
+    "@ai-sdk/google": "^1.0.0",
+    "js-tiktoken": "^1.0.0",
+    "mistral-tokenizer-js": "^1.0.0"
+  }
+}
