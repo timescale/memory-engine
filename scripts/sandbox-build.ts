@@ -13,6 +13,4 @@ const baseImg = type === "claude" ? "claude-code" : type;
 await $`docker build -f docker/sandbox.Dockerfile --build-arg BASE_IMG="${baseImg}" -t "me-sandbox:${type}" .`;
 
 console.log(`\nImage built: me-sandbox:${type}`);
-console.log(
-  `Create sandbox with:\n  bun run sandbox:create <path>`,
-);
+console.log(`Create sandbox with:\n  bun run sandbox:create <path>`);

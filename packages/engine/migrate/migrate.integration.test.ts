@@ -1,18 +1,17 @@
-import { SQL } from "bun";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { SQL } from "bun";
 import { bootstrap } from "./bootstrap";
 import { discoverEngineSchemas } from "./discover";
 import { provisionEngine } from "./provision";
 import { dryRun, migrateAll, migrateEngine } from "./runner";
 import {
-  TestDatabase,
   countMigrations,
-  getAppliedMigrations,
   getFunctions,
   getIndexes,
   getRoles,
   getTableColumns,
   schemaExists,
+  TestDatabase,
   tableExists,
 } from "./test-utils";
 
@@ -363,12 +362,12 @@ describe("single-engine migration", () => {
 
     // Check table privileges
     const [{ has_select }] = await sql`
-      select has_table_privilege('me_embed', ${schema + ".memory"}, 'SELECT') as has_select
+      select has_table_privilege('me_embed', ${`${schema}.memory`}, 'SELECT') as has_select
     `;
     expect(has_select).toBe(true);
 
     const [{ has_update }] = await sql`
-      select has_table_privilege('me_embed', ${schema + ".memory"}, 'UPDATE') as has_update
+      select has_table_privilege('me_embed', ${`${schema}.memory`}, 'UPDATE') as has_update
     `;
     expect(has_update).toBe(true);
   });
@@ -378,11 +377,7 @@ describe("single-engine migration", () => {
 // Multi-Engine Tests
 // ---------------------------------------------------------------------------
 describe("multi-engine migration", () => {
-  const schemas = [
-    "me_aaaa00000001",
-    "me_aaaa00000002",
-    "me_aaaa00000003",
-  ];
+  const schemas = ["me_aaaa00000001", "me_aaaa00000002", "me_aaaa00000003"];
 
   beforeAll(async () => {
     for (const schema of schemas) {
@@ -474,11 +469,18 @@ describe("advisory locks", () => {
       migrateEngine(sql, schema, undefined, "0.1.0"),
     ]);
 
-    const applied = results.filter((r) => r.status === "ok" && r.applied.length > 0);
+    const applied = results.filter(
+      (r) => r.status === "ok" && r.applied.length > 0,
+    );
     const skipped = results.filter((r) => r.status === "skipped");
 
     // At least one should have applied, others may skip or apply 0
-    expect(applied.length + skipped.length + results.filter((r) => r.status === "ok" && r.applied.length === 0).length).toBe(3);
+    expect(
+      applied.length +
+        skipped.length +
+        results.filter((r) => r.status === "ok" && r.applied.length === 0)
+          .length,
+    ).toBe(3);
     // Exactly 4 migrations should exist
     expect(await countMigrations(sql, schema)).toBe(4);
   });
@@ -526,9 +528,9 @@ describe("provisioning", () => {
   });
 
   test("validates slug format", () => {
-    expect(
-      provisionEngine(sql, "BAD", undefined, "0.1.0"),
-    ).rejects.toThrow("Invalid engine slug");
+    expect(provisionEngine(sql, "BAD", undefined, "0.1.0")).rejects.toThrow(
+      "Invalid engine slug",
+    );
 
     expect(
       provisionEngine(sql, "too-short", undefined, "0.1.0"),

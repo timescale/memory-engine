@@ -1,5 +1,5 @@
 import type { SQL } from "bun";
-
+import { assertEngineSchema } from "./discover";
 import migration001 from "./migrations/001_updated_at.sql" with {
   type: "text",
 };
@@ -10,7 +10,6 @@ import migration003 from "./migrations/003_memory_trigger.sql" with {
 import migration004 from "./migrations/004_auth_tables.sql" with {
   type: "text",
 };
-import { assertEngineSchema } from "./discover";
 import { type EngineConfig, resolveConfig, template } from "./template";
 
 interface Migration {
@@ -64,9 +63,7 @@ export async function migrateEngine(
     `);
 
     // Run migrations
-    const sorted = [...migrations].sort((a, b) =>
-      a.name.localeCompare(b.name),
-    );
+    const sorted = [...migrations].sort((a, b) => a.name.localeCompare(b.name));
     const applied: string[] = [];
 
     for (const migration of sorted) {
@@ -130,7 +127,8 @@ export async function migrateAll(
 
     const next = () => {
       while (active < concurrency && idx < schemas.length) {
-        const schema = schemas[idx++]!;
+        const schema = schemas[idx++];
+        if (!schema) break;
         active++;
         runOne(schema).then(() => {
           active--;
@@ -153,7 +151,7 @@ export async function migrateAll(
 export async function dryRun(
   sql: SQL,
   schema: string,
-  config?: EngineConfig,
+  _config?: EngineConfig,
 ): Promise<{ pending: string[]; applied: string[] }> {
   await assertEngineSchema(sql, schema);
   const sorted = [...migrations].sort((a, b) => a.name.localeCompare(b.name));
@@ -179,8 +177,12 @@ export async function dryRun(
     `select name from ${schema}.migration order by name`,
   );
   const appliedSet = new Set(rows.map((r: { name: string }) => r.name));
-  const applied = sorted.filter((m) => appliedSet.has(m.name)).map((m) => m.name);
-  const pending = sorted.filter((m) => !appliedSet.has(m.name)).map((m) => m.name);
+  const applied = sorted
+    .filter((m) => appliedSet.has(m.name))
+    .map((m) => m.name);
+  const pending = sorted
+    .filter((m) => !appliedSet.has(m.name))
+    .map((m) => m.name);
 
   return { pending, applied };
 }

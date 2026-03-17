@@ -7,9 +7,9 @@ export {
   schemaToSlug,
   slugToSchema,
 } from "./discover";
-export { provisionEngine } from "./provision";
 export type { ProvisionResult } from "./provision";
-export { dryRun, getMigrations, migrateAll, migrateEngine } from "./runner";
+export { provisionEngine } from "./provision";
 export type { MigrateResult } from "./runner";
-export { defaultConfig, resolveConfig, template } from "./template";
+export { dryRun, getMigrations, migrateAll, migrateEngine } from "./runner";
 export type { EngineConfig, ResolvedConfig } from "./template";
+export { defaultConfig, resolveConfig, template } from "./template";

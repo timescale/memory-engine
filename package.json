@@ -3,7 +3,10 @@
   "module": "index.ts",
   "type": "module",
   "private": true,
-  "workspaces": ["packages/*", "scripts"],
+  "workspaces": [
+    "packages/*",
+    "scripts"
+  ],
   "scripts": {
     "postinstall": "bun scripts/postinstall.ts",
     "check": "bun run format && bun run lint && bun run typecheck",
