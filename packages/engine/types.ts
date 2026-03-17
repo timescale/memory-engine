@@ -1,0 +1,252 @@
+import type { SQL } from "bun";
+
+// =============================================================================
+// Errors
+// =============================================================================
+
+/**
+ * Thrown when a feature is not yet implemented
+ */
+export class NotImplementedError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "NotImplementedError";
+  }
+}
+
+// =============================================================================
+// Context
+// =============================================================================
+
+/**
+ * Context passed to all ops functions
+ */
+export interface OpsContext {
+  /** Database connection or transaction handle */
+  sql: SQL;
+  /** Schema name (e.g., "me_abc123xyz789") */
+  schema: string;
+  /** Shard number for pgDog routing (optional, future use) */
+  shard?: number;
+  /** Whether we're inside a transaction (controls whether withTx opens a new one) */
+  inTransaction: boolean;
+  /** Get the current principal ID (for RLS context) */
+  getPrincipalId: () => string | null;
+}
+
+// =============================================================================
+// Principal
+// =============================================================================
+
+export interface Principal {
+  id: string;
+  email: string | null;
+  name: string;
+  superuser: boolean;
+  createrole: boolean;
+  canLogin: boolean;
+  createdAt: Date;
+  updatedAt: Date | null;
+}
+
+export interface CreatePrincipalParams {
+  name: string;
+  email?: string | null;
+  password?: string | null;
+  superuser?: boolean;
+  createrole?: boolean;
+  canLogin?: boolean;
+}
+
+// =============================================================================
+// API Key
+// =============================================================================
+
+export interface ApiKey {
+  id: string;
+  principalId: string;
+  name: string;
+  lookupId: string;
+  keyHash: string;
+  expiresAt: Date;
+  createdAt: Date;
+  updatedAt: Date | null;
+}
+
+/** API key info returned when listing (no hash) */
+export interface ApiKeyInfo {
+  id: string;
+  principalId: string;
+  name: string;
+  lookupId: string;
+  expiresAt: Date;
+  createdAt: Date;
+  updatedAt: Date | null;
+}
+
+/** Result of creating an API key */
+export interface CreateApiKeyResult {
+  /** The full API key (only returned once, at creation time) */
+  key: string;
+  /** The key's database ID */
+  id: string;
+  /** The lookup portion of the key */
+  lookupId: string;
+}
+
+/** Result of validating an API key */
+export interface ValidateApiKeyResult {
+  principalId: string;
+  superuser: boolean;
+  createrole: boolean;
+  canLogin: boolean;
+}
+
+// =============================================================================
+// Tree Grant
+// =============================================================================
+
+export interface TreeGrant {
+  id: string;
+  principalId: string;
+  treePath: string;
+  actions: string[];
+  grantedBy: string | null;
+  withGrantOption: boolean;
+  createdAt: Date;
+}
+
+export interface GrantTreeAccessParams {
+  principalId: string;
+  treePath: string;
+  actions: string[];
+  grantedBy?: string | null;
+  withGrantOption?: boolean;
+}
+
+// =============================================================================
+// Tree Owner
+// =============================================================================
+
+export interface TreeOwner {
+  treePath: string;
+  principalId: string;
+  createdBy: string | null;
+  createdAt: Date;
+}
+
+// =============================================================================
+// Role
+// =============================================================================
+
+export interface RoleMember {
+  roleId: string;
+  memberId: string;
+  withAdminOption: boolean;
+  createdAt: Date;
+}
+
+export interface RoleInfo {
+  id: string;
+  name: string;
+  withAdminOption: boolean;
+}
+
+// =============================================================================
+// Memory
+// =============================================================================
+
+export interface Memory {
+  id: string;
+  content: string;
+  meta: Record<string, unknown>;
+  tree: string;
+  temporal: { start: Date; end: Date } | null;
+  hasEmbedding: boolean;
+  createdAt: Date;
+  createdBy: string | null;
+  updatedAt: Date | null;
+}
+
+export interface CreateMemoryParams {
+  id?: string;
+  content: string;
+  meta?: Record<string, unknown>;
+  tree?: string;
+  temporal?: { start: Date; end?: Date } | null;
+  createdBy?: string | null;
+}
+
+export interface UpdateMemoryParams {
+  content?: string;
+  meta?: Record<string, unknown>;
+  tree?: string;
+  temporal?: { start: Date; end?: Date } | null;
+}
+
+// =============================================================================
+// Search
+// =============================================================================
+
+export interface SearchParams {
+  /** Semantic search query (text - embedding must be generated by caller) */
+  semantic?: string;
+  /** Pre-computed embedding vector for semantic search */
+  embedding?: number[];
+  /** Full-text (BM25) search query */
+  fulltext?: string;
+  /** Filter by tree path (ltree, lquery, or ltxtquery) */
+  tree?: string;
+  /** Filter by metadata (JSONB containment) */
+  meta?: Record<string, unknown>;
+  /** Temporal filter */
+  temporal?: TemporalFilter;
+  /** Maximum results (default: 10) */
+  limit?: number;
+  /** Candidates per search mode before RRF fusion */
+  candidateLimit?: number;
+  /** Weights for hybrid search */
+  weights?: SearchWeights;
+  /** Sort direction for filter-only searches */
+  orderBy?: "asc" | "desc";
+}
+
+export interface TemporalFilter {
+  /** Find memories containing this point in time */
+  contains?: Date | string;
+  /** Find memories overlapping this range [start, end] */
+  overlaps?: [Date | string, Date | string];
+  /** Find memories fully within this range [start, end] */
+  within?: [Date | string, Date | string];
+}
+
+export interface SearchWeights {
+  semantic?: number;
+  fulltext?: number;
+}
+
+export interface SearchResult {
+  results: SearchResultItem[];
+  total: number;
+  limit: number;
+}
+
+export interface SearchResultItem extends Memory {
+  score: number;
+}
+
+// =============================================================================
+// Tree
+// =============================================================================
+
+export interface GetTreeParams {
+  /** Root path to start from (default: root) */
+  tree?: string;
+  /** Maximum depth to return */
+  levels?: number;
+}
+
+export interface TreeNode {
+  path: string;
+  count: number;
+}
