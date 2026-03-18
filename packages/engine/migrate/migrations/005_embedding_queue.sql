@@ -77,6 +77,15 @@ as $func$
     , (select m.content from {{schema}}.memory m where m.id = eq.memory_id);
 $func$;
 
+-- me_embed RLS — system role, unrestricted access to all memories
+create policy memory_embed_select on {{schema}}.memory
+  for select to me_embed
+  using (true);
+
+create policy memory_embed_update on {{schema}}.memory
+  for update to me_embed
+  using (true);
+
 -- me_embed grants (memory + queue + claim function)
 grant usage on schema {{schema}} to me_embed;
 grant select, update on {{schema}}.memory to me_embed;

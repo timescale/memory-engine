@@ -1,0 +1,11 @@
+{
+  "name": "@memory-engine/worker",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "index.ts",
+  "dependencies": {
+    "@memory-engine/engine": "workspace:*",
+    "@memory-engine/embedding": "workspace:*"
+  }
+}
