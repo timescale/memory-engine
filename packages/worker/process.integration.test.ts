@@ -177,9 +177,11 @@ describe("processBatch integration", () => {
       );
 
       const result = await processBatch(sql, schema, config);
-      expect(result.claimed).toBeGreaterThanOrEqual(1);
 
-      // Queue entry should be cancelled (version mismatch)
+      // Stale row cancelled at claim time — not counted as claimed
+      expect(result.claimed).toBe(0);
+
+      // Queue entry should be cancelled (version mismatch detected at claim)
       const queue = await getQueueEntries(staleId);
       const cancelled = queue.find(
         (q: Record<string, unknown>) => q.outcome === "cancelled",
@@ -231,6 +233,130 @@ describe("processBatch integration", () => {
       );
       expect(entry).toBeDefined();
       expect(entry.last_error).toBeTruthy();
+    } finally {
+      server.stop();
+    }
+  });
+
+  test("cancels stale queue rows at claim time", async () => {
+    // Clear pending entries
+    await sql.unsafe(
+      `UPDATE ${schema}.embedding_queue SET outcome = 'completed' WHERE outcome IS NULL`,
+    );
+
+    // Insert a memory — trigger creates a queue entry at version 1
+    const memoryId = await insertMemory("Stale claim-time test");
+
+    // Bump embedding_version on the memory to make the queue entry stale
+    await sql.unsafe(
+      `UPDATE ${schema}.memory SET embedding_version = embedding_version + 1 WHERE id = $1`,
+      [memoryId],
+    );
+
+    // Create a mock server that should NOT be called (stale rows are cancelled before embed)
+    let embedCalled = false;
+    const server = Bun.serve({
+      port: 0,
+      fetch() {
+        embedCalled = true;
+        return Response.json({
+          object: "list",
+          data: [
+            {
+              object: "embedding",
+              embedding: Array.from({ length: 1536 }, () => 0),
+              index: 0,
+            },
+          ],
+          model: "text-embedding-3-small",
+          usage: { prompt_tokens: 1, total_tokens: 1 },
+        });
+      },
+    });
+
+    try {
+      const config: WorkerConfig = {
+        embedding: {
+          provider: "openai",
+          model: "text-embedding-3-small",
+          dimensions: 1536,
+          apiKey: "test-key",
+          baseUrl: `http://localhost:${server.port}/v1`,
+        },
+        batchSize: 10,
+      };
+
+      const result = await processBatch(sql, schema, config);
+
+      // Stale row cancelled at claim time — nothing claimed
+      expect(result.claimed).toBe(0);
+      expect(embedCalled).toBe(false);
+
+      // Verify the queue entry is cancelled
+      const queue = await getQueueEntries(memoryId);
+      const cancelled = queue.find(
+        (q: Record<string, unknown>) => q.outcome === "cancelled",
+      );
+      expect(cancelled).toBeDefined();
+    } finally {
+      server.stop();
+    }
+  });
+
+  test("cancels queue rows for deleted memories at claim time", async () => {
+    // Clear pending entries
+    await sql.unsafe(
+      `UPDATE ${schema}.embedding_queue SET outcome = 'completed' WHERE outcome IS NULL`,
+    );
+
+    // Insert a memory — trigger creates a queue entry
+    const memoryId = await insertMemory("Delete claim-time test");
+
+    // Verify queue entry exists
+    const queueBefore = await getQueueEntries(memoryId);
+    expect(queueBefore.length).toBeGreaterThanOrEqual(1);
+    const queueId = queueBefore[0].id;
+
+    // Delete the memory — CASCADE deletes the queue row too
+    await sql.unsafe(`DELETE FROM ${schema}.memory WHERE id = $1`, [memoryId]);
+
+    // Queue row should be gone due to CASCADE
+    const queueAfter = await getQueueEntries(memoryId);
+    expect(queueAfter.length).toBe(0);
+
+    // processBatch should handle this gracefully (nothing to claim)
+    const server = Bun.serve({
+      port: 0,
+      fetch() {
+        return Response.json({
+          object: "list",
+          data: [
+            {
+              object: "embedding",
+              embedding: Array.from({ length: 1536 }, () => 0),
+              index: 0,
+            },
+          ],
+          model: "text-embedding-3-small",
+          usage: { prompt_tokens: 1, total_tokens: 1 },
+        });
+      },
+    });
+
+    try {
+      const config: WorkerConfig = {
+        embedding: {
+          provider: "openai",
+          model: "text-embedding-3-small",
+          dimensions: 1536,
+          apiKey: "test-key",
+          baseUrl: `http://localhost:${server.port}/v1`,
+        },
+        batchSize: 10,
+      };
+
+      const result = await processBatch(sql, schema, config);
+      expect(result.claimed).toBe(0);
     } finally {
       server.stop();
     }

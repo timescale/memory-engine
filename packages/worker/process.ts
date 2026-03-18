@@ -57,6 +57,7 @@ export async function processBatch(
 
       if (!result || result.error) {
         // Embedding failed — record error, leave outcome NULL for retry
+        // Queue row may be CASCADE-deleted if memory was deleted; 0 rows is fine
         const error = result?.error ?? "No embedding result returned";
         await tx.unsafe(
           `UPDATE ${schema}.embedding_queue
@@ -79,17 +80,19 @@ export async function processBatch(
       );
 
       if (updated.length === 0) {
-        // Content changed between claim and embed — cancel
+        // Content changed or memory deleted between claim and embed — cancel
+        // Queue row may already be CASCADE-deleted; 0 rows updated is fine
         await tx.unsafe(
           `UPDATE ${schema}.embedding_queue
            SET outcome = 'cancelled'
            WHERE id = $1`,
           [row.queue_id],
         );
-        // Still counts as "succeeded" from worker perspective (handled correctly)
         succeeded++;
       } else {
         // Embedding written — mark completed
+        // Queue row may be CASCADE-deleted if memory deleted between these two
+        // statements; 0 rows updated is fine
         await tx.unsafe(
           `UPDATE ${schema}.embedding_queue
            SET outcome = 'completed'

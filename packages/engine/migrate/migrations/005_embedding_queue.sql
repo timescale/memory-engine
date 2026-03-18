@@ -55,26 +55,61 @@ create or replace function {{schema}}.claim_embedding_batch(
   lock_duration interval default '5 minutes'
 )
 returns table (queue_id bigint, memory_id uuid, embedding_version int, content text)
-language sql volatile
+language plpgsql volatile
 set search_path to pg_catalog, {{schema}}, pg_temp
 as $func$
-  with claimed as (
+declare
+  rec record;
+  mem record;
+  claimed_count int := 0;
+begin
+  for rec in
     select eq.id, eq.memory_id, eq.embedding_version
     from {{schema}}.embedding_queue eq
     where eq.outcome is null
       and eq.vt <= now()
       and eq.attempts < eq.max_attempts
     order by eq.vt
-    limit batch_size
     for update skip locked
-  )
-  update {{schema}}.embedding_queue eq
-  set vt = now() + lock_duration
-    , attempts = eq.attempts + 1
-  from claimed c
-  where eq.id = c.id
-  returning eq.id as queue_id, eq.memory_id, eq.embedding_version
-    , (select m.content from {{schema}}.memory m where m.id = eq.memory_id);
+  loop
+    -- check memory still exists + current version
+    select m.content, m.embedding_version
+    into mem
+    from {{schema}}.memory m
+    where m.id = rec.memory_id;
+
+    if not found or mem.content is null then
+      -- memory deleted or empty → cancel queue row
+      update {{schema}}.embedding_queue
+      set outcome = 'cancelled'
+      where id = rec.id;
+      continue;
+    end if;
+
+    if rec.embedding_version <> mem.embedding_version then
+      -- stale version → cancel
+      update {{schema}}.embedding_queue
+      set outcome = 'cancelled'
+      where id = rec.id;
+      continue;
+    end if;
+
+    -- claim this row
+    update {{schema}}.embedding_queue
+    set vt = now() + lock_duration
+      , attempts = {{schema}}.embedding_queue.attempts + 1
+    where id = rec.id;
+
+    queue_id := rec.id;
+    memory_id := rec.memory_id;
+    embedding_version := rec.embedding_version;
+    content := mem.content;
+    return next;
+
+    claimed_count := claimed_count + 1;
+    exit when claimed_count >= batch_size;
+  end loop;
+end;
 $func$;
 
 -- me_embed RLS — system role, unrestricted access to all memories
