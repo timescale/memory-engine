@@ -24,7 +24,7 @@ import type { EmbeddingConfig } from "./types";
  */
 export function getEmbeddingModel(
   config: EmbeddingConfig,
-): EmbeddingModel<string> {
+): EmbeddingModel {
   const provider = config.provider.toLowerCase();
 
   // Resolve API key from config or environment

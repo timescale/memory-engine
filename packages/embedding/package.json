@@ -5,11 +5,11 @@
   "type": "module",
   "main": "index.ts",
   "dependencies": {
-    "ai": "^4.0.0",
-    "@ai-sdk/openai": "^1.0.0",
-    "@ai-sdk/cohere": "^1.0.0",
-    "@ai-sdk/mistral": "^1.0.0",
-    "@ai-sdk/google": "^1.0.0",
+    "ai": "^6.0.0",
+    "@ai-sdk/openai": "^3.0.0",
+    "@ai-sdk/cohere": "^3.0.0",
+    "@ai-sdk/mistral": "^3.0.0",
+    "@ai-sdk/google": "^3.0.0",
     "js-tiktoken": "^1.0.0",
     "mistral-tokenizer-js": "^1.0.0"
   }
