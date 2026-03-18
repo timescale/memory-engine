@@ -14,9 +14,6 @@ const TRUNCATION_MARKER = "\n[truncated]";
 /** Adjustment factor for expand/contract iterations */
 const ADJUSTMENT_FACTOR = 0.1;
 
-/** Conservative chars per token for approximation (effective ~3 chars/token) */
-const CHARS_PER_TOKEN = 3;
-
 // =============================================================================
 // Truncation
 // =============================================================================
@@ -24,15 +21,15 @@ const CHARS_PER_TOKEN = 3;
 /**
  * Truncate text to fit within a token limit.
  *
+ * Only called for providers with exact tokenizers (OpenAI, Mistral).
+ * Providers with API-side truncation (Cohere, Google, Ollama) skip this entirely.
+ *
  * Uses a proportional start + linear refinement algorithm:
  * 1. If under limit, return as-is
  * 2. Calculate ratio: targetTokens / currentTokens
  * 3. Start at text.length * ratio
  * 4. Expand/contract by 10% until just under limit
  * 5. Append truncation marker
- *
- * For providers without exact tokenizers (Ollama, Cohere, Google),
- * uses single-pass O(1) character approximation.
  */
 export function truncateToTokenLimit(
   text: string,
@@ -40,6 +37,14 @@ export function truncateToTokenLimit(
   provider: EmbeddingProvider,
 ): TruncateResult {
   const counter = getTokenCounter(provider);
+
+  if (!counter) {
+    throw new Error(
+      `No exact tokenizer for provider "${provider}". ` +
+        `Client-side truncation is only supported for openai and mistral.`,
+    );
+  }
+
   const currentTokens = countTokens(text, counter);
 
   // Under limit — return as-is
@@ -50,18 +55,7 @@ export function truncateToTokenLimit(
   // Target tokens accounting for marker
   const targetTokens = maxTokens - MARKER_TOKENS;
 
-  // For character approximation (no exact tokenizer), single-pass truncation
-  if (!counter) {
-    const targetChars = targetTokens * CHARS_PER_TOKEN;
-    const truncatedText = `${text.slice(0, targetChars)}${TRUNCATION_MARKER}`;
-    return {
-      text: truncatedText,
-      tokens: countTokens(truncatedText, null),
-      truncated: true,
-    };
-  }
-
-  // Proportional start + linear refinement for exact tokenizers
+  // Proportional start + linear refinement
   const ratio = targetTokens / currentTokens;
   let charEstimate = Math.floor(text.length * ratio);
 

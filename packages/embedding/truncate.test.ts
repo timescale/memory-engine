@@ -52,23 +52,23 @@ describe("truncateToTokenLimit", () => {
     });
   });
 
-  describe("over limit with character approximation (ollama)", () => {
-    test("truncates using character approximation", () => {
-      const longText = "a".repeat(1000); // ~333 tokens at 3 chars/token
-      const result = truncateToTokenLimit(longText, 100, "ollama");
-
-      expect(result.truncated).toBe(true);
-      expect(result.text).toContain("[truncated]");
+  describe("throws for providers without exact tokenizer", () => {
+    test("throws for ollama", () => {
+      expect(() => truncateToTokenLimit("hello", 100, "ollama")).toThrow(
+        /No exact tokenizer/,
+      );
     });
 
-    test("single-pass truncation for approximation", () => {
-      // With ~3 chars/token, 100 tokens = ~300 chars
-      const longText = "x".repeat(600);
-      const result = truncateToTokenLimit(longText, 100, "ollama");
+    test("throws for cohere", () => {
+      expect(() => truncateToTokenLimit("hello", 100, "cohere")).toThrow(
+        /No exact tokenizer/,
+      );
+    });
 
-      expect(result.truncated).toBe(true);
-      // Should truncate to roughly (100 - 15) * 3 = 255 chars + marker
-      expect(result.text.length).toBeLessThan(400);
+    test("throws for google", () => {
+      expect(() => truncateToTokenLimit("hello", 100, "google")).toThrow(
+        /No exact tokenizer/,
+      );
     });
   });
 
@@ -97,15 +97,9 @@ describe("truncateToTokenLimit", () => {
       expect(result.text).toContain("[truncated]");
     });
 
-    test("all providers work", () => {
+    test("all client-truncation providers work", () => {
       const text = "test text for all providers";
-      const providers = [
-        "openai",
-        "ollama",
-        "cohere",
-        "mistral",
-        "google",
-      ] as const;
+      const providers = ["openai", "mistral"] as const;
 
       for (const provider of providers) {
         const result = truncateToTokenLimit(text, 100, provider);

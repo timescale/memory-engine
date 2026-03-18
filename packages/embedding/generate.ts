@@ -1,7 +1,12 @@
 import { embed, embedMany } from "ai";
 import { getEmbeddingModel } from "./provider";
 import { truncateToTokenLimit } from "./truncate";
-import type { EmbeddingConfig, EmbedResult, MemoryRow } from "./types";
+import {
+  requiresClientTruncation,
+  type EmbeddingConfig,
+  type EmbedResult,
+  type MemoryRow,
+} from "./types";
 
 // =============================================================================
 // Embed Options
@@ -36,12 +41,25 @@ function getEmbedOptions(config: EmbeddingConfig): EmbedOptions {
 function prepareText(text: string, config: EmbeddingConfig): string {
   const maxTokens = config.options?.maxTokens;
 
-  if (!maxTokens) {
+  if (!maxTokens || !requiresClientTruncation(config.provider)) {
     return text;
   }
 
   const result = truncateToTokenLimit(text, maxTokens, config.provider);
   return result.text;
+}
+
+// =============================================================================
+// Provider Options
+// =============================================================================
+
+function getProviderOptions(
+  config: EmbeddingConfig,
+): Record<string, Record<string, string>> | undefined {
+  if (config.provider === "cohere") {
+    return { cohere: { truncate: "END" } };
+  }
+  return undefined;
 }
 
 // =============================================================================
@@ -68,10 +86,12 @@ export async function generateEmbedding(
   const model = getEmbeddingModel(config);
   const preparedText = prepareText(text, config);
 
+  const providerOptions = getProviderOptions(config);
   const result = await embed({
     model,
     value: preparedText,
     ...getEmbedOptions(config),
+    ...(providerOptions && { providerOptions }),
   });
 
   if (result.embedding.length !== config.dimensions) {
@@ -112,6 +132,7 @@ export async function generateEmbeddings(
 
   const model = getEmbeddingModel(config);
   const texts = rows.map((row) => prepareText(row.content, config));
+  const providerOptions = getProviderOptions(config);
   const results: EmbedResult[] = [];
 
   try {
@@ -120,6 +141,7 @@ export async function generateEmbeddings(
       model,
       values: texts,
       ...getEmbedOptions(config),
+      ...(providerOptions && { providerOptions }),
     });
 
     // embedMany returns aggregate token count — distribute evenly
@@ -156,6 +178,7 @@ export async function generateEmbeddings(
           model,
           value: text,
           ...getEmbedOptions(config),
+          ...(providerOptions && { providerOptions }),
         });
 
         if (result.embedding.length !== config.dimensions) {

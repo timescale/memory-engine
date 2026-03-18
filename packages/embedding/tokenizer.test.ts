@@ -14,17 +14,17 @@ describe("getTokenCounter", () => {
     expect(counter!.count("hello world")).toBeGreaterThan(0);
   });
 
-  test("returns null for ollama (character approximation)", () => {
+  test("returns null for ollama (no client-side tokenizer)", () => {
     const counter = getTokenCounter("ollama");
     expect(counter).toBeNull();
   });
 
-  test("returns null for cohere (character approximation)", () => {
+  test("returns null for cohere (no client-side tokenizer)", () => {
     const counter = getTokenCounter("cohere");
     expect(counter).toBeNull();
   });
 
-  test("returns null for google (character approximation)", () => {
+  test("returns null for google (no client-side tokenizer)", () => {
     const counter = getTokenCounter("google");
     expect(counter).toBeNull();
   });
@@ -44,25 +44,8 @@ describe("countTokens", () => {
     expect(countTokens("hello", mockCounter)).toBe(10);
   });
 
-  test("uses character approximation when counter is null", () => {
-    // Approximation: Math.ceil((length / 4) * 1.3) = ~3 chars/token effective
-    const text = "hello world"; // 11 chars
-    const tokens = countTokens(text, null);
-    // 11 / 4 * 1.3 = 3.575 -> ceil -> 4
-    expect(tokens).toBe(4);
-  });
-
-  test("character approximation is conservative for code", () => {
-    // Code with special chars should use more tokens
-    const code = "const x = (a, b) => { return a + b; }"; // 38 chars
-    const tokens = countTokens(code, null);
-    // 38 / 4 * 1.3 = 12.35 -> ceil -> 13
-    expect(tokens).toBe(13);
-  });
-
   test("empty string returns 0 tokens", () => {
-    expect(countTokens("", null)).toBe(0);
-    const counter = getTokenCounter("openai");
+    const counter = getTokenCounter("openai")!;
     expect(countTokens("", counter)).toBe(0);
   });
 });

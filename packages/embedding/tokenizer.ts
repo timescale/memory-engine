@@ -47,22 +47,10 @@ export function getTokenCounter(
 // =============================================================================
 
 /**
- * Count tokens in text using the provided counter, or character approximation.
- *
- * Character approximation uses ~3 chars/token effective (conservative):
- * Base ~4 chars/token with 1.3x safety multiplier for code/special chars.
+ * Count tokens in text using the provided counter.
  */
-export function countTokens(
-  text: string,
-  counter: TokenCounter | null,
-): number {
-  if (counter) {
-    return counter.count(text);
-  }
-  // Character approximation with safety margin
-  // Base: ~4 chars/token, apply 1.3x multiplier for safety
-  // Effective: ~3 chars/token
-  return Math.ceil((text.length / 4) * 1.3);
+export function countTokens(text: string, counter: TokenCounter): number {
+  return counter.count(text);
 }
 
 // =============================================================================
