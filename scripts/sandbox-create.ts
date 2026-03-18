@@ -43,9 +43,14 @@ sandboxPath = resolve(sandboxPath);
 const name = basename(sandboxPath);
 const binaryFilename = basename(binary);
 
-// 1. Copy binary into sandbox filesystem
-console.log(`Copying ${binary} → ${sandboxPath}/${binaryFilename}`);
-copyFileSync(binary, `${sandboxPath}/${binaryFilename}`);
+// 1. Copy binary into sandbox filesystem (skip if already there)
+const binaryDest = `${sandboxPath}/${binaryFilename}`;
+if (resolve(binary) === binaryDest) {
+  console.log(`Binary already at ${binaryDest}, skipping copy`);
+} else {
+  console.log(`Copying ${binary} → ${binaryDest}`);
+  copyFileSync(binary, binaryDest);
+}
 
 // 2. Create sandbox
 console.log(`Creating sandbox "${name}"...`);
