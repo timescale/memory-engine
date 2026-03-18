@@ -10,6 +10,9 @@ import migration003 from "./migrations/003_memory_trigger.sql" with {
 import migration004 from "./migrations/004_auth_tables.sql" with {
   type: "text",
 };
+import migration005 from "./migrations/005_embedding_queue.sql" with {
+  type: "text",
+};
 import { type EngineConfig, resolveConfig, template } from "./template";
 
 interface Migration {
@@ -22,6 +25,7 @@ const migrations: Migration[] = [
   { name: "002_memory", sql: migration002 },
   { name: "003_memory_trigger", sql: migration003 },
   { name: "004_auth_tables", sql: migration004 },
+  { name: "005_embedding_queue", sql: migration005 },
 ];
 
 export interface MigrateResult {

@@ -52,21 +52,8 @@ describe("bootstrap", () => {
     }
   });
 
-  test("creates embedding schema and tables", async () => {
-    expect(await schemaExists(sql, "embedding")).toBe(true);
-    expect(await tableExists(sql, "embedding", "queue")).toBe(true);
-    expect(await tableExists(sql, "embedding", "queue_hist")).toBe(true);
-
-    const cols = await getTableColumns(sql, "embedding", "queue");
-    const colNames = cols.map((c) => c.column_name);
-    expect(colNames).toContain("schema_name");
-    expect(colNames).toContain("memory_id");
-    expect(colNames).toContain("embedding_version");
-    expect(colNames).toContain("vt");
-    expect(colNames).toContain("outcome");
-    expect(colNames).toContain("attempts");
-    expect(colNames).toContain("max_attempts");
-    expect(colNames).toContain("last_error");
+  test("does not create embedding schema", async () => {
+    expect(await schemaExists(sql, "embedding")).toBe(false);
   });
 
   test("is idempotent", async () => {
@@ -78,12 +65,6 @@ describe("bootstrap", () => {
       where extname in ('citext', 'ltree', 'vector', 'pg_textsearch')
     `;
     expect(rows).toHaveLength(4);
-  });
-
-  test("creates claim_batch function", async () => {
-    const funcs = await getFunctions(sql, "embedding");
-    const names = funcs.map((f) => f.proname);
-    expect(names).toContain("claim_batch");
   });
 });
 
@@ -110,6 +91,7 @@ describe("single-engine migration", () => {
       "role_membership",
       "tree_owner",
       "migration",
+      "embedding_queue",
     ]) {
       expect(await tableExists(sql, schema, table)).toBe(true);
     }
@@ -129,7 +111,7 @@ describe("single-engine migration", () => {
     const result = await migrateEngine(sql, schema, undefined, "0.1.0");
     expect(result.status).toBe("ok");
     expect(result.applied).toHaveLength(0);
-    expect(await countMigrations(sql, schema)).toBe(4);
+    expect(await countMigrations(sql, schema)).toBe(5);
   });
 
   test("records migration metadata", async () => {
@@ -138,7 +120,7 @@ describe("single-engine migration", () => {
       from ${schema}.migration
       order by name
     `);
-    expect(rows).toHaveLength(4);
+    expect(rows).toHaveLength(5);
     for (const row of rows) {
       expect(row.applied_at_version).toBe("0.1.0");
       expect(row.applied_at).toBeTruthy();
@@ -311,31 +293,28 @@ describe("single-engine migration", () => {
   });
 
   test("enqueue trigger fires on insert", async () => {
-    // Clear any existing queue entries
-    await sql.unsafe(`delete from embedding.queue`);
+    await sql.unsafe(`delete from ${schema}.embedding_queue`);
 
     await sql.unsafe(`
       insert into ${schema}.memory (content) values ('trigger insert test')
     `);
 
     const rows = await sql.unsafe(`
-      select schema_name, memory_id, embedding_version
-      from embedding.queue
-      where schema_name = '${schema}'
+      select memory_id, embedding_version
+      from ${schema}.embedding_queue
     `);
     expect(rows.length).toBeGreaterThanOrEqual(1);
-    expect(rows[0].schema_name).toBe(schema);
   });
 
   test("enqueue trigger fires on content update", async () => {
-    await sql.unsafe(`delete from embedding.queue`);
+    await sql.unsafe(`delete from ${schema}.embedding_queue`);
 
     await sql.unsafe(`
       insert into ${schema}.memory (content) values ('trigger update before')
     `);
 
     // Clear queue entries from the insert
-    await sql.unsafe(`delete from embedding.queue`);
+    await sql.unsafe(`delete from ${schema}.embedding_queue`);
 
     const [{ id }] = await sql.unsafe(`
       select id from ${schema}.memory where content = 'trigger update before'
@@ -346,11 +325,36 @@ describe("single-engine migration", () => {
     `);
 
     const rows = await sql.unsafe(`
-      select schema_name, embedding_version
-      from embedding.queue
-      where schema_name = '${schema}'
+      select embedding_version
+      from ${schema}.embedding_queue
     `);
     expect(rows.length).toBeGreaterThanOrEqual(1);
+  });
+
+  test("memory deletion cascades to embedding_queue", async () => {
+    await sql.unsafe(`delete from ${schema}.embedding_queue`);
+
+    await sql.unsafe(`
+      insert into ${schema}.memory (content) values ('cascade test')
+    `);
+
+    const [{ id }] = await sql.unsafe(`
+      select id from ${schema}.memory where content = 'cascade test'
+    `);
+
+    // Verify queue entry exists
+    const before = await sql.unsafe(`
+      select count(*)::int as cnt from ${schema}.embedding_queue where memory_id = '${id}'
+    `);
+    expect(before[0].cnt).toBeGreaterThanOrEqual(1);
+
+    // Delete memory — queue entry should cascade
+    await sql.unsafe(`delete from ${schema}.memory where id = '${id}'`);
+
+    const after = await sql.unsafe(`
+      select count(*)::int as cnt from ${schema}.embedding_queue where memory_id = '${id}'
+    `);
+    expect(after[0].cnt).toBe(0);
   });
 
   test("me_embed role has correct per-schema grants", async () => {
@@ -360,7 +364,7 @@ describe("single-engine migration", () => {
     `;
     expect(has_usage).toBe(true);
 
-    // Check table privileges
+    // Check memory table privileges
     const [{ has_select }] = await sql`
       select has_table_privilege('me_embed', ${`${schema}.memory`}, 'SELECT') as has_select
     `;
@@ -370,6 +374,66 @@ describe("single-engine migration", () => {
       select has_table_privilege('me_embed', ${`${schema}.memory`}, 'UPDATE') as has_update
     `;
     expect(has_update).toBe(true);
+
+    // Check embedding_queue table privileges
+    const [{ eq_select }] = await sql`
+      select has_table_privilege('me_embed', ${`${schema}.embedding_queue`}, 'SELECT') as eq_select
+    `;
+    expect(eq_select).toBe(true);
+
+    const [{ eq_update }] = await sql`
+      select has_table_privilege('me_embed', ${`${schema}.embedding_queue`}, 'UPDATE') as eq_update
+    `;
+    expect(eq_update).toBe(true);
+
+    const [{ eq_delete }] = await sql`
+      select has_table_privilege('me_embed', ${`${schema}.embedding_queue`}, 'DELETE') as eq_delete
+    `;
+    expect(eq_delete).toBe(true);
+
+    // Check claim function privilege
+    const [{ has_execute }] = await sql`
+      select has_function_privilege('me_embed', ${`${schema}.claim_embedding_batch(int, interval)`}, 'EXECUTE') as has_execute
+    `;
+    expect(has_execute).toBe(true);
+  });
+
+  test("me_rw cannot access embedding_queue", async () => {
+    const [{ has_select }] = await sql`
+      select has_table_privilege('me_rw', ${`${schema}.embedding_queue`}, 'SELECT') as has_select
+    `;
+    expect(has_select).toBe(false);
+  });
+
+  test("me_ro cannot access embedding_queue", async () => {
+    const [{ has_select }] = await sql`
+      select has_table_privilege('me_ro', ${`${schema}.embedding_queue`}, 'SELECT') as has_select
+    `;
+    expect(has_select).toBe(false);
+  });
+
+  test("embedding_queue has FK with ON DELETE CASCADE", async () => {
+    const fks = await sql`
+      select
+        tc.constraint_name,
+        rc.delete_rule
+      from information_schema.table_constraints tc
+      join information_schema.referential_constraints rc
+        on tc.constraint_name = rc.constraint_name
+        and tc.constraint_schema = rc.constraint_schema
+      where tc.table_schema = ${schema}
+        and tc.table_name = 'embedding_queue'
+        and tc.constraint_type = 'FOREIGN KEY'
+    `;
+    expect(fks).toHaveLength(1);
+    expect(fks[0].delete_rule).toBe("CASCADE");
+  });
+
+  test("per-engine enqueue_embedding and claim_embedding_batch functions exist", async () => {
+    const funcs = await getFunctions(sql, schema);
+    const names = funcs.map((f) => f.proname);
+    expect(names).toContain("enqueue_embedding");
+    expect(names).toContain("claim_embedding_batch");
   });
 });
 
@@ -441,7 +505,7 @@ describe("discovery", () => {
   test("ignores non-engine schemas", async () => {
     const discovered = await discoverEngineSchemas(sql);
     expect(discovered).not.toContain("public");
-    expect(discovered).not.toContain("embedding");
+    // embedding schema no longer exists
     expect(discovered).not.toContain("pg_catalog");
   });
 
@@ -482,7 +546,7 @@ describe("advisory locks", () => {
           .length,
     ).toBe(3);
     // Exactly 4 migrations should exist
-    expect(await countMigrations(sql, schema)).toBe(4);
+    expect(await countMigrations(sql, schema)).toBe(5);
   });
 
   test("concurrent migrateEngine on different schemas — both proceed", async () => {
@@ -502,9 +566,9 @@ describe("advisory locks", () => {
     ]);
 
     expect(resultA.status).toBe("ok");
-    expect(resultA.applied).toHaveLength(4);
+    expect(resultA.applied).toHaveLength(5);
     expect(resultB.status).toBe("ok");
-    expect(resultB.applied).toHaveLength(4);
+    expect(resultB.applied).toHaveLength(5);
   });
 });
 
@@ -521,7 +585,7 @@ describe("provisioning", () => {
     );
     expect(result.schema).toBe("me_prov00000001");
     expect(result.migrateResult.status).toBe("ok");
-    expect(result.migrateResult.applied).toHaveLength(4);
+    expect(result.migrateResult.applied).toHaveLength(5);
     expect(await schemaExists(sql, "me_prov00000001")).toBe(true);
     expect(await tableExists(sql, "me_prov00000001", "memory")).toBe(true);
     expect(await tableExists(sql, "me_prov00000001", "principal")).toBe(true);
@@ -544,7 +608,7 @@ describe("provisioning", () => {
       undefined,
       "0.1.0",
     );
-    expect(result1.migrateResult.applied).toHaveLength(4);
+    expect(result1.migrateResult.applied).toHaveLength(5);
 
     const result2 = await provisionEngine(
       sql,
@@ -565,7 +629,7 @@ describe("dry run", () => {
     await sql.unsafe(`create schema if not exists ${schema}`);
 
     const result = await dryRun(sql, schema);
-    expect(result.pending).toHaveLength(4);
+    expect(result.pending).toHaveLength(5);
     expect(result.applied).toHaveLength(0);
   });
 
@@ -579,7 +643,7 @@ describe("dry run", () => {
 
     const result = await dryRun(sql, schema);
     expect(result.pending).toHaveLength(0);
-    expect(result.applied).toHaveLength(4);
+    expect(result.applied).toHaveLength(5);
   });
 });
 
@@ -611,7 +675,7 @@ describe("version tracking", () => {
     );
 
     const result1 = await migrateEngine(sql, schema, undefined, "0.1.0");
-    expect(result1.applied).toHaveLength(4);
+    expect(result1.applied).toHaveLength(5);
 
     const result2 = await migrateEngine(sql, schema, undefined, "0.2.0");
     expect(result2.applied).toHaveLength(0);
@@ -646,8 +710,9 @@ describe("cross-engine isolation", () => {
     expect(rowsB).toHaveLength(0);
   });
 
-  test("embedding queue entries carry correct schema_name", async () => {
-    await sql.unsafe(`delete from embedding.queue`);
+  test("embedding queue entries are per-engine", async () => {
+    await sql.unsafe(`delete from ${schemaA}.embedding_queue`);
+    await sql.unsafe(`delete from ${schemaB}.embedding_queue`);
 
     await sql.unsafe(`
       insert into ${schemaA}.memory (content) values ('queue test A')
@@ -656,11 +721,14 @@ describe("cross-engine isolation", () => {
       insert into ${schemaB}.memory (content) values ('queue test B')
     `);
 
-    const rows = await sql.unsafe(`
-      select schema_name from embedding.queue order by schema_name
+    const rowsA = await sql.unsafe(`
+      select memory_id from ${schemaA}.embedding_queue
     `);
-    const schemas = rows.map((r: { schema_name: string }) => r.schema_name);
-    expect(schemas).toContain(schemaA);
-    expect(schemas).toContain(schemaB);
+    expect(rowsA).toHaveLength(1);
+
+    const rowsB = await sql.unsafe(`
+      select memory_id from ${schemaB}.embedding_queue
+    `);
+    expect(rowsB).toHaveLength(1);
   });
 });

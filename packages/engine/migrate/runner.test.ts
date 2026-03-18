@@ -2,8 +2,8 @@ import { describe, expect, test } from "bun:test";
 import { getMigrations } from "./runner";
 
 describe("getMigrations", () => {
-  test("returns 4 migrations", () => {
-    expect(getMigrations()).toHaveLength(4);
+  test("returns 5 migrations", () => {
+    expect(getMigrations()).toHaveLength(5);
   });
 
   test("migrations are sorted by name", () => {
@@ -24,5 +24,6 @@ describe("getMigrations", () => {
     expect(names).toContain("002_memory");
     expect(names).toContain("003_memory_trigger");
     expect(names).toContain("004_auth_tables");
+    expect(names).toContain("005_embedding_queue");
   });
 });

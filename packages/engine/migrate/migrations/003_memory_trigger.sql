@@ -32,21 +32,3 @@ before update on {{schema}}.memory
 for each row
 execute function {{schema}}.memory_before_update();
 
--- enqueue embedding work via the shared embedding.enqueue_embedding()
-create trigger memory_enqueue_embedding_insert
-  after insert on {{schema}}.memory
-  for each row
-  when (new.embedding is null)
-  execute function embedding.enqueue_embedding('{{schema}}');
-
-create trigger memory_enqueue_embedding_update
-  after update on {{schema}}.memory
-  for each row
-  when (old.content is distinct from new.content
-    and new.embedding is null
-    and new.embedding_attempts < 3)
-  execute function embedding.enqueue_embedding('{{schema}}');
-
--- embedding worker needs access to this engine's memory table
-grant usage on schema {{schema}} to me_embed;
-grant select, update on {{schema}}.memory to me_embed;
