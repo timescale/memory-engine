@@ -1,6 +1,6 @@
-import type { SQL } from "bun";
 import { generateEmbeddings } from "@memory-engine/embedding";
-import type { WorkerConfig, ProcessResult } from "./types";
+import type { SQL } from "bun";
+import type { ProcessResult, WorkerConfig } from "./types";
 
 interface ClaimedRow {
   queue_id: string;

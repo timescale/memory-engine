@@ -1,9 +1,9 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { SQL } from "bun";
+import { createEngineDB } from "@memory-engine/engine/db";
 import { bootstrap } from "@memory-engine/engine/migrate/bootstrap";
 import { provisionEngine } from "@memory-engine/engine/migrate/provision";
-import { createEngineDB } from "@memory-engine/engine/db";
 import { TestDatabase } from "@memory-engine/engine/migrate/test-utils";
+import { SQL } from "bun";
 import { processBatch } from "./process";
 import type { WorkerConfig } from "./types";
 
@@ -156,7 +156,13 @@ describe("processBatch integration", () => {
       fetch() {
         return Response.json({
           object: "list",
-          data: [{ object: "embedding", embedding: Array.from({ length: 1536 }, (_, i) => i * 0.001), index: 0 }],
+          data: [
+            {
+              object: "embedding",
+              embedding: Array.from({ length: 1536 }, (_, i) => i * 0.001),
+              index: 0,
+            },
+          ],
           model: "text-embedding-3-small",
           usage: { prompt_tokens: 5, total_tokens: 5 },
         });
@@ -209,7 +215,9 @@ describe("processBatch integration", () => {
       port: 0,
       fetch() {
         return new Response(
-          JSON.stringify({ error: { message: "Rate limited", type: "rate_limit_error" } }),
+          JSON.stringify({
+            error: { message: "Rate limited", type: "rate_limit_error" },
+          }),
           { status: 429 },
         );
       },

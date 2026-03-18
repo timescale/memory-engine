@@ -10,14 +10,11 @@ function createMockSql(handlers: {
   begin?: (fn: (tx: unknown) => Promise<unknown>) => Promise<unknown>;
 }) {
   // The SQL object itself is callable as a tagged template
-  const sql = Object.assign(
-    async () => handlers.tagged?.() ?? [],
-    {
-      unsafe: handlers.unsafe ?? (async () => []),
-      begin: handlers.begin ?? (async () => []),
-      close: async () => {},
-    },
-  );
+  const sql = Object.assign(async () => handlers.tagged?.() ?? [], {
+    unsafe: handlers.unsafe ?? (async () => []),
+    begin: handlers.begin ?? (async () => []),
+    close: async () => {},
+  });
   return sql;
 }
 
@@ -27,10 +24,7 @@ describe("worker backoff logic", () => {
     const maxBackoffMs = 60_000;
 
     function computeBackoff(consecutiveErrors: number): number {
-      return Math.min(
-        idleDelayMs * 2 ** (consecutiveErrors - 1),
-        maxBackoffMs,
-      );
+      return Math.min(idleDelayMs * 2 ** (consecutiveErrors - 1), maxBackoffMs);
     }
 
     expect(computeBackoff(1)).toBe(10_000); // 10s * 2^0 = 10s
@@ -50,14 +44,18 @@ describe("worker backoff logic", () => {
     const abort = new AbortController();
     abort.abort();
 
-    await runDaemon(mockSql as never, {
-      embedding: {
-        provider: "openai",
-        model: "test",
-        dimensions: 3,
+    await runDaemon(
+      mockSql as never,
+      {
+        embedding: {
+          provider: "openai",
+          model: "test",
+          dimensions: 3,
+        },
+        idleDelayMs: 100,
       },
-      idleDelayMs: 100,
-    }, { signal: abort.signal });
+      { signal: abort.signal },
+    );
   });
 
   test("runDaemon exits on drain timeout", async () => {

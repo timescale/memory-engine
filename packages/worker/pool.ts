@@ -1,6 +1,6 @@
 import type { SQL } from "bun";
-import { runDaemon } from "./worker";
 import type { WorkerConfig, WorkerStats } from "./types";
+import { runDaemon } from "./worker";
 
 export class WorkerPool {
   private readonly sql: SQL;

@@ -1,5 +1,5 @@
-import type { SQL } from "bun";
 import { discoverEngineSchemas } from "@memory-engine/engine/migrate";
+import type { SQL } from "bun";
 import { processBatch } from "./process";
 import type { WorkerConfig } from "./types";
 
