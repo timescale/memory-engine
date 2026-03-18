@@ -51,6 +51,8 @@ export interface MemoryRow {
 export interface EmbedResult {
   id: string;
   embedding: number[];
+  /** Tokens consumed by the embedding API call */
+  tokens?: number;
   error?: string;
 }
 

@@ -20,6 +20,7 @@ export {
   generateEmbedding,
   generateEmbeddings,
   validateConfig,
+  type SingleEmbedResult,
 } from "./generate";
 
 // =============================================================================

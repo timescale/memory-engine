@@ -22,11 +22,12 @@ const ollamaConfig: EmbeddingConfig = {
 
 describe.skipIf(!RUN_INTEGRATION)("embedding integration (ollama)", () => {
   test("generateEmbedding returns correct dimensions", async () => {
-    const embedding = await generateEmbedding("test text", ollamaConfig);
+    const result = await generateEmbedding("test text", ollamaConfig);
 
-    expect(embedding).toBeInstanceOf(Array);
-    expect(embedding.length).toBe(768);
-    expect(typeof embedding[0]).toBe("number");
+    expect(result.embedding).toBeInstanceOf(Array);
+    expect(result.embedding.length).toBe(768);
+    expect(typeof result.embedding[0]).toBe("number");
+    expect(result.tokens).toBeGreaterThan(0);
   });
 
   test("generateEmbedding handles long text with truncation", async () => {
@@ -36,8 +37,9 @@ describe.skipIf(!RUN_INTEGRATION)("embedding integration (ollama)", () => {
       options: { maxTokens: 8000 },
     };
 
-    const embedding = await generateEmbedding(longText, configWithTruncation);
-    expect(embedding.length).toBe(768);
+    const result = await generateEmbedding(longText, configWithTruncation);
+    expect(result.embedding.length).toBe(768);
+    expect(result.tokens).toBeGreaterThan(0);
   });
 
   test("generateEmbeddings returns results for batch", async () => {

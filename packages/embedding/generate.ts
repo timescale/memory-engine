@@ -48,6 +48,12 @@ function prepareText(text: string, config: EmbeddingConfig): string {
 // Single Embedding
 // =============================================================================
 
+export interface SingleEmbedResult {
+  embedding: number[];
+  /** Tokens consumed by the embedding API call */
+  tokens: number;
+}
+
 /**
  * Generate a single embedding for text.
  *
@@ -58,7 +64,7 @@ function prepareText(text: string, config: EmbeddingConfig): string {
 export async function generateEmbedding(
   text: string,
   config: EmbeddingConfig,
-): Promise<number[]> {
+): Promise<SingleEmbedResult> {
   const model = getEmbeddingModel(config);
   const preparedText = prepareText(text, config);
 
@@ -74,7 +80,10 @@ export async function generateEmbedding(
     );
   }
 
-  return result.embedding;
+  return {
+    embedding: result.embedding,
+    tokens: result.usage.tokens,
+  };
 }
 
 // =============================================================================
@@ -107,11 +116,14 @@ export async function generateEmbeddings(
 
   try {
     // Try batch API first
-    const { embeddings } = await embedMany({
+    const { embeddings, usage } = await embedMany({
       model,
       values: texts,
       ...getEmbedOptions(config),
     });
+
+    // embedMany returns aggregate token count — distribute evenly
+    const tokensPerRow = Math.floor(usage.tokens / rows.length);
 
     for (let i = 0; i < rows.length; i++) {
       const embedding = embeddings[i];
@@ -128,6 +140,7 @@ export async function generateEmbeddings(
         results.push({
           id: row.id,
           embedding,
+          tokens: tokensPerRow,
         });
       }
     }
@@ -155,6 +168,7 @@ export async function generateEmbeddings(
           results.push({
             id: row.id,
             embedding: result.embedding,
+            tokens: result.usage.tokens,
           });
         }
       } catch (err) {
