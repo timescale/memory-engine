@@ -2,10 +2,10 @@ import { embed, embedMany } from "ai";
 import { getEmbeddingModel } from "./provider";
 import { truncateToTokenLimit } from "./truncate";
 import {
-  requiresClientTruncation,
   type EmbeddingConfig,
   type EmbedResult,
   type MemoryRow,
+  requiresClientTruncation,
 } from "./types";
 
 // =============================================================================

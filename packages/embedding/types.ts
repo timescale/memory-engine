@@ -15,9 +15,7 @@ const CLIENT_TRUNCATION_PROVIDERS: Set<EmbeddingProvider> = new Set([
   "mistral",
 ]);
 
-export function requiresClientTruncation(
-  provider: EmbeddingProvider,
-): boolean {
+export function requiresClientTruncation(provider: EmbeddingProvider): boolean {
   return CLIENT_TRUNCATION_PROVIDERS.has(provider);
 }
 

@@ -19,8 +19,8 @@ export type {
 export {
   generateEmbedding,
   generateEmbeddings,
-  validateConfig,
   type SingleEmbedResult,
+  validateConfig,
 } from "./generate";
 
 // =============================================================================

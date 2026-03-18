@@ -22,9 +22,7 @@ import type { EmbeddingConfig } from "./types";
  * - Auto-appends /v1 to baseUrl if missing
  * - Uses "ollama" as dummy API key (not required by Ollama)
  */
-export function getEmbeddingModel(
-  config: EmbeddingConfig,
-): EmbeddingModel {
+export function getEmbeddingModel(config: EmbeddingConfig): EmbeddingModel {
   const provider = config.provider.toLowerCase();
 
   // Resolve API key from config or environment
