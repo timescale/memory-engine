@@ -17,23 +17,6 @@ let sql: SQL;
 const slug = "tstworker001";
 const schema = `me_${slug}`;
 
-/** Minimal config with a mock embedding provider (never actually called for claim tests) */
-function mockConfig(
-  embedFn: (
-    rows: Array<{ id: string; content: string }>,
-  ) => Promise<Array<{ id: string; embedding: number[]; error?: string }>>,
-): WorkerConfig {
-  return {
-    embedding: {
-      provider: "openai",
-      model: "text-embedding-3-small",
-      dimensions: 1536,
-    },
-    batchSize: 10,
-    // We'll monkey-patch generateEmbeddings in the test via a wrapper
-  };
-}
-
 beforeAll(async () => {
   connectionString = await testDb.create();
   sql = new SQL(connectionString);
@@ -103,7 +86,7 @@ describe("processBatch integration", () => {
     const mockEmbedding = Array.from({ length: 1536 }, (_, i) => i * 0.001);
     const server = Bun.serve({
       port: 0,
-      fetch(req) {
+      fetch() {
         return Response.json({
           object: "list",
           data: [{ object: "embedding", embedding: mockEmbedding, index: 0 }],
@@ -147,7 +130,7 @@ describe("processBatch integration", () => {
   });
 
   test("handles stale version (content changed during embed)", async () => {
-    const memoryId = await insertMemory("Original content for version test");
+    await insertMemory("Original content for version test");
 
     // Manually bump embedding_version to simulate content change after claim
     // First, process to clear the initial queue entry
