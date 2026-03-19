@@ -20,13 +20,11 @@ export interface EmbeddingConfig {
 export interface EmbeddingOptions {
   /** Max tokens per text (truncates longer inputs) */
   maxTokens?: number;
-  /** Number of texts per embedding API call */
-  batchSize?: number;
   /** Timeout per embedding API call in milliseconds */
   timeoutMs?: number;
   /** Max retries on transient failures */
   maxRetries?: number;
-  /** Max concurrent embedding API calls */
+  /** Max concurrent chunk requests when embedding many values (default: Infinity) */
   maxParallelCalls?: number;
 }
 
