@@ -1,6 +1,3 @@
-import { createCohere } from "@ai-sdk/cohere";
-import { createGoogleGenerativeAI } from "@ai-sdk/google";
-import { createMistral } from "@ai-sdk/mistral";
 import { createOpenAI } from "@ai-sdk/openai";
 import type { EmbeddingModel } from "ai";
 import type { EmbeddingConfig } from "./types";
@@ -12,11 +9,11 @@ import type { EmbeddingConfig } from "./types";
 /**
  * Get an embedding model for the configured provider.
  *
- * Supports: openai, ollama, cohere, mistral, google
+ * Supports: openai, ollama
  *
  * API key resolution:
  * 1. config.apiKey if provided
- * 2. Environment variable: {PROVIDER}_API_KEY (e.g., OPENAI_API_KEY)
+ * 2. Environment variable: OPENAI_API_KEY
  *
  * Ollama special handling:
  * - Auto-appends /v1 to baseUrl if missing
@@ -25,12 +22,9 @@ import type { EmbeddingConfig } from "./types";
 export function getEmbeddingModel(config: EmbeddingConfig): EmbeddingModel {
   const provider = config.provider.toLowerCase();
 
-  // Resolve API key from config or environment
-  const envKey = `${provider.toUpperCase()}_API_KEY`;
-  const apiKey = config.apiKey ?? process.env[envKey];
-
   switch (provider) {
     case "openai": {
+      const apiKey = config.apiKey ?? process.env.OPENAI_API_KEY;
       if (!apiKey) {
         throw new Error(
           `API key not found for OpenAI. Set apiKey in config or OPENAI_API_KEY environment variable.`,
@@ -57,40 +51,10 @@ export function getEmbeddingModel(config: EmbeddingConfig): EmbeddingModel {
       return ollama.embedding(config.model);
     }
 
-    case "cohere": {
-      if (!apiKey) {
-        throw new Error(
-          `API key not found for Cohere. Set apiKey in config or COHERE_API_KEY environment variable.`,
-        );
-      }
-      const cohere = createCohere({ apiKey });
-      return cohere.embedding(config.model);
-    }
-
-    case "mistral": {
-      if (!apiKey) {
-        throw new Error(
-          `API key not found for Mistral. Set apiKey in config or MISTRAL_API_KEY environment variable.`,
-        );
-      }
-      const mistral = createMistral({ apiKey });
-      return mistral.embedding(config.model);
-    }
-
-    case "google": {
-      if (!apiKey) {
-        throw new Error(
-          `API key not found for Google. Set apiKey in config or GOOGLE_API_KEY environment variable.`,
-        );
-      }
-      const google = createGoogleGenerativeAI({ apiKey });
-      return google.textEmbeddingModel(config.model);
-    }
-
     default:
       throw new Error(
         `Unsupported embedding provider: ${config.provider}. ` +
-          `Supported providers: openai, ollama, cohere, mistral, google`,
+          `Supported providers: openai, ollama`,
       );
   }
 }
