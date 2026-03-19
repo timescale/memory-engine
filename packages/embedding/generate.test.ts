@@ -30,7 +30,7 @@ describe.skipIf(!RUN_INTEGRATION)("embedding integration (ollama)", () => {
     expect(result.tokens).toBeGreaterThan(0);
   });
 
-  test("generateEmbedding handles long text with truncation", async () => {
+  test("generateEmbedding handles long text", async () => {
     const longText = "word ".repeat(10000); // Very long text
     const configWithTruncation: EmbeddingConfig = {
       ...ollamaConfig,
@@ -78,6 +78,57 @@ describe.skipIf(!RUN_INTEGRATION)("embedding integration (ollama)", () => {
     );
   });
 });
+
+// =============================================================================
+// OpenAI Integration Tests (conditional)
+// =============================================================================
+
+const RUN_OPENAI_INTEGRATION = process.env.RUN_OPENAI_INTEGRATION === "1";
+
+const openaiConfig: EmbeddingConfig = {
+  provider: "openai",
+  model: "text-embedding-3-small",
+  dimensions: 1536,
+};
+
+describe.skipIf(!RUN_OPENAI_INTEGRATION)(
+  "embedding integration (openai)",
+  () => {
+    test("generateEmbedding returns correct dimensions", async () => {
+      const result = await generateEmbedding("test text", openaiConfig);
+
+      expect(result.embedding).toBeInstanceOf(Array);
+      expect(result.embedding.length).toBe(1536);
+      expect(typeof result.embedding[0]).toBe("number");
+      expect(result.tokens).toBeGreaterThan(0);
+    });
+
+    test("generateEmbedding truncates long text with character estimate", async () => {
+      // Create text that would exceed 8191 tokens (~32K chars)
+      const longText = "Hello world. ".repeat(4000); // ~52K chars
+
+      const result = await generateEmbedding(longText, openaiConfig);
+      expect(result.embedding.length).toBe(1536);
+      // Should succeed without error due to truncation
+    });
+
+    test("generateEmbeddings handles batch with truncation", async () => {
+      const rows = [
+        { id: "1", content: "short text" },
+        { id: "2", content: "Hello world. ".repeat(4000) }, // Long text
+        { id: "3", content: "another short one" },
+      ];
+
+      const results = await generateEmbeddings(rows, openaiConfig);
+
+      expect(results.length).toBe(3);
+      for (const result of results) {
+        expect(result.embedding.length).toBe(1536);
+        expect(result.error).toBeUndefined();
+      }
+    });
+  },
+);
 
 // =============================================================================
 // Unit Tests (always run)

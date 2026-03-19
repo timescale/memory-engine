@@ -1,131 +1,115 @@
 import { describe, expect, test } from "bun:test";
-import { truncateToTokenLimit } from "./truncate";
+import {
+  DEFAULT_CHARS_PER_TOKEN,
+  MAX_OPENAI_TOKENS,
+  TRUNCATION_RATIOS,
+  truncateText,
+} from "./truncate";
 
-describe("truncateToTokenLimit", () => {
+describe("truncateText", () => {
   describe("under limit", () => {
     test("returns text unchanged when under limit", () => {
-      const result = truncateToTokenLimit("hello world", 100, "openai");
+      const result = truncateText("hello world", 100);
       expect(result.truncated).toBe(false);
       expect(result.text).toBe("hello world");
     });
 
-    test("returns text unchanged when exactly at limit", () => {
-      // "hello" is 1 token in OpenAI, set limit to 1
-      const result = truncateToTokenLimit("hello", 1, "openai");
-      expect(result.truncated).toBe(false);
-      expect(result.text).toBe("hello");
-    });
-
-    test("empty string returns unchanged", () => {
-      const result = truncateToTokenLimit("", 100, "openai");
-      expect(result.truncated).toBe(false);
-      expect(result.text).toBe("");
-      expect(result.tokens).toBe(0);
-    });
-  });
-
-  describe("over limit with exact tokenizer (openai)", () => {
-    test("truncates long text", () => {
-      const longText = "a ".repeat(1000); // ~1000 tokens
-      const result = truncateToTokenLimit(longText, 100, "openai");
-
-      expect(result.truncated).toBe(true);
-      expect(result.text).toContain("[truncated]");
-      expect(result.tokens).toBeLessThanOrEqual(100);
-    });
-
-    test("truncation marker is appended", () => {
-      const longText = "word ".repeat(200);
-      const result = truncateToTokenLimit(longText, 50, "openai");
-
-      expect(result.text.endsWith("\n[truncated]")).toBe(true);
-    });
-
-    test("proportional algorithm converges efficiently", () => {
-      // 150% over limit should start at ~67% of text
-      const longText = "a ".repeat(150);
-      const result = truncateToTokenLimit(longText, 100, "openai");
-
-      expect(result.truncated).toBe(true);
-      expect(result.tokens).toBeLessThanOrEqual(100);
-      expect(result.tokens).toBeGreaterThan(50); // Should be close to limit
-    });
-  });
-
-  describe("throws for providers without exact tokenizer", () => {
-    test("throws for ollama", () => {
-      expect(() => truncateToTokenLimit("hello", 100, "ollama")).toThrow(
-        /No exact tokenizer/,
-      );
-    });
-
-    test("throws for cohere", () => {
-      expect(() => truncateToTokenLimit("hello", 100, "cohere")).toThrow(
-        /No exact tokenizer/,
-      );
-    });
-
-    test("throws for google", () => {
-      expect(() => truncateToTokenLimit("hello", 100, "google")).toThrow(
-        /No exact tokenizer/,
-      );
-    });
-  });
-
-  describe("edge cases", () => {
-    test("handles very small limit", () => {
-      const text = "hello world how are you";
-      const result = truncateToTokenLimit(text, 20, "openai");
-
+    test("returns text unchanged when exactly at char limit", () => {
+      const maxChars = Math.floor(100 * DEFAULT_CHARS_PER_TOKEN);
+      const text = "a".repeat(maxChars);
+      const result = truncateText(text, 100);
       expect(result.truncated).toBe(false);
       expect(result.text).toBe(text);
     });
 
+    test("empty string returns unchanged", () => {
+      const result = truncateText("", 100);
+      expect(result.truncated).toBe(false);
+      expect(result.text).toBe("");
+    });
+  });
+
+  describe("over limit", () => {
+    test("truncates long text", () => {
+      const longText = "a".repeat(100000); // Way over limit
+      const result = truncateText(longText, 100);
+
+      expect(result.truncated).toBe(true);
+      expect(result.text.length).toBe(
+        Math.floor(100 * DEFAULT_CHARS_PER_TOKEN),
+      );
+    });
+
+    test("uses default maxTokens when not specified", () => {
+      const maxChars = Math.floor(MAX_OPENAI_TOKENS * DEFAULT_CHARS_PER_TOKEN);
+      const longText = "a".repeat(maxChars + 1000);
+      const result = truncateText(longText);
+
+      expect(result.truncated).toBe(true);
+      expect(result.text.length).toBe(maxChars);
+    });
+
+    test("respects custom charsPerToken ratio", () => {
+      const text = "a".repeat(1000);
+      const result = truncateText(text, 100, 2.0); // 2 chars per token = 200 chars max
+
+      expect(result.truncated).toBe(true);
+      expect(result.text.length).toBe(200);
+    });
+  });
+
+  describe("edge cases", () => {
     test("handles unicode text", () => {
       const text = "Hello 世界 🌍 emoji test";
-      const result = truncateToTokenLimit(text, 100, "openai");
+      const result = truncateText(text, 100);
 
       expect(result.truncated).toBe(false);
       expect(result.text).toBe(text);
     });
 
     test("handles newlines in text", () => {
-      const text = "line1\nline2\nline3\n".repeat(100);
-      const result = truncateToTokenLimit(text, 50, "openai");
+      const text = "line1\nline2\nline3\n".repeat(10000);
+      const result = truncateText(text, 100);
 
       expect(result.truncated).toBe(true);
-      expect(result.text).toContain("[truncated]");
+      expect(result.text.length).toBe(
+        Math.floor(100 * DEFAULT_CHARS_PER_TOKEN),
+      );
     });
 
-    test("all client-truncation providers work", () => {
-      const text = "test text for all providers";
-      const providers = ["openai", "mistral"] as const;
+    test("slices at exact character boundary", () => {
+      const text = "abcdefghij"; // 10 chars
+      const result = truncateText(text, 1, 5); // 5 chars max
 
-      for (const provider of providers) {
-        const result = truncateToTokenLimit(text, 100, provider);
-        expect(result.truncated).toBe(false);
-        expect(result.text).toBe(text);
-      }
+      expect(result.truncated).toBe(true);
+      expect(result.text).toBe("abcde");
     });
   });
 
-  describe("token count accuracy", () => {
-    test("reported tokens matches actual count for openai", () => {
-      const text = "The quick brown fox jumps over the lazy dog.";
-      const result = truncateToTokenLimit(text, 100, "openai");
-
-      // The reported tokens should be accurate
-      expect(result.tokens).toBeGreaterThan(0);
-      expect(result.truncated).toBe(false);
+  describe("constants", () => {
+    test("DEFAULT_CHARS_PER_TOKEN is 3.8", () => {
+      expect(DEFAULT_CHARS_PER_TOKEN).toBe(3.8);
     });
 
-    test("truncated result stays under limit", () => {
-      const longText = "word ".repeat(500);
-      const limit = 100;
-      const result = truncateToTokenLimit(longText, limit, "openai");
+    test("MAX_OPENAI_TOKENS is 8191", () => {
+      expect(MAX_OPENAI_TOKENS).toBe(8191);
+    });
+
+    test("TRUNCATION_RATIOS for retry logic", () => {
+      expect(TRUNCATION_RATIOS).toEqual([3.8, 3.0, 2.5]);
+    });
+  });
+
+  describe("performance", () => {
+    test("is O(1) - handles large text instantly", () => {
+      const hugeText = "a".repeat(10_000_000); // 10MB of text
+
+      const start = performance.now();
+      const result = truncateText(hugeText, 8191);
+      const elapsed = performance.now() - start;
 
       expect(result.truncated).toBe(true);
-      expect(result.tokens).toBeLessThanOrEqual(limit);
+      expect(elapsed).toBeLessThan(10); // Should be < 10ms
     });
   });
 });

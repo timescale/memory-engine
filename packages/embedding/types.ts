@@ -9,16 +9,6 @@ export type EmbeddingProvider =
   | "mistral"
   | "google";
 
-/** Providers where we have exact local tokenizers and the API requires client-side truncation */
-const CLIENT_TRUNCATION_PROVIDERS: Set<EmbeddingProvider> = new Set([
-  "openai",
-  "mistral",
-]);
-
-export function requiresClientTruncation(provider: EmbeddingProvider): boolean {
-  return CLIENT_TRUNCATION_PROVIDERS.has(provider);
-}
-
 // =============================================================================
 // Config
 // =============================================================================
@@ -64,18 +54,4 @@ export interface EmbedResult {
   /** Tokens consumed by the embedding API call */
   tokens?: number;
   error?: string;
-}
-
-export interface TruncateResult {
-  text: string;
-  tokens: number;
-  truncated: boolean;
-}
-
-// =============================================================================
-// Token Counter
-// =============================================================================
-
-export interface TokenCounter {
-  count(text: string): number;
 }

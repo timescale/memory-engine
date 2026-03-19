@@ -1,98 +1,57 @@
-import { countTokens, getTokenCounter } from "./tokenizer";
-import type { EmbeddingProvider, TruncateResult } from "./types";
-
 // =============================================================================
 // Constants
 // =============================================================================
 
-/** Tokens reserved for the truncation marker */
-const MARKER_TOKENS = 15;
+/** Default chars per token for English prose/markdown (~10% buffer) */
+export const DEFAULT_CHARS_PER_TOKEN = 3.8;
 
-/** Truncation marker appended to truncated text */
-const TRUNCATION_MARKER = "\n[truncated]";
+/** OpenAI embedding model max tokens */
+export const MAX_OPENAI_TOKENS = 8191;
 
-/** Adjustment factor for expand/contract iterations */
-const ADJUSTMENT_FACTOR = 0.1;
+/** Retry ratios for progressively tighter truncation on context length errors */
+export const TRUNCATION_RATIOS = [3.8, 3.0, 2.5] as const;
+
+// =============================================================================
+// Types
+// =============================================================================
+
+export interface TruncateResult {
+  text: string;
+  truncated: boolean;
+}
 
 // =============================================================================
 // Truncation
 // =============================================================================
 
 /**
- * Truncate text to fit within a token limit.
+ * Truncate text to fit within a token limit using character estimation.
  *
- * Only called for providers with exact tokenizers (OpenAI, Mistral).
- * Providers with API-side truncation (Cohere, Google, Ollama) skip this entirely.
+ * This is an O(1) operation — just checks length and slices.
+ * Uses a conservative chars/token ratio to stay safely under the limit.
  *
- * Uses a proportional start + linear refinement algorithm:
- * 1. If under limit, return as-is
- * 2. Calculate ratio: targetTokens / currentTokens
- * 3. Start at text.length * ratio
- * 4. Expand/contract by 10% until just under limit
- * 5. Append truncation marker
+ * For English prose/markdown, ~4 chars/token is typical. We use 3.8 by default
+ * to provide a ~10% buffer. If the API still returns a context length error,
+ * the caller can retry with a lower ratio (3.0, 2.5).
+ *
+ * @param text - The text to truncate
+ * @param maxTokens - Maximum tokens allowed (default: 8191 for OpenAI)
+ * @param charsPerToken - Character-to-token ratio (default: 3.8)
+ * @returns The (possibly truncated) text and whether truncation occurred
  */
-export function truncateToTokenLimit(
+export function truncateText(
   text: string,
-  maxTokens: number,
-  provider: EmbeddingProvider,
+  maxTokens: number = MAX_OPENAI_TOKENS,
+  charsPerToken: number = DEFAULT_CHARS_PER_TOKEN,
 ): TruncateResult {
-  const counter = getTokenCounter(provider);
+  const maxChars = Math.floor(maxTokens * charsPerToken);
 
-  if (!counter) {
-    throw new Error(
-      `No exact tokenizer for provider "${provider}". ` +
-        `Client-side truncation is only supported for openai and mistral.`,
-    );
+  if (text.length <= maxChars) {
+    return { text, truncated: false };
   }
 
-  const currentTokens = countTokens(text, counter);
-
-  // Under limit — return as-is
-  if (currentTokens <= maxTokens) {
-    return { text, tokens: currentTokens, truncated: false };
-  }
-
-  // Target tokens accounting for marker
-  const targetTokens = maxTokens - MARKER_TOKENS;
-
-  // Proportional start + linear refinement
-  const ratio = targetTokens / currentTokens;
-  let charEstimate = Math.floor(text.length * ratio);
-
-  let truncated = text.slice(0, charEstimate);
-  let tokens = countTokens(truncated, counter);
-
-  if (tokens > targetTokens) {
-    // Overshoot — shrink until under limit
-    while (tokens > targetTokens && charEstimate > 0) {
-      charEstimate = Math.floor(charEstimate * (1 - ADJUSTMENT_FACTOR));
-      truncated = text.slice(0, charEstimate);
-      tokens = countTokens(truncated, counter);
-    }
-  } else {
-    // Undershoot — expand until just under limit
-    while (tokens < targetTokens && charEstimate < text.length) {
-      const newEstimate = Math.min(
-        Math.floor(charEstimate * (1 + ADJUSTMENT_FACTOR)),
-        text.length,
-      );
-      if (newEstimate === charEstimate) break;
-
-      const newTruncated = text.slice(0, newEstimate);
-      const newTokens = countTokens(newTruncated, counter);
-
-      if (newTokens > targetTokens) break;
-
-      charEstimate = newEstimate;
-      truncated = newTruncated;
-      tokens = newTokens;
-    }
-  }
-
-  const finalText = `${truncated}${TRUNCATION_MARKER}`;
   return {
-    text: finalText,
-    tokens: countTokens(finalText, counter),
+    text: text.slice(0, maxChars),
     truncated: true,
   };
 }

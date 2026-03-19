@@ -1,12 +1,7 @@
 import { embed, embedMany } from "ai";
 import { getEmbeddingModel } from "./provider";
-import { truncateToTokenLimit } from "./truncate";
-import {
-  type EmbeddingConfig,
-  type EmbedResult,
-  type MemoryRow,
-  requiresClientTruncation,
-} from "./types";
+import { MAX_OPENAI_TOKENS, TRUNCATION_RATIOS, truncateText } from "./truncate";
+import type { EmbeddingConfig, EmbedResult, MemoryRow } from "./types";
 
 // =============================================================================
 // Embed Options
@@ -32,21 +27,27 @@ function getEmbedOptions(config: EmbeddingConfig): EmbedOptions {
 }
 
 // =============================================================================
-// Text Preparation
+// Error Detection
 // =============================================================================
 
 /**
- * Prepare text for embedding, applying truncation if configured.
+ * Detect if an error is a context length exceeded error from OpenAI.
+ *
+ * OpenAI returns:
+ * {
+ *   "error": {
+ *     "message": "Invalid 'input': maximum context length is 8192 tokens.",
+ *     "type": "invalid_request_error",
+ *     "param": null,
+ *     "code": null
+ *   }
+ * }
  */
-function prepareText(text: string, config: EmbeddingConfig): string {
-  const maxTokens = config.options?.maxTokens;
-
-  if (!maxTokens || !requiresClientTruncation(config.provider)) {
-    return text;
+function isContextLengthError(error: unknown): boolean {
+  if (error instanceof Error) {
+    return error.message.includes("maximum context length");
   }
-
-  const result = truncateToTokenLimit(text, maxTokens, config.provider);
-  return result.text;
+  return false;
 }
 
 // =============================================================================
@@ -63,7 +64,7 @@ function getProviderOptions(
 }
 
 // =============================================================================
-// Single Embedding
+// Single Embedding (internal, no retry)
 // =============================================================================
 
 export interface SingleEmbedResult {
@@ -73,23 +74,19 @@ export interface SingleEmbedResult {
 }
 
 /**
- * Generate a single embedding for text.
- *
- * Used for search queries where we need to embed the query text.
- *
- * @throws Error if embedding generation fails or dimensions don't match
+ * Generate a single embedding without retry logic.
+ * Used internally by generateEmbedding.
  */
-export async function generateEmbedding(
+async function generateEmbeddingOnce(
   text: string,
   config: EmbeddingConfig,
 ): Promise<SingleEmbedResult> {
   const model = getEmbeddingModel(config);
-  const preparedText = prepareText(text, config);
-
   const providerOptions = getProviderOptions(config);
+
   const result = await embed({
     model,
-    value: preparedText,
+    value: text,
     ...getEmbedOptions(config),
     ...(providerOptions && { providerOptions }),
   });
@@ -107,6 +104,53 @@ export async function generateEmbedding(
 }
 
 // =============================================================================
+// Single Embedding (with retry for OpenAI)
+// =============================================================================
+
+/**
+ * Generate a single embedding for text.
+ *
+ * Used for search queries where we need to embed the query text.
+ *
+ * All providers get character-based truncation as a defensive measure.
+ * For OpenAI, also retries with progressively tighter ratios (3.0, 2.5)
+ * if the initial estimate (3.8 chars/token) isn't aggressive enough.
+ *
+ * @throws Error if embedding generation fails or dimensions don't match
+ */
+export async function generateEmbedding(
+  text: string,
+  config: EmbeddingConfig,
+): Promise<SingleEmbedResult> {
+  const maxTokens = config.options?.maxTokens ?? MAX_OPENAI_TOKENS;
+
+  // Non-OpenAI providers: truncate defensively, single attempt
+  // (Cohere also uses API-side truncation as backup)
+  if (config.provider !== "openai") {
+    const { text: truncated } = truncateText(text, maxTokens);
+    return generateEmbeddingOnce(truncated, config);
+  }
+
+  // OpenAI: try with progressively tighter truncation ratios
+  for (const ratio of TRUNCATION_RATIOS) {
+    const { text: truncated } = truncateText(text, maxTokens, ratio);
+
+    try {
+      return await generateEmbeddingOnce(truncated, config);
+    } catch (error) {
+      if (!isContextLengthError(error)) {
+        throw error;
+      }
+      // Context length error — try next ratio
+    }
+  }
+
+  throw new Error(
+    "Failed to embed: text exceeds maximum context length even with aggressive truncation",
+  );
+}
+
+// =============================================================================
 // Batch Embeddings
 // =============================================================================
 
@@ -116,9 +160,11 @@ export async function generateEmbedding(
  * Used by the embedding worker for background batch processing.
  *
  * Strategy:
- * 1. Try batch API (embedMany) first for efficiency
- * 2. On batch failure, fall back to individual requests
- * 3. Errors are captured per-row, not thrown
+ * 1. Pre-truncate all texts using character estimate (all providers)
+ * 2. Try batch API (embedMany) first for efficiency
+ * 3. On context length error (OpenAI), fall back to individual requests with retry
+ * 4. On other batch failures, fall back to individual requests
+ * 5. Errors are captured per-row, not thrown
  *
  * @returns Array of results with embeddings or per-row errors
  */
@@ -131,8 +177,12 @@ export async function generateEmbeddings(
   }
 
   const model = getEmbeddingModel(config);
-  const texts = rows.map((row) => prepareText(row.content, config));
+  const maxTokens = config.options?.maxTokens ?? MAX_OPENAI_TOKENS;
   const providerOptions = getProviderOptions(config);
+
+  // Pre-truncate all providers defensively
+  const texts = rows.map((row) => truncateText(row.content, maxTokens).text);
+
   const results: EmbedResult[] = [];
 
   try {
@@ -166,8 +216,30 @@ export async function generateEmbeddings(
         });
       }
     }
-  } catch {
-    // Batch failed — fall back to individual requests
+  } catch (batchError) {
+    // On context length error for OpenAI, fall back to individual with retry
+    if (config.provider === "openai" && isContextLengthError(batchError)) {
+      for (const row of rows) {
+        try {
+          const result = await generateEmbedding(row.content, config);
+          results.push({
+            id: row.id,
+            embedding: result.embedding,
+            tokens: result.tokens,
+          });
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          results.push({
+            id: row.id,
+            embedding: [],
+            error: message,
+          });
+        }
+      }
+      return results;
+    }
+
+    // For other batch errors, fall back to individual requests (no retry)
     for (let i = 0; i < rows.length; i++) {
       const row = rows[i];
       const text = texts[i];

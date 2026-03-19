@@ -8,8 +8,6 @@ export type {
   EmbeddingProvider,
   EmbedResult,
   MemoryRow,
-  TokenCounter,
-  TruncateResult,
 } from "./types";
 
 // =============================================================================
@@ -27,10 +25,10 @@ export {
 // Truncation
 // =============================================================================
 
-export { truncateToTokenLimit } from "./truncate";
-
-// =============================================================================
-// Token Counting
-// =============================================================================
-
-export { countTokens, getTokenCounter } from "./tokenizer";
+export {
+  DEFAULT_CHARS_PER_TOKEN,
+  MAX_OPENAI_TOKENS,
+  TRUNCATION_RATIOS,
+  type TruncateResult,
+  truncateText,
+} from "./truncate";
