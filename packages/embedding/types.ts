@@ -2,12 +2,7 @@
 // Provider
 // =============================================================================
 
-export type EmbeddingProvider =
-  | "openai"
-  | "ollama"
-  | "cohere"
-  | "mistral"
-  | "google";
+export type EmbeddingProvider = "openai" | "ollama";
 
 // =============================================================================
 // Config

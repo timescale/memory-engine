@@ -6,9 +6,6 @@
   "main": "index.ts",
   "dependencies": {
     "ai": "^6.0.0",
-    "@ai-sdk/openai": "^3.0.0",
-    "@ai-sdk/cohere": "^3.0.0",
-    "@ai-sdk/mistral": "^3.0.0",
-    "@ai-sdk/google": "^3.0.0"
+    "@ai-sdk/openai": "^3.0.0"
   }
 }

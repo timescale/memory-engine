@@ -51,19 +51,6 @@ function isContextLengthError(error: unknown): boolean {
 }
 
 // =============================================================================
-// Provider Options
-// =============================================================================
-
-function getProviderOptions(
-  config: EmbeddingConfig,
-): Record<string, Record<string, string>> | undefined {
-  if (config.provider === "cohere") {
-    return { cohere: { truncate: "END" } };
-  }
-  return undefined;
-}
-
-// =============================================================================
 // Single Embedding (internal, no retry)
 // =============================================================================
 
@@ -82,13 +69,11 @@ async function generateEmbeddingOnce(
   config: EmbeddingConfig,
 ): Promise<SingleEmbedResult> {
   const model = getEmbeddingModel(config);
-  const providerOptions = getProviderOptions(config);
 
   const result = await embed({
     model,
     value: text,
     ...getEmbedOptions(config),
-    ...(providerOptions && { providerOptions }),
   });
 
   if (result.embedding.length !== config.dimensions) {
@@ -124,8 +109,7 @@ export async function generateEmbedding(
 ): Promise<SingleEmbedResult> {
   const maxTokens = config.options?.maxTokens ?? MAX_OPENAI_TOKENS;
 
-  // Non-OpenAI providers: truncate defensively, single attempt
-  // (Cohere also uses API-side truncation as backup)
+  // Ollama: truncate defensively, single attempt
   if (config.provider !== "openai") {
     const { text: truncated } = truncateText(text, maxTokens);
     return generateEmbeddingOnce(truncated, config);
@@ -178,7 +162,6 @@ export async function generateEmbeddings(
 
   const model = getEmbeddingModel(config);
   const maxTokens = config.options?.maxTokens ?? MAX_OPENAI_TOKENS;
-  const providerOptions = getProviderOptions(config);
 
   // Pre-truncate all providers defensively
   const texts = rows.map((row) => truncateText(row.content, maxTokens).text);
@@ -191,7 +174,6 @@ export async function generateEmbeddings(
       model,
       values: texts,
       ...getEmbedOptions(config),
-      ...(providerOptions && { providerOptions }),
     });
 
     // embedMany returns aggregate token count — distribute evenly
@@ -250,7 +232,6 @@ export async function generateEmbeddings(
           model,
           value: text,
           ...getEmbedOptions(config),
-          ...(providerOptions && { providerOptions }),
         });
 
         if (result.embedding.length !== config.dimensions) {
