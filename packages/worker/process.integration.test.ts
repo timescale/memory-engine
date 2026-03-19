@@ -41,10 +41,19 @@ afterAll(async () => {
 // Helper: insert a memory and return its id + queue state
 // ---------------------------------------------------------------------------
 
-async function insertMemory(content: string): Promise<string> {
-  const db = createEngineDB(sql, schema);
+function getDb() {
+  return createEngineDB(sql, schema);
+}
+
+async function withDb() {
+  const db = getDb();
   const su = await db.getPrincipalByName("worker-test-admin");
   db.setPrincipal(su!.id);
+  return db;
+}
+
+async function insertMemory(content: string): Promise<string> {
+  const db = await withDb();
   const memory = await db.createMemory({ content, tree: "test.worker" });
   return memory.id;
 }
@@ -238,33 +247,97 @@ describe("processBatch integration", () => {
     }
   });
 
+  test("marks queue row as failed after max attempts exhausted", async () => {
+    // Clear pending entries
+    await sql.unsafe(
+      `UPDATE ${schema}.embedding_queue SET outcome = 'completed' WHERE outcome IS NULL`,
+    );
+
+    const memoryId = await insertMemory("Exhaust attempts content");
+
+    // Set attempts = 2 so next claim brings it to 3 (== max_attempts)
+    await sql.unsafe(
+      `UPDATE ${schema}.embedding_queue SET attempts = 2 WHERE memory_id = $1 AND outcome IS NULL`,
+      [memoryId],
+    );
+
+    // Mock server that returns 429 so embedding fails
+    const server = Bun.serve({
+      port: 0,
+      fetch() {
+        return new Response(
+          JSON.stringify({
+            error: { message: "Rate limited", type: "rate_limit_error" },
+          }),
+          { status: 429 },
+        );
+      },
+    });
+
+    try {
+      const config: WorkerConfig = {
+        embedding: {
+          provider: "openai",
+          model: "text-embedding-3-small",
+          dimensions: 1536,
+          apiKey: "test-key",
+          baseUrl: `http://localhost:${server.port}/v1`,
+          options: { maxRetries: 0 },
+        },
+        batchSize: 10,
+      };
+
+      const result = await processBatch(sql, schema, config);
+
+      expect(result.claimed).toBeGreaterThanOrEqual(1);
+      expect(result.failed).toBeGreaterThanOrEqual(1);
+
+      // Queue entry should now be finalized as 'failed'
+      const queue = await getQueueEntries(memoryId);
+      const entry = queue.find(
+        (q: Record<string, unknown>) => q.outcome === "failed",
+      );
+      expect(entry).toBeDefined();
+      expect(entry.last_error).toBeTruthy();
+    } finally {
+      server.stop();
+    }
+  });
+
   test("cancels stale queue rows at claim time", async () => {
     // Clear pending entries
     await sql.unsafe(
       `UPDATE ${schema}.embedding_queue SET outcome = 'completed' WHERE outcome IS NULL`,
     );
 
-    // Insert a memory — trigger creates a queue entry at version 1
-    const memoryId = await insertMemory("Stale claim-time test");
+    // Insert a memory — trigger creates queue row at version 1
+    const memoryId = await insertMemory("Stale claim-time v1");
 
-    // Bump embedding_version on the memory to make the queue entry stale
-    await sql.unsafe(
-      `UPDATE ${schema}.memory SET embedding_version = embedding_version + 1 WHERE id = $1`,
-      [memoryId],
+    // Update content twice more — each triggers a new queue row (v2, v3)
+    const db = await withDb();
+    await db.updateMemory(memoryId, { content: "Stale claim-time v2" });
+    await db.updateMemory(memoryId, { content: "Stale claim-time v3" });
+
+    // Verify 3 pending queue rows exist
+    const queueBefore = await getQueueEntries(memoryId);
+    const pending = queueBefore.filter(
+      (q: Record<string, unknown>) => q.outcome === null,
     );
+    expect(pending.length).toBe(3);
 
-    // Create a mock server that should NOT be called (stale rows are cancelled before embed)
-    let embedCalled = false;
+    // Mock server tracks call count — only version 3 should be embedded
+    let embedCallCount = 0;
+    const mockEmbedding = Array.from({ length: 1536 }, () => 0);
     const server = Bun.serve({
       port: 0,
       fetch() {
-        embedCalled = true;
+        embedCallCount++;
         return Response.json({
           object: "list",
           data: [
             {
               object: "embedding",
-              embedding: Array.from({ length: 1536 }, () => 0),
+              embedding: mockEmbedding,
               index: 0,
             },
           ],
@@ -288,16 +361,21 @@ describe("processBatch integration", () => {
 
       const result = await processBatch(sql, schema, config);
 
-      // Stale row cancelled at claim time — nothing claimed
-      expect(result.claimed).toBe(0);
-      expect(embedCalled).toBe(false);
+      // Only version 3 should be claimed and processed
+      expect(result.claimed).toBe(1);
+      expect(result.succeeded).toBe(1);
+      expect(embedCallCount).toBe(1);
 
-      // Verify the queue entry is cancelled
-      const queue = await getQueueEntries(memoryId);
-      const cancelled = queue.find(
+      // Verify queue outcomes: two cancelled (v1, v2), one completed (v3)
+      const queueAfter = await getQueueEntries(memoryId);
+      const cancelled = queueAfter.filter(
         (q: Record<string, unknown>) => q.outcome === "cancelled",
       );
-      expect(cancelled).toBeDefined();
+      const completed = queueAfter.filter(
+        (q: Record<string, unknown>) => q.outcome === "completed",
+      );
+      expect(cancelled.length).toBe(2);
+      expect(completed.length).toBe(1);
     } finally {
       server.stop();
     }
@@ -315,7 +393,6 @@ describe("processBatch integration", () => {
     // Verify queue entry exists
     const queueBefore = await getQueueEntries(memoryId);
     expect(queueBefore.length).toBeGreaterThanOrEqual(1);
-    const queueId = queueBefore[0].id;
 
     // Delete the memory — CASCADE deletes the queue row too
     await sql.unsafe(`DELETE FROM ${schema}.memory WHERE id = $1`, [memoryId]);
@@ -360,6 +437,48 @@ describe("processBatch integration", () => {
     } finally {
       server.stop();
     }
+  });
+
+  test("sweeps zombie rows as failed when attempts exhausted by crash", async () => {
+    // Clear pending entries
+    await sql.unsafe(
+      `UPDATE ${schema}.embedding_queue SET outcome = 'completed' WHERE outcome IS NULL`,
+    );
+
+    const memoryId = await insertMemory("Zombie crash test content");
+
+    // Simulate a crash: set attempts = max_attempts and vt in the past, leave outcome NULL
+    await sql.unsafe(
+      `UPDATE ${schema}.embedding_queue
+       SET attempts = max_attempts, vt = now() - interval '1 minute'
+       WHERE memory_id = $1 AND outcome IS NULL`,
+      [memoryId],
+    );
+
+    // processBatch should sweep the zombie row as failed, not claim it
+    const config: WorkerConfig = {
+      embedding: {
+        provider: "openai",
+        model: "text-embedding-3-small",
+        dimensions: 1536,
+        apiKey: "test-key",
+        baseUrl: "http://localhost:1/v1", // never called
+      },
+      batchSize: 10,
+    };
+
+    const result = await processBatch(sql, schema, config);
+
+    // Zombie was swept, not claimed
+    expect(result.claimed).toBe(0);
+
+    // Queue entry should be finalized as 'failed' with crash message
+    const queue = await getQueueEntries(memoryId);
+    const entry = queue.find(
+      (q: Record<string, unknown>) => q.outcome === "failed",
+    );
+    expect(entry).toBeDefined();
+    expect(entry.last_error).toContain("exceeded max attempts (worker crash)");
   });
 
   test("returns zero when queue is empty", async () => {

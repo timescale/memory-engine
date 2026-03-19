@@ -63,6 +63,28 @@ declare
   mem record;
   claimed_count int := 0;
 begin
+  -- bulk-cancel visible queue rows superseded by a newer row for the same memory
+  update {{schema}}.embedding_queue eq
+  set outcome = 'cancelled'
+  where eq.outcome is null
+    and eq.vt <= now()
+    and exists (
+      select 1
+      from {{schema}}.embedding_queue newer
+      where newer.memory_id = eq.memory_id
+        and newer.embedding_version > eq.embedding_version
+        and newer.outcome is null
+    );
+
+  -- sweep: finalize exhausted rows orphaned by worker crash
+  -- (attempts reached max but outcome was never written back)
+  update {{schema}}.embedding_queue
+  set outcome = 'failed'
+    , last_error = coalesce(last_error, 'exceeded max attempts (worker crash)')
+  where outcome is null
+    and vt <= now()
+    and attempts >= max_attempts;
+
   for rec in
     select eq.id, eq.memory_id, eq.embedding_version
     from {{schema}}.embedding_queue eq

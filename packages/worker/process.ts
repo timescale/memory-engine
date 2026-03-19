@@ -62,6 +62,7 @@ export async function processBatch(
         await tx.unsafe(
           `UPDATE ${schema}.embedding_queue
            SET last_error = $1
+             , outcome = CASE WHEN attempts >= max_attempts THEN 'failed' END
            WHERE id = $2`,
           [error, row.queue_id],
         );
