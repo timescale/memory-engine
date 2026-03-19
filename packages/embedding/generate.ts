@@ -12,6 +12,10 @@ interface EmbedOptions {
   abortSignal?: AbortSignal;
 }
 
+interface EmbedManyOptions extends EmbedOptions {
+  maxParallelCalls?: number;
+}
+
 function getEmbedOptions(config: EmbeddingConfig): EmbedOptions {
   const options: EmbedOptions = {};
 
@@ -21,6 +25,16 @@ function getEmbedOptions(config: EmbeddingConfig): EmbedOptions {
 
   if (config.options?.timeoutMs !== undefined) {
     options.abortSignal = AbortSignal.timeout(config.options.timeoutMs);
+  }
+
+  return options;
+}
+
+function getEmbedManyOptions(config: EmbeddingConfig): EmbedManyOptions {
+  const options: EmbedManyOptions = getEmbedOptions(config);
+
+  if (config.options?.maxParallelCalls !== undefined) {
+    options.maxParallelCalls = config.options.maxParallelCalls;
   }
 
   return options;
@@ -173,7 +187,7 @@ export async function generateEmbeddings(
     const { embeddings, usage } = await embedMany({
       model,
       values: texts,
-      ...getEmbedOptions(config),
+      ...getEmbedManyOptions(config),
     });
 
     // embedMany returns aggregate token count — distribute evenly
