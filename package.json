@@ -15,7 +15,6 @@
     "lint": "biome check --formatter-enabled=false",
     "lint:fix": "biome check --write --formatter-enabled=false",
     "typecheck": "tsc --noEmit",
-    "sandbox:build": "bun scripts/sandbox-build.ts",
     "sandbox:create": "bun scripts/sandbox-create.ts",
     "pg:build": "docker build -t me-postgres -f docker/Dockerfile.postgres docker/",
     "pg": "bun run pg:build && docker run -d --name me-postgres -e POSTGRES_HOST_AUTH_METHOD=trust -p 127.0.0.1:5432:5432 me-postgres",
