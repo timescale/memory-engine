@@ -128,6 +128,7 @@ await sbxExec(
 // 4. Install yq
 console.log("\n[4/8] Installing yq...");
 await sbxExec(
+  // biome-ignore lint/suspicious/noTemplateCurlyInString: shell variable expansion
   'ARCH="$(dpkg --print-architecture)" && wget "https://github.com/mikefarah/yq/releases/latest/download/yq_linux_${ARCH}" -O /usr/local/bin/yq && chmod +x /usr/local/bin/yq',
   true,
 );
