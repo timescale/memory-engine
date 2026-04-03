@@ -91,18 +91,31 @@ create table {{schema}}.role_membership
 create index idx_role_membership_member on {{schema}}.role_membership(member_id);
 
 -- ===== Cycle Detection =====
-create function {{schema}}.would_create_cycle(p_role_id uuid, p_member_id uuid)
-returns boolean language sql stable security invoker
-set search_path to pg_catalog, {{schema}}, pg_temp
-as $$
+create function {{schema}}.would_create_cycle
+( _role_id uuid
+, _member_id uuid
+)
+returns boolean
+as $func$
   with recursive ancestors(id) as (
-    select rm.role_id from {{schema}}.role_membership rm where rm.member_id = p_role_id
+    select rm.role_id
+    from {{schema}}.role_membership rm
+    where rm.member_id = _role_id
     union
-    select rm.role_id from {{schema}}.role_membership rm join ancestors a on a.id = rm.member_id
+    select rm.role_id
+    from {{schema}}.role_membership rm
+    inner join ancestors a on a.id = rm.member_id
   )
-  select p_member_id = p_role_id
-      or exists (select 1 from ancestors where id = p_member_id)
-$$;
+  select _member_id = _role_id
+    or exists
+    (
+      select 1
+      from ancestors
+      where id = _member_id
+    )
+$func$ language sql stable security invoker
+set search_path to pg_catalog, {{schema}}, pg_temp
+;
 
 -- ===== Tree Ownership =====
 create table {{schema}}.tree_owner
@@ -116,56 +129,50 @@ create index idx_tree_owner_principal on {{schema}}.tree_owner (principal_id);
 create index idx_tree_owner_gist on {{schema}}.tree_owner using gist (tree_path);
 
 -- ===== Access Checking (role-aware) =====
+-- Returns set of tree paths the principal can access for the given action.
+-- Superusers get ''::ltree (empty root) which matches all paths via <@.
 
--- 3-arg version: single source of truth, accepts explicit principal_id
-create function {{schema}}.has_tree_access(p_principal_id uuid, p_tree ltree, p_action text)
-returns boolean language sql stable security definer
-set search_path to pg_catalog, {{schema}}, public, pg_temp
-as $$
-  with recursive effective_roles(principal_id) as (
-    select p_principal_id
+create function {{schema}}.tree_access
+( _principal_id uuid
+, _action text
+)
+returns set of ltree
+as $func$
+  with recursive effective_roles(principal_id) as
+  (
+    select _principal_id
     union
-    select rm.role_id from {{schema}}.role_membership rm
-    join effective_roles er on er.principal_id = rm.member_id
+    select rm.role_id
+    from {{schema}}.role_membership rm
+    inner join effective_roles er on (er.principal_id = rm.member_id)
   )
-  select
-    -- superuser bypass
-    exists (
-      select 1 from {{schema}}.principal
-      where id = p_principal_id and superuser
-    )
-    or
-    -- ownership (any ancestor)
-    exists (
-      select 1 from {{schema}}.tree_owner o
-      join effective_roles er on er.principal_id = o.principal_id
-      where p_tree <@ o.tree_path
-    )
-    or
-    -- explicit grant
-    exists (
-      select 1 from {{schema}}.tree_grant g
-      join effective_roles er on er.principal_id = g.principal_id
-      where p_tree <@ g.tree_path and p_action = any(g.actions)
-    )
-$$;
-
-revoke all on function {{schema}}.has_tree_access(uuid, ltree, text) from public;
-grant execute on function {{schema}}.has_tree_access(uuid, ltree, text) to me_ro, me_rw;
-
--- 2-arg version: used by RLS policies, reads principal from session context
-create function {{schema}}.has_tree_access(p_tree ltree, p_action text)
-returns boolean language sql stable security definer
+  select distinct tree_path
+  from
+  (
+    -- superuser: empty ltree matches everything via <@
+    select ''::ltree as tree_path
+    from {{schema}}.principal p
+    inner join effective_roles er on (p.id = er.principal_id)
+    where p.superuser
+    union
+    -- ownership grants full access
+    select o.tree_path
+    from {{schema}}.tree_owner o
+    inner join effective_roles er on (er.principal_id = o.principal_id)
+    union
+    -- explicit grants for the requested action
+    select g.tree_path
+    from {{schema}}.tree_grant g
+    inner join effective_roles er on (er.principal_id = g.principal_id)
+    where _action = any(g.actions)
+  )
+$func$
+language sql stable security definer
 set search_path to pg_catalog, {{schema}}, public, pg_temp
-as $$
-  select {{schema}}.has_tree_access(
-    current_setting('me.principal_id', true)::uuid,
-    p_tree,
-    p_action
-  )
-$$;
+;
 
-revoke all on function {{schema}}.has_tree_access(ltree, text) from public;
+revoke all on function {{schema}}.tree_access(uuid, text) from public;
+grant execute on function {{schema}}.tree_access(uuid, text) to me_ro, me_rw;
 
 -- defense in depth: revoke PUBLIC access on auth tables
 revoke all on {{schema}}.principal from public;
@@ -173,27 +180,66 @@ revoke all on {{schema}}.api_key from public;
 revoke all on {{schema}}.tree_grant from public;
 revoke all on {{schema}}.role_membership from public;
 revoke all on {{schema}}.tree_owner from public;
-grant execute on function {{schema}}.has_tree_access(ltree, text) to me_ro, me_rw;
 
 -- ===== RLS on memory =====
 alter table {{schema}}.memory enable row level security;
 
 create policy memory_select on {{schema}}.memory
   for select to me_ro, me_rw
-  using ({{schema}}.has_tree_access(tree, 'read'));
+  using
+  (
+    select exists
+    (
+      select true
+      from {{schema}}.tree_access(current_setting('me.principal_id', true)::uuid, 'read') ta(tree_path)
+      where tree <@ ta.tree_path
+    )
+  );
 
 create policy memory_insert on {{schema}}.memory
   for insert to me_rw
-  with check ({{schema}}.has_tree_access(tree, 'create'));
+  with check
+  (
+    select exists
+    (
+      select true
+      from {{schema}}.tree_access(current_setting('me.principal_id', true)::uuid, 'create') ta(tree_path)
+      where tree <@ ta.tree_path
+    )
+  );
 
 create policy memory_update on {{schema}}.memory
   for update to me_rw
-  using ({{schema}}.has_tree_access(tree, 'update'))
-  with check ({{schema}}.has_tree_access(tree, 'update'));
+  using
+  (
+    select exists
+    (
+      select true
+      from {{schema}}.tree_access(current_setting('me.principal_id', true)::uuid, 'update') ta(tree_path)
+      where tree <@ ta.tree_path
+    )
+  )
+  with check
+  (
+    select exists
+    (
+      select true
+      from {{schema}}.tree_access(current_setting('me.principal_id', true)::uuid, 'update') ta(tree_path)
+      where tree <@ ta.tree_path
+    )
+  );
 
 create policy memory_delete on {{schema}}.memory
   for delete to me_rw
-  using ({{schema}}.has_tree_access(tree, 'delete'));
+  using
+  (
+    select exists
+    (
+      select true
+      from {{schema}}.tree_access(current_setting('me.principal_id', true)::uuid, 'delete') ta(tree_path)
+      where tree <@ ta.tree_path
+    )
+  );
 
 -- ===== Memory FK =====
 alter table {{schema}}.memory add constraint memory_created_by_fk
