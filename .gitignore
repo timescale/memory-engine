@@ -41,3 +41,6 @@ opencode.json
 .gemini
 .codex
 .claude
+
+# AI agent working docs (specs, plans)
+docs/superpowers
