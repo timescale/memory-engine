@@ -21,7 +21,7 @@ beforeAll(async () => {
   connectionString = await testDb.create();
   sql = new SQL(connectionString);
   await bootstrap(sql);
-  await provisionEngine(sql, slug, undefined, "0.0.0-test");
+  await provisionEngine(sql, slug, undefined, "0.1.0");
 
   // Create a superuser principal for inserting memories
   const db = createEngineDB(sql, schema);

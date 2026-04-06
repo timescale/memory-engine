@@ -119,7 +119,7 @@ export function grantOps(ctx: OpsContext) {
 
     /**
      * Check if a principal has access to a tree path for a given action
-     * Uses the database's has_tree_access function (includes role inheritance)
+     * Uses the database's tree_access function (includes role inheritance)
      */
     async checkTreeAccess(
       principalId: string,
@@ -128,10 +128,13 @@ export function grantOps(ctx: OpsContext) {
     ): Promise<boolean> {
       return withTx(ctx, "admin", async (sql) => {
         const rows = await sql<{ allowed: boolean }[]>`
-          select ${sql.unsafe(schema)}.has_tree_access(
-            ${principalId}::uuid,
-            ${treePath}::ltree,
-            ${action}
+          select exists(
+            select 1
+            from ${sql.unsafe(schema)}.tree_access(
+              ${principalId}::uuid,
+              ${action}
+            ) ta(tree_path)
+            where ${treePath}::ltree <@ ta.tree_path
           ) as allowed
         `;
         return rows[0]?.allowed ?? false;
