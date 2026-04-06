@@ -60,10 +60,7 @@ export function grantOps(ctx: OpsContext) {
     /**
      * Revoke tree access from a user
      */
-    async revokeTreeAccess(
-      userId: string,
-      treePath: string,
-    ): Promise<boolean> {
+    async revokeTreeAccess(userId: string, treePath: string): Promise<boolean> {
       return withTx(ctx, "admin", async (sql) => {
         const result = await sql`
           delete from ${sql.unsafe(schema)}.tree_grant
