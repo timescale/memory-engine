@@ -8,14 +8,16 @@ export {
 export * from "./migrate";
 // Type exports
 export {
+  type ApiKey,
+  type CreateApiKeyParams,
+  type CreateApiKeyResult,
   type CreateMemoryParams,
-  type CreatePrincipalParams,
+  type CreateUserParams,
   type GetTreeParams,
   type GrantTreeAccessParams,
   type Memory,
   NotImplementedError,
   type OpsContext,
-  type Principal,
   type RoleInfo,
   type RoleMember,
   type SearchParams,
@@ -27,4 +29,12 @@ export {
   type TreeNode,
   type TreeOwner,
   type UpdateMemoryParams,
+  type User,
+  type ValidateApiKeyResult,
 } from "./types";
+// Utility exports
+export {
+  extractEngineSlug,
+  formatApiKey,
+  parseApiKey,
+} from "./util";

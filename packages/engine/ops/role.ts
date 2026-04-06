@@ -101,35 +101,32 @@ export function roleOps(ctx: OpsContext) {
     },
 
     /**
-     * List roles that a principal is a member of
+     * List roles that a user is a member of
      */
-    async listRolesForPrincipal(principalId: string): Promise<RoleInfo[]> {
+    async listRolesForUser(userId: string): Promise<RoleInfo[]> {
       return withTx(ctx, "admin", async (sql) => {
         const rows = await sql<RoleInfoRow[]>`
-          select p.id, p.name, rm.with_admin_option
+          select u.id, u.name, rm.with_admin_option
           from ${sql.unsafe(schema)}.role_membership rm
-          join ${sql.unsafe(schema)}.principal p on p.id = rm.role_id
-          where rm.member_id = ${principalId}
-          order by p.name
+          join ${sql.unsafe(schema)}."user" u on u.id = rm.role_id
+          where rm.member_id = ${userId}
+          order by u.name
         `;
         return rows.map(rowToRoleInfo);
       });
     },
 
     /**
-     * Check if a principal has admin option on a role
+     * Check if a user has admin option on a role
      */
-    async hasAdminOption(
-      principalId: string,
-      roleId: string,
-    ): Promise<boolean> {
+    async hasAdminOption(userId: string, roleId: string): Promise<boolean> {
       return withTx(ctx, "admin", async (sql) => {
         const rows = await sql<{ has_admin: boolean }[]>`
           select exists (
             select 1
             from ${sql.unsafe(schema)}.role_membership
             where role_id = ${roleId}
-              and member_id = ${principalId}
+              and member_id = ${userId}
               and with_admin_option = true
           ) as has_admin
         `;

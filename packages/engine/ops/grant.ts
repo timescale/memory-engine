@@ -4,7 +4,7 @@ import { withTx } from "./_tx";
 // Row type from database
 interface TreeGrantRow {
   id: string;
-  principal_id: string;
+  user_id: string;
   tree_path: string;
   actions: string[];
   granted_by: string | null;
@@ -15,7 +15,7 @@ interface TreeGrantRow {
 function rowToTreeGrant(row: TreeGrantRow): TreeGrant {
   return {
     id: row.id,
-    principalId: row.principal_id,
+    userId: row.user_id,
     treePath: row.tree_path,
     actions: row.actions,
     grantedBy: row.granted_by,
@@ -29,11 +29,11 @@ export function grantOps(ctx: OpsContext) {
 
   return {
     /**
-     * Grant tree access to a principal (upserts on principal_id + tree_path)
+     * Grant tree access to a user (upserts on user_id + tree_path)
      */
     async grantTreeAccess(params: GrantTreeAccessParams): Promise<void> {
       const {
-        principalId,
+        userId,
         treePath,
         actions,
         grantedBy = null,
@@ -45,10 +45,10 @@ export function grantOps(ctx: OpsContext) {
         const actionsArray = `{${actions.join(",")}}`;
         await sql`
           insert into ${sql.unsafe(schema)}.tree_grant
-            (principal_id, tree_path, actions, granted_by, with_grant_option)
+            (user_id, tree_path, actions, granted_by, with_grant_option)
           values
-            (${principalId}, ${treePath}::ltree, ${actionsArray}::text[], ${grantedBy}, ${withGrantOption})
-          on conflict (principal_id, tree_path)
+            (${userId}, ${treePath}::ltree, ${actionsArray}::text[], ${grantedBy}, ${withGrantOption})
+          on conflict (user_id, tree_path)
           do update set
             actions = excluded.actions,
             granted_by = excluded.granted_by,
@@ -58,16 +58,16 @@ export function grantOps(ctx: OpsContext) {
     },
 
     /**
-     * Revoke tree access from a principal
+     * Revoke tree access from a user
      */
     async revokeTreeAccess(
-      principalId: string,
+      userId: string,
       treePath: string,
     ): Promise<boolean> {
       return withTx(ctx, "admin", async (sql) => {
         const result = await sql`
           delete from ${sql.unsafe(schema)}.tree_grant
-          where principal_id = ${principalId}
+          where user_id = ${userId}
             and tree_path = ${treePath}::ltree
         `;
         return result.count > 0;
@@ -75,41 +75,41 @@ export function grantOps(ctx: OpsContext) {
     },
 
     /**
-     * List tree grants, optionally filtered by principal
+     * List tree grants, optionally filtered by user
      */
-    async listTreeGrants(principalId?: string): Promise<TreeGrant[]> {
+    async listTreeGrants(userId?: string): Promise<TreeGrant[]> {
       return withTx(ctx, "admin", async (sql) => {
-        if (principalId) {
+        if (userId) {
           const rows = await sql<TreeGrantRow[]>`
-            select id, principal_id, tree_path::text, actions, granted_by, with_grant_option, created_at
+            select id, user_id, tree_path::text, actions, granted_by, with_grant_option, created_at
             from ${sql.unsafe(schema)}.tree_grant
-            where principal_id = ${principalId}
+            where user_id = ${userId}
             order by tree_path
           `;
           return rows.map(rowToTreeGrant);
         }
 
         const rows = await sql<TreeGrantRow[]>`
-          select id, principal_id, tree_path::text, actions, granted_by, with_grant_option, created_at
+          select id, user_id, tree_path::text, actions, granted_by, with_grant_option, created_at
           from ${sql.unsafe(schema)}.tree_grant
-          order by principal_id, tree_path
+          order by user_id, tree_path
         `;
         return rows.map(rowToTreeGrant);
       });
     },
 
     /**
-     * Get a specific grant by principal and tree path
+     * Get a specific grant by user and tree path
      */
     async getTreeGrant(
-      principalId: string,
+      userId: string,
       treePath: string,
     ): Promise<TreeGrant | null> {
       return withTx(ctx, "admin", async (sql) => {
         const rows = await sql<TreeGrantRow[]>`
-          select id, principal_id, tree_path::text, actions, granted_by, with_grant_option, created_at
+          select id, user_id, tree_path::text, actions, granted_by, with_grant_option, created_at
           from ${sql.unsafe(schema)}.tree_grant
-          where principal_id = ${principalId}
+          where user_id = ${userId}
             and tree_path = ${treePath}::ltree
         `;
         const row = rows[0];
@@ -118,11 +118,11 @@ export function grantOps(ctx: OpsContext) {
     },
 
     /**
-     * Check if a principal has access to a tree path for a given action
+     * Check if a user has access to a tree path for a given action
      * Uses the database's tree_access function (includes role inheritance)
      */
     async checkTreeAccess(
-      principalId: string,
+      userId: string,
       treePath: string,
       action: string,
     ): Promise<boolean> {
@@ -131,7 +131,7 @@ export function grantOps(ctx: OpsContext) {
           select exists(
             select 1
             from ${sql.unsafe(schema)}.tree_access(
-              ${principalId}::uuid,
+              ${userId}::uuid,
               ${action}
             ) ta(tree_path)
             where ${treePath}::ltree <@ ta.tree_path
@@ -142,10 +142,10 @@ export function grantOps(ctx: OpsContext) {
     },
 
     /**
-     * Check if a principal has grant option for a tree path and actions
+     * Check if a user has grant option for a tree path and actions
      */
     async hasGrantOption(
-      principalId: string,
+      userId: string,
       treePath: string,
       actions: string[],
     ): Promise<boolean> {
@@ -155,7 +155,7 @@ export function grantOps(ctx: OpsContext) {
           select exists (
             select 1
             from ${sql.unsafe(schema)}.tree_grant
-            where principal_id = ${principalId}
+            where user_id = ${userId}
               and ${treePath}::ltree <@ tree_path
               and with_grant_option = true
               and actions @> ${actionsArray}::text[]
