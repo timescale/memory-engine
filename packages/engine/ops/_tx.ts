@@ -28,7 +28,7 @@ const ROLE_MAP = {
  * - SET LOCAL pgdog.shard (if shard is set, for future sharding)
  * - SET LOCAL search_path (insurance — all SQL is schema-qualified)
  * - SET LOCAL ROLE (me_ro for read, me_rw for write)
- * - set_config('me.principal_id', ...) (for RLS)
+ * - set_config('me.user_id', ...) (for RLS)
  */
 export async function withTx<T>(
   ctx: OpsContext,
@@ -60,10 +60,10 @@ export async function withTx<T>(
       await tx.unsafe(`SET LOCAL ROLE ${role}`);
     }
 
-    // Set principal_id for RLS policies (only meaningful for read/write modes)
-    const principalId = ctx.getPrincipalId();
-    if (principalId && role) {
-      await tx`SELECT set_config('me.principal_id', ${principalId}, true)`;
+    // Set user_id for RLS policies (only meaningful for read/write modes)
+    const userId = ctx.getUserId();
+    if (userId && role) {
+      await tx`SELECT set_config('me.user_id', ${userId}, true)`;
     }
 
     return fn(tx);
