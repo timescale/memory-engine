@@ -21,14 +21,13 @@ Memory Engine uses a sophisticated migration system (`packages/engine/migrate/`)
 packages/accounts/
 ├── migrate/
 │   ├── index.ts          # Public API exports
-│   ├── runner.ts         # Core migration execution
+│   ├── runner.ts         # Core migration execution (includes scaffold)
 │   ├── template.ts       # SQL template substitution
 │   ├── test-utils.ts     # TestDatabase helper for tests
 │   ├── runner.test.ts    # Unit tests
 │   ├── template.test.ts  # Template tests
 │   └── migrations/
-│       ├── sql.d.ts      # TypeScript declaration for .sql imports
-│       └── 001_create_schema.sql  # Bootstrap migration
+│       └── sql.d.ts      # TypeScript declaration for .sql imports
 └── package.json
 ```
 
@@ -75,22 +74,44 @@ interface MigrateResult {
 - `bootstrap` (accounts won't need pgvector/pg_textsearch extensions)
 - Engine-specific config vars (embedding_dimensions, bm25_*, hnsw_*)
 
-## Schema Version Tracking
+## Scaffold Function
 
-The database tracks its schema version to prevent running older app code against a newer database:
+Infrastructure tables (schema, version, migration) are created by a `scaffold()` function that runs before migrations. This avoids the chicken-and-egg problem of a migration needing to create the table it records itself in.
+
+```typescript
+async function scaffold(tx: SQL, schema: string): Promise<void>
+```
+
+The scaffold:
+1. Checks if schema exists by querying `pg_namespace`
+2. If not, creates schema + version table + migration table atomically
+3. If schema exists but owned by different user, throws error (security)
+4. Is idempotent - safe to call multiple times
+
+**Tables created by scaffold:**
 
 ```sql
+-- Version tracking table (single row, tracks overall schema version)
 create table {{schema}}.version
 ( version text not null check (version ~ '^\d+\.\d+\.\d+$')
 , at timestamptz not null default now()
 );
 create unique index on {{schema}}.version ((true));  -- ensures only one row ever
 insert into {{schema}}.version (version) values ('0.0.0');
+
+-- Migration tracking table
+create table {{schema}}.migration
+( name text not null primary key           -- e.g., "001_users"
+, applied_at_version text not null         -- app version that applied it
+, applied_at timestamptz not null default pg_catalog.clock_timestamp()
+);
 ```
+
+## Schema Version Tracking
 
 **Version check logic:**
 
-1. Before running migrations, read `version` from the table
+1. After scaffold, read `version` from the table
 2. Compare app version vs DB version using semver
 3. If app version < DB version: **throw error** - prevents rollback issues
 4. Run migrations
@@ -106,16 +127,6 @@ This ensures:
 ```typescript
 // Get current database schema version
 getVersion(sql: SQL, config?: AccountsConfig): Promise<string>
-```
-
-## Migration Table Schema
-
-```sql
-create table if not exists {{schema}}.migration
-( name text not null primary key           -- e.g., "001_users"
-, applied_at_version text not null         -- app version that applied it
-, applied_at timestamptz not null default pg_catalog.clock_timestamp()
-)
 ```
 
 ## Concurrency Handling
@@ -171,15 +182,12 @@ Enables test isolation - each test gets a clean, isolated schema.
 
 **Import:** SQL files imported at build time:
 ```typescript
-import migration001 from "./migrations/001_create_schema.sql" with { type: "text" };
+import migration001 from "./migrations/001_users.sql" with { type: "text" };
 ```
 
 **Template syntax:** `{{variable}}` for substitution. Initially just `{{schema}}`.
 
-**Bootstrap migration (001_create_schema.sql):**
-```sql
-create schema if not exists {{schema}};
-```
+**Note:** Infrastructure (schema, version table, migration table) is handled by `scaffold()`, not migrations. Domain migrations (users, orgs, billing, etc.) go in the migrations array.
 
 ## Dependencies
 

@@ -2,8 +2,8 @@ import { describe, expect, test } from "bun:test";
 import { getMigrations } from "./runner";
 
 describe("getMigrations", () => {
-  test("returns at least 1 migration", () => {
-    expect(getMigrations().length).toBeGreaterThanOrEqual(1);
+  test("returns an array", () => {
+    expect(Array.isArray(getMigrations())).toBe(true);
   });
 
   test("migrations are sorted by name", () => {
@@ -18,8 +18,6 @@ describe("getMigrations", () => {
     }
   });
 
-  test("contains bootstrap migration", () => {
-    const names = getMigrations().map((m) => m.name);
-    expect(names).toContain("001_create_schema");
-  });
+  // Note: scaffold() handles infrastructure (schema, version, migration tables)
+  // Domain migrations will be added to the migrations array as needed
 });

@@ -11,12 +11,10 @@ function assertSafeIdentifier(name: string): void {
 export class TestDatabase {
   schema: string;
   sql: SQL;
-  private readonly adminUrl: string;
 
-  private constructor(schema: string, sql: SQL, adminUrl: string) {
+  private constructor(schema: string, sql: SQL) {
     this.schema = schema;
     this.sql = sql;
-    this.adminUrl = adminUrl;
   }
 
   static async create(
@@ -31,7 +29,7 @@ export class TestDatabase {
 
     await migrate(sql, config, appVersion);
 
-    return new TestDatabase(schema, sql, adminUrl);
+    return new TestDatabase(schema, sql);
   }
 
   async dispose(): Promise<void> {
