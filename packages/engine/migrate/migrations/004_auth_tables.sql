@@ -1,59 +1,18 @@
 -- ===== Principals =====
+-- Principal is a projection of accounts.user or accounts.agent
+-- The ID matches the accounts ID (same UUID)
 create table {{schema}}.principal
-( id uuid primary key default uuidv7() check (uuid_extract_version(id) = 7)
-, email citext unique nulls distinct    -- NULL for agents
-, name citext not null unique
+( id uuid primary key check (uuid_extract_version(id) = 7)
+, name text not null
 , superuser boolean not null default false
-, createrole boolean not null default false
-, can_login boolean not null default true  -- false = role
-, password_hash text               -- NULL = no password (role or API-key-only)
 , created_at timestamptz not null default now()
 , updated_at timestamptz
-, constraint no_password_for_roles check (can_login or password_hash is null)
 );
 
 create trigger principal_updated_at
     before update on {{schema}}.principal
     for each row
     execute function {{schema}}.update_updated_at();
-
--- ===== API Keys =====
-create table {{schema}}.api_key
-( id uuid primary key default uuidv7() check (uuid_extract_version(id) = 7)
-, principal_id uuid not null references {{schema}}.principal(id) on delete cascade
-, name text not null
-, lookup_id text not null unique check (lookup_id ~ '^[A-Za-z0-9_-]{16}$')
-, key_hash text not null
-, expires_at timestamptz not null default 'infinity'::timestamptz
-, created_at timestamptz not null default now()
-, updated_at timestamptz
-);
-
-create index idx_api_key_principal on {{schema}}.api_key(principal_id);
-create index idx_api_key_expires on {{schema}}.api_key(expires_at) where expires_at < 'infinity'::timestamptz;
-
-create trigger api_key_updated_at
-    before update on {{schema}}.api_key
-    for each row
-    execute function {{schema}}.update_updated_at();
-
--- prevent API keys for non-login principals
-create function {{schema}}.check_api_key_login()
-returns trigger
-as $func$
-begin
-  if not (select can_login from {{schema}}.principal where id = new.principal_id) then
-    raise exception 'Cannot create API key for non-login principal (role)';
-  end if;
-  return new;
-end;
-$func$ language plpgsql volatile security definer
-set search_path to pg_catalog, {{schema}}, pg_temp;
-
-create trigger api_key_check_login
-    before insert or update on {{schema}}.api_key
-    for each row
-    execute function {{schema}}.check_api_key_login();
 
 -- ===== Tree Grants =====
 create table {{schema}}.tree_grant
@@ -176,7 +135,6 @@ grant execute on function {{schema}}.tree_access(uuid, text) to me_ro, me_rw;
 
 -- defense in depth: revoke PUBLIC access on auth tables
 revoke all on {{schema}}.principal from public;
-revoke all on {{schema}}.api_key from public;
 revoke all on {{schema}}.tree_grant from public;
 revoke all on {{schema}}.role_membership from public;
 revoke all on {{schema}}.tree_owner from public;
