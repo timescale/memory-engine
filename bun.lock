@@ -16,6 +16,10 @@
         "typescript": "^5",
       },
     },
+    "packages/accounts": {
+      "name": "@memory-engine/accounts",
+      "version": "0.0.0",
+    },
     "packages/embedding": {
       "name": "@memory-engine/embedding",
       "version": "0.0.0",
@@ -73,6 +77,8 @@
     "@biomejs/cli-win32-arm64": ["@biomejs/cli-win32-arm64@2.4.6", "", { "os": "win32", "cpu": "arm64" }, "sha512-xzThn87Pf3YrOGTEODFGONmqXpTwUNxovQb72iaUOdcw8sBSY3+3WD8Hm9IhMYLnPi0n32s3L3NWU6+eSjfqFg=="],
 
     "@biomejs/cli-win32-x64": ["@biomejs/cli-win32-x64@2.4.6", "", { "os": "win32", "cpu": "x64" }, "sha512-7++XhnsPlr1HDbor5amovPjOH6vsrFOCdp93iKXhFn6bcMUI6soodj3WWKfgEO6JosKU1W5n3uky3WW9RlRjTg=="],
+
+    "@memory-engine/accounts": ["@memory-engine/accounts@workspace:packages/accounts"],
 
     "@memory-engine/embedding": ["@memory-engine/embedding@workspace:packages/embedding"],
 
