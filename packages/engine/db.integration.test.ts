@@ -25,20 +25,20 @@ afterAll(async () => {
 // ---------------------------------------------------------------------------
 // Principal Tests
 // ---------------------------------------------------------------------------
-describe("principal ops", () => {
-  test("createPrincipal creates a principal", async () => {
+describe("user ops", () => {
+  test("createUser creates a principal", async () => {
     const db = createEngineDB(sql, schema);
-    const principal = await db.createPrincipal({
+    const user = await db.createUser({
       name: "test-user",
     });
 
-    expect(principal.name).toBe("test-user");
-    expect(principal.superuser).toBe(false);
-    expect(principal.id).toBeDefined();
-    expect(principal.createdAt).toBeInstanceOf(Date);
+    expect(user.name).toBe("test-user");
+    expect(user.superuser).toBe(false);
+    expect(user.id).toBeDefined();
+    expect(user.createdAt).toBeInstanceOf(Date);
   });
 
-  test("createPrincipal with custom id", async () => {
+  test("createUser with custom id", async () => {
     const db = createEngineDB(sql, schema);
     // Generate a UUIDv7 for testing
     const customId = crypto.randomUUID();
@@ -48,13 +48,13 @@ describe("principal ops", () => {
       (_, prefix) => `${prefix}7`,
     );
 
-    const principal = await db.createPrincipal({
+    const user = await db.createUser({
       id: uuidv7Id,
       name: "test-user-with-id",
     });
 
-    expect(principal.id).toBe(uuidv7Id);
-    expect(principal.name).toBe("test-user-with-id");
+    expect(user.id).toBe(uuidv7Id);
+    expect(user.name).toBe("test-user-with-id");
   });
 
   test("createSuperuser creates a superuser principal", async () => {
@@ -77,105 +77,99 @@ describe("principal ops", () => {
     expect(superuser.superuser).toBe(true);
   });
 
-  test("ensurePrincipal creates new principal", async () => {
+  test("createUser with ownedBy and canLogin", async () => {
     const db = createEngineDB(sql, schema);
-    const id = crypto
+    const identityId = crypto
       .randomUUID()
       .replace(/^(.{8}-.{4}-)(.)/, (_, prefix) => `${prefix}7`);
 
-    const principal = await db.ensurePrincipal(id, "ensure-new-user");
+    const user = await db.createUser({
+      name: "owned-user",
+      ownedBy: identityId,
+      canLogin: true,
+    });
 
-    expect(principal.id).toBe(id);
-    expect(principal.name).toBe("ensure-new-user");
-    expect(principal.superuser).toBe(false);
+    expect(user.name).toBe("owned-user");
+    expect(user.ownedBy).toBe(identityId);
+    expect(user.canLogin).toBe(true);
   });
 
-  test("ensurePrincipal updates existing principal", async () => {
+  test("createRole creates a user with canLogin=false", async () => {
     const db = createEngineDB(sql, schema);
-    const id = crypto
-      .randomUUID()
-      .replace(/^(.{8}-.{4}-)(.)/, (_, prefix) => `${prefix}7`);
+    const role = await db.createRole("test-role");
 
-    // Create initial
-    await db.ensurePrincipal(id, "ensure-user-v1");
-
-    // Update via ensure
-    const updated = await db.ensurePrincipal(id, "ensure-user-v2", true);
-
-    expect(updated.id).toBe(id);
-    expect(updated.name).toBe("ensure-user-v2");
-    expect(updated.superuser).toBe(true);
+    expect(role.name).toBe("test-role");
+    expect(role.canLogin).toBe(false);
+    expect(role.superuser).toBe(false);
   });
 
-  test("getPrincipal returns principal by ID", async () => {
+  test("getUser returns user by ID", async () => {
     const db = createEngineDB(sql, schema);
-    const created = await db.createPrincipal({ name: "get-by-id-test" });
-    const fetched = await db.getPrincipal(created.id);
+    const created = await db.createUser({ name: "get-by-id-test" });
+    const fetched = await db.getUser(created.id);
 
     expect(fetched).not.toBeNull();
     expect(fetched!.id).toBe(created.id);
     expect(fetched!.name).toBe("get-by-id-test");
   });
 
-  test("getPrincipal returns null for non-existent ID", async () => {
+  test("getUser returns null for non-existent ID", async () => {
     const db = createEngineDB(sql, schema);
-    const fetched = await db.getPrincipal(
-      "00000000-0000-0000-0000-000000000000",
-    );
+    const fetched = await db.getUser("00000000-0000-0000-0000-000000000000");
 
     expect(fetched).toBeNull();
   });
 
-  test("getPrincipalByName returns principal by name", async () => {
+  test("getUserByName returns principal by name", async () => {
     const db = createEngineDB(sql, schema);
-    await db.createPrincipal({ name: "get-by-name-test" });
-    const fetched = await db.getPrincipalByName("get-by-name-test");
+    await db.createUser({ name: "get-by-name-test" });
+    const fetched = await db.getUserByName("get-by-name-test");
 
     expect(fetched).not.toBeNull();
     expect(fetched!.name).toBe("get-by-name-test");
   });
 
-  test("getPrincipalByName matches exact name", async () => {
+  test("getUserByName matches exact name", async () => {
     const db = createEngineDB(sql, schema);
     const uniqueName = `ExactMatch_${Date.now()}`;
-    await db.createPrincipal({ name: uniqueName });
-    const fetched = await db.getPrincipalByName(uniqueName);
+    await db.createUser({ name: uniqueName });
+    const fetched = await db.getUserByName(uniqueName);
 
     expect(fetched).not.toBeNull();
     expect(fetched!.name).toBe(uniqueName);
 
     // Different case should not match (name is text, not citext)
-    const notFound = await db.getPrincipalByName(uniqueName.toLowerCase());
+    const notFound = await db.getUserByName(uniqueName.toLowerCase());
     expect(notFound).toBeNull();
   });
 
-  test("listPrincipals returns all principals", async () => {
+  test("listUsers returns all principals", async () => {
     const db = createEngineDB(sql, schema);
-    const principals = await db.listPrincipals();
+    const principals = await db.listUsers();
 
     expect(principals.length).toBeGreaterThan(0);
     expect(principals[0]!.id).toBeDefined();
   });
 
-  test("renamePrincipal updates name", async () => {
+  test("renameUser updates name", async () => {
     const db = createEngineDB(sql, schema);
-    const created = await db.createPrincipal({ name: "rename-test" });
-    const result = await db.renamePrincipal(created.id, "renamed-test");
+    const created = await db.createUser({ name: "rename-test" });
+    const result = await db.renameUser(created.id, "renamed-test");
 
     expect(result).toBe(true);
 
-    const fetched = await db.getPrincipal(created.id);
+    const fetched = await db.getUser(created.id);
     expect(fetched!.name).toBe("renamed-test");
   });
 
-  test("deletePrincipal removes principal", async () => {
+  test("deleteUser removes principal", async () => {
     const db = createEngineDB(sql, schema);
-    const created = await db.createPrincipal({ name: "delete-test" });
-    const result = await db.deletePrincipal(created.id);
+    const created = await db.createUser({ name: "delete-test" });
+    const result = await db.deleteUser(created.id);
 
     expect(result).toBe(true);
 
-    const fetched = await db.getPrincipal(created.id);
+    const fetched = await db.getUser(created.id);
     expect(fetched).toBeNull();
   });
 });
@@ -188,21 +182,21 @@ describe("grant ops", () => {
 
   beforeAll(async () => {
     const db = createEngineDB(sql, schema);
-    const principal = await db.createPrincipal({ name: "grant-test-user" });
-    testPrincipalId = principal.id;
+    const user = await db.createUser({ name: "grant-test-user" });
+    testPrincipalId = user.id;
   });
 
   test("grantTreeAccess creates a grant", async () => {
     const db = createEngineDB(sql, schema);
     await db.grantTreeAccess({
-      principalId: testPrincipalId,
+      userId: testPrincipalId,
       treePath: "test.path",
       actions: ["read", "create"],
     });
 
     const grant = await db.getTreeGrant(testPrincipalId, "test.path");
     expect(grant).not.toBeNull();
-    expect(grant!.principalId).toBe(testPrincipalId);
+    expect(grant!.userId).toBe(testPrincipalId);
     expect(grant!.treePath).toBe("test.path");
     expect(grant!.actions).toContain("read");
     expect(grant!.actions).toContain("create");
@@ -211,13 +205,13 @@ describe("grant ops", () => {
   test("grantTreeAccess upserts on conflict", async () => {
     const db = createEngineDB(sql, schema);
     await db.grantTreeAccess({
-      principalId: testPrincipalId,
+      userId: testPrincipalId,
       treePath: "upsert.path",
       actions: ["read"],
     });
 
     await db.grantTreeAccess({
-      principalId: testPrincipalId,
+      userId: testPrincipalId,
       treePath: "upsert.path",
       actions: ["read", "create", "update"],
     });
@@ -229,7 +223,7 @@ describe("grant ops", () => {
   test("revokeTreeAccess removes grant", async () => {
     const db = createEngineDB(sql, schema);
     await db.grantTreeAccess({
-      principalId: testPrincipalId,
+      userId: testPrincipalId,
       treePath: "revoke.path",
       actions: ["read"],
     });
@@ -244,7 +238,7 @@ describe("grant ops", () => {
   test("listTreeGrants returns grants for principal", async () => {
     const db = createEngineDB(sql, schema);
     await db.grantTreeAccess({
-      principalId: testPrincipalId,
+      userId: testPrincipalId,
       treePath: "list.path",
       actions: ["read"],
     });
@@ -275,8 +269,8 @@ describe("owner ops", () => {
 
   beforeAll(async () => {
     const db = createEngineDB(sql, schema);
-    const principal = await db.createPrincipal({ name: "owner-test-user" });
-    testPrincipalId = principal.id;
+    const user = await db.createUser({ name: "owner-test-user" });
+    testPrincipalId = user.id;
   });
 
   test("setTreeOwner creates ownership", async () => {
@@ -285,19 +279,19 @@ describe("owner ops", () => {
 
     const owner = await db.getTreeOwner("owned.path");
     expect(owner).not.toBeNull();
-    expect(owner!.principalId).toBe(testPrincipalId);
+    expect(owner!.userId).toBe(testPrincipalId);
     expect(owner!.treePath).toBe("owned.path");
   });
 
   test("setTreeOwner upserts on conflict", async () => {
     const db = createEngineDB(sql, schema);
-    const otherPrincipal = await db.createPrincipal({ name: "other-owner" });
+    const otherPrincipal = await db.createUser({ name: "other-owner" });
 
     await db.setTreeOwner(testPrincipalId, "upsert.owned");
     await db.setTreeOwner(otherPrincipal.id, "upsert.owned");
 
     const owner = await db.getTreeOwner("upsert.owned");
-    expect(owner!.principalId).toBe(otherPrincipal.id);
+    expect(owner!.userId).toBe(otherPrincipal.id);
   });
 
   test("removeTreeOwner removes ownership", async () => {
@@ -341,12 +335,12 @@ describe("role ops", () => {
   beforeAll(async () => {
     const db = createEngineDB(sql, schema);
     // Create a role (a principal used as a role for grouping)
-    const role = await db.createPrincipal({
+    const role = await db.createUser({
       name: "test-role",
     });
     roleId = role.id;
 
-    const member = await db.createPrincipal({ name: "role-member" });
+    const member = await db.createUser({ name: "role-member" });
     memberId = member.id;
   });
 
@@ -361,10 +355,10 @@ describe("role ops", () => {
 
   test("addRoleMember detects cycles", async () => {
     const db = createEngineDB(sql, schema);
-    const role1 = await db.createPrincipal({
+    const role1 = await db.createUser({
       name: "cycle-role-1",
     });
-    const role2 = await db.createPrincipal({
+    const role2 = await db.createUser({
       name: "cycle-role-2",
     });
 
@@ -378,10 +372,10 @@ describe("role ops", () => {
 
   test("removeRoleMember removes member from role", async () => {
     const db = createEngineDB(sql, schema);
-    const role = await db.createPrincipal({
+    const role = await db.createUser({
       name: "remove-role",
     });
-    const member = await db.createPrincipal({ name: "remove-member" });
+    const member = await db.createUser({ name: "remove-member" });
 
     await db.addRoleMember(role.id, member.id);
     const result = await db.removeRoleMember(role.id, member.id);
@@ -392,19 +386,19 @@ describe("role ops", () => {
     expect(members.some((m) => m.memberId === member.id)).toBe(false);
   });
 
-  test("listRolesForPrincipal returns roles", async () => {
+  test("listRolesForUser returns roles", async () => {
     const db = createEngineDB(sql, schema);
-    const roles = await db.listRolesForPrincipal(memberId);
+    const roles = await db.listRolesForUser(memberId);
 
     expect(roles.some((r) => r.id === roleId)).toBe(true);
   });
 
   test("hasAdminOption checks admin option", async () => {
     const db = createEngineDB(sql, schema);
-    const role = await db.createPrincipal({
+    const role = await db.createUser({
       name: "admin-role",
     });
-    const admin = await db.createPrincipal({ name: "admin-member" });
+    const admin = await db.createUser({ name: "admin-member" });
 
     await db.addRoleMember(role.id, admin.id, true);
 
@@ -428,7 +422,7 @@ describe("memory ops", () => {
 
   test("createMemory creates a memory", async () => {
     const db = createEngineDB(sql, schema);
-    db.setPrincipal(testPrincipalId);
+    db.setUser(testPrincipalId);
 
     const memory = await db.createMemory({
       content: "Test memory content",
@@ -446,7 +440,7 @@ describe("memory ops", () => {
 
   test("createMemory with temporal point-in-time", async () => {
     const db = createEngineDB(sql, schema);
-    db.setPrincipal(testPrincipalId);
+    db.setUser(testPrincipalId);
 
     const now = new Date();
     const memory = await db.createMemory({
@@ -462,7 +456,7 @@ describe("memory ops", () => {
 
   test("createMemory with temporal range", async () => {
     const db = createEngineDB(sql, schema);
-    db.setPrincipal(testPrincipalId);
+    db.setUser(testPrincipalId);
 
     const start = new Date("2024-01-01");
     const end = new Date("2024-01-02");
@@ -477,7 +471,7 @@ describe("memory ops", () => {
 
   test("getMemory returns memory by ID", async () => {
     const db = createEngineDB(sql, schema);
-    db.setPrincipal(testPrincipalId);
+    db.setUser(testPrincipalId);
 
     const created = await db.createMemory({ content: "Get test" });
     const fetched = await db.getMemory(created.id);
@@ -489,7 +483,7 @@ describe("memory ops", () => {
 
   test("updateMemory updates content", async () => {
     const db = createEngineDB(sql, schema);
-    db.setPrincipal(testPrincipalId);
+    db.setUser(testPrincipalId);
 
     const created = await db.createMemory({ content: "Original" });
     const updated = await db.updateMemory(created.id, { content: "Updated" });
@@ -500,7 +494,7 @@ describe("memory ops", () => {
 
   test("updateMemory updates meta", async () => {
     const db = createEngineDB(sql, schema);
-    db.setPrincipal(testPrincipalId);
+    db.setUser(testPrincipalId);
 
     const created = await db.createMemory({
       content: "Meta test",
@@ -513,7 +507,7 @@ describe("memory ops", () => {
 
   test("deleteMemory removes memory", async () => {
     const db = createEngineDB(sql, schema);
-    db.setPrincipal(testPrincipalId);
+    db.setUser(testPrincipalId);
 
     const created = await db.createMemory({ content: "Delete test" });
     const result = await db.deleteMemory(created.id);
@@ -526,7 +520,7 @@ describe("memory ops", () => {
 
   test("deleteTree removes memories under path", async () => {
     const db = createEngineDB(sql, schema);
-    db.setPrincipal(testPrincipalId);
+    db.setUser(testPrincipalId);
 
     await db.createMemory({ content: "Tree 1", tree: "delete.tree.a" });
     await db.createMemory({ content: "Tree 2", tree: "delete.tree.b" });
@@ -539,7 +533,7 @@ describe("memory ops", () => {
 
   test("moveTree moves memories to new path", async () => {
     const db = createEngineDB(sql, schema);
-    db.setPrincipal(testPrincipalId);
+    db.setUser(testPrincipalId);
 
     const m1 = await db.createMemory({
       content: "Move 1",
@@ -563,7 +557,7 @@ describe("memory ops", () => {
 
   test("batchCreateMemories creates multiple memories", async () => {
     const db = createEngineDB(sql, schema);
-    db.setPrincipal(testPrincipalId);
+    db.setUser(testPrincipalId);
 
     const ids = await db.batchCreateMemories([
       { content: "Batch 1", tree: "batch" },
@@ -581,7 +575,7 @@ describe("memory ops", () => {
 
   test("getTree returns tree structure", async () => {
     const db = createEngineDB(sql, schema);
-    db.setPrincipal(testPrincipalId);
+    db.setUser(testPrincipalId);
 
     await db.createMemory({ content: "Tree test 1", tree: "gettree.a.b" });
     await db.createMemory({ content: "Tree test 2", tree: "gettree.a.c" });
@@ -594,7 +588,7 @@ describe("memory ops", () => {
 
   test("searchMemories with filter-only returns results", async () => {
     const db = createEngineDB(sql, schema);
-    db.setPrincipal(testPrincipalId);
+    db.setUser(testPrincipalId);
 
     // Create test memories
     await db.createMemory({
@@ -619,7 +613,7 @@ describe("memory ops", () => {
 
   test("searchMemories with meta filter", async () => {
     const db = createEngineDB(sql, schema);
-    db.setPrincipal(testPrincipalId);
+    db.setUser(testPrincipalId);
 
     await db.createMemory({
       content: "Meta filter test",
@@ -645,7 +639,7 @@ describe("memory ops", () => {
 
   test("searchMemories with fulltext (BM25)", async () => {
     const db = createEngineDB(sql, schema);
-    db.setPrincipal(testPrincipalId);
+    db.setUser(testPrincipalId);
 
     await db.createMemory({
       content: "PostgreSQL is a powerful relational database",
@@ -668,7 +662,7 @@ describe("memory ops", () => {
 
   test("searchMemories with tree pattern (lquery)", async () => {
     const db = createEngineDB(sql, schema);
-    db.setPrincipal(testPrincipalId);
+    db.setUser(testPrincipalId);
 
     await db.createMemory({
       content: "Lquery test a.b",
@@ -694,7 +688,7 @@ describe("memory ops", () => {
 
   test("searchMemories with temporal contains filter", async () => {
     const db = createEngineDB(sql, schema);
-    db.setPrincipal(testPrincipalId);
+    db.setUser(testPrincipalId);
 
     const jan1 = new Date("2024-01-01");
     const jan15 = new Date("2024-01-15");
@@ -725,7 +719,7 @@ describe("memory ops", () => {
 
   test("searchMemories orderBy asc/desc", async () => {
     const db = createEngineDB(sql, schema);
-    db.setPrincipal(testPrincipalId);
+    db.setUser(testPrincipalId);
 
     // Create memories with slight delay to ensure different timestamps
     const m1 = await db.createMemory({
@@ -762,7 +756,7 @@ describe("withTransaction", () => {
   test("executes multiple ops atomically", async () => {
     const db = createEngineDB(sql, schema);
     const superuser = await db.createSuperuser("tx-test-admin");
-    db.setPrincipal(superuser.id);
+    db.setUser(superuser.id);
 
     const result = await db.withTransaction("write", async (txDb) => {
       const m1 = await txDb.createMemory({
@@ -788,7 +782,7 @@ describe("withTransaction", () => {
   test("rolls back on error", async () => {
     const db = createEngineDB(sql, schema);
     const superuser = await db.createSuperuser("rollback-test-admin");
-    db.setPrincipal(superuser.id);
+    db.setUser(superuser.id);
 
     let createdId: string | null = null;
 

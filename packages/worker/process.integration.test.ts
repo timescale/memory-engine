@@ -26,7 +26,7 @@ beforeAll(async () => {
   // Create a superuser principal for inserting memories
   const db = createEngineDB(sql, schema);
   const su = await db.createSuperuser("worker-test-admin");
-  db.setPrincipal(su.id);
+  db.setUser(su.id);
 
   // Grant me_embed SELECT/UPDATE on memory (already done by migration 005)
   // but we need to ensure the embedding_queue trigger is active
@@ -47,8 +47,8 @@ function getDb() {
 
 async function withDb() {
   const db = getDb();
-  const su = await db.getPrincipalByName("worker-test-admin");
-  db.setPrincipal(su!.id);
+  const su = await db.getUserByName("worker-test-admin");
+  db.setUser(su!.id);
   return db;
 }
 
