@@ -8,9 +8,6 @@ export {
 export * from "./migrate";
 // Type exports
 export {
-  type ApiKey,
-  type ApiKeyInfo,
-  type CreateApiKeyResult,
   type CreateMemoryParams,
   type CreatePrincipalParams,
   type GetTreeParams,
@@ -30,7 +27,4 @@ export {
   type TreeNode,
   type TreeOwner,
   type UpdateMemoryParams,
-  type ValidateApiKeyResult,
 } from "./types";
-// Utility exports (for key parsing/routing)
-export { extractSchemaFromKey, parseApiKey } from "./util/api-key";

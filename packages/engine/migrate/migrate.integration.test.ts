@@ -83,7 +83,6 @@ describe("single-engine migration", () => {
     for (const table of [
       "memory",
       "principal",
-      "api_key",
       "tree_grant",
       "role_membership",
       "tree_owner",
@@ -211,20 +210,22 @@ describe("single-engine migration", () => {
   });
 
   test("auth tables have correct structure", async () => {
+    // Principal table is now a simple projection from accounts
+    // It only has id, name, superuser, and timestamps
     const principalCols = await getTableColumns(sql, schema, "principal");
     const colNames = principalCols.map((c) => c.column_name);
     expect(colNames).toContain("id");
-    expect(colNames).toContain("email");
     expect(colNames).toContain("name");
     expect(colNames).toContain("superuser");
-    expect(colNames).toContain("can_login");
-    expect(colNames).toContain("password_hash");
+    expect(colNames).toContain("created_at");
+    expect(colNames).toContain("updated_at");
+    // API keys and passwords have moved to accounts database
+    expect(colNames).not.toContain("email");
+    expect(colNames).not.toContain("password_hash");
+    expect(colNames).not.toContain("can_login");
 
-    const apiKeyCols = await getTableColumns(sql, schema, "api_key");
-    const akNames = apiKeyCols.map((c) => c.column_name);
-    expect(akNames).toContain("lookup_id");
-    expect(akNames).toContain("key_hash");
-    expect(akNames).toContain("principal_id");
+    // api_key table no longer exists (moved to accounts)
+    expect(await tableExists(sql, schema, "api_key")).toBe(false);
   });
 
   test("RLS policies enabled on memory", async () => {

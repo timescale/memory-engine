@@ -38,68 +38,23 @@ export interface OpsContext {
 // Principal
 // =============================================================================
 
+/**
+ * Principal is a lightweight projection of accounts.user or accounts.agent.
+ * The ID matches the source record in accounts database.
+ */
 export interface Principal {
   id: string;
-  email: string | null;
   name: string;
   superuser: boolean;
-  createrole: boolean;
-  canLogin: boolean;
   createdAt: Date;
   updatedAt: Date | null;
 }
 
 export interface CreatePrincipalParams {
+  /** ID to use (typically from accounts.user.id or accounts.agent.id) */
+  id?: string;
   name: string;
-  email?: string | null;
-  password?: string | null;
   superuser?: boolean;
-  createrole?: boolean;
-  canLogin?: boolean;
-}
-
-// =============================================================================
-// API Key
-// =============================================================================
-
-export interface ApiKey {
-  id: string;
-  principalId: string;
-  name: string;
-  lookupId: string;
-  keyHash: string;
-  expiresAt: Date;
-  createdAt: Date;
-  updatedAt: Date | null;
-}
-
-/** API key info returned when listing (no hash) */
-export interface ApiKeyInfo {
-  id: string;
-  principalId: string;
-  name: string;
-  lookupId: string;
-  expiresAt: Date;
-  createdAt: Date;
-  updatedAt: Date | null;
-}
-
-/** Result of creating an API key */
-export interface CreateApiKeyResult {
-  /** The full API key (only returned once, at creation time) */
-  key: string;
-  /** The key's database ID */
-  id: string;
-  /** The lookup portion of the key */
-  lookupId: string;
-}
-
-/** Result of validating an API key */
-export interface ValidateApiKeyResult {
-  principalId: string;
-  superuser: boolean;
-  createrole: boolean;
-  canLogin: boolean;
 }
 
 // =============================================================================
