@@ -20,9 +20,8 @@ create trigger org_updated_at
     for each row
     execute function {{schema}}.update_updated_at();
 
--- ===== User (human identity) =====
--- Note: "user" is a reserved word, must be quoted
-create table {{schema}}."user"
+-- ===== Identity (human who can log in) =====
+create table {{schema}}.identity
 ( id uuid primary key default uuidv7() check (uuid_extract_version(id) = 7)
 , email citext unique not null
 , name text not null
@@ -30,27 +29,8 @@ create table {{schema}}."user"
 , updated_at timestamptz
 );
 
-create trigger user_updated_at
-    before update on {{schema}}."user"
-    for each row
-    execute function {{schema}}.update_updated_at();
-
--- ===== Agent (non-human actor) =====
-create table {{schema}}.agent
-( id uuid primary key default uuidv7() check (uuid_extract_version(id) = 7)
-, org_id uuid not null references {{schema}}.org on delete cascade
-, name text not null
-, created_by uuid not null references {{schema}}."user"
-, created_at timestamptz not null default now()
-, updated_at timestamptz
-, unique (org_id, name)
-);
-
-create index idx_agent_org on {{schema}}.agent (org_id);
-create index idx_agent_created_by on {{schema}}.agent (created_by);
-
-create trigger agent_updated_at
-    before update on {{schema}}.agent
+create trigger identity_updated_at
+    before update on {{schema}}.identity
     for each row
     execute function {{schema}}.update_updated_at();
 

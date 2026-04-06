@@ -5,7 +5,7 @@ create table {{schema}}.invitation
 , email citext not null
 , role text not null check (role in ('owner', 'admin', 'member'))
 , token text unique not null
-, invited_by uuid not null references {{schema}}."user"
+, invited_by uuid not null references {{schema}}.identity
 , expires_at timestamptz not null
 , accepted_at timestamptz
 , created_at timestamptz not null default now()
