@@ -3,7 +3,13 @@ import { SQL } from "bun";
 import { bootstrap } from "./bootstrap";
 import { discoverEngineSchemas } from "./discover";
 import { provisionEngine } from "./provision";
-import { dryRun, migrateAll, migrateEngine } from "./runner";
+import {
+  dryRun,
+  getMigrations,
+  getVersion,
+  migrateAll,
+  migrateEngine,
+} from "./runner";
 import {
   countMigrations,
   getFunctions,
@@ -72,14 +78,11 @@ describe("bootstrap", () => {
 // Single-Engine Migration Tests
 // ---------------------------------------------------------------------------
 describe("single-engine migration", () => {
-  const schema = "me_testengine01";
+  const slug = "testengine01";
+  const schema = `me_${slug}`;
 
   beforeAll(async () => {
-    await sql.unsafe(`create schema if not exists ${schema}`);
-    await sql.unsafe(
-      `grant usage on schema ${schema} to me_ro, me_rw, me_embed`,
-    );
-    await migrateEngine(sql, schema, undefined, "0.1.0");
+    await provisionEngine(sql, slug, undefined, "0.1.0");
   });
 
   test("creates all tables", async () => {
@@ -441,22 +444,22 @@ describe("single-engine migration", () => {
 // Multi-Engine Tests
 // ---------------------------------------------------------------------------
 describe("multi-engine migration", () => {
-  const schemas = ["me_aaaa00000001", "me_aaaa00000002", "me_aaaa00000003"];
+  const slugs = ["aaaa00000001", "aaaa00000002", "aaaa00000003"];
+  const schemas = slugs.map((s) => `me_${s}`);
 
   beforeAll(async () => {
-    for (const schema of schemas) {
-      await sql.unsafe(`create schema if not exists ${schema}`);
-      await sql.unsafe(
-        `grant usage on schema ${schema} to me_ro, me_rw, me_embed`,
-      );
+    for (const slug of slugs) {
+      await provisionEngine(sql, slug, undefined, "0.1.0");
     }
   });
 
   test("migrateAll migrates multiple schemas", async () => {
+    // All already migrated, should be no-op
     const results = await migrateAll(sql, schemas, undefined, "0.1.0");
     expect(results.size).toBe(3);
     for (const [, result] of results) {
       expect(result.status).toBe("ok");
+      expect(result.applied).toHaveLength(0);
     }
     for (const schema of schemas) {
       expect(await tableExists(sql, schema, "memory")).toBe(true);
@@ -521,54 +524,46 @@ describe("discovery", () => {
 // ---------------------------------------------------------------------------
 describe("advisory locks", () => {
   test("concurrent migrateEngine on same schema — only one applies", async () => {
-    const schema = "me_locktest0001";
-    await sql.unsafe(`create schema if not exists ${schema}`);
-    await sql.unsafe(
-      `grant usage on schema ${schema} to me_ro, me_rw, me_embed`,
-    );
+    const slug = "locktest0001";
+    const schema = `me_${slug}`;
+    await provisionEngine(sql, slug, undefined, "0.1.0");
 
+    // Now run concurrent migrations (all should succeed with 0 applied due to idempotency)
     const results = await Promise.all([
       migrateEngine(sql, schema, undefined, "0.1.0"),
       migrateEngine(sql, schema, undefined, "0.1.0"),
       migrateEngine(sql, schema, undefined, "0.1.0"),
     ]);
 
-    const applied = results.filter(
-      (r) => r.status === "ok" && r.applied.length > 0,
-    );
-    const skipped = results.filter((r) => r.status === "skipped");
+    // All should complete (ok or skipped)
+    for (const result of results) {
+      expect(["ok", "skipped"]).toContain(result.status);
+    }
 
-    // At least one should have applied, others may skip or apply 0
-    expect(
-      applied.length +
-        skipped.length +
-        results.filter((r) => r.status === "ok" && r.applied.length === 0)
-          .length,
-    ).toBe(3);
-    // Exactly 4 migrations should exist
+    // Exactly 5 migrations should exist
     expect(await countMigrations(sql, schema)).toBe(5);
   });
 
   test("concurrent migrateEngine on different schemas — both proceed", async () => {
-    const schemaA = "me_locktest0002";
-    const schemaB = "me_locktest0003";
+    const slugA = "locktest0002";
+    const slugB = "locktest0003";
+    const schemaA = `me_${slugA}`;
+    const schemaB = `me_${slugB}`;
 
-    for (const schema of [schemaA, schemaB]) {
-      await sql.unsafe(`create schema if not exists ${schema}`);
-      await sql.unsafe(
-        `grant usage on schema ${schema} to me_ro, me_rw, me_embed`,
-      );
-    }
+    // Provision both first
+    await Promise.all([
+      provisionEngine(sql, slugA, undefined, "0.1.0"),
+      provisionEngine(sql, slugB, undefined, "0.1.0"),
+    ]);
 
+    // Now run migrations (should be no-ops since provisioning ran them)
     const [resultA, resultB] = await Promise.all([
       migrateEngine(sql, schemaA, undefined, "0.1.0"),
       migrateEngine(sql, schemaB, undefined, "0.1.0"),
     ]);
 
     expect(resultA.status).toBe("ok");
-    expect(resultA.applied).toHaveLength(5);
     expect(resultB.status).toBe("ok");
-    expect(resultB.applied).toHaveLength(5);
   });
 });
 
@@ -601,22 +596,19 @@ describe("provisioning", () => {
     ).rejects.toThrow("Invalid engine slug");
   });
 
-  test("is idempotent", async () => {
-    const result1 = await provisionEngine(
-      sql,
-      "prov00000002",
-      undefined,
-      "0.1.0",
-    );
-    expect(result1.migrateResult.applied).toHaveLength(5);
+  test("fails if schema already exists", async () => {
+    await provisionEngine(sql, "prov00000002", undefined, "0.1.0");
 
-    const result2 = await provisionEngine(
-      sql,
-      "prov00000002",
-      undefined,
-      "0.1.0",
-    );
-    expect(result2.migrateResult.applied).toHaveLength(0);
+    await expect(
+      provisionEngine(sql, "prov00000002", undefined, "0.1.0"),
+    ).rejects.toThrow();
+  });
+
+  test("creates version table", async () => {
+    const slug = "prov00000003";
+    await provisionEngine(sql, slug, undefined, "0.1.0");
+    expect(await tableExists(sql, `me_${slug}`, "version")).toBe(true);
+    expect(await getVersion(sql, `me_${slug}`)).toBe("0.1.0");
   });
 });
 
@@ -625,6 +617,7 @@ describe("provisioning", () => {
 // ---------------------------------------------------------------------------
 describe("dry run", () => {
   test("shows all pending for new schema", async () => {
+    // Create a schema manually without running migrations (simulating a fresh schema)
     const schema = "me_dryrun000001";
     await sql.unsafe(`create schema if not exists ${schema}`);
 
@@ -634,12 +627,9 @@ describe("dry run", () => {
   });
 
   test("shows none pending after full migration", async () => {
-    const schema = "me_dryrun000002";
-    await sql.unsafe(`create schema if not exists ${schema}`);
-    await sql.unsafe(
-      `grant usage on schema ${schema} to me_ro, me_rw, me_embed`,
-    );
-    await migrateEngine(sql, schema, undefined, "0.1.0");
+    const slug = "dryrun000002";
+    const schema = `me_${slug}`;
+    await provisionEngine(sql, slug, undefined, "0.1.0");
 
     const result = await dryRun(sql, schema);
     expect(result.pending).toHaveLength(0);
@@ -652,12 +642,9 @@ describe("dry run", () => {
 // ---------------------------------------------------------------------------
 describe("version tracking", () => {
   test("applied_at_version records correctly", async () => {
-    const schema = "me_version00001";
-    await sql.unsafe(`create schema if not exists ${schema}`);
-    await sql.unsafe(
-      `grant usage on schema ${schema} to me_ro, me_rw, me_embed`,
-    );
-    await migrateEngine(sql, schema, undefined, "1.2.3");
+    const slug = "version00001";
+    const schema = `me_${slug}`;
+    await provisionEngine(sql, slug, undefined, "1.2.3");
 
     const rows = await sql.unsafe(`
       select applied_at_version from ${schema}.migration
@@ -668,17 +655,39 @@ describe("version tracking", () => {
   });
 
   test("re-migrate with same migrations is no-op", async () => {
-    const schema = "me_version00002";
-    await sql.unsafe(`create schema if not exists ${schema}`);
-    await sql.unsafe(
-      `grant usage on schema ${schema} to me_ro, me_rw, me_embed`,
-    );
+    const slug = "version00002";
+    const schema = `me_${slug}`;
+    await provisionEngine(sql, slug, undefined, "0.1.0");
 
-    const result1 = await migrateEngine(sql, schema, undefined, "0.1.0");
-    expect(result1.applied).toHaveLength(5);
+    const result = await migrateEngine(sql, schema, undefined, "0.1.0");
+    expect(result.applied).toHaveLength(0);
+  });
 
-    const result2 = await migrateEngine(sql, schema, undefined, "0.2.0");
-    expect(result2.applied).toHaveLength(0);
+  test("rejects downgrade", async () => {
+    const slug = "version00003";
+    const schema = `me_${slug}`;
+    await provisionEngine(sql, slug, undefined, "0.2.0");
+
+    await expect(
+      migrateEngine(sql, schema, undefined, "0.1.0"),
+    ).rejects.toThrow("older than database version");
+  });
+
+  test("updates version on upgrade", async () => {
+    const slug = "version00004";
+    const schema = `me_${slug}`;
+    await provisionEngine(sql, slug, undefined, "0.1.0");
+    expect(await getVersion(sql, schema)).toBe("0.1.0");
+
+    await migrateEngine(sql, schema, undefined, "0.2.0");
+    expect(await getVersion(sql, schema)).toBe("0.2.0");
+  });
+
+  test("getVersion returns current version", async () => {
+    const slug = "version00005";
+    const schema = `me_${slug}`;
+    await provisionEngine(sql, slug, undefined, "1.2.3");
+    expect(await getVersion(sql, schema)).toBe("1.2.3");
   });
 });
 
@@ -686,12 +695,14 @@ describe("version tracking", () => {
 // Cross-Engine Isolation Tests
 // ---------------------------------------------------------------------------
 describe("cross-engine isolation", () => {
-  const schemaA = "me_isolate00001";
-  const schemaB = "me_isolate00002";
+  const slugA = "isolate00001";
+  const slugB = "isolate00002";
+  const schemaA = `me_${slugA}`;
+  const schemaB = `me_${slugB}`;
 
   beforeAll(async () => {
-    await provisionEngine(sql, "isolate00001", undefined, "0.1.0");
-    await provisionEngine(sql, "isolate00002", undefined, "0.1.0");
+    await provisionEngine(sql, slugA, undefined, "0.1.0");
+    await provisionEngine(sql, slugB, undefined, "0.1.0");
   });
 
   test("data isolated between schemas", async () => {

@@ -136,7 +136,7 @@ create function {{schema}}.tree_access
 ( _principal_id uuid
 , _action text
 )
-returns set of ltree
+returns setof ltree
 as $func$
   with recursive effective_roles(principal_id) as
   (
@@ -188,7 +188,7 @@ create policy memory_select on {{schema}}.memory
   for select to me_ro, me_rw
   using
   (
-    select exists
+    exists
     (
       select true
       from {{schema}}.tree_access(current_setting('me.principal_id', true)::uuid, 'read') ta(tree_path)
@@ -200,7 +200,7 @@ create policy memory_insert on {{schema}}.memory
   for insert to me_rw
   with check
   (
-    select exists
+    exists
     (
       select true
       from {{schema}}.tree_access(current_setting('me.principal_id', true)::uuid, 'create') ta(tree_path)
@@ -212,7 +212,7 @@ create policy memory_update on {{schema}}.memory
   for update to me_rw
   using
   (
-    select exists
+    exists
     (
       select true
       from {{schema}}.tree_access(current_setting('me.principal_id', true)::uuid, 'update') ta(tree_path)
@@ -221,7 +221,7 @@ create policy memory_update on {{schema}}.memory
   )
   with check
   (
-    select exists
+    exists
     (
       select true
       from {{schema}}.tree_access(current_setting('me.principal_id', true)::uuid, 'update') ta(tree_path)
@@ -233,7 +233,7 @@ create policy memory_delete on {{schema}}.memory
   for delete to me_rw
   using
   (
-    select exists
+    exists
     (
       select true
       from {{schema}}.tree_access(current_setting('me.principal_id', true)::uuid, 'delete') ta(tree_path)
