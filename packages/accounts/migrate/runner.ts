@@ -1,7 +1,4 @@
 import { type SQL, semver } from "bun";
-import migration001 from "./migrations/001_create_schema.sql" with {
-  type: "text",
-};
 import { type AccountsConfig, resolveConfig, template } from "./template";
 
 interface Migration {
@@ -9,9 +6,8 @@ interface Migration {
   sql: string;
 }
 
-const migrations: Migration[] = [
-  { name: "001_create_schema", sql: migration001 },
-];
+// No migrations yet - scaffold handles infrastructure, domain migrations go here
+const migrations: Migration[] = [];
 
 export interface MigrateResult {
   schema: string;
@@ -25,6 +21,55 @@ const BASE_DELAY_MS = 100;
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Scaffold creates the migration infrastructure: schema, version table, migration table.
+ * This runs before migrations and is idempotent - safe to call multiple times.
+ * Also validates ownership to prevent migrating a schema you don't own.
+ */
+async function scaffold(tx: SQL, schema: string): Promise<void> {
+  await tx.unsafe(`
+    do $block$
+    declare
+        _owner oid;
+        _user oid;
+    begin
+        select pg_catalog.to_regrole(current_user)::oid
+        into strict _user
+        ;
+
+        select n.nspowner into _owner
+        from pg_catalog.pg_namespace n
+        where n.nspname = '${schema}'
+        ;
+
+        if _owner is null then
+            -- schema doesn't exist, create infrastructure
+            create schema ${schema};
+
+            -- version table (single row, tracks overall schema version)
+            create table ${schema}.version
+            ( version text not null check (version ~ '^\\d+\\.\\d+\\.\\d+$')
+            , at timestamptz not null default now()
+            );
+            create unique index on ${schema}.version ((true));
+            insert into ${schema}.version (version) values ('0.0.0');
+
+            -- migration table
+            create table ${schema}.migration
+            ( name text not null primary key
+            , applied_at_version text not null
+            , applied_at timestamptz not null default pg_catalog.clock_timestamp()
+            );
+
+        elsif _owner is distinct from _user then
+            raise exception 'only the owner of the ${schema} schema can run database migrations';
+        end if
+        ;
+    end
+    $block$
+  `);
 }
 
 export async function migrate(
@@ -57,35 +102,20 @@ export async function migrate(
       return { schema, status: "skipped" as const, applied: [] };
     }
 
-    // Check if schema exists (first migration creates it)
-    const [{ schema_exists }] = await tx`
-      select exists (
-        select 1 from information_schema.schemata where schema_name = ${schema}
-      ) as schema_exists
-    `;
+    // Scaffold creates schema + version + migration tables (idempotent)
+    await scaffold(tx, schema);
 
-    // Check version if schema exists
-    if (schema_exists) {
-      const [{ table_exists }] = await tx`
-        select exists (
-          select 1 from information_schema.tables
-          where table_schema = ${schema} and table_name = 'version'
-        ) as table_exists
-      `;
+    // Check version - reject downgrades
+    const [{ version: dbVersion }] = await tx.unsafe(
+      `select version from ${schema}.version`,
+    );
 
-      if (table_exists) {
-        const [{ version: dbVersion }] = await tx.unsafe(
-          `select version from ${schema}.version`,
-        );
-
-        const cmp = semver.order(appVersion, dbVersion);
-        if (cmp < 0) {
-          throw new Error(
-            `App version (${appVersion}) is older than database version (${dbVersion}). ` +
-              "Please upgrade the application.",
-          );
-        }
-      }
+    const cmp = semver.order(appVersion, dbVersion);
+    if (cmp < 0) {
+      throw new Error(
+        `App version (${appVersion}) is older than database version (${dbVersion}). ` +
+          "Please upgrade the application.",
+      );
     }
 
     // Run migrations
@@ -93,25 +123,13 @@ export async function migrate(
     const applied: string[] = [];
 
     for (const migration of sorted) {
-      // Check if migration table exists before querying it
-      if (schema_exists) {
-        const [{ table_exists }] = await tx`
-          select exists (
-            select 1 from information_schema.tables
-            where table_schema = ${schema} and table_name = 'migration'
-          ) as table_exists
-        `;
+      const [existing] = await tx.unsafe(
+        `select 1 from ${schema}.migration where name = $1`,
+        [migration.name],
+      );
 
-        if (table_exists) {
-          const [existing] = await tx.unsafe(
-            `select 1 from ${schema}.migration where name = $1`,
-            [migration.name],
-          );
-
-          if (existing) {
-            continue;
-          }
-        }
+      if (existing) {
+        continue;
       }
 
       const renderedSql = template(migration.sql, resolved);
@@ -123,17 +141,11 @@ export async function migrate(
       applied.push(migration.name);
     }
 
-    // Update version if we applied migrations and app version is newer
-    if (applied.length > 0 || schema_exists) {
-      const [{ version: currentVersion }] = await tx.unsafe(
-        `select version from ${schema}.version`,
-      );
-      if (semver.order(appVersion, currentVersion) > 0) {
-        await tx.unsafe(
-          `update ${schema}.version set version = $1, at = now()`,
-          [appVersion],
-        );
-      }
+    // Update version if app version is newer
+    if (cmp > 0) {
+      await tx.unsafe(`update ${schema}.version set version = $1, at = now()`, [
+        appVersion,
+      ]);
     }
 
     return { schema, status: "ok" as const, applied };
