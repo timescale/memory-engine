@@ -30,57 +30,81 @@ describe("principal ops", () => {
     const db = createEngineDB(sql, schema);
     const principal = await db.createPrincipal({
       name: "test-user",
-      email: "test@example.com",
     });
 
     expect(principal.name).toBe("test-user");
-    expect(principal.email).toBe("test@example.com");
     expect(principal.superuser).toBe(false);
-    expect(principal.createrole).toBe(false);
-    expect(principal.canLogin).toBe(true);
     expect(principal.id).toBeDefined();
     expect(principal.createdAt).toBeInstanceOf(Date);
   });
 
-  test("createPrincipal with password hashes it", async () => {
+  test("createPrincipal with custom id", async () => {
     const db = createEngineDB(sql, schema);
+    // Generate a UUIDv7 for testing
+    const customId = crypto.randomUUID();
+    // Replace version nibble with 7 to make it UUIDv7 compatible
+    const uuidv7Id = customId.replace(
+      /^(.{8}-.{4}-)(.)/,
+      (_, prefix) => `${prefix}7`,
+    );
+
     const principal = await db.createPrincipal({
-      name: "test-user-with-password",
-      password: "secret123",
+      id: uuidv7Id,
+      name: "test-user-with-id",
     });
 
-    expect(principal.name).toBe("test-user-with-password");
-
-    // Verify password was hashed (check DB directly)
-    const [row] = await sql`
-      select password_hash from ${sql.unsafe(schema)}.principal where id = ${principal.id}
-    `;
-    expect(row.password_hash).toBeDefined();
-    expect(row.password_hash).not.toBe("secret123");
-    expect(row.password_hash).toContain("$argon2");
+    expect(principal.id).toBe(uuidv7Id);
+    expect(principal.name).toBe("test-user-with-id");
   });
 
   test("createSuperuser creates a superuser principal", async () => {
     const db = createEngineDB(sql, schema);
-    const superuser = await db.createSuperuser("admin", "admin@example.com");
+    const superuser = await db.createSuperuser("admin");
 
     expect(superuser.name).toBe("admin");
     expect(superuser.superuser).toBe(true);
-    expect(superuser.createrole).toBe(true);
-    expect(superuser.canLogin).toBe(true);
   });
 
-  test("register creates a user with email and password", async () => {
+  test("createSuperuser with custom id", async () => {
     const db = createEngineDB(sql, schema);
-    const user = await db.register(
-      "newuser@example.com",
-      "password123",
-      "newuser",
-    );
+    const customId = crypto
+      .randomUUID()
+      .replace(/^(.{8}-.{4}-)(.)/, (_, prefix) => `${prefix}7`);
+    const superuser = await db.createSuperuser("admin-with-id", customId);
 
-    expect(user.name).toBe("newuser");
-    expect(user.email).toBe("newuser@example.com");
-    expect(user.superuser).toBe(false);
+    expect(superuser.id).toBe(customId);
+    expect(superuser.name).toBe("admin-with-id");
+    expect(superuser.superuser).toBe(true);
+  });
+
+  test("ensurePrincipal creates new principal", async () => {
+    const db = createEngineDB(sql, schema);
+    const id = crypto
+      .randomUUID()
+      .replace(/^(.{8}-.{4}-)(.)/, (_, prefix) => `${prefix}7`);
+
+    const principal = await db.ensurePrincipal(id, "ensure-new-user");
+
+    expect(principal.id).toBe(id);
+    expect(principal.name).toBe("ensure-new-user");
+    expect(principal.superuser).toBe(false);
+  });
+
+  test("ensurePrincipal updates existing principal", async () => {
+    const db = createEngineDB(sql, schema);
+    const id = crypto
+      .randomUUID()
+      .replace(/^(.{8}-.{4}-)(.)/, (_, prefix) => `${prefix}7`);
+
+    // Create initial
+    await db.ensurePrincipal(id, "ensure-user-v1");
+
+    // Update via ensure
+    const updated = await db.ensurePrincipal(id, "ensure-user-v2", true);
+
+    expect(updated.id).toBe(id);
+    expect(updated.name).toBe("ensure-user-v2");
+    expect(updated.superuser).toBe(true);
   });
 
   test("getPrincipal returns principal by ID", async () => {
@@ -111,26 +135,18 @@ describe("principal ops", () => {
     expect(fetched!.name).toBe("get-by-name-test");
   });
 
-  test("getPrincipalByName is case-insensitive", async () => {
+  test("getPrincipalByName matches exact name", async () => {
     const db = createEngineDB(sql, schema);
-    const uniqueName = `CaseSensitive_${Date.now()}`;
+    const uniqueName = `ExactMatch_${Date.now()}`;
     await db.createPrincipal({ name: uniqueName });
-    const fetched = await db.getPrincipalByName(uniqueName.toLowerCase());
+    const fetched = await db.getPrincipalByName(uniqueName);
 
     expect(fetched).not.toBeNull();
     expect(fetched!.name).toBe(uniqueName);
-  });
 
-  test("getPrincipalByEmail returns principal by email", async () => {
-    const db = createEngineDB(sql, schema);
-    await db.createPrincipal({
-      name: "email-test",
-      email: "email-test@example.com",
-    });
-    const fetched = await db.getPrincipalByEmail("email-test@example.com");
-
-    expect(fetched).not.toBeNull();
-    expect(fetched!.email).toBe("email-test@example.com");
+    // Different case should not match (name is text, not citext)
+    const notFound = await db.getPrincipalByName(uniqueName.toLowerCase());
+    expect(notFound).toBeNull();
   });
 
   test("listPrincipals returns all principals", async () => {
@@ -161,97 +177,6 @@ describe("principal ops", () => {
 
     const fetched = await db.getPrincipal(created.id);
     expect(fetched).toBeNull();
-  });
-
-  test("setPassword updates password", async () => {
-    const db = createEngineDB(sql, schema);
-    const created = await db.createPrincipal({ name: "password-test" });
-    await db.setPassword(created.id, "newpassword123");
-
-    const [row] = await sql`
-      select password_hash from ${sql.unsafe(schema)}.principal where id = ${created.id}
-    `;
-    expect(row.password_hash).toContain("$argon2");
-  });
-});
-
-// ---------------------------------------------------------------------------
-// API Key Tests
-// ---------------------------------------------------------------------------
-describe("api key ops", () => {
-  let testPrincipalId: string;
-
-  beforeAll(async () => {
-    const db = createEngineDB(sql, schema);
-    const principal = await db.createPrincipal({ name: "apikey-test-user" });
-    testPrincipalId = principal.id;
-  });
-
-  test("createApiKey generates a valid key", async () => {
-    const db = createEngineDB(sql, schema);
-    const result = await db.createApiKey(testPrincipalId, "test-key");
-
-    expect(result.key).toBeDefined();
-    expect(result.key).toContain(schema);
-    expect(result.id).toBeDefined();
-    expect(result.lookupId).toBeDefined();
-
-    // Key format: schema.lookupId.secret
-    const parts = result.key.split(".");
-    expect(parts).toHaveLength(3);
-    expect(parts[0]).toBe(schema);
-    expect(parts[1]).toBe(result.lookupId);
-  });
-
-  test("validateApiKey returns principal info for valid key", async () => {
-    const db = createEngineDB(sql, schema);
-    const created = await db.createApiKey(testPrincipalId, "validate-test-key");
-    const result = await db.validateApiKey(created.key);
-
-    expect(result).not.toBeNull();
-    expect(result!.principalId).toBe(testPrincipalId);
-    expect(result!.superuser).toBe(false);
-    expect(result!.canLogin).toBe(true);
-  });
-
-  test("validateApiKey returns null for invalid key", async () => {
-    const db = createEngineDB(sql, schema);
-    const result = await db.validateApiKey("invalid.key.format");
-
-    expect(result).toBeNull();
-  });
-
-  test("validateApiKey returns null for wrong secret", async () => {
-    const db = createEngineDB(sql, schema);
-    const created = await db.createApiKey(testPrincipalId, "wrong-secret-test");
-    // Replace secret with wrong value
-    const parts = created.key.split(".");
-    const wrongKey = `${parts[0]}.${parts[1]}.wrongsecretwrongsecretwrongse`;
-    const result = await db.validateApiKey(wrongKey);
-
-    expect(result).toBeNull();
-  });
-
-  test("listApiKeys returns keys for principal", async () => {
-    const db = createEngineDB(sql, schema);
-    await db.createApiKey(testPrincipalId, "list-test-key");
-    const keys = await db.listApiKeys(testPrincipalId);
-
-    expect(keys.length).toBeGreaterThan(0);
-    const key = keys.find((k) => k.name === "list-test-key");
-    expect(key).toBeDefined();
-    expect(key!.principalId).toBe(testPrincipalId);
-  });
-
-  test("revokeApiKey removes key", async () => {
-    const db = createEngineDB(sql, schema);
-    const created = await db.createApiKey(testPrincipalId, "revoke-test-key");
-    const result = await db.revokeApiKey(testPrincipalId, created.id);
-
-    expect(result).toBe(true);
-
-    const validated = await db.validateApiKey(created.key);
-    expect(validated).toBeNull();
   });
 });
 
@@ -415,10 +340,9 @@ describe("role ops", () => {
 
   beforeAll(async () => {
     const db = createEngineDB(sql, schema);
-    // Create a role (can_login: false)
+    // Create a role (a principal used as a role for grouping)
     const role = await db.createPrincipal({
       name: "test-role",
-      canLogin: false,
     });
     roleId = role.id;
 
@@ -439,11 +363,9 @@ describe("role ops", () => {
     const db = createEngineDB(sql, schema);
     const role1 = await db.createPrincipal({
       name: "cycle-role-1",
-      canLogin: false,
     });
     const role2 = await db.createPrincipal({
       name: "cycle-role-2",
-      canLogin: false,
     });
 
     await db.addRoleMember(role1.id, role2.id);
@@ -458,7 +380,6 @@ describe("role ops", () => {
     const db = createEngineDB(sql, schema);
     const role = await db.createPrincipal({
       name: "remove-role",
-      canLogin: false,
     });
     const member = await db.createPrincipal({ name: "remove-member" });
 
@@ -482,7 +403,6 @@ describe("role ops", () => {
     const db = createEngineDB(sql, schema);
     const role = await db.createPrincipal({
       name: "admin-role",
-      canLogin: false,
     });
     const admin = await db.createPrincipal({ name: "admin-member" });
 

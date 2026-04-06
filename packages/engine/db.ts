@@ -1,6 +1,5 @@
 import type { SQL } from "bun";
 import { deriveContext } from "./ops/_tx";
-import { type ApiKeyOps, apiKeyOps } from "./ops/api-key";
 import { type GrantOps, grantOps } from "./ops/grant";
 import { type MemoryOps, memoryOps } from "./ops/memory";
 import { type OwnerOps, ownerOps } from "./ops/owner";
@@ -16,12 +15,7 @@ export interface CreateEngineDBOptions {
 /**
  * All ops combined
  */
-type AllOps = PrincipalOps &
-  ApiKeyOps &
-  GrantOps &
-  OwnerOps &
-  RoleOps &
-  MemoryOps;
+type AllOps = PrincipalOps & GrantOps & OwnerOps & RoleOps & MemoryOps;
 
 /**
  * EngineDB interface - explicit type to avoid circular reference issues
@@ -42,7 +36,6 @@ export interface EngineDB extends AllOps {
 function composeOps(ctx: OpsContext): AllOps {
   return {
     ...principalOps(ctx),
-    ...apiKeyOps(ctx),
     ...grantOps(ctx),
     ...ownerOps(ctx),
     ...roleOps(ctx),
