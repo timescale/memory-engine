@@ -1,4 +1,4 @@
-import type { SQL } from "bun";
+import { type SQL, semver } from "bun";
 import { assertEngineSchema } from "./discover";
 import migration001 from "./migrations/001_updated_at.sql" with {
   type: "text",
@@ -35,6 +35,28 @@ export interface MigrateResult {
   error?: Error;
 }
 
+const MAX_LOCK_RETRIES = 5;
+const BASE_DELAY_MS = 100;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function assertSchemaOwnership(tx: SQL, schema: string): Promise<void> {
+  const [result] = await tx`
+    select
+      n.nspowner = (select pg_catalog.to_regrole(current_user)::oid) as is_owner
+    from pg_catalog.pg_namespace n
+    where n.nspname = ${schema}
+  `;
+
+  if (!result?.is_owner) {
+    throw new Error(
+      `Only the owner of the ${schema} schema can run database migrations`,
+    );
+  }
+}
+
 export async function migrateEngine(
   sql: SQL,
   schema: string,
@@ -45,19 +67,46 @@ export async function migrateEngine(
   const resolved = resolveConfig(schema, config);
 
   return await sql.begin(async (tx) => {
-    // Acquire per-schema advisory lock
+    // 1. Acquire advisory lock with retry
     const [{ lock_id }] = await tx`
       select hashtext(${schema})::bigint as lock_id
     `;
-    const [{ acquired }] = await tx`
-      select pg_try_advisory_xact_lock(${lock_id}) as acquired
-    `;
+
+    let acquired = false;
+    for (let attempt = 0; attempt < MAX_LOCK_RETRIES; attempt++) {
+      const [result] = await tx`
+        select pg_try_advisory_xact_lock(${lock_id}) as acquired
+      `;
+      if (result.acquired) {
+        acquired = true;
+        break;
+      }
+      if (attempt < MAX_LOCK_RETRIES - 1) {
+        await sleep(BASE_DELAY_MS * 2 ** attempt);
+      }
+    }
 
     if (!acquired) {
       return { schema, status: "skipped" as const, applied: [] };
     }
 
-    // Scaffold migration tracking table
+    // 2. Check ownership
+    await assertSchemaOwnership(tx, schema);
+
+    // 3. Check version (reject downgrades)
+    const [{ version: dbVersion }] = await tx.unsafe(
+      `select version from ${schema}.version`,
+    );
+
+    const cmp = semver.order(appVersion, dbVersion);
+    if (cmp < 0) {
+      throw new Error(
+        `App version (${appVersion}) is older than database version (${dbVersion}). ` +
+          "Please upgrade the application.",
+      );
+    }
+
+    // 4. Scaffold migration tracking table
     await tx.unsafe(`
       create table if not exists ${schema}.migration
       ( name text not null primary key
@@ -66,7 +115,7 @@ export async function migrateEngine(
       )
     `);
 
-    // Run migrations
+    // 5. Run migrations
     const sorted = [...migrations].sort((a, b) => a.name.localeCompare(b.name));
     const applied: string[] = [];
 
@@ -87,6 +136,13 @@ export async function migrateEngine(
         [migration.name, appVersion],
       );
       applied.push(migration.name);
+    }
+
+    // 6. Update version if app version is newer
+    if (cmp > 0) {
+      await tx.unsafe(`update ${schema}.version set version = $1, at = now()`, [
+        appVersion,
+      ]);
     }
 
     return { schema, status: "ok" as const, applied };
@@ -195,4 +251,10 @@ export function getMigrations(): ReadonlyArray<{ name: string }> {
   return [...migrations]
     .sort((a, b) => a.name.localeCompare(b.name))
     .map(({ name }) => ({ name }));
+}
+
+export async function getVersion(sql: SQL, schema: string): Promise<string> {
+  await assertEngineSchema(sql, schema);
+  const [row] = await sql.unsafe(`select version from ${schema}.version`);
+  return row.version;
 }
