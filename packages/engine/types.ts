@@ -30,31 +30,73 @@ export interface OpsContext {
   shard?: number;
   /** Whether we're inside a transaction (controls whether withTx opens a new one) */
   inTransaction: boolean;
-  /** Get the current principal ID (for RLS context) */
-  getPrincipalId: () => string | null;
+  /** Get the current user ID (for RLS context) */
+  getUserId: () => string | null;
 }
 
 // =============================================================================
-// Principal
+// User
 // =============================================================================
 
 /**
- * Principal is a lightweight projection of accounts.user or accounts.agent.
- * The ID matches the source record in accounts database.
+ * User: thing that accesses memories within an engine.
+ * Can be owned by an identity (soft FK to accounts.identity) or standalone.
+ * If can_login = false, it's a role (grant container for RBAC).
  */
-export interface Principal {
+export interface User {
   id: string;
   name: string;
+  ownedBy: string | null;
+  canLogin: boolean;
   superuser: boolean;
   createdAt: Date;
   updatedAt: Date | null;
 }
 
-export interface CreatePrincipalParams {
-  /** ID to use (typically from accounts.user.id or accounts.agent.id) */
+export interface CreateUserParams {
   id?: string;
   name: string;
+  ownedBy?: string | null;
+  canLogin?: boolean;
   superuser?: boolean;
+}
+
+// =============================================================================
+// API Key
+// =============================================================================
+
+/**
+ * API key for authenticating to an engine.
+ * Scoped to a user within this engine.
+ */
+export interface ApiKey {
+  id: string;
+  userId: string;
+  lookupId: string;
+  name: string;
+  expiresAt: Date | null;
+  lastUsedAt: Date | null;
+  createdAt: Date;
+  revokedAt: Date | null;
+}
+
+export interface CreateApiKeyParams {
+  userId: string;
+  name: string;
+  expiresAt?: Date | null;
+}
+
+export interface CreateApiKeyResult {
+  apiKey: ApiKey;
+  /** The full API key string (only returned on creation) */
+  rawKey: string;
+}
+
+export interface ValidateApiKeyResult {
+  valid: boolean;
+  userId?: string;
+  apiKeyId?: string;
+  error?: string;
 }
 
 // =============================================================================
@@ -63,7 +105,7 @@ export interface CreatePrincipalParams {
 
 export interface TreeGrant {
   id: string;
-  principalId: string;
+  userId: string;
   treePath: string;
   actions: string[];
   grantedBy: string | null;
@@ -72,7 +114,7 @@ export interface TreeGrant {
 }
 
 export interface GrantTreeAccessParams {
-  principalId: string;
+  userId: string;
   treePath: string;
   actions: string[];
   grantedBy?: string | null;
@@ -85,7 +127,7 @@ export interface GrantTreeAccessParams {
 
 export interface TreeOwner {
   treePath: string;
-  principalId: string;
+  userId: string;
   createdBy: string | null;
   createdAt: Date;
 }
