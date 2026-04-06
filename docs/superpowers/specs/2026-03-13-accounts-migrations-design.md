@@ -75,6 +75,39 @@ interface MigrateResult {
 - `bootstrap` (accounts won't need pgvector/pg_textsearch extensions)
 - Engine-specific config vars (embedding_dimensions, bm25_*, hnsw_*)
 
+## Schema Version Tracking
+
+The database tracks its schema version to prevent running older app code against a newer database:
+
+```sql
+create table {{schema}}.version
+( version text not null check (version ~ '^\d+\.\d+\.\d+$')
+, at timestamptz not null default now()
+);
+create unique index on {{schema}}.version ((true));  -- ensures only one row ever
+insert into {{schema}}.version (version) values ('0.0.0');
+```
+
+**Version check logic:**
+
+1. Before running migrations, read `version` from the table
+2. Compare app version vs DB version using semver
+3. If app version < DB version: **throw error** - prevents rollback issues
+4. Run migrations
+5. If app version > DB version: update the version table
+
+This ensures:
+- You can't accidentally run old code against a newer database
+- The version bumps automatically when deploying newer code
+- Clear error message tells you to upgrade the application
+
+**API addition:**
+
+```typescript
+// Get current database schema version
+getVersion(sql: SQL, config?: AccountsConfig): Promise<string>
+```
+
 ## Migration Table Schema
 
 ```sql
