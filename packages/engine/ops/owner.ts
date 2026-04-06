@@ -4,7 +4,7 @@ import { withTx } from "./_tx";
 // Row type from database
 interface TreeOwnerRow {
   tree_path: string;
-  principal_id: string;
+  user_id: string;
   created_by: string | null;
   created_at: Date;
 }
@@ -12,7 +12,7 @@ interface TreeOwnerRow {
 function rowToTreeOwner(row: TreeOwnerRow): TreeOwner {
   return {
     treePath: row.tree_path,
-    principalId: row.principal_id,
+    userId: row.user_id,
     createdBy: row.created_by,
     createdAt: row.created_at,
   };
@@ -26,19 +26,19 @@ export function ownerOps(ctx: OpsContext) {
      * Set tree owner (upserts on tree_path)
      */
     async setTreeOwner(
-      principalId: string,
+      userId: string,
       treePath: string,
       createdBy?: string,
     ): Promise<void> {
       await withTx(ctx, "admin", async (sql) => {
         await sql`
           insert into ${sql.unsafe(schema)}.tree_owner
-            (tree_path, principal_id, created_by)
+            (tree_path, user_id, created_by)
           values
-            (${treePath}::ltree, ${principalId}, ${createdBy ?? null})
+            (${treePath}::ltree, ${userId}, ${createdBy ?? null})
           on conflict (tree_path)
           do update set
-            principal_id = excluded.principal_id,
+            user_id = excluded.user_id,
             created_by = excluded.created_by
         `;
       });
@@ -63,7 +63,7 @@ export function ownerOps(ctx: OpsContext) {
     async getTreeOwner(treePath: string): Promise<TreeOwner | null> {
       return withTx(ctx, "admin", async (sql) => {
         const rows = await sql<TreeOwnerRow[]>`
-          select tree_path::text, principal_id, created_by, created_at
+          select tree_path::text, user_id, created_by, created_at
           from ${sql.unsafe(schema)}.tree_owner
           where tree_path = ${treePath}::ltree
         `;
@@ -73,22 +73,22 @@ export function ownerOps(ctx: OpsContext) {
     },
 
     /**
-     * List tree owners, optionally filtered by principal
+     * List tree owners, optionally filtered by user
      */
-    async listTreeOwners(principalId?: string): Promise<TreeOwner[]> {
+    async listTreeOwners(userId?: string): Promise<TreeOwner[]> {
       return withTx(ctx, "admin", async (sql) => {
-        if (principalId) {
+        if (userId) {
           const rows = await sql<TreeOwnerRow[]>`
-            select tree_path::text, principal_id, created_by, created_at
+            select tree_path::text, user_id, created_by, created_at
             from ${sql.unsafe(schema)}.tree_owner
-            where principal_id = ${principalId}
+            where user_id = ${userId}
             order by tree_path
           `;
           return rows.map(rowToTreeOwner);
         }
 
         const rows = await sql<TreeOwnerRow[]>`
-          select tree_path::text, principal_id, created_by, created_at
+          select tree_path::text, user_id, created_by, created_at
           from ${sql.unsafe(schema)}.tree_owner
           order by tree_path
         `;
@@ -97,15 +97,15 @@ export function ownerOps(ctx: OpsContext) {
     },
 
     /**
-     * Check if a principal owns a tree path (or any ancestor)
+     * Check if a user owns a tree path (or any ancestor)
      */
-    async isOwnerOf(principalId: string, treePath: string): Promise<boolean> {
+    async isOwnerOf(userId: string, treePath: string): Promise<boolean> {
       return withTx(ctx, "admin", async (sql) => {
         const rows = await sql<{ is_owner: boolean }[]>`
           select exists (
             select 1
             from ${sql.unsafe(schema)}.tree_owner
-            where principal_id = ${principalId}
+            where user_id = ${userId}
               and ${treePath}::ltree <@ tree_path
           ) as is_owner
         `;

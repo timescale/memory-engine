@@ -1,10 +1,11 @@
 import type { SQL } from "bun";
 import { deriveContext } from "./ops/_tx";
+import { type ApiKeyOps, apiKeyOps } from "./ops/api-key";
 import { type GrantOps, grantOps } from "./ops/grant";
 import { type MemoryOps, memoryOps } from "./ops/memory";
 import { type OwnerOps, ownerOps } from "./ops/owner";
-import { type PrincipalOps, principalOps } from "./ops/principal";
 import { type RoleOps, roleOps } from "./ops/role";
+import { type UserOps, userOps } from "./ops/user";
 import type { OpsContext } from "./types";
 
 export interface CreateEngineDBOptions {
@@ -15,15 +16,16 @@ export interface CreateEngineDBOptions {
 /**
  * All ops combined
  */
-type AllOps = PrincipalOps & GrantOps & OwnerOps & RoleOps & MemoryOps;
+type AllOps = UserOps & ApiKeyOps & GrantOps & OwnerOps & RoleOps & MemoryOps;
 
 /**
  * EngineDB interface - explicit type to avoid circular reference issues
  */
 export interface EngineDB extends AllOps {
-  setPrincipal(id: string): void;
-  getPrincipalId(): string | null;
+  setUser(id: string): void;
+  getUserId(): string | null;
   getSchema(): string;
+  getEngineSlug(): string;
   withTransaction<T>(
     mode: "read" | "write",
     fn: (db: EngineDB) => Promise<T>,
@@ -33,14 +35,25 @@ export interface EngineDB extends AllOps {
 /**
  * Compose all ops into a single object
  */
-function composeOps(ctx: OpsContext): AllOps {
+function composeOps(ctx: OpsContext, engineSlug: string): AllOps {
   return {
-    ...principalOps(ctx),
+    ...userOps(ctx),
+    ...apiKeyOps(ctx, engineSlug),
     ...grantOps(ctx),
     ...ownerOps(ctx),
     ...roleOps(ctx),
     ...memoryOps(ctx),
   };
+}
+
+/**
+ * Extract engine slug from schema name (e.g., "me_abc123xyz789" -> "abc123xyz789")
+ */
+function extractSlugFromSchema(schema: string): string {
+  if (schema.startsWith("me_")) {
+    return schema.slice(3);
+  }
+  throw new Error(`Invalid schema name: ${schema} (must start with "me_")`);
 }
 
 /**
@@ -59,34 +72,35 @@ export function createEngineDB(
   schema: string,
   options?: CreateEngineDBOptions,
 ): EngineDB {
-  let principalId: string | null = null;
+  let userId: string | null = null;
+  const engineSlug = extractSlugFromSchema(schema);
 
   const ctx: OpsContext = {
     sql,
     schema,
     shard: options?.shard,
     inTransaction: false,
-    getPrincipalId: () => principalId,
+    getUserId: () => userId,
   };
 
-  const ops = composeOps(ctx);
+  const ops = composeOps(ctx, engineSlug);
 
   const db: EngineDB = {
     ...ops,
 
     /**
-     * Set the current principal ID for RLS context.
+     * Set the current user ID for RLS context.
      * This should be called after authentication, before making database calls.
      */
-    setPrincipal(id: string): void {
-      principalId = id;
+    setUser(id: string): void {
+      userId = id;
     },
 
     /**
-     * Get the current principal ID
+     * Get the current user ID
      */
-    getPrincipalId(): string | null {
-      return principalId;
+    getUserId(): string | null {
+      return userId;
     },
 
     /**
@@ -94,6 +108,13 @@ export function createEngineDB(
      */
     getSchema(): string {
       return schema;
+    },
+
+    /**
+     * Get the engine slug (for API key generation)
+     */
+    getEngineSlug(): string {
+      return engineSlug;
     },
 
     /**
@@ -119,25 +140,28 @@ export function createEngineDB(
         }
         await tx.unsafe(`SET LOCAL search_path TO ${schema}, public`);
         await tx.unsafe(`SET LOCAL ROLE ${role}`);
-        if (principalId) {
-          await tx`SELECT set_config('me.principal_id', ${principalId}, true)`;
+        if (userId) {
+          await tx`SELECT set_config('me.user_id', ${userId}, true)`;
         }
 
         // Create a derived context for the transaction
         const txCtx = deriveContext(ctx, tx);
-        const txOps = composeOps(txCtx);
+        const txOps = composeOps(txCtx, engineSlug);
 
         // Create a transactional EngineDB instance
         const txDb: EngineDB = {
           ...txOps,
-          setPrincipal(id: string): void {
-            principalId = id;
+          setUser(id: string): void {
+            userId = id;
           },
-          getPrincipalId(): string | null {
-            return principalId;
+          getUserId(): string | null {
+            return userId;
           },
           getSchema(): string {
             return schema;
+          },
+          getEngineSlug(): string {
+            return engineSlug;
           },
           // Nested withTransaction just runs the function directly
           // (already in a transaction)
