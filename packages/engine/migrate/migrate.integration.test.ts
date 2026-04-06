@@ -3,13 +3,7 @@ import { SQL } from "bun";
 import { bootstrap } from "./bootstrap";
 import { discoverEngineSchemas } from "./discover";
 import { provisionEngine } from "./provision";
-import {
-  dryRun,
-  getMigrations,
-  getVersion,
-  migrateAll,
-  migrateEngine,
-} from "./runner";
+import { dryRun, getVersion, migrateAll, migrateEngine } from "./runner";
 import {
   countMigrations,
   getFunctions,
