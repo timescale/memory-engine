@@ -82,7 +82,8 @@ describe("single-engine migration", () => {
   test("creates all tables", async () => {
     for (const table of [
       "memory",
-      "principal",
+      "user",
+      "api_key",
       "tree_grant",
       "role_membership",
       "tree_owner",
@@ -210,22 +211,24 @@ describe("single-engine migration", () => {
   });
 
   test("auth tables have correct structure", async () => {
-    // Principal table is now a simple projection from accounts
-    // It only has id, name, superuser, and timestamps
-    const principalCols = await getTableColumns(sql, schema, "principal");
-    const colNames = principalCols.map((c) => c.column_name);
+    // User table: thing that accesses memories (or a role if can_login = false)
+    const userCols = await getTableColumns(sql, schema, "user");
+    const colNames = userCols.map((c) => c.column_name);
     expect(colNames).toContain("id");
     expect(colNames).toContain("name");
+    expect(colNames).toContain("owned_by");
+    expect(colNames).toContain("can_login");
     expect(colNames).toContain("superuser");
     expect(colNames).toContain("created_at");
     expect(colNames).toContain("updated_at");
-    // API keys and passwords have moved to accounts database
-    expect(colNames).not.toContain("email");
-    expect(colNames).not.toContain("password_hash");
-    expect(colNames).not.toContain("can_login");
 
-    // api_key table no longer exists (moved to accounts)
-    expect(await tableExists(sql, schema, "api_key")).toBe(false);
+    // api_key table exists in engine (user-scoped, engine-scoped)
+    expect(await tableExists(sql, schema, "api_key")).toBe(true);
+    const apiKeyCols = await getTableColumns(sql, schema, "api_key");
+    const apiKeyColNames = apiKeyCols.map((c) => c.column_name);
+    expect(apiKeyColNames).toContain("user_id");
+    expect(apiKeyColNames).toContain("lookup_id");
+    expect(apiKeyColNames).toContain("key_hash");
   });
 
   test("RLS policies enabled on memory", async () => {
@@ -578,7 +581,7 @@ describe("provisioning", () => {
     expect(result.migrateResult.applied).toHaveLength(5);
     expect(await schemaExists(sql, "me_prov00000001")).toBe(true);
     expect(await tableExists(sql, "me_prov00000001", "memory")).toBe(true);
-    expect(await tableExists(sql, "me_prov00000001", "principal")).toBe(true);
+    expect(await tableExists(sql, "me_prov00000001", "user")).toBe(true);
   });
 
   test("validates slug format", () => {
