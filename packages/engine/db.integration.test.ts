@@ -14,7 +14,7 @@ beforeAll(async () => {
   connectionString = await testDb.create();
   sql = new SQL(connectionString);
   await bootstrap(sql);
-  await provisionEngine(sql, "testengine01", undefined, "0.0.0-test");
+  await provisionEngine(sql, "testengine01", undefined, "0.1.0");
 });
 
 afterAll(async () => {
