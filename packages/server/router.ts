@@ -1,3 +1,4 @@
+import type { ServerContext } from "./context";
 import {
   deviceCodeHandler,
   deviceTokenHandler,
@@ -7,13 +8,12 @@ import {
 } from "./handlers/auth";
 import { healthHandler } from "./handlers/health";
 import {
+  type AccountsAuthContext,
   authenticateAccounts,
   authenticateEngine,
   type EngineAuthContext,
-  type AccountsAuthContext,
 } from "./middleware/authenticate";
 import { accountsMethods, createRpcHandler, engineMethods } from "./rpc";
-import type { ServerContext } from "./context";
 import { notFound } from "./util/response";
 
 /**

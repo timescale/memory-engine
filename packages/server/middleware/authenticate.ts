@@ -1,10 +1,10 @@
-import type { SQL } from "bun";
 import type { AccountsDB } from "@memory-engine/accounts";
 import {
   createEngineDB,
   type EngineDB,
   parseApiKey,
 } from "@memory-engine/engine";
+import type { SQL } from "bun";
 import { forbidden, unauthorized } from "../util/response";
 
 /**

@@ -1,6 +1,6 @@
-import { describe, expect, test, mock } from "bun:test";
-import { createRouter } from "./router";
+import { describe, expect, mock, test } from "bun:test";
 import type { ServerContext } from "./context";
+import { createRouter } from "./router";
 
 // Mock ServerContext for testing
 function createMockContext(): ServerContext {

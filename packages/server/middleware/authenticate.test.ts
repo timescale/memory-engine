@@ -1,9 +1,9 @@
-import { describe, expect, test, mock } from "bun:test";
+import { describe, expect, mock, test } from "bun:test";
 import {
   authenticateAccounts,
   authenticateEngine,
-  extractBearerToken,
   type EngineInfo,
+  extractBearerToken,
   type Identity,
 } from "./authenticate";
 
