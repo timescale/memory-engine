@@ -11,17 +11,9 @@ import { z } from "zod";
 // =============================================================================
 
 /**
- * UUIDv7 pattern for memory IDs.
+ * UUID v7 schema using Zod 4's native uuidv7 support.
  */
-const uuidv7Pattern =
-  /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-7[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$/;
-
-/**
- * UUID v7 schema.
- */
-export const uuidv7Schema = z
-  .string()
-  .regex(uuidv7Pattern, "must be a valid UUIDv7");
+export const uuidv7Schema = z.uuidv7();
 
 /**
  * ltree path pattern (alphanumeric and underscores, dot-separated).
