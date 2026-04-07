@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { z } from "zod";
 import { RPC_ERROR_CODES } from "./errors";
-import { handleRpcRequest } from "./handler";
+import { createRpcHandler, handleRpcRequest } from "./handler";
 import { buildRegistry } from "./registry";
 
 // Helper to create a request with JSON body
@@ -265,5 +265,73 @@ describe("handleRpcRequest", () => {
 
       expect(body.id).toBe(12345);
     });
+  });
+});
+
+describe("createRpcHandler with contextProvider returning Response", () => {
+  test("returns Response directly when contextProvider returns Response", async () => {
+    const registry = buildRegistry()
+      .register("test.method", z.object({}), () => ({ success: true }))
+      .build();
+
+    const authErrorResponse = new Response(
+      JSON.stringify({
+        error: { message: "Unauthorized", code: "UNAUTHORIZED" },
+      }),
+      { status: 401, headers: { "Content-Type": "application/json" } },
+    );
+
+    const handler = createRpcHandler(registry, async () => authErrorResponse);
+
+    const request = new Request("http://localhost/rpc", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        method: "test.method",
+        params: {},
+        id: 1,
+      }),
+    });
+
+    const response = await handler(request);
+    expect(response.status).toBe(401);
+
+    const body = (await response.json()) as { error: { code: string } };
+    expect(body.error.code).toBe("UNAUTHORIZED");
+  });
+
+  test("passes context to handler when contextProvider returns object", async () => {
+    const registry = buildRegistry()
+      .register(
+        "test.method",
+        z.object({}),
+        (_params, ctx) =>
+          ({
+            userId: ctx.userId,
+          }) as { userId: string },
+      )
+      .build();
+
+    const handler = createRpcHandler(registry, async () => ({
+      userId: "user-123",
+    }));
+
+    const request = new Request("http://localhost/rpc", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        method: "test.method",
+        params: {},
+        id: 1,
+      }),
+    });
+
+    const response = await handler(request);
+    expect(response.status).toBe(200);
+
+    const body = (await response.json()) as { result: { userId: string } };
+    expect(body.result.userId).toBe("user-123");
   });
 });

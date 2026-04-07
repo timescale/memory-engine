@@ -169,17 +169,28 @@ export async function handleRpcRequest(
  * Create an RPC request handler bound to a specific registry.
  *
  * @param registry - The method registry
- * @param contextProvider - Optional function to provide additional context
+ * @param contextProvider - Optional function to provide additional context.
+ *   Can return a Response directly to short-circuit (e.g., for auth failures).
  * @returns Request handler function
  */
 export function createRpcHandler(
   registry: MethodRegistry,
   contextProvider?: (
     request: Request,
-  ) => Partial<HandlerContext> | Promise<Partial<HandlerContext>>,
+  ) =>
+    | Partial<HandlerContext>
+    | Response
+    | Promise<Partial<HandlerContext> | Response>,
 ): (request: Request) => Promise<Response> {
   return async (request: Request) => {
-    const context = contextProvider ? await contextProvider(request) : {};
-    return handleRpcRequest(request, registry, context);
+    if (contextProvider) {
+      const result = await contextProvider(request);
+      // If contextProvider returns a Response, return it directly (auth failure)
+      if (result instanceof Response) {
+        return result;
+      }
+      return handleRpcRequest(request, registry, result);
+    }
+    return handleRpcRequest(request, registry, {});
   };
 }
