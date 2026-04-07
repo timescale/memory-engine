@@ -8,10 +8,8 @@ import {
 } from "./handlers/auth";
 import { healthHandler } from "./handlers/health";
 import {
-  type AccountsAuthContext,
   authenticateAccounts,
   authenticateEngine,
-  type EngineAuthContext,
 } from "./middleware/authenticate";
 import { accountsMethods, createRpcHandler, engineMethods } from "./rpc";
 import { notFound } from "./util/response";
@@ -126,8 +124,18 @@ export function createRouter(ctx: ServerContext): Router {
     if (!auth.ok) {
       return auth.error;
     }
-    const { db, userId, apiKeyId, engine } = auth.context as EngineAuthContext;
-    return { db, userId, apiKeyId, engine };
+    // TypeScript narrows auth.context to AuthContext after ok check
+    // We know it's EngineAuthContext since we called authenticateEngine
+    const ctx = auth.context;
+    if (ctx.type !== "engine") {
+      throw new Error("Unexpected auth context type");
+    }
+    return {
+      db: ctx.db,
+      userId: ctx.userId,
+      apiKeyId: ctx.apiKeyId,
+      engine: ctx.engine,
+    };
   });
 
   // Accounts RPC: authenticate and provide identity context
@@ -138,8 +146,13 @@ export function createRouter(ctx: ServerContext): Router {
       if (!auth.ok) {
         return auth.error;
       }
-      const { identity } = auth.context as AccountsAuthContext;
-      return { identity };
+      // TypeScript narrows auth.context to AuthContext after ok check
+      // We know it's AccountsAuthContext since we called authenticateAccounts
+      const ctx = auth.context;
+      if (ctx.type !== "accounts") {
+        throw new Error("Unexpected auth context type");
+      }
+      return { identity: ctx.identity };
     },
   );
 

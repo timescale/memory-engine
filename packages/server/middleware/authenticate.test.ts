@@ -1,5 +1,6 @@
 import { describe, expect, mock, test } from "bun:test";
 import type { AccountsDB } from "@memory-engine/accounts";
+import type { EngineDB } from "@memory-engine/engine";
 import type { SQL } from "bun";
 import {
   authenticateAccounts,
@@ -115,10 +116,11 @@ describe("authenticateEngine", () => {
     valid: boolean;
     userId?: string;
     apiKeyId?: string;
-  }) => ({
-    validateApiKey: mock(() => Promise.resolve(validationResult)),
-    setUser: mock(() => {}),
-  });
+  }) =>
+    ({
+      validateApiKey: mock(() => Promise.resolve(validationResult)),
+      setUser: mock(() => {}),
+    }) as unknown as EngineDB;
 
   const mockCreateEngineDB = mock((_sql: SQL, _schema: string) => {
     return createMockEngineDb({
@@ -273,6 +275,7 @@ describe("authenticateEngine", () => {
 
     expect(result.ok).toBe(true);
     if (result.ok && result.context.type === "engine") {
+      expect(result.context.db).toBe(mockEngineDb);
       expect(result.context.userId).toBe("user-789");
       expect(result.context.apiKeyId).toBe("apikey-abc");
       expect(result.context.engine).toEqual(mockEngine);

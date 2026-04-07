@@ -5,11 +5,11 @@ export {
   authenticateAccounts,
   authenticateEngine,
   type CreateEngineDBFn,
+  ENGINE_SCHEMA_PREFIX,
   type EngineAuthContext,
   type EngineInfo,
   extractBearerToken,
   type Identity,
-  type User,
 } from "./authenticate";
 export {
   checkLimit,

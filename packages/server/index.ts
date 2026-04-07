@@ -16,6 +16,20 @@ await configure();
 // =============================================================================
 // Environment Variables
 // =============================================================================
+//
+// Required:
+//   ACCOUNTS_DATABASE_URL - PostgreSQL connection string for accounts database
+//                          (stores engines, API keys, users)
+//   ACCOUNTS_MASTER_KEY   - 32-byte hex string for encrypting API keys at rest
+//                          Generate with: openssl rand -hex 32
+//   ENGINE_DATABASE_URL   - PostgreSQL connection string for engine databases
+//                          (stores memories, each engine in its own schema)
+//
+// Optional:
+//   PORT            - HTTP server port (default: 3000)
+//   ACCOUNTS_SCHEMA - Schema name in accounts database (default: "accounts")
+//
+// =============================================================================
 
 const port = process.env.PORT || 3000;
 

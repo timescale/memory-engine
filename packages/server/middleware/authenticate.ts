@@ -4,13 +4,23 @@ import {
   type EngineDB,
   parseApiKey,
 } from "@memory-engine/engine";
+import { debug } from "@memory-engine/telemetry";
 import type { SQL } from "bun";
 import { forbidden, unauthorized } from "../util/response";
 
+// =============================================================================
+// Constants
+// =============================================================================
+
 /**
- * Authentication context types.
- * Will be populated by auth middleware.
+ * Schema prefix for engine databases.
+ * Engine schemas are named `{ENGINE_SCHEMA_PREFIX}{engineSlug}`.
  */
+export const ENGINE_SCHEMA_PREFIX = "me_";
+
+// =============================================================================
+// Types
+// =============================================================================
 
 /**
  * Identity from accounts DB (for accounts RPC).
@@ -19,17 +29,6 @@ export interface Identity {
   id: string;
   email: string;
   name: string | null;
-}
-
-/**
- * User from engine DB (for engine RPC).
- */
-export interface User {
-  id: string;
-  name: string;
-  superuser: boolean;
-  createrole: boolean;
-  canLogin: boolean;
 }
 
 /**
@@ -80,6 +79,10 @@ export type AuthResult =
   | { ok: true; context: AuthContext }
   | { ok: false; error: Response };
 
+// =============================================================================
+// Helpers
+// =============================================================================
+
 /**
  * Extract Bearer token from Authorization header.
  * Returns null if header is missing, malformed, or not Bearer auth.
@@ -103,6 +106,10 @@ export function extractBearerToken(request: Request): string | null {
   return token;
 }
 
+// =============================================================================
+// Accounts Authentication
+// =============================================================================
+
 /**
  * Authenticate request for accounts RPC.
  * Validates session token and returns identity.
@@ -113,6 +120,7 @@ export async function authenticateAccounts(
 ): Promise<AuthResult> {
   const token = extractBearerToken(request);
   if (!token) {
+    debug("accounts auth failed: missing Authorization header");
     return {
       ok: false,
       error: unauthorized("Missing or invalid Authorization header"),
@@ -121,12 +129,14 @@ export async function authenticateAccounts(
 
   const sessionResult = await accountsDb.validateSession(token);
   if (!sessionResult) {
+    debug("accounts auth failed: invalid or expired session");
     return {
       ok: false,
       error: unauthorized("Invalid or expired session"),
     };
   }
 
+  debug("accounts auth succeeded", { identityId: sessionResult.identity.id });
   return {
     ok: true,
     context: {
@@ -140,9 +150,16 @@ export async function authenticateAccounts(
   };
 }
 
+// =============================================================================
+// Engine Authentication
+// =============================================================================
+
 /**
  * Authenticate request for engine RPC.
  * Parses API key, looks up engine, validates key against engine DB.
+ *
+ * Security note: Error messages are intentionally generic to prevent
+ * enumeration attacks. The specific failure reason is logged for debugging.
  */
 export async function authenticateEngine(
   request: Request,
@@ -153,6 +170,7 @@ export async function authenticateEngine(
   // 1. Extract bearer token
   const token = extractBearerToken(request);
   if (!token) {
+    debug("engine auth failed: missing Authorization header");
     return {
       ok: false,
       error: unauthorized("Missing or invalid Authorization header"),
@@ -162,7 +180,8 @@ export async function authenticateEngine(
   // 2. Parse API key
   const parsed = parseApiKey(token);
   if (!parsed) {
-    return { ok: false, error: unauthorized("Invalid API key format") };
+    debug("engine auth failed: invalid API key format");
+    return { ok: false, error: unauthorized("Invalid API key") };
   }
 
   const { engineSlug, lookupId, secret } = parsed;
@@ -170,24 +189,36 @@ export async function authenticateEngine(
   // 3. Look up engine in accounts DB
   const engine = await accountsDb.getEngineBySlug(engineSlug);
   if (!engine) {
-    return { ok: false, error: unauthorized("Engine not found") };
+    // Generic error to prevent engine enumeration
+    debug("engine auth failed: engine not found", { engineSlug });
+    return { ok: false, error: unauthorized("Invalid API key") };
   }
 
   // 4. Check engine status
   if (engine.status !== "active") {
+    // 403 Forbidden for suspended/deleted engines - the key is valid but access is denied
+    debug("engine auth failed: engine not active", {
+      engineSlug,
+      status: engine.status,
+    });
     return {
       ok: false,
-      error: forbidden(`Engine is ${engine.status}`),
+      error: forbidden("Access denied"),
     };
   }
 
   // 5. Create EngineDB for this engine's schema
-  const db = createEngineDBFn(engineSql, `me_${engineSlug}`);
+  const schema = `${ENGINE_SCHEMA_PREFIX}${engineSlug}`;
+  const db = createEngineDBFn(engineSql, schema);
 
   // 6. Validate API key
   const validation = await db.validateApiKey(lookupId, secret);
   if (!validation.valid || !validation.userId || !validation.apiKeyId) {
-    return { ok: false, error: unauthorized("Invalid or expired API key") };
+    debug("engine auth failed: API key validation failed", {
+      engineSlug,
+      lookupId,
+    });
+    return { ok: false, error: unauthorized("Invalid API key") };
   }
 
   // 7. Set user on db for RLS context
@@ -201,6 +232,12 @@ export async function authenticateEngine(
     name: engine.name,
     status: engine.status,
   };
+
+  debug("engine auth succeeded", {
+    engineSlug,
+    userId: validation.userId,
+    apiKeyId: validation.apiKeyId,
+  });
 
   return {
     ok: true,
