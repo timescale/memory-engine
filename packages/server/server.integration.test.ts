@@ -103,30 +103,53 @@ describe("server integration", () => {
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ test: "data" }),
+        body: JSON.stringify({ jsonrpc: "2.0", method: "test", id: 1 }),
       });
-      // Should get 501 (not implemented) not 413
-      expect(response.status).toBe(501);
+      // Should get 200 (JSON-RPC response) not 413
+      expect(response.status).toBe(200);
     });
   });
 
-  describe("RPC endpoints (stubs)", () => {
-    test("POST /api/v1/accounts/rpc returns 501", async () => {
+  describe("RPC endpoints", () => {
+    test("POST /api/v1/accounts/rpc returns JSON-RPC error for invalid request", async () => {
       const response = await fetch(`${baseUrl}/api/v1/accounts/rpc`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({}),
       });
-      expect(response.status).toBe(501);
+      expect(response.status).toBe(200); // JSON-RPC errors use 200
+      const body = (await response.json()) as { error: { code: number } };
+      expect(body.error.code).toBe(-32600); // Invalid request
     });
 
-    test("POST /api/v1/engine/rpc returns 501", async () => {
+    test("POST /api/v1/accounts/rpc returns method not found for unknown method", async () => {
+      const response = await fetch(`${baseUrl}/api/v1/accounts/rpc`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          method: "unknown.method",
+          id: 1,
+        }),
+      });
+      expect(response.status).toBe(200);
+      const body = (await response.json()) as { error: { code: number } };
+      expect(body.error.code).toBe(-32601); // Method not found
+    });
+
+    test("POST /api/v1/engine/rpc returns method not found for unknown method", async () => {
       const response = await fetch(`${baseUrl}/api/v1/engine/rpc`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({}),
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          method: "unknown.method",
+          id: 1,
+        }),
       });
-      expect(response.status).toBe(501);
+      expect(response.status).toBe(200);
+      const body = (await response.json()) as { error: { code: number } };
+      expect(body.error.code).toBe(-32601); // Method not found
     });
 
     test("GET /api/v1/accounts/rpc returns 404 (wrong method)", async () => {
