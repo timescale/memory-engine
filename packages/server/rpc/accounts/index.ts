@@ -32,5 +32,10 @@ export const accountsMethods = buildRegistry()
   .build();
 
 // Re-export types for consumers
-export type { AccountsRpcContext } from "./types";
-export { assertAccountsRpcContext, isAccountsRpcContext } from "./types";
+export type { AccountsContext, AccountsRpcContext } from "./types";
+export {
+  assertAccountsContext,
+  assertAccountsRpcContext,
+  isAccountsContext,
+  isAccountsRpcContext,
+} from "./types";
