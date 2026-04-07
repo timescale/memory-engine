@@ -7,7 +7,7 @@ import {
   reportError,
   withSpan,
 } from "@memory-engine/telemetry";
-import { checkRateLimit, checkSizeLimit } from "./middleware";
+import { checkSizeLimit } from "./middleware";
 import { createRouter } from "./router";
 import { internalError } from "./util/response";
 
@@ -140,19 +140,13 @@ Bun.serve({
       },
       async () => {
         try {
-          // 1. Check size limit
+          // Check size limit
           const sizeError = checkSizeLimit(request);
           if (sizeError) {
             return sizeError;
           }
 
-          // 2. Check rate limit
-          const rateLimitError = checkRateLimit(request);
-          if (rateLimitError) {
-            return rateLimitError;
-          }
-
-          // 3. Route and handle request
+          // Route and handle request
           return await router.handleRequest(request);
         } catch (error) {
           reportError("Request failed", error as Error, {
