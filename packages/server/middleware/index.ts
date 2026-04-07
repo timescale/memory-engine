@@ -8,5 +8,15 @@ export {
   type Identity,
   type User,
 } from "./authenticate";
-export { checkRateLimit } from "./rate-limit";
+export {
+  checkLimit,
+  checkRateLimit,
+  cleanupExpiredEntries,
+  defaultLimits,
+  getClientIp,
+  getLimitType,
+  getRateLimitStoreSize,
+  type RateLimitConfig,
+  resetRateLimitStore,
+} from "./rate-limit";
 export { checkSizeLimit, MAX_BODY_SIZE } from "./size-limit";
