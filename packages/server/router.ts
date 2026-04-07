@@ -1,4 +1,5 @@
 import { healthHandler } from "./handlers/health";
+import { accountsMethods, createRpcHandler, engineMethods } from "./rpc";
 import { notFound } from "./util/response";
 
 /**
@@ -99,6 +100,12 @@ function notImplementedHandler(_request: Request): Response {
 }
 
 /**
+ * RPC handlers.
+ */
+const accountsRpcHandler = createRpcHandler(accountsMethods);
+const engineRpcHandler = createRpcHandler(engineMethods);
+
+/**
  * Application routes.
  */
 const routes: Route[] = [
@@ -116,18 +123,18 @@ const routes: Route[] = [
     handler: notImplementedHandler,
   },
 
-  // Accounts RPC (to be implemented in chunk 6)
+  // Accounts RPC
   {
     method: "POST",
     pattern: "/api/v1/accounts/rpc",
-    handler: notImplementedHandler,
+    handler: accountsRpcHandler,
   },
 
-  // Engine RPC (to be implemented in chunks 3-5)
+  // Engine RPC
   {
     method: "POST",
     pattern: "/api/v1/engine/rpc",
-    handler: notImplementedHandler,
+    handler: engineRpcHandler,
   },
 ];
 
