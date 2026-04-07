@@ -1,7 +1,7 @@
 # Stage 1: extract .deb from .zip using busybox (has unzip built-in, no apt-get needed)
 FROM busybox AS extract
 ARG TARGETARCH
-ADD https://github.com/timescale/pg_textsearch/releases/download/v0.6.1/pg-textsearch-v0.6.1-pg18-${TARGETARCH}.zip /tmp/pg_textsearch.zip
+ADD https://github.com/timescale/pg_textsearch/releases/download/v1.0.0/pg-textsearch-v1.0.0-pg18-${TARGETARCH}.zip /tmp/pg_textsearch.zip
 RUN unzip /tmp/pg_textsearch.zip -d /tmp/
 
 # Stage 2: PostgreSQL with pgvector + pg_textsearch

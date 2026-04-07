@@ -18,7 +18,7 @@ async function ensurePrerequisites(sql: SQL): Promise<void> {
   await ensureExtension(sql, "citext", "1.6");
   await ensureExtension(sql, "ltree", "1.3");
   await ensureExtension(sql, "vector", "0.8.2");
-  await ensureExtension(sql, "pg_textsearch", "0.6.1");
+  await ensureExtension(sql, "pg_textsearch", "1.0.0");
 }
 
 async function ensureExtension(
