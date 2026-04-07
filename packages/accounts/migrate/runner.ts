@@ -1,13 +1,35 @@
 import { type SQL, semver } from "bun";
 import { type AccountsConfig, resolveConfig, template } from "./template";
+import migration001 from "./migrations/001_updated_at.sql" with {
+  type: "text",
+};
+import migration002 from "./migrations/002_core_tables.sql" with {
+  type: "text",
+};
+import migration003 from "./migrations/003_membership.sql" with {
+  type: "text",
+};
+import migration004 from "./migrations/004_invitations.sql" with {
+  type: "text",
+};
+import migration005 from "./migrations/005_auth.sql" with { type: "text" };
+import migration006 from "./migrations/006_ops_support.sql" with {
+  type: "text",
+};
 
 interface Migration {
   name: string;
   sql: string;
 }
 
-// No migrations yet - scaffold handles infrastructure, domain migrations go here
-const migrations: Migration[] = [];
+const migrations: Migration[] = [
+  { name: "001_updated_at", sql: migration001 },
+  { name: "002_core_tables", sql: migration002 },
+  { name: "003_membership", sql: migration003 },
+  { name: "004_invitations", sql: migration004 },
+  { name: "005_auth", sql: migration005 },
+  { name: "006_ops_support", sql: migration006 },
+];
 
 export interface MigrateResult {
   schema: string;
