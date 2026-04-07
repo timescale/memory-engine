@@ -44,3 +44,6 @@ opencode.json
 
 # AI agent working docs (specs, plans)
 docs/superpowers
+
+# git worktrees
+.worktrees
