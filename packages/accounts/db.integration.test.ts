@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { type AccountsDB, createAccountsDB } from "./db";
 import { TestDatabase } from "./migrate/test-utils";
-import { createAccountsDB, type AccountsDB } from "./db";
 import { AccountsError } from "./types";
 
 // Test master key (32 bytes for AES-256)
