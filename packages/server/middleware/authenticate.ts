@@ -1,3 +1,6 @@
+import type { AccountsDB } from "@memory-engine/accounts";
+import { unauthorized } from "../util/response";
+
 /**
  * Authentication context types.
  * Will be populated by auth middleware.
@@ -53,18 +56,62 @@ export type AuthResult =
   | { ok: false; error: Response };
 
 /**
- * Stub: Authenticate request for accounts RPC.
- * Will validate session token and return identity.
- *
- * TODO: Implement in chunk 6
+ * Extract Bearer token from Authorization header.
+ * Returns null if header is missing, malformed, or not Bearer auth.
+ */
+export function extractBearerToken(request: Request): string | null {
+  const authHeader = request.headers.get("Authorization");
+  if (!authHeader) {
+    return null;
+  }
+
+  const parts = authHeader.split(" ");
+  if (parts.length !== 2 || parts[0] !== "Bearer") {
+    return null;
+  }
+
+  const token = parts[1];
+  if (!token || token.length === 0) {
+    return null;
+  }
+
+  return token;
+}
+
+/**
+ * Authenticate request for accounts RPC.
+ * Validates session token and returns identity.
  */
 export async function authenticateAccounts(
-  _request: Request,
+  request: Request,
+  accountsDb: AccountsDB,
 ): Promise<AuthResult> {
-  // Stub - will be implemented when we add accounts RPC
+  const token = extractBearerToken(request);
+  if (!token) {
+    return {
+      ok: false,
+      error: unauthorized("Missing or invalid Authorization header"),
+    };
+  }
+
+  const sessionResult = await accountsDb.validateSession(token);
+  if (!sessionResult) {
+    return {
+      ok: false,
+      error: unauthorized("Invalid or expired session"),
+    };
+  }
+
   return {
-    ok: false,
-    error: new Response("Not Implemented", { status: 501 }),
+    ok: true,
+    context: {
+      type: "accounts",
+      identity: {
+        id: sessionResult.identity.id,
+        email: sessionResult.identity.email,
+        name: sessionResult.identity.name,
+      },
+    },
   };
 }
 
