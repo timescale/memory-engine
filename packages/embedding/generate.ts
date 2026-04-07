@@ -1,4 +1,5 @@
 import { embed, embedMany } from "ai";
+import { reportError, withSpan } from "@memory-engine/telemetry";
 import { getEmbeddingModel } from "./provider";
 import { MAX_OPENAI_TOKENS, TRUNCATION_RATIOS, truncateText } from "./truncate";
 import type { EmbeddingConfig, EmbedResult, MemoryRow } from "./types";
@@ -82,24 +83,35 @@ async function generateEmbeddingOnce(
   text: string,
   config: EmbeddingConfig,
 ): Promise<SingleEmbedResult> {
-  const model = getEmbeddingModel(config);
+  return withSpan(
+    "embedding.generate_once",
+    {
+      provider: config.provider,
+      model: config.model,
+      dimensions: config.dimensions,
+      text_length: text.length,
+    },
+    async () => {
+      const model = getEmbeddingModel(config);
 
-  const result = await embed({
-    model,
-    value: text,
-    ...getEmbedOptions(config),
-  });
+      const result = await embed({
+        model,
+        value: text,
+        ...getEmbedOptions(config),
+      });
 
-  if (result.embedding.length !== config.dimensions) {
-    throw new Error(
-      `Dimension mismatch: expected ${config.dimensions} but got ${result.embedding.length}`,
-    );
-  }
+      if (result.embedding.length !== config.dimensions) {
+        throw new Error(
+          `Dimension mismatch: expected ${config.dimensions} but got ${result.embedding.length}`,
+        );
+      }
 
-  return {
-    embedding: result.embedding,
-    tokens: result.usage.tokens,
-  };
+      return {
+        embedding: result.embedding,
+        tokens: result.usage.tokens,
+      };
+    },
+  );
 }
 
 // =============================================================================
@@ -121,30 +133,41 @@ export async function generateEmbedding(
   text: string,
   config: EmbeddingConfig,
 ): Promise<SingleEmbedResult> {
-  const maxTokens = config.options?.maxTokens ?? MAX_OPENAI_TOKENS;
+  return withSpan(
+    "embedding.generate",
+    {
+      provider: config.provider,
+      model: config.model,
+      dimensions: config.dimensions,
+      text_length: text.length,
+    },
+    async () => {
+      const maxTokens = config.options?.maxTokens ?? MAX_OPENAI_TOKENS;
 
-  // Ollama: truncate defensively, single attempt
-  if (config.provider !== "openai") {
-    const { text: truncated } = truncateText(text, maxTokens);
-    return generateEmbeddingOnce(truncated, config);
-  }
-
-  // OpenAI: try with progressively tighter truncation ratios
-  for (const ratio of TRUNCATION_RATIOS) {
-    const { text: truncated } = truncateText(text, maxTokens, ratio);
-
-    try {
-      return await generateEmbeddingOnce(truncated, config);
-    } catch (error) {
-      if (!isContextLengthError(error)) {
-        throw error;
+      // Ollama: truncate defensively, single attempt
+      if (config.provider !== "openai") {
+        const { text: truncated } = truncateText(text, maxTokens);
+        return generateEmbeddingOnce(truncated, config);
       }
-      // Context length error — try next ratio
-    }
-  }
 
-  throw new Error(
-    "Failed to embed: text exceeds maximum context length even with aggressive truncation",
+      // OpenAI: try with progressively tighter truncation ratios
+      for (const ratio of TRUNCATION_RATIOS) {
+        const { text: truncated } = truncateText(text, maxTokens, ratio);
+
+        try {
+          return await generateEmbeddingOnce(truncated, config);
+        } catch (error) {
+          if (!isContextLengthError(error)) {
+            throw error;
+          }
+          // Context length error — try next ratio
+        }
+      }
+
+      throw new Error(
+        "Failed to embed: text exceeds maximum context length even with aggressive truncation",
+      );
+    },
   );
 }
 
@@ -174,105 +197,125 @@ export async function generateEmbeddings(
     return [];
   }
 
-  const model = getEmbeddingModel(config);
-  const maxTokens = config.options?.maxTokens ?? MAX_OPENAI_TOKENS;
+  return withSpan(
+    "embedding.generate_batch",
+    {
+      provider: config.provider,
+      model: config.model,
+      dimensions: config.dimensions,
+      batch_size: rows.length,
+    },
+    async () => {
+      const model = getEmbeddingModel(config);
+      const maxTokens = config.options?.maxTokens ?? MAX_OPENAI_TOKENS;
 
-  // Pre-truncate all providers defensively
-  const texts = rows.map((row) => truncateText(row.content, maxTokens).text);
+      // Pre-truncate all providers defensively
+      const texts = rows.map((row) => truncateText(row.content, maxTokens).text);
 
-  const results: EmbedResult[] = [];
-
-  try {
-    // Try batch API first
-    const { embeddings, usage } = await embedMany({
-      model,
-      values: texts,
-      ...getEmbedManyOptions(config),
-    });
-
-    // embedMany returns aggregate token count — distribute evenly
-    const tokensPerRow = Math.floor(usage.tokens / rows.length);
-
-    for (let i = 0; i < rows.length; i++) {
-      const embedding = embeddings[i];
-      const row = rows[i];
-      if (!embedding || !row) continue;
-
-      if (embedding.length !== config.dimensions) {
-        results.push({
-          id: row.id,
-          embedding: [],
-          error: `Dimension mismatch: expected ${config.dimensions} but got ${embedding.length}`,
-        });
-      } else {
-        results.push({
-          id: row.id,
-          embedding,
-          tokens: tokensPerRow,
-        });
-      }
-    }
-  } catch (batchError) {
-    // On context length error for OpenAI, fall back to individual with retry
-    if (config.provider === "openai" && isContextLengthError(batchError)) {
-      for (const row of rows) {
-        try {
-          const result = await generateEmbedding(row.content, config);
-          results.push({
-            id: row.id,
-            embedding: result.embedding,
-            tokens: result.tokens,
-          });
-        } catch (err) {
-          const message = err instanceof Error ? err.message : String(err);
-          results.push({
-            id: row.id,
-            embedding: [],
-            error: message,
-          });
-        }
-      }
-      return results;
-    }
-
-    // For other batch errors, fall back to individual requests (no retry)
-    for (let i = 0; i < rows.length; i++) {
-      const row = rows[i];
-      const text = texts[i];
-      if (!row || !text) continue;
+      const results: EmbedResult[] = [];
 
       try {
-        const result = await embed({
+        // Try batch API first
+        const { embeddings, usage } = await embedMany({
           model,
-          value: text,
-          ...getEmbedOptions(config),
+          values: texts,
+          ...getEmbedManyOptions(config),
         });
 
-        if (result.embedding.length !== config.dimensions) {
-          results.push({
-            id: row.id,
-            embedding: [],
-            error: `Dimension mismatch: expected ${config.dimensions} but got ${result.embedding.length}`,
-          });
-        } else {
-          results.push({
-            id: row.id,
-            embedding: result.embedding,
-            tokens: result.usage.tokens,
-          });
+        // embedMany returns aggregate token count — distribute evenly
+        const tokensPerRow = Math.floor(usage.tokens / rows.length);
+
+        for (let i = 0; i < rows.length; i++) {
+          const embedding = embeddings[i];
+          const row = rows[i];
+          if (!embedding || !row) continue;
+
+          if (embedding.length !== config.dimensions) {
+            results.push({
+              id: row.id,
+              embedding: [],
+              error: `Dimension mismatch: expected ${config.dimensions} but got ${embedding.length}`,
+            });
+          } else {
+            results.push({
+              id: row.id,
+              embedding,
+              tokens: tokensPerRow,
+            });
+          }
         }
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        results.push({
-          id: row.id,
-          embedding: [],
-          error: message,
+      } catch (batchError) {
+        // Report batch error for debugging
+        const err = batchError instanceof Error ? batchError : new Error(String(batchError));
+        reportError("Batch embedding failed, falling back to individual requests", err, {
+          provider: config.provider,
+          model: config.model,
+          batch_size: rows.length,
+          fallback: "individual",
         });
-      }
-    }
-  }
 
-  return results;
+        // On context length error for OpenAI, fall back to individual with retry
+        if (config.provider === "openai" && isContextLengthError(batchError)) {
+          for (const row of rows) {
+            try {
+              const result = await generateEmbedding(row.content, config);
+              results.push({
+                id: row.id,
+                embedding: result.embedding,
+                tokens: result.tokens,
+              });
+            } catch (err) {
+              const message = err instanceof Error ? err.message : String(err);
+              results.push({
+                id: row.id,
+                embedding: [],
+                error: message,
+              });
+            }
+          }
+          return results;
+        }
+
+        // For other batch errors, fall back to individual requests (no retry)
+        for (let i = 0; i < rows.length; i++) {
+          const row = rows[i];
+          const text = texts[i];
+          if (!row || !text) continue;
+
+          try {
+            const result = await embed({
+              model,
+              value: text,
+              ...getEmbedOptions(config),
+            });
+
+            if (result.embedding.length !== config.dimensions) {
+              results.push({
+                id: row.id,
+                embedding: [],
+                error: `Dimension mismatch: expected ${config.dimensions} but got ${result.embedding.length}`,
+              });
+            } else {
+              results.push({
+                id: row.id,
+                embedding: result.embedding,
+                tokens: result.usage.tokens,
+              });
+            }
+          } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            results.push({
+              id: row.id,
+              embedding: [],
+              error: message,
+            });
+          }
+        }
+      }
+
+      return results;
+    },
+  );
 }
 
 // =============================================================================
@@ -290,34 +333,44 @@ export async function generateEmbeddings(
  * @throws Error if validation fails
  */
 export async function validateConfig(config: EmbeddingConfig): Promise<void> {
-  if (!config.provider) {
-    throw new Error("provider is required");
-  }
-  if (!config.model) {
-    throw new Error("model is required");
-  }
-  if (!config.dimensions || config.dimensions <= 0) {
-    throw new Error("dimensions must be a positive number");
-  }
+  return withSpan(
+    "embedding.validate_config",
+    {
+      provider: config.provider,
+      model: config.model,
+      dimensions: config.dimensions,
+    },
+    async () => {
+      if (!config.provider) {
+        throw new Error("provider is required");
+      }
+      if (!config.model) {
+        throw new Error("model is required");
+      }
+      if (!config.dimensions || config.dimensions <= 0) {
+        throw new Error("dimensions must be a positive number");
+      }
 
-  // Generate a test embedding
-  const model = getEmbeddingModel(config);
+      // Generate a test embedding
+      const model = getEmbeddingModel(config);
 
-  let result: Awaited<ReturnType<typeof embed>>;
-  try {
-    result = await embed({
-      model,
-      value: "test",
-      ...getEmbedOptions(config),
-    });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    throw new Error(`Failed to validate embedding config: ${message}`);
-  }
+      let result: Awaited<ReturnType<typeof embed>>;
+      try {
+        result = await embed({
+          model,
+          value: "test",
+          ...getEmbedOptions(config),
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        throw new Error(`Failed to validate embedding config: ${message}`);
+      }
 
-  if (result.embedding.length !== config.dimensions) {
-    throw new Error(
-      `Dimension mismatch: config specifies ${config.dimensions} but model returns ${result.embedding.length}`,
-    );
-  }
+      if (result.embedding.length !== config.dimensions) {
+        throw new Error(
+          `Dimension mismatch: config specifies ${config.dimensions} but model returns ${result.embedding.length}`,
+        );
+      }
+    },
+  );
 }

@@ -5,6 +5,7 @@
  * uses application-level authorization.
  */
 
+import { withSpan } from "@memory-engine/telemetry";
 import type { SQL } from "bun";
 import type { AccountsContext } from "../types";
 
@@ -22,10 +23,17 @@ export async function withTx<T>(
     return fn(ctx.sql);
   }
 
-  return ctx.sql.begin(async (tx) => {
-    await tx.unsafe(`SET LOCAL search_path TO ${ctx.schema}, public`);
-    return fn(tx);
-  });
+  return withSpan(
+    "accounts.transaction",
+    {
+      "db.schema": ctx.schema,
+    },
+    () =>
+      ctx.sql.begin(async (tx) => {
+        await tx.unsafe(`SET LOCAL search_path TO ${ctx.schema}, public`);
+        return fn(tx);
+      }),
+  );
 }
 
 /**

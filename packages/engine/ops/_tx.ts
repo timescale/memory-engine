@@ -1,3 +1,4 @@
+import { withSpan } from "@memory-engine/telemetry";
 import type { SQL } from "bun";
 import type { OpsContext } from "../types";
 
@@ -45,29 +46,38 @@ export async function withTx<T>(
     return fn(ctx.sql);
   }
 
-  // Open new transaction
-  return ctx.sql.begin(async (tx) => {
-    // Future: pgDog shard routing
-    if (ctx.shard !== undefined) {
-      await tx.unsafe(`SET LOCAL pgdog.shard TO ${ctx.shard}`);
-    }
+  // Open new transaction with telemetry span
+  return withSpan(
+    "db.transaction",
+    {
+      "db.schema": ctx.schema,
+      "db.mode": mode,
+      "db.role": role ?? "owner",
+    },
+    () =>
+      ctx.sql.begin(async (tx) => {
+        // Future: pgDog shard routing
+        if (ctx.shard !== undefined) {
+          await tx.unsafe(`SET LOCAL pgdog.shard TO ${ctx.shard}`);
+        }
 
-    // Set search_path: engine schema first, then public (for extension types like ltree)
-    await tx.unsafe(`SET LOCAL search_path TO ${ctx.schema}, public`);
+        // Set search_path: engine schema first, then public (for extension types like ltree)
+        await tx.unsafe(`SET LOCAL search_path TO ${ctx.schema}, public`);
 
-    // Set role for permission control (skip for admin mode)
-    if (role) {
-      await tx.unsafe(`SET LOCAL ROLE ${role}`);
-    }
+        // Set role for permission control (skip for admin mode)
+        if (role) {
+          await tx.unsafe(`SET LOCAL ROLE ${role}`);
+        }
 
-    // Set user_id for RLS policies (only meaningful for read/write modes)
-    const userId = ctx.getUserId();
-    if (userId && role) {
-      await tx`SELECT set_config('me.user_id', ${userId}, true)`;
-    }
+        // Set user_id for RLS policies (only meaningful for read/write modes)
+        const userId = ctx.getUserId();
+        if (userId && role) {
+          await tx`SELECT set_config('me.user_id', ${userId}, true)`;
+        }
 
-    return fn(tx);
-  });
+        return fn(tx);
+      }),
+  );
 }
 
 /**
