@@ -1,9 +1,21 @@
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, test, mock } from "bun:test";
 import { MAX_BODY_SIZE } from "./middleware/size-limit";
+import type { ServerContext } from "./context";
 
 // Test server instance
 let server: ReturnType<typeof Bun.serve>;
 let baseUrl: string;
+
+// Mock ServerContext for testing
+function createMockContext(): ServerContext {
+  return {
+    accountsDb: {
+      validateSession: mock(() => Promise.resolve(null)),
+      getEngineBySlug: mock(() => Promise.resolve(null)),
+    } as any,
+    engineSql: {} as any,
+  };
+}
 
 beforeAll(async () => {
   // Start server on random port for testing
@@ -11,9 +23,12 @@ beforeAll(async () => {
 
   // We need to create a minimal server for testing since index.ts
   // uses await configure() at top level which makes it hard to import
-  const { handleRequest } = await import("./router");
+  const { createRouter } = await import("./router");
   const { checkSizeLimit, checkRateLimit } = await import("./middleware");
   const { internalError } = await import("./util/response");
+
+  const ctx = createMockContext();
+  const router = createRouter(ctx);
 
   server = Bun.serve({
     port,
@@ -32,7 +47,7 @@ beforeAll(async () => {
         }
 
         // 3. Route and handle request
-        return await handleRequest(request);
+        return await router.handleRequest(request);
       } catch (_error) {
         return internalError();
       }
@@ -105,24 +120,24 @@ describe("server integration", () => {
         },
         body: JSON.stringify({ jsonrpc: "2.0", method: "test", id: 1 }),
       });
-      // Should get 200 (JSON-RPC response) not 413
-      expect(response.status).toBe(200);
+      // Should get 401 (auth required) not 413 (size limit)
+      // Auth is checked after size limit passes
+      expect(response.status).toBe(401);
     });
   });
 
   describe("RPC endpoints", () => {
-    test("POST /api/v1/accounts/rpc returns JSON-RPC error for invalid request", async () => {
+    test("POST /api/v1/accounts/rpc returns 401 without auth", async () => {
       const response = await fetch(`${baseUrl}/api/v1/accounts/rpc`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({}),
       });
-      expect(response.status).toBe(200); // JSON-RPC errors use 200
-      const body = (await response.json()) as { error: { code: number } };
-      expect(body.error.code).toBe(-32600); // Invalid request
+      // Auth is required before JSON-RPC processing
+      expect(response.status).toBe(401);
     });
 
-    test("POST /api/v1/accounts/rpc returns method not found for unknown method", async () => {
+    test("POST /api/v1/accounts/rpc returns 401 for unauthenticated requests", async () => {
       const response = await fetch(`${baseUrl}/api/v1/accounts/rpc`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -132,12 +147,11 @@ describe("server integration", () => {
           id: 1,
         }),
       });
-      expect(response.status).toBe(200);
-      const body = (await response.json()) as { error: { code: number } };
-      expect(body.error.code).toBe(-32601); // Method not found
+      // Auth is required before method lookup
+      expect(response.status).toBe(401);
     });
 
-    test("POST /api/v1/engine/rpc returns method not found for unknown method", async () => {
+    test("POST /api/v1/engine/rpc returns 401 without auth", async () => {
       const response = await fetch(`${baseUrl}/api/v1/engine/rpc`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -147,9 +161,8 @@ describe("server integration", () => {
           id: 1,
         }),
       });
-      expect(response.status).toBe(200);
-      const body = (await response.json()) as { error: { code: number } };
-      expect(body.error.code).toBe(-32601); // Method not found
+      // Auth is required before method lookup
+      expect(response.status).toBe(401);
     });
 
     test("GET /api/v1/accounts/rpc returns 404 (wrong method)", async () => {

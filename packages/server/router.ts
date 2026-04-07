@@ -6,7 +6,14 @@ import {
   oauthCallbackHandler,
 } from "./handlers/auth";
 import { healthHandler } from "./handlers/health";
+import {
+  authenticateAccounts,
+  authenticateEngine,
+  type EngineAuthContext,
+  type AccountsAuthContext,
+} from "./middleware/authenticate";
 import { accountsMethods, createRpcHandler, engineMethods } from "./rpc";
+import type { ServerContext } from "./context";
 import { notFound } from "./util/response";
 
 /**
@@ -95,106 +102,148 @@ function matchPath(pattern: string, path: string): RouteParams | null {
 }
 
 /**
- * RPC handlers.
+ * Router result from createRouter.
  */
-const accountsRpcHandler = createRpcHandler(accountsMethods);
-const engineRpcHandler = createRpcHandler(engineMethods);
-
-/**
- * Application routes.
- *
- * Routes are matched in order - more specific routes must come before wildcards.
- */
-const routes: Route[] = [
-  // Health check
-  {
-    method: "GET",
-    pattern: "/health",
-    handler: healthHandler,
-  },
-
-  // OAuth Device Flow - CLI initiates
-  {
-    method: "POST",
-    pattern: "/api/v1/auth/device/code",
-    handler: deviceCodeHandler,
-  },
-
-  // OAuth Device Flow - CLI polls for token
-  {
-    method: "POST",
-    pattern: "/api/v1/auth/device/token",
-    handler: deviceTokenHandler,
-  },
-
-  // OAuth Device Flow - User enters code (GET = form, POST = submit)
-  {
-    method: "GET",
-    pattern: "/api/v1/auth/device/verify",
-    handler: deviceVerifyGetHandler,
-  },
-  {
-    method: "POST",
-    pattern: "/api/v1/auth/device/verify",
-    handler: deviceVerifyPostHandler,
-  },
-
-  // OAuth Callback - Provider redirects here after user authorizes
-  {
-    method: "GET",
-    pattern: "/api/v1/auth/callback/:provider",
-    handler: oauthCallbackHandler,
-  },
-
-  // Accounts RPC
-  {
-    method: "POST",
-    pattern: "/api/v1/accounts/rpc",
-    handler: accountsRpcHandler,
-  },
-
-  // Engine RPC
-  {
-    method: "POST",
-    pattern: "/api/v1/engine/rpc",
-    handler: engineRpcHandler,
-  },
-];
-
-/**
- * Match a request to a route.
- *
- * @returns RouteMatch if found, null if no matching route
- */
-export function matchRoute(method: string, path: string): RouteMatch | null {
-  for (const route of routes) {
-    // Check method
-    if (route.method !== "*" && route.method !== method) {
-      continue;
-    }
-
-    // Check path
-    const params = matchPath(route.pattern, path);
-    if (params !== null) {
-      return { route, params };
-    }
-  }
-
-  return null;
+export interface Router {
+  /** Handle an incoming request */
+  handleRequest: (request: Request) => Promise<Response>;
+  /** Match a route (for testing) */
+  matchRoute: (method: string, path: string) => RouteMatch | null;
 }
 
 /**
- * Handle a request by matching it to a route and executing the handler.
+ * Create a router with injected database connections.
  *
- * @returns Response from handler or 404 if no route matches
+ * @param ctx - Server context with database pools
+ * @returns Router with handleRequest function
  */
-export async function handleRequest(request: Request): Promise<Response> {
-  const url = new URL(request.url);
-  const match = matchRoute(request.method, url.pathname);
+export function createRouter(ctx: ServerContext): Router {
+  const { accountsDb, engineSql } = ctx;
 
-  if (!match) {
-    return notFound();
+  // Engine RPC: authenticate and provide db context
+  const engineRpcHandler = createRpcHandler(engineMethods, async (request) => {
+    const auth = await authenticateEngine(request, accountsDb, engineSql);
+    if (!auth.ok) {
+      return auth.error;
+    }
+    const { db, userId, apiKeyId, engine } = auth.context as EngineAuthContext;
+    return { db, userId, apiKeyId, engine };
+  });
+
+  // Accounts RPC: authenticate and provide identity context
+  const accountsRpcHandler = createRpcHandler(
+    accountsMethods,
+    async (request) => {
+      const auth = await authenticateAccounts(request, accountsDb);
+      if (!auth.ok) {
+        return auth.error;
+      }
+      const { identity } = auth.context as AccountsAuthContext;
+      return { identity };
+    },
+  );
+
+  /**
+   * Application routes.
+   *
+   * Routes are matched in order - more specific routes must come before wildcards.
+   */
+  const routes: Route[] = [
+    // Health check
+    {
+      method: "GET",
+      pattern: "/health",
+      handler: healthHandler,
+    },
+
+    // OAuth Device Flow - CLI initiates
+    {
+      method: "POST",
+      pattern: "/api/v1/auth/device/code",
+      handler: deviceCodeHandler,
+    },
+
+    // OAuth Device Flow - CLI polls for token
+    {
+      method: "POST",
+      pattern: "/api/v1/auth/device/token",
+      handler: deviceTokenHandler,
+    },
+
+    // OAuth Device Flow - User enters code (GET = form, POST = submit)
+    {
+      method: "GET",
+      pattern: "/api/v1/auth/device/verify",
+      handler: deviceVerifyGetHandler,
+    },
+    {
+      method: "POST",
+      pattern: "/api/v1/auth/device/verify",
+      handler: deviceVerifyPostHandler,
+    },
+
+    // OAuth Callback - Provider redirects here after user authorizes
+    {
+      method: "GET",
+      pattern: "/api/v1/auth/callback/:provider",
+      handler: oauthCallbackHandler,
+    },
+
+    // Accounts RPC
+    {
+      method: "POST",
+      pattern: "/api/v1/accounts/rpc",
+      handler: accountsRpcHandler,
+    },
+
+    // Engine RPC
+    {
+      method: "POST",
+      pattern: "/api/v1/engine/rpc",
+      handler: engineRpcHandler,
+    },
+  ];
+
+  /**
+   * Match a request to a route.
+   *
+   * @returns RouteMatch if found, null if no matching route
+   */
+  function matchRoute(method: string, path: string): RouteMatch | null {
+    for (const route of routes) {
+      // Check method
+      if (route.method !== "*" && route.method !== method) {
+        continue;
+      }
+
+      // Check path
+      const params = matchPath(route.pattern, path);
+      if (params !== null) {
+        return { route, params };
+      }
+    }
+
+    return null;
   }
 
-  return match.route.handler(request, match.params);
+  /**
+   * Handle a request by matching it to a route and executing the handler.
+   *
+   * @returns Response from handler or 404 if no route matches
+   */
+  async function handleRequest(request: Request): Promise<Response> {
+    const url = new URL(request.url);
+    const match = matchRoute(request.method, url.pathname);
+
+    if (!match) {
+      return notFound();
+    }
+
+    return match.route.handler(request, match.params);
+  }
+
+  return { handleRequest, matchRoute };
 }
+
+// Re-export for backward compatibility with tests
+export { matchPath as _matchPath };
