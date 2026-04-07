@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@memory-engine/accounts": "workspace:*",
+    "@memory-engine/embedding": "workspace:*",
     "@memory-engine/engine": "workspace:*",
     "@memory-engine/telemetry": "workspace:*",
     "zod": "^4.0.0"
