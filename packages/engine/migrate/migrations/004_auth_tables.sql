@@ -8,6 +8,7 @@ create table {{schema}}."user"
 , owned_by uuid                            -- soft FK to accounts.identity
 , can_login boolean not null default true  -- false = role (grant container)
 , superuser boolean not null default false
+, createrole boolean not null default false -- can create other users/roles
 , created_at timestamptz not null default now()
 , updated_at timestamptz
 );

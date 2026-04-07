@@ -8,6 +8,7 @@ interface UserRow {
   owned_by: string | null;
   can_login: boolean;
   superuser: boolean;
+  createrole: boolean;
   created_at: Date;
   updated_at: Date | null;
 }
@@ -19,6 +20,7 @@ function rowToUser(row: UserRow): User {
     ownedBy: row.owned_by,
     canLogin: row.can_login,
     superuser: row.superuser,
+    createrole: row.createrole,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -38,15 +40,16 @@ export function userOps(ctx: OpsContext) {
         ownedBy = null,
         canLogin = true,
         superuser = false,
+        createrole = false,
       } = params;
 
       return withTx(ctx, "admin", async (sql) => {
         const rows = await sql<UserRow[]>`
           insert into ${sql.unsafe(schema)}."user"
-            (id, name, owned_by, can_login, superuser)
+            (id, name, owned_by, can_login, superuser, createrole)
           values
-            (${id ? sql`${id}::uuid` : sql`uuidv7()`}, ${name}, ${ownedBy}, ${canLogin}, ${superuser})
-          returning id, name, owned_by, can_login, superuser, created_at, updated_at
+            (${id ? sql`${id}::uuid` : sql`uuidv7()`}, ${name}, ${ownedBy}, ${canLogin}, ${superuser}, ${createrole})
+          returning id, name, owned_by, can_login, superuser, createrole, created_at, updated_at
         `;
         const row = rows[0];
         if (!row) {
@@ -91,7 +94,7 @@ export function userOps(ctx: OpsContext) {
     async getUser(id: string): Promise<User | null> {
       return withTx(ctx, "admin", async (sql) => {
         const [row] = await sql<UserRow[]>`
-          select id, name, owned_by, can_login, superuser, created_at, updated_at
+          select id, name, owned_by, can_login, superuser, createrole, created_at, updated_at
           from ${sql.unsafe(schema)}."user"
           where id = ${id}
         `;
@@ -105,7 +108,7 @@ export function userOps(ctx: OpsContext) {
     async getUserByName(name: string): Promise<User | null> {
       return withTx(ctx, "admin", async (sql) => {
         const [row] = await sql<UserRow[]>`
-          select id, name, owned_by, can_login, superuser, created_at, updated_at
+          select id, name, owned_by, can_login, superuser, createrole, created_at, updated_at
           from ${sql.unsafe(schema)}."user"
           where name = ${name}
         `;
@@ -119,7 +122,7 @@ export function userOps(ctx: OpsContext) {
     async listUsers(canLogin?: boolean): Promise<User[]> {
       return withTx(ctx, "admin", async (sql) => {
         const rows = await sql<UserRow[]>`
-          select id, name, owned_by, can_login, superuser, created_at, updated_at
+          select id, name, owned_by, can_login, superuser, createrole, created_at, updated_at
           from ${sql.unsafe(schema)}."user"
           ${canLogin !== undefined ? sql`where can_login = ${canLogin}` : sql``}
           order by created_at
@@ -134,7 +137,7 @@ export function userOps(ctx: OpsContext) {
     async listUsersByOwner(ownedBy: string): Promise<User[]> {
       return withTx(ctx, "admin", async (sql) => {
         const rows = await sql<UserRow[]>`
-          select id, name, owned_by, can_login, superuser, created_at, updated_at
+          select id, name, owned_by, can_login, superuser, createrole, created_at, updated_at
           from ${sql.unsafe(schema)}."user"
           where owned_by = ${ownedBy}
           order by created_at

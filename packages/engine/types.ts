@@ -49,6 +49,7 @@ export interface User {
   ownedBy: string | null;
   canLogin: boolean;
   superuser: boolean;
+  createrole: boolean;
   createdAt: Date;
   updatedAt: Date | null;
 }
@@ -59,6 +60,7 @@ export interface CreateUserParams {
   ownedBy?: string | null;
   canLogin?: boolean;
   superuser?: boolean;
+  createrole?: boolean;
 }
 
 // =============================================================================

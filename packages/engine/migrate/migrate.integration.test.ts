@@ -219,6 +219,7 @@ describe("single-engine migration", () => {
     expect(colNames).toContain("owned_by");
     expect(colNames).toContain("can_login");
     expect(colNames).toContain("superuser");
+    expect(colNames).toContain("createrole");
     expect(colNames).toContain("created_at");
     expect(colNames).toContain("updated_at");
 
