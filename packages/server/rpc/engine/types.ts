@@ -3,6 +3,7 @@
  *
  * Extends the base HandlerContext with engine-specific fields.
  */
+import type { EmbeddingConfig } from "@memory-engine/embedding";
 import type { EngineDB } from "@memory-engine/engine";
 import type { EngineInfo } from "../../middleware/authenticate";
 import type { HandlerContext } from "../types";
@@ -15,6 +16,7 @@ import type { HandlerContext } from "../types";
  * - `userId`: The authenticated user's ID (from API key)
  * - `apiKeyId`: The API key ID used for authentication
  * - `engine`: Engine metadata from accounts DB
+ * - `embeddingConfig`: Optional config for semantic search
  */
 export interface EngineContext extends HandlerContext {
   /** EngineDB instance for this engine */
@@ -25,6 +27,8 @@ export interface EngineContext extends HandlerContext {
   apiKeyId: string;
   /** Engine metadata from accounts DB */
   engine: EngineInfo;
+  /** Embedding config for semantic search (optional) */
+  embeddingConfig?: EmbeddingConfig;
 }
 
 /**
@@ -42,6 +46,7 @@ export function isEngineContext(ctx: HandlerContext): ctx is EngineContext {
     "engine" in ctx &&
     typeof ctx.engine === "object" &&
     ctx.engine !== null
+    // embeddingConfig is optional, don't check
   );
 }
 
