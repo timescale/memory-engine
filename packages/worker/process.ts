@@ -1,4 +1,5 @@
 import { generateEmbeddings } from "@memory-engine/embedding";
+import { info, reportError, withSpan } from "@memory-engine/telemetry";
 import type { SQL } from "bun";
 import type { ProcessResult, WorkerConfig } from "./types";
 
@@ -37,73 +38,105 @@ export async function processBatch(
     return { claimed: 0, succeeded: 0, failed: 0 };
   }
 
-  // --- Embed ---
-  const rows = claimed.map((r) => ({ id: r.memory_id, content: r.content }));
-  const embedResults = await generateEmbeddings(rows, config.embedding);
+  // Process claimed items with telemetry
+  return withSpan(
+    "embedding.batch",
+    {
+      "worker.schema": schema,
+      "batch.size": claimed.length,
+      "batch.memoryIds": claimed.map((r) => r.memory_id),
+    },
+    async () => {
+      // --- Embed ---
+      const rows = claimed.map((r) => ({ id: r.memory_id, content: r.content }));
+      let embedResults: Awaited<ReturnType<typeof generateEmbeddings>>;
 
-  // Build lookup: memory_id → embed result
-  const resultMap = new Map(embedResults.map((r) => [r.id, r]));
-
-  // --- Write-back ---
-  let succeeded = 0;
-  let failed = 0;
-
-  await sql.begin(async (tx) => {
-    await tx.unsafe(`SET LOCAL search_path TO ${schema}, public`);
-    await tx.unsafe("SET LOCAL ROLE me_embed");
-
-    for (const row of claimed) {
-      const result = resultMap.get(row.memory_id);
-
-      if (!result || result.error) {
-        // Embedding failed — record error, leave outcome NULL for retry
-        // Queue row may be CASCADE-deleted if memory was deleted; 0 rows is fine
-        const error = result?.error ?? "No embedding result returned";
-        await tx.unsafe(
-          `UPDATE ${schema}.embedding_queue
-           SET last_error = $1
-             , outcome = CASE WHEN attempts >= max_attempts THEN 'failed' END
-           WHERE id = $2`,
-          [error, row.queue_id],
-        );
-        failed++;
-        continue;
+      try {
+        embedResults = await generateEmbeddings(rows, config.embedding);
+      } catch (error) {
+        reportError("Embedding generation failed", error as Error, {
+          "worker.schema": schema,
+          "batch.size": claimed.length,
+          "embedding.provider": config.embedding.provider,
+          "embedding.model": config.embedding.model,
+        });
+        throw error;
       }
 
-      // Version-guarded write to memory
-      const vecLiteral = `[${result.embedding.join(",")}]`;
-      const updated = await tx.unsafe(
-        `UPDATE ${schema}.memory
-         SET embedding = $1::halfvec
-         WHERE id = $2 AND embedding_version = $3
-         RETURNING id`,
-        [vecLiteral, row.memory_id, row.embedding_version],
-      );
+      // Build lookup: memory_id → embed result
+      const resultMap = new Map(embedResults.map((r) => [r.id, r]));
 
-      if (updated.length === 0) {
-        // Content changed or memory deleted between claim and embed — cancel
-        // Queue row may already be CASCADE-deleted; 0 rows updated is fine
-        await tx.unsafe(
-          `UPDATE ${schema}.embedding_queue
-           SET outcome = 'cancelled'
-           WHERE id = $1`,
-          [row.queue_id],
-        );
-        succeeded++;
-      } else {
-        // Embedding written — mark completed
-        // Queue row may be CASCADE-deleted if memory deleted between these two
-        // statements; 0 rows updated is fine
-        await tx.unsafe(
-          `UPDATE ${schema}.embedding_queue
-           SET outcome = 'completed'
-           WHERE id = $1`,
-          [row.queue_id],
-        );
-        succeeded++;
-      }
-    }
-  });
+      // --- Write-back ---
+      let succeeded = 0;
+      let failed = 0;
 
-  return { claimed: claimed.length, succeeded, failed };
+      await sql.begin(async (tx) => {
+        await tx.unsafe(`SET LOCAL search_path TO ${schema}, public`);
+        await tx.unsafe("SET LOCAL ROLE me_embed");
+
+        for (const row of claimed) {
+          const result = resultMap.get(row.memory_id);
+
+          if (!result || result.error) {
+            // Embedding failed — record error, leave outcome NULL for retry
+            // Queue row may be CASCADE-deleted if memory was deleted; 0 rows is fine
+            const error = result?.error ?? "No embedding result returned";
+            await tx.unsafe(
+              `UPDATE ${schema}.embedding_queue
+               SET last_error = $1
+                 , outcome = CASE WHEN attempts >= max_attempts THEN 'failed' END
+               WHERE id = $2`,
+              [error, row.queue_id],
+            );
+            failed++;
+            continue;
+          }
+
+          // Version-guarded write to memory
+          const vecLiteral = `[${result.embedding.join(",")}]`;
+          const updated = await tx.unsafe(
+            `UPDATE ${schema}.memory
+             SET embedding = $1::halfvec
+             WHERE id = $2 AND embedding_version = $3
+             RETURNING id`,
+            [vecLiteral, row.memory_id, row.embedding_version],
+          );
+
+          if (updated.length === 0) {
+            // Content changed or memory deleted between claim and embed — cancel
+            // Queue row may already be CASCADE-deleted; 0 rows updated is fine
+            await tx.unsafe(
+              `UPDATE ${schema}.embedding_queue
+               SET outcome = 'cancelled'
+               WHERE id = $1`,
+              [row.queue_id],
+            );
+            succeeded++;
+          } else {
+            // Embedding written — mark completed
+            // Queue row may be CASCADE-deleted if memory deleted between these two
+            // statements; 0 rows updated is fine
+            await tx.unsafe(
+              `UPDATE ${schema}.embedding_queue
+               SET outcome = 'completed'
+               WHERE id = $1`,
+              [row.queue_id],
+            );
+            succeeded++;
+          }
+        }
+      });
+
+      const result = { claimed: claimed.length, succeeded, failed };
+
+      info("Embedding batch completed", {
+        "worker.schema": schema,
+        "batch.claimed": result.claimed,
+        "batch.succeeded": result.succeeded,
+        "batch.failed": result.failed,
+      });
+
+      return result;
+    },
+  );
 }

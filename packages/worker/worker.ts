@@ -1,4 +1,5 @@
 import { discoverEngineSchemas } from "@memory-engine/engine/migrate";
+import { info, reportError } from "@memory-engine/telemetry";
 import type { SQL } from "bun";
 import { processBatch } from "./process";
 import type { WorkerConfig } from "./types";
@@ -76,10 +77,10 @@ export async function runDaemon(
         if (delay > 0) await sleep(delay);
       } catch (error) {
         consecutiveErrors++;
-        const message = error instanceof Error ? error.message : String(error);
-        console.error(
-          `Worker error (failure ${consecutiveErrors}): ${message}`,
-        );
+        reportError("Worker batch processing failed", error as Error, {
+          consecutiveErrors,
+          schemaCount: schemas.length,
+        });
 
         if (signal?.aborted) break;
 
@@ -91,7 +92,10 @@ export async function runDaemon(
       }
     }
   } finally {
-    console.log("Embedding worker daemon stopped");
+    info("Embedding worker daemon stopped", {
+      consecutiveErrors,
+      schemaCount: schemas.length,
+    });
   }
 }
 

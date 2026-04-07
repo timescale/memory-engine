@@ -1,0 +1,11 @@
+{
+  "name": "@memory-engine/telemetry",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "index.ts",
+  "dependencies": {
+    "@opentelemetry/api": "^1.9.0",
+    "@pydantic/logfire-node": "^0.13.0"
+  }
+}

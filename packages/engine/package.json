@@ -2,5 +2,8 @@
   "name": "@memory-engine/engine",
   "version": "0.0.0",
   "private": true,
-  "type": "module"
+  "type": "module",
+  "dependencies": {
+    "@memory-engine/telemetry": "workspace:*"
+  }
 }
