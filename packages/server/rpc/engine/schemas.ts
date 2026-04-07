@@ -196,3 +196,182 @@ export const memoryDeleteTreeSchema = z.object({
 });
 
 export type MemoryDeleteTreeParams = z.infer<typeof memoryDeleteTreeSchema>;
+
+// =============================================================================
+// User Method Schemas
+// =============================================================================
+
+/**
+ * user.create params.
+ */
+export const userCreateSchema = z.object({
+  id: uuidv7Schema.optional().nullable(),
+  name: z.string().min(1, "name is required"),
+  ownedBy: uuidv7Schema.optional().nullable(),
+  canLogin: z.boolean().optional(),
+  superuser: z.boolean().optional(),
+  createrole: z.boolean().optional(),
+});
+
+export type UserCreateParams = z.infer<typeof userCreateSchema>;
+
+/**
+ * user.get params.
+ */
+export const userGetSchema = z.object({
+  id: uuidv7Schema,
+});
+
+export type UserGetParams = z.infer<typeof userGetSchema>;
+
+/**
+ * user.getByName params.
+ */
+export const userGetByNameSchema = z.object({
+  name: z.string().min(1),
+});
+
+export type UserGetByNameParams = z.infer<typeof userGetByNameSchema>;
+
+/**
+ * user.list params.
+ */
+export const userListSchema = z.object({
+  canLogin: z.boolean().optional(),
+});
+
+export type UserListParams = z.infer<typeof userListSchema>;
+
+/**
+ * user.rename params.
+ */
+export const userRenameSchema = z.object({
+  id: uuidv7Schema,
+  name: z.string().min(1, "name is required"),
+});
+
+export type UserRenameParams = z.infer<typeof userRenameSchema>;
+
+/**
+ * user.delete params.
+ */
+export const userDeleteSchema = z.object({
+  id: uuidv7Schema,
+});
+
+export type UserDeleteParams = z.infer<typeof userDeleteSchema>;
+
+// =============================================================================
+// Grant Method Schemas
+// =============================================================================
+
+/**
+ * Valid actions for tree grants.
+ */
+export const grantActionSchema = z.enum(["read", "write", "delete", "admin"]);
+
+/**
+ * grant.create params.
+ */
+export const grantCreateSchema = z.object({
+  userId: uuidv7Schema,
+  treePath: treePathSchema,
+  actions: z.array(grantActionSchema).min(1, "at least one action required"),
+  withGrantOption: z.boolean().optional(),
+});
+
+export type GrantCreateParams = z.infer<typeof grantCreateSchema>;
+
+/**
+ * grant.list params.
+ */
+export const grantListSchema = z.object({
+  userId: uuidv7Schema.optional(),
+});
+
+export type GrantListParams = z.infer<typeof grantListSchema>;
+
+/**
+ * grant.get params.
+ */
+export const grantGetSchema = z.object({
+  userId: uuidv7Schema,
+  treePath: treePathSchema,
+});
+
+export type GrantGetParams = z.infer<typeof grantGetSchema>;
+
+/**
+ * grant.revoke params.
+ */
+export const grantRevokeSchema = z.object({
+  userId: uuidv7Schema,
+  treePath: treePathSchema,
+});
+
+export type GrantRevokeParams = z.infer<typeof grantRevokeSchema>;
+
+/**
+ * grant.check params.
+ */
+export const grantCheckSchema = z.object({
+  userId: uuidv7Schema,
+  treePath: treePathSchema,
+  action: grantActionSchema,
+});
+
+export type GrantCheckParams = z.infer<typeof grantCheckSchema>;
+
+// =============================================================================
+// Role Method Schemas
+// =============================================================================
+
+/**
+ * role.create params.
+ * Creates a user with canLogin=false (a role for grouping grants).
+ */
+export const roleCreateSchema = z.object({
+  name: z.string().min(1, "name is required"),
+  ownedBy: uuidv7Schema.optional().nullable(),
+});
+
+export type RoleCreateParams = z.infer<typeof roleCreateSchema>;
+
+/**
+ * role.addMember params.
+ */
+export const roleAddMemberSchema = z.object({
+  roleId: uuidv7Schema,
+  memberId: uuidv7Schema,
+  withAdminOption: z.boolean().optional(),
+});
+
+export type RoleAddMemberParams = z.infer<typeof roleAddMemberSchema>;
+
+/**
+ * role.removeMember params.
+ */
+export const roleRemoveMemberSchema = z.object({
+  roleId: uuidv7Schema,
+  memberId: uuidv7Schema,
+});
+
+export type RoleRemoveMemberParams = z.infer<typeof roleRemoveMemberSchema>;
+
+/**
+ * role.listMembers params.
+ */
+export const roleListMembersSchema = z.object({
+  roleId: uuidv7Schema,
+});
+
+export type RoleListMembersParams = z.infer<typeof roleListMembersSchema>;
+
+/**
+ * role.listForUser params.
+ */
+export const roleListForUserSchema = z.object({
+  userId: uuidv7Schema,
+});
+
+export type RoleListForUserParams = z.infer<typeof roleListForUserSchema>;
