@@ -116,7 +116,7 @@ export interface Router {
  * @returns Router with handleRequest function
  */
 export function createRouter(ctx: ServerContext): Router {
-  const { accountsDb, engineSql } = ctx;
+  const { accountsDb, engineSql, embeddingConfig } = ctx;
 
   // Engine RPC: authenticate and provide db context
   const engineRpcHandler = createRpcHandler(engineMethods, async (request) => {
@@ -135,6 +135,7 @@ export function createRouter(ctx: ServerContext): Router {
       userId: ctx.userId,
       apiKeyId: ctx.apiKeyId,
       engine: ctx.engine,
+      embeddingConfig,
     };
   });
 
