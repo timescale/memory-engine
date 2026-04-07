@@ -43,6 +43,7 @@
       "name": "memory-engine-server",
       "version": "0.0.0",
       "dependencies": {
+        "@memory-engine/accounts": "workspace:*",
         "@memory-engine/engine": "workspace:*",
         "@memory-engine/telemetry": "workspace:*",
         "zod": "^4.0.0",
