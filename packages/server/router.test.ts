@@ -22,29 +22,46 @@ describe("matchRoute", () => {
   });
 
   describe("auth endpoints", () => {
-    test("matches /api/v1/auth/device/code", () => {
+    test("matches POST /api/v1/auth/device/code", () => {
       const match = matchRoute("POST", "/api/v1/auth/device/code");
       expect(match).not.toBeNull();
-      expect(match?.route.pattern).toBe("/api/v1/auth/*");
+      expect(match?.route.pattern).toBe("/api/v1/auth/device/code");
     });
 
-    test("matches /api/v1/auth/device/token", () => {
+    test("matches POST /api/v1/auth/device/token", () => {
       const match = matchRoute("POST", "/api/v1/auth/device/token");
       expect(match).not.toBeNull();
-      expect(match?.route.pattern).toBe("/api/v1/auth/*");
+      expect(match?.route.pattern).toBe("/api/v1/auth/device/token");
     });
 
-    test("matches /api/v1/auth/callback/google", () => {
+    test("matches GET /api/v1/auth/device/verify", () => {
+      const match = matchRoute("GET", "/api/v1/auth/device/verify");
+      expect(match).not.toBeNull();
+      expect(match?.route.pattern).toBe("/api/v1/auth/device/verify");
+    });
+
+    test("matches POST /api/v1/auth/device/verify", () => {
+      const match = matchRoute("POST", "/api/v1/auth/device/verify");
+      expect(match).not.toBeNull();
+      expect(match?.route.pattern).toBe("/api/v1/auth/device/verify");
+    });
+
+    test("matches GET /api/v1/auth/callback/:provider with params", () => {
       const match = matchRoute("GET", "/api/v1/auth/callback/google");
       expect(match).not.toBeNull();
-      expect(match?.route.pattern).toBe("/api/v1/auth/*");
+      expect(match?.route.pattern).toBe("/api/v1/auth/callback/:provider");
+      expect(match?.params.provider).toBe("google");
     });
 
-    test("matches any method for auth wildcard", () => {
-      const getMatch = matchRoute("GET", "/api/v1/auth/test");
-      const postMatch = matchRoute("POST", "/api/v1/auth/test");
-      expect(getMatch).not.toBeNull();
-      expect(postMatch).not.toBeNull();
+    test("matches GET /api/v1/auth/callback/github", () => {
+      const match = matchRoute("GET", "/api/v1/auth/callback/github");
+      expect(match).not.toBeNull();
+      expect(match?.params.provider).toBe("github");
+    });
+
+    test("does not match unknown auth paths", () => {
+      const match = matchRoute("GET", "/api/v1/auth/unknown/path");
+      expect(match).toBeNull();
     });
   });
 
