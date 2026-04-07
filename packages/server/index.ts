@@ -1,5 +1,6 @@
 // packages/server/index.ts
 import { createAccountsDB } from "@memory-engine/accounts";
+import type { EmbeddingConfig } from "@memory-engine/embedding";
 import {
   configure,
   info,
@@ -51,6 +52,48 @@ if (!engineDatabaseUrl) {
 const accountsSchema = process.env.ACCOUNTS_SCHEMA || "accounts";
 
 // =============================================================================
+// Embedding Config (Optional)
+// =============================================================================
+//
+// For semantic search:
+//   EMBEDDING_API_KEY     - OpenAI API key
+//   EMBEDDING_MODEL       - Model identifier (e.g., "text-embedding-3-small")
+//   EMBEDDING_DIMENSIONS  - Vector dimensions (e.g., 1536)
+//
+// Optional:
+//   EMBEDDING_BASE_URL    - API base URL (default: OpenAI)
+//
+// If not configured, semantic search returns an error explaining how to enable it.
+//
+// =============================================================================
+
+function buildEmbeddingConfig(): EmbeddingConfig | undefined {
+  const apiKey = process.env.EMBEDDING_API_KEY;
+  const model = process.env.EMBEDDING_MODEL;
+  const dimensions = process.env.EMBEDDING_DIMENSIONS;
+
+  // All three required for embedding to be enabled
+  if (!apiKey || !model || !dimensions) {
+    return undefined;
+  }
+
+  const parsedDimensions = parseInt(dimensions, 10);
+  if (isNaN(parsedDimensions) || parsedDimensions <= 0) {
+    throw new Error("EMBEDDING_DIMENSIONS must be a positive integer");
+  }
+
+  return {
+    provider: "openai",
+    model,
+    dimensions: parsedDimensions,
+    apiKey,
+    baseUrl: process.env.EMBEDDING_BASE_URL,
+  };
+}
+
+const embeddingConfig = buildEmbeddingConfig();
+
+// =============================================================================
 // Database Pools
 // =============================================================================
 
@@ -75,7 +118,7 @@ const accountsDb = createAccountsDB(accountsSql, accountsSchema, {
 // Router
 // =============================================================================
 
-const router = createRouter({ accountsDb, engineSql });
+const router = createRouter({ accountsDb, engineSql, embeddingConfig });
 
 // =============================================================================
 // Server
