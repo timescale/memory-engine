@@ -12,6 +12,7 @@
  * - memory.move: Move memories from one tree path to another
  * - memory.deleteTree: Delete all memories under a tree path
  */
+import { generateEmbedding } from "@memory-engine/embedding";
 import type { Memory, SearchResult, TreeNode } from "@memory-engine/engine";
 import { AppError } from "../errors";
 import { buildRegistry } from "../registry";
@@ -278,25 +279,39 @@ async function memoryDelete(
 
 /**
  * memory.search - Hybrid semantic + fulltext search.
- *
- * Note: If semantic search is requested, the server must generate the embedding.
- * This is handled by the embedding middleware (to be added later).
- * For now, we pass the semantic query as-is and the ops layer will ignore it
- * unless an embedding is provided.
  */
 async function memorySearch(
   params: MemorySearchParams,
   context: HandlerContext,
 ): Promise<SearchResultResponse> {
   assertEngineContext(context);
-  const { db } = context as EngineContext;
+  const { db, embeddingConfig } = context as EngineContext;
 
-  // TODO: Generate embedding for semantic search (chunk 3 extension or separate middleware)
-  // For now, only fulltext and filter searches work without embedding generation.
+  let embedding: number[] | undefined;
+
+  // Generate embedding for semantic search
+  if (params.semantic) {
+    if (!embeddingConfig) {
+      throw new AppError(
+        "EMBEDDING_NOT_CONFIGURED",
+        "Semantic search requires embedding configuration. Set EMBEDDING_API_KEY, EMBEDDING_MODEL, and EMBEDDING_DIMENSIONS environment variables.",
+      );
+    }
+
+    try {
+      const result = await generateEmbedding(params.semantic, embeddingConfig);
+      embedding = result.embedding;
+    } catch (error) {
+      throw new AppError(
+        "EMBEDDING_FAILED",
+        `Failed to generate embedding: ${error instanceof Error ? error.message : "Unknown error"}`,
+      );
+    }
+  }
 
   const result = await db.searchMemories({
     fulltext: params.fulltext ?? undefined,
-    // embedding: will be added by embedding middleware
+    embedding,
     tree: params.tree ?? undefined,
     meta: params.meta ?? undefined,
     temporal: parseTemporalFilter(params.temporal),
