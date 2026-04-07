@@ -2,9 +2,11 @@ import { reportError, withSpan } from "@memory-engine/telemetry";
 import type { ZodError } from "zod";
 import { json } from "../util/response";
 import {
+  applicationError,
   internalError,
   invalidParams,
   invalidRequest,
+  isAppError,
   methodNotFound,
   parseError,
 } from "./errors";
@@ -142,7 +144,19 @@ export async function handleRpcRequest(
 
     return json(createSuccessResponse(result, requestId));
   } catch (error) {
-    // Log the error with full context
+    // Handle application errors (thrown by handlers)
+    if (isAppError(error)) {
+      return json(
+        applicationError(
+          requestId ?? 0,
+          error.code,
+          error.message,
+          error.details,
+        ),
+      );
+    }
+
+    // Log unexpected errors with full context
     reportError("RPC handler error", error as Error, {
       "rpc.request_id": requestId,
     });

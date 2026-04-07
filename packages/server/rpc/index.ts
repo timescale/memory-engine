@@ -1,11 +1,17 @@
-// Types
-
 // Method registries
 export { accountsMethods } from "./accounts";
-export { engineMethods } from "./engine";
+export {
+  assertEngineContext,
+  type EngineContext,
+  engineMethods,
+  isEngineContext,
+} from "./engine";
+
 // Errors
 export {
   APP_ERROR_CODES,
+  AppError,
+  type AppErrorCode,
   appErrors,
   applicationError,
   createErrorResponse,
@@ -13,6 +19,7 @@ export {
   internalError,
   invalidParams,
   invalidRequest,
+  isAppError,
   methodNotFound,
   parseError,
   RPC_ERROR_CODES,
