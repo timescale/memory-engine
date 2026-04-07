@@ -48,7 +48,10 @@ export async function processBatch(
     },
     async () => {
       // --- Embed ---
-      const rows = claimed.map((r) => ({ id: r.memory_id, content: r.content }));
+      const rows = claimed.map((r) => ({
+        id: r.memory_id,
+        content: r.content,
+      }));
       let embedResults: Awaited<ReturnType<typeof generateEmbeddings>>;
 
       try {
