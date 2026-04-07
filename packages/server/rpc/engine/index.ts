@@ -1,4 +1,5 @@
 import { buildRegistry } from "../registry";
+import { apiKeyMethods } from "./api-key";
 import { grantMethods } from "./grant";
 import { memoryMethods } from "./memory";
 import { roleMethods } from "./role";
@@ -17,13 +18,14 @@ import { userMethods } from "./user";
  * - role.create, role.addMember, role.removeMember, role.listMembers, role.listForUser
  *
  * API key methods (chunk 5):
- * - apiKey.create, apiKey.list, apiKey.revoke
+ * - apiKey.create, apiKey.get, apiKey.list, apiKey.revoke, apiKey.delete
  */
 export const engineMethods = buildRegistry()
   .merge(memoryMethods)
   .merge(userMethods)
   .merge(grantMethods)
   .merge(roleMethods)
+  .merge(apiKeyMethods)
   .build();
 
 // Re-export types for consumers

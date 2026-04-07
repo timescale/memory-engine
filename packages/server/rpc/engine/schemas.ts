@@ -375,3 +375,54 @@ export const roleListForUserSchema = z.object({
 });
 
 export type RoleListForUserParams = z.infer<typeof roleListForUserSchema>;
+
+// =============================================================================
+// API Key Method Schemas
+// =============================================================================
+
+/**
+ * apiKey.create params.
+ */
+export const apiKeyCreateSchema = z.object({
+  userId: uuidv7Schema,
+  name: z.string().min(1, "name is required"),
+  expiresAt: timestampSchema.optional().nullable(),
+});
+
+export type ApiKeyCreateParams = z.infer<typeof apiKeyCreateSchema>;
+
+/**
+ * apiKey.get params.
+ */
+export const apiKeyGetSchema = z.object({
+  id: uuidv7Schema,
+});
+
+export type ApiKeyGetParams = z.infer<typeof apiKeyGetSchema>;
+
+/**
+ * apiKey.list params.
+ */
+export const apiKeyListSchema = z.object({
+  userId: uuidv7Schema,
+});
+
+export type ApiKeyListParams = z.infer<typeof apiKeyListSchema>;
+
+/**
+ * apiKey.revoke params.
+ */
+export const apiKeyRevokeSchema = z.object({
+  id: uuidv7Schema,
+});
+
+export type ApiKeyRevokeParams = z.infer<typeof apiKeyRevokeSchema>;
+
+/**
+ * apiKey.delete params.
+ */
+export const apiKeyDeleteSchema = z.object({
+  id: uuidv7Schema,
+});
+
+export type ApiKeyDeleteParams = z.infer<typeof apiKeyDeleteSchema>;

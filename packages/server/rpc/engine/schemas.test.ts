@@ -3,6 +3,11 @@
  */
 import { describe, expect, test } from "bun:test";
 import {
+  apiKeyCreateSchema,
+  apiKeyDeleteSchema,
+  apiKeyGetSchema,
+  apiKeyListSchema,
+  apiKeyRevokeSchema,
   grantCheckSchema,
   grantCreateSchema,
   grantListSchema,
@@ -632,6 +637,82 @@ describe("roleListForUserSchema", () => {
   test("accepts valid params", () => {
     const result = roleListForUserSchema.safeParse({
       userId: "019d694f-79f6-7595-8faf-b70b01c11f98",
+    });
+    expect(result.success).toBe(true);
+  });
+});
+
+// =============================================================================
+// API Key Schema Tests
+// =============================================================================
+
+describe("apiKeyCreateSchema", () => {
+  test("accepts minimal params", () => {
+    const result = apiKeyCreateSchema.safeParse({
+      userId: "019d694f-79f6-7595-8faf-b70b01c11f98",
+      name: "my-api-key",
+    });
+    expect(result.success).toBe(true);
+  });
+
+  test("accepts with expiration", () => {
+    const result = apiKeyCreateSchema.safeParse({
+      userId: "019d694f-79f6-7595-8faf-b70b01c11f98",
+      name: "my-api-key",
+      expiresAt: "2025-12-31T23:59:59Z",
+    });
+    expect(result.success).toBe(true);
+  });
+
+  test("rejects empty name", () => {
+    const result = apiKeyCreateSchema.safeParse({
+      userId: "019d694f-79f6-7595-8faf-b70b01c11f98",
+      name: "",
+    });
+    expect(result.success).toBe(false);
+  });
+
+  test("rejects invalid expiration timestamp", () => {
+    const result = apiKeyCreateSchema.safeParse({
+      userId: "019d694f-79f6-7595-8faf-b70b01c11f98",
+      name: "my-api-key",
+      expiresAt: "not-a-timestamp",
+    });
+    expect(result.success).toBe(false);
+  });
+});
+
+describe("apiKeyGetSchema", () => {
+  test("accepts valid UUID", () => {
+    const result = apiKeyGetSchema.safeParse({
+      id: "019d694f-79f6-7595-8faf-b70b01c11f98",
+    });
+    expect(result.success).toBe(true);
+  });
+});
+
+describe("apiKeyListSchema", () => {
+  test("accepts valid userId", () => {
+    const result = apiKeyListSchema.safeParse({
+      userId: "019d694f-79f6-7595-8faf-b70b01c11f98",
+    });
+    expect(result.success).toBe(true);
+  });
+});
+
+describe("apiKeyRevokeSchema", () => {
+  test("accepts valid UUID", () => {
+    const result = apiKeyRevokeSchema.safeParse({
+      id: "019d694f-79f6-7595-8faf-b70b01c11f98",
+    });
+    expect(result.success).toBe(true);
+  });
+});
+
+describe("apiKeyDeleteSchema", () => {
+  test("accepts valid UUID", () => {
+    const result = apiKeyDeleteSchema.safeParse({
+      id: "019d694f-79f6-7595-8faf-b70b01c11f98",
     });
     expect(result.success).toBe(true);
   });
