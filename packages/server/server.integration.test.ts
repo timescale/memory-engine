@@ -26,7 +26,7 @@ beforeAll(async () => {
   // We need to create a minimal server for testing since index.ts
   // uses await configure() at top level which makes it hard to import
   const { createRouter } = await import("./router");
-  const { checkSizeLimit, checkRateLimit } = await import("./middleware");
+  const { checkSizeLimit } = await import("./middleware");
   const { internalError } = await import("./util/response");
 
   const ctx = createMockContext();
@@ -36,19 +36,13 @@ beforeAll(async () => {
     port,
     async fetch(request) {
       try {
-        // 1. Check size limit
+        // Check size limit
         const sizeError = checkSizeLimit(request);
         if (sizeError) {
           return sizeError;
         }
 
-        // 2. Check rate limit
-        const rateLimitError = checkRateLimit(request);
-        if (rateLimitError) {
-          return rateLimitError;
-        }
-
-        // 3. Route and handle request
+        // Route and handle request
         return await router.handleRequest(request);
       } catch (_error) {
         return internalError();
