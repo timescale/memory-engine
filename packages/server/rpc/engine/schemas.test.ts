@@ -3,6 +3,10 @@
  */
 import { describe, expect, test } from "bun:test";
 import {
+  grantCheckSchema,
+  grantCreateSchema,
+  grantListSchema,
+  grantRevokeSchema,
   memoryBatchCreateSchema,
   memoryCreateSchema,
   memoryDeleteSchema,
@@ -12,7 +16,16 @@ import {
   memorySearchSchema,
   memoryTreeSchema,
   memoryUpdateSchema,
+  roleAddMemberSchema,
+  roleCreateSchema,
+  roleListForUserSchema,
+  roleListMembersSchema,
+  roleRemoveMemberSchema,
   treePathSchema,
+  userCreateSchema,
+  userGetSchema,
+  userListSchema,
+  userRenameSchema,
   uuidv7Schema,
 } from "./schemas";
 
@@ -386,5 +399,240 @@ describe("memoryDeleteTreeSchema", () => {
       tree: "",
     });
     expect(result.success).toBe(false);
+  });
+});
+
+// =============================================================================
+// User Schema Tests
+// =============================================================================
+
+describe("userCreateSchema", () => {
+  test("accepts minimal params", () => {
+    const result = userCreateSchema.safeParse({
+      name: "alice",
+    });
+    expect(result.success).toBe(true);
+  });
+
+  test("accepts full params", () => {
+    const result = userCreateSchema.safeParse({
+      id: "019d694f-79f6-7595-8faf-b70b01c11f98",
+      name: "alice",
+      ownedBy: "019d694f-79f6-7595-8faf-b70b01c11f99",
+      canLogin: true,
+      superuser: false,
+      createrole: true,
+    });
+    expect(result.success).toBe(true);
+  });
+
+  test("rejects empty name", () => {
+    const result = userCreateSchema.safeParse({
+      name: "",
+    });
+    expect(result.success).toBe(false);
+  });
+});
+
+describe("userGetSchema", () => {
+  test("accepts valid UUID", () => {
+    const result = userGetSchema.safeParse({
+      id: "019d694f-79f6-7595-8faf-b70b01c11f98",
+    });
+    expect(result.success).toBe(true);
+  });
+});
+
+describe("userListSchema", () => {
+  test("accepts empty params", () => {
+    const result = userListSchema.safeParse({});
+    expect(result.success).toBe(true);
+  });
+
+  test("accepts canLogin filter", () => {
+    const result = userListSchema.safeParse({
+      canLogin: false,
+    });
+    expect(result.success).toBe(true);
+  });
+});
+
+describe("userRenameSchema", () => {
+  test("accepts valid params", () => {
+    const result = userRenameSchema.safeParse({
+      id: "019d694f-79f6-7595-8faf-b70b01c11f98",
+      name: "new-name",
+    });
+    expect(result.success).toBe(true);
+  });
+
+  test("rejects empty name", () => {
+    const result = userRenameSchema.safeParse({
+      id: "019d694f-79f6-7595-8faf-b70b01c11f98",
+      name: "",
+    });
+    expect(result.success).toBe(false);
+  });
+});
+
+// =============================================================================
+// Grant Schema Tests
+// =============================================================================
+
+describe("grantCreateSchema", () => {
+  test("accepts valid params", () => {
+    const result = grantCreateSchema.safeParse({
+      userId: "019d694f-79f6-7595-8faf-b70b01c11f98",
+      treePath: "work.projects",
+      actions: ["read", "write"],
+    });
+    expect(result.success).toBe(true);
+  });
+
+  test("accepts with grant option", () => {
+    const result = grantCreateSchema.safeParse({
+      userId: "019d694f-79f6-7595-8faf-b70b01c11f98",
+      treePath: "work",
+      actions: ["admin"],
+      withGrantOption: true,
+    });
+    expect(result.success).toBe(true);
+  });
+
+  test("rejects empty actions", () => {
+    const result = grantCreateSchema.safeParse({
+      userId: "019d694f-79f6-7595-8faf-b70b01c11f98",
+      treePath: "work",
+      actions: [],
+    });
+    expect(result.success).toBe(false);
+  });
+
+  test("rejects invalid action", () => {
+    const result = grantCreateSchema.safeParse({
+      userId: "019d694f-79f6-7595-8faf-b70b01c11f98",
+      treePath: "work",
+      actions: ["read", "invalid"],
+    });
+    expect(result.success).toBe(false);
+  });
+});
+
+describe("grantListSchema", () => {
+  test("accepts empty params", () => {
+    const result = grantListSchema.safeParse({});
+    expect(result.success).toBe(true);
+  });
+
+  test("accepts userId filter", () => {
+    const result = grantListSchema.safeParse({
+      userId: "019d694f-79f6-7595-8faf-b70b01c11f98",
+    });
+    expect(result.success).toBe(true);
+  });
+});
+
+describe("grantRevokeSchema", () => {
+  test("accepts valid params", () => {
+    const result = grantRevokeSchema.safeParse({
+      userId: "019d694f-79f6-7595-8faf-b70b01c11f98",
+      treePath: "work.projects",
+    });
+    expect(result.success).toBe(true);
+  });
+});
+
+describe("grantCheckSchema", () => {
+  test("accepts valid params", () => {
+    const result = grantCheckSchema.safeParse({
+      userId: "019d694f-79f6-7595-8faf-b70b01c11f98",
+      treePath: "work.projects.api",
+      action: "read",
+    });
+    expect(result.success).toBe(true);
+  });
+
+  test("rejects invalid action", () => {
+    const result = grantCheckSchema.safeParse({
+      userId: "019d694f-79f6-7595-8faf-b70b01c11f98",
+      treePath: "work",
+      action: "execute",
+    });
+    expect(result.success).toBe(false);
+  });
+});
+
+// =============================================================================
+// Role Schema Tests
+// =============================================================================
+
+describe("roleCreateSchema", () => {
+  test("accepts minimal params", () => {
+    const result = roleCreateSchema.safeParse({
+      name: "editors",
+    });
+    expect(result.success).toBe(true);
+  });
+
+  test("accepts with ownedBy", () => {
+    const result = roleCreateSchema.safeParse({
+      name: "editors",
+      ownedBy: "019d694f-79f6-7595-8faf-b70b01c11f98",
+    });
+    expect(result.success).toBe(true);
+  });
+
+  test("rejects empty name", () => {
+    const result = roleCreateSchema.safeParse({
+      name: "",
+    });
+    expect(result.success).toBe(false);
+  });
+});
+
+describe("roleAddMemberSchema", () => {
+  test("accepts valid params", () => {
+    const result = roleAddMemberSchema.safeParse({
+      roleId: "019d694f-79f6-7595-8faf-b70b01c11f98",
+      memberId: "019d694f-79f6-7595-8faf-b70b01c11f99",
+    });
+    expect(result.success).toBe(true);
+  });
+
+  test("accepts with admin option", () => {
+    const result = roleAddMemberSchema.safeParse({
+      roleId: "019d694f-79f6-7595-8faf-b70b01c11f98",
+      memberId: "019d694f-79f6-7595-8faf-b70b01c11f99",
+      withAdminOption: true,
+    });
+    expect(result.success).toBe(true);
+  });
+});
+
+describe("roleRemoveMemberSchema", () => {
+  test("accepts valid params", () => {
+    const result = roleRemoveMemberSchema.safeParse({
+      roleId: "019d694f-79f6-7595-8faf-b70b01c11f98",
+      memberId: "019d694f-79f6-7595-8faf-b70b01c11f99",
+    });
+    expect(result.success).toBe(true);
+  });
+});
+
+describe("roleListMembersSchema", () => {
+  test("accepts valid params", () => {
+    const result = roleListMembersSchema.safeParse({
+      roleId: "019d694f-79f6-7595-8faf-b70b01c11f98",
+    });
+    expect(result.success).toBe(true);
+  });
+});
+
+describe("roleListForUserSchema", () => {
+  test("accepts valid params", () => {
+    const result = roleListForUserSchema.safeParse({
+      userId: "019d694f-79f6-7595-8faf-b70b01c11f98",
+    });
+    expect(result.success).toBe(true);
   });
 });

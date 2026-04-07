@@ -1,22 +1,30 @@
 import { buildRegistry } from "../registry";
+import { grantMethods } from "./grant";
 import { memoryMethods } from "./memory";
+import { roleMethods } from "./role";
+import { userMethods } from "./user";
 
 /**
  * Engine RPC method registry.
  *
- * Chunk 3 (current) - Memory methods:
+ * Memory methods (chunk 3):
  * - memory.create, memory.batchCreate, memory.get, memory.update, memory.delete
  * - memory.search, memory.tree, memory.move, memory.deleteTree
  *
- * Chunk 4 - User, grant, role methods:
- * - user.create, user.get, user.list, user.update, user.delete
- * - grant.create, grant.list, grant.revoke
- * - role.create, role.addMember, role.removeMember, role.listMembers
+ * User, grant, role methods (chunk 4):
+ * - user.create, user.get, user.getByName, user.list, user.rename, user.delete
+ * - grant.create, grant.list, grant.get, grant.revoke, grant.check
+ * - role.create, role.addMember, role.removeMember, role.listMembers, role.listForUser
  *
- * Chunk 5 - API key methods:
+ * API key methods (chunk 5):
  * - apiKey.create, apiKey.list, apiKey.revoke
  */
-export const engineMethods = buildRegistry().merge(memoryMethods).build();
+export const engineMethods = buildRegistry()
+  .merge(memoryMethods)
+  .merge(userMethods)
+  .merge(grantMethods)
+  .merge(roleMethods)
+  .build();
 
 // Re-export types for consumers
 export type { EngineContext } from "./types";
