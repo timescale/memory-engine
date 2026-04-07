@@ -7,7 +7,7 @@
  * - invitation.revoke: Revoke a pending invitation
  * - invitation.accept: Accept an invitation (adds caller to org)
  */
-import { AccountsError, type Invitation } from "@memory-engine/accounts";
+import type { Invitation } from "@memory-engine/accounts";
 import { AppError } from "../errors";
 import { buildRegistry } from "../registry";
 import type { HandlerContext } from "../types";

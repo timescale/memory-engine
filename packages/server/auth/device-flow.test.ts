@@ -1,7 +1,7 @@
 /**
  * Tests for OAuth device flow state management.
  */
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 import {
   authorizeDevice,
   checkPollRateLimit,
@@ -199,7 +199,7 @@ describe("device-flow", () => {
     test("removes expired states", async () => {
       // Create a state
       const auth = createDeviceAuthorization("google");
-      const initialCount = getActiveDeviceCount();
+      const _initialCount = getActiveDeviceCount();
 
       // Manually expire it by modifying the state
       const state = getDeviceStateByDeviceCode(auth.deviceCode);
