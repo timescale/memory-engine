@@ -82,11 +82,6 @@ export async function deviceCodeHandler(request: Request): Promise<Response> {
     );
   }
 
-  // GitHub not yet implemented
-  if (provider === "github") {
-    return error("GitHub provider not implemented yet", 501, "NOT_IMPLEMENTED");
-  }
-
   const ctx = getContext();
   const auth = createDeviceAuthorization(provider);
 
