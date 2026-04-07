@@ -16,7 +16,7 @@ import {
   type SessionOps,
   sessionOps,
 } from "./ops";
-import type { AccountsContext, AccountsCrypto } from "./types";
+import type { AccountsContext } from "./types";
 import { createAccountsCrypto } from "./util/crypto";
 
 export interface CreateAccountsDBOptions {
