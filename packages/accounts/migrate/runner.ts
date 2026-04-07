@@ -1,5 +1,4 @@
 import { type SQL, semver } from "bun";
-import { type AccountsConfig, resolveConfig, template } from "./template";
 import migration001 from "./migrations/001_updated_at.sql" with {
   type: "text",
 };
@@ -16,6 +15,7 @@ import migration005 from "./migrations/005_auth.sql" with { type: "text" };
 import migration006 from "./migrations/006_ops_support.sql" with {
   type: "text",
 };
+import { type AccountsConfig, resolveConfig, template } from "./template";
 
 interface Migration {
   name: string;
