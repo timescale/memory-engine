@@ -4,6 +4,9 @@ import {
   reportError,
   withSpan,
 } from "@memory-engine/telemetry";
+import { checkRateLimit, checkSizeLimit } from "./middleware";
+import { handleRequest } from "./router";
+import { internalError } from "./util/response";
 
 // Initialize telemetry before starting server
 await configure();
@@ -26,21 +29,26 @@ Bun.serve({
       },
       async () => {
         try {
-          // Health check endpoint
-          if (path === "/health") {
-            info("Health check", { path });
-            return new Response("ok", { status: 200 });
+          // 1. Check size limit
+          const sizeError = checkSizeLimit(request);
+          if (sizeError) {
+            return sizeError;
           }
 
-          // TODO: Add RPC handling, auth, etc.
-          // For now, return a simple response
-          return new Response("memory engine", { status: 200 });
+          // 2. Check rate limit
+          const rateLimitError = checkRateLimit(request);
+          if (rateLimitError) {
+            return rateLimitError;
+          }
+
+          // 3. Route and handle request
+          return await handleRequest(request);
         } catch (error) {
           reportError("Request failed", error as Error, {
             "http.method": method,
             "http.path": path,
           });
-          return new Response("Internal Server Error", { status: 500 });
+          return internalError();
         }
       },
     );
