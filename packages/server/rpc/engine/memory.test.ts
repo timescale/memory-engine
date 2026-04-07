@@ -1,4 +1,5 @@
 import { describe, expect, mock, test } from "bun:test";
+import type { HandlerContext } from "../types";
 
 describe("memory.search embedding", () => {
   test("throws EMBEDDING_NOT_CONFIGURED when semantic provided without config", async () => {
@@ -29,17 +30,17 @@ describe("memory.search embedding", () => {
         status: "active" as const,
       },
       // embeddingConfig intentionally omitted
-    };
+    } as unknown as HandlerContext;
 
     const params = {
       semantic: "test query",
     };
 
     try {
-      await handler(params, context as any);
+      await handler(params, context);
       throw new Error("Expected handler to throw");
-    } catch (error: any) {
-      expect(error.code).toBe("EMBEDDING_NOT_CONFIGURED");
+    } catch (error) {
+      expect((error as { code: string }).code).toBe("EMBEDDING_NOT_CONFIGURED");
     }
   });
 
@@ -77,7 +78,7 @@ describe("memory.search embedding", () => {
         status: "active" as const,
       },
       embeddingConfig,
-    };
+    } as unknown as HandlerContext;
 
     const params = {
       semantic: "test query",
@@ -86,11 +87,11 @@ describe("memory.search embedding", () => {
     // The actual embedding call will fail because we're using a fake API key
     // This tests that errors are properly caught and wrapped
     try {
-      await handler(params, context as any);
+      await handler(params, context);
       // If embedding somehow succeeds (unlikely with fake key), that's fine too
-    } catch (error: any) {
+    } catch (error) {
       // Should be wrapped in AppError with EMBEDDING_FAILED code
-      expect(error.code).toBe("EMBEDDING_FAILED");
+      expect((error as { code: string }).code).toBe("EMBEDDING_FAILED");
     }
   });
 
@@ -140,13 +141,13 @@ describe("memory.search embedding", () => {
         status: "active" as const,
       },
       // No embeddingConfig needed when not using semantic
-    };
+    } as unknown as HandlerContext;
 
     const params = {
       fulltext: "test query",
     };
 
-    await handler(params, context as any);
+    await handler(params, context);
 
     // Verify searchMemories was called without embedding
     expect(mockSearchMemories).toHaveBeenCalled();

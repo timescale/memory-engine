@@ -78,7 +78,7 @@ function buildEmbeddingConfig(): EmbeddingConfig | undefined {
   }
 
   const parsedDimensions = parseInt(dimensions, 10);
-  if (isNaN(parsedDimensions) || parsedDimensions <= 0) {
+  if (Number.isNaN(parsedDimensions) || parsedDimensions <= 0) {
     throw new Error("EMBEDDING_DIMENSIONS must be a positive integer");
   }
 
