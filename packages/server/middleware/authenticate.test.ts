@@ -1,7 +1,10 @@
 import { describe, expect, mock, test } from "bun:test";
+import type { AccountsDB } from "@memory-engine/accounts";
+import type { SQL } from "bun";
 import {
   authenticateAccounts,
   authenticateEngine,
+  type CreateEngineDBFn,
   type EngineInfo,
   extractBearerToken,
   type Identity,
@@ -44,9 +47,11 @@ describe("authenticateAccounts", () => {
 
   test("returns 401 when no Authorization header", async () => {
     const request = new Request("http://localhost/test");
-    const mockDb = { validateSession: mock(() => Promise.resolve(null)) };
+    const mockDb = {
+      validateSession: mock(() => Promise.resolve(null)),
+    } as unknown as AccountsDB;
 
-    const result = await authenticateAccounts(request, mockDb as any);
+    const result = await authenticateAccounts(request, mockDb);
 
     expect(result.ok).toBe(false);
     if (!result.ok) {
@@ -58,15 +63,16 @@ describe("authenticateAccounts", () => {
     const request = new Request("http://localhost/test", {
       headers: { Authorization: "Bearer invalid-token" },
     });
-    const mockDb = { validateSession: mock(() => Promise.resolve(null)) };
+    const validateSession = mock(() => Promise.resolve(null));
+    const mockDb = { validateSession } as unknown as AccountsDB;
 
-    const result = await authenticateAccounts(request, mockDb as any);
+    const result = await authenticateAccounts(request, mockDb);
 
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.error.status).toBe(401);
     }
-    expect(mockDb.validateSession).toHaveBeenCalledWith("invalid-token");
+    expect(validateSession).toHaveBeenCalledWith("invalid-token");
   });
 
   test("returns identity when session is valid", async () => {
@@ -80,9 +86,9 @@ describe("authenticateAccounts", () => {
           identity: mockIdentity,
         }),
       ),
-    };
+    } as unknown as AccountsDB;
 
-    const result = await authenticateAccounts(request, mockDb as any);
+    const result = await authenticateAccounts(request, mockDb);
 
     expect(result.ok).toBe(true);
     if (result.ok && result.context.type === "accounts") {
@@ -100,9 +106,10 @@ describe("authenticateEngine", () => {
     status: "active",
   };
 
-  const createMockAccountsDb = (engine: EngineInfo | null) => ({
-    getEngineBySlug: mock(() => Promise.resolve(engine)),
-  });
+  const createMockAccountsDb = (engine: EngineInfo | null) =>
+    ({
+      getEngineBySlug: mock(() => Promise.resolve(engine)),
+    }) as unknown as AccountsDB;
 
   const createMockEngineDb = (validationResult: {
     valid: boolean;
@@ -113,13 +120,13 @@ describe("authenticateEngine", () => {
     setUser: mock(() => {}),
   });
 
-  const mockCreateEngineDB = mock((sql: unknown, schema: string) => {
+  const mockCreateEngineDB = mock((_sql: SQL, _schema: string) => {
     return createMockEngineDb({
       valid: true,
       userId: "user-789",
       apiKeyId: "apikey-abc",
     });
-  });
+  }) as unknown as CreateEngineDBFn;
 
   // Valid API key format: me.{slug}.{lookupId}.{secret}
   // Secret must be exactly 32 chars (base64url)
@@ -132,9 +139,9 @@ describe("authenticateEngine", () => {
 
     const result = await authenticateEngine(
       request,
-      mockAccountsDb as any,
-      {} as any,
-      mockCreateEngineDB as any,
+      mockAccountsDb,
+      {} as SQL,
+      mockCreateEngineDB,
     );
 
     expect(result.ok).toBe(false);
@@ -151,9 +158,9 @@ describe("authenticateEngine", () => {
 
     const result = await authenticateEngine(
       request,
-      mockAccountsDb as any,
-      {} as any,
-      mockCreateEngineDB as any,
+      mockAccountsDb,
+      {} as SQL,
+      mockCreateEngineDB,
     );
 
     expect(result.ok).toBe(false);
@@ -170,9 +177,9 @@ describe("authenticateEngine", () => {
 
     const result = await authenticateEngine(
       request,
-      mockAccountsDb as any,
-      {} as any,
-      mockCreateEngineDB as any,
+      mockAccountsDb,
+      {} as SQL,
+      mockCreateEngineDB,
     );
 
     expect(result.ok).toBe(false);
@@ -190,9 +197,9 @@ describe("authenticateEngine", () => {
 
     const result = await authenticateEngine(
       request,
-      mockAccountsDb as any,
-      {} as any,
-      mockCreateEngineDB as any,
+      mockAccountsDb,
+      {} as SQL,
+      mockCreateEngineDB,
     );
 
     expect(result.ok).toBe(false);
@@ -210,9 +217,9 @@ describe("authenticateEngine", () => {
 
     const result = await authenticateEngine(
       request,
-      mockAccountsDb as any,
-      {} as any,
-      mockCreateEngineDB as any,
+      mockAccountsDb,
+      {} as SQL,
+      mockCreateEngineDB,
     );
 
     expect(result.ok).toBe(false);
@@ -228,13 +235,13 @@ describe("authenticateEngine", () => {
     const mockAccountsDb = createMockAccountsDb(mockEngine);
     const mockCreateEngineDBInvalid = mock(() =>
       createMockEngineDb({ valid: false }),
-    );
+    ) as unknown as CreateEngineDBFn;
 
     const result = await authenticateEngine(
       request,
-      mockAccountsDb as any,
-      {} as any,
-      mockCreateEngineDBInvalid as any,
+      mockAccountsDb,
+      {} as SQL,
+      mockCreateEngineDBInvalid,
     );
 
     expect(result.ok).toBe(false);
@@ -253,22 +260,22 @@ describe("authenticateEngine", () => {
       userId: "user-789",
       apiKeyId: "apikey-abc",
     });
-    const mockCreateEngineDBSuccess = mock(() => mockEngineDb);
+    const mockCreateEngineDBSuccess = mock(
+      () => mockEngineDb,
+    ) as unknown as CreateEngineDBFn;
 
     const result = await authenticateEngine(
       request,
-      mockAccountsDb as any,
-      {} as any,
-      mockCreateEngineDBSuccess as any,
+      mockAccountsDb,
+      {} as SQL,
+      mockCreateEngineDBSuccess,
     );
 
     expect(result.ok).toBe(true);
-    if (result.ok) {
-      expect(result.context.type).toBe("engine");
-      const ctx = result.context as any;
-      expect(ctx.userId).toBe("user-789");
-      expect(ctx.apiKeyId).toBe("apikey-abc");
-      expect(ctx.engine).toEqual(mockEngine);
+    if (result.ok && result.context.type === "engine") {
+      expect(result.context.userId).toBe("user-789");
+      expect(result.context.apiKeyId).toBe("apikey-abc");
+      expect(result.context.engine).toEqual(mockEngine);
       expect(mockEngineDb.setUser).toHaveBeenCalledWith("user-789");
     }
   });

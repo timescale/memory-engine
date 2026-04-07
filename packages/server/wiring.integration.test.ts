@@ -5,7 +5,10 @@
  * These tests require a running database with migrations applied.
  * Skip with: SKIP_INTEGRATION=1 bun test
  */
+
 import { describe, expect, mock, test } from "bun:test";
+import type { AccountsDB } from "@memory-engine/accounts";
+import type { SQL } from "bun";
 import type { ServerContext } from "./context";
 import { createRouter } from "./router";
 
@@ -21,8 +24,8 @@ describe.skipIf(SKIP_INTEGRATION)("Server-Database Wiring Integration", () => {
         accountsDb: {
           validateSession: mock(() => Promise.resolve(null)),
           getEngineBySlug: mock(() => Promise.resolve(null)),
-        } as any,
-        engineSql: {} as any,
+        } as unknown as AccountsDB,
+        engineSql: {} as SQL,
       };
 
       const router = createRouter(ctx);
@@ -46,8 +49,8 @@ describe.skipIf(SKIP_INTEGRATION)("Server-Database Wiring Integration", () => {
         accountsDb: {
           validateSession: mock(() => Promise.resolve(null)),
           getEngineBySlug: mock(() => Promise.resolve(null)),
-        } as any,
-        engineSql: {} as any,
+        } as unknown as AccountsDB,
+        engineSql: {} as SQL,
       };
 
       const router = createRouter(ctx);
@@ -76,8 +79,8 @@ describe.skipIf(SKIP_INTEGRATION)("Server-Database Wiring Integration", () => {
         accountsDb: {
           validateSession: mock(() => Promise.resolve(null)),
           getEngineBySlug: mock(() => Promise.resolve(null)),
-        } as any,
-        engineSql: {} as any,
+        } as unknown as AccountsDB,
+        engineSql: {} as SQL,
       };
 
       const router = createRouter(ctx);
@@ -101,8 +104,8 @@ describe.skipIf(SKIP_INTEGRATION)("Server-Database Wiring Integration", () => {
         accountsDb: {
           validateSession: mock(() => Promise.resolve(null)),
           getEngineBySlug: mock(() => Promise.resolve(null)),
-        } as any,
-        engineSql: {} as any,
+        } as unknown as AccountsDB,
+        engineSql: {} as SQL,
       };
 
       const router = createRouter(ctx);
@@ -128,8 +131,8 @@ describe.skipIf(SKIP_INTEGRATION)("Server-Database Wiring Integration", () => {
   describe("Health endpoint (no auth)", () => {
     test("returns 200 without authentication", async () => {
       const ctx: ServerContext = {
-        accountsDb: {} as any,
-        engineSql: {} as any,
+        accountsDb: {} as AccountsDB,
+        engineSql: {} as SQL,
       };
 
       const router = createRouter(ctx);

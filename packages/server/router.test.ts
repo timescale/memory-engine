@@ -1,4 +1,6 @@
 import { describe, expect, mock, test } from "bun:test";
+import type { AccountsDB } from "@memory-engine/accounts";
+import type { SQL } from "bun";
 import type { ServerContext } from "./context";
 import { createRouter } from "./router";
 
@@ -8,8 +10,8 @@ function createMockContext(): ServerContext {
     accountsDb: {
       validateSession: mock(() => Promise.resolve(null)),
       getEngineBySlug: mock(() => Promise.resolve(null)),
-    } as any,
-    engineSql: {} as any,
+    } as unknown as AccountsDB,
+    engineSql: {} as SQL,
   };
 }
 
