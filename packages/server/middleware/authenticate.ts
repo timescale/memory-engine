@@ -1,5 +1,11 @@
+import type { SQL } from "bun";
 import type { AccountsDB } from "@memory-engine/accounts";
-import { unauthorized } from "../util/response";
+import {
+  createEngineDB,
+  type EngineDB,
+  parseApiKey,
+} from "@memory-engine/engine";
+import { forbidden, unauthorized } from "../util/response";
 
 /**
  * Authentication context types.
@@ -27,6 +33,17 @@ export interface User {
 }
 
 /**
+ * Engine info from accounts DB.
+ */
+export interface EngineInfo {
+  id: string;
+  orgId: string;
+  slug: string;
+  name: string;
+  status: "active" | "suspended" | "deleted";
+}
+
+/**
  * Auth context for accounts RPC requests.
  */
 export interface AccountsAuthContext {
@@ -39,9 +56,17 @@ export interface AccountsAuthContext {
  */
 export interface EngineAuthContext {
   type: "engine";
-  slug: string;
-  user: User;
+  db: EngineDB;
+  userId: string;
+  apiKeyId: string;
+  engine: EngineInfo;
 }
+
+/**
+ * Factory function type for creating EngineDB instances.
+ * Allows dependency injection for testing.
+ */
+export type CreateEngineDBFn = (sql: SQL, schema: string) => EngineDB;
 
 /**
  * Union type for all auth contexts.
@@ -116,17 +141,75 @@ export async function authenticateAccounts(
 }
 
 /**
- * Stub: Authenticate request for engine RPC.
- * Will parse API key, extract slug, validate against engine DB.
- *
- * TODO: Implement in chunk 5
+ * Authenticate request for engine RPC.
+ * Parses API key, looks up engine, validates key against engine DB.
  */
 export async function authenticateEngine(
-  _request: Request,
+  request: Request,
+  accountsDb: AccountsDB,
+  engineSql: SQL,
+  createEngineDBFn: CreateEngineDBFn = createEngineDB,
 ): Promise<AuthResult> {
-  // Stub - will be implemented when we add API key auth
+  // 1. Extract bearer token
+  const token = extractBearerToken(request);
+  if (!token) {
+    return {
+      ok: false,
+      error: unauthorized("Missing or invalid Authorization header"),
+    };
+  }
+
+  // 2. Parse API key
+  const parsed = parseApiKey(token);
+  if (!parsed) {
+    return { ok: false, error: unauthorized("Invalid API key format") };
+  }
+
+  const { engineSlug, lookupId, secret } = parsed;
+
+  // 3. Look up engine in accounts DB
+  const engine = await accountsDb.getEngineBySlug(engineSlug);
+  if (!engine) {
+    return { ok: false, error: unauthorized("Engine not found") };
+  }
+
+  // 4. Check engine status
+  if (engine.status !== "active") {
+    return {
+      ok: false,
+      error: forbidden(`Engine is ${engine.status}`),
+    };
+  }
+
+  // 5. Create EngineDB for this engine's schema
+  const db = createEngineDBFn(engineSql, `me_${engineSlug}`);
+
+  // 6. Validate API key
+  const validation = await db.validateApiKey(lookupId, secret);
+  if (!validation.valid || !validation.userId || !validation.apiKeyId) {
+    return { ok: false, error: unauthorized("Invalid or expired API key") };
+  }
+
+  // 7. Set user on db for RLS context
+  db.setUser(validation.userId);
+
+  // 8. Build engine info
+  const engineInfo: EngineInfo = {
+    id: engine.id,
+    orgId: engine.orgId,
+    slug: engine.slug,
+    name: engine.name,
+    status: engine.status,
+  };
+
   return {
-    ok: false,
-    error: new Response("Not Implemented", { status: 501 }),
+    ok: true,
+    context: {
+      type: "engine",
+      db,
+      userId: validation.userId,
+      apiKeyId: validation.apiKeyId,
+      engine: engineInfo,
+    },
   };
 }
