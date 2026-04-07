@@ -1,3 +1,10 @@
+import {
+  deviceCodeHandler,
+  deviceTokenHandler,
+  deviceVerifyGetHandler,
+  deviceVerifyPostHandler,
+  oauthCallbackHandler,
+} from "./handlers/auth";
 import { healthHandler } from "./handlers/health";
 import { accountsMethods, createRpcHandler, engineMethods } from "./rpc";
 import { notFound } from "./util/response";
@@ -88,18 +95,6 @@ function matchPath(pattern: string, path: string): RouteParams | null {
 }
 
 /**
- * Stub handler for unimplemented routes.
- */
-function notImplementedHandler(_request: Request): Response {
-  return new Response(
-    JSON.stringify({
-      error: { message: "Not Implemented", code: "NOT_IMPLEMENTED" },
-    }),
-    { status: 501, headers: { "Content-Type": "application/json" } },
-  );
-}
-
-/**
  * RPC handlers.
  */
 const accountsRpcHandler = createRpcHandler(accountsMethods);
@@ -107,6 +102,8 @@ const engineRpcHandler = createRpcHandler(engineMethods);
 
 /**
  * Application routes.
+ *
+ * Routes are matched in order - more specific routes must come before wildcards.
  */
 const routes: Route[] = [
   // Health check
@@ -116,11 +113,37 @@ const routes: Route[] = [
     handler: healthHandler,
   },
 
-  // OAuth endpoints (to be implemented in chunk 7)
+  // OAuth Device Flow - CLI initiates
   {
-    method: "*",
-    pattern: "/api/v1/auth/*",
-    handler: notImplementedHandler,
+    method: "POST",
+    pattern: "/api/v1/auth/device/code",
+    handler: deviceCodeHandler,
+  },
+
+  // OAuth Device Flow - CLI polls for token
+  {
+    method: "POST",
+    pattern: "/api/v1/auth/device/token",
+    handler: deviceTokenHandler,
+  },
+
+  // OAuth Device Flow - User enters code (GET = form, POST = submit)
+  {
+    method: "GET",
+    pattern: "/api/v1/auth/device/verify",
+    handler: deviceVerifyGetHandler,
+  },
+  {
+    method: "POST",
+    pattern: "/api/v1/auth/device/verify",
+    handler: deviceVerifyPostHandler,
+  },
+
+  // OAuth Callback - Provider redirects here after user authorizes
+  {
+    method: "GET",
+    pattern: "/api/v1/auth/callback/:provider",
+    handler: oauthCallbackHandler,
   },
 
   // Accounts RPC
