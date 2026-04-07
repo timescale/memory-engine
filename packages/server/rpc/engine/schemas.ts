@@ -37,9 +37,10 @@ export const treePathSchema = z
 export const treeFilterSchema = z.string().min(1);
 
 /**
- * ISO 8601 timestamp string.
+ * ISO 8601 timestamp string using Zod 4's native support.
+ * Allows timezone offsets (e.g., "2024-01-01T00:00:00+02:00" or "2024-01-01T00:00:00Z").
  */
-export const timestampSchema = z.string().datetime({ offset: true });
+export const timestampSchema = z.iso.datetime({ offset: true });
 
 /**
  * Temporal range schema for create/update.
