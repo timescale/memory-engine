@@ -30,5 +30,5 @@ create table {{schema}}.session
 );
 
 create index idx_session_identity on {{schema}}.session (identity_id);
-create index idx_session_token on {{schema}}.session (token) where expires_at > now();
+create index idx_session_token on {{schema}}.session (token);
 create index idx_session_expires on {{schema}}.session (expires_at);
