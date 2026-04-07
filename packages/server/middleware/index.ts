@@ -4,7 +4,10 @@ export {
   type AuthResult,
   authenticateAccounts,
   authenticateEngine,
+  type CreateEngineDBFn,
   type EngineAuthContext,
+  type EngineInfo,
+  extractBearerToken,
   type Identity,
   type User,
 } from "./authenticate";
