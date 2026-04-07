@@ -8,6 +8,12 @@ import type {
   OAuthUserInfo,
 } from "../types";
 import {
+  buildGitHubAuthUrl,
+  exchangeGitHubCode,
+  fetchGitHubUserInfo,
+  getGitHubConfig,
+} from "./github";
+import {
   buildGoogleAuthUrl,
   exchangeGoogleCode,
   fetchGoogleUserInfo,
@@ -24,7 +30,7 @@ export function getProviderConfig(
     case "google":
       return getGoogleConfig();
     case "github":
-      throw new Error("GitHub provider not implemented yet");
+      return getGitHubConfig();
     default:
       throw new Error(`Unknown OAuth provider: ${provider}`);
   }
@@ -42,7 +48,7 @@ export function buildAuthUrl(
     case "google":
       return buildGoogleAuthUrl(state, redirectUri);
     case "github":
-      throw new Error("GitHub provider not implemented yet");
+      return buildGitHubAuthUrl(state, redirectUri);
     default:
       throw new Error(`Unknown OAuth provider: ${provider}`);
   }
@@ -64,7 +70,7 @@ export async function exchangeCode(
     case "google":
       return exchangeGoogleCode(code, redirectUri);
     case "github":
-      throw new Error("GitHub provider not implemented yet");
+      return exchangeGitHubCode(code, redirectUri);
     default:
       throw new Error(`Unknown OAuth provider: ${provider}`);
   }
@@ -81,7 +87,7 @@ export async function fetchUserInfo(
     case "google":
       return fetchGoogleUserInfo(accessToken);
     case "github":
-      throw new Error("GitHub provider not implemented yet");
+      return fetchGitHubUserInfo(accessToken);
     default:
       throw new Error(`Unknown OAuth provider: ${provider}`);
   }
