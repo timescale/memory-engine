@@ -38,11 +38,10 @@
  * When not set, all functions are no-ops with zero overhead.
  */
 
+// Re-export Span type for consumers who need to type span parameters
+export type { Span } from "@opentelemetry/api";
 // Configuration
 export { configure, isEnabled } from "./config";
-
-// Spans
-export { startSpan, withSpan } from "./spans";
 
 // Logging
 export {
@@ -54,9 +53,7 @@ export {
   trace,
   warn,
 } from "./logs";
-
+// Spans
+export { startSpan, withSpan } from "./spans";
 // Types
 export type { Attributes, LogOptions, SpanOptions } from "./types";
-
-// Re-export Span type for consumers who need to type span parameters
-export type { Span } from "@opentelemetry/api";

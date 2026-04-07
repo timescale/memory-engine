@@ -1,5 +1,5 @@
-import { embed, embedMany } from "ai";
 import { reportError, withSpan } from "@memory-engine/telemetry";
+import { embed, embedMany } from "ai";
 import { getEmbeddingModel } from "./provider";
 import { MAX_OPENAI_TOKENS, TRUNCATION_RATIOS, truncateText } from "./truncate";
 import type { EmbeddingConfig, EmbedResult, MemoryRow } from "./types";
@@ -210,7 +210,9 @@ export async function generateEmbeddings(
       const maxTokens = config.options?.maxTokens ?? MAX_OPENAI_TOKENS;
 
       // Pre-truncate all providers defensively
-      const texts = rows.map((row) => truncateText(row.content, maxTokens).text);
+      const texts = rows.map(
+        (row) => truncateText(row.content, maxTokens).text,
+      );
 
       const results: EmbedResult[] = [];
 
@@ -246,13 +248,20 @@ export async function generateEmbeddings(
         }
       } catch (batchError) {
         // Report batch error for debugging
-        const err = batchError instanceof Error ? batchError : new Error(String(batchError));
-        reportError("Batch embedding failed, falling back to individual requests", err, {
-          provider: config.provider,
-          model: config.model,
-          batch_size: rows.length,
-          fallback: "individual",
-        });
+        const err =
+          batchError instanceof Error
+            ? batchError
+            : new Error(String(batchError));
+        reportError(
+          "Batch embedding failed, falling back to individual requests",
+          err,
+          {
+            provider: config.provider,
+            model: config.model,
+            batch_size: rows.length,
+            fallback: "individual",
+          },
+        );
 
         // On context length error for OpenAI, fall back to individual with retry
         if (config.provider === "openai" && isContextLengthError(batchError)) {
