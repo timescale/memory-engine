@@ -28,7 +28,9 @@ export const ENGINE_SCHEMA_PREFIX = "me_";
 export interface Identity {
   id: string;
   email: string;
-  name: string | null;
+  name: string;
+  createdAt: Date;
+  updatedAt: Date | null;
 }
 
 /**
@@ -141,11 +143,7 @@ export async function authenticateAccounts(
     ok: true,
     context: {
       type: "accounts",
-      identity: {
-        id: sessionResult.identity.id,
-        email: sessionResult.identity.email,
-        name: sessionResult.identity.name,
-      },
+      identity: sessionResult.identity,
     },
   };
 }

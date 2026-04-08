@@ -62,10 +62,10 @@ async function orgMemberList(
   context: HandlerContext,
 ): Promise<{ members: OrgMemberResponse[] }> {
   assertAccountsRpcContext(context);
-  const { db, identityId } = context as AccountsRpcContext;
+  const { db, identity } = context as AccountsRpcContext;
 
   // Check if caller is a member of the org
-  const callerMember = await db.getMember(params.orgId, identityId);
+  const callerMember = await db.getMember(params.orgId, identity.id);
   if (!callerMember) {
     throw new AppError("FORBIDDEN", "Not a member of this organization");
   }
@@ -83,10 +83,10 @@ async function orgMemberAdd(
   context: HandlerContext,
 ): Promise<OrgMemberResponse> {
   assertAccountsRpcContext(context);
-  const { db, identityId } = context as AccountsRpcContext;
+  const { db, identity } = context as AccountsRpcContext;
 
   // Check if caller has admin or owner role
-  const callerMember = await db.getMember(params.orgId, identityId);
+  const callerMember = await db.getMember(params.orgId, identity.id);
   if (
     !callerMember ||
     (callerMember.role !== "owner" && callerMember.role !== "admin")
@@ -116,10 +116,10 @@ async function orgMemberRemove(
   context: HandlerContext,
 ): Promise<{ removed: boolean }> {
   assertAccountsRpcContext(context);
-  const { db, identityId } = context as AccountsRpcContext;
+  const { db, identity } = context as AccountsRpcContext;
 
   // Check if caller has admin or owner role
-  const callerMember = await db.getMember(params.orgId, identityId);
+  const callerMember = await db.getMember(params.orgId, identity.id);
   if (
     !callerMember ||
     (callerMember.role !== "owner" && callerMember.role !== "admin")
@@ -164,10 +164,10 @@ async function orgMemberUpdateRole(
   context: HandlerContext,
 ): Promise<{ updated: boolean }> {
   assertAccountsRpcContext(context);
-  const { db, identityId } = context as AccountsRpcContext;
+  const { db, identity } = context as AccountsRpcContext;
 
   // Check if caller has admin or owner role
-  const callerMember = await db.getMember(params.orgId, identityId);
+  const callerMember = await db.getMember(params.orgId, identity.id);
   if (
     !callerMember ||
     (callerMember.role !== "owner" && callerMember.role !== "admin")

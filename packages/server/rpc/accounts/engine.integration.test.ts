@@ -7,7 +7,11 @@
  * 3. Defaults language to "english" when not specified
  */
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { type AccountsDB, createAccountsDB } from "@memory-engine/accounts";
+import {
+  type AccountsDB,
+  createAccountsDB,
+  type Identity,
+} from "@memory-engine/accounts";
 import { TestDatabase as AccountsTestDatabase } from "@memory-engine/accounts/migrate/test-utils";
 import { bootstrap } from "@memory-engine/engine/migrate/bootstrap";
 import { TestDatabase as EngineTestDatabase } from "@memory-engine/engine/migrate/test-utils";
@@ -31,7 +35,7 @@ let engineConnectionString: string;
 
 // Test data
 let testOrgId: string;
-let testIdentityId: string;
+let testIdentity: Identity;
 
 beforeAll(async () => {
   // Set up accounts database
@@ -53,11 +57,10 @@ beforeAll(async () => {
   await bootstrap(engineSql);
 
   // Create test identity and org
-  const identity = await accountsDb.createIdentity({
+  testIdentity = await accountsDb.createIdentity({
     email: "engine-test@example.com",
     name: "Engine Test User",
   });
-  testIdentityId = identity.id;
 
   const org = await accountsDb.createOrg({
     slug: "engine-test-org",
@@ -66,7 +69,7 @@ beforeAll(async () => {
   testOrgId = org.id;
 
   // Make identity an owner of the org
-  await accountsDb.addMember(org.id, identity.id, "owner");
+  await accountsDb.addMember(org.id, testIdentity.id, "owner");
 });
 
 afterAll(async () => {
@@ -78,11 +81,11 @@ afterAll(async () => {
 /**
  * Helper to create a context for engine methods.
  */
-function createContext(identityId: string): HandlerContext {
+function createContext(identity: Identity): HandlerContext {
   return {
     request: new Request("http://localhost"),
     db: accountsDb,
-    identityId,
+    identity,
     engineSql,
     appVersion: "0.1.0",
   } as unknown as AccountsRpcContext;
@@ -154,7 +157,7 @@ describe("engine.create integration", () => {
     const handler = engineMethods.get("engine.create")?.handler;
     if (!handler) throw new Error("engine.create handler not found");
 
-    const context = createContext(testIdentityId);
+    const context = createContext(testIdentity);
     const result = (await handler(
       { orgId: testOrgId, name: "Default Language Engine" },
       context,
@@ -184,7 +187,7 @@ describe("engine.create integration", () => {
     const handler = engineMethods.get("engine.create")?.handler;
     if (!handler) throw new Error("engine.create handler not found");
 
-    const context = createContext(testIdentityId);
+    const context = createContext(testIdentity);
     const result = (await handler(
       { orgId: testOrgId, name: "German Engine", language: "german" },
       context,
@@ -206,7 +209,7 @@ describe("engine.create integration", () => {
     const handler = engineMethods.get("engine.create")?.handler;
     if (!handler) throw new Error("engine.create handler not found");
 
-    const context = createContext(testIdentityId);
+    const context = createContext(testIdentity);
     const result = (await handler(
       { orgId: testOrgId, name: "Simple Engine", language: "simple" },
       context,
@@ -224,7 +227,7 @@ describe("engine.create integration", () => {
     const handler = engineMethods.get("engine.create")?.handler;
     if (!handler) throw new Error("engine.create handler not found");
 
-    const context = createContext(testIdentityId);
+    const context = createContext(testIdentity);
     const result = (await handler(
       { orgId: testOrgId, name: "Queue Test Engine" },
       context,
@@ -244,7 +247,7 @@ describe("engine.create integration", () => {
       name: "Outsider",
     });
 
-    const context = createContext(outsider.id);
+    const context = createContext(outsider);
 
     await expect(
       handler({ orgId: testOrgId, name: "Unauthorized Engine" }, context),
@@ -262,7 +265,7 @@ describe("engine.create integration", () => {
     });
     await accountsDb.addMember(testOrgId, member.id, "member");
 
-    const context = createContext(member.id);
+    const context = createContext(member);
 
     await expect(
       handler({ orgId: testOrgId, name: "Member Engine" }, context),
@@ -280,7 +283,7 @@ describe("engine.create integration", () => {
     });
     await accountsDb.addMember(testOrgId, admin.id, "admin");
 
-    const context = createContext(admin.id);
+    const context = createContext(admin);
 
     const result = (await handler(
       { orgId: testOrgId, name: "Admin Engine" },
@@ -296,7 +299,7 @@ describe("engine.create integration", () => {
     const handler = engineMethods.get("engine.create")?.handler;
     if (!handler) throw new Error("engine.create handler not found");
 
-    const context = createContext(testIdentityId);
+    const context = createContext(testIdentity);
     const result = (await handler(
       { orgId: testOrgId, name: "Persisted Engine" },
       context,
@@ -315,7 +318,7 @@ describe("engine.create integration", () => {
     const handler = engineMethods.get("engine.create")?.handler;
     if (!handler) throw new Error("engine.create handler not found");
 
-    const context = createContext(testIdentityId);
+    const context = createContext(testIdentity);
     const result = (await handler(
       { orgId: testOrgId, name: "Slug Lookup Engine" },
       context,

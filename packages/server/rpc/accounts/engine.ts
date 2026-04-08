@@ -74,11 +74,10 @@ async function engineCreate(
   context: HandlerContext,
 ): Promise<EngineResponse> {
   assertAccountsRpcContext(context);
-  const { db, identityId, engineSql, appVersion } =
-    context as AccountsRpcContext;
+  const { db, identity, engineSql, appVersion } = context as AccountsRpcContext;
 
   // Check if caller has admin or owner role
-  const member = await db.getMember(params.orgId, identityId);
+  const member = await db.getMember(params.orgId, identity.id);
   if (!member || (member.role !== "owner" && member.role !== "admin")) {
     throw new AppError(
       "FORBIDDEN",
@@ -129,10 +128,10 @@ async function engineList(
   context: HandlerContext,
 ): Promise<{ engines: EngineResponse[] }> {
   assertAccountsRpcContext(context);
-  const { db, identityId } = context as AccountsRpcContext;
+  const { db, identity } = context as AccountsRpcContext;
 
   // Check if caller is a member of the org
-  const member = await db.getMember(params.orgId, identityId);
+  const member = await db.getMember(params.orgId, identity.id);
   if (!member) {
     throw new AppError("FORBIDDEN", "Not a member of this organization");
   }
@@ -150,7 +149,7 @@ async function engineGet(
   context: HandlerContext,
 ): Promise<EngineResponse> {
   assertAccountsRpcContext(context);
-  const { db, identityId } = context as AccountsRpcContext;
+  const { db, identity } = context as AccountsRpcContext;
 
   const engine = await db.getEngine(params.id);
   if (!engine) {
@@ -158,7 +157,7 @@ async function engineGet(
   }
 
   // Check if caller is a member of the org
-  const member = await db.getMember(engine.orgId, identityId);
+  const member = await db.getMember(engine.orgId, identity.id);
   if (!member) {
     throw new AppError(
       "FORBIDDEN",
@@ -178,7 +177,7 @@ async function engineUpdate(
   context: HandlerContext,
 ): Promise<EngineResponse> {
   assertAccountsRpcContext(context);
-  const { db, identityId } = context as AccountsRpcContext;
+  const { db, identity } = context as AccountsRpcContext;
 
   const engine = await db.getEngine(params.id);
   if (!engine) {
@@ -186,7 +185,7 @@ async function engineUpdate(
   }
 
   // Check if caller has admin or owner role
-  const member = await db.getMember(engine.orgId, identityId);
+  const member = await db.getMember(engine.orgId, identity.id);
   if (!member || (member.role !== "owner" && member.role !== "admin")) {
     throw new AppError(
       "FORBIDDEN",

@@ -16,28 +16,19 @@ import { type AccountsRpcContext, assertAccountsRpcContext } from "./types";
 /**
  * session.revoke - Revoke the current session (logout).
  *
- * This deletes the session that was used to authenticate this request,
- * effectively logging the user out.
+ * This deletes all sessions for the authenticated identity,
+ * effectively logging the user out of all devices.
+ *
+ * TODO: If we need per-session revocation, pass sessionId through context.
  */
 async function sessionRevoke(
   _params: SessionRevokeParams,
   context: HandlerContext,
 ): Promise<{ revoked: boolean }> {
   assertAccountsRpcContext(context);
-  const { db } = context as AccountsRpcContext;
+  const { db, identity } = context as AccountsRpcContext;
 
-  // The session ID isn't directly available in context, but we can get it
-  // by looking up the session again. However, a cleaner approach is to
-  // delete all sessions for this identity (single-device logout for now).
-  // TODO: If we need per-session revocation, pass sessionId through context.
-
-  // For now, we'll need the session ID. Let me check what's available...
-  // Actually, the cleanest approach is to add sessionId to the context.
-  // But for MVP, let's delete all sessions for this identity.
-
-  const ctx = context as AccountsRpcContext;
-  const count = await db.deleteSessionsByIdentity(ctx.identityId);
-
+  const count = await db.deleteSessionsByIdentity(identity.id);
   return { revoked: count > 0 };
 }
 

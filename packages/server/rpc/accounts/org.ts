@@ -67,7 +67,7 @@ async function orgCreate(
   context: HandlerContext,
 ): Promise<OrgResponse> {
   assertAccountsRpcContext(context);
-  const { db, identityId } = context as AccountsRpcContext;
+  const { db, identity } = context as AccountsRpcContext;
 
   // Create org and add creator as owner in a transaction
   const org = await db.withTransaction(async (txDb) => {
@@ -77,7 +77,7 @@ async function orgCreate(
     });
 
     // Add creator as owner
-    await txDb.addMember(newOrg.id, identityId, "owner");
+    await txDb.addMember(newOrg.id, identity.id, "owner");
 
     return newOrg;
   });
@@ -93,9 +93,9 @@ async function orgList(
   context: HandlerContext,
 ): Promise<{ orgs: OrgResponse[] }> {
   assertAccountsRpcContext(context);
-  const { db, identityId } = context as AccountsRpcContext;
+  const { db, identity } = context as AccountsRpcContext;
 
-  const orgs = await db.listOrgsByIdentity(identityId);
+  const orgs = await db.listOrgsByIdentity(identity.id);
   return { orgs: orgs.map(toOrgResponse) };
 }
 
@@ -107,10 +107,10 @@ async function orgGet(
   context: HandlerContext,
 ): Promise<OrgResponse> {
   assertAccountsRpcContext(context);
-  const { db, identityId } = context as AccountsRpcContext;
+  const { db, identity } = context as AccountsRpcContext;
 
   // Check if caller is a member of the org
-  const member = await db.getMember(params.id, identityId);
+  const member = await db.getMember(params.id, identity.id);
   if (!member) {
     throw new AppError("FORBIDDEN", "Not a member of this organization");
   }
@@ -132,10 +132,10 @@ async function orgUpdate(
   context: HandlerContext,
 ): Promise<OrgResponse> {
   assertAccountsRpcContext(context);
-  const { db, identityId } = context as AccountsRpcContext;
+  const { db, identity } = context as AccountsRpcContext;
 
   // Check if caller has admin or owner role
-  const member = await db.getMember(params.id, identityId);
+  const member = await db.getMember(params.id, identity.id);
   if (!member || (member.role !== "owner" && member.role !== "admin")) {
     throw new AppError(
       "FORBIDDEN",
@@ -169,10 +169,10 @@ async function orgDelete(
   context: HandlerContext,
 ): Promise<{ deleted: boolean }> {
   assertAccountsRpcContext(context);
-  const { db, identityId } = context as AccountsRpcContext;
+  const { db, identity } = context as AccountsRpcContext;
 
   // Check if caller is an owner
-  const member = await db.getMember(params.id, identityId);
+  const member = await db.getMember(params.id, identity.id);
   if (!member || member.role !== "owner") {
     throw new AppError("FORBIDDEN", "Only owners can delete the organization");
   }

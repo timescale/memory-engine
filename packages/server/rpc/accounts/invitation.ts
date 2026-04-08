@@ -78,10 +78,10 @@ async function invitationCreate(
   context: HandlerContext,
 ): Promise<InvitationCreateResponse> {
   assertAccountsRpcContext(context);
-  const { db, identityId } = context as AccountsRpcContext;
+  const { db, identity } = context as AccountsRpcContext;
 
   // Check if caller has admin or owner role
-  const member = await db.getMember(params.orgId, identityId);
+  const member = await db.getMember(params.orgId, identity.id);
   if (!member || (member.role !== "owner" && member.role !== "admin")) {
     throw new AppError(
       "FORBIDDEN",
@@ -98,7 +98,7 @@ async function invitationCreate(
     orgId: params.orgId,
     email: params.email,
     role: params.role,
-    invitedBy: identityId,
+    invitedBy: identity.id,
     expiresInDays: params.expiresInDays,
   });
 
@@ -117,10 +117,10 @@ async function invitationList(
   context: HandlerContext,
 ): Promise<{ invitations: InvitationResponse[] }> {
   assertAccountsRpcContext(context);
-  const { db, identityId } = context as AccountsRpcContext;
+  const { db, identity } = context as AccountsRpcContext;
 
   // Check if caller is a member of the org
-  const member = await db.getMember(params.orgId, identityId);
+  const member = await db.getMember(params.orgId, identity.id);
   if (!member) {
     throw new AppError("FORBIDDEN", "Not a member of this organization");
   }
@@ -138,7 +138,7 @@ async function invitationRevoke(
   context: HandlerContext,
 ): Promise<{ revoked: boolean }> {
   assertAccountsRpcContext(context);
-  const { db, identityId } = context as AccountsRpcContext;
+  const { db, identity } = context as AccountsRpcContext;
 
   // We need to find the invitation first to check org membership
   // Since we don't have getInvitation by ID, we'll need to verify via different means
@@ -146,11 +146,11 @@ async function invitationRevoke(
   // The authorization check happens via listing invitations for orgs the user is admin of
 
   // Get all orgs the caller is admin/owner of
-  const orgs = await db.listOrgsByIdentity(identityId);
+  const orgs = await db.listOrgsByIdentity(identity.id);
 
   // For each org, check if the invitation belongs to it and caller has permission
   for (const org of orgs) {
-    const member = await db.getMember(org.id, identityId);
+    const member = await db.getMember(org.id, identity.id);
     if (member && (member.role === "owner" || member.role === "admin")) {
       const invitations = await db.listPendingInvitations(org.id);
       const invitation = invitations.find((inv) => inv.id === params.id);
@@ -173,13 +173,7 @@ async function invitationAccept(
   context: HandlerContext,
 ): Promise<{ accepted: boolean; orgId: string }> {
   assertAccountsRpcContext(context);
-  const { db, identityId } = context as AccountsRpcContext;
-
-  // Get the caller's identity to check email
-  const identity = await db.getIdentity(identityId);
-  if (!identity) {
-    throw new AppError("NOT_FOUND", "Identity not found");
-  }
+  const { db, identity } = context as AccountsRpcContext;
 
   // Find the invitation by token
   const invitation = await db.getInvitationByToken(params.token);
@@ -187,7 +181,7 @@ async function invitationAccept(
     throw new AppError("NOT_FOUND", "Invalid or expired invitation token");
   }
 
-  // Check email matches
+  // Check email matches (identity already available from auth - no DB lookup needed)
   if (invitation.email.toLowerCase() !== identity.email.toLowerCase()) {
     throw new AppError(
       "FORBIDDEN",
@@ -203,7 +197,7 @@ async function invitationAccept(
     }
 
     // Add the user as a member with the invited role
-    await txDb.addMember(invitation.orgId, identityId, invitation.role);
+    await txDb.addMember(invitation.orgId, identity.id, invitation.role);
   });
 
   return { accepted: true, orgId: invitation.orgId };

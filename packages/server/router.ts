@@ -163,7 +163,6 @@ export function createRouter(ctx: ServerContext): Router {
       }
       return {
         db: accountsDb,
-        identityId: ctx.identity.id,
         identity: ctx.identity,
         engineSql,
         appVersion,

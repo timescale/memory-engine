@@ -5,11 +5,10 @@
  * - me.get: Get the current authenticated identity
  */
 import type { Identity } from "@memory-engine/accounts";
-import { AppError } from "../errors";
 import { buildRegistry } from "../registry";
 import type { HandlerContext } from "../types";
 import { type MeGetParams, meGetSchema } from "./schemas";
-import { type AccountsRpcContext, assertAccountsRpcContext } from "./types";
+import { assertAccountsRpcContext } from "./types";
 
 // =============================================================================
 // Response Types
@@ -51,14 +50,8 @@ async function meGet(
   context: HandlerContext,
 ): Promise<IdentityResponse> {
   assertAccountsRpcContext(context);
-  const { db, identityId } = context as AccountsRpcContext;
-
-  const identity = await db.getIdentity(identityId);
-  if (!identity) {
-    throw new AppError("NOT_FOUND", `Identity not found: ${identityId}`);
-  }
-
-  return toIdentityResponse(identity);
+  // Identity is already available from authentication - no DB lookup needed
+  return toIdentityResponse(context.identity);
 }
 
 // =============================================================================
