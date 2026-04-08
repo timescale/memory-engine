@@ -8,6 +8,7 @@
  * - engine.update: Update engine name/status
  */
 import type { Engine } from "@memory-engine/accounts";
+import { provisionEngine, type EngineConfig } from "@memory-engine/engine";
 import { AppError } from "../errors";
 import { buildRegistry } from "../registry";
 import type { HandlerContext } from "../types";
@@ -22,6 +23,7 @@ import {
   engineUpdateSchema,
 } from "./schemas";
 import { type AccountsRpcContext, assertAccountsRpcContext } from "./types";
+import { embeddingConstants } from "../../config";
 
 // =============================================================================
 // Response Types
@@ -37,6 +39,7 @@ interface EngineResponse {
   name: string;
   shardId: number;
   status: string;
+  language: string;
   createdAt: string;
   updatedAt: string | null;
 }
@@ -52,6 +55,7 @@ function toEngineResponse(engine: Engine): EngineResponse {
     name: engine.name,
     shardId: engine.shardId,
     status: engine.status,
+    language: engine.language,
     createdAt: engine.createdAt.toISOString(),
     updatedAt: engine.updatedAt?.toISOString() ?? null,
   };
@@ -70,7 +74,8 @@ async function engineCreate(
   context: HandlerContext,
 ): Promise<EngineResponse> {
   assertAccountsRpcContext(context);
-  const { db, identityId } = context as AccountsRpcContext;
+  const { db, identityId, engineSql, appVersion } =
+    context as AccountsRpcContext;
 
   // Check if caller has admin or owner role
   const member = await db.getMember(params.orgId, identityId);
@@ -81,10 +86,36 @@ async function engineCreate(
     );
   }
 
+  // Create the engine record in accounts DB
   const engine = await db.createEngine({
     orgId: params.orgId,
     name: params.name,
+    language: params.language ?? "english",
   });
+
+  // Provision the engine schema in the engine DB
+  const engineConfig: EngineConfig = {
+    embedding_dimensions: embeddingConstants.dimensions,
+    bm25_text_config: engine.language,
+  };
+
+  try {
+    await provisionEngine(engineSql, engine.slug, engineConfig, appVersion);
+  } catch (err) {
+    // Attempt to clean up partially-created schema
+    const schema = `me_${engine.slug}`;
+    try {
+      await engineSql.unsafe(`drop schema if exists ${schema} cascade`);
+    } catch {
+      // Log but don't mask original error
+    }
+    // Mark engine as deleted in accounts DB
+    await db.updateEngine(engine.id, { status: "deleted" });
+    throw new AppError(
+      "INTERNAL_ERROR",
+      `Failed to provision engine schema: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
 
   return toEngineResponse(engine);
 }
