@@ -20,7 +20,7 @@
       "name": "@memory-engine/accounts",
       "version": "0.0.0",
       "dependencies": {
-        "@memory-engine/telemetry": "workspace:*",
+        "@pydantic/logfire-node": "^0.13.0",
       },
     },
     "packages/embedding": {
@@ -28,7 +28,7 @@
       "version": "0.0.0",
       "dependencies": {
         "@ai-sdk/openai": "^3.0.0",
-        "@memory-engine/telemetry": "workspace:*",
+        "@pydantic/logfire-node": "^0.13.0",
         "ai": "^6.0.0",
       },
     },
@@ -36,7 +36,7 @@
       "name": "@memory-engine/engine",
       "version": "0.0.0",
       "dependencies": {
-        "@memory-engine/telemetry": "workspace:*",
+        "@pydantic/logfire-node": "^0.13.0",
       },
     },
     "packages/server": {
@@ -46,16 +46,8 @@
         "@memory-engine/accounts": "workspace:*",
         "@memory-engine/embedding": "workspace:*",
         "@memory-engine/engine": "workspace:*",
-        "@memory-engine/telemetry": "workspace:*",
-        "zod": "^4.0.0",
-      },
-    },
-    "packages/telemetry": {
-      "name": "@memory-engine/telemetry",
-      "version": "0.0.0",
-      "dependencies": {
-        "@opentelemetry/api": "^1.9.0",
         "@pydantic/logfire-node": "^0.13.0",
+        "zod": "^4.0.0",
       },
     },
     "packages/worker": {
@@ -64,7 +56,7 @@
       "dependencies": {
         "@memory-engine/embedding": "workspace:*",
         "@memory-engine/engine": "workspace:*",
-        "@memory-engine/telemetry": "workspace:*",
+        "@pydantic/logfire-node": "^0.13.0",
       },
     },
     "scripts": {
@@ -109,8 +101,6 @@
     "@memory-engine/embedding": ["@memory-engine/embedding@workspace:packages/embedding"],
 
     "@memory-engine/engine": ["@memory-engine/engine@workspace:packages/engine"],
-
-    "@memory-engine/telemetry": ["@memory-engine/telemetry@workspace:packages/telemetry"],
 
     "@memory-engine/worker": ["@memory-engine/worker@workspace:packages/worker"],
 
