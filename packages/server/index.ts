@@ -67,40 +67,35 @@ const deviceFlowCleanupIntervalMs = parseInt(
 const accountsSchema = process.env.ACCOUNTS_SCHEMA || "accounts";
 
 // =============================================================================
-// Embedding Config (Optional)
+// Embedding Config
 // =============================================================================
 //
-// For semantic search:
+// Model and dimensions are hardcoded - all engines use the same embedding model.
+// Only the API key is configurable via environment variable.
+//
+// Required:
 //   EMBEDDING_API_KEY     - OpenAI API key
-//   EMBEDDING_MODEL       - Model identifier (e.g., "text-embedding-3-small")
-//   EMBEDDING_DIMENSIONS  - Vector dimensions (e.g., 1536)
 //
 // Optional:
 //   EMBEDDING_BASE_URL    - API base URL (default: OpenAI)
 //
-// If not configured, semantic search returns an error explaining how to enable it.
-//
 // =============================================================================
 
-function buildEmbeddingConfig(): EmbeddingConfig | undefined {
+export const embeddingConstants = {
+  model: "text-embedding-3-small",
+  dimensions: 1536,
+} as const;
+
+function buildEmbeddingConfig(): EmbeddingConfig {
   const apiKey = process.env.EMBEDDING_API_KEY;
-  const model = process.env.EMBEDDING_MODEL;
-  const dimensions = process.env.EMBEDDING_DIMENSIONS;
-
-  // All three required for embedding to be enabled
-  if (!apiKey || !model || !dimensions) {
-    return undefined;
-  }
-
-  const parsedDimensions = parseInt(dimensions, 10);
-  if (Number.isNaN(parsedDimensions) || parsedDimensions <= 0) {
-    throw new Error("EMBEDDING_DIMENSIONS must be a positive integer");
+  if (!apiKey) {
+    throw new Error("EMBEDDING_API_KEY is required");
   }
 
   return {
     provider: "openai",
-    model,
-    dimensions: parsedDimensions,
+    model: embeddingConstants.model,
+    dimensions: embeddingConstants.dimensions,
     apiKey,
     baseUrl: process.env.EMBEDDING_BASE_URL,
   };
