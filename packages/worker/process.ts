@@ -1,5 +1,6 @@
 import { generateEmbeddings } from "@memory-engine/embedding";
-import { info, reportError, withSpan } from "@memory-engine/telemetry";
+import { info } from "@pydantic/logfire-node";
+import { span } from "./telemetry";
 import type { SQL } from "bun";
 import type { ProcessResult, WorkerConfig } from "./types";
 
@@ -39,32 +40,19 @@ export async function processBatch(
   }
 
   // Process claimed items with telemetry
-  return withSpan(
-    "embedding.batch",
-    {
+  return span("embedding.batch", {
+    attributes: {
       "worker.schema": schema,
       "batch.size": claimed.length,
       "batch.memoryIds": claimed.map((r) => r.memory_id),
     },
-    async () => {
+    callback: async () => {
       // --- Embed ---
       const rows = claimed.map((r) => ({
         id: r.memory_id,
         content: r.content,
       }));
-      let embedResults: Awaited<ReturnType<typeof generateEmbeddings>>;
-
-      try {
-        embedResults = await generateEmbeddings(rows, config.embedding);
-      } catch (error) {
-        reportError("Embedding generation failed", error as Error, {
-          "worker.schema": schema,
-          "batch.size": claimed.length,
-          "embedding.provider": config.embedding.provider,
-          "embedding.model": config.embedding.model,
-        });
-        throw error;
-      }
+      const embedResults = await generateEmbeddings(rows, config.embedding);
 
       // Build lookup: memory_id → embed result
       const resultMap = new Map(embedResults.map((r) => [r.id, r]));
@@ -141,5 +129,5 @@ export async function processBatch(
 
       return result;
     },
-  );
+  });
 }

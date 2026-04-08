@@ -7,6 +7,6 @@
   "dependencies": {
     "@memory-engine/engine": "workspace:*",
     "@memory-engine/embedding": "workspace:*",
-    "@memory-engine/telemetry": "workspace:*"
+    "@pydantic/logfire-node": "^0.13.0"
   }
 }
