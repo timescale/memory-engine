@@ -29,12 +29,26 @@ await configure();
 //                          (stores memories, each engine in its own schema)
 //   API_BASE_URL          - Public URL for OAuth callbacks
 //                          (e.g., "https://memoryengine.dev")
-//   DEVICE_FLOW_CLEANUP_INTERVAL_MS - Interval for cleaning up expired device auths
-//                          (e.g., "900000" for 15 minutes, default: 900000)
 //
 // Optional:
 //   PORT            - HTTP server port (default: 3000)
 //   ACCOUNTS_SCHEMA - Schema name in accounts database (default: "accounts")
+//
+// Connection Pool - Accounts Database:
+//   ACCOUNTS_POOL_MAX                - Max connections (default: 10)
+//   ACCOUNTS_POOL_IDLE_TIMEOUT       - Idle timeout in seconds (default: 30)
+//   ACCOUNTS_POOL_MAX_LIFETIME       - Max lifetime in seconds, 0=forever (default: 0)
+//   ACCOUNTS_POOL_CONNECTION_TIMEOUT - Connection timeout in seconds (default: 30)
+//
+// Connection Pool - Engine Database:
+//   ENGINE_POOL_MAX                - Max connections (default: 20)
+//   ENGINE_POOL_IDLE_TIMEOUT       - Idle timeout in seconds (default: 30)
+//   ENGINE_POOL_MAX_LIFETIME       - Max lifetime in seconds, 0=forever (default: 0)
+//   ENGINE_POOL_CONNECTION_TIMEOUT - Connection timeout in seconds (default: 30)
+//
+// Cleanup:
+//   DEVICE_FLOW_CLEANUP_INTERVAL_MS - Interval for cleaning up expired device auths
+//                                     (default: 900000 = 15 minutes)
 //
 // =============================================================================
 
@@ -67,6 +81,36 @@ const deviceFlowCleanupIntervalMs = parseInt(
 );
 
 const accountsSchema = process.env.ACCOUNTS_SCHEMA || "accounts";
+
+// Connection pool settings - Accounts database
+const accountsPoolMax = parseInt(process.env.ACCOUNTS_POOL_MAX || "10", 10);
+const accountsPoolIdleTimeout = parseInt(
+  process.env.ACCOUNTS_POOL_IDLE_TIMEOUT || "30",
+  10,
+);
+const accountsPoolMaxLifetime = parseInt(
+  process.env.ACCOUNTS_POOL_MAX_LIFETIME || "0",
+  10,
+);
+const accountsPoolConnectionTimeout = parseInt(
+  process.env.ACCOUNTS_POOL_CONNECTION_TIMEOUT || "30",
+  10,
+);
+
+// Connection pool settings - Engine database
+const enginePoolMax = parseInt(process.env.ENGINE_POOL_MAX || "20", 10);
+const enginePoolIdleTimeout = parseInt(
+  process.env.ENGINE_POOL_IDLE_TIMEOUT || "30",
+  10,
+);
+const enginePoolMaxLifetime = parseInt(
+  process.env.ENGINE_POOL_MAX_LIFETIME || "0",
+  10,
+);
+const enginePoolConnectionTimeout = parseInt(
+  process.env.ENGINE_POOL_CONNECTION_TIMEOUT || "30",
+  10,
+);
 
 // =============================================================================
 // Embedding Config
@@ -112,9 +156,20 @@ if (masterKeyBuffer.length !== 32) {
   );
 }
 
-// Create database connections
-const accountsSql = new Bun.SQL(accountsDatabaseUrl);
-const engineSql = new Bun.SQL(engineDatabaseUrl);
+// Create database connection pools
+const accountsSql = new Bun.SQL(accountsDatabaseUrl, {
+  max: accountsPoolMax,
+  idleTimeout: accountsPoolIdleTimeout,
+  maxLifetime: accountsPoolMaxLifetime,
+  connectionTimeout: accountsPoolConnectionTimeout,
+});
+
+const engineSql = new Bun.SQL(engineDatabaseUrl, {
+  max: enginePoolMax,
+  idleTimeout: enginePoolIdleTimeout,
+  maxLifetime: enginePoolMaxLifetime,
+  connectionTimeout: enginePoolConnectionTimeout,
+});
 
 // Create accounts DB with operations layer
 const accountsDb = createAccountsDB(accountsSql, accountsSchema, {
