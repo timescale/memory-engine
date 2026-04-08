@@ -28,7 +28,7 @@ await configure();
 //   API_BASE_URL          - Public URL for OAuth callbacks
 //                          (e.g., "https://memoryengine.dev")
 //   DEVICE_FLOW_CLEANUP_INTERVAL_MS - Interval for cleaning up expired device auths
-//                          in milliseconds (e.g., 900000 for 15 minutes)
+//                          (e.g., "900000" for 15 minutes, default: 900000)
 //
 // Optional:
 //   PORT            - HTTP server port (default: 3000)
@@ -58,19 +58,11 @@ if (!apiBaseUrl) {
   throw new Error("API_BASE_URL environment variable is required");
 }
 
-const deviceFlowCleanupIntervalMs = process.env.DEVICE_FLOW_CLEANUP_INTERVAL_MS;
-if (!deviceFlowCleanupIntervalMs) {
-  throw new Error(
-    "DEVICE_FLOW_CLEANUP_INTERVAL_MS environment variable is required",
-  );
-}
-
-const cleanupInterval = parseInt(deviceFlowCleanupIntervalMs, 10);
-if (Number.isNaN(cleanupInterval) || cleanupInterval <= 0) {
-  throw new Error(
-    "DEVICE_FLOW_CLEANUP_INTERVAL_MS must be a positive integer (milliseconds)",
-  );
-}
+// Default: 15 minutes
+const deviceFlowCleanupIntervalMs = parseInt(
+  process.env.DEVICE_FLOW_CLEANUP_INTERVAL_MS || "900000",
+  10,
+);
 
 const accountsSchema = process.env.ACCOUNTS_SCHEMA || "accounts";
 
@@ -149,10 +141,10 @@ const router = createRouter({
 });
 
 // =============================================================================
-// Periodic Jobs
+// Cleanup Jobs
 // =============================================================================
 
-// Cleanup expired device authorizations
+// Cleanup expired device authorizations periodically
 setInterval(async () => {
   try {
     const count = await accountsDb.deleteExpired();
@@ -162,7 +154,7 @@ setInterval(async () => {
   } catch (error) {
     reportError("Failed to cleanup device authorizations", error as Error);
   }
-}, cleanupInterval);
+}, deviceFlowCleanupIntervalMs);
 
 // =============================================================================
 // Server

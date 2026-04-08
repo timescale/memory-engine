@@ -1,14 +1,6 @@
 {
   "name": "memory-engine-server",
   "version": "0.0.0",
-  "private": true,
-  "type": "module",
-  "exports": {
-    ".": "./lib.ts"
-  },
-  "scripts": {
-    "start": "bun run index.ts"
-  },
   "dependencies": {
     "@memory-engine/accounts": "workspace:*",
     "@memory-engine/embedding": "workspace:*",
@@ -16,7 +8,12 @@
     "@memory-engine/telemetry": "workspace:*",
     "zod": "^4.0.0"
   },
-  "devDependencies": {
-    "@types/bun": "^1.3.11"
-  }
+  "exports": {
+    ".": "./lib.ts"
+  },
+  "private": true,
+  "scripts": {
+    "start": "bun run index.ts"
+  },
+  "type": "module"
 }
