@@ -4,6 +4,7 @@
  * Extends the base HandlerContext with accounts-specific fields.
  */
 import type { AccountsDB } from "@memory-engine/accounts";
+import type { SQL } from "bun";
 import type { Identity } from "../../middleware/authenticate";
 import type { HandlerContext } from "../types";
 
@@ -50,6 +51,8 @@ export function assertAccountsContext(
  * Provides access to:
  * - `db`: AccountsDB instance for accounts operations
  * - `identityId`: The authenticated identity's ID (from OAuth session)
+ * - `engineSql`: SQL connection to the engine database (for schema provisioning)
+ * - `appVersion`: Application version string (for migration tracking)
  *
  * Authentication middleware populates these fields via OAuth session validation.
  *
@@ -61,6 +64,10 @@ export interface AccountsRpcContext extends HandlerContext {
   db: AccountsDB;
   /** Authenticated identity ID */
   identityId: string;
+  /** SQL connection to the engine database */
+  engineSql: SQL;
+  /** Application version string */
+  appVersion: string;
 }
 
 /**
@@ -76,7 +83,11 @@ export function isAccountsRpcContext(
     typeof ctx.db === "object" &&
     ctx.db !== null &&
     "identityId" in ctx &&
-    typeof ctx.identityId === "string"
+    typeof ctx.identityId === "string" &&
+    "engineSql" in ctx &&
+    typeof ctx.engineSql === "function" &&
+    "appVersion" in ctx &&
+    typeof ctx.appVersion === "string"
   );
 }
 
