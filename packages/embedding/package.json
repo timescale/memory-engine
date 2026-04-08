@@ -7,6 +7,6 @@
   "dependencies": {
     "ai": "^6.0.0",
     "@ai-sdk/openai": "^3.0.0",
-    "@memory-engine/telemetry": "workspace:*"
+    "@pydantic/logfire-node": "^0.13.0"
   }
 }

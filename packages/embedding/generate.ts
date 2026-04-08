@@ -1,4 +1,5 @@
-import { reportError, withSpan } from "@memory-engine/telemetry";
+import { warning } from "@pydantic/logfire-node";
+import { span } from "./telemetry";
 import { embed, embedMany } from "ai";
 import { getEmbeddingModel } from "./provider";
 import { MAX_OPENAI_TOKENS, TRUNCATION_RATIOS, truncateText } from "./truncate";
@@ -83,15 +84,14 @@ async function generateEmbeddingOnce(
   text: string,
   config: EmbeddingConfig,
 ): Promise<SingleEmbedResult> {
-  return withSpan(
-    "embedding.generate_once",
-    {
+  return span("embedding.generate_once", {
+    attributes: {
       provider: config.provider,
       model: config.model,
       dimensions: config.dimensions,
       text_length: text.length,
     },
-    async () => {
+    callback: async () => {
       const model = getEmbeddingModel(config);
 
       const result = await embed({
@@ -111,7 +111,7 @@ async function generateEmbeddingOnce(
         tokens: result.usage.tokens,
       };
     },
-  );
+  });
 }
 
 // =============================================================================
@@ -133,15 +133,14 @@ export async function generateEmbedding(
   text: string,
   config: EmbeddingConfig,
 ): Promise<SingleEmbedResult> {
-  return withSpan(
-    "embedding.generate",
-    {
+  return span("embedding.generate", {
+    attributes: {
       provider: config.provider,
       model: config.model,
       dimensions: config.dimensions,
       text_length: text.length,
     },
-    async () => {
+    callback: async () => {
       const maxTokens = config.options?.maxTokens ?? MAX_OPENAI_TOKENS;
 
       // Ollama: truncate defensively, single attempt
@@ -168,7 +167,7 @@ export async function generateEmbedding(
         "Failed to embed: text exceeds maximum context length even with aggressive truncation",
       );
     },
-  );
+  });
 }
 
 // =============================================================================
@@ -197,15 +196,14 @@ export async function generateEmbeddings(
     return [];
   }
 
-  return withSpan(
-    "embedding.generate_batch",
-    {
+  return span("embedding.generate_batch", {
+    attributes: {
       provider: config.provider,
       model: config.model,
       dimensions: config.dimensions,
       batch_size: rows.length,
     },
-    async () => {
+    callback: async () => {
       const model = getEmbeddingModel(config);
       const maxTokens = config.options?.maxTokens ?? MAX_OPENAI_TOKENS;
 
@@ -252,16 +250,13 @@ export async function generateEmbeddings(
           batchError instanceof Error
             ? batchError
             : new Error(String(batchError));
-        reportError(
-          "Batch embedding failed, falling back to individual requests",
-          err,
-          {
-            provider: config.provider,
-            model: config.model,
-            batch_size: rows.length,
-            fallback: "individual",
-          },
-        );
+        warning("Batch embedding failed, falling back to individual requests", {
+          provider: config.provider,
+          model: config.model,
+          batch_size: rows.length,
+          fallback: "individual",
+          error: err.message,
+        });
 
         // On context length error for OpenAI, fall back to individual with retry
         if (config.provider === "openai" && isContextLengthError(batchError)) {
@@ -324,7 +319,7 @@ export async function generateEmbeddings(
 
       return results;
     },
-  );
+  });
 }
 
 // =============================================================================
@@ -342,14 +337,13 @@ export async function generateEmbeddings(
  * @throws Error if validation fails
  */
 export async function validateConfig(config: EmbeddingConfig): Promise<void> {
-  return withSpan(
-    "embedding.validate_config",
-    {
+  return span("embedding.validate_config", {
+    attributes: {
       provider: config.provider,
       model: config.model,
       dimensions: config.dimensions,
     },
-    async () => {
+    callback: async () => {
       if (!config.provider) {
         throw new Error("provider is required");
       }
@@ -381,5 +375,5 @@ export async function validateConfig(config: EmbeddingConfig): Promise<void> {
         );
       }
     },
-  );
+  });
 }
