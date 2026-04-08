@@ -110,6 +110,7 @@ export interface Engine {
   name: string;
   shardId: number;
   status: EngineStatus;
+  language: string;
   createdAt: Date;
   updatedAt: Date | null;
 }
@@ -119,6 +120,7 @@ export interface CreateEngineParams {
   orgId: string;
   name: string;
   shardId?: number;
+  language?: string; // defaults to 'english'
 }
 
 // =============================================================================
