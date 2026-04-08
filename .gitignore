@@ -42,8 +42,7 @@ opencode.json
 .codex
 .claude
 
-# AI agent working docs (specs, plans)
-docs/superpowers
+docs
 
 # git worktrees
 .worktrees
