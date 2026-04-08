@@ -1,4 +1,4 @@
-import { info } from "@memory-engine/telemetry";
+import { info } from "@pydantic/logfire-node";
 import { text } from "../util/response";
 
 /**

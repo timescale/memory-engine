@@ -1,4 +1,4 @@
-import { reportError, withSpan } from "@memory-engine/telemetry";
+import { span } from "../telemetry";
 import type { ZodError } from "zod";
 import { json } from "../util/response";
 import {
@@ -128,19 +128,18 @@ export async function handleRpcRequest(
     }
 
     // Execute handler in a span
-    const result = await withSpan(
-      `rpc.${rpcRequest.method}`,
-      {
+    const result = await span(`rpc.${rpcRequest.method}`, {
+      attributes: {
         "rpc.method": rpcRequest.method,
       },
-      async () => {
+      callback: async () => {
         const handlerContext: HandlerContext = {
           request,
           ...context,
         };
         return method.handler(paramsResult.data, handlerContext);
       },
-    );
+    });
 
     return json(createSuccessResponse(result, requestId));
   } catch (error) {
@@ -156,11 +155,7 @@ export async function handleRpcRequest(
       );
     }
 
-    // Log unexpected errors with full context
-    reportError("RPC handler error", error as Error, {
-      "rpc.request_id": requestId,
-    });
-
+    // Error already recorded on rpc.* span by the span helper
     return json(internalError(requestId));
   }
 }
