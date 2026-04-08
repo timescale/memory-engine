@@ -153,7 +153,11 @@ export function createRouter(ctx: ServerContext): Router {
       if (ctx.type !== "accounts") {
         throw new Error("Unexpected auth context type");
       }
-      return { identity: ctx.identity };
+      return {
+        db: accountsDb,
+        identityId: ctx.identity.id,
+        identity: ctx.identity,
+      };
     },
   );
 

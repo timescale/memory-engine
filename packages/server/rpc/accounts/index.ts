@@ -4,12 +4,16 @@ import { invitationMethods } from "./invitation";
 import { meMethods } from "./me";
 import { orgMethods } from "./org";
 import { orgMemberMethods } from "./org-member";
+import { sessionMethods } from "./session";
 
 /**
  * Accounts RPC method registry.
  *
  * Identity methods:
  * - me.get
+ *
+ * Session methods:
+ * - session.revoke
  *
  * Organization methods:
  * - org.create, org.list, org.get, org.update, org.delete
@@ -25,6 +29,7 @@ import { orgMemberMethods } from "./org-member";
  */
 export const accountsMethods = buildRegistry()
   .merge(meMethods)
+  .merge(sessionMethods)
   .merge(orgMethods)
   .merge(orgMemberMethods)
   .merge(engineMethods)

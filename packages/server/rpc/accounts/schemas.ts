@@ -62,6 +62,18 @@ export const meGetSchema = z.object({});
 export type MeGetParams = z.infer<typeof meGetSchema>;
 
 // =============================================================================
+// Session Method Schemas
+// =============================================================================
+
+/**
+ * session.revoke params - revokes the current session (logout).
+ * No params needed - uses the session from the auth token.
+ */
+export const sessionRevokeSchema = z.object({});
+
+export type SessionRevokeParams = z.infer<typeof sessionRevokeSchema>;
+
+// =============================================================================
 // Org Method Schemas
 // =============================================================================
 
