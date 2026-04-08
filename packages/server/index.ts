@@ -1,12 +1,8 @@
 // packages/server/index.ts
 import { createAccountsDB } from "@memory-engine/accounts";
 import type { EmbeddingConfig } from "@memory-engine/embedding";
-import {
-  configure,
-  info,
-  reportError,
-  withSpan,
-} from "@memory-engine/telemetry";
+import { configure, info, reportError } from "@pydantic/logfire-node";
+import { span } from "./telemetry";
 import { embeddingConstants } from "./config";
 import type { ServerContext } from "./context";
 import { checkSizeLimit } from "./middleware";
@@ -14,7 +10,19 @@ import { createRouter } from "./router";
 import { internalError } from "./util/response";
 
 // Initialize telemetry before starting server
-await configure();
+configure({
+  sendToLogfire: "if-token-present",
+  serviceName: "memory-engine",
+  serviceVersion: "0.1.0",
+  scrubbing: {
+    extraPatterns: [
+      "content", // Memory content — potentially sensitive user data
+      "embedding", // Vector embeddings — large, not useful in traces
+      "access_token",
+      "refresh_token",
+    ],
+  },
+});
 
 // =============================================================================
 // Environment Variables
@@ -236,15 +244,14 @@ Bun.serve({
     const method = request.method;
     const path = url.pathname;
 
-    return withSpan(
-      "http.request",
-      {
-        "http.method": method,
-        "http.url": request.url,
-        "http.path": path,
-      },
-      async () => {
-        try {
+    try {
+      return await span("http.request", {
+        attributes: {
+          "http.method": method,
+          "http.url": request.url,
+          "http.path": path,
+        },
+        callback: async () => {
           // Check size limit
           const sizeError = checkSizeLimit(request);
           if (sizeError) {
@@ -253,15 +260,12 @@ Bun.serve({
 
           // Route and handle request
           return await router.handleRequest(request);
-        } catch (error) {
-          reportError("Request failed", error as Error, {
-            "http.method": method,
-            "http.path": path,
-          });
-          return internalError();
-        }
-      },
-    );
+        },
+      });
+    } catch {
+      // Error already recorded on http.request span by the helper
+      return internalError();
+    }
   },
 });
 
