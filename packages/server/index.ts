@@ -7,6 +7,7 @@ import {
   reportError,
   withSpan,
 } from "@memory-engine/telemetry";
+import { embeddingConstants } from "./config";
 import { checkSizeLimit } from "./middleware";
 import { createRouter } from "./router";
 import { internalError } from "./util/response";
@@ -80,11 +81,6 @@ const accountsSchema = process.env.ACCOUNTS_SCHEMA || "accounts";
 //   EMBEDDING_BASE_URL    - API base URL (default: OpenAI)
 //
 // =============================================================================
-
-export const embeddingConstants = {
-  model: "text-embedding-3-small",
-  dimensions: 1536,
-} as const;
 
 function buildEmbeddingConfig(): EmbeddingConfig {
   const apiKey = process.env.EMBEDDING_API_KEY;
