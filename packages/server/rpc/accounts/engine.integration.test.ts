@@ -7,14 +7,14 @@
  * 3. Defaults language to "english" when not specified
  */
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { SQL } from "bun";
 import { type AccountsDB, createAccountsDB } from "@memory-engine/accounts";
 import { TestDatabase as AccountsTestDatabase } from "@memory-engine/accounts/migrate/test-utils";
-import { TestDatabase as EngineTestDatabase } from "@memory-engine/engine/migrate/test-utils";
 import { bootstrap } from "@memory-engine/engine/migrate/bootstrap";
+import { TestDatabase as EngineTestDatabase } from "@memory-engine/engine/migrate/test-utils";
+import { SQL } from "bun";
+import type { HandlerContext } from "../types";
 import { engineMethods } from "./engine";
 import type { AccountsRpcContext } from "./types";
-import type { HandlerContext } from "../types";
 
 // Test master key (32 bytes for AES-256)
 const TEST_MASTER_KEY = Buffer.from(
