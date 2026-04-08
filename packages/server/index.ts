@@ -123,7 +123,10 @@ const enginePoolConnectionTimeout = parseInt(
 //   EMBEDDING_API_KEY     - OpenAI API key
 //
 // Optional:
-//   EMBEDDING_BASE_URL    - API base URL (default: OpenAI)
+//   EMBEDDING_BASE_URL           - API base URL (default: OpenAI)
+//   EMBEDDING_TIMEOUT_MS         - Per-call timeout in ms (default: none)
+//   EMBEDDING_MAX_RETRIES        - Retries on transient failures (default: 2, from AI SDK)
+//   EMBEDDING_MAX_PARALLEL_CALLS - Max concurrent batch chunk requests (default: Infinity)
 //
 // =============================================================================
 
@@ -133,12 +136,28 @@ function buildEmbeddingConfig(): EmbeddingConfig {
     throw new Error("EMBEDDING_API_KEY is required");
   }
 
+  const options: EmbeddingConfig["options"] = {};
+
+  if (process.env.EMBEDDING_TIMEOUT_MS) {
+    options.timeoutMs = parseInt(process.env.EMBEDDING_TIMEOUT_MS, 10);
+  }
+  if (process.env.EMBEDDING_MAX_RETRIES) {
+    options.maxRetries = parseInt(process.env.EMBEDDING_MAX_RETRIES, 10);
+  }
+  if (process.env.EMBEDDING_MAX_PARALLEL_CALLS) {
+    options.maxParallelCalls = parseInt(
+      process.env.EMBEDDING_MAX_PARALLEL_CALLS,
+      10,
+    );
+  }
+
   return {
     provider: "openai",
     model: embeddingConstants.model,
     dimensions: embeddingConstants.dimensions,
     apiKey,
     baseUrl: process.env.EMBEDDING_BASE_URL,
+    options,
   };
 }
 
