@@ -15,6 +15,7 @@ import {
   checkPollRateLimit,
   cleanupDeviceState,
   createDeviceAuthorization,
+  denyDevice,
   getDeviceStateByDeviceCode,
   getDeviceStateByOAuthState,
   getDeviceStateByUserCode,
@@ -34,26 +35,6 @@ export interface AuthHandlerContext {
   baseUrl: string;
 }
 
-/** Global context - set during server initialization */
-let authContext: AuthHandlerContext | null = null;
-
-/**
- * Initialize auth handlers with context.
- */
-export function initAuthHandlers(context: AuthHandlerContext): void {
-  authContext = context;
-}
-
-/**
- * Get auth context, throwing if not initialized.
- */
-function getContext(): AuthHandlerContext {
-  if (!authContext) {
-    throw new Error("Auth handlers not initialized");
-  }
-  return authContext;
-}
-
 /**
  * POST /api/v1/auth/device/code
  *
@@ -61,7 +42,10 @@ function getContext(): AuthHandlerContext {
  * Request: { provider: "google" }
  * Response: { deviceCode, userCode, verificationUri, expiresIn, interval }
  */
-export async function deviceCodeHandler(request: Request): Promise<Response> {
+export async function deviceCodeHandler(
+  request: Request,
+  ctx: AuthHandlerContext,
+): Promise<Response> {
   if (request.method !== "POST") {
     return error("Method not allowed", 405, "METHOD_NOT_ALLOWED");
   }
@@ -82,8 +66,7 @@ export async function deviceCodeHandler(request: Request): Promise<Response> {
     );
   }
 
-  const ctx = getContext();
-  const auth = createDeviceAuthorization(provider);
+  const auth = await createDeviceAuthorization(ctx.db, provider);
 
   return json({
     deviceCode: auth.deviceCode,
@@ -102,7 +85,10 @@ export async function deviceCodeHandler(request: Request): Promise<Response> {
  * Response (pending): { error: "authorization_pending" }
  * Response (success): { sessionToken, identity: { id, email, name } }
  */
-export async function deviceTokenHandler(request: Request): Promise<Response> {
+export async function deviceTokenHandler(
+  request: Request,
+  ctx: AuthHandlerContext,
+): Promise<Response> {
   if (request.method !== "POST") {
     return error("Method not allowed", 405, "METHOD_NOT_ALLOWED");
   }
@@ -119,31 +105,31 @@ export async function deviceTokenHandler(request: Request): Promise<Response> {
     return error("Missing deviceCode", 400, "INVALID_REQUEST");
   }
 
+  // Check rate limit first (also updates last_poll timestamp)
+  const tooFast = await checkPollRateLimit(ctx.db, deviceCode);
+  if (tooFast) {
+    return json({ error: "slow_down" }, 400);
+  }
+
   // Check if device code exists
-  const state = getDeviceStateByDeviceCode(deviceCode);
+  const state = await getDeviceStateByDeviceCode(ctx.db, deviceCode);
   if (!state) {
     return json({ error: "expired_token" }, 400);
   }
 
-  // Check rate limit
-  if (checkPollRateLimit(deviceCode)) {
-    return json({ error: "slow_down" }, 400);
-  }
-
   // Check if denied
   if (state.denied) {
-    cleanupDeviceState(deviceCode);
+    await cleanupDeviceState(ctx.db, deviceCode);
     return json({ error: "access_denied" }, 400);
   }
 
   // Check if authorized
-  if (!state.authorizedIdentityId) {
+  if (!state.identityId) {
     return json({ error: "authorization_pending" }, 400);
   }
 
   // Get identity and create session
-  const ctx = getContext();
-  const identity = await ctx.db.getIdentity(state.authorizedIdentityId);
+  const identity = await ctx.db.getIdentity(state.identityId);
   if (!identity) {
     return error("Identity not found", 500, "INTERNAL_ERROR");
   }
@@ -154,7 +140,7 @@ export async function deviceTokenHandler(request: Request): Promise<Response> {
   });
 
   // Cleanup device state
-  cleanupDeviceState(deviceCode);
+  await cleanupDeviceState(ctx.db, deviceCode);
 
   return json({
     sessionToken: sessionResult.rawToken,
@@ -174,6 +160,7 @@ export async function deviceTokenHandler(request: Request): Promise<Response> {
  */
 export async function deviceVerifyGetHandler(
   _request: Request,
+  _ctx: AuthHandlerContext,
 ): Promise<Response> {
   const htmlContent = `<!DOCTYPE html>
 <html lang="en">
@@ -252,6 +239,7 @@ export async function deviceVerifyGetHandler(
  */
 export async function deviceVerifyPostHandler(
   request: Request,
+  ctx: AuthHandlerContext,
 ): Promise<Response> {
   const formData = await request.formData();
   const userCode = formData.get("user_code");
@@ -261,13 +249,12 @@ export async function deviceVerifyPostHandler(
   }
 
   // Find device state
-  const state = getDeviceStateByUserCode(userCode);
+  const state = await getDeviceStateByUserCode(ctx.db, userCode);
   if (!state) {
     return html(errorPage("Invalid or expired code. Please try again."), 400);
   }
 
   // Redirect to OAuth provider
-  const ctx = getContext();
   const redirectUri = `${ctx.baseUrl}/api/v1/auth/callback/${state.provider}`;
   const authUrl = buildAuthUrl(state.provider, state.oauthState, redirectUri);
 
@@ -285,6 +272,7 @@ export async function deviceVerifyPostHandler(
 export async function oauthCallbackHandler(
   request: Request,
   params: RouteParams,
+  ctx: AuthHandlerContext,
 ): Promise<Response> {
   const provider = params.provider as OAuthProvider;
   if (provider !== "google" && provider !== "github") {
@@ -293,28 +281,28 @@ export async function oauthCallbackHandler(
 
   const url = new URL(request.url);
   const code = url.searchParams.get("code");
-  const state = url.searchParams.get("state");
+  const oauthState = url.searchParams.get("state");
   const errorParam = url.searchParams.get("error");
 
   // Check for OAuth error
   if (errorParam) {
     const errorDesc = url.searchParams.get("error_description") || errorParam;
     // If we have state, mark device as denied
-    if (state) {
-      const deviceState = getDeviceStateByOAuthState(state);
+    if (oauthState) {
+      const deviceState = await getDeviceStateByOAuthState(ctx.db, oauthState);
       if (deviceState) {
-        deviceState.denied = true;
+        await denyDevice(ctx.db, deviceState.deviceCode);
       }
     }
     return html(errorPage(`OAuth error: ${errorDesc}`), 400);
   }
 
-  if (!code || !state) {
+  if (!code || !oauthState) {
     return html(errorPage("Missing code or state parameter"), 400);
   }
 
   // Find device state by OAuth state
-  const deviceState = getDeviceStateByOAuthState(state);
+  const deviceState = await getDeviceStateByOAuthState(ctx.db, oauthState);
   if (!deviceState) {
     return html(
       errorPage(
@@ -324,7 +312,6 @@ export async function oauthCallbackHandler(
     );
   }
 
-  const ctx = getContext();
   const redirectUri = `${ctx.baseUrl}/api/v1/auth/callback/${provider}`;
 
   try {
@@ -358,7 +345,7 @@ export async function oauthCallbackHandler(
     });
 
     // Mark device as authorized
-    authorizeDevice(deviceState.deviceCode, identity.id);
+    await authorizeDevice(ctx.db, deviceState.deviceCode, identity.id);
 
     // Show success page
     return html(successPage());

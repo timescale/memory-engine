@@ -1,14 +1,12 @@
 /**
  * OAuth device flow state management.
  *
- * Manages in-memory state for device authorization flows.
- * State is ephemeral - lost on server restart. This is acceptable because:
- * 1. Device codes expire quickly (15 minutes default)
- * 2. Users can simply restart the flow
- * 3. No sensitive data is persisted
+ * Manages device authorization state in PostgreSQL for multi-node support.
+ * State is persisted to database and cleaned up via cron.
  */
 
-import type { DeviceAuthState, OAuthProvider } from "./types";
+import type { AccountsDB, DeviceAuthorization } from "@memory-engine/accounts";
+import type { OAuthProvider } from "./types";
 
 /** Device code expiration (15 minutes) */
 const DEVICE_CODE_EXPIRY_MS = 15 * 60 * 1000;
@@ -24,22 +22,6 @@ const DEVICE_CODE_LENGTH = 32;
 
 /** OAuth state length (16 bytes, URL-safe base64) */
 const OAUTH_STATE_LENGTH = 16;
-
-/**
- * In-memory store for device authorization states.
- * Key: device_code
- */
-const deviceStates = new Map<string, DeviceAuthState>();
-
-/**
- * Index from user_code to device_code for quick lookup.
- */
-const userCodeIndex = new Map<string, string>();
-
-/**
- * Index from oauth_state to device_code for callback lookup.
- */
-const oauthStateIndex = new Map<string, string>();
 
 /**
  * Generate a cryptographically secure random string.
@@ -72,33 +54,28 @@ function generateUserCode(): string {
  *
  * @returns Device code, user code, and expiry info
  */
-export function createDeviceAuthorization(provider: OAuthProvider): {
+export async function createDeviceAuthorization(
+  db: AccountsDB,
+  provider: OAuthProvider,
+): Promise<{
   deviceCode: string;
   userCode: string;
   oauthState: string;
   expiresIn: number;
   interval: number;
-} {
+}> {
   const deviceCode = generateRandomString(DEVICE_CODE_LENGTH);
   const userCode = generateUserCode();
   const oauthState = generateRandomString(OAUTH_STATE_LENGTH);
   const expiresAt = new Date(Date.now() + DEVICE_CODE_EXPIRY_MS);
 
-  const state: DeviceAuthState = {
+  await db.create({
     deviceCode,
     userCode,
     provider,
-    expiresAt,
-    lastPoll: null,
     oauthState,
-    authorizedIdentityId: null,
-    denied: false,
-  };
-
-  // Store state
-  deviceStates.set(deviceCode, state);
-  userCodeIndex.set(userCode, deviceCode);
-  oauthStateIndex.set(oauthState, deviceCode);
+    expiresAt,
+  });
 
   return {
     deviceCode,
@@ -113,174 +90,93 @@ export function createDeviceAuthorization(provider: OAuthProvider): {
  * Get device state by user code.
  * Used when user enters code in browser.
  */
-export function getDeviceStateByUserCode(
+export async function getDeviceStateByUserCode(
+  db: AccountsDB,
   userCode: string,
-): DeviceAuthState | null {
-  // Normalize: uppercase, remove hyphen
-  const normalized = userCode.toUpperCase().replace(/-/g, "");
-  // Reconstruct with hyphen
-  const formatted = `${normalized.slice(0, 4)}-${normalized.slice(4)}`;
-
-  const deviceCode = userCodeIndex.get(formatted);
-  if (!deviceCode) {
-    return null;
-  }
-
-  const state = deviceStates.get(deviceCode);
-  if (!state) {
-    return null;
-  }
-
-  // Check expiry
-  if (new Date() > state.expiresAt) {
-    cleanupDeviceState(deviceCode);
-    return null;
-  }
-
-  return state;
+): Promise<DeviceAuthorization | null> {
+  return db.getByUserCode(userCode);
 }
 
 /**
  * Get device state by OAuth state parameter.
  * Used in OAuth callback to find the device being authorized.
  */
-export function getDeviceStateByOAuthState(
+export async function getDeviceStateByOAuthState(
+  db: AccountsDB,
   oauthState: string,
-): DeviceAuthState | null {
-  const deviceCode = oauthStateIndex.get(oauthState);
-  if (!deviceCode) {
-    return null;
-  }
-
-  const state = deviceStates.get(deviceCode);
-  if (!state) {
-    return null;
-  }
-
-  // Check expiry
-  if (new Date() > state.expiresAt) {
-    cleanupDeviceState(deviceCode);
-    return null;
-  }
-
-  return state;
+): Promise<DeviceAuthorization | null> {
+  return db.getByOAuthState(oauthState);
 }
 
 /**
  * Get device state by device code.
  * Used for polling.
  */
-export function getDeviceStateByDeviceCode(
+export async function getDeviceStateByDeviceCode(
+  db: AccountsDB,
   deviceCode: string,
-): DeviceAuthState | null {
-  const state = deviceStates.get(deviceCode);
-  if (!state) {
-    return null;
-  }
-
-  // Check expiry
-  if (new Date() > state.expiresAt) {
-    cleanupDeviceState(deviceCode);
-    return null;
-  }
-
-  return state;
+): Promise<DeviceAuthorization | null> {
+  return db.getByDeviceCode(deviceCode);
 }
 
 /**
  * Check if polling is too fast (rate limiting).
+ * Also updates the last poll timestamp.
  *
  * @returns true if client should slow down
  */
-export function checkPollRateLimit(deviceCode: string): boolean {
-  const state = deviceStates.get(deviceCode);
-  if (!state) {
+export async function checkPollRateLimit(
+  db: AccountsDB,
+  deviceCode: string,
+): Promise<boolean> {
+  const elapsedMs = await db.updateLastPoll(deviceCode);
+
+  // First poll or not found
+  if (elapsedMs === null) {
     return false;
   }
 
-  const now = new Date();
-  if (state.lastPoll) {
-    const elapsed = now.getTime() - state.lastPoll.getTime();
-    if (elapsed < MIN_POLL_INTERVAL_MS) {
-      return true; // Too fast
-    }
-  }
-
-  // Update last poll time
-  state.lastPoll = now;
-  return false;
+  // Too fast if less than minimum interval
+  return elapsedMs < MIN_POLL_INTERVAL_MS;
 }
 
 /**
  * Mark device as authorized with an identity.
  * Called after successful OAuth callback.
  */
-export function authorizeDevice(
+export async function authorizeDevice(
+  db: AccountsDB,
   deviceCode: string,
   identityId: string,
-): boolean {
-  const state = deviceStates.get(deviceCode);
-  if (!state) {
-    return false;
-  }
-
-  // Check expiry
-  if (new Date() > state.expiresAt) {
-    cleanupDeviceState(deviceCode);
-    return false;
-  }
-
-  state.authorizedIdentityId = identityId;
-  return true;
+): Promise<boolean> {
+  return db.authorize(deviceCode, identityId);
 }
 
 /**
  * Mark device as denied.
  * Called if user denies access.
  */
-export function denyDevice(deviceCode: string): boolean {
-  const state = deviceStates.get(deviceCode);
-  if (!state) {
-    return false;
-  }
-
-  state.denied = true;
-  return true;
+export async function denyDevice(
+  db: AccountsDB,
+  deviceCode: string,
+): Promise<boolean> {
+  return db.deny(deviceCode);
 }
 
 /**
  * Clean up device state after completion or expiry.
  */
-export function cleanupDeviceState(deviceCode: string): void {
-  const state = deviceStates.get(deviceCode);
-  if (state) {
-    userCodeIndex.delete(state.userCode);
-    oauthStateIndex.delete(state.oauthState);
-    deviceStates.delete(deviceCode);
-  }
+export async function cleanupDeviceState(
+  db: AccountsDB,
+  deviceCode: string,
+): Promise<void> {
+  await db.delete(deviceCode);
 }
 
 /**
  * Clean up all expired device states.
- * Should be called periodically.
+ * Called by cron job.
  */
-export function cleanupExpiredStates(): number {
-  const now = new Date();
-  let count = 0;
-
-  for (const [deviceCode, state] of deviceStates) {
-    if (now > state.expiresAt) {
-      cleanupDeviceState(deviceCode);
-      count++;
-    }
-  }
-
-  return count;
-}
-
-/**
- * Get count of active device authorizations (for monitoring).
- */
-export function getActiveDeviceCount(): number {
-  return deviceStates.size;
+export async function cleanupExpiredStates(db: AccountsDB): Promise<number> {
+  return db.deleteExpired();
 }

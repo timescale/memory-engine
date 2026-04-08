@@ -1,6 +1,8 @@
 import type { SQL } from "bun";
 import {
+  type DeviceAuthOps,
   deriveContext,
+  deviceAuthOps,
   type EngineOps,
   engineOps,
   type IdentityOps,
@@ -23,7 +25,8 @@ export interface CreateAccountsDBOptions {
   masterKey: Buffer;
 }
 
-type AllOps = IdentityOps &
+type AllOps = DeviceAuthOps &
+  IdentityOps &
   OrgOps &
   OrgMemberOps &
   EngineOps &
@@ -42,6 +45,7 @@ export interface AccountsDB extends AllOps {
 
 function composeOps(ctx: AccountsContext): AllOps {
   return {
+    ...deviceAuthOps(ctx),
     ...identityOps(ctx),
     ...orgOps(ctx),
     ...orgMemberOps(ctx),

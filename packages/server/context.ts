@@ -13,4 +13,6 @@ export interface ServerContext {
   engineSql: SQL;
   /** Embedding config for semantic search (optional - disabled if not set) */
   embeddingConfig?: EmbeddingConfig;
+  /** Base URL for API callbacks (e.g., "https://memoryengine.dev") */
+  apiBaseUrl: string;
 }

@@ -12,6 +12,7 @@ function createMockContext(): ServerContext {
       getEngineBySlug: mock(() => Promise.resolve(null)),
     } as unknown as AccountsDB,
     engineSql: {} as SQL,
+    apiBaseUrl: "https://test.example.com",
   };
 }
 

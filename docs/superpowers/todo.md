@@ -2,16 +2,6 @@
 
 Remaining items before the server is fully production-ready.
 
-## Must Have
-
-### Device Flow State Cleanup
-The OAuth device flow uses an in-memory `deviceStates` map that grows unbounded. Needs either:
-- Periodic cleanup via `setInterval`
-- Move to database/Redis
-- Add TTL-based eviction
-
-**Files:** `packages/server/auth/device-flow.ts`
-
 ## Nice to Have
 
 ### Engine Delete
@@ -41,3 +31,4 @@ No `X-Request-Id` header generation or propagation. Telemetry spans exist but no
 - [x] Telemetry/observability
 - [x] Semantic search query embedding
 - [x] Session logout (`session.revoke` RPC method)
+- [x] Device flow state in PostgreSQL (multi-node support)

@@ -205,3 +205,29 @@ export interface EncryptionKey {
   active: boolean;
   createdAt: Date;
 }
+
+// =============================================================================
+// DeviceAuthorization (OAuth Device Flow)
+// =============================================================================
+
+export type DeviceProvider = "google" | "github";
+
+export interface DeviceAuthorization {
+  deviceCode: string;
+  userCode: string;
+  provider: DeviceProvider;
+  oauthState: string;
+  expiresAt: Date;
+  lastPoll: Date | null;
+  identityId: string | null;
+  denied: boolean;
+  createdAt: Date;
+}
+
+export interface CreateDeviceAuthParams {
+  deviceCode: string;
+  userCode: string;
+  provider: DeviceProvider;
+  oauthState: string;
+  expiresAt: Date;
+}
