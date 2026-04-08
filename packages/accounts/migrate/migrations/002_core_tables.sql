@@ -42,6 +42,7 @@ create table {{schema}}.engine
 , name text not null
 , shard_id int not null references {{schema}}.shard
 , status text not null default 'active' check (status in ('active', 'suspended', 'deleted'))
+, language text not null default 'english' check (language ~ '^[a-z_]+$')
 , created_at timestamptz not null default now()
 , updated_at timestamptz
 , unique (org_id, name)
