@@ -1,4 +1,4 @@
-import { withSpan } from "@memory-engine/telemetry";
+import { span } from "./telemetry";
 import type { SQL } from "bun";
 import type { OpsContext } from "../types";
 
@@ -47,14 +47,13 @@ export async function withTx<T>(
   }
 
   // Open new transaction with telemetry span
-  return withSpan(
-    "db.transaction",
-    {
+  return span("db.transaction", {
+    attributes: {
       "db.schema": ctx.schema,
       "db.mode": mode,
       "db.role": role ?? "owner",
     },
-    () =>
+    callback: () =>
       ctx.sql.begin(async (tx) => {
         // Future: pgDog shard routing
         if (ctx.shard !== undefined) {
@@ -77,7 +76,7 @@ export async function withTx<T>(
 
         return fn(tx);
       }),
-  );
+  });
 }
 
 /**
