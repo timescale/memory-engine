@@ -180,6 +180,11 @@ export type OrgMemberUpdateRoleParams = z.infer<
 export const engineCreateSchema = z.object({
   orgId: uuidv7Schema,
   name: nameSchema,
+  language: z
+    .string()
+    .regex(/^[a-z_]+$/)
+    .optional()
+    .default("english"),
 });
 
 export type EngineCreateParams = z.infer<typeof engineCreateSchema>;
