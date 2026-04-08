@@ -287,6 +287,35 @@ describe("engine", () => {
     const engines = await db.listEnginesByOrg(org.id);
     expect(engines.length).toBe(2);
   });
+
+  test("createEngine stores custom language", async () => {
+    const org = await db.createOrg({ slug: "lang-org", name: "Lang Org" });
+
+    const engine = await db.createEngine({
+      orgId: org.id,
+      name: "German Engine",
+      language: "german",
+    });
+
+    expect(engine.language).toBe("german");
+
+    const fetched = await db.getEngine(engine.id);
+    expect(fetched?.language).toBe("german");
+  });
+
+  test("createEngine defaults language to english", async () => {
+    const org = await db.createOrg({
+      slug: "default-lang-org",
+      name: "Default Lang Org",
+    });
+
+    const engine = await db.createEngine({
+      orgId: org.id,
+      name: "Default Engine",
+    });
+
+    expect(engine.language).toBe("english");
+  });
 });
 
 // ---------------------------------------------------------------------------
