@@ -1,5 +1,5 @@
 import { discoverEngineSchemas } from "@memory-engine/engine/migrate";
-import { info, reportError } from "@memory-engine/telemetry";
+import { info, reportError } from "@pydantic/logfire-node";
 import type { SQL } from "bun";
 import { processBatch } from "./process";
 import type { WorkerConfig } from "./types";
