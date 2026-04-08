@@ -4,7 +4,7 @@ import {
   type EngineDB,
   parseApiKey,
 } from "@memory-engine/engine";
-import { debug } from "@memory-engine/telemetry";
+import { debug } from "@pydantic/logfire-node";
 import type { SQL } from "bun";
 import { forbidden, unauthorized } from "../util/response";
 
