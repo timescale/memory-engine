@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, mock, test } from "bun:test";
 import type { AccountsDB } from "@memory-engine/accounts";
+import type { EmbeddingConfig } from "@memory-engine/embedding";
 import type { SQL } from "bun";
 import type { ServerContext } from "./context";
 import { MAX_BODY_SIZE } from "./middleware/size-limit";
@@ -26,6 +27,12 @@ function createMockContext(): ServerContext {
       deleteExpired: mock(() => Promise.resolve(0)),
     } as unknown as AccountsDB,
     engineSql: {} as SQL,
+    embeddingConfig: {
+      provider: "openai",
+      model: "text-embedding-3-small",
+      dimensions: 1536,
+      apiKey: "test-key",
+    } as EmbeddingConfig,
     apiBaseUrl: "https://test.example.com",
     appVersion: "0.1.0",
   };

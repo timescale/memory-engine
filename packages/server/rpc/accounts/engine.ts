@@ -8,7 +8,8 @@
  * - engine.update: Update engine name/status
  */
 import type { Engine } from "@memory-engine/accounts";
-import { provisionEngine, type EngineConfig } from "@memory-engine/engine";
+import { type EngineConfig, provisionEngine } from "@memory-engine/engine";
+import { embeddingConstants } from "../../config";
 import { AppError } from "../errors";
 import { buildRegistry } from "../registry";
 import type { HandlerContext } from "../types";
@@ -23,7 +24,6 @@ import {
   engineUpdateSchema,
 } from "./schemas";
 import { type AccountsRpcContext, assertAccountsRpcContext } from "./types";
-import { embeddingConstants } from "../../config";
 
 // =============================================================================
 // Response Types
