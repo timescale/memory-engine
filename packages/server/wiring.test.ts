@@ -60,6 +60,7 @@ function createMockContext(overrides?: Partial<ServerContext>): ServerContext {
     accountsDb: createMockAccountsDb(),
     engineSql: createMockEngineSql(),
     apiBaseUrl: "https://test.example.com",
+    appVersion: "0.1.0",
     ...overrides,
   };
 }

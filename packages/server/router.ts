@@ -117,7 +117,8 @@ export interface Router {
  * @returns Router with handleRequest function
  */
 export function createRouter(ctx: ServerContext): Router {
-  const { accountsDb, engineSql, embeddingConfig, apiBaseUrl } = ctx;
+  const { accountsDb, engineSql, embeddingConfig, apiBaseUrl, appVersion } =
+    ctx;
 
   // Auth handler context for device flow endpoints
   const authCtx: AuthHandlerContext = {
@@ -164,6 +165,8 @@ export function createRouter(ctx: ServerContext): Router {
         db: accountsDb,
         identityId: ctx.identity.id,
         identity: ctx.identity,
+        engineSql,
+        appVersion,
       };
     },
   );

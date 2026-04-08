@@ -133,6 +133,7 @@ const router = createRouter({
   engineSql,
   embeddingConfig,
   apiBaseUrl,
+  appVersion: "0.1.0",
 });
 
 // =============================================================================
