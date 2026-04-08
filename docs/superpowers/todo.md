@@ -14,11 +14,6 @@ The OAuth device flow uses an in-memory `deviceStates` map that grows unbounded.
 
 ## Nice to Have
 
-### Session Logout
-No explicit session termination endpoint. Users can only wait for session expiry.
-
-**Scope:** Add `session.revoke` RPC method or `/api/v1/auth/logout` endpoint.
-
 ### Engine Delete
 The accounts RPC has `engine.create`, `engine.list`, `engine.get`, `engine.update` but no `engine.delete`. May be intentional (soft delete via status change to "deleted").
 
@@ -45,3 +40,4 @@ No `X-Request-Id` header generation or propagation. Telemetry spans exist but no
 - [x] Size limiting
 - [x] Telemetry/observability
 - [x] Semantic search query embedding
+- [x] Session logout (`session.revoke` RPC method)
