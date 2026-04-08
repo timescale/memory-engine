@@ -11,8 +11,8 @@ export interface ServerContext {
   accountsDb: AccountsDB;
   /** Engine database pool (EngineDB created per-request based on slug) */
   engineSql: SQL;
-  /** Embedding config for semantic search (optional - disabled if not set) */
-  embeddingConfig?: EmbeddingConfig;
+  /** Embedding config for semantic search */
+  embeddingConfig: EmbeddingConfig;
   /** Base URL for API callbacks (e.g., "https://memoryengine.dev") */
   apiBaseUrl: string;
   /** Application version for migration tracking */
