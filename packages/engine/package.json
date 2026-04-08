@@ -4,6 +4,6 @@
   "private": true,
   "type": "module",
   "dependencies": {
-    "@memory-engine/telemetry": "workspace:*"
+    "@pydantic/logfire-node": "^0.13.0"
   }
 }
