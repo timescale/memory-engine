@@ -25,6 +25,10 @@ await configure();
 //                          Generate with: openssl rand -hex 32
 //   ENGINE_DATABASE_URL   - PostgreSQL connection string for engine databases
 //                          (stores memories, each engine in its own schema)
+//   API_BASE_URL          - Public URL for OAuth callbacks
+//                          (e.g., "https://memoryengine.dev")
+//   DEVICE_FLOW_CLEANUP_INTERVAL_MS - Interval for cleaning up expired device auths
+//                          in milliseconds (e.g., 900000 for 15 minutes)
 //
 // Optional:
 //   PORT            - HTTP server port (default: 3000)
@@ -47,6 +51,25 @@ if (!accountsMasterKey) {
 const engineDatabaseUrl = process.env.ENGINE_DATABASE_URL;
 if (!engineDatabaseUrl) {
   throw new Error("ENGINE_DATABASE_URL environment variable is required");
+}
+
+const apiBaseUrl = process.env.API_BASE_URL;
+if (!apiBaseUrl) {
+  throw new Error("API_BASE_URL environment variable is required");
+}
+
+const deviceFlowCleanupIntervalMs = process.env.DEVICE_FLOW_CLEANUP_INTERVAL_MS;
+if (!deviceFlowCleanupIntervalMs) {
+  throw new Error(
+    "DEVICE_FLOW_CLEANUP_INTERVAL_MS environment variable is required",
+  );
+}
+
+const cleanupInterval = parseInt(deviceFlowCleanupIntervalMs, 10);
+if (Number.isNaN(cleanupInterval) || cleanupInterval <= 0) {
+  throw new Error(
+    "DEVICE_FLOW_CLEANUP_INTERVAL_MS must be a positive integer (milliseconds)",
+  );
 }
 
 const accountsSchema = process.env.ACCOUNTS_SCHEMA || "accounts";
@@ -118,7 +141,28 @@ const accountsDb = createAccountsDB(accountsSql, accountsSchema, {
 // Router
 // =============================================================================
 
-const router = createRouter({ accountsDb, engineSql, embeddingConfig });
+const router = createRouter({
+  accountsDb,
+  engineSql,
+  embeddingConfig,
+  apiBaseUrl,
+});
+
+// =============================================================================
+// Periodic Jobs
+// =============================================================================
+
+// Cleanup expired device authorizations
+setInterval(async () => {
+  try {
+    const count = await accountsDb.deleteExpired();
+    if (count > 0) {
+      info("Cleaned up expired device authorizations", { count });
+    }
+  } catch (error) {
+    reportError("Failed to cleanup device authorizations", error as Error);
+  }
+}, cleanupInterval);
 
 // =============================================================================
 // Server

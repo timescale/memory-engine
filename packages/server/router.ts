@@ -1,5 +1,6 @@
 import type { ServerContext } from "./context";
 import {
+  type AuthHandlerContext,
   deviceCodeHandler,
   deviceTokenHandler,
   deviceVerifyGetHandler,
@@ -116,7 +117,13 @@ export interface Router {
  * @returns Router with handleRequest function
  */
 export function createRouter(ctx: ServerContext): Router {
-  const { accountsDb, engineSql, embeddingConfig } = ctx;
+  const { accountsDb, engineSql, embeddingConfig, apiBaseUrl } = ctx;
+
+  // Auth handler context for device flow endpoints
+  const authCtx: AuthHandlerContext = {
+    db: accountsDb,
+    baseUrl: apiBaseUrl,
+  };
 
   // Engine RPC: authenticate and provide db context
   const engineRpcHandler = createRpcHandler(engineMethods, async (request) => {
@@ -178,33 +185,33 @@ export function createRouter(ctx: ServerContext): Router {
     {
       method: "POST",
       pattern: "/api/v1/auth/device/code",
-      handler: deviceCodeHandler,
+      handler: (req) => deviceCodeHandler(req, authCtx),
     },
 
     // OAuth Device Flow - CLI polls for token
     {
       method: "POST",
       pattern: "/api/v1/auth/device/token",
-      handler: deviceTokenHandler,
+      handler: (req) => deviceTokenHandler(req, authCtx),
     },
 
     // OAuth Device Flow - User enters code (GET = form, POST = submit)
     {
       method: "GET",
       pattern: "/api/v1/auth/device/verify",
-      handler: deviceVerifyGetHandler,
+      handler: (req) => deviceVerifyGetHandler(req, authCtx),
     },
     {
       method: "POST",
       pattern: "/api/v1/auth/device/verify",
-      handler: deviceVerifyPostHandler,
+      handler: (req) => deviceVerifyPostHandler(req, authCtx),
     },
 
     // OAuth Callback - Provider redirects here after user authorizes
     {
       method: "GET",
       pattern: "/api/v1/auth/callback/:provider",
-      handler: oauthCallbackHandler,
+      handler: (req, params) => oauthCallbackHandler(req, params, authCtx),
     },
 
     // Accounts RPC

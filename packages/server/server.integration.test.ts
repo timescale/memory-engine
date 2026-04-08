@@ -14,8 +14,19 @@ function createMockContext(): ServerContext {
     accountsDb: {
       validateSession: mock(() => Promise.resolve(null)),
       getEngineBySlug: mock(() => Promise.resolve(null)),
+      // Device auth operations for auth endpoint tests
+      create: mock(() => Promise.resolve({})),
+      getByDeviceCode: mock(() => Promise.resolve(null)),
+      getByUserCode: mock(() => Promise.resolve(null)),
+      getByOAuthState: mock(() => Promise.resolve(null)),
+      updateLastPoll: mock(() => Promise.resolve(null)),
+      authorize: mock(() => Promise.resolve(false)),
+      deny: mock(() => Promise.resolve(false)),
+      delete: mock(() => Promise.resolve(false)),
+      deleteExpired: mock(() => Promise.resolve(0)),
     } as unknown as AccountsDB,
     engineSql: {} as SQL,
+    apiBaseUrl: "https://test.example.com",
   };
 }
 
@@ -168,15 +179,25 @@ describe("server integration", () => {
   });
 
   describe("auth endpoints", () => {
-    test("POST /api/v1/auth/device/code returns 500 without auth context", async () => {
-      // Without proper auth context initialization, this should return 500
+    test("POST /api/v1/auth/device/code returns device code for valid provider", async () => {
       const response = await fetch(`${baseUrl}/api/v1/auth/device/code`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ provider: "google" }),
       });
-      // Auth handlers require initialization with context
-      expect(response.status).toBe(500);
+      expect(response.status).toBe(200);
+      const body = (await response.json()) as {
+        deviceCode: string;
+        userCode: string;
+        verificationUri: string;
+        expiresIn: number;
+        interval: number;
+      };
+      expect(body.deviceCode).toBeDefined();
+      expect(body.userCode).toMatch(/^[A-Z0-9]{4}-[A-Z0-9]{4}$/);
+      expect(body.verificationUri).toContain("/api/v1/auth/device/verify");
+      expect(body.expiresIn).toBe(900);
+      expect(body.interval).toBe(5);
     });
 
     test("POST /api/v1/auth/device/code rejects invalid provider", async () => {
