@@ -27,6 +27,7 @@ function createMockContext(): ServerContext {
     } as unknown as AccountsDB,
     engineSql: {} as SQL,
     apiBaseUrl: "https://test.example.com",
+    appVersion: "0.1.0",
   };
 }
 

@@ -15,4 +15,6 @@ export interface ServerContext {
   embeddingConfig?: EmbeddingConfig;
   /** Base URL for API callbacks (e.g., "https://memoryengine.dev") */
   apiBaseUrl: string;
+  /** Application version for migration tracking */
+  appVersion: string;
 }
