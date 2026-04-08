@@ -8,6 +8,7 @@ import {
   withSpan,
 } from "@memory-engine/telemetry";
 import { embeddingConstants } from "./config";
+import type { ServerContext } from "./context";
 import { checkSizeLimit } from "./middleware";
 import { createRouter } from "./router";
 import { internalError } from "./util/response";
@@ -124,13 +125,15 @@ const accountsDb = createAccountsDB(accountsSql, accountsSchema, {
 // Router
 // =============================================================================
 
-const router = createRouter({
+const serverContext: ServerContext = {
   accountsDb,
   engineSql,
   embeddingConfig,
   apiBaseUrl,
   appVersion: "0.1.0",
-});
+};
+
+const router = createRouter(serverContext);
 
 // =============================================================================
 // Cleanup Jobs
