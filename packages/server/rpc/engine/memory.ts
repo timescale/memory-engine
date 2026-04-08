@@ -294,7 +294,7 @@ async function memorySearch(
     if (!embeddingConfig) {
       throw new AppError(
         "EMBEDDING_NOT_CONFIGURED",
-        "Semantic search requires embedding configuration. Set EMBEDDING_API_KEY, EMBEDDING_MODEL, and EMBEDDING_DIMENSIONS environment variables.",
+        "Semantic search requires embedding configuration. Set EMBEDDING_API_KEY environment variable.",
       );
     }
 
