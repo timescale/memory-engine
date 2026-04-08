@@ -20,7 +20,8 @@
     "pg": "bun run pg:build && docker run -d --name me-postgres -e POSTGRES_HOST_AUTH_METHOD=trust -p 127.0.0.1:5432:5432 me-postgres",
     "pg:rm": "docker rm -f me-postgres",
     "psql": "psql postgresql://postgres@127.0.0.1:5432/postgres",
-    "test": "bun test packages"
+    "test": "bun test packages",
+    "generate:master-key": "bun scripts/generate-master-key.ts"
   },
   "devDependencies": {
     "@biomejs/biome": "2.4.6",
