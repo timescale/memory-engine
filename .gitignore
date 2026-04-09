@@ -41,7 +41,8 @@ opencode.json
 .gemini
 .codex
 .claude
-
+.opencode
+.ropeproject
 docs
 
 # git worktrees
