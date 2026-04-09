@@ -24,6 +24,19 @@
         "@pydantic/logfire-node": "^0.13.0",
       },
     },
+    "packages/client": {
+      "name": "@memory-engine/client",
+      "version": "0.1.0",
+      "dependencies": {
+        "@memory-engine/protocol": "workspace:*",
+      },
+      "peerDependencies": {
+        "typescript": "^5.0.0",
+      },
+      "optionalPeers": [
+        "typescript",
+      ],
+    },
     "packages/embedding": {
       "name": "@memory-engine/embedding",
       "version": "0.0.0",
@@ -110,6 +123,8 @@
     "@js-sdsl/ordered-map": ["@js-sdsl/ordered-map@4.4.2", "", {}, "sha512-iUKgm52T8HOE/makSxjqoWhe95ZJA1/G1sYsGev2JDKUSS14KAgg1LHb+Ba+IPow0xflbnSkOsZcO08C7w1gYw=="],
 
     "@memory-engine/accounts": ["@memory-engine/accounts@workspace:packages/accounts"],
+
+    "@memory-engine/client": ["@memory-engine/client@workspace:packages/client"],
 
     "@memory-engine/embedding": ["@memory-engine/embedding@workspace:packages/embedding"],
 
