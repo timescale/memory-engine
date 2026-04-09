@@ -1,3 +1,6 @@
+-- extensions required by the accounts schema
+create extension if not exists citext;
+
 -- generic trigger function to update updated_at timestamp
 create function {{schema}}.update_updated_at()
 returns trigger

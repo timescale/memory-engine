@@ -15,6 +15,9 @@ import migration005 from "./migrations/005_auth.sql" with { type: "text" };
 import migration006 from "./migrations/006_ops_support.sql" with {
   type: "text",
 };
+import migration007 from "./migrations/007_device_authorization.sql" with {
+  type: "text",
+};
 import { type AccountsConfig, resolveConfig, template } from "./template";
 
 interface Migration {
@@ -29,6 +32,7 @@ const migrations: Migration[] = [
   { name: "004_invitations", sql: migration004 },
   { name: "005_auth", sql: migration005 },
   { name: "006_ops_support", sql: migration006 },
+  { name: "007_device_authorization", sql: migration007 },
 ];
 
 export interface MigrateResult {

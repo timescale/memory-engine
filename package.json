@@ -21,7 +21,8 @@
     "pg:rm": "docker rm -f me-postgres",
     "psql": "psql postgresql://postgres@127.0.0.1:5432/postgres",
     "test": "bun test packages",
-    "generate:master-key": "bun scripts/generate-master-key.ts"
+    "generate:master-key": "bun scripts/generate-master-key.ts",
+    "setup": "bun scripts/setup.ts"
   },
   "devDependencies": {
     "@biomejs/biome": "2.4.6",
