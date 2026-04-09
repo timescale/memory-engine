@@ -124,6 +124,8 @@ export function createRouter(ctx: ServerContext): Router {
   const authCtx: AuthHandlerContext = {
     db: accountsDb,
     baseUrl: apiBaseUrl,
+    engineSql,
+    appVersion,
   };
 
   // Engine RPC: authenticate and provide db context

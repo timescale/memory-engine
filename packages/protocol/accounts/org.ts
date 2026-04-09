@@ -2,7 +2,7 @@
  * Org method schemas — params and results for org.* RPC methods.
  */
 import { z } from "zod";
-import { nameSchema, slugSchema, uuidv7Schema } from "../fields.ts";
+import { nameSchema, uuidv7Schema } from "../fields.ts";
 
 // =============================================================================
 // Params Schemas
@@ -12,7 +12,6 @@ import { nameSchema, slugSchema, uuidv7Schema } from "../fields.ts";
  * org.create params.
  */
 export const orgCreateParams = z.object({
-  slug: slugSchema,
   name: nameSchema,
 });
 
@@ -40,7 +39,6 @@ export type OrgGetParams = z.infer<typeof orgGetParams>;
 export const orgUpdateParams = z.object({
   id: uuidv7Schema,
   name: nameSchema.optional(),
-  slug: slugSchema.optional(),
 });
 
 export type OrgUpdateParams = z.infer<typeof orgUpdateParams>;

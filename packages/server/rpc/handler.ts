@@ -1,5 +1,5 @@
-import type { ZodError } from "zod";
 import { span } from "@pydantic/logfire-node";
+import type { ZodError } from "zod";
 import { json } from "../util/response";
 import {
   applicationError,

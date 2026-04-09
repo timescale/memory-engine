@@ -106,18 +106,6 @@ export const orgRoleSchema = z.enum(["owner", "admin", "member"]);
 export const engineStatusSchema = z.enum(["active", "suspended", "deleted"]);
 
 /**
- * Slug schema (lowercase alphanumeric with hyphens, 3-50 chars).
- */
-export const slugSchema = z
-  .string()
-  .min(3, "slug must be at least 3 characters")
-  .max(50, "slug must be at most 50 characters")
-  .regex(
-    /^[a-z0-9]+(-[a-z0-9]+)*$/,
-    "slug must be lowercase alphanumeric with hyphens",
-  );
-
-/**
  * Email schema using Zod 4's native support.
  */
 export const emailSchema = z.email();

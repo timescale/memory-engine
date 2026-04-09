@@ -9,7 +9,7 @@ insert into {{schema}}.shard (id) values (1);
 -- ===== Org (billing/ownership entity) =====
 create table {{schema}}.org
 ( id uuid primary key default uuidv7() check (uuid_extract_version(id) = 7)
-, slug text unique not null check (slug ~ '^[a-z0-9-]+$')
+, slug text unique not null check (slug ~ '^[a-z0-9]{12}$')
 , name text not null
 , created_at timestamptz not null default now()
 , updated_at timestamptz

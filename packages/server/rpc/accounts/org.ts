@@ -5,7 +5,7 @@
  * - org.create: Create a new organization (caller becomes owner)
  * - org.list: List organizations for the current identity
  * - org.get: Get organization by ID
- * - org.update: Update organization name/slug
+ * - org.update: Update organization name
  * - org.delete: Delete an organization
  */
 import type { Org } from "@memory-engine/accounts";
@@ -60,7 +60,6 @@ async function orgCreate(
   // Create org and add creator as owner in a transaction
   const org = await db.withTransaction(async (txDb) => {
     const newOrg = await txDb.createOrg({
-      slug: params.slug,
       name: params.name,
     });
 
@@ -112,7 +111,7 @@ async function orgGet(
 }
 
 /**
- * org.update - Update organization name/slug.
+ * org.update - Update organization name.
  * Requires owner or admin role.
  */
 async function orgUpdate(
@@ -133,7 +132,6 @@ async function orgUpdate(
 
   const updated = await db.updateOrg(params.id, {
     name: params.name,
-    slug: params.slug,
   });
 
   if (!updated) {

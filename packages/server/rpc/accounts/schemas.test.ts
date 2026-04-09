@@ -25,7 +25,6 @@ import {
   orgMemberUpdateRoleSchema,
   orgRoleSchema,
   orgUpdateSchema,
-  slugSchema,
   uuidv7Schema,
 } from "./schemas";
 
@@ -56,37 +55,6 @@ describe("uuidv7Schema", () => {
     ];
     for (const uuid of invalidUuids) {
       expect(uuidv7Schema.safeParse(uuid).success).toBe(false);
-    }
-  });
-});
-
-describe("slugSchema", () => {
-  test("accepts valid slugs", () => {
-    const validSlugs = [
-      "abc",
-      "my-org",
-      "acme-corp",
-      "test123",
-      "my-cool-org-name",
-    ];
-    for (const slug of validSlugs) {
-      expect(slugSchema.safeParse(slug).success).toBe(true);
-    }
-  });
-
-  test("rejects invalid slugs", () => {
-    const invalidSlugs = [
-      "ab", // too short
-      "My-Org", // uppercase
-      "my_org", // underscore
-      "-my-org", // leading hyphen
-      "my-org-", // trailing hyphen
-      "my--org", // double hyphen
-      "my org", // space
-      "a".repeat(51), // too long
-    ];
-    for (const slug of invalidSlugs) {
-      expect(slugSchema.safeParse(slug).success).toBe(false);
     }
   });
 });
@@ -183,23 +151,13 @@ describe("meGetSchema", () => {
 describe("orgCreateSchema", () => {
   test("accepts valid params", () => {
     const result = orgCreateSchema.safeParse({
-      slug: "my-org",
       name: "My Organization",
     });
     expect(result.success).toBe(true);
   });
 
-  test("rejects invalid slug", () => {
-    const result = orgCreateSchema.safeParse({
-      slug: "My Org", // invalid - uppercase and space
-      name: "My Organization",
-    });
-    expect(result.success).toBe(false);
-  });
-
   test("rejects empty name", () => {
     const result = orgCreateSchema.safeParse({
-      slug: "my-org",
       name: "",
     });
     expect(result.success).toBe(false);
@@ -238,27 +196,11 @@ describe("orgUpdateSchema", () => {
     expect(result.success).toBe(true);
   });
 
-  test("accepts id with slug update", () => {
-    const result = orgUpdateSchema.safeParse({
-      id: "019d694f-79f6-7595-8faf-b70b01c11f98",
-      slug: "new-slug",
-    });
-    expect(result.success).toBe(true);
-  });
-
   test("accepts id only (no-op)", () => {
     const result = orgUpdateSchema.safeParse({
       id: "019d694f-79f6-7595-8faf-b70b01c11f98",
     });
     expect(result.success).toBe(true);
-  });
-
-  test("rejects invalid slug", () => {
-    const result = orgUpdateSchema.safeParse({
-      id: "019d694f-79f6-7595-8faf-b70b01c11f98",
-      slug: "Invalid Slug",
-    });
-    expect(result.success).toBe(false);
   });
 });
 
