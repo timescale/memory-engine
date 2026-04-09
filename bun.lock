@@ -20,8 +20,7 @@
       "name": "@memory-engine/accounts",
       "version": "0.0.0",
       "dependencies": {
-        "@opentelemetry/api": "^1.9.0",
-        "@pydantic/logfire-node": "^0.13.0",
+        "@pydantic/logfire-node": "^0.13.1",
       },
     },
     "packages/cli": {
@@ -56,8 +55,7 @@
       "version": "0.0.0",
       "dependencies": {
         "@ai-sdk/openai": "^3.0.0",
-        "@opentelemetry/api": "^1.9.0",
-        "@pydantic/logfire-node": "^0.13.0",
+        "@pydantic/logfire-node": "^0.13.1",
         "ai": "^6.0.0",
       },
     },
@@ -65,8 +63,7 @@
       "name": "@memory-engine/engine",
       "version": "0.0.0",
       "dependencies": {
-        "@opentelemetry/api": "^1.9.0",
-        "@pydantic/logfire-node": "^0.13.0",
+        "@pydantic/logfire-node": "^0.13.1",
       },
     },
     "packages/protocol": {
@@ -84,8 +81,7 @@
         "@memory-engine/embedding": "workspace:*",
         "@memory-engine/engine": "workspace:*",
         "@memory-engine/protocol": "workspace:*",
-        "@opentelemetry/api": "^1.9.0",
-        "@pydantic/logfire-node": "^0.13.0",
+        "@pydantic/logfire-node": "^0.13.1",
         "zod": "^4.0.0",
       },
     },
@@ -95,8 +91,7 @@
       "dependencies": {
         "@memory-engine/embedding": "workspace:*",
         "@memory-engine/engine": "workspace:*",
-        "@opentelemetry/api": "^1.9.0",
-        "@pydantic/logfire-node": "^0.13.0",
+        "@pydantic/logfire-node": "^0.13.1",
       },
     },
     "scripts": {
@@ -334,7 +329,7 @@
 
     "@protobufjs/utf8": ["@protobufjs/utf8@1.1.0", "", {}, "sha512-Vvn3zZrhQZkkBE8LSuW3em98c0FwgO4nxzv6OdSxPKJIEKY2bGbHn+mhGIPerzI4twdxaP8/0+06HBpwf345Lw=="],
 
-    "@pydantic/logfire-node": ["@pydantic/logfire-node@0.13.0", "", { "dependencies": { "logfire": "0.13.0", "picocolors": "^1.1.1" }, "peerDependencies": { "@opentelemetry/api": "^1.9.0", "@opentelemetry/auto-instrumentations-node": "^0.68.0", "@opentelemetry/context-async-hooks": "^2.0.0", "@opentelemetry/core": "^2.0.0", "@opentelemetry/exporter-metrics-otlp-proto": "^0.210.0", "@opentelemetry/exporter-trace-otlp-proto": "^0.210.0", "@opentelemetry/instrumentation": "^0.210.0", "@opentelemetry/resources": "^2.0.0", "@opentelemetry/sdk-metrics": "^2.0.0", "@opentelemetry/sdk-node": "^0.210.0", "@opentelemetry/sdk-trace-base": "^2.0.0", "@opentelemetry/semantic-conventions": "^1.34.0" } }, "sha512-gIU2+06v6tmZChI7yFIEv8+LFmd5OUOw7R5IPgF6s1FCpm6G0QzCxuxiFMXAr8DN+RG3K1sG1tXXqLfq7jQRwQ=="],
+    "@pydantic/logfire-node": ["@pydantic/logfire-node@0.13.1", "", { "dependencies": { "logfire": "0.13.1", "picocolors": "^1.1.1" }, "peerDependencies": { "@opentelemetry/api": "^1.9.0", "@opentelemetry/auto-instrumentations-node": "^0.68.0", "@opentelemetry/context-async-hooks": "^2.0.0", "@opentelemetry/core": "^2.0.0", "@opentelemetry/exporter-metrics-otlp-proto": "^0.210.0", "@opentelemetry/exporter-trace-otlp-proto": "^0.210.0", "@opentelemetry/instrumentation": "^0.210.0", "@opentelemetry/resources": "^2.0.0", "@opentelemetry/sdk-metrics": "^2.0.0", "@opentelemetry/sdk-node": "^0.210.0", "@opentelemetry/sdk-trace-base": "^2.0.0", "@opentelemetry/semantic-conventions": "^1.34.0" } }, "sha512-9xJ4dMb4DB0jyWeEnWyYEZ6VBAufdO4bqxY2LqUrwW47u79hJGFbuu2xXcIMUKJvJTAIZ2qH9JzQZNJjFBMIGw=="],
 
     "@standard-schema/spec": ["@standard-schema/spec@1.1.0", "", {}, "sha512-l2aFy5jALhniG5HgqrD6jXLi/rUWrKvqN/qJx6yoJsgKhblVd+iqqU4RCXavm/jPityDo5TCvKMnpjKnOriy0w=="],
 
@@ -420,7 +415,7 @@
 
     "lodash.camelcase": ["lodash.camelcase@4.3.0", "", {}, "sha512-TwuEnCnxbc3rAvhf/LbG7tJUDzhqXyFnv3dtzLOPgCG/hODL7WFnsbwktkD7yUV0RrreP/l1PALq/YSg6VvjlA=="],
 
-    "logfire": ["logfire@0.13.0", "", { "peerDependencies": { "@opentelemetry/api": "^1.9.0", "@opentelemetry/sdk-trace-base": "^2.0.0", "@opentelemetry/semantic-conventions": "^1.34.0" } }, "sha512-A2Q1jQXRrL2el5JFLlqaF8UNs2RxmDGqPM3iECH1wAT53KiPXJj9EsuCPVsqj3Xpj2gSEvMrQ6eVwZ4evSWSGQ=="],
+    "logfire": ["logfire@0.13.1", "", { "peerDependencies": { "@opentelemetry/api": "^1.9.0", "@opentelemetry/sdk-trace-base": "^2.0.0", "@opentelemetry/semantic-conventions": "^1.34.0" } }, "sha512-RYMN+uE9xqRhR0Msn1iWk4EaqekymrabF/Bh4YArUvxyqgmst7NUCa3HgZUguGEx12nIH6UhfVFsgrnKC6WaLw=="],
 
     "long": ["long@5.3.2", "", {}, "sha512-mNAgZ1GmyNhD7AuqnTG3/VQ26o760+ZYBPKjPvugO8+nLbYfX6TVpJPseBvopbdY+qpZ/lKUnmEc1LeZYS3QAA=="],
 

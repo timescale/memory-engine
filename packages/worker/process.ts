@@ -1,7 +1,6 @@
 import { generateEmbeddings } from "@memory-engine/embedding";
-import { info } from "@pydantic/logfire-node";
+import { info, span } from "@pydantic/logfire-node";
 import type { SQL } from "bun";
-import { span } from "./telemetry";
 import type { ProcessResult, WorkerConfig } from "./types";
 
 interface ClaimedRow {
