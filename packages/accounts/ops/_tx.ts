@@ -7,7 +7,7 @@
 
 import type { SQL } from "bun";
 import type { AccountsContext } from "../types";
-import { span } from "./telemetry";
+import { span } from "@pydantic/logfire-node";
 
 /**
  * Execute a function within a transaction context.

@@ -1,6 +1,6 @@
 import type { SQL } from "bun";
 import type { OpsContext } from "../types";
-import { span } from "./telemetry";
+import { span } from "@pydantic/logfire-node";
 
 /**
  * Transaction modes:
