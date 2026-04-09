@@ -1,0 +1,46 @@
+{
+  "name": "@memory-engine/client",
+  "version": "0.1.0",
+  "description": "Client library for Memory Engine",
+  "homepage": "https://memoryengine.dev",
+  "keywords": [
+    "memory-engine",
+    "ai",
+    "memory",
+    "semantic-search",
+    "llm",
+    "mcp"
+  ],
+  "type": "module",
+  "exports": {
+    ".": {
+      "bun": "./index.ts",
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "*.ts",
+    "!*.test.ts"
+  ],
+  "scripts": {
+    "build:js": "bun build index.ts --outdir dist --format esm --target node --packages external",
+    "build:types": "tsc -p tsconfig.build.json",
+    "build": "bun run build:js && bun run build:types",
+    "prepublishOnly": "bun run build"
+  },
+  "dependencies": {
+    "@memory-engine/protocol": "workspace:*"
+  },
+  "peerDependencies": {
+    "typescript": "^5.0.0"
+  },
+  "peerDependenciesMeta": {
+    "typescript": {
+      "optional": true
+    }
+  },
+  "private": false,
+  "license": "MIT"
+}
