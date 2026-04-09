@@ -1,7 +1,7 @@
 import { warning } from "@pydantic/logfire-node";
-import { span } from "./telemetry";
 import { embed, embedMany } from "ai";
 import { getEmbeddingModel } from "./provider";
+import { span } from "./telemetry";
 import { MAX_OPENAI_TOKENS, TRUNCATION_RATIOS, truncateText } from "./truncate";
 import type { EmbeddingConfig, EmbedResult, MemoryRow } from "./types";
 

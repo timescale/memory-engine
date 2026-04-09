@@ -1,6 +1,6 @@
-import { span } from "./telemetry";
 import type { SQL } from "bun";
 import type { OpsContext } from "../types";
+import { span } from "./telemetry";
 
 /**
  * Transaction modes:

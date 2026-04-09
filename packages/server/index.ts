@@ -2,11 +2,11 @@
 import { createAccountsDB } from "@memory-engine/accounts";
 import type { EmbeddingConfig } from "@memory-engine/embedding";
 import { configure, info, reportError } from "@pydantic/logfire-node";
-import { span } from "./telemetry";
 import { embeddingConstants } from "./config";
 import type { ServerContext } from "./context";
 import { checkSizeLimit } from "./middleware";
 import { createRouter } from "./router";
+import { span } from "./telemetry";
 import { internalError } from "./util/response";
 
 // Initialize telemetry before starting server

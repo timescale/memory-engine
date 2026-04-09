@@ -5,9 +5,9 @@
  * uses application-level authorization.
  */
 
-import { span } from "./telemetry";
 import type { SQL } from "bun";
 import type { AccountsContext } from "../types";
+import { span } from "./telemetry";
 
 /**
  * Execute a function within a transaction context.
