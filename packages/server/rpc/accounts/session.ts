@@ -4,9 +4,10 @@
  * Implements:
  * - session.revoke: Revoke the current session (logout)
  */
+import type { SessionRevokeParams } from "@memory-engine/protocol/accounts/session";
+import { sessionRevokeParams } from "@memory-engine/protocol/accounts/session";
 import { buildRegistry } from "../registry";
 import type { HandlerContext } from "../types";
-import { type SessionRevokeParams, sessionRevokeSchema } from "./schemas";
 import { type AccountsRpcContext, assertAccountsRpcContext } from "./types";
 
 // =============================================================================
@@ -40,5 +41,5 @@ async function sessionRevoke(
  * Build the session methods registry.
  */
 export const sessionMethods = buildRegistry()
-  .register("session.revoke", sessionRevokeSchema, sessionRevoke)
+  .register("session.revoke", sessionRevokeParams, sessionRevoke)
   .build();

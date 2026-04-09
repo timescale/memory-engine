@@ -1,428 +1,93 @@
 /**
- * Zod schemas for Engine RPC methods.
+ * Re-export engine schemas from @memory-engine/protocol.
  *
- * These schemas define the expected params for each method.
- * Zod 4 compatible.
+ * @deprecated Import directly from @memory-engine/protocol/engine instead.
  */
-import { z } from "zod";
 
-// =============================================================================
-// Common Schemas
-// =============================================================================
-
-/**
- * UUID v7 schema using Zod 4's native uuidv7 support.
- */
-export const uuidv7Schema = z.uuidv7();
-
-/**
- * ltree path pattern (alphanumeric and underscores, dot-separated).
- */
-const ltreePattern = /^([A-Za-z0-9_]+(\.[A-Za-z0-9_]+)*)?$/;
-
-/**
- * Tree path schema (ltree format, allows empty string for root).
- */
-export const treePathSchema = z
-  .string()
-  .regex(
-    ltreePattern,
-    "must be a valid ltree path (alphanumeric/underscore, dot-separated)",
-  );
-
-/**
- * Tree filter schema (ltree, lquery, or ltxtquery).
- * More permissive than treePathSchema since it allows query operators.
- */
-export const treeFilterSchema = z.string().min(1);
-
-/**
- * ISO 8601 timestamp string using Zod 4's native support.
- * Allows timezone offsets (e.g., "2024-01-01T00:00:00+02:00" or "2024-01-01T00:00:00Z").
- */
-export const timestampSchema = z.iso.datetime({ offset: true });
-
-/**
- * Temporal range schema for create/update.
- */
-export const temporalSchema = z.object({
-  start: timestampSchema,
-  end: z.union([timestampSchema, z.null()]).optional(),
-});
-
-/**
- * Temporal filter for search.
- */
-export const temporalFilterSchema = z.object({
-  contains: timestampSchema.optional(),
-  overlaps: z
-    .object({
-      start: timestampSchema,
-      end: timestampSchema,
-    })
-    .optional(),
-  within: z
-    .object({
-      start: timestampSchema,
-      end: timestampSchema,
-    })
-    .optional(),
-});
-
-/**
- * Metadata schema (arbitrary JSON object).
- */
-export const metaSchema = z.record(z.string(), z.unknown());
-
-/**
- * Search weights schema.
- */
-export const searchWeightsSchema = z.object({
-  semantic: z.number().min(0).max(1).optional(),
-  fulltext: z.number().min(0).max(1).optional(),
-});
-
-// =============================================================================
-// Memory Method Schemas
-// =============================================================================
-
-/**
- * memory.create params.
- */
-export const memoryCreateSchema = z.object({
-  id: uuidv7Schema.optional().nullable(),
-  content: z.string().min(1, "content is required"),
-  meta: metaSchema.optional().nullable(),
-  tree: treePathSchema.optional().nullable(),
-  temporal: temporalSchema.optional().nullable(),
-});
-
-export type MemoryCreateParams = z.infer<typeof memoryCreateSchema>;
-
-/**
- * memory.batchCreate params.
- */
-export const memoryBatchCreateSchema = z.object({
-  memories: z
-    .array(
-      z.object({
-        id: uuidv7Schema.optional().nullable(),
-        content: z.string().min(1, "content is required"),
-        meta: metaSchema.optional().nullable(),
-        tree: treePathSchema.optional().nullable(),
-        temporal: temporalSchema.optional().nullable(),
-      }),
-    )
-    .min(1, "at least one memory required")
-    .max(1000, "maximum 1000 memories per batch"),
-});
-
-export type MemoryBatchCreateParams = z.infer<typeof memoryBatchCreateSchema>;
-
-/**
- * memory.get params.
- */
-export const memoryGetSchema = z.object({
-  id: uuidv7Schema,
-});
-
-export type MemoryGetParams = z.infer<typeof memoryGetSchema>;
-
-/**
- * memory.update params.
- */
-export const memoryUpdateSchema = z.object({
-  id: uuidv7Schema,
-  content: z.string().min(1).optional().nullable(),
-  meta: metaSchema.optional().nullable(),
-  tree: treePathSchema.optional().nullable(),
-  temporal: temporalSchema.optional().nullable(),
-});
-
-export type MemoryUpdateParams = z.infer<typeof memoryUpdateSchema>;
-
-/**
- * memory.delete params.
- */
-export const memoryDeleteSchema = z.object({
-  id: uuidv7Schema,
-});
-
-export type MemoryDeleteParams = z.infer<typeof memoryDeleteSchema>;
-
-/**
- * memory.search params.
- */
-export const memorySearchSchema = z.object({
-  semantic: z.string().optional().nullable(),
-  fulltext: z.string().optional().nullable(),
-  tree: treeFilterSchema.optional().nullable(),
-  meta: metaSchema.optional().nullable(),
-  temporal: temporalFilterSchema.optional().nullable(),
-  limit: z.number().int().min(1).max(1000).optional(),
-  candidateLimit: z.number().int().min(1).max(1000).optional(),
-  weights: searchWeightsSchema.optional().nullable(),
-  orderBy: z.enum(["asc", "desc"]).optional(),
-});
-
-export type MemorySearchParams = z.infer<typeof memorySearchSchema>;
-
-/**
- * memory.tree params.
- */
-export const memoryTreeSchema = z.object({
-  tree: treePathSchema.optional().nullable(),
-  levels: z.number().int().min(1).max(100).optional(),
-});
-
-export type MemoryTreeParams = z.infer<typeof memoryTreeSchema>;
-
-/**
- * memory.move params.
- */
-export const memoryMoveSchema = z.object({
-  source: treePathSchema.min(1, "source path is required"),
-  destination: treePathSchema,
-});
-
-export type MemoryMoveParams = z.infer<typeof memoryMoveSchema>;
-
-/**
- * memory.deleteTree params.
- */
-export const memoryDeleteTreeSchema = z.object({
-  tree: treePathSchema.min(1, "tree path is required"),
-  dryRun: z.boolean().optional(),
-});
-
-export type MemoryDeleteTreeParams = z.infer<typeof memoryDeleteTreeSchema>;
-
-// =============================================================================
-// User Method Schemas
-// =============================================================================
-
-/**
- * user.create params.
- */
-export const userCreateSchema = z.object({
-  id: uuidv7Schema.optional().nullable(),
-  name: z.string().min(1, "name is required"),
-  ownedBy: uuidv7Schema.optional().nullable(),
-  canLogin: z.boolean().optional(),
-  superuser: z.boolean().optional(),
-  createrole: z.boolean().optional(),
-});
-
-export type UserCreateParams = z.infer<typeof userCreateSchema>;
-
-/**
- * user.get params.
- */
-export const userGetSchema = z.object({
-  id: uuidv7Schema,
-});
-
-export type UserGetParams = z.infer<typeof userGetSchema>;
-
-/**
- * user.getByName params.
- */
-export const userGetByNameSchema = z.object({
-  name: z.string().min(1),
-});
-
-export type UserGetByNameParams = z.infer<typeof userGetByNameSchema>;
-
-/**
- * user.list params.
- */
-export const userListSchema = z.object({
-  canLogin: z.boolean().optional(),
-});
-
-export type UserListParams = z.infer<typeof userListSchema>;
-
-/**
- * user.rename params.
- */
-export const userRenameSchema = z.object({
-  id: uuidv7Schema,
-  name: z.string().min(1, "name is required"),
-});
-
-export type UserRenameParams = z.infer<typeof userRenameSchema>;
-
-/**
- * user.delete params.
- */
-export const userDeleteSchema = z.object({
-  id: uuidv7Schema,
-});
-
-export type UserDeleteParams = z.infer<typeof userDeleteSchema>;
-
-// =============================================================================
-// Grant Method Schemas
-// =============================================================================
-
-/**
- * Valid actions for tree grants.
- */
-export const grantActionSchema = z.enum(["read", "write", "delete", "admin"]);
-
-/**
- * grant.create params.
- */
-export const grantCreateSchema = z.object({
-  userId: uuidv7Schema,
-  treePath: treePathSchema,
-  actions: z.array(grantActionSchema).min(1, "at least one action required"),
-  withGrantOption: z.boolean().optional(),
-});
-
-export type GrantCreateParams = z.infer<typeof grantCreateSchema>;
-
-/**
- * grant.list params.
- */
-export const grantListSchema = z.object({
-  userId: uuidv7Schema.optional(),
-});
-
-export type GrantListParams = z.infer<typeof grantListSchema>;
-
-/**
- * grant.get params.
- */
-export const grantGetSchema = z.object({
-  userId: uuidv7Schema,
-  treePath: treePathSchema,
-});
-
-export type GrantGetParams = z.infer<typeof grantGetSchema>;
-
-/**
- * grant.revoke params.
- */
-export const grantRevokeSchema = z.object({
-  userId: uuidv7Schema,
-  treePath: treePathSchema,
-});
-
-export type GrantRevokeParams = z.infer<typeof grantRevokeSchema>;
-
-/**
- * grant.check params.
- */
-export const grantCheckSchema = z.object({
-  userId: uuidv7Schema,
-  treePath: treePathSchema,
-  action: grantActionSchema,
-});
-
-export type GrantCheckParams = z.infer<typeof grantCheckSchema>;
-
-// =============================================================================
-// Role Method Schemas
-// =============================================================================
-
-/**
- * role.create params.
- * Creates a user with canLogin=false (a role for grouping grants).
- */
-export const roleCreateSchema = z.object({
-  name: z.string().min(1, "name is required"),
-  ownedBy: uuidv7Schema.optional().nullable(),
-});
-
-export type RoleCreateParams = z.infer<typeof roleCreateSchema>;
-
-/**
- * role.addMember params.
- */
-export const roleAddMemberSchema = z.object({
-  roleId: uuidv7Schema,
-  memberId: uuidv7Schema,
-  withAdminOption: z.boolean().optional(),
-});
-
-export type RoleAddMemberParams = z.infer<typeof roleAddMemberSchema>;
-
-/**
- * role.removeMember params.
- */
-export const roleRemoveMemberSchema = z.object({
-  roleId: uuidv7Schema,
-  memberId: uuidv7Schema,
-});
-
-export type RoleRemoveMemberParams = z.infer<typeof roleRemoveMemberSchema>;
-
-/**
- * role.listMembers params.
- */
-export const roleListMembersSchema = z.object({
-  roleId: uuidv7Schema,
-});
-
-export type RoleListMembersParams = z.infer<typeof roleListMembersSchema>;
-
-/**
- * role.listForUser params.
- */
-export const roleListForUserSchema = z.object({
-  userId: uuidv7Schema,
-});
-
-export type RoleListForUserParams = z.infer<typeof roleListForUserSchema>;
-
-// =============================================================================
-// API Key Method Schemas
-// =============================================================================
-
-/**
- * apiKey.create params.
- */
-export const apiKeyCreateSchema = z.object({
-  userId: uuidv7Schema,
-  name: z.string().min(1, "name is required"),
-  expiresAt: timestampSchema.optional().nullable(),
-});
-
-export type ApiKeyCreateParams = z.infer<typeof apiKeyCreateSchema>;
-
-/**
- * apiKey.get params.
- */
-export const apiKeyGetSchema = z.object({
-  id: uuidv7Schema,
-});
-
-export type ApiKeyGetParams = z.infer<typeof apiKeyGetSchema>;
-
-/**
- * apiKey.list params.
- */
-export const apiKeyListSchema = z.object({
-  userId: uuidv7Schema,
-});
-
-export type ApiKeyListParams = z.infer<typeof apiKeyListSchema>;
-
-/**
- * apiKey.revoke params.
- */
-export const apiKeyRevokeSchema = z.object({
-  id: uuidv7Schema,
-});
-
-export type ApiKeyRevokeParams = z.infer<typeof apiKeyRevokeSchema>;
-
-/**
- * apiKey.delete params.
- */
-export const apiKeyDeleteSchema = z.object({
-  id: uuidv7Schema,
-});
-
-export type ApiKeyDeleteParams = z.infer<typeof apiKeyDeleteSchema>;
+export {
+  type ApiKeyCreateParams,
+  type ApiKeyDeleteParams,
+  type ApiKeyGetParams,
+  type ApiKeyListParams,
+  type ApiKeyRevokeParams,
+  // API Key params
+  apiKeyCreateParams as apiKeyCreateSchema,
+  apiKeyDeleteParams as apiKeyDeleteSchema,
+  apiKeyGetParams as apiKeyGetSchema,
+  apiKeyListParams as apiKeyListSchema,
+  apiKeyRevokeParams as apiKeyRevokeSchema,
+} from "@memory-engine/protocol/engine/api-key";
+export {
+  type GrantCheckParams,
+  type GrantCreateParams,
+  type GrantGetParams,
+  type GrantListParams,
+  type GrantRevokeParams,
+  grantCheckParams as grantCheckSchema,
+  // Grant params
+  grantCreateParams as grantCreateSchema,
+  grantGetParams as grantGetSchema,
+  grantListParams as grantListSchema,
+  grantRevokeParams as grantRevokeSchema,
+} from "@memory-engine/protocol/engine/grant";
+export {
+  type MemoryBatchCreateParams,
+  type MemoryCreateParams,
+  type MemoryDeleteParams,
+  type MemoryDeleteTreeParams,
+  type MemoryGetParams,
+  type MemoryMoveParams,
+  type MemorySearchParams,
+  type MemoryTreeParams,
+  type MemoryUpdateParams,
+  memoryBatchCreateParams as memoryBatchCreateSchema,
+  // Memory params
+  memoryCreateParams as memoryCreateSchema,
+  memoryDeleteParams as memoryDeleteSchema,
+  memoryDeleteTreeParams as memoryDeleteTreeSchema,
+  memoryGetParams as memoryGetSchema,
+  memoryMoveParams as memoryMoveSchema,
+  memorySearchParams as memorySearchSchema,
+  memoryTreeParams as memoryTreeSchema,
+  memoryUpdateParams as memoryUpdateSchema,
+} from "@memory-engine/protocol/engine/memory";
+export {
+  type RoleAddMemberParams,
+  type RoleCreateParams,
+  type RoleListForUserParams,
+  type RoleListMembersParams,
+  type RoleRemoveMemberParams,
+  roleAddMemberParams as roleAddMemberSchema,
+  // Role params
+  roleCreateParams as roleCreateSchema,
+  roleListForUserParams as roleListForUserSchema,
+  roleListMembersParams as roleListMembersSchema,
+  roleRemoveMemberParams as roleRemoveMemberSchema,
+} from "@memory-engine/protocol/engine/role";
+export {
+  type UserCreateParams,
+  type UserDeleteParams,
+  type UserGetByNameParams,
+  type UserGetParams,
+  type UserListParams,
+  type UserRenameParams,
+  // User params
+  userCreateParams as userCreateSchema,
+  userDeleteParams as userDeleteSchema,
+  userGetByNameParams as userGetByNameSchema,
+  userGetParams as userGetSchema,
+  userListParams as userListSchema,
+  userRenameParams as userRenameSchema,
+} from "@memory-engine/protocol/engine/user";
+export {
+  // Fields
+  grantActionSchema,
+  metaSchema,
+  searchWeightsSchema,
+  temporalFilterSchema,
+  temporalSchema,
+  timestampSchema,
+  treeFilterSchema,
+  treePathSchema,
+  uuidv7Schema,
+} from "@memory-engine/protocol/fields";

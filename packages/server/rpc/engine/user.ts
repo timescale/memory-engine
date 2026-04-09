@@ -10,42 +10,27 @@
  * - user.delete: Delete a user
  */
 import type { User } from "@memory-engine/engine";
+import type {
+  UserCreateParams,
+  UserDeleteParams,
+  UserGetByNameParams,
+  UserGetParams,
+  UserListParams,
+  UserRenameParams,
+  UserResponse,
+} from "@memory-engine/protocol/engine/user";
+import {
+  userCreateParams,
+  userDeleteParams,
+  userGetByNameParams,
+  userGetParams,
+  userListParams,
+  userRenameParams,
+} from "@memory-engine/protocol/engine/user";
 import { AppError } from "../errors";
 import { buildRegistry } from "../registry";
 import type { HandlerContext } from "../types";
-import {
-  type UserCreateParams,
-  type UserDeleteParams,
-  type UserGetByNameParams,
-  type UserGetParams,
-  type UserListParams,
-  type UserRenameParams,
-  userCreateSchema,
-  userDeleteSchema,
-  userGetByNameSchema,
-  userGetSchema,
-  userListSchema,
-  userRenameSchema,
-} from "./schemas";
 import { assertEngineContext, type EngineContext } from "./types";
-
-// =============================================================================
-// Response Types
-// =============================================================================
-
-/**
- * User response (serializable).
- */
-interface UserResponse {
-  id: string;
-  name: string;
-  ownedBy: string | null;
-  canLogin: boolean;
-  superuser: boolean;
-  createrole: boolean;
-  createdAt: string;
-  updatedAt: string | null;
-}
 
 /**
  * Convert a User to a serializable response.
@@ -183,10 +168,10 @@ async function userDelete(
  * Build the user methods registry.
  */
 export const userMethods = buildRegistry()
-  .register("user.create", userCreateSchema, userCreate)
-  .register("user.get", userGetSchema, userGet)
-  .register("user.getByName", userGetByNameSchema, userGetByName)
-  .register("user.list", userListSchema, userList)
-  .register("user.rename", userRenameSchema, userRename)
-  .register("user.delete", userDeleteSchema, userDelete)
+  .register("user.create", userCreateParams, userCreate)
+  .register("user.get", userGetParams, userGet)
+  .register("user.getByName", userGetByNameParams, userGetByName)
+  .register("user.list", userListParams, userList)
+  .register("user.rename", userRenameParams, userRename)
+  .register("user.delete", userDeleteParams, userDelete)
   .build();

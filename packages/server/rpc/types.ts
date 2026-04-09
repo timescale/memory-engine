@@ -1,49 +1,23 @@
+/**
+ * RPC types — re-exports protocol types and defines server-internal types.
+ *
+ * JSON-RPC envelope types come from @memory-engine/protocol.
+ * Server-internal types (HandlerContext, MethodHandler, etc.) are defined here.
+ */
 import type { z } from "zod";
 
-/**
- * JSON-RPC 2.0 request object.
- */
-export interface JsonRpcRequest {
-  jsonrpc: "2.0";
-  method: string;
-  params?: unknown;
-  id: string | number;
-}
+// Re-export JSON-RPC 2.0 envelope types from protocol
+export type {
+  JsonRpcError,
+  JsonRpcErrorResponse,
+  JsonRpcRequest,
+  JsonRpcResponse,
+  JsonRpcSuccessResponse,
+} from "@memory-engine/protocol/jsonrpc";
 
-/**
- * JSON-RPC 2.0 error object.
- */
-export interface JsonRpcError {
-  code: number;
-  message: string;
-  data?: {
-    code: string;
-    [key: string]: unknown;
-  };
-}
-
-/**
- * JSON-RPC 2.0 success response.
- */
-export interface JsonRpcSuccessResponse {
-  jsonrpc: "2.0";
-  result: unknown;
-  id: string | number;
-}
-
-/**
- * JSON-RPC 2.0 error response.
- */
-export interface JsonRpcErrorResponse {
-  jsonrpc: "2.0";
-  error: JsonRpcError;
-  id: string | number | null;
-}
-
-/**
- * JSON-RPC 2.0 response (success or error).
- */
-export type JsonRpcResponse = JsonRpcSuccessResponse | JsonRpcErrorResponse;
+// =============================================================================
+// Server-Internal Types
+// =============================================================================
 
 /**
  * Context passed to method handlers.

@@ -9,40 +9,24 @@
  */
 import type { Engine } from "@memory-engine/accounts";
 import { type EngineConfig, provisionEngine } from "@memory-engine/engine";
+import type {
+  EngineCreateParams,
+  EngineGetParams,
+  EngineListParams,
+  EngineResponse,
+  EngineUpdateParams,
+} from "@memory-engine/protocol/accounts/engine";
+import {
+  engineCreateParams,
+  engineGetParams,
+  engineListParams,
+  engineUpdateParams,
+} from "@memory-engine/protocol/accounts/engine";
 import { embeddingConstants } from "../../config";
 import { AppError } from "../errors";
 import { buildRegistry } from "../registry";
 import type { HandlerContext } from "../types";
-import {
-  type EngineCreateParams,
-  type EngineGetParams,
-  type EngineListParams,
-  type EngineUpdateParams,
-  engineCreateSchema,
-  engineGetSchema,
-  engineListSchema,
-  engineUpdateSchema,
-} from "./schemas";
 import { type AccountsRpcContext, assertAccountsRpcContext } from "./types";
-
-// =============================================================================
-// Response Types
-// =============================================================================
-
-/**
- * Engine response (serializable).
- */
-interface EngineResponse {
-  id: string;
-  orgId: string;
-  slug: string;
-  name: string;
-  shardId: number;
-  status: string;
-  language: string;
-  createdAt: string;
-  updatedAt: string | null;
-}
 
 /**
  * Convert an Engine to a serializable response.
@@ -218,8 +202,8 @@ async function engineUpdate(
  * Build the engine methods registry.
  */
 export const engineMethods = buildRegistry()
-  .register("engine.create", engineCreateSchema, engineCreate)
-  .register("engine.list", engineListSchema, engineList)
-  .register("engine.get", engineGetSchema, engineGet)
-  .register("engine.update", engineUpdateSchema, engineUpdate)
+  .register("engine.create", engineCreateParams, engineCreate)
+  .register("engine.list", engineListParams, engineList)
+  .register("engine.get", engineGetParams, engineGet)
+  .register("engine.update", engineUpdateParams, engineUpdate)
   .build();

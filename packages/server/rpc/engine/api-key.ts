@@ -9,40 +9,26 @@
  * - apiKey.delete: Permanently delete an API key
  */
 import type { ApiKey } from "@memory-engine/engine";
+import type {
+  ApiKeyCreateParams,
+  ApiKeyCreateResult,
+  ApiKeyDeleteParams,
+  ApiKeyGetParams,
+  ApiKeyListParams,
+  ApiKeyResponse,
+  ApiKeyRevokeParams,
+} from "@memory-engine/protocol/engine/api-key";
+import {
+  apiKeyCreateParams,
+  apiKeyDeleteParams,
+  apiKeyGetParams,
+  apiKeyListParams,
+  apiKeyRevokeParams,
+} from "@memory-engine/protocol/engine/api-key";
 import { AppError } from "../errors";
 import { buildRegistry } from "../registry";
 import type { HandlerContext } from "../types";
-import {
-  type ApiKeyCreateParams,
-  type ApiKeyDeleteParams,
-  type ApiKeyGetParams,
-  type ApiKeyListParams,
-  type ApiKeyRevokeParams,
-  apiKeyCreateSchema,
-  apiKeyDeleteSchema,
-  apiKeyGetSchema,
-  apiKeyListSchema,
-  apiKeyRevokeSchema,
-} from "./schemas";
 import { assertEngineContext, type EngineContext } from "./types";
-
-// =============================================================================
-// Response Types
-// =============================================================================
-
-/**
- * API key response (serializable, no secret).
- */
-interface ApiKeyResponse {
-  id: string;
-  userId: string;
-  lookupId: string;
-  name: string;
-  expiresAt: string | null;
-  lastUsedAt: string | null;
-  createdAt: string;
-  revokedAt: string | null;
-}
 
 /**
  * Convert an ApiKey to a serializable response.
@@ -60,15 +46,6 @@ function toApiKeyResponse(apiKey: ApiKey): ApiKeyResponse {
   };
 }
 
-/**
- * API key create response (includes raw key).
- */
-interface ApiKeyCreateResponse {
-  apiKey: ApiKeyResponse;
-  /** The raw API key - only returned on creation, store securely! */
-  rawKey: string;
-}
-
 // =============================================================================
 // Method Handlers
 // =============================================================================
@@ -80,7 +57,7 @@ interface ApiKeyCreateResponse {
 async function apiKeyCreate(
   params: ApiKeyCreateParams,
   context: HandlerContext,
-): Promise<ApiKeyCreateResponse> {
+): Promise<ApiKeyCreateResult> {
   assertEngineContext(context);
   const { db } = context as EngineContext;
 
@@ -175,9 +152,9 @@ async function apiKeyDelete(
  * Build the API key methods registry.
  */
 export const apiKeyMethods = buildRegistry()
-  .register("apiKey.create", apiKeyCreateSchema, apiKeyCreate)
-  .register("apiKey.get", apiKeyGetSchema, apiKeyGet)
-  .register("apiKey.list", apiKeyListSchema, apiKeyList)
-  .register("apiKey.revoke", apiKeyRevokeSchema, apiKeyRevoke)
-  .register("apiKey.delete", apiKeyDeleteSchema, apiKeyDelete)
+  .register("apiKey.create", apiKeyCreateParams, apiKeyCreate)
+  .register("apiKey.get", apiKeyGetParams, apiKeyGet)
+  .register("apiKey.list", apiKeyListParams, apiKeyList)
+  .register("apiKey.revoke", apiKeyRevokeParams, apiKeyRevoke)
+  .register("apiKey.delete", apiKeyDeleteParams, apiKeyDelete)
   .build();

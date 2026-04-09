@@ -8,38 +8,24 @@
  * - invitation.accept: Accept an invitation (adds caller to org)
  */
 import type { Invitation } from "@memory-engine/accounts";
+import type {
+  InvitationAcceptParams,
+  InvitationCreateParams,
+  InvitationCreateResult,
+  InvitationListParams,
+  InvitationResponse,
+  InvitationRevokeParams,
+} from "@memory-engine/protocol/accounts/invitation";
+import {
+  invitationAcceptParams,
+  invitationCreateParams,
+  invitationListParams,
+  invitationRevokeParams,
+} from "@memory-engine/protocol/accounts/invitation";
 import { AppError } from "../errors";
 import { buildRegistry } from "../registry";
 import type { HandlerContext } from "../types";
-import {
-  type InvitationAcceptParams,
-  type InvitationCreateParams,
-  type InvitationListParams,
-  type InvitationRevokeParams,
-  invitationAcceptSchema,
-  invitationCreateSchema,
-  invitationListSchema,
-  invitationRevokeSchema,
-} from "./schemas";
 import { type AccountsRpcContext, assertAccountsRpcContext } from "./types";
-
-// =============================================================================
-// Response Types
-// =============================================================================
-
-/**
- * Invitation response (serializable).
- */
-interface InvitationResponse {
-  id: string;
-  orgId: string;
-  email: string;
-  role: string;
-  invitedBy: string;
-  expiresAt: string;
-  acceptedAt: string | null;
-  createdAt: string;
-}
 
 /**
  * Convert an Invitation to a serializable response.
@@ -57,13 +43,6 @@ function toInvitationResponse(invitation: Invitation): InvitationResponse {
   };
 }
 
-/**
- * Invitation create response includes the token (only shown once).
- */
-interface InvitationCreateResponse extends InvitationResponse {
-  token: string;
-}
-
 // =============================================================================
 // Method Handlers
 // =============================================================================
@@ -76,7 +55,7 @@ interface InvitationCreateResponse extends InvitationResponse {
 async function invitationCreate(
   params: InvitationCreateParams,
   context: HandlerContext,
-): Promise<InvitationCreateResponse> {
+): Promise<InvitationCreateResult> {
   assertAccountsRpcContext(context);
   const { db, identity } = context as AccountsRpcContext;
 
@@ -211,8 +190,8 @@ async function invitationAccept(
  * Build the invitation methods registry.
  */
 export const invitationMethods = buildRegistry()
-  .register("invitation.create", invitationCreateSchema, invitationCreate)
-  .register("invitation.list", invitationListSchema, invitationList)
-  .register("invitation.revoke", invitationRevokeSchema, invitationRevoke)
-  .register("invitation.accept", invitationAcceptSchema, invitationAccept)
+  .register("invitation.create", invitationCreateParams, invitationCreate)
+  .register("invitation.list", invitationListParams, invitationList)
+  .register("invitation.revoke", invitationRevokeParams, invitationRevoke)
+  .register("invitation.accept", invitationAcceptParams, invitationAccept)
   .build();

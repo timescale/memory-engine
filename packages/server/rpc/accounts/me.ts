@@ -5,25 +5,14 @@
  * - me.get: Get the current authenticated identity
  */
 import type { Identity } from "@memory-engine/accounts";
+import type {
+  IdentityResponse,
+  MeGetParams,
+} from "@memory-engine/protocol/accounts/identity";
+import { meGetParams } from "@memory-engine/protocol/accounts/identity";
 import { buildRegistry } from "../registry";
 import type { HandlerContext } from "../types";
-import { type MeGetParams, meGetSchema } from "./schemas";
 import { assertAccountsRpcContext } from "./types";
-
-// =============================================================================
-// Response Types
-// =============================================================================
-
-/**
- * Identity response (serializable).
- */
-interface IdentityResponse {
-  id: string;
-  email: string;
-  name: string;
-  createdAt: string;
-  updatedAt: string | null;
-}
 
 /**
  * Convert an Identity to a serializable response.
@@ -62,5 +51,5 @@ async function meGet(
  * Build the me methods registry.
  */
 export const meMethods = buildRegistry()
-  .register("me.get", meGetSchema, meGet)
+  .register("me.get", meGetParams, meGet)
   .build();

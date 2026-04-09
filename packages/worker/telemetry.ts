@@ -5,7 +5,6 @@
 
 import {
   type Attributes,
-  context,
   type Span,
   SpanStatusCode,
   trace,
