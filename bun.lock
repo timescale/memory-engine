@@ -101,6 +101,10 @@
     },
     "scripts": {
       "name": "scripts",
+      "dependencies": {
+        "@memory-engine/accounts": "workspace:*",
+        "@memory-engine/engine": "workspace:*",
+      },
     },
   },
   "packages": {
