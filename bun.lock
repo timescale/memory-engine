@@ -42,6 +42,13 @@
         "@pydantic/logfire-node": "^0.13.0",
       },
     },
+    "packages/protocol": {
+      "name": "@memory-engine/protocol",
+      "version": "0.0.0",
+      "dependencies": {
+        "zod": "^4.0.0",
+      },
+    },
     "packages/server": {
       "name": "memory-engine-server",
       "version": "0.0.0",
@@ -49,6 +56,7 @@
         "@memory-engine/accounts": "workspace:*",
         "@memory-engine/embedding": "workspace:*",
         "@memory-engine/engine": "workspace:*",
+        "@memory-engine/protocol": "workspace:*",
         "@opentelemetry/api": "^1.9.0",
         "@pydantic/logfire-node": "^0.13.0",
         "zod": "^4.0.0",
@@ -106,6 +114,8 @@
     "@memory-engine/embedding": ["@memory-engine/embedding@workspace:packages/embedding"],
 
     "@memory-engine/engine": ["@memory-engine/engine@workspace:packages/engine"],
+
+    "@memory-engine/protocol": ["@memory-engine/protocol@workspace:packages/protocol"],
 
     "@memory-engine/worker": ["@memory-engine/worker@workspace:packages/worker"],
 

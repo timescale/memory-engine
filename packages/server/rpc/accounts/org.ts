@@ -9,37 +9,25 @@
  * - org.delete: Delete an organization
  */
 import type { Org } from "@memory-engine/accounts";
+import type {
+  OrgCreateParams,
+  OrgDeleteParams,
+  OrgGetParams,
+  OrgListParams,
+  OrgResponse,
+  OrgUpdateParams,
+} from "@memory-engine/protocol/accounts/org";
+import {
+  orgCreateParams,
+  orgDeleteParams,
+  orgGetParams,
+  orgListParams,
+  orgUpdateParams,
+} from "@memory-engine/protocol/accounts/org";
 import { AppError } from "../errors";
 import { buildRegistry } from "../registry";
 import type { HandlerContext } from "../types";
-import {
-  type OrgCreateParams,
-  type OrgDeleteParams,
-  type OrgGetParams,
-  type OrgListParams,
-  type OrgUpdateParams,
-  orgCreateSchema,
-  orgDeleteSchema,
-  orgGetSchema,
-  orgListSchema,
-  orgUpdateSchema,
-} from "./schemas";
 import { type AccountsRpcContext, assertAccountsRpcContext } from "./types";
-
-// =============================================================================
-// Response Types
-// =============================================================================
-
-/**
- * Org response (serializable).
- */
-interface OrgResponse {
-  id: string;
-  slug: string;
-  name: string;
-  createdAt: string;
-  updatedAt: string | null;
-}
 
 /**
  * Convert an Org to a serializable response.
@@ -193,9 +181,9 @@ async function orgDelete(
  * Build the org methods registry.
  */
 export const orgMethods = buildRegistry()
-  .register("org.create", orgCreateSchema, orgCreate)
-  .register("org.list", orgListSchema, orgList)
-  .register("org.get", orgGetSchema, orgGet)
-  .register("org.update", orgUpdateSchema, orgUpdate)
-  .register("org.delete", orgDeleteSchema, orgDelete)
+  .register("org.create", orgCreateParams, orgCreate)
+  .register("org.list", orgListParams, orgList)
+  .register("org.get", orgGetParams, orgGet)
+  .register("org.update", orgUpdateParams, orgUpdate)
+  .register("org.delete", orgDeleteParams, orgDelete)
   .build();

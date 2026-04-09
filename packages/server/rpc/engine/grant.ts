@@ -9,39 +9,25 @@
  * - grant.check: Check if user has access to a tree path for an action
  */
 import type { TreeGrant } from "@memory-engine/engine";
+import type {
+  GrantCheckParams,
+  GrantCreateParams,
+  GrantGetParams,
+  GrantListParams,
+  GrantResponse,
+  GrantRevokeParams,
+} from "@memory-engine/protocol/engine/grant";
+import {
+  grantCheckParams,
+  grantCreateParams,
+  grantGetParams,
+  grantListParams,
+  grantRevokeParams,
+} from "@memory-engine/protocol/engine/grant";
 import { AppError } from "../errors";
 import { buildRegistry } from "../registry";
 import type { HandlerContext } from "../types";
-import {
-  type GrantCheckParams,
-  type GrantCreateParams,
-  type GrantGetParams,
-  type GrantListParams,
-  type GrantRevokeParams,
-  grantCheckSchema,
-  grantCreateSchema,
-  grantGetSchema,
-  grantListSchema,
-  grantRevokeSchema,
-} from "./schemas";
 import { assertEngineContext, type EngineContext } from "./types";
-
-// =============================================================================
-// Response Types
-// =============================================================================
-
-/**
- * Grant response (serializable).
- */
-interface GrantResponse {
-  id: string;
-  userId: string;
-  treePath: string;
-  actions: string[];
-  grantedBy: string | null;
-  withGrantOption: boolean;
-  createdAt: string;
-}
 
 /**
  * Convert a TreeGrant to a serializable response.
@@ -166,9 +152,9 @@ async function grantCheck(
  * Build the grant methods registry.
  */
 export const grantMethods = buildRegistry()
-  .register("grant.create", grantCreateSchema, grantCreate)
-  .register("grant.list", grantListSchema, grantList)
-  .register("grant.get", grantGetSchema, grantGet)
-  .register("grant.revoke", grantRevokeSchema, grantRevoke)
-  .register("grant.check", grantCheckSchema, grantCheck)
+  .register("grant.create", grantCreateParams, grantCreate)
+  .register("grant.list", grantListParams, grantList)
+  .register("grant.get", grantGetParams, grantGet)
+  .register("grant.revoke", grantRevokeParams, grantRevoke)
+  .register("grant.check", grantCheckParams, grantCheck)
   .build();

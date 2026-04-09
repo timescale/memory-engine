@@ -9,37 +9,27 @@
  * - role.listForUser: List roles a user belongs to
  */
 import type { RoleInfo, RoleMember, User } from "@memory-engine/engine";
+import type {
+  RoleAddMemberParams,
+  RoleCreateParams,
+  RoleInfoResponse,
+  RoleListForUserParams,
+  RoleListMembersParams,
+  RoleMemberResponse,
+  RoleRemoveMemberParams,
+  RoleResponse,
+} from "@memory-engine/protocol/engine/role";
+import {
+  roleAddMemberParams,
+  roleCreateParams,
+  roleListForUserParams,
+  roleListMembersParams,
+  roleRemoveMemberParams,
+} from "@memory-engine/protocol/engine/role";
 import { AppError } from "../errors";
 import { buildRegistry } from "../registry";
 import type { HandlerContext } from "../types";
-import {
-  type RoleAddMemberParams,
-  type RoleCreateParams,
-  type RoleListForUserParams,
-  type RoleListMembersParams,
-  type RoleRemoveMemberParams,
-  roleAddMemberSchema,
-  roleCreateSchema,
-  roleListForUserSchema,
-  roleListMembersSchema,
-  roleRemoveMemberSchema,
-} from "./schemas";
 import { assertEngineContext, type EngineContext } from "./types";
-
-// =============================================================================
-// Response Types
-// =============================================================================
-
-/**
- * Role response (a user with canLogin=false).
- */
-interface RoleResponse {
-  id: string;
-  name: string;
-  ownedBy: string | null;
-  createdAt: string;
-  updatedAt: string | null;
-}
 
 /**
  * Convert a User (role) to a serializable response.
@@ -55,16 +45,6 @@ function toRoleResponse(user: User): RoleResponse {
 }
 
 /**
- * Role member response.
- */
-interface RoleMemberResponse {
-  roleId: string;
-  memberId: string;
-  withAdminOption: boolean;
-  createdAt: string;
-}
-
-/**
  * Convert a RoleMember to a serializable response.
  */
 function toRoleMemberResponse(member: RoleMember): RoleMemberResponse {
@@ -74,15 +54,6 @@ function toRoleMemberResponse(member: RoleMember): RoleMemberResponse {
     withAdminOption: member.withAdminOption,
     createdAt: member.createdAt.toISOString(),
   };
-}
-
-/**
- * Role info response (for listForUser).
- */
-interface RoleInfoResponse {
-  id: string;
-  name: string;
-  withAdminOption: boolean;
 }
 
 /**
@@ -200,9 +171,9 @@ async function roleListForUser(
  * Build the role methods registry.
  */
 export const roleMethods = buildRegistry()
-  .register("role.create", roleCreateSchema, roleCreate)
-  .register("role.addMember", roleAddMemberSchema, roleAddMember)
-  .register("role.removeMember", roleRemoveMemberSchema, roleRemoveMember)
-  .register("role.listMembers", roleListMembersSchema, roleListMembers)
-  .register("role.listForUser", roleListForUserSchema, roleListForUser)
+  .register("role.create", roleCreateParams, roleCreate)
+  .register("role.addMember", roleAddMemberParams, roleAddMember)
+  .register("role.removeMember", roleRemoveMemberParams, roleRemoveMember)
+  .register("role.listMembers", roleListMembersParams, roleListMembers)
+  .register("role.listForUser", roleListForUserParams, roleListForUser)
   .build();

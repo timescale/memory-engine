@@ -1,0 +1,20 @@
+{
+  "name": "@memory-engine/protocol",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./index.ts",
+    "./fields": "./fields.ts",
+    "./jsonrpc": "./jsonrpc.ts",
+    "./errors": "./errors.ts",
+    "./engine": "./engine/index.ts",
+    "./engine/*": "./engine/*.ts",
+    "./accounts": "./accounts/index.ts",
+    "./accounts/*": "./accounts/*.ts",
+    "./auth/*": "./auth/*.ts"
+  },
+  "dependencies": {
+    "zod": "^4.0.0"
+  }
+}

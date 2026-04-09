@@ -8,34 +8,23 @@
  * - org.member.updateRole: Update a member's role
  */
 import { AccountsError, type OrgMember } from "@memory-engine/accounts";
+import type {
+  OrgMemberAddParams,
+  OrgMemberListParams,
+  OrgMemberRemoveParams,
+  OrgMemberResponse,
+  OrgMemberUpdateRoleParams,
+} from "@memory-engine/protocol/accounts/org-member";
+import {
+  orgMemberAddParams,
+  orgMemberListParams,
+  orgMemberRemoveParams,
+  orgMemberUpdateRoleParams,
+} from "@memory-engine/protocol/accounts/org-member";
 import { AppError } from "../errors";
 import { buildRegistry } from "../registry";
 import type { HandlerContext } from "../types";
-import {
-  type OrgMemberAddParams,
-  type OrgMemberListParams,
-  type OrgMemberRemoveParams,
-  type OrgMemberUpdateRoleParams,
-  orgMemberAddSchema,
-  orgMemberListSchema,
-  orgMemberRemoveSchema,
-  orgMemberUpdateRoleSchema,
-} from "./schemas";
 import { type AccountsRpcContext, assertAccountsRpcContext } from "./types";
-
-// =============================================================================
-// Response Types
-// =============================================================================
-
-/**
- * OrgMember response (serializable).
- */
-interface OrgMemberResponse {
-  orgId: string;
-  identityId: string;
-  role: string;
-  createdAt: string;
-}
 
 /**
  * Convert an OrgMember to a serializable response.
@@ -223,12 +212,12 @@ async function orgMemberUpdateRole(
  * Build the org member methods registry.
  */
 export const orgMemberMethods = buildRegistry()
-  .register("org.member.list", orgMemberListSchema, orgMemberList)
-  .register("org.member.add", orgMemberAddSchema, orgMemberAdd)
-  .register("org.member.remove", orgMemberRemoveSchema, orgMemberRemove)
+  .register("org.member.list", orgMemberListParams, orgMemberList)
+  .register("org.member.add", orgMemberAddParams, orgMemberAdd)
+  .register("org.member.remove", orgMemberRemoveParams, orgMemberRemove)
   .register(
     "org.member.updateRole",
-    orgMemberUpdateRoleSchema,
+    orgMemberUpdateRoleParams,
     orgMemberUpdateRole,
   )
   .build();

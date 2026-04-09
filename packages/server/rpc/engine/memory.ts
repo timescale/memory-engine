@@ -14,50 +14,34 @@
  */
 import { generateEmbedding } from "@memory-engine/embedding";
 import type { Memory, SearchResult, TreeNode } from "@memory-engine/engine";
+import type {
+  MemoryBatchCreateParams,
+  MemoryCreateParams,
+  MemoryDeleteParams,
+  MemoryDeleteTreeParams,
+  MemoryGetParams,
+  MemoryMoveParams,
+  MemoryResponse,
+  MemorySearchParams,
+  MemorySearchResult,
+  MemoryTreeParams,
+  MemoryUpdateParams,
+} from "@memory-engine/protocol/engine/memory";
+import {
+  memoryBatchCreateParams,
+  memoryCreateParams,
+  memoryDeleteParams,
+  memoryDeleteTreeParams,
+  memoryGetParams,
+  memoryMoveParams,
+  memorySearchParams,
+  memoryTreeParams,
+  memoryUpdateParams,
+} from "@memory-engine/protocol/engine/memory";
 import { AppError } from "../errors";
 import { buildRegistry } from "../registry";
 import type { HandlerContext } from "../types";
-import {
-  type MemoryBatchCreateParams,
-  type MemoryCreateParams,
-  type MemoryDeleteParams,
-  type MemoryDeleteTreeParams,
-  type MemoryGetParams,
-  type MemoryMoveParams,
-  type MemorySearchParams,
-  type MemoryTreeParams,
-  type MemoryUpdateParams,
-  memoryBatchCreateSchema,
-  memoryCreateSchema,
-  memoryDeleteSchema,
-  memoryDeleteTreeSchema,
-  memoryGetSchema,
-  memoryMoveSchema,
-  memorySearchSchema,
-  memoryTreeSchema,
-  memoryUpdateSchema,
-} from "./schemas";
 import { assertEngineContext, type EngineContext } from "./types";
-
-// =============================================================================
-// Response Types
-// =============================================================================
-
-/**
- * Memory response (serializable).
- * Converts Date objects to ISO strings for JSON transport.
- */
-interface MemoryResponse {
-  id: string;
-  content: string;
-  meta: Record<string, unknown>;
-  tree: string;
-  temporal: { start: string; end: string } | null;
-  hasEmbedding: boolean;
-  createdAt: string;
-  createdBy: string | null;
-  updatedAt: string | null;
-}
 
 /**
  * Convert a Memory to a serializable response.
@@ -82,18 +66,9 @@ function toMemoryResponse(memory: Memory): MemoryResponse {
 }
 
 /**
- * Search result response (serializable).
- */
-interface SearchResultResponse {
-  results: Array<MemoryResponse & { score: number }>;
-  total: number;
-  limit: number;
-}
-
-/**
  * Convert SearchResult to serializable response.
  */
-function toSearchResultResponse(result: SearchResult): SearchResultResponse {
+function toSearchResultResponse(result: SearchResult): MemorySearchResult {
   return {
     results: result.results.map((item) => ({
       ...toMemoryResponse(item),
@@ -283,7 +258,7 @@ async function memoryDelete(
 async function memorySearch(
   params: MemorySearchParams,
   context: HandlerContext,
-): Promise<SearchResultResponse> {
+): Promise<MemorySearchResult> {
   assertEngineContext(context);
   const { db, embeddingConfig } = context as EngineContext;
 
@@ -388,13 +363,13 @@ async function memoryDeleteTree(
  * Build the memory methods registry.
  */
 export const memoryMethods = buildRegistry()
-  .register("memory.create", memoryCreateSchema, memoryCreate)
-  .register("memory.batchCreate", memoryBatchCreateSchema, memoryBatchCreate)
-  .register("memory.get", memoryGetSchema, memoryGet)
-  .register("memory.update", memoryUpdateSchema, memoryUpdate)
-  .register("memory.delete", memoryDeleteSchema, memoryDelete)
-  .register("memory.search", memorySearchSchema, memorySearch)
-  .register("memory.tree", memoryTreeSchema, memoryTree)
-  .register("memory.move", memoryMoveSchema, memoryMove)
-  .register("memory.deleteTree", memoryDeleteTreeSchema, memoryDeleteTree)
+  .register("memory.create", memoryCreateParams, memoryCreate)
+  .register("memory.batchCreate", memoryBatchCreateParams, memoryBatchCreate)
+  .register("memory.get", memoryGetParams, memoryGet)
+  .register("memory.update", memoryUpdateParams, memoryUpdate)
+  .register("memory.delete", memoryDeleteParams, memoryDelete)
+  .register("memory.search", memorySearchParams, memorySearch)
+  .register("memory.tree", memoryTreeParams, memoryTree)
+  .register("memory.move", memoryMoveParams, memoryMove)
+  .register("memory.deleteTree", memoryDeleteTreeParams, memoryDeleteTree)
   .build();
