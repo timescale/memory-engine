@@ -1,5 +1,5 @@
-import { span } from "../telemetry";
 import type { ZodError } from "zod";
+import { span } from "../telemetry";
 import { json } from "../util/response";
 import {
   applicationError,
