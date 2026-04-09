@@ -1,4 +1,5 @@
 import type { AccountsContext, CreateOrgParams, Org } from "../types";
+import { generateSlug } from "../util/slug";
 import { withTx } from "./_tx";
 
 interface OrgRow {
@@ -24,7 +25,8 @@ export function orgOps(ctx: AccountsContext) {
 
   return {
     async createOrg(params: CreateOrgParams): Promise<Org> {
-      const { id, slug, name } = params;
+      const { id, name } = params;
+      const slug = generateSlug();
 
       return withTx(ctx, async (sql) => {
         const rows = await sql<OrgRow[]>`
@@ -62,12 +64,9 @@ export function orgOps(ctx: AccountsContext) {
       });
     },
 
-    async updateOrg(
-      id: string,
-      params: { name?: string; slug?: string },
-    ): Promise<boolean> {
-      const { name, slug } = params;
-      if (name === undefined && slug === undefined) {
+    async updateOrg(id: string, params: { name?: string }): Promise<boolean> {
+      const { name } = params;
+      if (name === undefined) {
         return false;
       }
 
@@ -75,8 +74,7 @@ export function orgOps(ctx: AccountsContext) {
         const result = await sql`
           update ${sql.unsafe(schema)}.org
           set
-            ${name !== undefined ? sql`name = ${name},` : sql``}
-            ${slug !== undefined ? sql`slug = ${slug},` : sql``}
+            name = ${name},
             updated_at = now()
           where id = ${id}
         `;

@@ -9,7 +9,9 @@
  * - GET  /api/v1/auth/callback/:provider - OAuth callback
  */
 
-import type { AccountsDB } from "@memory-engine/accounts";
+import type { AccountsDB, Identity } from "@memory-engine/accounts";
+import { type EngineConfig, provisionEngine } from "@memory-engine/engine";
+import type { SQL } from "bun";
 import {
   authorizeDevice,
   checkPollRateLimit,
@@ -22,6 +24,7 @@ import {
 } from "../auth/device-flow";
 import { buildAuthUrl, exchangeCode, fetchUserInfo } from "../auth/providers";
 import type { OAuthProvider } from "../auth/types";
+import { embeddingConstants } from "../config";
 import type { RouteParams } from "../router";
 import { error, html, json } from "../util/response";
 
@@ -33,6 +36,10 @@ export interface AuthHandlerContext {
   db: AccountsDB;
   /** Base URL for callbacks (e.g., "https://memoryengine.dev") */
   baseUrl: string;
+  /** Engine database pool (for provisioning default engine on signup) */
+  engineSql: SQL;
+  /** Application version for migration tracking */
+  appVersion: string;
 }
 
 /**
@@ -324,11 +331,12 @@ export async function oauthCallbackHandler(
     // Find or create identity
     let identity = await ctx.db.getIdentityByEmail(userInfo.email);
     if (!identity) {
-      // Create new identity
+      // Create new identity and provision personal account
       identity = await ctx.db.createIdentity({
         email: userInfo.email,
         name: userInfo.name,
       });
+      await provisionPersonalAccount(ctx, identity);
     }
 
     // Link OAuth account (upserts if exists)
@@ -353,6 +361,63 @@ export async function oauthCallbackHandler(
     console.error("OAuth callback error:", err);
     return html(errorPage("Authentication failed. Please try again."), 500);
   }
+}
+
+// =============================================================================
+// Personal Account Provisioning
+// =============================================================================
+
+/**
+ * Provision a personal account for a newly created identity.
+ *
+ * Creates a personal org (with the identity as owner) and a default
+ * memory engine within that org. This runs during first login so the
+ * user has an immediate, working environment.
+ */
+async function provisionPersonalAccount(
+  ctx: AuthHandlerContext,
+  identity: Identity,
+): Promise<void> {
+  const { db, engineSql, appVersion } = ctx;
+
+  const org = await db.withTransaction(async (txDb) => {
+    // Create personal org
+    const newOrg = await txDb.createOrg({ name: "Personal" });
+
+    // Add identity as owner
+    await txDb.addMember(newOrg.id, identity.id, "owner");
+
+    // Create default engine record
+    const engine = await txDb.createEngine({
+      orgId: newOrg.id,
+      name: "default",
+    });
+
+    // Provision the engine schema in the engine database
+    const engineConfig: EngineConfig = {
+      embedding_dimensions: embeddingConstants.dimensions,
+      bm25_text_config: engine.language,
+    };
+
+    try {
+      await provisionEngine(engineSql, engine.slug, engineConfig, appVersion);
+    } catch (err) {
+      // Clean up partially-created schema
+      const schema = `me_${engine.slug}`;
+      try {
+        await engineSql.unsafe(`drop schema if exists ${schema} cascade`);
+      } catch {
+        // Log but don't mask original error
+      }
+      throw err;
+    }
+
+    return newOrg;
+  });
+
+  console.log(
+    `Provisioned personal account for ${identity.email}: org=${org.id}`,
+  );
 }
 
 /**

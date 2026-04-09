@@ -80,7 +80,6 @@ export interface Org {
 
 export interface CreateOrgParams {
   id?: string;
-  slug: string;
   name: string;
 }
 

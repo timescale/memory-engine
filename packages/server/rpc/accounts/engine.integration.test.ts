@@ -63,7 +63,6 @@ beforeAll(async () => {
   });
 
   const org = await accountsDb.createOrg({
-    slug: "engine-test-org",
     name: "Engine Test Org",
   });
   testOrgId = org.id;

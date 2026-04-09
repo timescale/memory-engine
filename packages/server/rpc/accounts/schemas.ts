@@ -69,6 +69,5 @@ export {
   engineStatusSchema,
   nameSchema,
   orgRoleSchema,
-  slugSchema,
   uuidv7Schema,
 } from "@memory-engine/protocol/fields";

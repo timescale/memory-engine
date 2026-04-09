@@ -91,12 +91,11 @@ describe("identity", () => {
 describe("org", () => {
   test("create and get org", async () => {
     const org = await db.createOrg({
-      slug: "test-org",
       name: "Test Organization",
     });
 
     expect(org.id).toBeDefined();
-    expect(org.slug).toBe("test-org");
+    expect(org.slug).toMatch(/^[a-z0-9]{12}$/);
     expect(org.name).toBe("Test Organization");
 
     const fetched = await db.getOrg(org.id);
@@ -105,11 +104,10 @@ describe("org", () => {
 
   test("get org by slug", async () => {
     const org = await db.createOrg({
-      slug: "by-slug-org",
       name: "By Slug",
     });
 
-    const fetched = await db.getOrgBySlug("by-slug-org");
+    const fetched = await db.getOrgBySlug(org.slug);
     expect(fetched?.id).toBe(org.id);
   });
 
@@ -119,8 +117,8 @@ describe("org", () => {
       name: "Org List User",
     });
 
-    const org1 = await db.createOrg({ slug: "list-org-1", name: "Org 1" });
-    const org2 = await db.createOrg({ slug: "list-org-2", name: "Org 2" });
+    const org1 = await db.createOrg({ name: "Org 1" });
+    const org2 = await db.createOrg({ name: "Org 2" });
 
     await db.addMember(org1.id, identity.id, "owner");
     await db.addMember(org2.id, identity.id, "member");
@@ -138,7 +136,6 @@ describe("org", () => {
 describe("org-member", () => {
   test("add and list members", async () => {
     const org = await db.createOrg({
-      slug: "member-test",
       name: "Member Test",
     });
     const identity = await db.createIdentity({
@@ -157,7 +154,6 @@ describe("org-member", () => {
 
   test("update role", async () => {
     const org = await db.createOrg({
-      slug: "role-update",
       name: "Role Update",
     });
     const identity = await db.createIdentity({
@@ -173,7 +169,7 @@ describe("org-member", () => {
   });
 
   test("cannot remove last owner", async () => {
-    const org = await db.createOrg({ slug: "last-owner", name: "Last Owner" });
+    const org = await db.createOrg({ name: "Last Owner" });
     const identity = await db.createIdentity({
       email: "lastowner@example.com",
       name: "Last Owner",
@@ -188,7 +184,6 @@ describe("org-member", () => {
 
   test("cannot demote last owner", async () => {
     const org = await db.createOrg({
-      slug: "demote-owner",
       name: "Demote Owner",
     });
     const identity = await db.createIdentity({
@@ -205,7 +200,6 @@ describe("org-member", () => {
 
   test("can remove owner if another owner exists", async () => {
     const org = await db.createOrg({
-      slug: "multi-owner",
       name: "Multi Owner",
     });
     const owner1 = await db.createIdentity({
@@ -235,7 +229,7 @@ describe("org-member", () => {
 
 describe("engine", () => {
   test("create engine with generated slug", async () => {
-    const org = await db.createOrg({ slug: "engine-org", name: "Engine Org" });
+    const org = await db.createOrg({ name: "Engine Org" });
 
     const engine = await db.createEngine({
       orgId: org.id,
@@ -251,7 +245,6 @@ describe("engine", () => {
 
   test("get engine by slug", async () => {
     const org = await db.createOrg({
-      slug: "engine-slug",
       name: "Engine Slug",
     });
     const engine = await db.createEngine({
@@ -264,7 +257,7 @@ describe("engine", () => {
   });
 
   test("update engine status", async () => {
-    const org = await db.createOrg({ slug: "engine-status", name: "Status" });
+    const org = await db.createOrg({ name: "Status" });
     const engine = await db.createEngine({
       orgId: org.id,
       name: "Status Engine",
@@ -278,7 +271,6 @@ describe("engine", () => {
 
   test("list engines by org", async () => {
     const org = await db.createOrg({
-      slug: "list-engines",
       name: "List Engines",
     });
     await db.createEngine({ orgId: org.id, name: "Engine A" });
@@ -289,7 +281,7 @@ describe("engine", () => {
   });
 
   test("createEngine stores custom language", async () => {
-    const org = await db.createOrg({ slug: "lang-org", name: "Lang Org" });
+    const org = await db.createOrg({ name: "Lang Org" });
 
     const engine = await db.createEngine({
       orgId: org.id,
@@ -305,7 +297,6 @@ describe("engine", () => {
 
   test("createEngine defaults language to english", async () => {
     const org = await db.createOrg({
-      slug: "default-lang-org",
       name: "Default Lang Org",
     });
 
@@ -382,7 +373,7 @@ describe("session", () => {
 
 describe("invitation", () => {
   test("create and find invitation by token", async () => {
-    const org = await db.createOrg({ slug: "invite-org", name: "Invite Org" });
+    const org = await db.createOrg({ name: "Invite Org" });
     const inviter = await db.createIdentity({
       email: "inviter@example.com",
       name: "Inviter",
@@ -404,7 +395,7 @@ describe("invitation", () => {
   });
 
   test("accept invitation", async () => {
-    const org = await db.createOrg({ slug: "accept-org", name: "Accept Org" });
+    const org = await db.createOrg({ name: "Accept Org" });
     const inviter = await db.createIdentity({
       email: "acceptinviter@example.com",
       name: "Inviter",
@@ -423,7 +414,6 @@ describe("invitation", () => {
 
   test("list pending invitations", async () => {
     const org = await db.createOrg({
-      slug: "pending-org",
       name: "Pending Org",
     });
     const inviter = await db.createIdentity({

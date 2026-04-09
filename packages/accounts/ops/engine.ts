@@ -4,7 +4,7 @@ import type {
   Engine,
   EngineStatus,
 } from "../types";
-import { generateEngineSlug } from "../util/slug";
+import { generateSlug } from "../util/slug";
 import { withTx } from "./_tx";
 
 interface EngineRow {
@@ -39,7 +39,7 @@ export function engineOps(ctx: AccountsContext) {
   return {
     async createEngine(params: CreateEngineParams): Promise<Engine> {
       const { id, orgId, name, shardId = 1, language = "english" } = params;
-      const slug = generateEngineSlug();
+      const slug = generateSlug();
 
       return withTx(ctx, async (sql) => {
         const rows = await sql<EngineRow[]>`

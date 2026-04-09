@@ -1,17 +1,16 @@
 /**
- * Engine slug generation
+ * Slug generation
  *
- * Generates a 12-character alphanumeric slug (a-z, 0-9) for engine identification.
- * Used in API key routing: me.{engineSlug}.{lookupId}.{secret}
+ * Generates a 12-character alphanumeric slug (a-z, 0-9) for org and engine identification.
  */
 
 const SLUG_LENGTH = 12;
 const SLUG_CHARSET = "abcdefghijklmnopqrstuvwxyz0123456789";
 
 /**
- * Generate a random engine slug (12 lowercase alphanumeric chars)
+ * Generate a random slug (12 lowercase alphanumeric chars)
  */
-export function generateEngineSlug(): string {
+export function generateSlug(): string {
   const bytes = crypto.getRandomValues(new Uint8Array(SLUG_LENGTH));
   let result = "";
   for (const byte of bytes) {
