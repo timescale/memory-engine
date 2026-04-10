@@ -131,6 +131,7 @@ export async function handleRpcRequest(
     const result = await span(`rpc.${rpcRequest.method}`, {
       attributes: {
         "rpc.method": rpcRequest.method,
+        "rpc.request_id": String(requestId),
       },
       callback: async () => {
         const handlerContext: HandlerContext = {
