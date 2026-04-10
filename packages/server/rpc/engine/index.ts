@@ -2,6 +2,7 @@ import { buildRegistry } from "../registry";
 import { apiKeyMethods } from "./api-key";
 import { grantMethods } from "./grant";
 import { memoryMethods } from "./memory";
+import { ownerMethods } from "./owner";
 import { roleMethods } from "./role";
 import { userMethods } from "./user";
 
@@ -24,6 +25,7 @@ export const engineMethods = buildRegistry()
   .merge(memoryMethods)
   .merge(userMethods)
   .merge(grantMethods)
+  .merge(ownerMethods)
   .merge(roleMethods)
   .merge(apiKeyMethods)
   .build();

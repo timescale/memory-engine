@@ -3,6 +3,7 @@
  *
  * Common patterns used across multiple command files:
  * - Session token validation
+ * - Engine/API key validation
  * - Org auto-resolution
  * - Error handling
  */
@@ -25,6 +26,23 @@ export function requireSession(
       clack.log.error("Not logged in. Run 'me login' first.");
     } else {
       output({ error: "Not logged in" }, fmt, () => {});
+    }
+    process.exit(1);
+  }
+}
+
+/**
+ * Ensure the user has an active engine with an API key. Exits with an error if not.
+ */
+export function requireEngine(
+  creds: ResolvedCredentials,
+  fmt: OutputFormat,
+): asserts creds is ResolvedCredentials & { apiKey: string } {
+  if (!creds.apiKey) {
+    if (fmt === "text") {
+      clack.log.error("No active engine. Run 'me engine use' to select one.");
+    } else {
+      output({ error: "No active engine" }, fmt, () => {});
     }
     process.exit(1);
   }

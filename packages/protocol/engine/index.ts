@@ -1,7 +1,7 @@
 /**
  * Engine RPC contract — maps method names to params/result schema pairs.
  *
- * Covers all 30 methods on POST /api/v1/engine/rpc (API key auth).
+ * Covers all 34 methods on POST /api/v1/engine/rpc (API key auth).
  */
 import type { z } from "zod";
 
@@ -49,6 +49,16 @@ import {
   memoryUpdateParams,
 } from "./memory.ts";
 import {
+  ownerGetParams,
+  ownerListParams,
+  ownerListResult,
+  ownerRemoveParams,
+  ownerRemoveResult,
+  ownerResponse,
+  ownerSetParams,
+  ownerSetResult,
+} from "./owner.ts";
+import {
   roleAddMemberParams,
   roleAddMemberResult,
   roleCreateParams,
@@ -77,6 +87,7 @@ export * from "./api-key.ts";
 export * from "./grant.ts";
 // Re-export all domain schemas
 export * from "./memory.ts";
+export * from "./owner.ts";
 export * from "./role.ts";
 export * from "./user.ts";
 
@@ -95,7 +106,7 @@ function method<TParams extends z.ZodType, TResult extends z.ZodType>(
 }
 
 /**
- * Engine RPC method contract — all 30 methods.
+ * Engine RPC method contract — all 34 methods.
  *
  * Each entry maps a method name to its params and result Zod schemas.
  * The client library uses this for type inference and optional response validation.
@@ -137,6 +148,12 @@ export const engineMethods = {
   "role.removeMember": method(roleRemoveMemberParams, roleRemoveMemberResult),
   "role.listMembers": method(roleListMembersParams, roleListMembersResult),
   "role.listForUser": method(roleListForUserParams, roleListForUserResult),
+
+  // Owner (4)
+  "owner.set": method(ownerSetParams, ownerSetResult),
+  "owner.get": method(ownerGetParams, ownerResponse),
+  "owner.remove": method(ownerRemoveParams, ownerRemoveResult),
+  "owner.list": method(ownerListParams, ownerListResult),
 
   // API Key (5)
   "apiKey.create": method(apiKeyCreateParams, apiKeyCreateResult),

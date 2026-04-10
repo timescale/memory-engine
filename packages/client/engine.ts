@@ -1,8 +1,8 @@
 /**
  * Engine client — the primary client for interacting with Memory Engine.
  *
- * Provides typed, namespaced access to all 30 engine RPC methods
- * (memory, user, grant, role, apiKey) authenticated via API key.
+ * Provides typed, namespaced access to all 34 engine RPC methods
+ * (memory, user, grant, owner, role, apiKey) authenticated via API key.
  *
  * @example
  * ```ts
@@ -55,6 +55,14 @@ import type {
   MemoryTreeParams,
   MemoryTreeResult,
   MemoryUpdateParams,
+  OwnerGetParams,
+  OwnerListParams,
+  OwnerListResult,
+  OwnerRemoveParams,
+  OwnerRemoveResult,
+  OwnerResponse,
+  OwnerSetParams,
+  OwnerSetResult,
   RoleAddMemberParams,
   RoleAddMemberResult,
   RoleCreateParams,
@@ -139,6 +147,13 @@ export interface RoleNamespace {
   listForUser(params: RoleListForUserParams): Promise<RoleListForUserResult>;
 }
 
+export interface OwnerNamespace {
+  set(params: OwnerSetParams): Promise<OwnerSetResult>;
+  get(params: OwnerGetParams): Promise<OwnerResponse>;
+  remove(params: OwnerRemoveParams): Promise<OwnerRemoveResult>;
+  list(params?: OwnerListParams): Promise<OwnerListResult>;
+}
+
 export interface ApiKeyNamespace {
   create(params: ApiKeyCreateParams): Promise<ApiKeyCreateResult>;
   get(params: ApiKeyGetParams): Promise<ApiKeyResponse>;
@@ -163,6 +178,8 @@ export interface EngineClient {
   grant: GrantNamespace;
   /** Role management */
   role: RoleNamespace;
+  /** Tree owner management */
+  owner: OwnerNamespace;
   /** API key management */
   apiKey: ApiKeyNamespace;
 
@@ -265,6 +282,13 @@ export function createClient(options: ClientOptions = {}): EngineClient {
     listForUser: (params) => call("role.listForUser", params),
   };
 
+  const owner: OwnerNamespace = {
+    set: (params) => call("owner.set", params),
+    get: (params) => call("owner.get", params),
+    remove: (params) => call("owner.remove", params),
+    list: (params) => call("owner.list", params ?? {}),
+  };
+
   const apiKey: ApiKeyNamespace = {
     create: (params) => call("apiKey.create", params),
     get: (params) => call("apiKey.get", params),
@@ -278,6 +302,7 @@ export function createClient(options: ClientOptions = {}): EngineClient {
     user,
     grant,
     role,
+    owner,
     apiKey,
     call,
     setApiKey(apiKey: string) {

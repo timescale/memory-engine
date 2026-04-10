@@ -6,11 +6,16 @@
  * and all command groups, then runs.
  */
 import { Command } from "commander";
+import { createApiKeyCommand } from "./commands/apikey.ts";
 import { createEngineCommand } from "./commands/engine.ts";
+import { createGrantCommand } from "./commands/grant.ts";
 import { createInvitationCommand } from "./commands/invitation.ts";
 import { createLoginCommand } from "./commands/login.ts";
 import { createLogoutCommand } from "./commands/logout.ts";
 import { createOrgCommand } from "./commands/org.ts";
+import { createOwnerCommand } from "./commands/owner.ts";
+import { createRoleCommand } from "./commands/role.ts";
+import { createUserCommand } from "./commands/user.ts";
 import { createWhoamiCommand } from "./commands/whoami.ts";
 
 const program = new Command();
@@ -39,6 +44,13 @@ program.addCommand(createOrgCommand());
 
 // Invitation commands
 program.addCommand(createInvitationCommand());
+
+// Engine-level RBAC commands
+program.addCommand(createUserCommand());
+program.addCommand(createGrantCommand());
+program.addCommand(createRoleCommand());
+program.addCommand(createOwnerCommand());
+program.addCommand(createApiKeyCommand());
 
 // Run
 program.parseAsync(process.argv).catch((error) => {
