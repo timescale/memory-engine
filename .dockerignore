@@ -1,0 +1,32 @@
+# Dependencies (installed inside container)
+**/node_modules
+
+# Tests
+**/*.test.ts
+**/*.integration.test.ts
+
+# Git
+.git/
+.gitignore
+
+# Environment files
+.env
+.env.*
+!.env.sample
+
+# Documentation and repos
+docs/
+repos/
+
+# CLI build artifacts
+packages/cli/dist/
+dist/
+
+# Docker (prevent recursive copy)
+**/Dockerfile
+**/.dockerignore
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
