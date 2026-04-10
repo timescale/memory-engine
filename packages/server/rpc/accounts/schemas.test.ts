@@ -7,6 +7,7 @@ import {
   engineCreateSchema,
   engineGetSchema,
   engineListSchema,
+  engineSetupAccessSchema,
   engineStatusSchema,
   engineUpdateSchema,
   invitationAcceptSchema,
@@ -443,6 +444,47 @@ describe("invitationAcceptSchema", () => {
   test("rejects empty token", () => {
     const result = invitationAcceptSchema.safeParse({
       token: "",
+    });
+    expect(result.success).toBe(false);
+  });
+});
+
+// =============================================================================
+// Engine SetupAccess Schema Tests
+// =============================================================================
+
+describe("engineSetupAccessSchema", () => {
+  test("accepts valid engineId only", () => {
+    const result = engineSetupAccessSchema.safeParse({
+      engineId: "019d694f-79f6-7595-8faf-b70b01c11f98",
+    });
+    expect(result.success).toBe(true);
+  });
+
+  test("accepts engineId with apiKeyName", () => {
+    const result = engineSetupAccessSchema.safeParse({
+      engineId: "019d694f-79f6-7595-8faf-b70b01c11f98",
+      apiKeyName: "my-cli-key",
+    });
+    expect(result.success).toBe(true);
+  });
+
+  test("rejects missing engineId", () => {
+    const result = engineSetupAccessSchema.safeParse({});
+    expect(result.success).toBe(false);
+  });
+
+  test("rejects invalid UUID", () => {
+    const result = engineSetupAccessSchema.safeParse({
+      engineId: "not-a-uuid",
+    });
+    expect(result.success).toBe(false);
+  });
+
+  test("rejects empty apiKeyName", () => {
+    const result = engineSetupAccessSchema.safeParse({
+      engineId: "019d694f-79f6-7595-8faf-b70b01c11f98",
+      apiKeyName: "",
     });
     expect(result.success).toBe(false);
   });
