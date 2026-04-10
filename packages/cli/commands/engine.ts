@@ -3,6 +3,7 @@
  *
  * - me engine list: List engines across all your orgs
  * - me engine use [id-or-name]: Select the active engine
+ * - me engine create <name>: Create a new engine in an org
  */
 import * as clack from "@clack/prompts";
 import { createAccountsClient, RpcError } from "@memory-engine/client";
@@ -15,6 +16,7 @@ import {
   storeApiKey,
 } from "../credentials.ts";
 import { getOutputFormat, type OutputFormat, output } from "../output.ts";
+import { handleError, requireSession, resolveOrgId } from "../util.ts";
 
 // UUIDv7 pattern for argument detection
 const UUIDV7_RE =
@@ -324,6 +326,46 @@ function createEngineUseCommand(): Command {
 }
 
 /**
+ * me engine create — create a new engine in an org.
+ */
+function createEngineCreateCommand(): Command {
+  return new Command("create")
+    .description("create a new engine in an organization")
+    .argument("<name>", "engine name")
+    .option("--org <id>", "organization ID")
+    .option("--language <lang>", "text search language", "english")
+    .action(async (name: string, opts, cmd) => {
+      const globalOpts = cmd.optsWithGlobals();
+      const creds = resolveCredentials(globalOpts.server);
+      const fmt = getOutputFormat(globalOpts);
+      requireSession(creds, fmt);
+
+      const accounts = createAccountsClient({
+        url: creds.server,
+        sessionToken: creds.sessionToken,
+      });
+
+      try {
+        const orgId = await resolveOrgId(accounts, fmt, opts.org);
+        const engine = await accounts.engine.create({
+          orgId,
+          name,
+          language: opts.language,
+        });
+
+        output(engine, fmt, () => {
+          clack.log.success(`Created engine '${engine.name}'`);
+          console.log(`  ID:     ${engine.id}`);
+          console.log(`  Slug:   ${engine.slug}`);
+          console.log(`  Status: ${engine.status}`);
+        });
+      } catch (error) {
+        handleError(error, fmt);
+      }
+    });
+}
+
+/**
  * Create the engine command group.
  */
 export function createEngineCommand(): Command {
@@ -331,6 +373,7 @@ export function createEngineCommand(): Command {
 
   engine.addCommand(createEngineListCommand());
   engine.addCommand(createEngineUseCommand());
+  engine.addCommand(createEngineCreateCommand());
 
   return engine;
 }
