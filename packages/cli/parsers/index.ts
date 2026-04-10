@@ -93,5 +93,11 @@ export function parseContent(
 
 export { parseJson } from "./json.ts";
 export { parseMarkdown } from "./markdown.ts";
+export {
+  type PackEnvelope,
+  type ParsedPack,
+  parsePack,
+  validatePackConstraints,
+} from "./pack.ts";
 export { parseTemporalInput, validateMemoryObject } from "./validation.ts";
 export { parseYaml } from "./yaml.ts";
