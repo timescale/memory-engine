@@ -7,8 +7,10 @@
  */
 import { Command } from "commander";
 import { createEngineCommand } from "./commands/engine.ts";
+import { createInvitationCommand } from "./commands/invitation.ts";
 import { createLoginCommand } from "./commands/login.ts";
 import { createLogoutCommand } from "./commands/logout.ts";
+import { createOrgCommand } from "./commands/org.ts";
 import { createWhoamiCommand } from "./commands/whoami.ts";
 
 const program = new Command();
@@ -31,6 +33,12 @@ program.addCommand(createWhoamiCommand());
 
 // Engine commands
 program.addCommand(createEngineCommand());
+
+// Org commands
+program.addCommand(createOrgCommand());
+
+// Invitation commands
+program.addCommand(createInvitationCommand());
 
 // Run
 program.parseAsync(process.argv).catch((error) => {
