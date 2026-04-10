@@ -12,6 +12,7 @@ function createMockContext(): ServerContext {
       validateSession: mock(() => Promise.resolve(null)),
       getEngineBySlug: mock(() => Promise.resolve(null)),
     } as unknown as AccountsDB,
+    accountsSql: {} as SQL,
     engineSql: {} as SQL,
     embeddingConfig: {
       provider: "openai",

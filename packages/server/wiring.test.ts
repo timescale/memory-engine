@@ -59,6 +59,7 @@ function createMockEngineSql(): SQL {
 function createMockContext(overrides?: Partial<ServerContext>): ServerContext {
   return {
     accountsDb: createMockAccountsDb(),
+    accountsSql: {} as SQL,
     engineSql: createMockEngineSql(),
     embeddingConfig: {
       provider: "openai",

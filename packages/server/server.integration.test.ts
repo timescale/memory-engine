@@ -26,6 +26,7 @@ function createMockContext(): ServerContext {
       delete: mock(() => Promise.resolve(false)),
       deleteExpired: mock(() => Promise.resolve(0)),
     } as unknown as AccountsDB,
+    accountsSql: {} as SQL,
     engineSql: {} as SQL,
     embeddingConfig: {
       provider: "openai",

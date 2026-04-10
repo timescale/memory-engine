@@ -227,6 +227,7 @@ const accountsDb = createAccountsDB(accountsSql, accountsSchema, {
 
 const serverContext: ServerContext = {
   accountsDb,
+  accountsSql,
   engineSql,
   embeddingConfig,
   apiBaseUrl,

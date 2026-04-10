@@ -9,6 +9,8 @@ import type { SQL } from "bun";
 export interface ServerContext {
   /** Accounts database operations */
   accountsDb: AccountsDB;
+  /** Accounts database pool (for health checks) */
+  accountsSql: SQL;
   /** Engine database pool (EngineDB created per-request based on slug) */
   engineSql: SQL;
   /** Embedding config for semantic search */

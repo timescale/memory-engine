@@ -7,7 +7,7 @@ import {
   deviceVerifyPostHandler,
   oauthCallbackHandler,
 } from "./handlers/auth";
-import { healthHandler } from "./handlers/health";
+import { healthHandler, readyHandler } from "./handlers/health";
 import {
   authenticateAccounts,
   authenticateEngine,
@@ -117,8 +117,14 @@ export interface Router {
  * @returns Router with handleRequest function
  */
 export function createRouter(ctx: ServerContext): Router {
-  const { accountsDb, engineSql, embeddingConfig, apiBaseUrl, appVersion } =
-    ctx;
+  const {
+    accountsDb,
+    accountsSql,
+    engineSql,
+    embeddingConfig,
+    apiBaseUrl,
+    appVersion,
+  } = ctx;
 
   // Auth handler context for device flow endpoints
   const authCtx: AuthHandlerContext = {
@@ -178,11 +184,16 @@ export function createRouter(ctx: ServerContext): Router {
    * Routes are matched in order - more specific routes must come before wildcards.
    */
   const routes: Route[] = [
-    // Health check
+    // Health checks
     {
       method: "GET",
       pattern: "/health",
       handler: healthHandler,
+    },
+    {
+      method: "GET",
+      pattern: "/ready",
+      handler: readyHandler(accountsSql, engineSql),
     },
 
     // OAuth Device Flow - CLI initiates
