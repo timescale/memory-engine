@@ -240,7 +240,7 @@ const router = createRouter(serverContext);
 // =============================================================================
 
 // Cleanup expired device authorizations periodically
-setInterval(async () => {
+const cleanupInterval = setInterval(async () => {
   try {
     const count = await accountsDb.deleteExpired();
     if (count > 0) {
@@ -255,7 +255,7 @@ setInterval(async () => {
 // Server
 // =============================================================================
 
-Bun.serve({
+const server = Bun.serve({
   port,
   async fetch(request) {
     const url = new URL(request.url);
@@ -288,3 +288,49 @@ Bun.serve({
 });
 
 info("Server started", { port });
+
+// =============================================================================
+// Graceful Shutdown
+// =============================================================================
+
+let shutdownRequested = false;
+
+async function shutdown() {
+  if (shutdownRequested) return;
+  shutdownRequested = true;
+
+  info("Shutting down server...");
+
+  // Stop accepting new connections
+  server.stop();
+
+  // Clear background jobs
+  clearInterval(cleanupInterval);
+
+  // Close database pools
+  try {
+    await accountsSql.close();
+    await engineSql.close();
+  } catch (error) {
+    reportError("Error closing database connections", error as Error);
+  }
+
+  info("Shutdown complete");
+  process.exit(0);
+}
+
+process.on("SIGINT", shutdown);
+process.on("SIGTERM", shutdown);
+
+// =============================================================================
+// Process Error Handlers
+// =============================================================================
+
+process.on("unhandledRejection", (reason) => {
+  reportError("Unhandled promise rejection", reason as Error);
+});
+
+process.on("uncaughtException", (error) => {
+  reportError("Uncaught exception", error);
+  process.exit(1);
+});
