@@ -11,8 +11,30 @@ on:
         type: string
 
 jobs:
+  resolve:
+    runs-on: ubuntu-latest
+    outputs:
+      sha: ${{ steps.resolve.outputs.sha }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - name: Resolve tag to commit SHA
+        id: resolve
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            TAG="${{ inputs.tag }}"
+            SHA=$(git rev-list -1 "$TAG" 2>/dev/null) || { echo "::error::Tag '$TAG' not found"; exit 1; }
+            echo "Resolved tag '$TAG' to SHA: $SHA"
+          else
+            SHA="${{ github.sha }}"
+            echo "Using event SHA: $SHA"
+          fi
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+
   build:
     runs-on: ubuntu-latest
+    needs: resolve
     steps:
       - name: Dispatch Build
         uses: timescale/workflow-dispatch-action@main
@@ -26,13 +48,13 @@ jobs:
             {
               "repository": "memory-engine",
               "dockerfile_path": "packages/server/Dockerfile",
-              "sha": "${{ github.sha }}",
+              "sha": "${{ needs.resolve.outputs.sha }}",
               "latest": false
             }
 
   deploy:
     runs-on: ubuntu-latest
-    needs: build
+    needs: [resolve, build]
     steps:
       - name: Dispatch Deploy - prod
         uses: timescale/workflow-dispatch-action@main
@@ -45,7 +67,7 @@ jobs:
           inputs: >
             {
               "repository": "memory-engine",
-              "sha": "${{ github.sha }}",
+              "sha": "${{ needs.resolve.outputs.sha }}",
               "env": "prod",
               "namespace": "memory-engine"
             }
