@@ -157,7 +157,7 @@ export function oauthOps(ctx: AccountsContext) {
           where id = ${id}
         `;
 
-        if (!row || !row.access_token || !row.encryption_key_id) {
+        if (!row?.access_token || !row.encryption_key_id) {
           return null;
         }
 

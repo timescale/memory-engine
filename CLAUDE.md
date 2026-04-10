@@ -139,5 +139,34 @@ me_memory_search({tree: "me.design.sql_style_guide"})
 - **Embedding**: Vercel AI SDK; supports OpenAI, Ollama, DMR, local WASM
 - **CLI**: `me` command (install, server, mcp, login, memory, pack, service)
 
-# currentDate
-Today's date is 2026-03-13.
+## Build, Lint, and Test Commands
+
+Always use `./bun` wrapper script (auto-installs pinned Bun version):
+
+```bash
+# Install dependencies
+./bun install
+
+# Type checking
+./bun run typecheck
+
+# Linting and formatting (check only)
+./bun run lint
+
+# Linting and formatting (auto-fix)
+./bun run lint --write
+
+# Run unit tests (fast, no external dependencies)
+./bun test
+
+# Run a single test file
+./bun test src/path/to/file.test.ts
+
+# Run tests matching a pattern
+./bun test --test-name-pattern "pattern"
+
+# Shorthand for all checks (typecheck, lint auto-fix, unit tests)
+./bun run check
+```
+
+**Important**: After making code changes, always run `./bun run check`.

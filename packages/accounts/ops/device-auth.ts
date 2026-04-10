@@ -132,7 +132,7 @@ export function deviceAuthOps(ctx: AccountsContext) {
           ) as last_poll
         `;
         const row = rows[0];
-        if (!row || !row.last_poll) {
+        if (!row?.last_poll) {
           return null; // First poll or not found
         }
         return Date.now() - row.last_poll.getTime();
