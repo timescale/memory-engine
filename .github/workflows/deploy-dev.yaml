@@ -1,0 +1,84 @@
+name: Deploy Dev - Merge main
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - packages/server/**
+      - packages/engine/**
+      - packages/embedding/**
+      - packages/worker/**
+      - packages/protocol/**
+      - packages/accounts/**
+      - scripts/**
+      - package.json
+      - bun.lock
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Git ref to deploy (branch, tag, or SHA)"
+        required: false
+        default: "main"
+        type: string
+
+jobs:
+  resolve:
+    runs-on: ubuntu-latest
+    outputs:
+      sha: ${{ steps.resolve.outputs.sha }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - name: Resolve ref to commit SHA
+        id: resolve
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            REF="${{ inputs.ref }}"
+            SHA=$(git rev-parse --verify "$REF^{commit}" 2>/dev/null) || { echo "::error::Ref '$REF' not found"; exit 1; }
+            echo "Resolved ref '$REF' to SHA: $SHA"
+          else
+            SHA="${{ github.sha }}"
+            echo "Using event SHA: $SHA"
+          fi
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+
+  build:
+    runs-on: ubuntu-latest
+    needs: resolve
+    steps:
+      - name: Dispatch Build
+        uses: timescale/workflow-dispatch-action@main
+        with:
+          github-token: ${{ secrets.ORG_AUTOMATION_TOKEN }}
+          owner: timescale
+          repo: tiger-agents-deploy
+          workflow_id: build.yaml
+          ref: "main"
+          inputs: >
+            {
+              "repository": "memory-engine",
+              "dockerfile_path": "packages/server/Dockerfile",
+              "sha": "${{ needs.resolve.outputs.sha }}",
+              "latest": true
+            }
+
+  deploy:
+    runs-on: ubuntu-latest
+    needs: [resolve, build]
+    steps:
+      - name: Dispatch Deploy - dev
+        uses: timescale/workflow-dispatch-action@main
+        with:
+          github-token: ${{ secrets.ORG_AUTOMATION_TOKEN }}
+          owner: timescale
+          repo: tiger-agents-deploy
+          workflow_id: deploy.yaml
+          ref: "main"
+          inputs: >
+            {
+              "repository": "memory-engine",
+              "sha": "${{ needs.resolve.outputs.sha }}",
+              "env": "dev",
+              "namespace": "savannah-system"
+            }
