@@ -1,7 +1,7 @@
 /**
- * Credential storage — multi-server credential management.
+ * Credential storage — multi-server, multi-engine credential management.
  *
- * Stores session tokens and API keys per server in
+ * Stores session tokens and per-engine API keys in
  * $XDG_CONFIG_HOME/me/credentials.yaml (default: ~/.config/me/).
  *
  * File format:
@@ -10,10 +10,12 @@
  * servers:
  *   https://memory.build:
  *     session_token: "..."
- *     api_key: "me.abc.xyz"
- *   http://localhost:3000:
- *     session_token: "..."
- *     api_key: "me.def.uvw"
+ *     active_engine: "abc123defg45"
+ *     engines:
+ *       abc123defg45:
+ *         api_key: "me.abc123defg45.xxxx.yyyy"
+ *       xyz789qwer12:
+ *         api_key: "me.xyz789qwer12.xxxx.yyyy"
  * ```
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -32,11 +34,19 @@ export const DEFAULT_SERVER = "https://memory.build";
 // =============================================================================
 
 /**
+ * Per-engine credential entry.
+ */
+export interface EngineCredentials {
+  api_key: string;
+}
+
+/**
  * Per-server credential entry.
  */
 export interface ServerCredentials {
   session_token?: string;
-  api_key?: string;
+  active_engine?: string;
+  engines?: Record<string, EngineCredentials>;
 }
 
 /**
@@ -54,6 +64,7 @@ export interface ResolvedCredentials {
   server: string;
   sessionToken?: string;
   apiKey?: string;
+  activeEngine?: string;
 }
 
 // =============================================================================
@@ -180,18 +191,53 @@ export function storeSessionToken(server: string, token: string): void {
 }
 
 /**
- * Store an API key for a server.
+ * Store an API key for an engine on a server.
+ * Also sets the engine as active.
  */
-export function storeApiKey(server: string, apiKey: string): void {
+export function storeApiKey(
+  server: string,
+  engineSlug: string,
+  apiKey: string,
+): void {
   const creds = readCredentials();
   const origin = normalizeOrigin(server);
 
   if (!creds.servers[origin]) {
     creds.servers[origin] = {};
   }
-  creds.servers[origin].api_key = apiKey;
+  if (!creds.servers[origin].engines) {
+    creds.servers[origin].engines = {};
+  }
+  creds.servers[origin].engines[engineSlug] = { api_key: apiKey };
+  creds.servers[origin].active_engine = engineSlug;
 
   writeCredentials(creds);
+}
+
+/**
+ * Set the active engine for a server (without modifying API keys).
+ */
+export function setActiveEngine(server: string, engineSlug: string): void {
+  const creds = readCredentials();
+  const origin = normalizeOrigin(server);
+
+  if (!creds.servers[origin]) {
+    creds.servers[origin] = {};
+  }
+  creds.servers[origin].active_engine = engineSlug;
+
+  writeCredentials(creds);
+}
+
+/**
+ * Get the API key for a specific engine on a server.
+ */
+export function getEngineApiKey(
+  server: string,
+  engineSlug: string,
+): string | undefined {
+  const stored = getServerCredentials(server);
+  return stored.engines?.[engineSlug]?.api_key;
 }
 
 /**
@@ -232,14 +278,22 @@ export function resolveServer(flagValue?: string): string {
  * Resolve all credentials for the active server.
  *
  * For each credential type, env vars take priority over the stored file.
+ * API key is resolved from the active engine's stored key.
  */
 export function resolveCredentials(serverFlag?: string): ResolvedCredentials {
   const server = resolveServer(serverFlag);
   const stored = getServerCredentials(server);
 
+  // Resolve API key: env var > active engine's stored key
+  const activeEngine = stored.active_engine;
+  const storedApiKey = activeEngine
+    ? stored.engines?.[activeEngine]?.api_key
+    : undefined;
+
   return {
     server,
     sessionToken: process.env.ME_SESSION_TOKEN ?? stored.session_token,
-    apiKey: process.env.ME_API_KEY ?? stored.api_key,
+    apiKey: process.env.ME_API_KEY ?? storedApiKey,
+    activeEngine,
   };
 }

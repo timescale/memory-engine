@@ -216,7 +216,7 @@ describe("single-engine migration", () => {
     const colNames = userCols.map((c) => c.column_name);
     expect(colNames).toContain("id");
     expect(colNames).toContain("name");
-    expect(colNames).toContain("owned_by");
+    expect(colNames).toContain("identity_id");
     expect(colNames).toContain("can_login");
     expect(colNames).toContain("superuser");
     expect(colNames).toContain("createrole");

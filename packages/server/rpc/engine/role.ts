@@ -38,7 +38,7 @@ function toRoleResponse(user: User): RoleResponse {
   return {
     id: user.id,
     name: user.name,
-    ownedBy: user.ownedBy,
+    identityId: user.identityId,
     createdAt: user.createdAt.toISOString(),
     updatedAt: user.updatedAt?.toISOString() ?? null,
   };
@@ -81,7 +81,7 @@ async function roleCreate(
   assertEngineContext(context);
   const { db } = context as EngineContext;
 
-  const role = await db.createRole(params.name, params.ownedBy);
+  const role = await db.createRole(params.name, params.identityId);
   return toRoleResponse(role);
 }
 

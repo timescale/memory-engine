@@ -14,7 +14,7 @@ import { uuidv7Schema } from "../fields.ts";
  */
 export const roleCreateParams = z.object({
   name: z.string().min(1, "name is required"),
-  ownedBy: uuidv7Schema.optional().nullable(),
+  identityId: uuidv7Schema.optional().nullable(),
 });
 
 export type RoleCreateParams = z.infer<typeof roleCreateParams>;
@@ -68,7 +68,7 @@ export type RoleListForUserParams = z.infer<typeof roleListForUserParams>;
 export const roleResponse = z.object({
   id: z.string(),
   name: z.string(),
-  ownedBy: z.string().nullable(),
+  identityId: z.string().nullable(),
   createdAt: z.string(),
   updatedAt: z.string().nullable(),
 });

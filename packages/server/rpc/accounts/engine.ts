@@ -6,20 +6,28 @@
  * - engine.list: List engines for an organization
  * - engine.get: Get engine by ID
  * - engine.update: Update engine name/status
+ * - engine.setupAccess: Bootstrap engine access for a session-authenticated identity
  */
 import type { Engine } from "@memory-engine/accounts";
-import { type EngineConfig, provisionEngine } from "@memory-engine/engine";
+import {
+  createEngineDB,
+  type EngineConfig,
+  provisionEngine,
+} from "@memory-engine/engine";
 import type {
   EngineCreateParams,
   EngineGetParams,
   EngineListParams,
   EngineResponse,
+  EngineSetupAccessParams,
+  EngineSetupAccessResult,
   EngineUpdateParams,
 } from "@memory-engine/protocol/accounts/engine";
 import {
   engineCreateParams,
   engineGetParams,
   engineListParams,
+  engineSetupAccessParams,
   engineUpdateParams,
 } from "@memory-engine/protocol/accounts/engine";
 import { embeddingConstants } from "../../config";
@@ -194,6 +202,82 @@ async function engineUpdate(
   return toEngineResponse(updatedEngine);
 }
 
+/**
+ * engine.setupAccess - Bootstrap engine access for a session-authenticated identity.
+ *
+ * Find-or-creates an engine user for the caller's identity, then creates an API key.
+ * Any org member can call this. Privilege level maps from org role:
+ *   - owner/admin → superuser + createrole
+ *   - member → vanilla user
+ */
+async function engineSetupAccess(
+  params: EngineSetupAccessParams,
+  context: HandlerContext,
+): Promise<EngineSetupAccessResult> {
+  assertAccountsRpcContext(context);
+  const { db, identity, engineSql } = context as AccountsRpcContext;
+
+  // Look up the engine
+  const engine = await db.getEngine(params.engineId);
+  if (!engine) {
+    throw new AppError("NOT_FOUND", `Engine not found: ${params.engineId}`);
+  }
+  if (engine.status !== "active") {
+    throw new AppError(
+      "VALIDATION_ERROR",
+      `Engine is not active: ${engine.status}`,
+    );
+  }
+
+  // Look up the org
+  const org = await db.getOrg(engine.orgId);
+  if (!org) {
+    throw new AppError("NOT_FOUND", `Organization not found: ${engine.orgId}`);
+  }
+
+  // Check caller's membership
+  const member = await db.getMember(engine.orgId, identity.id);
+  if (!member) {
+    throw new AppError(
+      "FORBIDDEN",
+      "Not a member of the organization that owns this engine",
+    );
+  }
+
+  // Create an EngineDB for this engine's schema
+  const schema = `me_${engine.slug}`;
+  const engineDb = createEngineDB(engineSql, schema);
+
+  // Find or create a user for this identity
+  let user = await engineDb.getUserByIdentity(identity.id);
+  if (!user) {
+    const isSuperuser = member.role === "owner" || member.role === "admin";
+    user = await engineDb.createUser({
+      name: identity.name || identity.email,
+      identityId: identity.id,
+      canLogin: true,
+      superuser: isSuperuser,
+      createrole: isSuperuser,
+    });
+  }
+
+  // Create an API key for the user
+  const apiKeyName =
+    params.apiKeyName ?? `cli-${new Date().toISOString().slice(0, 10)}`;
+  const { rawKey } = await engineDb.createApiKey({
+    userId: user.id,
+    name: apiKeyName,
+  });
+
+  return {
+    rawKey,
+    engineSlug: engine.slug,
+    userId: user.id,
+    engineName: engine.name,
+    orgName: org.name,
+  };
+}
+
 // =============================================================================
 // Registry
 // =============================================================================
@@ -206,4 +290,5 @@ export const engineMethods = buildRegistry()
   .register("engine.list", engineListParams, engineList)
   .register("engine.get", engineGetParams, engineGet)
   .register("engine.update", engineUpdateParams, engineUpdate)
+  .register("engine.setupAccess", engineSetupAccessParams, engineSetupAccess)
   .build();

@@ -16,7 +16,12 @@ import {
 } from "@memory-engine/client";
 import type { OAuthProvider } from "@memory-engine/protocol/auth/device-flow";
 import { Command } from "commander";
-import { resolveServer, storeSessionToken } from "../credentials.ts";
+import {
+  getEngineApiKey,
+  resolveServer,
+  storeApiKey,
+  storeSessionToken,
+} from "../credentials.ts";
 import { getOutputFormat, output } from "../output.ts";
 
 /**
@@ -120,11 +125,83 @@ export function createLoginCommand(): Command {
         });
         const identity = await accounts.me.get();
 
-        output({ server, identity }, fmt, () => {
+        // Auto-select engine if exactly one exists
+        let engineInfo: {
+          name: string;
+          slug: string;
+          orgName: string;
+        } | null = null;
+        let engineCount = 0;
+
+        try {
+          const { orgs } = await accounts.org.list();
+          const allEngines: Array<{
+            id: string;
+            slug: string;
+            name: string;
+            orgName: string;
+          }> = [];
+          for (const org of orgs) {
+            const { engines } = await accounts.engine.list({
+              orgId: org.id,
+            });
+            for (const e of engines) {
+              if (e.status === "active") {
+                allEngines.push({
+                  id: e.id,
+                  slug: e.slug,
+                  name: e.name,
+                  orgName: org.name,
+                });
+              }
+            }
+          }
+          engineCount = allEngines.length;
+
+          if (allEngines.length === 1 && allEngines[0]) {
+            const engine = allEngines[0];
+            // Check if we already have a key for this engine
+            const existingKey = getEngineApiKey(server, engine.slug);
+            if (existingKey) {
+              // Already have a key — just ensure it's active
+              const { setActiveEngine } = await import("../credentials.ts");
+              setActiveEngine(server, engine.slug);
+              engineInfo = {
+                name: engine.name,
+                slug: engine.slug,
+                orgName: engine.orgName,
+              };
+            } else {
+              // Bootstrap access
+              const setupResult = await accounts.engine.setupAccess({
+                engineId: engine.id,
+              });
+              storeApiKey(server, setupResult.engineSlug, setupResult.rawKey);
+              engineInfo = {
+                name: setupResult.engineName,
+                slug: setupResult.engineSlug,
+                orgName: setupResult.orgName,
+              };
+            }
+          }
+        } catch {
+          // Engine auto-select is best-effort — don't fail login
+        }
+
+        output({ server, identity, engine: engineInfo }, fmt, () => {
           clack.log.success(
             `Logged in as ${identity.name} (${identity.email})`,
           );
           clack.log.info(`Server: ${server}`);
+          if (engineInfo) {
+            clack.log.info(
+              `Engine: ${engineInfo.name} (${engineInfo.orgName})`,
+            );
+          } else if (engineCount > 1) {
+            clack.log.info(
+              "Multiple engines found. Run 'me engine use' to select one.",
+            );
+          }
           clack.outro("Done!");
         });
       } catch (error) {

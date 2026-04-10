@@ -5,7 +5,7 @@ import { withTx } from "./_tx";
 interface UserRow {
   id: string;
   name: string;
-  owned_by: string | null;
+  identity_id: string | null;
   can_login: boolean;
   superuser: boolean;
   createrole: boolean;
@@ -17,7 +17,7 @@ function rowToUser(row: UserRow): User {
   return {
     id: row.id,
     name: row.name,
-    ownedBy: row.owned_by,
+    identityId: row.identity_id,
     canLogin: row.can_login,
     superuser: row.superuser,
     createrole: row.createrole,
@@ -37,7 +37,7 @@ export function userOps(ctx: OpsContext) {
       const {
         id,
         name,
-        ownedBy = null,
+        identityId = null,
         canLogin = true,
         superuser = false,
         createrole = false,
@@ -46,10 +46,10 @@ export function userOps(ctx: OpsContext) {
       return withTx(ctx, "admin", async (sql) => {
         const rows = await sql<UserRow[]>`
           insert into ${sql.unsafe(schema)}."user"
-            (id, name, owned_by, can_login, superuser, createrole)
+            (id, name, identity_id, can_login, superuser, createrole)
           values
-            (${id ? sql`${id}::uuid` : sql`uuidv7()`}, ${name}, ${ownedBy}, ${canLogin}, ${superuser}, ${createrole})
-          returning id, name, owned_by, can_login, superuser, createrole, created_at, updated_at
+            (${id ? sql`${id}::uuid` : sql`uuidv7()`}, ${name}, ${identityId}, ${canLogin}, ${superuser}, ${createrole})
+          returning id, name, identity_id, can_login, superuser, createrole, created_at, updated_at
         `;
         const row = rows[0];
         if (!row) {
@@ -62,10 +62,10 @@ export function userOps(ctx: OpsContext) {
     /**
      * Create a role (user with can_login = false)
      */
-    async createRole(name: string, ownedBy?: string | null): Promise<User> {
+    async createRole(name: string, identityId?: string | null): Promise<User> {
       return this.createUser({
         name,
-        ownedBy,
+        identityId,
         canLogin: false,
         superuser: false,
       });
@@ -77,12 +77,12 @@ export function userOps(ctx: OpsContext) {
     async createSuperuser(
       name: string,
       id?: string,
-      ownedBy?: string | null,
+      identityId?: string | null,
     ): Promise<User> {
       return this.createUser({
         id,
         name,
-        ownedBy,
+        identityId,
         canLogin: true,
         superuser: true,
       });
@@ -94,7 +94,7 @@ export function userOps(ctx: OpsContext) {
     async getUser(id: string): Promise<User | null> {
       return withTx(ctx, "admin", async (sql) => {
         const [row] = await sql<UserRow[]>`
-          select id, name, owned_by, can_login, superuser, createrole, created_at, updated_at
+          select id, name, identity_id, can_login, superuser, createrole, created_at, updated_at
           from ${sql.unsafe(schema)}."user"
           where id = ${id}
         `;
@@ -108,7 +108,7 @@ export function userOps(ctx: OpsContext) {
     async getUserByName(name: string): Promise<User | null> {
       return withTx(ctx, "admin", async (sql) => {
         const [row] = await sql<UserRow[]>`
-          select id, name, owned_by, can_login, superuser, createrole, created_at, updated_at
+          select id, name, identity_id, can_login, superuser, createrole, created_at, updated_at
           from ${sql.unsafe(schema)}."user"
           where name = ${name}
         `;
@@ -122,7 +122,7 @@ export function userOps(ctx: OpsContext) {
     async listUsers(canLogin?: boolean): Promise<User[]> {
       return withTx(ctx, "admin", async (sql) => {
         const rows = await sql<UserRow[]>`
-          select id, name, owned_by, can_login, superuser, createrole, created_at, updated_at
+          select id, name, identity_id, can_login, superuser, createrole, created_at, updated_at
           from ${sql.unsafe(schema)}."user"
           ${canLogin !== undefined ? sql`where can_login = ${canLogin}` : sql``}
           order by created_at
@@ -132,17 +132,32 @@ export function userOps(ctx: OpsContext) {
     },
 
     /**
-     * List users owned by a specific identity
+     * List users linked to a specific identity
      */
-    async listUsersByOwner(ownedBy: string): Promise<User[]> {
+    async listUsersByIdentity(identityId: string): Promise<User[]> {
       return withTx(ctx, "admin", async (sql) => {
         const rows = await sql<UserRow[]>`
-          select id, name, owned_by, can_login, superuser, createrole, created_at, updated_at
+          select id, name, identity_id, can_login, superuser, createrole, created_at, updated_at
           from ${sql.unsafe(schema)}."user"
-          where owned_by = ${ownedBy}
+          where identity_id = ${identityId}
           order by created_at
         `;
         return rows.map(rowToUser);
+      });
+    },
+
+    /**
+     * Find a user by identity ID (returns first match or null)
+     */
+    async getUserByIdentity(identityId: string): Promise<User | null> {
+      return withTx(ctx, "admin", async (sql) => {
+        const [row] = await sql<UserRow[]>`
+          select id, name, identity_id, can_login, superuser, createrole, created_at, updated_at
+          from ${sql.unsafe(schema)}."user"
+          where identity_id = ${identityId}
+          limit 1
+        `;
+        return row ? rowToUser(row) : null;
       });
     },
 

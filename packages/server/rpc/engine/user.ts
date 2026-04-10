@@ -39,7 +39,7 @@ function toUserResponse(user: User): UserResponse {
   return {
     id: user.id,
     name: user.name,
-    ownedBy: user.ownedBy,
+    identityId: user.identityId,
     canLogin: user.canLogin,
     superuser: user.superuser,
     createrole: user.createrole,
@@ -65,7 +65,7 @@ async function userCreate(
   const user = await db.createUser({
     id: params.id ?? undefined,
     name: params.name,
-    ownedBy: params.ownedBy ?? undefined,
+    identityId: params.identityId ?? undefined,
     canLogin: params.canLogin,
     superuser: params.superuser,
     createrole: params.createrole,

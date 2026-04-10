@@ -14,7 +14,7 @@ import { uuidv7Schema } from "../fields.ts";
 export const userCreateParams = z.object({
   id: uuidv7Schema.optional().nullable(),
   name: z.string().min(1, "name is required"),
-  ownedBy: uuidv7Schema.optional().nullable(),
+  identityId: uuidv7Schema.optional().nullable(),
   canLogin: z.boolean().optional(),
   superuser: z.boolean().optional(),
   createrole: z.boolean().optional(),
@@ -78,7 +78,7 @@ export type UserDeleteParams = z.infer<typeof userDeleteParams>;
 export const userResponse = z.object({
   id: z.string(),
   name: z.string(),
-  ownedBy: z.string().nullable(),
+  identityId: z.string().nullable(),
   canLogin: z.boolean(),
   superuser: z.boolean(),
   createrole: z.boolean(),
