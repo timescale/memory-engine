@@ -78,6 +78,24 @@ configure({
 //
 // =============================================================================
 
+/**
+ * Parse an integer from an environment variable with NaN guard.
+ */
+function parseIntEnv(
+  name: string,
+  value: string,
+  defaultValue: string,
+): number {
+  const raw = value || defaultValue;
+  const parsed = parseInt(raw, 10);
+  if (Number.isNaN(parsed)) {
+    throw new Error(
+      `Invalid value for ${name}: "${raw}" is not a valid integer`,
+    );
+  }
+  return parsed;
+}
+
 const port = process.env.PORT || 3000;
 
 const accountsDatabaseUrl = process.env.ACCOUNTS_DATABASE_URL;
@@ -101,41 +119,56 @@ if (!apiBaseUrl) {
 }
 
 // Default: 15 minutes
-const deviceFlowCleanupIntervalMs = parseInt(
-  process.env.DEVICE_FLOW_CLEANUP_INTERVAL_MS || "900000",
-  10,
+const deviceFlowCleanupIntervalMs = parseIntEnv(
+  "DEVICE_FLOW_CLEANUP_INTERVAL_MS",
+  process.env.DEVICE_FLOW_CLEANUP_INTERVAL_MS || "",
+  "900000",
 );
 
 const accountsSchema = process.env.ACCOUNTS_SCHEMA || "accounts";
 
 // Connection pool settings - Accounts database
-const accountsPoolMax = parseInt(process.env.ACCOUNTS_POOL_MAX || "10", 10);
-const accountsPoolIdleTimeout = parseInt(
-  process.env.ACCOUNTS_POOL_IDLE_TIMEOUT || "30",
-  10,
+const accountsPoolMax = parseIntEnv(
+  "ACCOUNTS_POOL_MAX",
+  process.env.ACCOUNTS_POOL_MAX || "",
+  "10",
 );
-const accountsPoolMaxLifetime = parseInt(
-  process.env.ACCOUNTS_POOL_MAX_LIFETIME || "0",
-  10,
+const accountsPoolIdleTimeout = parseIntEnv(
+  "ACCOUNTS_POOL_IDLE_TIMEOUT",
+  process.env.ACCOUNTS_POOL_IDLE_TIMEOUT || "",
+  "30",
 );
-const accountsPoolConnectionTimeout = parseInt(
-  process.env.ACCOUNTS_POOL_CONNECTION_TIMEOUT || "30",
-  10,
+const accountsPoolMaxLifetime = parseIntEnv(
+  "ACCOUNTS_POOL_MAX_LIFETIME",
+  process.env.ACCOUNTS_POOL_MAX_LIFETIME || "",
+  "0",
+);
+const accountsPoolConnectionTimeout = parseIntEnv(
+  "ACCOUNTS_POOL_CONNECTION_TIMEOUT",
+  process.env.ACCOUNTS_POOL_CONNECTION_TIMEOUT || "",
+  "30",
 );
 
 // Connection pool settings - Engine database
-const enginePoolMax = parseInt(process.env.ENGINE_POOL_MAX || "20", 10);
-const enginePoolIdleTimeout = parseInt(
-  process.env.ENGINE_POOL_IDLE_TIMEOUT || "30",
-  10,
+const enginePoolMax = parseIntEnv(
+  "ENGINE_POOL_MAX",
+  process.env.ENGINE_POOL_MAX || "",
+  "20",
 );
-const enginePoolMaxLifetime = parseInt(
-  process.env.ENGINE_POOL_MAX_LIFETIME || "0",
-  10,
+const enginePoolIdleTimeout = parseIntEnv(
+  "ENGINE_POOL_IDLE_TIMEOUT",
+  process.env.ENGINE_POOL_IDLE_TIMEOUT || "",
+  "30",
 );
-const enginePoolConnectionTimeout = parseInt(
-  process.env.ENGINE_POOL_CONNECTION_TIMEOUT || "30",
-  10,
+const enginePoolMaxLifetime = parseIntEnv(
+  "ENGINE_POOL_MAX_LIFETIME",
+  process.env.ENGINE_POOL_MAX_LIFETIME || "",
+  "0",
+);
+const enginePoolConnectionTimeout = parseIntEnv(
+  "ENGINE_POOL_CONNECTION_TIMEOUT",
+  process.env.ENGINE_POOL_CONNECTION_TIMEOUT || "",
+  "30",
 );
 
 // =============================================================================
@@ -165,15 +198,24 @@ function buildEmbeddingConfig(): EmbeddingConfig {
   const options: EmbeddingConfig["options"] = {};
 
   if (process.env.EMBEDDING_TIMEOUT_MS) {
-    options.timeoutMs = parseInt(process.env.EMBEDDING_TIMEOUT_MS, 10);
+    options.timeoutMs = parseIntEnv(
+      "EMBEDDING_TIMEOUT_MS",
+      process.env.EMBEDDING_TIMEOUT_MS,
+      "0",
+    );
   }
   if (process.env.EMBEDDING_MAX_RETRIES) {
-    options.maxRetries = parseInt(process.env.EMBEDDING_MAX_RETRIES, 10);
+    options.maxRetries = parseIntEnv(
+      "EMBEDDING_MAX_RETRIES",
+      process.env.EMBEDDING_MAX_RETRIES,
+      "0",
+    );
   }
   if (process.env.EMBEDDING_MAX_PARALLEL_CALLS) {
-    options.maxParallelCalls = parseInt(
+    options.maxParallelCalls = parseIntEnv(
+      "EMBEDDING_MAX_PARALLEL_CALLS",
       process.env.EMBEDDING_MAX_PARALLEL_CALLS,
-      10,
+      "0",
     );
   }
 
@@ -188,6 +230,27 @@ function buildEmbeddingConfig(): EmbeddingConfig {
 }
 
 const embeddingConfig = buildEmbeddingConfig();
+
+// =============================================================================
+// OAuth Provider Validation
+// =============================================================================
+
+// Warn at startup if OAuth providers are not configured, rather than
+// failing with a confusing error when someone tries to log in.
+const configuredProviders: string[] = [];
+if (process.env.GITHUB_CLIENT_ID && process.env.GITHUB_CLIENT_SECRET) {
+  configuredProviders.push("github");
+}
+if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
+  configuredProviders.push("google");
+}
+if (configuredProviders.length === 0) {
+  console.warn(
+    "WARNING: No OAuth providers configured. Set GITHUB_CLIENT_ID/GITHUB_CLIENT_SECRET or GOOGLE_CLIENT_ID/GOOGLE_CLIENT_SECRET.",
+  );
+} else {
+  info("OAuth providers configured", { providers: configuredProviders });
+}
 
 // =============================================================================
 // Database Pools
