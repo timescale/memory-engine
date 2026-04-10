@@ -27,6 +27,7 @@ export class WorkerPool {
     this.abort = new AbortController();
     this.daemonPromise = runDaemon(this.sql, this.config, {
       signal: this.abort.signal,
+      stats: this._stats,
     });
   }
 

@@ -2,7 +2,7 @@ import { discoverEngineSchemas } from "@memory-engine/engine/migrate";
 import { info, reportError } from "@pydantic/logfire-node";
 import type { SQL } from "bun";
 import { processBatch } from "./process";
-import type { WorkerConfig } from "./types";
+import type { WorkerConfig, WorkerStats } from "./types";
 
 /**
  * Process one schema's embedding queue. Returns true if work was found.
@@ -25,7 +25,7 @@ export async function runOnce(
 export async function runDaemon(
   sql: SQL,
   config: WorkerConfig,
-  options?: { signal?: AbortSignal },
+  options?: { signal?: AbortSignal; stats?: WorkerStats },
 ): Promise<void> {
   const busyDelayMs = config.busyDelayMs ?? 10;
   const idleDelayMs = config.idleDelayMs ?? 10_000;
@@ -33,6 +33,7 @@ export async function runDaemon(
   const refreshIntervalMs = config.refreshIntervalMs ?? 60_000;
   const drainTimeoutMs = config.drainTimeoutMs;
   const signal = options?.signal;
+  const stats = options?.stats;
 
   let schemas = await discoverEngineSchemas(sql);
   let lastRefresh = Date.now();
@@ -58,11 +59,20 @@ export async function runDaemon(
 
         for (const schema of schemas) {
           if (signal?.aborted) break;
-          const hadWork = await runOnce(sql, schema, config);
-          if (hadWork) anyWork = true;
+          const result = await processBatch(sql, schema, config);
+          if (result.claimed > 0) anyWork = true;
+          if (stats) {
+            stats.schemasPolled++;
+            stats.totalProcessed += result.succeeded;
+            stats.totalFailed += result.failed;
+          }
         }
 
         consecutiveErrors = 0;
+        if (stats) {
+          stats.consecutiveErrors = 0;
+          stats.lastError = undefined;
+        }
 
         if (anyWork) {
           idleSince = null;
@@ -77,6 +87,11 @@ export async function runDaemon(
         if (delay > 0) await sleep(delay);
       } catch (error) {
         consecutiveErrors++;
+        const errorMsg = error instanceof Error ? error.message : String(error);
+        if (stats) {
+          stats.consecutiveErrors = consecutiveErrors;
+          stats.lastError = errorMsg;
+        }
         reportError("Worker batch processing failed", error as Error, {
           consecutiveErrors,
           schemaCount: schemas.length,
