@@ -21,6 +21,10 @@ import {
   memorySearchSchema,
   memoryTreeSchema,
   memoryUpdateSchema,
+  ownerGetSchema,
+  ownerListSchema,
+  ownerRemoveSchema,
+  ownerSetSchema,
   roleAddMemberSchema,
   roleCreateSchema,
   roleListForUserSchema,
@@ -715,5 +719,90 @@ describe("apiKeyDeleteSchema", () => {
       id: "019d694f-79f6-7595-8faf-b70b01c11f98",
     });
     expect(result.success).toBe(true);
+  });
+});
+
+// =============================================================================
+// Owner Schema Tests
+// =============================================================================
+
+describe("ownerSetSchema", () => {
+  test("accepts valid params", () => {
+    const result = ownerSetSchema.safeParse({
+      userId: "019d694f-79f6-7595-8faf-b70b01c11f98",
+      treePath: "work.projects",
+    });
+    expect(result.success).toBe(true);
+  });
+
+  test("rejects missing userId", () => {
+    const result = ownerSetSchema.safeParse({
+      treePath: "work.projects",
+    });
+    expect(result.success).toBe(false);
+  });
+
+  test("rejects missing treePath", () => {
+    const result = ownerSetSchema.safeParse({
+      userId: "019d694f-79f6-7595-8faf-b70b01c11f98",
+    });
+    expect(result.success).toBe(false);
+  });
+
+  test("rejects invalid UUID", () => {
+    const result = ownerSetSchema.safeParse({
+      userId: "not-a-uuid",
+      treePath: "work.projects",
+    });
+    expect(result.success).toBe(false);
+  });
+});
+
+describe("ownerGetSchema", () => {
+  test("accepts valid treePath", () => {
+    const result = ownerGetSchema.safeParse({
+      treePath: "work.projects.alpha",
+    });
+    expect(result.success).toBe(true);
+  });
+
+  test("rejects missing treePath", () => {
+    const result = ownerGetSchema.safeParse({});
+    expect(result.success).toBe(false);
+  });
+});
+
+describe("ownerRemoveSchema", () => {
+  test("accepts valid treePath", () => {
+    const result = ownerRemoveSchema.safeParse({
+      treePath: "work.projects",
+    });
+    expect(result.success).toBe(true);
+  });
+
+  test("rejects missing treePath", () => {
+    const result = ownerRemoveSchema.safeParse({});
+    expect(result.success).toBe(false);
+  });
+});
+
+describe("ownerListSchema", () => {
+  test("accepts with userId", () => {
+    const result = ownerListSchema.safeParse({
+      userId: "019d694f-79f6-7595-8faf-b70b01c11f98",
+    });
+    expect(result.success).toBe(true);
+  });
+
+  test("accepts without userId", () => {
+    const result = ownerListSchema.safeParse({});
+    expect(result.success).toBe(true);
+  });
+
+  test("rejects invalid userId", () => {
+    const result = ownerListSchema.safeParse({
+      userId: "not-a-uuid",
+    });
+    expect(result.success).toBe(false);
   });
 });

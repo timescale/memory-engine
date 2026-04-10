@@ -13,6 +13,7 @@ import {
   type Identity,
 } from "@memory-engine/accounts";
 import { TestDatabase as AccountsTestDatabase } from "@memory-engine/accounts/migrate/test-utils";
+import { createEngineDB } from "@memory-engine/engine";
 import { bootstrap } from "@memory-engine/engine/migrate/bootstrap";
 import { TestDatabase as EngineTestDatabase } from "@memory-engine/engine/migrate/test-utils";
 import { SQL } from "bun";
@@ -327,5 +328,181 @@ describe("engine.create integration", () => {
     const engine = await accountsDb.getEngineBySlug(result.slug);
     expect(engine).not.toBeNull();
     expect(engine?.id).toBe(result.id);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// engine.setupAccess Tests
+// ---------------------------------------------------------------------------
+
+describe("engine.setupAccess integration", () => {
+  // Create a dedicated engine for setupAccess tests
+  let setupAccessEngineId: string;
+  let setupAccessEngineSlug: string;
+
+  beforeAll(async () => {
+    const createHandler = engineMethods.get("engine.create")?.handler;
+    if (!createHandler) throw new Error("engine.create handler not found");
+
+    const result = (await createHandler(
+      { orgId: testOrgId, name: "SetupAccess Test Engine" },
+      createContext(testIdentity),
+    )) as { id: string; slug: string };
+
+    setupAccessEngineId = result.id;
+    setupAccessEngineSlug = result.slug;
+  });
+
+  function getHandler() {
+    const handler = engineMethods.get("engine.setupAccess")?.handler;
+    if (!handler) throw new Error("engine.setupAccess handler not found");
+    return handler;
+  }
+
+  test("owner gets superuser + createrole user and API key", async () => {
+    const handler = getHandler();
+    const context = createContext(testIdentity);
+
+    const result = (await handler(
+      { engineId: setupAccessEngineId },
+      context,
+    )) as {
+      rawKey: string;
+      engineSlug: string;
+      userId: string;
+      engineName: string;
+      orgName: string;
+    };
+
+    expect(result.rawKey).toBeDefined();
+    expect(result.rawKey.length).toBeGreaterThan(0);
+    expect(result.engineSlug).toBe(setupAccessEngineSlug);
+    expect(result.userId).toBeDefined();
+    expect(result.engineName).toBe("SetupAccess Test Engine");
+    expect(result.orgName).toBe("Engine Test Org");
+
+    // Verify the engine user has superuser privileges
+    const engineDb = createEngineDB(engineSql, `me_${setupAccessEngineSlug}`);
+    const user = await engineDb.getUser(result.userId);
+    expect(user).not.toBeNull();
+    expect(user?.superuser).toBe(true);
+    expect(user?.createrole).toBe(true);
+    expect(user?.identityId).toBe(testIdentity.id);
+  });
+
+  test("admin gets superuser + createrole user and API key", async () => {
+    const handler = getHandler();
+
+    const admin = await accountsDb.createIdentity({
+      email: "setup-admin@example.com",
+      name: "Setup Admin",
+    });
+    await accountsDb.addMember(testOrgId, admin.id, "admin");
+
+    const context = createContext(admin);
+    const result = (await handler(
+      { engineId: setupAccessEngineId },
+      context,
+    )) as { userId: string; rawKey: string };
+
+    expect(result.rawKey).toBeDefined();
+
+    const engineDb = createEngineDB(engineSql, `me_${setupAccessEngineSlug}`);
+    const user = await engineDb.getUser(result.userId);
+    expect(user?.superuser).toBe(true);
+    expect(user?.createrole).toBe(true);
+  });
+
+  test("member gets vanilla user (no superuser) and API key", async () => {
+    const handler = getHandler();
+
+    const member = await accountsDb.createIdentity({
+      email: "setup-member@example.com",
+      name: "Setup Member",
+    });
+    await accountsDb.addMember(testOrgId, member.id, "member");
+
+    const context = createContext(member);
+    const result = (await handler(
+      { engineId: setupAccessEngineId },
+      context,
+    )) as { userId: string; rawKey: string };
+
+    expect(result.rawKey).toBeDefined();
+
+    const engineDb = createEngineDB(engineSql, `me_${setupAccessEngineSlug}`);
+    const user = await engineDb.getUser(result.userId);
+    expect(user?.superuser).toBe(false);
+    expect(user?.createrole).toBe(false);
+  });
+
+  test("non-member is forbidden", async () => {
+    const handler = getHandler();
+
+    const outsider = await accountsDb.createIdentity({
+      email: "setup-outsider@example.com",
+      name: "Setup Outsider",
+    });
+
+    const context = createContext(outsider);
+
+    await expect(
+      handler({ engineId: setupAccessEngineId }, context),
+    ).rejects.toThrow("Not a member of the organization");
+  });
+
+  test("engine not found returns error", async () => {
+    const handler = getHandler();
+    const context = createContext(testIdentity);
+
+    await expect(
+      handler({ engineId: "019d694f-79f6-7595-8faf-b70b01c11f98" }, context),
+    ).rejects.toThrow("Engine not found");
+  });
+
+  test("idempotent: second call reuses user, creates new API key", async () => {
+    const handler = getHandler();
+
+    const idempotentUser = await accountsDb.createIdentity({
+      email: "setup-idempotent@example.com",
+      name: "Idempotent User",
+    });
+    await accountsDb.addMember(testOrgId, idempotentUser.id, "owner");
+
+    const context = createContext(idempotentUser);
+
+    // First call
+    const result1 = (await handler(
+      { engineId: setupAccessEngineId },
+      context,
+    )) as { userId: string; rawKey: string };
+
+    // Second call
+    const result2 = (await handler(
+      { engineId: setupAccessEngineId },
+      context,
+    )) as { userId: string; rawKey: string };
+
+    // Same user, different API keys
+    expect(result2.userId).toBe(result1.userId);
+    expect(result2.rawKey).not.toBe(result1.rawKey);
+  });
+
+  test("custom API key name is used", async () => {
+    const handler = getHandler();
+
+    const namedKeyUser = await accountsDb.createIdentity({
+      email: "setup-named@example.com",
+      name: "Named Key User",
+    });
+    await accountsDb.addMember(testOrgId, namedKeyUser.id, "owner");
+
+    const context = createContext(namedKeyUser);
+    const result = (await handler(
+      { engineId: setupAccessEngineId, apiKeyName: "my-custom-key" },
+      context,
+    )) as { rawKey: string };
+
+    expect(result.rawKey).toBeDefined();
   });
 });

@@ -52,6 +52,17 @@ export {
   memoryUpdateParams as memoryUpdateSchema,
 } from "@memory-engine/protocol/engine/memory";
 export {
+  type OwnerGetParams,
+  type OwnerListParams,
+  type OwnerRemoveParams,
+  type OwnerSetParams,
+  ownerGetParams as ownerGetSchema,
+  // Owner params
+  ownerListParams as ownerListSchema,
+  ownerRemoveParams as ownerRemoveSchema,
+  ownerSetParams as ownerSetSchema,
+} from "@memory-engine/protocol/engine/owner";
+export {
   type RoleAddMemberParams,
   type RoleCreateParams,
   type RoleListForUserParams,
