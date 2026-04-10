@@ -1,7 +1,7 @@
 /**
  * Accounts RPC contract — maps method names to params/result schema pairs.
  *
- * Covers all 19 methods on POST /api/v1/accounts/rpc (session token auth).
+ * Covers all 20 methods on POST /api/v1/accounts/rpc (session token auth).
  */
 import type { z } from "zod";
 
@@ -12,6 +12,8 @@ import {
   engineListParams,
   engineListResult,
   engineResponse,
+  engineSetupAccessParams,
+  engineSetupAccessResult,
   engineUpdateParams,
 } from "./engine.ts";
 import { identityResponse, meGetParams } from "./identity.ts";
@@ -70,7 +72,7 @@ function method<TParams extends z.ZodType, TResult extends z.ZodType>(
 }
 
 /**
- * Accounts RPC method contract — all 19 methods.
+ * Accounts RPC method contract — all 20 methods.
  *
  * Each entry maps a method name to its params and result Zod schemas.
  * The client library uses this for type inference and optional response validation.
@@ -99,11 +101,15 @@ export const accountsMethods = {
     orgMemberUpdateRoleResult,
   ),
 
-  // Engine (4)
+  // Engine (5)
   "engine.create": method(engineCreateParams, engineResponse),
   "engine.list": method(engineListParams, engineListResult),
   "engine.get": method(engineGetParams, engineResponse),
   "engine.update": method(engineUpdateParams, engineResponse),
+  "engine.setupAccess": method(
+    engineSetupAccessParams,
+    engineSetupAccessResult,
+  ),
 
   // Invitation (4)
   "invitation.create": method(invitationCreateParams, invitationCreateResult),

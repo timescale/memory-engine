@@ -23,6 +23,8 @@ import type {
   EngineListParams,
   EngineListResult,
   EngineResponse,
+  EngineSetupAccessParams,
+  EngineSetupAccessResult,
   EngineUpdateParams,
   IdentityResponse,
   InvitationAcceptParams,
@@ -105,6 +107,9 @@ export interface AccountsEngineNamespace {
   list(params: EngineListParams): Promise<EngineListResult>;
   get(params: EngineGetParams): Promise<EngineResponse>;
   update(params: EngineUpdateParams): Promise<EngineResponse>;
+  setupAccess(
+    params: EngineSetupAccessParams,
+  ): Promise<EngineSetupAccessResult>;
 }
 
 export interface InvitationNamespace {
@@ -218,6 +223,7 @@ export function createAccountsClient(
     list: (params) => call("engine.list", params),
     get: (params) => call("engine.get", params),
     update: (params) => call("engine.update", params),
+    setupAccess: (params) => call("engine.setupAccess", params),
   };
 
   const invitation: InvitationNamespace = {

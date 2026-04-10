@@ -55,6 +55,17 @@ export const engineUpdateParams = z.object({
 
 export type EngineUpdateParams = z.infer<typeof engineUpdateParams>;
 
+/**
+ * engine.setupAccess params.
+ * Bootstraps engine access for a session-authenticated identity.
+ */
+export const engineSetupAccessParams = z.object({
+  engineId: uuidv7Schema,
+  apiKeyName: z.string().min(1).optional(),
+});
+
+export type EngineSetupAccessParams = z.infer<typeof engineSetupAccessParams>;
+
 // =============================================================================
 // Result Schemas
 // =============================================================================
@@ -84,3 +95,16 @@ export const engineListResult = z.object({
 });
 
 export type EngineListResult = z.infer<typeof engineListResult>;
+
+/**
+ * engine.setupAccess result.
+ */
+export const engineSetupAccessResult = z.object({
+  rawKey: z.string(),
+  engineSlug: z.string(),
+  userId: z.string(),
+  engineName: z.string(),
+  orgName: z.string(),
+});
+
+export type EngineSetupAccessResult = z.infer<typeof engineSetupAccessResult>;

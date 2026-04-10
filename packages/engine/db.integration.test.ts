@@ -77,7 +77,7 @@ describe("user ops", () => {
     expect(superuser.superuser).toBe(true);
   });
 
-  test("createUser with ownedBy and canLogin", async () => {
+  test("createUser with identityId and canLogin", async () => {
     const db = createEngineDB(sql, schema);
     const identityId = crypto
       .randomUUID()
@@ -85,12 +85,12 @@ describe("user ops", () => {
 
     const user = await db.createUser({
       name: "owned-user",
-      ownedBy: identityId,
+      identityId: identityId,
       canLogin: true,
     });
 
     expect(user.name).toBe("owned-user");
-    expect(user.ownedBy).toBe(identityId);
+    expect(user.identityId).toBe(identityId);
     expect(user.canLogin).toBe(true);
   });
 

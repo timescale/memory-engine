@@ -40,13 +40,13 @@ export interface OpsContext {
 
 /**
  * User: thing that accesses memories within an engine.
- * Can be owned by an identity (soft FK to accounts.identity) or standalone.
+ * Can be linked to an identity (soft FK to accounts.identity) or standalone.
  * If can_login = false, it's a role (grant container for RBAC).
  */
 export interface User {
   id: string;
   name: string;
-  ownedBy: string | null;
+  identityId: string | null;
   canLogin: boolean;
   superuser: boolean;
   createrole: boolean;
@@ -57,7 +57,7 @@ export interface User {
 export interface CreateUserParams {
   id?: string;
   name: string;
-  ownedBy?: string | null;
+  identityId?: string | null;
   canLogin?: boolean;
   superuser?: boolean;
   createrole?: boolean;

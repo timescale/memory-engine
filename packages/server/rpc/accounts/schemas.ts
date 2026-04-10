@@ -8,11 +8,13 @@ export {
   type EngineCreateParams,
   type EngineGetParams,
   type EngineListParams,
+  type EngineSetupAccessParams,
   type EngineUpdateParams,
   // Engine params
   engineCreateParams as engineCreateSchema,
   engineGetParams as engineGetSchema,
   engineListParams as engineListSchema,
+  engineSetupAccessParams as engineSetupAccessSchema,
   engineUpdateParams as engineUpdateSchema,
 } from "@memory-engine/protocol/accounts/engine";
 

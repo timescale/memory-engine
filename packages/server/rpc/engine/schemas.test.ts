@@ -423,7 +423,7 @@ describe("userCreateSchema", () => {
     const result = userCreateSchema.safeParse({
       id: "019d694f-79f6-7595-8faf-b70b01c11f98",
       name: "alice",
-      ownedBy: "019d694f-79f6-7595-8faf-b70b01c11f99",
+      identityId: "019d694f-79f6-7595-8faf-b70b01c11f99",
       canLogin: true,
       superuser: false,
       createrole: true,
@@ -579,10 +579,10 @@ describe("roleCreateSchema", () => {
     expect(result.success).toBe(true);
   });
 
-  test("accepts with ownedBy", () => {
+  test("accepts with identityId", () => {
     const result = roleCreateSchema.safeParse({
       name: "editors",
-      ownedBy: "019d694f-79f6-7595-8faf-b70b01c11f98",
+      identityId: "019d694f-79f6-7595-8faf-b70b01c11f98",
     });
     expect(result.success).toBe(true);
   });

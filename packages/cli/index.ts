@@ -6,6 +6,7 @@
  * and all command groups, then runs.
  */
 import { Command } from "commander";
+import { createEngineCommand } from "./commands/engine.ts";
 import { createLoginCommand } from "./commands/login.ts";
 import { createLogoutCommand } from "./commands/logout.ts";
 import { createWhoamiCommand } from "./commands/whoami.ts";
@@ -27,6 +28,9 @@ program
 program.addCommand(createLoginCommand());
 program.addCommand(createLogoutCommand());
 program.addCommand(createWhoamiCommand());
+
+// Engine commands
+program.addCommand(createEngineCommand());
 
 // Run
 program.parseAsync(process.argv).catch((error) => {

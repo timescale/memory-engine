@@ -1,11 +1,11 @@
 -- ===== Users =====
 -- User: thing that accesses memories, or a role (can_login = false)
--- owned_by is a soft FK to accounts.identity (nullable for service users)
+-- identity_id is a soft FK to accounts.identity (nullable for service users)
 -- Note: "user" is a reserved word, must be quoted
 create table {{schema}}."user"
 ( id uuid primary key default uuidv7() check (uuid_extract_version(id) = 7)
 , name text not null
-, owned_by uuid                            -- soft FK to accounts.identity
+, identity_id uuid check (identity_id is null or uuid_extract_version(identity_id) = 7) -- soft FK to accounts.identity
 , can_login boolean not null default true  -- false = role (grant container)
 , superuser boolean not null default false
 , createrole boolean not null default false -- can create other users/roles
@@ -13,7 +13,7 @@ create table {{schema}}."user"
 , updated_at timestamptz
 );
 
-create index idx_user_owned_by on {{schema}}."user" (owned_by) where owned_by is not null;
+create index idx_user_identity_id on {{schema}}."user" (identity_id) where identity_id is not null;
 
 create trigger user_updated_at
     before update on {{schema}}."user"

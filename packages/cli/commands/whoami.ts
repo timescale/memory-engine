@@ -45,6 +45,7 @@ export function createWhoamiCommand(): Command {
             name: identity.name,
             email: identity.email,
           },
+          activeEngine: creds.activeEngine ?? null,
           hasApiKey: !!creds.apiKey,
         };
 
@@ -53,10 +54,8 @@ export function createWhoamiCommand(): Command {
           console.log(`  Email:  ${identity.email}`);
           console.log(`  ID:     ${identity.id}`);
           console.log(`  Server: ${creds.server}`);
-          if (creds.apiKey) {
-            // Show just the prefix, not the full key
-            const prefix = creds.apiKey.split(".").slice(0, 2).join(".");
-            console.log(`  Engine: ${prefix}...`);
+          if (creds.activeEngine) {
+            console.log(`  Engine: ${creds.activeEngine}`);
           } else {
             console.log("  Engine: (none — run 'me engine use' to select)");
           }
