@@ -30,7 +30,7 @@ export function ownerOps(ctx: OpsContext) {
       treePath: string,
       createdBy?: string,
     ): Promise<void> {
-      await withTx(ctx, "admin", async (sql) => {
+      await withTx(ctx, "admin", "setTreeOwner", async (sql) => {
         await sql`
           insert into ${sql.unsafe(schema)}.tree_owner
             (tree_path, user_id, created_by)
@@ -48,7 +48,7 @@ export function ownerOps(ctx: OpsContext) {
      * Remove tree owner
      */
     async removeTreeOwner(treePath: string): Promise<boolean> {
-      return withTx(ctx, "admin", async (sql) => {
+      return withTx(ctx, "admin", "removeTreeOwner", async (sql) => {
         const result = await sql`
           delete from ${sql.unsafe(schema)}.tree_owner
           where tree_path = ${treePath}::ltree
@@ -61,7 +61,7 @@ export function ownerOps(ctx: OpsContext) {
      * Get tree owner by path
      */
     async getTreeOwner(treePath: string): Promise<TreeOwner | null> {
-      return withTx(ctx, "admin", async (sql) => {
+      return withTx(ctx, "admin", "getTreeOwner", async (sql) => {
         const rows = await sql<TreeOwnerRow[]>`
           select tree_path::text, user_id, created_by, created_at
           from ${sql.unsafe(schema)}.tree_owner
@@ -76,7 +76,7 @@ export function ownerOps(ctx: OpsContext) {
      * List tree owners, optionally filtered by user
      */
     async listTreeOwners(userId?: string): Promise<TreeOwner[]> {
-      return withTx(ctx, "admin", async (sql) => {
+      return withTx(ctx, "admin", "listTreeOwners", async (sql) => {
         if (userId) {
           const rows = await sql<TreeOwnerRow[]>`
             select tree_path::text, user_id, created_by, created_at
@@ -100,7 +100,7 @@ export function ownerOps(ctx: OpsContext) {
      * Check if a user owns a tree path (or any ancestor)
      */
     async isOwnerOf(userId: string, treePath: string): Promise<boolean> {
-      return withTx(ctx, "admin", async (sql) => {
+      return withTx(ctx, "admin", "isOwnerOf", async (sql) => {
         const rows = await sql<{ is_owner: boolean }[]>`
           select exists (
             select 1

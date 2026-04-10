@@ -34,6 +34,7 @@ const ROLE_MAP = {
 export async function withTx<T>(
   ctx: OpsContext,
   mode: TransactionMode,
+  operation: string,
   fn: (sql: SQL) => Promise<T>,
 ): Promise<T> {
   const role = ROLE_MAP[mode];
@@ -47,11 +48,12 @@ export async function withTx<T>(
   }
 
   // Open new transaction with telemetry span
-  return span("db.transaction", {
+  return span(`db.${operation}`, {
     attributes: {
       "db.schema": ctx.schema,
       "db.mode": mode,
       "db.role": role ?? "owner",
+      "db.operation": operation,
     },
     callback: () =>
       ctx.sql.begin(async (tx) => {

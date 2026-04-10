@@ -42,7 +42,7 @@ export function deviceAuthOps(ctx: AccountsContext) {
     async create(params: CreateDeviceAuthParams): Promise<DeviceAuthorization> {
       const { deviceCode, userCode, provider, oauthState, expiresAt } = params;
 
-      return withTx(ctx, async (sql) => {
+      return withTx(ctx, "createDeviceAuth", async (sql) => {
         const rows = await sql<DeviceAuthRow[]>`
           insert into ${sql.unsafe(schema)}.device_authorization
             (device_code, user_code, provider, oauth_state, expires_at)
@@ -65,7 +65,7 @@ export function deviceAuthOps(ctx: AccountsContext) {
     async getByDeviceCode(
       deviceCode: string,
     ): Promise<DeviceAuthorization | null> {
-      return withTx(ctx, async (sql) => {
+      return withTx(ctx, "getDeviceByCode", async (sql) => {
         const rows = await sql<DeviceAuthRow[]>`
           select * from ${sql.unsafe(schema)}.device_authorization
           where device_code = ${deviceCode}
@@ -86,7 +86,7 @@ export function deviceAuthOps(ctx: AccountsContext) {
       const normalized = userCode.toUpperCase().replace(/-/g, "");
       const formatted = `${normalized.slice(0, 4)}-${normalized.slice(4)}`;
 
-      return withTx(ctx, async (sql) => {
+      return withTx(ctx, "getDeviceByUserCode", async (sql) => {
         const rows = await sql<DeviceAuthRow[]>`
           select * from ${sql.unsafe(schema)}.device_authorization
           where user_code = ${formatted}
@@ -104,7 +104,7 @@ export function deviceAuthOps(ctx: AccountsContext) {
     async getByOAuthState(
       oauthState: string,
     ): Promise<DeviceAuthorization | null> {
-      return withTx(ctx, async (sql) => {
+      return withTx(ctx, "getDeviceByOAuthState", async (sql) => {
         const rows = await sql<DeviceAuthRow[]>`
           select * from ${sql.unsafe(schema)}.device_authorization
           where oauth_state = ${oauthState}
@@ -120,7 +120,7 @@ export function deviceAuthOps(ctx: AccountsContext) {
      * Returns the time since last poll in milliseconds, or null if first poll.
      */
     async updateLastPoll(deviceCode: string): Promise<number | null> {
-      return withTx(ctx, async (sql) => {
+      return withTx(ctx, "updateDeviceLastPoll", async (sql) => {
         const rows = await sql<{ last_poll: Date | null }[]>`
           update ${sql.unsafe(schema)}.device_authorization
           set last_poll = now()
@@ -144,7 +144,7 @@ export function deviceAuthOps(ctx: AccountsContext) {
      * Returns true if updated, false if not found/expired.
      */
     async authorize(deviceCode: string, identityId: string): Promise<boolean> {
-      return withTx(ctx, async (sql) => {
+      return withTx(ctx, "authorizeDevice", async (sql) => {
         const result = await sql`
           update ${sql.unsafe(schema)}.device_authorization
           set identity_id = ${identityId}
@@ -162,7 +162,7 @@ export function deviceAuthOps(ctx: AccountsContext) {
      * Returns true if updated, false if not found/expired.
      */
     async deny(deviceCode: string): Promise<boolean> {
-      return withTx(ctx, async (sql) => {
+      return withTx(ctx, "denyDevice", async (sql) => {
         const result = await sql`
           update ${sql.unsafe(schema)}.device_authorization
           set denied = true
@@ -179,7 +179,7 @@ export function deviceAuthOps(ctx: AccountsContext) {
      * Returns true if deleted.
      */
     async delete(deviceCode: string): Promise<boolean> {
-      return withTx(ctx, async (sql) => {
+      return withTx(ctx, "deleteDevice", async (sql) => {
         const result = await sql`
           delete from ${sql.unsafe(schema)}.device_authorization
           where device_code = ${deviceCode}
@@ -193,7 +193,7 @@ export function deviceAuthOps(ctx: AccountsContext) {
      * Called by cron job. Returns count deleted.
      */
     async deleteExpired(): Promise<number> {
-      return withTx(ctx, async (sql) => {
+      return withTx(ctx, "deleteExpiredDevices", async (sql) => {
         const result = await sql`
           delete from ${sql.unsafe(schema)}.device_authorization
           where expires_at <= now()

@@ -8,11 +8,30 @@ import { checkSizeLimit } from "./middleware";
 import { createRouter } from "./router";
 import { internalError } from "./util/response";
 
+// Resolve git revision for code source linking.
+// Prefer explicit GIT_REVISION (set in CI), fall back to local git, then "main".
+const gitRevision =
+  process.env.GIT_REVISION ??
+  (() => {
+    try {
+      return Bun.spawnSync(["git", "rev-parse", "HEAD"])
+        .stdout.toString()
+        .trim();
+    } catch {
+      return "main";
+    }
+  })();
+
 // Initialize telemetry before starting server
 configure({
   sendToLogfire: "if-token-present",
+  console: process.env.LOGFIRE_CONSOLE === "true",
   serviceName: "memory-engine",
   serviceVersion: "0.1.0",
+  codeSource: {
+    repository: "https://github.com/timescale/memory-engine",
+    revision: gitRevision,
+  },
   scrubbing: {
     extraPatterns: [
       "content", // Memory content — potentially sensitive user data

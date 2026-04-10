@@ -40,7 +40,7 @@ export function grantOps(ctx: OpsContext) {
         withGrantOption = false,
       } = params;
 
-      await withTx(ctx, "admin", async (sql) => {
+      await withTx(ctx, "admin", "grantTreeAccess", async (sql) => {
         // Format actions as PostgreSQL array literal
         const actionsArray = `{${actions.join(",")}}`;
         await sql`
@@ -61,7 +61,7 @@ export function grantOps(ctx: OpsContext) {
      * Revoke tree access from a user
      */
     async revokeTreeAccess(userId: string, treePath: string): Promise<boolean> {
-      return withTx(ctx, "admin", async (sql) => {
+      return withTx(ctx, "admin", "revokeTreeAccess", async (sql) => {
         const result = await sql`
           delete from ${sql.unsafe(schema)}.tree_grant
           where user_id = ${userId}
@@ -75,7 +75,7 @@ export function grantOps(ctx: OpsContext) {
      * List tree grants, optionally filtered by user
      */
     async listTreeGrants(userId?: string): Promise<TreeGrant[]> {
-      return withTx(ctx, "admin", async (sql) => {
+      return withTx(ctx, "admin", "listTreeGrants", async (sql) => {
         if (userId) {
           const rows = await sql<TreeGrantRow[]>`
             select id, user_id, tree_path::text, actions, granted_by, with_grant_option, created_at
@@ -102,7 +102,7 @@ export function grantOps(ctx: OpsContext) {
       userId: string,
       treePath: string,
     ): Promise<TreeGrant | null> {
-      return withTx(ctx, "admin", async (sql) => {
+      return withTx(ctx, "admin", "getTreeGrant", async (sql) => {
         const rows = await sql<TreeGrantRow[]>`
           select id, user_id, tree_path::text, actions, granted_by, with_grant_option, created_at
           from ${sql.unsafe(schema)}.tree_grant
@@ -123,7 +123,7 @@ export function grantOps(ctx: OpsContext) {
       treePath: string,
       action: string,
     ): Promise<boolean> {
-      return withTx(ctx, "admin", async (sql) => {
+      return withTx(ctx, "admin", "checkTreeAccess", async (sql) => {
         const rows = await sql<{ allowed: boolean }[]>`
           select exists(
             select 1
@@ -146,7 +146,7 @@ export function grantOps(ctx: OpsContext) {
       treePath: string,
       actions: string[],
     ): Promise<boolean> {
-      return withTx(ctx, "admin", async (sql) => {
+      return withTx(ctx, "admin", "hasGrantOption", async (sql) => {
         const actionsArray = `{${actions.join(",")}}`;
         const rows = await sql<{ has_option: boolean }[]>`
           select exists (

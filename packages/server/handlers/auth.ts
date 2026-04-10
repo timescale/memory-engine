@@ -11,6 +11,7 @@
 
 import type { AccountsDB, Identity } from "@memory-engine/accounts";
 import { type EngineConfig, provisionEngine } from "@memory-engine/engine";
+import { info, reportError } from "@pydantic/logfire-node";
 import type { SQL } from "bun";
 import {
   authorizeDevice,
@@ -358,7 +359,7 @@ export async function oauthCallbackHandler(
     // Show success page
     return html(successPage());
   } catch (err) {
-    console.error("OAuth callback error:", err);
+    reportError("OAuth callback error", err as Error);
     return html(errorPage("Authentication failed. Please try again."), 500);
   }
 }
@@ -415,9 +416,10 @@ async function provisionPersonalAccount(
     return newOrg;
   });
 
-  console.log(
-    `Provisioned personal account for ${identity.email}: org=${org.id}`,
-  );
+  info("Provisioned personal account", {
+    email: identity.email,
+    orgId: org.id,
+  });
 }
 
 /**

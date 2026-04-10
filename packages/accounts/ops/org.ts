@@ -28,7 +28,7 @@ export function orgOps(ctx: AccountsContext) {
       const { id, name } = params;
       const slug = generateSlug();
 
-      return withTx(ctx, async (sql) => {
+      return withTx(ctx, "createOrg", async (sql) => {
         const rows = await sql<OrgRow[]>`
           insert into ${sql.unsafe(schema)}.org (id, slug, name)
           values (${id ? sql`${id}::uuid` : sql`uuidv7()`}, ${slug}, ${name})
@@ -43,7 +43,7 @@ export function orgOps(ctx: AccountsContext) {
     },
 
     async getOrg(id: string): Promise<Org | null> {
-      return withTx(ctx, async (sql) => {
+      return withTx(ctx, "getOrg", async (sql) => {
         const [row] = await sql<OrgRow[]>`
           select id, slug, name, created_at, updated_at
           from ${sql.unsafe(schema)}.org
@@ -54,7 +54,7 @@ export function orgOps(ctx: AccountsContext) {
     },
 
     async getOrgBySlug(slug: string): Promise<Org | null> {
-      return withTx(ctx, async (sql) => {
+      return withTx(ctx, "getOrgBySlug", async (sql) => {
         const [row] = await sql<OrgRow[]>`
           select id, slug, name, created_at, updated_at
           from ${sql.unsafe(schema)}.org
@@ -70,7 +70,7 @@ export function orgOps(ctx: AccountsContext) {
         return false;
       }
 
-      return withTx(ctx, async (sql) => {
+      return withTx(ctx, "updateOrg", async (sql) => {
         const result = await sql`
           update ${sql.unsafe(schema)}.org
           set
@@ -83,7 +83,7 @@ export function orgOps(ctx: AccountsContext) {
     },
 
     async deleteOrg(id: string): Promise<boolean> {
-      return withTx(ctx, async (sql) => {
+      return withTx(ctx, "deleteOrg", async (sql) => {
         const result = await sql`
           delete from ${sql.unsafe(schema)}.org
           where id = ${id}
@@ -93,7 +93,7 @@ export function orgOps(ctx: AccountsContext) {
     },
 
     async listOrgsByIdentity(identityId: string): Promise<Org[]> {
-      return withTx(ctx, async (sql) => {
+      return withTx(ctx, "listOrgsByIdentity", async (sql) => {
         const rows = await sql<OrgRow[]>`
           select o.id, o.slug, o.name, o.created_at, o.updated_at
           from ${sql.unsafe(schema)}.org o

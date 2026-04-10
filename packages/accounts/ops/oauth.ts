@@ -54,7 +54,7 @@ export function oauthOps(ctx: AccountsContext) {
         ? (await crypto.encrypt(refreshToken)).ciphertext
         : null;
 
-      return withTx(ctx, async (sql) => {
+      return withTx(ctx, "linkOAuthAccount", async (sql) => {
         const rows = await sql<OAuthAccountRow[]>`
           insert into ${sql.unsafe(schema)}.oauth_account
             (identity_id, provider, provider_account_id, email, access_token, refresh_token, encryption_key_id, token_expires_at)
@@ -82,7 +82,7 @@ export function oauthOps(ctx: AccountsContext) {
       provider: OAuthProvider,
       providerAccountId: string,
     ): Promise<OAuthAccount | null> {
-      return withTx(ctx, async (sql) => {
+      return withTx(ctx, "getOAuthAccount", async (sql) => {
         const [row] = await sql<OAuthAccountRow[]>`
           select id, identity_id, provider, provider_account_id, email, access_token, refresh_token, encryption_key_id, token_expires_at, created_at, updated_at
           from ${sql.unsafe(schema)}.oauth_account
@@ -95,7 +95,7 @@ export function oauthOps(ctx: AccountsContext) {
     async getOAuthAccountsByIdentity(
       identityId: string,
     ): Promise<OAuthAccount[]> {
-      return withTx(ctx, async (sql) => {
+      return withTx(ctx, "getOAuthAccountsByIdentity", async (sql) => {
         const rows = await sql<OAuthAccountRow[]>`
           select id, identity_id, provider, provider_account_id, email, access_token, refresh_token, encryption_key_id, token_expires_at, created_at, updated_at
           from ${sql.unsafe(schema)}.oauth_account
@@ -107,7 +107,7 @@ export function oauthOps(ctx: AccountsContext) {
     },
 
     async unlinkOAuthAccount(id: string): Promise<boolean> {
-      return withTx(ctx, async (sql) => {
+      return withTx(ctx, "unlinkOAuthAccount", async (sql) => {
         const result = await sql`
           delete from ${sql.unsafe(schema)}.oauth_account
           where id = ${id}
@@ -132,7 +132,7 @@ export function oauthOps(ctx: AccountsContext) {
         ? (await crypto.encrypt(refreshToken)).ciphertext
         : undefined;
 
-      return withTx(ctx, async (sql) => {
+      return withTx(ctx, "refreshOAuthTokens", async (sql) => {
         const result = await sql`
           update ${sql.unsafe(schema)}.oauth_account
           set
@@ -150,7 +150,7 @@ export function oauthOps(ctx: AccountsContext) {
     async getOAuthTokens(
       id: string,
     ): Promise<{ accessToken: string; refreshToken: string | null } | null> {
-      return withTx(ctx, async (sql) => {
+      return withTx(ctx, "getOAuthTokens", async (sql) => {
         const [row] = await sql<OAuthAccountRow[]>`
           select access_token, refresh_token, encryption_key_id
           from ${sql.unsafe(schema)}.oauth_account

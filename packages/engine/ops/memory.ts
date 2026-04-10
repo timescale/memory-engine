@@ -422,7 +422,7 @@ export function memoryOps(ctx: OpsContext) {
 
       const temporalStr = formatTemporal(temporal);
 
-      return withTx(ctx, "write", async (sql) => {
+      return withTx(ctx, "write", "createMemory", async (sql) => {
         const rows = await sql<MemoryRow[]>`
           insert into ${sql.unsafe(schema)}.memory
             (${id ? sql`id,` : sql``} content, meta, tree, temporal, created_by)
@@ -449,7 +449,7 @@ export function memoryOps(ctx: OpsContext) {
         return [];
       }
 
-      return withTx(ctx, "write", async (sql) => {
+      return withTx(ctx, "write", "batchCreateMemories", async (sql) => {
         // TODO: Optimize with multi-row VALUES when Bun.sql supports it better
         const ids: string[] = [];
         for (const p of params) {
@@ -475,7 +475,7 @@ export function memoryOps(ctx: OpsContext) {
      * Get a memory by ID
      */
     async getMemory(id: string): Promise<Memory | null> {
-      return withTx(ctx, "read", async (sql) => {
+      return withTx(ctx, "read", "getMemory", async (sql) => {
         const rows = await sql<MemoryRow[]>`
           select
             id, content, meta, tree::text, temporal::text,
@@ -525,7 +525,7 @@ export function memoryOps(ctx: OpsContext) {
 
       values.push(id);
 
-      return withTx(ctx, "write", async (sql) => {
+      return withTx(ctx, "write", "updateMemory", async (sql) => {
         const query = `
           update ${schema}.memory
           set ${updates.join(", ")}
@@ -546,7 +546,7 @@ export function memoryOps(ctx: OpsContext) {
      * Delete a memory by ID
      */
     async deleteMemory(id: string): Promise<boolean> {
-      return withTx(ctx, "write", async (sql) => {
+      return withTx(ctx, "write", "deleteMemory", async (sql) => {
         const result = await sql`
           delete from ${sql.unsafe(schema)}.memory
           where id = ${id}
@@ -559,7 +559,7 @@ export function memoryOps(ctx: OpsContext) {
      * Delete all memories under a tree path
      */
     async deleteTree(treePath: string): Promise<{ count: number }> {
-      return withTx(ctx, "write", async (sql) => {
+      return withTx(ctx, "write", "deleteTree", async (sql) => {
         const result = await sql`
           delete from ${sql.unsafe(schema)}.memory
           where tree <@ ${treePath}::ltree
@@ -575,7 +575,7 @@ export function memoryOps(ctx: OpsContext) {
       source: string,
       destination: string,
     ): Promise<{ count: number }> {
-      return withTx(ctx, "write", async (sql) => {
+      return withTx(ctx, "write", "moveTree", async (sql) => {
         const result = await sql`
           update ${sql.unsafe(schema)}.memory
           set tree = case
@@ -613,7 +613,7 @@ export function memoryOps(ctx: OpsContext) {
         orderBy = "desc",
       } = params;
 
-      return withTx(ctx, "read", async (sql) => {
+      return withTx(ctx, "read", "searchMemories", async (sql) => {
         let results: SearchResultItem[];
 
         if (fulltext && embedding && embedding.length > 0) {
@@ -696,7 +696,7 @@ export function memoryOps(ctx: OpsContext) {
     async getTree(params?: GetTreeParams): Promise<TreeNode[]> {
       const { tree: rootPath, levels } = params ?? {};
 
-      return withTx(ctx, "read", async (sql) => {
+      return withTx(ctx, "read", "getTree", async (sql) => {
         if (rootPath) {
           const rows = await sql<TreeRow[]>`
             select subpath(tree, 0, nlevel(${rootPath}::ltree) + g.lvl)::text as path, count(*)::int as count
