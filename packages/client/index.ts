@@ -50,6 +50,7 @@ export type {
   EngineClient,
   GrantNamespace,
   MemoryNamespace,
+  OwnerNamespace,
   RoleNamespace,
   UserNamespace,
 } from "./engine.ts";
