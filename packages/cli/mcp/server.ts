@@ -8,7 +8,9 @@ import type { EngineClient } from "@memory-engine/client";
 import { createClient } from "@memory-engine/client";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { stringify as yamlStringify } from "yaml";
 import { z } from "zod";
+import { type ImportFormat, parseContent } from "../parsers/index.ts";
 
 /**
  * MCP instructions — sent to the client during initialization.
@@ -436,6 +438,170 @@ Shows how memories are organized and how many exist at each level. Use to unders
       return {
         content: [
           { type: "text" as const, text: JSON.stringify(result, null, 2) },
+        ],
+      };
+    },
+  );
+
+  // me_memory_import
+  server.registerTool(
+    "me_memory_import",
+    {
+      title: "Import Memories",
+      description: `Bulk import memories from a content string. Parses the content according to the specified format and creates all memories in one batch.
+
+Token-efficient: pass raw file content directly without iterating through individual memories.`,
+      inputSchema: {
+        content: z
+          .string()
+          .min(1)
+          .describe(
+            "Raw content to import (JSON array, YAML array, or Markdown with frontmatter)",
+          ),
+        format: z.string().describe("Content format: json, yaml, or md"),
+      },
+      annotations: {
+        title: "Import Memories",
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+      },
+    },
+    async (args) => {
+      const format = args.format as ImportFormat;
+      const memories = parseContent(args.content, { format });
+
+      const createParams = memories.map((mem) => ({
+        content: mem.content,
+        ...(mem.id ? { id: mem.id } : {}),
+        ...(mem.meta ? { meta: mem.meta } : {}),
+        ...(mem.tree ? { tree: mem.tree } : {}),
+        ...(mem.temporal ? { temporal: mem.temporal } : {}),
+      }));
+
+      const result = await client.memory.batchCreate({
+        memories: createParams,
+      });
+
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: JSON.stringify(
+              { imported: result.ids.length, ids: result.ids },
+              null,
+              2,
+            ),
+          },
+        ],
+      };
+    },
+  );
+
+  // me_memory_export
+  server.registerTool(
+    "me_memory_export",
+    {
+      title: "Export Memories",
+      description: `Bulk export memories with filters. Returns formatted content as a string.
+
+Token-efficient: retrieves and formats all matching memories in one call. Use for backups, migration, or sharing.`,
+      inputSchema: {
+        tree: z.string().nullable().describe("Tree path filter (null for all)"),
+        meta: z
+          .string()
+          .nullable()
+          .describe("Metadata filter as JSON string (null to omit)"),
+        temporal: z
+          .object({
+            contains: z
+              .string()
+              .nullable()
+              .describe("Find memories containing this point in time"),
+            overlaps: z
+              .object({
+                start: z.string().describe("Start of range"),
+                end: z.string().describe("End of range"),
+              })
+              .nullable()
+              .describe("Find memories overlapping this range"),
+            within: z
+              .object({
+                start: z.string().describe("Start of range"),
+                end: z.string().describe("End of range"),
+              })
+              .nullable()
+              .describe("Find memories fully within this range"),
+          })
+          .nullable()
+          .describe("Temporal filter (null to omit)"),
+        format: z.string().describe("Output format: json, yaml, or md"),
+        limit: z
+          .number()
+          .int()
+          .describe("Maximum memories to export (0 = default 1000)"),
+      },
+      annotations: {
+        title: "Export Memories",
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+      },
+    },
+    async (args) => {
+      const searchParams: Record<string, unknown> = {
+        limit: args.limit > 0 ? args.limit : 1000,
+        orderBy: "asc",
+      };
+      if (args.tree) searchParams.tree = args.tree;
+      if (args.meta) searchParams.meta = JSON.parse(args.meta);
+      if (args.temporal) {
+        searchParams.temporal = {
+          contains: args.temporal.contains ?? undefined,
+          overlaps: args.temporal.overlaps ?? undefined,
+          within: args.temporal.within ?? undefined,
+        };
+      }
+
+      const result = await client.memory.search(
+        searchParams as Parameters<typeof client.memory.search>[0],
+      );
+
+      // Strip to import-compatible fields
+      const memories = result.results.map((r) => ({
+        id: r.id,
+        content: r.content,
+        ...(r.meta && Object.keys(r.meta).length > 0 ? { meta: r.meta } : {}),
+        ...(r.tree ? { tree: r.tree } : {}),
+        ...(r.temporal ? { temporal: r.temporal } : {}),
+      }));
+
+      let content: string;
+      const format = args.format as "json" | "yaml" | "md";
+
+      if (format === "yaml") {
+        content = yamlStringify(memories, { lineWidth: 0 });
+      } else if (format === "md") {
+        content = memories
+          .map((mem) => {
+            const fm: Record<string, unknown> = { id: mem.id };
+            if (mem.meta) fm.meta = mem.meta;
+            if (mem.tree) fm.tree = mem.tree;
+            if (mem.temporal) fm.temporal = mem.temporal;
+            const yaml = yamlStringify(fm, { lineWidth: 0 }).trimEnd();
+            return `---\n${yaml}\n---\n\n${mem.content}\n`;
+          })
+          .join("\n");
+      } else {
+        content = JSON.stringify(memories, null, 2);
+      }
+
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: JSON.stringify({ count: memories.length, content }, null, 2),
+          },
         ],
       };
     },
