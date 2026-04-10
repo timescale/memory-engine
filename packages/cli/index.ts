@@ -12,6 +12,7 @@ import { createGrantCommand } from "./commands/grant.ts";
 import { createInvitationCommand } from "./commands/invitation.ts";
 import { createLoginCommand } from "./commands/login.ts";
 import { createLogoutCommand } from "./commands/logout.ts";
+import { createMemoryCommand } from "./commands/memory.ts";
 import { createOrgCommand } from "./commands/org.ts";
 import { createOwnerCommand } from "./commands/owner.ts";
 import { createRoleCommand } from "./commands/role.ts";
@@ -44,6 +45,9 @@ program.addCommand(createOrgCommand());
 
 // Invitation commands
 program.addCommand(createInvitationCommand());
+
+// Memory commands
+program.addCommand(createMemoryCommand());
 
 // Engine-level RBAC commands
 program.addCommand(createUserCommand());
