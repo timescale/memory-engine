@@ -10,7 +10,11 @@
  * - me memory tree [filter]: Show tree structure
  * - me memory move <src> <dst>: Move memories between tree paths
  * - me memory import [files...]: Import from files/stdin
+ * - me memory export [file]: Export with filters
  */
+
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import * as clack from "@clack/prompts";
 import { createClient } from "@memory-engine/client";
 import { Command } from "commander";
@@ -568,6 +572,168 @@ function createMemoryMoveCommand(): Command {
     });
 }
 
+/**
+ * Strip a memory response to import-compatible fields only.
+ */
+function toExportable(
+  memory: Record<string, unknown>,
+): Record<string, unknown> {
+  const result: Record<string, unknown> = {
+    id: memory.id,
+    content: memory.content,
+  };
+  if (
+    memory.meta &&
+    typeof memory.meta === "object" &&
+    Object.keys(memory.meta as object).length > 0
+  ) {
+    result.meta = memory.meta;
+  }
+  if (memory.tree) result.tree = memory.tree;
+  if (memory.temporal) result.temporal = memory.temporal;
+  return result;
+}
+
+function createMemoryExportCommand(): Command {
+  return new Command("export")
+    .description("export memories with filters")
+    .argument("[file]", "output file or directory (stdout if omitted)")
+    .option("--tree <filter>", "tree path filter")
+    .option("--format <fmt>", "output format: json, yaml, md", "json")
+    .option("--meta <json>", "metadata filter (JSON)")
+    .option("--limit <n>", "max memories to export", "1000")
+    .option("--temporal-contains <ts>", "memory must contain this point")
+    .option("--temporal-overlaps <range>", "memory must overlap (start,end)")
+    .option("--temporal-within <range>", "memory must be within (start,end)")
+    .action(async (file: string | undefined, opts, cmd) => {
+      const globalOpts = cmd.optsWithGlobals();
+      const creds = resolveCredentials(globalOpts.server);
+      const fmt = getOutputFormat(globalOpts);
+      requireSession(creds, fmt);
+      requireEngine(creds, fmt);
+
+      const format = opts.format as "json" | "yaml" | "md";
+      if (!["json", "yaml", "md"].includes(format)) {
+        handleError(
+          new Error("Invalid --format: must be json, yaml, or md"),
+          fmt,
+        );
+      }
+
+      // Build search params (filter-only, no semantic/fulltext)
+      const searchParams: Record<string, unknown> = {
+        limit: Number.parseInt(opts.limit, 10),
+        orderBy: "asc" as const,
+      };
+      if (opts.tree) searchParams.tree = opts.tree;
+      if (opts.meta) searchParams.meta = parseMeta(opts.meta);
+
+      // Build temporal filter
+      if (opts.temporalContains) {
+        searchParams.temporal = { contains: opts.temporalContains };
+      } else if (opts.temporalOverlaps) {
+        const parts = opts.temporalOverlaps
+          .split(",")
+          .map((s: string) => s.trim());
+        if (parts.length !== 2 || !parts[0] || !parts[1]) {
+          handleError(new Error("--temporal-overlaps requires start,end"), fmt);
+        }
+        searchParams.temporal = {
+          overlaps: { start: parts[0], end: parts[1] },
+        };
+      } else if (opts.temporalWithin) {
+        const parts = opts.temporalWithin
+          .split(",")
+          .map((s: string) => s.trim());
+        if (parts.length !== 2 || !parts[0] || !parts[1]) {
+          handleError(new Error("--temporal-within requires start,end"), fmt);
+        }
+        searchParams.temporal = {
+          within: { start: parts[0], end: parts[1] },
+        };
+      }
+
+      const engine = createClient({ url: creds.server, apiKey: creds.apiKey });
+
+      try {
+        const result = await engine.memory.search(
+          searchParams as Parameters<typeof engine.memory.search>[0],
+        );
+
+        const memories = result.results.map((r) =>
+          toExportable(r as unknown as Record<string, unknown>),
+        );
+
+        if (memories.length === 0) {
+          output({ count: 0 }, fmt, () => {
+            clack.log.warn("No memories found matching filters.");
+          });
+          return;
+        }
+
+        // Format output
+        if (format === "md") {
+          // Markdown: directory of .md files
+          if (!file) {
+            // Stdout — only allowed for single memory
+            if (memories.length === 1 && memories[0]) {
+              console.log(formatMemoryAsMarkdown(memories[0]));
+            } else {
+              handleError(
+                new Error(
+                  `Cannot write ${memories.length} memories as Markdown to stdout. Specify a directory path.`,
+                ),
+                fmt,
+              );
+            }
+          } else {
+            // Write directory
+            if (!existsSync(file)) {
+              mkdirSync(file, { recursive: true });
+            }
+            for (const mem of memories) {
+              const filename = `${mem.id}.md`;
+              const filepath = join(file, filename);
+              writeFileSync(filepath, formatMemoryAsMarkdown(mem), "utf-8");
+            }
+            output({ count: memories.length, directory: file }, fmt, () => {
+              clack.log.success(
+                `Exported ${memories.length} ${memories.length === 1 ? "memory" : "memories"} to ${file}/`,
+              );
+            });
+          }
+        } else if (format === "yaml") {
+          const content = yamlStringify(memories, { lineWidth: 0 });
+          if (file) {
+            writeFileSync(file, content, "utf-8");
+            output({ count: memories.length, file }, fmt, () => {
+              clack.log.success(
+                `Exported ${memories.length} ${memories.length === 1 ? "memory" : "memories"} to ${file}`,
+              );
+            });
+          } else {
+            console.log(content);
+          }
+        } else {
+          // JSON (default)
+          const content = JSON.stringify(memories, null, 2);
+          if (file) {
+            writeFileSync(file, `${content}\n`, "utf-8");
+            output({ count: memories.length, file }, fmt, () => {
+              clack.log.success(
+                `Exported ${memories.length} ${memories.length === 1 ? "memory" : "memories"} to ${file}`,
+              );
+            });
+          } else {
+            console.log(content);
+          }
+        }
+      } catch (error) {
+        handleError(error, fmt);
+      }
+    });
+}
+
 // =============================================================================
 // Command Group
 // =============================================================================
@@ -583,5 +749,6 @@ export function createMemoryCommand(): Command {
   memory.addCommand(createMemoryTreeCommand());
   memory.addCommand(createMemoryMoveCommand());
   memory.addCommand(createMemoryImportCommand());
+  memory.addCommand(createMemoryExportCommand());
   return memory;
 }
