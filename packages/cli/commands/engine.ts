@@ -7,7 +7,6 @@
  */
 import * as clack from "@clack/prompts";
 import { createAccountsClient, RpcError } from "@memory-engine/client";
-import type { EngineResponse } from "@memory-engine/protocol/accounts/engine";
 import { Command } from "commander";
 import {
   getEngineApiKey,

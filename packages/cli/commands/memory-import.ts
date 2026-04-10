@@ -18,7 +18,7 @@ import {
   type ParsedMemory,
   parseContent,
 } from "../parsers/index.ts";
-import { handleError, requireEngine, requireSession } from "../util.ts";
+import { requireEngine, requireSession } from "../util.ts";
 
 /**
  * Collect files from a path. If directory, requires --recursive.
