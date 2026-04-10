@@ -43,7 +43,7 @@ export function userOps(ctx: OpsContext) {
         createrole = false,
       } = params;
 
-      return withTx(ctx, "admin", async (sql) => {
+      return withTx(ctx, "admin", "createUser", async (sql) => {
         const rows = await sql<UserRow[]>`
           insert into ${sql.unsafe(schema)}."user"
             (id, name, identity_id, can_login, superuser, createrole)
@@ -92,7 +92,7 @@ export function userOps(ctx: OpsContext) {
      * Get a user by ID
      */
     async getUser(id: string): Promise<User | null> {
-      return withTx(ctx, "admin", async (sql) => {
+      return withTx(ctx, "admin", "getUser", async (sql) => {
         const [row] = await sql<UserRow[]>`
           select id, name, identity_id, can_login, superuser, createrole, created_at, updated_at
           from ${sql.unsafe(schema)}."user"
@@ -106,7 +106,7 @@ export function userOps(ctx: OpsContext) {
      * Get a user by name
      */
     async getUserByName(name: string): Promise<User | null> {
-      return withTx(ctx, "admin", async (sql) => {
+      return withTx(ctx, "admin", "getUserByName", async (sql) => {
         const [row] = await sql<UserRow[]>`
           select id, name, identity_id, can_login, superuser, createrole, created_at, updated_at
           from ${sql.unsafe(schema)}."user"
@@ -120,7 +120,7 @@ export function userOps(ctx: OpsContext) {
      * List all users (optionally filter by can_login)
      */
     async listUsers(canLogin?: boolean): Promise<User[]> {
-      return withTx(ctx, "admin", async (sql) => {
+      return withTx(ctx, "admin", "listUsers", async (sql) => {
         const rows = await sql<UserRow[]>`
           select id, name, identity_id, can_login, superuser, createrole, created_at, updated_at
           from ${sql.unsafe(schema)}."user"
@@ -135,7 +135,7 @@ export function userOps(ctx: OpsContext) {
      * List users linked to a specific identity
      */
     async listUsersByIdentity(identityId: string): Promise<User[]> {
-      return withTx(ctx, "admin", async (sql) => {
+      return withTx(ctx, "admin", "listUsersByIdentity", async (sql) => {
         const rows = await sql<UserRow[]>`
           select id, name, identity_id, can_login, superuser, createrole, created_at, updated_at
           from ${sql.unsafe(schema)}."user"
@@ -150,7 +150,7 @@ export function userOps(ctx: OpsContext) {
      * Find a user by identity ID (returns first match or null)
      */
     async getUserByIdentity(identityId: string): Promise<User | null> {
-      return withTx(ctx, "admin", async (sql) => {
+      return withTx(ctx, "admin", "getUserByIdentity", async (sql) => {
         const [row] = await sql<UserRow[]>`
           select id, name, identity_id, can_login, superuser, createrole, created_at, updated_at
           from ${sql.unsafe(schema)}."user"
@@ -165,7 +165,7 @@ export function userOps(ctx: OpsContext) {
      * Rename a user
      */
     async renameUser(id: string, newName: string): Promise<boolean> {
-      return withTx(ctx, "admin", async (sql) => {
+      return withTx(ctx, "admin", "renameUser", async (sql) => {
         const result = await sql`
           update ${sql.unsafe(schema)}."user"
           set name = ${newName}
@@ -179,7 +179,7 @@ export function userOps(ctx: OpsContext) {
      * Delete a user
      */
     async deleteUser(id: string): Promise<boolean> {
-      return withTx(ctx, "admin", async (sql) => {
+      return withTx(ctx, "admin", "deleteUser", async (sql) => {
         const result = await sql`
           delete from ${sql.unsafe(schema)}."user"
           where id = ${id}

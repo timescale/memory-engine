@@ -47,7 +47,7 @@ export function invitationOps(ctx: AccountsContext) {
       const expiresAt = new Date();
       expiresAt.setDate(expiresAt.getDate() + expiresInDays);
 
-      return withTx(ctx, async (sql) => {
+      return withTx(ctx, "createInvitation", async (sql) => {
         // Upsert: replace existing pending invitation for same org+email
         const rows = await sql<InvitationRow[]>`
           insert into ${sql.unsafe(schema)}.invitation
@@ -74,7 +74,7 @@ export function invitationOps(ctx: AccountsContext) {
     },
 
     async getInvitationByToken(rawToken: string): Promise<Invitation | null> {
-      return withTx(ctx, async (sql) => {
+      return withTx(ctx, "getInvitationByToken", async (sql) => {
         // Get all pending invitations and verify token against each
         // This is necessary because we can't query by hash directly
         const rows = await sql<InvitationRow[]>`
@@ -96,7 +96,7 @@ export function invitationOps(ctx: AccountsContext) {
     },
 
     async acceptInvitation(id: string): Promise<Invitation | null> {
-      return withTx(ctx, async (sql) => {
+      return withTx(ctx, "acceptInvitation", async (sql) => {
         const rows = await sql<InvitationRow[]>`
           update ${sql.unsafe(schema)}.invitation
           set accepted_at = now()
@@ -110,7 +110,7 @@ export function invitationOps(ctx: AccountsContext) {
     },
 
     async revokeInvitation(id: string): Promise<boolean> {
-      return withTx(ctx, async (sql) => {
+      return withTx(ctx, "revokeInvitation", async (sql) => {
         const result = await sql`
           delete from ${sql.unsafe(schema)}.invitation
           where id = ${id}
@@ -120,7 +120,7 @@ export function invitationOps(ctx: AccountsContext) {
     },
 
     async listPendingInvitations(orgId: string): Promise<Invitation[]> {
-      return withTx(ctx, async (sql) => {
+      return withTx(ctx, "listPendingInvitations", async (sql) => {
         const rows = await sql<InvitationRow[]>`
           select id, org_id, email, role, token, invited_by, expires_at, accepted_at, created_at
           from ${sql.unsafe(schema)}.invitation

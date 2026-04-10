@@ -17,15 +17,17 @@ import type { AccountsContext } from "../types";
  */
 export async function withTx<T>(
   ctx: AccountsContext,
+  operation: string,
   fn: (sql: SQL) => Promise<T>,
 ): Promise<T> {
   if (ctx.inTransaction) {
     return fn(ctx.sql);
   }
 
-  return span("accounts.transaction", {
+  return span(`accounts.${operation}`, {
     attributes: {
       "db.schema": ctx.schema,
+      "db.operation": operation,
     },
     callback: () =>
       ctx.sql.begin(async (tx) => {

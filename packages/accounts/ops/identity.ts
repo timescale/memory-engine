@@ -26,7 +26,7 @@ export function identityOps(ctx: AccountsContext) {
     async createIdentity(params: CreateIdentityParams): Promise<Identity> {
       const { id, email, name } = params;
 
-      return withTx(ctx, async (sql) => {
+      return withTx(ctx, "createIdentity", async (sql) => {
         const rows = await sql<IdentityRow[]>`
           insert into ${sql.unsafe(schema)}.identity (id, email, name)
           values (${id ? sql`${id}::uuid` : sql`uuidv7()`}, ${email}, ${name})
@@ -41,7 +41,7 @@ export function identityOps(ctx: AccountsContext) {
     },
 
     async getIdentity(id: string): Promise<Identity | null> {
-      return withTx(ctx, async (sql) => {
+      return withTx(ctx, "getIdentity", async (sql) => {
         const [row] = await sql<IdentityRow[]>`
           select id, email, name, created_at, updated_at
           from ${sql.unsafe(schema)}.identity
@@ -52,7 +52,7 @@ export function identityOps(ctx: AccountsContext) {
     },
 
     async getIdentityByEmail(email: string): Promise<Identity | null> {
-      return withTx(ctx, async (sql) => {
+      return withTx(ctx, "getIdentityByEmail", async (sql) => {
         const [row] = await sql<IdentityRow[]>`
           select id, email, name, created_at, updated_at
           from ${sql.unsafe(schema)}.identity
@@ -71,7 +71,7 @@ export function identityOps(ctx: AccountsContext) {
         return false;
       }
 
-      return withTx(ctx, async (sql) => {
+      return withTx(ctx, "updateIdentity", async (sql) => {
         const result = await sql`
           update ${sql.unsafe(schema)}.identity
           set
@@ -85,7 +85,7 @@ export function identityOps(ctx: AccountsContext) {
     },
 
     async deleteIdentity(id: string): Promise<boolean> {
-      return withTx(ctx, async (sql) => {
+      return withTx(ctx, "deleteIdentity", async (sql) => {
         const result = await sql`
           delete from ${sql.unsafe(schema)}.identity
           where id = ${id}

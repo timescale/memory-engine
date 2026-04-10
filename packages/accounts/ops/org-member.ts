@@ -38,7 +38,7 @@ export function orgMemberOps(ctx: AccountsContext) {
       identityId: string,
       role: OrgRole,
     ): Promise<OrgMember> {
-      return withTx(ctx, async (sql) => {
+      return withTx(ctx, "addMember", async (sql) => {
         const rows = await sql<OrgMemberRow[]>`
           insert into ${sql.unsafe(schema)}.org_member (org_id, identity_id, role)
           values (${orgId}, ${identityId}, ${role})
@@ -53,7 +53,7 @@ export function orgMemberOps(ctx: AccountsContext) {
     },
 
     async removeMember(orgId: string, identityId: string): Promise<boolean> {
-      return withTx(ctx, async (sql) => {
+      return withTx(ctx, "removeMember", async (sql) => {
         try {
           const result = await sql`
             delete from ${sql.unsafe(schema)}.org_member
@@ -77,7 +77,7 @@ export function orgMemberOps(ctx: AccountsContext) {
       identityId: string,
       newRole: OrgRole,
     ): Promise<boolean> {
-      return withTx(ctx, async (sql) => {
+      return withTx(ctx, "updateRole", async (sql) => {
         try {
           const result = await sql`
             update ${sql.unsafe(schema)}.org_member
@@ -101,7 +101,7 @@ export function orgMemberOps(ctx: AccountsContext) {
       orgId: string,
       identityId: string,
     ): Promise<OrgMember | null> {
-      return withTx(ctx, async (sql) => {
+      return withTx(ctx, "getMember", async (sql) => {
         const [row] = await sql<OrgMemberRow[]>`
           select org_id, identity_id, role, created_at
           from ${sql.unsafe(schema)}.org_member
@@ -112,7 +112,7 @@ export function orgMemberOps(ctx: AccountsContext) {
     },
 
     async listMembers(orgId: string): Promise<OrgMember[]> {
-      return withTx(ctx, async (sql) => {
+      return withTx(ctx, "listMembers", async (sql) => {
         const rows = await sql<OrgMemberRow[]>`
           select org_id, identity_id, role, created_at
           from ${sql.unsafe(schema)}.org_member
@@ -124,7 +124,7 @@ export function orgMemberOps(ctx: AccountsContext) {
     },
 
     async listOwners(orgId: string): Promise<OrgMember[]> {
-      return withTx(ctx, async (sql) => {
+      return withTx(ctx, "listOwners", async (sql) => {
         const rows = await sql<OrgMemberRow[]>`
           select org_id, identity_id, role, created_at
           from ${sql.unsafe(schema)}.org_member

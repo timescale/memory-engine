@@ -41,7 +41,7 @@ export function engineOps(ctx: AccountsContext) {
       const { id, orgId, name, shardId = 1, language = "english" } = params;
       const slug = generateSlug();
 
-      return withTx(ctx, async (sql) => {
+      return withTx(ctx, "createEngine", async (sql) => {
         const rows = await sql<EngineRow[]>`
           insert into ${sql.unsafe(schema)}.engine (id, org_id, slug, name, shard_id, language)
           values (${id ? sql`${id}::uuid` : sql`uuidv7()`}, ${orgId}, ${slug}, ${name}, ${shardId}, ${language})
@@ -56,7 +56,7 @@ export function engineOps(ctx: AccountsContext) {
     },
 
     async getEngine(id: string): Promise<Engine | null> {
-      return withTx(ctx, async (sql) => {
+      return withTx(ctx, "getEngine", async (sql) => {
         const [row] = await sql<EngineRow[]>`
           select id, org_id, slug, name, shard_id, status, language, created_at, updated_at
           from ${sql.unsafe(schema)}.engine
@@ -67,7 +67,7 @@ export function engineOps(ctx: AccountsContext) {
     },
 
     async getEngineBySlug(slug: string): Promise<Engine | null> {
-      return withTx(ctx, async (sql) => {
+      return withTx(ctx, "getEngineBySlug", async (sql) => {
         const [row] = await sql<EngineRow[]>`
           select id, org_id, slug, name, shard_id, status, language, created_at, updated_at
           from ${sql.unsafe(schema)}.engine
@@ -86,7 +86,7 @@ export function engineOps(ctx: AccountsContext) {
         return false;
       }
 
-      return withTx(ctx, async (sql) => {
+      return withTx(ctx, "updateEngine", async (sql) => {
         const result = await sql`
           update ${sql.unsafe(schema)}.engine
           set
@@ -100,7 +100,7 @@ export function engineOps(ctx: AccountsContext) {
     },
 
     async listEnginesByOrg(orgId: string): Promise<Engine[]> {
-      return withTx(ctx, async (sql) => {
+      return withTx(ctx, "listEnginesByOrg", async (sql) => {
         const rows = await sql<EngineRow[]>`
           select id, org_id, slug, name, shard_id, status, language, created_at, updated_at
           from ${sql.unsafe(schema)}.engine

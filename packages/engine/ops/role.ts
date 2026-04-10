@@ -44,7 +44,7 @@ export function roleOps(ctx: OpsContext) {
       memberId: string,
       withAdminOption = false,
     ): Promise<void> {
-      await withTx(ctx, "admin", async (sql) => {
+      await withTx(ctx, "admin", "addRoleMember", async (sql) => {
         // Check for cycles first
         const cycleRows = await sql<{ would_cycle: boolean }[]>`
           select ${sql.unsafe(schema)}.would_create_cycle(
@@ -75,7 +75,7 @@ export function roleOps(ctx: OpsContext) {
      * Remove a member from a role
      */
     async removeRoleMember(roleId: string, memberId: string): Promise<boolean> {
-      return withTx(ctx, "admin", async (sql) => {
+      return withTx(ctx, "admin", "removeRoleMember", async (sql) => {
         const result = await sql`
           delete from ${sql.unsafe(schema)}.role_membership
           where role_id = ${roleId}
@@ -89,7 +89,7 @@ export function roleOps(ctx: OpsContext) {
      * List members of a role
      */
     async listRoleMembers(roleId: string): Promise<RoleMember[]> {
-      return withTx(ctx, "admin", async (sql) => {
+      return withTx(ctx, "admin", "listRoleMembers", async (sql) => {
         const rows = await sql<RoleMemberRow[]>`
           select role_id, member_id, with_admin_option, created_at
           from ${sql.unsafe(schema)}.role_membership
@@ -104,7 +104,7 @@ export function roleOps(ctx: OpsContext) {
      * List roles that a user is a member of
      */
     async listRolesForUser(userId: string): Promise<RoleInfo[]> {
-      return withTx(ctx, "admin", async (sql) => {
+      return withTx(ctx, "admin", "listRolesForUser", async (sql) => {
         const rows = await sql<RoleInfoRow[]>`
           select u.id, u.name, rm.with_admin_option
           from ${sql.unsafe(schema)}.role_membership rm
@@ -120,7 +120,7 @@ export function roleOps(ctx: OpsContext) {
      * Check if a user has admin option on a role
      */
     async hasAdminOption(userId: string, roleId: string): Promise<boolean> {
-      return withTx(ctx, "admin", async (sql) => {
+      return withTx(ctx, "admin", "hasAdminOption", async (sql) => {
         const rows = await sql<{ has_admin: boolean }[]>`
           select exists (
             select 1

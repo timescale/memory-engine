@@ -58,7 +58,7 @@ export function apiKeyOps(ctx: OpsContext, engineSlug: string) {
       const keyHash = await hashSecret(secret);
       const rawKey = formatApiKey(engineSlug, lookupId, secret);
 
-      return withTx(ctx, "admin", async (sql) => {
+      return withTx(ctx, "admin", "createApiKey", async (sql) => {
         const rows = await sql<ApiKeyRow[]>`
           insert into ${sql.unsafe(schema)}.api_key
             (user_id, lookup_id, key_hash, name, expires_at)
@@ -84,7 +84,7 @@ export function apiKeyOps(ctx: OpsContext, engineSlug: string) {
       lookupId: string,
       secret: string,
     ): Promise<ValidateApiKeyResult> {
-      return withTx(ctx, "admin", async (sql) => {
+      return withTx(ctx, "admin", "validateApiKey", async (sql) => {
         const [row] = await sql<ApiKeyRow[]>`
           select id, user_id, lookup_id, key_hash, name, expires_at, last_used_at, created_at, revoked_at
           from ${sql.unsafe(schema)}.api_key
@@ -127,7 +127,7 @@ export function apiKeyOps(ctx: OpsContext, engineSlug: string) {
      * Get an API key by ID (without the secret/hash)
      */
     async getApiKey(id: string): Promise<ApiKey | null> {
-      return withTx(ctx, "admin", async (sql) => {
+      return withTx(ctx, "admin", "getApiKey", async (sql) => {
         const [row] = await sql<ApiKeyRow[]>`
           select id, user_id, lookup_id, key_hash, name, expires_at, last_used_at, created_at, revoked_at
           from ${sql.unsafe(schema)}.api_key
@@ -141,7 +141,7 @@ export function apiKeyOps(ctx: OpsContext, engineSlug: string) {
      * List all API keys for a user
      */
     async listApiKeys(userId: string): Promise<ApiKey[]> {
-      return withTx(ctx, "admin", async (sql) => {
+      return withTx(ctx, "admin", "listApiKeys", async (sql) => {
         const rows = await sql<ApiKeyRow[]>`
           select id, user_id, lookup_id, key_hash, name, expires_at, last_used_at, created_at, revoked_at
           from ${sql.unsafe(schema)}.api_key
@@ -156,7 +156,7 @@ export function apiKeyOps(ctx: OpsContext, engineSlug: string) {
      * Revoke an API key
      */
     async revokeApiKey(id: string): Promise<boolean> {
-      return withTx(ctx, "admin", async (sql) => {
+      return withTx(ctx, "admin", "revokeApiKey", async (sql) => {
         const result = await sql`
           update ${sql.unsafe(schema)}.api_key
           set revoked_at = now()
@@ -171,7 +171,7 @@ export function apiKeyOps(ctx: OpsContext, engineSlug: string) {
      * Delete an API key permanently
      */
     async deleteApiKey(id: string): Promise<boolean> {
-      return withTx(ctx, "admin", async (sql) => {
+      return withTx(ctx, "admin", "deleteApiKey", async (sql) => {
         const result = await sql`
           delete from ${sql.unsafe(schema)}.api_key
           where id = ${id}

@@ -46,7 +46,7 @@ export function sessionOps(ctx: AccountsContext) {
       const expiresAt = new Date();
       expiresAt.setDate(expiresAt.getDate() + expiresInDays);
 
-      return withTx(ctx, async (sql) => {
+      return withTx(ctx, "createSession", async (sql) => {
         const rows = await sql<SessionRow[]>`
           insert into ${sql.unsafe(schema)}.session (identity_id, token, expires_at)
           values (${identityId}, ${tokenHash}, ${expiresAt})
@@ -66,7 +66,7 @@ export function sessionOps(ctx: AccountsContext) {
     async validateSession(
       rawToken: string,
     ): Promise<{ session: Session; identity: Identity } | null> {
-      return withTx(ctx, async (sql) => {
+      return withTx(ctx, "validateSession", async (sql) => {
         // Get all non-expired sessions and verify token against each
         const rows = await sql<SessionWithIdentityRow[]>`
           select
@@ -99,7 +99,7 @@ export function sessionOps(ctx: AccountsContext) {
     },
 
     async deleteSession(id: string): Promise<boolean> {
-      return withTx(ctx, async (sql) => {
+      return withTx(ctx, "deleteSession", async (sql) => {
         const result = await sql`
           delete from ${sql.unsafe(schema)}.session
           where id = ${id}
@@ -109,7 +109,7 @@ export function sessionOps(ctx: AccountsContext) {
     },
 
     async deleteSessionsByIdentity(identityId: string): Promise<number> {
-      return withTx(ctx, async (sql) => {
+      return withTx(ctx, "deleteSessionsByIdentity", async (sql) => {
         const result = await sql`
           delete from ${sql.unsafe(schema)}.session
           where identity_id = ${identityId}
@@ -119,7 +119,7 @@ export function sessionOps(ctx: AccountsContext) {
     },
 
     async cleanupExpiredSessions(): Promise<number> {
-      return withTx(ctx, async (sql) => {
+      return withTx(ctx, "cleanupExpiredSessions", async (sql) => {
         const result = await sql`
           delete from ${sql.unsafe(schema)}.session
           where expires_at <= now()
