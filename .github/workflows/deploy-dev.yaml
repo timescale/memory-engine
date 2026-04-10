@@ -1,0 +1,56 @@
+name: Deploy Dev - Merge main
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - packages/server/**
+      - packages/engine/**
+      - packages/embedding/**
+      - packages/worker/**
+      - packages/protocol/**
+      - packages/accounts/**
+      - scripts/**
+      - package.json
+      - bun.lock
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Dispatch Build
+        uses: timescale/workflow-dispatch-action@main
+        with:
+          github-token: ${{ secrets.ORG_AUTOMATION_TOKEN }}
+          owner: timescale
+          repo: tiger-agents-deploy
+          workflow_id: build.yaml
+          ref: "main"
+          inputs: >
+            {
+              "repository": "memory-engine",
+              "dockerfile_path": "packages/server/Dockerfile",
+              "sha": "${{ github.sha }}",
+              "latest": true
+            }
+
+  deploy:
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Dispatch Deploy - dev
+        uses: timescale/workflow-dispatch-action@main
+        with:
+          github-token: ${{ secrets.ORG_AUTOMATION_TOKEN }}
+          owner: timescale
+          repo: tiger-agents-deploy
+          workflow_id: deploy.yaml
+          ref: "main"
+          inputs: >
+            {
+              "repository": "memory-engine",
+              "sha": "${{ github.sha }}",
+              "env": "dev",
+              "namespace": "savannah-system"
+            }

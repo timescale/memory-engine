@@ -1,14 +1,20 @@
-name: Build and Deploy - Merge main
+name: Deploy Prod - Tagged Release
 on:
   push:
-    branches:
-      - main
+    tags:
+      - "server/v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to deploy (e.g. server/v1.2.3)"
+        required: true
+        type: string
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Dispatch Workflow
+      - name: Dispatch Build
         uses: timescale/workflow-dispatch-action@main
         with:
           github-token: ${{ secrets.ORG_AUTOMATION_TOKEN }}
@@ -21,21 +27,14 @@ jobs:
               "repository": "memory-engine",
               "dockerfile_path": "packages/server/Dockerfile",
               "sha": "${{ github.sha }}",
-              "latest": true
+              "latest": false
             }
 
   deploy:
     runs-on: ubuntu-latest
     needs: build
-    strategy:
-      matrix:
-        include:
-          - env: dev
-            namespace: savannah-system
-          - env: prod
-            namespace: memory-engine
     steps:
-      - name: Dispatch Workflow - ${{ matrix.env }}
+      - name: Dispatch Deploy - prod
         uses: timescale/workflow-dispatch-action@main
         with:
           github-token: ${{ secrets.ORG_AUTOMATION_TOKEN }}
@@ -47,6 +46,6 @@ jobs:
             {
               "repository": "memory-engine",
               "sha": "${{ github.sha }}",
-              "env": "${{ matrix.env }}",
-              "namespace": "${{ matrix.namespace }}"
+              "env": "prod",
+              "namespace": "memory-engine"
             }
