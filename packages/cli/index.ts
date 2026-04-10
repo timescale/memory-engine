@@ -12,6 +12,7 @@ import { createGrantCommand } from "./commands/grant.ts";
 import { createInvitationCommand } from "./commands/invitation.ts";
 import { createLoginCommand } from "./commands/login.ts";
 import { createLogoutCommand } from "./commands/logout.ts";
+import { createMcpCommand } from "./commands/mcp.ts";
 import { createMemoryCommand } from "./commands/memory.ts";
 import { createOrgCommand } from "./commands/org.ts";
 import { createOwnerCommand } from "./commands/owner.ts";
@@ -48,6 +49,9 @@ program.addCommand(createInvitationCommand());
 
 // Memory commands
 program.addCommand(createMemoryCommand());
+
+// MCP server
+program.addCommand(createMcpCommand());
 
 // Engine-level RBAC commands
 program.addCommand(createUserCommand());

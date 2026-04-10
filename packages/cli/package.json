@@ -15,7 +15,9 @@
     "@clack/prompts": "^0.9.0",
     "@memory-engine/client": "workspace:*",
     "@memory-engine/protocol": "workspace:*",
+    "@modelcontextprotocol/sdk": "^1.25.3",
     "commander": "^14.0.0",
-    "yaml": "^2.7.0"
+    "yaml": "^2.7.0",
+    "zod": "^4.0.0"
   }
 }
