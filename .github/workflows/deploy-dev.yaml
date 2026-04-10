@@ -14,10 +14,38 @@ on:
       - package.json
       - bun.lock
   workflow_dispatch:
+    inputs:
+      ref:
+        description: "Git ref to deploy (branch, tag, or SHA)"
+        required: false
+        default: "main"
+        type: string
 
 jobs:
+  resolve:
+    runs-on: ubuntu-latest
+    outputs:
+      sha: ${{ steps.resolve.outputs.sha }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - name: Resolve ref to commit SHA
+        id: resolve
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            REF="${{ inputs.ref }}"
+            SHA=$(git rev-parse --verify "$REF^{commit}" 2>/dev/null) || { echo "::error::Ref '$REF' not found"; exit 1; }
+            echo "Resolved ref '$REF' to SHA: $SHA"
+          else
+            SHA="${{ github.sha }}"
+            echo "Using event SHA: $SHA"
+          fi
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+
   build:
     runs-on: ubuntu-latest
+    needs: resolve
     steps:
       - name: Dispatch Build
         uses: timescale/workflow-dispatch-action@main
@@ -31,13 +59,13 @@ jobs:
             {
               "repository": "memory-engine",
               "dockerfile_path": "packages/server/Dockerfile",
-              "sha": "${{ github.sha }}",
+              "sha": "${{ needs.resolve.outputs.sha }}",
               "latest": true
             }
 
   deploy:
     runs-on: ubuntu-latest
-    needs: build
+    needs: [resolve, build]
     steps:
       - name: Dispatch Deploy - dev
         uses: timescale/workflow-dispatch-action@main
@@ -50,7 +78,7 @@ jobs:
           inputs: >
             {
               "repository": "memory-engine",
-              "sha": "${{ github.sha }}",
+              "sha": "${{ needs.resolve.outputs.sha }}",
               "env": "dev",
               "namespace": "savannah-system"
             }
