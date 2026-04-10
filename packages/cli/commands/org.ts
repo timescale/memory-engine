@@ -9,10 +9,10 @@
  * - me org member remove <identity-id>: Remove a member
  */
 import * as clack from "@clack/prompts";
-import { createAccountsClient, RpcError } from "@memory-engine/client";
+import { createAccountsClient } from "@memory-engine/client";
 import { Command } from "commander";
 import { resolveCredentials } from "../credentials.ts";
-import { getOutputFormat, type OutputFormat, output } from "../output.ts";
+import { getOutputFormat, output } from "../output.ts";
 import { handleError, requireSession, resolveOrgId } from "../util.ts";
 
 // =============================================================================
