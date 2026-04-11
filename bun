@@ -1,10 +1,9 @@
 #!/bin/bash
-
 version="bun-v1.3.12"
 scriptDir="$(cd "$(dirname "$0")" && pwd)"
-downloadDir="$scriptDir/download/bun/${version}"
+platform="$(uname -s | tr '[:upper:]' '[:lower:]')-$(uname -m)"
+downloadDir="$scriptDir/download/bun/${version}/${platform}"
 bunCmd="$downloadDir/bin/bun"
-
 if [ ! -f "$bunCmd" ]; then
     echo Installing bun to "$bunCmd"
     bashArgs=()
@@ -13,5 +12,4 @@ if [ ! -f "$bunCmd" ]; then
     fi
     curl -fsSL https://bun.sh/install | BUN_INSTALL="$downloadDir" bash "${bashArgs[@]}"
 fi
-
 exec "$bunCmd" "$@"
