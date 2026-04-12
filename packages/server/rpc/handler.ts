@@ -142,16 +142,21 @@ export async function handleRpcRequest(
       },
     });
 
-    return json(createSuccessResponse(result, requestId));
-  } catch (error) {
+    return json(createSuccessResponse(result, requestId ?? 0));
+  } catch (error: unknown) {
     // Handle application errors (thrown by handlers)
     if (isAppError(error)) {
+      const appErr = error as {
+        code: string;
+        message: string;
+        details?: unknown;
+      };
       return json(
         applicationError(
           requestId ?? 0,
-          error.code,
-          error.message,
-          error.details,
+          appErr.code,
+          appErr.message,
+          appErr.details as Record<string, unknown> | undefined,
         ),
       );
     }

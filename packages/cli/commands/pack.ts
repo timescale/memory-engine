@@ -138,7 +138,7 @@ function createPackInstallCommand(): Command {
         });
 
         // Step 4: Identify stale memories (different version)
-        const stale = existing.results.filter((m) => {
+        const stale = existing.results.filter((m: Record<string, unknown>) => {
           const meta = m.meta as Record<string, unknown> | undefined;
           const packMeta = meta?.pack as Record<string, unknown> | undefined;
           return packMeta?.version !== packVersion;

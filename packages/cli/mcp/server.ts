@@ -570,10 +570,13 @@ Token-efficient: retrieves and formats all matching memories in one call. Use fo
       );
 
       // Strip to import-compatible fields
-      const memories = result.results.map((r) => ({
+      const memories = result.results.map((r: Record<string, unknown>) => ({
         id: r.id,
         content: r.content,
-        ...(r.meta && Object.keys(r.meta).length > 0 ? { meta: r.meta } : {}),
+        ...((r.meta as Record<string, unknown> | undefined) &&
+        Object.keys(r.meta as Record<string, unknown>).length > 0
+          ? { meta: r.meta }
+          : {}),
         ...(r.tree ? { tree: r.tree } : {}),
         ...(r.temporal ? { temporal: r.temporal } : {}),
       }));
@@ -585,7 +588,7 @@ Token-efficient: retrieves and formats all matching memories in one call. Use fo
         content = yamlStringify(memories, { lineWidth: 0 });
       } else if (format === "md") {
         content = memories
-          .map((mem) => {
+          .map((mem: Record<string, unknown>) => {
             const fm: Record<string, unknown> = { id: mem.id };
             if (mem.meta) fm.meta = mem.meta;
             if (mem.tree) fm.tree = mem.tree;

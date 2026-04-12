@@ -95,7 +95,11 @@ export async function resolveOrgId(
     output(
       {
         error: msg,
-        orgs: orgs.map((o) => ({ id: o.id, name: o.name, slug: o.slug })),
+        orgs: orgs.map((o: { id: string; name: string; slug: string }) => ({
+          id: o.id,
+          name: o.name,
+          slug: o.slug,
+        })),
       },
       fmt,
       () => {},

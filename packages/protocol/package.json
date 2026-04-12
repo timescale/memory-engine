@@ -7,47 +7,47 @@
   "exports": {
     ".": {
       "bun": "./index.ts",
-      "types": "./dist/index.d.ts",
+      "types": "./index.ts",
       "import": "./dist/index.js"
     },
     "./fields": {
       "bun": "./fields.ts",
-      "types": "./dist/fields.d.ts",
+      "types": "./fields.ts",
       "import": "./dist/fields.js"
     },
     "./jsonrpc": {
       "bun": "./jsonrpc.ts",
-      "types": "./dist/jsonrpc.d.ts",
+      "types": "./jsonrpc.ts",
       "import": "./dist/jsonrpc.js"
     },
     "./errors": {
       "bun": "./errors.ts",
-      "types": "./dist/errors.d.ts",
+      "types": "./errors.ts",
       "import": "./dist/errors.js"
     },
     "./engine": {
       "bun": "./engine/index.ts",
-      "types": "./dist/engine/index.d.ts",
+      "types": "./engine/index.ts",
       "import": "./dist/engine/index.js"
     },
     "./engine/*": {
       "bun": "./engine/*.ts",
-      "types": "./dist/engine/*.d.ts",
+      "types": "./engine/*.ts",
       "import": "./dist/engine/*.js"
     },
     "./accounts": {
       "bun": "./accounts/index.ts",
-      "types": "./dist/accounts/index.d.ts",
+      "types": "./accounts/index.ts",
       "import": "./dist/accounts/index.js"
     },
     "./accounts/*": {
       "bun": "./accounts/*.ts",
-      "types": "./dist/accounts/*.d.ts",
+      "types": "./accounts/*.ts",
       "import": "./dist/accounts/*.js"
     },
     "./auth/*": {
       "bun": "./auth/*.ts",
-      "types": "./dist/auth/*.d.ts",
+      "types": "./auth/*.ts",
       "import": "./dist/auth/*.js"
     }
   },

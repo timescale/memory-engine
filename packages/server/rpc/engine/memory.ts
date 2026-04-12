@@ -179,14 +179,22 @@ async function memoryBatchCreate(
   const { db, userId } = context as EngineContext;
 
   const ids = await db.batchCreateMemories(
-    params.memories.map((m) => ({
-      id: m.id ?? undefined,
-      content: m.content,
-      meta: m.meta ?? undefined,
-      tree: m.tree ?? undefined,
-      temporal: parseTemporal(m.temporal),
-      createdBy: userId,
-    })),
+    params.memories.map(
+      (m: {
+        id?: string | null;
+        content: string;
+        meta?: Record<string, unknown> | null;
+        tree?: string | null;
+        temporal?: { start: string; end?: string | null } | null;
+      }) => ({
+        id: m.id ?? undefined,
+        content: m.content,
+        meta: m.meta ?? undefined,
+        tree: m.tree ?? undefined,
+        temporal: parseTemporal(m.temporal),
+        createdBy: userId,
+      }),
+    ),
   );
 
   return { ids };

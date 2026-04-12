@@ -516,7 +516,8 @@ function createMemoryTreeCommand(): Command {
           const total =
             result.nodes.length > 0
               ? result.nodes.reduce(
-                  (max, n) => (n.count > max ? n.count : max),
+                  (max: number, n: { count: number }) =>
+                    n.count > max ? n.count : max,
                   0,
                 )
               : 0;
@@ -660,8 +661,8 @@ function createMemoryExportCommand(): Command {
           searchParams as Parameters<typeof engine.memory.search>[0],
         );
 
-        const memories = result.results.map((r) =>
-          toExportable(r as unknown as Record<string, unknown>),
+        const memories = result.results.map((r: Record<string, unknown>) =>
+          toExportable(r as Record<string, unknown>),
         );
 
         if (memories.length === 0) {
