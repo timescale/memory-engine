@@ -1,20 +1,81 @@
 {
   "name": "@memory-engine/protocol",
   "version": "0.1.0",
-  "private": true,
+  "description": "Protocol schemas and types for Memory Engine",
+  "homepage": "https://memoryengine.dev",
   "type": "module",
   "exports": {
-    ".": "./index.ts",
-    "./fields": "./fields.ts",
-    "./jsonrpc": "./jsonrpc.ts",
-    "./errors": "./errors.ts",
-    "./engine": "./engine/index.ts",
-    "./engine/*": "./engine/*.ts",
-    "./accounts": "./accounts/index.ts",
-    "./accounts/*": "./accounts/*.ts",
-    "./auth/*": "./auth/*.ts"
+    ".": {
+      "bun": "./index.ts",
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./fields": {
+      "bun": "./fields.ts",
+      "types": "./dist/fields.d.ts",
+      "import": "./dist/fields.js"
+    },
+    "./jsonrpc": {
+      "bun": "./jsonrpc.ts",
+      "types": "./dist/jsonrpc.d.ts",
+      "import": "./dist/jsonrpc.js"
+    },
+    "./errors": {
+      "bun": "./errors.ts",
+      "types": "./dist/errors.d.ts",
+      "import": "./dist/errors.js"
+    },
+    "./engine": {
+      "bun": "./engine/index.ts",
+      "types": "./dist/engine/index.d.ts",
+      "import": "./dist/engine/index.js"
+    },
+    "./engine/*": {
+      "bun": "./engine/*.ts",
+      "types": "./dist/engine/*.d.ts",
+      "import": "./dist/engine/*.js"
+    },
+    "./accounts": {
+      "bun": "./accounts/index.ts",
+      "types": "./dist/accounts/index.d.ts",
+      "import": "./dist/accounts/index.js"
+    },
+    "./accounts/*": {
+      "bun": "./accounts/*.ts",
+      "types": "./dist/accounts/*.d.ts",
+      "import": "./dist/accounts/*.js"
+    },
+    "./auth/*": {
+      "bun": "./auth/*.ts",
+      "types": "./dist/auth/*.d.ts",
+      "import": "./dist/auth/*.js"
+    }
+  },
+  "files": [
+    "dist",
+    "*.ts",
+    "engine/*.ts",
+    "accounts/*.ts",
+    "auth/*.ts",
+    "!*.test.ts"
+  ],
+  "scripts": {
+    "build:js": "bun build index.ts fields.ts jsonrpc.ts errors.ts engine/index.ts engine/memory.ts engine/user.ts engine/grant.ts engine/owner.ts engine/role.ts engine/api-key.ts accounts/index.ts accounts/engine.ts accounts/identity.ts accounts/invitation.ts accounts/org.ts accounts/org-member.ts accounts/session.ts auth/device-flow.ts --outdir dist --format esm --target node --packages external --splitting",
+    "build:types": "tsc -p tsconfig.build.json",
+    "build": "bun run build:js && bun run build:types",
+    "prepublishOnly": "bun run build"
   },
   "dependencies": {
     "zod": "^4.0.0"
-  }
+  },
+  "peerDependencies": {
+    "typescript": "^5.0.0"
+  },
+  "peerDependenciesMeta": {
+    "typescript": {
+      "optional": true
+    }
+  },
+  "private": false,
+  "license": "Apache-2.0"
 }

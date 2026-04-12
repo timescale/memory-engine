@@ -69,6 +69,12 @@
       "dependencies": {
         "zod": "^4.0.0",
       },
+      "peerDependencies": {
+        "typescript": "^5.0.0",
+      },
+      "optionalPeers": [
+        "typescript",
+      ],
     },
     "packages/server": {
       "name": "memory-engine-server",
