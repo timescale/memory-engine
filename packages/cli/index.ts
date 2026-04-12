@@ -1,13 +1,14 @@
 #!/usr/bin/env bun
+import t from "@bomb.sh/tab";
+import createTabFromCommander from "@bomb.sh/tab/commander";
+import { Command } from "commander";
 /**
  * me — CLI for Memory Engine.
  *
  * Entry point: defines the root Commander program, registers global options
  * and all command groups, then runs.
  */
-import t from "@bomb.sh/tab";
-import createTabFromCommander from "@bomb.sh/tab/commander";
-import { Command } from "commander";
+import { APP_VERSION } from "../../version";
 import { createApiKeyCommand } from "./commands/apikey.ts";
 import { createEngineCommand } from "./commands/engine.ts";
 import { createGrantCommand } from "./commands/grant.ts";
@@ -31,7 +32,7 @@ const program = new Command();
 program
   .name("me")
   .description("Memory Engine CLI")
-  .version("0.1.0")
+  .version(APP_VERSION)
   .option(
     "--server <url>",
     "server URL (overrides ME_SERVER env and stored default)",

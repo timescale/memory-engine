@@ -6,6 +6,7 @@
  * 2. Provisions schema in the engine database
  * 3. Defaults language to "english" when not specified
  */
+
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import {
   type AccountsDB,
@@ -17,6 +18,7 @@ import { createEngineDB } from "@memory-engine/engine";
 import { bootstrap } from "@memory-engine/engine/migrate/bootstrap";
 import { TestDatabase as EngineTestDatabase } from "@memory-engine/engine/migrate/test-utils";
 import { SQL } from "bun";
+import { APP_VERSION } from "../../../../version";
 import type { HandlerContext } from "../types";
 import { engineMethods } from "./engine";
 import type { AccountsRpcContext } from "./types";
@@ -87,7 +89,7 @@ function createContext(identity: Identity): HandlerContext {
     db: accountsDb,
     identity,
     engineSql,
-    appVersion: "0.1.0",
+    appVersion: APP_VERSION,
   } as unknown as AccountsRpcContext;
 }
 

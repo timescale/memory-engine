@@ -1,7 +1,12 @@
 // packages/server/index.ts
 import { createAccountsDB } from "@memory-engine/accounts";
+import { migrate as migrateAccounts } from "@memory-engine/accounts/migrate/runner";
 import type { EmbeddingConfig } from "@memory-engine/embedding";
+import { discoverEngineSchemas } from "@memory-engine/engine/migrate";
+import { bootstrap as bootstrapEngine } from "@memory-engine/engine/migrate/bootstrap";
+import { migrateAll as migrateEngines } from "@memory-engine/engine/migrate/runner";
 import { configure, info, reportError, span } from "@pydantic/logfire-node";
+import { APP_VERSION } from "../../version";
 import { embeddingConstants } from "./config";
 import type { ServerContext } from "./context";
 import { checkSizeLimit } from "./middleware";
@@ -27,7 +32,7 @@ configure({
   sendToLogfire: "if-token-present",
   console: process.env.LOGFIRE_CONSOLE === "true",
   serviceName: "memory-engine",
-  serviceVersion: "0.1.0",
+  serviceVersion: APP_VERSION,
   codeSource: {
     repository: "https://github.com/timescale/memory-engine",
     revision: gitRevision,
@@ -285,6 +290,86 @@ const accountsDb = createAccountsDB(accountsSql, accountsSchema, {
 });
 
 // =============================================================================
+// Database Bootstrap & Migrations (blocking — server won't serve until current)
+// =============================================================================
+
+// Bootstrap engine database (extensions + roles, idempotent)
+// If the DB user lacks CREATE EXTENSION privileges (e.g., RDS), this will
+// throw with a clear error describing what's missing.
+await bootstrapEngine(engineSql);
+info("Engine database bootstrapped");
+
+// Migrate accounts schema (scaffold creates schema if missing)
+const accountsMigrateResult = await migrateAccounts(
+  accountsSql,
+  { schema: accountsSchema },
+  APP_VERSION,
+);
+if (accountsMigrateResult.status === "error") {
+  throw new Error(
+    `Accounts migration failed: ${accountsMigrateResult.error?.message}`,
+  );
+}
+if (accountsMigrateResult.applied.length > 0) {
+  info("Accounts migrations applied", {
+    applied: accountsMigrateResult.applied,
+  });
+} else {
+  info("Accounts schema up to date");
+}
+
+// Ensure encryption data key exists (idempotent)
+try {
+  const keyId = await accountsDb.createDataKey();
+  await accountsDb.activateDataKey(keyId);
+  info("Encryption data key created", { keyId });
+} catch {
+  // Key already exists — expected on subsequent startups
+}
+
+// Migrate all engine schemas
+const engineSchemas = await discoverEngineSchemas(engineSql);
+if (engineSchemas.length > 0) {
+  const engineMigrateResults = await migrateEngines(
+    engineSql,
+    engineSchemas,
+    { embedding_dimensions: embeddingConstants.dimensions },
+    APP_VERSION,
+  );
+
+  let totalApplied = 0;
+  let totalErrors = 0;
+  for (const [schema, result] of engineMigrateResults) {
+    if (result.status === "error") {
+      totalErrors++;
+      reportError(
+        `Engine migration failed for ${schema}`,
+        result.error ?? new Error("Unknown migration error"),
+      );
+    } else if (result.applied.length > 0) {
+      totalApplied += result.applied.length;
+    }
+  }
+
+  if (totalErrors > 0) {
+    throw new Error(
+      `${totalErrors} engine schema(s) failed to migrate. Check logs for details.`,
+    );
+  }
+
+  if (totalApplied > 0) {
+    info("Engine migrations applied", {
+      schemas: engineSchemas.length,
+      totalApplied,
+    });
+  } else {
+    info("Engine schemas up to date", { schemas: engineSchemas.length });
+  }
+} else {
+  info("No engine schemas to migrate");
+}
+
+// =============================================================================
 // Router
 // =============================================================================
 
@@ -294,7 +379,7 @@ const serverContext: ServerContext = {
   engineSql,
   embeddingConfig,
   apiBaseUrl,
-  appVersion: "0.1.0",
+  appVersion: APP_VERSION,
 };
 
 const router = createRouter(serverContext);

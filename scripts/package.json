@@ -1,9 +1,5 @@
 {
   "name": "scripts",
   "private": true,
-  "type": "module",
-  "dependencies": {
-    "@memory-engine/accounts": "workspace:*",
-    "@memory-engine/engine": "workspace:*"
-  }
+  "type": "module"
 }

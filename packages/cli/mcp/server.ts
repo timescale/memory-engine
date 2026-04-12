@@ -4,12 +4,14 @@
  * A thin proxy: translates MCP tool calls into engine client HTTP calls.
  * Each instance is locked to a single engine via its API key.
  */
+
 import type { EngineClient } from "@memory-engine/client";
 import { createClient } from "@memory-engine/client";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { stringify as yamlStringify } from "yaml";
 import { z } from "zod";
+import { APP_VERSION } from "../../../version";
 import { type ImportFormat, parseContent } from "../parsers/index.ts";
 
 /**
@@ -652,7 +654,7 @@ export async function runMcpServer(options: McpServerOptions): Promise<void> {
   const mcpServer = new McpServer(
     {
       name: "me",
-      version: "0.1.0",
+      version: APP_VERSION,
     },
     {
       instructions: MCP_INSTRUCTIONS,

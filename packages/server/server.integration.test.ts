@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, mock, test } from "bun:test";
 import type { AccountsDB } from "@memory-engine/accounts";
 import type { EmbeddingConfig } from "@memory-engine/embedding";
 import type { SQL } from "bun";
+import { APP_VERSION } from "../../version";
 import type { ServerContext } from "./context";
 import { MAX_BODY_SIZE } from "./middleware/size-limit";
 
@@ -35,7 +36,7 @@ function createMockContext(): ServerContext {
       apiKey: "test-key",
     } as EmbeddingConfig,
     apiBaseUrl: "https://test.example.com",
-    appVersion: "0.1.0",
+    appVersion: APP_VERSION,
   };
 }
 

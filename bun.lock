@@ -12,7 +12,7 @@
     },
     "packages/accounts": {
       "name": "@memory-engine/accounts",
-      "version": "0.0.0",
+      "version": "0.1.0",
       "dependencies": {
         "@pydantic/logfire-node": "^0.13.1",
       },
@@ -49,7 +49,7 @@
     },
     "packages/embedding": {
       "name": "@memory-engine/embedding",
-      "version": "0.0.0",
+      "version": "0.1.0",
       "dependencies": {
         "@ai-sdk/openai": "^3.0.0",
         "@pydantic/logfire-node": "^0.13.1",
@@ -58,21 +58,21 @@
     },
     "packages/engine": {
       "name": "@memory-engine/engine",
-      "version": "0.0.0",
+      "version": "0.1.0",
       "dependencies": {
         "@pydantic/logfire-node": "^0.13.1",
       },
     },
     "packages/protocol": {
       "name": "@memory-engine/protocol",
-      "version": "0.0.0",
+      "version": "0.1.0",
       "dependencies": {
         "zod": "^4.0.0",
       },
     },
     "packages/server": {
       "name": "memory-engine-server",
-      "version": "0.0.0",
+      "version": "0.1.0",
       "dependencies": {
         "@memory-engine/accounts": "workspace:*",
         "@memory-engine/embedding": "workspace:*",
@@ -84,7 +84,7 @@
     },
     "packages/worker": {
       "name": "@memory-engine/worker",
-      "version": "0.0.0",
+      "version": "0.1.0",
       "dependencies": {
         "@memory-engine/embedding": "workspace:*",
         "@memory-engine/engine": "workspace:*",
@@ -93,10 +93,6 @@
     },
     "scripts": {
       "name": "scripts",
-      "dependencies": {
-        "@memory-engine/accounts": "workspace:*",
-        "@memory-engine/engine": "workspace:*",
-      },
     },
   },
   "packages": {
