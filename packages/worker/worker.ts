@@ -1,18 +1,17 @@
-import { discoverEngineSchemas } from "@memory-engine/engine/migrate";
 import { info, reportError } from "@pydantic/logfire-node";
 import type { SQL } from "bun";
 import { processBatch } from "./process";
-import type { WorkerConfig, WorkerStats } from "./types";
+import type { EngineTarget, WorkerConfig, WorkerStats } from "./types";
 
 /**
- * Process one schema's embedding queue. Returns true if work was found.
+ * Process one engine's embedding queue. Returns true if work was found.
  */
 export async function runOnce(
   sql: SQL,
-  schema: string,
+  target: EngineTarget,
   config: WorkerConfig,
 ): Promise<boolean> {
-  const result = await processBatch(sql, schema, config);
+  const result = await processBatch(sql, target, config);
   return result.claimed > 0;
 }
 
@@ -27,7 +26,6 @@ export async function runDaemon(
   config: WorkerConfig,
   options?: { signal?: AbortSignal; stats?: WorkerStats },
 ): Promise<void> {
-  const busyDelayMs = config.busyDelayMs ?? 10;
   const idleDelayMs = config.idleDelayMs ?? 10_000;
   const maxBackoffMs = config.maxBackoffMs ?? 60_000;
   const refreshIntervalMs = config.refreshIntervalMs ?? 60_000;
@@ -35,20 +33,20 @@ export async function runDaemon(
   const signal = options?.signal;
   const stats = options?.stats;
 
-  let schemas = await discoverEngineSchemas(sql);
+  let targets = await config.discover();
   let lastRefresh = Date.now();
   let consecutiveErrors = 0;
   let idleSince: number | null = null;
 
   try {
     while (!signal?.aborted) {
-      // Periodic schema re-discovery
+      // Periodic engine re-discovery
       if (Date.now() - lastRefresh >= refreshIntervalMs) {
-        schemas = await discoverEngineSchemas(sql);
+        targets = await config.discover();
         lastRefresh = Date.now();
       }
 
-      if (schemas.length === 0) {
+      if (targets.length === 0) {
         if (signal?.aborted) break;
         await sleep(idleDelayMs);
         continue;
@@ -57,9 +55,9 @@ export async function runDaemon(
       try {
         let anyWork = false;
 
-        for (const schema of schemas) {
+        for (const target of targets) {
           if (signal?.aborted) break;
-          const result = await processBatch(sql, schema, config);
+          const result = await processBatch(sql, target, config);
           if (result.claimed > 0) anyWork = true;
           if (stats) {
             stats.schemasPolled++;
@@ -83,8 +81,7 @@ export async function runDaemon(
 
         if (signal?.aborted) break;
 
-        const delay = anyWork ? busyDelayMs : idleDelayMs;
-        if (delay > 0) await sleep(delay);
+        if (!anyWork) await sleep(idleDelayMs);
       } catch (error) {
         consecutiveErrors++;
         const errorMsg = error instanceof Error ? error.message : String(error);
@@ -94,7 +91,7 @@ export async function runDaemon(
         }
         reportError("Worker batch processing failed", error as Error, {
           consecutiveErrors,
-          schemaCount: schemas.length,
+          engineCount: targets.length,
         });
 
         if (signal?.aborted) break;
@@ -109,7 +106,7 @@ export async function runDaemon(
   } finally {
     info("Embedding worker daemon stopped", {
       consecutiveErrors,
-      schemaCount: schemas.length,
+      engineCount: targets.length,
     });
   }
 }

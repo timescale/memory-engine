@@ -1,7 +1,7 @@
 import { generateEmbeddings } from "@memory-engine/embedding";
 import { info, span } from "@pydantic/logfire-node";
 import type { SQL } from "bun";
-import type { ProcessResult, WorkerConfig } from "./types";
+import type { EngineTarget, ProcessResult, WorkerConfig } from "./types";
 
 interface ClaimedRow {
   queue_id: string;
@@ -18,14 +18,16 @@ interface ClaimedRow {
  */
 export async function processBatch(
   sql: SQL,
-  schema: string,
+  target: EngineTarget,
   config: WorkerConfig,
 ): Promise<ProcessResult> {
+  const { schema, shard } = target;
   const batchSize = config.batchSize ?? 10;
   const lockDuration = config.lockDuration ?? "5 minutes";
 
   // --- Claim ---
   const claimed = await sql.begin(async (tx) => {
+    await tx.unsafe(`SET LOCAL pgdog.shard TO ${shard}`);
     await tx.unsafe(`SET LOCAL search_path TO ${schema}, public`);
     await tx.unsafe("SET LOCAL ROLE me_embed");
     return tx.unsafe(
@@ -42,6 +44,7 @@ export async function processBatch(
   return span("embedding.batch", {
     attributes: {
       "worker.schema": schema,
+      "worker.shard": shard,
       "batch.size": claimed.length,
       "batch.memoryIds": claimed.map((r) => r.memory_id),
     },
@@ -61,6 +64,7 @@ export async function processBatch(
       let failed = 0;
 
       await sql.begin(async (tx) => {
+        await tx.unsafe(`SET LOCAL pgdog.shard TO ${shard}`);
         await tx.unsafe(`SET LOCAL search_path TO ${schema}, public`);
         await tx.unsafe("SET LOCAL ROLE me_embed");
 

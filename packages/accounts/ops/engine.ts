@@ -110,6 +110,19 @@ export function engineOps(ctx: AccountsContext) {
         return rows.map(rowToEngine);
       });
     },
+
+    /** List all active engines across all orgs (for embedding worker discovery) */
+    async listActiveEngines(): Promise<{ slug: string; shardId: number }[]> {
+      return withTx(ctx, "listActiveEngines", async (sql) => {
+        const rows = await sql<{ slug: string; shard_id: number }[]>`
+          select slug, shard_id
+          from ${sql.unsafe(schema)}.engine
+          where status = 'active'
+          order by created_at
+        `;
+        return rows.map((r) => ({ slug: r.slug, shardId: r.shard_id }));
+      });
+    },
   };
 }
 

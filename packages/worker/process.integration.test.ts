@@ -16,6 +16,8 @@ let connectionString: string;
 let sql: SQL;
 const slug = "tstworker001";
 const schema = `me_${slug}`;
+const target = { schema, shard: 1 };
+const discover = async () => [target];
 
 beforeAll(async () => {
   connectionString = await testDb.create();
@@ -114,10 +116,11 @@ describe("processBatch integration", () => {
           apiKey: "test-key",
           baseUrl: `http://localhost:${server.port}/v1`,
         },
+        discover,
         batchSize: 10,
       };
 
-      const result = await processBatch(sql, schema, config);
+      const result = await processBatch(sql, target, config);
 
       expect(result.claimed).toBeGreaterThanOrEqual(1);
       expect(result.succeeded).toBeGreaterThanOrEqual(1);
@@ -170,11 +173,12 @@ describe("processBatch integration", () => {
           apiKey: "test-key",
           baseUrl: `http://localhost:${server.port}/v1`,
         },
+        discover,
         batchSize: 10,
       };
 
       // Clear any pending entries first
-      await processBatch(sql, schema, config);
+      await processBatch(sql, target, config);
 
       // Now insert a new memory and manually create a stale queue entry
       const staleId = await insertMemory("Stale version content");
@@ -185,7 +189,7 @@ describe("processBatch integration", () => {
         [staleId],
       );
 
-      const result = await processBatch(sql, schema, config);
+      const result = await processBatch(sql, target, config);
 
       // Stale row cancelled at claim time — not counted as claimed
       expect(result.claimed).toBe(0);
@@ -227,10 +231,11 @@ describe("processBatch integration", () => {
           baseUrl: `http://localhost:${server.port}/v1`,
           options: { maxRetries: 0 },
         },
+        discover,
         batchSize: 10,
       };
 
-      const result = await processBatch(sql, schema, config);
+      const result = await processBatch(sql, target, config);
 
       expect(result.claimed).toBeGreaterThanOrEqual(1);
       expect(result.failed).toBeGreaterThanOrEqual(1);
@@ -284,10 +289,11 @@ describe("processBatch integration", () => {
           baseUrl: `http://localhost:${server.port}/v1`,
           options: { maxRetries: 0 },
         },
+        discover,
         batchSize: 10,
       };
 
-      const result = await processBatch(sql, schema, config);
+      const result = await processBatch(sql, target, config);
 
       expect(result.claimed).toBeGreaterThanOrEqual(1);
       expect(result.failed).toBeGreaterThanOrEqual(1);
@@ -356,10 +362,11 @@ describe("processBatch integration", () => {
           apiKey: "test-key",
           baseUrl: `http://localhost:${server.port}/v1`,
         },
+        discover,
         batchSize: 10,
       };
 
-      const result = await processBatch(sql, schema, config);
+      const result = await processBatch(sql, target, config);
 
       // Only version 3 should be claimed and processed
       expect(result.claimed).toBe(1);
@@ -429,10 +436,11 @@ describe("processBatch integration", () => {
           apiKey: "test-key",
           baseUrl: `http://localhost:${server.port}/v1`,
         },
+        discover,
         batchSize: 10,
       };
 
-      const result = await processBatch(sql, schema, config);
+      const result = await processBatch(sql, target, config);
       expect(result.claimed).toBe(0);
     } finally {
       server.stop();
@@ -464,10 +472,11 @@ describe("processBatch integration", () => {
         apiKey: "test-key",
         baseUrl: "http://localhost:1/v1", // never called
       },
+      discover,
       batchSize: 10,
     };
 
-    const result = await processBatch(sql, schema, config);
+    const result = await processBatch(sql, target, config);
 
     // Zombie was swept, not claimed
     expect(result.claimed).toBe(0);
@@ -491,6 +500,7 @@ describe("processBatch integration", () => {
         apiKey: "test-key",
         baseUrl: "http://localhost:1/v1",
       },
+      discover,
       batchSize: 10,
     };
 
@@ -499,7 +509,7 @@ describe("processBatch integration", () => {
       `UPDATE ${schema}.embedding_queue SET outcome = 'completed' WHERE outcome IS NULL`,
     );
 
-    const result = await processBatch(sql, schema, config);
+    const result = await processBatch(sql, target, config);
     expect(result.claimed).toBe(0);
     expect(result.succeeded).toBe(0);
     expect(result.failed).toBe(0);

@@ -1,17 +1,13 @@
 import { describe, expect, test } from "bun:test";
 
 /**
- * Create a mock SQL object that supports both tagged-template and .unsafe() calls.
- * discoverEngineSchemas uses sql`...` (tagged template), while processBatch uses sql.begin().
+ * Create a mock SQL object that supports .begin() for processBatch transactions.
  */
 function createMockSql(handlers: {
-  tagged?: () => Promise<unknown[]>;
-  unsafe?: (query: string, params?: unknown[]) => Promise<unknown[]>;
   begin?: (fn: (tx: unknown) => Promise<unknown>) => Promise<unknown>;
 }) {
-  // The SQL object itself is callable as a tagged template
-  const sql = Object.assign(async () => handlers.tagged?.() ?? [], {
-    unsafe: handlers.unsafe ?? (async () => []),
+  const sql = Object.assign(async () => [], {
+    unsafe: async () => [],
     begin: handlers.begin ?? (async () => []),
     close: async () => {},
   });
@@ -37,9 +33,7 @@ describe("worker backoff logic", () => {
   test("runDaemon exits on abort signal", async () => {
     const { runDaemon } = await import("./worker");
 
-    const mockSql = createMockSql({
-      tagged: async () => [], // discoverEngineSchemas returns no schemas
-    });
+    const mockSql = createMockSql({});
 
     const abort = new AbortController();
     abort.abort();
@@ -52,6 +46,7 @@ describe("worker backoff logic", () => {
           model: "test",
           dimensions: 3,
         },
+        discover: async () => [],
         idleDelayMs: 100,
       },
       { signal: abort.signal },
@@ -64,12 +59,6 @@ describe("worker backoff logic", () => {
     let discoverCalls = 0;
 
     const mockSql = createMockSql({
-      // discoverEngineSchemas uses tagged template
-      tagged: async () => {
-        discoverCalls++;
-        return [{ nspname: "me_test12345678" }];
-      },
-      // processBatch uses sql.begin()
       begin: async (fn: (tx: unknown) => Promise<unknown>) => {
         const tx = {
           unsafe: async (q: string) => {
@@ -87,6 +76,10 @@ describe("worker backoff logic", () => {
         provider: "openai",
         model: "test",
         dimensions: 3,
+      },
+      discover: async () => {
+        discoverCalls++;
+        return [{ schema: "me_test12345678", shard: 1 }];
       },
       idleDelayMs: 50,
       drainTimeoutMs: 100,
