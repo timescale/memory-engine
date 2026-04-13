@@ -82,8 +82,8 @@ configure({
 //   ENGINE_POOL_CONNECTION_TIMEOUT - Connection timeout in seconds (default: 30)
 //
 // Cleanup:
-//   DEVICE_FLOW_CLEANUP_INTERVAL_MS - Interval for cleaning up expired device auths
-//                                     (default: 900000 = 15 minutes)
+//   DEVICE_FLOW_CLEANUP_CRON - Cron schedule for cleaning up expired device auths
+//                              (default: "*/15 * * * *" = every 15 minutes, UTC)
 //
 // Embedding Worker:
 //   WORKER_COUNT              - Number of concurrent embedding workers (default: 2)
@@ -135,12 +135,8 @@ if (!apiBaseUrl) {
   throw new Error("API_BASE_URL environment variable is required");
 }
 
-// Default: 15 minutes
-const deviceFlowCleanupIntervalMs = parseIntEnv(
-  "DEVICE_FLOW_CLEANUP_INTERVAL_MS",
-  process.env.DEVICE_FLOW_CLEANUP_INTERVAL_MS || "",
-  "900000",
-);
+const deviceFlowCleanupCron =
+  process.env.DEVICE_FLOW_CLEANUP_CRON || "*/15 * * * *";
 
 const accountsSchema = process.env.ACCOUNTS_SCHEMA || "accounts";
 
@@ -445,8 +441,8 @@ info("Embedding worker pool started", { workers: workerCount });
 // Cleanup Jobs
 // =============================================================================
 
-// Cleanup expired device authorizations periodically
-const cleanupInterval = setInterval(async () => {
+// Cleanup expired device authorizations on a cron schedule (UTC)
+const cleanupCron = Bun.cron(deviceFlowCleanupCron, async () => {
   try {
     const count = await accountsDb.deleteExpired();
     if (count > 0) {
@@ -455,7 +451,7 @@ const cleanupInterval = setInterval(async () => {
   } catch (error) {
     reportError("Failed to cleanup device authorizations", error as Error);
   }
-}, deviceFlowCleanupIntervalMs);
+});
 
 // =============================================================================
 // Server
@@ -518,8 +514,8 @@ async function shutdown() {
     reportError("Error stopping embedding workers", error as Error);
   }
 
-  // Clear background jobs
-  clearInterval(cleanupInterval);
+  // Stop background jobs
+  cleanupCron.stop();
 
   // Close database pools
   try {
