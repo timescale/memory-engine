@@ -1,4 +1,4 @@
-FROM oven/bun:1.3.11
+FROM oven/bun:1.3.12
 
 WORKDIR /app
 CMD ["bun", "run", "packages/server/index.ts"]
