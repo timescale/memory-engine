@@ -17,19 +17,17 @@ import { checkSizeLimit } from "./middleware";
 import { createRouter } from "./router";
 import { internalError } from "./util/response";
 
-// Resolve git revision for code source linking.
-// Prefer explicit GIT_REVISION (set in CI), fall back to local git, then "main".
-const gitRevision =
-  process.env.GIT_REVISION ??
-  (() => {
-    try {
-      return Bun.spawnSync(["git", "rev-parse", "HEAD"])
-        .stdout.toString()
-        .trim();
-    } catch {
-      return "main";
-    }
-  })();
+// Resolve git revision for Logfire code source linking.
+// Locally, use the actual commit hash for precise source-linking.
+// In containers (no .git dir), use the version tag for prod or "main" for dev.
+const gitRevision = (() => {
+  try {
+    return Bun.spawnSync(["git", "rev-parse", "HEAD"]).stdout.toString().trim();
+  } catch {
+    const env = process.env.LOGFIRE_ENVIRONMENT ?? "";
+    return env.includes("prod") ? `v${APP_VERSION}` : "main";
+  }
+})();
 
 // Initialize telemetry before starting server
 configure({
