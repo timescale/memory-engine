@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { WorkerPool } from "./pool";
 import { Worker } from "./worker";
 
 /**
@@ -108,5 +109,85 @@ describe("Worker", () => {
     await worker.start();
     expect(() => worker.start()).toThrow("Worker is already running");
     await worker.stop();
+  });
+});
+
+describe("WorkerPool", () => {
+  test("starts N workers and aggregates stats", async () => {
+    let batchCalls = 0;
+
+    const mockSql = createMockSql({
+      begin: async (fn: (tx: unknown) => Promise<unknown>) => {
+        const tx = {
+          unsafe: async (q: string) => {
+            if (q.includes("claim_embedding_batch")) {
+              batchCalls++;
+              return [];
+            }
+            return [];
+          },
+        };
+        return fn(tx);
+      },
+    });
+
+    const pool = new WorkerPool(mockSql as never, {
+      embedding: {
+        provider: "openai",
+        model: "test",
+        dimensions: 3,
+      },
+      discover: async () => [{ schema: "me_test12345678", shard: 1 }],
+      idleDelayMs: 50,
+      drainTimeoutMs: 150,
+      refreshIntervalMs: 1_000_000,
+    });
+
+    expect(pool.size).toBe(0);
+    await pool.start(3);
+    expect(pool.size).toBe(3);
+
+    // Let workers poll a few times
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    await pool.stop();
+
+    expect(pool.size).toBe(3);
+    // All 3 workers should have polled at least once
+    expect(pool.stats.schemasPolled).toBeGreaterThanOrEqual(3);
+    expect(batchCalls).toBeGreaterThanOrEqual(3);
+  });
+
+  test("stop is safe when not started", async () => {
+    const mockSql = createMockSql({});
+
+    const pool = new WorkerPool(mockSql as never, {
+      embedding: {
+        provider: "openai",
+        model: "test",
+        dimensions: 3,
+      },
+      discover: async () => [],
+    });
+
+    await pool.stop(); // should not throw
+    expect(pool.size).toBe(0);
+  });
+
+  test("throws if started twice", async () => {
+    const mockSql = createMockSql({});
+
+    const pool = new WorkerPool(mockSql as never, {
+      embedding: {
+        provider: "openai",
+        model: "test",
+        dimensions: 3,
+      },
+      discover: async () => [],
+      idleDelayMs: 50,
+    });
+
+    await pool.start(2);
+    expect(() => pool.start(2)).toThrow("Worker pool is already running");
+    await pool.stop();
   });
 });

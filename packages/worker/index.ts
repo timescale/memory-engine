@@ -1,3 +1,4 @@
+export { WorkerPool } from "./pool";
 export { processBatch } from "./process";
 export type {
   EngineTarget,

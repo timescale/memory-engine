@@ -11,8 +11,8 @@ function sleep(ms: number): Promise<void> {
 function shuffle<T>(arr: T[]): T[] {
   for (let i = arr.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
-    const tmp = arr[i]!;
-    arr[i] = arr[j]!;
+    const tmp = arr[i] as T;
+    arr[i] = arr[j] as T;
     arr[j] = tmp;
   }
   return arr;
@@ -30,7 +30,7 @@ export class Worker {
   private readonly config: WorkerConfig;
   private abort: AbortController | null = null;
   private runPromise: Promise<void> | null = null;
-  private _stats: WorkerStats = {
+  readonly _stats: WorkerStats = {
     schemasPolled: 0,
     totalProcessed: 0,
     totalFailed: 0,
@@ -48,7 +48,12 @@ export class Worker {
     }
 
     this.abort = new AbortController();
-    this.runPromise = this.run(this.abort.signal);
+    this.runPromise = run(
+      this.sql,
+      this.config,
+      this.abort.signal,
+      this._stats,
+    );
   }
 
   async stop(): Promise<void> {
@@ -63,85 +68,88 @@ export class Worker {
   get stats(): WorkerStats {
     return { ...this._stats };
   }
+}
 
-  private async run(signal: AbortSignal): Promise<void> {
-    const { config, sql } = this;
-    const idleDelayMs = config.idleDelayMs ?? 10_000;
-    const maxBackoffMs = config.maxBackoffMs ?? 60_000;
-    const refreshIntervalMs = config.refreshIntervalMs ?? 60_000;
-    const drainTimeoutMs = config.drainTimeoutMs;
+async function run(
+  sql: SQL,
+  config: WorkerConfig,
+  signal: AbortSignal,
+  stats: WorkerStats,
+): Promise<void> {
+  const idleDelayMs = config.idleDelayMs ?? 10_000;
+  const maxBackoffMs = config.maxBackoffMs ?? 60_000;
+  const refreshIntervalMs = config.refreshIntervalMs ?? 60_000;
+  const drainTimeoutMs = config.drainTimeoutMs;
 
-    let targets = shuffle(await config.discover());
-    let lastRefresh = Date.now();
-    let consecutiveErrors = 0;
-    let idleSince: number | null = null;
+  let targets = shuffle(await config.discover());
+  let lastRefresh = Date.now();
+  let consecutiveErrors = 0;
+  let idleSince: number | null = null;
 
-    try {
-      while (!signal.aborted) {
-        // Periodic engine re-discovery
-        if (Date.now() - lastRefresh >= refreshIntervalMs) {
-          targets = shuffle(await config.discover());
-          lastRefresh = Date.now();
-        }
-
-        if (targets.length === 0) {
-          if (signal.aborted) break;
-          await sleep(idleDelayMs);
-          continue;
-        }
-
-        try {
-          let anyWork = false;
-
-          for (const target of targets) {
-            if (signal.aborted) break;
-            const result = await processBatch(sql, target, config);
-            if (result.claimed > 0) anyWork = true;
-            this._stats.schemasPolled++;
-            this._stats.totalProcessed += result.succeeded;
-            this._stats.totalFailed += result.failed;
-          }
-
-          consecutiveErrors = 0;
-          this._stats.consecutiveErrors = 0;
-          this._stats.lastError = undefined;
-
-          if (anyWork) {
-            idleSince = null;
-            shuffle(targets);
-          } else if (drainTimeoutMs != null) {
-            idleSince ??= Date.now();
-            if (Date.now() - idleSince >= drainTimeoutMs) break;
-          }
-
-          if (signal.aborted) break;
-
-          if (!anyWork) await sleep(idleDelayMs);
-        } catch (error) {
-          consecutiveErrors++;
-          const errorMsg =
-            error instanceof Error ? error.message : String(error);
-          this._stats.consecutiveErrors = consecutiveErrors;
-          this._stats.lastError = errorMsg;
-          reportError("Worker batch processing failed", error as Error, {
-            consecutiveErrors,
-            engineCount: targets.length,
-          });
-
-          if (signal.aborted) break;
-
-          const backoffMs = Math.min(
-            idleDelayMs * 2 ** (consecutiveErrors - 1),
-            maxBackoffMs,
-          );
-          await sleep(backoffMs);
-        }
+  try {
+    while (!signal.aborted) {
+      // Periodic engine re-discovery
+      if (Date.now() - lastRefresh >= refreshIntervalMs) {
+        targets = shuffle(await config.discover());
+        lastRefresh = Date.now();
       }
-    } finally {
-      info("Embedding worker stopped", {
-        consecutiveErrors,
-        engineCount: targets.length,
-      });
+
+      if (targets.length === 0) {
+        if (signal.aborted) break;
+        await sleep(idleDelayMs);
+        continue;
+      }
+
+      try {
+        let anyWork = false;
+
+        for (const target of targets) {
+          if (signal.aborted) break;
+          const result = await processBatch(sql, target, config);
+          if (result.claimed > 0) anyWork = true;
+          stats.schemasPolled++;
+          stats.totalProcessed += result.succeeded;
+          stats.totalFailed += result.failed;
+        }
+
+        consecutiveErrors = 0;
+        stats.consecutiveErrors = 0;
+        stats.lastError = undefined;
+
+        if (anyWork) {
+          idleSince = null;
+          shuffle(targets);
+        } else if (drainTimeoutMs != null) {
+          idleSince ??= Date.now();
+          if (Date.now() - idleSince >= drainTimeoutMs) break;
+        }
+
+        if (signal.aborted) break;
+
+        if (!anyWork) await sleep(idleDelayMs);
+      } catch (error) {
+        consecutiveErrors++;
+        const errorMsg = error instanceof Error ? error.message : String(error);
+        stats.consecutiveErrors = consecutiveErrors;
+        stats.lastError = errorMsg;
+        reportError("Worker batch processing failed", error as Error, {
+          consecutiveErrors,
+          engineCount: targets.length,
+        });
+
+        if (signal.aborted) break;
+
+        const backoffMs = Math.min(
+          idleDelayMs * 2 ** (consecutiveErrors - 1),
+          maxBackoffMs,
+        );
+        await sleep(backoffMs);
+      }
     }
+  } finally {
+    info("Embedding worker stopped", {
+      consecutiveErrors,
+      engineCount: targets.length,
+    });
   }
 }
