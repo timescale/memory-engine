@@ -1,4 +1,3 @@
-export { WorkerPool } from "./pool";
 export { processBatch } from "./process";
 export type {
   EngineTarget,
@@ -6,4 +5,4 @@ export type {
   WorkerConfig,
   WorkerStats,
 } from "./types";
-export { runDaemon, runOnce } from "./worker";
+export { Worker } from "./worker";

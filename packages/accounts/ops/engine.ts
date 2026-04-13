@@ -118,7 +118,6 @@ export function engineOps(ctx: AccountsContext) {
           select slug, shard_id
           from ${sql.unsafe(schema)}.engine
           where status = 'active'
-          order by created_at
         `;
         return rows.map((r) => ({ slug: r.slug, shardId: r.shard_id }));
       });

@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { Worker } from "./worker";
 
 /**
  * Create a mock SQL object that supports .begin() for processBatch transactions.
@@ -14,7 +15,7 @@ function createMockSql(handlers: {
   return sql;
 }
 
-describe("worker backoff logic", () => {
+describe("Worker", () => {
   test("exponential backoff formula matches expected values", () => {
     const idleDelayMs = 10_000;
     const maxBackoffMs = 60_000;
@@ -30,32 +31,26 @@ describe("worker backoff logic", () => {
     expect(computeBackoff(5)).toBe(60_000); // capped
   });
 
-  test("runDaemon exits on abort signal", async () => {
-    const { runDaemon } = await import("./worker");
-
+  test("stops immediately when already aborted", async () => {
     const mockSql = createMockSql({});
 
-    const abort = new AbortController();
-    abort.abort();
-
-    await runDaemon(
-      mockSql as never,
-      {
-        embedding: {
-          provider: "openai",
-          model: "test",
-          dimensions: 3,
-        },
-        discover: async () => [],
-        idleDelayMs: 100,
+    const worker = new Worker(mockSql as never, {
+      embedding: {
+        provider: "openai",
+        model: "test",
+        dimensions: 3,
       },
-      { signal: abort.signal },
-    );
+      discover: async () => [],
+      idleDelayMs: 100,
+    });
+
+    await worker.start();
+    await worker.stop();
+
+    expect(worker.stats.consecutiveErrors).toBe(0);
   });
 
-  test("runDaemon exits on drain timeout", async () => {
-    const { runDaemon } = await import("./worker");
-
+  test("exits on drain timeout", async () => {
     let discoverCalls = 0;
 
     const mockSql = createMockSql({
@@ -70,8 +65,7 @@ describe("worker backoff logic", () => {
       },
     });
 
-    const start = Date.now();
-    await runDaemon(mockSql as never, {
+    const worker = new Worker(mockSql as never, {
       embedding: {
         provider: "openai",
         model: "test",
@@ -86,9 +80,33 @@ describe("worker backoff logic", () => {
       refreshIntervalMs: 1_000_000, // don't refresh during test
     });
 
+    const start = Date.now();
+    await worker.start();
+    // Let the drain timeout expire naturally before cleaning up
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    await worker.stop();
     const elapsed = Date.now() - start;
+
     expect(elapsed).toBeGreaterThanOrEqual(80);
     expect(elapsed).toBeLessThan(2000);
     expect(discoverCalls).toBeGreaterThanOrEqual(1);
+  });
+
+  test("throws if started twice", async () => {
+    const mockSql = createMockSql({});
+
+    const worker = new Worker(mockSql as never, {
+      embedding: {
+        provider: "openai",
+        model: "test",
+        dimensions: 3,
+      },
+      discover: async () => [],
+      idleDelayMs: 100,
+    });
+
+    await worker.start();
+    expect(() => worker.start()).toThrow("Worker is already running");
+    await worker.stop();
   });
 });
