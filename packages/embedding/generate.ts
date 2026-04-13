@@ -1,5 +1,10 @@
 import { span, warning } from "@pydantic/logfire-node";
 import { embed, embedMany } from "ai";
+import {
+  extractRetryAfterMs,
+  isRateLimitError,
+  RateLimitError,
+} from "./errors";
 import { getEmbeddingModel } from "./provider";
 import { MAX_OPENAI_TOKENS, TRUNCATION_RATIOS, truncateText } from "./truncate";
 import type { EmbeddingConfig, EmbedResult, MemoryRow } from "./types";
@@ -155,6 +160,13 @@ export async function generateEmbedding(
         try {
           return await generateEmbeddingOnce(truncated, config);
         } catch (error) {
+          // Rate limit — stop immediately, don't retry with different truncation
+          if (isRateLimitError(error)) {
+            throw new RateLimitError(
+              "Rate limited by embedding provider",
+              extractRetryAfterMs(error),
+            );
+          }
           if (!isContextLengthError(error)) {
             throw error;
           }
@@ -244,6 +256,15 @@ export async function generateEmbeddings(
           }
         }
       } catch (batchError) {
+        // Rate limit — abort immediately, don't fall back to individual
+        // requests (that would amplify load ~10x during a rate limit window)
+        if (isRateLimitError(batchError)) {
+          throw new RateLimitError(
+            "Rate limited by embedding provider",
+            extractRetryAfterMs(batchError),
+          );
+        }
+
         // Report batch error for debugging
         const err =
           batchError instanceof Error

@@ -1,4 +1,8 @@
-import { generateEmbeddings } from "@memory-engine/embedding";
+import {
+  type EmbedResult,
+  generateEmbeddings,
+  RateLimitError,
+} from "@memory-engine/embedding";
 import { info, span } from "@pydantic/logfire-node";
 import type { SQL } from "bun";
 import type { EngineTarget, ProcessResult, WorkerConfig } from "./types";
@@ -54,7 +58,30 @@ export async function processBatch(
         id: r.memory_id,
         content: r.content,
       }));
-      const embedResults = await generateEmbeddings(rows, config.embedding);
+
+      let embedResults: EmbedResult[];
+      try {
+        embedResults = await generateEmbeddings(rows, config.embedding);
+      } catch (error) {
+        if (error instanceof RateLimitError) {
+          // Undo the attempt increment from claim — rate limits are transient
+          // and should not consume max_attempts
+          await sql.begin(async (tx) => {
+            await tx.unsafe(`SET LOCAL pgdog.shard TO ${shard}`);
+            await tx.unsafe(`SET LOCAL search_path TO ${schema}, public`);
+            await tx.unsafe("SET LOCAL ROLE me_embed");
+            for (const row of claimed) {
+              await tx.unsafe(
+                `UPDATE ${schema}.embedding_queue
+                 SET attempts = greatest(attempts - 1, 0)
+                 WHERE id = $1 AND outcome IS NULL`,
+                [row.queue_id],
+              );
+            }
+          });
+        }
+        throw error;
+      }
 
       // Build lookup: memory_id → embed result
       const resultMap = new Map(embedResults.map((r) => [r.id, r]));

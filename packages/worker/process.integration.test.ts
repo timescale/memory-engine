@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { RateLimitError } from "@memory-engine/embedding";
 import { createEngineDB } from "@memory-engine/engine/db";
 import { bootstrap } from "@memory-engine/engine/migrate/bootstrap";
 import { provisionEngine } from "@memory-engine/engine/migrate/provision";
@@ -205,18 +206,21 @@ describe("processBatch integration", () => {
     }
   });
 
-  test("handles embedding errors gracefully", async () => {
+  test("handles non-rate-limit embedding errors gracefully", async () => {
     const memoryId = await insertMemory("Error test content");
 
-    // Mock server that returns an error
+    // Mock server that returns a non-rate-limit error (400 bad request)
     const server = Bun.serve({
       port: 0,
       fetch() {
         return new Response(
           JSON.stringify({
-            error: { message: "Rate limited", type: "rate_limit_error" },
+            error: {
+              message: "Invalid input",
+              type: "invalid_request_error",
+            },
           }),
-          { status: 429 },
+          { status: 400 },
         );
       },
     });
@@ -252,7 +256,63 @@ describe("processBatch integration", () => {
     }
   });
 
-  test("marks queue row as failed after max attempts exhausted", async () => {
+  test("rate limit (429) throws RateLimitError and decrements attempts", async () => {
+    // Clear pending entries
+    await sql.unsafe(
+      `UPDATE ${schema}.embedding_queue SET outcome = 'completed' WHERE outcome IS NULL`,
+    );
+
+    const memoryId = await insertMemory("Rate limit test content");
+
+    // Mock server that returns 429
+    const server = Bun.serve({
+      port: 0,
+      fetch() {
+        return new Response(
+          JSON.stringify({
+            error: { message: "Rate limited", type: "rate_limit_error" },
+          }),
+          {
+            status: 429,
+            headers: { "retry-after-ms": "5000" },
+          },
+        );
+      },
+    });
+
+    try {
+      const config: WorkerConfig = {
+        embedding: {
+          provider: "openai",
+          model: "text-embedding-3-small",
+          dimensions: 1536,
+          apiKey: "test-key",
+          baseUrl: `http://localhost:${server.port}/v1`,
+          options: { maxRetries: 0 },
+        },
+        discover,
+        batchSize: 10,
+      };
+
+      // processBatch should throw RateLimitError
+      await expect(processBatch(sql, target, config)).rejects.toBeInstanceOf(
+        RateLimitError,
+      );
+
+      // Queue entry should have attempts back to 0 (claim incremented to 1,
+      // then RateLimitError handler decremented back to 0)
+      const queue = await getQueueEntries(memoryId);
+      const entry = queue.find(
+        (q: Record<string, unknown>) => q.outcome === null,
+      );
+      expect(entry).toBeDefined();
+      expect(entry.attempts).toBe(0);
+    } finally {
+      server.stop();
+    }
+  });
+
+  test("marks queue row as failed after max attempts exhausted (non-rate-limit)", async () => {
     // Clear pending entries
     await sql.unsafe(
       `UPDATE ${schema}.embedding_queue SET outcome = 'completed' WHERE outcome IS NULL`,
@@ -266,15 +326,18 @@ describe("processBatch integration", () => {
       [memoryId],
     );
 
-    // Mock server that returns 429 so embedding fails
+    // Mock server that returns 400 (non-rate-limit) so embedding fails
     const server = Bun.serve({
       port: 0,
       fetch() {
         return new Response(
           JSON.stringify({
-            error: { message: "Rate limited", type: "rate_limit_error" },
+            error: {
+              message: "Invalid input",
+              type: "invalid_request_error",
+            },
           }),
-          { status: 429 },
+          { status: 400 },
         );
       },
     });

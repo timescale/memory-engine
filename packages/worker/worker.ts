@@ -1,7 +1,11 @@
-import { info, reportError } from "@pydantic/logfire-node";
+import { RateLimitError } from "@memory-engine/embedding";
+import { info, reportError, warning } from "@pydantic/logfire-node";
 import type { SQL } from "bun";
 import { processBatch } from "./process";
 import type { WorkerConfig, WorkerStats } from "./types";
+
+/** Minimum backoff when rate limited, even if Retry-After is shorter. */
+const RATE_LIMIT_FLOOR_MS = 30_000;
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -128,6 +132,24 @@ async function run(
 
         if (!anyWork) await sleep(idleDelayMs);
       } catch (error) {
+        // Rate limit — back off without incrementing consecutive errors.
+        // processBatch already decremented queue attempts so they aren't wasted.
+        if (error instanceof RateLimitError) {
+          const backoffMs = Math.max(
+            error.retryAfterMs ?? RATE_LIMIT_FLOOR_MS,
+            RATE_LIMIT_FLOOR_MS,
+          );
+          warning("Rate limited by embedding provider, backing off", {
+            backoffMs,
+            retryAfterMs: error.retryAfterMs,
+            engineCount: targets.length,
+          });
+
+          if (signal.aborted) break;
+          await sleep(backoffMs);
+          continue;
+        }
+
         consecutiveErrors++;
         const errorMsg = error instanceof Error ? error.message : String(error);
         stats.consecutiveErrors = consecutiveErrors;
