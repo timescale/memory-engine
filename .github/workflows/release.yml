@@ -57,6 +57,13 @@ jobs:
       - name: Build CLI (all platforms)
         run: ./bun run build:all
 
+      - name: Generate checksums
+        run: |
+          cd dist
+          for file in me-*; do
+            sha256sum "$file" > "${file}.sha256"
+          done
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
