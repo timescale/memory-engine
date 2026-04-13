@@ -20,6 +20,9 @@ RUN bun install --frozen-lockfile --production --ignore-scripts
 
 ENV NODE_ENV=production
 
+# Copy root version module (imported by server)
+COPY version.ts ./
+
 # Copy server source + all workspace dependencies
 COPY packages/server/ packages/server/
 COPY packages/accounts/ packages/accounts/
