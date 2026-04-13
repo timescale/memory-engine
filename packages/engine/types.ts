@@ -194,7 +194,7 @@ export interface SearchParams {
   embedding?: number[];
   /** Full-text (BM25) search query */
   fulltext?: string;
-  /** Regex filter applied to content (POSIX, case-sensitive) */
+  /** Regex filter applied to content (POSIX, case-insensitive) */
   grep?: string;
   /** Filter by tree path (ltree, lquery, or ltxtquery) */
   tree?: string;

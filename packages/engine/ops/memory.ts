@@ -261,10 +261,10 @@ function buildCommonFilters(
     }
   }
 
-  // Content regex filter (POSIX, case-sensitive)
+  // Content regex filter (POSIX, case-insensitive)
   if (params.grep) {
     const paramIdx = valueOffset + values.length + 1;
-    clauses.push(`content ~ $${paramIdx}`);
+    clauses.push(`content ~* $${paramIdx}`);
     values.push(params.grep);
   }
 

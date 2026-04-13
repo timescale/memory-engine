@@ -202,7 +202,10 @@ function createMemorySearchCommand(): Command {
     .argument("[query]", "semantic search query (shorthand for --semantic)")
     .option("--semantic <text>", "semantic (vector) search")
     .option("--fulltext <text>", "BM25 keyword search")
-    .option("--grep <pattern>", "regex filter on content (POSIX)")
+    .option(
+      "--grep <pattern>",
+      "regex filter on content (POSIX, case-insensitive)",
+    )
     .option("--tree <filter>", "tree path filter (supports wildcards)")
     .option("--meta <json>", "metadata filter (JSON)")
     .option("--limit <n>", "max results", "10")

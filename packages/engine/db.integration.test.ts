@@ -800,7 +800,7 @@ describe("memory ops", () => {
     expect(result.results[0]!.content).toContain("version 18.1");
   });
 
-  test("searchMemories grep is case-sensitive", async () => {
+  test("searchMemories grep is case-insensitive", async () => {
     const db = createEngineDB(sql, schema);
     db.setUser(testPrincipalId);
 
@@ -813,15 +813,14 @@ describe("memory ops", () => {
       tree: "search.grepcase",
     });
 
-    // Case-sensitive: only matches exact "TypeScript"
+    // Case-insensitive: matches both "TypeScript" and "typescript"
     const result = await db.searchMemories({
       grep: "TypeScript",
       tree: "search.grepcase",
       limit: 10,
     });
 
-    expect(result.results.length).toBe(1);
-    expect(result.results[0]!.content).toContain("TypeScript is great");
+    expect(result.results.length).toBe(2);
   });
 });
 

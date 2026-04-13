@@ -109,7 +109,7 @@ For search modes, tree syntax, and tips: me_memory_get({id: "0194a000-0008-7000-
           .string()
           .nullable()
           .describe(
-            "Regex pattern filter on content (POSIX, case-sensitive). Applied as WHERE filter alongside other filters.",
+            "Regex pattern filter on content (POSIX, case-insensitive). Applied as WHERE filter alongside other filters.",
           ),
         meta: z
           .string()
