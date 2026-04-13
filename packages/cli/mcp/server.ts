@@ -105,6 +105,12 @@ For search modes, tree syntax, and tips: me_memory_get({id: "0194a000-0008-7000-
           .string()
           .nullable()
           .describe("Keywords/phrases for BM25 exact matching"),
+        grep: z
+          .string()
+          .nullable()
+          .describe(
+            "Regex pattern filter on content (POSIX, case-sensitive). Applied as WHERE filter alongside other filters.",
+          ),
         meta: z
           .string()
           .nullable()
@@ -181,6 +187,7 @@ For search modes, tree syntax, and tips: me_memory_get({id: "0194a000-0008-7000-
       const result = await client.memory.search({
         semantic: args.semantic ?? undefined,
         fulltext: args.fulltext ?? undefined,
+        grep: args.grep ?? undefined,
         meta: args.meta ? JSON.parse(args.meta) : undefined,
         tree: args.tree ?? undefined,
         temporal: args.temporal

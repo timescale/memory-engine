@@ -159,4 +159,91 @@ describe("memory.search embedding", () => {
     expect(callArgs.fulltext).toBe("test query");
     expect(callArgs.embedding).toBeUndefined();
   });
+
+  test("passes grep parameter through to searchMemories", async () => {
+    const { memoryMethods } = await import("./memory");
+    const handler = memoryMethods.get("memory.search")?.handler;
+
+    if (!handler) {
+      throw new Error("memory.search handler not found");
+    }
+
+    const mockSearchMemories = mock(() =>
+      Promise.resolve({
+        results: [],
+        total: 0,
+        limit: 10,
+      }),
+    );
+
+    const mockDb = {
+      searchMemories: mockSearchMemories,
+    };
+
+    const context = {
+      request: new Request("http://localhost"),
+      db: mockDb,
+      userId: "user-123",
+      apiKeyId: "key-456",
+      engine: {
+        id: "eng-1",
+        orgId: "org-1",
+        slug: "test",
+        name: "Test",
+        status: "active" as const,
+      },
+    } as unknown as HandlerContext;
+
+    const params = {
+      fulltext: "database",
+      grep: "version \\d+",
+    };
+
+    await handler(params, context);
+
+    expect(mockSearchMemories).toHaveBeenCalled();
+    const calls = mockSearchMemories.mock.calls as unknown as Array<
+      [{ fulltext?: string; grep?: string }]
+    >;
+    expect(calls.length).toBeGreaterThan(0);
+    const callArgs = calls[0]![0]!;
+    expect(callArgs.fulltext).toBe("database");
+    expect(callArgs.grep).toBe("version \\d+");
+  });
+
+  test("throws VALIDATION_ERROR when grep is used alone", async () => {
+    const { memoryMethods } = await import("./memory");
+    const handler = memoryMethods.get("memory.search")?.handler;
+
+    if (!handler) {
+      throw new Error("memory.search handler not found");
+    }
+
+    const mockDb = {
+      searchMemories: mock(() =>
+        Promise.resolve({ results: [], total: 0, limit: 10 }),
+      ),
+    };
+
+    const context = {
+      request: new Request("http://localhost"),
+      db: mockDb,
+      userId: "user-123",
+      apiKeyId: "key-456",
+      engine: {
+        id: "eng-1",
+        orgId: "org-1",
+        slug: "test",
+        name: "Test",
+        status: "active" as const,
+      },
+    } as unknown as HandlerContext;
+
+    try {
+      await handler({ grep: "ERR-\\d+" }, context);
+      throw new Error("Expected handler to throw");
+    } catch (error) {
+      expect((error as { code: string }).code).toBe("VALIDATION_ERROR");
+    }
+  });
 });

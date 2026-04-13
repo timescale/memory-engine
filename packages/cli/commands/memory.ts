@@ -202,6 +202,7 @@ function createMemorySearchCommand(): Command {
     .argument("[query]", "semantic search query (shorthand for --semantic)")
     .option("--semantic <text>", "semantic (vector) search")
     .option("--fulltext <text>", "BM25 keyword search")
+    .option("--grep <pattern>", "regex filter on content (POSIX)")
     .option("--tree <filter>", "tree path filter (supports wildcards)")
     .option("--meta <json>", "metadata filter (JSON)")
     .option("--limit <n>", "max results", "10")
@@ -244,6 +245,7 @@ function createMemorySearchCommand(): Command {
       if (
         !semantic &&
         !fulltext &&
+        !opts.grep &&
         !tree &&
         !meta &&
         !opts.temporalContains &&
@@ -251,7 +253,7 @@ function createMemorySearchCommand(): Command {
         !opts.temporalWithin
       ) {
         const msg =
-          "At least one search criterion required (query, --semantic, --fulltext, --tree, --meta, or --temporal-*).";
+          "At least one search criterion required (query, --semantic, --fulltext, --grep, --tree, --meta, or --temporal-*).";
         if (fmt === "text") {
           clack.log.error(msg);
         } else {
@@ -300,6 +302,7 @@ function createMemorySearchCommand(): Command {
         };
         if (semantic) params.semantic = semantic;
         if (fulltext) params.fulltext = fulltext;
+        if (opts.grep) params.grep = opts.grep;
         if (tree) params.tree = tree;
         if (meta) params.meta = meta;
         if (temporal) params.temporal = temporal;

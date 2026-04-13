@@ -188,6 +188,7 @@ interface FilterParams {
   meta?: Record<string, unknown>;
   tree?: string;
   temporal?: TemporalFilter;
+  grep?: string;
 }
 
 /**
@@ -260,6 +261,13 @@ function buildCommonFilters(
     }
   }
 
+  // Content regex filter (POSIX, case-sensitive)
+  if (params.grep) {
+    const paramIdx = valueOffset + values.length + 1;
+    clauses.push(`content ~ $${paramIdx}`);
+    values.push(params.grep);
+  }
+
   return { clauses, values };
 }
 
@@ -269,11 +277,8 @@ function buildCommonFilters(
 async function buildBM25Query(
   sql: SQL,
   schema: string,
-  params: {
+  params: FilterParams & {
     query: string;
-    meta?: Record<string, unknown>;
-    tree?: string;
-    temporal?: TemporalFilter;
     limit: number;
   },
 ): Promise<SearchRow[]> {
@@ -308,11 +313,8 @@ async function buildBM25Query(
 async function buildSemanticQuery(
   sql: SQL,
   schema: string,
-  params: {
+  params: FilterParams & {
     embedding: number[];
-    meta?: Record<string, unknown>;
-    tree?: string;
-    temporal?: TemporalFilter;
     limit: number;
   },
 ): Promise<SearchRow[]> {
@@ -350,10 +352,7 @@ async function buildSemanticQuery(
 async function buildFilterQuery(
   sql: SQL,
   schema: string,
-  params: {
-    meta?: Record<string, unknown>;
-    tree?: string;
-    temporal?: TemporalFilter;
+  params: FilterParams & {
     limit: number;
     orderBy: "asc" | "desc";
   },
@@ -604,6 +603,7 @@ export function memoryOps(ctx: OpsContext) {
       const {
         fulltext,
         embedding,
+        grep,
         meta,
         tree,
         temporal,
@@ -621,6 +621,7 @@ export function memoryOps(ctx: OpsContext) {
           const [bm25Results, semanticResults] = await Promise.all([
             buildBM25Query(sql, schema, {
               query: fulltext,
+              grep,
               meta,
               tree,
               temporal,
@@ -628,6 +629,7 @@ export function memoryOps(ctx: OpsContext) {
             }),
             buildSemanticQuery(sql, schema, {
               embedding,
+              grep,
               meta,
               tree,
               temporal,
@@ -654,6 +656,7 @@ export function memoryOps(ctx: OpsContext) {
           // Case 2: BM25-only search
           const rows = await buildBM25Query(sql, schema, {
             query: fulltext,
+            grep,
             meta,
             tree,
             temporal,
@@ -664,6 +667,7 @@ export function memoryOps(ctx: OpsContext) {
           // Case 3: Semantic-only search
           const rows = await buildSemanticQuery(sql, schema, {
             embedding,
+            grep,
             meta,
             tree,
             temporal,
@@ -673,6 +677,7 @@ export function memoryOps(ctx: OpsContext) {
         } else {
           // Case 4: Filter-only (no search ranking)
           const rows = await buildFilterQuery(sql, schema, {
+            grep,
             meta,
             tree,
             temporal,

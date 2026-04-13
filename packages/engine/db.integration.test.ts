@@ -747,6 +747,82 @@ describe("memory ops", () => {
     });
     expect(ascResult.results[0]!.id).toBe(m1.id);
   });
+
+  test("searchMemories with grep filter", async () => {
+    const db = createEngineDB(sql, schema);
+    db.setUser(testPrincipalId);
+
+    await db.createMemory({
+      content: "Error code ERR-42 occurred in production",
+      tree: "search.grep",
+    });
+    await db.createMemory({
+      content: "Warning code WARN-7 in staging",
+      tree: "search.grep",
+    });
+    await db.createMemory({
+      content: "All systems operational",
+      tree: "search.grep",
+    });
+
+    // Regex matching "ERR-\d+" should only return the first memory
+    const result = await db.searchMemories({
+      grep: "ERR-\\d+",
+      tree: "search.grep",
+      limit: 10,
+    });
+
+    expect(result.results.length).toBe(1);
+    expect(result.results[0]!.content).toContain("ERR-42");
+  });
+
+  test("searchMemories with grep + fulltext", async () => {
+    const db = createEngineDB(sql, schema);
+    db.setUser(testPrincipalId);
+
+    await db.createMemory({
+      content: "PostgreSQL version 18.1 released with new features",
+      tree: "search.grepfull",
+    });
+    await db.createMemory({
+      content: "PostgreSQL conference announced for next year",
+      tree: "search.grepfull",
+    });
+
+    // BM25 matches both on "PostgreSQL", but grep narrows to version pattern
+    const result = await db.searchMemories({
+      fulltext: "PostgreSQL",
+      grep: "version \\d+\\.\\d+",
+      limit: 10,
+    });
+
+    expect(result.results.length).toBe(1);
+    expect(result.results[0]!.content).toContain("version 18.1");
+  });
+
+  test("searchMemories grep is case-sensitive", async () => {
+    const db = createEngineDB(sql, schema);
+    db.setUser(testPrincipalId);
+
+    await db.createMemory({
+      content: "TypeScript is great",
+      tree: "search.grepcase",
+    });
+    await db.createMemory({
+      content: "typescript lowercase",
+      tree: "search.grepcase",
+    });
+
+    // Case-sensitive: only matches exact "TypeScript"
+    const result = await db.searchMemories({
+      grep: "TypeScript",
+      tree: "search.grepcase",
+      limit: 10,
+    });
+
+    expect(result.results.length).toBe(1);
+    expect(result.results[0]!.content).toContain("TypeScript is great");
+  });
 });
 
 // ---------------------------------------------------------------------------

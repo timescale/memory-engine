@@ -292,9 +292,25 @@ async function memorySearch(
     }
   }
 
+  // grep alone would cause a full table scan — require at least one indexed criterion
+  if (
+    params.grep &&
+    !params.fulltext &&
+    !params.semantic &&
+    !params.tree &&
+    !params.meta &&
+    !params.temporal
+  ) {
+    throw new AppError(
+      "VALIDATION_ERROR",
+      "grep cannot be used alone (full table scan). Combine with semantic, fulltext, tree, meta, or temporal.",
+    );
+  }
+
   const result = await db.searchMemories({
     fulltext: params.fulltext ?? undefined,
     embedding,
+    grep: params.grep ?? undefined,
     tree: params.tree ?? undefined,
     meta: params.meta ?? undefined,
     temporal: parseTemporalFilter(params.temporal),

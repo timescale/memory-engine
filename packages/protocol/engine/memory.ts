@@ -86,6 +86,7 @@ export type MemoryDeleteParams = z.infer<typeof memoryDeleteParams>;
 export const memorySearchParams = z.object({
   semantic: z.string().optional().nullable(),
   fulltext: z.string().optional().nullable(),
+  grep: z.string().optional().nullable(),
   tree: treeFilterSchema.optional().nullable(),
   meta: metaSchema.optional().nullable(),
   temporal: temporalFilterSchema.optional().nullable(),
