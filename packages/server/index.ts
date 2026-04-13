@@ -2,9 +2,13 @@
 import { createAccountsDB } from "@memory-engine/accounts";
 import { migrate as migrateAccounts } from "@memory-engine/accounts/migrate/runner";
 import type { EmbeddingConfig } from "@memory-engine/embedding";
-import { discoverEngineSchemas } from "@memory-engine/engine/migrate";
+import {
+  discoverEngineSchemas,
+  slugToSchema,
+} from "@memory-engine/engine/migrate";
 import { bootstrap as bootstrapEngine } from "@memory-engine/engine/migrate/bootstrap";
 import { migrateAll as migrateEngines } from "@memory-engine/engine/migrate/runner";
+import { WorkerPool } from "@memory-engine/worker";
 import { configure, info, reportError, span } from "@pydantic/logfire-node";
 import { APP_VERSION } from "../../version";
 import { embeddingConstants } from "./config";
@@ -80,6 +84,14 @@ configure({
 // Cleanup:
 //   DEVICE_FLOW_CLEANUP_INTERVAL_MS - Interval for cleaning up expired device auths
 //                                     (default: 900000 = 15 minutes)
+//
+// Embedding Worker:
+//   WORKER_COUNT              - Number of concurrent embedding workers (default: 2)
+//   WORKER_BATCH_SIZE         - Queue entries to claim per batch (default: 10)
+//   WORKER_LOCK_DURATION      - PostgreSQL interval for claim lock (default: "5 minutes")
+//   WORKER_IDLE_DELAY_MS      - Poll interval when idle in ms (default: 10000)
+//   WORKER_MAX_BACKOFF_MS     - Max error backoff in ms (default: 60000)
+//   WORKER_REFRESH_INTERVAL_MS - Engine re-discovery interval in ms (default: 60000)
 //
 // =============================================================================
 
@@ -385,6 +397,51 @@ const serverContext: ServerContext = {
 const router = createRouter(serverContext);
 
 // =============================================================================
+// Embedding Worker Pool
+// =============================================================================
+
+const workerCount = parseIntEnv(
+  "WORKER_COUNT",
+  process.env.WORKER_COUNT || "",
+  "2",
+);
+
+const workerPool = new WorkerPool(engineSql, {
+  embedding: embeddingConfig,
+  discover: async () => {
+    const engines = await accountsDb.listActiveEngines();
+    return engines.map((e) => ({
+      schema: slugToSchema(e.slug),
+      shard: e.shardId,
+    }));
+  },
+  batchSize: parseIntEnv(
+    "WORKER_BATCH_SIZE",
+    process.env.WORKER_BATCH_SIZE || "",
+    "10",
+  ),
+  lockDuration: process.env.WORKER_LOCK_DURATION || "5 minutes",
+  idleDelayMs: parseIntEnv(
+    "WORKER_IDLE_DELAY_MS",
+    process.env.WORKER_IDLE_DELAY_MS || "",
+    "10000",
+  ),
+  maxBackoffMs: parseIntEnv(
+    "WORKER_MAX_BACKOFF_MS",
+    process.env.WORKER_MAX_BACKOFF_MS || "",
+    "60000",
+  ),
+  refreshIntervalMs: parseIntEnv(
+    "WORKER_REFRESH_INTERVAL_MS",
+    process.env.WORKER_REFRESH_INTERVAL_MS || "",
+    "60000",
+  ),
+});
+
+await workerPool.start(workerCount);
+info("Embedding worker pool started", { workers: workerCount });
+
+// =============================================================================
 // Cleanup Jobs
 // =============================================================================
 
@@ -452,6 +509,14 @@ async function shutdown() {
 
   // Stop accepting new connections
   server.stop();
+
+  // Stop embedding workers
+  try {
+    await workerPool.stop();
+    info("Embedding worker pool stopped");
+  } catch (error) {
+    reportError("Error stopping embedding workers", error as Error);
+  }
 
   // Clear background jobs
   clearInterval(cleanupInterval);
