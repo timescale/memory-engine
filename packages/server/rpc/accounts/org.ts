@@ -148,7 +148,9 @@ async function orgUpdate(
 
 /**
  * org.delete - Delete an organization.
- * Requires owner role.
+ * Requires owner role. Refuses if:
+ * - The org has any engines (delete engines first)
+ * - It's the caller's only owned org
  */
 async function orgDelete(
   params: OrgDeleteParams,
@@ -161,6 +163,21 @@ async function orgDelete(
   const member = await db.getMember(params.id, identity.id);
   if (!member || member.role !== "owner") {
     throw new AppError("FORBIDDEN", "Only owners can delete the organization");
+  }
+
+  // Refuse if the org still has engines
+  const engines = await db.listEnginesByOrg(params.id);
+  if (engines.length > 0) {
+    throw new AppError(
+      "CONFLICT",
+      "Cannot delete organization with engines. Delete all engines first.",
+    );
+  }
+
+  // Refuse if this is the caller's only owned org
+  const ownedCount = await db.countOwnedOrgs(identity.id);
+  if (ownedCount <= 1) {
+    throw new AppError("CONFLICT", "Cannot delete your only organization.");
   }
 
   const deleted = await db.deleteOrg(params.id);

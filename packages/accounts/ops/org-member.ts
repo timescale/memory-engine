@@ -123,6 +123,17 @@ export function orgMemberOps(ctx: AccountsContext) {
       });
     },
 
+    async countOwnedOrgs(identityId: string): Promise<number> {
+      return withTx(ctx, "countOwnedOrgs", async (sql) => {
+        const [row] = await sql<{ count: number }[]>`
+          select count(*)::int as count
+          from ${sql.unsafe(schema)}.org_member
+          where identity_id = ${identityId} and role = 'owner'
+        `;
+        return row?.count ?? 0;
+      });
+    },
+
     async listOwners(orgId: string): Promise<OrgMember[]> {
       return withTx(ctx, "listOwners", async (sql) => {
         const rows = await sql<OrgMemberRow[]>`
