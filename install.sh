@@ -62,10 +62,31 @@ main() {
 
   chmod +x "$dest"
 
-  # macOS: ad-hoc sign (required on Apple Silicon) and remove quarantine
+  # macOS: strip Bun's broken signature, re-sign with JIT entitlements, remove quarantine
   if [ "$os" = "macos" ]; then
-    codesign -s - "$dest" 2>/dev/null || true
+    tmpent="$(mktemp)"
+    cat > "$tmpent" <<'PLIST'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>com.apple.security.cs.allow-jit</key>
+    <true/>
+    <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+    <true/>
+    <key>com.apple.security.cs.disable-executable-page-protection</key>
+    <true/>
+    <key>com.apple.security.cs.allow-dyld-environment-variables</key>
+    <true/>
+    <key>com.apple.security.cs.disable-library-validation</key>
+    <true/>
+</dict>
+</plist>
+PLIST
+    codesign --remove-signature "$dest" 2>/dev/null || true
+    codesign --entitlements "$tmpent" -f --deep -s - "$dest" 2>/dev/null || true
     xattr -d com.apple.quarantine "$dest" 2>/dev/null || true
+    rm -f "$tmpent"
   fi
 
   success "Installed to ${BOLD}${dest}${RESET}"

@@ -23,13 +23,38 @@ await Promise.all(
   }),
 );
 
-// macOS: ad-hoc sign and remove quarantine (required on Apple Silicon)
+// macOS: strip Bun's broken signature, re-sign with JIT entitlements, remove quarantine
 if (process.platform === "darwin") {
+  const entitlements = `${distDir}/.entitlements.plist`;
+  await Bun.write(
+    entitlements,
+    `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>com.apple.security.cs.allow-jit</key>
+    <true/>
+    <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+    <true/>
+    <key>com.apple.security.cs.disable-executable-page-protection</key>
+    <true/>
+    <key>com.apple.security.cs.allow-dyld-environment-variables</key>
+    <true/>
+    <key>com.apple.security.cs.disable-library-validation</key>
+    <true/>
+</dict>
+</plist>`,
+  );
+
   for (const { suffix } of targets.filter((t) => t.target.includes("darwin"))) {
     const bin = `${distDir}/me-${suffix}`;
-    await $`codesign -s - ${bin}`.quiet().nothrow();
+    await $`codesign --remove-signature ${bin}`;
+    await $`codesign --entitlements ${entitlements} -f --deep -s - ${bin}`;
     await $`xattr -d com.apple.quarantine ${bin}`.quiet().nothrow();
+    console.log(`  signed ${bin}`);
   }
+
+  await $`rm -f ${entitlements}`;
 }
 
 console.log("\nBuilt binaries:");
