@@ -23,5 +23,14 @@ await Promise.all(
   }),
 );
 
+// macOS: ad-hoc sign and remove quarantine (required on Apple Silicon)
+if (process.platform === "darwin") {
+  for (const { suffix } of targets.filter((t) => t.target.includes("darwin"))) {
+    const bin = `${distDir}/me-${suffix}`;
+    await $`codesign -s - ${bin}`.quiet().nothrow();
+    await $`xattr -d com.apple.quarantine ${bin}`.quiet().nothrow();
+  }
+}
+
 console.log("\nBuilt binaries:");
 await $`ls -lh ${distDir}/`;
