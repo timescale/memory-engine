@@ -4,7 +4,7 @@
 -- Note: "user" is a reserved word, must be quoted
 create table {{schema}}."user"
 ( id uuid primary key default uuidv7() check (uuid_extract_version(id) = 7)
-, name text not null
+, name citext not null unique
 , identity_id uuid check (identity_id is null or uuid_extract_version(identity_id) = 7) -- soft FK to accounts.identity
 , can_login boolean not null default true  -- false = role (grant container)
 , superuser boolean not null default false

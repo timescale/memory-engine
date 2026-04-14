@@ -3,17 +3,22 @@
  *
  * - me role create <name>: Create a role
  * - me role list: List all roles
- * - me role add-member <role-id> <member-id>: Add user to role
- * - me role remove-member <role-id> <member-id>: Remove user from role
- * - me role members <role-id>: List role members
- * - me role list-for <user-id>: List roles a user belongs to
+ * - me role add-member <role> <member>: Add user to role (by ID or name)
+ * - me role remove-member <role> <member>: Remove user from role (by ID or name)
+ * - me role members <role>: List role members (by ID or name)
+ * - me role list-for <user>: List roles a user belongs to (by ID or name)
  */
 import * as clack from "@clack/prompts";
 import { createClient } from "@memory-engine/client";
 import { Command } from "commander";
 import { resolveCredentials } from "../credentials.ts";
 import { getOutputFormat, output, table } from "../output.ts";
-import { handleError, requireEngine, requireSession } from "../util.ts";
+import {
+  handleError,
+  requireEngine,
+  requireSession,
+  resolveUserId,
+} from "../util.ts";
 
 function createRoleCreateCommand(): Command {
   return new Command("create")
@@ -80,10 +85,10 @@ function createRoleListCommand(): Command {
 function createRoleAddMemberCommand(): Command {
   return new Command("add-member")
     .description("add a user to a role")
-    .argument("<role-id>", "role ID")
-    .argument("<member-id>", "member (user) ID")
+    .argument("<role>", "role ID or name")
+    .argument("<member>", "member ID or name")
     .option("--with-admin-option", "allow member to manage this role")
-    .action(async (roleId: string, memberId: string, opts, cmd) => {
+    .action(async (role: string, member: string, opts, cmd) => {
       const globalOpts = cmd.optsWithGlobals();
       const creds = resolveCredentials(globalOpts.server);
       const fmt = getOutputFormat(globalOpts);
@@ -93,6 +98,11 @@ function createRoleAddMemberCommand(): Command {
       const engine = createClient({ url: creds.server, apiKey: creds.apiKey });
 
       try {
+        const [roleId, memberId] = await Promise.all([
+          resolveUserId(engine, role),
+          resolveUserId(engine, member),
+        ]);
+
         const result = await engine.role.addMember({
           roleId,
           memberId,
@@ -101,7 +111,7 @@ function createRoleAddMemberCommand(): Command {
 
         output(result, fmt, () => {
           if (result.added) {
-            clack.log.success(`Added ${memberId} to role ${roleId}`);
+            clack.log.success(`Added ${member} to role ${role}`);
           }
         });
       } catch (error) {
@@ -113,9 +123,9 @@ function createRoleAddMemberCommand(): Command {
 function createRoleRemoveMemberCommand(): Command {
   return new Command("remove-member")
     .description("remove a user from a role")
-    .argument("<role-id>", "role ID")
-    .argument("<member-id>", "member (user) ID")
-    .action(async (roleId: string, memberId: string, _opts, cmd) => {
+    .argument("<role>", "role ID or name")
+    .argument("<member>", "member ID or name")
+    .action(async (role: string, member: string, _opts, cmd) => {
       const globalOpts = cmd.optsWithGlobals();
       const creds = resolveCredentials(globalOpts.server);
       const fmt = getOutputFormat(globalOpts);
@@ -125,11 +135,16 @@ function createRoleRemoveMemberCommand(): Command {
       const engine = createClient({ url: creds.server, apiKey: creds.apiKey });
 
       try {
+        const [roleId, memberId] = await Promise.all([
+          resolveUserId(engine, role),
+          resolveUserId(engine, member),
+        ]);
+
         const result = await engine.role.removeMember({ roleId, memberId });
 
         output(result, fmt, () => {
           if (result.removed) {
-            clack.log.success(`Removed ${memberId} from role ${roleId}`);
+            clack.log.success(`Removed ${member} from role ${role}`);
           } else {
             clack.log.warn("Membership not found.");
           }
@@ -143,8 +158,8 @@ function createRoleRemoveMemberCommand(): Command {
 function createRoleMembersCommand(): Command {
   return new Command("members")
     .description("list members of a role")
-    .argument("<role-id>", "role ID")
-    .action(async (roleId: string, _opts, cmd) => {
+    .argument("<role>", "role ID or name")
+    .action(async (role: string, _opts, cmd) => {
       const globalOpts = cmd.optsWithGlobals();
       const creds = resolveCredentials(globalOpts.server);
       const fmt = getOutputFormat(globalOpts);
@@ -154,6 +169,7 @@ function createRoleMembersCommand(): Command {
       const engine = createClient({ url: creds.server, apiKey: creds.apiKey });
 
       try {
+        const roleId = await resolveUserId(engine, role);
         const { members } = await engine.role.listMembers({ roleId });
 
         output({ members }, fmt, () => {
@@ -175,8 +191,8 @@ function createRoleMembersCommand(): Command {
 function createRoleListForCommand(): Command {
   return new Command("list-for")
     .description("list roles a user belongs to")
-    .argument("<user-id>", "user ID")
-    .action(async (userId: string, _opts, cmd) => {
+    .argument("<user>", "user ID or name")
+    .action(async (user: string, _opts, cmd) => {
       const globalOpts = cmd.optsWithGlobals();
       const creds = resolveCredentials(globalOpts.server);
       const fmt = getOutputFormat(globalOpts);
@@ -186,6 +202,7 @@ function createRoleListForCommand(): Command {
       const engine = createClient({ url: creds.server, apiKey: creds.apiKey });
 
       try {
+        const userId = await resolveUserId(engine, user);
         const { roles } = await engine.role.listForUser({ userId });
 
         output({ roles }, fmt, () => {

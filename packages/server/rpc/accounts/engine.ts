@@ -253,7 +253,7 @@ async function engineSetupAccess(
   if (!user) {
     const isSuperuser = member.role === "owner" || member.role === "admin";
     user = await engineDb.createUser({
-      name: identity.name || identity.email,
+      name: slugifyUserName(identity.name || identity.email),
       identityId: identity.id,
       canLogin: true,
       superuser: isSuperuser,
@@ -276,6 +276,20 @@ async function engineSetupAccess(
     engineName: engine.name,
     orgName: org.name,
   };
+}
+
+/**
+ * Derive a shell-friendly engine user name from a display name or email.
+ * Lowercases, replaces whitespace runs with hyphens, strips non-alphanumeric
+ * characters (except hyphens), and trims leading/trailing hyphens.
+ */
+function slugifyUserName(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/\s+/g, "-")
+    .replace(/[^a-z0-9-]/g, "")
+    .replace(/-{2,}/g, "-")
+    .replace(/^-|-$/g, "");
 }
 
 // =============================================================================

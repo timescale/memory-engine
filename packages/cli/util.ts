@@ -8,11 +8,14 @@
  * - Error handling
  */
 import * as clack from "@clack/prompts";
-import type { AccountsClient } from "@memory-engine/client";
+import type { AccountsClient, EngineClient } from "@memory-engine/client";
 import { RpcError } from "@memory-engine/client";
 import type { ResolvedCredentials } from "./credentials.ts";
 import type { OutputFormat } from "./output.ts";
 import { output } from "./output.ts";
+
+const UUIDV7_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 /**
  * Ensure the user has a session token. Exits with an error if not.
@@ -106,6 +109,19 @@ export async function resolveOrgId(
     );
   }
   process.exit(1);
+}
+
+/**
+ * Resolve a user or role by ID or name. If the argument looks like a UUIDv7,
+ * fetches by ID; otherwise fetches by name. Returns the UUID.
+ */
+export async function resolveUserId(
+  engine: EngineClient,
+  idOrName: string,
+): Promise<string> {
+  if (UUIDV7_RE.test(idOrName)) return idOrName;
+  const user = await engine.user.getByName({ name: idOrName });
+  return user.id;
 }
 
 /**

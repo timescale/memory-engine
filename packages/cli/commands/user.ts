@@ -4,18 +4,20 @@
  * - me user list: List users in the active engine
  * - me user create <name>: Create an engine user
  * - me user get <id-or-name>: Get user by ID or name
- * - me user delete <id>: Delete a user
- * - me user rename <id> <new-name>: Rename a user
+ * - me user delete <id-or-name>: Delete a user (by ID or name)
+ * - me user rename <id-or-name> <new-name>: Rename a user (by ID or name)
  */
 import * as clack from "@clack/prompts";
 import { createClient } from "@memory-engine/client";
 import { Command } from "commander";
 import { resolveCredentials } from "../credentials.ts";
 import { getOutputFormat, output, table } from "../output.ts";
-import { handleError, requireEngine, requireSession } from "../util.ts";
-
-const UUIDV7_RE =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+import {
+  handleError,
+  requireEngine,
+  requireSession,
+  resolveUserId,
+} from "../util.ts";
 
 function createUserListCommand(): Command {
   return new Command("list")
@@ -115,9 +117,8 @@ function createUserGetCommand(): Command {
       const engine = createClient({ url: creds.server, apiKey: creds.apiKey });
 
       try {
-        const user = UUIDV7_RE.test(idOrName)
-          ? await engine.user.get({ id: idOrName })
-          : await engine.user.getByName({ name: idOrName });
+        const id = await resolveUserId(engine, idOrName);
+        const user = await engine.user.get({ id });
 
         output(user, fmt, () => {
           console.log(`  Name:       ${user.name}`);
@@ -137,9 +138,9 @@ function createUserGetCommand(): Command {
 function createUserDeleteCommand(): Command {
   return new Command("delete")
     .description("delete a user")
-    .argument("<id>", "user ID")
+    .argument("<id-or-name>", "user ID or name")
     .option("-y, --yes", "skip confirmation prompt")
-    .action(async (id: string, opts, cmd) => {
+    .action(async (idOrName: string, opts, cmd) => {
       const globalOpts = cmd.optsWithGlobals();
       const creds = resolveCredentials(globalOpts.server);
       const fmt = getOutputFormat(globalOpts);
@@ -148,7 +149,7 @@ function createUserDeleteCommand(): Command {
 
       if (fmt === "text" && !opts.yes) {
         const confirmed = await clack.confirm({
-          message: `Delete user ${id}? This cannot be undone.`,
+          message: `Delete user ${idOrName}? This cannot be undone.`,
         });
         if (clack.isCancel(confirmed) || !confirmed) {
           clack.cancel("Cancelled.");
@@ -159,6 +160,7 @@ function createUserDeleteCommand(): Command {
       const engine = createClient({ url: creds.server, apiKey: creds.apiKey });
 
       try {
+        const id = await resolveUserId(engine, idOrName);
         const result = await engine.user.delete({ id });
 
         output(result, fmt, () => {
@@ -177,9 +179,9 @@ function createUserDeleteCommand(): Command {
 function createUserRenameCommand(): Command {
   return new Command("rename")
     .description("rename a user")
-    .argument("<id>", "user ID")
+    .argument("<id-or-name>", "user ID or name")
     .argument("<new-name>", "new name")
-    .action(async (id: string, newName: string, _opts, cmd) => {
+    .action(async (idOrName: string, newName: string, _opts, cmd) => {
       const globalOpts = cmd.optsWithGlobals();
       const creds = resolveCredentials(globalOpts.server);
       const fmt = getOutputFormat(globalOpts);
@@ -189,6 +191,7 @@ function createUserRenameCommand(): Command {
       const engine = createClient({ url: creds.server, apiKey: creds.apiKey });
 
       try {
+        const id = await resolveUserId(engine, idOrName);
         const result = await engine.user.rename({ id, name: newName });
 
         output(result, fmt, () => {

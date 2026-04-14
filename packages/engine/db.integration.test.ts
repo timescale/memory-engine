@@ -129,7 +129,7 @@ describe("user ops", () => {
     expect(fetched!.name).toBe("get-by-name-test");
   });
 
-  test("getUserByName matches exact name", async () => {
+  test("getUserByName matches case-insensitively (citext)", async () => {
     const db = createEngineDB(sql, schema);
     const uniqueName = `ExactMatch_${Date.now()}`;
     await db.createUser({ name: uniqueName });
@@ -138,9 +138,10 @@ describe("user ops", () => {
     expect(fetched).not.toBeNull();
     expect(fetched!.name).toBe(uniqueName);
 
-    // Different case should not match (name is text, not citext)
-    const notFound = await db.getUserByName(uniqueName.toLowerCase());
-    expect(notFound).toBeNull();
+    // citext: different case should still match
+    const alsoFound = await db.getUserByName(uniqueName.toLowerCase());
+    expect(alsoFound).not.toBeNull();
+    expect(alsoFound!.id).toBe(fetched!.id);
   });
 
   test("listUsers returns all principals", async () => {
@@ -336,7 +337,7 @@ describe("role ops", () => {
     const db = createEngineDB(sql, schema);
     // Create a role (a principal used as a role for grouping)
     const role = await db.createUser({
-      name: "test-role",
+      name: "membership-role",
     });
     roleId = role.id;
 
