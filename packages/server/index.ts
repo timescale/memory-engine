@@ -39,14 +39,17 @@ configure({
     repository: "https://github.com/timescale/memory-engine",
     revision: gitRevision,
   },
-  scrubbing: {
-    extraPatterns: [
-      "content", // Memory content — potentially sensitive user data
-      "embedding", // Vector embeddings — large, not useful in traces
-      "access_token",
-      "refresh_token",
-    ],
-  },
+  scrubbing:
+    process.env.LOGFIRE_SCRUBBING === "false"
+      ? false
+      : {
+          extraPatterns: [
+            "content", // Memory content — potentially sensitive user data
+            "embedding", // Vector embeddings — large, not useful in traces
+            "access_token",
+            "refresh_token",
+          ],
+        },
 });
 
 // =============================================================================
