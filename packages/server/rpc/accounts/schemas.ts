@@ -19,6 +19,8 @@ export {
 } from "@memory-engine/protocol/accounts/engine";
 
 export {
+  type IdentityGetByEmailParams,
+  identityGetByEmailParams as identityGetByEmailSchema,
   type MeGetParams,
   // Identity params
   meGetParams as meGetSchema,

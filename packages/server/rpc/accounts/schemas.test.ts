@@ -10,6 +10,7 @@ import {
   engineSetupAccessSchema,
   engineStatusSchema,
   engineUpdateSchema,
+  identityGetByEmailSchema,
   invitationAcceptSchema,
   invitationCreateSchema,
   invitationListSchema,
@@ -132,6 +133,27 @@ describe("engineStatusSchema", () => {
 // =============================================================================
 // Me Schema Tests
 // =============================================================================
+
+describe("identityGetByEmailSchema", () => {
+  test("accepts valid email", () => {
+    const result = identityGetByEmailSchema.safeParse({
+      email: "user@example.com",
+    });
+    expect(result.success).toBe(true);
+  });
+
+  test("rejects invalid email", () => {
+    const result = identityGetByEmailSchema.safeParse({
+      email: "not-an-email",
+    });
+    expect(result.success).toBe(false);
+  });
+
+  test("rejects missing email", () => {
+    const result = identityGetByEmailSchema.safeParse({});
+    expect(result.success).toBe(false);
+  });
+});
 
 describe("meGetSchema", () => {
   test("accepts empty params", () => {

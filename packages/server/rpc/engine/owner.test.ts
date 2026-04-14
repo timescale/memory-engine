@@ -63,7 +63,9 @@ describe("owner.get", () => {
       Promise.resolve({
         treePath: "work.projects",
         userId: "019d694f-79f6-7595-8faf-b70b01c11f98",
+        userName: "alice",
         createdBy: "user-123",
+        createdByName: "admin",
         createdAt: now,
       }),
     );
@@ -72,13 +74,17 @@ describe("owner.get", () => {
     const result = (await handler({ treePath: "work.projects" }, context)) as {
       treePath: string;
       userId: string;
+      userName: string;
       createdBy: string;
+      createdByName: string;
       createdAt: string;
     };
 
     expect(result.treePath).toBe("work.projects");
     expect(result.userId).toBe("019d694f-79f6-7595-8faf-b70b01c11f98");
+    expect(result.userName).toBe("alice");
     expect(result.createdBy).toBe("user-123");
+    expect(result.createdByName).toBe("admin");
     expect(result.createdAt).toBe("2026-01-15T00:00:00.000Z");
   });
 
@@ -140,7 +146,9 @@ describe("owner.list", () => {
         {
           treePath: "work.projects",
           userId: "019d694f-79f6-7595-8faf-b70b01c11f98",
+          userName: "alice",
           createdBy: "user-123",
+          createdByName: "admin",
           createdAt: now,
         },
       ]),
