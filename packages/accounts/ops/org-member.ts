@@ -11,6 +11,8 @@ interface OrgMemberRow {
   identity_id: string;
   role: OrgRole;
   created_at: Date;
+  name: string;
+  email: string;
 }
 
 function rowToOrgMember(row: OrgMemberRow): OrgMember {
@@ -19,6 +21,8 @@ function rowToOrgMember(row: OrgMemberRow): OrgMember {
     identityId: row.identity_id,
     role: row.role,
     createdAt: row.created_at,
+    name: row.name,
+    email: row.email,
   };
 }
 
@@ -40,9 +44,14 @@ export function orgMemberOps(ctx: AccountsContext) {
     ): Promise<OrgMember> {
       return withTx(ctx, "addMember", async (sql) => {
         const rows = await sql<OrgMemberRow[]>`
-          insert into ${sql.unsafe(schema)}.org_member (org_id, identity_id, role)
-          values (${orgId}, ${identityId}, ${role})
-          returning org_id, identity_id, role, created_at
+          with inserted as (
+            insert into ${sql.unsafe(schema)}.org_member (org_id, identity_id, role)
+            values (${orgId}, ${identityId}, ${role})
+            returning org_id, identity_id, role, created_at
+          )
+          select i.*, id.name, id.email
+          from inserted i
+          join ${sql.unsafe(schema)}.identity id on id.id = i.identity_id
         `;
         const row = rows[0];
         if (!row) {
@@ -103,9 +112,10 @@ export function orgMemberOps(ctx: AccountsContext) {
     ): Promise<OrgMember | null> {
       return withTx(ctx, "getMember", async (sql) => {
         const [row] = await sql<OrgMemberRow[]>`
-          select org_id, identity_id, role, created_at
-          from ${sql.unsafe(schema)}.org_member
-          where org_id = ${orgId} and identity_id = ${identityId}
+          select m.org_id, m.identity_id, m.role, m.created_at, id.name, id.email
+          from ${sql.unsafe(schema)}.org_member m
+          join ${sql.unsafe(schema)}.identity id on id.id = m.identity_id
+          where m.org_id = ${orgId} and m.identity_id = ${identityId}
         `;
         return row ? rowToOrgMember(row) : null;
       });
@@ -114,10 +124,11 @@ export function orgMemberOps(ctx: AccountsContext) {
     async listMembers(orgId: string): Promise<OrgMember[]> {
       return withTx(ctx, "listMembers", async (sql) => {
         const rows = await sql<OrgMemberRow[]>`
-          select org_id, identity_id, role, created_at
-          from ${sql.unsafe(schema)}.org_member
-          where org_id = ${orgId}
-          order by created_at
+          select m.org_id, m.identity_id, m.role, m.created_at, id.name, id.email
+          from ${sql.unsafe(schema)}.org_member m
+          join ${sql.unsafe(schema)}.identity id on id.id = m.identity_id
+          where m.org_id = ${orgId}
+          order by m.created_at
         `;
         return rows.map(rowToOrgMember);
       });
@@ -137,10 +148,11 @@ export function orgMemberOps(ctx: AccountsContext) {
     async listOwners(orgId: string): Promise<OrgMember[]> {
       return withTx(ctx, "listOwners", async (sql) => {
         const rows = await sql<OrgMemberRow[]>`
-          select org_id, identity_id, role, created_at
-          from ${sql.unsafe(schema)}.org_member
-          where org_id = ${orgId} and role = 'owner'
-          order by created_at
+          select m.org_id, m.identity_id, m.role, m.created_at, id.name, id.email
+          from ${sql.unsafe(schema)}.org_member m
+          join ${sql.unsafe(schema)}.identity id on id.id = m.identity_id
+          where m.org_id = ${orgId} and m.role = 'owner'
+          order by m.created_at
         `;
         return rows.map(rowToOrgMember);
       });

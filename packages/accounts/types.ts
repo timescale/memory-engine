@@ -94,6 +94,8 @@ export interface OrgMember {
   identityId: string;
   role: OrgRole;
   createdAt: Date;
+  name: string;
+  email: string;
 }
 
 // =============================================================================

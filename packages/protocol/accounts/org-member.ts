@@ -62,6 +62,8 @@ export const orgMemberResponse = z.object({
   orgId: z.string(),
   identityId: z.string(),
   role: z.string(),
+  name: z.string(),
+  email: z.string(),
   createdAt: z.string(),
 });
 

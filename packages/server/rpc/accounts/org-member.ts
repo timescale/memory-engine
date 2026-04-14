@@ -34,6 +34,8 @@ function toOrgMemberResponse(member: OrgMember): OrgMemberResponse {
     orgId: member.orgId,
     identityId: member.identityId,
     role: member.role,
+    name: member.name,
+    email: member.email,
     createdAt: member.createdAt.toISOString(),
   };
 }

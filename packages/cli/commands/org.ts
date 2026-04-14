@@ -159,8 +159,8 @@ function createOrgMemberListCommand(): Command {
             return;
           }
           table(
-            ["identity_id", "role", "joined"],
-            members.map((m) => [m.identityId, m.role, m.createdAt]),
+            ["name", "email", "role", "joined"],
+            members.map((m) => [m.name, m.email, m.role, m.createdAt]),
           );
         });
       } catch (error) {
