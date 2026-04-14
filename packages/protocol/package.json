@@ -1,6 +1,6 @@
 {
   "name": "@memory-engine/protocol",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Protocol schemas and types for Memory Engine",
   "homepage": "https://memoryengine.dev",
   "type": "module",

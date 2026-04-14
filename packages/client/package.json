@@ -1,6 +1,6 @@
 {
   "name": "@memory-engine/client",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Client library for Memory Engine",
   "homepage": "https://memoryengine.dev",
   "keywords": [
