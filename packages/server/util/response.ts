@@ -22,16 +22,22 @@ export function text(body: string, status = 200): Response {
   });
 }
 
+/** Default CSP for HTML pages that don't submit forms to external origins. */
+const DEFAULT_CSP =
+  "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'";
+
 /**
  * Create an HTML response with security headers.
+ *
+ * Pass a custom `csp` to override the default Content-Security-Policy
+ * (e.g. for pages whose forms redirect to external OAuth providers).
  */
-export function html(body: string, status = 200): Response {
+export function html(body: string, status = 200, csp = DEFAULT_CSP): Response {
   return new Response(body, {
     status,
     headers: {
       "Content-Type": "text/html; charset=utf-8",
-      "Content-Security-Policy":
-        "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'",
+      "Content-Security-Policy": csp,
       "X-Frame-Options": "DENY",
       "X-Content-Type-Options": "nosniff",
       "Referrer-Policy": "no-referrer",

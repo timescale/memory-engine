@@ -237,7 +237,13 @@ export async function deviceVerifyGetHandler(
 </body>
 </html>`;
 
-  return html(htmlContent);
+  // The form POSTs to 'self', but the response is a 302 redirect to the
+  // OAuth provider. Browsers enforce form-action on the full redirect chain,
+  // so we must whitelist the OAuth provider origins here.
+  const csp =
+    "default-src 'none'; style-src 'unsafe-inline'; form-action 'self' https://accounts.google.com https://github.com";
+
+  return html(htmlContent, 200, csp);
 }
 
 /**
