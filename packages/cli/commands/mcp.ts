@@ -67,8 +67,9 @@ function createMcpInstallCommand(): Command {
       let serverUrl = (globalOpts.server as string | undefined) ?? opts.server;
 
       if (!apiKey || !serverUrl) {
-        // Fall back to credentials file for defaults
-        const creds = resolveCredentials(globalOpts.server);
+        // Fall back to credentials file — use the effective server
+        // (global --server, local --server, or undefined for default resolution)
+        const creds = resolveCredentials(serverUrl);
         if (!apiKey) apiKey = creds.apiKey;
         if (!serverUrl) serverUrl = creds.server;
       }
@@ -76,6 +77,13 @@ function createMcpInstallCommand(): Command {
       if (!apiKey) {
         clack.log.error(
           "No API key available. Either pass --api-key or run 'me engine use' first.",
+        );
+        process.exit(1);
+      }
+
+      if (!serverUrl) {
+        clack.log.error(
+          "No server URL available. Pass --server or set ME_SERVER.",
         );
         process.exit(1);
       }

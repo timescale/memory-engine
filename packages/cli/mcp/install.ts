@@ -18,6 +18,7 @@ interface McpToolBase {
 interface McpToolCli extends McpToolBase {
   method: "cli";
   addCmd: (meCmd: string[]) => string[];
+  removeCmd: string[];
 }
 
 interface McpToolManual extends McpToolBase {
@@ -42,6 +43,7 @@ export const MCP_TOOLS: McpTool[] = [
       "--",
       ...meCmd,
     ],
+    removeCmd: ["claude", "mcp", "remove", "--scope", "user", "me"],
   },
   {
     name: "Gemini CLI",
@@ -56,12 +58,14 @@ export const MCP_TOOLS: McpTool[] = [
       "me",
       ...meCmd,
     ],
+    removeCmd: ["gemini", "mcp", "remove", "--scope", "user", "me"],
   },
   {
     name: "Codex CLI",
     bin: "codex",
     method: "cli",
     addCmd: (meCmd) => ["codex", "mcp", "add", "me", "--", ...meCmd],
+    removeCmd: ["codex", "mcp", "remove", "me"],
   },
   {
     name: "OpenCode",
@@ -102,15 +106,13 @@ function getBinaryPath(): string {
  * Compiled: ["/path/to/me", "mcp", "--api-key", "...", "--server", "..."]
  * Dev:     ["bun", "/abs/path/to/index.ts", "mcp", "--api-key", "...", "--server", "..."]
  */
-export function buildMeCommand(apiKey: string, serverUrl?: string): string[] {
+export function buildMeCommand(apiKey: string, serverUrl: string): string[] {
   const base = isCompiledBinary()
     ? [getBinaryPath(), "mcp"]
     : ["bun", resolve(join(__dirname, "..", "index.ts")), "mcp"];
 
   base.push("--api-key", apiKey);
-  if (serverUrl) {
-    base.push("--server", serverUrl);
-  }
+  base.push("--server", serverUrl);
 
   return base;
 }
@@ -125,25 +127,48 @@ export interface InstallResult {
 }
 
 /**
+ * Run an mcp add command and return the exit code + stderr.
+ */
+async function runAddCmd(
+  tool: McpToolCli,
+  meCmd: string[],
+): Promise<{ exitCode: number; stderr: string }> {
+  const cmd = tool.addCmd(meCmd);
+  const proc = Bun.spawn(cmd, { stdout: "pipe", stderr: "pipe" });
+  const exitCode = await proc.exited;
+  const stderr = exitCode === 0 ? "" : await new Response(proc.stderr).text();
+  return { exitCode, stderr };
+}
+
+/**
  * Install MCP server via a tool's CLI `mcp add` command.
+ *
+ * If a prior registration exists, removes it first and re-adds
+ * so that credentials and command args are always up to date.
  */
 async function installViaCli(
   tool: McpToolCli,
   meCmd: string[],
 ): Promise<InstallResult> {
-  const cmd = tool.addCmd(meCmd);
-  const proc = Bun.spawn(cmd, { stdout: "pipe", stderr: "pipe" });
-  const exitCode = await proc.exited;
+  let { exitCode, stderr } = await runAddCmd(tool, meCmd);
 
   if (exitCode === 0) {
     return { success: true, message: `Registered with ${tool.name}` };
   }
 
-  const stderr = await new Response(proc.stderr).text();
-
-  // Treat "already exists" as success
+  // Prior registration exists — remove it and re-add with current credentials
   if (stderr.includes("already exists")) {
-    return { success: true, message: `Already registered with ${tool.name}` };
+    const rm = Bun.spawn(tool.removeCmd, { stdout: "pipe", stderr: "pipe" });
+    await rm.exited;
+
+    ({ exitCode, stderr } = await runAddCmd(tool, meCmd));
+
+    if (exitCode === 0) {
+      return {
+        success: true,
+        message: `Updated registration for ${tool.name}`,
+      };
+    }
   }
 
   return {
