@@ -51,6 +51,7 @@ function toRoleMemberResponse(member: RoleMember): RoleMemberResponse {
   return {
     roleId: member.roleId,
     memberId: member.memberId,
+    memberName: member.memberName,
     withAdminOption: member.withAdminOption,
     createdAt: member.createdAt.toISOString(),
   };

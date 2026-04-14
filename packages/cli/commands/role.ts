@@ -178,8 +178,12 @@ function createRoleMembersCommand(): Command {
             return;
           }
           table(
-            ["member_id", "admin"],
-            members.map((m) => [m.memberId, m.withAdminOption ? "yes" : ""]),
+            ["member_id", "name", "admin"],
+            members.map((m) => [
+              m.memberId,
+              m.memberName,
+              m.withAdminOption ? "yes" : "",
+            ]),
           );
         });
       } catch (error) {

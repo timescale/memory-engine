@@ -5,6 +5,7 @@ import { withTx } from "./_tx";
 interface RoleMemberRow {
   role_id: string;
   member_id: string;
+  member_name: string;
   with_admin_option: boolean;
   created_at: Date;
 }
@@ -19,6 +20,7 @@ function rowToRoleMember(row: RoleMemberRow): RoleMember {
   return {
     roleId: row.role_id,
     memberId: row.member_id,
+    memberName: row.member_name,
     withAdminOption: row.with_admin_option,
     createdAt: row.created_at,
   };
@@ -91,10 +93,11 @@ export function roleOps(ctx: OpsContext) {
     async listRoleMembers(roleId: string): Promise<RoleMember[]> {
       return withTx(ctx, "admin", "listRoleMembers", async (sql) => {
         const rows = await sql<RoleMemberRow[]>`
-          select role_id, member_id, with_admin_option, created_at
-          from ${sql.unsafe(schema)}.role_membership
-          where role_id = ${roleId}
-          order by created_at
+          select rm.role_id, rm.member_id, u.name as member_name, rm.with_admin_option, rm.created_at
+          from ${sql.unsafe(schema)}.role_membership rm
+          join ${sql.unsafe(schema)}."user" u on u.id = rm.member_id
+          where rm.role_id = ${roleId}
+          order by rm.created_at
         `;
         return rows.map(rowToRoleMember);
       });

@@ -81,6 +81,7 @@ export type RoleResponse = z.infer<typeof roleResponse>;
 export const roleMemberResponse = z.object({
   roleId: z.string(),
   memberId: z.string(),
+  memberName: z.string(),
   withAdminOption: z.boolean(),
   createdAt: z.string(),
 });

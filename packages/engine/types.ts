@@ -141,6 +141,7 @@ export interface TreeOwner {
 export interface RoleMember {
   roleId: string;
   memberId: string;
+  memberName: string;
   withAdminOption: boolean;
   createdAt: Date;
 }
