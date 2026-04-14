@@ -12,7 +12,7 @@ import * as clack from "@clack/prompts";
 import { createAccountsClient } from "@memory-engine/client";
 import { Command } from "commander";
 import { resolveCredentials } from "../credentials.ts";
-import { getOutputFormat, output } from "../output.ts";
+import { getOutputFormat, output, table } from "../output.ts";
 import { handleError, requireSession, resolveOrgId } from "../util.ts";
 
 // =============================================================================
@@ -41,9 +41,10 @@ function createOrgListCommand(): Command {
             console.log("  No organizations found.");
             return;
           }
-          for (const org of orgs) {
-            console.log(`  ${org.name} [${org.slug}] — ${org.id}`);
-          }
+          table(
+            ["id", "name", "slug"],
+            orgs.map((org) => [org.id, org.name, org.slug]),
+          );
         });
       } catch (error) {
         handleError(error, fmt);
@@ -157,11 +158,10 @@ function createOrgMemberListCommand(): Command {
             console.log("  No members found.");
             return;
           }
-          for (const m of members) {
-            console.log(
-              `  ${m.identityId}  ${m.role.padEnd(8)}  joined ${m.createdAt}`,
-            );
-          }
+          table(
+            ["identity_id", "role", "joined"],
+            members.map((m) => [m.identityId, m.role, m.createdAt]),
+          );
         });
       } catch (error) {
         handleError(error, fmt);

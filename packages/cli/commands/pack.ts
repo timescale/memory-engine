@@ -11,7 +11,7 @@ import * as clack from "@clack/prompts";
 import { createClient } from "@memory-engine/client";
 import { Command } from "commander";
 import { resolveCredentials } from "../credentials.ts";
-import { getOutputFormat, output } from "../output.ts";
+import { getOutputFormat, output, table } from "../output.ts";
 import { parsePack, validatePackConstraints } from "../parsers/pack.ts";
 import { handleError, requireEngine, requireSession } from "../util.ts";
 
@@ -292,11 +292,10 @@ function createPackListCommand(): Command {
             console.log("  No packs installed.");
             return;
           }
-          for (const p of packList) {
-            console.log(
-              `  ${p.name.padEnd(25)} v${p.version.padEnd(10)} ${p.count} ${p.count === 1 ? "memory" : "memories"}`,
-            );
-          }
+          table(
+            ["name", "version", "memories"],
+            packList.map((p) => [p.name, p.version, String(p.count)]),
+          );
         });
       } catch (error) {
         handleError(error, fmt);
