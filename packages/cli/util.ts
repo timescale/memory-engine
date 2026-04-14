@@ -51,30 +51,76 @@ export function requireEngine(
   }
 }
 
+interface OrgInfo {
+  id: string;
+  name: string;
+  slug: string;
+}
+
 /**
- * Resolve an org ID from a flag, positional argument, or auto-resolution.
+ * Resolve an org from a flag, positional argument, or auto-resolution.
  *
+ * Accepts a UUID, name, or slug. Falls back to auto-resolution if only one org.
  * Priority: positionalArg > flagValue > auto-resolve (if exactly one org).
  * Exits with an error if the org cannot be determined.
  */
-export async function resolveOrgId(
+export async function resolveOrg(
   accounts: AccountsClient,
   fmt: OutputFormat,
   flagValue?: string,
   positionalArg?: string,
-): Promise<string> {
-  // Positional arg takes priority
-  if (positionalArg) return positionalArg;
-
-  // Then --org flag
-  if (flagValue) return flagValue;
-
-  // Auto-resolve: list orgs and pick if exactly one
+): Promise<OrgInfo> {
   const { orgs } = await accounts.org.list();
+  const input = positionalArg ?? flagValue;
 
-  if (orgs.length === 1 && orgs[0]) {
-    return orgs[0].id;
+  if (input) {
+    // Try UUID match first
+    if (UUIDV7_RE.test(input)) {
+      const match = orgs.find((o) => o.id === input);
+      if (match) return match;
+      // Might be a valid org ID the user isn't a member of — use it as-is
+      return { id: input, name: input, slug: input };
+    }
+
+    // Match by name or slug (case-insensitive)
+    const lower = input.toLowerCase();
+    const matches = orgs.filter(
+      (o) => o.name.toLowerCase() === lower || o.slug.toLowerCase() === lower,
+    );
+
+    if (matches.length === 1 && matches[0]) return matches[0];
+
+    if (matches.length === 0) {
+      const msg = `No organization found matching '${input}'.`;
+      if (fmt === "text") {
+        clack.log.error(msg);
+        if (orgs.length > 0) {
+          console.log("  Your organizations:");
+          for (const org of orgs) {
+            console.log(`    ${org.name} (${org.slug})`);
+          }
+        }
+      } else {
+        output({ error: msg, orgs }, fmt, () => {});
+      }
+      process.exit(1);
+    }
+
+    // Multiple matches (same name, different orgs)
+    const msg = `Multiple organizations match '${input}'. Use the org ID instead:`;
+    if (fmt === "text") {
+      clack.log.error(msg);
+      for (const org of matches) {
+        console.log(`  ${org.name} (${org.slug}) — ${org.id}`);
+      }
+    } else {
+      output({ error: msg, orgs: matches }, fmt, () => {});
+    }
+    process.exit(1);
   }
+
+  // Auto-resolve: pick if exactly one
+  if (orgs.length === 1 && orgs[0]) return orgs[0];
 
   if (orgs.length === 0) {
     const msg = "You don't belong to any organizations.";
@@ -88,11 +134,11 @@ export async function resolveOrgId(
 
   // Multiple orgs — can't auto-resolve
   const msg =
-    "You belong to multiple organizations. Use --org <id> to specify which one.";
+    "You belong to multiple organizations. Use --org <name-or-id> to specify which one.";
   if (fmt === "text") {
     clack.log.error(msg);
     for (const org of orgs) {
-      console.log(`  ${org.name} — ${org.id}`);
+      console.log(`  ${org.name} (${org.slug}) — ${org.id}`);
     }
   } else {
     output(
@@ -112,6 +158,21 @@ export async function resolveOrgId(
 }
 
 /**
+ * Resolve an org ID from a flag, positional argument, or auto-resolution.
+ *
+ * Convenience wrapper around resolveOrg — returns just the ID.
+ */
+export async function resolveOrgId(
+  accounts: AccountsClient,
+  fmt: OutputFormat,
+  flagValue?: string,
+  positionalArg?: string,
+): Promise<string> {
+  const org = await resolveOrg(accounts, fmt, flagValue, positionalArg);
+  return org.id;
+}
+
+/**
  * Resolve a user or role by ID or name. If the argument looks like a UUIDv7,
  * fetches by ID; otherwise fetches by name. Returns the UUID.
  */
@@ -122,6 +183,107 @@ export async function resolveUserId(
   if (UUIDV7_RE.test(idOrName)) return idOrName;
   const user = await engine.user.getByName({ name: idOrName });
   return user.id;
+}
+
+/**
+ * Resolve an identity ID from an email, name, or UUID.
+ *
+ * - UUID: used as-is
+ * - Email (contains @): looked up via identity.getByEmail
+ * - Otherwise: error with guidance
+ */
+export async function resolveIdentityId(
+  accounts: AccountsClient,
+  fmt: OutputFormat,
+  input: string,
+): Promise<string> {
+  if (UUIDV7_RE.test(input)) return input;
+
+  if (input.includes("@")) {
+    const { identity } = await accounts.identity.getByEmail({ email: input });
+    if (identity) return identity.id;
+
+    const msg = `No identity found with email '${input}'. They may need to sign up first, or use 'me invitation create' to invite them.`;
+    if (fmt === "text") {
+      clack.log.error(msg);
+    } else {
+      output({ error: msg }, fmt, () => {});
+    }
+    process.exit(1);
+  }
+
+  const msg = `'${input}' is not a valid ID or email. Provide a UUID or email address.`;
+  if (fmt === "text") {
+    clack.log.error(msg);
+  } else {
+    output({ error: msg }, fmt, () => {});
+  }
+  process.exit(1);
+}
+
+/**
+ * Resolve an identity from an org's member list by name, email, or UUID.
+ *
+ * Used for operations on existing members (e.g., remove).
+ */
+export async function resolveMember(
+  accounts: AccountsClient,
+  fmt: OutputFormat,
+  orgId: string,
+  input: string,
+): Promise<{ identityId: string; name: string; email: string }> {
+  const { members } = await accounts.org.member.list({ orgId });
+
+  // UUID match
+  if (UUIDV7_RE.test(input)) {
+    const match = members.find((m) => m.identityId === input);
+    if (match) return match;
+    // UUID not in member list — return it as-is (server will error if invalid)
+    return { identityId: input, name: input, email: "" };
+  }
+
+  // Email match
+  if (input.includes("@")) {
+    const lower = input.toLowerCase();
+    const match = members.find((m) => m.email.toLowerCase() === lower);
+    if (match) return match;
+
+    const msg = `No member with email '${input}' in this organization.`;
+    if (fmt === "text") {
+      clack.log.error(msg);
+    } else {
+      output({ error: msg }, fmt, () => {});
+    }
+    process.exit(1);
+  }
+
+  // Name match
+  const lower = input.toLowerCase();
+  const matches = members.filter((m) => m.name.toLowerCase() === lower);
+
+  if (matches.length === 1 && matches[0]) return matches[0];
+
+  if (matches.length === 0) {
+    const msg = `No member named '${input}' in this organization.`;
+    if (fmt === "text") {
+      clack.log.error(msg);
+    } else {
+      output({ error: msg }, fmt, () => {});
+    }
+    process.exit(1);
+  }
+
+  // Multiple matches
+  const msg = `Multiple members named '${input}'. Use their email instead:`;
+  if (fmt === "text") {
+    clack.log.error(msg);
+    for (const m of matches) {
+      console.log(`  ${m.name} — ${m.email}`);
+    }
+  } else {
+    output({ error: msg, members: matches }, fmt, () => {});
+  }
+  process.exit(1);
 }
 
 /**

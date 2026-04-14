@@ -22,7 +22,7 @@ function createInvitationCreateCommand(): Command {
     .description("invite someone to an organization")
     .argument("<email>", "email address to invite")
     .argument("<role>", "role: owner, admin, or member")
-    .option("--org <id>", "organization ID")
+    .option("--org <name-or-id>", "organization name, slug, or ID")
     .option("--expires <days>", "expiration in days (1-30, default 7)", "7")
     .action(async (email: string, role: string, opts, cmd) => {
       const globalOpts = cmd.optsWithGlobals();
@@ -48,6 +48,7 @@ function createInvitationCreateCommand(): Command {
 
         output(result, fmt, () => {
           clack.log.success(`Invitation sent to ${result.email}`);
+          console.log(`  ID:      ${result.id}`);
           console.log(`  Role:    ${result.role}`);
           console.log(`  Expires: ${result.expiresAt}`);
           clack.note(
@@ -64,8 +65,8 @@ function createInvitationCreateCommand(): Command {
 function createInvitationListCommand(): Command {
   return new Command("list")
     .description("list pending invitations")
-    .argument("[org-id]", "organization ID (optional if you belong to one org)")
-    .option("--org <id>", "organization ID")
+    .argument("[org]", "organization name, slug, or ID")
+    .option("--org <name-or-id>", "organization name, slug, or ID")
     .action(async (positionalOrgId: string | undefined, opts, cmd) => {
       const globalOpts = cmd.optsWithGlobals();
       const creds = resolveCredentials(globalOpts.server);
@@ -92,8 +93,13 @@ function createInvitationListCommand(): Command {
             return;
           }
           table(
-            ["email", "role", "expires"],
-            invitations.map((inv) => [inv.email, inv.role, inv.expiresAt]),
+            ["id", "email", "role", "expires"],
+            invitations.map((inv) => [
+              inv.id,
+              inv.email,
+              inv.role,
+              inv.expiresAt,
+            ]),
           );
         });
       } catch (error) {
@@ -120,11 +126,21 @@ function createInvitationAcceptCommand(): Command {
       try {
         const result = await accounts.invitation.accept({ token });
 
+        // Resolve org name for a friendlier message
+        let orgName: string | undefined;
+        if (result.accepted) {
+          try {
+            const org = await accounts.org.get({ id: result.orgId });
+            orgName = org.name;
+          } catch {
+            // Fall back to ID if org lookup fails
+          }
+        }
+
         output(result, fmt, () => {
           if (result.accepted) {
-            clack.log.success(
-              `Invitation accepted! Joined org ${result.orgId}`,
-            );
+            const label = orgName ? `'${orgName}'` : result.orgId;
+            clack.log.success(`Invitation accepted! Joined ${label}.`);
           } else {
             clack.log.warn("Invitation could not be accepted.");
           }

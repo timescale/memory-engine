@@ -14,6 +14,15 @@ export const meGetParams = z.object({});
 
 export type MeGetParams = z.infer<typeof meGetParams>;
 
+/**
+ * identity.getByEmail params.
+ */
+export const identityGetByEmailParams = z.object({
+  email: z.string().email(),
+});
+
+export type IdentityGetByEmailParams = z.infer<typeof identityGetByEmailParams>;
+
 // =============================================================================
 // Result Schemas
 // =============================================================================
@@ -30,3 +39,12 @@ export const identityResponse = z.object({
 });
 
 export type IdentityResponse = z.infer<typeof identityResponse>;
+
+/**
+ * identity.getByEmail result — nullable (identity may not exist).
+ */
+export const identityGetByEmailResult = z.object({
+  identity: identityResponse.nullable(),
+});
+
+export type IdentityGetByEmailResult = z.infer<typeof identityGetByEmailResult>;

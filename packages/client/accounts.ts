@@ -28,6 +28,8 @@ import type {
   EngineSetupAccessParams,
   EngineSetupAccessResult,
   EngineUpdateParams,
+  IdentityGetByEmailParams,
+  IdentityGetByEmailResult,
   IdentityResponse,
   InvitationAcceptParams,
   InvitationAcceptResult,
@@ -82,6 +84,12 @@ export interface MeNamespace {
   get(): Promise<IdentityResponse>;
 }
 
+export interface IdentityNamespace {
+  getByEmail(
+    params: IdentityGetByEmailParams,
+  ): Promise<IdentityGetByEmailResult>;
+}
+
 export interface SessionNamespace {
   revoke(): Promise<SessionRevokeResult>;
 }
@@ -132,6 +140,8 @@ export interface InvitationNamespace {
 export interface AccountsClient {
   /** Current identity */
   me: MeNamespace;
+  /** Identity lookup */
+  identity: IdentityNamespace;
   /** Session management */
   session: SessionNamespace;
   /** Organization management */
@@ -208,6 +218,10 @@ export function createAccountsClient(
     get: () => call("me.get", {}),
   };
 
+  const identity: IdentityNamespace = {
+    getByEmail: (params) => call("identity.getByEmail", params),
+  };
+
   const session: SessionNamespace = {
     revoke: () => call("session.revoke", {}),
   };
@@ -239,6 +253,7 @@ export function createAccountsClient(
 
   return {
     me,
+    identity,
     session,
     org,
     engine,

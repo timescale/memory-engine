@@ -18,7 +18,12 @@ import {
   engineSetupAccessResult,
   engineUpdateParams,
 } from "./engine.ts";
-import { identityResponse, meGetParams } from "./identity.ts";
+import {
+  identityGetByEmailParams,
+  identityGetByEmailResult,
+  identityResponse,
+  meGetParams,
+} from "./identity.ts";
 import {
   invitationAcceptParams,
   invitationAcceptResult,
@@ -81,8 +86,12 @@ function method<TParams extends z.ZodType, TResult extends z.ZodType>(
  * The server uses the params schemas for input validation.
  */
 export const accountsMethods = {
-  // Identity (1)
+  // Identity (2)
   "me.get": method(meGetParams, identityResponse),
+  "identity.getByEmail": method(
+    identityGetByEmailParams,
+    identityGetByEmailResult,
+  ),
 
   // Session (1)
   "session.revoke": method(sessionRevokeParams, sessionRevokeResult),

@@ -3,17 +3,24 @@
  *
  * - me org list: List your organizations
  * - me org create <name>: Create an organization
- * - me org delete <id>: Delete an organization
- * - me org member list [org-id]: List members
- * - me org member add <identity-id> <role>: Add a member
- * - me org member remove <identity-id>: Remove a member
+ * - me org delete <name-or-id>: Delete an organization
+ * - me org member list [org]: List members
+ * - me org member add <email-or-id> <role>: Add a member
+ * - me org member remove <name-email-or-id>: Remove a member
  */
 import * as clack from "@clack/prompts";
 import { createAccountsClient } from "@memory-engine/client";
 import { Command } from "commander";
 import { resolveCredentials } from "../credentials.ts";
 import { getOutputFormat, output, table } from "../output.ts";
-import { handleError, requireSession, resolveOrgId } from "../util.ts";
+import {
+  handleError,
+  requireSession,
+  resolveIdentityId,
+  resolveMember,
+  resolveOrg,
+  resolveOrgId,
+} from "../util.ts";
 
 // =============================================================================
 // Org Commands
@@ -84,24 +91,13 @@ function createOrgCreateCommand(): Command {
 function createOrgDeleteCommand(): Command {
   return new Command("delete")
     .description("delete an organization")
-    .argument("<id>", "organization ID")
+    .argument("<name-or-id>", "organization name, slug, or ID")
     .option("-y, --yes", "skip confirmation prompt")
-    .action(async (id: string, opts, cmd) => {
+    .action(async (nameOrId: string, opts, cmd) => {
       const globalOpts = cmd.optsWithGlobals();
       const creds = resolveCredentials(globalOpts.server);
       const fmt = getOutputFormat(globalOpts);
       requireSession(creds, fmt);
-
-      // Confirm in text mode unless --yes
-      if (fmt === "text" && !opts.yes) {
-        const confirmed = await clack.confirm({
-          message: `Delete organization ${id}? This cannot be undone.`,
-        });
-        if (clack.isCancel(confirmed) || !confirmed) {
-          clack.cancel("Cancelled.");
-          process.exit(0);
-        }
-      }
 
       const accounts = createAccountsClient({
         url: creds.server,
@@ -109,11 +105,24 @@ function createOrgDeleteCommand(): Command {
       });
 
       try {
-        const result = await accounts.org.delete({ id });
+        const org = await resolveOrg(accounts, fmt, undefined, nameOrId);
+
+        // Confirm in text mode unless --yes
+        if (fmt === "text" && !opts.yes) {
+          const confirmed = await clack.confirm({
+            message: `Delete organization '${org.name}'? This cannot be undone.`,
+          });
+          if (clack.isCancel(confirmed) || !confirmed) {
+            clack.cancel("Cancelled.");
+            process.exit(0);
+          }
+        }
+
+        const result = await accounts.org.delete({ id: org.id });
 
         output(result, fmt, () => {
           if (result.deleted) {
-            clack.log.success("Organization deleted.");
+            clack.log.success(`Organization '${org.name}' deleted.`);
           } else {
             clack.log.warn("Organization not found.");
           }
@@ -131,8 +140,8 @@ function createOrgDeleteCommand(): Command {
 function createOrgMemberListCommand(): Command {
   return new Command("list")
     .description("list organization members")
-    .argument("[org-id]", "organization ID (optional if you belong to one org)")
-    .option("--org <id>", "organization ID")
+    .argument("[org]", "organization name, slug, or ID")
+    .option("--org <name-or-id>", "organization name, slug, or ID")
     .action(async (positionalOrgId: string | undefined, opts, cmd) => {
       const globalOpts = cmd.optsWithGlobals();
       const creds = resolveCredentials(globalOpts.server);
@@ -172,10 +181,10 @@ function createOrgMemberListCommand(): Command {
 function createOrgMemberAddCommand(): Command {
   return new Command("add")
     .description("add a member to an organization")
-    .argument("<identity-id>", "identity ID to add")
+    .argument("<email-or-id>", "email address or identity ID")
     .argument("<role>", "role: owner, admin, or member")
-    .option("--org <id>", "organization ID")
-    .action(async (identityId: string, role: string, opts, cmd) => {
+    .option("--org <name-or-id>", "organization name, slug, or ID")
+    .action(async (emailOrId: string, role: string, opts, cmd) => {
       const globalOpts = cmd.optsWithGlobals();
       const creds = resolveCredentials(globalOpts.server);
       const fmt = getOutputFormat(globalOpts);
@@ -188,6 +197,7 @@ function createOrgMemberAddCommand(): Command {
 
       try {
         const orgId = await resolveOrgId(accounts, fmt, opts.org);
+        const identityId = await resolveIdentityId(accounts, fmt, emailOrId);
         const member = await accounts.org.member.add({
           orgId,
           identityId,
@@ -195,7 +205,9 @@ function createOrgMemberAddCommand(): Command {
         });
 
         output(member, fmt, () => {
-          clack.log.success(`Added ${member.identityId} as ${member.role}`);
+          clack.log.success(
+            `Added ${member.name} (${member.email}) as ${member.role}`,
+          );
         });
       } catch (error) {
         handleError(error, fmt);
@@ -206,25 +218,14 @@ function createOrgMemberAddCommand(): Command {
 function createOrgMemberRemoveCommand(): Command {
   return new Command("remove")
     .description("remove a member from an organization")
-    .argument("<identity-id>", "identity ID to remove")
-    .option("--org <id>", "organization ID")
+    .argument("<name-email-or-id>", "member name, email, or identity ID")
+    .option("--org <name-or-id>", "organization name, slug, or ID")
     .option("-y, --yes", "skip confirmation prompt")
-    .action(async (identityId: string, opts, cmd) => {
+    .action(async (nameEmailOrId: string, opts, cmd) => {
       const globalOpts = cmd.optsWithGlobals();
       const creds = resolveCredentials(globalOpts.server);
       const fmt = getOutputFormat(globalOpts);
       requireSession(creds, fmt);
-
-      // Confirm in text mode unless --yes
-      if (fmt === "text" && !opts.yes) {
-        const confirmed = await clack.confirm({
-          message: `Remove member ${identityId}?`,
-        });
-        if (clack.isCancel(confirmed) || !confirmed) {
-          clack.cancel("Cancelled.");
-          process.exit(0);
-        }
-      }
 
       const accounts = createAccountsClient({
         url: creds.server,
@@ -233,14 +234,30 @@ function createOrgMemberRemoveCommand(): Command {
 
       try {
         const orgId = await resolveOrgId(accounts, fmt, opts.org);
+        const member = await resolveMember(accounts, fmt, orgId, nameEmailOrId);
+
+        // Confirm in text mode unless --yes
+        if (fmt === "text" && !opts.yes) {
+          const label = member.email
+            ? `${member.name} (${member.email})`
+            : member.name;
+          const confirmed = await clack.confirm({
+            message: `Remove ${label}?`,
+          });
+          if (clack.isCancel(confirmed) || !confirmed) {
+            clack.cancel("Cancelled.");
+            process.exit(0);
+          }
+        }
+
         const result = await accounts.org.member.remove({
           orgId,
-          identityId,
+          identityId: member.identityId,
         });
 
         output(result, fmt, () => {
           if (result.removed) {
-            clack.log.success("Member removed.");
+            clack.log.success(`Removed ${member.name}.`);
           } else {
             clack.log.warn("Member not found.");
           }
