@@ -22,7 +22,8 @@
     "build": "./bun run --filter '@memory-engine/cli' build",
     "server": "./bun run packages/server/index.ts",
     "build:all": "./bun scripts/build-all.ts",
-    "clean": "rm -rf packages/cli/dist dist"
+    "clean": "rm -rf packages/cli/dist dist",
+    "release": "./bun scripts/release.ts"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.11",
