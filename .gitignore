@@ -44,6 +44,7 @@ opencode.json
 .opencode
 .ropeproject
 docs
+me
 
 # git worktrees
 .worktrees
