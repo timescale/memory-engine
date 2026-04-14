@@ -56,6 +56,24 @@ export const engineUpdateParams = z.object({
 export type EngineUpdateParams = z.infer<typeof engineUpdateParams>;
 
 /**
+ * engine.delete params.
+ */
+export const engineDeleteParams = z.object({
+  id: uuidv7Schema,
+});
+
+export type EngineDeleteParams = z.infer<typeof engineDeleteParams>;
+
+/**
+ * engine.delete result.
+ */
+export const engineDeleteResult = z.object({
+  deleted: z.boolean(),
+});
+
+export type EngineDeleteResult = z.infer<typeof engineDeleteResult>;
+
+/**
  * engine.setupAccess params.
  * Bootstraps engine access for a session-authenticated identity.
  */

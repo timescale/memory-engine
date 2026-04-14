@@ -19,6 +19,8 @@ import type {
   AccountsParams,
   AccountsResult,
   EngineCreateParams,
+  EngineDeleteParams,
+  EngineDeleteResult,
   EngineGetParams,
   EngineListParams,
   EngineListResult,
@@ -107,6 +109,7 @@ export interface AccountsEngineNamespace {
   list(params: EngineListParams): Promise<EngineListResult>;
   get(params: EngineGetParams): Promise<EngineResponse>;
   update(params: EngineUpdateParams): Promise<EngineResponse>;
+  delete(params: EngineDeleteParams): Promise<EngineDeleteResult>;
   setupAccess(
     params: EngineSetupAccessParams,
   ): Promise<EngineSetupAccessResult>;
@@ -223,6 +226,7 @@ export function createAccountsClient(
     list: (params) => call("engine.list", params),
     get: (params) => call("engine.get", params),
     update: (params) => call("engine.update", params),
+    delete: (params) => call("engine.delete", params),
     setupAccess: (params) => call("engine.setupAccess", params),
   };
 

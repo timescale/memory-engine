@@ -4,6 +4,7 @@
  * - me engine list: List engines across all your orgs
  * - me engine use [id-or-name]: Select the active engine
  * - me engine create <name>: Create a new engine in an org
+ * - me engine delete <id-or-name>: Permanently delete an engine
  */
 import * as clack from "@clack/prompts";
 import { createAccountsClient, RpcError } from "@memory-engine/client";
@@ -374,6 +375,71 @@ function createEngineCreateCommand(): Command {
 }
 
 /**
+ * me engine delete — permanently delete an engine and all its data.
+ */
+function createEngineDeleteCommand(): Command {
+  return new Command("delete")
+    .description("permanently delete an engine and all its data")
+    .argument("<id-or-name>", "engine ID or name")
+    .option("--force", "skip confirmation prompt")
+    .action(async (idOrName: string, opts, cmd) => {
+      const globalOpts = cmd.optsWithGlobals();
+      const creds = resolveCredentials(globalOpts.server);
+      const fmt = getOutputFormat(globalOpts);
+      requireSession(creds, fmt);
+
+      const accounts = createAccountsClient({
+        url: creds.server,
+        sessionToken: creds.sessionToken,
+      });
+
+      try {
+        // Resolve engine by ID or name
+        const engines = await fetchAllEngines(accounts);
+        const engine = await resolveEngine(engines, idOrName, fmt);
+        if (!engine) {
+          handleError(new Error(`Engine not found: ${idOrName}`), fmt);
+        }
+
+        // Confirmation: require typing the engine name
+        if (fmt === "text" && !opts.force) {
+          clack.log.warn(
+            "This will permanently delete the engine and ALL its data (memories, users, grants).",
+          );
+          clack.log.warn("This action cannot be undone.");
+          console.log();
+
+          const confirmation = await clack.text({
+            message: `Type the engine name "${engine.name}" to confirm deletion`,
+            validate: (value) => {
+              if (value !== engine.name) {
+                return `Please type "${engine.name}" exactly to confirm`;
+              }
+            },
+          });
+
+          if (clack.isCancel(confirmation)) {
+            clack.cancel("Cancelled.");
+            process.exit(0);
+          }
+        }
+
+        const result = await accounts.engine.delete({ id: engine.id });
+
+        output(result, fmt, () => {
+          if (result.deleted) {
+            clack.log.success(
+              `Engine '${engine.name}' has been permanently deleted.`,
+            );
+          }
+        });
+      } catch (error) {
+        handleError(error, fmt);
+      }
+    });
+}
+
+/**
  * Create the engine command group.
  */
 export function createEngineCommand(): Command {
@@ -382,6 +448,7 @@ export function createEngineCommand(): Command {
   engine.addCommand(createEngineListCommand());
   engine.addCommand(createEngineUseCommand());
   engine.addCommand(createEngineCreateCommand());
+  engine.addCommand(createEngineDeleteCommand());
 
   return engine;
 }

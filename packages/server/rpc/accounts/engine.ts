@@ -6,6 +6,7 @@
  * - engine.list: List engines for an organization
  * - engine.get: Get engine by ID
  * - engine.update: Update engine name/status
+ * - engine.delete: Delete an engine (mark deleted + drop schema)
  * - engine.setupAccess: Bootstrap engine access for a session-authenticated identity
  */
 import type { Engine } from "@memory-engine/accounts";
@@ -16,6 +17,7 @@ import {
 } from "@memory-engine/engine";
 import type {
   EngineCreateParams,
+  EngineDeleteParams,
   EngineGetParams,
   EngineListParams,
   EngineResponse,
@@ -25,6 +27,7 @@ import type {
 } from "@memory-engine/protocol/accounts/engine";
 import {
   engineCreateParams,
+  engineDeleteParams,
   engineGetParams,
   engineListParams,
   engineSetupAccessParams,
@@ -292,6 +295,81 @@ function slugifyUserName(name: string): string {
     .replace(/^-|-$/g, "");
 }
 
+/**
+ * engine.delete - Delete an engine permanently.
+ * Marks the engine as deleted in accounts DB, then drops the schema.
+ * Requires owner role on the org.
+ */
+async function engineDelete(
+  params: EngineDeleteParams,
+  context: HandlerContext,
+): Promise<{ deleted: boolean }> {
+  assertAccountsRpcContext(context);
+  const { db, identity, engineSql } = context as AccountsRpcContext;
+
+  const engine = await db.getEngine(params.id);
+  if (!engine) {
+    throw new AppError("NOT_FOUND", `Engine not found: ${params.id}`);
+  }
+
+  // Only org owners can delete engines
+  const member = await db.getMember(engine.orgId, identity.id);
+  if (!member || member.role !== "owner") {
+    throw new AppError("FORBIDDEN", "Only owners can delete engines");
+  }
+
+  // Already deleted — idempotent
+  if (engine.status === "deleted") {
+    return { deleted: true };
+  }
+
+  // Mark as deleted first (blocks new API key auth immediately)
+  await db.updateEngine(engine.id, { status: "deleted" });
+
+  // Drop the engine schema with retries (in-flight operations may hold locks)
+  const schema = `me_${engine.slug}`;
+  await dropSchemaWithRetry(engineSql, schema, {
+    retries: 3,
+    delayMs: 2000,
+    shardId: engine.shardId,
+  });
+
+  return { deleted: true };
+}
+
+/**
+ * Drop an engine schema with retry logic.
+ * Sets a lock_timeout to avoid blocking indefinitely if the embedding worker
+ * or in-flight requests hold locks, then retries on timeout.
+ * Sets pgdog.shard for correct shard routing.
+ */
+async function dropSchemaWithRetry(
+  sql: import("bun").SQL,
+  schema: string,
+  opts: { retries: number; delayMs: number; shardId: number },
+): Promise<void> {
+  for (let attempt = 1; attempt <= opts.retries; attempt++) {
+    try {
+      await sql.begin(async (tx) => {
+        await tx.unsafe(`set local pgdog.shard to ${opts.shardId}`);
+        await tx.unsafe(`set local lock_timeout = '5s'`);
+        await tx.unsafe(`drop schema if exists ${schema} cascade`);
+      });
+      return;
+    } catch (err) {
+      const isLockTimeout =
+        err instanceof Error && err.message?.includes("lock timeout");
+      if (!isLockTimeout || attempt === opts.retries) {
+        throw new AppError(
+          "INTERNAL_ERROR",
+          `Failed to drop engine schema ${schema}: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+      await new Promise((resolve) => setTimeout(resolve, opts.delayMs));
+    }
+  }
+}
+
 // =============================================================================
 // Registry
 // =============================================================================
@@ -304,5 +382,6 @@ export const engineMethods = buildRegistry()
   .register("engine.list", engineListParams, engineList)
   .register("engine.get", engineGetParams, engineGet)
   .register("engine.update", engineUpdateParams, engineUpdate)
+  .register("engine.delete", engineDeleteParams, engineDelete)
   .register("engine.setupAccess", engineSetupAccessParams, engineSetupAccess)
   .build();
