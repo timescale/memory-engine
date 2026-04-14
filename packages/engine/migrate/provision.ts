@@ -14,6 +14,7 @@ export async function provisionEngine(
   slug: string,
   config: EngineConfig | undefined,
   appVersion: string,
+  shardId?: number,
 ): Promise<ProvisionResult> {
   if (!isValidSlug(slug)) {
     throw new Error(
@@ -25,6 +26,10 @@ export async function provisionEngine(
 
   // Transaction 1: Create schema infrastructure (all or nothing)
   await sql.begin(async (tx) => {
+    if (shardId !== undefined) {
+      await tx.unsafe(`set local pgdog.shard to ${shardId}`);
+    }
+
     // Create schema (fails if exists - use migrateEngine for existing schemas)
     await tx.unsafe(`create schema ${schema}`);
 
@@ -45,7 +50,13 @@ export async function provisionEngine(
   });
 
   // Transaction 2: Run migrations
-  const migrateResult = await migrateEngine(sql, schema, config, appVersion);
+  const migrateResult = await migrateEngine(
+    sql,
+    schema,
+    config,
+    appVersion,
+    shardId,
+  );
 
   return { schema, migrateResult };
 }

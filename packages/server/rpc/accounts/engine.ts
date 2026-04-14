@@ -94,12 +94,21 @@ async function engineCreate(
   };
 
   try {
-    await provisionEngine(engineSql, engine.slug, engineConfig, appVersion);
+    await provisionEngine(
+      engineSql,
+      engine.slug,
+      engineConfig,
+      appVersion,
+      engine.shardId,
+    );
   } catch (err) {
     // Attempt to clean up partially-created schema
     const schema = `me_${engine.slug}`;
     try {
-      await engineSql.unsafe(`drop schema if exists ${schema} cascade`);
+      await engineSql.begin(async (tx) => {
+        await tx.unsafe(`set local pgdog.shard to ${engine.shardId}`);
+        await tx.unsafe(`drop schema if exists ${schema} cascade`);
+      });
     } catch {
       // Log but don't mask original error
     }

@@ -62,11 +62,16 @@ export async function migrateEngine(
   schema: string,
   config: EngineConfig | undefined,
   appVersion: string,
+  shardId?: number,
 ): Promise<MigrateResult> {
   await assertEngineSchema(sql, schema);
   const resolved = resolveConfig(schema, config);
 
   return await sql.begin(async (tx) => {
+    if (shardId !== undefined) {
+      await tx.unsafe(`set local pgdog.shard to ${shardId}`);
+    }
+
     // 1. Acquire advisory lock with retry
     const [{ lock_id }] = await tx`
       select hashtext(${schema})::bigint as lock_id
@@ -154,9 +159,10 @@ export async function migrateAll(
   schemas: string[],
   config: EngineConfig | undefined,
   appVersion: string,
-  options?: { concurrency?: number },
+  options?: { concurrency?: number; shardId?: number },
 ): Promise<Map<string, MigrateResult>> {
   const concurrency = options?.concurrency ?? 10;
+  const shardId = options?.shardId;
   const results = new Map<string, MigrateResult>();
 
   // Simple semaphore for bounded parallelism
@@ -165,7 +171,13 @@ export async function migrateAll(
 
   const runOne = async (schema: string): Promise<void> => {
     try {
-      const result = await migrateEngine(sql, schema, config, appVersion);
+      const result = await migrateEngine(
+        sql,
+        schema,
+        config,
+        appVersion,
+        shardId,
+      );
       results.set(schema, result);
     } catch (error) {
       results.set(schema, {
