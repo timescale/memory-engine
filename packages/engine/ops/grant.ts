@@ -5,6 +5,7 @@ import { withTx } from "./_tx";
 interface TreeGrantRow {
   id: string;
   user_id: string;
+  user_name: string;
   tree_path: string;
   actions: string[];
   granted_by: string | null;
@@ -16,6 +17,7 @@ function rowToTreeGrant(row: TreeGrantRow): TreeGrant {
   return {
     id: row.id,
     userId: row.user_id,
+    userName: row.user_name,
     treePath: row.tree_path,
     actions: row.actions,
     grantedBy: row.granted_by,
@@ -78,18 +80,20 @@ export function grantOps(ctx: OpsContext) {
       return withTx(ctx, "admin", "listTreeGrants", async (sql) => {
         if (userId) {
           const rows = await sql<TreeGrantRow[]>`
-            select id, user_id, tree_path::text, actions, granted_by, with_grant_option, created_at
-            from ${sql.unsafe(schema)}.tree_grant
-            where user_id = ${userId}
-            order by tree_path
+            select g.id, g.user_id, u.name as user_name, g.tree_path::text, g.actions, g.granted_by, g.with_grant_option, g.created_at
+            from ${sql.unsafe(schema)}.tree_grant g
+            join ${sql.unsafe(schema)}."user" u on u.id = g.user_id
+            where g.user_id = ${userId}
+            order by g.tree_path
           `;
           return rows.map(rowToTreeGrant);
         }
 
         const rows = await sql<TreeGrantRow[]>`
-          select id, user_id, tree_path::text, actions, granted_by, with_grant_option, created_at
-          from ${sql.unsafe(schema)}.tree_grant
-          order by user_id, tree_path
+          select g.id, g.user_id, u.name as user_name, g.tree_path::text, g.actions, g.granted_by, g.with_grant_option, g.created_at
+          from ${sql.unsafe(schema)}.tree_grant g
+          join ${sql.unsafe(schema)}."user" u on u.id = g.user_id
+          order by u.name, g.tree_path
         `;
         return rows.map(rowToTreeGrant);
       });
@@ -104,10 +108,11 @@ export function grantOps(ctx: OpsContext) {
     ): Promise<TreeGrant | null> {
       return withTx(ctx, "admin", "getTreeGrant", async (sql) => {
         const rows = await sql<TreeGrantRow[]>`
-          select id, user_id, tree_path::text, actions, granted_by, with_grant_option, created_at
-          from ${sql.unsafe(schema)}.tree_grant
-          where user_id = ${userId}
-            and tree_path = ${treePath}::ltree
+          select g.id, g.user_id, u.name as user_name, g.tree_path::text, g.actions, g.granted_by, g.with_grant_option, g.created_at
+          from ${sql.unsafe(schema)}.tree_grant g
+          join ${sql.unsafe(schema)}."user" u on u.id = g.user_id
+          where g.user_id = ${userId}
+            and g.tree_path = ${treePath}::ltree
         `;
         const row = rows[0];
         return row ? rowToTreeGrant(row) : null;

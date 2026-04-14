@@ -1,27 +1,32 @@
 /**
  * me grant — tree grant management commands.
  *
- * - me grant create <user-id> <path> <actions...>: Grant tree access
- * - me grant revoke <user-id> <path>: Revoke tree access
- * - me grant list [user-id]: List grants
- * - me grant check <user-id> <path> <action>: Check access
+ * - me grant create <user> <path> <actions...>: Grant tree access
+ * - me grant revoke <user> <path>: Revoke tree access
+ * - me grant list [user]: List grants
+ * - me grant check <user> <path> <action>: Check access
  */
 import * as clack from "@clack/prompts";
 import { createClient } from "@memory-engine/client";
 import { Command } from "commander";
 import { resolveCredentials } from "../credentials.ts";
 import { getOutputFormat, output, table } from "../output.ts";
-import { handleError, requireEngine, requireSession } from "../util.ts";
+import {
+  handleError,
+  requireEngine,
+  requireSession,
+  resolveUserId,
+} from "../util.ts";
 
 function createGrantCreateCommand(): Command {
   return new Command("create")
     .description("grant tree access to a user")
-    .argument("<user-id>", "user ID")
+    .argument("<user>", "user name or ID")
     .argument("<path>", "tree path")
     .argument("<actions...>", "actions: read, write, create, delete, admin")
     .option("--with-grant-option", "allow grantee to re-grant")
     .action(
-      async (userId: string, path: string, actions: string[], opts, cmd) => {
+      async (user: string, path: string, actions: string[], opts, cmd) => {
         const globalOpts = cmd.optsWithGlobals();
         const creds = resolveCredentials(globalOpts.server);
         const fmt = getOutputFormat(globalOpts);
@@ -34,6 +39,7 @@ function createGrantCreateCommand(): Command {
         });
 
         try {
+          const userId = await resolveUserId(engine, user);
           const result = await engine.grant.create({
             userId,
             treePath: path,
@@ -43,7 +49,7 @@ function createGrantCreateCommand(): Command {
 
           output(result, fmt, () => {
             clack.log.success(
-              `Granted [${actions.join(", ")}] on '${path}' to ${userId}`,
+              `Granted [${actions.join(", ")}] on '${path}' to ${user}`,
             );
           });
         } catch (error) {
@@ -56,9 +62,9 @@ function createGrantCreateCommand(): Command {
 function createGrantRevokeCommand(): Command {
   return new Command("revoke")
     .description("revoke tree access from a user")
-    .argument("<user-id>", "user ID")
+    .argument("<user>", "user name or ID")
     .argument("<path>", "tree path")
-    .action(async (userId: string, path: string, _opts, cmd) => {
+    .action(async (user: string, path: string, _opts, cmd) => {
       const globalOpts = cmd.optsWithGlobals();
       const creds = resolveCredentials(globalOpts.server);
       const fmt = getOutputFormat(globalOpts);
@@ -68,6 +74,7 @@ function createGrantRevokeCommand(): Command {
       const engine = createClient({ url: creds.server, apiKey: creds.apiKey });
 
       try {
+        const userId = await resolveUserId(engine, user);
         const result = await engine.grant.revoke({
           userId,
           treePath: path,
@@ -75,7 +82,7 @@ function createGrantRevokeCommand(): Command {
 
         output(result, fmt, () => {
           if (result.revoked) {
-            clack.log.success(`Revoked grant on '${path}' from ${userId}`);
+            clack.log.success(`Revoked grant on '${path}' from ${user}`);
           } else {
             clack.log.warn("Grant not found.");
           }
@@ -89,8 +96,8 @@ function createGrantRevokeCommand(): Command {
 function createGrantListCommand(): Command {
   return new Command("list")
     .description("list grants")
-    .argument("[user-id]", "filter by user ID (optional)")
-    .action(async (userId: string | undefined, _opts, cmd) => {
+    .argument("[user]", "filter by user name or ID (optional)")
+    .action(async (user: string | undefined, _opts, cmd) => {
       const globalOpts = cmd.optsWithGlobals();
       const creds = resolveCredentials(globalOpts.server);
       const fmt = getOutputFormat(globalOpts);
@@ -100,6 +107,7 @@ function createGrantListCommand(): Command {
       const engine = createClient({ url: creds.server, apiKey: creds.apiKey });
 
       try {
+        const userId = user ? await resolveUserId(engine, user) : undefined;
         const { grants } = await engine.grant.list(
           userId ? { userId } : undefined,
         );
@@ -110,9 +118,9 @@ function createGrantListCommand(): Command {
             return;
           }
           table(
-            ["user_id", "tree_path", "actions", "grant_option"],
+            ["user", "tree_path", "actions", "grant_option"],
             grants.map((g) => [
-              g.userId,
+              g.userName,
               g.treePath,
               g.actions.join(", "),
               g.withGrantOption ? "yes" : "",
@@ -128,41 +136,40 @@ function createGrantListCommand(): Command {
 function createGrantCheckCommand(): Command {
   return new Command("check")
     .description("check if a user has access to a tree path")
-    .argument("<user-id>", "user ID")
+    .argument("<user>", "user name or ID")
     .argument("<path>", "tree path")
     .argument("<action>", "action: read, write, create, delete, admin")
-    .action(
-      async (userId: string, path: string, action: string, _opts, cmd) => {
-        const globalOpts = cmd.optsWithGlobals();
-        const creds = resolveCredentials(globalOpts.server);
-        const fmt = getOutputFormat(globalOpts);
-        requireSession(creds, fmt);
-        requireEngine(creds, fmt);
+    .action(async (user: string, path: string, action: string, _opts, cmd) => {
+      const globalOpts = cmd.optsWithGlobals();
+      const creds = resolveCredentials(globalOpts.server);
+      const fmt = getOutputFormat(globalOpts);
+      requireSession(creds, fmt);
+      requireEngine(creds, fmt);
 
-        const engine = createClient({
-          url: creds.server,
-          apiKey: creds.apiKey,
+      const engine = createClient({
+        url: creds.server,
+        apiKey: creds.apiKey,
+      });
+
+      try {
+        const userId = await resolveUserId(engine, user);
+        const result = await engine.grant.check({
+          userId,
+          treePath: path,
+          action: action as "read" | "write" | "delete" | "admin",
         });
 
-        try {
-          const result = await engine.grant.check({
-            userId,
-            treePath: path,
-            action: action as "read" | "write" | "delete" | "admin",
-          });
-
-          output(result, fmt, () => {
-            if (result.allowed) {
-              clack.log.success(`${action} on '${path}': allowed`);
-            } else {
-              clack.log.warn(`${action} on '${path}': denied`);
-            }
-          });
-        } catch (error) {
-          handleError(error, fmt);
-        }
-      },
-    );
+        output(result, fmt, () => {
+          if (result.allowed) {
+            clack.log.success(`${action} on '${path}': allowed`);
+          } else {
+            clack.log.warn(`${action} on '${path}': denied`);
+          }
+        });
+      } catch (error) {
+        handleError(error, fmt);
+      }
+    });
 }
 
 export function createGrantCommand(): Command {

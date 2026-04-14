@@ -70,6 +70,7 @@ export type GrantCheckParams = z.infer<typeof grantCheckParams>;
 export const grantResponse = z.object({
   id: z.string(),
   userId: z.string(),
+  userName: z.string(),
   treePath: z.string(),
   actions: z.array(z.string()),
   grantedBy: z.string().nullable(),

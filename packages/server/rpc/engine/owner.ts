@@ -33,7 +33,9 @@ function toOwnerResponse(owner: TreeOwner): OwnerResponse {
   return {
     treePath: owner.treePath,
     userId: owner.userId,
+    userName: owner.userName,
     createdBy: owner.createdBy,
+    createdByName: owner.createdByName,
     createdAt: owner.createdAt.toISOString(),
   };
 }

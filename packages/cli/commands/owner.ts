@@ -1,24 +1,29 @@
 /**
  * me owner — tree ownership management commands.
  *
- * - me owner set <path> <user-id>: Set tree path owner
+ * - me owner set <path> <user>: Set tree path owner
  * - me owner remove <path>: Remove tree path owner
  * - me owner get <path>: Get tree path owner
- * - me owner list [user-id]: List ownership records
+ * - me owner list [user]: List ownership records
  */
 import * as clack from "@clack/prompts";
 import { createClient } from "@memory-engine/client";
 import { Command } from "commander";
 import { resolveCredentials } from "../credentials.ts";
 import { getOutputFormat, output, table } from "../output.ts";
-import { handleError, requireEngine, requireSession } from "../util.ts";
+import {
+  handleError,
+  requireEngine,
+  requireSession,
+  resolveUserId,
+} from "../util.ts";
 
 function createOwnerSetCommand(): Command {
   return new Command("set")
     .description("set tree path owner")
     .argument("<path>", "tree path")
-    .argument("<user-id>", "user ID")
-    .action(async (path: string, userId: string, _opts, cmd) => {
+    .argument("<user>", "user name or ID")
+    .action(async (path: string, user: string, _opts, cmd) => {
       const globalOpts = cmd.optsWithGlobals();
       const creds = resolveCredentials(globalOpts.server);
       const fmt = getOutputFormat(globalOpts);
@@ -28,10 +33,11 @@ function createOwnerSetCommand(): Command {
       const engine = createClient({ url: creds.server, apiKey: creds.apiKey });
 
       try {
+        const userId = await resolveUserId(engine, user);
         const result = await engine.owner.set({ userId, treePath: path });
 
         output(result, fmt, () => {
-          clack.log.success(`Set owner of '${path}' to ${userId}`);
+          clack.log.success(`Set owner of '${path}' to ${user}`);
         });
       } catch (error) {
         handleError(error, fmt);
@@ -86,8 +92,8 @@ function createOwnerGetCommand(): Command {
 
         output(owner, fmt, () => {
           console.log(`  Path:      ${owner.treePath}`);
-          console.log(`  Owner:     ${owner.userId}`);
-          console.log(`  Set by:    ${owner.createdBy ?? "(unknown)"}`);
+          console.log(`  Owner:     ${owner.userName}`);
+          console.log(`  Set by:    ${owner.createdByName ?? "(unknown)"}`);
           console.log(`  Created:   ${owner.createdAt}`);
         });
       } catch (error) {
@@ -99,8 +105,8 @@ function createOwnerGetCommand(): Command {
 function createOwnerListCommand(): Command {
   return new Command("list")
     .description("list ownership records")
-    .argument("[user-id]", "filter by user ID (optional)")
-    .action(async (userId: string | undefined, _opts, cmd) => {
+    .argument("[user]", "filter by user name or ID (optional)")
+    .action(async (user: string | undefined, _opts, cmd) => {
       const globalOpts = cmd.optsWithGlobals();
       const creds = resolveCredentials(globalOpts.server);
       const fmt = getOutputFormat(globalOpts);
@@ -110,6 +116,7 @@ function createOwnerListCommand(): Command {
       const engine = createClient({ url: creds.server, apiKey: creds.apiKey });
 
       try {
+        const userId = user ? await resolveUserId(engine, user) : undefined;
         const { owners } = await engine.owner.list(
           userId ? { userId } : undefined,
         );
@@ -120,8 +127,8 @@ function createOwnerListCommand(): Command {
             return;
           }
           table(
-            ["tree_path", "user_id"],
-            owners.map((o) => [o.treePath, o.userId]),
+            ["tree_path", "owner"],
+            owners.map((o) => [o.treePath, o.userName]),
           );
         });
       } catch (error) {

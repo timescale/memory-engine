@@ -55,7 +55,9 @@ export type OwnerListParams = z.infer<typeof ownerListParams>;
 export const ownerResponse = z.object({
   treePath: z.string(),
   userId: z.string(),
+  userName: z.string(),
   createdBy: z.string().nullable(),
+  createdByName: z.string().nullable(),
   createdAt: z.string(),
 });
 

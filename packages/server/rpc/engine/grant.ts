@@ -36,6 +36,7 @@ function toGrantResponse(grant: TreeGrant): GrantResponse {
   return {
     id: grant.id,
     userId: grant.userId,
+    userName: grant.userName,
     treePath: grant.treePath,
     actions: grant.actions,
     grantedBy: grant.grantedBy,

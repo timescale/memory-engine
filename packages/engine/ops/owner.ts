@@ -5,7 +5,9 @@ import { withTx } from "./_tx";
 interface TreeOwnerRow {
   tree_path: string;
   user_id: string;
+  user_name: string;
   created_by: string | null;
+  created_by_name: string | null;
   created_at: Date;
 }
 
@@ -13,7 +15,9 @@ function rowToTreeOwner(row: TreeOwnerRow): TreeOwner {
   return {
     treePath: row.tree_path,
     userId: row.user_id,
+    userName: row.user_name,
     createdBy: row.created_by,
+    createdByName: row.created_by_name,
     createdAt: row.created_at,
   };
 }
@@ -63,9 +67,11 @@ export function ownerOps(ctx: OpsContext) {
     async getTreeOwner(treePath: string): Promise<TreeOwner | null> {
       return withTx(ctx, "admin", "getTreeOwner", async (sql) => {
         const rows = await sql<TreeOwnerRow[]>`
-          select tree_path::text, user_id, created_by, created_at
-          from ${sql.unsafe(schema)}.tree_owner
-          where tree_path = ${treePath}::ltree
+          select o.tree_path::text, o.user_id, u.name as user_name, o.created_by, cb.name as created_by_name, o.created_at
+          from ${sql.unsafe(schema)}.tree_owner o
+          join ${sql.unsafe(schema)}."user" u on u.id = o.user_id
+          left join ${sql.unsafe(schema)}."user" cb on cb.id = o.created_by
+          where o.tree_path = ${treePath}::ltree
         `;
         const row = rows[0];
         return row ? rowToTreeOwner(row) : null;
@@ -79,18 +85,22 @@ export function ownerOps(ctx: OpsContext) {
       return withTx(ctx, "admin", "listTreeOwners", async (sql) => {
         if (userId) {
           const rows = await sql<TreeOwnerRow[]>`
-            select tree_path::text, user_id, created_by, created_at
-            from ${sql.unsafe(schema)}.tree_owner
-            where user_id = ${userId}
-            order by tree_path
+            select o.tree_path::text, o.user_id, u.name as user_name, o.created_by, cb.name as created_by_name, o.created_at
+            from ${sql.unsafe(schema)}.tree_owner o
+            join ${sql.unsafe(schema)}."user" u on u.id = o.user_id
+            left join ${sql.unsafe(schema)}."user" cb on cb.id = o.created_by
+            where o.user_id = ${userId}
+            order by o.tree_path
           `;
           return rows.map(rowToTreeOwner);
         }
 
         const rows = await sql<TreeOwnerRow[]>`
-          select tree_path::text, user_id, created_by, created_at
-          from ${sql.unsafe(schema)}.tree_owner
-          order by tree_path
+          select o.tree_path::text, o.user_id, u.name as user_name, o.created_by, cb.name as created_by_name, o.created_at
+          from ${sql.unsafe(schema)}.tree_owner o
+          join ${sql.unsafe(schema)}."user" u on u.id = o.user_id
+          left join ${sql.unsafe(schema)}."user" cb on cb.id = o.created_by
+          order by o.tree_path
         `;
         return rows.map(rowToTreeOwner);
       });

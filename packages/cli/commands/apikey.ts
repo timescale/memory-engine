@@ -1,8 +1,8 @@
 /**
  * me apikey — API key management commands.
  *
- * - me apikey list <user-id>: List API keys for a user
- * - me apikey create <user-id> [name]: Create a new API key
+ * - me apikey list <user>: List API keys for a user
+ * - me apikey create <user> [name]: Create a new API key
  * - me apikey revoke <id>: Revoke an API key
  * - me apikey delete <id>: Permanently delete an API key
  */
@@ -11,13 +11,18 @@ import { createClient } from "@memory-engine/client";
 import { Command } from "commander";
 import { resolveCredentials } from "../credentials.ts";
 import { getOutputFormat, output, table } from "../output.ts";
-import { handleError, requireEngine, requireSession } from "../util.ts";
+import {
+  handleError,
+  requireEngine,
+  requireSession,
+  resolveUserId,
+} from "../util.ts";
 
 function createApiKeyListCommand(): Command {
   return new Command("list")
     .description("list API keys for a user")
-    .argument("<user-id>", "user ID")
-    .action(async (userId: string, _opts, cmd) => {
+    .argument("<user>", "user name or ID")
+    .action(async (user: string, _opts, cmd) => {
       const globalOpts = cmd.optsWithGlobals();
       const creds = resolveCredentials(globalOpts.server);
       const fmt = getOutputFormat(globalOpts);
@@ -27,6 +32,7 @@ function createApiKeyListCommand(): Command {
       const engine = createClient({ url: creds.server, apiKey: creds.apiKey });
 
       try {
+        const userId = await resolveUserId(engine, user);
         const { apiKeys } = await engine.apiKey.list({ userId });
 
         output({ apiKeys }, fmt, () => {
@@ -53,10 +59,10 @@ function createApiKeyListCommand(): Command {
 function createApiKeyCreateCommand(): Command {
   return new Command("create")
     .description("create a new API key")
-    .argument("<user-id>", "user ID")
+    .argument("<user>", "user name or ID")
     .argument("[name]", "key name (auto-generated if omitted)")
     .option("--expires <timestamp>", "expiration timestamp (ISO 8601)")
-    .action(async (userId: string, name: string | undefined, opts, cmd) => {
+    .action(async (user: string, name: string | undefined, opts, cmd) => {
       const globalOpts = cmd.optsWithGlobals();
       const creds = resolveCredentials(globalOpts.server);
       const fmt = getOutputFormat(globalOpts);
@@ -71,6 +77,7 @@ function createApiKeyCreateCommand(): Command {
       const keyName = name ?? `cli-${new Date().toISOString().slice(0, 10)}`;
 
       try {
+        const userId = await resolveUserId(engine, user);
         const result = await engine.apiKey.create({
           userId,
           name: keyName,

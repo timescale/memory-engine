@@ -108,6 +108,7 @@ export interface ValidateApiKeyResult {
 export interface TreeGrant {
   id: string;
   userId: string;
+  userName: string;
   treePath: string;
   actions: string[];
   grantedBy: string | null;
@@ -130,7 +131,9 @@ export interface GrantTreeAccessParams {
 export interface TreeOwner {
   treePath: string;
   userId: string;
+  userName: string;
   createdBy: string | null;
+  createdByName: string | null;
   createdAt: Date;
 }
 
