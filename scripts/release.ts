@@ -143,7 +143,7 @@ for (const file of PACKAGE_JSONS) {
 // 6. Commit and tag
 await $`git add -A`.cwd(root);
 await $`git commit -m ${tag}`.cwd(root);
-await $`git tag ${tag}`.cwd(root);
+await $`git tag -a ${tag} -m ${tag}`.cwd(root);
 info(`committed and tagged ${tag}`);
 
 // 7. Push commit and tag
