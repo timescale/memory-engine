@@ -11,7 +11,7 @@ import * as clack from "@clack/prompts";
 import { createClient } from "@memory-engine/client";
 import { Command } from "commander";
 import { resolveCredentials } from "../credentials.ts";
-import { getOutputFormat, output } from "../output.ts";
+import { getOutputFormat, output, table } from "../output.ts";
 import { handleError, requireEngine, requireSession } from "../util.ts";
 
 const UUIDV7_RE =
@@ -40,17 +40,19 @@ function createUserListCommand(): Command {
             console.log("  No users found.");
             return;
           }
-          for (const u of users) {
-            const flags = [
-              u.superuser ? "superuser" : "",
-              u.createrole ? "createrole" : "",
-              !u.canLogin ? "role" : "",
-            ]
-              .filter(Boolean)
-              .join(", ");
-            const flagStr = flags ? ` (${flags})` : "";
-            console.log(`  ${u.name.padEnd(20)} ${u.id}${flagStr}`);
-          }
+          table(
+            ["id", "name", "flags"],
+            users.map((u) => {
+              const flags = [
+                u.superuser ? "superuser" : "",
+                u.createrole ? "createrole" : "",
+                !u.canLogin ? "role" : "",
+              ]
+                .filter(Boolean)
+                .join(", ");
+              return [u.id, u.name, flags];
+            }),
+          );
         });
       } catch (error) {
         handleError(error, fmt);

@@ -20,7 +20,7 @@ import { createClient } from "@memory-engine/client";
 import { Command } from "commander";
 import { stringify as yamlStringify } from "yaml";
 import { resolveCredentials } from "../credentials.ts";
-import { getOutputFormat, output } from "../output.ts";
+import { getOutputFormat, output, table } from "../output.ts";
 import { handleError, requireEngine, requireSession } from "../util.ts";
 import { editMemory } from "./memory-edit.ts";
 import { createMemoryImportCommand } from "./memory-import.ts";
@@ -322,17 +322,23 @@ function createMemorySearchCommand(): Command {
           console.log(
             `Found ${result.total} results (showing ${result.results.length})`,
           );
+          if (result.results.length === 0) return;
           console.log();
-          for (const r of result.results) {
-            const idPrefix = r.id.slice(0, 8);
-            const preview =
-              r.content.length > 80
-                ? `${r.content.slice(0, 80)}...`
-                : r.content;
-            const score = r.score < 1.0 ? ` (${r.score.toFixed(3)})` : "";
-            const treePath = r.tree ? ` [${r.tree}]` : "";
-            console.log(`  ${idPrefix}  ${preview}${treePath}${score}`);
-          }
+          table(
+            ["id", "content", "tree", "score"],
+            result.results.map((r) => {
+              const preview =
+                r.content.length > 60
+                  ? `${r.content.slice(0, 60)}...`
+                  : r.content;
+              return [
+                r.id,
+                preview,
+                r.tree ?? "",
+                r.score < 1.0 ? r.score.toFixed(3) : "",
+              ];
+            }),
+          );
         });
       } catch (error) {
         handleError(error, fmt);

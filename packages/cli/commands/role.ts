@@ -12,7 +12,7 @@ import * as clack from "@clack/prompts";
 import { createClient } from "@memory-engine/client";
 import { Command } from "commander";
 import { resolveCredentials } from "../credentials.ts";
-import { getOutputFormat, output } from "../output.ts";
+import { getOutputFormat, output, table } from "../output.ts";
 import { handleError, requireEngine, requireSession } from "../util.ts";
 
 function createRoleCreateCommand(): Command {
@@ -66,9 +66,10 @@ function createRoleListCommand(): Command {
             console.log("  No roles found.");
             return;
           }
-          for (const r of roles) {
-            console.log(`  ${r.name.padEnd(20)} ${r.id}`);
-          }
+          table(
+            ["id", "name"],
+            roles.map((r) => [r.id, r.name]),
+          );
         });
       } catch (error) {
         handleError(error, fmt);
@@ -160,10 +161,10 @@ function createRoleMembersCommand(): Command {
             console.log("  No members found.");
             return;
           }
-          for (const m of members) {
-            const admin = m.withAdminOption ? " [admin]" : "";
-            console.log(`  ${m.memberId}${admin}`);
-          }
+          table(
+            ["member_id", "admin"],
+            members.map((m) => [m.memberId, m.withAdminOption ? "yes" : ""]),
+          );
         });
       } catch (error) {
         handleError(error, fmt);
@@ -192,10 +193,10 @@ function createRoleListForCommand(): Command {
             console.log("  No roles found.");
             return;
           }
-          for (const r of roles) {
-            const admin = r.withAdminOption ? " [admin]" : "";
-            console.log(`  ${r.name.padEnd(20)} ${r.id}${admin}`);
-          }
+          table(
+            ["id", "name", "admin"],
+            roles.map((r) => [r.id, r.name, r.withAdminOption ? "yes" : ""]),
+          );
         });
       } catch (error) {
         handleError(error, fmt);

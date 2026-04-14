@@ -10,7 +10,7 @@ import * as clack from "@clack/prompts";
 import { createAccountsClient } from "@memory-engine/client";
 import { Command } from "commander";
 import { resolveCredentials } from "../credentials.ts";
-import { getOutputFormat, output } from "../output.ts";
+import { getOutputFormat, output, table } from "../output.ts";
 import { handleError, requireSession, resolveOrgId } from "../util.ts";
 
 // =============================================================================
@@ -91,11 +91,10 @@ function createInvitationListCommand(): Command {
             console.log("  No pending invitations.");
             return;
           }
-          for (const inv of invitations) {
-            console.log(
-              `  ${inv.email.padEnd(30)} ${inv.role.padEnd(8)} expires ${inv.expiresAt}`,
-            );
-          }
+          table(
+            ["email", "role", "expires"],
+            invitations.map((inv) => [inv.email, inv.role, inv.expiresAt]),
+          );
         });
       } catch (error) {
         handleError(error, fmt);

@@ -14,7 +14,12 @@ import {
   setActiveEngine,
   storeApiKey,
 } from "../credentials.ts";
-import { getOutputFormat, type OutputFormat, output } from "../output.ts";
+import {
+  getOutputFormat,
+  type OutputFormat,
+  output,
+  table,
+} from "../output.ts";
 import { handleError, requireSession, resolveOrgId } from "../util.ts";
 
 // UUIDv7 pattern for argument detection
@@ -105,12 +110,16 @@ function createEngineListCommand(): Command {
             console.log("  No engines found.");
             return;
           }
-          for (const e of engines) {
-            const active = e.slug === creds.activeEngine ? " (active)" : "";
-            console.log(
-              `  ${e.name} [${e.slug}] — ${e.orgName} (${e.status})${active}`,
-            );
-          }
+          table(
+            ["id", "name", "slug", "org", "status"],
+            engines.map((e) => [
+              e.id,
+              e.name,
+              e.slug,
+              e.orgName,
+              e.slug === creds.activeEngine ? `${e.status} (active)` : e.status,
+            ]),
+          );
         });
       } catch (error) {
         const msg =

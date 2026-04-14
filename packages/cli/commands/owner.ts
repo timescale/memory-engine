@@ -10,7 +10,7 @@ import * as clack from "@clack/prompts";
 import { createClient } from "@memory-engine/client";
 import { Command } from "commander";
 import { resolveCredentials } from "../credentials.ts";
-import { getOutputFormat, output } from "../output.ts";
+import { getOutputFormat, output, table } from "../output.ts";
 import { handleError, requireEngine, requireSession } from "../util.ts";
 
 function createOwnerSetCommand(): Command {
@@ -119,9 +119,10 @@ function createOwnerListCommand(): Command {
             console.log("  No ownership records found.");
             return;
           }
-          for (const o of owners) {
-            console.log(`  ${o.treePath.padEnd(30)} ${o.userId}`);
-          }
+          table(
+            ["tree_path", "user_id"],
+            owners.map((o) => [o.treePath, o.userId]),
+          );
         });
       } catch (error) {
         handleError(error, fmt);

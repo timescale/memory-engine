@@ -10,7 +10,7 @@ import * as clack from "@clack/prompts";
 import { createClient } from "@memory-engine/client";
 import { Command } from "commander";
 import { resolveCredentials } from "../credentials.ts";
-import { getOutputFormat, output } from "../output.ts";
+import { getOutputFormat, output, table } from "../output.ts";
 import { handleError, requireEngine, requireSession } from "../util.ts";
 
 function createApiKeyListCommand(): Command {
@@ -34,15 +34,15 @@ function createApiKeyListCommand(): Command {
             console.log("  No API keys found.");
             return;
           }
-          for (const k of apiKeys) {
-            const revoked = k.revokedAt ? " (revoked)" : "";
-            const lastUsed = k.lastUsedAt
-              ? `last used ${k.lastUsedAt}`
-              : "never used";
-            console.log(
-              `  ${k.name.padEnd(20)} ${k.id}  ${lastUsed}${revoked}`,
-            );
-          }
+          table(
+            ["id", "name", "last_used", "status"],
+            apiKeys.map((k) => [
+              k.id,
+              k.name,
+              k.lastUsedAt ?? "never",
+              k.revokedAt ? "revoked" : "active",
+            ]),
+          );
         });
       } catch (error) {
         handleError(error, fmt);

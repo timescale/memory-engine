@@ -23,6 +23,7 @@ import { createPackCommand } from "./commands/pack.ts";
 import { createRoleCommand } from "./commands/role.ts";
 import { createUserCommand } from "./commands/user.ts";
 import { createWhoamiCommand } from "./commands/whoami.ts";
+import { setExpanded } from "./output.ts";
 
 const SHELLS = ["zsh", "bash", "fish", "powershell"] as const;
 type Shell = (typeof SHELLS)[number];
@@ -38,7 +39,14 @@ program
     "server URL (overrides ME_SERVER env and stored default)",
   )
   .option("--json", "output as JSON")
-  .option("--yaml", "output as YAML");
+  .option("--yaml", "output as YAML")
+  .option("-x, --expanded", "show list output in expanded (vertical) format");
+
+// Set expanded mode before any command runs
+program.hook("preAction", (thisCommand) => {
+  const opts = thisCommand.optsWithGlobals();
+  setExpanded(opts.expanded ?? false);
+});
 
 // Auth commands
 program.addCommand(createLoginCommand());

@@ -10,7 +10,7 @@ import * as clack from "@clack/prompts";
 import { createClient } from "@memory-engine/client";
 import { Command } from "commander";
 import { resolveCredentials } from "../credentials.ts";
-import { getOutputFormat, output } from "../output.ts";
+import { getOutputFormat, output, table } from "../output.ts";
 import { handleError, requireEngine, requireSession } from "../util.ts";
 
 function createGrantCreateCommand(): Command {
@@ -109,12 +109,15 @@ function createGrantListCommand(): Command {
             console.log("  No grants found.");
             return;
           }
-          for (const g of grants) {
-            const grantOpt = g.withGrantOption ? " [grant option]" : "";
-            console.log(
-              `  ${g.userId}  ${g.treePath.padEnd(25)} [${g.actions.join(", ")}]${grantOpt}`,
-            );
-          }
+          table(
+            ["user_id", "tree_path", "actions", "grant_option"],
+            grants.map((g) => [
+              g.userId,
+              g.treePath,
+              g.actions.join(", "),
+              g.withGrantOption ? "yes" : "",
+            ]),
+          );
         });
       } catch (error) {
         handleError(error, fmt);
