@@ -6,7 +6,7 @@ The `me mcp` command runs Memory Engine as a [Model Context Protocol](https://mo
 
 ## Commands
 
-- [me mcp](#me-mcp-1) -- run the MCP server
+- [me mcp](#me-mcp_1) -- run the MCP server
 - [me mcp install](#me-mcp-install) -- register with AI tools
 
 ---
