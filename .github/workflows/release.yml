@@ -34,12 +34,12 @@ jobs:
         run: ./bun run --filter '@memory-engine/client' build
 
       - name: Publish @memory-engine/protocol
-        run: cd packages/protocol && npm publish --provenance --access public
+        run: cd packages/protocol && ../../bun publish --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Publish @memory-engine/client
-        run: cd packages/client && npm publish --provenance --access public
+        run: cd packages/client && ../../bun publish --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
