@@ -1,147 +1,48 @@
 # Memory Engine
 
-Memory Engine — permanent memory for AI agents. Store, search, and organize knowledge across conversations.
+Permanent memory for AI agents. Store, search, and organize knowledge across conversations.
 
-**Docker Sandbox:** Detect with `IS_SANDBOX=1` env var. You have your own isolated Docker daemon — use it freely without asking.
+## Documentation
 
-Available tools: `bun`, `postgresql-client` (psql), `sqlite3`, `duckdb`, `lua5.4`, `ripgrep` (rg), `jq`, `yq`, `gh`, `tree`, `vim`, `curl`, `wget`.
+All project documentation lives in `docs/`:
 
-## Other Repos
+- [Getting Started](docs/getting-started.md) -- install, login, first memory
+- [Core Concepts](docs/concepts.md) -- memories, tree paths, metadata, search modes
+- [Access Control](docs/access-control.md) -- users, roles, grants, ownership
+- [Memory Packs](docs/memory-packs.md) -- pre-built knowledge collections
+- [MCP Integration](docs/mcp-integration.md) -- connecting AI agents
+- [CLI Reference](docs/cli/) -- full command reference
+- [MCP Tool Reference](docs/mcp/) -- full MCP tool reference
 
-These are NOT git submodules; they are stand-alone repos. Change directory into them before committing changes to them.
-
-@repos/me is the private git repo used for the prior version of Memory Engine; much of this will be reused
-
-@repos/memorypacks is the public git repo containing memory packs
-
-@repos/integrations is the public git repo containing a few integrations for syncing outside sources to memories
-
-## Using Memory
-
-This project uses memory engine itself. Search memory proactively:
-
-- **Before starting work**: search for relevant design decisions, prior art, and context
-- **When making decisions**: check if the topic has been researched or decided before
-- **After completing work**: store significant design decisions, research findings, and architectural choices so they survive across sessions
-
-Don't ask permission to search — just search. When storing memories, use the `me.design.*` tree for implementation details and `me.strategy.*` for product/business decisions.
-
-## Memory Map
-
-All project knowledge lives in the `me` MCP server. This file describes what's there so you know what to search for. Don't memorize IDs — use search.
-
-### How to Search
-
-```
-# By tree path (browse a section)
-me_memory_search({tree: "me.strategy.*"})
-
-# Semantic (find by meaning)
-me_memory_search({semantic: "how does authentication work"})
-
-# Full-text (find by keyword)
-me_memory_search({fulltext: "RLS pgvector ltree"})
-
-# Hybrid (meaning + keywords together)
-me_memory_search({semantic: "cold start problem", fulltext: "bootstrapping agents"})
-
-# By metadata
-me_memory_search({meta: {type: "reference", topic: "architecture"}})
-
-# Browse the full tree structure
-me_memory_tree({levels: 3})
-```
-
-### Strategy (`me.strategy.*`)
-
-Why we're building this and for whom. Covers the problem space, competitive landscape, design philosophy, and go-to-market.
-
-Key topics: context engineering as the core activity (not just "memory"), the three unsolved memory problems, eight design principles (database-native, flexibility over prescription, system-scheduled over agent-initiated, etc.), memory agents as our core differentiator, competitive analysis of Mem0/Zep/Letta/Cognee/others, product positioning, pricing research, naming rationale ("memory engine" / `me`).
-
-```
-me_memory_search({tree: "me.strategy.*"})
-me_memory_search({semantic: "why build memory engine, what problem does it solve"})
-me_memory_search({semantic: "how do we compare to competitors"})
-me_memory_search({fulltext: "Mem0 Zep Letta Cognee"})
-```
-
-### Design (`me.design.*`)
-
-How the system works — subsystem designs, research spikes, and architectural decisions.
-
-**Core subsystems**: Auth & RBAC (tree-grant access control with PostgreSQL RLS, principals, ownership, grants, roles), embedding worker (background daemon, batch processing, retry logic), hybrid search (BM25 + semantic via Reciprocal Rank Fusion), memory packs (YAML-based pre-built knowledge packages), skill memories (progressive disclosure teaching agents to use the system), CLI import.
-
-**Research & decisions**: Better Auth for hosted authentication (adopted), app-level tenant routing over pgDog (decided), Bun.sql over pg for core operations (decided), self-hosted distribution via Docker Compose + Ollama (designed).
-
-```
-me_memory_search({tree: "me.design.*"})
-me_memory_search({semantic: "how does search work internally"})
-me_memory_search({semantic: "how are embeddings generated"})
-me_memory_search({fulltext: "RLS row level security"})
-me_memory_search({semantic: "what authentication approach for hosted"})
-```
-
-### Hosted / Multi-Tenant (`me.design.hosted.*`)
-
-Architecture for the hosted product: each tenant gets an isolated Ghost DB + Fly app. Fly Replay gateway routes requests via opaque URL slugs. Provisioning CLI (`packages/hosted`) creates/tears down tenants.
-
-```
-me_memory_search({tree: "me.design.hosted.*"})
-me_memory_search({semantic: "how does multi-tenant routing work"})
-me_memory_search({fulltext: "Fly Replay Ghost"})
-```
-
-### Embedding Deep Dive (`me.design.embedding.*`)
-
-12 memories covering embedding providers, Docker Model Runner (DMR), Ollama, performance benchmarks, gotchas, API integration, GGUF patching, and publishing patched models.
-
-```
-me_memory_search({tree: "me.design.embedding.*"})
-me_memory_search({semantic: "embedding performance comparison"})
-me_memory_search({fulltext: "DMR Ollama nomic"})
-```
-
-### Previous Architecture (`me.agents.*`)
-
-Detailed reference docs from the prior implementation. Useful for understanding what existed and carrying forward decisions. Covers: codebase guide (architecture diagram, schema, CLI commands), RPC method system & Zod schemas, database migrations & test helpers, search & embedding pipeline, Docker/Postgres setup (PG18, pgvector, pg_textsearch), Biome linter/formatter config.
-
-```
-me_memory_search({tree: "me.agents.*"})
-me_memory_search({semantic: "how did the RPC system work"})
-me_memory_search({fulltext: "migration advisory lock"})
-```
-
-### Git History & GitHub (`me.git_history.*`, `me.github.*`)
-
-449 git commit memories and 227 GitHub memories (PRs, issues, CI runs, releases) from the prior codebase. Useful for understanding why past decisions were made.
-
-```
-me_memory_search({tree: "me.github.issues.*"})
-me_memory_search({tree: "me.github.prs.*", semantic: "search performance"})
-me_memory_search({tree: "me.git_history.*", fulltext: "embedding worker"})
-```
-
-## Style Guides
-
-**SQL**: Lowercase keywords, leading-comma table definitions, inline comments after columns, native `uuid` with `uuidv7()`. Full guide in memory:
-
-```
-me_memory_search({tree: "me.design.sql_style_guide"})
-```
+Read the relevant docs before starting work on a subsystem.
 
 ## Quick Reference
 
 - **Tech stack**: Bun, TypeScript, PostgreSQL 18 (pgvector, pg_textsearch, ltree, JSONB)
-- **Core schema**: Single table `me.memory` — content, meta (JSONB), tree (ltree), temporal (tstzrange), embedding (halfvec)
+- **Core schema**: Single table `me.memory` -- content, meta (JSONB), tree (ltree), temporal (tstzrange), embedding (halfvec)
 - **Search**: Hybrid BM25 + semantic via Reciprocal Rank Fusion
 - **API**: JSON-RPC 2.0 over HTTP, single `/rpc` endpoint
 - **Auth**: Tree-grant RBAC with PostgreSQL RLS
-- **Embedding**: Vercel AI SDK; supports OpenAI, Ollama, DMR, local WASM
-- **CLI**: `me` command (install, server, mcp, login, memory, pack, service)
+- **Embedding**: Vercel AI SDK; supports OpenAI, Ollama
+- **CLI**: `me` binary (login, engine, memory, mcp, user, grant, role, owner, apikey, pack)
 
-## Build, Lint, and Test Commands
+## Project Structure
 
-Always use `./bun` wrapper script (auto-installs pinned Bun version):
+```
+packages/
+  cli/          # CLI and MCP server (the `me` binary)
+  client/       # TypeScript client for the engine API
+  engine/       # Core engine (database operations, search, embedding)
+  protocol/     # Shared types and Zod schemas (JSON-RPC methods)
+  hosted/       # Hosted/multi-tenant provisioning
+docs/
+  cli/          # CLI command reference (one file per command group)
+  mcp/          # MCP tool reference (one file per tool)
+```
+
+## Build, Lint, and Test
+
+Always use the `./bun` wrapper script (auto-installs the pinned Bun version):
 
 ```bash
 # Install dependencies
@@ -150,23 +51,49 @@ Always use `./bun` wrapper script (auto-installs pinned Bun version):
 # Type checking
 ./bun run typecheck
 
-# Linting and formatting (check only)
-./bun run lint
-
 # Linting and formatting (auto-fix)
 ./bun run lint --write
 
-# Run unit tests (fast, no external dependencies)
+# Run unit tests
 ./bun test
 
 # Run a single test file
-./bun test src/path/to/file.test.ts
+./bun test packages/cli/mcp/install.test.ts
 
-# Run tests matching a pattern
-./bun test --test-name-pattern "pattern"
-
-# Shorthand for all checks (typecheck, lint auto-fix, unit tests)
+# Shorthand for all checks (typecheck + lint + test)
 ./bun run check
 ```
 
 **Important**: After making code changes, always run `./bun run check`.
+
+## Style Guides
+
+**TypeScript**: Biome for linting and formatting. Config in `biome.json`.
+
+**SQL**: Lowercase keywords, leading-comma table definitions, inline comments after columns, native `uuid` with `uuidv7()`.
+
+```sql
+create table me.memory (
+  id                   uuid          not null default uuidv7()  -- PK, UUIDv7
+, content              text          not null                   -- memory text
+, meta                 jsonb         not null default '{}'      -- arbitrary metadata
+, tree                 ltree         not null default ''        -- hierarchical path
+, temporal             tstzrange                                -- optional time range
+, embedding            halfvec(768)                             -- semantic vector
+);
+```
+
+## Key Design Decisions
+
+- **Single table**: All memory types live in `me.memory`. Complexity comes from conventions in `meta` and `tree`, not schema proliferation.
+- **Database-native**: Uses PostgreSQL extensions (ltree, pgvector, JSONB GIN, tstzrange, BM25) instead of application-layer abstractions.
+- **Flexibility over prescription**: `meta` accepts any JSON, `tree` paths are user-defined, `temporal` is optional. No enforced conventions.
+- **MCP compatibility**: All tool parameters are required (nullable for optional). Uses `z.record(z.string(), z.any())` for meta instead of `z.record(z.unknown())` (which crashes the MCP SDK).
+
+## Other Repos
+
+These are stand-alone repos in `repos/`, NOT git submodules. Change directory into them before committing:
+
+- `repos/me` -- prior version of Memory Engine (reference for carrying forward decisions)
+- `repos/memorypacks` -- public repo containing memory packs
+- `repos/integrations` -- public repo containing integrations for syncing outside sources
