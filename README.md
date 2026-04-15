@@ -16,9 +16,6 @@ curl -fsSL https://raw.githubusercontent.com/timescale/memory-engine/main/instal
 # Authenticate
 me login
 
-# Create an engine (isolated memory database)
-me engine create my-engine
-
 # Store a memory
 me memory create "Auth uses bcrypt with cost 12" --tree design.auth
 

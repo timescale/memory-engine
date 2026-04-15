@@ -18,23 +18,6 @@ me login
 
 This starts an OAuth flow -- choose Google or GitHub, authorize in your browser, and the CLI stores your session.
 
-## Create an engine
-
-An engine is an isolated memory database. Each engine has its own memories, users, and access controls.
-
-```bash
-me engine create my-first-engine --org <your-org>
-```
-
-If you only have one organization, run `me engine create my-first-engine` and it will be selected automatically.
-
-## Select the active engine
-
-```bash
-me engine use my-first-engine
-```
-
-This sets the engine as active and creates an API key for it. All subsequent commands operate on this engine.
 
 ## Store your first memory
 
