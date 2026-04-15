@@ -18,9 +18,9 @@ import {
   parseContent,
 } from "../parsers/index.ts";
 
-const DOCS_BASE = `https://raw.githubusercontent.com/timescale/memory-engine/v${APP_VERSION}/docs/mcp`;
+const DOCS_BASE = "https://docs.memory.build/mcp";
 
-/** URL to a tool's documentation on GitHub. */
+/** URL to a tool's Markdown documentation. */
 function docUrl(tool: string): string {
   return `${DOCS_BASE}/${tool}.md`;
 }
