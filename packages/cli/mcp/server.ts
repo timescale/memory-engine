@@ -43,9 +43,9 @@ For detailed usage, gotchas, and examples: me_memory_get({id: "0194a000-0007-700
           .describe("UUIDv7 for idempotent creates (null to auto-generate)"),
         content: z.string().min(1).describe("The content of the memory"),
         meta: z
-          .string()
+          .record(z.string(), z.any())
           .nullable()
-          .describe("Key-value metadata pairs as JSON string (null to omit)"),
+          .describe("Key-value metadata pairs (null to omit)"),
         tree: z
           .string()
           .nullable()
@@ -74,7 +74,7 @@ For detailed usage, gotchas, and examples: me_memory_get({id: "0194a000-0007-700
       const result = await client.memory.create({
         id: args.id ?? undefined,
         content: args.content,
-        meta: args.meta ? JSON.parse(args.meta) : undefined,
+        meta: args.meta ?? undefined,
         tree: args.tree ?? undefined,
         temporal: args.temporal ?? undefined,
       });
@@ -112,11 +112,9 @@ For search modes, tree syntax, and tips: me_memory_get({id: "0194a000-0008-7000-
             "Regex pattern filter on content (POSIX, case-insensitive). Applied as WHERE filter alongside other filters.",
           ),
         meta: z
-          .string()
+          .record(z.string(), z.any())
           .nullable()
-          .describe(
-            "Filter by metadata attributes as JSON string (null to omit)",
-          ),
+          .describe("Filter by metadata attributes (null to omit)"),
         tree: z
           .string()
           .nullable()
@@ -188,7 +186,7 @@ For search modes, tree syntax, and tips: me_memory_get({id: "0194a000-0008-7000-
         semantic: args.semantic ?? undefined,
         fulltext: args.fulltext ?? undefined,
         grep: args.grep ?? undefined,
-        meta: args.meta ? JSON.parse(args.meta) : undefined,
+        meta: args.meta ?? undefined,
         tree: args.tree ?? undefined,
         temporal: args.temporal
           ? {
@@ -263,9 +261,9 @@ For update-vs-create guidance and gotchas: me_memory_get({id: "0194a000-000a-700
           .nullable()
           .describe("New content (null to keep existing)"),
         meta: z
-          .string()
+          .record(z.string(), z.any())
           .nullable()
-          .describe("New metadata as JSON string (null to keep existing)"),
+          .describe("New metadata (null to keep existing)"),
         tree: z
           .string()
           .nullable()
@@ -292,7 +290,7 @@ For update-vs-create guidance and gotchas: me_memory_get({id: "0194a000-000a-700
       const result = await client.memory.update({
         id: args.id,
         content: args.content ?? undefined,
-        meta: args.meta ? JSON.parse(args.meta) : undefined,
+        meta: args.meta ?? undefined,
         tree: args.tree ?? undefined,
         temporal: args.temporal ?? undefined,
       });
@@ -518,9 +516,9 @@ Token-efficient: retrieves and formats all matching memories in one call. Use fo
       inputSchema: {
         tree: z.string().nullable().describe("Tree path filter (null for all)"),
         meta: z
-          .string()
+          .record(z.string(), z.any())
           .nullable()
-          .describe("Metadata filter as JSON string (null to omit)"),
+          .describe("Metadata filter (null to omit)"),
         temporal: z
           .object({
             contains: z
@@ -563,7 +561,7 @@ Token-efficient: retrieves and formats all matching memories in one call. Use fo
         orderBy: "asc",
       };
       if (args.tree) searchParams.tree = args.tree;
-      if (args.meta) searchParams.meta = JSON.parse(args.meta);
+      if (args.meta) searchParams.meta = args.meta;
       if (args.temporal) {
         searchParams.temporal = {
           contains: args.temporal.contains ?? undefined,
