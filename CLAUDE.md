@@ -35,6 +35,7 @@ packages/
   engine/       # Core engine (database operations, search, embedding)
   protocol/     # Shared types and Zod schemas (JSON-RPC methods)
   hosted/       # Hosted/multi-tenant provisioning
+packs/            # Memory packs (pre-built knowledge collections)
 docs/
   cli/          # CLI command reference (one file per command group)
   mcp/          # MCP tool reference (one file per tool)
@@ -89,11 +90,3 @@ create table me.memory (
 - **Database-native**: Uses PostgreSQL extensions (ltree, pgvector, JSONB GIN, tstzrange, BM25) instead of application-layer abstractions.
 - **Flexibility over prescription**: `meta` accepts any JSON, `tree` paths are user-defined, `temporal` is optional. No enforced conventions.
 - **MCP compatibility**: All tool parameters are required (nullable for optional). Uses `z.record(z.string(), z.any())` for meta instead of `z.record(z.unknown())` (which crashes the MCP SDK).
-
-## Other Repos
-
-These are stand-alone repos in `repos/`, NOT git submodules. Change directory into them before committing:
-
-- `repos/me` -- prior version of Memory Engine (reference for carrying forward decisions)
-- `repos/memorypacks` -- public repo containing memory packs
-- `repos/integrations` -- public repo containing integrations for syncing outside sources

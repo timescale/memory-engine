@@ -1,0 +1,628 @@
+name: git_history
+version: "0.2.0"
+description: "Teaches agents to backfill and incrementally sync git commit history into searchable memories"
+id-prefix: "019b0005"
+format: 1
+memories:
+  - id: "019b0005-0001-7000-8000-000000000001"
+    tree: "extraction"
+    meta:
+      type: "skill"
+      topic: "git-history"
+    content: |
+      # Git History Extraction — Build a Script to Backfill & Sync Git Commits into Memory Engine
+
+      You have access to a git repository and memory engine MCP tools. This skill teaches you to build a script that backfills commit history into searchable memories and can be re-run incrementally to stay current.
+
+      Reference implementation: `integrations/git-history/git-history.ts`
+
+      ## What to Extract
+
+      Create one memory per non-trivial commit containing:
+      - SHA (short and full), author, date, commit message
+      - List of changed files with A/M/D status
+      - Optionally: diff summary or full diff
+
+      Skip:
+      - Merge commits with no unique content (auto-generated merge messages)
+      - Empty commits
+      - Commits matching configurable ignore patterns (e.g., `Merge branch`, `Merge pull request`)
+
+      ## How to Extract
+
+      1. **Detect repo name** from `git remote get-url origin` (extract the repo name from the URL) or fall back to the directory name. Convert to ltree-safe format: lowercase, hyphens to underscores, strip non-alphanumeric.
+
+      2. **Accept configuration**:
+         - `prefix` — optional prefix before `<repo>.git_history` (default: none)
+         - `depth` — one of `metadata`, `files` (default)
+         - `max` — maximum commits per run (default: unlimited)
+         - `since` — only commits after this ISO date
+         - `branch` — branch to log (default: current HEAD)
+
+      3. **Incremental check — sync cursor**: search for a dedicated cursor memory:
+         ```
+         me_memory_search({meta: {source: "git", repo: "<name>", type: "sync_cursor"}, limit: 1})
+         ```
+         The cursor memory tracks `last_commit` (SHA), `last_date` (ISO), and `total_imported` (count). If found:
+         - Verify the SHA still exists: `git cat-file -t <sha>` — if it succeeds, use `<sha>..HEAD` as the git log range.
+         - If the SHA is missing (force-push, rebase), fall back to date-based filtering using `last_date` as `--after`, and perform **bulk dedup** (see step 6).
+
+      4. **Run git log** with NUL delimiter (safe against any commit message content):
+         - Full backfill: `git log --format='%H%x00%ae%x00%aI%x00%s' --reverse`
+         - Incremental: `git log --format='%H%x00%ae%x00%aI%x00%s' --reverse <last_sha>..HEAD`
+         - With date filter: append `--after=<date>`
+
+      5. **Parse each commit**: split each line on `\0` (NUL) to get SHA, author email, ISO date, subject. For body: `git log -1 --format='%b' <sha>`.
+
+      6. **Dedup (cursor fallback only)** — when the cursor SHA was not found and date-based fallback is used, fetch recent imports in bulk and exclude already-imported SHAs:
+         ```
+         results = me_memory_search({meta: {source: "git", repo: "<name>"}, limit: 200, order_by: "desc"})
+         existing_shas = set(r.meta.commit for r in results)
+         commits = [c for c in commits if c.sha not in existing_shas]
+         ```
+         This single bulk query replaces per-commit dedup checks (avoids N+1 queries).
+
+      7. **Get file list** (if depth is `files`):
+         ```bash
+         git diff-tree --no-commit-id --name-status -r <sha>
+         ```
+
+      8. **Format content** per depth level (see schema memory: `me_memory_get({id: "019b0005-0004-7000-8000-000000000004"})`).
+
+      9. **Batch create memories** via `me_memory_batchCreate()` in batches of 50. Set tree, meta, and temporal fields per the schema conventions.
+
+      10. **Upsert sync cursor** after all batches succeed. Create or update the cursor memory with the last processed SHA, date, and running total:
+          ```
+          me_memory_update({id: cursor.id, content: "Sync cursor for ...", meta: {
+            source: "git", repo: "<name>", type: "sync_cursor",
+            last_commit: "<last_sha>", last_date: "<last_date>", total_imported: 456
+          }})
+          ```
+          If no cursor existed, create one in the same tree path.
+
+      ## Example Output
+
+      ```
+      me_memory_batchCreate({memories: [{
+        content: "# Add rate limiting middleware\n\n**Commit**: a1b2c3d\n**Author**: dev@example.com\n**Date**: 2026-02-15T10:30:00Z\n\nImplement token-bucket rate limiter for all API endpoints.\n\n## Files Changed\n- A src/middleware/rate-limit.ts\n- M src/server/routes.ts",
+        tree: "my_api.git_history",
+        meta: {
+          source: "git",
+          repo: "my_api",
+          commit: "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2",
+          author: "dev@example.com",
+          branch: "refs/heads/main"
+        },
+        temporal: {start: "2026-02-15T10:30:00Z"}
+      }]})
+      ```
+
+      ## Scope Control
+
+      - Incremental mode (via sync cursor) processes only new commits since the last import — re-running is cheap.
+      - Pass `max` to limit commits per run. For initial backfill of large repos, run in batches, then re-run incrementally.
+      - The sync cursor survives across runs and tracks cumulative progress.
+
+      ## See Also
+      - TypeScript skeleton — `me_memory_get({id: "019b0005-0002-7000-8000-000000000002"})`
+      - Pseudocode & CLI fallback — `me_memory_get({id: "019b0005-0003-7000-8000-000000000003"})`
+      - Memory schema conventions — `me_memory_get({id: "019b0005-0004-7000-8000-000000000004"})`
+
+  - id: "019b0005-0002-7000-8000-000000000002"
+    tree: "typescript_skeleton"
+    meta:
+      type: "reference"
+      topic: "git-history-typescript"
+    content: |
+      # TypeScript Script Skeleton — Git History Extraction
+
+      Condensed reference derived from the working implementation at `integrations/git-history/git-history.ts`. Cross-runtime compatible (bun, node, deno).
+
+      ## Dependencies
+
+      ```typescript
+      import { execFileSync } from "node:child_process";
+      import { basename } from "node:path";
+      import { createClient, type MeClient } from "@memoryengine/client";
+      ```
+
+      Uses `execFileSync` for git commands (cross-runtime) and `@memoryengine/client` for memory operations.
+
+      ## Script
+
+      ```typescript
+      #!/usr/bin/env -S npx tsx
+
+      import { execFileSync } from "node:child_process";
+      import { basename } from "node:path";
+      import { createClient, type MeClient } from "@memoryengine/client";
+
+      // --- Git helper (safe, no shell injection) ---
+      function git(...args: string[]): string {
+        return execFileSync("git", args, { encoding: "utf-8", maxBuffer: 50 * 1024 * 1024 }).trim();
+      }
+
+      function shaExists(sha: string): boolean {
+        try { git("cat-file", "-t", sha); return true; } catch { return false; }
+      }
+
+      function detectRepoName(): string {
+        try {
+          const url = git("remote", "get-url", "origin");
+          const match = url.match(/\/([^/]+?)(?:\.git)?$/);
+          if (match?.[1]) return match[1].toLowerCase().replace(/-/g, "_").replace(/[^a-z0-9_]/g, "");
+        } catch {}
+        return basename(process.cwd()).toLowerCase().replace(/-/g, "_").replace(/[^a-z0-9_]/g, "");
+      }
+
+      // --- Fetch commits with NUL delimiter ---
+      interface Commit { sha: string; author: string; date: string; subject: string; }
+
+      function fetchCommits(range?: string, opts?: { since?: string; max?: number; branch?: string }): Commit[] {
+        const args = ["log", "--format=%H%x00%ae%x00%aI%x00%s", "--reverse"];
+        if (range) args.push(range);
+        if (opts?.since) args.push(`--after=${opts.since}`);
+        if (opts?.max) args.push("-n", String(opts.max));
+        if (opts?.branch && !range) args.push(opts.branch);
+
+        let output: string;
+        try { output = git(...args); } catch { return []; }
+        if (!output) return [];
+
+        return output.split("\n").map(line => {
+          const parts = line.split("\0");
+          return { sha: parts[0] ?? "", author: parts[1] ?? "", date: parts[2] ?? "", subject: parts.slice(3).join("\0") };
+        });
+      }
+
+      // --- Sync cursor ---
+      interface CursorMemory { id: string; meta: Record<string, unknown>; }
+
+      async function findCursor(client: MeClient, repo: string): Promise<CursorMemory | null> {
+        const result = await client.memory.search({ meta: { source: "git", repo, type: "sync_cursor" }, limit: 1 });
+        const m = result.results[0];
+        return m ? { id: m.id, meta: m.meta } : null;
+      }
+
+      async function upsertCursor(
+        client: MeClient, cursor: CursorMemory | null,
+        repo: string, treePath: string, lastSha: string, lastDate: string, totalImported: number,
+      ): Promise<void> {
+        const meta = { source: "git", repo, type: "sync_cursor", last_commit: lastSha, last_date: lastDate, total_imported: totalImported };
+        const content = `Sync cursor for ${repo}. Last: ${lastSha.slice(0, 7)} (${lastDate}). Total: ${totalImported} commits.`;
+        if (cursor) await client.memory.update({ id: cursor.id, content, meta });
+        else await client.memory.create({ content, tree: treePath, meta });
+      }
+
+      // --- Main ---
+      async function main() {
+        const client = createClient({ server: process.env.ME_SERVER!, apiKey: process.env.ME_API_KEY! });
+        const repo = detectRepoName();
+        const treePath = `${repo}.git_history`;
+
+        // 1. Find sync cursor
+        const cursor = await findCursor(client, repo);
+        let range: string | undefined;
+        let previousTotal = 0;
+        let sinceDate: string | undefined;
+
+        if (cursor) {
+          const lastSha = cursor.meta.last_commit as string;
+          previousTotal = (cursor.meta.total_imported as number) ?? 0;
+          if (shaExists(lastSha)) {
+            range = `${lastSha}..HEAD`;
+          } else {
+            sinceDate = cursor.meta.last_date as string; // date fallback
+          }
+        }
+
+        // 2. Fetch commits
+        const allCommits = fetchCommits(range, { since: sinceDate });
+        const IGNORE = [/^Merge branch\b/, /^Merge pull request\b/, /^Merge remote-tracking\b/];
+        const commits = allCommits.filter(c => c.subject.trim() && !IGNORE.some(p => p.test(c.subject)));
+
+        // 3. Bulk dedup (only when cursor SHA was missing — date fallback)
+        let toProcess = commits;
+        if (cursor && !range) {
+          const recent = await client.memory.search({ meta: { source: "git", repo }, limit: 200, order_by: "desc" });
+          const existing = new Set(recent.results.map(r => r.meta.commit as string));
+          toProcess = commits.filter(c => !existing.has(c.sha));
+        }
+
+        // 4. Batch create
+        const BATCH_SIZE = 50;
+        let created = 0;
+        const branchRef = git("symbolic-ref", "HEAD");
+
+        for (let i = 0; i < toProcess.length; i += BATCH_SIZE) {
+          const batch = toProcess.slice(i, i + BATCH_SIZE);
+          const memories = batch.map(commit => {
+            const body = git("log", "-1", "--format=%b", commit.sha);
+            const files = git("diff-tree", "--no-commit-id", "--name-status", "-r", commit.sha).split("\n").filter(Boolean);
+            let content = `# ${commit.subject}\n\n**Commit**: ${commit.sha.slice(0, 7)}\n**Author**: ${commit.author}\n**Date**: ${commit.date}\n`;
+            if (body) content += `\n${body}\n`;
+            if (files.length) { content += "\n## Files Changed\n"; for (const f of files) content += `- ${f}\n`; }
+            return { content, tree: treePath, meta: { source: "git" as const, repo, commit: commit.sha, author: commit.author, branch: branchRef }, temporal: { start: commit.date } };
+          });
+          const result = await client.memory.batchCreate({ memories });
+          created += result.ids.length;
+        }
+
+        // 5. Upsert sync cursor
+        if (created > 0) {
+          const last = toProcess[toProcess.length - 1]!;
+          await upsertCursor(client, cursor, repo, treePath, last.sha, last.date, previousTotal + created);
+        }
+
+        console.log(`Done: ${created} created`);
+      }
+
+      main();
+      ```
+
+      ## Key Design Decisions
+
+      - **`execFileSync` over `Bun.$`**: works in bun, node (`npx tsx`), and deno — no runtime lock-in
+      - **NUL delimiter (`%x00`)**: pipe `|` breaks on commit messages containing `|`; NUL is safe
+      - **Sync cursor**: a dedicated memory with `meta.type: "sync_cursor"` tracks progress across runs, replacing per-commit dedup searches
+      - **Bulk dedup**: only needed when cursor SHA is missing (force-push); one search replaces N+1 queries
+      - **`batchCreate` in batches of 50**: single RPC call per batch, much faster than per-commit `create`
+
+      ## Full Implementation
+
+      See `integrations/git-history/git-history.ts` for the complete script with CLI args, `--dry-run`, error handling, and detailed logging.
+
+      ## See Also
+      - Extraction skill — `me_memory_get({id: "019b0005-0001-7000-8000-000000000001"})`
+      - Pseudocode & CLI fallback — `me_memory_get({id: "019b0005-0003-7000-8000-000000000003"})`
+      - Memory schema conventions — `me_memory_get({id: "019b0005-0004-7000-8000-000000000004"})`
+
+  - id: "019b0005-0003-7000-8000-000000000003"
+    tree: "pseudocode"
+    meta:
+      type: "reference"
+      topic: "git-history-pseudocode"
+    content: |
+      # Pseudocode & CLI Fallback — Git History Extraction
+
+      Language-agnostic algorithm and equivalent `me` CLI commands for extracting git history into memory engine. Use this when building in Python, Go, shell script, or any language without a TypeScript runtime.
+
+      ## Algorithm Pseudocode
+
+      ```
+      function extract_git_history(config):
+          repo = detect_repo_name()
+          tree = build_tree_path(config.prefix, repo)
+
+          # Step 1: Find sync cursor
+          cursor = me.memory.search(meta={source: "git", repo: repo, type: "sync_cursor"}, limit=1)
+          range = null
+          previous_total = 0
+          since_date = null
+
+          if cursor exists:
+              last_sha = cursor.meta.last_commit
+              last_date = cursor.meta.last_date
+              previous_total = cursor.meta.total_imported
+
+              # Verify SHA still exists in repo
+              if git_cat_file_exists(last_sha):
+                  range = last_sha + "..HEAD"
+              else:
+                  # Force-push / rebase — fall back to date filtering
+                  since_date = last_date
+
+          # Step 2: Fetch commits (NUL-delimited format)
+          commits = git_log(format="%H%x00%ae%x00%aI%x00%s", reverse=true, range=range, after=since_date, max=config.max)
+
+          # Step 3: Filter ignored patterns
+          commits = [c for c in commits if not matches_ignore_pattern(c.subject)]
+
+          # Step 4: Bulk dedup (only when cursor SHA was missing)
+          if cursor exists and range is null:
+              recent = me.memory.search(meta={source: "git", repo: repo}, limit=200, order_by="desc")
+              existing_shas = set(r.meta.commit for r in recent)
+              commits = [c for c in commits if c.sha not in existing_shas]
+
+          # Step 5: Batch create memories
+          for batch in chunks(commits, 50):
+              memories = []
+              for commit in batch:
+                  content = format_commit(commit, config.depth)
+                  memories.append({
+                      content: content,
+                      tree: tree,
+                      meta: {source: "git", repo: repo, commit: commit.sha, author: commit.author, branch: commit.branch},
+                      temporal: {start: commit.date}
+                  })
+              me.memory.batchCreate(memories)
+
+          # Step 6: Upsert sync cursor
+          if any commits were created:
+              last = commits[-1]
+              cursor_meta = {source: "git", repo: repo, type: "sync_cursor",
+                            last_commit: last.sha, last_date: last.date,
+                            total_imported: previous_total + len(created)}
+              if cursor exists:
+                  me.memory.update(id=cursor.id, content="Sync cursor for ...", meta=cursor_meta)
+              else:
+                  me.memory.create(content="Sync cursor for ...", tree=tree, meta=cursor_meta)
+      ```
+
+      ## Equivalent `me` CLI Commands
+
+      ### Find Sync Cursor
+
+      ```bash
+      me memory search \
+        --meta '{"source": "git", "repo": "my_api", "type": "sync_cursor"}' \
+        --limit 1
+      ```
+
+      Parse JSON output: `meta.last_commit`, `meta.last_date`, `meta.total_imported`.
+
+      ### Verify Cursor SHA Exists
+
+      ```bash
+      git cat-file -t "$LAST_SHA" 2>/dev/null && echo "exists" || echo "missing"
+      ```
+
+      ### Create a Memory
+
+      ```bash
+      me memory create \
+        --content "$(cat <<'CONTENT'
+      # Add rate limiting middleware
+
+      **Commit**: a1b2c3d
+      **Author**: dev@example.com
+      **Date**: 2026-02-15T10:30:00Z
+
+      ## Files Changed
+      - A src/middleware/rate-limit.ts
+      - M src/server/routes.ts
+      CONTENT
+      )" \
+        --tree "my_api.git_history" \
+        --meta '{"source": "git", "repo": "my_api", "commit": "a1b2c3d4...", "author": "dev@example.com", "branch": "refs/heads/main"}' \
+        --temporal '{"start": "2026-02-15T10:30:00Z"}'
+      ```
+
+      ### Shell Script Loop
+
+      ```bash
+      #!/bin/bash
+      set -euo pipefail
+      REPO="my_api"
+      TREE="${REPO}.git_history"
+
+      # Find sync cursor
+      CURSOR_JSON=$(me memory search --meta "{\"source\":\"git\",\"repo\":\"${REPO}\",\"type\":\"sync_cursor\"}" --limit 1)
+      CURSOR_ID=$(echo "$CURSOR_JSON" | jq -r '.[0].id // empty')
+      LAST_SHA=$(echo "$CURSOR_JSON" | jq -r '.[0].meta.last_commit // empty')
+      LAST_DATE=$(echo "$CURSOR_JSON" | jq -r '.[0].meta.last_date // empty')
+      PREV_TOTAL=$(echo "$CURSOR_JSON" | jq -r '.[0].meta.total_imported // 0')
+
+      # Determine range
+      RANGE_ARGS=""
+      if [ -n "$LAST_SHA" ]; then
+        if git cat-file -t "$LAST_SHA" &>/dev/null; then
+          RANGE_ARGS="${LAST_SHA}..HEAD"
+        elif [ -n "$LAST_DATE" ]; then
+          RANGE_ARGS="--after=${LAST_DATE}"
+        fi
+      fi
+
+      # Fetch commits with NUL delimiter, process line by line
+      CREATED=0
+      LAST_PROCESSED_SHA=""
+      LAST_PROCESSED_DATE=""
+
+      git log --format="%H%x00%ae%x00%aI%x00%s" --reverse $RANGE_ARGS | while IFS= read -r LINE; do
+        SHA=$(echo "$LINE" | cut -d$'\0' -f1)
+        AUTHOR=$(echo "$LINE" | cut -d$'\0' -f2)
+        DATE=$(echo "$LINE" | cut -d$'\0' -f3)
+        SUBJECT=$(echo "$LINE" | cut -d$'\0' -f4-)
+
+        # Skip merge commits
+        echo "$SUBJECT" | grep -qE '^Merge (branch|pull request|remote-tracking)' && continue
+
+        # Get changed files
+        FILES=$(git diff-tree --no-commit-id --name-status -r "$SHA" | sed 's/^/- /')
+
+        CONTENT="# ${SUBJECT}
+
+      **Commit**: ${SHA:0:7}
+      **Author**: ${AUTHOR}
+      **Date**: ${DATE}
+
+      ## Files Changed
+      ${FILES}"
+
+        me memory create \
+          --content "$CONTENT" \
+          --tree "$TREE" \
+          --meta "{\"source\":\"git\",\"repo\":\"${REPO}\",\"commit\":\"${SHA}\",\"author\":\"${AUTHOR}\",\"branch\":\"refs/heads/main\"}" \
+          --temporal "{\"start\":\"${DATE}\"}"
+
+        CREATED=$((CREATED + 1))
+        LAST_PROCESSED_SHA="$SHA"
+        LAST_PROCESSED_DATE="$DATE"
+      done
+
+      # Upsert sync cursor
+      if [ "$CREATED" -gt 0 ]; then
+        TOTAL=$((PREV_TOTAL + CREATED))
+        CURSOR_CONTENT="Sync cursor for ${REPO}. Last: ${LAST_PROCESSED_SHA:0:7} (${LAST_PROCESSED_DATE}). Total: ${TOTAL} commits."
+        CURSOR_META="{\"source\":\"git\",\"repo\":\"${REPO}\",\"type\":\"sync_cursor\",\"last_commit\":\"${LAST_PROCESSED_SHA}\",\"last_date\":\"${LAST_PROCESSED_DATE}\",\"total_imported\":${TOTAL}}"
+
+        if [ -n "$CURSOR_ID" ]; then
+          me memory update --id "$CURSOR_ID" --content "$CURSOR_CONTENT" --meta "$CURSOR_META"
+        else
+          me memory create --content "$CURSOR_CONTENT" --tree "$TREE" --meta "$CURSOR_META"
+        fi
+      fi
+
+      echo "Done: ${CREATED} created"
+      ```
+
+      ## Python Equivalent
+
+      Use `subprocess.run(["git", ...])` for git commands (same `execFileSync` pattern) and `requests` or the me Python client for memory operations. The algorithm is identical — only the syntax changes.
+
+      ## See Also
+      - Extraction skill — `me_memory_get({id: "019b0005-0001-7000-8000-000000000001"})`
+      - TypeScript skeleton — `me_memory_get({id: "019b0005-0002-7000-8000-000000000002"})`
+      - Memory schema conventions — `me_memory_get({id: "019b0005-0004-7000-8000-000000000004"})`
+
+  - id: "019b0005-0004-7000-8000-000000000004"
+    tree: "schema"
+    meta:
+      type: "reference"
+      topic: "git-history-schema"
+    content: |
+      # Memory Schema Conventions — Git History
+
+      Exact conventions for git commit memories created by the git history extraction skill. Follow these to ensure consistency, searchability, and interoperability.
+
+      ## Tree Path
+
+      Format: `<optional_prefix>.<repo_name>.git_history`
+
+      | Configuration | Tree Path |
+      |--------------|-----------|
+      | Default (no prefix) | `my_api.git_history` |
+      | With prefix | `work.projects.my_api.git_history` |
+
+      The repo name must be ltree-safe: lowercase, underscores only. Convert hyphens to underscores (`my-api` → `my_api`).
+
+      ## Commit Memory — Meta Fields
+
+      ```json
+      {
+        "source": "git",
+        "repo": "<repo_name>",
+        "commit": "<full_40_char_sha>",
+        "author": "<author_email>",
+        "branch": "<branch_ref>"
+      }
+      ```
+
+      | Field | Type | Required | Purpose |
+      |-------|------|----------|---------|
+      | `source` | string | Yes | Always `"git"` — enables filtering all git-sourced memories |
+      | `repo` | string | Yes | ltree-safe repo name — scopes searches to one repo |
+      | `commit` | string | Yes | Full 40-character SHA — unique key for dedup |
+      | `author` | string | Yes | Author email — enables per-author queries |
+      | `branch` | string | No | Branch ref (e.g., `refs/heads/main`) — useful for multi-branch imports |
+
+      ## Sync Cursor Memory
+
+      A dedicated memory that tracks incremental sync progress. One per repo, stored in the same tree as commit memories.
+
+      ### Meta Fields
+
+      ```json
+      {
+        "source": "git",
+        "repo": "<repo_name>",
+        "type": "sync_cursor",
+        "last_commit": "<full_40_char_sha>",
+        "last_date": "<iso_date>",
+        "total_imported": 123
+      }
+      ```
+
+      | Field | Type | Purpose |
+      |-------|------|---------|
+      | `source` | string | Always `"git"` |
+      | `repo` | string | ltree-safe repo name |
+      | `type` | string | Always `"sync_cursor"` — distinguishes from commit memories |
+      | `last_commit` | string | Full SHA of the last successfully imported commit |
+      | `last_date` | string | ISO date of the last imported commit — fallback if SHA is gone |
+      | `total_imported` | number | Running count of all commits imported across all runs |
+
+      ### Content
+
+      ```
+      Sync cursor for my_api. Last: a1b2c3d (2026-02-15T10:30:00Z). Total: 456 commits.
+      ```
+
+      ### Search Pattern
+
+      ```
+      me_memory_search({meta: {source: "git", repo: "my_api", type: "sync_cursor"}, limit: 1})
+      ```
+
+      ## Temporal
+
+      ```json
+      {"start": "<commit_author_date_iso>"}
+      ```
+
+      Point-in-time only (no `end` date). Uses the commit's author date in ISO 8601 format. This enables temporal range queries like "what changed last week."
+
+      ## Content Template — Depth Levels
+
+      ### `metadata` — Minimal
+
+      ```markdown
+      # <commit_subject>
+
+      **Commit**: <sha_short>
+      **Author**: <author_email>
+      **Date**: <iso_date>
+
+      <commit_body_if_present>
+      ```
+
+      ### `files` — Default
+
+      ```markdown
+      # <commit_subject>
+
+      **Commit**: <sha_short>
+      **Author**: <author_email>
+      **Date**: <iso_date>
+
+      <commit_body_if_present>
+
+      ## Files Changed
+      - M src/auth.ts
+      - A src/middleware/rate-limit.ts
+      - D src/legacy/old-auth.ts
+      ```
+
+      File status prefixes: `A` (added), `M` (modified), `D` (deleted), `R` (renamed).
+
+      ## Search Patterns
+
+      Common queries agents run against git history memories:
+
+      ```
+      # All commits in a repo
+      me_memory_search({meta: {source: "git", repo: "my_api"}})
+
+      # Commits by a specific author
+      me_memory_search({meta: {source: "git", repo: "my_api", author: "dev@example.com"}})
+
+      # Semantic search for what changed
+      me_memory_search({semantic: "rate limiting implementation", meta: {source: "git"}})
+
+      # Keyword search for specific files
+      me_memory_search({fulltext: "rate-limit.ts", meta: {source: "git"}})
+
+      # Temporal range — what changed last week
+      me_memory_search({
+        meta: {source: "git", repo: "my_api"},
+        temporal: {overlaps: ["2026-02-24T00:00:00Z", "2026-03-03T00:00:00Z"]}
+      })
+
+      # Find sync cursor for a repo
+      me_memory_search({meta: {source: "git", repo: "my_api", type: "sync_cursor"}, limit: 1})
+      ```
+
+      ## See Also
+      - Extraction skill — `me_memory_get({id: "019b0005-0001-7000-8000-000000000001"})`
+      - TypeScript skeleton — `me_memory_get({id: "019b0005-0002-7000-8000-000000000002"})`
+      - Pseudocode & CLI fallback — `me_memory_get({id: "019b0005-0003-7000-8000-000000000003"})`

@@ -105,4 +105,4 @@ me pack install packs/typescript-best-practices-v0.2.0.yaml
 3. Validate with `me pack validate`.
 4. Install with `me pack install`.
 
-See the [memorypacks](https://github.com/timescale/memorypacks) repository for examples.
+See the `packs/` directory in this repository for examples.

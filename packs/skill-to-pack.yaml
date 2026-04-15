@@ -1,0 +1,358 @@
+name: skill_to_pack
+version: "0.2.0"
+description: "Convert Agent Skills (agentskills.io) into memory engine packs"
+id-prefix: "019b0002"
+format: 1
+memories:
+  - id: "019b0002-0001-7000-8000-000000000001"
+    tree: "format"
+    meta:
+      type: "reference"
+      topic: "agent-skills-format"
+    content: |
+      # Agent Skill Format Quick Reference
+
+      Agent Skills (agentskills.io) are the open format used by Claude Code, Cursor, Gemini CLI, and other agent products for packaging reusable agent instructions. This reference covers the format an agent needs to know to read and convert one to a memory engine memory pack.
+
+      ## Directory Structure
+
+      ```
+      skill-name/
+      ├── SKILL.md          # Required: YAML frontmatter + markdown body
+      ├── scripts/          # Optional: executable code (bash, python, etc.)
+      ├── references/       # Optional: additional documentation files
+      └── assets/           # Optional: templates, schemas, static resources
+      ```
+
+      `SKILL.md` is the only required file. Everything else is optional supporting material.
+
+      ## SKILL.md Frontmatter
+
+      YAML frontmatter between `---` delimiters at the top of the file:
+
+      ```yaml
+      ---
+      name: pdf-processing           # Required. Kebab-case identifier.
+      description: >-                # Required. What the skill does.
+        Extract text and tables from PDF files,
+        fill forms, merge documents.
+      license: Apache-2.0            # Optional. SPDX identifier.
+      compatibility:                 # Optional. Runtime requirements.
+        - Claude Code
+        - Cursor
+      metadata:                      # Optional. Arbitrary key-value pairs.
+        author: example-org
+        version: "1.0"
+      allowed-tools:                 # Optional. Tool access declarations.
+        - Bash(git:*)
+        - Read
+      ---
+      ```
+
+      **Required fields**: `name`, `description`. All others are optional.
+
+      ## SKILL.md Body
+
+      Everything after the closing `---` is free-form markdown instructions — the actual skill content. This is what the agent reads when the skill is activated.
+
+      ## Progressive Disclosure Model
+
+      Agent Skills use a three-stage loading model:
+
+      1. **Metadata** (frontmatter): loaded at startup or when listing available skills
+      2. **Body** (SKILL.md markdown): loaded when the skill is activated
+      3. **Files** (references, scripts, assets): loaded on demand as the agent needs them
+
+      The body may reference supporting files with markdown links: `See [FORMS.md](references/FORMS.md)`. The agent reads those files only when it needs the detail.
+
+      ## Best Practices
+
+      - Keep SKILL.md under 500 lines for fast loading
+      - Use `references/` for content that not every invocation needs
+      - Keep the directory one level deep — avoid nested subdirectories
+      - Short, self-contained scripts in `scripts/` (not multi-file projects)
+      - `assets/` for templates, schemas, sample data — things the skill operates on
+
+  - id: "019b0002-0002-7000-8000-000000000002"
+    tree: "conversion"
+    meta:
+      type: "skill"
+      topic: "skill-to-pack-conversion"
+    content: |
+      # Skill-to-Pack Conversion — Convert Agent Skills to Memory Packs
+
+      You have access to an Agent Skill directory and memory engine tools (MCP or CLI). Convert the skill into a memory pack YAML file so its content becomes searchable via semantic and keyword search.
+
+      ## What to Extract
+
+      Create memories for:
+      - Frontmatter metadata (becomes pack envelope and `meta` fields)
+      - Each major section (h2 heading) in the SKILL.md body — one memory per topic
+      - Each `references/*.md` file — one or more memories per file (chunk if >4000 tokens)
+      - Short scripts (<100 lines) — inline as code blocks within a reference memory
+
+      Skip:
+      - Binary assets (images, compiled files) — note their existence but don't inline
+      - Large scripts (>100 lines) — summarize key logic in prose instead
+      - Deeply nested references (files referencing other files) — flatten to top-level memories
+      - `allowed-tools` declarations — these are Agent Skills-specific runtime config
+
+      ## How to Extract
+
+      1. Read the skill's `SKILL.md`. Parse the YAML frontmatter and the markdown body separately.
+
+      2. Choose a pack name. Derive it from the skill's `name` field. Convert hyphens to underscores for the envelope `name` (must be ltree-safe: `[a-z0-9_]+`):
+         - Skill `name: "pdf-processing"` → envelope `name: pdf_processing` → tree paths are relative (auto-prefixed with `pack.pdf_processing.` at import)
+
+      3. Identify major sections in the body. Each `## ` heading is a candidate memory boundary. Merge short sections (under ~200 tokens) with the next section. Keep related subsections together.
+
+      4. Read any `references/*.md` files. Each file becomes one or more memories. If a file exceeds ~4000 tokens, chunk it at `## ` boundaries. Track provenance with `meta.source_file` and `meta.chunk`.
+
+      5. Convert file references to memory ID references. Replace `See [FORMS.md](references/FORMS.md)` with `For more detail: me_memory_get({id: "..."})` using the ID you assigned to that file's memory.
+
+      6. Choose tree paths for each memory. Paths are relative — the pack name prefix is added automatically at import:
+         - `text_extraction` — becomes `pack.pdf_processing.text_extraction` in the database
+         - Section "How to extract text" → `text_extraction`
+         - Reference file `references/FORMS.md` → `forms`
+
+      7. Generate deterministic IDs. Claim a prefix from `registry.yaml`, then number sequentially:
+         ```
+         <prefix>-0001-7000-8000-000000000001
+         <prefix>-0002-7000-8000-000000000002
+         ```
+
+      8. Write the YAML pack file with a v2 envelope:
+         ```yaml
+         name: pdf_processing
+         version: "0.1.0"
+         description: "Extract text and tables from PDF files"
+         id-prefix: "019bXX00"
+         format: 1
+         memories:
+           - id: "019bXX00-0001-7000-8000-000000000001"
+             tree: "format"
+             meta:
+               type: "reference"
+             content: |
+               ...
+         ```
+
+      9. If importing into an existing database, search before creating to avoid duplicates:
+         ```
+         me_memory_search({meta: {pack: {name: "pdf_processing"}}})
+         ```
+
+      ## Example Output
+
+      Given a skill with `name: "pdf-processing"` and a section about text extraction:
+
+      ```yaml
+      name: pdf_processing
+      version: "0.1.0"
+      description: "Extract text and tables from PDF files"
+      id-prefix: "019bXX00"
+      format: 1
+      memories:
+        - id: "019bXX00-0001-7000-8000-000000000001"
+          tree: "format"
+          meta:
+            type: "reference"
+            source_skill:
+              name: "pdf-processing"
+              version: "1.0"
+              author: "example-org"
+              license: "Apache-2.0"
+          content: |
+            # PDF Processing — Format Overview
+
+            Overview of the pdf-processing skill capabilities...
+
+        - id: "019bXX00-0002-7000-8000-000000000002"
+          tree: "text_extraction"
+          meta:
+            type: "skill"
+          content: |
+            # Text Extraction — Extract Text from PDF Files
+
+            Procedural instructions converted from the skill body...
+      ```
+
+      ## Scope Control
+
+      - Convert one skill directory at a time.
+      - Maximum ~10 memories per skill conversion. If a skill would produce more, be selective — prioritize the most searchable and reusable content.
+      - Skip files over 8000 tokens entirely. Note them for manual splitting: "This skill includes `references/LARGE_FILE.md` (estimated ~12000 tokens) which should be split manually."
+      - Default version: `0.1.0` for the first conversion.
+
+  - id: "019b0002-0003-7000-8000-000000000003"
+    tree: "mapping"
+    meta:
+      type: "reference"
+      topic: "field-mapping"
+    content: |
+      # Skill-to-Pack Field Mapping Reference
+
+      Detailed mapping from Agent Skill fields to memory pack fields. Use this when converting a skill to determine where each piece of information goes.
+
+      ## Field Mapping Table
+
+      | Agent Skill Field | Memory Pack Field | Notes |
+      |---|---|---|
+      | `name` (frontmatter) | Envelope `name` | Convert hyphens to underscores (must be ltree-safe). |
+      | `description` (frontmatter) | Envelope `description` | Also use as the first memory's overview paragraph. |
+      | `metadata.version` (frontmatter) | `meta.source_skill.version` | Pack version is the envelope's `version` field (starts at `0.1.0`). |
+      | `metadata.author` (frontmatter) | `meta.source_skill.author` | Preserve provenance. |
+      | `license` (frontmatter) | `meta.source_skill.license` | Preserve provenance. SPDX identifier. |
+      | `compatibility` (frontmatter) | Note in content | Mention environmental requirements in a reference memory. |
+      | `allowed-tools` (frontmatter) | Not converted | Agent Skills-specific runtime config. |
+      | SKILL.md body sections | Separate memories | One memory per major `## ` heading. |
+      | `references/*.md` | Separate memories | One or more memories per file. Add `meta.source_file` and `meta.chunk`. |
+      | `scripts/*.py` (short) | Inline code block | Only for scripts under ~100 lines. |
+      | `assets/` | Usually skip | Note existence in a reference memory. |
+
+      ## Content Splitting Strategy
+
+      - Split at `## ` (h2) headings by default
+      - Merge short sections (under ~200 tokens) with the next section
+      - Keep related subsections together if they share context
+      - Each resulting memory should stand alone — no "as described above" references
+
+      ## Chunked File Metadata
+
+      When a `references/` file is split across multiple memories, track provenance:
+
+      ```yaml
+      meta:
+        source_file: "references/FORMS.md"
+        chunk: 1
+      ```
+
+      - `source_file`: path within the skill directory (not absolute)
+      - `chunk`: 1-indexed sequence number within the file
+
+      This lets consumers reconstruct the original reading order and identify which file a chunk came from. Pack identity (`name`, `version`) comes from the envelope — no need to repeat it in each memory's meta.
+
+      ## Tree Path Derivation
+
+      Convert the skill name to a tree-safe label (lowercase, underscores only). Tree paths in the pack file are relative — `me pack import` auto-prefixes them with `pack.<name>.`:
+
+      | Content Source | Tree Path in YAML | Database Path (after import) |
+      |---|---|---|
+      | Skill overview | `format` or `overview` | `pack.pdf_processing.format` |
+      | Body section (procedural) | `text_extraction` | `pack.pdf_processing.text_extraction` |
+      | Body section (reference) | `supported_formats` | `pack.pdf_processing.supported_formats` |
+      | Reference file | `forms` | `pack.pdf_processing.forms` |
+      | Script (inlined) | `scripts` | `pack.pdf_processing.scripts` |
+
+      File stem derivation: `references/FORMS.md` → `forms`, `references/advanced-config.md` → `advanced_config`.
+
+      ## Provenance Metadata
+
+      Always preserve the source skill's identity for traceability:
+
+      ```yaml
+      meta:
+        source_skill:
+          name: "pdf-processing"
+          version: "1.0"
+          author: "example-org"
+          license: "Apache-2.0"
+      ```
+
+      Include `source_skill` on the first memory (or all memories if you prefer). At minimum, the first memory should carry it. Pack identity is in the envelope; `meta.source_skill` tracks where the content originally came from.
+
+  - id: "019b0002-0004-7000-8000-000000000004"
+    tree: "limitations"
+    meta:
+      type: "reference"
+      topic: "conversion-limitations"
+    content: |
+      # Skill-to-Pack Conversion Limitations and Edge Cases
+
+      Not everything in an Agent Skill converts cleanly to a memory pack. This reference covers the gaps and how to handle them.
+
+      ## Executable Scripts
+
+      Memory packs are text-only. They cannot execute code.
+
+      - **Short scripts** (<100 lines): Inline as a fenced code block within a reference memory. Specify the language for syntax highlighting: ` ```python `.
+      - **Large scripts** (>100 lines): Don't inline. Instead, summarize the script's purpose and key logic in prose: "This skill includes a Python script (`scripts/extract.py`) that uses pdfplumber to extract tables. It handles multi-page tables by tracking row continuations across page boundaries."
+      - **Multi-file scripts**: Summarize the entry point and architecture. Don't try to flatten a project into memory content.
+
+      ## Binary Assets
+
+      Images, compiled templates, binary data files — these cannot be stored in memories. Note their existence and purpose in a reference memory: "The skill includes `assets/form-template.pdf` — a sample fillable PDF used for testing the form-fill workflow."
+
+      ## Progressive Disclosure
+
+      Agent Skills use filesystem navigation for progressive disclosure:
+      ```markdown
+      See [FORMS.md](references/FORMS.md) for form-filling details.
+      ```
+
+      Memory packs use explicit ID references:
+      ```
+      For form-filling details: me_memory_get({id: "019bXX00-0003-7000-8000-000000000003"})
+      ```
+
+      Convert file references to memory ID references. This preserves the progressive disclosure pattern while making all content searchable. The agent no longer needs filesystem access to read the referenced content — it's in the database.
+
+      ## Tool References
+
+      Agent Skills may declare tool access requirements:
+      ```yaml
+      allowed-tools:
+        - Bash(git:*)
+        - Read
+        - WebFetch
+      ```
+
+      These are runtime permissions for the agent host. They don't convert to pack content. Instead, when the skill's instructions reference specific tools, convert to prose: "This procedure requires shell access to run git commands" rather than preserving the `allowed-tools` syntax.
+
+      ## Interactivity and Feedback Loops
+
+      Some skills have iterative workflows: "Run the validator, check output, fix errors, repeat." These convert well as procedural (skill-type) memories. The numbered-step format in the "How to Extract" section naturally captures loops:
+      ```
+      5. Run `me pack validate output.yaml`
+      6. If validation fails, fix the reported errors and repeat from step 5.
+      ```
+
+      ## Large Skills
+
+      Skills with `SKILL.md` over 500 lines plus multiple reference files may produce more than 10 memories. Options:
+
+      - **Be selective**: Convert only the most valuable and searchable content. Skip sections that are too niche or context-dependent.
+      - **Split into two packs**: If the skill covers two distinct domains (e.g., "pdf-processing" covers both extraction and generation), create separate packs for each.
+      - **Summarize instead of converting**: For dense reference files, write a concise summary memory instead of converting every detail.
+
+      ## Version Tracking
+
+      Preserve the original skill's identity for provenance. On at least the first memory:
+
+      ```yaml
+      meta:
+        source_skill:
+          name: "pdf-processing"
+          version: "1.0"
+          author: "example-org"
+          license: "Apache-2.0"
+      ```
+
+      If the skill has a URL (GitHub repo, registry page), include it:
+      ```yaml
+      meta:
+        source_skill:
+          name: "pdf-processing"
+          version: "1.0"
+          url: "https://github.com/example-org/pdf-processing-skill"
+      ```
+
+      This lets consumers trace back to the original skill for updates, issues, or the full executable version.
+
+      ## What Doesn't Need Converting
+
+      Some Agent Skill features have no pack equivalent and can be safely ignored:
+      - `allowed-tools` — runtime agent config, not knowledge
+      - `.gitignore`, `LICENSE`, `README.md` at skill root — repo metadata
+      - CI/CD files — build infrastructure
+      - Test fixtures — only relevant for skill development

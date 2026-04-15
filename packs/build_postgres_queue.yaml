@@ -1,0 +1,927 @@
+name: build_postgres_queue
+version: "0.1.0"
+description: >-
+  Comprehensive guide for designing and implementing task queues using PostgreSQL.
+  Covers claiming patterns, polling-based workers, deduplication, task dependencies,
+  state management, retry strategies, priority queues, batch processing, and archiving.
+id-prefix: "019b0007"
+format: 1
+memories:
+  - id: "019b0007-0001-7000-8000-000000000001"
+    tree: "overview"
+    meta:
+      type: "reference"
+      source_skill:
+        name: "build-postgres-queue"
+        version: "1.0"
+        author: "Tiger Data"
+        license: "Apache-2.0"
+    content: |
+      # Building Task Queues with PostgreSQL — Overview
+
+      PostgreSQL can serve as a robust task queue without requiring external message brokers. This guide covers the patterns, trade-offs, and implementation details for production-grade queues.
+
+      ## Why Use Postgres for Queuing
+
+      - **No additional infrastructure** — Use your existing Postgres instance
+      - **Transactional guarantees** — Enqueue tasks as part of business transactions
+      - **Queryable state** — Inspect queue depth, task history with familiar SQL
+      - **ACID semantics** — Exactly-once delivery with row-level locking
+
+      For complex routing, fan-out, pub/sub, or multi-datacenter distribution, consider dedicated message brokers.
+
+      ## Core Concepts
+
+      | Term | Definition |
+      |------|------------|
+      | **Task** | A unit of work stored as a row in the queue table |
+      | **Claiming** | A worker acquiring exclusive access to a task |
+      | **Lease** | Time-limited claim; task becomes available again if lease expires |
+      | **Visibility** | Whether a task can be seen/claimed by workers |
+      | **Outcome** | Final state of a task (completed, failed, cancelled, expired) |
+
+      ## Design Decisions
+
+      Answer these before implementing:
+
+      1. **Claiming model?** Visibility threshold (recommended) or row lock hold
+      2. **Concurrency?** SKIP LOCKED (recommended) or advisory locks
+      3. **Notification?** Polling (recommended) — LISTEN/NOTIFY not for production
+      4. **Task ID type?** BIGINT (most cases), UUID (distributed), UUIDv7 (PG18+)
+      5. **Payload format?** JSONB (flexible), typed columns, or hybrid
+
+      Optional features (each adds schema elements):
+      6. Task kinds — `kind` column for specialized workers
+      7. Deduplication — `key` column to prevent duplicates
+      8. Priority — `priority` column for ordering
+      9. Prerequisites — `prereqs` column for task dependencies
+      10. Batch claiming — `LIMIT N` in claim query
+      11. Archiving — separate archive table
+
+      ## Implementation Steps
+
+      1. Choose patterns using the design decisions above
+      2. Design schema — me_memory_get({id: "019b0007-0005-7000-8000-000000000005"})
+      3. Design indexes — me_memory_get({id: "019b0007-0006-7000-8000-000000000006"})
+      4. Implement core operations: enqueue, claim, complete/fail, extend lease
+      5. Set up maintenance: archiving, monitoring, alerts
+
+      ## Pack Contents
+
+      Essential patterns:
+      - Visibility threshold — me_memory_get({id: "019b0007-0002-7000-8000-000000000002"})
+      - SKIP LOCKED — me_memory_get({id: "019b0007-0003-7000-8000-000000000003"})
+      - State machine — me_memory_get({id: "019b0007-0004-7000-8000-000000000004"})
+
+      Implementation:
+      - Schema design — me_memory_get({id: "019b0007-0005-7000-8000-000000000005"})
+      - Indexing — me_memory_get({id: "019b0007-0006-7000-8000-000000000006"})
+      - Anti-patterns — me_memory_get({id: "019b0007-0007-7000-8000-000000000007"})
+
+      Optional patterns:
+      - Deduplication — me_memory_get({id: "019b0007-0008-7000-8000-000000000008"})
+      - Prerequisites & workflows — me_memory_get({id: "019b0007-0009-7000-8000-000000000009"})
+      - Priority, batch, archiving, task kinds — me_memory_get({id: "019b0007-000a-7000-8000-00000000000a"})
+
+  - id: "019b0007-0002-7000-8000-000000000002"
+    tree: "visibility_threshold"
+    meta:
+      type: "reference"
+      source_file: "references/patterns/visibility-threshold.md"
+    content: |
+      # Visibility Threshold — Recommended Claiming Pattern
+
+      Uses a timestamp column (`vt`) to control when tasks become available for claiming. The most versatile claiming model for Postgres queues.
+
+      ## How It Works
+
+      1. **Enqueue**: Insert with `vt = now()` (immediate) or `vt = <future>` (scheduled)
+      2. **Claim**: Worker selects tasks where `vt <= now()`, updates `vt` to future (lease expiry)
+      3. **Process**: Worker processes while holding lease
+      4. **Complete**: Worker marks task as completed
+      5. **Lease Expiry**: If worker crashes, `vt` passes and task becomes visible again
+
+      ## Schema
+
+      ```sql
+      CREATE TABLE queue (
+          id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+          payload jsonb NOT NULL,
+          vt timestamptz NOT NULL DEFAULT now(),
+          outcome text CHECK (outcome IN ('completed', 'failed', 'cancelled', 'expired')),
+          attempts int NOT NULL DEFAULT 0,
+          max_attempts int NOT NULL DEFAULT 3,
+          created_at timestamptz NOT NULL DEFAULT now()
+      );
+
+      CREATE INDEX ON queue (vt) WHERE outcome IS NULL;
+      ```
+
+      ## Claiming a Task (Atomic CTE)
+
+      ```sql
+      WITH candidate AS (
+          SELECT id FROM queue
+          WHERE vt <= now()
+            AND outcome IS NULL
+            AND attempts < max_attempts
+          ORDER BY vt
+          LIMIT 1
+          FOR UPDATE SKIP LOCKED
+      )
+      UPDATE queue q
+      SET
+          vt = now() + interval '5 minutes',
+          attempts = attempts + 1
+      FROM candidate c
+      WHERE q.id = c.id
+      RETURNING q.*;
+      ```
+
+      Key points:
+      - `FOR UPDATE SKIP LOCKED` prevents contention
+      - `ORDER BY vt` ensures FIFO ordering
+      - Returns the full task row for processing
+
+      ## Lease Duration
+
+      | Task Type | Suggested Lease |
+      |-----------|-----------------|
+      | Quick (<10s) | 1-2 minutes |
+      | Medium (10s-1min) | 5-10 minutes |
+      | Long (1-10min) | 15-30 minutes |
+
+      Too short: duplicate execution. Too long: slow failure recovery.
+
+      ## Extending a Lease
+
+      ```sql
+      UPDATE queue SET vt = now() + interval '5 minutes'
+      WHERE id = $1 AND outcome IS NULL RETURNING vt;
+      ```
+
+      ## Exponential Backoff
+
+      ```sql
+      vt = now() + (interval '1 minute' * power(2, attempts))
+             + (interval '1 second' * (random() * 30))  -- jitter
+      ```
+
+      ## Scheduling Future Tasks
+
+      ```sql
+      INSERT INTO queue (payload, vt)
+      VALUES ('{"type": "reminder"}', now() + interval '1 hour');
+      ```
+
+      ## Completing / Failing
+
+      ```sql
+      UPDATE queue SET outcome = 'completed' WHERE id = $1;
+      UPDATE queue SET outcome = 'failed' WHERE id = $1;
+      ```
+
+      ## Advantages
+
+      - Self-healing: crashed workers don't leave tasks stuck
+      - Scheduling built-in: same mechanism handles delayed tasks
+      - Backoff support: easy exponential backoff
+      - Observable: query for overdue tasks
+
+      ## Trade-offs
+
+      - Clock dependency: relies on database server time
+      - Polling required: workers must poll
+      - Lease tuning: balance duration vs recovery time
+
+  - id: "019b0007-0003-7000-8000-000000000003"
+    tree: "skip_locked"
+    meta:
+      type: "reference"
+      source_file: "references/patterns/skip-locked.md"
+    content: |
+      # SKIP LOCKED — Concurrent Queue Claiming
+
+      `SKIP LOCKED` is a PostgreSQL row-locking modifier that makes concurrent queue claiming efficient. Workers skip locked rows instead of waiting.
+
+      ## The Problem Without SKIP LOCKED
+
+      ```sql
+      -- Worker 1: Locks row id=1
+      SELECT * FROM queue WHERE outcome IS NULL ORDER BY created_at LIMIT 1 FOR UPDATE;
+
+      -- Worker 2: BLOCKS waiting for Worker 1
+      SELECT * FROM queue WHERE outcome IS NULL ORDER BY created_at LIMIT 1 FOR UPDATE;
+      ```
+
+      Workers serialize — they can't claim in parallel.
+
+      ## The Solution
+
+      ```sql
+      -- Worker 1: Locks row id=1
+      SELECT * FROM queue ... LIMIT 1 FOR UPDATE SKIP LOCKED;
+
+      -- Worker 2: Skips row id=1, locks row id=2
+      SELECT * FROM queue ... LIMIT 1 FOR UPDATE SKIP LOCKED;
+      ```
+
+      ## Atomic Claim with CTE
+
+      Always combine SELECT and UPDATE in a single CTE statement. Without it, there's a race condition between SELECT and UPDATE. See visibility threshold pattern for the full claim query.
+
+      ## SKIP LOCKED vs NOWAIT
+
+      | Modifier | Behavior on Locked Row |
+      |----------|------------------------|
+      | `SKIP LOCKED` | Silently skip, continue scanning |
+      | `NOWAIT` | Immediately raise error |
+
+      For queues, SKIP LOCKED is almost always correct.
+
+      ## Index Considerations
+
+      SKIP LOCKED needs an index to be efficient:
+
+      ```sql
+      CREATE INDEX ON queue (vt) WHERE outcome IS NULL;
+      ```
+
+      Without an index, the database may scan many rows before finding an unlocked one.
+
+      ## Advisory Locks Alternative
+
+      ```sql
+      SELECT * FROM queue q
+      WHERE vt <= now() AND outcome IS NULL
+        AND pg_try_advisory_lock(hashtext('queue:' || q.id::text))
+      ORDER BY vt LIMIT 1;
+
+      -- Release when done
+      SELECT pg_advisory_unlock(hashtext('queue:' || id::text));
+      ```
+
+      Use advisory locks when you need locks across tables, surviving transaction boundaries, or logical/named locks. Downside: must explicitly release.
+
+      ## Common Mistakes
+
+      1. Forgetting SKIP LOCKED — workers block each other
+      2. Missing index — full table scan under concurrency
+      3. SELECT then UPDATE — race condition; use atomic CTE
+      4. No LIMIT — locks more rows than needed
+
+  - id: "019b0007-0004-7000-8000-000000000004"
+    tree: "state_machine"
+    meta:
+      type: "reference"
+      source_file: "references/patterns/state-machine.md"
+    content: |
+      # State Machine — Task Lifecycle Management
+
+      Manages task lifecycle through an outcome-based model. The `outcome` column combined with `vt` is the source of truth.
+
+      ## Outcome Column Approach
+
+      ```sql
+      outcome text CHECK (outcome IS NULL OR outcome IN (
+          'completed', 'failed', 'cancelled', 'expired'
+      ))
+      ```
+
+      - `outcome IS NULL` — Active task (pending or in-progress)
+      - `outcome = 'completed'` — Successfully finished
+      - `outcome = 'failed'` — Permanently failed
+      - `outcome = 'cancelled'` — Cancelled (dependency failure)
+      - `outcome = 'expired'` — Removed without execution (TTL)
+
+      ## Why Not a Status Column?
+
+      An explicit `status` column (`pending`, `claimed`, `completed`, `failed`) doesn't solve the fundamental problem: if a worker sets `status = 'claimed'` and dies, the status remains 'claimed' with no worker processing it. You still need `vt` lease timeout for recovery, making `vt` the source of truth, not status. The status column adds state without providing reliable information.
+
+      The outcome approach is simpler: fewer states, simpler queries (`WHERE outcome IS NULL`), less state to keep consistent.
+
+      **Limitation (both approaches):** Neither distinguishes "pending" from "in-progress" definitively. `vt > now()` could mean claimed, scheduled, or waiting for retry backoff.
+
+      ## State Transitions
+
+      | Transition | SQL |
+      |------------|-----|
+      | **Enqueue** | `INSERT INTO queue (kind, payload) VALUES (...) RETURNING id;` |
+      | **Claim** | Atomic CTE with `FOR UPDATE SKIP LOCKED` |
+      | **Complete** | `UPDATE queue SET outcome = 'completed' WHERE id = $1 AND outcome IS NULL;` |
+      | **Fail (permanent)** | `UPDATE queue SET outcome = 'failed' WHERE id = $1;` |
+      | **Fail (transient)** | Let lease expire — task becomes available when `vt` passes |
+      | **Cancel** | `UPDATE queue SET outcome = 'cancelled' WHERE id = $1 AND outcome IS NULL;` |
+      | **Expire (TTL)** | `UPDATE queue SET outcome = 'expired' WHERE vt < now() - interval '24 hours' AND outcome IS NULL;` |
+
+      ## Attempt Tracking
+
+      ```sql
+      attempts int NOT NULL DEFAULT 0,
+      max_attempts int NOT NULL DEFAULT 3
+      ```
+
+      For debugging, track claim timestamps:
+      ```sql
+      claims timestamptz[] DEFAULT '{}',
+      -- Append on claim:
+      UPDATE queue SET claims = claims || now(), vt = now() + interval '5 minutes' WHERE id = $1;
+      ```
+
+      ## Automatic Failure Detection
+
+      ```sql
+      UPDATE queue SET outcome = 'failed'
+      WHERE outcome IS NULL AND attempts >= max_attempts AND vt < now();
+      ```
+
+      ## Error Tracking
+
+      ```sql
+      last_error text,
+      last_error_at timestamptz
+      -- Or structured:
+      errors jsonb DEFAULT '[]'
+      ```
+
+      ## Monitoring
+
+      ```sql
+      -- Tasks by outcome
+      SELECT outcome, count(*) FROM queue GROUP BY outcome;
+
+      -- Active breakdown by kind
+      SELECT kind,
+          count(*) FILTER (WHERE vt <= now()) AS ready,
+          count(*) FILTER (WHERE vt > now()) AS in_progress
+      FROM queue WHERE outcome IS NULL GROUP BY kind;
+      ```
+
+  - id: "019b0007-0005-7000-8000-000000000005"
+    tree: "schema"
+    meta:
+      type: "reference"
+      source_file: "references/techniques/schema.md"
+    content: |
+      # Schema Design for Task Queues
+
+      Column choices, data types, constraints, and schema patterns for PostgreSQL task queues.
+
+      ## ID Column Options
+
+      | Option | Size | When to Use |
+      |--------|------|-------------|
+      | `bigint GENERATED ALWAYS AS IDENTITY` | 8 bytes | Single DB, no external ID needs |
+      | `uuid DEFAULT gen_random_uuid()` | 16 bytes | Distributed systems |
+      | `uuid DEFAULT uuidv7()` (PG18+) | 16 bytes | Distributed + time-sortable |
+
+      UUID advantage for prerequisites: application can generate IDs before insert, simplifying dependency setup without `RETURNING` or CTEs.
+
+      ## Core Columns
+
+      ```sql
+      CREATE TABLE queue (
+          id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+          payload jsonb NOT NULL,
+          vt timestamptz NOT NULL DEFAULT now(),
+          outcome text CHECK (outcome IS NULL OR outcome IN (
+              'completed', 'failed', 'cancelled', 'expired'
+          )),
+          attempts int NOT NULL DEFAULT 0,
+          max_attempts int NOT NULL DEFAULT 3,
+          created_at timestamptz NOT NULL DEFAULT now()
+      );
+      ```
+
+      Always use `timestamptz`, never `timestamp` without time zone.
+
+      ## Optional Columns
+
+      ```sql
+      kind text,                              -- Task type routing
+      key text UNIQUE NULLS DISTINCT,         -- Deduplication (PG15+; PG14: just UNIQUE)
+      priority int NOT NULL DEFAULT 100,      -- Lower = higher priority
+      prereqs bigint[] NOT NULL DEFAULT '{}', -- Task dependencies
+      claims timestamptz[] DEFAULT '{}',      -- Claim history
+      last_error text,                        -- Error tracking
+      last_error_at timestamptz,
+      ```
+
+      ## Outcome Alternatives
+
+      | Approach | Flexibility | Performance | Notes |
+      |----------|-------------|-------------|-------|
+      | CHECK constraint | Medium | Best | `CHECK (outcome IN (...))` |
+      | ENUM | Low | Good | Requires `ALTER TYPE` to add values |
+      | Lookup table | High | Good | FK constraint, add values with INSERT |
+
+      ## Complete Schema Examples
+
+      **Minimal:**
+      ```sql
+      CREATE TABLE queue (
+          id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+          payload jsonb NOT NULL,
+          vt timestamptz NOT NULL DEFAULT now(),
+          outcome text CHECK (outcome IN ('completed', 'failed')),
+          created_at timestamptz NOT NULL DEFAULT now()
+      );
+      CREATE INDEX ON queue (vt) WHERE outcome IS NULL;
+      ```
+
+      **Full-Featured:**
+      ```sql
+      CREATE TABLE queue (
+          id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+          kind text NOT NULL,
+          key text,
+          payload jsonb NOT NULL,
+          vt timestamptz NOT NULL DEFAULT now(),
+          outcome text CHECK (outcome IS NULL OR outcome IN (
+              'completed', 'failed', 'cancelled', 'expired'
+          )),
+          priority int NOT NULL DEFAULT 100,
+          attempts int NOT NULL DEFAULT 0,
+          max_attempts int NOT NULL DEFAULT 3,
+          claims timestamptz[] DEFAULT '{}',
+          prereqs bigint[] NOT NULL DEFAULT '{}',
+          last_error text,
+          last_error_at timestamptz,
+          created_at timestamptz NOT NULL DEFAULT now()
+      );
+
+      CREATE INDEX queue_claim_idx ON queue (priority, vt) WHERE outcome IS NULL;
+      CREATE INDEX queue_kind_idx ON queue (kind, vt) WHERE outcome IS NULL;
+      CREATE INDEX queue_prereqs_idx ON queue USING gin (prereqs);
+      CREATE INDEX queue_archive_idx ON queue (vt) WHERE outcome IS NOT NULL;
+      ```
+
+      ## Storage Tips
+
+      - **Fillfactor 70** for update-heavy queue tables: `CREATE TABLE queue (...) WITH (fillfactor = 70);` — enables HOT updates
+      - **Large payloads**: store externally, reference by ID
+      - **Multi-tenant**: add `tenant_id` column, index `(tenant_id, vt) WHERE outcome IS NULL`
+
+  - id: "019b0007-0006-7000-8000-000000000006"
+    tree: "indexing"
+    meta:
+      type: "reference"
+      source_file: "references/techniques/indexing.md"
+    content: |
+      # Indexing Strategies for Task Queues
+
+      Proper indexing is critical for queue performance. Index what you filter and order by.
+
+      ## Essential: Claiming Index
+
+      ```sql
+      -- Partial index: only active tasks
+      CREATE INDEX queue_claim_idx ON queue (vt) WHERE outcome IS NULL;
+      ```
+
+      Why partial? Completed tasks are never claimed. Excluding them keeps the index small.
+
+      ## Covering Index (Index-Only Scans)
+
+      ```sql
+      CREATE INDEX queue_claim_covering_idx ON queue (vt)
+      INCLUDE (id, kind, attempts, max_attempts)
+      WHERE outcome IS NULL;
+      ```
+
+      ## Priority Queue Index
+
+      ```sql
+      CREATE INDEX queue_priority_idx ON queue (priority, vt) WHERE outcome IS NULL;
+      -- With kind:
+      CREATE INDEX queue_kind_priority_idx ON queue (kind, priority, vt) WHERE outcome IS NULL;
+      ```
+
+      ## Kind-Based Index
+
+      ```sql
+      CREATE INDEX queue_kind_idx ON queue (kind, vt) WHERE outcome IS NULL;
+      ```
+
+      ## Prerequisite Index (GIN)
+
+      ```sql
+      CREATE INDEX queue_prereqs_idx ON queue USING gin (prereqs);
+      ```
+
+      Supports `@>` (contains), `<@` (contained by), and `= ANY()` operations.
+
+      ## Archive & Maintenance Indexes
+
+      ```sql
+      CREATE INDEX queue_archive_idx ON queue (vt) WHERE outcome IS NOT NULL;
+      CREATE INDEX queue_failed_idx ON queue (id) WHERE outcome IS NULL AND attempts >= max_attempts;
+      ```
+
+      ## Deduplication Index
+
+      ```sql
+      CREATE UNIQUE INDEX queue_key_active_idx ON queue (key) WHERE outcome IS NULL AND key IS NOT NULL;
+      ```
+
+      ## B-tree vs GIN
+
+      | Index Type | Use Case |
+      |------------|----------|
+      | B-tree | Default. vt, priority, kind — equality and range queries |
+      | GIN | Array columns (prereqs), JSONB containment |
+
+      ## Recommended Set for Typical Queue
+
+      ```sql
+      CREATE INDEX queue_claim_idx ON queue (vt)
+      INCLUDE (id, kind, attempts, max_attempts) WHERE outcome IS NULL;
+      CREATE INDEX queue_priority_claim_idx ON queue (priority, vt) WHERE outcome IS NULL;
+      CREATE INDEX queue_kind_idx ON queue (kind, vt) WHERE outcome IS NULL;
+      CREATE INDEX queue_prereqs_idx ON queue USING gin (prereqs);
+      CREATE INDEX queue_archive_idx ON queue (vt) WHERE outcome IS NOT NULL;
+      ```
+
+      ## Common Mistakes
+
+      1. Missing partial index condition — indexes completed tasks too
+      2. Wrong column order — `(vt, kind)` bad for `WHERE kind = 'x' ORDER BY vt`; use `(kind, vt)`
+      3. Too many indexes — each slows INSERT/UPDATE; start minimal
+      4. Forgetting index for SKIP LOCKED — causes row scanning under concurrency
+
+      ## Monitoring
+
+      ```sql
+      -- Index usage
+      SELECT indexrelname, idx_scan, idx_tup_read
+      FROM pg_stat_user_indexes WHERE relname = 'queue' ORDER BY idx_scan DESC;
+
+      -- Index sizes
+      SELECT indexrelname, pg_size_pretty(pg_relation_size(indexrelid))
+      FROM pg_stat_user_indexes WHERE relname = 'queue';
+
+      -- Reindex after bulk archiving
+      REINDEX INDEX CONCURRENTLY queue_claim_idx;
+      ```
+
+  - id: "019b0007-0007-7000-8000-000000000007"
+    tree: "anti_patterns"
+    meta:
+      type: "reference"
+      source_file: "references/anti-patterns.md"
+    content: |
+      # Anti-Patterns — Common Mistakes in PostgreSQL Task Queues
+
+      ## 1. Polling Without SKIP LOCKED
+      Workers serialize. Fix: always use `FOR UPDATE SKIP LOCKED`.
+
+      ## 2. LISTEN/NOTIFY for High-Throughput Queues
+      NOTIFY acquires a **global cluster-wide AccessExclusiveLock** on every commit, serializing ALL NOTIFY-containing commits. Caused major production outages at Recall.ai (March 2025). Fix: use polling with proper indexes.
+
+      ## 3. SELECT Then UPDATE (Race Condition)
+      Separate SELECT and UPDATE have a race condition. Fix: atomic CTE combining both.
+
+      ## 4. Missing Index on Visibility Column
+      Full table scan as table grows. Fix: `CREATE INDEX ON queue (vt) WHERE outcome IS NULL;`
+
+      ## 5. Unbounded Retries
+      Poison tasks retry forever. Fix: `WHERE attempts < max_attempts` in claim query.
+
+      ## 6. Long Transactions for Processing
+      Holding transactions open blocks autovacuum, exhausts connections. Fix: use visibility threshold (short claim transaction, process outside, short complete transaction).
+
+      ## 7. Status Column Instead of Outcome
+      A 'claimed' status tells you nothing if the worker died. Fix: use nullable `outcome` column; `vt` is the source of truth.
+
+      ## 8. Large Payloads Inline
+      TOAST overhead, slow claiming. Fix: store large data separately, reference by ID.
+
+      ## 9. No Partial Index
+      `CREATE INDEX ON queue (vt)` indexes all rows including completed. Fix: add `WHERE outcome IS NULL`.
+
+      ## 10. NOWAIT Instead of SKIP LOCKED
+      NOWAIT throws errors on locked rows. Fix: SKIP LOCKED silently skips.
+
+      ## 11. timestamp Without Time Zone
+      Ambiguous across time zones. Fix: always use `timestamptz`.
+
+      ## 12. Claiming Without ORDER BY
+      Tasks processed out of order, starvation risk. Fix: `ORDER BY vt`.
+
+      ## 13. Forgetting Lease Extension
+      Task reclaimed while still processing. Fix: extend lease periodically for long tasks.
+
+      ## 14. Non-Idempotent Processing
+      Retries cause duplicate side effects. Fix: idempotency checks or external idempotency keys.
+
+      ## 15. Archiving Too Eagerly
+      Breaks prerequisite checks. Fix: only archive if no active tasks depend on it.
+
+      ## 16. No Dead Letter Handling
+      Failed tasks sit unreviewed. Fix: dead letter table + alerts.
+
+      ## 17. Duplicate Task Submission
+      Double-clicks create duplicate work. Fix: deduplication keys with `ON CONFLICT DO NOTHING`.
+
+      ## Pre-Deploy Checklist
+
+      - [ ] SKIP LOCKED for concurrent claiming
+      - [ ] Polling-based workers (no LISTEN/NOTIFY for high throughput)
+      - [ ] Atomic claim with CTE
+      - [ ] Partial index on visibility column
+      - [ ] Max attempts limit
+      - [ ] Short transactions for claim/complete
+      - [ ] Outcome column, not status column
+      - [ ] Large payloads stored externally
+      - [ ] `timestamptz` for all timestamps
+      - [ ] ORDER BY in claim query
+      - [ ] Lease extension for long tasks
+      - [ ] Idempotent task processing
+      - [ ] Dead letter handling
+      - [ ] Deduplication for duplicate submissions
+
+  - id: "019b0007-0008-7000-8000-000000000008"
+    tree: "deduplication"
+    meta:
+      type: "reference"
+      source_file: "references/patterns/deduplication.md"
+    content: |
+      # Deduplication — Prevent Duplicate Tasks
+
+      Prevents the same logical task from being enqueued multiple times. Essential for scheduled jobs, webhook retries, and user double-clicks.
+
+      ## Key-Based Deduplication
+
+      ```sql
+      CREATE TABLE queue (
+          id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+          key text UNIQUE NULLS DISTINCT,  -- PG15+; PG14: just UNIQUE
+          payload jsonb NOT NULL,
+          vt timestamptz NOT NULL DEFAULT now(),
+          outcome text
+      );
+
+      INSERT INTO queue (key, payload)
+      VALUES ('daily_report:2024-01-15', '{"type": "daily_report"}')
+      ON CONFLICT (key) DO NOTHING;
+      ```
+
+      ## Key Design Strategies
+
+      **Natural key:** `'webhook:' || webhook_id`
+      **Time-based:** `'daily_report:' || current_date`
+      **Content hash:** `md5(payload->>'user_id' || payload->>'action')`
+      **Client idempotency key:** `X-Idempotency-Key` header passed as `$1`
+
+      ## Partial Unique Index (Active-Only Dedup)
+
+      Only prevent duplicates among active tasks:
+
+      ```sql
+      CREATE UNIQUE INDEX queue_key_active_idx ON queue (key) WHERE outcome IS NULL;
+
+      INSERT INTO queue (key, payload) VALUES ('task:123', '...')
+      ON CONFLICT (key) WHERE outcome IS NULL DO NOTHING;
+      ```
+
+      Completed tasks don't block new tasks with the same key.
+
+      ## Upsert: Update on Conflict
+
+      Refresh an existing task instead of skipping:
+
+      ```sql
+      INSERT INTO queue (key, payload, vt) VALUES ('task:123', '{"new": "data"}', now())
+      ON CONFLICT (key) DO UPDATE SET
+          payload = EXCLUDED.payload, vt = EXCLUDED.vt
+      WHERE queue.outcome IS NULL AND queue.vt <= now();  -- Not completed, not claimed
+      ```
+
+      ## Detecting Insert vs Existing
+
+      ```sql
+      INSERT INTO queue (key, payload) VALUES ('task:123', '...')
+      ON CONFLICT (key) DO UPDATE SET key = EXCLUDED.key  -- No-op update
+      RETURNING id, (xmax = 0) AS inserted;
+      -- xmax = 0 = new row; xmax != 0 = existing
+      ```
+
+      ## Deduplication Window
+
+      The UNIQUE constraint only applies while the task is in the active table. Once archived/deleted, the key can be reused. This is usually desirable for scheduled tasks.
+
+      For extended windows, keep completed tasks in queue (don't archive) or use a separate `queue_keys` table with periodic cleanup.
+
+      ## Common Patterns
+
+      ```sql
+      -- Scheduled job (one per day)
+      INSERT INTO queue (key, payload, vt)
+      VALUES ('daily_report:' || (current_date + 1), '...', (current_date + 1) + time '09:00')
+      ON CONFLICT (key) DO NOTHING;
+
+      -- Event deduplication
+      INSERT INTO queue (key, payload)
+      VALUES ('event:' || (event_data->>'event_id'), event_data)
+      ON CONFLICT (key) DO NOTHING;
+
+      -- Rate limiting (one per user per hour)
+      INSERT INTO queue (key, payload)
+      VALUES ('email:' || user_id || ':' || date_trunc('hour', now()), '...')
+      ON CONFLICT (key) DO NOTHING;
+      ```
+
+  - id: "019b0007-0009-7000-8000-000000000009"
+    tree: "prerequisites"
+    meta:
+      type: "reference"
+      source_file: "references/patterns/prerequisites.md"
+    content: |
+      # Prerequisites — Task Dependencies and Workflows
+
+      Tasks declare dependencies on other tasks. A task with prerequisites can only be claimed after all prerequisites have completed.
+
+      ## Schema
+
+      ```sql
+      prereqs bigint[] NOT NULL DEFAULT '{}',
+      -- GIN index for array lookups
+      CREATE INDEX ON queue USING gin (prereqs);
+      ```
+
+      Using `NOT NULL DEFAULT '{}'` simplifies queries (no NULL checks).
+
+      ## Claiming with Prerequisites
+
+      ```sql
+      WITH candidate AS (
+          SELECT id FROM queue q
+          WHERE q.vt <= now()
+            AND q.outcome IS NULL
+            AND q.attempts < q.max_attempts
+            AND (
+                SELECT count(*) = coalesce(array_length(q.prereqs, 1), 0)
+                FROM queue p
+                WHERE p.id = ANY(q.prereqs) AND p.outcome = 'completed'
+            )
+          ORDER BY q.vt LIMIT 1
+          FOR UPDATE SKIP LOCKED
+      )
+      UPDATE queue q SET vt = now() + interval '5 minutes', attempts = attempts + 1
+      FROM candidate c WHERE q.id = c.id RETURNING q.*;
+      ```
+
+      ## Creating Workflows (Single Transaction)
+
+      ```sql
+      WITH
+      extract AS (
+          INSERT INTO queue (kind, payload)
+          VALUES ('etl.extract', '{"source": "api"}') RETURNING id
+      ),
+      transform AS (
+          INSERT INTO queue (kind, payload, prereqs)
+          SELECT 'etl.transform', '{"format": "normalized"}', ARRAY[id]
+          FROM extract RETURNING id
+      ),
+      load AS (
+          INSERT INTO queue (kind, payload, prereqs)
+          SELECT 'etl.load', '{"dest": "warehouse"}', ARRAY[id]
+          FROM transform RETURNING id
+      )
+      SELECT * FROM load;
+      ```
+
+      ## Fan-Out / Fan-In
+
+      ```sql
+      WITH
+      task_a AS (INSERT INTO queue (payload) VALUES ('{"part": "A"}') RETURNING id),
+      task_b AS (INSERT INTO queue (payload) VALUES ('{"part": "B"}') RETURNING id),
+      task_c AS (INSERT INTO queue (payload) VALUES ('{"part": "C"}') RETURNING id),
+      aggregator AS (
+          INSERT INTO queue (payload, prereqs)
+          SELECT '{"type": "aggregate"}',
+              ARRAY[(SELECT id FROM task_a), (SELECT id FROM task_b), (SELECT id FROM task_c)]
+          RETURNING id
+      )
+      SELECT * FROM aggregator;
+      ```
+
+      ## Cascade Cancellation
+
+      When a prerequisite fails, cancel all dependents recursively:
+
+      ```sql
+      WITH RECURSIVE affected AS (
+          SELECT id FROM queue WHERE outcome IN ('failed', 'cancelled', 'expired')
+          UNION
+          SELECT q.id FROM queue q
+          INNER JOIN affected a ON a.id = ANY(q.prereqs)
+      )
+      UPDATE queue SET outcome = 'cancelled'
+      FROM affected WHERE queue.id = affected.id AND queue.outcome IS NULL;
+      ```
+
+      Can also be implemented as a trigger on outcome changes.
+
+      ## Safe Archiving with Prerequisites
+
+      Don't archive completed tasks that active tasks depend on:
+
+      ```sql
+      DELETE FROM queue WHERE outcome = 'completed'
+        AND NOT EXISTS (
+            SELECT 1 FROM queue other
+            WHERE queue.id = ANY(other.prereqs) AND other.outcome IS NULL
+        ) RETURNING *;
+      ```
+
+      ## Preventing Orphans & Cycles
+
+      Use triggers to validate prerequisites exist at insert time and detect circular dependencies. Note: circular dependency check can be expensive for deep chains.
+
+  - id: "019b0007-000a-7000-8000-00000000000a"
+    tree: "optional_patterns"
+    meta:
+      type: "reference"
+    content: |
+      # Optional Patterns — Priority, Batch, Archiving, Task Kinds
+
+      Summary of optional patterns. Each adds schema elements and query complexity.
+
+      ## Priority Queues
+
+      Add `priority int NOT NULL DEFAULT 100` (lower = higher priority). Claim with `ORDER BY priority, vt`.
+
+      ```sql
+      CREATE INDEX ON queue (priority, vt) WHERE outcome IS NULL;
+      ```
+
+      Priority schemes: numeric bands (0=critical, 50=normal, 200=bulk), named enums, or customer-tier joins.
+
+      **Starvation prevention:** priority aging (`ORDER BY priority - EXTRACT(EPOCH FROM (now() - created_at)) / 3600`), reserved capacity (80/20 split), or maximum wait time escalation.
+
+      ## Batch Claiming
+
+      Use `LIMIT N` to claim multiple tasks at once. Reduces DB round-trips for high-volume, fast-task queues.
+
+      ```sql
+      -- Claim up to 10 tasks atomically
+      WITH candidates AS (
+          SELECT id FROM queue WHERE vt <= now() AND outcome IS NULL
+          ORDER BY vt LIMIT 10 FOR UPDATE SKIP LOCKED
+      )
+      UPDATE queue q SET vt = now() + interval '5 minutes', attempts = attempts + 1
+      FROM candidates c WHERE q.id = c.id RETURNING q.*;
+      ```
+
+      Rule of thumb: batch size x avg task time should be well under lease duration. Consider adaptive sizing based on queue depth.
+
+      ## Archiving
+
+      Move completed tasks to a separate `queue_archive` table. Keeps active table small and fast.
+
+      ```sql
+      CREATE TABLE queue_archive (
+          id bigint PRIMARY KEY,  -- No GENERATED
+          -- Same columns as queue...
+          archived_at timestamptz NOT NULL DEFAULT now()
+      );
+
+      -- Basic archive operation
+      WITH archived AS (
+          DELETE FROM queue WHERE outcome IS NOT NULL RETURNING *
+      )
+      INSERT INTO queue_archive SELECT *, now() FROM archived;
+      ```
+
+      With prerequisites: archive completed tasks only if no active tasks depend on them. With deduplication: once archived, the key can be reused (usually desirable).
+
+      Consider TimescaleDB hypertables for time-partitioned archives with automatic retention.
+
+      ## Task Kinds
+
+      Add `kind text NOT NULL` column for routing tasks to specialized workers.
+
+      ```sql
+      CREATE INDEX ON queue (kind, vt) WHERE outcome IS NULL;
+      ```
+
+      Naming convention: lowercase with dots for hierarchy (`notification.email`, `order.charge`).
+
+      Worker strategies:
+      - **Dedicated**: one kind per worker type (`WHERE kind = $1`)
+      - **Multi-kind**: related kinds per worker (`WHERE kind = ANY($1)`)
+      - **Prefix-based**: hierarchy matching (`WHERE kind LIKE $1 || '%'`)
+      - **Fallback**: general workers exclude specialized kinds (`WHERE kind != ALL($1)`)
+
+      Powerful when combined with prerequisites for workflow orchestration (ETL pipelines, order processing, image processing fan-out/fan-in).
+
+      ## Row Lock Claiming (Anti-Pattern)
+
+      Holds `FOR UPDATE` lock for entire processing duration. Not recommended: long transactions block autovacuum, exhaust connections, no scheduling/backoff. Requires savepoints for retry tracking. Use visibility threshold instead.
+
+      ## LISTEN/NOTIFY (Anti-Pattern)
+
+      NOTIFY acquires a global cluster-wide AccessExclusiveLock serializing all NOTIFY-containing commits. Not for production high-throughput queues. Use polling instead. Acceptable only for very low throughput (<10 tasks/sec) or development.

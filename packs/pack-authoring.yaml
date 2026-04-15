@@ -1,0 +1,531 @@
+name: pack_authoring
+version: "0.2.0"
+description: "How to write effective memory packs"
+id-prefix: "019b0001"
+format: 1
+memories:
+  - id: "019b0001-0001-7000-8000-000000000001"
+    tree: "writing_skills"
+    meta:
+      type: "reference"
+      topic: "skill-memories"
+    content: |
+      # Writing Skill Memories
+
+      Skill memories are procedural instructions that teach agents how to do something. They are the most powerful pack content type — a single skill memory can cause an agent to generate dozens of useful reference memories. Getting the structure right matters.
+
+      ## The 6-Section Structure
+
+      Every skill memory should follow this template:
+
+      ```
+      # Title — What This Skill Does
+
+      <1-2 sentence overview of the task>
+
+      ## What to Extract
+      <Concrete list of what's worth creating memories for>
+      <Equally concrete list of what to skip>
+
+      ## How to Extract
+      <Numbered steps the agent should follow>
+      <Reference specific tool names and shell commands>
+
+      ## Example Output
+      <At least one complete me_memory_create call with realistic arguments>
+
+      ## Scope Control
+      <Limits and defaults to prevent runaway extraction>
+      ```
+
+      Each section serves a specific purpose. Omitting any section produces worse results.
+
+      ### Title
+      Format as `# Name — Brief Description`. The dash separator helps both humans scanning a list and BM25 search matching.
+
+      ### Overview
+      One or two sentences that tell the agent what it's about to do. This orients the agent before it reads the detailed steps.
+
+      ### What to Extract
+      Two parts: what to capture and what to skip. Be specific in both directions.
+
+      Good: "Focus on architectural decisions, bug fixes with root causes, feature additions with motivation. Skip version bumps, formatting-only changes, merge commits."
+
+      Bad: "Extract important things from the project."
+
+      Agents are generous by default — they will create memories for everything unless you explicitly tell them what to skip.
+
+      ### How to Extract
+      Numbered steps using exact tool names. Write `me_memory_create`, not "create a memory" or "save this." Write `me_memory_search`, not "check for duplicates."
+
+      Always include a duplicate-check step:
+      ```
+      4. Before creating, search for existing memories:
+         me_memory_search({meta: {"source": "git", "commit": "<sha>"}})
+         Skip creation if a match exists.
+      ```
+
+      Without this, re-running the skill creates duplicates every time.
+
+      ### Example Output
+      Show a complete `me_memory_create` call with realistic field values. Agents follow patterns they can see — an example is worth more than a paragraph of explanation.
+
+      Prescribe the tree path and meta keys:
+      ```
+      me_memory_create({
+        content: "Split auth into middleware + service layers for independent testability.",
+        tree: "work.projects.api.history",
+        meta: {source: "git", commit: "a1b2c3d"},
+        temporal: {start: "2026-02-10T14:30:00Z"}
+      })
+      ```
+
+      Don't leave tree and meta conventions to the agent's judgment. If you want all generated memories under `work.projects.<name>.history`, say so. If you want `meta.source` set to `"git"`, show it.
+
+      ### Scope Control
+      Set concrete limits. "Last 50 commits" is actionable. "Recent commits" is not. Without limits, an eager agent will try to process an entire repository.
+
+      Good scope controls:
+      - "Default: last 50 commits. Ask the user before going further."
+      - "Process only files matching `src/**/*.ts`. Ignore test files."
+      - "Stop after 20 memories. Summarize remaining items instead."
+
+      ## Voice and Style
+
+      - **Imperative, direct**: "Run `git log`", "Call `me_memory_create`", "Search before creating."
+      - **Address the agent as "you"**: "You are an agent with access to..." not "The agent should..."
+      - **Use exact MCP tool names**: `me_memory_create`, `me_memory_search`, `me_memory_get` — not paraphrases.
+      - **Be concise**: Agents don't need motivation or background. Tell them what to do.
+
+      ## Complete Example
+
+      Here is a condensed skill memory showing all 6 sections:
+
+      ```yaml
+      content: |
+        # Dependency Audit — Extract Package Decision History
+
+        You have access to a Node.js project and memory engine MCP tools.
+        Extract the reasoning behind key dependency choices.
+
+        ## What to Extract
+        Create memories for:
+        - Why a major dependency was chosen over alternatives
+        - Migration decisions (e.g., switching from Express to Fastify)
+        - Intentional rejections ("we evaluated X but chose not to use it")
+
+        Skip:
+        - Transitive dependencies the team didn't choose directly
+        - Dev dependencies with obvious purpose (prettier, eslint)
+        - Version bumps without context
+
+        ## How to Extract
+        1. Read `package.json` for the dependency list
+        2. Run `git log --all --oneline -- package.json` to find when deps were added
+        3. For each significant addition, run `git show <sha>` for context
+        4. Search before creating: `me_memory_search({meta: {source: "deps", package: "<name>"}})`
+        5. Call `me_memory_create` for each dependency with meaningful history
+
+        ## Example Output
+        me_memory_create({
+          content: "Chose Fastify over Express for the API server. Benchmarks showed 2x throughput for our JSON-heavy workload. Migration completed in PR #142.",
+          tree: "work.projects.api.dependencies",
+          meta: {source: "deps", package: "fastify"},
+          temporal: {start: "2026-01-15T00:00:00Z"}
+        })
+
+        ## Scope Control
+        - Process only `dependencies`, not `devDependencies`
+        - Limit to packages added in the last 6 months
+        - Maximum 15 memories. Prioritize by download count or import frequency.
+      ```
+
+      ## See Also
+      - Writing reference memories — `me_memory_get({id: "019b0001-0002-7000-8000-000000000002"})`
+      - Quality checklist — `me_memory_get({id: "019b0001-0005-7000-8000-000000000005"})`
+
+  - id: "019b0001-0002-7000-8000-000000000002"
+    tree: "writing_reference"
+    meta:
+      type: "reference"
+      topic: "reference-memories"
+    content: |
+      # Writing Reference Memories
+
+      Reference memories contain static, factual content — documentation, conventions, patterns, decision records. Unlike skill memories that instruct agents to do things, reference memories are looked up and read. They answer questions rather than give orders.
+
+      ## Core Principles
+
+      ### Self-Contained
+      Each memory should make sense when read alone. An agent finding your memory via search has no guarantee it will also find the other memories in your pack. Don't write "as described in the previous memory" — either repeat the essential context or link by ID.
+
+      Linking by ID is fine for optional depth:
+      ```
+      For the full 6-section template, see me_memory_get({id: "019b0001-0001-7000-8000-000000000001"}).
+      ```
+      But the memory should still be useful without following the link.
+
+      ### One Concept Per Memory
+      Say one thing well rather than covering everything. A 500-token memory that precisely answers "how do I structure tree paths?" is more useful than a 4000-token memory that covers tree paths, meta conventions, search patterns, and temporal ranges all at once.
+
+      Why: search retrieves whole memories. A focused memory means the agent gets exactly what it needs without wading through unrelated content. It also means BM25 and semantic search rank it higher for relevant queries — less noise in the content means stronger signal.
+
+      ### Searchable Structure
+      Your memory will be found via BM25 keyword search, semantic vector search, or both. Write with both in mind:
+
+      **For BM25**: Use the specific terms someone would search for. If your memory is about ltree path conventions, include the words "ltree", "tree path", and "path convention" — not just "hierarchical organization."
+
+      **For semantic search**: Write a clear opening sentence that captures the memory's purpose. The embedding model weights early content heavily. "This memory covers ltree path naming conventions for memory engine" is better than "There are several things to consider when organizing your data."
+
+      **Headings help both**: Use descriptive markdown headings (`## Tree Path Naming Rules`) rather than generic ones (`## Details`). Headings create strong keyword anchors and improve semantic clustering.
+
+      ## Formatting Guidelines
+
+      ### Use Markdown
+      Agents parse markdown well. Use headings, bullet lists, code blocks, and tables where they add clarity.
+
+      ### Code Snippets
+      Include code examples whenever the concept involves code. Show the exact syntax, not a prose description of it:
+
+      Good:
+      ```
+      tree: "work.projects.api.dependencies"
+      ```
+
+      Bad: "Set the tree to a path starting with 'work.projects' followed by the project name and then 'dependencies'."
+
+      ### Tables for Structured Data
+      When comparing options or listing fields with attributes, use tables:
+
+      | Field | Required | Purpose |
+      |-------|----------|---------|
+      | `content` | Yes | The memory text |
+      | `tree` | No | Hierarchical path |
+      | `meta` | No | Faceted attributes |
+
+      ### Keep It Concise
+      Remove filler. "It should be noted that" → delete. "In order to" → "to." "At this point in time" → "now." Every token counts against the 8192 embedding limit.
+
+      ## Using the Temporal Field
+
+      Set `temporal` when content has a shelf life:
+      - API versions: `temporal: {start: "2026-01-01", end: "2027-01-01"}`
+      - Dated conventions: `temporal: {start: "2026-02-01"}` (valid from this date forward)
+      - Historical context: `temporal: {start: "2025-06-01", end: "2025-12-31"}` (applied during this period)
+
+      Omit `temporal` for evergreen content (language syntax, mathematical facts, stable conventions).
+
+      Temporal filtering uses `tstzrange` overlap — queries with a time range will match memories whose temporal range overlaps.
+
+      ## When to Split
+
+      If a memory exceeds ~4000 tokens, consider splitting. Signs you should split:
+      - The content has 3+ top-level headings covering different subtopics
+      - You find yourself writing "see above" or "as mentioned earlier"
+      - The memory would match too many different search queries equally
+
+      Split by subtopic, not by arbitrary length. Each resulting memory should have a clear, focused purpose.
+
+      Exception: a skill memory with a long but cohesive procedure (all 6 sections tightly coupled) can stay as one memory up to ~6000 tokens. Splitting a procedure mid-flow hurts more than the length.
+
+      ## See Also
+      - Writing skill memories — `me_memory_get({id: "019b0001-0001-7000-8000-000000000001"})`
+      - Pack organization — `me_memory_get({id: "019b0001-0003-7000-8000-000000000003"})`
+
+  - id: "019b0001-0003-7000-8000-000000000003"
+    tree: "organization"
+    meta:
+      type: "reference"
+      topic: "pack-organization"
+    content: |
+      # Pack Organization and Discoverability
+
+      A pack is more than a bag of memories — how you structure it determines whether agents and users can find and use the content effectively.
+
+      ## Tree Path Strategy
+
+      Tree paths control hierarchical browsing and ltree queries. Choose paths for discoverability, not containment.
+
+      **Good**: `git.history_extraction` — an agent searching for git topics finds this naturally.
+      **Bad**: `packs.git_history.skill` — buries the content under a "packs" prefix that nobody searches for.
+
+      Tree paths in the YAML file are relative — at import time, `me pack import` auto-prefixes them with `pack.<name>.`. So a memory with `tree: "writing_skills"` in the `pack_authoring` pack becomes `pack.pack_authoring.writing_skills` in the database. Authors should write domain-oriented paths, not include the pack name.
+
+      ### Conventions
+
+      - **Pack content**: `<subtopic>` — e.g., `vacuuming`, `history_extraction` (the pack name prefix is added automatically)
+      - **Project-specific**: `work.projects.<name>.<aspect>` — e.g., `work.projects.api.architecture`
+
+      Content type (reference vs skill) is already in `meta.type`, so the tree doesn't need to encode it. These are conventions, not requirements. Use whatever tree structure makes your content findable for the queries people will actually run.
+
+      ### Tree Path Rules
+
+      ltree paths must match `[a-z0-9_]+` per label, separated by dots. Common mistakes:
+      - `pack-authoring.writing` — hyphens are invalid, use `pack_authoring.writing`
+      - `PostgreSQL.vacuuming` — uppercase is invalid, use `postgresql.vacuuming`
+      - `postgres.` — trailing dot is invalid
+      - `postgres..nested` — double dot is invalid
+
+      ## Meta Tagging
+
+      Pack identity (`name` and `version`) comes from the envelope — you do not include `meta.pack` on individual memories. At import time, `me pack import` injects `meta.pack` automatically from the envelope fields.
+
+      Additional meta keys are optional but improve filterability:
+
+      ```yaml
+      meta:
+        type: "skill"           # or "reference" — enables me_memory_search({meta: {type: "skill"}})
+        topic: "git-history"    # enables me_memory_search({meta: {topic: "git-history"}})
+      ```
+
+      `type` and `topic` are conventions used by the bundled skills, not enforced by the system. Use them for consistency with the ecosystem. Use any additional keys that make sense for your domain — meta is free-form JSONB.
+
+      Meta filtering uses JSONB containment (`@>`), so `{meta: {type: "skill"}}` matches any memory whose meta contains at least `{type: "skill"}`, regardless of other keys present.
+
+      ## Memory Granularity
+
+      **One concept per memory, not one pack = one memory.** A pack with a single 7000-token memory covering five topics is harder to search, harder to update, and wastes context when an agent only needs one topic.
+
+      Split by independently searchable concepts:
+      - If someone might search for topic A without caring about topic B, they should be separate memories.
+      - If topics A and B are always needed together, keep them in one memory.
+
+      This pack (`pack_authoring`) has 5 memories — one per distinct topic. An agent asking "how do I write a skill memory?" gets memory 0001 without also loading the versioning mechanics from memory 0004.
+
+      ## Ordering and Numbering
+
+      Sequential IDs within the pack (`0001`, `0002`, `0003`, ...) create a logical reading order. This doesn't affect search — agents find memories by relevance, not by number — but it helps humans reading the YAML file and helps during development.
+
+      Leave gaps if you expect to insert memories later. Using `0001`, `0002`, `0003` is fine for a first version; the `me pack import` system doesn't care about sequence gaps.
+
+      ## Cross-Referencing
+
+      Reference other memories by ID when useful:
+      ```
+      For the full template, see me_memory_get({id: "019b0001-0001-7000-8000-000000000001"}).
+      ```
+
+      But never require the cross-reference. Each memory should be useful standalone. Think of cross-references as "see also" links, not "continued from" links.
+
+      ## Pack Envelope
+
+      Every pack YAML file starts with a top-level envelope:
+
+      ```yaml
+      name: my_pack
+      version: "0.1.0"
+      description: "One-line summary of what this pack provides."
+      id-prefix: "019bXX00"
+      format: 1
+      memories:
+        - id: "019bXX00-0001-7000-8000-000000000001"
+          tree: "subtopic"
+          meta:
+            type: "reference"
+          content: |
+            ...
+      ```
+
+      | Field | Required | Purpose |
+      |-------|----------|---------|
+      | `name` | Yes | ltree-safe identifier (`[a-z0-9_]+`) — used to construct tree paths |
+      | `version` | Yes | Semantic version string (e.g., `"0.1.0"`) |
+      | `description` | No | Human-readable summary |
+      | `id-prefix` | Yes | 8 lowercase hex characters — all memory IDs must start with this |
+      | `format` | Yes | Must be `1` |
+      | `memories` | Yes | Array of memory objects |
+
+      The envelope is the single source of truth for pack identity. Individual memories must not include `meta.pack` — it is injected from the envelope at import time.
+
+      ## See Also
+      - ID allocation and versioning — `me_memory_get({id: "019b0001-0004-7000-8000-000000000004"})`
+      - Writing reference memories — `me_memory_get({id: "019b0001-0002-7000-8000-000000000002"})`
+
+  - id: "019b0001-0004-7000-8000-000000000004"
+    tree: "id_versioning"
+    meta:
+      type: "reference"
+      topic: "id-versioning"
+    content: |
+      # ID Allocation and Version Management
+
+      Memory packs use deterministic UUIDv7 IDs for idempotent imports. This memory covers the mechanics of claiming IDs and managing versions.
+
+      ## Claiming a Prefix
+
+      Before writing a pack, claim a unique 8-character prefix in `registry.yaml` in the memorypacks repository. Each pack gets one prefix that is never reused.
+
+      ```yaml
+      # registry.yaml
+      prefixes:
+        "019b0000": git-history
+        "019b0100": project-bootstrap
+        "019b0001": pack-authoring
+        "019b0300": your-new-pack       # ← claim the next sequential value
+      ```
+
+      Prefix allocation is first-come-first-served via pull request. The CI pipeline validates that no two packs share a prefix.
+
+      ## ID Format
+
+      The format is: `<prefix>-NNNN-7000-8000-NNNNNNNNNNNN`
+
+      Breaking it down:
+      ```
+      019b0001-0001-7000-8000-000000000001
+      ^^^^^^^^ ^^^^ ^ ^^^ ^    ^^^^^^^^^^^^
+      prefix   seq  │  │  │    seq (repeated or extended)
+                    │  │  └── RFC 9562 variant (must be 8, 9, a, or b)
+                    │  └───── UUIDv7 version (must be 7)
+                    └──────── part of the sequence
+      ```
+
+      The `7` at position 14 and `8` at position 19 are required by the UUID specification. Without them, the ID fails UUIDv7 validation and `me pack validate` will reject it.
+
+      The `id-prefix` envelope field declares the prefix, and validation checks that every memory ID starts with it. This prevents accidental ID collisions across packs.
+
+      For the trailing 12 digits, mirror the sequence number. The first memory uses `000000000001`, the second `000000000002`, and so on. This is a convention for readability, not a hard requirement — any valid hex digits work.
+
+      ## Sequential Numbering
+
+      Number memories sequentially within a pack:
+      ```
+      019b0001-0001-7000-8000-000000000001   # First memory
+      019b0001-0002-7000-8000-000000000002   # Second memory
+      019b0001-0003-7000-8000-000000000003   # Third memory
+      ```
+
+      If you expect to insert memories between existing ones in a future version, leave gaps:
+      ```
+      019b0001-0010-7000-8000-000000000010   # Topic A
+      019b0001-0020-7000-8000-000000000020   # Topic B
+      019b0001-0030-7000-8000-000000000030   # Topic C
+      ```
+
+      Gaps don't affect functionality — IDs are opaque identifiers to the system.
+
+      ## Version Management
+
+      Pack version is declared once in the envelope's `version` field. All memories in the pack share this version — there's nothing to keep in sync across individual memories.
+
+      ### Bumping a Version
+
+      When you release a new version of your pack:
+      1. Update `version` in the envelope (e.g., `"0.1.0"` → `"0.2.0"`)
+      2. Keep IDs stable for existing memories — do not change their IDs
+      3. Assign the next sequential ID for any new memories
+      4. Remove memories you no longer want from the YAML file
+
+      That's it — one field to change. No need to update every memory individually.
+
+      ### What Happens on Import
+
+      `me pack import` handles version transitions automatically:
+
+      1. Reads the envelope to get the pack `name` and `version`
+      2. Searches for existing memories with the same `meta.pack.name`
+      3. Any existing memory with a different `meta.pack.version` is marked as stale
+      4. Stale memories are deleted
+      5. New memories are upserted (deterministic IDs → `ON CONFLICT (id) DO UPDATE`)
+
+      This means:
+      - **Updated memories** (same ID, new content): upserted in place
+      - **New memories** (new ID): inserted
+      - **Removed memories** (ID not in new file): deleted as stale
+      - **Re-importing same version**: idempotent, no-op upsert
+
+      ### Version Numbering
+
+      Use semantic versioning: `MAJOR.MINOR.PATCH`
+      - **PATCH** (0.1.0 → 0.1.1): Typo fixes, minor wording improvements
+      - **MINOR** (0.1.0 → 0.2.0): New memories added, existing content expanded
+      - **MAJOR** (0.1.0 → 1.0.0): Significant restructuring, memories removed or fundamentally rewritten
+
+      There is no enforcement of semver — this is guidance for pack authors and consumers.
+
+      ## See Also
+      - Pack organization — `me_memory_get({id: "019b0001-0003-7000-8000-000000000003"})`
+      - Quality checklist — `me_memory_get({id: "019b0001-0005-7000-8000-000000000005"})`
+
+  - id: "019b0001-0005-7000-8000-000000000005"
+    tree: "quality"
+    meta:
+      type: "reference"
+      topic: "quality-checklist"
+    content: |
+      # Quality Checklist and Common Pitfalls
+
+      Run through this checklist before publishing a pack. Then review the pitfalls section to catch mistakes that validation alone won't find.
+
+      ## Pre-Publish Checklist
+
+      1. **Validation passes**: `me pack validate your-pack.yaml` exits 0
+      2. **Token count**: Each memory's content is under 8192 tokens (check with `bun scripts/count-tokens.ts`)
+      3. **Dry-run preview**: `me pack import --dry-run your-pack.yaml` shows expected counts
+      4. **Self-contained**: Each memory makes sense read in isolation
+      5. **Valid envelope fields**: `name` is ltree-safe, `version` is set, `id-prefix` matches all IDs
+      6. **No duplication**: Content doesn't repeat what's in the bundled skills (0034-0036)
+      7. **Tree paths valid**: All lowercase, only `[a-z0-9_]` per label, dot-separated
+      8. **IDs valid**: Format `<prefix>-NNNN-7000-8000-NNNNNNNNNNNN`, prefix claimed in registry
+      9. **Envelope complete**: File has top-level `name`, `version`, `id-prefix`, `format: 1`, and `memories` array
+
+      ## Common Pitfalls
+
+      ### Structural Mistakes
+
+      **Including `meta.pack` in a memory.**
+      Pack identity comes from the envelope — individual memories must not have `meta.pack`. The import process injects it automatically. Validation rejects any memory that includes its own `meta.pack`.
+
+      **Tree paths with hyphens or uppercase.**
+      ltree requires `[a-z0-9_]` per label. `pack-authoring.writing` fails — use `pack_authoring.writing`. `PostgreSQL.vacuuming` fails — use `postgresql.vacuuming`. Validation catches invalid ltree syntax.
+
+      **ID format errors.**
+      The `7` at position 14 and `8` at position 19 are mandatory (UUIDv7 version + RFC 9562 variant). `019b0001-0001-0000-0000-000000000001` fails validation. Use the template: `<prefix>-NNNN-7000-8000-NNNNNNNNNNNN`.
+
+      **ID prefix mismatch.**
+      Every memory ID must start with the `id-prefix` declared in the envelope. If your envelope says `id-prefix: "019b0001"` but a memory has `id: "019b0002-..."`, validation fails.
+
+      **Pack name with hyphens.**
+      The envelope `name` must be ltree-safe (`[a-z0-9_]+`). Use `pack_authoring`, not `pack-authoring`. The name is used to build tree paths (`pack.<name>.<tree>`), and ltree labels can't contain hyphens.
+
+      ### Content Mistakes
+
+      **Token overflow on skill memories.**
+      Long skill memories with detailed examples can exceed the 8192 token embedding limit. The content still imports fine, but the embedding will be truncated or fail, degrading semantic search. Check token counts during authoring, not after.
+
+      To fix: split the skill into a concise procedure memory and a separate reference memory with the detailed examples. The skill memory references the examples by ID.
+
+      **Vague skill instructions.**
+      "Extract useful information" gives an agent no actionable direction. "Run `git log --oneline -50`, for each non-trivial commit call `me_memory_create` with..." does. Use exact commands, exact tool names, and exact field names.
+
+      **Missing scope control.**
+      Without explicit limits, agents process everything. A skill that says "analyze the codebase" on a large project will run for hours creating hundreds of low-quality memories. Always set defaults: "last 50 commits", "top-level `src/` files only", "maximum 20 memories."
+
+      **Missing duplicate-check step in skills.**
+      Skills are meant to be re-runnable. Without a search-before-create step, every execution adds duplicates. Include: `me_memory_search({meta: {source: "...", key: "..."}})` and skip creation if a match exists.
+
+      **Leaving tree and meta to agent judgment.**
+      Don't write "organize the memories appropriately." Write `tree: "work.projects.<name>.history"` and `meta: {source: "git", commit: "<sha>"}`. Agents produce consistent, searchable output when given exact conventions.
+
+      ### Ecosystem Mistakes
+
+      **ID prefix collision.**
+      Two packs using the same prefix will overwrite each other's memories on import. Always claim your prefix in `registry.yaml` before writing. The CI validation script (`validate.sh`) catches collisions.
+
+      **Duplicating bundled skill content.**
+      Skills 0034-0036 already cover pack concepts, CLI usage, and format basics. A pack that repeats this content wastes tokens and creates confusion when the bundled version is updated but the pack version isn't. Go deeper or cover different topics instead.
+
+      **Not testing the full cycle.**
+      `me pack validate` catches structural errors but not content quality issues. Always do a full import cycle on a test instance:
+      ```bash
+      me pack validate your-pack.yaml        # Structure OK?
+      me pack import --dry-run your-pack.yaml # Counts look right?
+      me pack import your-pack.yaml           # Actually import
+      me memory search --semantic "your topic" # Do the memories surface for relevant queries?
+      ```
+
+      ## See Also
+      - Writing skill memories — `me_memory_get({id: "019b0001-0001-7000-8000-000000000001"})`
+      - Writing reference memories — `me_memory_get({id: "019b0001-0002-7000-8000-000000000002"})`
+      - Pack organization — `me_memory_get({id: "019b0001-0003-7000-8000-000000000003"})`
+      - ID allocation — `me_memory_get({id: "019b0001-0004-7000-8000-000000000004"})`

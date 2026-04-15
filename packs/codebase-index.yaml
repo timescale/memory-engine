@@ -1,0 +1,775 @@
+name: codebase_index
+version: "0.1.0"
+description: "Teaches agents to build a structural code index using Tree-sitter and filesystem watching — zero LLM cost, always current"
+id-prefix: "019b0003"
+format: 1
+memories:
+  - id: "019b0003-0001-7000-8000-000000000001"
+    tree: "overview"
+    meta:
+      type: "skill"
+      topic: "codebase-index-setup"
+    content: |
+      # Codebase Index — Structural Code Index via Tree-sitter
+
+      You have access to memory engine MCP tools and a codebase. This skill teaches you to build a searchable structural index of every function, class, type, and export in the codebase — always current, zero LLM cost.
+
+      ## What It Does
+
+      Tree-sitter parses source files into ASTs. You extract structural units (functions, classes, types, interfaces, constants, imports, exports) and store each as a memory. The embedding pipeline handles semantic search automatically. The result: agents can instantly find any symbol, browse modules by tree path, or search by concept.
+
+      ## Prerequisites
+
+      1. **me server running** with embedding daemon active
+      2. **Tree-sitter CLI and grammars** for target languages:
+         ```bash
+         bun add tree-sitter tree-sitter-typescript tree-sitter-javascript
+         # Add per language:
+         bun add tree-sitter-python   # Python
+         bun add tree-sitter-go       # Go
+         bun add tree-sitter-rust     # Rust
+         ```
+      3. **ignore** package for `.gitignore` support:
+         ```bash
+         bun add ignore
+         ```
+
+      ## Supported Languages (v1)
+
+      | Language | Grammar Package | Extensions |
+      |----------|----------------|------------|
+      | TypeScript | `tree-sitter-typescript` | `.ts`, `.tsx` |
+      | JavaScript | `tree-sitter-javascript` | `.js`, `.jsx`, `.mjs` |
+      | Python | `tree-sitter-python` | `.py` |
+      | Go | `tree-sitter-go` | `.go` |
+      | Rust | `tree-sitter-rust` | `.rs` |
+
+      ## Project Setup
+
+      Before indexing, decide on a project namespace. This scopes all indexed memories to one project:
+
+      ```
+      project: "my_project"
+      tree prefix: "codebase.my_project."
+      meta filter: {codebase_index: true, project: "my_project"}
+      ```
+
+      Use the project name (ltree-safe: lowercase, underscores only) as the second segment of the tree path. This lets you index multiple projects without collision.
+
+      ## How to Set Up
+
+      1. Install Tree-sitter and grammar packages for your target languages
+      2. Create a watcher script (see the watcher template memory: `me_memory_search({meta: {topic: "watcher-template", codebase_index: true}})`)
+      3. Run the initial scan (see: `me_memory_search({meta: {topic: "initial-scan"}})`)
+      4. Start the filesystem watcher for ongoing updates
+      5. Verify with search queries (see: `me_memory_search({meta: {topic: "search-patterns"}})`)
+
+      ## See Also
+      - Initial scan procedure — `me_memory_get({id: "019b0003-0002-7000-8000-000000000002"})`
+      - Structural extraction queries — `me_memory_get({id: "019b0003-0003-7000-8000-000000000003"})`
+      - Memory format — `me_memory_get({id: "019b0003-0004-7000-8000-000000000004"})`
+
+  - id: "019b0003-0002-7000-8000-000000000002"
+    tree: "initial_scan"
+    meta:
+      type: "skill"
+      topic: "initial-scan"
+    content: |
+      # Initial Scan — Index an Entire Codebase
+
+      You have Tree-sitter installed and a me server running. This skill walks you through the first full scan that populates the codebase index.
+
+      ## What to Index
+
+      Create memories for:
+      - Functions and methods (name, signature, params, return type)
+      - Classes, structs, and their members
+      - Type definitions and interfaces
+      - Exported constants with type info
+      - Module exports (what a file exposes)
+
+      Skip:
+      - File contents inside `.gitignore` (node_modules, dist, build, etc.)
+      - Lock files (`bun.lockb`, `package-lock.json`, `yarn.lock`)
+      - Generated files (`.d.ts` unless hand-authored, `*.generated.*`)
+      - Import statements (low search value, high volume)
+      - Anonymous/arrow functions assigned to local variables
+      - Test files (optional — include if you want test coverage indexed)
+
+      ## How to Scan
+
+      1. **Walk the codebase** respecting `.gitignore`:
+         ```typescript
+         import ignore from "ignore";
+         import { readFileSync } from "fs";
+         import { Glob } from "bun";
+
+         const ig = ignore().add(readFileSync(".gitignore", "utf8"));
+         const glob = new Glob("**/*.{ts,tsx,js,jsx,py,go,rs}");
+         const files = [];
+         for await (const path of glob.scan({ cwd: projectDir })) {
+           if (!ig.ignores(path)) files.push(path);
+         }
+         ```
+
+      2. **For each file**, detect language from extension and parse with Tree-sitter:
+         ```typescript
+         import Parser from "tree-sitter";
+         import TypeScript from "tree-sitter-typescript";
+
+         const parser = new Parser();
+         parser.setLanguage(TypeScript.typescript); // or .tsx
+         const tree = parser.parse(readFileSync(filePath, "utf8"));
+         ```
+
+      3. **Extract structural units** using Tree-sitter queries (see extraction memory: `me_memory_get({id: "019b0003-0003-7000-8000-000000000003"})`)
+
+      4. **Format each unit as a memory** (see format memory: `me_memory_get({id: "019b0003-0004-7000-8000-000000000004"})`)
+
+      5. **Check for duplicates before creating**:
+         ```
+         me_memory_search({meta: {codebase_index: true, content_hash: "<hash>"}})
+         ```
+         Skip creation if a match exists with identical content.
+
+      6. **Batch create memories** — group into batches of 50 to avoid overwhelming the server:
+         ```
+         for each batch of 50 units:
+           for each unit in batch:
+             me_memory_create({content, tree, meta})
+         ```
+
+      ## Scope Control
+
+      - Default: index the entire project directory
+      - To scope to specific directories: filter the glob pattern (e.g., `src/**/*.ts`)
+      - Maximum files per run: 500. For larger projects, scan directory-by-directory.
+      - If a single file produces more than 100 structural units, it's likely generated — skip it.
+
+      ## See Also
+      - Extraction queries — `me_memory_get({id: "019b0003-0003-7000-8000-000000000003"})`
+      - Memory format — `me_memory_get({id: "019b0003-0004-7000-8000-000000000004"})`
+
+  - id: "019b0003-0003-7000-8000-000000000003"
+    tree: "extraction"
+    meta:
+      type: "skill"
+      topic: "structural-extraction"
+    content: |
+      # Structural Extraction — Tree-sitter Queries by Language
+
+      Tree-sitter queries extract structural units from parsed ASTs. Each query targets specific node types and captures the fields needed for a useful memory.
+
+      ## Units to Extract
+
+      | Unit | Fields |
+      |------|--------|
+      | Functions/methods | name, params, return type, exported?, async?, line |
+      | Classes/structs | name, methods list, properties, inheritance, exported? |
+      | Type definitions | name, shape/members, exported? |
+      | Interfaces | name, methods, properties, extends |
+      | Constants | name, type, value (if simple literal), exported? |
+      | Exports | exported names, default export |
+
+      ## TypeScript / JavaScript
+
+      **Functions** (exported and non-exported):
+      ```scheme
+      ;; Named function declarations
+      (function_declaration
+        name: (identifier) @name
+        parameters: (formal_parameters) @params
+        return_type: (type_annotation)? @return_type) @func
+
+      ;; Arrow functions assigned to const/let
+      (lexical_declaration
+        (variable_declarator
+          name: (identifier) @name
+          value: (arrow_function
+            parameters: (formal_parameters) @params
+            return_type: (type_annotation)? @return_type))) @func
+
+      ;; Method definitions in classes
+      (method_definition
+        name: (property_identifier) @name
+        parameters: (formal_parameters) @params
+        return_type: (type_annotation)? @return_type) @method
+      ```
+
+      **Export detection**: Check if the parent or grandparent node is `export_statement`. For `export default`, the node type is `export_statement` with a `default` keyword child.
+
+      **Classes**:
+      ```scheme
+      (class_declaration
+        name: (type_identifier) @name
+        (class_heritage)? @heritage
+        body: (class_body) @body) @class
+      ```
+      Walk `class_body` children for `method_definition` and `public_field_definition` nodes.
+
+      **Types and interfaces**:
+      ```scheme
+      (type_alias_declaration
+        name: (type_identifier) @name
+        value: (_) @value) @type
+
+      (interface_declaration
+        name: (type_identifier) @name
+        body: (interface_body) @body) @interface
+      ```
+
+      ## Python
+
+      **Functions**:
+      ```scheme
+      (function_definition
+        name: (identifier) @name
+        parameters: (parameters) @params
+        return_type: (type)? @return_type) @func
+      ```
+      Check for `@staticmethod`, `@classmethod`, `@property` decorators on the preceding sibling node. Methods are functions inside a `class_definition` body.
+
+      **Classes**:
+      ```scheme
+      (class_definition
+        name: (identifier) @name
+        superclasses: (argument_list)? @bases
+        body: (block) @body) @class
+      ```
+
+      Python has no explicit export syntax. Consider all top-level definitions as "exported" unless the name starts with `_`.
+
+      ## Go
+
+      **Functions**:
+      ```scheme
+      (function_declaration
+        name: (identifier) @name
+        parameters: (parameter_list) @params
+        result: (_)? @return_type) @func
+
+      (method_declaration
+        receiver: (parameter_list) @receiver
+        name: (field_identifier) @name
+        parameters: (parameter_list) @params
+        result: (_)? @return_type) @method
+      ```
+      Exported = name starts with uppercase letter.
+
+      **Structs and interfaces**:
+      ```scheme
+      (type_declaration
+        (type_spec
+          name: (type_identifier) @name
+          type: (struct_type) @body)) @struct
+
+      (type_declaration
+        (type_spec
+          name: (type_identifier) @name
+          type: (interface_type) @body)) @interface
+      ```
+
+      ## Rust
+
+      **Functions**:
+      ```scheme
+      (function_item
+        name: (identifier) @name
+        parameters: (parameters) @params
+        return_type: (_)? @return_type) @func
+      ```
+      Exported = has `pub` visibility modifier.
+
+      **Structs, enums, traits**:
+      ```scheme
+      (struct_item name: (type_identifier) @name) @struct
+      (enum_item name: (type_identifier) @name) @enum
+      (trait_item name: (type_identifier) @name) @trait
+      (impl_item type: (type_identifier) @name) @impl
+      ```
+
+      ## Extracting Node Text
+
+      For each captured node, use `node.text` to get the source text. For parameters, format as a comma-separated list. For return types, extract the type annotation text. Line numbers come from `node.startPosition.row + 1` (Tree-sitter is 0-indexed).
+
+  - id: "019b0003-0004-7000-8000-000000000004"
+    tree: "memory_format"
+    meta:
+      type: "reference"
+      topic: "memory-format"
+    content: |
+      # Memory Format — How Structural Units Map to Memories
+
+      Each structural unit extracted by Tree-sitter becomes one memory in me. This reference defines the exact format for consistency, searchability, and embedding quality.
+
+      ## Memory Structure
+
+      ```yaml
+      tree: "codebase.<project>.<file_path_as_ltree>"
+      meta:
+        codebase_index: true
+        project: "my_project"
+        content_hash: "sha256:<hex>"
+        type: "function"
+        language: "typescript"
+        exported: true
+        file: "src/server/auth/service.ts"
+        line: 42
+      content: |
+        ## validateApiKey
+
+        File: src/server/auth/service.ts:42
+        Type: async function (exported)
+        Signature: (key: string, sql: SQL) -> Promise<ApiKeyRecord | null>
+
+        Parameters:
+        - key: string
+        - sql: SQL
+
+        Returns: ApiKeyRecord | null
+      ```
+
+      ## Content Formatting Rules
+
+      Content is optimized for both BM25 keyword search and semantic embedding:
+
+      1. **Start with the name as a heading** — strong BM25 signal for exact-name searches
+      2. **File path and line number** — navigable reference (`file:line` format)
+      3. **Type line** — combines: async?, node type (function/class/type/etc.), exported?
+      4. **Signature in readable form** — embeds well as prose-like text, uses `->` not `=>`
+      5. **Parameter list** — each param on its own line for individual name searchability
+      6. **Return type** — separate line when non-trivial
+
+      ### Content Templates by Type
+
+      **Function/method**:
+      ```
+      ## <name>
+
+      File: <path>:<line>
+      Type: [async] function|method ([exported])
+      Signature: (<params with types>) -> <return_type>
+
+      Parameters:
+      - <name>: <type>
+
+      Returns: <return_type>
+      ```
+
+      **Class/struct**:
+      ```
+      ## <name>
+
+      File: <path>:<line>
+      Type: class|struct ([exported])
+      Extends: <parent> (if any)
+      Implements: <interfaces> (if any)
+
+      Methods:
+      - <method_name>(<params>) -> <return>
+
+      Properties:
+      - <prop_name>: <type>
+      ```
+
+      **Type/interface**:
+      ```
+      ## <name>
+
+      File: <path>:<line>
+      Type: type|interface ([exported])
+      Extends: <parent> (if any)
+
+      Members:
+      - <member_name>: <type>
+      ```
+
+      **Constant**:
+      ```
+      ## <name>
+
+      File: <path>:<line>
+      Type: constant ([exported])
+      Value type: <type>
+      Value: <literal_value> (if simple)
+      ```
+
+      ## Meta Fields
+
+      | Field | Type | Required | Purpose |
+      |-------|------|----------|---------|
+      | `codebase_index` | boolean | Yes | Marks as managed by this system — always `true` |
+      | `project` | string | Yes | Project scope (ltree-safe name) |
+      | `content_hash` | string | Yes | `sha256:<hex>` — for dedup and change detection |
+      | `type` | string | Yes | `function`, `class`, `type`, `interface`, `constant`, `export` |
+      | `language` | string | Yes | `typescript`, `javascript`, `python`, `go`, `rust` |
+      | `exported` | boolean | Yes | Whether the symbol is exported/public |
+      | `file` | string | Yes | Relative file path from project root |
+      | `line` | number | Yes | 1-indexed line number |
+
+      ## Content Hash
+
+      The content hash uniquely identifies a structural unit by its location and identity:
+
+      ```
+      content_hash = sha256(filepath + "::" + node_type + "::" + node_name)
+      ```
+
+      Examples:
+      - `sha256("src/server/auth/service.ts::function::validateApiKey")`
+      - `sha256("src/server/db.ts::class::Database")`
+      - `sha256("src/types.ts::interface::Config")`
+
+      This hash stays stable when the function body changes (triggering an update, not delete+create). It changes when the function is renamed or moved (triggering delete of old + create of new).
+
+      ## Tree Path Mapping
+
+      File paths become ltree paths with these transformations:
+
+      | File Path | Tree Path |
+      |-----------|-----------|
+      | `src/server/auth/service.ts` | `codebase.my_project.src.server.auth.service` |
+      | `src/config.test.ts` | `codebase.my_project.src.config_test` |
+      | `src/worker-pool.ts` | `codebase.my_project.src.worker_pool` |
+      | `pkg/api/v2/handler.go` | `codebase.my_project.pkg.api.v2.handler` |
+
+      Rules:
+      - Strip the file extension
+      - Replace hyphens with underscores
+      - Replace dots (in filenames like `config.test.ts`) with underscores
+      - All lowercase (already required by ltree)
+      - Prefix with `codebase.<project>.`
+
+      Note: tree paths in pack YAML are relative (no `pack.` prefix), but when using `me_memory_create` directly, use the full path including `codebase.<project>.`.
+
+  - id: "019b0003-0005-7000-8000-000000000005"
+    tree: "lifecycle"
+    meta:
+      type: "skill"
+      topic: "lifecycle-management"
+    content: |
+      # Lifecycle Management — Keeping the Index Current
+
+      After the initial scan, a filesystem watcher keeps memories in sync with code changes. This skill covers the update, create, and delete logic.
+
+      ## On File Change
+
+      When a watched file is modified:
+
+      1. **Fetch existing memories for the file**:
+         ```
+         me_memory_search({meta: {codebase_index: true, file: "<changed_file>"}})
+         ```
+
+      2. **Re-parse the file** with Tree-sitter to get current structural units
+
+      3. **Compute content hashes** for each new unit:
+         ```
+         hash = sha256(filepath + "::" + node_type + "::" + node_name)
+         ```
+
+      4. **Compare existing vs new**:
+
+         | Existing Hash | New Hash | Action |
+         |--------------|----------|--------|
+         | Present | Present, content differs | `me_memory_update({id, content, meta})` |
+         | Present | Present, content same | No-op (skip) |
+         | Absent | Present | `me_memory_create({content, tree, meta})` |
+         | Present | Absent | `me_memory_delete({id})` |
+
+      5. **Batch operations** — collect all creates, updates, and deletes, then execute:
+         ```
+         for each create: me_memory_create({...})
+         for each update: me_memory_update({id: existing.id, content: newContent, meta: newMeta})
+         for each delete: me_memory_delete({id: existing.id})
+         ```
+
+      ## On File Deletion
+
+      1. Search: `me_memory_search({meta: {codebase_index: true, file: "<deleted_file>"}})`
+      2. Delete all matching memories: `me_memory_delete({id})` for each result
+
+      ## On File Rename
+
+      Filesystem watchers report renames as delete + create events:
+      1. Old path's memories are deleted (file deletion handler)
+      2. New path's memories are created (file change handler)
+      3. Content hashes change because the filepath is part of the hash — this is correct behavior since the tree path also changes
+
+      ## Debouncing
+
+      Rapid edits (e.g., saving while typing) should not trigger re-parsing on every keystroke:
+
+      - **2-second debounce window**: wait 2 seconds after the last change event before processing
+      - **Batch all changes in the window**: if 5 files changed in 2 seconds, process all 5 together
+      - **Per-file debounce**: each file gets its own timer so a change to file A doesn't delay processing of file B that changed 1.5 seconds ago
+
+      ## What to Skip
+
+      The watcher should ignore:
+      - Paths matching `.gitignore` patterns
+      - Non-supported extensions (anything not in `.ts`, `.tsx`, `.js`, `.jsx`, `.mjs`, `.py`, `.go`, `.rs`)
+      - Lock files (`bun.lockb`, `package-lock.json`, `yarn.lock`, `go.sum`)
+      - Hidden directories (`.git`, `.next`, `.cache`)
+      - Paths inside `node_modules`, `dist`, `build`, `target`, `__pycache__`
+
+      ## Bulk Operations
+
+      For project-wide operations:
+
+      **Re-index entire project** (discard and rebuild):
+      ```
+      # Delete all indexed memories for this project
+      results = me_memory_search({meta: {codebase_index: true, project: "<name>"}, limit: 1000})
+      for each result: me_memory_delete({id: result.id})
+      # Then run initial scan again
+      ```
+
+      **Delete index for a specific directory**:
+      ```
+      me_memory_search({tree: "codebase.<project>.src.old_module.*", meta: {codebase_index: true}})
+      # Delete all results
+      ```
+
+      ## See Also
+      - Watcher script template — `me_memory_get({id: "019b0003-0006-7000-8000-000000000006"})`
+      - Initial scan — `me_memory_get({id: "019b0003-0002-7000-8000-000000000002"})`
+
+  - id: "019b0003-0006-7000-8000-000000000006"
+    tree: "watcher_template"
+    meta:
+      type: "reference"
+      topic: "watcher-template"
+    content: |
+      # Watcher Script Template — Reference Implementation
+
+      This is a reference implementation for the filesystem watcher that keeps the codebase index current. Adapt it to your project's language, directory structure, and me server configuration.
+
+      ## Architecture
+
+      ```
+      fs.watch(projectDir, {recursive: true})
+        -> filter(supportedExtensions, gitignore)
+        -> debounce(2000ms per file)
+        -> for each changed file:
+            parse(treeSitter, language)
+            extract(structuralUnits)
+            diff(existingMemories, newUnits)
+            batchUpsert(meClient)
+      ```
+
+      ## Dependencies
+
+      ```json
+      {
+        "dependencies": {
+          "tree-sitter": "^0.22.0",
+          "tree-sitter-typescript": "^0.23.0",
+          "tree-sitter-javascript": "^0.23.0",
+          "tree-sitter-python": "^0.23.0",
+          "tree-sitter-go": "^0.23.0",
+          "tree-sitter-rust": "^0.23.0",
+          "ignore": "^7.0.0",
+          "@anthropic-ai/sdk": "latest"
+        }
+      }
+      ```
+
+      Uses:
+      - `fs.watch()` — Bun/Node native filesystem watcher
+      - `tree-sitter` + language grammar packages — AST parsing
+      - `@memoryengine/client` or direct MCP tool calls — memory operations
+      - `ignore` package — `.gitignore` support
+      - `node:crypto` — SHA-256 for content hashing
+
+      ## Script Structure
+
+      ```typescript
+      import { watch } from "fs";
+      import { readFileSync } from "fs";
+      import { createHash } from "crypto";
+      import Parser from "tree-sitter";
+      import TypeScript from "tree-sitter-typescript";
+      import JavaScript from "tree-sitter-javascript";
+      import ignore from "ignore";
+
+      // --- Configuration ---
+      const PROJECT = "my_project";
+      const PROJECT_DIR = process.cwd();
+      const SUPPORTED_EXTENSIONS = new Set([
+        ".ts", ".tsx", ".js", ".jsx", ".mjs", ".py", ".go", ".rs"
+      ]);
+      const DEBOUNCE_MS = 2000;
+
+      // --- Gitignore ---
+      const ig = ignore().add(readFileSync(".gitignore", "utf8"));
+
+      // --- Tree-sitter parsers ---
+      const parsers = new Map();
+      function getParser(ext: string): Parser | null {
+        if (parsers.has(ext)) return parsers.get(ext);
+        const parser = new Parser();
+        const langMap: Record<string, any> = {
+          ".ts": TypeScript.typescript,
+          ".tsx": TypeScript.tsx,
+          ".js": JavaScript,
+          ".jsx": JavaScript,
+          // Add Python, Go, Rust as needed
+        };
+        const lang = langMap[ext];
+        if (!lang) return null;
+        parser.setLanguage(lang);
+        parsers.set(ext, parser);
+        return parser;
+      }
+
+      // --- Content hash ---
+      function contentHash(filepath: string, nodeType: string, nodeName: string): string {
+        const input = `${filepath}::${nodeType}::${nodeName}`;
+        return "sha256:" + createHash("sha256").update(input).digest("hex");
+      }
+
+      // --- Debounce ---
+      const pending = new Map<string, Timer>();
+      function debounced(filepath: string, callback: () => void) {
+        if (pending.has(filepath)) clearTimeout(pending.get(filepath));
+        pending.set(filepath, setTimeout(() => {
+          pending.delete(filepath);
+          callback();
+        }, DEBOUNCE_MS));
+      }
+
+      // --- Watcher ---
+      watch(PROJECT_DIR, { recursive: true }, (event, filename) => {
+        if (!filename) return;
+        const ext = "." + filename.split(".").pop();
+        if (!SUPPORTED_EXTENSIONS.has(ext)) return;
+        if (ig.ignores(filename)) return;
+
+        debounced(filename, async () => {
+          // 1. Parse file
+          // 2. Extract structural units
+          // 3. Fetch existing memories for this file
+          // 4. Diff and apply changes
+          // (See lifecycle management memory for full logic)
+        });
+      });
+      ```
+
+      ## Running the Watcher
+
+      ```bash
+      # As a standalone script
+      bun run watcher.ts
+
+      # Alongside the me server
+      bun src/cli.ts server &
+      bun run watcher.ts
+      ```
+
+      The watcher runs indefinitely. Stop it with Ctrl+C. Consider running it as a background service alongside the me server for always-on indexing.
+
+      ## See Also
+      - Lifecycle management — `me_memory_get({id: "019b0003-0005-7000-8000-000000000005"})`
+      - Structural extraction — `me_memory_get({id: "019b0003-0003-7000-8000-000000000003"})`
+
+  - id: "019b0003-0007-7000-8000-000000000007"
+    tree: "search_patterns"
+    meta:
+      type: "reference"
+      topic: "search-patterns"
+    content: |
+      # Search Patterns — How Agents Use the Codebase Index
+
+      Once the codebase index is populated, agents can find code structure instantly using me's search capabilities. These patterns cover the most common queries.
+
+      ## Find by Name (BM25 Exact Match)
+
+      When you know the function, class, or type name:
+      ```
+      me_memory_search({fulltext: "validateApiKey", meta: {codebase_index: true}})
+      ```
+      BM25 matches the name in the content heading. Adding the `codebase_index` meta filter ensures you only get index entries, not user-authored memories that happen to mention the name.
+
+      ## Find by Concept (Semantic Search)
+
+      When you know what something does but not its name:
+      ```
+      me_memory_search({semantic: "authentication validation", meta: {codebase_index: true}})
+      ```
+      The embedding pipeline captures the meaning of signatures, parameter names, and type information. "authentication validation" will surface functions like `validateApiKey`, `checkAuthToken`, and `verifyCredentials`.
+
+      ## Browse a Module (Tree Hierarchy)
+
+      Explore all symbols in a directory:
+      ```
+      me_memory_search({tree: "codebase.my_project.src.server.auth.*", meta: {codebase_index: true}})
+      ```
+      This returns every indexed symbol under `src/server/auth/`. Use ltree glob patterns:
+      - `*.auth.*` — any file path containing an `auth` segment
+      - `codebase.my_project.src.*{2}` — only two levels deep under `src/`
+
+      ## Filter by Type
+
+      Find all classes, all interfaces, or all exported functions:
+      ```
+      me_memory_search({meta: {codebase_index: true, type: "function", exported: true}})
+      me_memory_search({meta: {codebase_index: true, type: "class"}})
+      me_memory_search({meta: {codebase_index: true, type: "interface"}})
+      me_memory_search({meta: {codebase_index: true, type: "type", project: "my_project"}})
+      ```
+
+      ## Find Symbols in a Specific File
+
+      ```
+      me_memory_search({meta: {codebase_index: true, file: "src/server/auth/service.ts"}})
+      ```
+      Returns every indexed symbol in that file — useful for understanding a file's API surface without reading the entire file.
+
+      ## Hybrid Search (Best of Both)
+
+      Combine keyword precision with semantic breadth:
+      ```
+      me_memory_search({
+        fulltext: "hash password",
+        semantic: "secure credential storage",
+        meta: {codebase_index: true, language: "typescript"}
+      })
+      ```
+      Hybrid search uses Reciprocal Rank Fusion to merge BM25 and vector results. This catches both exact keyword matches and semantically related functions.
+
+      ## Find by Language
+
+      ```
+      me_memory_search({meta: {codebase_index: true, language: "go", type: "function"}})
+      ```
+      Useful in polyglot projects to scope searches to a specific language.
+
+      ## Common Agent Workflows
+
+      **"Where is X defined?"** — BM25 search with the exact name:
+      ```
+      me_memory_search({fulltext: "AuthContext", meta: {codebase_index: true}})
+      ```
+
+      **"What does this module expose?"** — tree browse:
+      ```
+      me_memory_search({tree: "codebase.my_project.src.server.rpc.*", meta: {codebase_index: true, exported: true}})
+      ```
+
+      **"Find functions related to embedding"** — semantic search:
+      ```
+      me_memory_search({semantic: "vector embedding generation", meta: {codebase_index: true, type: "function"}})
+      ```
+
+      **"What types are available?"** — meta filter:
+      ```
+      me_memory_search({meta: {codebase_index: true, type: "type", project: "my_project"}})
+      ```
+
+      ## Performance Notes
+
+      - Meta filters (`codebase_index: true`) use GIN index — fast even with millions of memories
+      - Tree filters use GiST index — efficient hierarchical queries
+      - BM25 and semantic search use their respective indexes
+      - Combining meta filter + search narrows the candidate set before ranking — always include `codebase_index: true`

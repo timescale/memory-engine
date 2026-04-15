@@ -1,0 +1,700 @@
+name: docs_to_pack
+version: "0.1.0"
+description: "Convert project documentation (Markdown, MDX, RST, OpenAPI) into memory packs"
+id-prefix: "019b0004"
+format: 1
+memories:
+  - id: "019b0004-0001-7000-8000-000000000001"
+    tree: "overview"
+    meta:
+      type: "reference"
+      topic: "docs-to-pack-overview"
+    content: |
+      # Docs to Pack — Convert Project Documentation into Memory Packs
+
+      This pack teaches agents how to convert external project documentation into memory engine packs. Instead of building a parser, the agent reads docs directly, makes judgment calls about what's worth keeping, and produces a pack YAML file.
+
+      ## Supported Formats
+
+      | Format | Extensions | Detection |
+      |--------|-----------|-----------|
+      | Markdown | `.md` | Default for most projects |
+      | MDX | `.mdx` | Contains JSX components, `import` statements |
+      | reStructuredText | `.rst` | `conf.py` present, underline-style headings |
+      | OpenAPI | `.json`, `.yaml` | `openapi` or `swagger` key at root |
+
+      ## Prerequisites
+
+      1. **me server running** with embedding daemon active
+      2. **A local docs directory** — either already on disk or cloned:
+         ```bash
+         git clone --depth 1 https://github.com/org/project docs-source
+         ```
+      3. **Pack prefix** claimed in `registry.yaml` before generating IDs
+
+      ## When to Use
+
+      - Importing library documentation (Bun, TypeScript, Python packages) for agent reference
+      - Making framework docs searchable via memory engine
+      - Converting API documentation into structured, searchable memories
+      - Building a knowledge base from project wikis or guides
+
+      ## Choosing a Format-Specific Skill
+
+      1. Check file extensions in the docs directory
+      2. Look for config files: `conf.py` → RST, `docusaurus.config.js` → MDX, `mkdocs.yml` → Markdown
+      3. Check for `openapi` key in JSON/YAML files at the root
+      4. When mixed formats exist, process each format separately using its specific skill
+
+      ## Workflow Summary
+
+      1. Clone or locate the docs directory
+      2. Detect the primary format (see table above)
+      3. Scan for navigation config to understand doc structure
+      4. Apply the format-specific conversion skill:
+         - Markdown/MDX: `me_memory_get({id: "019b0004-0004-7000-8000-000000000004"})`
+         - RST: `me_memory_get({id: "019b0004-0005-7000-8000-000000000005"})`
+         - OpenAPI: `me_memory_get({id: "019b0004-0006-7000-8000-000000000006"})`
+      5. Validate with `me pack validate <file>`
+      6. Import with `me pack import <file>`
+
+      ## See Also
+
+      - Chunking strategy — `me_memory_get({id: "019b0004-0002-7000-8000-000000000002"})`
+      - Tree path and meta conventions — `me_memory_get({id: "019b0004-0003-7000-8000-000000000003"})`
+      - Quality checklist — `me_memory_get({id: "019b0004-0008-7000-8000-000000000008"})`
+      - Import YAML alternative (no pack envelope) — `me_memory_get({id: "019b0004-0007-7000-8000-000000000007"})`
+
+  - id: "019b0004-0002-7000-8000-000000000002"
+    tree: "chunking"
+    meta:
+      type: "reference"
+      topic: "docs-chunking-strategy"
+    content: |
+      # Chunking Strategy — Splitting Documentation into Memories
+
+      Core principle: one memory per independently searchable concept. Each memory should stand alone — a reader shouldn't need to read other memories to understand it.
+
+      ## Heading-Based Splitting
+
+      Split at `## ` (h2) boundaries by default. Each h2 section becomes a candidate memory. The h1 title of the document provides context for the memory's content heading.
+
+      ```
+      # Configuration Guide        ← document title (context)
+      ## Environment Variables      ← memory 1
+      ## CLI Flags                  ← memory 2
+      ## Config File Format         ← memory 3
+      ```
+
+      ## Merge Threshold
+
+      Sections under ~200 tokens (~800 characters) are too small to be useful memories. Merge them with the next section:
+
+      ```
+      ## Installation              ← 50 tokens, merge with next
+      ## Quick Start               ← 150 tokens, merge with previous
+      → Combined: "Installation and Quick Start" (200 tokens)
+      ```
+
+      When merging, combine the headings or use the more descriptive one. Keep the content order intact.
+
+      ## Split Threshold
+
+      Sections over ~4000 tokens (~16000 characters) are too large for effective search. Split further at `### ` (h3) boundaries:
+
+      ```
+      ## API Reference             ← 6000 tokens, too large
+      ### Authentication           ← memory 1 (1500 tokens)
+      ### Endpoints                ← memory 2 (2500 tokens)
+      ### Error Codes              ← memory 3 (2000 tokens)
+      ```
+
+      If no h3 boundaries exist, split at natural paragraph breaks, keeping related content together.
+
+      ## Code Block Handling
+
+      Never split inside a fenced code block. If a code block pushes a section over the split threshold, keep the entire code block with its preceding explanation:
+
+      ```
+      ### Configuration Example
+      Here's a complete config file:       ← keep together
+      ```yaml                              ← keep together
+      server:                              ← keep together
+        port: 8080                         ← keep together
+      ```                                  ← keep together
+      ```
+
+      ## Table Handling
+
+      Keep tables intact with their heading. Tables are indivisible units — splitting mid-table produces unusable content.
+
+      ## Front Matter
+
+      Strip YAML frontmatter (`---` delimited block at file start). Extract useful fields for memory metadata:
+      - `title` → use as memory heading context
+      - `description` → include in content if substantive
+      - `sidebar_label`, `sidebar_position` → use for ordering context only
+      - `tags`, `keywords` → consider for `meta` fields
+
+      ## Token Estimation
+
+      Rough guide: ~4 characters per token. For precise checks, count words and multiply by 1.3.
+
+      | Characters | Approx Tokens | Action |
+      |-----------|--------------|--------|
+      | < 800 | < 200 | Merge with neighbor |
+      | 800–16000 | 200–4000 | Good size, keep as-is |
+      | > 16000 | > 4000 | Split at next heading level |
+
+  - id: "019b0004-0003-7000-8000-000000000003"
+    tree: "conventions"
+    meta:
+      type: "reference"
+      topic: "docs-pack-conventions"
+    content: |
+      # Conventions — Tree Paths, Meta Fields, and Navigation Detection
+
+      Consistent conventions make doc-derived memories searchable, updatable, and well-organized.
+
+      ## Tree Path Derivation
+
+      Convert file paths to ltree paths:
+
+      1. Strip the docs root prefix (e.g., `docs/`, `content/`, `pages/`)
+      2. Strip the file extension (`.md`, `.mdx`, `.rst`)
+      3. Convert hyphens to underscores
+      4. Lowercase everything
+      5. If a file produces multiple memories (multiple h2 sections), append a section slug
+
+      | File Path | Tree Path |
+      |-----------|-----------|
+      | `docs/runtime/bunfig.md` | `runtime.bunfig` |
+      | `docs/runtime/bunfig.md` (section "Env Vars") | `runtime.bunfig.env_vars` |
+      | `docs/getting-started/quick-start.md` | `getting_started.quick_start` |
+      | `api/v2/endpoints.rst` | `api.v2.endpoints` |
+      | `reference/config-file.mdx` | `reference.config_file` |
+
+      Section slugs: lowercase the heading, replace spaces and hyphens with underscores, strip non-alphanumeric characters except underscores.
+
+      ## Navigation Config Detection
+
+      Documentation frameworks use config files to define page ordering and hierarchy. Detect these to understand doc structure:
+
+      | Config File | Framework | What It Provides |
+      |-------------|-----------|-----------------|
+      | `docs.json` or `mint.json` | Mintlify | Navigation groups, page ordering |
+      | `mkdocs.yml` | MkDocs | `nav:` section with page hierarchy |
+      | `docusaurus.config.js` | Docusaurus | Sidebar config (may be in `sidebars.js`) |
+      | `_sidebar.md` | Docsify | Markdown-based sidebar links |
+      | `conf.py` + `index.rst` | Sphinx | `toctree` directives define ordering |
+      | `book.toml` + `SUMMARY.md` | mdBook | Chapter ordering |
+
+      Use nav config for:
+      - Understanding which docs are top-level vs. nested
+      - Identifying the "important" pages (they appear first in navigation)
+      - Grouping related pages that should share a tree prefix
+
+      Nav config does not change the conversion process — it provides context for prioritization when you need to be selective.
+
+      ## Meta Conventions
+
+      Every doc-derived memory should include these meta fields:
+
+      ```yaml
+      meta:
+        type: "reference"                    # always "reference" for doc content
+        source_format: "markdown"            # "markdown", "mdx", "rst", or "openapi"
+        source_file: "runtime/bunfig.md"     # relative path from docs root
+        source_project: "bun"                # project name (ltree-safe)
+      ```
+
+      Optional meta fields:
+      ```yaml
+      meta:
+        source_url: "https://bun.sh/docs/runtime/bunfig"   # if known
+        source_version: "1.2.0"                              # doc version if versioned
+      ```
+
+      ## ID Generation
+
+      1. Claim a prefix from `registry.yaml` (e.g., `019b0004`)
+      2. Number memories sequentially: `019b0004-0001-7000-8000-000000000001`, `019b0004-0002-7000-8000-000000000002`, ...
+      3. The prefix is the pack's unique namespace — all memories in one pack share it
+
+  - id: "019b0004-0004-7000-8000-000000000004"
+    tree: "markdown"
+    meta:
+      type: "skill"
+      topic: "markdown-docs-conversion"
+    content: |
+      # Markdown/MDX Conversion — Convert MD/MDX Docs to a Memory Pack
+
+      You have a directory of Markdown or MDX documentation files and access to memory engine tools. Convert the documentation into a memory pack YAML file.
+
+      ## What to Extract
+
+      Create memories for:
+      - Conceptual documentation (architecture, design decisions, how things work)
+      - API references (functions, methods, classes, configuration options)
+      - Configuration guides (settings, environment variables, file formats)
+      - Code examples with explanations (tutorials with substantive code)
+
+      Skip:
+      - Changelog / release notes — high volume, low search value
+      - Contributing guides — project-specific process, not reference knowledge
+      - License files — legal text, not searchable knowledge
+      - Blog posts — time-sensitive, usually not reference material
+      - Pure navigation pages (index pages with only links)
+      - Auto-generated API docs with no prose (just type signatures)
+
+      ## How to Extract
+
+      1. **Scan the docs directory** for `.md` and `.mdx` files. Check for nav config files (see conventions memory: `me_memory_get({id: "019b0004-0003-7000-8000-000000000003"})`) to understand structure and prioritize important pages.
+
+      2. **For MDX files**, strip JSX before processing:
+         - Remove `import` lines: `import Component from './Component'`
+         - Remove `export` statements: `export const meta = {...}`
+         - Remove self-closing JSX tags: `<Component prop="value" />`
+         - Remove JSX wrapper tags but keep text content between them:
+           ```
+           <Callout type="warning">
+           This is important text.
+           </Callout>
+           ```
+           becomes: `**Warning:** This is important text.`
+         - Common MDX components to handle: `<Tabs>`, `<Tab>`, `<Callout>`, `<Note>`, `<Warning>`, `<CodeBlock>`, `<Steps>`, `<Step>`
+         - Preserve all standard markdown content (headings, lists, code blocks, tables, links)
+
+      3. **For each file**, read the content and:
+         - Strip YAML frontmatter (extract `title` for context)
+         - Split on `## ` (h2) headings
+         - Apply merge/split thresholds (see chunking: `me_memory_get({id: "019b0004-0002-7000-8000-000000000002"})`)
+         - Each resulting chunk becomes one memory
+
+      4. **Derive tree paths** from file paths using the conventions in `me_memory_get({id: "019b0004-0003-7000-8000-000000000003"})`.
+
+      5. **Search before creating** to avoid duplicates if updating an existing pack:
+         ```
+         me_memory_search({meta: {source_project: "<name>", source_file: "<path>"}})
+         ```
+
+      6. **Assemble the pack YAML**:
+         ```yaml
+         name: <project>_docs
+         version: "0.1.0"
+         description: "<Project> documentation"
+         id-prefix: "<claimed-prefix>"
+         format: 1
+         memories:
+           - id: "<prefix>-0001-7000-8000-000000000001"
+             tree: "getting_started"
+             meta:
+               type: "reference"
+               source_format: "markdown"
+               source_file: "getting-started.md"
+               source_project: "<project>"
+             content: |
+               # Getting Started — <Project>
+
+               Content here...
+         ```
+
+      ## Example Output
+
+      Converting a Bun docs section at `docs/runtime/bunfig.md` with two h2 sections:
+
+      ```yaml
+      memories:
+        - id: "019bXX00-0001-7000-8000-000000000001"
+          tree: "runtime.bunfig.overview"
+          meta:
+            type: "reference"
+            source_format: "markdown"
+            source_file: "runtime/bunfig.md"
+            source_project: "bun"
+          content: |
+            # Bunfig — Bun's Configuration File
+
+            Bun reads `bunfig.toml` at startup for project-level
+            configuration. It controls runtime, test runner, package
+            manager, and bundler settings.
+
+            ## File Location
+            ...
+
+        - id: "019bXX00-0002-7000-8000-000000000002"
+          tree: "runtime.bunfig.settings"
+          meta:
+            type: "reference"
+            source_format: "markdown"
+            source_file: "runtime/bunfig.md"
+            source_project: "bun"
+          content: |
+            # Bunfig Settings Reference
+
+            ## Runtime Settings
+
+            | Key | Type | Default | Description |
+            |-----|------|---------|-------------|
+            | `smol` | boolean | false | Reduce memory usage... |
+            ...
+      ```
+
+      ## Scope Control
+
+      - Maximum 100 memories per conversion. If docs would produce more, be selective:
+        1. Prioritize API reference and core concepts
+        2. Include configuration and setup guides
+        3. Skip tutorials that duplicate conceptual docs
+        4. Skip FAQ pages (content is usually covered elsewhere)
+      - If you must exceed 100, split into multiple packs by doc section (e.g., `bun_runtime_docs`, `bun_api_docs`)
+
+  - id: "019b0004-0005-7000-8000-000000000005"
+    tree: "rst"
+    meta:
+      type: "skill"
+      topic: "rst-docs-conversion"
+    content: |
+      # RST Conversion — Convert reStructuredText Docs to a Memory Pack
+
+      You have a directory of reStructuredText (`.rst`) documentation files, typically from a Sphinx project, and access to memory engine tools. Convert the documentation into a memory pack YAML file.
+
+      ## What to Extract
+
+      Create memories for:
+      - Same content types as Markdown (concepts, API refs, config guides, examples)
+      - Autodoc-generated API content (`.. automodule::`, `.. autoclass::`) — summarize the documented interfaces
+
+      Skip:
+      - Same exclusions as Markdown (changelog, contributing, license, blog)
+      - `genindex.rst`, `search.rst` — Sphinx auto-generated pages
+      - Files that are purely `.. toctree::` directives with no prose
+
+      ## How to Extract
+
+      1. **Scan for `.rst` files.** Check for `conf.py` and `index.rst`:
+         - `conf.py` confirms this is a Sphinx project — note the `project` name and `version`
+         - `index.rst` contains `.. toctree::` directives that define page ordering and hierarchy
+
+      2. **Detect headings.** RST headings use underline characters. The specific character isn't standardized — detect by order of first appearance:
+         ```rst
+         Document Title        ← h1 (first underline style seen)
+         ==============
+
+         Major Section         ← h2 (second underline style seen)
+         -------------
+
+         Subsection            ← h3 (third underline style seen)
+         ~~~~~~~~~~~~~
+         ```
+         Common underline characters: `= - ~ ^ " * + #`. Some projects also use overline+underline for h1. Track which character maps to which level per-file.
+
+      3. **Handle directives** — convert to Markdown equivalents:
+
+         | RST Directive | Conversion |
+         |--------------|------------|
+         | `.. code-block:: python` | ` ```python ` fenced block |
+         | `.. code-block:: <lang>` | ` ```<lang> ` fenced block |
+         | `.. note::` | `**Note:** ` prefix on indented content |
+         | `.. warning::` | `**Warning:** ` prefix |
+         | `.. tip::` | `**Tip:** ` prefix |
+         | `.. important::` | `**Important:** ` prefix |
+         | `.. deprecated:: 1.5` | `**Deprecated since 1.5:** ` |
+         | `.. versionadded:: 2.0` | `**New in 2.0:** ` |
+         | `.. versionchanged:: 2.1` | `**Changed in 2.1:** ` |
+         | `.. toctree::` | Use for nav ordering, strip from content |
+         | `.. include:: path` | Note the reference, don't follow |
+         | `.. automodule:: mod` | Note as "API generated from source" |
+         | `.. autoclass:: Cls` | Note as "API generated from source" |
+         | `.. literalinclude::` | Note the file reference |
+
+      4. **Handle roles** — strip role syntax, keep display text:
+
+         | RST Role | Conversion |
+         |----------|------------|
+         | `:ref:\`some label\`` | `some label` |
+         | `:doc:\`path/to/doc\`` | `path/to/doc` |
+         | `:class:\`MyClass\`` | `MyClass` |
+         | `:func:\`my_func\`` | `my_func()` |
+         | `:meth:\`Cls.method\`` | `Cls.method()` |
+         | `:mod:\`module\`` | `module` |
+         | `:attr:\`obj.attr\`` | `obj.attr` |
+         | `:data:\`CONSTANT\`` | `CONSTANT` |
+         | `:exc:\`ValueError\`` | `ValueError` |
+         | `\`\`inline code\`\`` | `` `inline code` `` |
+
+      5. **Apply the same chunking** as Markdown — split at h2 boundaries, merge small sections, split large ones at h3. See `me_memory_get({id: "019b0004-0002-7000-8000-000000000002"})`.
+
+      6. **Assemble pack YAML** with the same structure as Markdown conversion. Set `source_format: "rst"` in meta.
+
+      ## Scope Control
+
+      Same as Markdown — maximum 100 memories. Sphinx projects can be very large. Prioritize:
+      1. Core API documentation
+      2. Configuration and setup guides
+      3. Architecture and design docs
+      4. Skip auto-generated index pages and search pages
+
+  - id: "019b0004-0006-7000-8000-000000000006"
+    tree: "openapi"
+    meta:
+      type: "skill"
+      topic: "openapi-docs-conversion"
+    content: |
+      # OpenAPI Conversion — Convert OpenAPI Specs to a Memory Pack
+
+      You have an OpenAPI specification file (JSON or YAML, version 2.0/Swagger or 3.x) and access to memory engine tools. Convert the API documentation into a memory pack YAML file.
+
+      ## What to Extract
+
+      Create memories for:
+      - API overview (title, version, base URL, authentication)
+      - Endpoint groups (by tag or path prefix)
+      - Shared schemas/components referenced by multiple endpoints
+      - Authentication and authorization details
+
+      Skip:
+      - Vendor extensions (`x-*` fields) unless they contain documentation
+      - Internal/deprecated endpoints (unless specifically requested)
+      - Empty or placeholder descriptions
+
+      ## How to Extract
+
+      1. **Parse the spec.** Read the file (JSON or YAML). Identify the version:
+         - OpenAPI 3.x: has `openapi: "3.x.x"` at root
+         - Swagger 2.0: has `swagger: "2.0"` at root
+
+      2. **Create an overview memory** from the root `info` object:
+         ```markdown
+         # <API Title> — API Overview
+
+         **Version:** <version>
+         **Base URL:** <server url or basePath>
+
+         <info.description content>
+
+         ## Authentication
+
+         <security schemes summary>
+
+         ## Global Parameters
+
+         <any parameters that apply to all endpoints>
+         ```
+
+      3. **Group endpoints by tag** (or by first path segment if untagged):
+         ```
+         /users/*     → tag "Users" or group "users"
+         /orders/*    → tag "Orders" or group "orders"
+         /auth/*      → tag "Authentication" or group "auth"
+         ```
+
+      4. **For each endpoint group**, create one memory covering all endpoints in that group:
+         ```markdown
+         # Users API Endpoints
+
+         ## GET /users
+         List all users.
+
+         **Parameters:**
+         | Name | In | Type | Required | Description |
+         |------|-----|------|----------|-------------|
+         | limit | query | integer | No | Max results |
+
+         **Response 200:**
+         Array of User objects (see schemas).
+
+         ## POST /users
+         Create a new user.
+
+         **Request Body:** (application/json)
+         | Field | Type | Required | Description |
+         |-------|------|----------|-------------|
+         | name | string | Yes | User's name |
+         | email | string | Yes | Email address |
+
+         **Response 201:** User object
+         **Response 400:** Validation error
+         ```
+
+      5. **Create a schemas memory** for shared components:
+         ```markdown
+         # API Schemas
+
+         ## User
+         | Field | Type | Description |
+         |-------|------|-------------|
+         | id | string (uuid) | Unique identifier |
+         | name | string | User's full name |
+         | email | string | Email address |
+         | created_at | string (date-time) | Creation timestamp |
+
+         ## Error
+         | Field | Type | Description |
+         |-------|------|-------------|
+         | code | integer | HTTP status code |
+         | message | string | Error description |
+         ```
+
+      6. **Tree paths:**
+
+         | Content | Tree Path |
+         |---------|-----------|
+         | API overview | `overview` |
+         | Authentication details | `auth` |
+         | Users endpoints | `endpoints.users` |
+         | Orders endpoints | `endpoints.orders` |
+         | Shared schemas | `schemas` |
+
+      7. **Assemble pack YAML.** Set `source_format: "openapi"` in meta. Include `source_file` pointing to the spec file.
+
+      ## Scope Control
+
+      Maximum 50 memories for an OpenAPI spec. Large APIs may have hundreds of endpoints. Strategies:
+      - Group small endpoint clusters together rather than one memory per endpoint
+      - Combine related schemas into a single memory
+      - For very large APIs (>50 endpoint groups), focus on the most-used tags and create a summary memory for the rest
+      - Inline simple schemas (2-3 fields) into endpoint descriptions instead of separate schema memories
+
+  - id: "019b0004-0007-7000-8000-000000000007"
+    tree: "import_yaml"
+    meta:
+      type: "reference"
+      topic: "docs-import-yaml-alternative"
+    content: |
+      # Import YAML Alternative — Quick Import Without Pack Envelope
+
+      When you need a one-off import without pack versioning, you can produce a simpler YAML format for `me memory import` instead of a full pack.
+
+      ## When to Use
+
+      - One-off imports where you won't need version-tracked updates
+      - Quick prototyping before committing to a pack structure
+      - Importing a small set of docs (under 10 memories) where pack overhead isn't justified
+
+      ## When NOT to Use
+
+      - You plan to update or re-import the docs later (packs provide idempotent IDs and version-aware cleanup)
+      - You want to share the import with others (packs are distributable)
+      - You need `me pack validate` for quality checks
+
+      ## Format
+
+      A YAML array of memory objects — no envelope:
+
+      ```yaml
+      - content: |
+          # Getting Started with Bun
+
+          Bun is a fast all-in-one JavaScript runtime...
+        tree: "bun_docs.getting_started"
+        meta:
+          type: "reference"
+          source_format: "markdown"
+          source_file: "getting-started.md"
+          source_project: "bun"
+
+      - content: |
+          # Bun Configuration — bunfig.toml
+
+          Configure Bun with a `bunfig.toml` file...
+        tree: "bun_docs.configuration"
+        meta:
+          type: "reference"
+          source_format: "markdown"
+          source_file: "runtime/bunfig.md"
+          source_project: "bun"
+      ```
+
+      ## How to Produce
+
+      Follow the same chunking and conventions as pack conversion:
+      - Same heading-based splitting rules
+      - Same tree path derivation
+      - Same meta conventions (`source_format`, `source_file`, `source_project`)
+
+      But output as a flat YAML array instead of a pack envelope. No `id`, `version`, `id-prefix`, or `format` fields needed.
+
+      ## Import Command
+
+      ```bash
+      me memory import docs.yaml
+      ```
+
+      The server assigns UUIDs automatically. Tree paths and meta are preserved as written.
+
+      ## Tradeoffs
+
+      | Feature | Pack | Import YAML |
+      |---------|------|-------------|
+      | Idempotent IDs | Yes — deterministic, re-importable | No — new IDs each time |
+      | Version tracking | Yes — `version` in envelope | No |
+      | Validation | `me pack validate` | Manual review only |
+      | Cleanup on re-import | Yes — old version replaced | No — duplicates accumulate |
+      | Distribution | Share the YAML file | Share the YAML file |
+      | Overhead | Pack envelope + ID generation | Minimal |
+
+  - id: "019b0004-0008-7000-8000-000000000008"
+    tree: "quality"
+    meta:
+      type: "reference"
+      topic: "docs-pack-quality"
+    content: |
+      # Quality Checklist — Validating Doc-Derived Memory Packs
+
+      Use this checklist before and after importing a documentation pack to catch common issues.
+
+      ## Pre-Import Checklist
+
+      1. **Validation passes**: `me pack validate <file>` reports no errors
+      2. **Memory size**: each memory under ~4000 tokens (~16000 characters). Check the largest ones.
+      3. **No empty content**: every memory has substantive content (not just a heading)
+      4. **Valid tree paths**: lowercase, underscores only, no hyphens. Test: `echo '<path>' | grep -qP '^[a-z0-9_]+(\.[a-z0-9_]+)*$'`
+      5. **Code blocks intact**: fenced code blocks open and close properly, no split mid-block
+      6. **No format artifacts**:
+         - No MDX `import` statements remaining
+         - No JSX tags (`<Component>`) in content
+         - No RST directive syntax (`.. note::`) unconverted
+         - No RST role syntax (`:ref:`, `:class:`) unconverted
+      7. **Meta fields present**: every memory has `type`, `source_format`, `source_file`, `source_project`
+      8. **IDs sequential**: IDs use the claimed prefix and are numbered sequentially
+
+      ## Post-Import Verification
+
+      Run these searches to verify the pack imported correctly and is searchable:
+
+      1. **Semantic search for a key concept**:
+         ```bash
+         me memory search --semantic "<key concept from the docs>"
+         ```
+         The relevant memory should appear in the top 3 results.
+
+      2. **Tree structure check**:
+         ```bash
+         me memory tree --tree "pack.<pack_name>"
+         ```
+         The hierarchy should mirror the doc structure. Look for:
+         - Reasonable depth (2-4 levels typical)
+         - No orphaned single-child branches
+         - Logical groupings
+
+      3. **Spot-check content** — read 3-5 memories and verify:
+         - Content is readable and self-contained
+         - Code examples are complete and properly formatted
+         - No truncated sections or dangling references
+         - Headings accurately describe the content
+
+      ## Common Mistakes
+
+      | Mistake | Symptom | Fix |
+      |---------|---------|-----|
+      | MDX imports left in content | `import Tabs from '@theme/Tabs'` in memory | Strip all `import` lines before chunking |
+      | Split inside code block | Memory starts/ends mid-code-fence | Track fence open/close state during splitting |
+      | Hyphens in tree paths | `me pack validate` error | Replace hyphens with underscores |
+      | Too many tiny memories | Dozens of <100 token memories | Raise merge threshold, combine related sections |
+      | Missing `source_file` meta | Can't trace memory back to source | Always include relative path from docs root |
+      | Duplicate content | Same concept in multiple memories | Deduplicate during chunking — check for repeated sections |
+      | Unconverted RST roles | `:func:\`name\`` in content | Apply role stripping (see RST skill) |
+      | Front matter in content | YAML block at start of memory | Strip frontmatter before chunking |
+      | Broken internal links | `[link](../other-page.md)` pointing nowhere | Convert to memory references or strip |
+      | Over-nesting tree paths | `api.v2.endpoints.users.list.get` | Keep paths 2-3 levels deep, flatten where possible |
