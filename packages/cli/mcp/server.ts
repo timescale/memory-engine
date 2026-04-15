@@ -12,16 +12,25 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { stringify as yamlStringify } from "yaml";
 import { z } from "zod";
 import { APP_VERSION } from "../../../version";
-import { type ImportFormat, parseContent } from "../parsers/index.ts";
+import {
+  detectFormatFromExtension,
+  type ImportFormat,
+  parseContent,
+} from "../parsers/index.ts";
+
+const DOCS_BASE = `https://raw.githubusercontent.com/timescale/memory-engine/v${APP_VERSION}/docs/mcp`;
+
+/** URL to a tool's documentation on GitHub. */
+function docUrl(tool: string): string {
+  return `${DOCS_BASE}/${tool}.md`;
+}
 
 /**
  * MCP instructions — sent to the client during initialization.
- * Points agents to the overview memory for full guidance.
  */
 const MCP_INSTRUCTIONS = `memory engine — permanent memory for AI agents. Store, search, and organize knowledge across conversations.
 
-For data model, usage guidance, tool reference, and topic deep dives:
-me_memory_get({id: "0194a000-0000-7000-8000-000000000000"})`;
+Tool docs: ${DOCS_BASE}`;
 
 // =============================================================================
 // Tool Registration
@@ -35,7 +44,7 @@ function registerTools(server: McpServer, client: EngineClient): void {
       title: "Create Memory",
       description: `Store a new memory.
 
-For detailed usage, gotchas, and examples: me_memory_get({id: "0194a000-0007-7000-8000-000000000007"})`,
+Docs: ${docUrl("me_memory_create")}`,
       inputSchema: {
         id: z
           .string()
@@ -95,7 +104,7 @@ For detailed usage, gotchas, and examples: me_memory_get({id: "0194a000-0007-700
 
 Search modes: semantic (meaning), fulltext (keywords), or both (hybrid). Combine with tree, meta, and temporal filters. Results scored 0-1.
 
-For search modes, tree syntax, and tips: me_memory_get({id: "0194a000-0008-7000-8000-000000000008"})`,
+Docs: ${docUrl("me_memory_search")}`,
       inputSchema: {
         semantic: z
           .string()
@@ -223,7 +232,7 @@ For search modes, tree syntax, and tips: me_memory_get({id: "0194a000-0008-7000-
 
 Returns full memory including content, tree, meta, temporal, and embedding status. Use after search to get full details, or before update to see current state.
 
-For workflow patterns: me_memory_get({id: "0194a000-0009-7000-8000-000000000009"})`,
+Docs: ${docUrl("me_memory_get")}`,
       inputSchema: {
         id: z.string().describe("The UUID of the memory"),
       },
@@ -253,7 +262,7 @@ For workflow patterns: me_memory_get({id: "0194a000-0009-7000-8000-000000000009"
 
 Provide the ID and any fields to change (content, tree, meta, temporal). Null fields remain unchanged. Caution: meta is fully replaced, not merged.
 
-For update-vs-create guidance and gotchas: me_memory_get({id: "0194a000-000a-7000-8000-00000000000a"})`,
+Docs: ${docUrl("me_memory_update")}`,
       inputSchema: {
         id: z.string().describe("The UUID of the memory to update"),
         content: z
@@ -311,7 +320,7 @@ For update-vs-create guidance and gotchas: me_memory_get({id: "0194a000-000a-700
 
 This is irreversible. Consider archiving (meta update) or moving (me_memory_mv) instead.
 
-For when to delete vs alternatives: me_memory_get({id: "0194a000-000b-7000-8000-00000000000b"})`,
+Docs: ${docUrl("me_memory_delete")}`,
       inputSchema: {
         id: z.string().describe("The UUID of the memory to delete"),
       },
@@ -341,7 +350,7 @@ For when to delete vs alternatives: me_memory_get({id: "0194a000-000b-7000-8000-
 
 Returns count of deleted memories. Use dry_run: true to preview without deleting.
 
-Example: me_memory_delete_tree({tree: "pack.datasync"}) removes all memories under pack.datasync.`,
+Docs: ${docUrl("me_memory_delete_tree")}`,
       inputSchema: {
         tree: z
           .string()
@@ -380,9 +389,9 @@ Example: me_memory_delete_tree({tree: "pack.datasync"}) removes all memories und
       title: "Move Memories",
       description: `Move memories from one tree prefix to another, preserving subtree structure.
 
-Like "mv" in a filesystem \u2014 all memories under the source prefix get their prefix replaced. Use dry_run to preview.
+Like "mv" in a filesystem — all memories under the source prefix get their prefix replaced. Use dry_run to preview.
 
-For examples, use cases, and gotchas: me_memory_get({id: "0194a000-000c-7000-8000-00000000000c"})`,
+Docs: ${docUrl("me_memory_mv")}`,
       inputSchema: {
         source: z.string().min(1).describe("Source tree prefix to move from"),
         destination: z.string().describe("Destination tree prefix to move to"),
@@ -417,7 +426,9 @@ For examples, use cases, and gotchas: me_memory_get({id: "0194a000-000c-7000-800
       title: "Memory Tree",
       description: `View the hierarchical tree structure of memories with counts at each node.
 
-Shows how memories are organized and how many exist at each level. Use to understand the overall shape of stored knowledge before searching.`,
+Shows how memories are organized and how many exist at each level. Use to understand the overall shape of stored knowledge before searching.
+
+Docs: ${docUrl("me_memory_tree")}`,
       inputSchema: {
         tree: z
           .string()
@@ -455,17 +466,30 @@ Shows how memories are organized and how many exist at each level. Use to unders
     "me_memory_import",
     {
       title: "Import Memories",
-      description: `Bulk import memories from a content string. Parses the content according to the specified format and creates all memories in one batch.
+      description: `Bulk import memories from a file or content string. Parses the content according to the specified format and creates all memories in one batch.
 
-Token-efficient: pass raw file content directly without iterating through individual memories.`,
+Token-efficient: prefer \`path\` over \`content\` to avoid passing large payloads through the conversation.
+
+Docs: ${docUrl("me_memory_import")}`,
       inputSchema: {
+        path: z
+          .string()
+          .nullable()
+          .describe(
+            "Absolute file path to import from. Format is inferred from extension (.json, .yaml, .yml, .md). Mutually exclusive with content.",
+          ),
         content: z
           .string()
-          .min(1)
+          .nullable()
           .describe(
-            "Raw content to import (JSON array, YAML array, or Markdown with frontmatter)",
+            "Raw content to import (JSON array, YAML array, or Markdown with frontmatter). Mutually exclusive with path.",
           ),
-        format: z.string().describe("Content format: json, yaml, or md"),
+        format: z
+          .string()
+          .nullable()
+          .describe(
+            "Content format: json, yaml, or md. Required when using content, optional when using path (inferred from extension).",
+          ),
       },
       annotations: {
         title: "Import Memories",
@@ -475,8 +499,28 @@ Token-efficient: pass raw file content directly without iterating through indivi
       },
     },
     async (args) => {
-      const format = args.format as ImportFormat;
-      const memories = parseContent(args.content, { format });
+      let rawContent: string;
+      let format: ImportFormat | undefined;
+
+      if (args.path) {
+        const file = Bun.file(args.path);
+        if (!(await file.exists())) {
+          throw new Error(`File not found: ${args.path}`);
+        }
+        rawContent = await file.text();
+        const detected = detectFormatFromExtension(args.path);
+        format = (args.format as ImportFormat) ?? detected ?? undefined;
+      } else if (args.content) {
+        rawContent = args.content;
+        format = (args.format as ImportFormat) ?? undefined;
+      } else {
+        throw new Error("Either path or content is required.");
+      }
+
+      const memories = parseContent(rawContent, {
+        format,
+        filename: args.path ?? undefined,
+      });
 
       const createParams = memories.map((mem) => ({
         content: mem.content,
@@ -510,9 +554,11 @@ Token-efficient: pass raw file content directly without iterating through indivi
     "me_memory_export",
     {
       title: "Export Memories",
-      description: `Bulk export memories with filters. Returns formatted content as a string.
+      description: `Bulk export memories with filters. Returns formatted content as a string, or writes to a file.
 
-Token-efficient: retrieves and formats all matching memories in one call. Use for backups, migration, or sharing.`,
+Token-efficient: use \`path\` to write directly to a file instead of returning content through the conversation.
+
+Docs: ${docUrl("me_memory_export")}`,
       inputSchema: {
         tree: z.string().nullable().describe("Tree path filter (null for all)"),
         meta: z
@@ -547,10 +593,16 @@ Token-efficient: retrieves and formats all matching memories in one call. Use fo
           .number()
           .int()
           .describe("Maximum memories to export (0 = default 1000)"),
+        path: z
+          .string()
+          .nullable()
+          .describe(
+            "Absolute file path to write to. If provided, content is written to the file and not returned inline. Null to return content inline.",
+          ),
       },
       annotations: {
         title: "Export Memories",
-        readOnlyHint: true,
+        readOnlyHint: false,
         destructiveHint: false,
         idempotentHint: true,
       },
@@ -604,6 +656,22 @@ Token-efficient: retrieves and formats all matching memories in one call. Use fo
           .join("\n");
       } else {
         content = JSON.stringify(memories, null, 2);
+      }
+
+      if (args.path) {
+        await Bun.write(args.path, content);
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: JSON.stringify(
+                { count: memories.length, path: args.path },
+                null,
+                2,
+              ),
+            },
+          ],
+        };
       }
 
       return {
