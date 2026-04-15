@@ -1,0 +1,148 @@
+# Core Concepts
+
+## Memories
+
+A memory is a single piece of knowledge. Every memory has:
+
+- **content** (required) -- the text of the memory. Be specific and self-contained.
+- **tree** -- a hierarchical dot-path for organizing and browsing (e.g., `work.projects.api`).
+- **meta** -- key-value metadata for filtering (e.g., `{"type": "decision", "confidence": "high"}`).
+- **temporal** -- a time association, either a point-in-time or a date range.
+
+Memories are stored in a single PostgreSQL table. There are no separate tables for different "types" of memory -- the type is a convention in `meta`, not a schema distinction. This keeps queries simple and the data model flexible.
+
+### Best practices
+
+- **One idea per memory.** Three decisions = three memories.
+- **Be specific.** "Auth uses bcrypt with cost 12" not "we use bcrypt."
+- **Search before creating** to avoid duplicates.
+- **Use all dimensions.** Tree for hierarchy, meta for attributes, temporal for time.
+
+## Tree Paths
+
+Tree paths organize memories into a browsable hierarchy using dot-separated labels:
+
+```
+work
+work.projects
+work.projects.api
+work.projects.api.auth
+personal.reading
+personal.reading.books
+```
+
+Tree paths use PostgreSQL's `ltree` extension. They support:
+
+- **Exact match** -- `work.projects` matches only that node.
+- **Wildcard descendants** -- `work.projects.*` matches all descendants.
+- **Pattern matching** -- `*.api.*` matches any path containing `api`.
+- **Label search** -- `api & auth` finds paths with both labels.
+
+### Conventions
+
+Tree paths are user-defined. There is no mandated hierarchy. Common patterns:
+
+```
+work.projects.<name>        # per-project knowledge
+me.design.<subsystem>       # design decisions
+pack.<pack-name>            # installed memory packs
+notes.<topic>               # general notes
+```
+
+## Metadata
+
+Metadata is a JSON object attached to each memory. Use it for structured attributes that you want to filter on:
+
+```json
+{
+  "type": "decision",
+  "source": "slack",
+  "confidence": "high",
+  "reviewed": true
+}
+```
+
+Metadata is indexed with a GIN index, making attribute-based filtering fast. You can filter by any key-value pair in search queries.
+
+**Important:** metadata is fully replaced on update, not merged. If you want to add a key, fetch the current metadata first, merge locally, then send the full object.
+
+## Temporal Ranges
+
+Memories can have an associated time range:
+
+- **Point-in-time** -- a single timestamp (e.g., "this decision was made on 2025-04-15").
+- **Date range** -- a start and end (e.g., "this was true from January to March 2025").
+
+Temporal ranges use PostgreSQL's `tstzrange` type and support three query modes:
+
+- **contains** -- find memories whose range contains a specific point in time.
+- **overlaps** -- find memories whose range overlaps a given range.
+- **within** -- find memories whose range falls entirely within a given range.
+
+Temporal is optional. Not all memories need a time association.
+
+## Embeddings
+
+When a memory is created or updated, a vector embedding is computed asynchronously in the background. Embeddings enable semantic search -- finding memories by meaning rather than exact keywords.
+
+The `hasEmbedding` field on a memory indicates whether the embedding has been computed yet. New memories will briefly have `hasEmbedding: false` until the background worker processes them.
+
+## Search
+
+Memory Engine supports three search modes:
+
+### Semantic search
+
+Find memories by meaning. Uses vector embeddings and cosine similarity.
+
+```bash
+me memory search "how does authentication work"
+```
+
+Good for finding conceptually related content even when the exact words differ.
+
+### Fulltext search
+
+Find memories by keywords. Uses PostgreSQL BM25 ranking.
+
+```bash
+me memory search --fulltext "pgvector ltree BM25"
+```
+
+Good for finding memories with specific terms, names, or identifiers.
+
+### Hybrid search
+
+Combine both modes. Results are ranked using Reciprocal Rank Fusion (RRF), which merges the two ranked lists into a single result set.
+
+```bash
+me memory search --semantic "embedding performance" --fulltext "nomic ollama"
+```
+
+Good when you want both meaning-based and keyword-based relevance.
+
+### Filters
+
+All search modes can be combined with filters:
+
+- **tree** -- restrict to a branch of the tree hierarchy.
+- **meta** -- filter by metadata attributes.
+- **temporal** -- filter by time range.
+- **grep** -- regex pattern filter on content.
+
+Filters can also be used alone (without semantic or fulltext) to browse memories.
+
+### Scoring
+
+Search results include a `score` between 0 and 1, where 1 is the best match. For hybrid search, scores are computed via RRF fusion. For filter-only queries, results are sorted by creation time (configurable with `order_by`).
+
+## Engines
+
+An engine is an isolated memory database. Each engine has its own:
+
+- Memories
+- Users, roles, and grants
+- API keys
+- Tree hierarchy
+
+Engines belong to organizations. A user can have access to multiple engines across multiple organizations, but each memory lives in exactly one engine.
