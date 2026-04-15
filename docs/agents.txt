@@ -1,0 +1,41 @@
+# memory engine — agents.txt
+# https://docs.memory.build/agents.txt
+#
+# This file describes how AI agents should interact with memory engine.
+
+name: memory engine
+description: Permanent memory for AI agents. Store, search, and organize knowledge across conversations.
+url: https://memory.build
+docs: https://docs.memory.build
+
+# MCP server
+mcp:
+  install: me mcp install
+  description: Memory engine ships as an MCP server. Install it and your AI tools get memory without any integration work.
+  compatible_clients:
+    - Claude Code
+    - Codex CLI
+    - Gemini CLI
+    - OpenCode
+    - Any MCP-compatible client
+
+# CLI
+cli:
+  install: see https://docs.memory.build/getting-started/
+  binary: me
+  description: Full-featured command line interface. Store, search, and manage context from your terminal.
+
+# TypeScript client
+sdk:
+  install: npm i @memory-engine/client
+  description: Programmatic access for agents and applications.
+
+# Search capabilities
+search:
+  - keyword: BM25 via pg_textsearch
+  - semantic: HNSW via pgvector
+  - hybrid: RRF (Reciprocal Rank Fusion)
+  - faceted: jsonb + GIN index
+  - temporal: tstzrange + GiST index
+  - hierarchical: ltree + GiST index
+  - grep: POSIX regex filter on content
