@@ -13,6 +13,7 @@ nav:
   - Access Control: access-control.md
   - Memory Packs: memory-packs.md
   - MCP Integration: mcp-integration.md
+  - TypeScript Client: typescript-client.md
   - CLI Reference:
       - me login: cli/me-login.md
       - me logout: cli/me-logout.md
