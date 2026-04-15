@@ -1,0 +1,49 @@
+name: docs
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - docs/**
+      - mkdocs.yml
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - run: pip install mkdocs-material
+
+      - run: mkdocs build --strict
+
+      # Copy raw Markdown source into the build output so both HTML and .md
+      # are served. HTML lives at /getting-started/ while the raw Markdown
+      # is available at /getting-started.md.
+      - name: Copy raw Markdown source
+        run: |
+          find docs -name '*.md' | while read src; do
+            dest="site/${src#docs/}"
+            mkdir -p "$(dirname "$dest")"
+            cp "$src" "$dest"
+          done
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+      - id: deploy
+        uses: actions/deploy-pages@v4

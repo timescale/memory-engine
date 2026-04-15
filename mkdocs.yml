@@ -1,0 +1,42 @@
+site_name: Memory Engine
+site_url: https://docs.memory.build
+site_description: Permanent memory for AI agents
+repo_url: https://github.com/timescale/memory-engine
+
+theme:
+  name: material
+
+nav:
+  - Home: index.md
+  - Getting Started: getting-started.md
+  - Core Concepts: concepts.md
+  - Access Control: access-control.md
+  - Memory Packs: memory-packs.md
+  - MCP Integration: mcp-integration.md
+  - CLI Reference:
+      - me login: cli/me-login.md
+      - me logout: cli/me-logout.md
+      - me whoami: cli/me-whoami.md
+      - me engine: cli/me-engine.md
+      - me memory: cli/me-memory.md
+      - me mcp: cli/me-mcp.md
+      - me user: cli/me-user.md
+      - me role: cli/me-role.md
+      - me grant: cli/me-grant.md
+      - me owner: cli/me-owner.md
+      - me org: cli/me-org.md
+      - me invitation: cli/me-invitation.md
+      - me apikey: cli/me-apikey.md
+      - me pack: cli/me-pack.md
+      - me completions: cli/me-completions.md
+  - MCP Tools:
+      - me_memory_create: mcp/me_memory_create.md
+      - me_memory_get: mcp/me_memory_get.md
+      - me_memory_search: mcp/me_memory_search.md
+      - me_memory_update: mcp/me_memory_update.md
+      - me_memory_delete: mcp/me_memory_delete.md
+      - me_memory_delete_tree: mcp/me_memory_delete_tree.md
+      - me_memory_tree: mcp/me_memory_tree.md
+      - me_memory_mv: mcp/me_memory_mv.md
+      - me_memory_import: mcp/me_memory_import.md
+      - me_memory_export: mcp/me_memory_export.md
