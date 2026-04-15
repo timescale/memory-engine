@@ -53,7 +53,7 @@ Once connected, the agent has access to:
 | `me_memory_import` | Bulk import from file or content |
 | `me_memory_export` | Bulk export with filters |
 
-See [MCP Tool Reference](mcp/) for detailed documentation on each tool.
+See [MCP Tool Reference](mcp/me_memory_search.md) for detailed documentation on each tool.
 
 ## The AGENTS.md pattern
 

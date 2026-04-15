@@ -23,7 +23,9 @@
     "server": "./bun run packages/server/index.ts",
     "build:all": "./bun scripts/build-all.ts",
     "clean": "rm -rf packages/cli/dist dist",
-    "release": "./bun scripts/release.ts"
+    "release": "./bun scripts/release.ts",
+    "docs": "uvx --with mkdocs-material --with 'mkdocs<2' mkdocs serve",
+    "docs:build": "uvx --with mkdocs-material --with 'mkdocs<2' mkdocs build --strict"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.11",

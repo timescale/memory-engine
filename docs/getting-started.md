@@ -64,5 +64,5 @@ See [MCP Integration](mcp-integration.md) for details.
 - [Access Control](access-control.md) -- users, roles, grants, and ownership
 - [Memory Packs](memory-packs.md) -- install pre-built knowledge collections
 - [MCP Integration](mcp-integration.md) -- how AI agents use Memory Engine
-- [CLI Reference](cli/) -- full command reference
-- [MCP Tool Reference](mcp/) -- full MCP tool reference
+- [CLI Reference](cli/me-memory.md) -- full command reference
+- [MCP Tool Reference](mcp/me_memory_search.md) -- full MCP tool reference

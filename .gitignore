@@ -45,5 +45,8 @@ opencode.json
 .ropeproject
 me
 
+# mkdocs build output
+site
+
 # git worktrees
 .worktrees
