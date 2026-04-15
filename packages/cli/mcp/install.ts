@@ -4,7 +4,6 @@
  * Detects AI tools on PATH and registers `me` as an MCP server
  * by running each tool's `mcp add` command.
  */
-import { join, resolve } from "node:path";
 
 // =============================================================================
 // Tool Registry
@@ -87,34 +86,12 @@ export function detectInstalledTools(): McpTool[] {
 }
 
 /**
- * Check if we're running as a compiled binary.
- */
-function isCompiledBinary(): boolean {
-  return !process.argv[0]?.includes("bun");
-}
-
-/**
- * Get the binary path for the `me` command.
- */
-function getBinaryPath(): string {
-  return process.argv[0] ?? "me";
-}
-
-/**
  * Build the `me mcp` command array with baked-in credentials.
  *
- * Compiled: ["/path/to/me", "mcp", "--api-key", "...", "--server", "..."]
- * Dev:     ["bun", "/abs/path/to/index.ts", "mcp", "--api-key", "...", "--server", "..."]
+ * Always uses bare `me` — the binary is installed on PATH via install.sh.
  */
 export function buildMeCommand(apiKey: string, serverUrl: string): string[] {
-  const base = isCompiledBinary()
-    ? [getBinaryPath(), "mcp"]
-    : ["bun", resolve(join(__dirname, "..", "index.ts")), "mcp"];
-
-  base.push("--api-key", apiKey);
-  base.push("--server", serverUrl);
-
-  return base;
+  return ["me", "mcp", "--api-key", apiKey, "--server", serverUrl];
 }
 
 // =============================================================================
