@@ -2,13 +2,17 @@
 //
 // Usage:
 //   ./bun scripts/release.ts 0.2.0
-//   ./bun scripts/release.ts          # prompts for version
+//   ./bun scripts/release.ts patch     # 0.1.9 -> 0.1.10
+//   ./bun scripts/release.ts minor     # 0.1.9 -> 0.2.0
+//   ./bun scripts/release.ts major     # 0.1.9 -> 1.0.0
+//   ./bun scripts/release.ts           # prompts for version
 //   ./bun run release 0.2.0
 
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { $ } from "bun";
+import semver from "semver";
 
 const root = join(import.meta.dirname, "..");
 
@@ -53,9 +57,11 @@ function currentVersion(): string {
   return pkg.version;
 }
 
-/** Validate that a string is a valid semver (no v prefix). */
-function validateSemver(v: string): boolean {
-  return Bun.semver.satisfies(v, "*");
+const INCREMENT_TYPES = ["major", "minor", "patch"] as const;
+type IncrementType = (typeof INCREMENT_TYPES)[number];
+
+function isIncrementType(value: string): value is IncrementType {
+  return (INCREMENT_TYPES as ReadonlyArray<string>).includes(value);
 }
 
 /** Update the "version" field in a package.json, preserving formatting. */
@@ -100,21 +106,28 @@ if (local !== remote) {
 
 // 2. Determine the new version
 const current = currentVersion();
-let version = process.argv[2];
+let versionArg = process.argv[2];
 
-if (!version) {
-  version = await prompt(`New version (current: ${current}):`);
+if (!versionArg) {
+  versionArg = await prompt(
+    `New version or increment type [major|minor|patch] (current: ${current}):`,
+  );
 }
 
 // Strip leading "v" if provided
-version = version.replace(/^v/, "");
+versionArg = versionArg.replace(/^v/, "");
 
-if (!validateSemver(version)) {
+// Resolve increment type (major/minor/patch) to a concrete version
+const version = isIncrementType(versionArg)
+  ? semver.inc(current, versionArg)
+  : versionArg;
+
+if (!version || !semver.valid(version)) {
   die(`invalid semver: ${version}`);
 }
 
 // 3. Must be greater than current version
-if (Bun.semver.order(version, current) !== 1) {
+if (!semver.gt(version, current)) {
   die(`version ${version} is not greater than current ${current}`);
 }
 
