@@ -1,0 +1,258 @@
+# me memory
+
+Manage memories.
+
+Memories are the core data type in Memory Engine. Each memory has content, optional metadata, an optional tree path for hierarchical organization, and an optional temporal range.
+
+## Commands
+
+- [me memory create](#me-memory-create) -- create a memory
+- [me memory get](#me-memory-get) -- get a memory by ID
+- [me memory search](#me-memory-search) -- search memories
+- [me memory update](#me-memory-update) -- update a memory
+- [me memory delete](#me-memory-delete) -- delete a memory or tree
+- [me memory edit](#me-memory-edit) -- open a memory in your editor
+- [me memory tree](#me-memory-tree) -- show tree structure
+- [me memory move](#me-memory-move) -- move memories between tree paths
+- [me memory import](#me-memory-import) -- import from files or stdin
+- [me memory export](#me-memory-export) -- export with filters
+
+---
+
+## me memory create
+
+Create a memory.
+
+```
+me memory create [content] [options]
+```
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `content` | no | Memory content. Can also be provided via `--content` or stdin. |
+
+| Option | Description |
+|--------|-------------|
+| `--content <text>` | Memory content (alternative to positional argument). |
+| `--tree <path>` | Tree path (e.g., `work.projects.me`). |
+| `--meta <json>` | Metadata as a JSON string. |
+| `--temporal <range>` | Temporal range as `start[,end]` (ISO 8601). |
+
+Content can come from the positional argument, the `--content` flag, or piped via stdin.
+
+---
+
+## me memory get
+
+Get a memory by ID.
+
+```
+me memory get <id> [options]
+```
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `id` | yes | Memory ID (UUIDv7). |
+
+| Option | Description |
+|--------|-------------|
+| `--md` | Output as Markdown with YAML frontmatter. |
+
+---
+
+## me memory search
+
+Search memories.
+
+```
+me memory search [query] [options]
+```
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `query` | no | Semantic search query (shorthand for `--semantic`). |
+
+| Option | Description |
+|--------|-------------|
+| `--semantic <text>` | Semantic (vector) search query. |
+| `--fulltext <text>` | BM25 keyword search. |
+| `--grep <pattern>` | Regex filter on content (POSIX, case-insensitive). |
+| `--tree <filter>` | Tree path filter (supports wildcards like `work.*`). |
+| `--meta <json>` | Metadata filter as JSON. |
+| `--limit <n>` | Max results (default: 10). |
+| `--candidate-limit <n>` | Pre-RRF candidate pool size. |
+| `--temporal-contains <ts>` | Memory must contain this point in time. |
+| `--temporal-overlaps <range>` | Memory must overlap this range (`start,end`). |
+| `--temporal-within <range>` | Memory must be within this range (`start,end`). |
+| `--weight-semantic <w>` | Semantic weight, 0-1. |
+| `--weight-fulltext <w>` | Fulltext weight, 0-1. |
+| `--order-by <dir>` | Sort direction: `asc` or `desc`. |
+
+At least one search criterion is required. When both `--semantic` and `--fulltext` are provided, results are ranked using Reciprocal Rank Fusion (hybrid mode).
+
+### Examples
+
+```bash
+# Semantic search
+me memory search "how does authentication work"
+
+# Keyword search
+me memory search --fulltext "pgvector ltree"
+
+# Hybrid with tree filter
+me memory search --semantic "embedding performance" --fulltext "nomic" --tree "me.design.*"
+
+# Browse by metadata
+me memory search --meta '{"type": "decision"}' --limit 20
+```
+
+---
+
+## me memory update
+
+Update a memory.
+
+```
+me memory update <id> [options]
+```
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `id` | yes | Memory ID (UUIDv7). |
+
+| Option | Description |
+|--------|-------------|
+| `--content <text>` | New content (use `-` for stdin). |
+| `--tree <path>` | New tree path. |
+| `--meta <json>` | New metadata as JSON (replaces existing). |
+| `--temporal <range>` | New temporal range as `start[,end]`. |
+
+At least one update option is required. Metadata is fully replaced, not merged.
+
+---
+
+## me memory delete
+
+Delete a memory by ID, or all memories under a tree path.
+
+```
+me memory delete <id-or-tree> [options]
+```
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `id-or-tree` | yes | Memory ID (UUIDv7) or tree path. |
+
+| Option | Description |
+|--------|-------------|
+| `--dry-run` | Preview what would be deleted (tree mode only). |
+| `-y, --yes` | Skip the confirmation prompt (tree mode only). |
+
+If the argument is a UUIDv7, deletes a single memory. If it is a tree path, deletes all memories under that path after showing a count and confirming.
+
+---
+
+## me memory edit
+
+Open a memory in your editor.
+
+```
+me memory edit <id>
+```
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `id` | yes | Memory ID (UUIDv7). |
+
+Fetches the memory, formats it as Markdown with YAML frontmatter, and opens it in `$VISUAL`, `$EDITOR`, or `vim`. On save, the CLI parses your changes and sends an update. If there are errors, the editor re-opens.
+
+---
+
+## me memory tree
+
+Show memory tree structure.
+
+```
+me memory tree [filter] [options]
+```
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `filter` | no | Root tree path to start from. |
+
+| Option | Description |
+|--------|-------------|
+| `--levels <n>` | Max depth to display. |
+
+Renders the tree with box-drawing characters, showing memory counts at each node.
+
+---
+
+## me memory move
+
+Move memories between tree paths.
+
+```
+me memory move <src> <dst> [options]
+```
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `src` | yes | Source tree path. |
+| `dst` | yes | Destination tree path. |
+
+| Option | Description |
+|--------|-------------|
+| `-y, --yes` | Skip the confirmation prompt. |
+
+Moves all memories under the source prefix to the destination, preserving subtree structure.
+
+---
+
+## me memory import
+
+Import memories from files or stdin.
+
+```
+me memory import [files...] [options]
+```
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `files...` | no | Files to import (use `-` for stdin). |
+
+| Option | Description |
+|--------|-------------|
+| `--format <format>` | Override format detection (`md`, `yaml`, `json`). |
+| `-r, --recursive` | Recursively import from directories. |
+| `--fail-fast` | Stop on first error. |
+| `--dry-run` | Validate without importing. |
+| `-v, --verbose` | Show per-file status output. |
+
+Supports Markdown (with YAML frontmatter), YAML, JSON, and NDJSON. Format is auto-detected from file extension or content.
+
+---
+
+## me memory export
+
+Export memories with filters.
+
+```
+me memory export [file] [options]
+```
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `file` | no | Output file or directory (stdout if omitted). |
+
+| Option | Description |
+|--------|-------------|
+| `--tree <filter>` | Tree path filter. |
+| `--format <fmt>` | Output format: `json`, `yaml`, `md` (default: `json`). |
+| `--meta <json>` | Metadata filter as JSON. |
+| `--limit <n>` | Max memories to export (default: 1000). |
+| `--temporal-contains <ts>` | Memory must contain this point in time. |
+| `--temporal-overlaps <range>` | Memory must overlap this range. |
+| `--temporal-within <range>` | Memory must be within this range. |
+
+For `md` format with a directory output, each memory is written as an individual `.md` file with YAML frontmatter. Exported content is compatible with `me memory import`.
