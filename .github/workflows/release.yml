@@ -40,7 +40,9 @@ jobs:
         run: cd packages/client && ../../bun x 'npm@>=11.5.1' publish --access public
 
   build-cli:
-    runs-on: ubuntu-latest
+    # Build on macOS so the darwin binary can be ad-hoc signed.
+    # Unsigned Bun-compiled darwin binaries are killed by macOS at launch.
+    runs-on: macos-14
     permissions:
       contents: write
       id-token: write

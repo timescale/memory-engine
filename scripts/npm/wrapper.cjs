@@ -52,6 +52,20 @@ if (!binPath) {
       throw result.error;
     }
 
-    process.exitCode = result.status;
+    if (result.signal) {
+      if (platform === "darwin" && result.signal === "SIGKILL") {
+        console.error(
+          "The me binary was killed by macOS before it could start.",
+        );
+        console.error(
+          "This usually means the darwin binary is not code-signed correctly.",
+        );
+      } else {
+        console.error(`The me binary exited due to signal ${result.signal}.`);
+      }
+      process.exitCode = 1;
+    } else {
+      process.exitCode = result.status ?? 1;
+    }
   }
 }
