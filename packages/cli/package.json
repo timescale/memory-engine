@@ -1,6 +1,6 @@
 {
   "name": "@memory-engine/cli",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "CLI for Memory Engine",
   "private": true,
   "type": "module",
