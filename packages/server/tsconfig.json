@@ -2,7 +2,7 @@
   "include": ["**/*.ts"],
   "compilerOptions": {
     "lib": ["ESNext"],
-    "types": ["@types/bun"],
+    "types": ["bun-types"],
     "target": "ESNext",
     "module": "Preserve",
     "moduleDetection": "force",
