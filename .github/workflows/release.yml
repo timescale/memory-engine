@@ -42,7 +42,7 @@ jobs:
   build-cli:
     # Build on macOS so the darwin binary can be ad-hoc signed.
     # Unsigned Bun-compiled darwin binaries are killed by macOS at launch.
-    runs-on: macos-14
+    runs-on: macos-latest
     permissions:
       contents: write
       id-token: write
@@ -60,7 +60,7 @@ jobs:
         run: |
           cd dist
           for file in me-*; do
-            sha256sum "$file" > "${file}.sha256"
+            shasum -a 256 "$file" > "${file}.sha256"
           done
 
       - name: Create GitHub Release
