@@ -6,9 +6,9 @@
  *
  * File format:
  * ```yaml
- * default_server: https://memory.build
+ * default_server: https://api.memory.build
  * servers:
- *   https://memory.build:
+ *   https://api.memory.build:
  *     session_token: "..."
  *     active_engine: "abc123defg45"
  *     engines:
@@ -27,7 +27,7 @@ import { parse, stringify } from "yaml";
 // Constants
 // =============================================================================
 
-export const DEFAULT_SERVER = "https://memory.build";
+export const DEFAULT_SERVER = "https://api.memory.build";
 
 // =============================================================================
 // Types

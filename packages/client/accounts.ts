@@ -66,7 +66,7 @@ import { rpcCall, type TransportConfig } from "./transport.ts";
  * Options for creating an accounts client.
  */
 export interface AccountsClientOptions {
-  /** Base URL of the Memory Engine server (default: "http://localhost:3000") */
+  /** Base URL of the Memory Engine server (default: "https://api.memory.build") */
   url?: string;
   /** Session token for authentication */
   sessionToken?: string;
@@ -170,7 +170,7 @@ export interface AccountsClient {
 // Factory
 // =============================================================================
 
-const DEFAULT_URL = "http://localhost:3000";
+const DEFAULT_URL = "https://api.memory.build";
 const ACCOUNTS_RPC_PATH = "/api/v1/accounts/rpc";
 const DEFAULT_TIMEOUT = 30_000;
 const DEFAULT_RETRIES = 3;

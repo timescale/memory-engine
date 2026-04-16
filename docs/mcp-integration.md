@@ -2,7 +2,27 @@
 
 Memory Engine integrates with AI coding agents via the [Model Context Protocol](https://modelcontextprotocol.io/) (MCP). This gives agents 10 memory tools they can use to store and retrieve knowledge across conversations.
 
+## How it works
+
+When an AI tool launches `me mcp`, it spawns a child process that communicates over **stdin/stdout** using the MCP protocol. The process is a stateless proxy — each tool call is translated into an HTTP request to the Memory Engine API. No data is stored locally.
+
+```
+┌──────────────┐   stdio (JSON-RPC)   ┌──────────┐   HTTPS   ┌────────────────┐
+│   AI Agent   │ ◄──────────────────► │  me mcp  │ ────────► │ Memory Engine  │
+└──────────────┘                      └──────────┘           └────────────────┘
+```
+
+Authentication is baked into the command via `--api-key` and `--server` flags. The AI agent never sees or handles credentials — it just calls MCP tools and gets results back.
+
+Each `me mcp` instance is locked to a single engine via its API key. The MCP server does **not** read the credentials file — the API key must be provided via `--api-key` or the `ME_API_KEY` environment variable. The server URL defaults to `https://api.memory.build` (the hosted engine) but can be overridden with `--server` or `ME_SERVER`.
+
 ## Setup
+
+### Prerequisites
+
+You need an API key. Run `me whoami` to see your active engine, or create an API key with `me apikey create`.
+
+The server defaults to `https://api.memory.build`. Pass `--server <url>` only if you're running a self-hosted engine.
 
 ### Automatic
 
@@ -10,7 +30,9 @@ Memory Engine integrates with AI coding agents via the [Model Context Protocol](
 me mcp install
 ```
 
-This detects AI tools on your PATH and registers Memory Engine with each one:
+This detects AI tools on your PATH and registers Memory Engine with each one. It reads your API key and server URL from the credentials file and bakes them into each tool's MCP configuration, so the `me mcp` process can authenticate without the credentials file.
+
+See [`me mcp install`](cli/me-mcp.md) for the full command reference.
 
 | Tool | Detection |
 |------|-----------|
@@ -19,22 +41,79 @@ This detects AI tools on your PATH and registers Memory Engine with each one:
 | Codex CLI | `codex` binary |
 | OpenCode | `opencode` binary (manual setup) |
 
-The command bakes your API key and server URL into the MCP configuration so the agent can authenticate automatically.
-
-### Manual
-
-If automatic detection doesn't work, register manually:
+### Claude Code
 
 ```bash
-# Claude Code
 claude mcp add --scope user me -- me mcp --api-key <key> --server <url>
+```
 
-# Gemini CLI
+This registers `me` as a user-scoped MCP server. Claude Code will start the `me mcp` process automatically in every conversation.
+
+### Gemini CLI
+
+```bash
 gemini mcp add --scope user me me mcp --api-key <key> --server <url>
+```
 
-# Codex CLI
+### Codex CLI
+
+```bash
 codex mcp add me -- me mcp --api-key <key> --server <url>
 ```
+
+### OpenCode
+
+```bash
+opencode mcp add
+```
+
+Follow the interactive prompts to add the `me mcp` command.
+
+### VS Code / GitHub Copilot
+
+Add a `.vscode/mcp.json` file to your workspace:
+
+```json
+{
+  "servers": {
+    "me": {
+      "command": "me",
+      "args": ["mcp", "--api-key", "<key>", "--server", "<url>"]
+    }
+  }
+}
+```
+
+This makes Memory Engine available to GitHub Copilot in agent mode. Commit this file to share the configuration with your team (use environment variables or input variables for the API key in shared configs).
+
+To configure globally across all workspaces, open the Command Palette and run **MCP: Open User Configuration**.
+
+### Zed
+
+Open your Zed settings (`Zed > Settings > Open Settings` or `~/.config/zed/settings.json`) and add:
+
+```json
+{
+  "context_servers": {
+    "me": {
+      "command": "me",
+      "args": ["mcp", "--api-key", "<key>", "--server", "<url>"]
+    }
+  }
+}
+```
+
+After saving, check the Agent Panel settings — the indicator next to "me" should turn green when the server is active.
+
+### Other MCP clients
+
+Any tool that supports the MCP stdio transport can use Memory Engine. The server command is:
+
+```bash
+me mcp --api-key <key> --server <url>
+```
+
+Point your client at this command with `stdio` as the transport type.
 
 ## Available tools
 
@@ -97,12 +176,6 @@ me_memory_search({fulltext: "OAuth JWT"})
 # Browse a section
 me_memory_search({tree: "design.*"})
 ```
-
-## How it works
-
-When `me mcp` runs, it starts a stdio-based MCP server that acts as a thin proxy to the Memory Engine API. Each tool call is translated into an HTTP request to the engine using the baked-in API key.
-
-The server is stateless -- it holds no data locally. All persistence is handled by the engine.
 
 ## Troubleshooting
 

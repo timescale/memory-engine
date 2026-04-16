@@ -6,7 +6,7 @@ import { buildMeCommand } from "./install.ts";
 
 describe("buildMeCommand", () => {
   test("uses bare 'me' command on PATH", () => {
-    const cmd = buildMeCommand("test-key-123", "https://memory.build");
+    const cmd = buildMeCommand("test-key-123", "https://api.memory.build");
     expect(cmd[0]).toBe("me");
     expect(cmd[1]).toBe("mcp");
   });

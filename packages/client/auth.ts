@@ -11,7 +11,7 @@
  * ```ts
  * import { createAuthClient } from "@memory-engine/client";
  *
- * const auth = createAuthClient({ url: "http://localhost:3000" });
+ * const auth = createAuthClient({ url: "https://api.memory.build" });
  *
  * const flow = await auth.startDeviceFlow("github");
  * console.log(`Visit ${flow.verificationUri} and enter code: ${flow.userCode}`);
@@ -36,7 +36,7 @@ import type {
  * Options for creating an auth client.
  */
 export interface AuthClientOptions {
-  /** Base URL of the Memory Engine server (default: "http://localhost:3000") */
+  /** Base URL of the Memory Engine server (default: "https://api.memory.build") */
   url?: string;
   /** Request timeout in milliseconds (default: 30000) */
   timeout?: number;
@@ -108,7 +108,7 @@ export interface AuthClient {
 // Factory
 // =============================================================================
 
-const DEFAULT_URL = "http://localhost:3000";
+const DEFAULT_URL = "https://api.memory.build";
 const DEVICE_CODE_PATH = "/api/v1/auth/device/code";
 const DEVICE_TOKEN_PATH = "/api/v1/auth/device/token";
 const DEFAULT_TIMEOUT = 30_000;

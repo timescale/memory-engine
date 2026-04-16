@@ -15,7 +15,7 @@ import {
 } from "../mcp/install.ts";
 import { runMcpServer } from "../mcp/server.ts";
 
-const DEFAULT_SERVER = "https://memory.build";
+const DEFAULT_SERVER = "https://api.memory.build";
 
 /**
  * me mcp — run the MCP server over stdio.

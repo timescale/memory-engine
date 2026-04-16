@@ -14,7 +14,7 @@ npm install @memory-engine/client
 import { createClient } from "@memory-engine/client";
 
 const me = createClient({
-  url: "https://memory.build",
+  url: "https://api.memory.build",
   apiKey: "me.xxx.yyy",
 });
 
@@ -34,7 +34,7 @@ const { results } = await me.memory.search({
 
 ```typescript
 const me = createClient({
-  url: "https://memory.build",  // default: "http://localhost:3000"
+  url: "https://api.memory.build",  // default
   apiKey: "me.xxx.yyy",         // format: "me.<lookupId>.<secret>"
   timeout: 30000,               // request timeout in ms (default: 30000)
   retries: 3,                   // automatic retries (default: 3)

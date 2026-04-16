@@ -16,7 +16,7 @@ This installs the `me` binary to `~/.local/bin`. Make sure it's on your PATH.
 me login
 ```
 
-This starts an OAuth flow -- choose Google or GitHub, authorize in your browser, and the CLI stores your session.
+This starts an OAuth flow via GitHub -- authorize in your browser and the CLI stores your session.
 
 
 ## Store your first memory

@@ -23,7 +23,7 @@ me mcp [options]
 |--------|-------------|
 | `--api-key <key>` | API key for engine authentication. Can also be set via `ME_API_KEY` env var. |
 
-The server URL is resolved from `--server` (global option) > `ME_SERVER` env > `https://memory.build`.
+The server URL is resolved from `--server` (global option) > `ME_SERVER` env > `https://api.memory.build`.
 
 This command is typically not run directly -- it is invoked by AI tools (Claude Code, Gemini CLI, etc.) based on the MCP configuration created by `me mcp install`.
 
@@ -64,5 +64,5 @@ If no `--api-key` or `--server` is provided, values are resolved from `~/.config
 me mcp install
 
 # Install for Claude Code only with explicit credentials
-me mcp install claude --api-key me.xxx --server https://memory.build
+me mcp install claude --api-key me.xxx --server https://api.memory.build
 ```
