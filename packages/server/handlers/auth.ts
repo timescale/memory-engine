@@ -35,7 +35,7 @@ import { error, html, json } from "../util/response";
 export interface AuthHandlerContext {
   /** AccountsDB instance */
   db: AccountsDB;
-  /** Base URL for callbacks (e.g., "https://memoryengine.dev") */
+  /** Base URL for callbacks (e.g., "https://memory.build") */
   baseUrl: string;
   /** Engine database pool (for provisioning default engine on signup) */
   engineSql: SQL;

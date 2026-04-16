@@ -64,7 +64,7 @@ configure({
 //   ENGINE_DATABASE_URL   - PostgreSQL connection string for engine databases
 //                          (stores memories, each engine in its own schema)
 //   API_BASE_URL          - Public URL for OAuth callbacks
-//                          (e.g., "https://memoryengine.dev")
+//                          (e.g., "https://memory.build")
 //
 // Optional:
 //   PORT            - HTTP server port (default: 3000)

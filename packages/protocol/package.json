@@ -2,7 +2,11 @@
   "name": "@memory.build/protocol",
   "version": "0.1.7",
   "description": "Protocol schemas and types for Memory Engine",
-  "homepage": "https://memoryengine.dev",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/timescale/memory-engine.git"
+  },
+  "homepage": "https://memory.build",
   "type": "module",
   "exports": {
     ".": {

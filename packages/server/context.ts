@@ -15,7 +15,7 @@ export interface ServerContext {
   engineSql: SQL;
   /** Embedding config for semantic search */
   embeddingConfig: EmbeddingConfig;
-  /** Base URL for API callbacks (e.g., "https://memoryengine.dev") */
+  /** Base URL for API callbacks (e.g., "https://memory.build") */
   apiBaseUrl: string;
   /** Application version for migration tracking */
   appVersion: string;

@@ -2,7 +2,11 @@
   "name": "@memory.build/client",
   "version": "0.1.7",
   "description": "Client library for Memory Engine",
-  "homepage": "https://memoryengine.dev",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/timescale/memory-engine.git"
+  },
+  "homepage": "https://memory.build",
   "keywords": [
     "memory-engine",
     "ai",
