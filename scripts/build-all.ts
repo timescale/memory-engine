@@ -6,7 +6,7 @@ const distDir = "dist";
 const targets = [
   { target: "bun-linux-x64", suffix: "linux-x64" },
   { target: "bun-linux-arm64", suffix: "linux-arm64" },
-  { target: "bun-darwin-arm64", suffix: "macos-arm64" },
+  { target: "bun-darwin-arm64", suffix: "darwin-arm64" },
   { target: "bun-windows-x64", suffix: "windows-x64", ext: ".exe" },
 ];
 

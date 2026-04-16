@@ -24,7 +24,7 @@ main() {
   os="$(detect_os)"
   arch="$(detect_arch)"
 
-  if [ "$os" = "macos" ] && [ "$arch" = "x64" ]; then
+  if [ "$os" = "darwin" ] && [ "$arch" = "x64" ]; then
     err "macOS Intel (x64) is not supported. me requires Apple Silicon (M1+)."
   fi
 
@@ -63,7 +63,7 @@ main() {
   chmod +x "$dest"
 
   # macOS: strip Bun's broken signature, re-sign with JIT entitlements, remove quarantine
-  if [ "$os" = "macos" ]; then
+  if [ "$os" = "darwin" ]; then
     tmpent="$(mktemp)"
     cat > "$tmpent" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
@@ -104,7 +104,7 @@ PLIST
 detect_os() {
   case "$(uname -s)" in
     Linux*)  echo "linux" ;;
-    Darwin*) echo "macos" ;;
+    Darwin*) echo "darwin" ;;
     MINGW*|MSYS*|CYGWIN*) echo "windows" ;;
     *)       err "Unsupported OS: $(uname -s)" ;;
   esac

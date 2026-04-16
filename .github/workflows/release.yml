@@ -34,19 +34,16 @@ jobs:
         run: ./bun run --filter '@memory.build/client' build
 
       - name: Publish @memory.build/protocol
-        run: cd packages/protocol && ../../bun publish --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: cd packages/protocol && ../../bun x npm@>=11.5.1 publish --access public
 
       - name: Publish @memory.build/client
-        run: cd packages/client && ../../bun publish --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: cd packages/client && ../../bun x npm@>=11.5.1 publish --access public
 
   build-cli:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      id-token: write
 
     steps:
       - uses: actions/checkout@v6
@@ -69,3 +66,9 @@ jobs:
         with:
           files: dist/me-*
           generate_release_notes: true
+
+      - name: Publish to npm
+        run: |
+          ./bun run scripts/npm/publish.ts \
+            --version "${GITHUB_REF_NAME#v}" \
+            --binaries-dir ./dist
