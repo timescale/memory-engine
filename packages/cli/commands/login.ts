@@ -60,18 +60,8 @@ export function createLoginCommand(): Command {
         clack.intro("me login");
       }
 
-      const provider = await clack.select({
-        message: "Choose an auth provider",
-        options: [
-          { value: "github", label: "GitHub" },
-          { value: "google", label: "Google" },
-        ],
-      });
-
-      if (clack.isCancel(provider)) {
-        if (fmt === "text") clack.cancel("Login cancelled.");
-        process.exit(0);
-      }
+      // TODO: Re-enable Google OAuth once we have approved ToS/privacy policy
+      const provider: OAuthProvider = "github";
 
       // --- Start device flow ---
       const spin = fmt === "text" ? clack.spinner() : null;
