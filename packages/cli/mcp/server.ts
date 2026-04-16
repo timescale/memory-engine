@@ -18,7 +18,7 @@ import {
   parseContent,
 } from "../parsers/index.ts";
 
-const DOCS_BASE = "https://docs.memory.build/mcp";
+const DOCS_BASE = "http://docs.memory.build/mcp";
 
 /** URL to a tool's Markdown documentation. */
 function docUrl(tool: string): string {

@@ -1,12 +1,12 @@
 # memory engine — agents.txt
-# https://docs.memory.build/agents.txt
+# http://docs.memory.build/agents.txt
 #
 # This file describes how AI agents should interact with memory engine.
 
 name: memory engine
 description: Permanent memory for AI agents. Store, search, and organize knowledge across conversations.
 url: https://memory.build
-docs: https://docs.memory.build
+docs: http://docs.memory.build
 
 # MCP server
 mcp:
@@ -21,7 +21,7 @@ mcp:
 
 # CLI
 cli:
-  install: see https://docs.memory.build/getting-started/
+  install: see http://docs.memory.build/getting-started/
   binary: me
   description: Full-featured command line interface. Store, search, and manage context from your terminal.
 
