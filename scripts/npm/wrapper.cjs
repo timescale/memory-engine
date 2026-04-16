@@ -24,7 +24,7 @@ if (!binPath) {
     `me does not ship prebuilt binaries for your platform (${platform}-${arch}).`,
   );
   console.error(
-    "You can install from source instead: https://github.com/timescale/me",
+    "You can install from source instead: https://github.com/timescale/memory-engine",
   );
   process.exitCode = 1;
 } else {

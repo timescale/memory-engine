@@ -96,7 +96,7 @@ function makePlatformPackageJson(
     license: "Apache-2.0",
     repository: {
       type: "git",
-      url: "git+https://github.com/timescale/me.git",
+      url: "git+https://github.com/timescale/memory-engine.git",
     },
     os: [target.os],
     cpu: [target.cpu],
@@ -118,7 +118,7 @@ function makeMainPackageJson(version: string): string {
     license: "Apache-2.0",
     repository: {
       type: "git",
-      url: "git+https://github.com/timescale/me.git",
+      url: "git+https://github.com/timescale/memory-engine.git",
     },
     homepage: "https://memory.build",
     bin: {
