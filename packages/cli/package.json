@@ -8,8 +8,8 @@
     "me": "./index.ts"
   },
   "scripts": {
-    "dev": "bun run index.ts",
-    "build": "bun build --compile index.ts --outfile dist/me"
+    "dev": "../../bun run index.ts",
+    "build": "../../bun build --compile index.ts --outfile dist/me"
   },
   "dependencies": {
     "@bomb.sh/tab": "^0.0.12",

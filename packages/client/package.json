@@ -25,10 +25,10 @@
     "!*.test.ts"
   ],
   "scripts": {
-    "build:js": "bun build index.ts --outdir dist --format esm --target node --packages external",
+    "build:js": "../../bun build index.ts --outdir dist --format esm --target node --packages external",
     "build:types": "tsc -p tsconfig.build.json",
-    "build": "bun run build:js && bun run build:types",
-    "prepublishOnly": "bun run build"
+    "build": "../../bun run build:js && ../../bun run build:types",
+    "prepublishOnly": "../../bun run build"
   },
   "dependencies": {
     "@memory.build/protocol": "workspace:*"

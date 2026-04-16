@@ -15,7 +15,7 @@
   },
   "private": true,
   "scripts": {
-    "start": "bun run index.ts"
+    "start": "../../bun run index.ts"
   },
   "type": "module"
 }
