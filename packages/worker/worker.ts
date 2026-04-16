@@ -7,8 +7,27 @@ import type { WorkerConfig, WorkerStats } from "./types";
 /** Minimum backoff when rate limited, even if Retry-After is shorter. */
 const RATE_LIMIT_FLOOR_MS = 30_000;
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+/**
+ * Abortable sleep. Resolves when the timer fires, OR immediately when the
+ * signal is aborted — whichever comes first. Lets the worker loop wake up
+ * promptly on shutdown instead of waiting out a full backoff interval.
+ */
+function sleep(ms: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve) => {
+    if (signal.aborted) {
+      resolve();
+      return;
+    }
+    const timer = setTimeout(() => {
+      signal.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    const onAbort = () => {
+      clearTimeout(timer);
+      resolve();
+    };
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
 }
 
 /** Fisher-Yates shuffle (in-place). */
@@ -100,7 +119,7 @@ async function run(
 
       if (targets.length === 0) {
         if (signal.aborted) break;
-        await sleep(idleDelayMs);
+        await sleep(idleDelayMs, signal);
         continue;
       }
 
@@ -130,7 +149,7 @@ async function run(
 
         if (signal.aborted) break;
 
-        if (!anyWork) await sleep(idleDelayMs);
+        if (!anyWork) await sleep(idleDelayMs, signal);
       } catch (error) {
         // Rate limit — back off without incrementing consecutive errors.
         // processBatch already decremented queue attempts so they aren't wasted.
@@ -146,7 +165,7 @@ async function run(
           });
 
           if (signal.aborted) break;
-          await sleep(backoffMs);
+          await sleep(backoffMs, signal);
           continue;
         }
 
@@ -165,7 +184,7 @@ async function run(
           idleDelayMs * 2 ** (consecutiveErrors - 1),
           maxBackoffMs,
         );
-        await sleep(backoffMs);
+        await sleep(backoffMs, signal);
       }
     }
   } finally {

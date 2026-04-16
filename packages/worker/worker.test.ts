@@ -271,4 +271,77 @@ describe("WorkerPool", () => {
     expect(() => pool.start(2)).toThrow("Worker pool is already running");
     await pool.stop();
   });
+
+  // Regression: worker sleeps were previously built on a plain setTimeout
+  // that did not listen to the AbortSignal. A worker caught inside a long
+  // sleep (idle poll or error backoff) would not notice shutdown until the
+  // timer expired, which on k8s meant pods sat in Terminating until the
+  // grace period escalated to SIGKILL. These tests pin the invariant that
+  // stop() resolves promptly even when workers are mid-sleep.
+  test("stop() wakes workers from idle sleep instead of waiting out the timer", async () => {
+    const mockSql = createMockSql({});
+
+    const pool = new WorkerPool(mockSql as never, {
+      embedding: {
+        provider: "openai",
+        model: "test",
+        dimensions: 3,
+      },
+      // No targets → worker goes straight to `sleep(idleDelayMs, signal)` in the
+      // `targets.length === 0` branch. If sleep doesn't honor the abort, stop()
+      // will block for the full 60s.
+      discover: async () => [],
+      idleDelayMs: 60_000,
+      refreshIntervalMs: 1_000_000,
+    });
+
+    await pool.start(2);
+    // Give workers a tick to enter their sleep before we signal stop.
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    const start = Date.now();
+    await pool.stop();
+    const elapsed = Date.now() - start;
+
+    // Abortable sleep should resolve effectively immediately. 500ms is a
+    // generous ceiling that will still fail loudly if someone regresses
+    // sleep() back to a non-abortable setTimeout (which would take ~60s).
+    expect(elapsed).toBeLessThan(500);
+  });
+
+  test("stop() wakes workers from error-backoff sleep", async () => {
+    // Make processBatch fail so the worker lands in the generic-error catch
+    // branch and ends up in `await sleep(backoffMs, signal)`. With
+    // idleDelayMs=60_000 and consecutiveErrors=1, backoffMs = 60_000.
+    const mockSql = createMockSql({
+      begin: async () => {
+        throw new Error("simulated transient failure");
+      },
+    });
+
+    const pool = new WorkerPool(mockSql as never, {
+      embedding: {
+        provider: "openai",
+        model: "test",
+        dimensions: 3,
+      },
+      discover: async () => [{ schema: "me_test12345678", shard: 1 }],
+      idleDelayMs: 60_000,
+      maxBackoffMs: 60_000,
+      refreshIntervalMs: 1_000_000,
+    });
+
+    await pool.start(1);
+    // Give the worker enough time to run discover, attempt processBatch,
+    // catch the error, and settle into sleep(backoffMs).
+    await new Promise((resolve) => setTimeout(resolve, 100));
+
+    const start = Date.now();
+    await pool.stop();
+    const elapsed = Date.now() - start;
+
+    expect(elapsed).toBeLessThan(500);
+    // Sanity: the worker did hit the error path before we stopped it.
+    expect(pool.stats.consecutiveErrors).toBeGreaterThanOrEqual(1);
+  });
 });
