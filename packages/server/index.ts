@@ -1,14 +1,14 @@
 // packages/server/index.ts
-import { createAccountsDB } from "@memory-engine/accounts";
-import { migrate as migrateAccounts } from "@memory-engine/accounts/migrate/runner";
-import type { EmbeddingConfig } from "@memory-engine/embedding";
+import { createAccountsDB } from "@memory.build/accounts";
+import { migrate as migrateAccounts } from "@memory.build/accounts/migrate/runner";
+import type { EmbeddingConfig } from "@memory.build/embedding";
 import {
   discoverEngineSchemas,
   slugToSchema,
-} from "@memory-engine/engine/migrate";
-import { bootstrap as bootstrapEngine } from "@memory-engine/engine/migrate/bootstrap";
-import { migrateAll as migrateEngines } from "@memory-engine/engine/migrate/runner";
-import { WorkerPool } from "@memory-engine/worker";
+} from "@memory.build/engine/migrate";
+import { bootstrap as bootstrapEngine } from "@memory.build/engine/migrate/bootstrap";
+import { migrateAll as migrateEngines } from "@memory.build/engine/migrate/runner";
+import { WorkerPool } from "@memory.build/worker";
 import { configure, info, reportError, span } from "@pydantic/logfire-node";
 import { APP_VERSION } from "../../version";
 import { embeddingConstants } from "./config";

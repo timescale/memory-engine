@@ -5,7 +5,7 @@
  * State is persisted to database and cleaned up via cron.
  */
 
-import type { AccountsDB, DeviceAuthorization } from "@memory-engine/accounts";
+import type { AccountsDB, DeviceAuthorization } from "@memory.build/accounts";
 import type { OAuthProvider } from "./types";
 
 /** Device code expiration (15 minutes) */

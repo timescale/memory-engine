@@ -8,7 +8,7 @@
  * - apiKey.revoke: Revoke an API key
  * - apiKey.delete: Permanently delete an API key
  */
-import type { ApiKey } from "@memory-engine/engine";
+import type { ApiKey } from "@memory.build/engine";
 import type {
   ApiKeyCreateParams,
   ApiKeyCreateResult,
@@ -17,14 +17,14 @@ import type {
   ApiKeyListParams,
   ApiKeyResponse,
   ApiKeyRevokeParams,
-} from "@memory-engine/protocol/engine/api-key";
+} from "@memory.build/protocol/engine/api-key";
 import {
   apiKeyCreateParams,
   apiKeyDeleteParams,
   apiKeyGetParams,
   apiKeyListParams,
   apiKeyRevokeParams,
-} from "@memory-engine/protocol/engine/api-key";
+} from "@memory.build/protocol/engine/api-key";
 import { AppError } from "../errors";
 import { buildRegistry } from "../registry";
 import type { HandlerContext } from "../types";

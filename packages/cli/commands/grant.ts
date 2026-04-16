@@ -7,7 +7,7 @@
  * - me grant check <user> <path> <action>: Check access
  */
 import * as clack from "@clack/prompts";
-import { createClient } from "@memory-engine/client";
+import { createClient } from "@memory.build/client";
 import { Command } from "commander";
 import { resolveCredentials } from "../credentials.ts";
 import { getOutputFormat, output, table } from "../output.ts";

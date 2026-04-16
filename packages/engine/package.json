@@ -1,5 +1,5 @@
 {
-  "name": "@memory-engine/engine",
+  "name": "@memory.build/engine",
   "version": "0.1.4",
   "private": true,
   "type": "module",

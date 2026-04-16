@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { RateLimitError } from "@memory-engine/embedding";
+import { RateLimitError } from "@memory.build/embedding";
 import { WorkerPool } from "./pool";
 import { Worker } from "./worker";
 

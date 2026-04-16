@@ -1,12 +1,12 @@
 {
-  "name": "@memory-engine/worker",
+  "name": "@memory.build/worker",
   "version": "0.1.4",
   "private": true,
   "type": "module",
   "main": "index.ts",
   "dependencies": {
-    "@memory-engine/engine": "workspace:*",
-    "@memory-engine/embedding": "workspace:*",
+    "@memory.build/engine": "workspace:*",
+    "@memory.build/embedding": "workspace:*",
     "@pydantic/logfire-node": "^0.13.1"
   }
 }

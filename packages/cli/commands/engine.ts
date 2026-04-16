@@ -7,7 +7,7 @@
  * - me engine delete <id-or-name>: Permanently delete an engine
  */
 import * as clack from "@clack/prompts";
-import { createAccountsClient, RpcError } from "@memory-engine/client";
+import { createAccountsClient, RpcError } from "@memory.build/client";
 import { Command } from "commander";
 import {
   getEngineApiKey,

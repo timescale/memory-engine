@@ -8,7 +8,7 @@
  * - grant.revoke: Revoke tree access
  * - grant.check: Check if user has access to a tree path for an action
  */
-import type { TreeGrant } from "@memory-engine/engine";
+import type { TreeGrant } from "@memory.build/engine";
 import type {
   GrantCheckParams,
   GrantCreateParams,
@@ -16,14 +16,14 @@ import type {
   GrantListParams,
   GrantResponse,
   GrantRevokeParams,
-} from "@memory-engine/protocol/engine/grant";
+} from "@memory.build/protocol/engine/grant";
 import {
   grantCheckParams,
   grantCreateParams,
   grantGetParams,
   grantListParams,
   grantRevokeParams,
-} from "@memory-engine/protocol/engine/grant";
+} from "@memory.build/protocol/engine/grant";
 import { AppError } from "../errors";
 import { buildRegistry } from "../registry";
 import type { HandlerContext } from "../types";

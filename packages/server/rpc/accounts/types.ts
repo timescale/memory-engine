@@ -3,7 +3,7 @@
  *
  * Extends the base HandlerContext with accounts-specific fields.
  */
-import type { AccountsDB } from "@memory-engine/accounts";
+import type { AccountsDB } from "@memory.build/accounts";
 import type { SQL } from "bun";
 import type { Identity } from "../../middleware/authenticate";
 import type { HandlerContext } from "../types";

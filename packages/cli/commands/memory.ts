@@ -16,7 +16,7 @@
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import * as clack from "@clack/prompts";
-import { createClient } from "@memory-engine/client";
+import { createClient } from "@memory.build/client";
 import { Command } from "commander";
 import { stringify as yamlStringify } from "yaml";
 import { resolveCredentials } from "../credentials.ts";

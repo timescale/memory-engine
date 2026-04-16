@@ -8,7 +8,7 @@
  * - role.listMembers: List members of a role
  * - role.listForUser: List roles a user belongs to
  */
-import type { RoleInfo, RoleMember, User } from "@memory-engine/engine";
+import type { RoleInfo, RoleMember, User } from "@memory.build/engine";
 import type {
   RoleAddMemberParams,
   RoleCreateParams,
@@ -18,14 +18,14 @@ import type {
   RoleMemberResponse,
   RoleRemoveMemberParams,
   RoleResponse,
-} from "@memory-engine/protocol/engine/role";
+} from "@memory.build/protocol/engine/role";
 import {
   roleAddMemberParams,
   roleCreateParams,
   roleListForUserParams,
   roleListMembersParams,
   roleRemoveMemberParams,
-} from "@memory-engine/protocol/engine/role";
+} from "@memory.build/protocol/engine/role";
 import { AppError } from "../errors";
 import { buildRegistry } from "../registry";
 import type { HandlerContext } from "../types";

@@ -19,7 +19,7 @@
     "psql": "psql postgresql://postgres@127.0.0.1:5432/postgres",
     "generate:master-key": "./bun scripts/generate-master-key.ts",
     "setup": "./bun scripts/setup.ts",
-    "build": "./bun run --filter '@memory-engine/cli' build",
+    "build": "./bun run --filter '@memory.build/cli' build",
     "server": "./bun run packages/server/index.ts",
     "build:all": "./bun scripts/build-all.ts",
     "clean": "rm -rf packages/cli/dist dist",

@@ -2,7 +2,7 @@
  * me whoami — show current identity and active engine.
  */
 import * as clack from "@clack/prompts";
-import { createAccountsClient, RpcError } from "@memory-engine/client";
+import { createAccountsClient, RpcError } from "@memory.build/client";
 import { Command } from "commander";
 import { resolveCredentials } from "../credentials.ts";
 import { getOutputFormat, output } from "../output.ts";

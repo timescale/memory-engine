@@ -12,11 +12,11 @@ import {
   type AccountsDB,
   createAccountsDB,
   type Identity,
-} from "@memory-engine/accounts";
-import { TestDatabase as AccountsTestDatabase } from "@memory-engine/accounts/migrate/test-utils";
-import { createEngineDB } from "@memory-engine/engine";
-import { bootstrap } from "@memory-engine/engine/migrate/bootstrap";
-import { TestDatabase as EngineTestDatabase } from "@memory-engine/engine/migrate/test-utils";
+} from "@memory.build/accounts";
+import { TestDatabase as AccountsTestDatabase } from "@memory.build/accounts/migrate/test-utils";
+import { createEngineDB } from "@memory.build/engine";
+import { bootstrap } from "@memory.build/engine/migrate/bootstrap";
+import { TestDatabase as EngineTestDatabase } from "@memory.build/engine/migrate/test-utils";
 import { SQL } from "bun";
 import { APP_VERSION } from "../../../../version";
 import type { HandlerContext } from "../types";

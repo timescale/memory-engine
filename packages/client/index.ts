@@ -1,5 +1,5 @@
 /**
- * @memory-engine/client — Client library for Memory Engine.
+ * @memory.build/client — Client library for Memory Engine.
  *
  * Three clients for different use cases:
  *
@@ -14,7 +14,7 @@
  *
  * @example
  * ```ts
- * import { createClient } from "@memory-engine/client";
+ * import { createClient } from "@memory.build/client";
  *
  * const me = createClient({ apiKey: "me.xxx.yyy" });
  *

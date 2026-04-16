@@ -1,5 +1,5 @@
 /**
- * Re-export all error types and helpers from @memory-engine/protocol.
+ * Re-export all error types and helpers from @memory.build/protocol.
  *
  * This module is kept as a re-export layer so that existing server code
  * can continue importing from "./errors" without changes.
@@ -19,4 +19,4 @@ export {
   methodNotFound,
   parseError,
   RPC_ERROR_CODES,
-} from "@memory-engine/protocol/errors";
+} from "@memory.build/protocol/errors";

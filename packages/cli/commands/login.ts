@@ -13,8 +13,8 @@ import {
   createAccountsClient,
   createAuthClient,
   DeviceFlowError,
-} from "@memory-engine/client";
-import type { OAuthProvider } from "@memory-engine/protocol/auth/device-flow";
+} from "@memory.build/client";
+import type { OAuthProvider } from "@memory.build/protocol/auth/device-flow";
 import { Command } from "commander";
 import {
   getEngineApiKey,

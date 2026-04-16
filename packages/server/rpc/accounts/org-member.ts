@@ -7,20 +7,20 @@
  * - org.member.remove: Remove a member from an organization
  * - org.member.updateRole: Update a member's role
  */
-import { AccountsError, type OrgMember } from "@memory-engine/accounts";
+import { AccountsError, type OrgMember } from "@memory.build/accounts";
 import type {
   OrgMemberAddParams,
   OrgMemberListParams,
   OrgMemberRemoveParams,
   OrgMemberResponse,
   OrgMemberUpdateRoleParams,
-} from "@memory-engine/protocol/accounts/org-member";
+} from "@memory.build/protocol/accounts/org-member";
 import {
   orgMemberAddParams,
   orgMemberListParams,
   orgMemberRemoveParams,
   orgMemberUpdateRoleParams,
-} from "@memory-engine/protocol/accounts/org-member";
+} from "@memory.build/protocol/accounts/org-member";
 import { AppError } from "../errors";
 import { buildRegistry } from "../registry";
 import type { HandlerContext } from "../types";

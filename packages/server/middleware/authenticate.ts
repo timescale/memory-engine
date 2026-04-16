@@ -1,9 +1,9 @@
-import type { AccountsDB } from "@memory-engine/accounts";
+import type { AccountsDB } from "@memory.build/accounts";
 import {
   createEngineDB,
   type EngineDB,
   parseApiKey,
-} from "@memory-engine/engine";
+} from "@memory.build/engine";
 import { debug } from "@pydantic/logfire-node";
 import type { SQL } from "bun";
 import { forbidden, unauthorized } from "../util/response";

@@ -1,9 +1,9 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { RateLimitError } from "@memory-engine/embedding";
-import { createEngineDB } from "@memory-engine/engine/db";
-import { bootstrap } from "@memory-engine/engine/migrate/bootstrap";
-import { provisionEngine } from "@memory-engine/engine/migrate/provision";
-import { TestDatabase } from "@memory-engine/engine/migrate/test-utils";
+import { RateLimitError } from "@memory.build/embedding";
+import { createEngineDB } from "@memory.build/engine/db";
+import { bootstrap } from "@memory.build/engine/migrate/bootstrap";
+import { provisionEngine } from "@memory.build/engine/migrate/provision";
+import { TestDatabase } from "@memory.build/engine/migrate/test-utils";
 import { SQL } from "bun";
 import { processBatch } from "./process";
 import type { WorkerConfig } from "./types";

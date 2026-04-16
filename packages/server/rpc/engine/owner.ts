@@ -7,20 +7,20 @@
  * - owner.remove: Remove tree path owner
  * - owner.list: List tree owners
  */
-import type { TreeOwner } from "@memory-engine/engine";
+import type { TreeOwner } from "@memory.build/engine";
 import type {
   OwnerGetParams,
   OwnerListParams,
   OwnerRemoveParams,
   OwnerResponse,
   OwnerSetParams,
-} from "@memory-engine/protocol/engine/owner";
+} from "@memory.build/protocol/engine/owner";
 import {
   ownerGetParams,
   ownerListParams,
   ownerRemoveParams,
   ownerSetParams,
-} from "@memory-engine/protocol/engine/owner";
+} from "@memory.build/protocol/engine/owner";
 import { AppError } from "../errors";
 import { buildRegistry } from "../registry";
 import type { HandlerContext } from "../types";

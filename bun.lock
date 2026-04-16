@@ -13,14 +13,14 @@
       },
     },
     "packages/accounts": {
-      "name": "@memory-engine/accounts",
+      "name": "@memory.build/accounts",
       "version": "0.1.3",
       "dependencies": {
         "@pydantic/logfire-node": "^0.13.1",
       },
     },
     "packages/cli": {
-      "name": "@memory-engine/cli",
+      "name": "@memory.build/cli",
       "version": "0.1.3",
       "bin": {
         "me": "./index.ts",
@@ -28,8 +28,8 @@
       "dependencies": {
         "@bomb.sh/tab": "^0.0.12",
         "@clack/prompts": "^0.9.0",
-        "@memory-engine/client": "workspace:*",
-        "@memory-engine/protocol": "workspace:*",
+        "@memory.build/client": "workspace:*",
+        "@memory.build/protocol": "workspace:*",
         "@modelcontextprotocol/sdk": "^1.25.3",
         "commander": "^14.0.0",
         "yaml": "^2.7.0",
@@ -37,10 +37,10 @@
       },
     },
     "packages/client": {
-      "name": "@memory-engine/client",
+      "name": "@memory.build/client",
       "version": "0.1.3",
       "dependencies": {
-        "@memory-engine/protocol": "workspace:*",
+        "@memory.build/protocol": "workspace:*",
       },
       "peerDependencies": {
         "typescript": "^5.0.0",
@@ -50,7 +50,7 @@
       ],
     },
     "packages/embedding": {
-      "name": "@memory-engine/embedding",
+      "name": "@memory.build/embedding",
       "version": "0.1.3",
       "dependencies": {
         "@ai-sdk/openai": "^3.0.0",
@@ -59,14 +59,14 @@
       },
     },
     "packages/engine": {
-      "name": "@memory-engine/engine",
+      "name": "@memory.build/engine",
       "version": "0.1.3",
       "dependencies": {
         "@pydantic/logfire-node": "^0.13.1",
       },
     },
     "packages/protocol": {
-      "name": "@memory-engine/protocol",
+      "name": "@memory.build/protocol",
       "version": "0.1.3",
       "dependencies": {
         "zod": "^4.0.0",
@@ -82,21 +82,21 @@
       "name": "memory-engine-server",
       "version": "0.1.3",
       "dependencies": {
-        "@memory-engine/accounts": "workspace:*",
-        "@memory-engine/embedding": "workspace:*",
-        "@memory-engine/engine": "workspace:*",
-        "@memory-engine/protocol": "workspace:*",
-        "@memory-engine/worker": "workspace:*",
+        "@memory.build/accounts": "workspace:*",
+        "@memory.build/embedding": "workspace:*",
+        "@memory.build/engine": "workspace:*",
+        "@memory.build/protocol": "workspace:*",
+        "@memory.build/worker": "workspace:*",
         "@pydantic/logfire-node": "^0.13.1",
         "zod": "^4.0.0",
       },
     },
     "packages/worker": {
-      "name": "@memory-engine/worker",
+      "name": "@memory.build/worker",
       "version": "0.1.3",
       "dependencies": {
-        "@memory-engine/embedding": "workspace:*",
-        "@memory-engine/engine": "workspace:*",
+        "@memory.build/embedding": "workspace:*",
+        "@memory.build/engine": "workspace:*",
         "@pydantic/logfire-node": "^0.13.1",
       },
     },
@@ -145,19 +145,19 @@
 
     "@js-sdsl/ordered-map": ["@js-sdsl/ordered-map@4.4.2", "", {}, "sha512-iUKgm52T8HOE/makSxjqoWhe95ZJA1/G1sYsGev2JDKUSS14KAgg1LHb+Ba+IPow0xflbnSkOsZcO08C7w1gYw=="],
 
-    "@memory-engine/accounts": ["@memory-engine/accounts@workspace:packages/accounts"],
+    "@memory.build/accounts": ["@memory.build/accounts@workspace:packages/accounts"],
 
-    "@memory-engine/cli": ["@memory-engine/cli@workspace:packages/cli"],
+    "@memory.build/cli": ["@memory.build/cli@workspace:packages/cli"],
 
-    "@memory-engine/client": ["@memory-engine/client@workspace:packages/client"],
+    "@memory.build/client": ["@memory.build/client@workspace:packages/client"],
 
-    "@memory-engine/embedding": ["@memory-engine/embedding@workspace:packages/embedding"],
+    "@memory.build/embedding": ["@memory.build/embedding@workspace:packages/embedding"],
 
-    "@memory-engine/engine": ["@memory-engine/engine@workspace:packages/engine"],
+    "@memory.build/engine": ["@memory.build/engine@workspace:packages/engine"],
 
-    "@memory-engine/protocol": ["@memory-engine/protocol@workspace:packages/protocol"],
+    "@memory.build/protocol": ["@memory.build/protocol@workspace:packages/protocol"],
 
-    "@memory-engine/worker": ["@memory-engine/worker@workspace:packages/worker"],
+    "@memory.build/worker": ["@memory.build/worker@workspace:packages/worker"],
 
     "@modelcontextprotocol/sdk": ["@modelcontextprotocol/sdk@1.29.0", "", { "dependencies": { "@hono/node-server": "^1.19.9", "ajv": "^8.17.1", "ajv-formats": "^3.0.1", "content-type": "^1.0.5", "cors": "^2.8.5", "cross-spawn": "^7.0.5", "eventsource": "^3.0.2", "eventsource-parser": "^3.0.0", "express": "^5.2.1", "express-rate-limit": "^8.2.1", "hono": "^4.11.4", "jose": "^6.1.3", "json-schema-typed": "^8.0.2", "pkce-challenge": "^5.0.0", "raw-body": "^3.0.0", "zod": "^3.25 || ^4.0", "zod-to-json-schema": "^3.25.1" }, "peerDependencies": { "@cfworker/json-schema": "^4.1.1" }, "optionalPeers": ["@cfworker/json-schema"] }, "sha512-zo37mZA9hJWpULgkRpowewez1y6ML5GsXJPY8FI0tBBCd77HEvza4jDqRKOXgHNn867PVGCyTdzqpz0izu5ZjQ=="],
 

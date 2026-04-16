@@ -1,6 +1,6 @@
 import { describe, expect, mock, test } from "bun:test";
-import type { AccountsDB } from "@memory-engine/accounts";
-import type { EngineDB } from "@memory-engine/engine";
+import type { AccountsDB } from "@memory.build/accounts";
+import type { EngineDB } from "@memory.build/engine";
 import type { SQL } from "bun";
 import {
   authenticateAccounts,

@@ -1,5 +1,5 @@
-import type { AccountsDB } from "@memory-engine/accounts";
-import type { EmbeddingConfig } from "@memory-engine/embedding";
+import type { AccountsDB } from "@memory.build/accounts";
+import type { EmbeddingConfig } from "@memory.build/embedding";
 import type { SQL } from "bun";
 
 /**

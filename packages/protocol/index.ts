@@ -1,5 +1,5 @@
 /**
- * @memory-engine/protocol — shared schema package for Memory Engine.
+ * @memory.build/protocol — shared schema package for Memory Engine.
  *
  * Single source of truth for all RPC request/response types between
  * client and server. Both the server (validation) and client libraries

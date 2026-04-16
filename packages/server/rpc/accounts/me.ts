@@ -4,17 +4,17 @@
  * Implements:
  * - me.get: Get the current authenticated identity
  */
-import type { Identity } from "@memory-engine/accounts";
+import type { Identity } from "@memory.build/accounts";
 import type {
   IdentityGetByEmailParams,
   IdentityGetByEmailResult,
   IdentityResponse,
   MeGetParams,
-} from "@memory-engine/protocol/accounts/identity";
+} from "@memory.build/protocol/accounts/identity";
 import {
   identityGetByEmailParams,
   meGetParams,
-} from "@memory-engine/protocol/accounts/identity";
+} from "@memory.build/protocol/accounts/identity";
 import { buildRegistry } from "../registry";
 import type { HandlerContext } from "../types";
 import { assertAccountsRpcContext } from "./types";

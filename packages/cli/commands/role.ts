@@ -9,7 +9,7 @@
  * - me role list-for <user>: List roles a user belongs to (by ID or name)
  */
 import * as clack from "@clack/prompts";
-import { createClient } from "@memory-engine/client";
+import { createClient } from "@memory.build/client";
 import { Command } from "commander";
 import { resolveCredentials } from "../credentials.ts";
 import { getOutputFormat, output, table } from "../output.ts";

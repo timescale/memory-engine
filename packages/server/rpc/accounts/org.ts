@@ -8,7 +8,7 @@
  * - org.update: Update organization name
  * - org.delete: Delete an organization
  */
-import type { Org } from "@memory-engine/accounts";
+import type { Org } from "@memory.build/accounts";
 import type {
   OrgCreateParams,
   OrgDeleteParams,
@@ -16,14 +16,14 @@ import type {
   OrgListParams,
   OrgResponse,
   OrgUpdateParams,
-} from "@memory-engine/protocol/accounts/org";
+} from "@memory.build/protocol/accounts/org";
 import {
   orgCreateParams,
   orgDeleteParams,
   orgGetParams,
   orgListParams,
   orgUpdateParams,
-} from "@memory-engine/protocol/accounts/org";
+} from "@memory.build/protocol/accounts/org";
 import { AppError } from "../errors";
 import { buildRegistry } from "../registry";
 import type { HandlerContext } from "../types";

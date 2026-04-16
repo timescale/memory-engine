@@ -2,11 +2,11 @@
   "name": "memory-engine-server",
   "version": "0.1.4",
   "dependencies": {
-    "@memory-engine/accounts": "workspace:*",
-    "@memory-engine/embedding": "workspace:*",
-    "@memory-engine/engine": "workspace:*",
-    "@memory-engine/protocol": "workspace:*",
-    "@memory-engine/worker": "workspace:*",
+    "@memory.build/accounts": "workspace:*",
+    "@memory.build/embedding": "workspace:*",
+    "@memory.build/engine": "workspace:*",
+    "@memory.build/protocol": "workspace:*",
+    "@memory.build/worker": "workspace:*",
     "@pydantic/logfire-node": "^0.13.1",
     "zod": "^4.0.0"
   },

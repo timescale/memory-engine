@@ -8,8 +8,8 @@
  * - Error handling
  */
 import * as clack from "@clack/prompts";
-import type { AccountsClient, EngineClient } from "@memory-engine/client";
-import { RpcError } from "@memory-engine/client";
+import type { AccountsClient, EngineClient } from "@memory.build/client";
+import { RpcError } from "@memory.build/client";
 import type { ResolvedCredentials } from "./credentials.ts";
 import type { OutputFormat } from "./output.ts";
 import { output } from "./output.ts";

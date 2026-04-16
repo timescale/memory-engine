@@ -1,7 +1,7 @@
 /**
- * Re-export engine schemas from @memory-engine/protocol.
+ * Re-export engine schemas from @memory.build/protocol.
  *
- * @deprecated Import directly from @memory-engine/protocol/engine instead.
+ * @deprecated Import directly from @memory.build/protocol/engine instead.
  */
 
 export {
@@ -16,7 +16,7 @@ export {
   apiKeyGetParams as apiKeyGetSchema,
   apiKeyListParams as apiKeyListSchema,
   apiKeyRevokeParams as apiKeyRevokeSchema,
-} from "@memory-engine/protocol/engine/api-key";
+} from "@memory.build/protocol/engine/api-key";
 export {
   type GrantCheckParams,
   type GrantCreateParams,
@@ -29,7 +29,7 @@ export {
   grantGetParams as grantGetSchema,
   grantListParams as grantListSchema,
   grantRevokeParams as grantRevokeSchema,
-} from "@memory-engine/protocol/engine/grant";
+} from "@memory.build/protocol/engine/grant";
 export {
   type MemoryBatchCreateParams,
   type MemoryCreateParams,
@@ -50,7 +50,7 @@ export {
   memorySearchParams as memorySearchSchema,
   memoryTreeParams as memoryTreeSchema,
   memoryUpdateParams as memoryUpdateSchema,
-} from "@memory-engine/protocol/engine/memory";
+} from "@memory.build/protocol/engine/memory";
 export {
   type OwnerGetParams,
   type OwnerListParams,
@@ -61,7 +61,7 @@ export {
   ownerListParams as ownerListSchema,
   ownerRemoveParams as ownerRemoveSchema,
   ownerSetParams as ownerSetSchema,
-} from "@memory-engine/protocol/engine/owner";
+} from "@memory.build/protocol/engine/owner";
 export {
   type RoleAddMemberParams,
   type RoleCreateParams,
@@ -74,7 +74,7 @@ export {
   roleListForUserParams as roleListForUserSchema,
   roleListMembersParams as roleListMembersSchema,
   roleRemoveMemberParams as roleRemoveMemberSchema,
-} from "@memory-engine/protocol/engine/role";
+} from "@memory.build/protocol/engine/role";
 export {
   type UserCreateParams,
   type UserDeleteParams,
@@ -89,7 +89,7 @@ export {
   userGetParams as userGetSchema,
   userListParams as userListSchema,
   userRenameParams as userRenameSchema,
-} from "@memory-engine/protocol/engine/user";
+} from "@memory.build/protocol/engine/user";
 export {
   // Fields
   grantActionSchema,
@@ -101,4 +101,4 @@ export {
   treeFilterSchema,
   treePathSchema,
   uuidv7Schema,
-} from "@memory-engine/protocol/fields";
+} from "@memory.build/protocol/fields";

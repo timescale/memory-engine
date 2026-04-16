@@ -2,7 +2,7 @@ import {
   type EmbedResult,
   generateEmbeddings,
   RateLimitError,
-} from "@memory-engine/embedding";
+} from "@memory.build/embedding";
 import { info, span } from "@pydantic/logfire-node";
 import type { SQL } from "bun";
 import type { EngineTarget, ProcessResult, WorkerConfig } from "./types";

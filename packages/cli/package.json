@@ -1,5 +1,5 @@
 {
-  "name": "@memory-engine/cli",
+  "name": "@memory.build/cli",
   "version": "0.1.4",
   "description": "CLI for Memory Engine",
   "private": true,
@@ -14,8 +14,8 @@
   "dependencies": {
     "@bomb.sh/tab": "^0.0.12",
     "@clack/prompts": "^0.9.0",
-    "@memory-engine/client": "workspace:*",
-    "@memory-engine/protocol": "workspace:*",
+    "@memory.build/client": "workspace:*",
+    "@memory.build/protocol": "workspace:*",
     "@modelcontextprotocol/sdk": "^1.25.3",
     "commander": "^14.0.0",
     "yaml": "^2.7.0",

@@ -1,17 +1,17 @@
 # TypeScript Client
 
-The `@memory-engine/client` package provides programmatic access to Memory Engine from TypeScript and JavaScript.
+The `@memory.build/client` package provides programmatic access to Memory Engine from TypeScript and JavaScript.
 
 ## Install
 
 ```bash
-npm install @memory-engine/client
+npm install @memory.build/client
 ```
 
 ## Quick start
 
 ```typescript
-import { createClient } from "@memory-engine/client";
+import { createClient } from "@memory.build/client";
 
 const me = createClient({
   url: "https://api.memory.build",
@@ -169,7 +169,7 @@ for (const { memory, score } of results) {
 The client throws `RpcError` for application errors. Each error has a numeric `code` and an optional string `appCode` for programmatic matching.
 
 ```typescript
-import { createClient, RpcError } from "@memory-engine/client";
+import { createClient, RpcError } from "@memory.build/client";
 
 try {
   await me.memory.get({ id: "nonexistent" });

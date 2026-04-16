@@ -9,7 +9,7 @@
  *
  * @example
  * ```ts
- * import { createAuthClient } from "@memory-engine/client";
+ * import { createAuthClient } from "@memory.build/client";
  *
  * const auth = createAuthClient({ url: "https://api.memory.build" });
  *
@@ -26,7 +26,7 @@ import type {
   DeviceCodeResponse,
   DeviceTokenResponse,
   OAuthProvider,
-} from "@memory-engine/protocol/auth/device-flow";
+} from "@memory.build/protocol/auth/device-flow";
 
 // =============================================================================
 // Options

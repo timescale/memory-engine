@@ -1,4 +1,4 @@
-import { RateLimitError } from "@memory-engine/embedding";
+import { RateLimitError } from "@memory.build/embedding";
 import { info, reportError, warning } from "@pydantic/logfire-node";
 import type { SQL } from "bun";
 import { processBatch } from "./process";

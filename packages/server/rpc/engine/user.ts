@@ -9,7 +9,7 @@
  * - user.rename: Rename a user
  * - user.delete: Delete a user
  */
-import type { User } from "@memory-engine/engine";
+import type { User } from "@memory.build/engine";
 import type {
   UserCreateParams,
   UserDeleteParams,
@@ -18,7 +18,7 @@ import type {
   UserListParams,
   UserRenameParams,
   UserResponse,
-} from "@memory-engine/protocol/engine/user";
+} from "@memory.build/protocol/engine/user";
 import {
   userCreateParams,
   userDeleteParams,
@@ -26,7 +26,7 @@ import {
   userGetParams,
   userListParams,
   userRenameParams,
-} from "@memory-engine/protocol/engine/user";
+} from "@memory.build/protocol/engine/user";
 import { AppError } from "../errors";
 import { buildRegistry } from "../registry";
 import type { HandlerContext } from "../types";

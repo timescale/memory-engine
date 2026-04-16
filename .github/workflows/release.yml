@@ -27,18 +27,18 @@ jobs:
       - name: Test (unit)
         run: find packages -name '*.test.ts' ! -name '*.integration.test.ts' -print0 | xargs -0 ./bun test
 
-      - name: Build @memory-engine/protocol
-        run: ./bun run --filter '@memory-engine/protocol' build
+      - name: Build @memory.build/protocol
+        run: ./bun run --filter '@memory.build/protocol' build
 
-      - name: Build @memory-engine/client
-        run: ./bun run --filter '@memory-engine/client' build
+      - name: Build @memory.build/client
+        run: ./bun run --filter '@memory.build/client' build
 
-      - name: Publish @memory-engine/protocol
+      - name: Publish @memory.build/protocol
         run: cd packages/protocol && ../../bun publish --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
-      - name: Publish @memory-engine/client
+      - name: Publish @memory.build/client
         run: cd packages/client && ../../bun publish --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

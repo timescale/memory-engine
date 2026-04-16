@@ -4,8 +4,8 @@
  * Implements:
  * - session.revoke: Revoke the current session (logout)
  */
-import type { SessionRevokeParams } from "@memory-engine/protocol/accounts/session";
-import { sessionRevokeParams } from "@memory-engine/protocol/accounts/session";
+import type { SessionRevokeParams } from "@memory.build/protocol/accounts/session";
+import { sessionRevokeParams } from "@memory.build/protocol/accounts/session";
 import { buildRegistry } from "../registry";
 import type { HandlerContext } from "../types";
 import { type AccountsRpcContext, assertAccountsRpcContext } from "./types";

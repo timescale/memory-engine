@@ -12,8 +12,8 @@
  * - memory.move: Move memories from one tree path to another
  * - memory.deleteTree: Delete all memories under a tree path
  */
-import { generateEmbedding } from "@memory-engine/embedding";
-import type { Memory, SearchResult, TreeNode } from "@memory-engine/engine";
+import { generateEmbedding } from "@memory.build/embedding";
+import type { Memory, SearchResult, TreeNode } from "@memory.build/engine";
 import type {
   MemoryBatchCreateParams,
   MemoryCreateParams,
@@ -26,7 +26,7 @@ import type {
   MemorySearchResult,
   MemoryTreeParams,
   MemoryUpdateParams,
-} from "@memory-engine/protocol/engine/memory";
+} from "@memory.build/protocol/engine/memory";
 import {
   memoryBatchCreateParams,
   memoryCreateParams,
@@ -37,7 +37,7 @@ import {
   memorySearchParams,
   memoryTreeParams,
   memoryUpdateParams,
-} from "@memory-engine/protocol/engine/memory";
+} from "@memory.build/protocol/engine/memory";
 import { AppError } from "../errors";
 import { buildRegistry } from "../registry";
 import type { HandlerContext } from "../types";

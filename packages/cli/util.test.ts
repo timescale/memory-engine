@@ -4,7 +4,7 @@
  * Tests resolution functions with mocked clients.
  */
 import { describe, expect, mock, test } from "bun:test";
-import type { EngineClient } from "@memory-engine/client";
+import type { EngineClient } from "@memory.build/client";
 
 // We test the exported functions via dynamic import to avoid
 // pulling in @clack/prompts at top level (it touches process.stdin).

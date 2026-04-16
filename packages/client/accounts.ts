@@ -6,7 +6,7 @@
  *
  * @example
  * ```ts
- * import { createAccountsClient } from "@memory-engine/client";
+ * import { createAccountsClient } from "@memory.build/client";
  *
  * const accounts = createAccountsClient({ sessionToken: "..." });
  *
@@ -55,7 +55,7 @@ import type {
   OrgResponse,
   OrgUpdateParams,
   SessionRevokeResult,
-} from "@memory-engine/protocol/accounts";
+} from "@memory.build/protocol/accounts";
 import { rpcCall, type TransportConfig } from "./transport.ts";
 
 // =============================================================================

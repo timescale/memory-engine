@@ -9,7 +9,7 @@ import { spawnSync } from "node:child_process";
 import { unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { EngineClient } from "@memory-engine/client";
+import type { EngineClient } from "@memory.build/client";
 import { stringify as yamlStringify } from "yaml";
 import { parseMarkdown } from "../parsers/markdown.ts";
 

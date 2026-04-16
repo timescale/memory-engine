@@ -5,8 +5,8 @@
  * Each instance is locked to a single engine via its API key.
  */
 
-import type { EngineClient } from "@memory-engine/client";
-import { createClient } from "@memory-engine/client";
+import type { EngineClient } from "@memory.build/client";
+import { createClient } from "@memory.build/client";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { stringify as yamlStringify } from "yaml";

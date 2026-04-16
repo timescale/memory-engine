@@ -27,7 +27,7 @@ cli:
 
 # TypeScript client
 sdk:
-  install: npm i @memory-engine/client
+  install: npm i @memory.build/client
   description: Programmatic access for agents and applications.
 
 # Search capabilities

@@ -1,5 +1,5 @@
 {
-  "name": "@memory-engine/client",
+  "name": "@memory.build/client",
   "version": "0.1.4",
   "description": "Client library for Memory Engine",
   "homepage": "https://memoryengine.dev",
@@ -31,7 +31,7 @@
     "prepublishOnly": "bun run build"
   },
   "dependencies": {
-    "@memory-engine/protocol": "workspace:*"
+    "@memory.build/protocol": "workspace:*"
   },
   "peerDependencies": {
     "typescript": "^5.0.0"

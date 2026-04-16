@@ -1,5 +1,5 @@
 {
-  "name": "@memory-engine/embedding",
+  "name": "@memory.build/embedding",
   "version": "0.1.4",
   "private": true,
   "type": "module",

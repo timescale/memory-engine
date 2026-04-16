@@ -1,7 +1,7 @@
 /**
- * Re-export accounts schemas from @memory-engine/protocol.
+ * Re-export accounts schemas from @memory.build/protocol.
  *
- * @deprecated Import directly from @memory-engine/protocol/accounts instead.
+ * @deprecated Import directly from @memory.build/protocol/accounts instead.
  */
 
 export {
@@ -16,7 +16,7 @@ export {
   engineListParams as engineListSchema,
   engineSetupAccessParams as engineSetupAccessSchema,
   engineUpdateParams as engineUpdateSchema,
-} from "@memory-engine/protocol/accounts/engine";
+} from "@memory.build/protocol/accounts/engine";
 
 export {
   type IdentityGetByEmailParams,
@@ -24,7 +24,7 @@ export {
   type MeGetParams,
   // Identity params
   meGetParams as meGetSchema,
-} from "@memory-engine/protocol/accounts/identity";
+} from "@memory.build/protocol/accounts/identity";
 export {
   type InvitationAcceptParams,
   type InvitationCreateParams,
@@ -35,7 +35,7 @@ export {
   invitationCreateParams as invitationCreateSchema,
   invitationListParams as invitationListSchema,
   invitationRevokeParams as invitationRevokeSchema,
-} from "@memory-engine/protocol/accounts/invitation";
+} from "@memory.build/protocol/accounts/invitation";
 
 export {
   type OrgCreateParams,
@@ -49,7 +49,7 @@ export {
   orgGetParams as orgGetSchema,
   orgListParams as orgListSchema,
   orgUpdateParams as orgUpdateSchema,
-} from "@memory-engine/protocol/accounts/org";
+} from "@memory.build/protocol/accounts/org";
 
 export {
   type OrgMemberAddParams,
@@ -61,12 +61,12 @@ export {
   orgMemberListParams as orgMemberListSchema,
   orgMemberRemoveParams as orgMemberRemoveSchema,
   orgMemberUpdateRoleParams as orgMemberUpdateRoleSchema,
-} from "@memory-engine/protocol/accounts/org-member";
+} from "@memory.build/protocol/accounts/org-member";
 export {
   type SessionRevokeParams,
   // Session params
   sessionRevokeParams as sessionRevokeSchema,
-} from "@memory-engine/protocol/accounts/session";
+} from "@memory.build/protocol/accounts/session";
 export {
   // Fields
   emailSchema,
@@ -74,4 +74,4 @@ export {
   nameSchema,
   orgRoleSchema,
   uuidv7Schema,
-} from "@memory-engine/protocol/fields";
+} from "@memory.build/protocol/fields";

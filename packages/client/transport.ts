@@ -7,7 +7,7 @@
 import type {
   JsonRpcErrorResponse,
   JsonRpcResponse,
-} from "@memory-engine/protocol/jsonrpc";
+} from "@memory.build/protocol/jsonrpc";
 import { RpcError } from "./errors.ts";
 
 // =============================================================================

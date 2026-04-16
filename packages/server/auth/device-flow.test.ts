@@ -8,7 +8,7 @@ import type {
   AccountsDB,
   CreateDeviceAuthParams,
   DeviceAuthorization,
-} from "@memory-engine/accounts";
+} from "@memory.build/accounts";
 import {
   authorizeDevice,
   checkPollRateLimit,

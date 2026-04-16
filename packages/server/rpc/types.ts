@@ -1,7 +1,7 @@
 /**
  * RPC types — re-exports protocol types and defines server-internal types.
  *
- * JSON-RPC envelope types come from @memory-engine/protocol.
+ * JSON-RPC envelope types come from @memory.build/protocol.
  * Server-internal types (HandlerContext, MethodHandler, etc.) are defined here.
  */
 import type { z } from "zod";
@@ -13,7 +13,7 @@ export type {
   JsonRpcRequest,
   JsonRpcResponse,
   JsonRpcSuccessResponse,
-} from "@memory-engine/protocol/jsonrpc";
+} from "@memory.build/protocol/jsonrpc";
 
 // =============================================================================
 // Server-Internal Types

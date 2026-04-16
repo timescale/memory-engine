@@ -9,8 +9,8 @@
  * - GET  /api/v1/auth/callback/:provider - OAuth callback
  */
 
-import type { AccountsDB, Identity } from "@memory-engine/accounts";
-import { type EngineConfig, provisionEngine } from "@memory-engine/engine";
+import type { AccountsDB, Identity } from "@memory.build/accounts";
+import { type EngineConfig, provisionEngine } from "@memory.build/engine";
 import { info, reportError } from "@pydantic/logfire-node";
 import type { SQL } from "bun";
 import {

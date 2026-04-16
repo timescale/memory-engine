@@ -9,12 +9,12 @@
  * - engine.delete: Delete an engine (mark deleted + drop schema)
  * - engine.setupAccess: Bootstrap engine access for a session-authenticated identity
  */
-import type { Engine } from "@memory-engine/accounts";
+import type { Engine } from "@memory.build/accounts";
 import {
   createEngineDB,
   type EngineConfig,
   provisionEngine,
-} from "@memory-engine/engine";
+} from "@memory.build/engine";
 import type {
   EngineCreateParams,
   EngineDeleteParams,
@@ -24,7 +24,7 @@ import type {
   EngineSetupAccessParams,
   EngineSetupAccessResult,
   EngineUpdateParams,
-} from "@memory-engine/protocol/accounts/engine";
+} from "@memory.build/protocol/accounts/engine";
 import {
   engineCreateParams,
   engineDeleteParams,
@@ -32,7 +32,7 @@ import {
   engineListParams,
   engineSetupAccessParams,
   engineUpdateParams,
-} from "@memory-engine/protocol/accounts/engine";
+} from "@memory.build/protocol/accounts/engine";
 import { embeddingConstants } from "../../config";
 import { AppError } from "../errors";
 import { buildRegistry } from "../registry";

@@ -7,7 +7,7 @@
  * - me apikey delete <id>: Permanently delete an API key
  */
 import * as clack from "@clack/prompts";
-import { createClient } from "@memory-engine/client";
+import { createClient } from "@memory.build/client";
 import { Command } from "commander";
 import { resolveCredentials } from "../credentials.ts";
 import { getOutputFormat, output, table } from "../output.ts";

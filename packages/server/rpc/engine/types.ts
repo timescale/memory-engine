@@ -3,8 +3,8 @@
  *
  * Extends the base HandlerContext with engine-specific fields.
  */
-import type { EmbeddingConfig } from "@memory-engine/embedding";
-import type { EngineDB } from "@memory-engine/engine";
+import type { EmbeddingConfig } from "@memory.build/embedding";
+import type { EngineDB } from "@memory.build/engine";
 import type { EngineInfo } from "../../middleware/authenticate";
 import type { HandlerContext } from "../types";
 

@@ -6,7 +6,7 @@
  *
  * @example
  * ```ts
- * import { createClient } from "@memory-engine/client";
+ * import { createClient } from "@memory.build/client";
  *
  * const me = createClient({ apiKey: "me.xxx.yyy" });
  *
@@ -83,7 +83,7 @@ import type {
   UserRenameParams,
   UserRenameResult,
   UserResponse,
-} from "@memory-engine/protocol/engine";
+} from "@memory.build/protocol/engine";
 import { rpcCall, type TransportConfig } from "./transport.ts";
 
 // =============================================================================

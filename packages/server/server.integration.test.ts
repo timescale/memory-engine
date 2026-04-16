@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, mock, test } from "bun:test";
-import type { AccountsDB } from "@memory-engine/accounts";
-import type { EmbeddingConfig } from "@memory-engine/embedding";
+import type { AccountsDB } from "@memory.build/accounts";
+import type { EmbeddingConfig } from "@memory.build/embedding";
 import type { SQL } from "bun";
 import { APP_VERSION } from "../../version";
 import type { ServerContext } from "./context";

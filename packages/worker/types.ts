@@ -1,4 +1,4 @@
-import type { EmbeddingConfig } from "@memory-engine/embedding";
+import type { EmbeddingConfig } from "@memory.build/embedding";
 
 export interface EngineTarget {
   schema: string;
