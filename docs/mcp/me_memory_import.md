@@ -14,54 +14,13 @@ Parses the input according to the specified format and creates all memories in o
 
 One of `path` or `content` must be provided.
 
-### Format specifications
+### Supported formats
 
-**JSON** -- a JSON array of memory objects:
+JSON (array or single object), NDJSON, YAML (array or single object), and Markdown (YAML frontmatter + body, one memory per file).
 
-```json
-[
-  {
-    "content": "First memory",
-    "tree": "notes",
-    "meta": { "source": "import" }
-  },
-  {
-    "content": "Second memory",
-    "tree": "notes"
-  }
-]
-```
+Each memory object supports fields: `id`, `content` (required), `meta`, `tree`, `temporal`.
 
-**YAML** -- a YAML array of memory objects:
-
-```yaml
-- content: First memory
-  tree: notes
-  meta:
-    source: import
-- content: Second memory
-  tree: notes
-```
-
-**Markdown** -- memories separated by frontmatter blocks:
-
-```markdown
----
-tree: notes
-meta:
-  source: import
----
-
-First memory
-
----
-tree: notes
----
-
-Second memory
-```
-
-Each memory object supports: `id`, `content`, `meta`, `tree`, `temporal`.
+See [File Formats](../formats.md) for full schema documentation, examples, and format detection rules.
 
 ## Returns
 

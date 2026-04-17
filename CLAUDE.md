@@ -8,6 +8,7 @@ All project documentation lives in `docs/`:
 
 - [Getting Started](docs/getting-started.md) -- install, login, first memory
 - [Core Concepts](docs/concepts.md) -- memories, tree paths, metadata, search modes
+- [File Formats](docs/formats.md) -- JSON, YAML, Markdown, NDJSON import/export schemas
 - [Access Control](docs/access-control.md) -- users, roles, grants, ownership
 - [Memory Packs](docs/memory-packs.md) -- pre-built knowledge collections
 - [MCP Integration](docs/mcp-integration.md) -- connecting AI agents

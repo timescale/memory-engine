@@ -229,7 +229,7 @@ me memory import [files...] [options]
 | `--dry-run` | Validate without importing. |
 | `-v, --verbose` | Show per-file status output. |
 
-Supports Markdown (with YAML frontmatter), YAML, JSON, and NDJSON. Format is auto-detected from file extension or content.
+Supports Markdown (with YAML frontmatter), YAML, JSON, and NDJSON. Format is auto-detected from file extension or content. See [File Formats](../formats.md) for full schema documentation.
 
 ---
 
@@ -255,4 +255,4 @@ me memory export [file] [options]
 | `--temporal-overlaps <range>` | Memory must overlap this range. |
 | `--temporal-within <range>` | Memory must be within this range. |
 
-For `md` format with a directory output, each memory is written as an individual `.md` file with YAML frontmatter. Exported content is compatible with `me memory import`.
+For `md` format with a directory output, each memory is written as an individual `.md` file with YAML frontmatter. Exported content is compatible with `me memory import`. See [File Formats](../formats.md) for full schema documentation.

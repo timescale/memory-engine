@@ -87,3 +87,4 @@ Prefer `path` to write directly to a file instead of returning content through t
 - The exported content is directly compatible with [me_memory_import](me_memory_import.md). Exported files can be re-imported directly.
 - Results are sorted in ascending order by creation time.
 - The `tree` filter uses the same syntax as `me_memory_search` -- use `work.*` for descendants, bare `work` for exact match.
+- See [File Formats](../formats.md) for full schema documentation and format details.
