@@ -402,6 +402,7 @@ function createMemoryUpdateCommand(): Command {
 
 function createMemoryDeleteCommand(): Command {
   return new Command("delete")
+    .alias("rm")
     .description("delete a memory by ID, or all memories under a tree path")
     .argument("<id-or-tree>", "memory ID (UUIDv7) or tree path")
     .option("--dry-run", "preview what would be deleted (tree mode)")

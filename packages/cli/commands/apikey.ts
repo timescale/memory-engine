@@ -20,6 +20,7 @@ import {
 
 function createApiKeyListCommand(): Command {
   return new Command("list")
+    .alias("ls")
     .description("list API keys for a user")
     .argument("<user>", "user name or ID")
     .action(async (user: string, _opts, cmd) => {
@@ -129,6 +130,7 @@ function createApiKeyRevokeCommand(): Command {
 
 function createApiKeyDeleteCommand(): Command {
   return new Command("delete")
+    .alias("rm")
     .description("permanently delete an API key")
     .argument("<id>", "API key ID")
     .option("-y, --yes", "skip confirmation prompt")

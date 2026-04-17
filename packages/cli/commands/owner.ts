@@ -104,6 +104,7 @@ function createOwnerGetCommand(): Command {
 
 function createOwnerListCommand(): Command {
   return new Command("list")
+    .alias("ls")
     .description("list ownership records")
     .argument("[user]", "filter by user name or ID (optional)")
     .action(async (user: string | undefined, _opts, cmd) => {

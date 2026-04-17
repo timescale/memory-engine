@@ -28,6 +28,7 @@ import {
 
 function createOrgListCommand(): Command {
   return new Command("list")
+    .alias("ls")
     .description("list your organizations")
     .action(async (_opts, cmd) => {
       const globalOpts = cmd.optsWithGlobals();
@@ -90,6 +91,7 @@ function createOrgCreateCommand(): Command {
 
 function createOrgDeleteCommand(): Command {
   return new Command("delete")
+    .alias("rm")
     .description("delete an organization")
     .argument("<name-or-id>", "organization name, slug, or ID")
     .option("-y, --yes", "skip confirmation prompt")
@@ -139,6 +141,7 @@ function createOrgDeleteCommand(): Command {
 
 function createOrgMemberListCommand(): Command {
   return new Command("list")
+    .alias("ls")
     .description("list organization members")
     .argument("[org]", "organization name, slug, or ID")
     .option("--org <name-or-id>", "organization name, slug, or ID")

@@ -64,6 +64,7 @@ function createInvitationCreateCommand(): Command {
 
 function createInvitationListCommand(): Command {
   return new Command("list")
+    .alias("ls")
     .description("list pending invitations")
     .argument("[org]", "organization name, slug, or ID")
     .option("--org <name-or-id>", "organization name, slug, or ID")

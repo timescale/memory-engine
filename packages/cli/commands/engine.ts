@@ -72,6 +72,7 @@ async function fetchAllEngines(
  */
 function createEngineListCommand(): Command {
   return new Command("list")
+    .alias("ls")
     .description("list engines across all your organizations")
     .action(async (_opts, cmd) => {
       const globalOpts = cmd.optsWithGlobals();
@@ -379,6 +380,7 @@ function createEngineCreateCommand(): Command {
  */
 function createEngineDeleteCommand(): Command {
   return new Command("delete")
+    .alias("rm")
     .description("permanently delete an engine and all its data")
     .argument("<id-or-name>", "engine ID or name")
     .option("--force", "skip confirmation prompt")

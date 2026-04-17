@@ -244,6 +244,7 @@ function createPackInstallCommand(): Command {
 
 function createPackListCommand(): Command {
   return new Command("list")
+    .alias("ls")
     .description("list installed packs in the active engine")
     .action(async (_opts, cmd) => {
       const globalOpts = cmd.optsWithGlobals();

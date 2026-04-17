@@ -21,6 +21,7 @@ import {
 
 function createUserListCommand(): Command {
   return new Command("list")
+    .alias("ls")
     .description("list users in the active engine")
     .option("--login-only", "only show users that can login")
     .action(async (opts, cmd) => {
@@ -137,6 +138,7 @@ function createUserGetCommand(): Command {
 
 function createUserDeleteCommand(): Command {
   return new Command("delete")
+    .alias("rm")
     .description("delete a user")
     .argument("<id-or-name>", "user ID or name")
     .option("-y, --yes", "skip confirmation prompt")

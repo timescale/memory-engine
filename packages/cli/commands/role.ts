@@ -52,6 +52,7 @@ function createRoleCreateCommand(): Command {
 
 function createRoleListCommand(): Command {
   return new Command("list")
+    .alias("ls")
     .description("list all roles")
     .action(async (_opts, cmd) => {
       const globalOpts = cmd.optsWithGlobals();
