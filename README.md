@@ -7,7 +7,7 @@ Memory Engine gives AI coding agents a persistent memory layer they can read fro
 ## Install
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/timescale/memory-engine/main/install.sh | sh
+curl -fsSL https://install.memory.build | sh && me mcp install
 ```
 
 ## Quick start

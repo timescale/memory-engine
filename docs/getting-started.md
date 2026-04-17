@@ -5,7 +5,7 @@ Memory Engine is permanent memory for AI agents. Store, search, and organize kno
 ## Install
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/timescale/memory-engine/main/install.sh | sh
+curl -fsSL https://install.memory.build | sh && me mcp install
 ```
 
 This installs the `me` binary to `~/.local/bin`. Make sure it's on your PATH.
