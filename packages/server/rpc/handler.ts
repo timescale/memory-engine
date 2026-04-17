@@ -127,11 +127,33 @@ export async function handleRpcRequest(
       return json(invalidParams(requestId, formatZodError(paramsResult.error)));
     }
 
+    // Build identity attributes from auth context
+    const identityAttrs: Record<string, string> = {};
+    const ctx = context as Record<string, unknown>;
+    if (ctx.engine && typeof ctx.engine === "object") {
+      const engine = ctx.engine as {
+        id?: string;
+        orgId?: string;
+        slug?: string;
+      };
+      if (engine.id) identityAttrs["engine.id"] = engine.id;
+      if (engine.orgId) identityAttrs["org.id"] = engine.orgId;
+      if (engine.slug) identityAttrs["engine.slug"] = engine.slug;
+    }
+    if (typeof ctx.userId === "string") identityAttrs["user.id"] = ctx.userId;
+    if (typeof ctx.apiKeyId === "string")
+      identityAttrs["api_key.id"] = ctx.apiKeyId;
+    if (ctx.identity && typeof ctx.identity === "object") {
+      const identity = ctx.identity as { id?: string };
+      if (identity.id) identityAttrs["identity.id"] = identity.id;
+    }
+
     // Execute handler in a span
     const result = await span(`rpc.${rpcRequest.method}`, {
       attributes: {
         "rpc.method": rpcRequest.method,
         "rpc.request_id": String(requestId),
+        ...identityAttrs,
       },
       callback: async () => {
         const handlerContext: HandlerContext = {
