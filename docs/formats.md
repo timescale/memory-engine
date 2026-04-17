@@ -157,10 +157,10 @@ No metadata, tree, or temporal information.
 
 ### Markdown export
 
-When exporting to Markdown:
+When exporting to Markdown, each memory is written as an individual `{id}.md` file in a directory. Frontmatter includes `created_at` (CLI only) in addition to the standard fields. The `created_at` field is informational and is ignored on re-import.
 
-- **CLI**: writes a directory of `.md` files, one per memory, named `{id}.md`. Frontmatter includes `created_at` in addition to the standard fields. The `created_at` field is informational and is ignored on re-import.
-- **MCP**: returns a single string with memories concatenated. Each memory has its own frontmatter block.
+- **CLI**: requires a directory path when exporting multiple memories. Single-memory export to stdout is allowed.
+- **MCP**: when `path` is provided, creates or uses it as a directory of `.md` files. When `path` is null (inline), only single-memory export is allowed -- multiple memories will return an error asking for a directory path.
 
 ---
 

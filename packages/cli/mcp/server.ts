@@ -5,6 +5,9 @@
  * Each instance is locked to a single engine via its API key.
  */
 
+import { existsSync, mkdirSync, statSync, writeFileSync } from "node:fs";
+import { readFile } from "node:fs/promises";
+import { join, resolve } from "node:path";
 import type { EngineClient } from "@memory.build/client";
 import { createClient } from "@memory.build/client";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -12,6 +15,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { stringify as yamlStringify } from "yaml";
 import { z } from "zod";
 import { APP_VERSION } from "../../../version";
+import { formatMemoryAsMarkdown } from "../commands/memory.ts";
 import {
   detectFormatFromExtension,
   type ImportFormat,
@@ -466,7 +470,7 @@ Docs: ${docUrl("me_memory_tree")}`,
     "me_memory_import",
     {
       title: "Import Memories",
-      description: `Bulk import memories from a file or content string. Parses the content according to the specified format and creates all memories in one batch.
+      description: `Bulk import memories from a file, directory, or content string. Parses the content according to the specified format and creates all memories in one batch.
 
 Token-efficient: prefer \`path\` over \`content\` to avoid passing large payloads through the conversation.
 
@@ -476,7 +480,7 @@ Docs: ${docUrl("me_memory_import")}`,
           .string()
           .nullable()
           .describe(
-            "Absolute file path to import from. Format is inferred from extension (.json, .yaml, .yml, .md). Mutually exclusive with content.",
+            "Absolute path to a file or directory. Directories are imported recursively. Format is inferred from extension (.json, .yaml, .yml, .md, .ndjson, .jsonl). Mutually exclusive with content.",
           ),
         content: z
           .string()
@@ -499,39 +503,94 @@ Docs: ${docUrl("me_memory_import")}`,
       },
     },
     async (args) => {
-      let rawContent: string;
-      let format: ImportFormat | undefined;
+      const format = (args.format as ImportFormat) ?? undefined;
+      const allMemories: Array<{
+        content: string;
+        id?: string;
+        meta?: Record<string, unknown>;
+        tree?: string;
+        temporal?: { start: string; end?: string };
+      }> = [];
 
       if (args.path) {
-        const file = Bun.file(args.path);
-        if (!(await file.exists())) {
+        const resolved = resolve(args.path);
+        if (!existsSync(resolved)) {
           throw new Error(`File not found: ${args.path}`);
         }
-        rawContent = await file.text();
-        const detected = detectFormatFromExtension(args.path);
-        format = (args.format as ImportFormat) ?? detected ?? undefined;
+
+        const stat = statSync(resolved);
+        if (stat.isDirectory()) {
+          // Recursively collect and parse all supported files
+          const glob = new Bun.Glob(
+            "**/*.{md,markdown,yaml,yml,json,ndjson,jsonl}",
+          );
+          const files: string[] = [];
+          for await (const file of glob.scan({
+            cwd: resolved,
+            absolute: true,
+          })) {
+            files.push(file);
+          }
+          files.sort();
+
+          if (files.length === 0) {
+            throw new Error(
+              `No supported files found in directory: ${args.path}`,
+            );
+          }
+
+          for (const filePath of files) {
+            const rawContent = await readFile(filePath, "utf-8");
+            const detected = detectFormatFromExtension(filePath);
+            const memories = parseContent(rawContent, {
+              format: format ?? detected ?? undefined,
+              filename: filePath,
+            });
+            for (const mem of memories) {
+              allMemories.push({
+                content: mem.content,
+                ...(mem.id ? { id: mem.id } : {}),
+                ...(mem.meta ? { meta: mem.meta } : {}),
+                ...(mem.tree ? { tree: mem.tree } : {}),
+                ...(mem.temporal ? { temporal: mem.temporal } : {}),
+              });
+            }
+          }
+        } else {
+          // Single file
+          const rawContent = await readFile(resolved, "utf-8");
+          const detected = detectFormatFromExtension(args.path);
+          const memories = parseContent(rawContent, {
+            format: format ?? detected ?? undefined,
+            filename: args.path,
+          });
+          for (const mem of memories) {
+            allMemories.push({
+              content: mem.content,
+              ...(mem.id ? { id: mem.id } : {}),
+              ...(mem.meta ? { meta: mem.meta } : {}),
+              ...(mem.tree ? { tree: mem.tree } : {}),
+              ...(mem.temporal ? { temporal: mem.temporal } : {}),
+            });
+          }
+        }
       } else if (args.content) {
-        rawContent = args.content;
-        format = (args.format as ImportFormat) ?? undefined;
+        const memories = parseContent(args.content, { format });
+        for (const mem of memories) {
+          allMemories.push({
+            content: mem.content,
+            ...(mem.id ? { id: mem.id } : {}),
+            ...(mem.meta ? { meta: mem.meta } : {}),
+            ...(mem.tree ? { tree: mem.tree } : {}),
+            ...(mem.temporal ? { temporal: mem.temporal } : {}),
+          });
+        }
       } else {
         throw new Error("Either path or content is required.");
       }
 
-      const memories = parseContent(rawContent, {
-        format,
-        filename: args.path ?? undefined,
-      });
-
-      const createParams = memories.map((mem) => ({
-        content: mem.content,
-        ...(mem.id ? { id: mem.id } : {}),
-        ...(mem.meta ? { meta: mem.meta } : {}),
-        ...(mem.tree ? { tree: mem.tree } : {}),
-        ...(mem.temporal ? { temporal: mem.temporal } : {}),
-      }));
-
       const result = await client.memory.batchCreate({
-        memories: createParams,
+        memories: allMemories,
       });
 
       return {
@@ -597,7 +656,7 @@ Docs: ${docUrl("me_memory_export")}`,
           .string()
           .nullable()
           .describe(
-            "Absolute file path to write to. If provided, content is written to the file and not returned inline. Null to return content inline.",
+            "Absolute file or directory path to write to. For md format, use a directory path to write one .md file per memory. Null to return content inline.",
           ),
       },
       annotations: {
@@ -638,22 +697,86 @@ Docs: ${docUrl("me_memory_export")}`,
         ...(r.temporal ? { temporal: r.temporal } : {}),
       }));
 
-      let content: string;
       const format = args.format as "json" | "yaml" | "md";
 
+      // Markdown with directory path: write one .md file per memory
+      if (format === "md" && args.path) {
+        const resolved = resolve(args.path);
+        if (!existsSync(resolved)) {
+          mkdirSync(resolved, { recursive: true });
+        }
+        const stat = statSync(resolved);
+        if (stat.isDirectory()) {
+          for (const mem of memories) {
+            const filename = `${mem.id}.md`;
+            const filepath = join(resolved, filename);
+            writeFileSync(filepath, formatMemoryAsMarkdown(mem), "utf-8");
+          }
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: JSON.stringify(
+                  { count: memories.length, directory: args.path },
+                  null,
+                  2,
+                ),
+              },
+            ],
+          };
+        }
+        // path exists but is a file — write single memory
+        if (memories.length > 1) {
+          throw new Error(
+            `Cannot write ${memories.length} memories to a single Markdown file. Specify a directory path for multi-memory Markdown export.`,
+          );
+        }
+        if (memories.length === 1 && memories[0]) {
+          await Bun.write(args.path, formatMemoryAsMarkdown(memories[0]));
+        }
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: JSON.stringify(
+                { count: memories.length, path: args.path },
+                null,
+                2,
+              ),
+            },
+          ],
+        };
+      }
+
+      // Markdown inline: only allowed for single memory
+      if (format === "md" && !args.path) {
+        if (memories.length > 1) {
+          throw new Error(
+            `Cannot return ${memories.length} memories as inline Markdown. Specify a directory path for multi-memory Markdown export.`,
+          );
+        }
+        const content =
+          memories.length === 1 && memories[0]
+            ? formatMemoryAsMarkdown(memories[0])
+            : "";
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: JSON.stringify(
+                { count: memories.length, content },
+                null,
+                2,
+              ),
+            },
+          ],
+        };
+      }
+
+      // JSON / YAML
+      let content: string;
       if (format === "yaml") {
         content = yamlStringify(memories, { lineWidth: 0 });
-      } else if (format === "md") {
-        content = memories
-          .map((mem: Record<string, unknown>) => {
-            const fm: Record<string, unknown> = { id: mem.id };
-            if (mem.meta) fm.meta = mem.meta;
-            if (mem.tree) fm.tree = mem.tree;
-            if (mem.temporal) fm.temporal = mem.temporal;
-            const yaml = yamlStringify(fm, { lineWidth: 0 }).trimEnd();
-            return `---\n${yaml}\n---\n\n${mem.content}\n`;
-          })
-          .join("\n");
       } else {
         content = JSON.stringify(memories, null, 2);
       }
