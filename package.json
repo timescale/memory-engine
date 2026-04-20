@@ -1,6 +1,6 @@
 {
   "name": "memory-engine",
-  "version": "0.1.15",
+  "version": "0.1.16",
   "module": "index.ts",
   "type": "module",
   "private": true,
