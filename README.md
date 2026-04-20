@@ -10,6 +10,20 @@ Memory Engine gives AI coding agents a persistent memory layer they can read fro
 curl -fsSL https://install.memory.build | sh && me mcp install
 ```
 
+Alternative install methods:
+
+### Homebrew
+
+```bash
+brew install timescale/tap/me
+```
+
+### NPM
+
+```bash
+npm i -g @memory.build/cli
+```
+
 ## Quick start
 
 ```bash

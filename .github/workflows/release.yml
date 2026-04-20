@@ -44,8 +44,7 @@ jobs:
     # Unsigned Bun-compiled darwin binaries are killed by macOS at launch.
     runs-on: macos-latest
     permissions:
-      contents: write
-      id-token: write
+      contents: read
 
     steps:
       - uses: actions/checkout@v6
@@ -63,14 +62,85 @@ jobs:
             shasum -a 256 "$file" > "${file}.sha256"
           done
 
+      - name: Upload CLI artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: me-binaries
+          path: dist/me-*
+
+  release-cli:
+    runs-on: ubuntu-latest
+    needs: build-cli
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Download CLI artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: me-binaries
+          path: ./dist
+
+      - name: List artifacts
+        run: ls -la ./dist
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v3
         with:
-          files: dist/me-*
+          files: ./dist/*
           generate_release_notes: true
+
+  publish-cli-npm:
+    runs-on: ubuntu-latest
+    needs: build-cli
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Download CLI artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: me-binaries
+          path: ./dist
+
+      - name: List artifacts
+        run: ls -la ./dist
 
       - name: Publish to npm
         run: |
           ./bun run scripts/npm/publish.ts \
+            --version "${GITHUB_REF_NAME#v}" \
+            --binaries-dir ./dist
+
+  publish-homebrew:
+    runs-on: ubuntu-latest
+    needs:
+      - build-cli
+      - release-cli
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Download CLI artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: me-binaries
+          path: ./dist
+
+      - name: List artifacts
+        run: ls -la ./dist
+
+      - name: Update Homebrew formula
+        env:
+          HOMEBREW_TAP_GITHUB_TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
+        run: |
+          ./bun run scripts/brew/update-formula.ts \
             --version "${GITHUB_REF_NAME#v}" \
             --binaries-dir ./dist
