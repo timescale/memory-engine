@@ -2,8 +2,7 @@
  * me memory — memory management commands.
  *
  * - me memory create [content]: Create a memory
- * - me memory get <id>: Get a memory by ID
- * - me memory view <id>: View a memory rendered in the terminal
+ * - me memory get <id>: Get a memory by ID (ANSI-rendered in TTY, raw markdown when piped)
  * - me memory search [query]: Hybrid search
  * - me memory update <id>: Update a memory
  * - me memory delete <id-or-tree>: Delete memory or tree
@@ -154,7 +153,7 @@ function createMemoryGetCommand(): Command {
   return new Command("get")
     .description("get a memory by ID")
     .argument("<id>", "memory ID")
-    .option("--md", "output as Markdown with YAML frontmatter")
+    .option("--raw", "output raw Markdown with YAML frontmatter (no ANSI)")
     .action(async (id: string, opts, cmd) => {
       const globalOpts = cmd.optsWithGlobals();
       const creds = resolveCredentials(globalOpts.server);
@@ -167,7 +166,14 @@ function createMemoryGetCommand(): Command {
       try {
         const memory = await engine.memory.get({ id });
 
-        if (opts.md) {
+        // --json / --yaml: structured output
+        if (fmt !== "text") {
+          output(memory, fmt, () => {});
+          return;
+        }
+
+        // --raw or piped/redirected: raw Markdown with YAML frontmatter
+        if (opts.raw || !process.stdout.isTTY) {
           console.log(
             formatMemoryAsMarkdown(
               memory as unknown as Record<string, unknown>,
@@ -176,21 +182,24 @@ function createMemoryGetCommand(): Command {
           return;
         }
 
-        output(memory, fmt, () => {
-          console.log(`  ID:        ${memory.id}`);
-          console.log(`  Content:   ${memory.content}`);
-          console.log(`  Tree:      ${memory.tree || "(none)"}`);
-          console.log(
-            `  Meta:      ${memory.meta && Object.keys(memory.meta).length > 0 ? JSON.stringify(memory.meta) : "(none)"}`,
-          );
-          console.log(
-            `  Temporal:  ${memory.temporal ? `${memory.temporal.start} → ${memory.temporal.end ?? "∞"}` : "(none)"}`,
-          );
-          console.log(
-            `  Embedding: ${memory.hasEmbedding ? "yes" : "pending"}`,
-          );
-          console.log(`  Created:   ${memory.createdAt}`);
-        });
+        // TTY: ANSI-rendered markdown with dimmed frontmatter
+        const frontmatter: Record<string, unknown> = { id: memory.id };
+        if (memory.tree) frontmatter.tree = memory.tree;
+        if (
+          memory.meta &&
+          typeof memory.meta === "object" &&
+          Object.keys(memory.meta).length > 0
+        ) {
+          frontmatter.meta = memory.meta;
+        }
+        if (memory.temporal) frontmatter.temporal = memory.temporal;
+        if (memory.createdAt) frontmatter.created_at = memory.createdAt;
+
+        const yaml = yamlStringify(frontmatter, { lineWidth: 0 }).trimEnd();
+        const header = `${DIM}---\n${yaml}\n---${RESET}`;
+        const rendered = renderMarkdownAnsi(memory.content);
+
+        console.log(`\n${header}\n\n${rendered.trimEnd()}\n`);
       } catch (error) {
         handleError(error, fmt);
       }
@@ -869,58 +878,6 @@ function renderMarkdownAnsi(content: string): string {
 }
 
 // =============================================================================
-// View Command
-// =============================================================================
-
-function createMemoryViewCommand(): Command {
-  return new Command("view")
-    .description("view a memory rendered in the terminal")
-    .argument("<id>", "memory ID")
-    .action(async (id: string, _opts, cmd) => {
-      const globalOpts = cmd.optsWithGlobals();
-      const creds = resolveCredentials(globalOpts.server);
-      const fmt = getOutputFormat(globalOpts);
-      requireSession(creds, fmt);
-      requireEngine(creds, fmt);
-
-      const engine = createClient({ url: creds.server, apiKey: creds.apiKey });
-
-      try {
-        const memory = await engine.memory.get({ id });
-
-        // JSON/YAML output falls back to structured output (same as get)
-        if (fmt !== "text") {
-          output(memory, fmt, () => {});
-          return;
-        }
-
-        // Build YAML frontmatter
-        const frontmatter: Record<string, unknown> = { id: memory.id };
-        if (memory.tree) frontmatter.tree = memory.tree;
-        if (
-          memory.meta &&
-          typeof memory.meta === "object" &&
-          Object.keys(memory.meta).length > 0
-        ) {
-          frontmatter.meta = memory.meta;
-        }
-        if (memory.temporal) frontmatter.temporal = memory.temporal;
-        if (memory.createdAt) frontmatter.created_at = memory.createdAt;
-
-        const yaml = yamlStringify(frontmatter, { lineWidth: 0 }).trimEnd();
-        const header = `${DIM}---\n${yaml}\n---${RESET}`;
-
-        // Render content as ANSI markdown
-        const rendered = renderMarkdownAnsi(memory.content);
-
-        console.log(`\n${header}\n\n${rendered.trimEnd()}\n`);
-      } catch (error) {
-        handleError(error, fmt);
-      }
-    });
-}
-
-// =============================================================================
 // Command Group
 // =============================================================================
 
@@ -928,7 +885,6 @@ export function createMemoryCommand(): Command {
   const memory = new Command("memory").description("manage memories");
   memory.addCommand(createMemoryCreateCommand());
   memory.addCommand(createMemoryGetCommand());
-  memory.addCommand(createMemoryViewCommand());
   memory.addCommand(createMemorySearchCommand());
   memory.addCommand(createMemoryUpdateCommand());
   memory.addCommand(createMemoryDeleteCommand());

@@ -44,7 +44,7 @@ Content can come from the positional argument, the `--content` flag, or piped vi
 
 ## me memory get
 
-Get a memory by ID.
+Get a memory by ID. In a TTY, renders the content as ANSI-formatted markdown with dimmed YAML frontmatter. When piped or redirected, outputs raw Markdown with YAML frontmatter (suitable for `> file.md`).
 
 ```
 me memory get <id> [options]
@@ -56,7 +56,7 @@ me memory get <id> [options]
 
 | Option | Description |
 |--------|-------------|
-| `--md` | Output as Markdown with YAML frontmatter. |
+| `--raw` | Output raw Markdown with YAML frontmatter (no ANSI), even in a TTY. |
 
 ---
 
@@ -190,7 +190,7 @@ Renders the tree with box-drawing characters, showing memory counts at each node
 
 ## me memory move
 
-Move memories between tree paths.
+Move memories between tree paths. Alias: `me memory mv`.
 
 ```
 me memory move <src> <dst> [options]
@@ -203,9 +203,10 @@ me memory move <src> <dst> [options]
 
 | Option | Description |
 |--------|-------------|
+| `--dry-run` | Preview what would be moved without executing. |
 | `-y, --yes` | Skip the confirmation prompt. |
 
-Moves all memories under the source prefix to the destination, preserving subtree structure.
+Moves all memories under the source prefix to the destination, preserving subtree structure. Always shows a preview count before confirming.
 
 ---
 
