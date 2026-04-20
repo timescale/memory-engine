@@ -375,6 +375,18 @@ describe("memoryMoveSchema", () => {
     expect(result.success).toBe(true);
   });
 
+  test("accepts dryRun flag", () => {
+    const result = memoryMoveSchema.safeParse({
+      source: "old.path",
+      destination: "new.path",
+      dryRun: true,
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.dryRun).toBe(true);
+    }
+  });
+
   test("rejects empty source", () => {
     const result = memoryMoveSchema.safeParse({
       source: "",

@@ -351,6 +351,14 @@ async function memoryMove(
   assertEngineContext(context);
   const { db } = context as EngineContext;
 
+  if (params.dryRun) {
+    const result = await db.searchMemories({
+      tree: params.source,
+      limit: 1000,
+    });
+    return { count: result.total };
+  }
+
   const result = await db.moveTree(params.source, params.destination);
   return result;
 }

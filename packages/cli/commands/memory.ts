@@ -544,9 +544,11 @@ function createMemoryTreeCommand(): Command {
 
 function createMemoryMoveCommand(): Command {
   return new Command("move")
+    .alias("mv")
     .description("move memories between tree paths")
     .argument("<src>", "source tree path")
     .argument("<dst>", "destination tree path")
+    .option("--dry-run", "preview what would be moved")
     .option("-y, --yes", "skip confirmation")
     .action(async (src: string, dst: string, opts, cmd) => {
       const globalOpts = cmd.optsWithGlobals();
@@ -555,21 +557,46 @@ function createMemoryMoveCommand(): Command {
       requireSession(creds, fmt);
       requireEngine(creds, fmt);
 
-      // Confirm unless --yes
-      if (fmt === "text" && !opts.yes) {
-        const confirmed = await clack.confirm({
-          message: `Move all memories from '${src}' to '${dst}'?`,
-          initialValue: false,
-        });
-        if (clack.isCancel(confirmed) || !confirmed) {
-          clack.cancel("Cancelled.");
-          process.exit(0);
-        }
-      }
-
       const engine = createClient({ url: creds.server, apiKey: creds.apiKey });
 
       try {
+        // Always dry-run first to show preview
+        const preview = await engine.memory.move({
+          source: src,
+          destination: dst,
+          dryRun: true,
+        });
+
+        if (preview.count === 0) {
+          output({ count: 0 }, fmt, () => {
+            clack.log.warn(`No memories found under '${src}'`);
+          });
+          return;
+        }
+
+        if (fmt === "text") {
+          console.log(
+            `  ${preview.count} ${preview.count === 1 ? "memory" : "memories"} will be moved from '${src}' to '${dst}'`,
+          );
+        }
+
+        if (opts.dryRun) {
+          output({ dryRun: true, count: preview.count }, fmt, () => {});
+          return;
+        }
+
+        // Confirm unless --yes
+        if (fmt === "text" && !opts.yes) {
+          const confirmed = await clack.confirm({
+            message: `Move ${preview.count} ${preview.count === 1 ? "memory" : "memories"}?`,
+            initialValue: false,
+          });
+          if (clack.isCancel(confirmed) || !confirmed) {
+            clack.cancel("Cancelled.");
+            process.exit(0);
+          }
+        }
+
         const result = await engine.memory.move({
           source: src,
           destination: dst,

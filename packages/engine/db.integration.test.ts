@@ -556,6 +556,34 @@ describe("memory ops", () => {
     expect(fetched2!.tree).toBe("move.destination.child");
   });
 
+  test("moveTree dry-run counts without moving", async () => {
+    const db = createEngineDB(sql, schema);
+    db.setUser(testPrincipalId);
+
+    const m1 = await db.createMemory({
+      content: "DryMove 1",
+      tree: "drymove.source",
+    });
+    const m2 = await db.createMemory({
+      content: "DryMove 2",
+      tree: "drymove.source.child",
+    });
+
+    // Simulate dry-run: count via searchMemories (same as RPC handler)
+    const preview = await db.searchMemories({
+      tree: "drymove.source",
+      limit: 1000,
+    });
+    expect(preview.total).toBe(2);
+
+    // Verify memories were NOT moved
+    const fetched1 = await db.getMemory(m1.id);
+    expect(fetched1!.tree).toBe("drymove.source");
+
+    const fetched2 = await db.getMemory(m2.id);
+    expect(fetched2!.tree).toBe("drymove.source.child");
+  });
+
   test("batchCreateMemories creates multiple memories", async () => {
     const db = createEngineDB(sql, schema);
     db.setUser(testPrincipalId);

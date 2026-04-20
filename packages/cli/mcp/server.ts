@@ -414,6 +414,7 @@ Docs: ${docUrl("me_memory_mv")}`,
       const result = await client.memory.move({
         source: args.source,
         destination: args.destination,
+        dryRun: args.dry_run,
       });
       return {
         content: [

@@ -114,6 +114,7 @@ export type MemoryTreeParams = z.infer<typeof memoryTreeParams>;
 export const memoryMoveParams = z.object({
   source: treePathSchema.min(1, "source path is required"),
   destination: treePathSchema,
+  dryRun: z.boolean().optional(),
 });
 
 export type MemoryMoveParams = z.infer<typeof memoryMoveParams>;
