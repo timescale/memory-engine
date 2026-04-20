@@ -17,6 +17,27 @@ Memories are stored in a single PostgreSQL table. There are no separate tables f
 - **Be specific.** "Auth uses bcrypt with cost 12" not "we use bcrypt."
 - **Search before creating** to avoid duplicates.
 - **Use all dimensions.** Tree for hierarchy, meta for attributes, temporal for time.
+- **Start with the key fact.** Put the decision or insight first, then add context after. Structure for scannability.
+
+### Content patterns
+
+- **Decision pattern** -- state the decision, then the rationale. "We chose OpenAI text-embedding-3-small because..."
+- **Preference pattern** -- state the preference and the scope. "For SQL, use lowercase keywords and leading-comma table definitions."
+- **Context pattern** -- describe the situation and its implications. "The embedding worker polls every 10s with adaptive delay."
+
+### Anti-patterns
+
+- **Too granular** -- don't store every line of code or every config value. Store insights and decisions.
+- **Too broad** -- "we use PostgreSQL" is too generic to be useful. Add specifics.
+- **Stale without temporal** -- if content has a shelf life, set temporal so it can be filtered by time.
+- **Duplicating docs** -- store insights about docs, not copies of docs.
+
+### Memory lifecycle
+
+- **When to create**: decisions, context, patterns/conventions, solved problems, preferences.
+- **When to update**: core fact changed, adding context to an existing idea, reorganizing, archiving.
+- **When to create new** (not update): the information is distinct, even if related to an existing memory.
+- **Maintenance**: periodically review memories for accuracy. Use `meta: {"confidence": "low"}` for uncertain content. Track sources with `meta: {"source": "..."}` for traceability.
 
 ## Tree Paths
 
@@ -31,12 +52,16 @@ personal.reading
 personal.reading.books
 ```
 
-Tree paths use PostgreSQL's `ltree` extension. They support:
+Tree paths use PostgreSQL's `ltree` extension. Labels must be **lowercase alphanumeric with underscores** (no spaces, hyphens, or uppercase). They support:
 
 - **Exact match** -- `work.projects` matches only that node.
 - **Wildcard descendants** -- `work.projects.*` matches all descendants.
+- **Depth-limited wildcard** -- `work.*{2}` matches up to 2 levels deep.
+- **Negation** -- `*.!draft.*` matches paths that do NOT contain `draft`.
 - **Pattern matching** -- `*.api.*` matches any path containing `api`.
 - **Label search** -- `api & auth` finds paths with both labels.
+
+Keep paths **2-4 levels deep**. Deeper nesting rarely helps findability. When unsure about the right tree path, omit it -- you can always add one later, and content is still findable via search.
 
 ### Conventions
 
@@ -64,6 +89,21 @@ Metadata is a JSON object attached to each memory. Use it for structured attribu
 
 Metadata is indexed with a GIN index, making attribute-based filtering fast. You can filter by any key-value pair in search queries.
 
+### Common meta keys
+
+| Key | Purpose | Example values |
+|-----|---------|----------------|
+| `type` | Classify the memory | `"decision"`, `"reference"`, `"guide"`, `"note"` |
+| `status` | Track lifecycle | `"active"`, `"implemented"`, `"superseded"`, `"archived"` |
+| `source` | Where it came from | `"slack"`, `"meeting"`, `"docs"`, `"code-review"` |
+| `confidence` | How certain you are | `"high"`, `"medium"`, `"low"` |
+
+### Meta vs. tree
+
+- **Tree** gives one hierarchical path per memory and supports subtree queries. Use for browsable organization.
+- **Meta** allows multiple flat attributes and faceted filtering. Use for searchable classification.
+- **Use both.** They serve different purposes and work well together.
+
 **Important:** metadata is fully replaced on update, not merged. If you want to add a key, fetch the current metadata first, merge locally, then send the full object.
 
 ## Temporal Ranges
@@ -85,11 +125,20 @@ Temporal is optional. Not all memories need a time association.
 
 When a memory is created or updated, a vector embedding is computed asynchronously in the background. Embeddings enable semantic search -- finding memories by meaning rather than exact keywords.
 
-The `hasEmbedding` field on a memory indicates whether the embedding has been computed yet. New memories will briefly have `hasEmbedding: false` until the background worker processes them.
+The `hasEmbedding` field on a memory indicates whether the embedding has been computed yet. New memories will briefly have `hasEmbedding: false` until the background worker processes them (typically 10-30 seconds).
+
+**Practical implication:** fulltext search works immediately after creation. Semantic search requires the embedding -- if you need to find a memory right away, use fulltext or filters.
+
+If embedding fails (e.g., provider API error), the worker retries up to 3 times. After 3 failures, the memory remains without an embedding but is still fully functional for non-semantic search.
 
 ## Search
 
-Memory Engine supports three search modes:
+Memory Engine supports three search modes. Quick guide:
+
+- **Know the exact words?** Use fulltext.
+- **Know the concept but not the wording?** Use semantic.
+- **Want comprehensive results?** Use hybrid (both).
+- **Browsing a category?** Use filters only (tree, meta, temporal).
 
 ### Semantic search
 

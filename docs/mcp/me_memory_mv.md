@@ -53,6 +53,8 @@ This moves:
 
 ## Notes
 
+- The move is **atomic** -- all memories move together or none do.
 - The subtree structure is preserved. Only the prefix is replaced.
+- If the source prefix matches no memories, the count is `0` (not an error).
 - Useful for reorganizing knowledge, archiving old sections, or renaming tree branches.
 - Preview with `dry_run: true` first to verify the scope.

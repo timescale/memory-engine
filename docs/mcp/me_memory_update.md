@@ -55,8 +55,17 @@ Update only the content, keep everything else:
 }
 ```
 
+## When to update vs. create new
+
+- Core fact changed or corrected → **update** the existing memory.
+- Adding context or detail to an existing idea → **update**.
+- Reorganizing or reclassifying → **update** (change `tree` or `meta`).
+- New distinct information, even if related → **create new** memory.
+
 ## Notes
 
+- Always fetch the memory first (`me_memory_get`) to see the current state before updating.
 - **`meta` is fully replaced, not merged.** If you want to add a key, fetch the current meta first, merge locally, then send the full object.
-- Updating content triggers a new embedding computation. `hasEmbedding` may temporarily become `false`.
+- Updating `content` triggers a new embedding computation -- this is automatic, no action needed. `hasEmbedding` may temporarily become `false`.
+- Omitted fields (set to `null`) are preserved -- you can update just `tree` without touching `content`.
 - Returns an error if the memory does not exist.

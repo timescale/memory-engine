@@ -23,6 +23,8 @@ Supports three search modes: **semantic** (meaning-based), **fulltext** (keyword
 
 - Bare path (`work.projects`) -- matches that exact node only.
 - Wildcard (`work.projects.*`) -- matches all descendants.
+- Depth-limited wildcard (`work.*{2}`) -- matches descendants up to 2 levels deep.
+- Negation (`*.!draft.*`) -- matches paths that do NOT contain `draft`.
 - lquery pattern (`*.api.*`) -- matches any path containing `api`.
 - ltxtquery (`api & v2`) -- label search with boolean operators.
 

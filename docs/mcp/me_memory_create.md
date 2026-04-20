@@ -66,6 +66,8 @@ The full memory object as created:
 
 ## Notes
 
+- **One idea per memory.** Three decisions = three memories. Search first to avoid duplicates.
+- Tree labels must be lowercase alphanumeric with underscores only -- no spaces, hyphens, or uppercase (e.g., `work.my_project`, not `work.my-project`).
 - When `id` is provided, the call is idempotent -- creating the same ID twice returns the existing memory.
-- `meta` is fully replaced, not merged. Store the complete metadata object each time.
-- Embeddings are computed asynchronously after creation. `hasEmbedding` will be `false` initially.
+- `meta` is fully replaced, not merged. Store the complete metadata object each time. Values support any JSON type (strings, numbers, arrays, nested objects).
+- Embeddings are computed asynchronously after creation. `hasEmbedding` will be `false` initially. Fulltext search works immediately; semantic search is available after ~10-30 seconds.

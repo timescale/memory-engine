@@ -33,5 +33,4 @@ This is irreversible. Consider archiving (via a meta update) or moving (via `me_
 ## Notes
 
 - Deleting a non-existent memory returns an error.
-- This operation is idempotent in the sense that re-deleting has no side effects beyond the error.
-- For bulk deletion by tree path, use [me_memory_delete_tree](me_memory_delete_tree.md) instead.
+- This operation is irreversible. There is no undo.

@@ -106,6 +106,16 @@ Access control is enforced by PostgreSQL Row-Level Security (RLS) policies on th
 
 This means access control cannot be bypassed by application bugs -- it's enforced by the database itself.
 
+!!! warning "The invisible wall"
+    When RLS denies access, you get **empty results, not errors**. A search returns fewer results silently. A `memory.get` returns "not found" even if the memory exists. This is by design (PostgreSQL RLS behavior), but it can be confusing when debugging.
+
+    If you're seeing missing results:
+
+    1. Check the user's access with `me grant check <user> <path> read`
+    2. Verify the memory exists by checking as a superuser
+    3. Check that the user has grants covering the memory's tree path
+    4. Remember that grants are hierarchical -- a grant on `work` covers `work.projects.*`
+
 ## Example: team setup
 
 ```bash
