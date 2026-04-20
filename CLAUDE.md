@@ -20,12 +20,12 @@ Read the relevant docs before starting work on a subsystem.
 ## Quick Reference
 
 - **Tech stack**: Bun, TypeScript, PostgreSQL 18 (pgvector, pg_textsearch, ltree, JSONB)
-- **Core schema**: Single table `me.memory` -- content, meta (JSONB), tree (ltree), temporal (tstzrange), embedding (halfvec)
+- **Core schema**: Single table `memory` per engine schema (`me_<slug>`) -- content, meta (JSONB), tree (ltree), temporal (tstzrange), embedding (halfvec(1536))
 - **Search**: Hybrid BM25 + semantic via Reciprocal Rank Fusion
-- **API**: JSON-RPC 2.0 over HTTP, single `/rpc` endpoint
-- **Auth**: Tree-grant RBAC with PostgreSQL RLS
-- **Embedding**: Vercel AI SDK; supports OpenAI, Ollama
-- **CLI**: `me` binary (login, engine, memory, mcp, user, grant, role, owner, apikey, pack)
+- **API**: JSON-RPC 2.0 over HTTP -- engine RPC (`/api/v1/engine/rpc`) and accounts RPC (`/api/v1/accounts/rpc`), plus REST auth endpoints (OAuth device flow)
+- **Auth**: Tree-grant RBAC with PostgreSQL RLS; OAuth (GitHub, Google) for hosted accounts
+- **Embedding**: Vercel AI SDK; OpenAI `text-embedding-3-small` (1536-dim) in production; Ollama supported for local dev
+- **CLI**: `me` binary (login, logout, whoami, org, engine, invitation, memory, mcp, user, grant, role, owner, apikey, pack)
 
 ## Project Structure
 
@@ -41,6 +41,8 @@ docs/
   cli/          # CLI command reference (one file per command group)
   mcp/          # MCP tool reference (one file per tool)
 ```
+
+> **Note**: `packages/hosted` is the target package name; the current implementation is split across `packages/accounts` (org/member/engine management, OAuth), `packages/server` (HTTP server, routing, RPC handlers), `packages/embedding` (vector embedding providers), and `packages/worker` (background embedding queue processor).
 
 ## Build, Lint, and Test
 
@@ -75,13 +77,13 @@ Always use the `./bun` wrapper script (auto-installs the pinned Bun version):
 **SQL**: Lowercase keywords, leading-comma table definitions, inline comments after columns, native `uuid` with `uuidv7()`.
 
 ```sql
-create table me.memory (
-  id                   uuid          not null default uuidv7()  -- PK, UUIDv7
+create table me.memory
+( id                   uuid          not null default uuidv7()  -- PK, UUIDv7
 , content              text          not null                   -- memory text
 , meta                 jsonb         not null default '{}'      -- arbitrary metadata
 , tree                 ltree         not null default ''        -- hierarchical path
 , temporal             tstzrange                                -- optional time range
-, embedding            halfvec(768)                             -- semantic vector
+, embedding            halfvec(1536)                            -- semantic vector
 );
 ```
 
