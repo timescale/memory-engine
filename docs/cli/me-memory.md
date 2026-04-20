@@ -77,7 +77,7 @@ me memory search [query] [options]
 | `--semantic <text>` | Semantic (vector) search query. |
 | `--fulltext <text>` | BM25 keyword search. |
 | `--grep <pattern>` | Regex filter on content (POSIX, case-insensitive). |
-| `--tree <filter>` | Tree path filter (supports wildcards like `work.*`). |
+| `--tree <filter>` | Tree path filter. Supports exact match, wildcards, negation, and label search. See [Tree filter syntax](../concepts.md#tree-filter-syntax). |
 | `--meta <json>` | Metadata filter as JSON. |
 | `--limit <n>` | Max results (default: 10). |
 | `--candidate-limit <n>` | Pre-RRF candidate pool size. |

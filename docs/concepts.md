@@ -52,16 +52,40 @@ personal.reading
 personal.reading.books
 ```
 
-Tree paths use PostgreSQL's `ltree` extension. Labels must be **lowercase alphanumeric with underscores** (no spaces, hyphens, or uppercase). They support:
-
-- **Exact match** -- `work.projects` matches only that node.
-- **Wildcard descendants** -- `work.projects.*` matches all descendants.
-- **Depth-limited wildcard** -- `work.*{2}` matches up to 2 levels deep.
-- **Negation** -- `*.!draft.*` matches paths that do NOT contain `draft`.
-- **Pattern matching** -- `*.api.*` matches any path containing `api`.
-- **Label search** -- `api & auth` finds paths with both labels.
+Tree paths use PostgreSQL's `ltree` extension. Labels must be **lowercase alphanumeric with underscores** (no spaces, hyphens, or uppercase).
 
 Keep paths **2-4 levels deep**. Deeper nesting rarely helps findability. When unsure about the right tree path, omit it -- you can always add one later, and content is still findable via search.
+
+### Tree filter syntax
+
+When filtering by tree (in search, export, or browse), the system auto-detects which syntax you're using:
+
+**Exact match (ltree)** -- plain dot-separated path. Matches that node and all descendants.
+
+| Pattern | Matches |
+|---------|---------|
+| `work.projects` | `work.projects`, `work.projects.api`, `work.projects.api.auth`, etc. |
+
+**Pattern matching (lquery)** -- triggered when the pattern contains `*`, `!`, `{`, `}`, `|`, `@`, or `%`. Uses wildcards and quantifiers.
+
+| Pattern | Meaning |
+|---------|---------|
+| `work.projects.*` | All descendants of `work.projects` (any depth) |
+| `work.*{1}` | Direct children of `work` only (exactly 1 level) |
+| `work.*{2,4}` | Descendants 2-4 levels below `work` |
+| `work.*{0,}` | `work` itself plus all descendants (equivalent to ltree `work`) |
+| `*.api.*` | Any path containing the label `api` at any position |
+| `*.!draft.*` | Any path that does NOT contain the label `draft` |
+| `work|personal.*` | Paths starting with `work` or `personal`, then anything |
+| `me.!archived.*{0,}` | Everything under `me` except the `me.archived` subtree |
+
+**Label search (ltxtquery)** -- triggered when the pattern contains `&`. Boolean search over path labels.
+
+| Pattern | Meaning |
+|---------|---------|
+| `api & auth` | Paths containing both `api` and `auth` labels |
+| `api | auth` | Paths containing either label |
+| `api & !draft` | Paths with `api` but not `draft` |
 
 ### Conventions
 

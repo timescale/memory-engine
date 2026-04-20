@@ -112,5 +112,5 @@ Each memory is written as `{id}.md` with YAML frontmatter. The directory is crea
 - The exported content is directly compatible with [me_memory_import](me_memory_import.md). Exported files and directories can be re-imported directly.
 - **Markdown format**: use a directory path for multi-memory export. Each memory is written as `{id}.md`. Inline Markdown export (`path: null`) is only supported for single-memory results.
 - Results are sorted in ascending order by creation time.
-- The `tree` filter uses the same syntax as `me_memory_search` -- use `work.*` for descendants, bare `work` for exact match.
+- The `tree` filter supports exact match, wildcards, negation, and label search. See [Tree filter syntax](../concepts.md#tree-filter-syntax) for the full reference. Use `me.!archived.*{0,}` to export everything under `me` except archived content.
 - See [File Formats](../formats.md) for full schema documentation and format details.

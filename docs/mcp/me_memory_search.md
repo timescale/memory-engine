@@ -21,12 +21,16 @@ Supports three search modes: **semantic** (meaning-based), **fulltext** (keyword
 
 ### tree syntax
 
-- Bare path (`work.projects`) -- matches that exact node only.
-- Wildcard (`work.projects.*`) -- matches all descendants.
-- Depth-limited wildcard (`work.*{2}`) -- matches descendants up to 2 levels deep.
-- Negation (`*.!draft.*`) -- matches paths that do NOT contain `draft`.
-- lquery pattern (`*.api.*`) -- matches any path containing `api`.
-- ltxtquery (`api & v2`) -- label search with boolean operators.
+The system auto-detects the syntax from the pattern. Quick reference:
+
+- Bare path (`work.projects`) -- matches that node and all descendants.
+- Wildcard (`work.projects.*`) -- all descendants at any depth.
+- Depth-limited (`work.*{2}`) -- descendants up to 2 levels deep.
+- Negation (`*.!draft.*`) -- paths that do NOT contain `draft`.
+- Pattern (`*.api.*`) -- any path containing `api`.
+- Label search (`api & v2`) -- boolean search over path labels.
+
+See [Tree filter syntax](../concepts.md#tree-filter-syntax) for the full reference with examples.
 
 ### temporal
 
