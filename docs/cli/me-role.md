@@ -7,6 +7,7 @@ Roles are groups of users within an engine. Grant access to a role and all its m
 ## Commands
 
 - [me role create](#me-role-create) -- create a role
+- [me role delete](#me-role-delete) -- delete a role
 - [me role list](#me-role-list) -- list all roles
 - [me role add-member](#me-role-add-member) -- add a user to a role
 - [me role remove-member](#me-role-remove-member) -- remove a user from a role
@@ -30,6 +31,26 @@ me role create <name> [options]
 | Option | Description |
 |--------|-------------|
 | `--identity-id <id>` | Link to an accounts identity. |
+
+---
+
+## me role delete
+
+Delete a role. Alias: `me role rm`.
+
+```
+me role delete <id-or-name> [options]
+```
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `id-or-name` | yes | Role ID or name. |
+
+| Option | Description |
+|--------|-------------|
+| `-y, --yes` | Skip confirmation prompt. |
+
+Deleting a role removes all grants and membership associations. This is irreversible.
 
 ---
 

@@ -2,6 +2,7 @@
  * me role — role management commands.
  *
  * - me role create <name>: Create a role
+ * - me role delete <id-or-name>: Delete a role (alias: rm)
  * - me role list: List all roles
  * - me role add-member <role> <member>: Add user to role (by ID or name)
  * - me role remove-member <role> <member>: Remove user from role (by ID or name)
@@ -43,6 +44,48 @@ function createRoleCreateCommand(): Command {
         output(role, fmt, () => {
           clack.log.success(`Created role '${role.name}'`);
           console.log(`  ID: ${role.id}`);
+        });
+      } catch (error) {
+        handleError(error, fmt);
+      }
+    });
+}
+
+function createRoleDeleteCommand(): Command {
+  return new Command("delete")
+    .alias("rm")
+    .description("delete a role")
+    .argument("<id-or-name>", "role ID or name")
+    .option("-y, --yes", "skip confirmation prompt")
+    .action(async (idOrName: string, opts, cmd) => {
+      const globalOpts = cmd.optsWithGlobals();
+      const creds = resolveCredentials(globalOpts.server);
+      const fmt = getOutputFormat(globalOpts);
+      requireSession(creds, fmt);
+      requireEngine(creds, fmt);
+
+      if (fmt === "text" && !opts.yes) {
+        const confirmed = await clack.confirm({
+          message: `Delete role ${idOrName}? This removes all grants and memberships. This cannot be undone.`,
+        });
+        if (clack.isCancel(confirmed) || !confirmed) {
+          clack.cancel("Cancelled.");
+          process.exit(0);
+        }
+      }
+
+      const engine = createClient({ url: creds.server, apiKey: creds.apiKey });
+
+      try {
+        const id = await resolveUserId(engine, idOrName);
+        const result = await engine.user.delete({ id });
+
+        output(result, fmt, () => {
+          if (result.deleted) {
+            clack.log.success("Role deleted.");
+          } else {
+            clack.log.warn("Role not found.");
+          }
         });
       } catch (error) {
         handleError(error, fmt);
@@ -229,6 +272,7 @@ function createRoleListForCommand(): Command {
 export function createRoleCommand(): Command {
   const role = new Command("role").description("manage roles");
   role.addCommand(createRoleCreateCommand());
+  role.addCommand(createRoleDeleteCommand());
   role.addCommand(createRoleListCommand());
   role.addCommand(createRoleAddMemberCommand());
   role.addCommand(createRoleRemoveMemberCommand());
