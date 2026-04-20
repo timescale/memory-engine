@@ -1,6 +1,6 @@
 {
   "name": "@memory.build/client",
-  "version": "0.1.14",
+  "version": "0.1.15",
   "description": "Client library for Memory Engine",
   "repository": {
     "type": "git",
