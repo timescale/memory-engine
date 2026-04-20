@@ -3,6 +3,7 @@
  *
  * - me memory create [content]: Create a memory
  * - me memory get <id>: Get a memory by ID
+ * - me memory view <id>: View a memory rendered in the terminal
  * - me memory search [query]: Hybrid search
  * - me memory update <id>: Update a memory
  * - me memory delete <id-or-tree>: Delete memory or tree
@@ -776,6 +777,150 @@ function createMemoryExportCommand(): Command {
 }
 
 // =============================================================================
+// ANSI Markdown Renderer
+// =============================================================================
+
+const RESET = "\x1b[0m";
+const BOLD = "\x1b[1m";
+const DIM = "\x1b[2m";
+const ITALIC = "\x1b[3m";
+const UNDERLINE = "\x1b[4m";
+const CYAN = "\x1b[36m";
+const BLUE = "\x1b[34m";
+const YELLOW = "\x1b[33m";
+
+const BOLD_OFF = "\x1b[22m";
+const DIM_OFF = "\x1b[22m";
+const ITALIC_OFF = "\x1b[23m";
+const UNDERLINE_OFF = "\x1b[24m";
+const COLOR_OFF = "\x1b[39m";
+
+const ansiCallbacks = {
+  heading: (children: string, { level }: { level: number }) => {
+    const prefix = "#".repeat(level);
+    return `\n${BOLD}${UNDERLINE}${prefix} ${children}${RESET}\n\n`;
+  },
+  paragraph: (children: string) => `${children}\n\n`,
+  strong: (children: string) => `${BOLD}${children}${BOLD_OFF}`,
+  emphasis: (children: string) => `${ITALIC}${children}${ITALIC_OFF}`,
+  codespan: (children: string) => `${CYAN}${children}${COLOR_OFF}`,
+  code: (children: string, meta?: { language?: string }) => {
+    const lang = meta?.language ? ` ${DIM}(${meta.language})${DIM_OFF}` : "";
+    const border = `${DIM}───${DIM_OFF}`;
+    return `${border}${lang}\n${DIM}${children.trimEnd()}${DIM_OFF}\n${border}\n\n`;
+  },
+  link: (children: string, { href }: { href: string }) => {
+    if (children === href)
+      return `${UNDERLINE}${BLUE}${href}${COLOR_OFF}${UNDERLINE_OFF}`;
+    return `${children} (${UNDERLINE}${BLUE}${href}${COLOR_OFF}${UNDERLINE_OFF})`;
+  },
+  blockquote: (children: string) => {
+    const lines = children.trimEnd().split("\n");
+    return `${lines.map((l) => `${DIM}│${DIM_OFF} ${l}`).join("\n")}\n\n`;
+  },
+  listItem: (
+    children: string,
+    {
+      index,
+      depth,
+      ordered,
+      start,
+      checked,
+    }: {
+      index: number;
+      depth: number;
+      ordered: boolean;
+      start?: number;
+      checked?: boolean;
+    },
+  ) => {
+    const indent = "  ".repeat(depth);
+    let marker: string;
+    if (checked === true) marker = `${YELLOW}✓${COLOR_OFF}`;
+    else if (checked === false) marker = `${DIM}○${DIM_OFF}`;
+    else if (ordered) marker = `${(start ?? 1) + index}.`;
+    else marker = "•";
+    return `${indent}${marker} ${children.trimEnd()}\n`;
+  },
+  list: (children: string) => `${children}\n`,
+  hr: () => `${DIM}${"─".repeat(40)}${DIM_OFF}\n\n`,
+  image: (_children: string, { src, title }: { src: string; title?: string }) =>
+    `${DIM}[image: ${title || src}]${DIM_OFF}`,
+  strikethrough: (children: string) => `\x1b[9m${children}\x1b[29m`,
+
+  // Table rendering
+  table: (children: string) => `${children}\n`,
+  thead: (children: string) => children,
+  tbody: (children: string) => children,
+  tr: (children: string) => `${children}\n`,
+  th: (children: string) => `${BOLD}${children}${BOLD_OFF}\t`,
+  td: (children: string) => `${children}\t`,
+};
+
+/**
+ * Render markdown content as ANSI-formatted text for the terminal.
+ */
+function renderMarkdownAnsi(content: string): string {
+  return Bun.markdown.render(content, ansiCallbacks, {
+    tables: true,
+    strikethrough: true,
+    tasklists: true,
+  });
+}
+
+// =============================================================================
+// View Command
+// =============================================================================
+
+function createMemoryViewCommand(): Command {
+  return new Command("view")
+    .description("view a memory rendered in the terminal")
+    .argument("<id>", "memory ID")
+    .action(async (id: string, _opts, cmd) => {
+      const globalOpts = cmd.optsWithGlobals();
+      const creds = resolveCredentials(globalOpts.server);
+      const fmt = getOutputFormat(globalOpts);
+      requireSession(creds, fmt);
+      requireEngine(creds, fmt);
+
+      const engine = createClient({ url: creds.server, apiKey: creds.apiKey });
+
+      try {
+        const memory = await engine.memory.get({ id });
+
+        // JSON/YAML output falls back to structured output (same as get)
+        if (fmt !== "text") {
+          output(memory, fmt, () => {});
+          return;
+        }
+
+        // Build YAML frontmatter
+        const frontmatter: Record<string, unknown> = { id: memory.id };
+        if (memory.tree) frontmatter.tree = memory.tree;
+        if (
+          memory.meta &&
+          typeof memory.meta === "object" &&
+          Object.keys(memory.meta).length > 0
+        ) {
+          frontmatter.meta = memory.meta;
+        }
+        if (memory.temporal) frontmatter.temporal = memory.temporal;
+        if (memory.createdAt) frontmatter.created_at = memory.createdAt;
+
+        const yaml = yamlStringify(frontmatter, { lineWidth: 0 }).trimEnd();
+        const header = `${DIM}---\n${yaml}\n---${RESET}`;
+
+        // Render content as ANSI markdown
+        const rendered = renderMarkdownAnsi(memory.content);
+
+        console.log(`\n${header}\n\n${rendered.trimEnd()}\n`);
+      } catch (error) {
+        handleError(error, fmt);
+      }
+    });
+}
+
+// =============================================================================
 // Command Group
 // =============================================================================
 
@@ -783,6 +928,7 @@ export function createMemoryCommand(): Command {
   const memory = new Command("memory").description("manage memories");
   memory.addCommand(createMemoryCreateCommand());
   memory.addCommand(createMemoryGetCommand());
+  memory.addCommand(createMemoryViewCommand());
   memory.addCommand(createMemorySearchCommand());
   memory.addCommand(createMemoryUpdateCommand());
   memory.addCommand(createMemoryDeleteCommand());
