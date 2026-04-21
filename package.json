@@ -22,6 +22,7 @@
     "build": "./bun run --filter '@memory.build/cli' build",
     "server": "./bun run packages/server/index.ts",
     "build:all": "./bun scripts/build-all.ts",
+    "install:local": "./bun scripts/install-local.ts",
     "clean": "rm -rf packages/cli/dist dist",
     "release": "./bun scripts/release.ts",
     "docs": "uvx --with mkdocs-material --with 'mkdocs<2' mkdocs serve",
