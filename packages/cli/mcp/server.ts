@@ -52,29 +52,38 @@ Docs: ${docUrl("me_memory_create")}`,
       inputSchema: {
         id: z
           .string()
+          .optional()
           .nullable()
-          .describe("UUIDv7 for idempotent creates (null to auto-generate)"),
+          .describe(
+            "UUIDv7 for idempotent creates (omit or null to auto-generate)",
+          ),
         content: z.string().min(1).describe("The content of the memory"),
         meta: z
           .record(z.string(), z.any())
+          .optional()
           .nullable()
-          .describe("Key-value metadata pairs (null to omit)"),
+          .describe("Key-value metadata pairs"),
         tree: z
           .string()
+          .optional()
           .nullable()
           .describe(
-            "Hierarchical path (e.g., work.projects.me). Null defaults to root",
+            "Hierarchical path (e.g., work.projects.me). Omit or null to store at the root.",
           ),
         temporal: z
           .object({
             start: z.string().describe("ISO timestamp for start of time range"),
             end: z
               .string()
+              .optional()
               .nullable()
-              .describe("ISO timestamp for end (null for point-in-time)"),
+              .describe(
+                "ISO timestamp for end (omit or null for point-in-time)",
+              ),
           })
+          .optional()
           .nullable()
-          .describe("Time range for the memory (null to omit)"),
+          .describe("Time range for the memory"),
       },
       annotations: {
         title: "Create Memory",
@@ -89,7 +98,12 @@ Docs: ${docUrl("me_memory_create")}`,
         content: args.content,
         meta: args.meta ?? undefined,
         tree: args.tree ?? undefined,
-        temporal: args.temporal ?? undefined,
+        temporal: args.temporal
+          ? {
+              start: args.temporal.start,
+              end: args.temporal.end ?? undefined,
+            }
+          : undefined,
       });
       return {
         content: [
@@ -112,24 +126,29 @@ Docs: ${docUrl("me_memory_search")}`,
       inputSchema: {
         semantic: z
           .string()
+          .optional()
           .nullable()
           .describe("Natural language query for semantic/meaning search"),
         fulltext: z
           .string()
+          .optional()
           .nullable()
           .describe("Keywords/phrases for BM25 exact matching"),
         grep: z
           .string()
+          .optional()
           .nullable()
           .describe(
             "Regex pattern filter on content (POSIX, case-insensitive). Applied as WHERE filter alongside other filters.",
           ),
         meta: z
           .record(z.string(), z.any())
+          .optional()
           .nullable()
-          .describe("Filter by metadata attributes (null to omit)"),
+          .describe("Filter by metadata attributes"),
         tree: z
           .string()
+          .optional()
           .nullable()
           .describe(
             "Filter by tree path. Bare path (work.projects) matches exactly \u2014 use work.projects.* to include descendants. Supports lquery patterns (*.api.*) and ltxtquery label search (api & v2).",
@@ -138,6 +157,7 @@ Docs: ${docUrl("me_memory_search")}`,
           .object({
             contains: z
               .string()
+              .optional()
               .nullable()
               .describe("Find memories containing this point in time"),
             overlaps: z
@@ -145,6 +165,7 @@ Docs: ${docUrl("me_memory_search")}`,
                 start: z.string().describe("Start of range"),
                 end: z.string().describe("End of range"),
               })
+              .optional()
               .nullable()
               .describe("Find memories overlapping this range"),
             within: z
@@ -152,36 +173,46 @@ Docs: ${docUrl("me_memory_search")}`,
                 start: z.string().describe("Start of range"),
                 end: z.string().describe("End of range"),
               })
+              .optional()
               .nullable()
               .describe("Find memories fully within this range"),
           })
+          .optional()
           .nullable()
-          .describe("Temporal filter for search (null to omit)"),
+          .describe("Temporal filter for search"),
         weights: z
           .object({
             fulltext: z
               .number()
+              .optional()
               .nullable()
               .describe("Weight for BM25 keyword matching (0-1)"),
             semantic: z
               .number()
+              .optional()
               .nullable()
               .describe("Weight for semantic similarity (0-1)"),
           })
+          .optional()
           .nullable()
-          .describe("Weights for hybrid search ranking (null to omit)"),
+          .describe("Weights for hybrid search ranking"),
         candidateLimit: z
           .number()
           .int()
+          .optional()
+          .nullable()
           .describe(
             "Candidates per search mode before RRF fusion (0 = default 30)",
           ),
         limit: z
           .number()
           .int()
+          .optional()
+          .nullable()
           .describe("Maximum results (0 = default 10, max: 1000)"),
         order_by: z
           .string()
+          .optional()
           .nullable()
           .describe(
             "Sort direction for filter-only searches (no semantic/fulltext). Default: desc",
@@ -215,9 +246,12 @@ Docs: ${docUrl("me_memory_search")}`,
             }
           : undefined,
         candidateLimit:
-          args.candidateLimit > 0 ? args.candidateLimit : undefined,
-        limit: args.limit > 0 ? args.limit : undefined,
-        orderBy: (args.order_by as "asc" | "desc") ?? undefined,
+          args.candidateLimit && args.candidateLimit > 0
+            ? args.candidateLimit
+            : undefined,
+        limit: args.limit && args.limit > 0 ? args.limit : undefined,
+        orderBy:
+          (args.order_by as "asc" | "desc" | null | undefined) ?? undefined,
       });
       return {
         content: [
@@ -271,26 +305,33 @@ Docs: ${docUrl("me_memory_update")}`,
         id: z.string().describe("The UUID of the memory to update"),
         content: z
           .string()
+          .optional()
           .nullable()
-          .describe("New content (null to keep existing)"),
+          .describe("New content (omit or null to keep existing)"),
         meta: z
           .record(z.string(), z.any())
+          .optional()
           .nullable()
-          .describe("New metadata (null to keep existing)"),
+          .describe("New metadata (omit or null to keep existing)"),
         tree: z
           .string()
+          .optional()
           .nullable()
-          .describe("New tree path (null to keep existing)"),
+          .describe("New tree path (omit or null to keep existing)"),
         temporal: z
           .object({
             start: z.string().describe("ISO timestamp for start of time range"),
             end: z
               .string()
+              .optional()
               .nullable()
-              .describe("ISO timestamp for end (null for point-in-time)"),
+              .describe(
+                "ISO timestamp for end (omit or null for point-in-time)",
+              ),
           })
+          .optional()
           .nullable()
-          .describe("Time range for the memory (null to omit)"),
+          .describe("Time range for the memory"),
       },
       annotations: {
         title: "Update Memory",
@@ -305,7 +346,12 @@ Docs: ${docUrl("me_memory_update")}`,
         content: args.content ?? undefined,
         meta: args.meta ?? undefined,
         tree: args.tree ?? undefined,
-        temporal: args.temporal ?? undefined,
+        temporal: args.temporal
+          ? {
+              start: args.temporal.start,
+              end: args.temporal.end ?? undefined,
+            }
+          : undefined,
       });
       return {
         content: [
@@ -437,14 +483,17 @@ Docs: ${docUrl("me_memory_tree")}`,
       inputSchema: {
         tree: z
           .string()
+          .optional()
           .nullable()
           .describe(
-            "Root path to display from (e.g., work.projects). Null for full tree",
+            "Root path to display from (e.g., work.projects). Omit or null for full tree.",
           ),
         levels: z
           .number()
           .int()
-          .describe("Maximum depth to display (0 = unlimited)"),
+          .optional()
+          .nullable()
+          .describe("Maximum depth to display (omit or null for unlimited)"),
       },
       annotations: {
         title: "Memory Tree",
@@ -456,7 +505,7 @@ Docs: ${docUrl("me_memory_tree")}`,
     async (args) => {
       const result = await client.memory.tree({
         tree: args.tree ?? undefined,
-        levels: args.levels > 0 ? args.levels : undefined,
+        levels: args.levels && args.levels > 0 ? args.levels : undefined,
       });
       return {
         content: [
@@ -479,18 +528,21 @@ Docs: ${docUrl("me_memory_import")}`,
       inputSchema: {
         path: z
           .string()
+          .optional()
           .nullable()
           .describe(
             "Absolute path to a file or directory. Directories are imported recursively. Format is inferred from extension (.json, .yaml, .yml, .md, .ndjson, .jsonl). Mutually exclusive with content.",
           ),
         content: z
           .string()
+          .optional()
           .nullable()
           .describe(
             "Raw content to import (JSON array, YAML array, or Markdown with frontmatter). Mutually exclusive with path.",
           ),
         format: z
           .string()
+          .optional()
           .nullable()
           .describe(
             "Content format: json, yaml, or md. Required when using content, optional when using path (inferred from extension).",
@@ -620,15 +672,21 @@ Token-efficient: use \`path\` to write directly to a file instead of returning c
 
 Docs: ${docUrl("me_memory_export")}`,
       inputSchema: {
-        tree: z.string().nullable().describe("Tree path filter (null for all)"),
+        tree: z
+          .string()
+          .optional()
+          .nullable()
+          .describe("Tree path filter (omit or null for all)"),
         meta: z
           .record(z.string(), z.any())
+          .optional()
           .nullable()
-          .describe("Metadata filter (null to omit)"),
+          .describe("Metadata filter"),
         temporal: z
           .object({
             contains: z
               .string()
+              .optional()
               .nullable()
               .describe("Find memories containing this point in time"),
             overlaps: z
@@ -636,6 +694,7 @@ Docs: ${docUrl("me_memory_export")}`,
                 start: z.string().describe("Start of range"),
                 end: z.string().describe("End of range"),
               })
+              .optional()
               .nullable()
               .describe("Find memories overlapping this range"),
             within: z
@@ -643,21 +702,28 @@ Docs: ${docUrl("me_memory_export")}`,
                 start: z.string().describe("Start of range"),
                 end: z.string().describe("End of range"),
               })
+              .optional()
               .nullable()
               .describe("Find memories fully within this range"),
           })
+          .optional()
           .nullable()
-          .describe("Temporal filter (null to omit)"),
+          .describe("Temporal filter"),
         format: z.string().describe("Output format: json, yaml, or md"),
         limit: z
           .number()
           .int()
-          .describe("Maximum memories to export (0 = default 1000)"),
-        path: z
-          .string()
+          .optional()
           .nullable()
           .describe(
-            "Absolute file or directory path to write to. For md format, use a directory path to write one .md file per memory. Null to return content inline.",
+            "Maximum memories to export (omit or null for default 1000)",
+          ),
+        path: z
+          .string()
+          .optional()
+          .nullable()
+          .describe(
+            "Absolute file or directory path to write to. For md format, use a directory path to write one .md file per memory. Omit or null to return content inline.",
           ),
       },
       annotations: {
@@ -669,7 +735,7 @@ Docs: ${docUrl("me_memory_export")}`,
     },
     async (args) => {
       const searchParams: Record<string, unknown> = {
-        limit: args.limit > 0 ? args.limit : 1000,
+        limit: args.limit && args.limit > 0 ? args.limit : 1000,
         orderBy: "asc",
       };
       if (args.tree) searchParams.tree = args.tree;

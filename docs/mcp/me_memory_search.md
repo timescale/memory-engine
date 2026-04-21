@@ -8,16 +8,16 @@ Supports three search modes: **semantic** (meaning-based), **fulltext** (keyword
 
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
-| `semantic` | `string \| null` | yes | Natural language query for semantic search. Pass `null` to skip. |
-| `fulltext` | `string \| null` | yes | Keywords/phrases for BM25 exact matching. Pass `null` to skip. |
-| `grep` | `string \| null` | yes | POSIX regex pattern filter on content (case-insensitive). Applied as a WHERE filter alongside other filters. Pass `null` to skip. |
-| `meta` | `object \| null` | yes | Filter by metadata attributes. Pass `null` to skip. |
-| `tree` | `string \| null` | yes | Filter by tree path. Pass `null` to skip. |
-| `temporal` | `object \| null` | yes | Temporal filter. Pass `null` to skip. |
-| `weights` | `object \| null` | yes | Weights for hybrid search ranking. Pass `null` for defaults. |
-| `candidateLimit` | `integer` | yes | Candidates per search mode before RRF fusion. Pass `0` for default (30). |
-| `limit` | `integer` | yes | Maximum number of results. Pass `0` for default (10). Max: 1000. |
-| `order_by` | `string \| null` | yes | Sort direction for filter-only searches: `"asc"` or `"desc"`. Default: `"desc"`. Pass `null` for default. |
+| `semantic` | `string \| null` | no | Natural language query for semantic search. Omit or pass `null` to skip. |
+| `fulltext` | `string \| null` | no | Keywords/phrases for BM25 exact matching. Omit or pass `null` to skip. |
+| `grep` | `string \| null` | no | POSIX regex pattern filter on content (case-insensitive). Applied as a WHERE filter alongside other filters. Omit or pass `null` to skip. |
+| `meta` | `object \| null` | no | Filter by metadata attributes. Omit or pass `null` to skip. |
+| `tree` | `string \| null` | no | Filter by tree path. Omit or pass `null` to skip. |
+| `temporal` | `object \| null` | no | Temporal filter. Omit or pass `null` to skip. |
+| `weights` | `object \| null` | no | Weights for hybrid search ranking. Omit or pass `null` for defaults. |
+| `candidateLimit` | `integer \| null` | no | Candidates per search mode before RRF fusion. Omit or pass `null` for default (30). |
+| `limit` | `integer \| null` | no | Maximum number of results. Omit or pass `null` for default (10). Max: 1000. |
+| `order_by` | `string \| null` | no | Sort direction for filter-only searches: `"asc"` or `"desc"`. Default: `"desc"`. Omit or pass `null` for default. |
 
 ### tree syntax
 
@@ -36,16 +36,16 @@ See [Tree filter syntax](../concepts.md#tree-filter-syntax) for the full referen
 
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
-| `contains` | `string \| null` | yes | Find memories whose time range contains this point in time. |
-| `overlaps` | `object \| null` | yes | Find memories overlapping this range (`{start, end}`). |
-| `within` | `object \| null` | yes | Find memories fully within this range (`{start, end}`). |
+| `contains` | `string \| null` | no | Find memories whose time range contains this point in time. |
+| `overlaps` | `object \| null` | no | Find memories overlapping this range (`{start, end}`). |
+| `within` | `object \| null` | no | Find memories fully within this range (`{start, end}`). |
 
 ### weights
 
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
-| `fulltext` | `number \| null` | yes | Weight for BM25 keyword matching (0-1). |
-| `semantic` | `number \| null` | yes | Weight for semantic similarity (0-1). |
+| `fulltext` | `number \| null` | no | Weight for BM25 keyword matching (0-1). |
+| `semantic` | `number \| null` | no | Weight for semantic similarity (0-1). |
 
 ## Returns
 
@@ -83,15 +83,7 @@ See [Tree filter syntax](../concepts.md#tree-filter-syntax) for the full referen
 ```json
 {
   "semantic": "how does authentication work",
-  "fulltext": null,
-  "grep": null,
-  "meta": null,
-  "tree": null,
-  "temporal": null,
-  "weights": null,
-  "candidateLimit": 0,
-  "limit": 10,
-  "order_by": null
+  "limit": 10
 }
 ```
 
@@ -101,14 +93,8 @@ See [Tree filter syntax](../concepts.md#tree-filter-syntax) for the full referen
 {
   "semantic": "embedding performance",
   "fulltext": "nomic ollama",
-  "grep": null,
-  "meta": null,
   "tree": "me.design.*",
-  "temporal": null,
-  "weights": null,
-  "candidateLimit": 0,
-  "limit": 5,
-  "order_by": null
+  "limit": 5
 }
 ```
 
@@ -116,14 +102,8 @@ See [Tree filter syntax](../concepts.md#tree-filter-syntax) for the full referen
 
 ```json
 {
-  "semantic": null,
-  "fulltext": null,
-  "grep": null,
   "meta": { "type": "decision" },
   "tree": "me.strategy.*",
-  "temporal": null,
-  "weights": null,
-  "candidateLimit": 0,
   "limit": 20,
   "order_by": "desc"
 }
@@ -132,6 +112,7 @@ See [Tree filter syntax](../concepts.md#tree-filter-syntax) for the full referen
 ## Notes
 
 - Provide at least one of `semantic`, `fulltext`, or a filter (`tree`, `meta`, `temporal`, `grep`) -- otherwise the search has no criteria.
+- Optional parameters may be omitted or explicitly passed as `null` — both are treated as "no value".
 - When both `semantic` and `fulltext` are provided, results are ranked using Reciprocal Rank Fusion (hybrid mode).
 - `order_by` only applies to filter-only searches (no `semantic`/`fulltext`). Ranked searches are always sorted by score.
 - `score` ranges from 0 to 1, where 1 is the best match.

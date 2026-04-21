@@ -6,18 +6,18 @@ Store a new memory.
 
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
-| `id` | `string \| null` | yes | UUIDv7 for idempotent creates. Pass `null` to auto-generate. |
+| `id` | `string \| null` | no | UUIDv7 for idempotent creates. Omit or pass `null` to auto-generate. |
 | `content` | `string` | yes | The content of the memory. Must be non-empty. |
-| `meta` | `object \| null` | yes | Key-value metadata pairs. Pass `null` to omit. |
-| `tree` | `string \| null` | yes | Hierarchical path using dot-separated labels (e.g., `work.projects.me`). Pass `null` to store at the root. |
-| `temporal` | `object \| null` | yes | Time range for the memory. Pass `null` to omit. |
+| `meta` | `object \| null` | no | Key-value metadata pairs. Omit or pass `null` to skip. |
+| `tree` | `string \| null` | no | Hierarchical path using dot-separated labels (e.g., `work.projects.me`). Omit or pass `null` to store at the root. |
+| `temporal` | `object \| null` | no | Time range for the memory. Omit or pass `null` to skip. |
 
 ### temporal
 
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
 | `start` | `string` | yes | ISO 8601 timestamp for the start of the time range. |
-| `end` | `string \| null` | yes | ISO 8601 timestamp for the end. Pass `null` for a point-in-time memory. |
+| `end` | `string \| null` | no | ISO 8601 timestamp for the end. Omit or pass `null` for a point-in-time memory. |
 
 ## Returns
 
@@ -53,13 +53,11 @@ The full memory object as created:
 
 ```json
 {
-  "id": null,
   "content": "Use ltree for hierarchical path queries in PostgreSQL.",
   "meta": { "source": "docs", "confidence": "high" },
   "tree": "research.postgres",
   "temporal": {
-    "start": "2025-04-15T00:00:00Z",
-    "end": null
+    "start": "2025-04-15T00:00:00Z"
   }
 }
 ```

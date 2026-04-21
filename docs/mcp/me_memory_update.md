@@ -2,24 +2,24 @@
 
 Modify an existing memory.
 
-Provide the ID and any fields to change. Fields set to `null` remain unchanged.
+Provide the ID and any fields to change. Omitted fields remain unchanged.
 
 ## Parameters
 
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
 | `id` | `string` | yes | The UUID of the memory to update. |
-| `content` | `string \| null` | yes | New content. Pass `null` to keep existing. |
-| `meta` | `object \| null` | yes | New metadata. Pass `null` to keep existing. |
-| `tree` | `string \| null` | yes | New tree path. Pass `null` to keep existing. |
-| `temporal` | `object \| null` | yes | New time range. Pass `null` to keep existing. |
+| `content` | `string \| null` | no | New content. Omit or pass `null` to keep existing. |
+| `meta` | `object \| null` | no | New metadata. Omit or pass `null` to keep existing. |
+| `tree` | `string \| null` | no | New tree path. Omit or pass `null` to keep existing. |
+| `temporal` | `object \| null` | no | New time range. Omit or pass `null` to keep existing. |
 
 ### temporal
 
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
 | `start` | `string` | yes | ISO 8601 timestamp for the start of the time range. |
-| `end` | `string \| null` | yes | ISO 8601 timestamp for the end. Pass `null` for a point-in-time memory. |
+| `end` | `string \| null` | no | ISO 8601 timestamp for the end. Omit or pass `null` for a point-in-time memory. |
 
 ## Returns
 
@@ -48,10 +48,7 @@ Update only the content, keep everything else:
 ```json
 {
   "id": "0194a000-0001-7000-8000-000000000001",
-  "content": "PostgreSQL 18 supports native UUIDv7 via the uuidv7() function.",
-  "meta": null,
-  "tree": null,
-  "temporal": null
+  "content": "PostgreSQL 18 supports native UUIDv7 via the uuidv7() function."
 }
 ```
 
@@ -67,5 +64,5 @@ Update only the content, keep everything else:
 - Always fetch the memory first (`me_memory_get`) to see the current state before updating.
 - **`meta` is fully replaced, not merged.** If you want to add a key, fetch the current meta first, merge locally, then send the full object.
 - Updating `content` triggers a new embedding computation -- this is automatic, no action needed. `hasEmbedding` may temporarily become `false`.
-- Omitted fields (set to `null`) are preserved -- you can update just `tree` without touching `content`.
+- Omitted fields are preserved -- you can update just `tree` without touching `content`.
 - Returns an error if the memory does not exist.
