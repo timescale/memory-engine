@@ -36,6 +36,7 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 
 repos
 tmp
+scratch
 .mcp.json
 opencode.json
 .gemini
