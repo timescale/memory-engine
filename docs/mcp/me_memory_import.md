@@ -8,9 +8,9 @@ Parses the input according to the specified format and creates all memories in o
 
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
-| `path` | `string \| null` | yes | Absolute path to a file or directory. Directories are imported recursively. Format is inferred from extension (`.json`, `.yaml`, `.yml`, `.md`, `.ndjson`, `.jsonl`). Mutually exclusive with `content`. |
-| `content` | `string \| null` | yes | Raw content to import (JSON array, YAML array, or Markdown with frontmatter). Mutually exclusive with `path`. |
-| `format` | `string \| null` | yes | Content format: `"json"`, `"yaml"`, or `"md"`. Required when using `content`. Optional when using `path` (inferred from file extension). |
+| `path` | `string \| null` | no | Absolute path to a file or directory. Directories are imported recursively. Format is inferred from extension (`.json`, `.yaml`, `.yml`, `.md`, `.ndjson`, `.jsonl`). Mutually exclusive with `content`. Omit or pass `null` if providing `content`. |
+| `content` | `string \| null` | no | Raw content to import (JSON array, YAML array, or Markdown with frontmatter). Mutually exclusive with `path`. Omit or pass `null` if providing `path`. |
+| `format` | `string \| null` | no | Content format: `"json"`, `"yaml"`, or `"md"`. Required when using `content`. Optional when using `path` (inferred from file extension). Omit or pass `null` to skip. |
 
 One of `path` or `content` must be provided.
 
@@ -45,9 +45,7 @@ See [File Formats](../formats.md) for full schema documentation, examples, and f
 
 ```json
 {
-  "path": "/Users/me/memories/export.yaml",
-  "content": null,
-  "format": null
+  "path": "/Users/me/memories/export.yaml"
 }
 ```
 
@@ -57,9 +55,7 @@ Format is inferred from the `.yaml` extension.
 
 ```json
 {
-  "path": "/Users/me/memories/export-dir",
-  "content": null,
-  "format": null
+  "path": "/Users/me/memories/export-dir"
 }
 ```
 
@@ -69,7 +65,6 @@ Recursively imports all supported files (`.json`, `.yaml`, `.yml`, `.md`, `.ndjs
 
 ```json
 {
-  "path": null,
   "content": "[{\"content\": \"Hello world\", \"tree\": \"test\"}]",
   "format": "json"
 }
