@@ -194,6 +194,7 @@ After login, the server URL is stored as the default in `~/.config/me/credential
 | `bun run check` | Format + lint + typecheck |
 | `bun run build` | Compile CLI binary (current platform) |
 | `bun run build:all` | Cross-compile CLI for all platforms |
+| `bun run install:local` | Build and install local CLI binary to your PATH |
 | `bun run clean` | Remove build artifacts |
 | `bun run generate:master-key` | Generate a new encryption master key |
 
