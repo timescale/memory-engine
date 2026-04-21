@@ -1,5 +1,5 @@
 #!/bin/bash
-version="bun-v1.3.12"
+version="bun-v1.3.13"
 scriptDir="$(cd "$(dirname "$0")" && pwd)"
 platform="$(uname -s | tr '[:upper:]' '[:lower:]')-$(uname -m)"
 downloadDir="$scriptDir/download/bun/${version}/${platform}"
