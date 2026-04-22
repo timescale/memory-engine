@@ -14,7 +14,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { stringify as yamlStringify } from "yaml";
 import { z } from "zod";
-import { APP_VERSION } from "../../../version";
+import { CLIENT_VERSION } from "../../../version";
 import { formatMemoryAsMarkdown } from "../commands/memory.ts";
 import {
   detectFormatFromExtension,
@@ -920,7 +920,7 @@ export async function runMcpServer(options: McpServerOptions): Promise<void> {
   const mcpServer = new McpServer(
     {
       name: "me",
-      version: APP_VERSION,
+      version: CLIENT_VERSION,
     },
     {
       instructions: MCP_INSTRUCTIONS,

@@ -8,7 +8,7 @@ import { Command } from "commander";
  * Entry point: defines the root Commander program, registers global options
  * and all command groups, then runs.
  */
-import { APP_VERSION } from "../../version";
+import { CLIENT_VERSION } from "../../version";
 import { createApiKeyCommand } from "./commands/apikey.ts";
 import { createEngineCommand } from "./commands/engine.ts";
 import { createGrantCommand } from "./commands/grant.ts";
@@ -33,7 +33,7 @@ const program = new Command();
 program
   .name("me")
   .description("Memory Engine CLI")
-  .version(APP_VERSION)
+  .version(CLIENT_VERSION)
   .option(
     "--server <url>",
     "server URL (overrides ME_SERVER env and stored default)",

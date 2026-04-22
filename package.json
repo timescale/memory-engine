@@ -24,7 +24,8 @@
     "build:all": "./bun scripts/build-all.ts",
     "install:local": "./bun scripts/install-local.ts",
     "clean": "rm -rf packages/cli/dist dist",
-    "release": "./bun scripts/release.ts",
+    "release:client": "./bun scripts/release-client.ts",
+    "release:server": "./bun scripts/release-server.ts",
     "docs": "uvx --with mkdocs-material --with 'mkdocs<2' mkdocs serve",
     "docs:build": "uvx --with mkdocs-material --with 'mkdocs<2' mkdocs build --strict"
   },

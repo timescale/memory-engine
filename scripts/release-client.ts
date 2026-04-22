@@ -1,12 +1,21 @@
-// Release script — bump version, commit, tag, push.
+// Client release script — bump version, commit, tag `v<version>`, push.
+//
+// Bumps the root package.json plus the three client-facing packages that
+// get published to npm (@memory.build/cli, @memory.build/client,
+// @memory.build/protocol). Pushing the `v<version>` tag triggers
+// `.github/workflows/release.yml` (npm publish, CLI binaries, GitHub Release,
+// Homebrew formula update).
+//
+// Does NOT deploy the server. For that, use `./bun run release:server`
+// (which tags `server/v<version>` and triggers the prod deploy workflow).
 //
 // Usage:
-//   ./bun scripts/release.ts 0.2.0
-//   ./bun scripts/release.ts patch     # 0.1.9 -> 0.1.10
-//   ./bun scripts/release.ts minor     # 0.1.9 -> 0.2.0
-//   ./bun scripts/release.ts major     # 0.1.9 -> 1.0.0
-//   ./bun scripts/release.ts           # prompts for version
-//   ./bun run release 0.2.0
+//   ./bun scripts/release-client.ts 0.2.0
+//   ./bun scripts/release-client.ts patch     # 0.1.9 -> 0.1.10
+//   ./bun scripts/release-client.ts minor     # 0.1.9 -> 0.2.0
+//   ./bun scripts/release-client.ts major     # 0.1.9 -> 1.0.0
+//   ./bun scripts/release-client.ts           # prompts for version
+//   ./bun run release:client 0.2.0
 
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -16,17 +25,14 @@ import semver from "semver";
 
 const root = join(import.meta.dirname, "..");
 
-// All package.json files that carry a version field.
+// Client-facing package.json files. Root is the canonical source of truth
+// for CLIENT_VERSION (see version.ts). The three packages below are the
+// ones that actually get published to npm by the release workflow.
 const PACKAGE_JSONS = [
   "package.json",
-  "packages/accounts/package.json",
   "packages/cli/package.json",
   "packages/client/package.json",
-  "packages/embedding/package.json",
-  "packages/engine/package.json",
   "packages/protocol/package.json",
-  "packages/server/package.json",
-  "packages/worker/package.json",
 ];
 
 // ---------------------------------------------------------------------------
@@ -142,7 +148,7 @@ if (tagExists) {
 const tag = `v${version}`;
 info(`${current} -> ${version}`);
 
-const confirm = await prompt(`Release ${tag}? (y/N)`);
+const confirm = await prompt(`Release client ${tag}? (y/N)`);
 if (confirm.toLowerCase() !== "y") {
   die("aborted");
 }
@@ -163,4 +169,4 @@ info(`committed and tagged ${tag}`);
 await $`git push origin main --follow-tags`.cwd(root);
 info(`pushed ${tag} to origin`);
 
-console.log(`\n\x1b[32mdone\x1b[0m — release ${tag} is live`);
+console.log(`\n\x1b[32mdone\x1b[0m — client release ${tag} is live`);
