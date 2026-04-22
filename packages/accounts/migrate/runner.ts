@@ -101,7 +101,7 @@ async function scaffold(tx: SQL, schema: string): Promise<void> {
 export async function migrate(
   sql: SQL,
   config?: AccountsConfig,
-  appVersion = "0.0.0",
+  serverVersion = "0.0.0",
 ): Promise<MigrateResult> {
   const resolved = resolveConfig(config);
   const { schema } = resolved;
@@ -136,11 +136,11 @@ export async function migrate(
       `select version from ${schema}.version`,
     );
 
-    const cmp = semver.order(appVersion, dbVersion);
+    const cmp = semver.order(serverVersion, dbVersion);
     if (cmp < 0) {
       throw new Error(
-        `App version (${appVersion}) is older than database version (${dbVersion}). ` +
-          "Please upgrade the application.",
+        `Server version (${serverVersion}) is older than database version (${dbVersion}). ` +
+          "Please upgrade the server.",
       );
     }
 
@@ -162,7 +162,7 @@ export async function migrate(
       await tx.unsafe(renderedSql);
       await tx.unsafe(
         `insert into ${schema}.migration (name, applied_at_version) values ($1, $2)`,
-        [migration.name, appVersion],
+        [migration.name, serverVersion],
       );
       applied.push(migration.name);
     }
@@ -170,7 +170,7 @@ export async function migrate(
     // Update version if app version is newer
     if (cmp > 0) {
       await tx.unsafe(`update ${schema}.version set version = $1, at = now()`, [
-        appVersion,
+        serverVersion,
       ]);
     }
 

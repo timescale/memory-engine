@@ -289,7 +289,7 @@ expected. They're not related after this split.
 ### Adding a migration
 
 Database migrations run at server startup using `SERVER_VERSION` as the
-`appVersion` passed to the runners. When you add a new migration file under
+`serverVersion` passed to the runners. When you add a new migration file under
 `packages/engine/migrate/migrations/` or `packages/accounts/migrate/migrations/`:
 
 - Cut a **server** release afterwards (`bun run release:server`) to advance

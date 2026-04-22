@@ -15,7 +15,7 @@ import type { HandlerContext } from "../types";
  * - `db`: AccountsDB instance for accounts operations
  * - `identity`: The authenticated identity (from OAuth session)
  * - `engineSql`: SQL connection to the engine database (for schema provisioning)
- * - `appVersion`: Application version string (for migration tracking)
+ * - `serverVersion`: Application version string (for migration tracking)
  *
  * Authentication middleware populates these fields via OAuth session validation.
  */
@@ -27,7 +27,7 @@ export interface AccountsRpcContext extends HandlerContext {
   /** SQL connection to the engine database */
   engineSql: SQL;
   /** Application version string */
-  appVersion: string;
+  serverVersion: string;
 }
 
 /**
@@ -47,8 +47,8 @@ export function isAccountsRpcContext(
     "email" in ctx.identity &&
     "engineSql" in ctx &&
     typeof ctx.engineSql === "function" &&
-    "appVersion" in ctx &&
-    typeof ctx.appVersion === "string"
+    "serverVersion" in ctx &&
+    typeof ctx.serverVersion === "string"
   );
 }
 

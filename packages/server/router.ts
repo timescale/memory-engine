@@ -123,7 +123,7 @@ export function createRouter(ctx: ServerContext): Router {
     engineSql,
     embeddingConfig,
     apiBaseUrl,
-    appVersion,
+    serverVersion,
   } = ctx;
 
   // Auth handler context for device flow endpoints
@@ -131,7 +131,7 @@ export function createRouter(ctx: ServerContext): Router {
     db: accountsDb,
     baseUrl: apiBaseUrl,
     engineSql,
-    appVersion,
+    serverVersion,
   };
 
   // Engine RPC: authenticate and provide db context
@@ -173,7 +173,7 @@ export function createRouter(ctx: ServerContext): Router {
         db: accountsDb,
         identity: ctx.identity,
         engineSql,
-        appVersion,
+        serverVersion,
       };
     },
   );

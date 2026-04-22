@@ -69,7 +69,8 @@ async function engineCreate(
   context: HandlerContext,
 ): Promise<EngineResponse> {
   assertAccountsRpcContext(context);
-  const { db, identity, engineSql, appVersion } = context as AccountsRpcContext;
+  const { db, identity, engineSql, serverVersion } =
+    context as AccountsRpcContext;
 
   // Check if caller has admin or owner role
   const member = await db.getMember(params.orgId, identity.id);
@@ -98,7 +99,7 @@ async function engineCreate(
       engineSql,
       engine.slug,
       engineConfig,
-      appVersion,
+      serverVersion,
       engine.shardId,
     );
   } catch (err) {

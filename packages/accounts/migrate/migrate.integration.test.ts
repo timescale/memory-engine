@@ -82,7 +82,7 @@ describe("integration: migrate", () => {
       await migrate(sql, { schema }, "0.1.0");
       expect.unreachable("should have thrown");
     } catch (error) {
-      expect((error as Error).message).toContain("App version (0.1.0)");
+      expect((error as Error).message).toContain("Server version (0.1.0)");
       expect((error as Error).message).toContain(
         "older than database version (0.2.0)",
       );

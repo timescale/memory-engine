@@ -24,7 +24,7 @@ function createMockContext(
       updatedAt: null,
     },
     engineSql: mock(() => {}) as unknown,
-    appVersion: "0.1.1",
+    serverVersion: "0.1.1",
   } as unknown as HandlerContext;
 }
 
