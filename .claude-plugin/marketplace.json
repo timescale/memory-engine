@@ -1,0 +1,16 @@
+{
+  "name": "memory-engine",
+  "owner": {
+    "name": "Timescale Memory Engine Team"
+  },
+  "metadata": {
+    "description": "Memory Engine plugins for coding agents"
+  },
+  "plugins": [
+    {
+      "name": "memory-engine",
+      "source": "./packages/claude-plugin",
+      "description": "Captures user prompts and agent responses to Memory Engine for persistent context across sessions"
+    }
+  ]
+}

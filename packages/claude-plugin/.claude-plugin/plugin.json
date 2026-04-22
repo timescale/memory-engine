@@ -1,0 +1,12 @@
+{
+  "name": "memory-engine",
+  "version": "0.0.1",
+  "description": "Captures user prompts and agent responses to Memory Engine for persistent context across sessions",
+  "author": {
+    "name": "Timescale Memory Engine Team"
+  },
+  "homepage": "https://memory.build",
+  "repository": "https://github.com/timescale/memory-engine",
+  "license": "MIT",
+  "keywords": ["memory", "context", "agents"]
+}
