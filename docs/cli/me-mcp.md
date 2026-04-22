@@ -53,7 +53,7 @@ Detects installed AI tools on your PATH and registers `me` as an MCP server with
 | Claude Code | `claude` | `claude mcp add` |
 | Gemini CLI | `gemini` | `gemini mcp add` |
 | Codex CLI | `codex` | `codex mcp add` |
-| OpenCode | `opencode` | Manual instructions |
+| OpenCode | `opencode` | Edits `~/.config/opencode/opencode.json` |
 
 If no `--api-key` or `--server` is provided, values are resolved from `~/.config/me/credentials.yaml` (set by `me login` and `me engine use`).
 

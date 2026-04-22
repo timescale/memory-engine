@@ -120,7 +120,6 @@ function createMcpInstallCommand(): Command {
             "  claude mcp add --scope user me -- me mcp --api-key <key>",
             "  gemini mcp add --scope user me me mcp --api-key <key>",
             "  codex mcp add me -- me mcp --api-key <key>",
-            "  opencode mcp add",
           ].join("\n"),
           "Manual Install",
         );
@@ -132,14 +131,8 @@ function createMcpInstallCommand(): Command {
 
       // Install each tool
       const results: Array<{ name: string } & InstallResult> = [];
-      const manualInstructions: string[] = [];
 
       for (const tool of tools) {
-        if (tool.method === "manual") {
-          manualInstructions.push(`  ${tool.name}: ${tool.instruction}`);
-          continue;
-        }
-
         const spin = clack.spinner();
         spin.start(`Registering with ${tool.name}...`);
         const result = await installMcpServer(tool, meCmd);
@@ -153,13 +146,6 @@ function createMcpInstallCommand(): Command {
         if (!result.success) {
           clack.log.warn(result.message);
         }
-      }
-
-      if (manualInstructions.length > 0) {
-        clack.note(
-          ["Register manually:", ...manualInstructions].join("\n"),
-          "MCP",
-        );
       }
 
       const failures = results.filter((r) => !r.success);
