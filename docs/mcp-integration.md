@@ -39,7 +39,7 @@ See [`me mcp install`](cli/me-mcp.md) for the full command reference.
 | Claude Code | `claude` binary |
 | Gemini CLI | `gemini` binary |
 | Codex CLI | `codex` binary |
-| OpenCode | `opencode` binary (manual setup) |
+| OpenCode | `opencode` binary |
 
 ### Claude Code
 
@@ -63,11 +63,18 @@ codex mcp add me -- me mcp --api-key <key> --server <url>
 
 ### OpenCode
 
-```bash
-opencode mcp add
-```
+`me mcp install` edits `~/.config/opencode/opencode.json` directly, adding an entry under `mcp.memory-engine`. To configure manually, add this to that file:
 
-Follow the interactive prompts to add the `me mcp` command.
+```json
+{
+  "mcp": {
+    "memory-engine": {
+      "type": "local",
+      "command": ["me", "mcp", "--api-key", "<key>", "--server", "<url>"]
+    }
+  }
+}
+```
 
 ### VS Code / GitHub Copilot
 

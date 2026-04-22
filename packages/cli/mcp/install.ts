@@ -2,8 +2,12 @@
  * MCP install logic — tool detection, command building, and registration.
  *
  * Detects AI tools on PATH and registers `me` as an MCP server
- * by running each tool's `mcp add` command.
+ * by running each tool's `mcp add` command or editing its JSON config.
  */
+
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { homedir } from "node:os";
+import { dirname, join } from "node:path";
 
 // =============================================================================
 // Tool Registry
@@ -20,12 +24,12 @@ interface McpToolCli extends McpToolBase {
   removeCmd: string[];
 }
 
-interface McpToolManual extends McpToolBase {
-  method: "manual";
-  instruction: string;
+interface McpToolJsonFile extends McpToolBase {
+  method: "json-file";
+  install: (meCmd: string[]) => Promise<InstallResult>;
 }
 
-type McpTool = McpToolCli | McpToolManual;
+type McpTool = McpToolCli | McpToolJsonFile;
 
 export const MCP_TOOLS: McpTool[] = [
   {
@@ -69,8 +73,8 @@ export const MCP_TOOLS: McpTool[] = [
   {
     name: "OpenCode",
     bin: "opencode",
-    method: "manual",
-    instruction: "opencode mcp add",
+    method: "json-file",
+    install: installOpenCode,
   },
 ];
 
@@ -165,5 +169,101 @@ export async function installMcpServer(
   if (tool.method === "cli") {
     return installViaCli(tool, meCmd);
   }
-  return { success: true, message: tool.instruction };
+  return tool.install(meCmd);
+}
+
+// =============================================================================
+// OpenCode installer
+// =============================================================================
+
+/**
+ * Path to OpenCode's config file.
+ */
+export function openCodeConfigPath(): string {
+  return join(homedir(), ".config", "opencode", "opencode.json");
+}
+
+/**
+ * Pure helper: merge the memory-engine MCP entry into an existing OpenCode
+ * config object. Returns the updated config and whether a prior entry existed.
+ *
+ * Exported for testability — the install function layers file I/O on top.
+ */
+export function buildOpenCodeConfig(
+  existing: Record<string, unknown>,
+  meCmd: string[],
+): { config: Record<string, unknown>; existed: boolean } {
+  const currentMcp = existing.mcp;
+  const mcp =
+    currentMcp && typeof currentMcp === "object" && !Array.isArray(currentMcp)
+      ? { ...(currentMcp as Record<string, unknown>) }
+      : {};
+
+  const existed = "memory-engine" in mcp;
+  mcp["memory-engine"] = {
+    type: "local",
+    command: meCmd,
+  };
+
+  return {
+    config: { ...existing, mcp },
+    existed,
+  };
+}
+
+/**
+ * Register Memory Engine in OpenCode's JSON config.
+ *
+ * Creates the config file and its parent directory if missing.
+ * Preserves any other keys in the existing config.
+ */
+async function installOpenCode(meCmd: string[]): Promise<InstallResult> {
+  const configPath = openCodeConfigPath();
+
+  let existing: Record<string, unknown> = {};
+  try {
+    const contents = await readFile(configPath, "utf-8");
+    const parsed = JSON.parse(contents);
+    if (
+      typeof parsed !== "object" ||
+      parsed === null ||
+      Array.isArray(parsed)
+    ) {
+      return {
+        success: false,
+        message: `OpenCode: ${configPath} is not a JSON object`,
+      };
+    }
+    existing = parsed as Record<string, unknown>;
+  } catch (err: unknown) {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code !== "ENOENT") {
+      const msg = err instanceof Error ? err.message : String(err);
+      return {
+        success: false,
+        message: `OpenCode: failed to read ${configPath} — ${msg}`,
+      };
+    }
+    // File doesn't exist — start with an empty config.
+  }
+
+  const { config, existed } = buildOpenCodeConfig(existing, meCmd);
+
+  try {
+    await mkdir(dirname(configPath), { recursive: true });
+    await writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`);
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return {
+      success: false,
+      message: `OpenCode: failed to write ${configPath} — ${msg}`,
+    };
+  }
+
+  return {
+    success: true,
+    message: existed
+      ? "Updated registration for OpenCode"
+      : "Registered with OpenCode",
+  };
 }
