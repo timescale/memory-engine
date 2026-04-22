@@ -17,7 +17,7 @@ const PLATFORMS = {
   },
 };
 
-const binPath = env.OX_BINARY || PLATFORMS[platform]?.[arch];
+const binPath = env.ME_BINARY || PLATFORMS[platform]?.[arch];
 
 if (!binPath) {
   console.error(
@@ -30,7 +30,7 @@ if (!binPath) {
 } else {
   let resolvedPath;
   try {
-    resolvedPath = env.OX_BINARY || require.resolve(binPath);
+    resolvedPath = env.ME_BINARY || require.resolve(binPath);
   } catch {
     console.error(
       `Could not find the me binary for your platform (${platform}-${arch}).`,
