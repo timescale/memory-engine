@@ -14,7 +14,7 @@ The plugin registers three Claude Code hooks:
 | **UserPromptSubmit** | You send a prompt | Captures your prompt text as a memory. Runs async (does not delay your session). |
 | **Stop** | Agent finishes responding | Captures the agent's final response as a memory. Runs async. Skips empty responses. |
 
-The plugin also bundles the Memory Engine MCP server (`.mcp.json`), which gives the agent access to all ME tools -- search, create, update, delete, import, export, tree, and move.
+The plugin does **not** bundle the MCP server. If you want the agent to have access to ME tools (search, create, update, etc.) during your session, set that up separately with `me mcp install`.
 
 ### Capture Flow
 
@@ -87,6 +87,11 @@ Each captured memory includes:
    curl -fsSL https://bun.sh/install | bash
    ```
 
+4. **(Optional) MCP server** for agent access to ME tools during sessions:
+   ```bash
+   me mcp install
+   ```
+
 ## Install
 
 From a local checkout of this repo:
@@ -141,7 +146,7 @@ me memory search --tree "poc.claude_code.*" --temporal-contains "2026-04-22"
 me memory search --fulltext "JWT token" --tree "poc.claude_code.*"
 ```
 
-The agent can also search using the bundled MCP tools (`me_memory_search`, `me_memory_get`, etc.) during your session.
+If you've set up the MCP server separately (`me mcp install`), the agent can also search using ME tools (`me_memory_search`, `me_memory_get`, etc.) during your session.
 
 ## Known Limitations
 
@@ -149,7 +154,7 @@ The agent can also search using the bundled MCP tools (`me_memory_search`, `me_m
 - **No context loading at session start**: The plugin captures but does not yet inject past context into new sessions. The agent can manually search ME using the MCP tools.
 - **No slash commands**: No `/remember`, `/recall`, or similar commands yet. Use the MCP tools directly or the `me` CLI.
 - **Flat tree path**: All captures go to `poc.claude_code.sessions` regardless of project. Session identity is in the metadata, not the tree structure. This may change.
-- **Engine identity**: The plugin's hooks use whatever engine `me` is logged into (via `me login` or env vars). The bundled MCP server also runs `me mcp`, which uses the same credentials. If you switch engines with `me login` mid-session, new captures go to the new engine but the MCP server may still be connected to the old one until you restart.
+- **Engine identity**: The plugin's hooks use whatever engine `me` is logged into (via `me login` or env vars). If you also use the MCP server (`me mcp install`), make sure it points at the same engine. Run `me whoami` to check.
 - **macOS / Linux only**: Not tested on Windows.
 - **Async capture**: Hooks run with `"async": true`, meaning captures happen in the background. In rare cases, a very fast session exit could drop the last capture if the process hasn't finished.
 
@@ -179,7 +184,6 @@ packages/claude-plugin/
 │   ├── check-env.ts          # SessionStart: verify me CLI and engine connectivity
 │   ├── capture-prompt.ts     # UserPromptSubmit: save user prompt to ME
 │   └── capture-response.ts   # Stop: save agent final response to ME
-├── .mcp.json                 # bundles the Memory Engine MCP server
 └── README.md                 # this file
 ```
 
