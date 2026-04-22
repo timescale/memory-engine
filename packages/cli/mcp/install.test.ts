@@ -27,12 +27,12 @@ describe("buildMeCommand", () => {
 describe("buildOpenCodeConfig", () => {
   const meCmd = ["me", "mcp", "--api-key", "k", "--server", "https://x"];
 
-  test("adds memory-engine entry to empty config", () => {
+  test("adds me entry to empty config", () => {
     const { config, existed } = buildOpenCodeConfig({}, meCmd);
     expect(existed).toBe(false);
     expect(config).toEqual({
       mcp: {
-        "memory-engine": {
+        me: {
           type: "local",
           command: meCmd,
         },
@@ -45,7 +45,7 @@ describe("buildOpenCodeConfig", () => {
     const { config } = buildOpenCodeConfig(existing, meCmd);
     expect(config.theme).toBe("dark");
     expect(config.model).toBe("claude-sonnet");
-    expect((config.mcp as Record<string, unknown>)["memory-engine"]).toEqual({
+    expect((config.mcp as Record<string, unknown>).me).toEqual({
       type: "local",
       command: meCmd,
     });
@@ -64,22 +64,22 @@ describe("buildOpenCodeConfig", () => {
       type: "local",
       command: ["other"],
     });
-    expect(mcp["memory-engine"]).toEqual({
+    expect(mcp.me).toEqual({
       type: "local",
       command: meCmd,
     });
   });
 
-  test("overwrites prior memory-engine entry and reports existed=true", () => {
+  test("overwrites prior me entry and reports existed=true", () => {
     const existing = {
       mcp: {
-        "memory-engine": { type: "local", command: ["me", "old"] },
+        me: { type: "local", command: ["me", "old"] },
       },
     };
     const { config, existed } = buildOpenCodeConfig(existing, meCmd);
     expect(existed).toBe(true);
     const mcp = config.mcp as Record<string, unknown>;
-    expect(mcp["memory-engine"]).toEqual({
+    expect(mcp.me).toEqual({
       type: "local",
       command: meCmd,
     });
@@ -89,7 +89,7 @@ describe("buildOpenCodeConfig", () => {
     const existing = { mcp: "not-an-object" };
     const { config } = buildOpenCodeConfig(existing, meCmd);
     expect(config.mcp).toEqual({
-      "memory-engine": {
+      me: {
         type: "local",
         command: meCmd,
       },

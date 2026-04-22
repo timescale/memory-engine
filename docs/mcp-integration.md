@@ -63,12 +63,12 @@ codex mcp add me -- me mcp --api-key <key> --server <url>
 
 ### OpenCode
 
-`me mcp install` edits `~/.config/opencode/opencode.json` directly, adding an entry under `mcp.memory-engine`. To configure manually, add this to that file:
+`me mcp install` edits `~/.config/opencode/opencode.json` directly, adding an entry under `mcp.me`. To configure manually, add this to that file:
 
 ```json
 {
   "mcp": {
-    "memory-engine": {
+    "me": {
       "type": "local",
       "command": ["me", "mcp", "--api-key", "<key>", "--server", "<url>"]
     }

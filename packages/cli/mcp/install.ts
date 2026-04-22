@@ -184,7 +184,7 @@ export function openCodeConfigPath(): string {
 }
 
 /**
- * Pure helper: merge the memory-engine MCP entry into an existing OpenCode
+ * Pure helper: merge the `me` MCP entry into an existing OpenCode
  * config object. Returns the updated config and whether a prior entry existed.
  *
  * Exported for testability — the install function layers file I/O on top.
@@ -199,8 +199,8 @@ export function buildOpenCodeConfig(
       ? { ...(currentMcp as Record<string, unknown>) }
       : {};
 
-  const existed = "memory-engine" in mcp;
-  mcp["memory-engine"] = {
+  const existed = "me" in mcp;
+  mcp.me = {
     type: "local",
     command: meCmd,
   };
