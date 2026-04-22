@@ -22,7 +22,7 @@ function createMockContext(): ServerContext {
       apiKey: "test-key",
     } as EmbeddingConfig,
     apiBaseUrl: "https://test.example.com",
-    appVersion: SERVER_VERSION,
+    serverVersion: SERVER_VERSION,
   };
 }
 

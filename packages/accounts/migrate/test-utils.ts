@@ -19,7 +19,7 @@ export class TestDatabase {
 
   static async create(
     adminUrl = "postgresql://postgres@localhost:5432/postgres",
-    appVersion = "0.1.0",
+    serverVersion = "0.1.0",
   ): Promise<TestDatabase> {
     const schema = `accounts_test_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
     assertSafeIdentifier(schema);
@@ -27,7 +27,7 @@ export class TestDatabase {
     const sql = new SQL(adminUrl);
     const config: AccountsConfig = { schema };
 
-    await migrate(sql, config, appVersion);
+    await migrate(sql, config, serverVersion);
 
     return new TestDatabase(schema, sql);
   }

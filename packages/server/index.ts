@@ -388,7 +388,7 @@ const serverContext: ServerContext = {
   engineSql,
   embeddingConfig,
   apiBaseUrl,
-  appVersion: SERVER_VERSION,
+  serverVersion: SERVER_VERSION,
 };
 
 const router = createRouter(serverContext);

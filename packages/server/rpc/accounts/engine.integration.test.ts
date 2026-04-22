@@ -89,7 +89,7 @@ function createContext(identity: Identity): HandlerContext {
     db: accountsDb,
     identity,
     engineSql,
-    appVersion: SERVER_VERSION,
+    serverVersion: SERVER_VERSION,
   } as unknown as AccountsRpcContext;
 }
 

@@ -61,7 +61,7 @@ export async function migrateEngine(
   sql: SQL,
   schema: string,
   config: EngineConfig | undefined,
-  appVersion: string,
+  serverVersion: string,
   shardId?: number,
 ): Promise<MigrateResult> {
   await assertEngineSchema(sql, schema);
@@ -103,11 +103,11 @@ export async function migrateEngine(
       `select version from ${schema}.version`,
     );
 
-    const cmp = semver.order(appVersion, dbVersion);
+    const cmp = semver.order(serverVersion, dbVersion);
     if (cmp < 0) {
       throw new Error(
-        `App version (${appVersion}) is older than database version (${dbVersion}). ` +
-          "Please upgrade the application.",
+        `Server version (${serverVersion}) is older than database version (${dbVersion}). ` +
+          "Please upgrade the server.",
       );
     }
 
@@ -138,7 +138,7 @@ export async function migrateEngine(
       await tx.unsafe(renderedSql);
       await tx.unsafe(
         `insert into ${schema}.migration (name, applied_at_version) values ($1, $2)`,
-        [migration.name, appVersion],
+        [migration.name, serverVersion],
       );
       applied.push(migration.name);
     }
@@ -146,7 +146,7 @@ export async function migrateEngine(
     // 6. Update version if app version is newer
     if (cmp > 0) {
       await tx.unsafe(`update ${schema}.version set version = $1, at = now()`, [
-        appVersion,
+        serverVersion,
       ]);
     }
 
@@ -158,7 +158,7 @@ export async function migrateAll(
   sql: SQL,
   schemas: string[],
   config: EngineConfig | undefined,
-  appVersion: string,
+  serverVersion: string,
   options?: { concurrency?: number; shardId?: number },
 ): Promise<Map<string, MigrateResult>> {
   const concurrency = options?.concurrency ?? 10;
@@ -175,7 +175,7 @@ export async function migrateAll(
         sql,
         schema,
         config,
-        appVersion,
+        serverVersion,
         shardId,
       );
       results.set(schema, result);

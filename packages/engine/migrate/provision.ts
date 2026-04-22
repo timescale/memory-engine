@@ -13,7 +13,7 @@ export async function provisionEngine(
   sql: SQL,
   slug: string,
   config: EngineConfig | undefined,
-  appVersion: string,
+  serverVersion: string,
   shardId?: number,
 ): Promise<ProvisionResult> {
   if (!isValidSlug(slug)) {
@@ -54,7 +54,7 @@ export async function provisionEngine(
     sql,
     schema,
     config,
-    appVersion,
+    serverVersion,
     shardId,
   );
 

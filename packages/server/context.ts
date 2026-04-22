@@ -18,5 +18,5 @@ export interface ServerContext {
   /** Base URL for API callbacks (e.g., "https://memory.build") */
   apiBaseUrl: string;
   /** Application version for migration tracking */
-  appVersion: string;
+  serverVersion: string;
 }

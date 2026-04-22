@@ -40,7 +40,7 @@ export interface AuthHandlerContext {
   /** Engine database pool (for provisioning default engine on signup) */
   engineSql: SQL;
   /** Application version for migration tracking */
-  appVersion: string;
+  serverVersion: string;
 }
 
 /**
@@ -385,7 +385,7 @@ async function provisionPersonalAccount(
   ctx: AuthHandlerContext,
   identity: Identity,
 ): Promise<void> {
-  const { db, engineSql, appVersion } = ctx;
+  const { db, engineSql, serverVersion } = ctx;
 
   const org = await db.withTransaction(async (txDb) => {
     // Create personal org
@@ -411,7 +411,7 @@ async function provisionPersonalAccount(
         engineSql,
         engine.slug,
         engineConfig,
-        appVersion,
+        serverVersion,
         engine.shardId,
       );
     } catch (err) {
