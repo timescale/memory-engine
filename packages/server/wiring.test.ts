@@ -12,7 +12,7 @@ import { describe, expect, mock, test } from "bun:test";
 import type { AccountsDB } from "@memory.build/accounts";
 import type { EmbeddingConfig } from "@memory.build/embedding";
 import type { SQL } from "bun";
-import { APP_VERSION } from "../../version";
+import { SERVER_VERSION } from "../../version";
 import type { ServerContext } from "./context";
 import type { EngineInfo } from "./middleware/authenticate";
 import { createRouter } from "./router";
@@ -69,7 +69,7 @@ function createMockContext(overrides?: Partial<ServerContext>): ServerContext {
       apiKey: "test-key",
     } as EmbeddingConfig,
     apiBaseUrl: "https://test.example.com",
-    appVersion: APP_VERSION,
+    appVersion: SERVER_VERSION,
     ...overrides,
   };
 }

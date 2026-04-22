@@ -18,7 +18,7 @@ import { createEngineDB } from "@memory.build/engine";
 import { bootstrap } from "@memory.build/engine/migrate/bootstrap";
 import { TestDatabase as EngineTestDatabase } from "@memory.build/engine/migrate/test-utils";
 import { SQL } from "bun";
-import { APP_VERSION } from "../../../../version";
+import { SERVER_VERSION } from "../../../../version";
 import type { HandlerContext } from "../types";
 import { engineMethods } from "./engine";
 import type { AccountsRpcContext } from "./types";
@@ -89,7 +89,7 @@ function createContext(identity: Identity): HandlerContext {
     db: accountsDb,
     identity,
     engineSql,
-    appVersion: APP_VERSION,
+    appVersion: SERVER_VERSION,
   } as unknown as AccountsRpcContext;
 }
 

@@ -197,6 +197,107 @@ After login, the server URL is stored as the default in `~/.config/me/credential
 | `bun run install:local` | Build and install local CLI binary to your PATH |
 | `bun run clean` | Remove build artifacts |
 | `bun run generate:master-key` | Generate a new encryption master key |
+| `bun run release:client` | Cut a client release (CLI + npm packages) |
+| `bun run release:server` | Cut a server release (deploys to prod) |
+
+## Releases
+
+The client (CLI, npm packages) and the server (deployed container) are
+released independently. They carry separate version counters, use separate
+tag prefixes, and are triggered by separate scripts.
+
+### Two versions
+
+| Constant | Source of truth | Exposed via |
+|---|---|---|
+| `CLIENT_VERSION` | root `package.json` | `me --version`, MCP handshake, npm-published packages |
+| `SERVER_VERSION` | `packages/server/package.json` | Logfire `serviceVersion`, migration `applied_at_version` and `<schema>.version`, gitRevision fallback in prod |
+
+Both are exported from `version.ts`. Migration tracking — including the
+downgrade-rejection guard in the runners — uses `SERVER_VERSION`, so the
+DB's recorded version advances only when the server is released.
+
+### Two scripts
+
+**`bun run release:client`** — bumps the version in:
+
+- `package.json`
+- `packages/cli/package.json`
+- `packages/client/package.json`
+- `packages/protocol/package.json`
+
+Commits, creates an annotated tag `v<version>`, and pushes.
+
+The `v*` tag triggers `.github/workflows/release.yml`, which:
+
+- Publishes `@memory.build/protocol` and `@memory.build/client` to npm.
+- Builds the `me` CLI for all platforms.
+- Creates a GitHub Release with the binaries.
+- Publishes the CLI wrapper to npm.
+- Updates the Homebrew formula.
+
+**`bun run release:server`** — bumps the version in the server-side packages
+in lockstep:
+
+- `packages/accounts/package.json`
+- `packages/embedding/package.json`
+- `packages/engine/package.json`
+- `packages/server/package.json` (canonical source)
+- `packages/worker/package.json`
+
+Commits, creates an annotated tag `server/v<version>`, and pushes.
+
+The `server/v*` tag triggers `.github/workflows/deploy-prod.yaml`, which
+builds the server image from `packages/server/Dockerfile` and deploys it
+to prod.
+
+The dev environment is redeployed automatically by
+`.github/workflows/deploy-dev.yaml` on every push to `main` that touches a
+server path — no tag required.
+
+### Usage
+
+```bash
+bun run release:client 0.2.0       # explicit version
+bun run release:client patch       # 0.1.16 -> 0.1.17
+bun run release:client minor       # 0.1.16 -> 0.2.0
+bun run release:client             # prompts for version
+
+bun run release:server patch       # same arg shapes; tags server/v<...>
+```
+
+Both scripts require:
+
+- Clean working tree, on `main`, up to date with `origin/main`.
+- Version strictly greater than the current one.
+- Tag doesn't already exist.
+- Explicit `y` confirmation at the prompt.
+
+### Typical workflow
+
+Because the client and server release independently, the typical sequence
+for a change that spans both sides is:
+
+1. Land a backwards-compatible server change on `main`. Dev auto-deploys.
+2. `bun run release:server` to tag `server/v<next>` and deploy prod.
+3. Land the client change on `main` that depends on the new server behavior.
+4. `bun run release:client` to publish the CLI and npm packages.
+
+The server counter and the client counter will diverge over time — that's
+expected. They're not related after this split.
+
+### Adding a migration
+
+Database migrations run at server startup using `SERVER_VERSION` as the
+`appVersion` passed to the runners. When you add a new migration file under
+`packages/engine/migrate/migrations/` or `packages/accounts/migrate/migrations/`:
+
+- Cut a **server** release afterwards (`bun run release:server`) to advance
+  `SERVER_VERSION` and propagate the migration to prod.
+- The migration's `applied_at_version` column and the schema's `version`
+  row will reflect the new `SERVER_VERSION`.
+- Rolling back to an older server image will then trip the downgrade guard
+  in the migration runners — by design.
 
 ## Troubleshooting
 

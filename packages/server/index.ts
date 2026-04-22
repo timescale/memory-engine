@@ -10,7 +10,7 @@ import { bootstrap as bootstrapEngine } from "@memory.build/engine/migrate/boots
 import { migrateAll as migrateEngines } from "@memory.build/engine/migrate/runner";
 import { WorkerPool } from "@memory.build/worker";
 import { configure, info, reportError, span } from "@pydantic/logfire-node";
-import { APP_VERSION } from "../../version";
+import { SERVER_VERSION } from "../../version";
 import { embeddingConstants } from "./config";
 import type { ServerContext } from "./context";
 import { checkSizeLimit } from "./middleware";
@@ -25,7 +25,7 @@ const gitRevision = (() => {
     return Bun.spawnSync(["git", "rev-parse", "HEAD"]).stdout.toString().trim();
   } catch {
     const env = process.env.LOGFIRE_ENVIRONMENT ?? "";
-    return env.includes("prod") ? `v${APP_VERSION}` : "main";
+    return env.includes("prod") ? `v${SERVER_VERSION}` : "main";
   }
 })();
 
@@ -34,7 +34,7 @@ configure({
   sendToLogfire: "if-token-present",
   console: process.env.LOGFIRE_CONSOLE === "true",
   serviceName: "memory-engine",
-  serviceVersion: APP_VERSION,
+  serviceVersion: SERVER_VERSION,
   codeSource: {
     repository: "https://github.com/timescale/memory-engine",
     revision: gitRevision,
@@ -312,7 +312,7 @@ info("Engine database bootstrapped");
 const accountsMigrateResult = await migrateAccounts(
   accountsSql,
   { schema: accountsSchema },
-  APP_VERSION,
+  SERVER_VERSION,
 );
 if (accountsMigrateResult.status === "error") {
   throw new Error(
@@ -343,7 +343,7 @@ if (engineSchemas.length > 0) {
     engineSql,
     engineSchemas,
     { embedding_dimensions: embeddingConstants.dimensions },
-    APP_VERSION,
+    SERVER_VERSION,
   );
 
   let totalApplied = 0;
@@ -388,7 +388,7 @@ const serverContext: ServerContext = {
   engineSql,
   embeddingConfig,
   apiBaseUrl,
-  appVersion: APP_VERSION,
+  appVersion: SERVER_VERSION,
 };
 
 const router = createRouter(serverContext);
