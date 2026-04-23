@@ -10,13 +10,17 @@ import { Command } from "commander";
  */
 import { CLIENT_VERSION } from "../../version";
 import { createApiKeyCommand } from "./commands/apikey.ts";
+import { createClaudeCommand } from "./commands/claude.ts";
+import { createCodexCommand } from "./commands/codex.ts";
 import { createEngineCommand } from "./commands/engine.ts";
+import { createGeminiCommand } from "./commands/gemini.ts";
 import { createGrantCommand } from "./commands/grant.ts";
 import { createInvitationCommand } from "./commands/invitation.ts";
 import { createLoginCommand } from "./commands/login.ts";
 import { createLogoutCommand } from "./commands/logout.ts";
 import { createMcpCommand } from "./commands/mcp.ts";
 import { createMemoryCommand } from "./commands/memory.ts";
+import { createOpenCodeCommand } from "./commands/opencode.ts";
 import { createOrgCommand } from "./commands/org.ts";
 import { createOwnerCommand } from "./commands/owner.ts";
 import { createPackCommand } from "./commands/pack.ts";
@@ -67,6 +71,12 @@ program.addCommand(createMemoryCommand());
 
 // MCP server
 program.addCommand(createMcpCommand());
+
+// Agent integration commands
+program.addCommand(createClaudeCommand());
+program.addCommand(createOpenCodeCommand());
+program.addCommand(createGeminiCommand());
+program.addCommand(createCodexCommand());
 
 // Engine-level RBAC commands
 program.addCommand(createUserCommand());
