@@ -1,0 +1,106 @@
+@import "tailwindcss";
+@import "highlight.js/styles/github.css";
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+/* Lightweight prose styles for react-markdown output.
+ * Keeps line length comfortable, adds vertical rhythm, and makes code,
+ * tables, and blockquotes readable without pulling in a full typography
+ * plugin. */
+.prose {
+  color: #1e293b; /* slate-800 */
+  line-height: 1.65;
+  max-width: 72ch;
+}
+.prose > * + * {
+  margin-top: 1em;
+}
+.prose h1,
+.prose h2,
+.prose h3,
+.prose h4 {
+  font-weight: 600;
+  color: #0f172a; /* slate-900 */
+  line-height: 1.25;
+  margin-top: 1.5em;
+  margin-bottom: 0.5em;
+}
+.prose h1 {
+  font-size: 1.75em;
+}
+.prose h2 {
+  font-size: 1.4em;
+}
+.prose h3 {
+  font-size: 1.15em;
+}
+.prose h4 {
+  font-size: 1em;
+}
+.prose p {
+  margin: 0;
+}
+.prose a {
+  color: #0284c7; /* sky-600 */
+  text-decoration: underline;
+}
+.prose code {
+  background: #e2e8f0; /* slate-200 */
+  padding: 0.1em 0.35em;
+  border-radius: 4px;
+  font-size: 0.9em;
+}
+.prose pre {
+  background: #0f172a; /* slate-900 */
+  color: #e2e8f0;
+  padding: 1em;
+  border-radius: 8px;
+  overflow-x: auto;
+  font-size: 0.875em;
+}
+.prose pre code {
+  background: transparent;
+  padding: 0;
+  color: inherit;
+}
+.prose blockquote {
+  border-left: 3px solid #cbd5e1;
+  padding-left: 1em;
+  color: #475569;
+  font-style: italic;
+}
+.prose ul,
+.prose ol {
+  padding-left: 1.5em;
+}
+.prose ul {
+  list-style: disc;
+}
+.prose ol {
+  list-style: decimal;
+}
+.prose li + li {
+  margin-top: 0.25em;
+}
+.prose table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9em;
+}
+.prose th,
+.prose td {
+  border: 1px solid #e2e8f0;
+  padding: 0.35em 0.6em;
+  text-align: left;
+}
+.prose th {
+  background: #f1f5f9;
+}
+.prose hr {
+  border: 0;
+  border-top: 1px solid #e2e8f0;
+}

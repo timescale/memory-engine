@@ -46,6 +46,16 @@ me memory search --semantic "UUID generation" --fulltext "PostgreSQL 18"
 me memory tree
 ```
 
+## Browse in the web UI
+
+For a richer, visual experience:
+
+```bash
+me serve
+```
+
+Starts a local web UI on `http://127.0.0.1:3000` (or the next free port) with a tree explorer, hybrid / advanced search, rendered Markdown viewer, and a Monaco-based editor for content + metadata. See [`me serve`](cli/me-serve.md) for details.
+
 ## Connect to AI tools
 
 Register Memory Engine as an MCP server with your AI coding tools:

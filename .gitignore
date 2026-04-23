@@ -28,6 +28,9 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 .cache
 *.tsbuildinfo
 
+# generated TypeScript modules (scripts/bundle-web-assets.ts, etc.)
+*.generated.ts
+
 # IntelliJ based IDEs
 .idea
 
