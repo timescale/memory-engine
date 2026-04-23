@@ -119,21 +119,43 @@ export function table(columns: string[], rows: string[][]): void {
  * - json: JSON with 2-space indent
  * - yaml: YAML with no line wrapping
  * - text: calls the provided textFn for human-readable output
+ *
+ * Returns a Promise that resolves once the bytes are flushed to stdout.
+ * Callers that pipe JSON/YAML into downstream tools (`yq`, `jq`, etc.)
+ * must `await` this so the process does not exit mid-pipe-write. When
+ * stdout is a pipe and the payload exceeds the kernel pipe buffer
+ * (~64 KiB on macOS), the trailing bytes are silently dropped if the
+ * writer exits before the reader drains.
  */
-export function output(
+export async function output(
   data: unknown,
   format: OutputFormat,
   textFn: () => void,
-): void {
+): Promise<void> {
   switch (format) {
     case "json":
-      console.log(JSON.stringify(data, null, 2));
+      await writeLineFlushed(JSON.stringify(data, null, 2));
       break;
     case "yaml":
-      console.log(yamlStringify(data, { lineWidth: 0 }).trimEnd());
+      await writeLineFlushed(yamlStringify(data, { lineWidth: 0 }).trimEnd());
       break;
     case "text":
       textFn();
       break;
+  }
+}
+
+/**
+ * Write `line` + "\n" to stdout and resolve only once the kernel has
+ * accepted every byte. Uses Node stream backpressure semantics so large
+ * payloads (> 64 KiB pipe buffer) aren't truncated when the reader is
+ * slow and the process is about to exit.
+ */
+async function writeLineFlushed(line: string): Promise<void> {
+  const payload = `${line}\n`;
+  if (!process.stdout.write(payload)) {
+    await new Promise<void>((resolve) =>
+      process.stdout.once("drain", () => resolve()),
+    );
   }
 }
