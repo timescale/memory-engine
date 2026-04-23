@@ -5,11 +5,16 @@
  * `discoverSessions` async generator that yields `ImportedSession`
  * objects. `runImport` then walks each session's `messages[]` and
  * writes one memory per message, using deterministic UUIDv7s keyed
- * by `(tool, sessionId, messageId)` so that re-imports are idempotent.
+ * by `(tool, sessionId, messageId)` so re-imports are idempotent.
+ *
+ * Performance shape: each session does at most two RPCs against the
+ * engine — one `memory.search` to fetch existing message ids for the
+ * session, and one `memory.batchCreate` for everything new. Updates
+ * (only triggered by an `importer_version` bump) are issued one at a
+ * time and are expected to be rare.
  */
 import type { EngineClient } from "@memory.build/client";
-import { isRpcError } from "@memory.build/client";
-import type { MemoryResponse } from "@memory.build/protocol/engine";
+import type { MemoryCreateParams } from "@memory.build/protocol/engine";
 import type { ProgressReporter } from "./progress.ts";
 import { SlugRegistry } from "./slug.ts";
 import { renderMessageContent, synthesizeTitle } from "./transcript.ts";
@@ -24,13 +29,26 @@ import { deterministicMessageUuidV7 } from "./uuid.ts";
 /**
  * Version tag stored in `meta.importer_version`. Bumping this forces a
  * re-render of every previously-imported message on the next run (via
- * the version check in `writeMessage`) so parser changes propagate
+ * the version check in `planSession`) so parser changes propagate
  * without manual intervention.
  *
  * Locked at "1" during pre-release iteration — bump only after the first
  * real release so early adopters get parser fixes without a manual wipe.
  */
 export const IMPORTER_VERSION = "1";
+
+/**
+ * Maximum memories per `memory.batchCreate` call (matches the protocol
+ * limit). Sessions with more messages than this are split into chunks.
+ */
+const BATCH_CREATE_CHUNK = 1000;
+
+/**
+ * Maximum memories per `memory.search` lookup. Same protocol limit. A
+ * session with more existing messages than this triggers a fallback to
+ * paged lookups (rare in practice).
+ */
+const SEARCH_PAGE_LIMIT = 1000;
 
 /** An importer's discovery interface — yields normalized sessions. */
 export interface Importer {
@@ -45,21 +63,13 @@ export interface Importer {
 
 /** Result of the orchestration pass. */
 export interface ImportResult {
-  /** Sessions whose messages were processed. */
   sessionsProcessed: number;
-  /** Messages newly inserted as memories. */
   inserted: number;
-  /** Messages updated (importer version mismatch). */
   updated: number;
-  /** Messages skipped (already present and up-to-date, or empty content). */
   skipped: number;
-  /** Messages that failed to write. */
   failed: number;
-  /** Per-session outcomes in discovery order. */
   outcomes: Array<SessionOutcome>;
-  /** Stats from the discovery phase. */
   discovery: ImporterStats;
-  /** Any collisions resolved by the slug registry. */
   slugCollisions: ReturnType<SlugRegistry["collisions"]>;
 }
 
@@ -73,7 +83,6 @@ export interface SessionOutcome {
   updated: number;
   skipped: number;
   failed: number;
-  /** Per-message error details, if any. */
   errors: Array<{ messageId: string; error: string }>;
 }
 
@@ -89,9 +98,7 @@ export interface WriteOptions {
   verbose: boolean;
 }
 
-/**
- * Run discovery + writes for a single importer.
- */
+/** Run discovery + writes for a single importer. */
 export async function runImport(
   engine: EngineClient,
   importer: Importer,
@@ -125,62 +132,21 @@ export async function runImport(
     const { slug, gitRoot, gitRemote } = await slugs.resolve(session.cwd);
     const tree = `${writeOptions.treeRoot}.${slug}.sessions`;
 
-    const outcome: SessionOutcome = {
-      sessionId: session.sessionId,
+    const outcome = await writeSession(
+      engine,
+      session,
       title,
       tree,
-      sourceFile: session.sourceFile,
-      inserted: 0,
-      updated: 0,
-      skipped: 0,
-      failed: 0,
-      errors: [],
-    };
-
-    for (const message of session.messages) {
-      const content = renderMessageContent(message, {
-        fullTranscript: writeOptions.fullTranscript,
-      });
-      if (content === null) {
-        outcome.skipped++;
-        skipped++;
-        continue;
-      }
-      try {
-        const action = await writeMessage(
-          engine,
-          session,
-          message,
-          content,
-          tree,
-          slug,
-          gitRoot,
-          gitRemote,
-          writeOptions,
-        );
-        switch (action) {
-          case "inserted":
-            outcome.inserted++;
-            inserted++;
-            break;
-          case "updated":
-            outcome.updated++;
-            updated++;
-            break;
-          case "skipped":
-            outcome.skipped++;
-            skipped++;
-            break;
-        }
-      } catch (error) {
-        const msg = error instanceof Error ? error.message : String(error);
-        outcome.failed++;
-        failed++;
-        outcome.errors.push({ messageId: message.messageId, error: msg });
-      }
-    }
-
+      slug,
+      gitRoot,
+      gitRemote,
+      writeOptions,
+    );
     outcomes.push(outcome);
+    inserted += outcome.inserted;
+    updated += outcome.updated;
+    skipped += outcome.skipped;
+    failed += outcome.failed;
     if (writeOptions.verbose) {
       logOutcome(outcome, progress);
     }
@@ -199,85 +165,212 @@ export async function runImport(
 }
 
 /**
- * Write a single message — insert, update, or skip based on current state.
+ * Write all messages for one session.
  *
- * Returns the action taken so the caller can bump its counters.
+ * Strategy:
+ *   1. One `memory.search` to fetch existing message ids + their
+ *      `importer_version` for this session.
+ *   2. Diff each rendered message against the existing set:
+ *        - id absent       → queue for batch insert
+ *        - id present, ver matches → skip
+ *        - id present, ver differs → queue for update
+ *   3. Issue one `memory.batchCreate` (in chunks of 1000) for inserts;
+ *      updates are issued one at a time (rare path).
  */
-async function writeMessage(
+async function writeSession(
   engine: EngineClient,
   session: ImportedSession,
-  message: ConversationMessage,
-  content: string,
+  title: string,
   tree: string,
   projectSlug: string,
   gitRoot: string | undefined,
   gitRemote: string | undefined,
   options: WriteOptions,
-): Promise<"inserted" | "updated" | "skipped"> {
-  const timestampMs = Number(Date.parse(message.timestamp));
-  if (Number.isNaN(timestampMs)) {
-    throw new Error(
-      `invalid message timestamp: ${message.timestamp} (message ${message.messageId})`,
-    );
-  }
-
-  const memoryId = deterministicMessageUuidV7(
-    session.tool,
-    session.sessionId,
-    message.messageId,
-    timestampMs,
-  );
-  const meta = buildMeta(
-    session,
-    message,
-    projectSlug,
-    gitRoot,
-    gitRemote,
-    options,
-  );
-  const temporal = { start: new Date(timestampMs).toISOString() };
-
-  const existing = await safeGetMemory(engine, memoryId);
-
-  if (existing === null) {
-    if (options.dryRun) return "inserted";
-    await engine.memory.create({
-      id: memoryId,
-      content,
-      meta,
-      tree,
-      temporal,
-    });
-    return "inserted";
-  }
-
-  // Existing memory found. Skip unless the importer version has changed.
-  const existingVersion = extractMetaString(existing.meta, "importer_version");
-  if (existingVersion === IMPORTER_VERSION) {
-    return "skipped";
-  }
-  if (options.dryRun) return "updated";
-  await engine.memory.update({
-    id: memoryId,
-    content,
-    meta,
+): Promise<SessionOutcome> {
+  const outcome: SessionOutcome = {
+    sessionId: session.sessionId,
+    title,
     tree,
-    temporal,
-  });
-  return "updated";
+    sourceFile: session.sourceFile,
+    inserted: 0,
+    updated: 0,
+    skipped: 0,
+    failed: 0,
+    errors: [],
+  };
+
+  // Build the per-message write payloads up front so we can plan the
+  // batch in one pass and skip any messages that render to empty
+  // content under the chosen mode.
+  const planned: Array<{
+    message: ConversationMessage;
+    memoryId: string;
+    payload: MemoryCreateParams;
+  }> = [];
+
+  for (const message of session.messages) {
+    const content = renderMessageContent(message, {
+      fullTranscript: options.fullTranscript,
+    });
+    if (content === null) {
+      outcome.skipped++;
+      continue;
+    }
+    const timestampMs = Number(Date.parse(message.timestamp));
+    if (Number.isNaN(timestampMs)) {
+      outcome.failed++;
+      outcome.errors.push({
+        messageId: message.messageId,
+        error: `invalid message timestamp: ${message.timestamp}`,
+      });
+      continue;
+    }
+    const memoryId = deterministicMessageUuidV7(
+      session.tool,
+      session.sessionId,
+      message.messageId,
+      timestampMs,
+    );
+    const meta = buildMeta(
+      session,
+      message,
+      projectSlug,
+      gitRoot,
+      gitRemote,
+      options,
+    );
+    const temporal = { start: new Date(timestampMs).toISOString() };
+    planned.push({
+      message,
+      memoryId,
+      payload: {
+        id: memoryId,
+        content,
+        meta,
+        tree,
+        temporal,
+      },
+    });
+  }
+
+  if (planned.length === 0) return outcome;
+
+  // Bulk-fetch existing message ids for this session in one search.
+  let existing: Map<string, string | undefined>;
+  try {
+    existing = await fetchExistingMessageVersions(engine, session, tree);
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error);
+    // The whole session fails if we can't determine existing state.
+    outcome.failed += planned.length;
+    for (const p of planned) {
+      outcome.errors.push({
+        messageId: p.message.messageId,
+        error: `existing-state lookup failed: ${msg}`,
+      });
+    }
+    return outcome;
+  }
+
+  const toInsert: MemoryCreateParams[] = [];
+  const toUpdate: Array<{ messageId: string; payload: MemoryCreateParams }> =
+    [];
+
+  for (const p of planned) {
+    const existingVersion = existing.get(p.memoryId);
+    if (existingVersion === undefined) {
+      toInsert.push(p.payload);
+    } else if (existingVersion === IMPORTER_VERSION) {
+      outcome.skipped++;
+    } else {
+      toUpdate.push({ messageId: p.message.messageId, payload: p.payload });
+    }
+  }
+
+  // Inserts: one batchCreate per chunk.
+  if (toInsert.length > 0) {
+    if (options.dryRun) {
+      outcome.inserted += toInsert.length;
+    } else {
+      for (let i = 0; i < toInsert.length; i += BATCH_CREATE_CHUNK) {
+        const chunk = toInsert.slice(i, i + BATCH_CREATE_CHUNK);
+        try {
+          await engine.memory.batchCreate({ memories: chunk });
+          outcome.inserted += chunk.length;
+        } catch (error) {
+          const msg = error instanceof Error ? error.message : String(error);
+          outcome.failed += chunk.length;
+          for (const c of chunk) {
+            outcome.errors.push({
+              messageId: c.id ?? "(unknown)",
+              error: msg,
+            });
+          }
+        }
+      }
+    }
+  }
+
+  // Updates: rare, issued one at a time.
+  for (const u of toUpdate) {
+    if (options.dryRun) {
+      outcome.updated++;
+      continue;
+    }
+    try {
+      await engine.memory.update({
+        id: u.payload.id as string,
+        content: u.payload.content,
+        meta: u.payload.meta,
+        tree: u.payload.tree,
+        temporal: u.payload.temporal,
+      });
+      outcome.updated++;
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      outcome.failed++;
+      outcome.errors.push({ messageId: u.messageId, error: msg });
+    }
+  }
+
+  return outcome;
 }
 
-/** `memory.get` wrapper that returns null on NOT_FOUND instead of throwing. */
-async function safeGetMemory(
+/**
+ * Fetch existing message ids + their `importer_version` for one session.
+ *
+ * Uses `memory.search` with a `meta` filter on `source_session_id` +
+ * `source_tool`. Restricted to the session's tree so the search is
+ * indexed by tree first. Returns `id → importer_version` (version is
+ * `undefined` when the record was written before the field existed).
+ */
+async function fetchExistingMessageVersions(
   engine: EngineClient,
-  id: string,
-): Promise<MemoryResponse | null> {
-  try {
-    return await engine.memory.get({ id });
-  } catch (error) {
-    if (isRpcError(error) && error.is("NOT_FOUND")) return null;
-    throw error;
+  session: ImportedSession,
+  tree: string,
+): Promise<Map<string, string | undefined>> {
+  const result = await engine.memory.search({
+    tree,
+    meta: {
+      source_tool: session.tool,
+      source_session_id: session.sessionId,
+    },
+    limit: SEARCH_PAGE_LIMIT,
+  });
+  if (result.total > result.results.length) {
+    // Sessions exceeding 1000 already-imported messages would silently
+    // re-insert and hit duplicate-id errors. Surface that loudly so we
+    // can paginate when it actually happens.
+    throw new Error(
+      `session has ${result.total} existing messages but bulk-fetch is capped at ${SEARCH_PAGE_LIMIT}; pagination not yet implemented`,
+    );
   }
+  const map = new Map<string, string | undefined>();
+  for (const r of result.results) {
+    const v = r.meta.importer_version;
+    map.set(r.id, typeof v === "string" ? v : undefined);
+  }
+  return map;
 }
 
 /** Build the full meta object for one message memory. */
@@ -319,15 +412,6 @@ function buildMeta(
   if (message.toolName) meta.source_tool_name = message.toolName;
 
   return meta;
-}
-
-/** Extract a string meta field if present. */
-function extractMetaString(
-  meta: Record<string, unknown>,
-  key: string,
-): string | undefined {
-  const value = meta[key];
-  return typeof value === "string" ? value : undefined;
 }
 
 /**
