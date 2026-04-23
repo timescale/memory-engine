@@ -26,19 +26,24 @@ import { Command } from "commander";
 import { parse, stringify } from "yaml";
 import { CLIENT_VERSION } from "../../../version";
 import {
+  captureHookEvent,
+  HOOK_EVENT_NAMES,
+  type HookEvent,
+  type HookEventName,
+} from "../claude/capture.ts";
+import {
+  CONFIG_PATH,
+  PLUGIN_DIR,
+  PLUGIN_NAME,
+  readPluginConfig,
+  SETTINGS_PATH,
+} from "../claude/config.ts";
+import {
   getEngineApiKey,
   getServerCredentials,
   resolveServer,
   storeSessionToken,
 } from "../credentials.ts";
-
-// =============================================================================
-// Constants
-// =============================================================================
-
-const PLUGIN_DIR = join(homedir(), ".claude", "plugins", "memory-engine");
-const CONFIG_PATH = join(PLUGIN_DIR, "config.yaml");
-const SETTINGS_PATH = join(homedir(), ".claude", "settings.json");
 
 // =============================================================================
 // Helpers
@@ -181,7 +186,7 @@ function uninstallPlugin(): void {
         typeof settings.enabledPlugins === "object"
       ) {
         delete (settings.enabledPlugins as Record<string, unknown>)[
-          "memory-engine"
+          PLUGIN_NAME
         ];
         writeFileSync(SETTINGS_PATH, `${JSON.stringify(settings, null, 2)}\n`);
       }
@@ -235,7 +240,7 @@ function writePluginFiles(config: WizardConfig): void {
     join(PLUGIN_DIR, ".claude-plugin", "plugin.json"),
     `${JSON.stringify(
       {
-        name: "memory-engine",
+        name: PLUGIN_NAME,
         version: CLIENT_VERSION,
         description: "Memory Engine integration for Claude Code",
         author: { name: "Timescale" },
@@ -362,7 +367,7 @@ function updateClaudeSettings(): void {
   if (!settings.enabledPlugins || typeof settings.enabledPlugins !== "object") {
     settings.enabledPlugins = {};
   }
-  (settings.enabledPlugins as Record<string, boolean>)["memory-engine"] = true;
+  (settings.enabledPlugins as Record<string, boolean>)[PLUGIN_NAME] = true;
 
   writeFileSync(SETTINGS_PATH, `${JSON.stringify(settings, null, 2)}\n`);
 }
@@ -703,8 +708,94 @@ function createClaudeInstallCommand(): Command {
     );
 }
 
+/**
+ * me claude hook — invoked by plugin hooks to capture events as memories.
+ *
+ * Reads a Claude Code hook event as JSON from stdin, loads the pinned config
+ * from the plugin directory, and creates a memory in the engine.
+ *
+ * Best-effort: logs to stderr on failure but always exits 0 so that the
+ * hook never blocks the Claude Code session.
+ */
+function createClaudeHookCommand(): Command {
+  return new Command("hook")
+    .description("invoked by Claude Code plugin hooks (reads event from stdin)")
+    .requiredOption(
+      "--event <name>",
+      `hook event name (${HOOK_EVENT_NAMES.join(", ")})`,
+    )
+    .option(
+      "--plugin-dir <path>",
+      "plugin directory (defaults to ~/.claude/plugins/memory-engine)",
+      PLUGIN_DIR,
+    )
+    .action(async (opts: { event: string; pluginDir: string }) => {
+      const eventName = opts.event as HookEventName;
+      if (!HOOK_EVENT_NAMES.includes(eventName)) {
+        console.error(
+          `[memory-engine] unknown event '${opts.event}'. Expected one of: ${HOOK_EVENT_NAMES.join(", ")}`,
+        );
+        process.exit(0);
+      }
+
+      // Read stdin
+      let input: string;
+      try {
+        input = await Bun.stdin.text();
+      } catch (error) {
+        console.error(
+          `[memory-engine] failed to read stdin: ${error instanceof Error ? error.message : String(error)}`,
+        );
+        process.exit(0);
+      }
+
+      // Parse JSON
+      let event: HookEvent;
+      try {
+        event = JSON.parse(input) as HookEvent;
+      } catch (error) {
+        console.error(
+          `[memory-engine] failed to parse event JSON: ${error instanceof Error ? error.message : String(error)}`,
+        );
+        process.exit(0);
+      }
+
+      // Load plugin config
+      let config: ReturnType<typeof readPluginConfig>;
+      try {
+        config = readPluginConfig(opts.pluginDir);
+      } catch (error) {
+        console.error(
+          `[memory-engine] ${error instanceof Error ? error.message : String(error)}`,
+        );
+        process.exit(0);
+      }
+
+      // If the plugin is installed in "mcp-only" mode, hooks are a no-op
+      if (config.mode === "mcp-only") {
+        process.exit(0);
+      }
+
+      // Capture
+      try {
+        const result = await captureHookEvent(event, eventName, config);
+        if (result.status === "skipped") {
+          // Silent skip — no stderr output for empty content
+          process.exit(0);
+        }
+      } catch (error) {
+        console.error(
+          `[memory-engine] ${eventName} capture failed: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+
+      process.exit(0);
+    });
+}
+
 export function createClaudeCommand(): Command {
   const claude = new Command("claude").description("Claude Code integration");
   claude.addCommand(createClaudeInstallCommand());
+  claude.addCommand(createClaudeHookCommand());
   return claude;
 }
