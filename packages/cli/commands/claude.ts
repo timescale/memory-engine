@@ -6,13 +6,7 @@
  * - me claude hook:      invoked by plugin hooks (Phase 3)
  */
 
-import {
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import * as clack from "@clack/prompts";
@@ -38,6 +32,7 @@ import {
   readPluginConfig,
   SETTINGS_PATH,
 } from "../claude/config.ts";
+import { uninstallClaudePlugin } from "../claude/uninstall.ts";
 import {
   getEngineApiKey,
   getServerCredentials,
@@ -165,34 +160,6 @@ async function validateApiKey(
     return true;
   } catch {
     return false;
-  }
-}
-
-// =============================================================================
-// Uninstall subroutine (used by Step 3 and future `me claude uninstall`)
-// =============================================================================
-
-/** Remove the plugin directory and disable in settings.json. */
-function uninstallPlugin(): void {
-  if (existsSync(PLUGIN_DIR)) {
-    rmSync(PLUGIN_DIR, { recursive: true });
-  }
-
-  if (existsSync(SETTINGS_PATH)) {
-    try {
-      const settings = JSON.parse(readFileSync(SETTINGS_PATH, "utf-8"));
-      if (
-        settings.enabledPlugins &&
-        typeof settings.enabledPlugins === "object"
-      ) {
-        delete (settings.enabledPlugins as Record<string, unknown>)[
-          PLUGIN_NAME
-        ];
-        writeFileSync(SETTINGS_PATH, `${JSON.stringify(settings, null, 2)}\n`);
-      }
-    } catch {
-      // Ignore — settings file may be malformed
-    }
   }
 }
 
@@ -422,11 +389,11 @@ async function runClaudeInstallWizard(opts: {
         process.exit(0);
       }
 
-      uninstallPlugin();
+      uninstallClaudePlugin();
       clack.log.success("Previous installation removed.");
     } catch {
       // Corrupted config — remove silently and continue as fresh install
-      uninstallPlugin();
+      uninstallClaudePlugin();
     }
   }
 
@@ -793,9 +760,48 @@ function createClaudeHookCommand(): Command {
     });
 }
 
+/**
+ * me claude uninstall — remove the plugin directory and disable it in
+ * settings.json.
+ *
+ * Idempotent: prints an informational message when nothing is installed.
+ * Does NOT delete API keys or captured memories.
+ */
+function createClaudeUninstallCommand(): Command {
+  return new Command("uninstall")
+    .description("remove Memory Engine plugin from Claude Code")
+    .action(() => {
+      const result = uninstallClaudePlugin();
+
+      if (result.nothingToDo) {
+        clack.log.info("No Memory Engine plugin installed. Nothing to do.");
+        return;
+      }
+
+      if (result.removedPluginDir) {
+        clack.log.success(
+          "Removed plugin directory: ~/.claude/plugins/memory-engine/",
+        );
+      }
+      if (result.removedSettingsEntry) {
+        clack.log.success("Disabled plugin in ~/.claude/settings.json");
+      }
+
+      clack.log.info(
+        [
+          "",
+          "API keys and captured memories are preserved.",
+          "  - Revoke API key:  me apikey revoke <id>",
+          '  - List memories:   me memory search --tree "claude_code.*"',
+        ].join("\n"),
+      );
+    });
+}
+
 export function createClaudeCommand(): Command {
   const claude = new Command("claude").description("Claude Code integration");
   claude.addCommand(createClaudeInstallCommand());
+  claude.addCommand(createClaudeUninstallCommand());
   claude.addCommand(createClaudeHookCommand());
   return claude;
 }
