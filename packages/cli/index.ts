@@ -15,6 +15,7 @@ import { createCodexCommand } from "./commands/codex.ts";
 import { createEngineCommand } from "./commands/engine.ts";
 import { createGeminiCommand } from "./commands/gemini.ts";
 import { createGrantCommand } from "./commands/grant.ts";
+import { createImportCommand } from "./commands/import.ts";
 import { createInvitationCommand } from "./commands/invitation.ts";
 import { createLoginCommand } from "./commands/login.ts";
 import { createLogoutCommand } from "./commands/logout.ts";
@@ -68,6 +69,9 @@ program.addCommand(createInvitationCommand());
 
 // Memory commands
 program.addCommand(createMemoryCommand());
+
+// Agent conversation import commands
+program.addCommand(createImportCommand());
 
 // MCP server
 program.addCommand(createMcpCommand());

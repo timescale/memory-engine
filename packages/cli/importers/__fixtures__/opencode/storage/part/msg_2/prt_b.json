@@ -1,0 +1,8 @@
+{
+  "id": "prt_b",
+  "sessionID": "ses_test",
+  "messageID": "msg_2",
+  "type": "text",
+  "text": "I'll run bun init -y to bootstrap the project.",
+  "time": { "start": 1770400014000, "end": 1770400015000 }
+}

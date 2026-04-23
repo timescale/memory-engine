@@ -1,0 +1,9 @@
+{"timestamp":"2026-03-03T10:00:00.000Z","type":"session_meta","payload":{"id":"01234567-89ab-71de-9abc-def012345678","timestamp":"2026-03-03T10:00:00.000Z","cwd":"/Users/test/codex-project","originator":"codex_cli_rs","cli_version":"0.107.0","source":"cli","model_provider":"openai","git":{"commit_hash":"aabbccddeeff00112233","branch":"main","repository_url":"git@github.com:test/codex-project.git"}}}
+{"timestamp":"2026-03-03T10:00:01.000Z","type":"response_item","payload":{"type":"message","id":"m-1","role":"user","content":[{"type":"input_text","text":"Explain the codex-core crate."}]}}
+{"timestamp":"2026-03-03T10:00:02.000Z","type":"response_item","payload":{"type":"reasoning","summary":[{"type":"summary_text","text":"Inspecting the crate structure."}]}}
+{"timestamp":"2026-03-03T10:00:03.000Z","type":"response_item","payload":{"type":"function_call","name":"exec_command","arguments":"{\"cmd\":\"ls codex-rs/core\"}","call_id":"c1"}}
+{"timestamp":"2026-03-03T10:00:04.000Z","type":"response_item","payload":{"type":"function_call_output","call_id":"c1","output":"src/\nCargo.toml\n"}}
+{"timestamp":"2026-03-03T10:00:05.000Z","type":"response_item","payload":{"type":"message","id":"m-2","role":"assistant","content":[{"type":"output_text","text":"codex-core is the primary crate; it defines the agent protocol."}]}}
+{"timestamp":"2026-03-03T10:00:06.000Z","type":"event_msg","payload":{"type":"token_count","info":{"input_tokens":1000,"output_tokens":50,"reasoning_tokens":20}}}
+{"timestamp":"2026-03-03T10:00:07.000Z","type":"response_item","payload":{"type":"message","id":"m-3","role":"user","content":[{"type":"input_text","text":"What about codex-cli?"}]}}
+{"timestamp":"2026-03-03T10:00:08.000Z","type":"response_item","payload":{"type":"message","id":"m-4","role":"assistant","content":[{"type":"output_text","text":"codex-cli wraps the core crate with a command-line interface."}]}}

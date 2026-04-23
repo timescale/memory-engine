@@ -1,0 +1,8 @@
+{
+  "id": "prt_a",
+  "sessionID": "ses_test",
+  "messageID": "msg_2",
+  "type": "reasoning",
+  "text": "Planning the bootstrap steps.",
+  "time": { "start": 1770400010000, "end": 1770400012000 }
+}

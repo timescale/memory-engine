@@ -1,0 +1,14 @@
+{
+  "id": "prt_c",
+  "sessionID": "ses_test",
+  "messageID": "msg_2",
+  "type": "tool",
+  "callID": "call_1",
+  "tool": "bash",
+  "state": {
+    "status": "completed",
+    "input": { "command": "bun init -y" },
+    "output": "done.\n"
+  },
+  "time": { "start": 1770400016000, "end": 1770400018000 }
+}

@@ -1,0 +1,9 @@
+{
+  "id": "ses_test",
+  "slug": "quiet-lake",
+  "version": "1.1.53",
+  "projectID": "projA",
+  "directory": "/Users/test/opencode-project",
+  "title": "Bootstrap Bun project",
+  "time": { "created": 1770400000000, "updated": 1770400200000 }
+}
