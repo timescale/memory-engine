@@ -18,6 +18,11 @@
  *   Each line is a bare response-item-like object (no session_meta,
  *   no `type: "response_item"` wrapper). We fall back to filename parsing
  *   for the session id/timestamp.
+ *
+ * Each kept response item becomes one `ConversationMessage` whose id is
+ * either the native payload `id`, the `call_id` (for tool calls), or a
+ * synthesized `{type}:{ordinal}` fallback — stable across re-imports as
+ * long as the source rollout file doesn't change.
  */
 import { promises as fs } from "node:fs";
 import { homedir } from "node:os";
@@ -26,12 +31,10 @@ import { filterBySessionShape, recordSkip } from "./filters.ts";
 import type { Importer } from "./index.ts";
 import type { ProgressReporter } from "./progress.ts";
 import type {
-  ConversationTurn,
+  ConversationMessage,
   ImportedSession,
   ImporterOptions,
   ImporterStats,
-  MessageCounts,
-  TokenCounts,
 } from "./types.ts";
 
 const DEFAULT_SOURCE = join(homedir(), ".codex", "sessions");
@@ -76,7 +79,14 @@ async function* discoverSessions(
         recordSkip(stats, "empty");
         continue;
       }
-      const skip = filterBySessionShape(session, options);
+      const skip = filterBySessionShape(
+        {
+          startedAt: session.startedAt,
+          userMessageCount: countUserMessages(session.messages),
+          cwd: session.cwd,
+        },
+        options,
+      );
       if (skip) {
         recordSkip(stats, skip);
         continue;
@@ -87,9 +97,17 @@ async function* discoverSessions(
   }
 }
 
-/**
- * Walk a directory tree and collect `.jsonl` files.
- */
+/** Count user-role messages that carry at least one text block. */
+function countUserMessages(messages: ConversationMessage[]): number {
+  let n = 0;
+  for (const m of messages) {
+    if (m.role !== "user") continue;
+    if (m.blocks.some((b) => b.kind === "text")) n++;
+  }
+  return n;
+}
+
+/** Walk a directory tree and collect `.jsonl` files. */
 async function findJsonlFilesRecursively(root: string): Promise<string[]> {
   const out: string[] = [];
   async function walk(dir: string): Promise<void> {
@@ -111,7 +129,7 @@ async function findJsonlFilesRecursively(root: string): Promise<string[]> {
 }
 
 /**
- * Parse a single Codex session file.
+ * Parse a single Codex session file into a normalized ImportedSession.
  */
 async function parseSessionFile(file: string): Promise<ImportedSession | null> {
   const content = await fs.readFile(file, "utf-8");
@@ -134,12 +152,11 @@ async function parseSessionFile(file: string): Promise<ImportedSession | null> {
   let gitCommit: string | undefined;
   let gitRepo: string | undefined;
 
-  const turns: ConversationTurn[] = [];
-  const counts: MessageCounts = { user: 0, assistant: 0, tool_calls: 0 };
-  const tokens: TokenCounts = {};
+  const messages: ConversationMessage[] = [];
   let lastTimestamp: string | undefined;
-  let lastMessageId: string | undefined;
   let model: string | undefined;
+  /** Per-session counters of items lacking a native id, used for stable synth ids. */
+  const synthCounters = new Map<string, number>();
 
   for (const line of lines) {
     let event: Record<string, unknown>;
@@ -176,42 +193,36 @@ async function parseSessionFile(file: string): Promise<ImportedSession | null> {
     }
 
     // Recent format wraps payloads in response_item/event_msg.
-    // Only process response_item for turns (event_msg is a UI mirror).
+    // Only process response_item for messages; event_msg is a UI mirror.
     let inner: Record<string, unknown> | undefined;
     if (type === "response_item" && payload) {
       inner = payload;
-    } else if (type === "event_msg" && payload) {
-      // Harvest token counts, then skip.
-      if (payload.type === "token_count") {
-        harvestTokenCount(payload, tokens);
-      }
+    } else if (type === "event_msg") {
       continue;
     } else if (typeof type === "string") {
-      // Legacy format: line *is* the payload.
+      // Legacy format: the line itself is the response-item-shaped payload.
       inner = event;
     } else {
       continue;
     }
 
-    processInner(
+    const built = buildMessageFromInner(
       inner,
       timestamp,
-      turns,
-      counts,
-      (id) => {
-        lastMessageId = id;
-      },
-      (m) => {
-        if (!model) model = m;
-      },
+      sessionId,
+      synthCounters,
     );
+    if (built.model && !model) model = built.model;
+    if (built.message) messages.push(built.message);
   }
 
   if (!sessionId) return null;
-  if (turns.length === 0) return null;
+  if (messages.length === 0) return null;
 
-  const finalStartedAt = startedAt ?? turns[0]?.timestamp ?? sourceModifiedAt;
-  const endedAt = lastTimestamp ?? finalStartedAt;
+  const finalStartedAt =
+    startedAt ?? messages[0]?.timestamp ?? sourceModifiedAt;
+  const endedAt =
+    lastTimestamp ?? messages[messages.length - 1]?.timestamp ?? finalStartedAt;
 
   return {
     tool: "codex",
@@ -227,16 +238,11 @@ async function parseSessionFile(file: string): Promise<ImportedSession | null> {
     startedAt: finalStartedAt,
     endedAt,
     sourceModifiedAt,
-    lastMessageId: lastMessageId ?? sessionId,
-    messageCounts: counts,
-    tokens: Object.keys(tokens).length > 0 ? tokens : undefined,
-    turns,
+    messages,
   };
 }
 
-/**
- * Extract `(sessionId, startedAt)` from a Codex rollout filename.
- */
+/** Extract `(sessionId, startedAt)` from a Codex rollout filename. */
 function parseFilename(file: string): {
   sessionId?: string;
   startedAt?: string;
@@ -246,7 +252,6 @@ function parseFilename(file: string): {
   if (!match) return {};
   const [, tsPart, id] = match;
   // Filename uses `-` in the time parts; rebuild ISO-like form.
-  // e.g. "2026-03-03T10-32-28" → "2026-03-03T10:32:28Z"
   const iso = tsPart
     ? `${tsPart.slice(0, 10)}T${tsPart.slice(11).replaceAll("-", ":")}Z`
     : undefined;
@@ -254,55 +259,81 @@ function parseFilename(file: string): {
 }
 
 /**
- * Process a single `response_item.payload` (or legacy top-level item).
+ * Build a single `ConversationMessage` from a Codex response-item payload.
+ *
+ * Returns an object that may carry:
+ *   - `message`: the built message, absent when the payload doesn't map
+ *     to a surfaceable message (unknown type, empty content, ignored role)
+ *   - `model`: a harvested model hint from the payload, if present
  */
-function processInner(
+function buildMessageFromInner(
   inner: Record<string, unknown>,
   timestamp: string | undefined,
-  turns: ConversationTurn[],
-  counts: MessageCounts,
-  setLastId: (id: string) => void,
-  noteModel: (m: string) => void,
-): void {
+  sessionId: string | undefined,
+  synthCounters: Map<string, number>,
+): { message?: ConversationMessage; model?: string } {
   const innerType = inner.type;
-  if (typeof inner.id === "string") setLastId(inner.id);
+  const nativeId = typeof inner.id === "string" ? inner.id : undefined;
+  const callId = typeof inner.call_id === "string" ? inner.call_id : undefined;
+  const modelHint = typeof inner.model === "string" ? inner.model : undefined;
+  const ts = timestamp ?? "";
+
+  const synth = (category: string): string => {
+    const n = (synthCounters.get(category) ?? 0) + 1;
+    synthCounters.set(category, n);
+    return `syn:${category}:${sessionId ?? "unknown"}:${n}`;
+  };
 
   if (innerType === "message") {
     const role = inner.role;
-    const content = inner.content;
-    const text = extractMessageText(content);
-    if (!text) return;
-    if (role === "user") {
-      turns.push({ role: "user", text, timestamp });
-      counts.user++;
-    } else if (role === "assistant") {
-      turns.push({ role: "assistant", text, timestamp });
-      counts.assistant++;
-    } else if (role === "developer" || role === "system") {
-      turns.push({ role: "system", text, timestamp });
+    const text = extractMessageText(inner.content);
+    if (!text) return { model: modelHint };
+    if (role !== "user" && role !== "assistant" && role !== "system") {
+      return { model: modelHint };
     }
-    return;
+    const messageId = nativeId ?? synth(`message:${role}`);
+    return {
+      message: {
+        messageId,
+        timestamp: ts,
+        role,
+        blocks: [{ kind: role === "system" ? "system" : "text", text }],
+      },
+      model: modelHint,
+    };
   }
 
   if (innerType === "reasoning") {
-    const summary = inner.summary;
     const text =
-      extractMessageText(summary) || extractMessageText(inner.content);
-    if (text) turns.push({ role: "reasoning", text, timestamp });
-    return;
+      extractMessageText(inner.summary) || extractMessageText(inner.content);
+    if (!text) return { model: modelHint };
+    const messageId = nativeId ?? synth("reasoning");
+    return {
+      message: {
+        messageId,
+        timestamp: ts,
+        role: "reasoning",
+        blocks: [{ kind: "thinking", text }],
+      },
+      model: modelHint,
+    };
   }
 
   if (innerType === "function_call") {
     const name = typeof inner.name === "string" ? inner.name : "function_call";
     const args = typeof inner.arguments === "string" ? inner.arguments : "";
-    turns.push({
-      role: "tool_call",
-      text: args ? `${name}(${args})` : name,
-      toolName: name,
-      timestamp,
-    });
-    counts.tool_calls++;
-    return;
+    const label = args ? `${name}(${args})` : name;
+    const messageId = nativeId ?? callId ?? synth(`call:${name}`);
+    return {
+      message: {
+        messageId,
+        timestamp: ts,
+        role: "tool_call",
+        toolName: name,
+        blocks: [{ kind: "tool_use", text: label, toolName: name }],
+      },
+      model: modelHint,
+    };
   }
 
   if (innerType === "function_call_output") {
@@ -310,17 +341,23 @@ function processInner(
       typeof inner.output === "string"
         ? inner.output
         : JSON.stringify(inner.output ?? null);
-    turns.push({ role: "tool_result", text: output, timestamp });
-    return;
+    const messageId = nativeId ?? callId ?? synth("call_output");
+    return {
+      message: {
+        messageId,
+        timestamp: ts,
+        role: "tool_result",
+        blocks: [{ kind: "tool_result", text: output }],
+      },
+      model: modelHint,
+    };
   }
 
-  // Heuristic model harvest — codex stores model on some message payloads.
-  if (typeof inner.model === "string") noteModel(inner.model);
+  // Unknown item type — still harvest the model hint if present.
+  return { model: modelHint };
 }
 
-/**
- * Flatten Codex's `content` / `summary` arrays into a single text string.
- */
+/** Flatten Codex's `content` / `summary` arrays into a single text string. */
 function extractMessageText(value: unknown): string {
   if (typeof value === "string") return value;
   if (!Array.isArray(value)) return "";
@@ -331,26 +368,4 @@ function extractMessageText(value: unknown): string {
     if (typeof b.text === "string") parts.push(b.text);
   }
   return parts.join("\n");
-}
-
-/**
- * Pull token counters out of a token_count event_msg payload.
- */
-function harvestTokenCount(
-  payload: Record<string, unknown>,
-  tokens: TokenCounts,
-): void {
-  const info = payload.info as Record<string, unknown> | undefined;
-  const src = info ?? payload;
-  if (typeof src.input_tokens === "number")
-    tokens.input = Math.max(tokens.input ?? 0, src.input_tokens);
-  if (typeof src.output_tokens === "number")
-    tokens.output = Math.max(tokens.output ?? 0, src.output_tokens);
-  if (typeof src.reasoning_tokens === "number")
-    tokens.reasoning = Math.max(tokens.reasoning ?? 0, src.reasoning_tokens);
-  if (typeof src.cached_input_tokens === "number")
-    tokens.cache_read = Math.max(
-      tokens.cache_read ?? 0,
-      src.cached_input_tokens,
-    );
 }

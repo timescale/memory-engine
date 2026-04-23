@@ -1,9 +1,9 @@
 /**
- * Tests for session transcript rendering.
+ * Tests for per-message content rendering.
  */
 import { describe, expect, test } from "bun:test";
-import { renderSessionContent, synthesizeTitle } from "./transcript.ts";
-import type { ImportedSession } from "./types.ts";
+import { renderMessageContent, synthesizeTitle } from "./transcript.ts";
+import type { ConversationMessage, ImportedSession } from "./types.ts";
 
 function baseSession(): ImportedSession {
   return {
@@ -19,45 +19,22 @@ function baseSession(): ImportedSession {
     startedAt: "2026-04-14T17:19:23.498Z",
     endedAt: "2026-04-14T18:45:12.000Z",
     sourceModifiedAt: "2026-04-14T18:45:12.000Z",
-    lastMessageId: "msg-last",
-    messageCounts: { user: 2, assistant: 2, tool_calls: 1 },
-    turns: [
+    messages: [
       {
-        role: "user",
-        text: "Help me debug the embedding worker",
+        messageId: "u1",
         timestamp: "2026-04-14T17:19:23.498Z",
-      },
-      {
-        role: "reasoning",
-        text: "Thinking about the embedding worker...",
-        timestamp: "2026-04-14T17:19:25.000Z",
-      },
-      {
-        role: "assistant",
-        text: "Let me look at the worker code.",
-        timestamp: "2026-04-14T17:19:28.000Z",
-      },
-      {
-        role: "tool_call",
-        text: "read(file.ts)",
-        toolName: "read",
-        timestamp: "2026-04-14T17:19:30.000Z",
-      },
-      {
-        role: "tool_result",
-        text: "file contents here",
-        toolName: "read",
-        timestamp: "2026-04-14T17:19:31.000Z",
-      },
-      {
         role: "user",
-        text: "What do you see?",
-        timestamp: "2026-04-14T17:20:00.000Z",
+        blocks: [{ kind: "text", text: "Help me debug the embedding worker" }],
       },
       {
+        messageId: "a1",
+        timestamp: "2026-04-14T17:19:28.000Z",
         role: "assistant",
-        text: "The worker polls every 10s.",
-        timestamp: "2026-04-14T17:20:05.000Z",
+        blocks: [
+          { kind: "thinking", text: "Thinking about the embedding worker..." },
+          { kind: "text", text: "Let me look at the worker code." },
+          { kind: "tool_use", text: "read(file.ts)", toolName: "read" },
+        ],
       },
     ],
   };
@@ -70,48 +47,99 @@ describe("synthesizeTitle", () => {
     expect(synthesizeTitle(s)).toBe("A Clear Title");
   });
 
-  test("falls back to first user turn, single-lined and truncated", () => {
+  test("falls back to first user message text, single-lined and truncated", () => {
     const s = baseSession();
-    s.turns[0] = {
+    s.messages[0] = {
+      messageId: "u1",
+      timestamp: "2026-04-14T17:19:23.498Z",
       role: "user",
-      text: "Help me\n\nwith  a   multi-line\nmessage".repeat(5),
+      blocks: [
+        {
+          kind: "text",
+          text: "Help me\n\nwith  a   multi-line\nmessage".repeat(5),
+        },
+      ],
     };
     const title = synthesizeTitle(s);
     expect(title.length).toBeLessThanOrEqual(80);
     expect(title).not.toContain("\n");
   });
 
-  test("falls back to a generic session label with no user turns", () => {
+  test("falls back to a generic session label when there are no user messages", () => {
     const s = baseSession();
-    s.turns = [];
+    s.messages = [];
     expect(synthesizeTitle(s)).toContain("claude session");
   });
 });
 
-describe("renderSessionContent — default (filtered)", () => {
-  test("includes user and assistant text, excludes reasoning/tool", () => {
-    const body = renderSessionContent(baseSession(), { fullTranscript: false });
-    expect(body).toContain("Help me debug the embedding worker");
-    expect(body).toContain("The worker polls every 10s.");
-    expect(body).not.toContain("Thinking about the embedding worker");
-    expect(body).not.toContain("read(file.ts)");
-    expect(body).not.toContain("file contents here");
+function userMessage(): ConversationMessage {
+  return {
+    messageId: "u1",
+    timestamp: "2026-04-14T17:19:23.498Z",
+    role: "user",
+    blocks: [{ kind: "text", text: "Help me debug the embedding worker" }],
+  };
+}
+
+function assistantMessage(): ConversationMessage {
+  return {
+    messageId: "a1",
+    timestamp: "2026-04-14T17:19:28.000Z",
+    role: "assistant",
+    blocks: [
+      { kind: "thinking", text: "Thinking..." },
+      { kind: "text", text: "Let me look at the worker code." },
+      { kind: "tool_use", text: "read(file.ts)", toolName: "read" },
+    ],
+  };
+}
+
+describe("renderMessageContent — default (text blocks only)", () => {
+  test("keeps only text blocks for user messages", () => {
+    const content = renderMessageContent(userMessage(), {
+      fullTranscript: false,
+    });
+    expect(content).toBe("Help me debug the embedding worker");
   });
 
-  test("renders metadata lines", () => {
-    const body = renderSessionContent(baseSession(), { fullTranscript: false });
-    expect(body).toContain("Tool: Claude v2.1.107");
-    expect(body).toContain("Model: anthropic/claude-opus-4-5");
-    expect(body).toContain("Project: /Users/test/project");
-    expect(body).toContain("Branch: main @ abcdef0");
+  test("drops thinking + tool_use blocks for assistant messages", () => {
+    const content = renderMessageContent(assistantMessage(), {
+      fullTranscript: false,
+    });
+    expect(content).toBe("Let me look at the worker code.");
+  });
+
+  test("returns null for a message with no text blocks", () => {
+    const m: ConversationMessage = {
+      messageId: "tr",
+      timestamp: "2026-04-14T17:19:32.000Z",
+      role: "user",
+      blocks: [{ kind: "tool_result", text: "output text" }],
+    };
+    expect(renderMessageContent(m, { fullTranscript: false })).toBeNull();
   });
 });
 
-describe("renderSessionContent — full transcript", () => {
-  test("includes reasoning, tool calls, tool results", () => {
-    const body = renderSessionContent(baseSession(), { fullTranscript: true });
-    expect(body).toContain("Thinking about the embedding worker");
-    expect(body).toContain("read(file.ts)");
-    expect(body).toContain("file contents here");
+describe("renderMessageContent — full transcript", () => {
+  test("joins all block kinds with blank-line separators", () => {
+    const content = renderMessageContent(assistantMessage(), {
+      fullTranscript: true,
+    });
+    expect(content).toContain("Thinking...");
+    expect(content).toContain("Let me look at the worker code.");
+    expect(content).toContain("read(file.ts)");
+    expect(content?.split("\n\n")).toHaveLength(3);
+  });
+
+  test("keeps tool_result messages in full mode", () => {
+    const m: ConversationMessage = {
+      messageId: "tr",
+      timestamp: "2026-04-14T17:19:32.000Z",
+      role: "tool_result",
+      blocks: [{ kind: "tool_result", text: "output text" }],
+    };
+    expect(renderMessageContent(m, { fullTranscript: true })).toBe(
+      "output text",
+    );
   });
 });

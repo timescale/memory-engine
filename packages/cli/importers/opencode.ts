@@ -8,10 +8,15 @@
  *     session/<project-id>/ses_<id>.json   {id, slug, projectID, directory,
  *                                           title, time: {created, updated}}
  *     message/ses_<id>/msg_<id>.json       {id, role, time, agent, model,
- *                                           providerID, cost, tokens}
+ *                                           providerID}
  *     part/msg_<id>/prt_<id>.json          {type: "text"|"reasoning"|"tool"|
  *                                           "step-start"|"step-finish",
  *                                           text|state, time}
+ *
+ * Each `msg_<id>` becomes one `ConversationMessage`, and its parts become
+ * the message's ordered blocks. A `tool` part expands into two blocks
+ * (one `tool_use` for the call, one `tool_result` for the output) inside
+ * the same message.
  */
 import { promises as fs } from "node:fs";
 import { homedir } from "node:os";
@@ -20,12 +25,11 @@ import { filterBySessionShape, recordSkip } from "./filters.ts";
 import type { Importer } from "./index.ts";
 import type { ProgressReporter } from "./progress.ts";
 import type {
-  ConversationTurn,
+  ConversationMessage,
   ImportedSession,
   ImporterOptions,
   ImporterStats,
-  MessageCounts,
-  TokenCounts,
+  MessageBlock,
 } from "./types.ts";
 
 const DEFAULT_SOURCE = join(
@@ -77,7 +81,14 @@ async function* discoverSessions(
         recordSkip(stats, "empty");
         continue;
       }
-      const skip = filterBySessionShape(session, options);
+      const skip = filterBySessionShape(
+        {
+          startedAt: session.startedAt,
+          userMessageCount: countUserMessages(session.messages),
+          cwd: session.cwd,
+        },
+        options,
+      );
       if (skip) {
         recordSkip(stats, skip);
         continue;
@@ -86,6 +97,16 @@ async function* discoverSessions(
       yield session;
     }
   }
+}
+
+/** Count user-role messages that carry at least one text block. */
+function countUserMessages(messages: ConversationMessage[]): number {
+  let n = 0;
+  for (const m of messages) {
+    if (m.role !== "user") continue;
+    if (m.blocks.some((b) => b.kind === "text")) n++;
+  }
+  return n;
 }
 
 /** List immediate subdirectories of `path`. */
@@ -135,38 +156,31 @@ async function parseSession(
   const createdMs = sessionTime?.created;
   const updatedMs = sessionTime?.updated;
 
-  // Walk messages for this session, sorted by creation time.
-  const messageDir = join(storageRoot, "message", sid);
-  const messageFiles = await listJsonFiles(messageDir);
-
   interface MessageMeta {
     id: string;
     role: string;
     createdMs: number;
-    completedMs?: number;
     model?: string;
     providerID?: string;
     agent?: string;
-    cost?: number;
-    tokens?: TokenCounts;
   }
 
-  const messages: MessageMeta[] = [];
+  const messageDir = join(storageRoot, "message", sid);
+  const messageFiles = await listJsonFiles(messageDir);
+
+  const messageMetas: MessageMeta[] = [];
   let model: string | undefined;
   let provider: string | undefined;
   let agentMode: string | undefined;
-  let totalCost = 0;
-  const aggregateTokens: TokenCounts = {};
 
   for (const mf of messageFiles) {
     const raw = await readJson(mf);
     if (!raw) continue;
     const id = typeof raw.id === "string" ? raw.id : undefined;
     const role = typeof raw.role === "string" ? raw.role : undefined;
-    const time = raw.time as
-      | { created?: number; completed?: number }
-      | undefined;
+    const time = raw.time as { created?: number } | undefined;
     if (!id || !role || !time?.created) continue;
+
     const msgModel =
       typeof raw.modelID === "string"
         ? raw.modelID
@@ -184,26 +198,18 @@ async function parseSession(
     if (!provider && msgProvider) provider = msgProvider;
     if (!agentMode && agent) agentMode = agent;
 
-    const cost = typeof raw.cost === "number" ? raw.cost : undefined;
-    if (cost !== undefined) totalCost += cost;
-    const tokens = raw.tokens as Record<string, unknown> | undefined;
-    mergeTokens(aggregateTokens, tokens);
-
-    messages.push({
+    messageMetas.push({
       id,
       role,
       createdMs: time.created,
-      completedMs: time.completed,
       model: msgModel,
       providerID: msgProvider,
       agent,
-      cost,
-      tokens: extractTokens(tokens),
     });
   }
-  messages.sort((a, b) => a.createdMs - b.createdMs);
+  messageMetas.sort((a, b) => a.createdMs - b.createdMs);
 
-  // Resolve worktree/vcs from project record when session.directory is absent.
+  // Resolve worktree from the project record when session.directory is absent.
   let cwd = directory;
   const projectID =
     typeof sessionRaw.projectID === "string" ? sessionRaw.projectID : undefined;
@@ -214,13 +220,10 @@ async function parseSession(
     if (proj && typeof proj.worktree === "string") cwd = proj.worktree;
   }
 
-  // Now walk parts per message, stitching text/reasoning/tool into turns.
-  const turns: ConversationTurn[] = [];
-  const counts: MessageCounts = { user: 0, assistant: 0, tool_calls: 0 };
-  let lastMessageId = sid;
+  // Walk parts per message, stitching text/reasoning/tool into blocks.
+  const messages: ConversationMessage[] = [];
 
-  for (const m of messages) {
-    lastMessageId = m.id;
+  for (const m of messageMetas) {
     const partDir = join(storageRoot, "part", m.id);
     const partFiles = await listJsonFiles(partDir);
     const parts: Array<Record<string, unknown>> = [];
@@ -236,30 +239,13 @@ async function parseSession(
       return at - bt;
     });
 
-    const messageTs = new Date(m.createdMs).toISOString();
-    let userPartCount = 0;
-    let assistantPartCount = 0;
-
+    const blocks: MessageBlock[] = [];
     for (const part of parts) {
       const type = part.type;
-      const partTime = part.time as
-        | { start?: number; end?: number }
-        | undefined;
-      const partTs = partTime?.start
-        ? new Date(partTime.start).toISOString()
-        : messageTs;
-
       if (type === "text" && typeof part.text === "string") {
-        const role = m.role === "user" ? "user" : "assistant";
-        turns.push({ role, text: part.text, timestamp: partTs });
-        if (role === "user") userPartCount++;
-        else assistantPartCount++;
+        blocks.push({ kind: "text", text: part.text });
       } else if (type === "reasoning" && typeof part.text === "string") {
-        turns.push({
-          role: "reasoning",
-          text: part.text,
-          timestamp: partTs,
-        });
+        blocks.push({ kind: "thinking", text: part.text });
       } else if (type === "tool") {
         const toolName = typeof part.tool === "string" ? part.tool : "tool";
         const state = part.state as Record<string, unknown> | undefined;
@@ -268,31 +254,33 @@ async function parseSession(
         const callLabel = `${toolName}(${
           input === undefined ? "" : JSON.stringify(input)
         })`;
-        turns.push({
-          role: "tool_call",
-          text: callLabel,
-          toolName,
-          timestamp: partTs,
-        });
-        counts.tool_calls++;
+        blocks.push({ kind: "tool_use", text: callLabel, toolName });
         if (output !== undefined) {
-          const text =
+          const outText =
             typeof output === "string" ? output : JSON.stringify(output);
-          turns.push({
-            role: "tool_result",
-            text,
-            toolName,
-            timestamp: partTs,
-          });
+          blocks.push({ kind: "tool_result", text: outText, toolName });
         }
       }
       // step-start / step-finish are lifecycle markers; skip.
     }
 
-    // Count one user/assistant message per source message that actually
-    // yielded text content, regardless of how many parts it had.
-    if (m.role === "user" && userPartCount > 0) counts.user++;
-    if (m.role === "assistant" && assistantPartCount > 0) counts.assistant++;
+    if (blocks.length === 0) continue;
+
+    const role: ConversationMessage["role"] =
+      m.role === "user"
+        ? "user"
+        : m.role === "assistant"
+          ? "assistant"
+          : m.role === "system"
+            ? "system"
+            : "assistant";
+
+    messages.push({
+      messageId: m.id,
+      timestamp: new Date(m.createdMs).toISOString(),
+      role,
+      blocks,
+    });
   }
 
   const stat = await fs.stat(sessionFile).catch(() => null);
@@ -304,13 +292,13 @@ async function parseSession(
   const startedAt =
     createdMs !== undefined
       ? new Date(createdMs).toISOString()
-      : (turns[0]?.timestamp ?? sourceModifiedAt);
+      : (messages[0]?.timestamp ?? sourceModifiedAt);
   const endedAt =
     updatedMs !== undefined
       ? new Date(updatedMs).toISOString()
-      : (turns[turns.length - 1]?.timestamp ?? startedAt);
+      : (messages[messages.length - 1]?.timestamp ?? startedAt);
 
-  if (turns.length === 0 && counts.user === 0 && counts.assistant === 0) {
+  if (messages.length === 0) {
     return null;
   }
 
@@ -327,12 +315,7 @@ async function parseSession(
     startedAt,
     endedAt,
     sourceModifiedAt,
-    lastMessageId,
-    messageCounts: counts,
-    tokens:
-      Object.keys(aggregateTokens).length > 0 ? aggregateTokens : undefined,
-    costUsd: totalCost > 0 ? totalCost : undefined,
-    turns,
+    messages,
   };
 }
 
@@ -344,44 +327,4 @@ async function readJson(path: string): Promise<Record<string, unknown> | null> {
   } catch {
     return null;
   }
-}
-
-/**
- * Fold tokens from one message's `tokens` payload into an accumulator.
- * OpenCode structure: `{input, output, reasoning, cache: {read, write}}`
- */
-function mergeTokens(
-  agg: TokenCounts,
-  src: Record<string, unknown> | undefined,
-): void {
-  if (!src) return;
-  if (typeof src.input === "number") agg.input = (agg.input ?? 0) + src.input;
-  if (typeof src.output === "number")
-    agg.output = (agg.output ?? 0) + src.output;
-  if (typeof src.reasoning === "number")
-    agg.reasoning = (agg.reasoning ?? 0) + src.reasoning;
-  const cache = src.cache as Record<string, unknown> | undefined;
-  if (cache) {
-    if (typeof cache.read === "number")
-      agg.cache_read = (agg.cache_read ?? 0) + cache.read;
-    if (typeof cache.write === "number")
-      agg.cache_write = (agg.cache_write ?? 0) + cache.write;
-  }
-}
-
-/** Snapshot of tokens for a single message (not aggregated). */
-function extractTokens(
-  src: Record<string, unknown> | undefined,
-): TokenCounts | undefined {
-  if (!src) return undefined;
-  const out: TokenCounts = {};
-  if (typeof src.input === "number") out.input = src.input;
-  if (typeof src.output === "number") out.output = src.output;
-  if (typeof src.reasoning === "number") out.reasoning = src.reasoning;
-  const cache = src.cache as Record<string, unknown> | undefined;
-  if (cache) {
-    if (typeof cache.read === "number") out.cache_read = cache.read;
-    if (typeof cache.write === "number") out.cache_write = cache.write;
-  }
-  return Object.keys(out).length > 0 ? out : undefined;
 }

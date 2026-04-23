@@ -2,7 +2,7 @@
 
 Import agent conversations from local CLI agents (Claude Code, Codex, OpenCode) into the active engine as memories.
 
-Each conversation session on disk becomes one memory. Content includes a metadata header (tool, model, project, branch, duration, message counts) followed by the conversation in Markdown. Imports are idempotent -- re-running the same command only adds new or changed sessions.
+Each source-native message becomes one memory. Re-running the same command only inserts newly-seen messages (deterministic UUIDs make re-imports idempotent).
 
 ## Commands
 
@@ -22,11 +22,10 @@ All three subcommands accept the same flags (with one extra flag on `claude`).
 | `--project <cwd>` | Only import sessions whose cwd equals or is below this path. |
 | `--since <iso>` | Only import sessions started at or after this ISO 8601 timestamp. |
 | `--until <iso>` | Only import sessions started at or before this ISO 8601 timestamp. |
-| `--tree-root <path>` | Tree root to store memories under. Default: `agent_conversations`. Must match `[a-z0-9_]+(\.[a-z0-9_]+)*`. |
-| `--flat` | Store all sessions directly under `--tree-root` with no project subnode. |
-| `--full-transcript` | Include reasoning, tool calls, and tool results in the memory body (default: user + assistant text only). |
+| `--tree-root <path>` | Tree root under which `<slug>.sessions` nodes are placed. Default: `projects`. Must match `[a-z0-9_]+(\.[a-z0-9_]+)*`. |
+| `--full-transcript` | Also store reasoning, tool calls, and tool results as their own message memories (default: user + assistant text only). |
 | `--include-temp-cwd` | Include sessions whose cwd is a system temp directory (`/tmp`, `/private/var/folders/...`). Off by default. |
-| `--include-trivial` | Include sessions with fewer than 2 user turns (one-shot queries, warm-up pings, aborted sessions). Off by default. |
+| `--include-trivial` | Include sessions with fewer than 2 user messages (one-shot queries, warm-up pings, aborted sessions). Off by default. |
 | `--dry-run` | Parse and report what would be imported without writing anything. |
 | `-v, --verbose` | Per-session progress lines. |
 
@@ -38,57 +37,32 @@ All three subcommands accept the same flags (with one extra flag on `claude`).
 
 ## Tree layout
 
-By default, each imported session is stored under:
+Each imported message is stored under:
 
 ```
-<tree-root>.<project_slug>
+<tree-root>.<project_slug>.sessions
 ```
 
-For example, a Claude session run in `/Users/me/dev/memory-engine` ends up under `agent_conversations.memory_engine`. Use `--flat` to drop the project subnode and store all sessions directly under `--tree-root`.
+For example, a Claude message from a session run in `/Users/me/dev/memory-engine` ends up under `projects.memory_engine.sessions`. Every message from every session in a project shares that same tree node; individual sessions are distinguished by `meta.source_session_id`.
 
 Project slugs come from the git repo root directory name when the cwd is inside a repo, or from `basename(cwd)` otherwise. Slug collisions (two different cwds that normalize to the same label) are resolved automatically by appending a 4-char hash suffix -- the first cwd seen gets the plain slug, subsequent ones get `slug_<hash>`. The full cwd is always preserved in `meta.source_cwd`.
 
-To keep a simplified import and a `--full-transcript` import side by side, point them at different roots:
-
-```bash
-me import claude
-me import claude --full-transcript --tree-root agent_conversations_full
-```
-
 ## Idempotency
 
-Each imported session gets a deterministic UUIDv7 derived from `(tool, sessionId, startedAt)`. On re-import:
+Each imported message gets a deterministic UUIDv7 derived from `(tool, session_id, message_id, timestamp)`. On re-import:
 
-1. The importer looks up the existing memory by that ID.
-2. If `meta.last_message_id` matches the current last message in the source file, the session is skipped.
-3. If it has changed (session grew since the last import), the memory is updated in place with new content, meta, and temporal range.
+1. The importer looks up each message by that id.
+2. If the memory already exists and `meta.importer_version` matches, it is skipped.
+3. Otherwise the memory is (re)written.
 
-This makes repeated imports cheap: one lookup per session and a write only when content has actually changed.
+Source files are append-only for all three tools, so re-importing an in-progress session simply inserts its newly-appended messages on the next run.
 
 ## Content shape
 
-Default content is a Markdown document with a metadata header and the `user` and `assistant` text turns in order. Reasoning/thinking blocks, tool calls, and tool results are excluded. Example:
+Each memory's content is the raw text of the message. Role, session id, project, git state, and block kinds live in `meta`.
 
-```markdown
-# Debugging the embedding worker
-
-- Tool: Claude v2.1.107
-- Model: anthropic/claude-opus-4-7
-- Project: /Users/me/dev/memory-engine
-- Branch: main @ 2b23f7c6
-- Duration: 2026-04-14T17:19:23Z → 2026-04-14T18:45:12Z (1h 26m)
-- Messages: 42 user / 38 assistant / 12 tool calls
-
-## Conversation
-
-### user (17:19:23Z)
-Help me debug the embedding worker...
-
-### assistant (17:19:28Z)
-Looking at the worker, I see...
-```
-
-With `--full-transcript`, additional turn kinds are included (`assistant (reasoning)`, `tool call: <name>`, `tool result: <name>`, `system`).
+- Default mode keeps only the `text` blocks of each message. Messages with no text blocks (for example, a Claude user event that only carries a `tool_result`) are skipped.
+- `--full-transcript` keeps every block kind. Messages are rendered as their blocks joined with blank lines, and standalone reasoning / tool-call / tool-result items (for example, Codex response items of those types) are stored as their own memories.
 
 ## Metadata
 
@@ -96,10 +70,13 @@ Each imported memory carries:
 
 | Key | Description |
 |-----|-------------|
-| `type` | Always `"agent_conversation"`. |
+| `type` | Always `"agent_session"`. |
 | `source_tool` | `"claude"` / `"codex"` / `"opencode"`. |
 | `source_session_id` | Tool-native session identifier. |
 | `source_session_title` | Session title when the source supplies one. |
+| `source_message_id` | Source-native message id (or a stable synthesized id for Codex items with no native id). |
+| `source_message_role` | `user` / `assistant` / `reasoning` / `tool_call` / `tool_result` / `system`. |
+| `source_message_block_kinds` | Ordered list of block kinds composing this message. |
 | `source_cwd` | Absolute working directory. |
 | `source_project_slug` | ltree-safe project label (same as the tree subnode). |
 | `source_git_root` | Git repo root (if detected and distinct from cwd). |
@@ -110,17 +87,13 @@ Each imported memory carries:
 | `source_model` | Model id (e.g. `claude-opus-4-5`, `gemini-3-pro-preview`). |
 | `source_provider` | Model provider (`anthropic`, `openai`, `google`, ...). |
 | `source_agent_mode` | OpenCode agent mode (e.g. `plan`). |
+| `source_tool_name` | Tool name for `tool_call` / `tool_result` messages. |
 | `source_file` | Absolute path of the session file on disk. |
-| `last_message_id` | ID of the last message seen -- used for change detection. |
-| `last_message_at` | Timestamp of the last message (ISO 8601). |
-| `message_counts` | `{user, assistant, tool_calls}` counts. |
-| `tokens` | `{input, output, reasoning, cache_read, cache_write}` when the source records them. |
-| `cost_usd` | Aggregate USD cost when the source records it. |
 | `content_mode` | `"default"` or `"full_transcript"`. |
 | `imported_at` | ISO 8601 timestamp of this import run. |
 | `importer_version` | Version tag of the importer schema. |
 
-Temporal range is `[started_at, ended_at)` for multi-message sessions, or a point-in-time for single-message sessions.
+Temporal is a point-in-time at the message's timestamp.
 
 ---
 
@@ -138,9 +111,7 @@ See [Shared options](#shared-options) plus `--include-sidechains` above.
 
 - Sidechain (`agent-*.jsonl`) files are skipped. These are subagent/Task spawns.
 - Sessions whose cwd is under `/tmp`, `/private/tmp`, `/private/var/folders`, or `/var/folders` are skipped.
-- Sessions with fewer than 2 user turns are skipped (one-shot queries, warm-up pings, and aborted sessions). Sessions where the user didn't follow up after the first answer are considered one-shot and dropped by default.
-
-In-progress sessions are imported as-is — the next import will update them in place via deterministic-UUID change detection on `last_message_id`.
+- Sessions with fewer than 2 user messages are skipped (one-shot queries, warm-up pings, and aborted sessions).
 
 Example: first-time import of Claude history for a specific project, as a dry run:
 
@@ -160,9 +131,9 @@ me import codex [options]
 
 See [Shared options](#shared-options).
 
-Codex sessions include git commit, branch, and remote URL in `session_meta`, so the importer captures all three. Token counts are harvested from `token_count` event messages.
+Codex sessions include git commit, branch, and remote URL in `session_meta`, so the importer captures all three. Both the recent on-disk format (with a leading `session_meta` line wrapping payloads in `response_item` / `event_msg`) and the legacy format (bare response-item-like objects per line) are handled.
 
-Both the recent on-disk format (with a leading `session_meta` line wrapping payloads in `response_item` / `event_msg`) and the legacy format (bare response-item-like objects per line) are handled.
+Reasoning and function-call response items don't always carry a native id. In those cases the importer synthesizes a stable id from `(session_id, type, ordinal)` so re-imports remain idempotent.
 
 ---
 
@@ -180,7 +151,7 @@ OpenCode stores data across four directories:
 
 - `project/<project-id>.json` -- project metadata
 - `session/<project-id>/ses_<id>.json` -- session metadata (title, directory, timestamps)
-- `message/ses_<id>/msg_<id>.json` -- per-message metadata (role, model, tokens, cost)
+- `message/ses_<id>/msg_<id>.json` -- per-message metadata (role, model)
 - `part/msg_<id>/prt_<id>.json` -- content parts (text, reasoning, tool, step-start/finish)
 
-The importer stitches these together, ordering parts by their `time.start` to rebuild the turn sequence. Cost and tokens are summed across all messages in the session. OpenCode's `agent` field becomes `meta.source_agent_mode` (e.g. `"plan"`).
+Each `msg_<id>` becomes one memory. Parts are stitched into the message's ordered block list (text / reasoning / tool_use + tool_result). OpenCode's `agent` field becomes `meta.source_agent_mode` (e.g. `"plan"`).

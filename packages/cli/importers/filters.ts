@@ -6,20 +6,20 @@
  * call into them consistently.
  *
  * There is intentionally no "skip recently-active sessions" filter:
- * importers are idempotent, keyed by a deterministic UUID per session,
- * and re-running updates in place via `last_message_id` change detection.
- * If an in-flight session gets imported mid-conversation, the next run
- * simply updates the memory — no need to delay the first write.
+ * importers are idempotent, keyed by a deterministic UUID per message,
+ * and re-running imports any newly-appended messages. If an in-flight
+ * session gets imported mid-conversation, the next run simply appends
+ * the new messages — no need to delay the first write.
  */
 import type { ImporterOptions, ImporterStats, SkipReason } from "./types.ts";
 
 /**
- * Minimum user turns for a session to count as non-trivial. Sessions
+ * Minimum user messages for a session to count as non-trivial. Sessions
  * with a single user prompt (or none) are typically one-shot queries,
  * warm-up pings, or aborted runs — we want real back-and-forth to
- * justify keeping the memory.
+ * justify importing their content.
  */
-export const TRIVIAL_USER_TURN_THRESHOLD = 2;
+export const TRIVIAL_USER_MESSAGE_THRESHOLD = 2;
 
 /**
  * Record a skip in the importer stats.
@@ -85,6 +85,15 @@ export function matchesTimeWindow(
   return { ok: true };
 }
 
+/** A minimal structural view of a session used for shape-based filtering. */
+export interface SessionShape {
+  startedAt: string;
+  /** Count of messages with role `user` that carry at least one text block. */
+  userMessageCount: number;
+  cwd?: string;
+  isSidechain?: boolean;
+}
+
 /**
  * Should this session be skipped based on the global importer options?
  *
@@ -92,12 +101,7 @@ export function matchesTimeWindow(
  * for calling `recordSkip` with the returned reason.
  */
 export function filterBySessionShape(
-  session: {
-    startedAt: string;
-    messageCounts: { user: number; assistant: number };
-    cwd?: string;
-    isSidechain?: boolean;
-  },
+  session: SessionShape,
   options: ImporterOptions,
 ): SkipReason | null {
   if (session.isSidechain && !options.includeSidechains) {
@@ -108,7 +112,7 @@ export function filterBySessionShape(
   }
   if (
     !options.includeTrivial &&
-    session.messageCounts.user < TRIVIAL_USER_TURN_THRESHOLD
+    session.userMessageCount < TRIVIAL_USER_MESSAGE_THRESHOLD
   ) {
     return "trivial";
   }

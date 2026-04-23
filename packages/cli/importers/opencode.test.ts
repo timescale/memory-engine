@@ -60,38 +60,34 @@ describe("opencode importer", () => {
     expect(s.agentMode).toBe("plan");
   });
 
-  test("orders turns by part start time across messages", async () => {
+  test("emits one message per msg_<id>, ordered by message creation time", async () => {
     const { sessions } = await collect(baseOptions());
     const s = sessions[0];
     if (!s) return;
-    // User prompt comes first (msg_1), assistant reasoning+text comes second.
-    const textTurns = s.turns.filter(
-      (t) => t.role === "user" || t.role === "assistant",
-    );
-    expect(textTurns[0]?.role).toBe("user");
-    expect(textTurns[0]?.text).toContain("bootstrap a Bun project");
-    expect(textTurns[1]?.role).toBe("assistant");
-    expect(textTurns[1]?.text).toContain("bun init -y");
+    expect(s.messages.map((m) => m.messageId)).toEqual(["msg_1", "msg_2"]);
+    expect(s.messages[0]?.role).toBe("user");
+    expect(s.messages[1]?.role).toBe("assistant");
   });
 
-  test("captures reasoning and tool parts when full transcript requested", async () => {
+  test("user message carries a single text block", async () => {
     const { sessions } = await collect(baseOptions());
     const s = sessions[0];
     if (!s) return;
-    expect(s.turns.some((t) => t.role === "reasoning")).toBe(true);
-    expect(s.turns.some((t) => t.role === "tool_call")).toBe(true);
-    expect(s.turns.some((t) => t.role === "tool_result")).toBe(true);
-    expect(s.messageCounts.tool_calls).toBe(1);
-    expect(s.messageCounts.user).toBe(1);
-    expect(s.messageCounts.assistant).toBe(1);
+    const user = s.messages[0];
+    expect(user?.blocks).toHaveLength(1);
+    expect(user?.blocks[0]?.kind).toBe("text");
+    expect(user?.blocks[0]?.text).toContain("bootstrap a Bun project");
   });
 
-  test("sums cost and tokens across messages", async () => {
+  test("assistant message carries reasoning + text + tool_use + tool_result blocks", async () => {
     const { sessions } = await collect(baseOptions());
     const s = sessions[0];
     if (!s) return;
-    expect(s.costUsd).toBeCloseTo(0.015);
-    expect(s.tokens?.input).toBe(1000);
-    expect(s.tokens?.output).toBe(100);
+    const asst = s.messages[1];
+    const kinds = asst?.blocks.map((b) => b.kind) ?? [];
+    expect(kinds).toEqual(["thinking", "text", "tool_use", "tool_result"]);
+    const toolUse = asst?.blocks.find((b) => b.kind === "tool_use");
+    expect(toolUse?.toolName).toBe("bash");
+    expect(toolUse?.text).toContain("bun init -y");
   });
 });

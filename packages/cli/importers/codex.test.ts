@@ -5,6 +5,7 @@ import { describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import { codexImporter } from "./codex.ts";
 import type {
+  ConversationMessage,
   ImportedSession,
   ImporterOptions,
   ImporterStats,
@@ -41,6 +42,14 @@ async function collect(
   return { sessions, stats };
 }
 
+function userTextsOf(messages: ConversationMessage[]): string[] {
+  return messages
+    .filter((m) => m.role === "user")
+    .flatMap((m) =>
+      m.blocks.filter((b) => b.kind === "text").map((b) => b.text),
+    );
+}
+
 describe("codex importer", () => {
   test("parses session_meta and yields one normalized session", async () => {
     const { sessions } = await collect(baseOptions());
@@ -56,29 +65,40 @@ describe("codex importer", () => {
     expect(s.gitRepo).toBe("git@github.com:test/codex-project.git");
   });
 
-  test("extracts user/assistant/reasoning/function_call turns", async () => {
+  test("emits one message per response_item with native ids where available", async () => {
     const { sessions } = await collect(baseOptions());
     const s = sessions[0];
     if (!s) return;
-    const userTexts = s.turns
-      .filter((t) => t.role === "user")
-      .map((t) => t.text);
+    const userTexts = userTextsOf(s.messages);
     expect(userTexts).toContain("Explain the codex-core crate.");
     expect(userTexts).toContain("What about codex-cli?");
-    expect(s.turns.some((t) => t.role === "reasoning")).toBe(true);
-    expect(s.turns.some((t) => t.role === "tool_call")).toBe(true);
-    expect(s.turns.some((t) => t.role === "tool_result")).toBe(true);
-    expect(s.messageCounts.user).toBe(2);
-    expect(s.messageCounts.assistant).toBe(2);
-    expect(s.messageCounts.tool_calls).toBe(1);
-  });
 
-  test("harvests token counts from event_msg", async () => {
-    const { sessions } = await collect(baseOptions());
-    const s = sessions[0];
-    if (!s?.tokens) return;
-    expect(s.tokens.input).toBe(1000);
-    expect(s.tokens.output).toBe(50);
-    expect(s.tokens.reasoning).toBe(20);
+    const byRole = Object.fromEntries(
+      (
+        ["user", "assistant", "reasoning", "tool_call", "tool_result"] as const
+      ).map((r) => [r, s.messages.filter((m) => m.role === r).length]),
+    );
+    expect(byRole.user).toBe(2);
+    expect(byRole.assistant).toBe(2);
+    expect(byRole.reasoning).toBe(1);
+    expect(byRole.tool_call).toBe(1);
+    expect(byRole.tool_result).toBe(1);
+
+    // Native message ids are used where the source provides them.
+    const nativeIds = s.messages.map((m) => m.messageId);
+    expect(nativeIds).toContain("m-1");
+    expect(nativeIds).toContain("m-2");
+    expect(nativeIds).toContain("m-3");
+    expect(nativeIds).toContain("m-4");
+
+    // tool_call / tool_result fall back to call_id when there's no native id.
+    const toolCall = s.messages.find((m) => m.role === "tool_call");
+    const toolResult = s.messages.find((m) => m.role === "tool_result");
+    expect(toolCall?.messageId).toBe("c1");
+    expect(toolResult?.messageId).toBe("c1");
+
+    // Reasoning has no native id; we synthesize a stable fallback.
+    const reasoning = s.messages.find((m) => m.role === "reasoning");
+    expect(reasoning?.messageId).toMatch(/^syn:reasoning:/);
   });
 });

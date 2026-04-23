@@ -6,19 +6,20 @@
  *   me import codex     — from ~/.codex/sessions + archived_sessions
  *   me import opencode  — from ~/.local/share/opencode/storage
  *
+ * Each source-native message becomes one memory, stored under
+ * `<tree-root>.<project_slug>.sessions`.
+ *
  * Shared flags across all three subcommands:
  *   --source <dir>           override default source directory
  *   --project <cwd>          only import sessions with this cwd (or a child)
  *   --since <iso>            only sessions started at/after this timestamp
  *   --until <iso>            only sessions started at/before this timestamp
- *   --tree-root <path>       tree root to store memories under
- *                            (default: agent_conversations)
- *   --flat                   store all sessions directly under tree-root
- *                            (no project subnode)
+ *   --tree-root <path>       tree root under which `<slug>.sessions` nodes
+ *                            are placed (default: projects)
  *   --full-transcript        include reasoning, tool calls, tool results
  *   --include-sidechains     (claude only) include subagent sessions
  *   --include-temp-cwd       include sessions whose cwd is /tmp, /private/var/...
- *   --include-trivial        include sessions with fewer than 2 user turns
+ *   --include-trivial        include sessions with fewer than 2 user messages
  *   --dry-run                parse and report without writing
  *   -v, --verbose            per-session progress lines
  */
@@ -40,7 +41,7 @@ import type { ImporterOptions } from "../importers/types.ts";
 import { getOutputFormat, output } from "../output.ts";
 import { handleError, requireEngine, requireSession } from "../util.ts";
 
-const DEFAULT_TREE_ROOT = "agent_conversations";
+const DEFAULT_TREE_ROOT = "projects";
 const VALID_TREE_ROOT_RE = /^[a-z0-9_]+(\.[a-z0-9_]+)*$/;
 
 /** Build a Commander option set shared by every subcommand. */
@@ -64,15 +65,11 @@ function addCommonOptions(
     )
     .option(
       "--tree-root <path>",
-      `tree root to store memories under (default: ${DEFAULT_TREE_ROOT})`,
-    )
-    .option(
-      "--flat",
-      "store all sessions directly under the tree root (no project subnode)",
+      `tree root under which '<slug>.sessions' nodes are placed (default: ${DEFAULT_TREE_ROOT})`,
     )
     .option(
       "--full-transcript",
-      "include reasoning, tool calls, and tool results in memory content",
+      "include reasoning, tool calls, and tool results as additional message memories",
     )
     .option(
       "--include-temp-cwd",
@@ -80,7 +77,7 @@ function addCommonOptions(
     )
     .option(
       "--include-trivial",
-      "include sessions with fewer than 2 user turns (one-shot queries, warm-up pings)",
+      "include sessions with fewer than 2 user messages (one-shot queries, warm-up pings)",
     )
     .option(
       "--dry-run",
@@ -132,7 +129,6 @@ function buildOptions(opts: Record<string, unknown>): {
   };
   const write: WriteOptions = {
     treeRoot,
-    flat: opts.flat === true,
     fullTranscript: opts.fullTranscript === true,
     dryRun: opts.dryRun === true,
     verbose: opts.verbose === true,
@@ -200,9 +196,7 @@ async function runAndRender(
   if (result.failed > 0) process.exit(1);
 }
 
-/**
- * Print the import result in text or structured format.
- */
+/** Print the import result in text or structured format. */
 function renderResult(
   result: ImportResult,
   tool: string,
@@ -210,48 +204,54 @@ function renderResult(
   fmt: "text" | "json" | "yaml",
 ): void {
   const skippedBreakdown = result.discovery.skipped;
-  const skippedTotal =
-    Object.values(skippedBreakdown).reduce((a, b) => a + b, 0) + result.skipped;
 
-  const failures = result.outcomes
-    .filter((o) => o.action === "failed")
+  const failedSessions = result.outcomes
+    .filter((o) => o.failed > 0)
     .map((o) => ({
       sessionId: o.sessionId,
-      memoryId: o.memoryId,
       title: o.title,
-      reason: o.reason ?? "unknown error",
+      failed: o.failed,
+      inserted: o.inserted,
+      updated: o.updated,
+      skipped: o.skipped,
       sourceFile: o.sourceFile,
+      errors: o.errors,
     }));
 
   const structured = {
     tool,
     dryRun: write.dryRun,
     treeRoot: write.treeRoot,
-    flat: write.flat,
     fullTranscript: write.fullTranscript,
     totalFiles: result.discovery.totalFiles,
+    sessionsProcessed: result.sessionsProcessed,
     inserted: result.inserted,
     updated: result.updated,
-    skipped: skippedTotal,
+    skipped: result.skipped,
     failed: result.failed,
-    skippedReasons: skippedBreakdown,
+    sessionSkipReasons: skippedBreakdown,
     parseErrors: result.discovery.errors,
-    failures,
+    failedSessions,
     slugCollisions: result.slugCollisions,
   };
 
   output(structured, fmt, () => {
     const verb = write.dryRun ? "Would import" : "Imported";
     clack.log.success(
-      `${verb} ${result.inserted} new, ${result.updated} updated for ${tool} (${result.skipped} skipped post-fetch, ${result.failed} failed)`,
+      `${verb} ${result.inserted} new, ${result.updated} updated, ` +
+        `${result.skipped} skipped, ${result.failed} failed messages ` +
+        `across ${result.sessionsProcessed} sessions for ${tool}`,
     );
     console.log(`  Scanned ${result.discovery.totalFiles} session files`);
-    if (skippedTotal > 0) {
+    const sessionSkipTotal = Object.values(skippedBreakdown).reduce(
+      (a, b) => a + b,
+      0,
+    );
+    if (sessionSkipTotal > 0) {
       const parts = Object.entries(skippedBreakdown)
         .filter(([, n]) => n > 0)
         .map(([reason, n]) => `${reason}=${n}`);
-      if (result.skipped > 0) parts.push(`unchanged=${result.skipped}`);
-      if (parts.length > 0) console.log(`  Skipped: ${parts.join(", ")}`);
+      console.log(`  Sessions skipped: ${parts.join(", ")}`);
     }
     if (result.discovery.errors.length > 0) {
       console.log(`  Parse errors: ${result.discovery.errors.length}`);
@@ -261,13 +261,15 @@ function renderResult(
         }
       }
     }
-    if (failures.length > 0) {
-      console.log(`  Failed (${failures.length}):`);
-      for (const f of failures) {
+    if (failedSessions.length > 0) {
+      console.log(`  Failed (${failedSessions.length}):`);
+      for (const f of failedSessions) {
         const short = f.sessionId.slice(0, 8);
-        console.log(`    ✗ ${short} ${f.title}`);
-        console.log(`        ${f.reason}`);
+        console.log(`    ✗ ${short} ${f.title} (${f.failed} message(s))`);
         if (f.sourceFile) console.log(`        source: ${f.sourceFile}`);
+        for (const err of f.errors) {
+          console.log(`        ${err.messageId}: ${err.error}`);
+        }
       }
     }
     if (result.slugCollisions.length > 0 && write.verbose) {
@@ -281,9 +283,7 @@ function renderResult(
   });
 }
 
-/**
- * Build a subcommand that runs a specific importer.
- */
+/** Build a subcommand that runs a specific importer. */
 function buildImporterCommand(
   name: string,
   description: string,

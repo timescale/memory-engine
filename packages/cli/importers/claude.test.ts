@@ -9,6 +9,7 @@ import { describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import { claudeImporter, unwrapSdkReplayBundle } from "./claude.ts";
 import type {
+  ConversationMessage,
   ImportedSession,
   ImporterOptions,
   ImporterStats,
@@ -45,6 +46,15 @@ async function collect(
   return { sessions, stats };
 }
 
+/** Collect text from all `text` blocks in a user-role message. */
+function userTextsOf(messages: ConversationMessage[]): string[] {
+  return messages
+    .filter((m) => m.role === "user")
+    .flatMap((m) =>
+      m.blocks.filter((b) => b.kind === "text").map((b) => b.text),
+    );
+}
+
 describe("claude importer", () => {
   test("skips sidechains by default", async () => {
     const { sessions, stats } = await collect(baseOptions());
@@ -74,16 +84,12 @@ describe("claude importer", () => {
     expect(s.provider).toBe("anthropic");
   });
 
-  test("filters out isMeta and local-command wrappers from user turns", async () => {
+  test("filters out isMeta and local-command wrappers from user messages", async () => {
     const { sessions } = await collect(baseOptions());
     const s = sessions[0];
     expect(s).toBeDefined();
     if (!s) return;
-    // Real user turns: "Please refactor..." and "Thanks, ..."
-    // The isMeta "<local-command-caveat>..." should be dropped.
-    const userTexts = s.turns
-      .filter((t) => t.role === "user")
-      .map((t) => t.text);
+    const userTexts = userTextsOf(s.messages);
     expect(userTexts).toContain(
       "Please refactor the embedding worker to use a claims-based scheduler.",
     );
@@ -93,26 +99,32 @@ describe("claude importer", () => {
     );
   });
 
-  test("captures thinking and tool_use/tool_result turns", async () => {
+  test("captures thinking and tool_use/tool_result blocks on messages", async () => {
     const { sessions } = await collect(baseOptions());
     const s = sessions[0];
     expect(s).toBeDefined();
     if (!s) return;
-    expect(s.turns.some((t) => t.role === "reasoning")).toBe(true);
+    const allBlocks = s.messages.flatMap((m) => m.blocks);
+    expect(allBlocks.some((b) => b.kind === "thinking")).toBe(true);
     expect(
-      s.turns.some((t) => t.role === "tool_call" && t.toolName === "read"),
+      allBlocks.some((b) => b.kind === "tool_use" && b.toolName === "read"),
     ).toBe(true);
-    expect(s.turns.some((t) => t.role === "tool_result")).toBe(true);
-    expect(s.messageCounts.tool_calls).toBe(1);
+    expect(allBlocks.some((b) => b.kind === "tool_result")).toBe(true);
   });
 
-  test("tracks lastMessageId and timestamps from events", async () => {
+  test("uses event uuid as message id and event timestamp as message timestamp", async () => {
     const { sessions } = await collect(baseOptions());
     const s = sessions[0];
     expect(s).toBeDefined();
     if (!s) return;
-    expect(s.lastMessageId).toBe("user-3");
-    // startedAt is the timestamp of the first real (non-meta) message.
+    // Messages are in source order: user-1, asst-1, user-2, asst-2, user-3.
+    // (meta, synthetic, and wrap-* events are dropped.)
+    const ids = s.messages.map((m) => m.messageId);
+    expect(ids).toEqual(["user-1", "asst-1", "user-2", "asst-2", "user-3"]);
+    expect(s.messages[0]?.timestamp).toBe("2026-04-01T10:00:01.000Z");
+    expect(s.messages[s.messages.length - 1]?.timestamp).toBe(
+      "2026-04-01T10:00:10.000Z",
+    );
     expect(s.startedAt).toBe("2026-04-01T10:00:01.000Z");
     expect(s.endedAt).toBe("2026-04-01T10:00:10.000Z");
   });
@@ -133,7 +145,6 @@ describe("claude importer", () => {
   });
 
   test("unwrapSdkReplayBundle strips leading Human: when no separator", () => {
-    // Original first prompt wrapped by SDK, no replay history yet.
     expect(unwrapSdkReplayBundle("Human: I would like to modify foo")).toBe(
       "I would like to modify foo",
     );
@@ -160,8 +171,6 @@ describe("claude importer", () => {
   });
 
   test("unwrapSdkReplayBundle extracts new prompt from You-are system-prompt bundle", () => {
-    // opencode-claude-max-proxy pattern: system prompt + history stuffed
-    // into the user event as one large text block, real prompt at the end.
     const bundle =
       "You are Claude Code, Anthropic's official CLI for Claude.\n" +
       "\n" +
@@ -205,14 +214,20 @@ describe("claude importer", () => {
     const s = sessions[0];
     expect(s).toBeDefined();
     if (!s) return;
-    const allText = s.turns.map((t) => t.text).join("\n");
+    const allText = s.messages
+      .flatMap((m) => m.blocks.map((b) => b.text))
+      .join("\n");
     expect(allText).not.toContain("No response requested.");
     expect(allText).not.toContain("Assistant: The worker polls");
     expect(allText).not.toContain("[Tool Use:");
     expect(allText).not.toContain("[Tool Result for");
-    // Real user turns remain; the replay is gone.
-    expect(s.messageCounts.user).toBe(2);
-    // Real assistant turns remain; the synthetic one is gone.
-    expect(s.messageCounts.assistant).toBe(2);
+    const userCount = s.messages.filter((m) => m.role === "user").length;
+    const assistantCount = s.messages.filter(
+      (m) => m.role === "assistant",
+    ).length;
+    // Real user events: user-1, user-2 (tool_result only), user-3 → 3 messages.
+    expect(userCount).toBe(3);
+    // Real assistant events: asst-1, asst-2 → 2 messages.
+    expect(assistantCount).toBe(2);
   });
 });

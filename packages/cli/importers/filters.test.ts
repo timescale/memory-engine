@@ -99,7 +99,7 @@ describe("matchesTimeWindow", () => {
 describe("filterBySessionShape", () => {
   const baseSession = {
     startedAt: "2026-04-01T10:00:00Z",
-    messageCounts: { user: 5, assistant: 5 },
+    userMessageCount: 5,
     cwd: "/Users/test/project",
   };
 
@@ -125,30 +125,30 @@ describe("filterBySessionShape", () => {
     ).toBe("temp_cwd");
   });
 
-  test("skips sessions with zero user turns", () => {
+  test("skips sessions with zero user messages", () => {
     expect(
       filterBySessionShape(
-        { ...baseSession, messageCounts: { user: 0, assistant: 3 } },
+        { ...baseSession, userMessageCount: 0 },
         baseOptions(),
       ),
     ).toBe("trivial");
   });
 
-  test("skips one-shot sessions (1 user turn, regardless of assistant count)", () => {
+  test("skips one-shot sessions (1 user message)", () => {
     // Even a long assistant reply doesn't count — we require real
     // back-and-forth from the user side.
     expect(
       filterBySessionShape(
-        { ...baseSession, messageCounts: { user: 1, assistant: 10 } },
+        { ...baseSession, userMessageCount: 1 },
         baseOptions(),
       ),
     ).toBe("trivial");
   });
 
-  test("keeps sessions with 2+ user turns", () => {
+  test("keeps sessions with 2+ user messages", () => {
     expect(
       filterBySessionShape(
-        { ...baseSession, messageCounts: { user: 2, assistant: 1 } },
+        { ...baseSession, userMessageCount: 2 },
         baseOptions(),
       ),
     ).toBeNull();

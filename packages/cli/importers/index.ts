@@ -3,40 +3,34 @@
  *
  * Each per-tool importer (claude, codex, opencode) exposes a
  * `discoverSessions` async generator that yields `ImportedSession`
- * objects. `runImport` turns those into memories in the active engine,
- * using deterministic UUIDv7s keyed by `(tool, sessionId)` so that
- * re-imports are idempotent (or update-in-place when the session has
- * grown since the last import).
+ * objects. `runImport` then walks each session's `messages[]` and
+ * writes one memory per message, using deterministic UUIDv7s keyed
+ * by `(tool, sessionId, messageId)` so that re-imports are idempotent.
  */
-import * as clack from "@clack/prompts";
 import type { EngineClient } from "@memory.build/client";
 import { isRpcError } from "@memory.build/client";
 import type { MemoryResponse } from "@memory.build/protocol/engine";
 import type { ProgressReporter } from "./progress.ts";
 import { SlugRegistry } from "./slug.ts";
-import { renderSessionContent, synthesizeTitle } from "./transcript.ts";
+import { renderMessageContent, synthesizeTitle } from "./transcript.ts";
 import type {
+  ConversationMessage,
   ImportedSession,
   ImporterOptions,
   ImporterStats,
 } from "./types.ts";
-import { deterministicUuidV7 } from "./uuid.ts";
+import { deterministicMessageUuidV7 } from "./uuid.ts";
 
 /**
  * Version tag stored in `meta.importer_version`. Bumping this forces a
- * re-render of every previously-imported session on the next run (via
- * `writeSession`'s version check) so parser changes propagate without
- * manual intervention.
+ * re-render of every previously-imported message on the next run (via
+ * the version check in `writeMessage`) so parser changes propagate
+ * without manual intervention.
  *
- * Version history:
- *   1 — initial release
- *   2 — claude: drop SDK wrapper cycles (synthetic assistant + replay user)
- *   3 — claude: unwrap SDK replay bundles in user text blocks (Assistant:/
- *       Human:/[Assistant:...] prefixed content from programmatic SDK runs)
- *   4 — claude: also unwrap "You are ..." system-prompt bundles (seen in
- *       opencode-claude-max-proxy and similar Claude-backend proxies)
+ * Locked at "1" during pre-release iteration — bump only after the first
+ * real release so early adopters get parser fixes without a manual wipe.
  */
-export const IMPORTER_VERSION = "4";
+export const IMPORTER_VERSION = "1";
 
 /** An importer's discovery interface — yields normalized sessions. */
 export interface Importer {
@@ -51,9 +45,15 @@ export interface Importer {
 
 /** Result of the orchestration pass. */
 export interface ImportResult {
+  /** Sessions whose messages were processed. */
+  sessionsProcessed: number;
+  /** Messages newly inserted as memories. */
   inserted: number;
+  /** Messages updated (importer version mismatch). */
   updated: number;
+  /** Messages skipped (already present and up-to-date, or empty content). */
   skipped: number;
+  /** Messages that failed to write. */
   failed: number;
   /** Per-session outcomes in discovery order. */
   outcomes: Array<SessionOutcome>;
@@ -63,25 +63,25 @@ export interface ImportResult {
   slugCollisions: ReturnType<SlugRegistry["collisions"]>;
 }
 
-/** Per-session outcome. */
+/** Per-session outcome aggregating per-message counts. */
 export interface SessionOutcome {
   sessionId: string;
-  memoryId: string;
-  tree: string;
-  action: "inserted" | "updated" | "skipped" | "failed";
-  reason?: string;
   title: string;
-  /** Source file path of the session (for diagnostics). */
+  tree: string;
   sourceFile?: string;
+  inserted: number;
+  updated: number;
+  skipped: number;
+  failed: number;
+  /** Per-message error details, if any. */
+  errors: Array<{ messageId: string; error: string }>;
 }
 
 /** Options that affect writing sessions to the engine. */
 export interface WriteOptions {
-  /** Tree root (ltree-safe, no trailing dot). Default: agent_conversations. */
+  /** Tree root (ltree-safe, no trailing dot). Default: projects. */
   treeRoot: string;
-  /** If true, put all sessions directly under `treeRoot` (no project subnode). */
-  flat: boolean;
-  /** Include full transcript (reasoning/tool calls) in the memory body. */
+  /** Include full transcript (reasoning/tool calls) in message memories. */
   fullTranscript: boolean;
   /** Don't write anything — just report what would happen. */
   dryRun: boolean;
@@ -107,6 +107,7 @@ export async function runImport(
   };
   const slugs = new SlugRegistry();
   const outcomes: SessionOutcome[] = [];
+  let sessionsProcessed = 0;
   let inserted = 0;
   let updated = 0;
   let skipped = 0;
@@ -119,53 +120,74 @@ export async function runImport(
   )) {
     const title = synthesizeTitle(session);
     progress?.process(title);
-    try {
-      const outcome = await writeSession(engine, session, slugs, writeOptions);
-      outcomes.push(outcome);
-      switch (outcome.action) {
-        case "inserted":
-          inserted++;
-          break;
-        case "updated":
-          updated++;
-          break;
-        case "skipped":
-          skipped++;
-          break;
-        case "failed":
-          failed++;
-          break;
-      }
-      if (writeOptions.verbose) {
-        logOutcome(outcome, progress);
-      }
-    } catch (error) {
-      failed++;
-      const msg = error instanceof Error ? error.message : String(error);
-      const startedAtMs = Number(Date.parse(session.startedAt)) || Date.now();
-      const memoryId = deterministicUuidV7(
-        session.tool,
-        session.sessionId,
-        startedAtMs,
-      );
-      outcomes.push({
-        sessionId: session.sessionId,
-        memoryId,
-        tree: "",
-        action: "failed",
-        reason: msg,
-        title,
-        sourceFile: session.sourceFile,
+    sessionsProcessed++;
+
+    const { slug, gitRoot, gitRemote } = await slugs.resolve(session.cwd);
+    const tree = `${writeOptions.treeRoot}.${slug}.sessions`;
+
+    const outcome: SessionOutcome = {
+      sessionId: session.sessionId,
+      title,
+      tree,
+      sourceFile: session.sourceFile,
+      inserted: 0,
+      updated: 0,
+      skipped: 0,
+      failed: 0,
+      errors: [],
+    };
+
+    for (const message of session.messages) {
+      const content = renderMessageContent(message, {
+        fullTranscript: writeOptions.fullTranscript,
       });
-      if (writeOptions.verbose) {
-        const line = `  ✗ ${session.sessionId.slice(0, 8)} ${title} (${msg})`;
-        if (progress) progress.log(line);
-        else clack.log.error(line);
+      if (content === null) {
+        outcome.skipped++;
+        skipped++;
+        continue;
       }
+      try {
+        const action = await writeMessage(
+          engine,
+          session,
+          message,
+          content,
+          tree,
+          slug,
+          gitRoot,
+          gitRemote,
+          writeOptions,
+        );
+        switch (action) {
+          case "inserted":
+            outcome.inserted++;
+            inserted++;
+            break;
+          case "updated":
+            outcome.updated++;
+            updated++;
+            break;
+          case "skipped":
+            outcome.skipped++;
+            skipped++;
+            break;
+        }
+      } catch (error) {
+        const msg = error instanceof Error ? error.message : String(error);
+        outcome.failed++;
+        failed++;
+        outcome.errors.push({ messageId: message.messageId, error: msg });
+      }
+    }
+
+    outcomes.push(outcome);
+    if (writeOptions.verbose) {
+      logOutcome(outcome, progress);
     }
   }
 
   return {
+    sessionsProcessed,
     inserted,
     updated,
     skipped,
@@ -177,49 +199,48 @@ export async function runImport(
 }
 
 /**
- * Write a single session — insert, update, or skip based on current state.
+ * Write a single message — insert, update, or skip based on current state.
+ *
+ * Returns the action taken so the caller can bump its counters.
  */
-async function writeSession(
+async function writeMessage(
   engine: EngineClient,
   session: ImportedSession,
-  slugs: SlugRegistry,
+  message: ConversationMessage,
+  content: string,
+  tree: string,
+  projectSlug: string,
+  gitRoot: string | undefined,
+  gitRemote: string | undefined,
   options: WriteOptions,
-): Promise<SessionOutcome> {
-  const { slug, gitRoot, gitRemote } = await slugs.resolve(session.cwd);
-  const tree = options.flat ? options.treeRoot : `${options.treeRoot}.${slug}`;
-  const startMs = Number(Date.parse(session.startedAt));
-  const endMs = Number(Date.parse(session.endedAt));
-  if (Number.isNaN(startMs)) {
-    throw new Error(`invalid startedAt: ${session.startedAt}`);
+): Promise<"inserted" | "updated" | "skipped"> {
+  const timestampMs = Number(Date.parse(message.timestamp));
+  if (Number.isNaN(timestampMs)) {
+    throw new Error(
+      `invalid message timestamp: ${message.timestamp} (message ${message.messageId})`,
+    );
   }
 
-  const memoryId = deterministicUuidV7(
+  const memoryId = deterministicMessageUuidV7(
     session.tool,
     session.sessionId,
-    startMs,
+    message.messageId,
+    timestampMs,
   );
-  const title = synthesizeTitle(session);
-  const content = renderSessionContent(session, {
-    fullTranscript: options.fullTranscript,
-  });
-  const meta = buildMeta(session, slug, gitRoot, gitRemote, options);
-  const temporal = buildTemporal(startMs, endMs);
+  const meta = buildMeta(
+    session,
+    message,
+    projectSlug,
+    gitRoot,
+    gitRemote,
+    options,
+  );
+  const temporal = { start: new Date(timestampMs).toISOString() };
 
-  // Check for an existing memory with this deterministic id.
   const existing = await safeGetMemory(engine, memoryId);
 
   if (existing === null) {
-    if (options.dryRun) {
-      return {
-        sessionId: session.sessionId,
-        memoryId,
-        tree,
-        action: "inserted",
-        reason: "dry run",
-        title,
-        sourceFile: session.sourceFile,
-      };
-    }
+    if (options.dryRun) return "inserted";
     await engine.memory.create({
       id: memoryId,
       content,
@@ -227,49 +248,15 @@ async function writeSession(
       tree,
       temporal,
     });
-    return {
-      sessionId: session.sessionId,
-      memoryId,
-      tree,
-      action: "inserted",
-      title,
-      sourceFile: session.sourceFile,
-    };
+    return "inserted";
   }
 
-  // Change detection: last_message_id identifies session growth;
-  // importer_version identifies parser upgrades that re-render the same
-  // underlying session differently. Either triggers an update.
-  const existingLastMsgId = extractMetaString(existing.meta, "last_message_id");
+  // Existing memory found. Skip unless the importer version has changed.
   const existingVersion = extractMetaString(existing.meta, "importer_version");
-  const sessionGrew = existingLastMsgId !== session.lastMessageId;
-  const importerUpgraded = existingVersion !== IMPORTER_VERSION;
-  if (!sessionGrew && !importerUpgraded) {
-    return {
-      sessionId: session.sessionId,
-      memoryId,
-      tree: existing.tree || tree,
-      action: "skipped",
-      reason: "unchanged",
-      title,
-      sourceFile: session.sourceFile,
-    };
+  if (existingVersion === IMPORTER_VERSION) {
+    return "skipped";
   }
-
-  const updateReason = sessionGrew ? "new messages" : "importer upgraded";
-
-  if (options.dryRun) {
-    return {
-      sessionId: session.sessionId,
-      memoryId,
-      tree,
-      action: "updated",
-      reason: `dry run (${updateReason})`,
-      title,
-      sourceFile: session.sourceFile,
-    };
-  }
-
+  if (options.dryRun) return "updated";
   await engine.memory.update({
     id: memoryId,
     content,
@@ -277,20 +264,10 @@ async function writeSession(
     tree,
     temporal,
   });
-  return {
-    sessionId: session.sessionId,
-    memoryId,
-    tree,
-    action: "updated",
-    reason: updateReason,
-    title,
-    sourceFile: session.sourceFile,
-  };
+  return "updated";
 }
 
-/**
- * `memory.get` wrapper that returns null on NOT_FOUND instead of throwing.
- */
+/** `memory.get` wrapper that returns null on NOT_FOUND instead of throwing. */
 async function safeGetMemory(
   engine: EngineClient,
   id: string,
@@ -303,41 +280,24 @@ async function safeGetMemory(
   }
 }
 
-/**
- * Build the temporal range for a session.
- * - Point-in-time when start == end (or no end available).
- * - Range [start, end) otherwise.
- */
-function buildTemporal(
-  startMs: number,
-  endMs: number,
-): { start: string; end?: string } {
-  const start = new Date(startMs).toISOString();
-  if (!Number.isFinite(endMs) || endMs <= startMs) {
-    return { start };
-  }
-  return { start, end: new Date(endMs).toISOString() };
-}
-
-/**
- * Build the full meta object for a session memory.
- */
+/** Build the full meta object for one message memory. */
 function buildMeta(
   session: ImportedSession,
+  message: ConversationMessage,
   projectSlug: string,
   gitRoot: string | undefined,
   gitRemote: string | undefined,
   options: WriteOptions,
 ): Record<string, unknown> {
   const meta: Record<string, unknown> = {
-    type: "agent_conversation",
+    type: "agent_session",
     source_tool: session.tool,
     source_session_id: session.sessionId,
+    source_message_id: message.messageId,
+    source_message_role: message.role,
+    source_message_block_kinds: message.blocks.map((b) => b.kind),
     source_project_slug: projectSlug,
     source_file: session.sourceFile,
-    last_message_id: session.lastMessageId,
-    last_message_at: session.endedAt,
-    message_counts: session.messageCounts,
     content_mode: options.fullTranscript ? "full_transcript" : "default",
     imported_at: new Date().toISOString(),
     importer_version: IMPORTER_VERSION,
@@ -355,16 +315,13 @@ function buildMeta(
   if (session.model) meta.source_model = session.model;
   if (session.provider) meta.source_provider = session.provider;
   if (session.agentMode) meta.source_agent_mode = session.agentMode;
-  if (session.tokens) meta.tokens = session.tokens;
-  if (session.costUsd !== undefined) meta.cost_usd = session.costUsd;
   if (session.isSidechain) meta.source_is_sidechain = true;
+  if (message.toolName) meta.source_tool_name = message.toolName;
 
   return meta;
 }
 
-/**
- * Extract a string meta field if present.
- */
+/** Extract a string meta field if present. */
 function extractMetaString(
   meta: Record<string, unknown>,
   key: string,
@@ -374,28 +331,31 @@ function extractMetaString(
 }
 
 /**
- * Log a single outcome (verbose mode). Routed through `progress.log`
- * when a reporter is active so the live line isn't clobbered.
+ * Log a single session outcome (verbose mode). Routed through
+ * `progress.log` when a reporter is active so the live line isn't clobbered.
  */
 function logOutcome(
   outcome: SessionOutcome,
   progress?: ProgressReporter,
 ): void {
   const short = outcome.sessionId.slice(0, 8);
-  const reason = outcome.reason ? ` (${outcome.reason})` : "";
-  const marker = {
-    inserted: "+",
-    updated: "~",
-    skipped: "·",
-    failed: "✗",
-  }[outcome.action];
-  const line = `  ${marker} ${short} ${outcome.title}${reason}`;
+  const stats = `+${outcome.inserted} ~${outcome.updated} ·${outcome.skipped}${
+    outcome.failed > 0 ? ` ✗${outcome.failed}` : ""
+  }`;
+  const line = `  ${short} ${outcome.title}  ${stats}`;
   if (progress) progress.log(line);
   else console.log(line);
+  if (outcome.errors.length > 0) {
+    for (const err of outcome.errors) {
+      const errLine = `      ✗ ${err.messageId}: ${err.error}`;
+      if (progress) progress.log(errLine);
+      else console.log(errLine);
+    }
+  }
 }
 
 export type { ProgressReporter } from "./progress.ts";
 export { createProgressReporter } from "./progress.ts";
 export { SlugRegistry } from "./slug.ts";
 export { synthesizeTitle } from "./transcript.ts";
-export { deterministicUuidV7 } from "./uuid.ts";
+export { deterministicMessageUuidV7 } from "./uuid.ts";
