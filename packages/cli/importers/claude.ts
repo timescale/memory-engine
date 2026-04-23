@@ -229,6 +229,15 @@ async function parseSessionFile(file: string): Promise<ImportedSession | null> {
       continue;
     }
 
+    // Skip "No response requested." ack messages regardless of model.
+    // The SDK-TS entrypoint (`entrypoint: "sdk-ts"`) routinely elicits this
+    // literal one-line assistant turn with a real model (end_turn stop
+    // reason, genuine token usage) after hook-blocked tool cycles — not
+    // something the model would ever actually say as a reply.
+    if (type === "assistant" && isNoResponseRequestedAck(message.content)) {
+      continue;
+    }
+
     // Skip SDK wrapper replay messages: a user event that belongs to a
     // blocked-hook cycle (shares a promptId with an `isMeta` event) just
     // re-serializes prior context as plain text — noise, not a real turn.
@@ -370,6 +379,24 @@ function normalizeContent(content: unknown): MessageBlock[] {
     }
   }
   return out;
+}
+
+/**
+ * True if the assistant `message.content` is a single text block whose
+ * text is the literal "No response requested." ack. Emitted both by the
+ * `<synthetic>` model (already filtered upstream) and — crucially — by
+ * real models under the `sdk-ts` entrypoint after blocked-hook cycles.
+ */
+function isNoResponseRequestedAck(content: unknown): boolean {
+  if (!Array.isArray(content) || content.length !== 1) return false;
+  const block = content[0];
+  if (typeof block !== "object" || block === null) return false;
+  const entry = block as Record<string, unknown>;
+  return (
+    entry.type === "text" &&
+    typeof entry.text === "string" &&
+    entry.text.trim() === "No response requested."
+  );
 }
 
 /**

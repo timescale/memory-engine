@@ -204,12 +204,16 @@ describe("claude importer", () => {
     );
   });
 
-  test("drops SDK wrapper cycles (synthetic assistant + replay user)", async () => {
+  test("drops SDK wrapper cycles and No-response-requested acks", async () => {
     // When a hook blocks a tool call, the Claude SDK inserts an isMeta
     // "Continue..." user message, a <synthetic> assistant "No response
     // requested." message, and a replay user message that re-serializes
     // the prior assistant turn + tool use as plain text. All three share
     // a promptId with the meta event and must be filtered out.
+    //
+    // Separately, the sdk-ts entrypoint also emits real (non-synthetic)
+    // "No response requested." assistant turns that share the text but
+    // have a normal model + end_turn stop reason — also noise.
     const { sessions } = await collect(baseOptions());
     const s = sessions[0];
     expect(s).toBeDefined();
@@ -221,6 +225,9 @@ describe("claude importer", () => {
     expect(allText).not.toContain("Assistant: The worker polls");
     expect(allText).not.toContain("[Tool Use:");
     expect(allText).not.toContain("[Tool Result for");
+    const ids = s.messages.map((m) => m.messageId);
+    expect(ids).not.toContain("wrap-assist-1"); // <synthetic> ack
+    expect(ids).not.toContain("noresp-ack-1"); // real-model sdk-ts ack
     const userCount = s.messages.filter((m) => m.role === "user").length;
     const assistantCount = s.messages.filter(
       (m) => m.role === "assistant",
