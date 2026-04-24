@@ -18,7 +18,7 @@ import { DeleteMemoryDialog } from "./components/dialogs/DeleteMemoryDialog.tsx"
 import { DeleteTreeDialog } from "./components/dialogs/DeleteTreeDialog.tsx";
 import { EditorPane } from "./components/editor/EditorPane.tsx";
 import { SidebarResizer } from "./components/layout/SidebarResizer.tsx";
-import { AdvancedSearchPanel } from "./components/search/AdvancedSearchPanel.tsx";
+import { AdvancedSearchSection } from "./components/search/AdvancedSearchSection.tsx";
 import { SimpleSearchBar } from "./components/search/SimpleSearchBar.tsx";
 import { ToastStack } from "./components/toast/Toast.tsx";
 import { ContextMenu } from "./components/tree/ContextMenu.tsx";
@@ -58,11 +58,10 @@ export function App() {
             {tree.isFetching && totalMemories !== null ? " · refreshing…" : ""}
           </p>
         </div>
-        <SimpleSearchBar />
-        {filterMode === "advanced" && (
-          <div className="mt-3">
-            <AdvancedSearchPanel />
-          </div>
+        {filterMode === "simple" ? (
+          <SimpleSearchBar />
+        ) : (
+          <AdvancedSearchSection />
         )}
       </header>
 

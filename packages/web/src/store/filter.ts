@@ -177,3 +177,86 @@ function parseFloatOrUndef(s: string): number | undefined {
   const n = Number.parseFloat(s);
   return Number.isFinite(n) ? n : undefined;
 }
+
+/**
+ * Human-readable summary of the active filter, used by the collapsed
+ * search bar.
+ *
+ * Returns a list of short chip labels ("semantic: …", "tree: work.*", …)
+ * and a boolean indicating whether any filter is applied. An empty list +
+ * `hasFilter: false` means the user has nothing active and the RPC will
+ * fall back to list-all (via `normalizeSearchParams`).
+ */
+export function summarizeFilter(state: FilterState): {
+  chips: string[];
+  hasFilter: boolean;
+} {
+  if (state.mode === "simple") {
+    const q = state.simple.trim();
+    if (!q) return { chips: [], hasFilter: false };
+    return { chips: [`query: "${truncate(q, 60)}"`], hasFilter: true };
+  }
+
+  const a = state.advanced;
+  const chips: string[] = [];
+
+  if (a.semantic.trim()) {
+    chips.push(`semantic: "${truncate(a.semantic.trim(), 40)}"`);
+  }
+  if (a.fulltext.trim()) {
+    chips.push(`fulltext: "${truncate(a.fulltext.trim(), 40)}"`);
+  }
+  if (a.grep.trim()) chips.push(`grep: /${truncate(a.grep.trim(), 30)}/`);
+  if (a.tree.trim()) chips.push(`tree: ${truncate(a.tree.trim(), 40)}`);
+
+  const metaChip = summarizeMetaJson(a.metaJson);
+  if (metaChip) chips.push(metaChip);
+
+  const temporalChip = summarizeTemporal(a.temporal);
+  if (temporalChip) chips.push(temporalChip);
+
+  if (a.limit.trim()) chips.push(`limit: ${a.limit.trim()}`);
+  if (a.candidateLimit.trim()) {
+    chips.push(`candidateLimit: ${a.candidateLimit.trim()}`);
+  }
+
+  const ws = a.weightsSemantic.trim();
+  const wf = a.weightsFulltext.trim();
+  if (ws || wf) {
+    const parts: string[] = [];
+    if (ws) parts.push(`sem=${ws}`);
+    if (wf) parts.push(`full=${wf}`);
+    chips.push(`weights: ${parts.join(", ")}`);
+  }
+
+  if (a.orderBy) chips.push(`order: ${a.orderBy}`);
+
+  return { chips, hasFilter: chips.length > 0 };
+}
+
+function summarizeMetaJson(raw: string): string | null {
+  if (!raw.trim()) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return "meta: (not an object)";
+    }
+    const keys = Object.keys(parsed as Record<string, unknown>);
+    if (keys.length === 0) return "meta: {}";
+    return `meta: {${keys.slice(0, 3).join(", ")}${keys.length > 3 ? ", …" : ""}}`;
+  } catch {
+    return "meta: (invalid JSON)";
+  }
+}
+
+function summarizeTemporal(t: AdvancedFilter["temporal"]): string | null {
+  if (t.mode === "contains") {
+    return t.start ? `temporal contains ${t.start}` : null;
+  }
+  if (!t.start || !t.end) return null;
+  return `temporal ${t.mode} [${t.start} → ${t.end}]`;
+}
+
+function truncate(s: string, max: number): string {
+  return s.length <= max ? s : `${s.slice(0, max - 1)}…`;
+}

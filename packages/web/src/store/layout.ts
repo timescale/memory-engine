@@ -14,10 +14,14 @@ export const DEFAULT_SIDEBAR_WIDTH = 320;
 
 interface LayoutState {
   sidebarWidth: number;
+  /** When true, the header's search pane is hidden and only the summary is shown. */
+  searchCollapsed: boolean;
 }
 
 interface LayoutActions {
   setSidebarWidth(width: number): void;
+  setSearchCollapsed(collapsed: boolean): void;
+  toggleSearchCollapsed(): void;
 }
 
 export function clampSidebarWidth(width: number): number {
@@ -31,8 +35,15 @@ export const useLayout = create<LayoutState & LayoutActions>()(
   persist(
     (set) => ({
       sidebarWidth: DEFAULT_SIDEBAR_WIDTH,
+      searchCollapsed: false,
       setSidebarWidth(width) {
         set({ sidebarWidth: clampSidebarWidth(width) });
+      },
+      setSearchCollapsed(collapsed) {
+        set({ searchCollapsed: collapsed });
+      },
+      toggleSearchCollapsed() {
+        set((state) => ({ searchCollapsed: !state.searchCollapsed }));
       },
     }),
     {
