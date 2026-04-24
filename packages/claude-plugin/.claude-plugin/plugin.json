@@ -1,12 +1,35 @@
 {
   "name": "memory-engine",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "description": "Captures user prompts and agent responses to Memory Engine for persistent context across sessions",
   "author": {
     "name": "Timescale Memory Engine Team"
   },
   "homepage": "https://memory.build",
   "repository": "https://github.com/timescale/memory-engine",
-  "license": "MIT",
-  "keywords": ["memory", "context", "agents"]
+  "license": "Apache-2.0",
+  "keywords": ["memory", "context", "agents", "mcp"],
+  "userConfig": {
+    "api_key": {
+      "type": "string",
+      "title": "API key",
+      "description": "Memory Engine API key. Create one with `me apikey create` (or have an admin create one with restricted privileges for your agent).",
+      "sensitive": true,
+      "required": true
+    },
+    "server": {
+      "type": "string",
+      "title": "Server URL",
+      "description": "Memory Engine server URL",
+      "default": "https://api.memory.build",
+      "required": true
+    },
+    "tree_prefix": {
+      "type": "string",
+      "title": "Tree prefix",
+      "description": "Ltree path prefix where captured prompts/responses are stored (e.g. `claude_code.sessions`).",
+      "default": "claude_code.sessions",
+      "required": true
+    }
+  }
 }
