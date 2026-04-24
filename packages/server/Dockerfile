@@ -13,6 +13,7 @@ COPY packages/embedding/package.json packages/embedding/
 COPY packages/engine/package.json packages/engine/
 COPY packages/protocol/package.json packages/protocol/
 COPY packages/server/package.json packages/server/
+COPY packages/web/package.json packages/web/
 COPY packages/worker/package.json packages/worker/
 COPY scripts/package.json scripts/
 
