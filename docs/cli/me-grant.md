@@ -2,7 +2,7 @@
 
 Manage tree grants.
 
-Grants control access to memories by tree path. A grant gives a user specific actions (read, write, create, delete, admin) on a tree path and all its descendants.
+Grants control access to memories by tree path. A grant gives a user specific actions (read, create, update, delete) on a tree path and all its descendants.
 
 ## Commands
 
@@ -25,7 +25,7 @@ me grant create <user> <path> <actions...> [options]
 |----------|----------|-------------|
 | `user` | yes | User name or ID. |
 | `path` | yes | Tree path to grant access to. |
-| `actions...` | yes | One or more actions: `read`, `write`, `create`, `delete`, `admin`. |
+| `actions...` | yes | One or more actions: `read`, `create`, `update`, `delete`. |
 
 | Option | Description |
 |--------|-------------|
@@ -34,7 +34,7 @@ me grant create <user> <path> <actions...> [options]
 ### Example
 
 ```bash
-me grant create alice work.projects read write create
+me grant create alice work.projects read create update
 ```
 
 ---
@@ -82,6 +82,6 @@ me grant check <user> <path> <action>
 |----------|----------|-------------|
 | `user` | yes | User name or ID. |
 | `path` | yes | Tree path. |
-| `action` | yes | Action to check: `read`, `write`, `create`, `delete`, `admin`. |
+| `action` | yes | Action to check: `read`, `create`, `update`, `delete`. |
 
 Reports whether access is allowed or denied.

@@ -89,7 +89,7 @@ export const searchWeightsSchema = z.object({
 /**
  * Valid actions for tree grants.
  */
-export const grantActionSchema = z.enum(["read", "write", "delete", "admin"]);
+export const grantActionSchema = z.enum(["read", "create", "update", "delete"]);
 
 // =============================================================================
 // Accounts Fields — Org, Identity, Engine

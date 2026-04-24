@@ -13,7 +13,7 @@ describe("grantResponse", () => {
       userId: "019d694f-79f6-7595-8faf-b70b01c11f99",
       userName: "alice",
       treePath: "work.projects",
-      actions: ["read", "write"],
+      actions: ["read", "create"],
       grantedBy: null,
       withGrantOption: false,
       createdAt: "2026-01-15T00:00:00.000Z",

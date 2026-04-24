@@ -34,7 +34,7 @@ me role add-member engineering alice
 me role add-member engineering bob
 
 # Grant access to the role (all members inherit it)
-me grant create engineering work.projects read write create
+me grant create engineering work.projects read create update
 ```
 
 Roles are implemented as users with `canLogin: false`. This means grants work the same way for users and roles.
@@ -45,14 +45,14 @@ Grants control what actions a user (or role) can perform on a tree path. A grant
 
 - **user** -- who receives the access
 - **path** -- which tree path (and all descendants)
-- **actions** -- what they can do: `read`, `write`, `create`, `delete`, `admin`
+- **actions** -- what they can do: `read`, `create`, `update`, `delete`
 
 ```bash
-# Grant read/write access to a tree branch
-me grant create alice work.projects read write
+# Grant read and create access to a tree branch
+me grant create alice work.projects read create
 
 # Grant full access
-me grant create bob work read write create delete admin
+me grant create bob work read create update delete
 
 # Check access
 me grant check alice work.projects.api read
@@ -65,20 +65,21 @@ Grants are hierarchical -- a grant on `work` covers `work.projects`, `work.proje
 | Action | Description |
 |--------|-------------|
 | `read` | Search and retrieve memories |
-| `write` | Update existing memories |
 | `create` | Create new memories |
+| `update` | Update existing memories |
 | `delete` | Delete memories |
-| `admin` | Manage grants and ownership |
+
+Grant management and ownership are controlled separately: grants with `--with-grant-option` let a grantee re-grant their access, and ownership (`me owner set`) gives a user full admin access to a tree path. Superuser bootstrap is handled via the `superuser` flag on the user row, not via a grant action.
 
 ### Grant option
 
 When creating a grant with `--with-grant-option`, the grantee can re-grant that same access to others:
 
 ```bash
-me grant create alice work.projects read write --with-grant-option
+me grant create alice work.projects read create --with-grant-option
 ```
 
-Alice can now grant `read` and `write` on `work.projects` to other users.
+Alice can now grant `read` and `create` on `work.projects` to other users.
 
 ## Ownership
 
@@ -134,7 +135,7 @@ me role add-member team carol
 me grant create team "" read
 
 # Grant write access to specific branches
-me grant create alice work.frontend read write create
-me grant create bob work.backend read write create
-me grant create carol work.infra read write create delete admin
+me grant create alice work.frontend read create update
+me grant create bob work.backend read create update
+me grant create carol work.infra read create update delete
 ```
