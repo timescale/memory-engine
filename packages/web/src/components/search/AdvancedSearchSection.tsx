@@ -9,6 +9,7 @@
  */
 import { summarizeFilter, useFilter } from "../../store/filter.ts";
 import { useLayout } from "../../store/layout.ts";
+import { DisclosureCaret } from "../DisclosureCaret.tsx";
 import { AdvancedSearchPanel } from "./AdvancedSearchPanel.tsx";
 import { ModeToggle } from "./ModeToggle.tsx";
 
@@ -31,12 +32,7 @@ export function AdvancedSearchSection() {
           className="-ml-1 inline-flex shrink-0 items-center gap-1 rounded px-1 py-1 text-sm font-medium text-slate-700 hover:bg-slate-100 hover:text-slate-900"
           title={searchCollapsed ? "Show filter fields" : "Hide filter fields"}
         >
-          <span
-            aria-hidden="true"
-            className="inline-block w-3 text-xs text-slate-500"
-          >
-            {searchCollapsed ? "▸" : "▾"}
-          </span>
+          <DisclosureCaret expanded={!searchCollapsed} />
           Advanced filter
         </button>
 

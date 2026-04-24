@@ -27,29 +27,9 @@ import {
   useSelection,
 } from "../../store/selection.ts";
 import { useUi } from "../../store/ui.ts";
+import { DisclosureCaret } from "../DisclosureCaret.tsx";
 
 const INDENT_PX = 16;
-
-/**
- * Disclosure chevron. Rendered as an inline SVG so its geometry is
- * pixel-consistent across platforms (unicode triangles ▸/▾ render at
- * wildly different sizes and baselines depending on the system font).
- * The parent button uses `items-center`; the fixed 16×16 viewBox gives
- * us a predictable bounding box that centers cleanly with the label.
- */
-function Caret({ expanded }: { expanded: boolean }) {
-  return (
-    <svg
-      aria-hidden="true"
-      viewBox="0 0 16 16"
-      className="size-4 shrink-0 text-slate-400 transition-transform"
-      style={{ transform: expanded ? "rotate(90deg)" : "rotate(0deg)" }}
-      fill="currentColor"
-    >
-      <path d="M6 4l5 4-5 4V4z" />
-    </svg>
-  );
-}
 
 /**
  * Leaf marker. Fixed 16×16 inline-flex box so the dot lands in the same
@@ -124,7 +104,7 @@ export function PathRow({
         className="flex w-full cursor-pointer items-center gap-1 px-2 py-1 text-left text-sm text-slate-700 hover:bg-slate-100"
         style={{ paddingLeft: `${8 + node.depth * INDENT_PX}px` }}
       >
-        <Caret expanded={expanded} />
+        <DisclosureCaret expanded={expanded} />
         <span className="min-w-0 flex-1 truncate font-medium">
           {node.label}
         </span>
