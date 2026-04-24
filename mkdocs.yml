@@ -45,6 +45,7 @@ nav:
   - Home: index.md
   - Getting Started: getting-started.md
   - Core Concepts: concepts.md
+  - File Formats: formats.md
   - Access Control: access-control.md
   - Memory Packs: memory-packs.md
   - MCP Integration: mcp-integration.md
@@ -56,8 +57,12 @@ nav:
       - me whoami: cli/me-whoami.md
       - me engine: cli/me-engine.md
       - me memory: cli/me-memory.md
-      - me import: cli/me-import.md
       - me mcp: cli/me-mcp.md
+      - me claude: cli/me-claude.md
+      - me codex: cli/me-codex.md
+      - me gemini: cli/me-gemini.md
+      - me opencode: cli/me-opencode.md
+      - Agent session imports: cli/agent-session-imports.md
       - me user: cli/me-user.md
       - me role: cli/me-role.md
       - me grant: cli/me-grant.md
