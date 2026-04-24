@@ -39,6 +39,9 @@ import type {
 
 const DEFAULT_SOURCE = join(homedir(), ".codex", "sessions");
 const ARCHIVED_SOURCE = join(homedir(), ".codex", "archived_sessions");
+const ENVIRONMENT_CONTEXT_RE =
+  /^<environment_context>\s*[\s\S]*<\/environment_context>$/;
+const TURN_ABORTED_RE = /^<turn_aborted>\s*[\s\S]*<\/turn_aborted>$/;
 
 /** Parse session id + started timestamp out of a rollout filename. */
 const FILENAME_RE =
@@ -292,6 +295,9 @@ function buildMessageFromInner(
       return { model: modelHint };
     }
     const messageId = nativeId ?? synth(`message:${role}`);
+    if (role === "user" && isCodexMetaMessage(text)) {
+      return { model: modelHint };
+    }
     return {
       message: {
         messageId,
@@ -368,4 +374,9 @@ function extractMessageText(value: unknown): string {
     if (typeof b.text === "string") parts.push(b.text);
   }
   return parts.join("\n");
+}
+
+function isCodexMetaMessage(text: string): boolean {
+  const trimmed = text.trim();
+  return ENVIRONMENT_CONTEXT_RE.test(trimmed) || TURN_ABORTED_RE.test(trimmed);
 }

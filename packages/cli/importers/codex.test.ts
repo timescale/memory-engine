@@ -12,6 +12,7 @@ import type {
 } from "./types.ts";
 
 const FIXTURE_DIR = join(import.meta.dir, "__fixtures__", "codex");
+const NOISE_FIXTURE_DIR = join(import.meta.dir, "__fixtures__", "codex-noise");
 
 function baseOptions(
   overrides: Partial<ImporterOptions> = {},
@@ -100,5 +101,24 @@ describe("codex importer", () => {
     // Reasoning has no native id; we synthesize a stable fallback.
     const reasoning = s.messages.find((m) => m.role === "reasoning");
     expect(reasoning?.messageId).toMatch(/^syn:reasoning:/);
+  });
+
+  test("drops Codex environment and turn-aborted wrapper messages", async () => {
+    const { sessions } = await collect(
+      baseOptions({ source: NOISE_FIXTURE_DIR }),
+    );
+    expect(sessions).toHaveLength(1);
+    const s = sessions[0];
+    if (!s) return;
+
+    const userTexts = userTextsOf(s.messages);
+    expect(userTexts).toEqual(["Review the sandbox abstraction diff."]);
+
+    const keptUser = s.messages.find(
+      (m) => m.role === "user" && m.blocks.some((b) => b.kind === "text"),
+    );
+    expect(keptUser?.messageId).toBe(
+      "syn:message:user:11111111-2222-7333-8444-555555555555:2",
+    );
   });
 });
