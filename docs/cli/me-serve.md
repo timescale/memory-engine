@@ -43,11 +43,11 @@ The UI talks to whichever engine is active for the current server — same resol
 ┌───────────────────────────────────────────────────────────────┐
 │  Search  [Simple | Advanced]  [Clear]                         │
 ├────────────────────┬──────────────────────────────────────────┤
-│                    │  tree breadcrumb   [Edit] [Save] [Delete]│
+│                    │  tree breadcrumb [Copy] [Edit] …         │
 │   TreeView         │                                          │
 │    . (root)        │   rendered markdown / Monaco editor      │
 │      ├── work      │                                          │
-│      │    └── 📄 …│                                          │
+│      │    └── 📄 … │                                          │
 │      └── personal  ├──────────────────────────────────────────┤
 │                    │  id, embedding, timestamps (read-only)   │
 └────────────────────┴──────────────────────────────────────────┘
@@ -55,7 +55,7 @@ The UI talks to whichever engine is active for the current server — same resol
 
 - **Tree** (left): ltree paths as collapsible nodes, memories as leaves. Right-click a node for a context menu (delete memory / delete subtree).
 - **Search** (top): simple hybrid search by default; flip to Advanced for every field accepted by `memory.search` (semantic, fulltext, grep, tree, meta, temporal, limit, candidateLimit, weights, orderBy).
-- **Viewer / Editor** (right): rendered Markdown with syntax highlighting, or the Monaco editor with YAML frontmatter + body. Save is disabled until you make a valid change. The read-only metadata panel sits below.
+- **Viewer / Editor** (right): rendered Markdown with syntax highlighting, or the Monaco editor with YAML frontmatter + body. The copy button copies the Markdown source with frontmatter. Save is disabled until you make a valid change. The read-only metadata panel sits below.
 - **URL state**: filter fields and the selected memory id are reflected in the URL, so any view can be shared or bookmarked.
 
 ## Security notes

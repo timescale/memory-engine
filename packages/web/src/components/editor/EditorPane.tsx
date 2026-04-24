@@ -109,6 +109,19 @@ export function EditorPane({ memory, onRequestDelete }: Props) {
     }
   }
 
+  async function handleCopy() {
+    try {
+      await navigator.clipboard.writeText(text);
+      pushToast("Copied markdown to clipboard", "success");
+    } catch (err) {
+      pushToast(
+        `Copy failed: ${err instanceof Error ? err.message : String(err)}`,
+        "error",
+        5000,
+      );
+    }
+  }
+
   return (
     <div className="flex h-full flex-col">
       <Toolbar
@@ -119,6 +132,7 @@ export function EditorPane({ memory, onRequestDelete }: Props) {
         canSave={canSave}
         saving={update.isPending}
         saveError={update.error}
+        onCopy={handleCopy}
         onSave={handleSave}
         onDelete={onRequestDelete}
       />
@@ -145,6 +159,24 @@ export function EditorPane({ memory, onRequestDelete }: Props) {
   );
 }
 
+function CopyIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      className="h-4 w-4"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+      <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+    </svg>
+  );
+}
+
 interface ToolbarProps {
   memory: MemoryResponse;
   mode: Mode;
@@ -153,6 +185,7 @@ interface ToolbarProps {
   saving: boolean;
   saveError: Error | null;
   onToggleMode: () => void;
+  onCopy: () => void;
   onSave: () => void;
   onDelete?: () => void;
 }
@@ -165,6 +198,7 @@ function Toolbar({
   saving,
   saveError,
   onToggleMode,
+  onCopy,
   onSave,
   onDelete,
 }: ToolbarProps) {
@@ -187,6 +221,15 @@ function Toolbar({
             unsaved
           </span>
         )}
+        <button
+          type="button"
+          onClick={onCopy}
+          title="Copy Markdown"
+          aria-label="Copy Markdown"
+          className="rounded-md border border-slate-300 bg-white p-1.5 text-slate-700 hover:bg-slate-100"
+        >
+          <CopyIcon />
+        </button>
         <button
           type="button"
           onClick={onToggleMode}
