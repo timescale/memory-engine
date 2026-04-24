@@ -7,7 +7,11 @@
  */
 import { describe, expect, test } from "bun:test";
 import { join } from "node:path";
-import { claudeImporter, unwrapSdkReplayBundle } from "./claude.ts";
+import {
+  claudeImporter,
+  sanitizeUserText,
+  unwrapSdkReplayBundle,
+} from "./claude.ts";
 import type {
   ConversationMessage,
   ImportedSession,
@@ -202,6 +206,75 @@ describe("claude importer", () => {
     expect(unwrapSdkReplayBundle(bundle)).toBe(
       "How can I test a non-interactive terminal?",
     );
+  });
+
+  test("sanitizeUserText drops replay bundles whose extracted Human payload is just a tool result", () => {
+    const bundle =
+      "Assistant: Previous answer\n" +
+      '[Tool Use: bash({"command":"git status"})]\n\n' +
+      "Human: [Tool Result for toolu_abc: clean working tree]";
+    expect(sanitizeUserText(bundle)).toBeNull();
+  });
+
+  test("sanitizeUserText drops request interrupted notifications", () => {
+    expect(sanitizeUserText("[Request interrupted by user]")).toBeNull();
+    expect(
+      sanitizeUserText("[Request interrupted by user for tool use]"),
+    ).toBeNull();
+  });
+
+  test("sanitizeUserText drops task notifications", () => {
+    const notification =
+      "<task-notification>\n" +
+      "<task-id>abc</task-id>\n" +
+      "<status>completed</status>\n" +
+      "</task-notification>\n" +
+      "Read the output file to retrieve the result: /tmp/abc.output";
+    expect(sanitizeUserText(notification)).toBeNull();
+  });
+
+  test("sanitizeUserText strips generated reminder suffixes from real prompts", () => {
+    const prompt =
+      "Please rebase the PR again.\n" +
+      "<system-reminder>\n" +
+      "Your operational mode has changed from plan to build.\n" +
+      "</system-reminder>";
+    expect(sanitizeUserText(prompt)).toBe("Please rebase the PR again.");
+  });
+
+  test("sanitizeUserText strips leading ultrawork wrapper and keeps trailing prompt", () => {
+    const prompt =
+      "Human: <ultrawork-mode>\n" +
+      "be extremely careful\n" +
+      "</ultrawork-mode>\n\n---\n\nlooks good! ulw";
+    expect(sanitizeUserText(prompt)).toBe("looks good! ulw");
+  });
+
+  test("sanitizeUserText drops sdk-ts wrapped command output", () => {
+    const output =
+      'Human: Error: unknown command "ghost" for "ghost"\n' +
+      "Run 'ghost --help' for usage.\n---\n" +
+      'Error: unknown command "upgrade" for "ghost"\n' +
+      "Run 'ghost --help' for usage.\n";
+    expect(sanitizeUserText(output)).toBeNull();
+  });
+
+  test("sanitizeUserText drops sdk-ts wrapped progress output", () => {
+    const output =
+      "Human: │\n" +
+      "●  Importing codex sessions from /tmp (dry run)\n" +
+      "│\n" +
+      "◆  Would import 0 new, 0 updated\n";
+    expect(sanitizeUserText(output)).toBeNull();
+  });
+
+  test("sanitizeUserText drops sdk-ts wrapped linter output", () => {
+    const output =
+      "Human:        │                          ------------                      \n\n" +
+      "Skipped 1 suggested fixes.\n" +
+      "Checked 236 files in 73ms. Fixed 5 files.\n" +
+      'error: script "check" exited with code 1\n';
+    expect(sanitizeUserText(output)).toBeNull();
   });
 
   test("drops SDK wrapper cycles and No-response-requested acks", async () => {
