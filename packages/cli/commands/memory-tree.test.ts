@@ -6,9 +6,9 @@ describe("renderTree", () => {
     const rendered = renderTree(
       [
         { path: "projects.alpha", count: 2 },
-        { path: "projects.alpha.sessions", count: 2 },
+        { path: "projects.alpha.agent_sessions", count: 2 },
         { path: "projects.beta", count: 3 },
-        { path: "projects.beta.sessions", count: 3 },
+        { path: "projects.beta.agent_sessions", count: 3 },
       ],
       "projects",
     );

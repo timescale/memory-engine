@@ -90,6 +90,8 @@ export interface SessionOutcome {
 export interface WriteOptions {
   /** Tree root (ltree-safe, no trailing dot). Default: projects. */
   treeRoot: string;
+  /** Per-project node name for imported agent sessions. */
+  sessionsNodeName: string;
   /** Include full transcript (reasoning/tool calls) in message memories. */
   fullTranscript: boolean;
   /** Don't write anything — just report what would happen. */
@@ -130,7 +132,7 @@ export async function runImport(
     sessionsProcessed++;
 
     const { slug, gitRoot, gitRemote } = await slugs.resolve(session.cwd);
-    const tree = `${writeOptions.treeRoot}.${slug}.sessions`;
+    const tree = `${writeOptions.treeRoot}.${slug}.${writeOptions.sessionsNodeName}`;
 
     const outcome = await writeSession(
       engine,

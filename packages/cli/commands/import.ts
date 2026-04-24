@@ -7,15 +7,17 @@
  *   me import opencode  — from ~/.local/share/opencode/storage
  *
  * Each source-native message becomes one memory, stored under
- * `<tree-root>.<project_slug>.sessions`.
+ * `<tree-root>.<project_slug>.<sessions-node-name>`.
  *
  * Shared flags across all three subcommands:
  *   --source <dir>           override default source directory
  *   --project <cwd>          only import sessions with this cwd (or a child)
  *   --since <iso>            only sessions started at/after this timestamp
  *   --until <iso>            only sessions started at/before this timestamp
- *   --tree-root <path>       tree root under which `<slug>.sessions` nodes
- *                            are placed (default: projects)
+ *   --tree-root <path>       tree root under which `<slug>.<sessions-node-name>`
+ *                            nodes are placed (default: projects)
+ *   --sessions-node-name     per-project node name for imported agent
+ *                            sessions (default: agent_sessions)
  *   --full-transcript        include reasoning, tool calls, tool results
  *   --include-sidechains     (claude only) include subagent sessions
  *   --include-temp-cwd       include sessions whose cwd is /tmp, /private/var/...
@@ -42,7 +44,9 @@ import { getOutputFormat, output } from "../output.ts";
 import { handleError, requireEngine, requireSession } from "../util.ts";
 
 const DEFAULT_TREE_ROOT = "projects";
+const DEFAULT_SESSIONS_NODE_NAME = "agent_sessions";
 const VALID_TREE_ROOT_RE = /^[a-z0-9_]+(\.[a-z0-9_]+)*$/;
+const VALID_TREE_LABEL_RE = /^[a-z0-9_]+$/;
 
 /** Build a Commander option set shared by every subcommand. */
 function addCommonOptions(
@@ -65,7 +69,11 @@ function addCommonOptions(
     )
     .option(
       "--tree-root <path>",
-      `tree root under which '<slug>.sessions' nodes are placed (default: ${DEFAULT_TREE_ROOT})`,
+      `tree root under which '<slug>.<sessions-node-name>' nodes are placed (default: ${DEFAULT_TREE_ROOT})`,
+    )
+    .option(
+      "--sessions-node-name <name>",
+      `per-project node name for imported agent sessions (default: ${DEFAULT_SESSIONS_NODE_NAME})`,
     )
     .option(
       "--full-transcript",
@@ -97,15 +105,24 @@ function addCommonOptions(
  * Assemble importer + write options from Commander parsed opts.
  * Validates --tree-root syntax and the ISO filter bounds.
  */
-function buildOptions(opts: Record<string, unknown>): {
+export function buildOptions(opts: Record<string, unknown>): {
   importer: ImporterOptions;
   write: WriteOptions;
 } {
   const treeRoot =
     typeof opts.treeRoot === "string" ? opts.treeRoot : DEFAULT_TREE_ROOT;
+  const sessionsNodeName =
+    typeof opts.sessionsNodeName === "string"
+      ? opts.sessionsNodeName
+      : DEFAULT_SESSIONS_NODE_NAME;
   if (!VALID_TREE_ROOT_RE.test(treeRoot)) {
     throw new Error(
       `Invalid --tree-root: '${treeRoot}'. Must match [a-z0-9_]+(\\.[a-z0-9_]+)*`,
+    );
+  }
+  if (!VALID_TREE_LABEL_RE.test(sessionsNodeName)) {
+    throw new Error(
+      `Invalid --sessions-node-name: '${sessionsNodeName}'. Must match [a-z0-9_]+`,
     );
   }
   for (const field of ["since", "until"] as const) {
@@ -129,6 +146,7 @@ function buildOptions(opts: Record<string, unknown>): {
   };
   const write: WriteOptions = {
     treeRoot,
+    sessionsNodeName,
     fullTranscript: opts.fullTranscript === true,
     dryRun: opts.dryRun === true,
     verbose: opts.verbose === true,
@@ -222,6 +240,7 @@ function renderResult(
     tool,
     dryRun: write.dryRun,
     treeRoot: write.treeRoot,
+    sessionsNodeName: write.sessionsNodeName,
     fullTranscript: write.fullTranscript,
     totalFiles: result.discovery.totalFiles,
     sessionsProcessed: result.sessionsProcessed,

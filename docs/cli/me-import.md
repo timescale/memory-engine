@@ -22,7 +22,8 @@ All three subcommands accept the same flags (with one extra flag on `claude`).
 | `--project <cwd>` | Only import sessions whose cwd equals or is below this path. |
 | `--since <iso>` | Only import sessions started at or after this ISO 8601 timestamp. |
 | `--until <iso>` | Only import sessions started at or before this ISO 8601 timestamp. |
-| `--tree-root <path>` | Tree root under which `<slug>.sessions` nodes are placed. Default: `projects`. Must match `[a-z0-9_]+(\.[a-z0-9_]+)*`. |
+| `--tree-root <path>` | Tree root under which `<slug>.<sessions-node-name>` nodes are placed. Default: `projects`. Must match `[a-z0-9_]+(\.[a-z0-9_]+)*`. |
+| `--sessions-node-name <name>` | Per-project node name for imported agent sessions. Default: `agent_sessions`. Must match `[a-z0-9_]+`. |
 | `--full-transcript` | Also store reasoning, tool calls, and tool results as their own message memories (default: user + assistant text only). |
 | `--include-temp-cwd` | Include sessions whose cwd is a system temp directory (`/tmp`, `/private/var/folders/...`). Off by default. |
 | `--include-trivial` | Include sessions with fewer than 2 user messages (one-shot queries, warm-up pings, aborted sessions). Off by default. |
@@ -40,10 +41,10 @@ All three subcommands accept the same flags (with one extra flag on `claude`).
 Each imported message is stored under:
 
 ```
-<tree-root>.<project_slug>.sessions
+<tree-root>.<project_slug>.<sessions-node-name>
 ```
 
-For example, a Claude message from a session run in `/Users/me/dev/memory-engine` ends up under `projects.memory_engine.sessions`. Every message from every session in a project shares that same tree node; individual sessions are distinguished by `meta.source_session_id`.
+For example, a Claude message from a session run in `/Users/me/dev/memory-engine` ends up under `projects.memory_engine.agent_sessions` by default. Every message from every session in a project shares that same tree node; individual sessions are distinguished by `meta.source_session_id`.
 
 Project slugs come from the git repo root directory name when the cwd is inside a repo, or from `basename(cwd)` otherwise. Slug collisions (two different cwds that normalize to the same label) are resolved automatically by appending a 4-char hash suffix -- the first cwd seen gets the plain slug, subsequent ones get `slug_<hash>`. The full cwd is always preserved in `meta.source_cwd`.
 
