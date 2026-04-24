@@ -67,10 +67,11 @@ export function TreeView() {
 
   const roots = searchActive ? searchRoots : browseRoots;
 
+  const context = searchActive ? "search" : "browse";
   const pruneExpanded = useSelection((s) => s.pruneExpanded);
   useEffect(() => {
-    pruneExpanded(collectPaths(roots));
-  }, [roots, pruneExpanded]);
+    pruneExpanded(context, collectPaths(roots));
+  }, [context, roots, pruneExpanded]);
 
   // One-time seeding: when the tree first loads, auto-expand every
   // top-level path so the user sees the hierarchy's shape without having
@@ -84,7 +85,7 @@ export function TreeView() {
     browseSeededRef.current = true;
     for (const node of tree.data.nodes) {
       if (!node.path.includes(".")) {
-        setExpanded(node.path, true);
+        setExpanded("browse", node.path, true);
       }
     }
   }, [tree.data, setExpanded]);
@@ -128,7 +129,12 @@ export function TreeView() {
   return (
     <div className="py-1" role="tree" aria-label="Memories">
       {roots.map((node) => (
-        <PathRow key={node.path} node={node} forceOpen={searchActive} />
+        <PathRow
+          key={node.path}
+          node={node}
+          context={context}
+          forceOpen={searchActive}
+        />
       ))}
     </div>
   );

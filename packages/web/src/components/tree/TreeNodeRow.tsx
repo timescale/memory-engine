@@ -21,20 +21,29 @@ import {
   sortLeaves,
 } from "../../lib/tree-build.ts";
 import { confirmDiscardChangesIfDirty } from "../../store/editor.ts";
-import { useSelection } from "../../store/selection.ts";
+import {
+  selectIsExpanded,
+  type TreeContext,
+  useSelection,
+} from "../../store/selection.ts";
 import { useUi } from "../../store/ui.ts";
 
 const INDENT_PX = 16;
 
 export function PathRow({
   node,
+  context,
   forceOpen = false,
 }: {
   node: PathNode;
+  /** Which expansion-state bucket this row reads/writes. */
+  context: TreeContext;
   /** When true, ignore the expanded-paths store and keep this row open. */
   forceOpen?: boolean;
 }) {
-  const storedExpanded = useSelection((s) => s.expandedPaths.has(node.path));
+  const storedExpanded = useSelection((s) =>
+    selectIsExpanded(s, context, node.path),
+  );
   const toggle = useSelection((s) => s.toggleExpanded);
   const openContextMenu = useUi((s) => s.openContextMenu);
   const expanded = forceOpen || storedExpanded;
@@ -78,7 +87,7 @@ export function PathRow({
     >
       <button
         type="button"
-        onClick={() => toggle(node.path)}
+        onClick={() => toggle(context, node.path)}
         className="flex w-full cursor-pointer items-center gap-1 px-2 py-1 text-left text-sm text-slate-700 hover:bg-slate-100"
         style={{ paddingLeft: `${8 + node.depth * INDENT_PX}px` }}
       >
@@ -98,7 +107,12 @@ export function PathRow({
       {expanded && (
         <>
           {node.children.map((child) => (
-            <PathRow key={child.path} node={child} forceOpen={forceOpen} />
+            <PathRow
+              key={child.path}
+              node={child}
+              context={context}
+              forceOpen={forceOpen}
+            />
           ))}
 
           {!hasInline && node.directCount > 0 && leavesQuery.isLoading && (
