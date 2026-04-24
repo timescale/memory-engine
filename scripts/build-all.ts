@@ -13,7 +13,14 @@ const targets = [
 await $`rm -rf ${distDir}`;
 await $`mkdir -p ${distDir}`;
 
-console.log("Building for all platforms...\n");
+// Build and embed the web UI first. The compile step below imports
+// `packages/cli/serve/web-assets.generated.ts`, which is produced by
+// `build:web` (Vite build + bundle-web-assets). Without this step a
+// fresh checkout fails with "Could not resolve ./web-assets.generated.ts".
+console.log("Building embedded web UI...\n");
+await $`./bun --cwd=packages/cli run build:web`;
+
+console.log("\nBuilding for all platforms...\n");
 
 await Promise.all(
   targets.map(async ({ target, suffix, ext }) => {
