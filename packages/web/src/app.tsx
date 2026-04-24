@@ -17,6 +17,7 @@ import type { Memory } from "./api/types.ts";
 import { DeleteMemoryDialog } from "./components/dialogs/DeleteMemoryDialog.tsx";
 import { DeleteTreeDialog } from "./components/dialogs/DeleteTreeDialog.tsx";
 import { EditorPane } from "./components/editor/EditorPane.tsx";
+import { SidebarResizer } from "./components/layout/SidebarResizer.tsx";
 import { AdvancedSearchPanel } from "./components/search/AdvancedSearchPanel.tsx";
 import { SimpleSearchBar } from "./components/search/SimpleSearchBar.tsx";
 import { ToastStack } from "./components/toast/Toast.tsx";
@@ -25,6 +26,7 @@ import { TreeView } from "./components/tree/TreeView.tsx";
 import { MetadataPanel } from "./components/viewer/MetadataPanel.tsx";
 import { useUrlSync } from "./lib/useUrlSync.ts";
 import { useFilter } from "./store/filter.ts";
+import { useLayout } from "./store/layout.ts";
 import { useSelection } from "./store/selection.ts";
 import { useUi } from "./store/ui.ts";
 
@@ -36,6 +38,7 @@ export function App() {
   const tree = useTree();
   const selectedId = useSelection((s) => s.selectedId);
   const { data: selectedMemory } = useMemory(selectedId);
+  const sidebarWidth = useLayout((s) => s.sidebarWidth);
 
   const totalMemories = tree.data
     ? sumTopLevelAggregate(tree.data.nodes)
@@ -64,9 +67,13 @@ export function App() {
       </header>
 
       <div className="flex min-h-0 flex-1">
-        <aside className="w-80 shrink-0 overflow-auto border-r border-slate-200 bg-white">
+        <aside
+          className="shrink-0 overflow-auto border-r border-slate-200 bg-white"
+          style={{ width: sidebarWidth }}
+        >
           <TreeView />
         </aside>
+        <SidebarResizer />
 
         <main className="min-w-0 flex-1 overflow-auto bg-slate-50">
           {selectedMemory ? (
