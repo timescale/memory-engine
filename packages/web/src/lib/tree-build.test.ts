@@ -1,8 +1,12 @@
 /**
  * Tests for the pure tree-building logic.
  */
+
 import { describe, expect, test } from "bun:test";
-import type { MemoryWithScore, TreePathCountNode } from "../api/types.ts";
+import type {
+  MemoryWithScoreResponse,
+  TreeNodeResponse,
+} from "@memory.build/client";
 import {
   buildPathTree,
   buildSearchTree,
@@ -13,11 +17,13 @@ import {
   titleForMemory,
 } from "./tree-build.ts";
 
-function mkTreeNode(path: string, count: number): TreePathCountNode {
+function mkTreeNode(path: string, count: number): TreeNodeResponse {
   return { path, count };
 }
 
-function mkMemory(partial: Partial<MemoryWithScore>): MemoryWithScore {
+function mkMemory(
+  partial: Partial<MemoryWithScoreResponse>,
+): MemoryWithScoreResponse {
   return {
     id: partial.id ?? crypto.randomUUID(),
     content: partial.content ?? "placeholder content",

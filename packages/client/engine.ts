@@ -96,6 +96,8 @@ import { rpcCall, type TransportConfig } from "./transport.ts";
 export interface ClientOptions {
   /** Base URL of the Memory Engine server (default: "https://api.memory.build") */
   url?: string;
+  /** Engine JSON-RPC endpoint path (default: "/api/v1/engine/rpc") */
+  rpcPath?: string;
   /** API key for authentication (format: "me.lookupId.secret") */
   apiKey?: string;
   /** Request timeout in milliseconds (default: 30000) */
@@ -232,7 +234,7 @@ const DEFAULT_RETRIES = 3;
 export function createClient(options: ClientOptions = {}): EngineClient {
   const config: TransportConfig = {
     url: (options.url ?? DEFAULT_URL).replace(/\/+$/, ""),
-    path: ENGINE_RPC_PATH,
+    path: options.rpcPath ?? ENGINE_RPC_PATH,
     token: options.apiKey,
     timeout: options.timeout ?? DEFAULT_TIMEOUT,
     retries: options.retries ?? DEFAULT_RETRIES,

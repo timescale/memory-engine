@@ -118,13 +118,18 @@ export async function rpcCall<TResult>(
         continue;
       }
 
-      // Non-retryable HTTP error
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status} ${response.statusText}`);
+      // Parse JSON-RPC response. Some proxies preserve non-2xx upstream
+      // statuses while still returning a JSON-RPC error envelope, so parse
+      // before throwing generic HTTP errors.
+      let rpcResponse: JsonRpcResponse;
+      try {
+        rpcResponse = (await response.json()) as JsonRpcResponse;
+      } catch (error) {
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status} ${response.statusText}`);
+        }
+        throw error instanceof Error ? error : new Error(String(error));
       }
-
-      // Parse JSON-RPC response
-      const rpcResponse = (await response.json()) as JsonRpcResponse;
 
       // JSON-RPC error
       if ("error" in rpcResponse) {
@@ -134,6 +139,11 @@ export async function rpcCall<TResult>(
           error.message,
           error.data as { code: string; [key: string]: unknown } | undefined,
         );
+      }
+
+      // Non-retryable HTTP error without a JSON-RPC error envelope.
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status} ${response.statusText}`);
       }
 
       // Success

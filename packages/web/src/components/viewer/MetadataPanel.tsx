@@ -6,10 +6,10 @@
  * temporal are editable via the frontmatter in the editor, so they live
  * inside the editor pane, not here.
  */
-import type { Memory } from "../../api/types.ts";
+import type { MemoryResponse } from "@memory.build/client";
 
 interface Props {
-  memory: Memory;
+  memory: MemoryResponse;
 }
 
 export function MetadataPanel({ memory }: Props) {

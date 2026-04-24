@@ -1,11 +1,12 @@
 /**
  * Tests for YAML frontmatter + markdown body parsing.
  */
+
 import { describe, expect, test } from "bun:test";
-import type { Memory } from "../api/types.ts";
+import type { MemoryResponse } from "@memory.build/client";
 import { memoryToEditorText, parseEditorText } from "./frontmatter.ts";
 
-function mkMemory(partial: Partial<Memory>): Memory {
+function mkMemory(partial: Partial<MemoryResponse>): MemoryResponse {
   return {
     id: partial.id ?? "01234567-89ab-7cde-8fab-0123456789ab",
     content: partial.content ?? "body",

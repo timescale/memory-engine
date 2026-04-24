@@ -29,6 +29,14 @@
  * ```
  */
 
+export type * from "@memory.build/protocol/engine";
+export type {
+  Meta,
+  SearchWeights,
+  Temporal,
+  TemporalFilter,
+} from "@memory.build/protocol/fields";
+
 export type {
   AccountsClient,
   AccountsClientOptions,

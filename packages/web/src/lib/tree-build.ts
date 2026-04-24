@@ -19,7 +19,10 @@
  * repo with millions of memories can still render its full path hierarchy
  * without pulling any content.
  */
-import type { MemoryWithScore, TreePathCountNode } from "../api/types.ts";
+import type {
+  MemoryWithScoreResponse,
+  TreeNodeResponse,
+} from "@memory.build/client";
 
 export interface PathNode {
   kind: "path";
@@ -71,7 +74,7 @@ export const ROOT_PATH = ".";
  *                      When >0 the synthetic `.` node is appended last.
  */
 export function buildPathTree(
-  treeNodes: TreePathCountNode[],
+  treeNodes: TreeNodeResponse[],
   rootLeafCount: number,
 ): PathNode[] {
   const byPath = new Map<string, PathNode>();
@@ -171,7 +174,7 @@ function walkPaths(node: PathNode, into: Set<string>): void {
  * onto the tree at render time.
  */
 export function memoryToLeaf(
-  memory: MemoryWithScore,
+  memory: MemoryWithScoreResponse,
   depth: number,
 ): MemoryLeaf {
   return {
@@ -206,7 +209,9 @@ export function sortLeaves(leaves: MemoryLeaf[]): MemoryLeaf[] {
  * exactly that path. Both are derived from the supplied memory set, not
  * the full engine — they reflect what's visible in the current search.
  */
-export function buildSearchTree(memories: MemoryWithScore[]): PathNode[] {
+export function buildSearchTree(
+  memories: MemoryWithScoreResponse[],
+): PathNode[] {
   const topLevel: PathNode[] = [];
   const byPath = new Map<string, PathNode>();
   const rootLeaves: MemoryLeaf[] = [];

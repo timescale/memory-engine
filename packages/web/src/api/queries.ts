@@ -4,17 +4,13 @@
  * Query keys are derived from the input params, so changing a filter or id
  * naturally triggers a refetch and re-caches the result.
  */
-import { type QueryClient, useMutation, useQuery } from "@tanstack/react-query";
-import { rpc } from "./client.ts";
+
 import type {
-  Memory,
-  MemoryDeleteResult,
-  MemoryDeleteTreeResult,
   MemorySearchParams,
-  MemorySearchResult,
-  MemoryTreeResult,
   MemoryUpdateParams,
-} from "./types.ts";
+} from "@memory.build/client";
+import { type QueryClient, useMutation, useQuery } from "@tanstack/react-query";
+import { memoryEngineClient } from "./client.ts";
 
 const SEARCH_LIMIT = 1000;
 
@@ -48,7 +44,7 @@ export function useMemories(params: MemorySearchParams, enabled = true) {
   return useQuery({
     enabled,
     queryKey: ["memories", normalized],
-    queryFn: () => rpc<MemorySearchResult>("memory.search", normalized),
+    queryFn: () => memoryEngineClient.memory.search(normalized),
   });
 }
 
@@ -61,7 +57,7 @@ export function useMemories(params: MemorySearchParams, enabled = true) {
 export function useTree() {
   return useQuery({
     queryKey: ["memory-tree"],
-    queryFn: () => rpc<MemoryTreeResult>("memory.tree", {}),
+    queryFn: () => memoryEngineClient.memory.tree(),
   });
 }
 
@@ -77,7 +73,7 @@ export function useMemoriesAtExactPath(path: string, enabled: boolean) {
     enabled,
     queryKey: ["memories-at-exact-path", path],
     queryFn: () =>
-      rpc<MemorySearchResult>("memory.search", {
+      memoryEngineClient.memory.search({
         tree: exactTreeLquery(path),
         limit: SEARCH_LIMIT,
       }),
@@ -93,7 +89,7 @@ export function useMemory(id: string | null) {
   return useQuery({
     enabled: id !== null,
     queryKey: ["memory", id],
-    queryFn: () => rpc<Memory>("memory.get", { id: id as string }),
+    queryFn: () => memoryEngineClient.memory.get({ id: id as string }),
   });
 }
 
@@ -103,7 +99,7 @@ export function useMemory(id: string | null) {
 export function useUpdateMemory(queryClient: QueryClient) {
   return useMutation({
     mutationFn: (params: MemoryUpdateParams) =>
-      rpc<Memory>("memory.update", params),
+      memoryEngineClient.memory.update(params),
     onSuccess: (memory) => {
       invalidateTreeQueries(queryClient);
       queryClient.setQueryData(["memory", memory.id], memory);
@@ -116,8 +112,7 @@ export function useUpdateMemory(queryClient: QueryClient) {
  */
 export function useDeleteMemory(queryClient: QueryClient) {
   return useMutation({
-    mutationFn: (id: string) =>
-      rpc<MemoryDeleteResult>("memory.delete", { id }),
+    mutationFn: (id: string) => memoryEngineClient.memory.delete({ id }),
     onSuccess: (_result, id) => {
       invalidateTreeQueries(queryClient);
       queryClient.removeQueries({ queryKey: ["memory", id] });
@@ -132,7 +127,7 @@ export function useDeleteMemory(queryClient: QueryClient) {
 export function useDeleteTree(queryClient: QueryClient) {
   return useMutation({
     mutationFn: (args: { tree: string; dryRun?: boolean }) =>
-      rpc<MemoryDeleteTreeResult>("memory.deleteTree", args),
+      memoryEngineClient.memory.deleteTree(args),
     onSuccess: (_result, args) => {
       if (!args.dryRun) {
         invalidateTreeQueries(queryClient);

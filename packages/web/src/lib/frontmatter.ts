@@ -12,8 +12,8 @@
  * read-only and live in the MetadataPanel, not the editor. If the frontmatter
  * contains those keys they are ignored on save.
  */
+import type { MemoryResponse, Temporal } from "@memory.build/client";
 import yaml from "js-yaml";
-import type { Memory, Temporal } from "../api/types.ts";
 
 export interface ParsedFrontmatter {
   /** Editable fields extracted from frontmatter. Missing → null. */
@@ -41,7 +41,7 @@ export interface ParsedFrontmatter {
  *
  * Empty fields are omitted entirely so the editor starts clean.
  */
-export function memoryToEditorText(memory: Memory): string {
+export function memoryToEditorText(memory: MemoryResponse): string {
   const frontmatter: Record<string, unknown> = {};
   if (memory.tree) frontmatter.tree = memory.tree;
   if (memory.meta && Object.keys(memory.meta).length > 0) {

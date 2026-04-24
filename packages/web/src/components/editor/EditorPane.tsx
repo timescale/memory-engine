@@ -9,10 +9,11 @@
  * view can prompt before discarding changes on navigation. A beforeunload
  * listener handles the "close tab / refresh" path.
  */
+
+import type { MemoryResponse } from "@memory.build/client";
 import { useQueryClient } from "@tanstack/react-query";
 import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import { useUpdateMemory } from "../../api/queries.ts";
-import type { Memory } from "../../api/types.ts";
 import { memoryToEditorText, parseEditorText } from "../../lib/frontmatter.ts";
 import { useEditor } from "../../store/editor.ts";
 import { pushToast } from "../toast/Toast.tsx";
@@ -29,7 +30,7 @@ const MonacoMarkdownEditor = lazy(async () => {
 type Mode = "view" | "edit";
 
 interface Props {
-  memory: Memory;
+  memory: MemoryResponse;
   /** Opens the delete confirmation dialog. Wired in step 11. */
   onRequestDelete?: () => void;
 }
@@ -145,7 +146,7 @@ export function EditorPane({ memory, onRequestDelete }: Props) {
 }
 
 interface ToolbarProps {
-  memory: Memory;
+  memory: MemoryResponse;
   mode: Mode;
   dirty: boolean;
   canSave: boolean;

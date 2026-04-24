@@ -11,9 +11,10 @@
  * Right pane: the editor/viewer for the currently selected memory, fetched
  * by id. URL state carries the selection + filter for shareable links.
  */
+
+import type { MemoryResponse } from "@memory.build/client";
 import { useShallow } from "zustand/shallow";
 import { useMemory, useTree } from "./api/queries.ts";
-import type { Memory } from "./api/types.ts";
 import { DeleteMemoryDialog } from "./components/dialogs/DeleteMemoryDialog.tsx";
 import { DeleteTreeDialog } from "./components/dialogs/DeleteTreeDialog.tsx";
 import { EditorPane } from "./components/editor/EditorPane.tsx";
@@ -103,7 +104,7 @@ function EmptyPane({ selectedId }: { selectedId: string | null }) {
   );
 }
 
-function SelectedMemoryPane({ memory }: { memory: Memory }) {
+function SelectedMemoryPane({ memory }: { memory: MemoryResponse }) {
   const askDeleteMemory = useUi((s) => s.askDeleteMemory);
   const firstLine =
     memory.content

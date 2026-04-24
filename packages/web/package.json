@@ -11,7 +11,7 @@
     "typecheck": "tsc -p tsconfig.app.json --noEmit"
   },
   "dependencies": {
-    "@memory.build/protocol": "workspace:*",
+    "@memory.build/client": "workspace:*",
     "@monaco-editor/react": "^4.7.0",
     "@tanstack/react-query": "^5.70.0",
     "highlight.js": "^11.10.0",

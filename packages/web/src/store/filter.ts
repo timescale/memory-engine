@@ -13,8 +13,8 @@
  * Advanced-mode UI is wired in step 9 of plans/serve.md; step 8 only uses
  * simple mode. Keeping the full shape here avoids refactoring later.
  */
+import type { MemorySearchParams, TemporalFilter } from "@memory.build/client";
 import { create } from "zustand";
-import type { MemorySearchParams, TemporalFilter } from "../api/types.ts";
 
 export type FilterMode = "simple" | "advanced";
 
