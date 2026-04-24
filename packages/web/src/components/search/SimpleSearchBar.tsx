@@ -7,6 +7,7 @@
  * carries its own heading + collapse affordance.
  */
 import { useFilter } from "../../store/filter.ts";
+import { useLayout } from "../../store/layout.ts";
 import { ModeToggle } from "./ModeToggle.tsx";
 
 export function SimpleSearchBar() {
@@ -14,6 +15,7 @@ export function SimpleSearchBar() {
   const setSimple = useFilter((s) => s.setSimple);
   const setMode = useFilter((s) => s.setMode);
   const clear = useFilter((s) => s.clear);
+  const setSearchCollapsed = useLayout((s) => s.setSearchCollapsed);
 
   return (
     <div className="flex items-center gap-2">
@@ -25,7 +27,16 @@ export function SimpleSearchBar() {
         className="flex-1 rounded-md border border-slate-300 bg-white px-3 py-2 text-sm placeholder:text-slate-400 focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500"
       />
 
-      <ModeToggle current="simple" onChange={setMode} />
+      <ModeToggle
+        current="simple"
+        onChange={(mode) => {
+          // Switching into advanced always opens the panel so the user
+          // sees the fields they just asked for; the collapse state
+          // resumes its persisted value on subsequent toggles.
+          if (mode === "advanced") setSearchCollapsed(false);
+          setMode(mode);
+        }}
+      />
 
       <button
         type="button"

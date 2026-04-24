@@ -12,7 +12,7 @@ export function ModeToggle({
   onChange: (mode: FilterMode) => void;
 }) {
   return (
-    <div className="inline-flex rounded-md border border-slate-300 bg-white p-0.5 text-xs">
+    <div className="inline-flex rounded-md border border-slate-300 bg-white p-0.5 text-sm">
       <ToggleButton
         active={current === "simple"}
         onClick={() => onChange("simple")}
@@ -41,7 +41,7 @@ function ToggleButton({
       type="button"
       onClick={onClick}
       className={[
-        "rounded px-2 py-1 transition-colors",
+        "rounded px-3 py-1.5 transition-colors",
         active
           ? "bg-sky-600 text-white"
           : "text-slate-600 hover:text-slate-900",
