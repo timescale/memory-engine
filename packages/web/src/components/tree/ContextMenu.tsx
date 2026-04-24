@@ -3,7 +3,7 @@
  *
  * Renders at the cursor position passed via `useUi`. Closes on any click
  * outside the menu or on Escape. Items are target-kind specific: memory
- * leaves show "Delete memory…", path nodes show "Delete subtree…".
+ * leaves show "Delete…", path nodes show "Delete subtree…".
  */
 import { useEffect, useRef } from "react";
 import { useUi } from "../../store/ui.ts";
@@ -38,7 +38,7 @@ export function ContextMenu() {
     state.target.kind === "memory"
       ? [
           {
-            label: "Delete memory…",
+            label: "Delete…",
             onClick: () =>
               askDeleteMemory({
                 id: (
