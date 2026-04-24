@@ -33,20 +33,14 @@ const INDENT_PX = 16;
 export function PathRow({
   node,
   context,
-  forceOpen = false,
 }: {
   node: PathNode;
   /** Which expansion-state bucket this row reads/writes. */
   context: TreeContext;
-  /** When true, ignore the expanded-paths store and keep this row open. */
-  forceOpen?: boolean;
 }) {
-  const storedExpanded = useSelection((s) =>
-    selectIsExpanded(s, context, node.path),
-  );
+  const expanded = useSelection((s) => selectIsExpanded(s, context, node.path));
   const toggle = useSelection((s) => s.toggleExpanded);
   const openContextMenu = useUi((s) => s.openContextMenu);
-  const expanded = forceOpen || storedExpanded;
 
   // When the node already carries inline leaves (search mode), use them
   // directly. Otherwise lazy-fetch via RPC only when the path is open
@@ -107,12 +101,7 @@ export function PathRow({
       {expanded && (
         <>
           {node.children.map((child) => (
-            <PathRow
-              key={child.path}
-              node={child}
-              context={context}
-              forceOpen={forceOpen}
-            />
+            <PathRow key={child.path} node={child} context={context} />
           ))}
 
           {!hasInline && node.directCount > 0 && leavesQuery.isLoading && (

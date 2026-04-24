@@ -129,12 +129,7 @@ export function TreeView() {
   return (
     <div className="py-1" role="tree" aria-label="Memories">
       {roots.map((node) => (
-        <PathRow
-          key={node.path}
-          node={node}
-          context={context}
-          forceOpen={searchActive}
-        />
+        <PathRow key={node.path} node={node} context={context} />
       ))}
     </div>
   );
