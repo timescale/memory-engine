@@ -44,6 +44,25 @@ export interface MemorySearchResult {
 }
 
 /**
+ * A node returned by `memory.tree`. Every distinct prefix of every memory's
+ * tree appears as its own entry; `count` is the number of memories whose
+ * tree starts with (or equals) this path. The server excludes memories
+ * with empty trees, so root-level memories are counted separately via a
+ * targeted `memory.search` call.
+ */
+export interface TreePathCountNode {
+  path: string;
+  count: number;
+}
+
+/**
+ * Response shape for `memory.tree`.
+ */
+export interface MemoryTreeResult {
+  nodes: TreePathCountNode[];
+}
+
+/**
  * Temporal filter shape for `memory.search`. The engine supports three
  * modes, each with its own shape:
  *

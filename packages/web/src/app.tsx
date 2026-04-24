@@ -1,16 +1,19 @@
 /**
  * Top-level app component.
  *
- * Step 8 wiring:
- * - Reads filter state from the store, debounces it, feeds it to
- *   `useMemories`.
- * - Syncs filter + selection state to the URL so views are shareable.
- * - Renders the simple search bar in the header.
+ * Left pane: the `TreeView`, which runs in one of two modes depending on
+ * whether the filter has any active criteria. Browse mode renders the
+ * full path hierarchy from `memory.tree` with leaves loaded lazily per
+ * expanded path; search mode renders a tree of matching memories from
+ * `memory.search`. The header's filter UI (simple / advanced) is the only
+ * place that drives the mode switch.
+ *
+ * Right pane: the editor/viewer for the currently selected memory, fetched
+ * by id. URL state carries the selection + filter for shareable links.
  */
-import { useMemo } from "react";
 import { useShallow } from "zustand/shallow";
-import { useMemories } from "./api/queries.ts";
-import type { MemoryWithScore } from "./api/types.ts";
+import { useMemory, useTree } from "./api/queries.ts";
+import type { Memory } from "./api/types.ts";
 import { DeleteMemoryDialog } from "./components/dialogs/DeleteMemoryDialog.tsx";
 import { DeleteTreeDialog } from "./components/dialogs/DeleteTreeDialog.tsx";
 import { EditorPane } from "./components/editor/EditorPane.tsx";
@@ -20,36 +23,23 @@ import { ToastStack } from "./components/toast/Toast.tsx";
 import { ContextMenu } from "./components/tree/ContextMenu.tsx";
 import { TreeView } from "./components/tree/TreeView.tsx";
 import { MetadataPanel } from "./components/viewer/MetadataPanel.tsx";
-import { useDebounced } from "./lib/useDebounced.ts";
 import { useUrlSync } from "./lib/useUrlSync.ts";
-import { selectSearchParams, useFilter } from "./store/filter.ts";
+import { useFilter } from "./store/filter.ts";
 import { useSelection } from "./store/selection.ts";
 import { useUi } from "./store/ui.ts";
 
 export function App() {
   useUrlSync();
 
-  const filterState = useFilter(
-    useShallow((s) => ({
-      mode: s.mode,
-      simple: s.simple,
-      advanced: s.advanced,
-    })),
-  );
-  const debouncedFilter = useDebounced(filterState, 250);
-  const searchParams = useMemo(
-    () => selectSearchParams(debouncedFilter),
-    [debouncedFilter],
-  );
+  const filterMode = useFilter(useShallow((s) => s.mode));
 
-  const { data, error, isLoading, isFetching } = useMemories(searchParams);
-  const memories = data?.results ?? [];
-
+  const tree = useTree();
   const selectedId = useSelection((s) => s.selectedId);
-  const selectedMemory = useMemo(
-    () => memories.find((m) => m.id === selectedId) ?? null,
-    [memories, selectedId],
-  );
+  const { data: selectedMemory } = useMemory(selectedId);
+
+  const totalMemories = tree.data
+    ? sumTopLevelAggregate(tree.data.nodes)
+    : null;
 
   return (
     <div className="flex h-full flex-col">
@@ -59,13 +49,14 @@ export function App() {
             Memory Engine
           </h1>
           <p className="text-xs text-slate-500">
-            {data
-              ? `${data.results.length} / ${data.total} memories${isFetching ? " · refreshing…" : ""}`
-              : "Loading…"}
+            {totalMemories === null
+              ? "Loading…"
+              : `${totalMemories} ${totalMemories === 1 ? "memory" : "memories"}`}
+            {tree.isFetching && totalMemories !== null ? " · refreshing…" : ""}
           </p>
         </div>
         <SimpleSearchBar />
-        {filterState.mode === "advanced" && (
+        {filterMode === "advanced" && (
           <div className="mt-3">
             <AdvancedSearchPanel />
           </div>
@@ -74,18 +65,14 @@ export function App() {
 
       <div className="flex min-h-0 flex-1">
         <aside className="w-80 shrink-0 overflow-auto border-r border-slate-200 bg-white">
-          <TreeView
-            memories={memories}
-            isLoading={isLoading}
-            error={error instanceof Error ? error : null}
-          />
+          <TreeView />
         </aside>
 
         <main className="min-w-0 flex-1 overflow-auto bg-slate-50">
           {selectedMemory ? (
             <SelectedMemoryPane memory={selectedMemory} />
           ) : (
-            <EmptyPane />
+            <EmptyPane selectedId={selectedId} />
           )}
         </main>
       </div>
@@ -98,17 +85,19 @@ export function App() {
   );
 }
 
-function EmptyPane() {
+function EmptyPane({ selectedId }: { selectedId: string | null }) {
   return (
     <div className="flex h-full items-center justify-center">
       <p className="text-sm text-slate-500">
-        Select a memory from the tree to view its contents.
+        {selectedId
+          ? "Loading memory…"
+          : "Select a memory from the tree to view its contents."}
       </p>
     </div>
   );
 }
 
-function SelectedMemoryPane({ memory }: { memory: MemoryWithScore }) {
+function SelectedMemoryPane({ memory }: { memory: Memory }) {
   const askDeleteMemory = useUi((s) => s.askDeleteMemory);
   const firstLine =
     memory.content
@@ -133,4 +122,17 @@ function SelectedMemoryPane({ memory }: { memory: MemoryWithScore }) {
       </section>
     </div>
   );
+}
+
+/**
+ * Sum aggregate counts of top-level paths (= total memories excluding
+ * empty-tree ones). Empty-tree memories are counted via a separate query
+ * and added to this elsewhere when needed.
+ */
+function sumTopLevelAggregate(
+  nodes: { path: string; count: number }[],
+): number {
+  return nodes
+    .filter((n) => !n.path.includes("."))
+    .reduce((sum, n) => sum + n.count, 0);
 }

@@ -1,35 +1,65 @@
 /**
- * Recursive row renderer for the tree.
+ * Recursive row renderers for the tree.
  *
- * Handles both `path` (expandable) and `memory` (leaf) nodes. Indentation
- * is computed from `node.depth` so the same component handles every level.
- * Uses `<div>` with ARIA `treeitem` role + `tabIndex={0}` to keep the a11y
- * linter happy and to make keyboard navigation trivial to add later.
+ * `PathRow` handles one path-hierarchy node: its own label + count, an
+ * expand/collapse toggle, and \u2014 when expanded \u2014 nested sub-paths plus
+ * memory leaves that live at exactly this path. Leaves are fetched lazily
+ * via `useMemoriesAtExactPath` and only when the row is open; the query is
+ * also gated by `directCount > 0` so we don't waste a round-trip on pure
+ * container paths that have no direct memories.
+ *
+ * `MemoryRow` renders one fetched leaf: click to select, right-click for
+ * the context menu.
  */
-import type { PathNode, TreeNode } from "../../lib/tree-build.ts";
-import { ROOT_PATH } from "../../lib/tree-build.ts";
+import { useMemo } from "react";
+import { useMemoriesAtExactPath } from "../../api/queries.ts";
+import {
+  type MemoryLeaf,
+  memoryToLeaf,
+  type PathNode,
+  ROOT_PATH,
+  sortLeaves,
+} from "../../lib/tree-build.ts";
 import { confirmDiscardChangesIfDirty } from "../../store/editor.ts";
 import { useSelection } from "../../store/selection.ts";
 import { useUi } from "../../store/ui.ts";
 
-interface Props {
-  node: TreeNode;
-}
-
 const INDENT_PX = 16;
 
-export function TreeNodeRow({ node }: Props) {
-  if (node.kind === "path") return <PathRow node={node} />;
-  return <MemoryRow node={node} />;
-}
-
-function PathRow({ node }: { node: PathNode }) {
-  const expanded = useSelection((s) => s.expandedPaths.has(node.path));
+export function PathRow({
+  node,
+  forceOpen = false,
+}: {
+  node: PathNode;
+  /** When true, ignore the expanded-paths store and keep this row open. */
+  forceOpen?: boolean;
+}) {
+  const storedExpanded = useSelection((s) => s.expandedPaths.has(node.path));
   const toggle = useSelection((s) => s.toggleExpanded);
   const openContextMenu = useUi((s) => s.openContextMenu);
+  const expanded = forceOpen || storedExpanded;
 
-  // The synthetic root has no path to delete — skip its context menu.
+  // When the node already carries inline leaves (search mode), use them
+  // directly. Otherwise lazy-fetch via RPC only when the path is open
+  // AND has direct memories — empty containers (directCount === 0) skip
+  // the round-trip.
+  const hasInline = node.inlineLeaves !== undefined;
+  const leavesQuery = useMemoriesAtExactPath(
+    node.path,
+    !hasInline && expanded && node.directCount > 0,
+  );
+
+  const leaves = useMemo<MemoryLeaf[]>(() => {
+    if (hasInline) return node.inlineLeaves ?? [];
+    if (!leavesQuery.data) return [];
+    return sortLeaves(
+      leavesQuery.data.results.map((m) => memoryToLeaf(m, node.depth + 1)),
+    );
+  }, [hasInline, node.inlineLeaves, leavesQuery.data, node.depth]);
+
   const handleContextMenu = (e: React.MouseEvent) => {
+    // The synthetic `.` bucket isn't a real ltree path, so deleting it
+    // via `memory.deleteTree` is meaningless — disable the context menu.
     if (node.path === ROOT_PATH) return;
     e.preventDefault();
     openContextMenu({
@@ -60,28 +90,60 @@ function PathRow({ node }: { node: PathNode }) {
           ▸
         </span>
         <span className="truncate font-medium">{node.label}</span>
+        <span className="ml-auto pl-2 text-xs text-slate-400">
+          {node.aggregateCount}
+        </span>
       </button>
-      {expanded &&
-        node.children.length > 0 &&
-        node.children.map((child) => (
-          <TreeNodeRow
-            key={child.kind === "path" ? `p:${child.path}` : `m:${child.id}`}
-            node={child}
-          />
-        ))}
+
+      {expanded && (
+        <>
+          {node.children.map((child) => (
+            <PathRow key={child.path} node={child} forceOpen={forceOpen} />
+          ))}
+
+          {!hasInline && node.directCount > 0 && leavesQuery.isLoading && (
+            <div
+              className="px-2 py-1 text-xs text-slate-400"
+              style={{
+                paddingLeft: `${8 + (node.depth + 1) * INDENT_PX}px`,
+              }}
+            >
+              Loading memories…
+            </div>
+          )}
+
+          {!hasInline && node.directCount > 0 && leavesQuery.error && (
+            <div
+              className="px-2 py-1 text-xs text-red-600"
+              style={{
+                paddingLeft: `${8 + (node.depth + 1) * INDENT_PX}px`,
+              }}
+            >
+              Failed to load:{" "}
+              {leavesQuery.error instanceof Error
+                ? leavesQuery.error.message
+                : String(leavesQuery.error)}
+            </div>
+          )}
+
+          {leaves.map((leaf) => (
+            <MemoryRow key={leaf.id} leaf={leaf} />
+          ))}
+        </>
+      )}
     </div>
   );
 }
 
-function MemoryRow({ node }: { node: Extract<TreeNode, { kind: "memory" }> }) {
-  const selected = useSelection((s) => s.selectedId === node.id);
+function MemoryRow({ leaf }: { leaf: MemoryLeaf }) {
+  const selected = useSelection((s) => s.selectedId === leaf.id);
   const select = useSelection((s) => s.select);
   const openContextMenu = useUi((s) => s.openContextMenu);
 
   const handleClick = () => {
     if (selected) return;
     if (!confirmDiscardChangesIfDirty()) return;
-    select(node.id);
+    select(leaf.id);
   };
 
   const handleContextMenu = (e: React.MouseEvent) => {
@@ -89,7 +151,7 @@ function MemoryRow({ node }: { node: Extract<TreeNode, { kind: "memory" }> }) {
     openContextMenu({
       x: e.clientX,
       y: e.clientY,
-      target: { kind: "memory", id: node.id, title: node.title },
+      target: { kind: "memory", id: leaf.id, title: leaf.title },
     });
   };
 
@@ -109,12 +171,12 @@ function MemoryRow({ node }: { node: Extract<TreeNode, { kind: "memory" }> }) {
             ? "bg-sky-100 text-sky-900"
             : "text-slate-700 hover:bg-slate-100",
         ].join(" ")}
-        style={{ paddingLeft: `${8 + node.depth * INDENT_PX}px` }}
+        style={{ paddingLeft: `${8 + leaf.depth * INDENT_PX}px` }}
       >
         <span aria-hidden="true" className="w-4 text-slate-400">
           •
         </span>
-        <span className="truncate">{node.title}</span>
+        <span className="truncate">{leaf.title}</span>
       </button>
     </div>
   );

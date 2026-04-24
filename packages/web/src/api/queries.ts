@@ -12,20 +12,75 @@ import type {
   MemoryDeleteTreeResult,
   MemorySearchParams,
   MemorySearchResult,
+  MemoryTreeResult,
   MemoryUpdateParams,
 } from "./types.ts";
 
 const SEARCH_LIMIT = 1000;
 
 /**
- * Fetch memories matching the current filter. Empty filter effectively
- * lists everything via the `*` tree wildcard.
+ * Convert an exact ltree path to an lquery pattern that matches only that
+ * path (no descendants). The engine's tree filter auto-detects lquery vs
+ * ltree by special characters; by duplicating the last label via `|` or
+ * using the zero-label quantifier for the empty path, we force lquery
+ * detection while preserving exact-match semantics.
+ *
+ * Examples:
+ *   ""               -> "*{0,0}"          matches only the empty tree
+ *   "work"           -> "work|work"       matches only `work`
+ *   "work.projects"  -> "work.projects|projects" matches only `work.projects`
  */
-export function useMemories(params: MemorySearchParams) {
+export function exactTreeLquery(path: string): string {
+  if (path === "") return "*{0,0}";
+  const labels = path.split(".");
+  const i = labels.length - 1;
+  labels[i] = `${labels[i]}|${labels[i]}`;
+  return labels.join(".");
+}
+
+/**
+ * Fetch memories matching the current filter. When `enabled` is false the
+ * query is suspended (used by the tree view to skip search-mode fetches
+ * while in browse mode).
+ */
+export function useMemories(params: MemorySearchParams, enabled = true) {
   const normalized = normalizeSearchParams(params);
   return useQuery({
+    enabled,
     queryKey: ["memories", normalized],
     queryFn: () => rpc<MemorySearchResult>("memory.search", normalized),
+  });
+}
+
+/**
+ * Fetch the full tree structure — every path segment across every memory
+ * with an aggregate count. Cheap: no content, no memory content rows.
+ *
+ * This is the source of truth for the navigation tree's path nodes.
+ */
+export function useTree() {
+  return useQuery({
+    queryKey: ["memory-tree"],
+    queryFn: () => rpc<MemoryTreeResult>("memory.tree", {}),
+  });
+}
+
+/**
+ * Fetch the memories living at an exact tree path (not its descendants).
+ *
+ * The query is gated by `enabled` so we only pay the fetch cost when the
+ * caller actually needs the leaves — typically when the user expands a
+ * path node. Empty path (`""`) returns memories with no tree set.
+ */
+export function useMemoriesAtExactPath(path: string, enabled: boolean) {
+  return useQuery({
+    enabled,
+    queryKey: ["memories-at-exact-path", path],
+    queryFn: () =>
+      rpc<MemorySearchResult>("memory.search", {
+        tree: exactTreeLquery(path),
+        limit: SEARCH_LIMIT,
+      }),
   });
 }
 
@@ -50,7 +105,7 @@ export function useUpdateMemory(queryClient: QueryClient) {
     mutationFn: (params: MemoryUpdateParams) =>
       rpc<Memory>("memory.update", params),
     onSuccess: (memory) => {
-      queryClient.invalidateQueries({ queryKey: ["memories"] });
+      invalidateTreeQueries(queryClient);
       queryClient.setQueryData(["memory", memory.id], memory);
     },
   });
@@ -64,7 +119,7 @@ export function useDeleteMemory(queryClient: QueryClient) {
     mutationFn: (id: string) =>
       rpc<MemoryDeleteResult>("memory.delete", { id }),
     onSuccess: (_result, id) => {
-      queryClient.invalidateQueries({ queryKey: ["memories"] });
+      invalidateTreeQueries(queryClient);
       queryClient.removeQueries({ queryKey: ["memory", id] });
     },
   });
@@ -80,10 +135,21 @@ export function useDeleteTree(queryClient: QueryClient) {
       rpc<MemoryDeleteTreeResult>("memory.deleteTree", args),
     onSuccess: (_result, args) => {
       if (!args.dryRun) {
-        queryClient.invalidateQueries({ queryKey: ["memories"] });
+        invalidateTreeQueries(queryClient);
       }
     },
   });
+}
+
+/**
+ * Invalidate every cached query that could have changed after a memory
+ * mutation: the path hierarchy, any per-path leaf lists, and the legacy
+ * flat search list.
+ */
+function invalidateTreeQueries(queryClient: QueryClient) {
+  queryClient.invalidateQueries({ queryKey: ["memory-tree"] });
+  queryClient.invalidateQueries({ queryKey: ["memories-at-exact-path"] });
+  queryClient.invalidateQueries({ queryKey: ["memories"] });
 }
 
 /**
