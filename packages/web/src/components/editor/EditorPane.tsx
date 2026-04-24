@@ -16,6 +16,7 @@ import type { Memory } from "../../api/types.ts";
 import { memoryToEditorText, parseEditorText } from "../../lib/frontmatter.ts";
 import { useEditor } from "../../store/editor.ts";
 import { pushToast } from "../toast/Toast.tsx";
+import { FrontmatterBlock } from "../viewer/FrontmatterBlock.tsx";
 import { MarkdownViewer } from "../viewer/MarkdownViewer.tsx";
 
 // Monaco is ~3 MB minified; lazy-load it so the initial page render stays fast
@@ -130,6 +131,7 @@ export function EditorPane({ memory, onRequestDelete }: Props) {
       <div className="flex-1 overflow-hidden">
         {mode === "view" ? (
           <div className="h-full overflow-auto p-6">
+            {parsed.ok && <FrontmatterBlock frontmatter={parsed.value} />}
             <MarkdownViewer content={parsed.ok ? parsed.value.body : text} />
           </div>
         ) : (

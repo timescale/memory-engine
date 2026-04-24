@@ -104,3 +104,30 @@ body,
   border: 0;
   border-top: 1px solid #e2e8f0;
 }
+
+/* Frontmatter YAML block.
+ *
+ * Scoped overrides of `.prose pre` so the collapsible YAML preview in the
+ * memory viewer reads as an inline inspector panel rather than a heavy
+ * dark code block. Highlight.js token colors from the github theme still
+ * apply per-span — they're designed for light backgrounds, so only the
+ * container chrome needs changing. */
+.frontmatter-yaml .prose {
+  max-width: none;
+}
+.frontmatter-yaml .prose pre {
+  background: #f8fafc; /* slate-50 */
+  color: #334155; /* slate-700 */
+  border: 1px solid #e2e8f0; /* slate-200 */
+  border-radius: 6px;
+  padding: 0.5rem 0.75rem;
+  margin: 0;
+  font-size: 0.8125rem;
+  line-height: 1.5;
+}
+.frontmatter-yaml .prose pre code,
+.frontmatter-yaml .prose pre code.hljs {
+  background: transparent;
+  color: inherit;
+  padding: 0;
+}
