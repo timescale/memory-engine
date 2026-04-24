@@ -13,6 +13,13 @@ jobs:
       - uses: actions/checkout@v6
       - name: Install dependencies
         run: ./bun install
+      # web-assets.generated.ts is produced by `build:web` and is gitignored.
+      # Lint/typecheck/tests transitively import it through packages/cli/serve/.
+      # Running the bundler alone (no Vite) is enough for CI — it emits an
+      # empty map when packages/web/dist/ is absent, which satisfies the type
+      # shape without the multi-second Vite build.
+      - name: Prepare embedded web assets (stub)
+        run: ./bun scripts/bundle-web-assets.ts
       - name: Lint
         run: ./bun run lint
       - name: Typecheck
@@ -27,6 +34,8 @@ jobs:
       - uses: actions/checkout@v6
       - name: Install dependencies
         run: ./bun install
+      - name: Prepare embedded web assets (stub)
+        run: ./bun scripts/bundle-web-assets.ts
       - name: Build Postgres image
         run: docker build -t me-postgres -f docker/Dockerfile.postgres docker/
       - name: Start Postgres

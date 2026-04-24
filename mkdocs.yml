@@ -62,6 +62,7 @@ nav:
       - me codex: cli/me-codex.md
       - me gemini: cli/me-gemini.md
       - me opencode: cli/me-opencode.md
+      - me serve: cli/me-serve.md
       - Agent session imports: cli/agent-session-imports.md
       - me user: cli/me-user.md
       - me role: cli/me-role.md

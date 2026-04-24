@@ -25,6 +25,7 @@ import { createOrgCommand } from "./commands/org.ts";
 import { createOwnerCommand } from "./commands/owner.ts";
 import { createPackCommand } from "./commands/pack.ts";
 import { createRoleCommand } from "./commands/role.ts";
+import { createServeCommand } from "./commands/serve.ts";
 import { createUserCommand } from "./commands/user.ts";
 import { createWhoamiCommand } from "./commands/whoami.ts";
 import { setExpanded } from "./output.ts";
@@ -77,6 +78,9 @@ program.addCommand(createClaudeCommand());
 program.addCommand(createOpenCodeCommand());
 program.addCommand(createGeminiCommand());
 program.addCommand(createCodexCommand());
+
+// Local web UI
+program.addCommand(createServeCommand());
 
 // Engine-level RBAC commands
 program.addCommand(createUserCommand());

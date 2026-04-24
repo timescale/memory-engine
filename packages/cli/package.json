@@ -9,7 +9,8 @@
   },
   "scripts": {
     "dev": "../../bun run index.ts",
-    "build": "../../bun build --compile index.ts --outfile dist/me"
+    "build:web": "../../bun --cwd=../web run build && ../../bun ../../scripts/bundle-web-assets.ts",
+    "build": "../../bun run build:web && ../../bun build --compile index.ts --outfile dist/me"
   },
   "dependencies": {
     "@bomb.sh/tab": "^0.0.12",

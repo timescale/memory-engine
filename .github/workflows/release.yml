@@ -18,6 +18,13 @@ jobs:
       - name: Install dependencies
         run: ./bun install
 
+      # web-assets.generated.ts is produced by `build:web` and is gitignored.
+      # Lint/typecheck/tests transitively import it through packages/cli/serve/.
+      # Running the bundler alone (no Vite) emits an empty-map stub, which
+      # satisfies the type shape without a full UI build.
+      - name: Prepare embedded web assets (stub)
+        run: ./bun scripts/bundle-web-assets.ts
+
       - name: Typecheck
         run: ./bun run typecheck
 
