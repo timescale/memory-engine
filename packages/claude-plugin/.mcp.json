@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "me": {
+      "command": "me",
+      "args": [
+        "mcp",
+        "--server",
+        "${user_config.server}",
+        "--api-key",
+        "${user_config.api_key}"
+      ]
+    }
+  }
+}
