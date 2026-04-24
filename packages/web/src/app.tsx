@@ -13,6 +13,7 @@
  */
 
 import type { MemoryResponse } from "@memory.build/client";
+import { useEffect } from "react";
 import { useShallow } from "zustand/shallow";
 import { useMemory, useTree } from "./api/queries.ts";
 import { DeleteMemoryDialog } from "./components/dialogs/DeleteMemoryDialog.tsx";
@@ -25,6 +26,7 @@ import { ToastStack } from "./components/toast/Toast.tsx";
 import { ContextMenu } from "./components/tree/ContextMenu.tsx";
 import { TreeView } from "./components/tree/TreeView.tsx";
 import { MetadataPanel } from "./components/viewer/MetadataPanel.tsx";
+import { expansionPathsForMemoryTree } from "./lib/tree-build.ts";
 import { useUrlSync } from "./lib/useUrlSync.ts";
 import { useFilter } from "./store/filter.ts";
 import { useLayout } from "./store/layout.ts";
@@ -38,8 +40,17 @@ export function App() {
 
   const tree = useTree();
   const selectedId = useSelection((s) => s.selectedId);
+  const setExpanded = useSelection((s) => s.setExpanded);
   const { data: selectedMemory } = useMemory(selectedId);
   const sidebarWidth = useLayout((s) => s.sidebarWidth);
+
+  useEffect(() => {
+    if (!selectedMemory) return;
+    for (const path of expansionPathsForMemoryTree(selectedMemory.tree)) {
+      setExpanded("browse", path, true);
+      setExpanded("search", path, true);
+    }
+  }, [selectedMemory, setExpanded]);
 
   const totalMemories = tree.data
     ? sumTopLevelAggregate(tree.data.nodes)

@@ -68,10 +68,14 @@ export function TreeView() {
   const roots = searchActive ? searchRoots : browseRoots;
 
   const context = searchActive ? "search" : "browse";
+  const canPruneExpanded = searchActive
+    ? search.data !== undefined
+    : tree.data !== undefined && rootLeaves.data !== undefined;
   const pruneExpanded = useSelection((s) => s.pruneExpanded);
   useEffect(() => {
+    if (!canPruneExpanded) return;
     pruneExpanded(context, collectPaths(roots));
-  }, [context, roots, pruneExpanded]);
+  }, [canPruneExpanded, context, roots, pruneExpanded]);
 
   // One-time seeding: when the tree first loads, auto-expand every
   // top-level path so the user sees the hierarchy's shape without having

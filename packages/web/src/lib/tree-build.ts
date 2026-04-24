@@ -67,6 +67,19 @@ export interface MemoryLeaf {
 export const ROOT_PATH = ".";
 
 /**
+ * Return the tree paths that must be expanded to reveal a memory leaf.
+ * The leaf itself is rendered under its exact tree path, so include every
+ * ancestor plus the full path. Memories with an empty tree live under the
+ * synthetic root bucket.
+ */
+export function expansionPathsForMemoryTree(memoryTree: string): string[] {
+  if (memoryTree.length === 0) return [ROOT_PATH];
+
+  const segments = memoryTree.split(".");
+  return segments.map((_, i) => segments.slice(0, i + 1).join("."));
+}
+
+/**
  * Build the top-level path hierarchy from the flat tree RPC response.
  *
  * @param treeNodes   Flat path/count entries from `memory.tree`.

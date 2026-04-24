@@ -11,6 +11,7 @@ import {
   buildPathTree,
   buildSearchTree,
   collectPaths,
+  expansionPathsForMemoryTree,
   memoryToLeaf,
   ROOT_PATH,
   sortLeaves,
@@ -200,6 +201,20 @@ describe("buildSearchTree", () => {
     const notes = work?.children.find((c) => c.path === "work.notes");
     expect(notes?.aggregateCount).toBe(1);
     expect(notes?.directCount).toBe(1);
+  });
+});
+
+describe("expansionPathsForMemoryTree", () => {
+  test("returns the synthetic root path for empty-tree memories", () => {
+    expect(expansionPathsForMemoryTree("")).toEqual([ROOT_PATH]);
+  });
+
+  test("returns every ancestor path plus the exact memory path", () => {
+    expect(expansionPathsForMemoryTree("work.projects.me")).toEqual([
+      "work",
+      "work.projects",
+      "work.projects.me",
+    ]);
   });
 });
 

@@ -11,7 +11,7 @@
  * `MemoryRow` renders one fetched leaf: click to select, right-click for
  * the context menu.
  */
-import { useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { useMemoriesAtExactPath } from "../../api/queries.ts";
 import {
   type MemoryLeaf,
@@ -177,6 +177,12 @@ function MemoryRow({ leaf }: { leaf: MemoryLeaf }) {
   const selected = useSelection((s) => s.selectedId === leaf.id);
   const select = useSelection((s) => s.select);
   const openContextMenu = useUi((s) => s.openContextMenu);
+  const rowRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!selected) return;
+    rowRef.current?.scrollIntoView({ block: "nearest" });
+  }, [selected]);
 
   const handleClick = () => {
     if (selected) return;
@@ -198,6 +204,7 @@ function MemoryRow({ leaf }: { leaf: MemoryLeaf }) {
 
   return (
     <div
+      ref={rowRef}
       role="treeitem"
       aria-selected={selected}
       tabIndex={0}
