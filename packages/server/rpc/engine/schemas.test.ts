@@ -505,7 +505,7 @@ describe("grantCreateSchema", () => {
     const result = grantCreateSchema.safeParse({
       userId: "019d694f-79f6-7595-8faf-b70b01c11f98",
       treePath: "work.projects",
-      actions: ["read", "write"],
+      actions: ["read", "create"],
     });
     expect(result.success).toBe(true);
   });
@@ -514,7 +514,7 @@ describe("grantCreateSchema", () => {
     const result = grantCreateSchema.safeParse({
       userId: "019d694f-79f6-7595-8faf-b70b01c11f98",
       treePath: "work",
-      actions: ["admin"],
+      actions: ["update"],
       withGrantOption: true,
     });
     expect(result.success).toBe(true);

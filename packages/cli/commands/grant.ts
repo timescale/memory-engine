@@ -23,7 +23,7 @@ function createGrantCreateCommand(): Command {
     .description("grant tree access to a user")
     .argument("<user>", "user name or ID")
     .argument("<path>", "tree path")
-    .argument("<actions...>", "actions: read, write, create, delete, admin")
+    .argument("<actions...>", "actions: read, create, update, delete")
     .option("--with-grant-option", "allow grantee to re-grant")
     .action(
       async (user: string, path: string, actions: string[], opts, cmd) => {
@@ -43,7 +43,7 @@ function createGrantCreateCommand(): Command {
           const result = await engine.grant.create({
             userId,
             treePath: path,
-            actions: actions as ("read" | "write" | "delete" | "admin")[],
+            actions: actions as ("read" | "create" | "update" | "delete")[],
             withGrantOption: opts.withGrantOption ?? false,
           });
 
@@ -139,7 +139,7 @@ function createGrantCheckCommand(): Command {
     .description("check if a user has access to a tree path")
     .argument("<user>", "user name or ID")
     .argument("<path>", "tree path")
-    .argument("<action>", "action: read, write, create, delete, admin")
+    .argument("<action>", "action: read, create, update, delete")
     .action(async (user: string, path: string, action: string, _opts, cmd) => {
       const globalOpts = cmd.optsWithGlobals();
       const creds = resolveCredentials(globalOpts.server);
@@ -157,7 +157,7 @@ function createGrantCheckCommand(): Command {
         const result = await engine.grant.check({
           userId,
           treePath: path,
-          action: action as "read" | "write" | "delete" | "admin",
+          action: action as "read" | "create" | "update" | "delete",
         });
 
         output(result, fmt, () => {

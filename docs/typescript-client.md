@@ -219,14 +219,14 @@ await me.user.delete({ id: "019..." });
 await me.grant.create({
   userId: "019...",
   treePath: "team.shared",
-  actions: ["read", "write"],
+  actions: ["read", "create"],
   withGrantOption: false,
 });
 const { grants } = await me.grant.list({ userId: "019..." });
 const { allowed } = await me.grant.check({
   userId: "019...",
   treePath: "team.shared",
-  action: "write",
+  action: "create",
 });
 await me.grant.revoke({ userId: "019...", treePath: "team.shared" });
 ```

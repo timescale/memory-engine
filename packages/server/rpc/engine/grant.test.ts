@@ -52,7 +52,7 @@ describe("grant.create", () => {
       {
         userId: TEST_UUID,
         treePath: "work.projects",
-        actions: ["read", "write"],
+        actions: ["read", "create"],
         withGrantOption: false,
       },
       context,
@@ -145,7 +145,7 @@ describe("grant.get", () => {
         userId: TEST_UUID,
         userName: "alice",
         treePath: "work",
-        actions: ["read", "write"],
+        actions: ["read", "create"],
         grantedBy: null,
         withGrantOption: true,
         createdAt: now,
@@ -245,7 +245,7 @@ describe("grant.check", () => {
     });
 
     const result = await handler(
-      { userId: TEST_UUID, treePath: "work", action: "admin" },
+      { userId: TEST_UUID, treePath: "work", action: "update" },
       context,
     );
     expect(result).toEqual({ allowed: false });
