@@ -101,6 +101,8 @@ export function PathRow({
     // The synthetic `.` bucket isn't a real ltree path, so deleting it
     // via `memory.deleteTree` is meaningless — disable the context menu.
     if (node.path === ROOT_PATH) return;
+    // Stop bubbling so an ancestor PathRow doesn't overwrite our target.
+    e.stopPropagation();
     e.preventDefault();
     openContextMenu({
       x: e.clientX,
@@ -183,6 +185,9 @@ function MemoryRow({ leaf }: { leaf: MemoryLeaf }) {
   };
 
   const handleContextMenu = (e: React.MouseEvent) => {
+    // Stop bubbling so the ancestor PathRow doesn't overwrite our target
+    // with its "path" kind and swap the context-menu items.
+    e.stopPropagation();
     e.preventDefault();
     openContextMenu({
       x: e.clientX,
