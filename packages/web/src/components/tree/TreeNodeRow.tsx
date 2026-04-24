@@ -123,8 +123,10 @@ export function PathRow({
         style={{ paddingLeft: `${8 + node.depth * INDENT_PX}px` }}
       >
         <Caret expanded={expanded} />
-        <span className="truncate font-medium">{node.label}</span>
-        <span className="ml-auto pl-2 text-xs text-slate-400">
+        <span className="min-w-0 flex-1 truncate font-medium">
+          {node.label}
+        </span>
+        <span className="shrink-0 pl-2 text-xs text-slate-400">
           {node.aggregateCount}
         </span>
       </button>
@@ -208,7 +210,7 @@ function MemoryRow({ leaf }: { leaf: MemoryLeaf }) {
         style={{ paddingLeft: `${8 + leaf.depth * INDENT_PX}px` }}
       >
         <LeafBullet />
-        <span className="truncate">{leaf.title}</span>
+        <span className="min-w-0 flex-1 truncate">{leaf.title}</span>
       </button>
     </div>
   );
