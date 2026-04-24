@@ -15,7 +15,7 @@
  *   - The 1000-row search cap is acceptable here because it applies to
  *     matches, not to the universe of memories.
  */
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { useShallow } from "zustand/shallow";
 import {
   useMemories,
@@ -71,6 +71,23 @@ export function TreeView() {
   useEffect(() => {
     pruneExpanded(collectPaths(roots));
   }, [roots, pruneExpanded]);
+
+  // One-time seeding: when the tree first loads, auto-expand every
+  // top-level path so the user sees the hierarchy's shape without having
+  // to click into each root. We gate on `browseSeededRef` so user
+  // collapses aren't undone by subsequent tree refreshes.
+  const setExpanded = useSelection((s) => s.setExpanded);
+  const browseSeededRef = useRef(false);
+  useEffect(() => {
+    if (browseSeededRef.current) return;
+    if (!tree.data) return;
+    browseSeededRef.current = true;
+    for (const node of tree.data.nodes) {
+      if (!node.path.includes(".")) {
+        setExpanded(node.path, true);
+      }
+    }
+  }, [tree.data, setExpanded]);
 
   const activeError = searchActive ? search.error : tree.error;
   const activeLoading = searchActive ? search.isLoading : tree.isLoading;
