@@ -2,9 +2,13 @@
  * Build a nested tree from a flat list of memories.
  *
  * Each memory's `tree` is an ltree-style dotted path (e.g. `work.projects.me`).
- * We build path nodes for every segment and memories as leaves under their
- * final segment. Memories with an empty `tree` live under a synthetic `.`
- * root so the UI can still group and show them.
+ * Top-level path segments (`work`, `personal`, ...) render at depth 0 with
+ * no indent — they are first-class citizens in the tree.
+ *
+ * Memories with an empty `tree` string are grouped under a synthetic path
+ * node labelled `.` which appears as a sibling of the other top-level paths.
+ * The synthetic node is only emitted when there is at least one root-level
+ * memory to show, so clean trees don't get a dangling "root" bucket.
  */
 import type { MemoryWithScore } from "../api/types.ts";
 
@@ -12,12 +16,12 @@ export interface PathNode {
   kind: "path";
   /**
    * The full dotted path for this node. The synthetic root uses the literal
-   * string `.` so that "expanded-path" sets have a single well-known key.
+   * string `.` so expanded-path sets have a single well-known key.
    */
   path: string;
   /** The last segment of `path`, used as the display label. */
   label: string;
-  /** Depth in the tree, 0 = synthetic root. */
+  /** Depth in the tree — 0 for every top-level node, including `.`. */
   depth: number;
   /** Child paths + memory leaves, sorted stably. */
   children: TreeNode[];
@@ -37,56 +41,78 @@ export type TreeNode = PathNode | MemoryLeaf;
 export const ROOT_PATH = ".";
 
 /**
- * Build a nested tree from the flat memory list.
+ * Build the list of top-level tree nodes from the flat memory list.
  *
- * Always returns a single root `PathNode` with path `.`. When the input is
- * empty, the root has no children.
+ * Returns an empty array when there are no memories. The synthetic `.`
+ * node is appended last (after the alphabetically-sorted named paths) when
+ * and only when at least one memory has an empty tree.
  */
-export function buildTree(memories: MemoryWithScore[]): PathNode {
-  const root: PathNode = {
-    kind: "path",
-    path: ROOT_PATH,
-    label: ROOT_PATH,
-    depth: 0,
-    children: [],
-  };
+export function buildTree(memories: MemoryWithScore[]): TreeNode[] {
+  const topLevel: TreeNode[] = [];
   const pathIndex = new Map<string, PathNode>();
-  pathIndex.set(ROOT_PATH, root);
+  const rootLeaves: MemoryLeaf[] = [];
 
   for (const memory of memories) {
-    const segments = memory.tree.length > 0 ? memory.tree.split(".") : [];
-    let parent = root;
+    if (memory.tree.length === 0) {
+      rootLeaves.push({
+        kind: "memory",
+        id: memory.id,
+        title: titleFor(memory),
+        tree: memory.tree,
+        depth: 1, // nested inside the synthetic `.` parent
+      });
+      continue;
+    }
 
-    // Create (or look up) each intermediate path node.
+    const segments = memory.tree.split(".");
+    let parent: PathNode | null = null;
     let current = "";
-    for (const segment of segments) {
-      current = current.length === 0 ? segment : `${current}.${segment}`;
+
+    for (let i = 0; i < segments.length; i++) {
+      const segment = segments[i] as string;
+      current = i === 0 ? segment : `${current}.${segment}`;
       let node = pathIndex.get(current);
       if (!node) {
         node = {
           kind: "path",
           path: current,
           label: segment,
-          depth: parent.depth + 1,
+          depth: i,
           children: [],
         };
         pathIndex.set(current, node);
-        parent.children.push(node);
+        if (parent === null) topLevel.push(node);
+        else parent.children.push(node);
       }
       parent = node;
     }
 
-    parent.children.push({
+    // `parent` is non-null because `segments` is non-empty (empty tree handled above).
+    const leafParent = parent as PathNode;
+    leafParent.children.push({
       kind: "memory",
       id: memory.id,
       title: titleFor(memory),
       tree: memory.tree,
-      depth: parent.depth + 1,
+      depth: leafParent.depth + 1,
     });
   }
 
-  sortRecursive(root);
-  return root;
+  if (rootLeaves.length > 0) {
+    topLevel.push({
+      kind: "path",
+      path: ROOT_PATH,
+      label: ROOT_PATH,
+      depth: 0,
+      children: rootLeaves,
+    });
+  }
+
+  for (const node of topLevel) {
+    if (node.kind === "path") sortRecursive(node);
+  }
+  topLevel.sort(compareTopLevel);
+  return topLevel;
 }
 
 /**
@@ -126,16 +152,34 @@ function compareNodes(a: TreeNode, b: TreeNode): number {
 }
 
 /**
- * Set of all path strings present in the tree. Used to preserve expansion
- * state across filter changes (drop stale paths, keep present ones).
+ * Top-level ordering: named paths alphabetically, synthetic `.` always last
+ * so the "unfiled" bucket doesn't crowd out the organized hierarchy.
+ */
+function compareTopLevel(a: TreeNode, b: TreeNode): number {
+  const aIsRoot = a.kind === "path" && a.path === ROOT_PATH;
+  const bIsRoot = b.kind === "path" && b.path === ROOT_PATH;
+  if (aIsRoot && !bIsRoot) return 1;
+  if (!aIsRoot && bIsRoot) return -1;
+  return compareNodes(a, b);
+}
+
+/**
+ * Collect every path string present in the tree. Used to preserve
+ * expansion state across filter changes (drop stale paths, keep present ones).
  */
 export function collectPaths(
-  node: PathNode,
+  roots: TreeNode[],
   into: Set<string> = new Set(),
 ): Set<string> {
-  into.add(node.path);
-  for (const child of node.children) {
-    if (child.kind === "path") collectPaths(child, into);
+  for (const root of roots) {
+    if (root.kind === "path") collectPathsFromNode(root, into);
   }
   return into;
+}
+
+function collectPathsFromNode(node: PathNode, into: Set<string>): void {
+  into.add(node.path);
+  for (const child of node.children) {
+    if (child.kind === "path") collectPathsFromNode(child, into);
+  }
 }

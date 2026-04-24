@@ -6,14 +6,13 @@
  * `selected` id for shareable-link support; this store syncs from it.
  */
 import { create } from "zustand";
-import { ROOT_PATH } from "../lib/tree-build.ts";
 
 interface SelectionState {
   /** Currently-selected memory id, or null when nothing is selected. */
   selectedId: string | null;
   /**
-   * Paths that are expanded in the tree. The synthetic root is expanded by
-   * default; every other path starts collapsed. Mutations replace the Set
+   * Paths that are expanded in the tree. Every path starts collapsed —
+   * users open what they're interested in. Mutations replace the Set
    * reference so React re-renders.
    */
   expandedPaths: Set<string>;
@@ -33,7 +32,7 @@ interface SelectionActions {
 export const useSelection = create<SelectionState & SelectionActions>(
   (set) => ({
     selectedId: null,
-    expandedPaths: new Set<string>([ROOT_PATH]),
+    expandedPaths: new Set<string>(),
 
     select(id) {
       set({ selectedId: id });
@@ -68,11 +67,6 @@ export const useSelection = create<SelectionState & SelectionActions>(
         for (const path of state.expandedPaths) {
           if (livePaths.has(path)) next.add(path);
           else changed = true;
-        }
-        // Always keep the synthetic root expanded after prune.
-        if (!next.has(ROOT_PATH)) {
-          next.add(ROOT_PATH);
-          changed = true;
         }
         return changed ? { expandedPaths: next } : state;
       });

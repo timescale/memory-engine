@@ -19,12 +19,12 @@ interface TreeViewProps {
 }
 
 export function TreeView({ memories, isLoading, error }: TreeViewProps) {
-  const root = useMemo(() => buildTree(memories), [memories]);
+  const roots = useMemo(() => buildTree(memories), [memories]);
   const pruneExpanded = useSelection((s) => s.pruneExpanded);
 
   useEffect(() => {
-    pruneExpanded(collectPaths(root));
-  }, [root, pruneExpanded]);
+    pruneExpanded(collectPaths(roots));
+  }, [roots, pruneExpanded]);
 
   if (error) {
     return (
@@ -39,7 +39,7 @@ export function TreeView({ memories, isLoading, error }: TreeViewProps) {
     return <div className="p-4 text-sm text-slate-500">Loading memories…</div>;
   }
 
-  if (root.children.length === 0) {
+  if (roots.length === 0) {
     return (
       <div className="p-4 text-sm text-slate-500">
         No memories match the current filter.
@@ -49,7 +49,12 @@ export function TreeView({ memories, isLoading, error }: TreeViewProps) {
 
   return (
     <div className="py-1" role="tree" aria-label="Memories">
-      <TreeNodeRow node={root} />
+      {roots.map((node) => (
+        <TreeNodeRow
+          key={node.kind === "path" ? `p:${node.path}` : `m:${node.id}`}
+          node={node}
+        />
+      ))}
     </div>
   );
 }
