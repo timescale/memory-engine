@@ -1,26 +1,14 @@
 {
   "description": "Memory Engine capture hooks",
   "hooks": {
-    "SessionStart": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bun \"${CLAUDE_PLUGIN_ROOT}/scripts/check-env.ts\"",
-            "timeout": 10,
-            "statusMessage": "Checking Memory Engine environment..."
-          }
-        ]
-      }
-    ],
     "UserPromptSubmit": [
       {
         "hooks": [
           {
             "type": "command",
-            "command": "bun \"${CLAUDE_PLUGIN_ROOT}/scripts/capture-prompt.ts\"",
-            "timeout": 30,
-            "async": true
+            "command": "me claude hook --event user-prompt-submit",
+            "async": true,
+            "timeout": 30
           }
         ]
       }
@@ -30,9 +18,9 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bun \"${CLAUDE_PLUGIN_ROOT}/scripts/capture-response.ts\"",
-            "timeout": 30,
-            "async": true
+            "command": "me claude hook --event stop",
+            "async": true,
+            "timeout": 30
           }
         ]
       }

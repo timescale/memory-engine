@@ -7,7 +7,19 @@
  */
 import { createClient, type EngineClient } from "@memory.build/client";
 import { CLIENT_VERSION } from "../../../version";
-import type { PluginConfig } from "./config.ts";
+
+// =============================================================================
+// Hook config (derived at runtime from CLAUDE_PLUGIN_OPTION_* env vars)
+// =============================================================================
+
+export interface HookConfig {
+  /** Memory Engine server URL. */
+  server: string;
+  /** API key (from the plugin's sensitive userConfig). */
+  apiKey: string;
+  /** Tree path prefix for captured memories (ltree). */
+  treePrefix: string;
+}
 
 // =============================================================================
 // Event types
@@ -133,6 +145,34 @@ export function buildMeta(
 }
 
 // =============================================================================
+// Config resolution from environment
+// =============================================================================
+
+export const DEFAULT_SERVER = "https://api.memory.build";
+export const DEFAULT_TREE_PREFIX = "claude_code.sessions";
+
+/**
+ * Resolve the hook config from `CLAUDE_PLUGIN_OPTION_*` env vars exported
+ * by Claude Code for the plugin. Returns null if required values are
+ * missing.
+ *
+ * Claude Code delivers `sensitive: true` userConfig values (like api_key)
+ * through the same env var mechanism as non-sensitive ones.
+ */
+export function resolveHookConfigFromEnv(
+  env: NodeJS.ProcessEnv = process.env,
+): HookConfig | null {
+  const apiKey = env.CLAUDE_PLUGIN_OPTION_API_KEY;
+  if (!apiKey) return null;
+
+  return {
+    apiKey,
+    server: env.CLAUDE_PLUGIN_OPTION_SERVER || DEFAULT_SERVER,
+    treePrefix: env.CLAUDE_PLUGIN_OPTION_TREE_PREFIX || DEFAULT_TREE_PREFIX,
+  };
+}
+
+// =============================================================================
 // Capture entry point
 // =============================================================================
 
@@ -153,12 +193,12 @@ export interface CaptureOptions {
  * Capture a hook event as a memory.
  *
  * Returns immediately if there's no content to capture. Otherwise creates
- * a memory in the engine under `{tree_prefix}.{project}` with metadata.
+ * a memory in the engine under `config.treePrefix` with metadata.
  */
 export async function captureHookEvent(
   event: HookEvent,
   eventName: HookEventName,
-  config: PluginConfig,
+  config: HookConfig,
   opts: CaptureOptions = {},
 ): Promise<CaptureResult> {
   const content = extractContent(event, eventName);
@@ -171,11 +211,11 @@ export async function captureHookEvent(
   const now = (opts.now ?? (() => new Date()))();
 
   const client =
-    opts.client ?? createClient({ url: config.server, apiKey: config.api_key });
+    opts.client ?? createClient({ url: config.server, apiKey: config.apiKey });
 
   const result = await client.memory.create({
     content,
-    tree: config.tree_prefix,
+    tree: config.treePrefix,
     meta,
     temporal: { start: now.toISOString() },
   });

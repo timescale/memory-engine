@@ -1,207 +1,127 @@
 # Memory Engine Claude Code Plugin
 
-Automatically captures your coding agent conversations to [Memory Engine](https://memory.build) -- every prompt you send and every response you receive becomes a searchable memory, persisted across sessions.
+Captures your Claude Code conversations to [Memory Engine](https://memory.build) — every prompt you submit and every agent response becomes a searchable memory that persists across sessions. Also bundles the Memory Engine MCP server so your agent can search, create, and update memories directly from inside a session.
 
-This is an early PoC. It captures the conversational layer (what you asked, what the agent concluded) but does not yet load context at session start or provide slash commands. The goal is to build a corpus of session data and learn what's useful before adding retrieval features.
+## Components
 
-## How It Works
-
-The plugin registers three Claude Code hooks:
-
-| Hook | Event | What Happens |
-|------|-------|-------------|
-| **SessionStart** | Session begins | Checks that `me` CLI is on PATH and can reach the engine. Warns on stderr if not (does not block). |
-| **UserPromptSubmit** | You send a prompt | Captures your prompt text as a memory. Runs async (does not delay your session). |
-| **Stop** | Agent finishes responding | Captures the agent's final response as a memory. Runs async. Skips empty responses. |
-
-The plugin does **not** bundle the MCP server. If you want the agent to have access to ME tools (search, create, update, etc.) during your session, set that up separately with `me mcp install`.
-
-### Capture Flow
-
-```
-Claude Code fires hook event (JSON on stdin)
-  |
-  v
-Bun script parses JSON, extracts content
-  |
-  v
-Shells out to: me memory create --tree ... --meta ... --temporal ...
-  (content piped via stdin to avoid escaping issues)
-  |
-  v
-`me` CLI handles authentication and calls the Memory Engine API
-```
-
-All captures are **best-effort**: if the ME API is unreachable (offline, wrong credentials, engine down), the hook logs a one-line warning to stderr and exits cleanly. Your Claude Code session is never blocked or interrupted by a capture failure.
-
-### What Gets Stored
-
-Each captured memory includes:
-
-**Content**: The raw text of your prompt or the agent's response. No transformation, no summarization, no extraction.
-
-**Tree path**: `poc.claude_code.sessions` (all captures share one flat tree path for now).
-
-**Metadata**:
-```json
-{
-  "type": "user_prompt",
-  "session_id": "1866e6ae-1f67-40c2-a3d1-830f24608de7",
-  "project": "memory_engine",
-  "cwd": "/Users/you/projects/your-repo",
-  "source": "claude-code",
-  "plugin_version": "0.0.1"
-}
-```
-
-- `type`: `"user_prompt"` or `"agent_response"`
-- `session_id`: Claude Code's session UUID (stable within a session, groups related memories)
-- `project`: derived from git remote origin URL (e.g., `https://github.com/org/repo` becomes `repo`). Falls back to the working directory name if no git remote is found. Sanitized for ltree (lowercase, underscores only).
-- `cwd`: the working directory when the hook fired
-- `source`: always `"claude-code"`
-- `plugin_version`: tracks which version of the plugin created the memory
-
-**Temporal**: ISO 8601 timestamp of when the hook received the event (point-in-time). Enables temporal search ("what did we discuss this morning?").
-
-### What Does NOT Get Stored
-
-- **Tool calls** (Read, Edit, Bash, etc.): These are execution details -- the *how*. They're noisy, often huge (full file contents), and re-derivable. The agent will re-read files and re-run commands as needed.
-- **Compaction summaries**: Claude generates these during context compression. Useful but deferred to a later version.
-- **Individual turns during streaming**: We capture the final response, not intermediate tokens.
+- **MCP server** (`me mcp`) — 20+ tools for searching, creating, updating, and organizing memories.
+- **Hooks**:
+  - `UserPromptSubmit` captures your prompt as a memory.
+  - `Stop` captures the agent's final response as a memory.
+- **Async, best-effort**. Hooks never block your session; failures log to stderr and exit 0.
 
 ## Prerequisites
 
-1. **Memory Engine CLI** (`me`) installed and on PATH.
+1. **`me` CLI** on PATH (required both for the MCP server and the hooks):
+
    ```bash
-   curl -sSfL https://install.memory.build | sh
+   # Install however you normally install; e.g.:
+   brew install timescale/tap/me     # (future)
+   npm install -g @memory.build/cli  # (future)
    ```
 
-2. **Logged in** to a Memory Engine instance:
-   ```bash
-   me login
-   ```
-   Or set environment variables: `ME_API_KEY` and `ME_SERVER`.
+2. **An API key** with access to the engine you want to capture to. Create one with:
 
-3. **Bun** runtime installed (the hook scripts are TypeScript executed with Bun):
    ```bash
-   curl -fsSL https://bun.sh/install | bash
+   me apikey create --engine <engine-slug>
    ```
 
-4. **(Optional) MCP server** for agent access to ME tools during sessions:
-   ```bash
-   me mcp install
-   ```
+   **Tip**: the key you configure for the plugin does NOT have to match the identity you use for `me login`. You can issue a separate, scoped-down key (e.g., a service-account key limited to the capture tree) and paste that into the plugin. See [Access control](https://docs.memory.build/access-control) for details.
 
 ## Install
 
-From a local checkout of this repo:
-
-```
-/plugin marketplace add /absolute/path/to/this/repo
-/plugin install memory-engine@memory-engine
-/reload-plugins
-```
-
-From the git remote (once pushed):
-
-```
-/plugin marketplace add timescale/memory-engine
-/plugin install memory-engine@memory-engine
-/reload-plugins
-```
-
-You should see "Checking Memory Engine environment..." briefly on session start.
-
-## Verify It's Working
-
-After sending a few prompts in Claude Code, open another terminal and run:
+The plugin is distributed through a Claude Code marketplace. Register the marketplace, then install the plugin, then configure it from inside a Claude Code session.
 
 ```bash
-me memory search --tree "poc.claude_code.*" --limit 10
+# 1. Register the marketplace (one-time, user-global)
+claude plugin marketplace add timescale/memory-engine
+
+# 2. Install the plugin at the scope you want
+claude plugin install memory-engine@memory-engine                   # user scope (all projects)
+claude plugin install memory-engine@memory-engine --scope project   # commit to this repo
+claude plugin install memory-engine@memory-engine --scope local     # this repo, gitignored
 ```
 
-You should see your recent prompts and agent responses listed with their tree path and content preview.
+## Configure
 
-To see full details on a specific memory:
+The plugin needs three values: `api_key`, `server`, and `tree_prefix`. Claude Code does not prompt for these at install time — you configure them from inside a session.
+
+```
+claude                               # start a session
+/plugin                              # open the plugin manager
+# → Installed → memory-engine → Configure
+# → fill in api_key (sensitive), server (default ok), tree_prefix (default ok)
+# → confirm; the plugin picks up the new values immediately
+```
+
+Sensitive values (like `api_key`) go to the system keychain. Non-sensitive values go to the settings.json for the scope you installed in.
+
+## Verify
+
+After you've configured the plugin, send a prompt in Claude Code, then check that capture happened:
 
 ```bash
-me memory get <memory-id>
+me memory search --tree "claude_code.*" --limit 5
 ```
 
-## Searching Your Captured Sessions
+You should see your recent prompts (and, after the agent finishes, its response). Tree path and metadata reflect what you configured:
 
-Once you have captured data, you can search it:
+- **Tree**: whatever you set in `tree_prefix` (default: `claude_code.sessions`)
+- **Metadata**:
+  - `type`: `user_prompt` or `agent_response`
+  - `session_id`: Claude Code's session UUID
+  - `project`: derived from `git remote get-url origin` in the session cwd (falls back to cwd basename)
+  - `cwd`: working directory when the hook fired
+  - `source`: `"claude-code"`
+  - `me_version`: the `me` CLI version that created the memory
+- **Temporal**: ISO timestamp of hook invocation
+
+## Multi-scope / multi-engine
+
+Claude Code supports user/project/local scopes for plugin installs and userConfig values. Different scopes store their own configuration; whichever scope is active for your session wins.
+
+Example: a team wants everyone's Claude Code sessions on their repo to capture to a shared team engine, while each developer's user-scope install captures to their personal engine.
 
 ```bash
-# Semantic search across all captured sessions
-me memory search --semantic "auth module refactor" --tree "poc.claude_code.*"
+# each developer: personal engine for all their projects
+claude plugin install memory-engine@memory-engine --scope user
+# → configure with personal api_key
 
-# Find everything from a specific session
-me memory search --meta '{"session_id": "1866e6ae-..."}' --tree "poc.claude_code.*"
-
-# Find what you discussed today
-me memory search --tree "poc.claude_code.*" --temporal-contains "2026-04-22"
-
-# Full-text keyword search
-me memory search --fulltext "JWT token" --tree "poc.claude_code.*"
+# in the team's repo: project-scope install (settings.json is committed)
+cd /path/to/team/repo
+claude plugin install memory-engine@memory-engine --scope project
+# → /plugin → configure with a team-engine api_key
+# note: api_key is sensitive — stays in each developer's keychain, not committed
 ```
 
-If you've set up the MCP server separately (`me mcp install`), the agent can also search using ME tools (`me_memory_search`, `me_memory_get`, etc.) during your session.
+Inside the team repo, sessions capture to the team engine. Outside, they capture to the personal engine. Claude Code handles the scope resolution.
 
-## Known Limitations
+## Change API key / switch engine
 
-- **Bun required**: The hook scripts are TypeScript executed via `bun`. Users without Bun installed will see hook errors. A future version may ship compiled JavaScript.
-- **No context loading at session start**: The plugin captures but does not yet inject past context into new sessions. The agent can manually search ME using the MCP tools.
-- **No slash commands**: No `/remember`, `/recall`, or similar commands yet. Use the MCP tools directly or the `me` CLI.
-- **Flat tree path**: All captures go to `poc.claude_code.sessions` regardless of project. Session identity is in the metadata, not the tree structure. This may change.
-- **Engine identity**: The plugin's hooks use whatever engine `me` is logged into (via `me login` or env vars). If you also use the MCP server (`me mcp install`), make sure it points at the same engine. Run `me whoami` to check.
-- **macOS / Linux only**: Not tested on Windows.
-- **Async capture**: Hooks run with `"async": true`, meaning captures happen in the background. In rare cases, a very fast session exit could drop the last capture if the process hasn't finished.
-
-## Troubleshooting
-
-**No memories appearing after prompts:**
-1. Check that `me` is on PATH: `which me`
-2. Check that you're logged in: `me whoami`
-3. Try creating a memory manually: `echo "test" | me memory create --tree poc.test`
-4. Check Claude Code's debug output: `claude --debug` and look for `[memory-engine]` prefixed messages in stderr
-
-**"me CLI not found" warning on session start:**
-Install `me`: `curl -sSfL https://install.memory.build | sh`
-
-**Captures going to the wrong engine:**
-Run `me whoami` to see which engine you're connected to. Use `me login` to switch if needed, then restart Claude Code (or `/reload-plugins`).
-
-## Plugin Structure
-
-```
-packages/claude-plugin/
-├── .claude-plugin/
-│   └── plugin.json           # plugin manifest (name, version, description)
-├── hooks/
-│   └── hooks.json            # hook configuration (SessionStart, UserPromptSubmit, Stop)
-├── scripts/
-│   ├── check-env.ts          # SessionStart: verify me CLI and engine connectivity
-│   ├── capture-prompt.ts     # UserPromptSubmit: save user prompt to ME
-│   └── capture-response.ts   # Stop: save agent final response to ME
-└── README.md                 # this file
-```
-
-The marketplace entry lives at the repo root: `.claude-plugin/marketplace.json`.
+Repeat the `/plugin → Configure` flow. Paste a new api_key. Values take effect immediately — no restart required.
 
 ## Uninstall
 
-```
-/plugin uninstall memory-engine@memory-engine
-/plugin marketplace remove memory-engine
-```
-
-To clean up captured PoC data:
-
 ```bash
-# See what's there
-me memory search --tree "poc.claude_code.*" --limit 100
-
-# Delete via MCP or CLI (no bulk delete-tree CLI command yet)
-# Use the MCP tool: me_memory_delete_tree with tree "poc.claude_code"
+claude plugin uninstall memory-engine@memory-engine                    # user scope
+claude plugin uninstall memory-engine@memory-engine --scope project    # project scope
+claude plugin marketplace remove memory-engine                         # optionally remove marketplace
 ```
+
+Claude Code handles the cleanup. Your captured memories and API keys are preserved — delete them separately with `me memory` and `me apikey` commands if desired.
+
+## Troubleshooting
+
+**"Configure the plugin via `/plugin` in Claude Code" in stderr**
+The hook ran but `CLAUDE_PLUGIN_OPTION_API_KEY` isn't set. Configure via `/plugin → memory-engine → Configure`.
+
+**"Plugin option 'X' isn't set" in Claude Code's error panel**
+A required userConfig value is missing for either a hook or the MCP server. Configure all three: api_key, server, tree_prefix.
+
+**Hook fires but no memories appear**
+- Confirm the api_key is valid: `me memory tree --levels 1` with the same key
+- Check `claude --debug` output for `[memory-engine]` messages
+- Confirm `me` is on PATH from inside the Claude session: ask Claude to run `which me`
+
+**MCP server shows "failed" in `/plugin`**
+Usually means the api_key or server config is missing. Fix the userConfig then pick "Reconnect" from the plugin menu, or restart the session.

@@ -8,10 +8,11 @@ import {
   captureHookEvent,
   deriveProject,
   extractContent,
+  type HookConfig,
   type HookEvent,
   metaTypeForEvent,
+  resolveHookConfigFromEnv,
 } from "./capture.ts";
-import type { PluginConfig } from "./config.ts";
 
 const BASE_EVENT = {
   session_id: "sess-abc",
@@ -20,12 +21,10 @@ const BASE_EVENT = {
   transcript_path: "/tmp/transcript.jsonl",
 };
 
-const CONFIG: PluginConfig = {
+const CONFIG: HookConfig = {
   server: "https://api.example.com",
-  engine: "eng123",
-  api_key: "me.eng123.aaa.bbb",
-  tree_prefix: "claude_code.sessions",
-  mode: "plugin",
+  apiKey: "me.eng123.aaa.bbb",
+  treePrefix: "claude_code.sessions",
 };
 
 // =============================================================================
@@ -221,17 +220,62 @@ describe("captureHookEvent", () => {
     expect(meta.type).toBe("agent_response");
   });
 
-  test("uses custom tree_prefix from config", async () => {
+  test("uses custom treePrefix from config", async () => {
     const { client, calls } = mockClient();
     const event: HookEvent = { ...BASE_EVENT, prompt: "x" };
-    const cfg: PluginConfig = {
+    const cfg: HookConfig = {
       ...CONFIG,
-      tree_prefix: "my.custom.prefix",
+      treePrefix: "my.custom.prefix",
     };
 
     await captureHookEvent(event, "user-prompt-submit", cfg, { client });
 
     const [call] = calls as [Record<string, unknown>];
     expect(call.tree).toBe("my.custom.prefix");
+  });
+});
+
+// =============================================================================
+// resolveHookConfigFromEnv
+// =============================================================================
+
+describe("resolveHookConfigFromEnv", () => {
+  test("returns null when api_key is missing", () => {
+    const cfg = resolveHookConfigFromEnv({});
+    expect(cfg).toBeNull();
+  });
+
+  test("returns config when api_key is present", () => {
+    const cfg = resolveHookConfigFromEnv({
+      CLAUDE_PLUGIN_OPTION_API_KEY: "me.eng.aaa.bbb",
+      CLAUDE_PLUGIN_OPTION_SERVER: "https://api.example.com",
+      CLAUDE_PLUGIN_OPTION_TREE_PREFIX: "my.prefix",
+    });
+    expect(cfg).toEqual({
+      apiKey: "me.eng.aaa.bbb",
+      server: "https://api.example.com",
+      treePrefix: "my.prefix",
+    });
+  });
+
+  test("falls back to default server and tree_prefix", () => {
+    const cfg = resolveHookConfigFromEnv({
+      CLAUDE_PLUGIN_OPTION_API_KEY: "me.eng.aaa.bbb",
+    });
+    expect(cfg).toEqual({
+      apiKey: "me.eng.aaa.bbb",
+      server: "https://api.memory.build",
+      treePrefix: "claude_code.sessions",
+    });
+  });
+
+  test("treats empty string as missing (falls back to default)", () => {
+    const cfg = resolveHookConfigFromEnv({
+      CLAUDE_PLUGIN_OPTION_API_KEY: "me.eng.aaa.bbb",
+      CLAUDE_PLUGIN_OPTION_SERVER: "",
+      CLAUDE_PLUGIN_OPTION_TREE_PREFIX: "",
+    });
+    expect(cfg?.server).toBe("https://api.memory.build");
+    expect(cfg?.treePrefix).toBe("claude_code.sessions");
   });
 });
