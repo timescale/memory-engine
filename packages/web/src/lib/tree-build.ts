@@ -32,6 +32,11 @@ export interface MemoryLeaf {
   id: string;
   title: string;
   tree: string;
+  /**
+   * ISO timestamp for the memory's temporal range start, or null when the
+   * memory has no temporal set. Drives leaf ordering within each path.
+   */
+  temporalStart: string | null;
   depth: number;
 }
 
@@ -59,6 +64,7 @@ export function buildTree(memories: MemoryWithScore[]): TreeNode[] {
         id: memory.id,
         title: titleFor(memory),
         tree: memory.tree,
+        temporalStart: memory.temporal?.start ?? null,
         depth: 1, // nested inside the synthetic `.` parent
       });
       continue;
@@ -94,6 +100,7 @@ export function buildTree(memories: MemoryWithScore[]): TreeNode[] {
       id: memory.id,
       title: titleFor(memory),
       tree: memory.tree,
+      temporalStart: memory.temporal?.start ?? null,
       depth: leafParent.depth + 1,
     });
   }
@@ -145,10 +152,28 @@ function sortRecursive(node: PathNode): void {
 }
 
 function compareNodes(a: TreeNode, b: TreeNode): number {
+  // Paths always come before memory leaves.
   if (a.kind !== b.kind) return a.kind === "path" ? -1 : 1;
-  const aKey = a.kind === "path" ? a.label : a.title;
-  const bKey = b.kind === "path" ? b.label : b.title;
-  return aKey.localeCompare(bKey);
+
+  // Paths sort alphabetically by label.
+  if (a.kind === "path" && b.kind === "path") {
+    return a.label.localeCompare(b.label);
+  }
+
+  // Memory leaves sort by temporal start descending (newest first). Memories
+  // with no temporal sort after those with one. Ties break on title so the
+  // order is deterministic across re-renders.
+  if (a.kind === "memory" && b.kind === "memory") {
+    if (a.temporalStart === null && b.temporalStart !== null) return 1;
+    if (a.temporalStart !== null && b.temporalStart === null) return -1;
+    if (a.temporalStart !== null && b.temporalStart !== null) {
+      const cmp = b.temporalStart.localeCompare(a.temporalStart);
+      if (cmp !== 0) return cmp;
+    }
+    return a.title.localeCompare(b.title);
+  }
+
+  return 0;
 }
 
 /**

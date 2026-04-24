@@ -88,12 +88,84 @@ describe("buildTree", () => {
     expect(me.children[0]?.kind).toBe("memory");
   });
 
-  test("root-leaf titles are sorted alphabetically under the `.` node", () => {
+  test("memory leaves sort by temporal start, newest first", () => {
     const roots = buildTree([
-      mkMemory({ id: "m1", content: "zzz note", tree: "" }),
-      mkMemory({ id: "m2", content: "aaa note", tree: "" }),
+      mkMemory({
+        id: "old",
+        content: "older note",
+        tree: "notes",
+        temporal: {
+          start: "2024-01-01T00:00:00Z",
+          end: "2024-01-01T00:00:00Z",
+        },
+      }),
+      mkMemory({
+        id: "new",
+        content: "newer note",
+        tree: "notes",
+        temporal: {
+          start: "2026-04-01T00:00:00Z",
+          end: "2026-04-01T00:00:00Z",
+        },
+      }),
+      mkMemory({
+        id: "mid",
+        content: "middle note",
+        tree: "notes",
+        temporal: {
+          start: "2025-06-01T00:00:00Z",
+          end: "2025-06-01T00:00:00Z",
+        },
+      }),
     ]);
-    expect(roots).toHaveLength(1);
+    const notes = roots[0];
+    if (!notes || notes.kind !== "path") throw new Error("expected path");
+    expect(
+      notes.children.filter((c) => c.kind === "memory").map((c) => c.title),
+    ).toEqual(["newer note", "middle note", "older note"]);
+  });
+
+  test("memories without a temporal sort after those that have one", () => {
+    const roots = buildTree([
+      mkMemory({ id: "untimed", content: "no timestamp", tree: "notes" }),
+      mkMemory({
+        id: "timed",
+        content: "timestamped",
+        tree: "notes",
+        temporal: {
+          start: "2024-01-01T00:00:00Z",
+          end: "2024-01-01T00:00:00Z",
+        },
+      }),
+    ]);
+    const notes = roots[0];
+    if (!notes || notes.kind !== "path") throw new Error("expected path");
+    expect(
+      notes.children.filter((c) => c.kind === "memory").map((c) => c.title),
+    ).toEqual(["timestamped", "no timestamp"]);
+  });
+
+  test("memories with identical temporal starts break ties on title", () => {
+    const roots = buildTree([
+      mkMemory({
+        id: "z",
+        content: "zzz note",
+        tree: "",
+        temporal: {
+          start: "2025-01-01T00:00:00Z",
+          end: "2025-01-01T00:00:00Z",
+        },
+      }),
+      mkMemory({
+        id: "a",
+        content: "aaa note",
+        tree: "",
+        temporal: {
+          start: "2025-01-01T00:00:00Z",
+          end: "2025-01-01T00:00:00Z",
+        },
+      }),
+    ]);
     const rootBucket = roots[0];
     if (!rootBucket || rootBucket.kind !== "path") {
       throw new Error("expected path");
