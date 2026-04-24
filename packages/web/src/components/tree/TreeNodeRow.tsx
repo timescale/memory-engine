@@ -30,6 +30,43 @@ import { useUi } from "../../store/ui.ts";
 
 const INDENT_PX = 16;
 
+/**
+ * Disclosure chevron. Rendered as an inline SVG so its geometry is
+ * pixel-consistent across platforms (unicode triangles ▸/▾ render at
+ * wildly different sizes and baselines depending on the system font).
+ * The parent button uses `items-center`; the fixed 16×16 viewBox gives
+ * us a predictable bounding box that centers cleanly with the label.
+ */
+function Caret({ expanded }: { expanded: boolean }) {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 16 16"
+      className="size-4 shrink-0 text-slate-400 transition-transform"
+      style={{ transform: expanded ? "rotate(90deg)" : "rotate(0deg)" }}
+      fill="currentColor"
+    >
+      <path d="M6 4l5 4-5 4V4z" />
+    </svg>
+  );
+}
+
+/**
+ * Leaf marker. Fixed 16×16 inline-flex box so the dot lands in the same
+ * column as the caret above (and stays vertically centered regardless of
+ * the text's line height).
+ */
+function LeafBullet() {
+  return (
+    <span
+      aria-hidden="true"
+      className="inline-flex size-4 shrink-0 items-center justify-center text-slate-400"
+    >
+      <span className="block size-1 rounded-full bg-current" />
+    </span>
+  );
+}
+
 export function PathRow({
   node,
   context,
@@ -85,13 +122,7 @@ export function PathRow({
         className="flex w-full cursor-pointer items-center gap-1 px-2 py-1 text-left text-sm text-slate-700 hover:bg-slate-100"
         style={{ paddingLeft: `${8 + node.depth * INDENT_PX}px` }}
       >
-        <span
-          aria-hidden="true"
-          className="inline-block w-4 text-slate-400 transition-transform"
-          style={{ transform: expanded ? "rotate(90deg)" : "rotate(0deg)" }}
-        >
-          ▸
-        </span>
+        <Caret expanded={expanded} />
         <span className="truncate font-medium">{node.label}</span>
         <span className="ml-auto pl-2 text-xs text-slate-400">
           {node.aggregateCount}
@@ -176,9 +207,7 @@ function MemoryRow({ leaf }: { leaf: MemoryLeaf }) {
         ].join(" ")}
         style={{ paddingLeft: `${8 + leaf.depth * INDENT_PX}px` }}
       >
-        <span aria-hidden="true" className="w-4 text-slate-400">
-          •
-        </span>
+        <LeafBullet />
         <span className="truncate">{leaf.title}</span>
       </button>
     </div>
