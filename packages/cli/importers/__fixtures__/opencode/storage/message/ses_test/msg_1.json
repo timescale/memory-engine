@@ -1,0 +1,8 @@
+{
+  "id": "msg_1",
+  "sessionID": "ses_test",
+  "role": "user",
+  "time": { "created": 1770400000000 },
+  "agent": "plan",
+  "model": { "providerID": "google", "modelID": "gemini-3-pro-preview" }
+}

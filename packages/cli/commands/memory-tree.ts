@@ -70,21 +70,20 @@ function buildTree(nodes: TreeViewNode[]): TreeNode[] {
  * 45 memories total
  * ```
  */
-export function renderTree(
-  nodes: TreeViewNode[],
-  total: number,
-  filter?: string,
-): string {
-  if (total === 0) {
-    return "No memories found.";
-  }
-
+export function renderTree(nodes: TreeViewNode[], filter?: string): string {
+  const total = filter ? (nodes.find((n) => n.path === filter)?.count ?? 0) : 0;
   const filteredNodes = filter ? nodes.filter((n) => n.path !== filter) : nodes;
   const tree = buildTree(filteredNodes);
+  const renderedTotal =
+    total > 0 ? total : tree.reduce((sum, node) => sum + node.count, 0);
+
+  if (renderedTotal === 0) {
+    return "No memories found.";
+  }
   const lines: string[] = [];
 
   const rootLabel = filter || ".";
-  lines.push(`${rootLabel} (${total})`);
+  lines.push(`${rootLabel} (${renderedTotal})`);
 
   function render(children: TreeNode[], prefix: string): void {
     for (let i = 0; i < children.length; i++) {
@@ -101,7 +100,9 @@ export function renderTree(
   render(tree, "");
 
   lines.push("");
-  lines.push(`${total} ${total === 1 ? "memory" : "memories"} total`);
+  lines.push(
+    `${renderedTotal} ${renderedTotal === 1 ? "memory" : "memories"} total`,
+  );
 
   return lines.join("\n");
 }

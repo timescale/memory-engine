@@ -72,7 +72,7 @@ program.addCommand(createMemoryCommand());
 // MCP server
 program.addCommand(createMcpCommand());
 
-// Agent integration commands
+// Agent integration commands (install MCP, import sessions, capture hooks)
 program.addCommand(createClaudeCommand());
 program.addCommand(createOpenCodeCommand());
 program.addCommand(createGeminiCommand());

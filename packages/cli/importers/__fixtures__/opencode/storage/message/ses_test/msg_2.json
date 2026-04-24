@@ -1,0 +1,16 @@
+{
+  "id": "msg_2",
+  "sessionID": "ses_test",
+  "role": "assistant",
+  "time": { "created": 1770400010000, "completed": 1770400020000 },
+  "modelID": "gemini-3-pro-preview",
+  "providerID": "google",
+  "agent": "plan",
+  "cost": 0.015,
+  "tokens": {
+    "input": 1000,
+    "output": 100,
+    "reasoning": 50,
+    "cache": { "read": 0, "write": 0 }
+  }
+}

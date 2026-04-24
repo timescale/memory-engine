@@ -1,0 +1,8 @@
+{
+  "id": "prt_1",
+  "sessionID": "ses_test",
+  "messageID": "msg_1",
+  "type": "text",
+  "text": "Please bootstrap a Bun project.",
+  "time": { "start": 1770400000000 }
+}

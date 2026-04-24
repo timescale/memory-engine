@@ -535,16 +535,7 @@ function createMemoryTreeCommand(): Command {
         );
 
         output(result, fmt, () => {
-          // Calculate total from nodes
-          const total =
-            result.nodes.length > 0
-              ? result.nodes.reduce(
-                  (max: number, n: { count: number }) =>
-                    n.count > max ? n.count : max,
-                  0,
-                )
-              : 0;
-          console.log(renderTree(result.nodes, total, filter));
+          console.log(renderTree(result.nodes, filter));
         });
       } catch (error) {
         handleError(error, fmt);
