@@ -78,14 +78,13 @@ export function validateMemoryObject(
 /**
  * Parse temporal input from various formats.
  *
- * JSON accepts: string | [string, string?] | {start, end?}
- * YAML/Markdown accepts: string | [string, string?]
+ * Accepts: string | [string, string?] | {start, end?}
  *
  * All normalize to {start: string, end?: string}.
  */
 export function parseTemporalInput(
   value: unknown,
-  format: ImportFormat,
+  _format: ImportFormat,
   location?: string,
 ): { start: string; end?: string } {
   const inLoc = location ? ` in ${location}` : "";
@@ -112,13 +111,9 @@ export function parseTemporalInput(
     );
   }
 
-  // Object → {start, end?} (only for JSON format)
+  // Object → {start, end?}
+  // This is the normalized API/export shape, so all import formats accept it.
   if (typeof value === "object" && value !== null && !Array.isArray(value)) {
-    if (format !== "json") {
-      throw new Error(
-        `Invalid temporal: object format only supported in JSON${inLoc}`,
-      );
-    }
     const obj = value as Record<string, unknown>;
     if (typeof obj.start !== "string") {
       throw new Error(`Invalid temporal: 'start' must be a string${inLoc}`);

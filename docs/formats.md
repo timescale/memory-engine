@@ -24,7 +24,7 @@ Different formats accept different input shapes:
 |-------------|------|------|----------|
 | String -- interpreted as start | yes | yes | yes |
 | Array of 1-2 strings -- `[start]` or `[start, end]` | yes | yes | yes |
-| Object -- `{start, end?}` | yes | **no** | **no** |
+| Object -- `{start, end?}` | yes | yes | yes |
 
 Examples:
 
@@ -34,7 +34,7 @@ Examples:
 "temporal": {"start": "2024-01-01T00:00:00Z", "end": "2024-12-31T23:59:59Z"}
 ```
 
-The object form is only accepted in JSON. YAML and Markdown must use the string or array form.
+YAML and Markdown exports use the object form, so exported files can be re-imported without conversion.
 
 ---
 
@@ -102,8 +102,8 @@ A YAML array of memory objects.
     source: import
     author: jane
   temporal:
-    - "2024-01-15T00:00:00Z"
-    - "2024-12-31T23:59:59Z"
+    start: "2024-01-15T00:00:00Z"
+    end: "2024-12-31T23:59:59Z"
 
 - content: Switched to PostgreSQL for the queue
   tree: work.projects.api
@@ -117,8 +117,6 @@ A single object (not wrapped in an array) is also accepted:
 content: Single memory import
 tree: notes
 ```
-
-Note that `temporal` in YAML must use the string or array form, not an object with `start`/`end` keys.
 
 **File extensions**: `.yaml`, `.yml`
 
@@ -136,8 +134,8 @@ meta:
   source: import
   type: decision
 temporal:
-  - "2024-01-01T00:00:00Z"
-  - "2024-06-30T23:59:59Z"
+  start: "2024-01-01T00:00:00Z"
+  end: "2024-06-30T23:59:59Z"
 ---
 
 We decided to use PostgreSQL as the task queue backend instead of Redis.
