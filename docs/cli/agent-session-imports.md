@@ -1,20 +1,16 @@
-# me import
+# Agent session imports
 
-Import agent conversations from local CLI agents (Claude Code, Codex, OpenCode) into the active engine as memories.
+Shared reference for the per-agent `import` subcommands:
+
+- [`me claude import`](me-claude.md#me-claude-import)
+- [`me codex import`](me-codex.md#me-codex-import)
+- [`me opencode import`](me-opencode.md#me-opencode-import)
 
 Each source-native message becomes one memory. Re-running the same command only inserts newly-seen messages (deterministic UUIDs make re-imports idempotent).
 
-## Commands
-
-- [me import claude](#me-import-claude) -- import Claude Code sessions
-- [me import codex](#me-import-codex) -- import Codex sessions
-- [me import opencode](#me-import-opencode) -- import OpenCode sessions
-
----
-
 ## Shared options
 
-All three subcommands accept the same flags (with one extra flag on `claude`).
+All three subcommands accept the same flags (with one extra flag on `me claude import`).
 
 | Option | Description |
 |--------|-------------|
@@ -30,7 +26,7 @@ All three subcommands accept the same flags (with one extra flag on `claude`).
 | `--dry-run` | Parse and report what would be imported without writing anything. |
 | `-v, --verbose` | Per-session progress lines. |
 
-`me import claude` additionally accepts:
+`me claude import` additionally accepts:
 
 | Option | Description |
 |--------|-------------|
@@ -95,68 +91,3 @@ Each imported memory carries:
 | `importer_version` | Version tag of the importer schema. |
 
 Temporal is a point-in-time at the message's timestamp.
-
----
-
-## me import claude
-
-Import Claude Code sessions from `~/.claude/projects/<encoded-cwd>/<session>.jsonl`.
-
-```
-me import claude [options]
-```
-
-See [Shared options](#shared-options) plus `--include-sidechains` above.
-
-**Default filters (off by default, opt in via flags):**
-
-- Sidechain (`agent-*.jsonl`) files are skipped. These are subagent/Task spawns.
-- Sessions whose cwd is under `/tmp`, `/private/tmp`, `/private/var/folders`, or `/var/folders` are skipped.
-- Sessions with fewer than 2 user messages are skipped (one-shot queries, warm-up pings, and aborted sessions).
-
-Example: first-time import of Claude history for a specific project, as a dry run:
-
-```bash
-me import claude --project /Users/me/dev/memory-engine --dry-run --verbose
-```
-
----
-
-## me import codex
-
-Import Codex sessions from `~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl` and `~/.codex/archived_sessions/*.jsonl`.
-
-```
-me import codex [options]
-```
-
-See [Shared options](#shared-options).
-
-Codex sessions include git commit, branch, and remote URL in `session_meta`, so the importer captures all three. Both the recent on-disk format (with a leading `session_meta` line wrapping payloads in `response_item` / `event_msg`) and the legacy format (bare response-item-like objects per line) are handled.
-
-Reasoning and function-call response items don't always carry a native id. In those cases the importer synthesizes a stable id from `(session_id, type, ordinal)` so re-imports remain idempotent.
-
-Injected Codex wrapper messages like `# AGENTS.md instructions ...`, `<user_instructions>...</user_instructions>`, `<environment_context>...</environment_context>`, and `<turn_aborted>...</turn_aborted>` are ignored.
-
----
-
-## me import opencode
-
-Import OpenCode sessions from `~/.local/share/opencode/storage/`.
-
-```
-me import opencode [options]
-```
-
-See [Shared options](#shared-options).
-
-OpenCode stores data across four directories:
-
-- `project/<project-id>.json` -- project metadata
-- `session/<project-id>/ses_<id>.json` -- session metadata (title, directory, timestamps)
-- `message/ses_<id>/msg_<id>.json` -- per-message metadata (role, model)
-- `part/msg_<id>/prt_<id>.json` -- content parts (text, reasoning, tool, step-start/finish)
-
-Each `msg_<id>` becomes one memory. Parts are stitched into the message's ordered block list (text / reasoning / tool_use + tool_result). OpenCode's `agent` field becomes `meta.source_agent_mode` (e.g. `"plan"`).
-
-Synthetic OpenCode user text wrapper parts marked with `synthetic: true` are ignored.

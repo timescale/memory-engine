@@ -20,6 +20,8 @@ import {
   type HookEventName,
   resolveHookConfigFromEnv,
 } from "../claude/capture.ts";
+import { claudeImporter } from "../importers/claude.ts";
+import { buildAgentImportSubcommand } from "./import.ts";
 
 /**
  * me claude hook — invoked by the Claude Code plugin to capture events as
@@ -100,5 +102,12 @@ function createClaudeHookCommand(): Command {
 export function createClaudeCommand(): Command {
   const claude = new Command("claude").description("Claude Code integration");
   claude.addCommand(createClaudeHookCommand());
+  claude.addCommand(
+    buildAgentImportSubcommand(
+      "import Claude Code sessions from ~/.claude/projects",
+      claudeImporter,
+      true,
+    ),
+  );
   return claude;
 }

@@ -4,10 +4,12 @@
  * - me opencode install: register me as an MCP server with OpenCode
  */
 import { Command } from "commander";
+import { opencodeImporter } from "../importers/opencode.ts";
 import {
   type AgentInstallOptions,
   runAgentMcpInstall,
 } from "../mcp/agent-install.ts";
+import { buildAgentImportSubcommand } from "./import.ts";
 
 function createOpenCodeInstallCommand(): Command {
   return new Command("install")
@@ -26,5 +28,11 @@ function createOpenCodeInstallCommand(): Command {
 export function createOpenCodeCommand(): Command {
   const opencode = new Command("opencode").description("OpenCode integration");
   opencode.addCommand(createOpenCodeInstallCommand());
+  opencode.addCommand(
+    buildAgentImportSubcommand(
+      "import OpenCode sessions from ~/.local/share/opencode/storage",
+      opencodeImporter,
+    ),
+  );
   return opencode;
 }

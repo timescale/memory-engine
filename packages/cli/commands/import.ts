@@ -1,15 +1,12 @@
 /**
- * me import — import agent conversations from local CLI agents.
+ * Shared helpers for the per-agent `import` subcommands.
  *
- * Subcommands:
- *   me import claude    — from ~/.claude/projects/*.jsonl
- *   me import codex     — from ~/.codex/sessions + archived_sessions
- *   me import opencode  — from ~/.local/share/opencode/storage
- *
- * Each source-native message becomes one memory, stored under
+ * Each agent command group (`me claude`, `me codex`, `me opencode`) adds its
+ * own `import` subcommand via `buildAgentImportSubcommand`. Each source-native
+ * message becomes one memory, stored under
  * `<tree-root>.<project_slug>.<sessions-node-name>`.
  *
- * Shared flags across all three subcommands:
+ * Shared flags across every `import` subcommand:
  *   --source <dir>           override default source directory
  *   --project <cwd>          only import sessions with this cwd (or a child)
  *   --since <iso>            only sessions started at/after this timestamp
@@ -29,8 +26,6 @@ import * as clack from "@clack/prompts";
 import { createClient } from "@memory.build/client";
 import { Command } from "commander";
 import { resolveCredentials } from "../credentials.ts";
-import { claudeImporter } from "../importers/claude.ts";
-import { codexImporter } from "../importers/codex.ts";
 import {
   createProgressReporter,
   type Importer,
@@ -38,7 +33,6 @@ import {
   runImport,
   type WriteOptions,
 } from "../importers/index.ts";
-import { opencodeImporter } from "../importers/opencode.ts";
 import type { ImporterOptions } from "../importers/types.ts";
 import { getOutputFormat, output } from "../output.ts";
 import { handleError, requireEngine, requireSession } from "../util.ts";
@@ -302,47 +296,21 @@ function renderResult(
   });
 }
 
-/** Build a subcommand that runs a specific importer. */
-function buildImporterCommand(
-  name: string,
+/**
+ * Build an `import` subcommand bound to a specific importer. Each agent
+ * command group (`me claude`, `me codex`, `me opencode`) calls this to add
+ * its own `import` subcommand.
+ */
+export function buildAgentImportSubcommand(
   description: string,
   importer: Importer,
   includeSidechainsFlag = false,
 ): Command {
-  const cmd = new Command(name).description(description);
+  const cmd = new Command("import").description(description);
   addCommonOptions(cmd, includeSidechainsFlag);
   cmd.action(async (opts, cmdRef) => {
     const globalOpts = cmdRef.optsWithGlobals();
     await runAndRender(importer, opts, globalOpts);
   });
   return cmd;
-}
-
-export function createImportCommand(): Command {
-  const group = new Command("import").description(
-    "import agent conversations into the active engine",
-  );
-  group.addCommand(
-    buildImporterCommand(
-      "claude",
-      "import Claude Code sessions from ~/.claude/projects",
-      claudeImporter,
-      true,
-    ),
-  );
-  group.addCommand(
-    buildImporterCommand(
-      "codex",
-      "import Codex sessions from ~/.codex/sessions and archived_sessions",
-      codexImporter,
-    ),
-  );
-  group.addCommand(
-    buildImporterCommand(
-      "opencode",
-      "import OpenCode sessions from ~/.local/share/opencode/storage",
-      opencodeImporter,
-    ),
-  );
-  return group;
 }
