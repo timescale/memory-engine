@@ -16,6 +16,12 @@ const FIXTURE_DIR = join(
   "opencode",
   "storage",
 );
+const NOISE_FIXTURE_DIR = join(
+  import.meta.dir,
+  "__fixtures__",
+  "opencode-noise",
+  "storage",
+);
 
 function baseOptions(
   overrides: Partial<ImporterOptions> = {},
@@ -89,5 +95,22 @@ describe("opencode importer", () => {
     const toolUse = asst?.blocks.find((b) => b.kind === "tool_use");
     expect(toolUse?.toolName).toBe("bash");
     expect(toolUse?.text).toContain("bun init -y");
+  });
+
+  test("drops synthetic user text wrapper messages", async () => {
+    const { sessions } = await collect(
+      baseOptions({ source: NOISE_FIXTURE_DIR }),
+    );
+    expect(sessions).toHaveLength(1);
+    const s = sessions[0];
+    if (!s) return;
+
+    expect(s.messages.map((m) => m.messageId)).toEqual([
+      "msg_real",
+      "msg_asst",
+    ]);
+    expect(s.messages[0]?.blocks[0]?.text).toBe(
+      "Explore DM image handling code.",
+    );
   });
 });

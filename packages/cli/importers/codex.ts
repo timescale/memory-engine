@@ -42,6 +42,8 @@ const ARCHIVED_SOURCE = join(homedir(), ".codex", "archived_sessions");
 const ENVIRONMENT_CONTEXT_RE =
   /^<environment_context>\s*[\s\S]*<\/environment_context>$/;
 const TURN_ABORTED_RE = /^<turn_aborted>\s*[\s\S]*<\/turn_aborted>$/;
+const USER_INSTRUCTIONS_RE =
+  /^<user_instructions>\s*[\s\S]*<\/user_instructions>$/;
 
 /** Parse session id + started timestamp out of a rollout filename. */
 const FILENAME_RE =
@@ -378,5 +380,18 @@ function extractMessageText(value: unknown): string {
 
 function isCodexMetaMessage(text: string): boolean {
   const trimmed = text.trim();
-  return ENVIRONMENT_CONTEXT_RE.test(trimmed) || TURN_ABORTED_RE.test(trimmed);
+  return (
+    ENVIRONMENT_CONTEXT_RE.test(trimmed) ||
+    TURN_ABORTED_RE.test(trimmed) ||
+    USER_INSTRUCTIONS_RE.test(trimmed) ||
+    isCodexInstructionsWrapperMessage(trimmed)
+  );
+}
+
+function isCodexInstructionsWrapperMessage(text: string): boolean {
+  return (
+    text.startsWith("# ") &&
+    text.includes(" instructions for /") &&
+    text.includes("\n\n<INSTRUCTIONS>")
+  );
 }

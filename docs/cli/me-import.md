@@ -136,7 +136,7 @@ Codex sessions include git commit, branch, and remote URL in `session_meta`, so 
 
 Reasoning and function-call response items don't always carry a native id. In those cases the importer synthesizes a stable id from `(session_id, type, ordinal)` so re-imports remain idempotent.
 
-Injected Codex wrapper messages like `<environment_context>...</environment_context>` and `<turn_aborted>...</turn_aborted>` are ignored.
+Injected Codex wrapper messages like `# AGENTS.md instructions ...`, `<user_instructions>...</user_instructions>`, `<environment_context>...</environment_context>`, and `<turn_aborted>...</turn_aborted>` are ignored.
 
 ---
 
@@ -158,3 +158,5 @@ OpenCode stores data across four directories:
 - `part/msg_<id>/prt_<id>.json` -- content parts (text, reasoning, tool, step-start/finish)
 
 Each `msg_<id>` becomes one memory. Parts are stitched into the message's ordered block list (text / reasoning / tool_use + tool_result). OpenCode's `agent` field becomes `meta.source_agent_mode` (e.g. `"plan"`).
+
+Synthetic OpenCode user text wrapper parts marked with `synthetic: true` are ignored.

@@ -1,0 +1,8 @@
+{
+  "id": "msg_noise",
+  "sessionID": "ses_noise",
+  "role": "user",
+  "time": { "created": 1770401000000 },
+  "agent": "build",
+  "model": { "providerID": "google", "modelID": "gemini-3-pro-preview" }
+}

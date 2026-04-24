@@ -242,6 +242,7 @@ async function parseSession(
     const blocks: MessageBlock[] = [];
     for (const part of parts) {
       const type = part.type;
+      if (isSyntheticOpenCodeMetaPart(m.role, part)) continue;
       if (type === "text" && typeof part.text === "string") {
         blocks.push({ kind: "text", text: part.text });
       } else if (type === "reasoning" && typeof part.text === "string") {
@@ -327,4 +328,11 @@ async function readJson(path: string): Promise<Record<string, unknown> | null> {
   } catch {
     return null;
   }
+}
+
+function isSyntheticOpenCodeMetaPart(
+  role: string,
+  part: Record<string, unknown>,
+): boolean {
+  return role === "user" && part.type === "text" && part.synthetic === true;
 }

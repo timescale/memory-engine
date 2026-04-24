@@ -13,6 +13,9 @@ import type {
 
 const FIXTURE_DIR = join(import.meta.dir, "__fixtures__", "codex");
 const NOISE_FIXTURE_DIR = join(import.meta.dir, "__fixtures__", "codex-noise");
+const ENV_AND_ABORT_SESSION_ID = "11111111-2222-7333-8444-555555555555";
+const AGENTS_WRAPPER_SESSION_ID = "22222222-3333-7444-8555-666666666666";
+const USER_INSTRUCTIONS_SESSION_ID = "33333333-4444-7555-8666-777777777777";
 
 function baseOptions(
   overrides: Partial<ImporterOptions> = {},
@@ -107,8 +110,10 @@ describe("codex importer", () => {
     const { sessions } = await collect(
       baseOptions({ source: NOISE_FIXTURE_DIR }),
     );
-    expect(sessions).toHaveLength(1);
-    const s = sessions[0];
+    const s = sessions.find(
+      (session) => session.sessionId === ENV_AND_ABORT_SESSION_ID,
+    );
+    expect(s).toBeDefined();
     if (!s) return;
 
     const userTexts = userTextsOf(s.messages);
@@ -118,7 +123,45 @@ describe("codex importer", () => {
       (m) => m.role === "user" && m.blocks.some((b) => b.kind === "text"),
     );
     expect(keptUser?.messageId).toBe(
-      "syn:message:user:11111111-2222-7333-8444-555555555555:2",
+      `syn:message:user:${ENV_AND_ABORT_SESSION_ID}:2`,
+    );
+  });
+
+  test("drops Codex AGENTS wrapper messages", async () => {
+    const { sessions } = await collect(
+      baseOptions({ source: NOISE_FIXTURE_DIR }),
+    );
+    const s = sessions.find(
+      (session) => session.sessionId === AGENTS_WRAPPER_SESSION_ID,
+    );
+    expect(s).toBeDefined();
+    if (!s) return;
+
+    expect(userTextsOf(s.messages)).toEqual([
+      "What env variables control TUI rendering?",
+    ]);
+
+    const keptUser = s.messages.find((m) => m.role === "user");
+    expect(keptUser?.messageId).toBe(
+      `syn:message:user:${AGENTS_WRAPPER_SESSION_ID}:2`,
+    );
+  });
+
+  test("drops Codex user_instructions wrapper messages", async () => {
+    const { sessions } = await collect(
+      baseOptions({ source: NOISE_FIXTURE_DIR }),
+    );
+    const s = sessions.find(
+      (session) => session.sessionId === USER_INSTRUCTIONS_SESSION_ID,
+    );
+    expect(s).toBeDefined();
+    if (!s) return;
+
+    expect(userTextsOf(s.messages)).toEqual(["update"]);
+
+    const keptUser = s.messages.find((m) => m.role === "user");
+    expect(keptUser?.messageId).toBe(
+      `syn:message:user:${USER_INSTRUCTIONS_SESSION_ID}:3`,
     );
   });
 });

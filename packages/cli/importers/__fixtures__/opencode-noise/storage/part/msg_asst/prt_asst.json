@@ -1,0 +1,8 @@
+{
+  "id": "prt_asst",
+  "sessionID": "ses_noise",
+  "messageID": "msg_asst",
+  "type": "text",
+  "text": "I found the relevant Slack image handling paths.",
+  "time": { "start": 1770401020000 }
+}
