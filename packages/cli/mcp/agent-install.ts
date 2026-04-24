@@ -49,8 +49,9 @@ export async function runAgentMcpInstall(
     process.exit(1);
   }
 
-  // Check if tool binary is on PATH
-  if (Bun.which(tool.bin) === null) {
+  // For CLI tools, require the binary to be on PATH. JSON-file tools
+  // (e.g. OpenCode) just edit a config file and don't need the binary.
+  if (tool.method === "cli" && Bun.which(tool.bin) === null) {
     clack.log.error(
       `${tool.name} (${tool.bin}) not found on PATH. Install it first.`,
     );
@@ -60,13 +61,6 @@ export async function runAgentMcpInstall(
   // Build the me mcp command with baked-in credentials
   const meCmd = buildMeCommand(apiKey, server);
 
-  // Manual tools: show instructions and return
-  if (tool.method === "manual") {
-    clack.note(`Register manually:\n  ${tool.instruction}`, "MCP");
-    return;
-  }
-
-  // CLI tools: run mcp add with spinner
   const spin = clack.spinner();
   spin.start(`Registering with ${tool.name}...`);
   const result = await installMcpServer(tool, meCmd);
