@@ -22,19 +22,23 @@ import {
   parseContent,
 } from "../parsers/index.ts";
 
-const DOCS_BASE = "http://docs.memory.build/mcp";
+const DOCS_BASE = "https://docs.memory.build";
+const MCP_DOCS_BASE = `${DOCS_BASE}/mcp`;
 
-/** URL to a tool's Markdown documentation. */
+/** URL to a tool's raw Markdown documentation page. */
 function docUrl(tool: string): string {
-  return `${DOCS_BASE}/${tool}.md`;
+  return `${MCP_DOCS_BASE}/${tool}.md`;
 }
 
 /**
  * MCP instructions — sent to the client during initialization.
+ *
+ * Points at the integration guide as raw Markdown (more token-efficient
+ * for agents than parsing the rendered HTML page).
  */
 const MCP_INSTRUCTIONS = `memory engine — permanent memory for AI agents. Store, search, and organize knowledge across conversations.
 
-Tool docs: ${DOCS_BASE}`;
+Integration guide: ${DOCS_BASE}/mcp-integration.md`;
 
 // =============================================================================
 // Tool Registration
