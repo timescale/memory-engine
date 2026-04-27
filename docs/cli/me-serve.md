@@ -79,4 +79,4 @@ me serve --server https://api.memory.build
 ## See also
 
 - [`me engine use`](me-engine.md) — pick the active engine that `me serve` will connect to.
-- [`me memory search`](me-memory.md#search) — the CLI equivalent of the UI's search bar.
+- [`me memory search`](me-memory.md#me-memory-search) — the CLI equivalent of the UI's search bar.

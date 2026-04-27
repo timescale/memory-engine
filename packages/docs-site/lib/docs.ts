@@ -21,6 +21,10 @@ export type Doc = {
   description: string | null;
   html: string;
   toc: TocEntry[];
+  /** Every heading id rendered on the page (used by the link checker). */
+  headingIds: string[];
+  /** Every outbound `<a href>` value on the page (post link rewriting). */
+  linkHrefs: string[];
 };
 
 /**
@@ -79,7 +83,10 @@ export async function getDoc(slug: string): Promise<Doc> {
   const raw = await fs.readFile(filepath, "utf8");
   const parsed = matter(raw);
   const source = parsed.content;
-  const { html, toc } = await renderMarkdown(source);
+  const { html, toc, headingIds, linkHrefs } = await renderMarkdown(
+    source,
+    slug,
+  );
 
   // Title precedence: frontmatter -> first h1 in TOC pass (we'd need an
   // extra walk; instead we extract from the source heuristically).
@@ -93,7 +100,16 @@ export async function getDoc(slug: string): Promise<Doc> {
       ? parsed.data.description
       : null;
 
-  const doc: Doc = { slug, filepath, title, description, html, toc };
+  const doc: Doc = {
+    slug,
+    filepath,
+    title,
+    description,
+    html,
+    toc,
+    headingIds,
+    linkHrefs,
+  };
   docCache.set(slug, doc);
   return doc;
 }

@@ -135,14 +135,58 @@ function rehypeCollectToc(out: TocEntry[]) {
   };
 }
 
+const HEADING_TAGS = new Set(["h1", "h2", "h3", "h4", "h5", "h6"]);
+
 /**
- * Render Markdown source to an HTML string + TOC list.
+ * Capture every heading id and every <a href> on the page. Used by the
+ * link-checker to validate cross-document anchors at build time.
+ *
+ * Runs AFTER `rehypeRewriteLinks` so the captured hrefs match what ends
+ * up in the rendered HTML.
+ */
+function rehypeCollectLinksAndHeadings(
+  headingIds: string[],
+  linkHrefs: string[],
+) {
+  return (tree: Root) => {
+    visit(tree, "element", (node: Element) => {
+      if (HEADING_TAGS.has(node.tagName)) {
+        const id = node.properties?.id;
+        if (typeof id === "string") headingIds.push(id);
+        return;
+      }
+      if (node.tagName === "a") {
+        const href = node.properties?.href;
+        if (typeof href === "string") linkHrefs.push(href);
+      }
+    });
+  };
+}
+
+export type RenderResult = {
+  html: string;
+  toc: TocEntry[];
+  /** Every heading id on the page, in document order. */
+  headingIds: string[];
+  /** Every outbound `<a href>` value (post link rewriting). */
+  linkHrefs: string[];
+};
+
+/**
+ * Render Markdown source to an HTML string + TOC + link/heading metadata.
+ *
+ * `sourceSlug` is the slug of the page being rendered (e.g. `""`,
+ * `"concepts"`, `"cli/me-memory"`). It's used by the link rewriter to
+ * resolve filesystem-relative `.md` links into absolute URLs.
  */
 export async function renderMarkdown(
   source: string,
-): Promise<{ html: string; toc: TocEntry[] }> {
+  sourceSlug: string,
+): Promise<RenderResult> {
   const highlighter = await getHighlighter();
   const toc: TocEntry[] = [];
+  const headingIds: string[] = [];
+  const linkHrefs: string[] = [];
 
   const file = await unified()
     .use(remarkParse)
@@ -160,10 +204,11 @@ export async function renderMarkdown(
       content: { type: "text", value: "#" },
     })
     .use(rehypeShikiHighlight, highlighter)
-    .use(rehypeRewriteLinks)
+    .use(rehypeRewriteLinks, sourceSlug)
     .use(rehypeCollectToc, toc)
+    .use(rehypeCollectLinksAndHeadings, headingIds, linkHrefs)
     .use(rehypeStringify, { allowDangerousHtml: true })
     .process(source);
 
-  return { html: String(file), toc };
+  return { html: String(file), toc, headingIds, linkHrefs };
 }
