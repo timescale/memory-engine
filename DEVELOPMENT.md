@@ -289,6 +289,9 @@ The `v*` tag triggers `.github/workflows/release.yml`, which:
 - Publishes the CLI wrapper to npm.
 - Updates the Homebrew formula.
 
+It also triggers `.github/workflows/docs.yml`, which rebuilds and
+publishes the MkDocs site from the tag's commit (see [Docs deployment](#docs-deployment)).
+
 **`bun run release:server`** — bumps the version in the server-side packages
 in lockstep:
 
@@ -305,7 +308,9 @@ Commits, creates an annotated tag `server/v<version>`, and pushes.
 
 The `server/v*` tag triggers `.github/workflows/deploy-prod.yaml`, which
 builds the server image from `packages/server/Dockerfile` and deploys it
-to prod.
+to prod. It also triggers `.github/workflows/docs.yml`, which rebuilds
+and publishes the MkDocs site from the tag's commit (see
+[Docs deployment](#docs-deployment)).
 
 The dev environment is redeployed automatically by
 `.github/workflows/deploy-dev.yaml` on every push to `main` that touches a
@@ -354,6 +359,31 @@ for a change that spans both sides is:
 
 The server counter and the client counter will diverge over time — that's
 expected. They're not related after this split.
+
+### Docs deployment
+
+The MkDocs site at <https://docs.memory.build/> is deployed by
+`.github/workflows/docs.yml`. It is **not** auto-deployed on every push
+to `main`, because the docs describe both client (CLI/MCP) and server
+behavior, and `main` typically contains changes that aren't yet released
+on either side.
+
+The workflow runs on:
+
+- Push of a `v*` tag (client release) — docs rebuild from that tag's commit.
+- Push of a `server/v*` tag (server release) — docs rebuild from that tag's commit.
+- `workflow_dispatch`, with an optional `ref` input (defaults to `main`)
+  for publishing docs-only fixes or republishing from a specific tag/SHA.
+
+Implications:
+
+- A docs-only edit on `main` (e.g. a typo fix) will not appear on the
+  public site until the next release tag — or until you trigger the
+  workflow manually from the Actions tab.
+- Cutting a release that touches behavior described in `docs/` will
+  automatically refresh the public docs.
+- If client and server tags land at different commits, the most recent
+  tag wins (the docs reflect whatever was last deployed).
 
 ### Adding a migration
 

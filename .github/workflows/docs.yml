@@ -2,11 +2,16 @@ name: docs
 
 on:
   push:
-    branches: [main]
-    paths:
-      - docs/**
-      - mkdocs.yml
+    tags:
+      - "v*"           # CLI/client release
+      - "server/v*"    # server prod release
   workflow_dispatch:
+    inputs:
+      ref:
+        description: "Git ref to publish docs from (tag, branch, or SHA)"
+        required: false
+        default: "main"
+        type: string
 
 permissions:
   contents: read
@@ -22,6 +27,8 @@ jobs:
       url: ${{ steps.deploy.outputs.page_url }}
     steps:
       - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.ref || github.ref }}
 
       - uses: actions/setup-python@v5
         with:
