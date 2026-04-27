@@ -1,5 +1,5 @@
 {
-  "exclude": ["repos", "packages/web"],
+  "exclude": ["repos", "packages/web", "packages/docs-site"],
   "compilerOptions": {
     // Types
     "types": ["bun-types"],

@@ -24,9 +24,24 @@
   },
   "overrides": [
     {
-      "includes": ["docs/stylesheets/**"],
+      "includes": ["packages/docs-site/.next/**", "packages/docs-site/out/**"],
       "linter": {
         "enabled": false
+      }
+    },
+    {
+      "includes": ["packages/docs-site/**/*.css"],
+      "css": {
+        "parser": {
+          "cssModules": false
+        }
+      },
+      "linter": {
+        "rules": {
+          "complexity": {
+            "noImportantStyles": "off"
+          }
+        }
       }
     },
     {
@@ -43,6 +58,11 @@
       }
     }
   ],
+  "css": {
+    "parser": {
+      "tailwindDirectives": true
+    }
+  },
   "javascript": {
     "formatter": {
       "quoteStyle": "double"

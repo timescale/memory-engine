@@ -30,28 +30,21 @@ jobs:
         with:
           ref: ${{ github.event_name == 'workflow_dispatch' && inputs.ref || github.ref }}
 
-      - uses: actions/setup-python@v5
+      # Pin to the same Bun version used by the repo's ./bun wrapper
+      # (kept in sync with the `version=...` line in /bun).
+      - uses: oven-sh/setup-bun@v2
         with:
-          python-version: "3.x"
+          bun-version: "1.3.13"
 
-      - run: pip install mkdocs-material 'mkdocs<2'
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
 
-      - run: mkdocs build --strict
-
-      # Copy raw Markdown source into the build output so both HTML and .md
-      # are served. HTML lives at /getting-started/ while the raw Markdown
-      # is available at /getting-started.md.
-      - name: Copy raw Markdown source
-        run: |
-          find docs -name '*.md' | while read src; do
-            dest="site/${src#docs/}"
-            mkdir -p "$(dirname "$dest")"
-            cp "$src" "$dest"
-          done
+      - name: Build docs site
+        run: bun run docs:build
 
       - uses: actions/upload-pages-artifact@v4
         with:
-          path: site
+          path: packages/docs-site/out
 
       - id: deploy
         uses: actions/deploy-pages@v5

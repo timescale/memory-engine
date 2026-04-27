@@ -36,6 +36,7 @@ packages/
   engine/       # Core engine (database operations, search, embedding)
   protocol/     # Shared types and Zod schemas (JSON-RPC methods)
   hosted/       # Hosted/multi-tenant provisioning
+  docs-site/    # Next.js static site that renders `docs/` for docs.memory.build
 packs/            # Memory packs (pre-built knowledge collections)
 docs/
   cli/          # CLI command reference (one file per command group)
