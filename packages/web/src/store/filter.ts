@@ -51,6 +51,8 @@ interface FilterActions {
   setMode(mode: FilterMode): void;
   setSimple(value: string): void;
   setAdvanced(patch: Partial<AdvancedFilter>): void;
+  /** Merge a JSON-containment filter into the advanced meta filter. */
+  applyMetaJsonFilter(filter: Record<string, unknown>): void;
   clear(): void;
   /** Replace the whole state (used by URL hydration). */
   hydrate(state: FilterState): void;
@@ -89,6 +91,16 @@ export const useFilter = create<FilterState & FilterActions>((set) => ({
 
   setAdvanced(patch) {
     set((state) => ({ advanced: { ...state.advanced, ...patch } }));
+  },
+
+  applyMetaJsonFilter(filter) {
+    set((state) => ({
+      mode: "advanced",
+      advanced: {
+        ...state.advanced,
+        metaJson: mergeMetaJsonFilter(state.advanced.metaJson, filter),
+      },
+    }));
   },
 
   clear() {
@@ -158,12 +170,19 @@ function buildTemporal(
 ): TemporalFilter | undefined {
   if (t.mode === "contains") {
     if (!t.start) return undefined;
-    return { contains: t.start };
+    return { contains: toOffsetIsoDatetime(t.start) };
   }
   if (!t.start || !t.end) return undefined;
+  const start = toOffsetIsoDatetime(t.start);
+  const end = toOffsetIsoDatetime(t.end);
   return t.mode === "overlaps"
-    ? { overlaps: { start: t.start, end: t.end } }
-    : { within: { start: t.start, end: t.end } };
+    ? { overlaps: { start, end } }
+    : { within: { start, end } };
+}
+
+function toOffsetIsoDatetime(value: string): string {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? value : date.toISOString();
 }
 
 function parseIntOrUndef(s: string): number | undefined {
@@ -232,6 +251,44 @@ export function summarizeFilter(state: FilterState): {
   if (a.orderBy) chips.push(`order: ${a.orderBy}`);
 
   return { chips, hasFilter: chips.length > 0 };
+}
+
+export function mergeMetaJsonFilter(
+  currentMetaJson: string,
+  filterToApply: Record<string, unknown>,
+): string {
+  const existingFilter = parseMetaJsonObject(currentMetaJson) ?? {};
+  const mergedFilter = mergeJsonObjects(existingFilter, filterToApply);
+  return JSON.stringify(mergedFilter, null, 2);
+}
+
+function parseMetaJsonObject(raw: string): Record<string, unknown> | null {
+  if (!raw.trim()) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    return isJsonObject(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function mergeJsonObjects(
+  existing: Record<string, unknown>,
+  next: Record<string, unknown>,
+): Record<string, unknown> {
+  const merged: Record<string, unknown> = { ...existing };
+  for (const [key, nextValue] of Object.entries(next)) {
+    const existingValue = merged[key];
+    merged[key] =
+      isJsonObject(existingValue) && isJsonObject(nextValue)
+        ? mergeJsonObjects(existingValue, nextValue)
+        : nextValue;
+  }
+  return merged;
+}
+
+function isJsonObject(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
 function summarizeMetaJson(raw: string): string | null {

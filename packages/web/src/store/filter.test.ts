@@ -3,7 +3,10 @@ import {
   EMPTY_ADVANCED,
   EMPTY_FILTER,
   type FilterState,
+  mergeMetaJsonFilter,
+  selectSearchParams,
   summarizeFilter,
+  useFilter,
 } from "./filter.ts";
 
 function withSimple(q: string): FilterState {
@@ -44,6 +47,98 @@ describe("summarizeFilter (simple mode)", () => {
     const { chips } = summarizeFilter(withSimple(long));
     expect(chips[0]).toMatch(/^query: "a+…"$/);
     expect(chips[0]?.length).toBeLessThan(80);
+  });
+});
+
+describe("mergeMetaJsonFilter", () => {
+  test("formats a new meta filter when the current filter is empty", () => {
+    expect(JSON.parse(mergeMetaJsonFilter("", { priority: "high" }))).toEqual({
+      priority: "high",
+    });
+  });
+
+  test("deep-merges nested meta filters", () => {
+    const merged = mergeMetaJsonFilter('{"pack":{"name":"core"}}', {
+      pack: { version: 1 },
+    });
+
+    expect(JSON.parse(merged)).toEqual({
+      pack: { name: "core", version: 1 },
+    });
+  });
+
+  test("uses the applied filter when the current meta JSON is invalid", () => {
+    expect(JSON.parse(mergeMetaJsonFilter("{nope", { source: "web" }))).toEqual(
+      { source: "web" },
+    );
+  });
+
+  test("store action switches to advanced mode and preserves other fields", () => {
+    useFilter.getState().hydrate({
+      ...EMPTY_FILTER,
+      mode: "simple",
+      simple: "existing simple query",
+      advanced: {
+        ...EMPTY_ADVANCED,
+        tree: "work.*",
+        metaJson: '{"priority":"high"}',
+      },
+    });
+
+    useFilter.getState().applyMetaJsonFilter({ source: "web" });
+
+    const state = useFilter.getState();
+    expect(state.mode).toBe("advanced");
+    expect(state.simple).toBe("existing simple query");
+    expect(state.advanced.tree).toBe("work.*");
+    expect(JSON.parse(state.advanced.metaJson)).toEqual({
+      priority: "high",
+      source: "web",
+    });
+  });
+});
+
+describe("selectSearchParams", () => {
+  test("converts datetime-local temporal contains filters to offset ISO datetimes", () => {
+    const start = "2026-01-01T12:34:56";
+
+    expect(
+      selectSearchParams(
+        withAdvanced({
+          temporal: { mode: "contains", start, end: "" },
+        }),
+      ).temporal,
+    ).toEqual({ contains: new Date(start).toISOString() });
+  });
+
+  test("preserves millisecond precision in datetime-local temporal filters", () => {
+    const start = "2026-01-01T12:34:56.789";
+
+    expect(
+      selectSearchParams(
+        withAdvanced({
+          temporal: { mode: "contains", start, end: "" },
+        }),
+      ).temporal,
+    ).toEqual({ contains: new Date(start).toISOString() });
+  });
+
+  test("converts datetime-local temporal range filters to offset ISO datetimes", () => {
+    const start = "2026-01-01T12:34:56";
+    const end = "2026-01-02T12:34:56";
+
+    expect(
+      selectSearchParams(
+        withAdvanced({
+          temporal: { mode: "within", start, end },
+        }),
+      ).temporal,
+    ).toEqual({
+      within: {
+        start: new Date(start).toISOString(),
+        end: new Date(end).toISOString(),
+      },
+    });
   });
 });
 

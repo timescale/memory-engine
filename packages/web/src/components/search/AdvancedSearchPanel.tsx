@@ -6,6 +6,11 @@
  * live; on parse error the field shows a red border + inline message and
  * the value is dropped from the RPC (see `selectSearchParams`).
  */
+import { useRef } from "react";
+import {
+  formatDatetimeLocalInputValue,
+  localOffsetTimestampFromDatetimeLocalValue,
+} from "../../lib/datetime.ts";
 import { useFilter } from "../../store/filter.ts";
 
 export function AdvancedSearchPanel() {
@@ -81,27 +86,26 @@ export function AdvancedSearchPanel() {
             <option value="overlaps">overlaps</option>
             <option value="within">within</option>
           </select>
-          <input
-            type="datetime-local"
+          <TemporalTimestampInput
             value={advanced.temporal.start}
-            onChange={(e) =>
+            onChange={(value) =>
               setAdvanced({
-                temporal: { ...advanced.temporal, start: e.target.value },
+                temporal: { ...advanced.temporal, start: value },
               })
             }
-            className="rounded-md border border-slate-300 bg-white px-2 py-2 text-sm"
+            placeholder="2026-02-17T12:23:11.570-08:00"
+            pickerLabel="Pick start timestamp"
           />
-          <input
-            type="datetime-local"
+          <TemporalTimestampInput
             value={advanced.temporal.end}
-            onChange={(e) =>
+            onChange={(value) =>
               setAdvanced({
-                temporal: { ...advanced.temporal, end: e.target.value },
+                temporal: { ...advanced.temporal, end: value },
               })
             }
             disabled={advanced.temporal.mode === "contains"}
-            placeholder="end"
-            className="rounded-md border border-slate-300 bg-white px-2 py-2 text-sm disabled:bg-slate-100 disabled:text-slate-400"
+            placeholder="end timestamp"
+            pickerLabel="Pick end timestamp"
           />
         </div>
         <p className="mt-1 text-xs text-slate-500">
@@ -171,6 +175,90 @@ export function AdvancedSearchPanel() {
         </select>
       </Field>
     </div>
+  );
+}
+
+function TemporalTimestampInput({
+  value,
+  onChange,
+  disabled = false,
+  placeholder,
+  pickerLabel,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  disabled?: boolean;
+  placeholder: string;
+  pickerLabel: string;
+}) {
+  const pickerRef = useRef<HTMLInputElement>(null);
+  const pickerValue = formatDatetimeLocalInputValue(value);
+
+  function handleOpenPicker() {
+    const picker = pickerRef.current;
+    if (!picker) return;
+    try {
+      picker.showPicker();
+    } catch {
+      picker.focus();
+      picker.click();
+    }
+  }
+
+  return (
+    <div className="relative flex min-w-0 gap-1">
+      <input
+        type="text"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        disabled={disabled}
+        placeholder={placeholder}
+        className="min-w-0 flex-1 rounded-md border border-slate-300 bg-white px-2 py-2 font-mono text-xs focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500 disabled:bg-slate-100 disabled:text-slate-400"
+      />
+      <button
+        type="button"
+        onClick={handleOpenPicker}
+        disabled={disabled}
+        title={pickerLabel}
+        aria-label={pickerLabel}
+        className="inline-flex w-9 shrink-0 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-500 hover:bg-slate-100 hover:text-slate-700 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
+      >
+        <CalendarIcon />
+      </button>
+      <input
+        ref={pickerRef}
+        type="datetime-local"
+        step="0.001"
+        value={pickerValue}
+        onChange={(e) =>
+          onChange(localOffsetTimestampFromDatetimeLocalValue(e.target.value))
+        }
+        disabled={disabled}
+        tabIndex={-1}
+        aria-hidden="true"
+        className="pointer-events-none absolute right-0 top-0 h-px w-px opacity-0"
+      />
+    </div>
+  );
+}
+
+function CalendarIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      className="h-4 w-4"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
+      <path d="M16 2v4" />
+      <path d="M8 2v4" />
+      <path d="M3 10h18" />
+    </svg>
   );
 }
 
