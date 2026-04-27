@@ -2,7 +2,7 @@
 
 Search and browse memories using text matching and/or filters.
 
-Supports three search modes: **semantic** (meaning-based), **fulltext** (keyword-based via BM25), or **hybrid** (both combined via Reciprocal Rank Fusion). Combine any search mode with tree, meta, and temporal filters.
+Supports three search modes: **semantic** (meaning-based), **fulltext** (keyword-based via BM25), or **hybrid** (both combined via Reciprocal Rank Fusion). Combine any search mode with tree, meta, and temporal filters. For ordinary user queries, short terms, identifiers, or exact words, prefer hybrid by setting both `semantic` and `fulltext` to the query text.
 
 ## Parameters
 
@@ -84,8 +84,17 @@ See [Tree filter syntax](../concepts.md#tree-filter-syntax) for the full referen
 ```json
 {
   "semantic": "how does authentication work",
-  "limit": 10,
-  "semanticThreshold": 0.7
+  "limit": 10
+}
+```
+
+### Hybrid search (recommended default)
+
+```json
+{
+  "semantic": "panics",
+  "fulltext": "panics",
+  "limit": 10
 }
 ```
 
@@ -115,6 +124,6 @@ See [Tree filter syntax](../concepts.md#tree-filter-syntax) for the full referen
 
 - Provide at least one of `semantic`, `fulltext`, or a filter (`tree`, `meta`, `temporal`, `grep`) -- otherwise the search has no criteria.
 - Optional parameters may be omitted or explicitly passed as `null` — both are treated as "no value".
-- When both `semantic` and `fulltext` are provided, results are ranked using Reciprocal Rank Fusion (hybrid mode).
+- When both `semantic` and `fulltext` are provided, results are ranked using Reciprocal Rank Fusion (hybrid mode). This is recommended for single-word or literal searches because semantic-only ranking does not guarantee exact-word matches rank first.
 - `order_by` only applies to filter-only searches (no `semantic`/`fulltext`). Ranked searches are always sorted by score.
 - `score` ranges from 0 to 1, where 1 is the best match.

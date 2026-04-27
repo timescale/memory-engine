@@ -174,6 +174,9 @@ Search memory proactively:
 
 ## Search Examples
 
+# Hybrid search (recommended: meaning + keywords)
+me_memory_search({semantic: "database-generated identifiers", fulltext: "database-generated identifiers"})
+
 # Semantic search (by meaning)
 me_memory_search({semantic: "how does authentication work"})
 

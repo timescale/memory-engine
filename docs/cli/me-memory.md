@@ -70,7 +70,7 @@ me memory search [query] [options]
 
 | Argument | Required | Description |
 |----------|----------|-------------|
-| `query` | no | Semantic search query (shorthand for `--semantic`). |
+| `query` | no | Hybrid search query (uses both semantic and fulltext search). |
 
 | Option | Description |
 |--------|-------------|
@@ -89,12 +89,12 @@ me memory search [query] [options]
 | `--weight-fulltext <w>` | Fulltext weight, 0-1. |
 | `--order-by <dir>` | Sort direction: `asc` or `desc`. |
 
-At least one search criterion is required. When both `--semantic` and `--fulltext` are provided, results are ranked using Reciprocal Rank Fusion (hybrid mode).
+At least one search criterion is required. A positional `query` runs hybrid search by sending the same text to semantic and fulltext ranking. Use `--semantic` for pure vector search, `--fulltext` for pure keyword search, or both flags to provide different text for each mode.
 
 ### Examples
 
 ```bash
-# Semantic search
+# Hybrid search (recommended default)
 me memory search "how does authentication work"
 
 # Keyword search

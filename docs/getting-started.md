@@ -36,14 +36,14 @@ me memory create "PostgreSQL 18 supports native UUIDv7 generation." \
 ## Search
 
 ```bash
-# Semantic search (by meaning)
+# Hybrid search (recommended default: meaning + keywords)
 me memory search "UUID generation in Postgres"
 
 # Keyword search
 me memory search --fulltext "UUIDv7"
 
-# Hybrid (both combined)
-me memory search --semantic "UUID generation" --fulltext "PostgreSQL 18"
+# Pure semantic search (by meaning only)
+me memory search --semantic "database-generated identifiers"
 ```
 
 ## Browse the tree

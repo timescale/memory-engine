@@ -169,10 +169,10 @@ Memory Engine supports three search modes. Quick guide:
 Find memories by meaning. Uses vector embeddings and cosine similarity.
 
 ```bash
-me memory search "how does authentication work"
+me memory search --semantic "how does authentication work"
 ```
 
-Good for finding conceptually related content even when the exact words differ.
+Good for finding conceptually related content even when the exact words differ. For short literal terms, identifiers, and exact words, prefer fulltext or hybrid search; semantic-only rankings are not lexical and can return unrelated short memories.
 
 ### Fulltext search
 
@@ -189,10 +189,12 @@ Good for finding memories with specific terms, names, or identifiers.
 Combine both modes. Results are ranked using Reciprocal Rank Fusion (RRF), which merges the two ranked lists into a single result set.
 
 ```bash
+me memory search "embedding performance"
+# or provide different text for each ranker:
 me memory search --semantic "embedding performance" --fulltext "nomic ollama"
 ```
 
-Good when you want both meaning-based and keyword-based relevance.
+Good when you want both meaning-based and keyword-based relevance. The positional CLI query uses hybrid search and is the recommended default.
 
 ### Filters
 

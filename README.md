@@ -33,7 +33,7 @@ me login
 # Store a memory
 me memory create "Auth uses bcrypt with cost 12" --tree design.auth
 
-# Search by meaning
+# Search by meaning + keywords
 me memory search "how does authentication work"
 
 # Connect to your AI tools (Claude Code, Gemini, Codex, OpenCode)
