@@ -9,8 +9,8 @@ import { existsSync, statSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import * as clack from "@clack/prompts";
-import { createClient } from "@memory.build/client";
 import { Command } from "commander";
+import { createClient } from "../client.ts";
 import { resolveCredentials } from "../credentials.ts";
 import { getOutputFormat, output } from "../output.ts";
 import {

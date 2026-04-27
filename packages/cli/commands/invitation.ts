@@ -7,8 +7,8 @@
  * - me invitation revoke <id>: Revoke an invitation
  */
 import * as clack from "@clack/prompts";
-import { createAccountsClient } from "@memory.build/client";
 import { Command } from "commander";
+import { createAccountsClient } from "../client.ts";
 import { resolveCredentials } from "../credentials.ts";
 import { getOutputFormat, output, table } from "../output.ts";
 import { handleError, requireSession, resolveOrgId } from "../util.ts";

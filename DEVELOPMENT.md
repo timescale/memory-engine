@@ -217,6 +217,55 @@ Both are exported from `version.ts`. Migration tracking — including the
 downgrade-rejection guard in the runners — uses `SERVER_VERSION`, so the
 DB's recorded version advances only when the server is released.
 
+### Compatibility bounds
+
+Because the client and server release independently, each side declares
+the oldest counterpart it tolerates:
+
+| Constant | Source of truth | Authority on |
+|---|---|---|
+| `MIN_CLIENT_VERSION` | `version.ts` | Oldest CLI/client this server will accept. |
+| `MIN_SERVER_VERSION` | `version.ts` | Oldest server this CLI/client will talk to. |
+
+Enforcement points:
+
+- **Per-request**: the client sends `X-Client-Version: <CLIENT_VERSION>` on
+  every RPC (`packages/client/transport.ts`). The server's
+  `checkClientVersion` middleware (`packages/server/middleware/client-version.ts`)
+  rejects too-old clients before dispatch with a JSON-RPC envelope whose
+  `data.code` is `CLIENT_VERSION_INCOMPATIBLE` and HTTP status `426 Upgrade Required`.
+  Missing or malformed headers are allowed through (lenient mode) so this
+  feature can be rolled out without breaking older clients.
+- **Probe**: `GET /api/v1/version` is unauthenticated and returns
+  `{ serverVersion, minClientVersion, client?: { version, compatible } }`.
+  The CLI's `checkServerVersion` helper (`packages/client/version.ts`) calls
+  this on `me login` and `me version`, throwing typed `RpcError`s for both
+  `CLIENT_VERSION_INCOMPATIBLE` and `SERVER_VERSION_INCOMPATIBLE`.
+
+### Bumping `MIN_CLIENT_VERSION` / `MIN_SERVER_VERSION`
+
+Bump these only when you intentionally break compatibility — i.e. you are
+shipping a server that no longer supports an older client wire format, or a
+client that requires a server feature added in a specific release.
+
+- Bump `MIN_CLIENT_VERSION` when **the server** drops support for an older
+  protocol shape. After the bump, clients below the new minimum will see
+  `CLIENT_VERSION_INCOMPATIBLE` instead of confusing 4xx/5xx errors.
+  The `bun run release:server` script prompts for this; you can also edit
+  `version.ts` directly.
+- Bump `MIN_SERVER_VERSION` when **the client** depends on a feature that
+  only newer servers expose. After the bump, the client refuses to talk to
+  older servers with `SERVER_VERSION_INCOMPATIBLE`.
+  The `bun run release:client` script prompts for this.
+
+Rule of thumb: pin the new minimum at the *current* counterpart version
+(e.g. when releasing server `0.2.0` that drops support for protocol shapes
+older than client `0.2.0`, set `MIN_CLIENT_VERSION = "0.2.0"`).
+
+If you forget to bump, nothing breaks per se — older counterparts will fail
+later with less helpful errors. Bumping is the difference between a clear
+upgrade prompt and "method not found" / "invalid params" mid-command.
+
 ### Two scripts
 
 **`bun run release:client`** — bumps the version in:
@@ -225,6 +274,10 @@ DB's recorded version advances only when the server is released.
 - `packages/cli/package.json`
 - `packages/client/package.json`
 - `packages/protocol/package.json`
+
+Then prompts whether to bump `MIN_SERVER_VERSION` in `version.ts` (leave
+blank to keep the current value — see [Bumping
+`MIN_CLIENT_VERSION` / `MIN_SERVER_VERSION`](#bumping-min_client_version--min_server_version)).
 
 Commits, creates an annotated tag `v<version>`, and pushes.
 
@@ -244,6 +297,9 @@ in lockstep:
 - `packages/engine/package.json`
 - `packages/server/package.json` (canonical source)
 - `packages/worker/package.json`
+
+Then prompts whether to bump `MIN_CLIENT_VERSION` in `version.ts` (leave
+blank to keep the current value).
 
 Commits, creates an annotated tag `server/v<version>`, and pushes.
 
@@ -272,6 +328,19 @@ Both scripts require:
 - Version strictly greater than the current one.
 - Tag doesn't already exist.
 - Explicit `y` confirmation at the prompt.
+
+After confirmation, both scripts also prompt for an optional
+`MIN_*_VERSION` bump in `version.ts`:
+
+```
+? Bump MIN_SERVER_VERSION? (current: 0.1.17, leave blank to keep):
+```
+
+Press Enter to skip (most releases). Type a semver to bump it (only when
+you're intentionally breaking compatibility with older counterparts — see
+[Bumping `MIN_CLIENT_VERSION` / `MIN_SERVER_VERSION`](#bumping-min_client_version--min_server_version)).
+The bumped `version.ts` is included in the same commit as the package
+version bumps.
 
 ### Typical workflow
 

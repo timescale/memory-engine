@@ -10,7 +10,7 @@ import { bootstrap as bootstrapEngine } from "@memory.build/engine/migrate/boots
 import { migrateAll as migrateEngines } from "@memory.build/engine/migrate/runner";
 import { WorkerPool } from "@memory.build/worker";
 import { configure, info, reportError, span } from "@pydantic/logfire-node";
-import { SERVER_VERSION } from "../../version";
+import { MIN_CLIENT_VERSION, SERVER_VERSION } from "../../version";
 import { embeddingConstants } from "./config";
 import type { ServerContext } from "./context";
 import { checkSizeLimit } from "./middleware";
@@ -389,6 +389,7 @@ const serverContext: ServerContext = {
   embeddingConfig,
   apiBaseUrl,
   serverVersion: SERVER_VERSION,
+  minClientVersion: MIN_CLIENT_VERSION,
 };
 
 const router = createRouter(serverContext);

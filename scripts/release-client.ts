@@ -35,6 +35,27 @@ const PACKAGE_JSONS = [
   "packages/protocol/package.json",
 ];
 
+/** Read MIN_SERVER_VERSION from version.ts. */
+function currentMinServerVersion(): string {
+  const raw = readFileSync(join(root, "version.ts"), "utf-8");
+  const match = raw.match(/MIN_SERVER_VERSION\s*=\s*"([^"]+)"/);
+  return match?.[1] ?? "";
+}
+
+/** Update MIN_SERVER_VERSION in version.ts. */
+function bumpMinServerVersion(version: string) {
+  const absPath = join(root, "version.ts");
+  const raw = readFileSync(absPath, "utf-8");
+  const updated = raw.replace(
+    /(MIN_SERVER_VERSION\s*=\s*")([^"]+)(")/,
+    `$1${version}$3`,
+  );
+  if (updated === raw) {
+    die("failed to update MIN_SERVER_VERSION in version.ts");
+  }
+  writeFileSync(absPath, updated);
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -157,6 +178,20 @@ if (confirm.toLowerCase() !== "y") {
 for (const file of PACKAGE_JSONS) {
   bumpFile(file, version);
   info(`bumped ${file}`);
+}
+
+// 5b. Optionally bump MIN_SERVER_VERSION when this client requires a newer server
+const currentMinServer = currentMinServerVersion();
+const minServerAnswer = await prompt(
+  `Bump MIN_SERVER_VERSION? (current: ${currentMinServer}, leave blank to keep):`,
+);
+if (minServerAnswer) {
+  const newMinServer = minServerAnswer.replace(/^v/, "");
+  if (!semver.valid(newMinServer)) {
+    die(`invalid semver: ${newMinServer}`);
+  }
+  bumpMinServerVersion(newMinServer);
+  info(`bumped MIN_SERVER_VERSION to ${newMinServer}`);
 }
 
 // 6. Commit and tag

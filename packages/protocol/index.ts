@@ -22,3 +22,5 @@ export * from "./errors.ts";
 export * from "./fields.ts";
 // JSON-RPC 2.0 envelope types
 export * from "./jsonrpc.ts";
+// Version compatibility schemas
+export * from "./version.ts";

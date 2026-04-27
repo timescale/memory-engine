@@ -2,7 +2,7 @@ import { describe, expect, mock, test } from "bun:test";
 import type { AccountsDB } from "@memory.build/accounts";
 import type { EmbeddingConfig } from "@memory.build/embedding";
 import type { SQL } from "bun";
-import { SERVER_VERSION } from "../../version";
+import { MIN_CLIENT_VERSION, SERVER_VERSION } from "../../version";
 import type { ServerContext } from "./context";
 import { createRouter } from "./router";
 
@@ -23,6 +23,7 @@ function createMockContext(): ServerContext {
     } as EmbeddingConfig,
     apiBaseUrl: "https://test.example.com",
     serverVersion: SERVER_VERSION,
+    minClientVersion: MIN_CLIENT_VERSION,
   };
 }
 
@@ -130,6 +131,20 @@ describe("matchRoute", () => {
     });
   });
 
+  describe("version endpoint", () => {
+    test("matches GET /api/v1/version", () => {
+      const match = router.matchRoute("GET", "/api/v1/version");
+      expect(match).not.toBeNull();
+      expect(match?.route.pattern).toBe("/api/v1/version");
+      expect(match?.params).toEqual({});
+    });
+
+    test("does not match POST /api/v1/version", () => {
+      const match = router.matchRoute("POST", "/api/v1/version");
+      expect(match).toBeNull();
+    });
+  });
+
   describe("unknown paths", () => {
     test("returns null for unknown path", () => {
       const match = router.matchRoute("GET", "/unknown");
@@ -167,5 +182,70 @@ describe("handleRequest", () => {
     const response = await router.handleRequest(request);
 
     expect(response.status).toBe(200);
+  });
+
+  test("handles version probe", async () => {
+    const ctx = createMockContext();
+    const router = createRouter(ctx);
+
+    const request = new Request("http://localhost/api/v1/version");
+    const response = await router.handleRequest(request);
+
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as {
+      serverVersion: string;
+      minClientVersion: string;
+    };
+    expect(body.serverVersion).toBe(SERVER_VERSION);
+    expect(body.minClientVersion).toBe(MIN_CLIENT_VERSION);
+  });
+
+  test("rejects RPC requests with too-old X-Client-Version", async () => {
+    const ctx = createMockContext();
+    const router = createRouter(ctx);
+
+    const request = new Request("http://localhost/api/v1/engine/rpc", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Client-Version": "0.0.1",
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        method: "memory.create",
+        params: {},
+        id: 1,
+      }),
+    });
+    const response = await router.handleRequest(request);
+
+    expect(response.status).toBe(426);
+    const body = (await response.json()) as {
+      jsonrpc: string;
+      error: { code: number; data?: { code: string } };
+    };
+    expect(body.jsonrpc).toBe("2.0");
+    expect(body.error.data?.code).toBe("CLIENT_VERSION_INCOMPATIBLE");
+  });
+
+  test("allows RPC requests without X-Client-Version (lenient mode)", async () => {
+    const ctx = createMockContext();
+    const router = createRouter(ctx);
+
+    const request = new Request("http://localhost/api/v1/engine/rpc", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        method: "memory.create",
+        params: {},
+        id: 1,
+      }),
+    });
+    const response = await router.handleRequest(request);
+
+    // Without auth this will 401, NOT 426 — proves the version check passed
+    // and the auth middleware is what rejected it.
+    expect(response.status).not.toBe(426);
   });
 });

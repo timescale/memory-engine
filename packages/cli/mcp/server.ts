@@ -8,13 +8,13 @@
 import { existsSync, mkdirSync, statSync, writeFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
-import type { EngineClient } from "@memory.build/client";
-import { createClient } from "@memory.build/client";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { stringify as yamlStringify } from "yaml";
 import { z } from "zod";
 import { CLIENT_VERSION } from "../../../version";
+import type { EngineClient } from "../client.ts";
+import { createClient } from "../client.ts";
 import { formatMemoryAsMarkdown } from "../commands/memory.ts";
 import {
   detectFormatFromExtension,

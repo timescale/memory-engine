@@ -8,8 +8,8 @@
  * - me user rename <id-or-name> <new-name>: Rename a user (by ID or name)
  */
 import * as clack from "@clack/prompts";
-import { createClient } from "@memory.build/client";
 import { Command } from "commander";
+import { createClient } from "../client.ts";
 import { resolveCredentials } from "../credentials.ts";
 import { getOutputFormat, output, table } from "../output.ts";
 import {

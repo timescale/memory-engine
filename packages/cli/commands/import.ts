@@ -23,8 +23,8 @@
  *   -v, --verbose            per-session progress lines
  */
 import * as clack from "@clack/prompts";
-import { createClient } from "@memory.build/client";
 import { Command } from "commander";
+import { createClient } from "../client.ts";
 import { resolveCredentials } from "../credentials.ts";
 import {
   createProgressReporter,

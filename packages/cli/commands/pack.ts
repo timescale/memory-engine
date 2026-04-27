@@ -8,8 +8,8 @@
 
 import { readFileSync } from "node:fs";
 import * as clack from "@clack/prompts";
-import { createClient } from "@memory.build/client";
 import { Command } from "commander";
+import { createClient } from "../client.ts";
 import { resolveCredentials } from "../credentials.ts";
 import { getOutputFormat, output, table } from "../output.ts";
 import { parsePack, validatePackConstraints } from "../parsers/pack.ts";

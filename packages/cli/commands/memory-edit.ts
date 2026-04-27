@@ -9,8 +9,8 @@ import { spawnSync } from "node:child_process";
 import { unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { EngineClient } from "@memory.build/client";
 import { stringify as yamlStringify } from "yaml";
+import type { EngineClient } from "../client.ts";
 import { parseMarkdown } from "../parsers/markdown.ts";
 
 interface ParsedMemory {

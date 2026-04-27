@@ -44,6 +44,10 @@ export const APP_ERROR_CODES = {
   EMBEDDING_NOT_CONFIGURED: "EMBEDDING_NOT_CONFIGURED",
   EMBEDDING_FAILED: "EMBEDDING_FAILED",
   INTERNAL_ERROR: "INTERNAL_ERROR",
+  /** Client is older than the server's MIN_CLIENT_VERSION. User should upgrade their CLI. */
+  CLIENT_VERSION_INCOMPATIBLE: "CLIENT_VERSION_INCOMPATIBLE",
+  /** Server is older than the client's MIN_SERVER_VERSION. The server needs to be upgraded. */
+  SERVER_VERSION_INCOMPATIBLE: "SERVER_VERSION_INCOMPATIBLE",
 } as const;
 
 export type AppErrorCode =
@@ -190,9 +194,12 @@ export function internalError(
 /**
  * Create an application error response (-32000).
  * Used for application-level errors with a string error code.
+ *
+ * `id` may be `null` for rejections that happen before the request envelope
+ * is parsed (e.g. a per-request middleware that short-circuits on a header).
  */
 export function applicationError(
-  id: string | number,
+  id: string | number | null,
   code: string,
   message: string,
   data?: Record<string, unknown>,

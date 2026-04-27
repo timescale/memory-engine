@@ -9,8 +9,8 @@
  * - me org member remove <name-email-or-id>: Remove a member
  */
 import * as clack from "@clack/prompts";
-import { createAccountsClient } from "@memory.build/client";
 import { Command } from "commander";
+import { createAccountsClient } from "../client.ts";
 import { resolveCredentials } from "../credentials.ts";
 import { getOutputFormat, output, table } from "../output.ts";
 import {

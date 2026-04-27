@@ -29,6 +29,11 @@
       "types": "./errors.ts",
       "import": "./dist/errors.js"
     },
+    "./version": {
+      "bun": "./version.ts",
+      "types": "./version.ts",
+      "import": "./dist/version.js"
+    },
     "./engine": {
       "bun": "./engine/index.ts",
       "types": "./engine/index.ts",
@@ -64,7 +69,7 @@
     "!*.test.ts"
   ],
   "scripts": {
-    "build:js": "../../bun build index.ts fields.ts jsonrpc.ts errors.ts engine/index.ts engine/memory.ts engine/user.ts engine/grant.ts engine/owner.ts engine/role.ts engine/api-key.ts accounts/index.ts accounts/engine.ts accounts/identity.ts accounts/invitation.ts accounts/org.ts accounts/org-member.ts accounts/session.ts auth/device-flow.ts --outdir dist --format esm --target node --packages external --splitting",
+    "build:js": "../../bun build index.ts fields.ts jsonrpc.ts errors.ts version.ts engine/index.ts engine/memory.ts engine/user.ts engine/grant.ts engine/owner.ts engine/role.ts engine/api-key.ts accounts/index.ts accounts/engine.ts accounts/identity.ts accounts/invitation.ts accounts/org.ts accounts/org-member.ts accounts/session.ts auth/device-flow.ts --outdir dist --format esm --target node --packages external --splitting",
     "build:types": "tsc -p tsconfig.build.json",
     "build": "../../bun run build:js && ../../bun run build:types",
     "prepublishOnly": "../../bun run build"

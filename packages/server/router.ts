@@ -8,10 +8,12 @@ import {
   oauthCallbackHandler,
 } from "./handlers/auth";
 import { healthHandler, readyHandler } from "./handlers/health";
+import { versionHandler } from "./handlers/version";
 import {
   authenticateAccounts,
   authenticateEngine,
 } from "./middleware/authenticate";
+import { checkClientVersion } from "./middleware/client-version";
 import { accountsMethods, createRpcHandler, engineMethods } from "./rpc";
 import { notFound } from "./util/response";
 
@@ -124,6 +126,7 @@ export function createRouter(ctx: ServerContext): Router {
     embeddingConfig,
     apiBaseUrl,
     serverVersion,
+    minClientVersion,
   } = ctx;
 
   // Auth handler context for device flow endpoints
@@ -133,6 +136,20 @@ export function createRouter(ctx: ServerContext): Router {
     engineSql,
     serverVersion,
   };
+
+  // Wrap an RPC handler with the X-Client-Version check, so requests from
+  // too-old clients are rejected before authentication or method dispatch.
+  function withClientVersionCheck(
+    inner: (request: Request) => Response | Promise<Response>,
+  ): (request: Request) => Response | Promise<Response> {
+    return (request: Request) => {
+      const rejection = checkClientVersion(request, minClientVersion, true);
+      if (rejection) {
+        return rejection;
+      }
+      return inner(request);
+    };
+  }
 
   // Engine RPC: authenticate and provide db context
   const engineRpcHandler = createRpcHandler(engineMethods, async (request) => {
@@ -196,6 +213,13 @@ export function createRouter(ctx: ServerContext): Router {
       handler: readyHandler(accountsSql, engineSql),
     },
 
+    // Version compatibility check (unauthenticated)
+    {
+      method: "GET",
+      pattern: "/api/v1/version",
+      handler: versionHandler(serverVersion, minClientVersion),
+    },
+
     // OAuth Device Flow - CLI initiates
     {
       method: "POST",
@@ -233,14 +257,14 @@ export function createRouter(ctx: ServerContext): Router {
     {
       method: "POST",
       pattern: "/api/v1/accounts/rpc",
-      handler: accountsRpcHandler,
+      handler: withClientVersionCheck(accountsRpcHandler),
     },
 
     // Engine RPC
     {
       method: "POST",
       pattern: "/api/v1/engine/rpc",
-      handler: engineRpcHandler,
+      handler: withClientVersionCheck(engineRpcHandler),
     },
   ];
 

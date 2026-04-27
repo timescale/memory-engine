@@ -13,8 +13,9 @@
  * (only triggered by an `importer_version` bump) are issued one at a
  * time and are expected to be rare.
  */
-import type { EngineClient } from "@memory.build/client";
+
 import type { MemoryCreateParams } from "@memory.build/protocol/engine";
+import type { EngineClient } from "../client.ts";
 import type { ProgressReporter } from "./progress.ts";
 import { SlugRegistry } from "./slug.ts";
 import { renderMessageContent, synthesizeTitle } from "./transcript.ts";
