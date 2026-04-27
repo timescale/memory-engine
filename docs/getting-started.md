@@ -18,6 +18,12 @@ me login
 
 This starts an OAuth flow via GitHub -- authorize in your browser and the CLI stores your session.
 
+If your CLI is older than the server (or vice versa), `me login` will tell you and bail out before sending you to the browser. You can run the same check explicitly:
+
+```bash
+me version
+```
+
 
 ## Store your first memory
 

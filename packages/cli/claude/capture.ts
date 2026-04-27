@@ -5,8 +5,9 @@
  * construction are testable in isolation. The `captureHookEvent` entry
  * point handles memory creation via EngineClient.
  */
-import { createClient, type EngineClient } from "@memory.build/client";
+
 import { CLIENT_VERSION } from "../../../version";
+import { createClient, type EngineClient } from "../client.ts";
 
 // =============================================================================
 // Hook config (derived at runtime from CLAUDE_PLUGIN_OPTION_* env vars)

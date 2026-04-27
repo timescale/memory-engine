@@ -4,6 +4,7 @@
  * Handles HTTP communication, retry logic with exponential backoff,
  * timeouts, and JSON-RPC envelope formatting.
  */
+import { CLIENT_VERSION_HEADER } from "@memory.build/protocol";
 import type {
   JsonRpcErrorResponse,
   JsonRpcResponse,
@@ -28,6 +29,12 @@ export interface TransportConfig {
   timeout: number;
   /** Maximum retry attempts (default: 3) */
   retries: number;
+  /**
+   * Caller's CLIENT_VERSION. When set, sent on every RPC as the
+   * `X-Client-Version` header so the server can reject too-old clients
+   * before dispatch. Optional — older callers without this set still work.
+   */
+  clientVersion?: string;
 }
 
 // =============================================================================
@@ -83,6 +90,9 @@ export async function rpcCall<TResult>(
   };
   if (config.token) {
     headers.Authorization = `Bearer ${config.token}`;
+  }
+  if (config.clientVersion) {
+    headers[CLIENT_VERSION_HEADER] = config.clientVersion;
   }
 
   let lastError: Error | undefined;

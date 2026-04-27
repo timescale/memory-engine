@@ -74,6 +74,12 @@ export interface AccountsClientOptions {
   timeout?: number;
   /** Maximum retry attempts for transient failures (default: 3) */
   retries?: number;
+  /**
+   * CLIENT_VERSION of the caller. When set, sent as the `X-Client-Version`
+   * header on every RPC so the server can reject too-old clients with a
+   * typed `CLIENT_VERSION_INCOMPATIBLE` error before dispatch.
+   */
+  clientVersion?: string;
 }
 
 // =============================================================================
@@ -198,6 +204,7 @@ export function createAccountsClient(
     token: options.sessionToken,
     timeout: options.timeout ?? DEFAULT_TIMEOUT,
     retries: options.retries ?? DEFAULT_RETRIES,
+    clientVersion: options.clientVersion,
   };
 
   function call<M extends AccountsMethodName>(

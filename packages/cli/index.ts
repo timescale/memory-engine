@@ -27,6 +27,7 @@ import { createPackCommand } from "./commands/pack.ts";
 import { createRoleCommand } from "./commands/role.ts";
 import { createServeCommand } from "./commands/serve.ts";
 import { createUserCommand } from "./commands/user.ts";
+import { createVersionCommand } from "./commands/version.ts";
 import { createWhoamiCommand } from "./commands/whoami.ts";
 import { setExpanded } from "./output.ts";
 
@@ -57,6 +58,9 @@ program.hook("preAction", (thisCommand) => {
 program.addCommand(createLoginCommand());
 program.addCommand(createLogoutCommand());
 program.addCommand(createWhoamiCommand());
+
+// Version + compatibility check
+program.addCommand(createVersionCommand());
 
 // Engine commands
 program.addCommand(createEngineCommand());

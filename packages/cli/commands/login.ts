@@ -9,13 +9,16 @@
  * 6. Fetches and displays identity
  */
 import * as clack from "@clack/prompts";
+import type { OAuthProvider } from "@memory.build/protocol/auth/device-flow";
+import { Command } from "commander";
+import { CLIENT_VERSION, MIN_SERVER_VERSION } from "../../../version";
 import {
+  checkServerVersion,
   createAccountsClient,
   createAuthClient,
   DeviceFlowError,
-} from "@memory.build/client";
-import type { OAuthProvider } from "@memory.build/protocol/auth/device-flow";
-import { Command } from "commander";
+  RpcError,
+} from "../client.ts";
 import {
   getEngineApiKey,
   resolveServer,
@@ -58,6 +61,33 @@ export function createLoginCommand(): Command {
       // --- Provider selection ---
       if (fmt === "text") {
         clack.intro("me login");
+      }
+
+      // --- Compatibility check ---
+      // Verify that this CLI and the server agree on a compatible version
+      // before sending the user through the OAuth round-trip. Failing here
+      // is much friendlier than failing after they've authorized in their
+      // browser.
+      try {
+        await checkServerVersion({
+          url: server,
+          clientVersion: CLIENT_VERSION,
+          minServerVersion: MIN_SERVER_VERSION,
+        });
+      } catch (error) {
+        const msg =
+          error instanceof RpcError
+            ? error.message
+            : error instanceof Error
+              ? error.message
+              : String(error);
+        if (fmt === "text") {
+          clack.log.error(msg);
+          clack.outro("Login failed.");
+        } else {
+          output({ error: msg, server }, fmt, () => {});
+        }
+        process.exit(1);
       }
 
       // TODO: Re-enable Google OAuth once we have approved ToS/privacy policy

@@ -11,4 +11,5 @@ export {
   extractBearerToken,
   type Identity,
 } from "./authenticate";
+export { checkClientVersion } from "./client-version";
 export { checkSizeLimit, MAX_BODY_SIZE } from "./size-limit";

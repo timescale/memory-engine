@@ -67,3 +67,8 @@ export { createClient } from "./engine.ts";
 
 // Errors
 export { isRpcError, RpcError } from "./errors.ts";
+// Version compatibility check
+export {
+  type CheckServerVersionOptions,
+  checkServerVersion,
+} from "./version.ts";

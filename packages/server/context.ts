@@ -19,4 +19,6 @@ export interface ServerContext {
   apiBaseUrl: string;
   /** Application version for migration tracking */
   serverVersion: string;
+  /** Oldest CLIENT_VERSION this server will accept. */
+  minClientVersion: string;
 }
