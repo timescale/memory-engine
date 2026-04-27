@@ -1,7 +1,7 @@
 import { RateLimitError } from "@memory.build/embedding";
 import { info, reportError, warning } from "@pydantic/logfire-node";
 import type { SQL } from "bun";
-import { processBatch } from "./process";
+import { processBatch, pruneQueue } from "./process";
 import type { WorkerConfig, WorkerStats } from "./types";
 
 /** Minimum backoff when rate limited, even if Retry-After is shorter. */
@@ -57,6 +57,7 @@ export class Worker {
     schemasPolled: 0,
     totalProcessed: 0,
     totalFailed: 0,
+    totalPruned: 0,
     consecutiveErrors: 0,
   };
 
@@ -103,6 +104,7 @@ async function run(
   const maxBackoffMs = config.maxBackoffMs ?? 60_000;
   const refreshIntervalMs = config.refreshIntervalMs ?? 60_000;
   const drainTimeoutMs = config.drainTimeoutMs;
+  const pruneRetention = config.pruneRetention ?? "7 days";
 
   let targets = shuffle(await config.discover());
   let lastRefresh = Date.now();
@@ -129,7 +131,26 @@ async function run(
         for (const target of targets) {
           if (signal.aborted) break;
           const result = await processBatch(sql, target, config);
-          if (result.claimed > 0) anyWork = true;
+          if (result.claimed > 0) {
+            anyWork = true;
+          } else {
+            // Engine had no work to claim — opportunistic moment to prune
+            // terminal queue rows. Best-effort: failures are logged but do
+            // not trigger the worker error backoff path.
+            try {
+              const pruned = await pruneQueue(sql, target, pruneRetention);
+              stats.totalPruned += pruned;
+            } catch (pruneError) {
+              warning("Embedding queue prune failed", {
+                "worker.schema": target.schema,
+                "worker.shard": target.shard,
+                error:
+                  pruneError instanceof Error
+                    ? pruneError.message
+                    : String(pruneError),
+              });
+            }
+          }
           stats.schemasPolled++;
           stats.totalProcessed += result.succeeded;
           stats.totalFailed += result.failed;

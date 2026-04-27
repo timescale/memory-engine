@@ -43,6 +43,7 @@ export class WorkerPool {
       schemasPolled: 0,
       totalProcessed: 0,
       totalFailed: 0,
+      totalPruned: 0,
       consecutiveErrors: 0,
     };
     for (const worker of this.workers) {
@@ -50,6 +51,7 @@ export class WorkerPool {
       agg.schemasPolled += s.schemasPolled;
       agg.totalProcessed += s.totalProcessed;
       agg.totalFailed += s.totalFailed;
+      agg.totalPruned += s.totalPruned;
       agg.consecutiveErrors = Math.max(
         agg.consecutiveErrors,
         s.consecutiveErrors,

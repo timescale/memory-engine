@@ -5,7 +5,7 @@ import { bootstrap } from "@memory.build/engine/migrate/bootstrap";
 import { provisionEngine } from "@memory.build/engine/migrate/provision";
 import { TestDatabase } from "@memory.build/engine/migrate/test-utils";
 import { SQL } from "bun";
-import { processBatch } from "./process";
+import { processBatch, pruneQueue } from "./process";
 import type { WorkerConfig } from "./types";
 
 // ---------------------------------------------------------------------------
@@ -551,6 +551,59 @@ describe("processBatch integration", () => {
     );
     expect(entry).toBeDefined();
     expect(entry.last_error).toContain("exceeded max attempts (worker crash)");
+  });
+
+  test("pruneQueue deletes terminal rows older than retention", async () => {
+    // Clear queue
+    await sql.unsafe(`DELETE FROM ${schema}.embedding_queue`);
+
+    const memoryId = await insertMemory("Prune helper test memory");
+    // Discard the trigger-enqueued row so we control all rows in the queue
+    await sql.unsafe(`DELETE FROM ${schema}.embedding_queue`);
+
+    // Old terminal rows (will be pruned)
+    await sql.unsafe(
+      `INSERT INTO ${schema}.embedding_queue
+        (memory_id, embedding_version, outcome, created_at)
+       VALUES ($1, 1, 'completed', now() - interval '10 days'),
+              ($1, 2, 'failed',    now() - interval '10 days'),
+              ($1, 3, 'cancelled', now() - interval '10 days')`,
+      [memoryId],
+    );
+    // Recent terminal row (kept)
+    await sql.unsafe(
+      `INSERT INTO ${schema}.embedding_queue
+        (memory_id, embedding_version, outcome, created_at)
+       VALUES ($1, 4, 'completed', now() - interval '1 day')`,
+      [memoryId],
+    );
+    // Old active row (kept — outcome IS NULL)
+    await sql.unsafe(
+      `INSERT INTO ${schema}.embedding_queue
+        (memory_id, embedding_version, outcome, created_at)
+       VALUES ($1, 5, null, now() - interval '30 days')`,
+      [memoryId],
+    );
+
+    const pruned = await pruneQueue(sql, target, "7 days");
+    expect(pruned).toBe(3);
+
+    const remaining = (await sql.unsafe(
+      `SELECT embedding_version, outcome FROM ${schema}.embedding_queue
+       WHERE memory_id = $1 ORDER BY embedding_version`,
+      [memoryId],
+    )) as { embedding_version: number; outcome: string | null }[];
+    expect(remaining).toHaveLength(2);
+    expect(remaining[0]!.embedding_version).toBe(4);
+    expect(remaining[0]!.outcome).toBe("completed");
+    expect(remaining[1]!.embedding_version).toBe(5);
+    expect(remaining[1]!.outcome).toBeNull();
+  });
+
+  test("pruneQueue is a no-op when nothing matches", async () => {
+    await sql.unsafe(`DELETE FROM ${schema}.embedding_queue`);
+    const pruned = await pruneQueue(sql, target, "7 days");
+    expect(pruned).toBe(0);
   });
 
   test("returns zero when queue is empty", async () => {

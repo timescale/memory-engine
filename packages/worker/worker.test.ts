@@ -112,6 +112,152 @@ describe("Worker", () => {
     await worker.stop();
   });
 
+  test("prunes terminal queue rows when processBatch returns no work", async () => {
+    let claimCalls = 0;
+    let pruneCalls = 0;
+    const pruneRetentions: string[] = [];
+
+    const mockSql = createMockSql({
+      begin: async (fn: (tx: unknown) => Promise<unknown>) => {
+        const tx = {
+          unsafe: async (q: string, params?: unknown[]) => {
+            if (q.includes("claim_embedding_batch")) {
+              claimCalls++;
+              return [];
+            }
+            if (q.includes("prune_embedding_queue")) {
+              pruneCalls++;
+              pruneRetentions.push(String(params?.[0]));
+              return [{ pruned: 7 }];
+            }
+            return [];
+          },
+        };
+        return fn(tx);
+      },
+    });
+
+    const worker = new Worker(mockSql as never, {
+      embedding: {
+        provider: "openai",
+        model: "test",
+        dimensions: 3,
+      },
+      discover: async () => [{ schema: "me_test12345678", shard: 1 }],
+      idleDelayMs: 50,
+      drainTimeoutMs: 150,
+      refreshIntervalMs: 1_000_000,
+      pruneRetention: "3 days",
+    });
+
+    await worker.start();
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    await worker.stop();
+
+    expect(claimCalls).toBeGreaterThanOrEqual(1);
+    // pruneQueue should be invoked once per claim that returned 0
+    expect(pruneCalls).toBeGreaterThanOrEqual(1);
+    expect(pruneCalls).toBe(claimCalls);
+    expect(pruneRetentions[0]).toBe("3 days");
+    // 7 rows pruned per call, summed across all calls
+    expect(worker.stats.totalPruned).toBe(pruneCalls * 7);
+  });
+
+  test("does not prune when claim returns rows", async () => {
+    // When claim returns rows, processBatch proceeds to call generateEmbeddings
+    // against the (unreachable) test URL and throws. Control jumps to the
+    // worker's catch block before reaching the prune branch in the loop.
+    // Either way, the observable behavior is: prune was not invoked.
+    let claimCalls = 0;
+    let pruneCalls = 0;
+
+    const mockSql = createMockSql({
+      begin: async (fn: (tx: unknown) => Promise<unknown>) => {
+        const tx = {
+          unsafe: async (q: string) => {
+            if (q.includes("claim_embedding_batch")) {
+              claimCalls++;
+              return [
+                {
+                  queue_id: "1",
+                  memory_id: "mem-1",
+                  embedding_version: 1,
+                  content: "test",
+                },
+              ];
+            }
+            if (q.includes("prune_embedding_queue")) {
+              pruneCalls++;
+              return [{ pruned: 0 }];
+            }
+            return [];
+          },
+        };
+        return fn(tx);
+      },
+    });
+
+    const worker = new Worker(mockSql as never, {
+      embedding: {
+        provider: "openai",
+        model: "test",
+        dimensions: 3,
+      },
+      discover: async () => [{ schema: "me_test12345678", shard: 1 }],
+      idleDelayMs: 50,
+      drainTimeoutMs: 150,
+      refreshIntervalMs: 1_000_000,
+    });
+
+    await worker.start();
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    await worker.stop();
+
+    expect(claimCalls).toBeGreaterThanOrEqual(1);
+    expect(pruneCalls).toBe(0);
+  });
+
+  test("prune failure does not increment consecutiveErrors", async () => {
+    let pruneCalls = 0;
+
+    const mockSql = createMockSql({
+      begin: async (fn: (tx: unknown) => Promise<unknown>) => {
+        const tx = {
+          unsafe: async (q: string) => {
+            if (q.includes("claim_embedding_batch")) return [];
+            if (q.includes("prune_embedding_queue")) {
+              pruneCalls++;
+              throw new Error("simulated prune failure");
+            }
+            return [];
+          },
+        };
+        return fn(tx);
+      },
+    });
+
+    const worker = new Worker(mockSql as never, {
+      embedding: {
+        provider: "openai",
+        model: "test",
+        dimensions: 3,
+      },
+      discover: async () => [{ schema: "me_test12345678", shard: 1 }],
+      idleDelayMs: 50,
+      drainTimeoutMs: 150,
+      refreshIntervalMs: 1_000_000,
+    });
+
+    await worker.start();
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    await worker.stop();
+
+    expect(pruneCalls).toBeGreaterThanOrEqual(1);
+    // Best-effort: prune errors must not poison the worker error backoff.
+    expect(worker.stats.consecutiveErrors).toBe(0);
+    expect(worker.stats.totalPruned).toBe(0);
+  });
+
   test("rate limit error uses Retry-After backoff, does not increment consecutiveErrors", async () => {
     let batchCalls = 0;
 

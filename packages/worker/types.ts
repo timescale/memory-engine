@@ -21,6 +21,11 @@ export interface WorkerConfig {
   refreshIntervalMs?: number;
   /** Exit gracefully after this much idle time (optional) */
   drainTimeoutMs?: number;
+  /**
+   * PostgreSQL interval for retaining terminal-outcome queue rows
+   * before they are pruned (default: '7 days').
+   */
+  pruneRetention?: string;
 }
 
 export interface ProcessResult {
@@ -33,6 +38,7 @@ export interface WorkerStats {
   schemasPolled: number;
   totalProcessed: number;
   totalFailed: number;
+  totalPruned: number;
   consecutiveErrors: number;
   lastError?: string;
 }

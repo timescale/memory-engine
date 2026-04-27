@@ -7,6 +7,30 @@ import { info, span } from "@pydantic/logfire-node";
 import type { SQL } from "bun";
 import type { EngineTarget, ProcessResult, WorkerConfig } from "./types";
 
+/**
+ * Delete terminal-outcome queue rows older than the retention window.
+ * Runs in its own transaction; failures don't affect the claim path.
+ *
+ * Returns the number of rows pruned.
+ */
+export async function pruneQueue(
+  sql: SQL,
+  target: EngineTarget,
+  retention: string,
+): Promise<number> {
+  const { schema, shard } = target;
+  return sql.begin(async (tx) => {
+    await tx.unsafe(`SET LOCAL pgdog.shard TO ${shard}`);
+    await tx.unsafe(`SET LOCAL search_path TO ${schema}, public`);
+    await tx.unsafe("SET LOCAL ROLE me_embed");
+    const rows = (await tx.unsafe(
+      `SELECT ${schema}.prune_embedding_queue($1::interval) AS pruned`,
+      [retention],
+    )) as { pruned: string | number | null }[];
+    return Number(rows[0]?.pruned ?? 0);
+  });
+}
+
 interface ClaimedRow {
   queue_id: string;
   memory_id: string;

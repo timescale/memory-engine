@@ -108,7 +108,7 @@ describe("single-engine migration", () => {
     const result = await migrateEngine(sql, schema, undefined, "0.1.0");
     expect(result.status).toBe("ok");
     expect(result.applied).toHaveLength(0);
-    expect(await countMigrations(sql, schema)).toBe(5);
+    expect(await countMigrations(sql, schema)).toBe(6);
   });
 
   test("records migration metadata", async () => {
@@ -117,7 +117,7 @@ describe("single-engine migration", () => {
       from ${schema}.migration
       order by name
     `);
-    expect(rows).toHaveLength(5);
+    expect(rows).toHaveLength(6);
     for (const row of rows) {
       expect(row.applied_at_version).toBe("0.1.0");
       expect(row.applied_at).toBeTruthy();
@@ -436,6 +436,85 @@ describe("single-engine migration", () => {
     const names = funcs.map((f) => f.proname);
     expect(names).toContain("enqueue_embedding");
     expect(names).toContain("claim_embedding_batch");
+    expect(names).toContain("prune_embedding_queue");
+  });
+
+  test("me_embed can execute prune_embedding_queue", async () => {
+    const [{ has_execute }] = await sql`
+      select has_function_privilege(
+        'me_embed',
+        ${`${schema}.prune_embedding_queue(interval)`},
+        'EXECUTE'
+      ) as has_execute
+    `;
+    expect(has_execute).toBe(true);
+  });
+
+  test("prune_embedding_queue removes terminal rows older than retention", async () => {
+    await sql.unsafe(`delete from ${schema}.embedding_queue`);
+
+    // Insert a memory we can reference (avoid FK fan-out)
+    await sql.unsafe(`
+      insert into ${schema}.memory (content) values ('prune test memory')
+    `);
+    const [{ id: memId }] = await sql.unsafe(`
+      select id from ${schema}.memory where content = 'prune test memory'
+    `);
+
+    // Clear the auto-enqueued row from the trigger
+    await sql.unsafe(`delete from ${schema}.embedding_queue`);
+
+    // Old completed (should be pruned)
+    await sql.unsafe(`
+      insert into ${schema}.embedding_queue
+        (memory_id, embedding_version, outcome, created_at)
+      values
+        ('${memId}', 1, 'completed', now() - interval '10 days')
+    `);
+    // Old failed (should be pruned)
+    await sql.unsafe(`
+      insert into ${schema}.embedding_queue
+        (memory_id, embedding_version, outcome, created_at)
+      values
+        ('${memId}', 2, 'failed', now() - interval '10 days')
+    `);
+    // Old cancelled (should be pruned)
+    await sql.unsafe(`
+      insert into ${schema}.embedding_queue
+        (memory_id, embedding_version, outcome, created_at)
+      values
+        ('${memId}', 3, 'cancelled', now() - interval '10 days')
+    `);
+    // Recent completed (should be kept)
+    await sql.unsafe(`
+      insert into ${schema}.embedding_queue
+        (memory_id, embedding_version, outcome, created_at)
+      values
+        ('${memId}', 4, 'completed', now() - interval '1 day')
+    `);
+    // Old but outcome IS NULL — active queue item, must NOT be pruned
+    await sql.unsafe(`
+      insert into ${schema}.embedding_queue
+        (memory_id, embedding_version, outcome, created_at)
+      values
+        ('${memId}', 5, null, now() - interval '30 days')
+    `);
+
+    const [{ pruned }] = await sql.unsafe(
+      `select ${schema}.prune_embedding_queue(interval '7 days') as pruned`,
+    );
+    expect(Number(pruned)).toBe(3);
+
+    const remaining = await sql.unsafe(
+      `select embedding_version, outcome from ${schema}.embedding_queue
+       where memory_id = '${memId}'
+       order by embedding_version`,
+    );
+    expect(remaining).toHaveLength(2);
+    expect(remaining[0].embedding_version).toBe(4);
+    expect(remaining[0].outcome).toBe("completed");
+    expect(remaining[1].embedding_version).toBe(5);
+    expect(remaining[1].outcome).toBeNull();
   });
 });
 
@@ -539,8 +618,8 @@ describe("advisory locks", () => {
       expect(["ok", "skipped"]).toContain(result.status);
     }
 
-    // Exactly 5 migrations should exist
-    expect(await countMigrations(sql, schema)).toBe(5);
+    // Exactly 6 migrations should exist
+    expect(await countMigrations(sql, schema)).toBe(6);
   });
 
   test("concurrent migrateEngine on different schemas — both proceed", async () => {
@@ -579,7 +658,7 @@ describe("provisioning", () => {
     );
     expect(result.schema).toBe("me_prov00000001");
     expect(result.migrateResult.status).toBe("ok");
-    expect(result.migrateResult.applied).toHaveLength(5);
+    expect(result.migrateResult.applied).toHaveLength(6);
     expect(await schemaExists(sql, "me_prov00000001")).toBe(true);
     expect(await tableExists(sql, "me_prov00000001", "memory")).toBe(true);
     expect(await tableExists(sql, "me_prov00000001", "user")).toBe(true);
@@ -621,7 +700,7 @@ describe("dry run", () => {
     await sql.unsafe(`create schema if not exists ${schema}`);
 
     const result = await dryRun(sql, schema);
-    expect(result.pending).toHaveLength(5);
+    expect(result.pending).toHaveLength(6);
     expect(result.applied).toHaveLength(0);
   });
 
@@ -632,7 +711,7 @@ describe("dry run", () => {
 
     const result = await dryRun(sql, schema);
     expect(result.pending).toHaveLength(0);
-    expect(result.applied).toHaveLength(5);
+    expect(result.applied).toHaveLength(6);
   });
 });
 
