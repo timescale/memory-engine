@@ -93,6 +93,14 @@ function getCredentialsPath(): string {
  * Strips trailing slashes and default ports.
  */
 export function normalizeOrigin(url: string): string {
+  // Defense in depth: this function gets called with values that flow in
+  // from CLI flags, env vars, and YAML files. Throwing a clear error beats
+  // a cryptic "url2.replace is not a function" downstream.
+  if (typeof url !== "string") {
+    throw new TypeError(
+      `Expected server URL to be a string, got ${typeof url}`,
+    );
+  }
   try {
     const parsed = new URL(url);
     // Remove default ports

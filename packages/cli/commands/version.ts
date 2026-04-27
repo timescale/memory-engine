@@ -21,10 +21,10 @@ export function createVersionCommand(): Command {
   return new Command("version")
     .description("show CLI and server versions and check compatibility")
     .option(
-      "--no-server",
-      "skip the server check; print only the local CLI version",
+      "--local",
+      "skip the server probe; print only the local CLI version",
     )
-    .action(async (opts: { server: boolean }, cmd) => {
+    .action(async (opts: { local?: boolean }, cmd) => {
       const globalOpts = cmd.optsWithGlobals();
       const fmt = getOutputFormat(globalOpts);
 
@@ -39,7 +39,7 @@ export function createVersionCommand(): Command {
         bundledMinClientVersion: MIN_CLIENT_VERSION,
       };
 
-      if (!opts.server) {
+      if (opts.local) {
         await output({ ...local, server: null }, fmt, () => {
           console.log(`  Client version:  ${local.clientVersion}`);
           console.log(`  Min server:      ${local.minServerVersion}`);
@@ -47,7 +47,12 @@ export function createVersionCommand(): Command {
         return;
       }
 
-      const server = resolveServer(globalOpts.server);
+      // The global option is `--server <url>` and may also leak through as
+      // `globalOpts.server` for parent flags. Only pass it through to
+      // resolveServer when it is actually a string.
+      const serverFlag =
+        typeof globalOpts.server === "string" ? globalOpts.server : undefined;
+      const server = resolveServer(serverFlag);
 
       try {
         const probe = await checkServerVersion({

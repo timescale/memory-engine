@@ -5,7 +5,7 @@ Show CLI and server versions and check compatibility.
 ## Usage
 
 ```
-me version [--no-server]
+me version [--local]
 ```
 
 ## Description
@@ -30,7 +30,7 @@ instead of obscure errors mid-login.
 
 | Option | Description |
 |--------|-------------|
-| `--no-server` | Skip the server probe; print only the local CLI version. |
+| `--local` | Skip the server probe; print only the local CLI version. |
 
 ## Global Options
 
@@ -57,7 +57,7 @@ me version --server https://api.memory.build
 Local-only output (e.g. on an air-gapped machine):
 
 ```
-me version --no-server
+me version --local
 ```
 
 JSON output for scripts and CI:
