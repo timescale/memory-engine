@@ -45,6 +45,7 @@ describe("encode/decode round-trip", () => {
         },
         limit: "500",
         candidateLimit: "200",
+        semanticThreshold: "0.72",
         weightsSemantic: "0.7",
         weightsFulltext: "0.3",
         orderBy: "desc",

@@ -204,6 +204,15 @@ Docs: ${docUrl("me_memory_search")}`,
           .describe(
             "Candidates per search mode before RRF fusion (0 = default 30)",
           ),
+        semanticThreshold: z
+          .number()
+          .min(0)
+          .max(1)
+          .optional()
+          .nullable()
+          .describe(
+            "Minimum semantic similarity score (0-1) for vector candidates",
+          ),
         limit: z
           .number()
           .int()
@@ -250,6 +259,7 @@ Docs: ${docUrl("me_memory_search")}`,
             ? args.candidateLimit
             : undefined,
         limit: args.limit && args.limit > 0 ? args.limit : undefined,
+        semanticThreshold: args.semanticThreshold ?? undefined,
         orderBy:
           (args.order_by as "asc" | "desc" | null | undefined) ?? undefined,
       });

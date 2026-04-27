@@ -33,9 +33,11 @@ export interface AdvancedFilter {
     start: string;
     end: string;
   };
-  /** Empty string means "use default (1000)". */
+  /** Empty string means "use default (1000, or 50 for semantic-only)". */
   limit: string;
   candidateLimit: string;
+  /** Minimum vector similarity score (0-1) for semantic candidates. */
+  semanticThreshold: string;
   weightsSemantic: string;
   weightsFulltext: string;
   orderBy: "" | "asc" | "desc";
@@ -67,6 +69,7 @@ export const EMPTY_ADVANCED: AdvancedFilter = {
   temporal: { mode: "overlaps", start: "", end: "" },
   limit: "",
   candidateLimit: "",
+  semanticThreshold: "",
   weightsSemantic: "",
   weightsFulltext: "",
   orderBy: "",
@@ -147,10 +150,19 @@ export function selectSearchParams(state: FilterState): MemorySearchParams {
   if (temporal) params.temporal = temporal;
 
   const limit = parseIntOrUndef(a.limit);
-  if (limit !== undefined) params.limit = limit;
+  if (limit !== undefined) {
+    params.limit = limit;
+  } else if (params.semantic && !params.fulltext) {
+    params.limit = 50;
+  }
 
   const candidateLimit = parseIntOrUndef(a.candidateLimit);
   if (candidateLimit !== undefined) params.candidateLimit = candidateLimit;
+
+  const semanticThreshold = parseFloatInRangeOrUndef(a.semanticThreshold, 0, 1);
+  if (semanticThreshold !== undefined && params.semantic) {
+    params.semanticThreshold = semanticThreshold;
+  }
 
   const ws = parseFloatOrUndef(a.weightsSemantic);
   const wf = parseFloatOrUndef(a.weightsFulltext);
@@ -197,6 +209,16 @@ function parseFloatOrUndef(s: string): number | undefined {
   return Number.isFinite(n) ? n : undefined;
 }
 
+function parseFloatInRangeOrUndef(
+  s: string,
+  min: number,
+  max: number,
+): number | undefined {
+  const n = parseFloatOrUndef(s);
+  if (n === undefined) return undefined;
+  return n >= min && n <= max ? n : undefined;
+}
+
 /**
  * Human-readable summary of the active filter, used by the collapsed
  * search bar.
@@ -237,6 +259,9 @@ export function summarizeFilter(state: FilterState): {
   if (a.limit.trim()) chips.push(`limit: ${a.limit.trim()}`);
   if (a.candidateLimit.trim()) {
     chips.push(`candidateLimit: ${a.candidateLimit.trim()}`);
+  }
+  if (a.semantic.trim() && a.semanticThreshold.trim()) {
+    chips.push(`semanticThreshold: ${a.semanticThreshold.trim()}`);
   }
 
   const ws = a.weightsSemantic.trim();

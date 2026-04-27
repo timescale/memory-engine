@@ -99,6 +99,31 @@ describe("mergeMetaJsonFilter", () => {
 });
 
 describe("selectSearchParams", () => {
+  test("uses a smaller default limit for advanced semantic-only search", () => {
+    expect(selectSearchParams(withAdvanced({ semantic: "hello" })).limit).toBe(
+      50,
+    );
+  });
+
+  test("preserves explicit limits for advanced semantic-only search", () => {
+    expect(
+      selectSearchParams(withAdvanced({ semantic: "hello", limit: "10" }))
+        .limit,
+    ).toBe(10);
+  });
+
+  test("passes semantic threshold through only when semantic search is set", () => {
+    expect(
+      selectSearchParams(
+        withAdvanced({ semantic: "hello", semanticThreshold: "0.72" }),
+      ).semanticThreshold,
+    ).toBe(0.72);
+    expect(
+      selectSearchParams(withAdvanced({ semanticThreshold: "0.72" }))
+        .semanticThreshold,
+    ).toBeUndefined();
+  });
+
   test("converts datetime-local temporal contains filters to offset ISO datetimes", () => {
     const start = "2026-01-01T12:34:56";
 
@@ -159,6 +184,7 @@ describe("summarizeFilter (advanced mode)", () => {
         tree: "work.*",
         limit: "50",
         candidateLimit: "25",
+        semanticThreshold: "0.72",
         orderBy: "asc",
       }),
     );
@@ -169,6 +195,7 @@ describe("summarizeFilter (advanced mode)", () => {
       `tree: work.*`,
       `limit: 50`,
       `candidateLimit: 25`,
+      `semanticThreshold: 0.72`,
       `order: asc`,
     ]);
   });

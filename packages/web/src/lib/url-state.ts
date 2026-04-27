@@ -42,6 +42,7 @@ export function encodeUrlState(
     if (a.temporal.end) p.set("temporal_end", a.temporal.end);
     if (a.limit) p.set("limit", a.limit);
     if (a.candidateLimit) p.set("candidate_limit", a.candidateLimit);
+    if (a.semanticThreshold) p.set("semantic_threshold", a.semanticThreshold);
     if (a.weightsSemantic) p.set("weights_semantic", a.weightsSemantic);
     if (a.weightsFulltext) p.set("weights_fulltext", a.weightsFulltext);
     if (a.orderBy) p.set("order_by", a.orderBy);
@@ -80,6 +81,7 @@ export function decodeUrlState(search: string): {
     },
     limit: p.get("limit") ?? "",
     candidateLimit: p.get("candidate_limit") ?? "",
+    semanticThreshold: p.get("semantic_threshold") ?? "",
     weightsSemantic: p.get("weights_semantic") ?? "",
     weightsFulltext: p.get("weights_fulltext") ?? "",
     orderBy: coerceOrderBy(p.get("order_by")),

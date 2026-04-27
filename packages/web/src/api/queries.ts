@@ -171,6 +171,9 @@ export function normalizeSearchParams(
   if (typeof params.candidateLimit === "number") {
     out.candidateLimit = params.candidateLimit;
   }
+  if (typeof params.semanticThreshold === "number") {
+    out.semanticThreshold = params.semanticThreshold;
+  }
 
   const hasAnyFilter =
     out.semantic !== undefined ||

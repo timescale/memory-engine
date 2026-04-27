@@ -16,6 +16,7 @@ Supports three search modes: **semantic** (meaning-based), **fulltext** (keyword
 | `temporal` | `object \| null` | no | Temporal filter. Omit or pass `null` to skip. |
 | `weights` | `object \| null` | no | Weights for hybrid search ranking. Omit or pass `null` for defaults. |
 | `candidateLimit` | `integer \| null` | no | Candidates per search mode before RRF fusion. Omit or pass `null` for default (30). |
+| `semanticThreshold` | `number \| null` | no | Minimum semantic similarity score (0-1) for vector candidates. Omit or pass `null` to skip. |
 | `limit` | `integer \| null` | no | Maximum number of results. Omit or pass `null` for default (10). Max: 1000. |
 | `order_by` | `string \| null` | no | Sort direction for filter-only searches: `"asc"` or `"desc"`. Default: `"desc"`. Omit or pass `null` for default. |
 
@@ -83,7 +84,8 @@ See [Tree filter syntax](../concepts.md#tree-filter-syntax) for the full referen
 ```json
 {
   "semantic": "how does authentication work",
-  "limit": 10
+  "limit": 10,
+  "semanticThreshold": 0.7
 }
 ```
 

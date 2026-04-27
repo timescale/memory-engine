@@ -155,6 +155,7 @@ const { results, total } = await me.memory.search({
   // Tuning
   limit: 10,                           // max results (1-1000)
   candidateLimit: 30,                  // candidates per mode before RRF fusion
+  semanticThreshold: 0.7,              // optional min semantic score (0-1)
   weights: { semantic: 0.7, fulltext: 0.3 },
   orderBy: "desc",                     // for filter-only queries (no search)
 });

@@ -121,7 +121,7 @@ export function AdvancedSearchPanel() {
         <NumberInput
           value={advanced.limit}
           onChange={(v) => setAdvanced({ limit: v })}
-          placeholder="1000 (default)"
+          placeholder="50 semantic-only; otherwise 1000"
           min={1}
           max={1000}
         />
@@ -135,6 +135,20 @@ export function AdvancedSearchPanel() {
           min={1}
           max={1000}
         />
+      </Field>
+
+      <Field label="semantic threshold (0–1)">
+        <NumberInput
+          value={advanced.semanticThreshold}
+          onChange={(v) => setAdvanced({ semanticThreshold: v })}
+          placeholder="optional min score"
+          step="0.01"
+          min={0}
+          max={1}
+        />
+        <p className="mt-1 text-xs text-slate-500">
+          Filters semantic candidates before ranking. Higher is stricter.
+        </p>
       </Field>
 
       <Field label="weights.semantic (0–1)">
