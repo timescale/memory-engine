@@ -96,6 +96,27 @@ export async function checkServerVersion(
     clearTimeout(timer);
   }
 
+  // A 404 from the version endpoint means the server predates the
+  // version-checking handshake (i.e. is older than the first server release
+  // that exposed `/api/v1/version`). Surface this as the same typed
+  // `SERVER_VERSION_INCOMPATIBLE` error the local-comparison branch raises so
+  // callers render a single, friendly upgrade message instead of the raw
+  // `HTTP 404 Not Found`.
+  if (response.status === 404) {
+    throw new RpcError(
+      RPC_ERROR_CODES.APPLICATION_ERROR,
+      `The server is too old for this CLI (v${options.clientVersion}). ` +
+        `It does not expose ${path} — this endpoint was added in server ` +
+        `v${options.minServerVersion}. The server needs to be upgraded.`,
+      {
+        code: APP_ERROR_CODES.SERVER_VERSION_INCOMPATIBLE,
+        clientVersion: options.clientVersion,
+        serverVersion: null,
+        minServerVersion: options.minServerVersion,
+      },
+    );
+  }
+
   if (!response.ok) {
     throw new Error(
       `Version check failed: HTTP ${response.status} ${response.statusText}`,

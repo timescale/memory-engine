@@ -191,4 +191,31 @@ describe("checkServerVersion", () => {
       }),
     ).rejects.toThrow(/HTTP 500/);
   });
+
+  test("throws SERVER_VERSION_INCOMPATIBLE on HTTP 404 (pre-handshake server)", async () => {
+    // Older servers (before /api/v1/version was introduced) return 404 from
+    // the version probe. The client should map this to the typed
+    // SERVER_VERSION_INCOMPATIBLE app error so the CLI renders an upgrade
+    // message rather than a raw "HTTP 404 Not Found".
+    mockFetch(
+      () => new Response("Not Found", { status: 404, statusText: "Not Found" }),
+    );
+
+    try {
+      await checkServerVersion({
+        url: "https://api.example.com",
+        clientVersion: "0.2.1",
+        minServerVersion: "0.1.17",
+      });
+      throw new Error("expected throw");
+    } catch (error) {
+      if (!isRpcError(error)) throw error;
+      expect(error.appCode).toBe("SERVER_VERSION_INCOMPATIBLE");
+      expect(error.message).toContain("0.2.1");
+      expect(error.message).toContain("0.1.17");
+      expect(error.message).toContain("/api/v1/version");
+      expect(error.data?.serverVersion).toBeNull();
+      expect(error.data?.minServerVersion).toBe("0.1.17");
+    }
+  });
 });
