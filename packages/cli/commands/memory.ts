@@ -209,7 +209,7 @@ function createMemoryGetCommand(): Command {
 function createMemorySearchCommand(): Command {
   return new Command("search")
     .description("search memories")
-    .argument("[query]", "semantic search query (shorthand for --semantic)")
+    .argument("[query]", "hybrid search query (semantic + fulltext)")
     .option("--semantic <text>", "semantic (vector) search")
     .option("--fulltext <text>", "BM25 keyword search")
     .option(
@@ -234,24 +234,20 @@ function createMemorySearchCommand(): Command {
       requireSession(creds, fmt);
       requireEngine(creds, fmt);
 
-      // Resolve semantic query
-      const semantic = query ?? opts.semantic ?? null;
-      if (query && opts.semantic) {
+      // Resolve search text. A positional query runs hybrid search
+      if (query && opts.semantic && opts.fulltext) {
+        const error =
+          "Positional query is masked by --semantic and --fulltext flags.";
         if (fmt === "text") {
-          clack.log.error(
-            "Cannot use both positional query and --semantic flag.",
-          );
+          clack.log.error(error);
         } else {
-          output(
-            { error: "Cannot use both positional query and --semantic" },
-            fmt,
-            () => {},
-          );
+          output({ error }, fmt, () => {});
         }
         process.exit(1);
       }
 
-      const fulltext = opts.fulltext ?? null;
+      const semantic = opts.semantic ?? query ?? null;
+      const fulltext = opts.fulltext ?? query ?? null;
       const tree = opts.tree ?? null;
       const meta = opts.meta ? parseMeta(opts.meta) : null;
 

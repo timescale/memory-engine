@@ -126,7 +126,7 @@ Docs: ${docUrl("me_memory_create")}`,
       title: "Search Memories",
       description: `Search and browse memories using text matching and/or filters.
 
-Search modes: semantic (meaning), fulltext (keywords), or both (hybrid). Combine with tree, meta, and temporal filters. Results scored 0-1.
+Search modes: semantic (meaning), fulltext (keywords), or both (hybrid). For ordinary queries, short terms, identifiers, or exact words, prefer hybrid by setting both semantic and fulltext to the query text. Combine with tree, meta, and temporal filters. Results scored 0-1.
 
 Docs: ${docUrl("me_memory_search")}`,
       inputSchema: {
@@ -134,7 +134,9 @@ Docs: ${docUrl("me_memory_search")}`,
           .string()
           .optional()
           .nullable()
-          .describe("Natural language query for semantic/meaning search"),
+          .describe(
+            "Natural language query for semantic/meaning search. For short or literal queries, also set fulltext to the same value.",
+          ),
         fulltext: z
           .string()
           .optional()
