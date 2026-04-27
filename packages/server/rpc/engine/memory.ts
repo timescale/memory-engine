@@ -318,6 +318,7 @@ async function memorySearch(
     temporal: parseTemporalFilter(params.temporal),
     limit: params.limit,
     candidateLimit: params.candidateLimit,
+    semanticThreshold: params.semanticThreshold ?? undefined,
     weights: params.weights ?? undefined,
     orderBy: params.orderBy,
   });

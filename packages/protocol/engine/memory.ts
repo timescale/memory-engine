@@ -92,6 +92,7 @@ export const memorySearchParams = z.object({
   temporal: temporalFilterSchema.optional().nullable(),
   limit: z.number().int().min(1).max(1000).optional(),
   candidateLimit: z.number().int().min(1).max(1000).optional(),
+  semanticThreshold: z.number().min(0).max(1).optional().nullable(),
   weights: searchWeightsSchema.optional().nullable(),
   orderBy: z.enum(["asc", "desc"]).optional(),
 });

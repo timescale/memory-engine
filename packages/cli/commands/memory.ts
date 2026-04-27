@@ -220,6 +220,7 @@ function createMemorySearchCommand(): Command {
     .option("--meta <json>", "metadata filter (JSON)")
     .option("--limit <n>", "max results", "10")
     .option("--candidate-limit <n>", "pre-RRF candidate pool size")
+    .option("--semantic-threshold <n>", "minimum semantic score (0-1)")
     .option("--temporal-contains <ts>", "memory must contain this point")
     .option("--temporal-overlaps <range>", "memory must overlap (start,end)")
     .option("--temporal-within <range>", "memory must be within (start,end)")
@@ -322,6 +323,8 @@ function createMemorySearchCommand(): Command {
         if (weights) params.weights = weights;
         if (opts.candidateLimit)
           params.candidateLimit = Number.parseInt(opts.candidateLimit, 10);
+        if (opts.semanticThreshold)
+          params.semanticThreshold = Number.parseFloat(opts.semanticThreshold);
         if (opts.orderBy) params.orderBy = opts.orderBy;
 
         const result = await engine.memory.search(

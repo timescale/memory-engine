@@ -316,10 +316,18 @@ async function buildSemanticQuery(
   params: FilterParams & {
     embedding: number[];
     limit: number;
+    semanticThreshold?: number;
   },
 ): Promise<SearchRow[]> {
-  const { clauses, values } = buildCommonFilters(params, 2); // $1=embedding, $2=limit
+  const hasSemanticThreshold = typeof params.semanticThreshold === "number";
+  const { clauses, values } = buildCommonFilters(
+    params,
+    hasSemanticThreshold ? 3 : 2,
+  ); // $1=embedding, $2=limit, optional $3=semanticThreshold
 
+  const semanticThresholdClause = hasSemanticThreshold
+    ? "AND (1 - (embedding <=> $1::halfvec)) >= $3"
+    : "AND (embedding <=> $1::halfvec) < 1.0";
   const whereClause = clauses.length > 0 ? `AND ${clauses.join(" AND ")}` : "";
 
   // Format embedding as PostgreSQL array literal
@@ -333,7 +341,7 @@ async function buildSemanticQuery(
       (1 - (embedding <=> $1::halfvec)) as score
     FROM ${schema}.memory
     WHERE embedding IS NOT NULL
-      AND (embedding <=> $1::halfvec) < 1.0
+      ${semanticThresholdClause}
       ${whereClause}
     ORDER BY score DESC, created_at DESC
     LIMIT $2
@@ -342,6 +350,7 @@ async function buildSemanticQuery(
   return sql.unsafe<SearchRow[]>(query, [
     embeddingLiteral,
     params.limit,
+    ...(hasSemanticThreshold ? [params.semanticThreshold] : []),
     ...values,
   ]);
 }
@@ -626,6 +635,7 @@ export function memoryOps(ctx: OpsContext) {
         temporal,
         limit = 10,
         candidateLimit = 30,
+        semanticThreshold,
         weights = { fulltext: 1.0, semantic: 1.0 },
         orderBy = "desc",
       } = params;
@@ -651,6 +661,7 @@ export function memoryOps(ctx: OpsContext) {
               tree,
               temporal,
               limit: candidateLimit,
+              semanticThreshold,
             }),
           ]);
 
@@ -689,6 +700,7 @@ export function memoryOps(ctx: OpsContext) {
             tree,
             temporal,
             limit,
+            semanticThreshold,
           });
           results = rows.map(rowToSearchResult);
         } else {

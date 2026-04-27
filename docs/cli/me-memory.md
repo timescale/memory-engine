@@ -81,6 +81,7 @@ me memory search [query] [options]
 | `--meta <json>` | Metadata filter as JSON. |
 | `--limit <n>` | Max results (default: 10). |
 | `--candidate-limit <n>` | Pre-RRF candidate pool size. |
+| `--semantic-threshold <n>` | Minimum semantic similarity score, 0-1. |
 | `--temporal-contains <ts>` | Memory must contain this point in time. |
 | `--temporal-overlaps <range>` | Memory must overlap this range (`start,end`). |
 | `--temporal-within <range>` | Memory must be within this range (`start,end`). |

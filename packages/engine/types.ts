@@ -210,6 +210,8 @@ export interface SearchParams {
   limit?: number;
   /** Candidates per search mode before RRF fusion */
   candidateLimit?: number;
+  /** Minimum semantic similarity score (0-1) for vector candidates */
+  semanticThreshold?: number;
   /** Weights for hybrid search */
   weights?: SearchWeights;
   /** Sort direction for filter-only searches */
