@@ -33,10 +33,7 @@ const SOURCE = readFileSync(SERVER_PATH, "utf8");
 /** Tool names extracted from `server.registerTool("foo", …)` calls. */
 const REGISTERED_TOOLS: string[] = [
   ...SOURCE.matchAll(/registerTool\(\s*"([a-z_][a-z0-9_]*)"/gi),
-].map(
-  // biome-ignore lint/style/noNonNullAssertion: regex group always present
-  (m) => m[1]!,
-);
+].map((m) => m[1]!);
 
 /**
  * Every concrete docs URL the agent sees, resolved from the source.
@@ -51,12 +48,10 @@ function collectDocUrls(source: string): string[] {
   const urls: string[] = [];
 
   for (const m of source.matchAll(/docUrl\(\s*"([^"]+)"\s*\)/g)) {
-    // biome-ignore lint/style/noNonNullAssertion: regex group always present
     urls.push(docUrl(m[1]!));
   }
 
   for (const m of source.matchAll(/\$\{DOCS_BASE\}(\/[^\s"`'<>)${]+\.md)/g)) {
-    // biome-ignore lint/style/noNonNullAssertion: regex group always present
     urls.push(`${DOCS_BASE}${m[1]!}`);
   }
 
