@@ -10,11 +10,11 @@
  * which the server doesn't do.
  *
  * Prerequisites:
- *   1. Postgres running (`bun run pg`)
+ *   1. Postgres running (`./bun run pg`)
  *   2. .env filled in (ACCOUNTS_DATABASE_URL, ENGINE_DATABASE_URL)
  *
  * Usage:
- *   bun run setup
+ *   ./bun run setup
  */
 import { SQL } from "bun";
 
@@ -81,7 +81,7 @@ async function main() {
   console.log("");
 
   console.log("Done! Start the server to run bootstrap + migrations:");
-  console.log("  bun run server");
+  console.log("  ./bun run server");
 }
 
 main().catch((error) => {

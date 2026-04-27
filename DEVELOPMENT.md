@@ -8,13 +8,13 @@
 ## Quick Start
 
 ```bash
-bun install
-bun run pg
+./bun install
+./bun run pg
 # configure .env (see below)
-bun run setup
-bun run server
+./bun run setup
+./bun run server
 # in another terminal:
-bun run packages/cli/index.ts --server http://localhost:3000 login
+./bun run packages/cli/index.ts --server http://localhost:3000 login
 ```
 
 ## Step by Step
@@ -22,7 +22,7 @@ bun run packages/cli/index.ts --server http://localhost:3000 login
 ### 1. Install dependencies
 
 ```bash
-bun install
+./bun install
 ```
 
 ### 2. Start PostgreSQL
@@ -30,7 +30,7 @@ bun install
 The project requires PostgreSQL 18 with three extensions: `pgvector`, `pg_textsearch`, and `ltree`. The included Dockerfile builds a pre-configured image:
 
 ```bash
-bun run pg
+./bun run pg
 ```
 
 This builds the Docker image and starts a container named `me-postgres` on `localhost:5432` with trust authentication (no password).
@@ -39,8 +39,8 @@ Other database commands:
 
 | Command | Description |
 |---|---|
-| `bun run pg:rm` | Stop and remove the container |
-| `bun run psql` | Connect with psql |
+| `./bun run pg:rm` | Stop and remove the container |
+| `./bun run psql` | Connect with psql |
 
 ### 3. Configure `.env`
 
@@ -62,7 +62,7 @@ ENGINE_DATABASE_URL=postgres://postgres@localhost:5432/shard1
 **Encryption master key** — 32-byte hex string for encrypting API keys at rest:
 
 ```bash
-bun run generate:master-key
+./bun run generate:master-key
 ```
 
 Paste the output into `.env`:
@@ -125,7 +125,7 @@ GITHUB_CLIENT_SECRET=...
 # Database
 ACCOUNTS_DATABASE_URL=postgres://postgres@localhost:5432/accounts
 ENGINE_DATABASE_URL=postgres://postgres@localhost:5432/shard1
-ACCOUNTS_MASTER_KEY=<bun run generate:master-key>
+ACCOUNTS_MASTER_KEY=<./bun run generate:master-key>
 
 # Server
 API_BASE_URL=http://localhost:3000
@@ -148,7 +148,7 @@ GITHUB_CLIENT_SECRET=...
 ### 4. Run setup
 
 ```bash
-bun run setup
+./bun run setup
 ```
 
 This is idempotent (safe to run multiple times) and will:
@@ -161,7 +161,7 @@ This is idempotent (safe to run multiple times) and will:
 ### 5. Start the server
 
 ```bash
-bun run server
+./bun run server
 ```
 
 ### 6. Test with the CLI
@@ -169,14 +169,14 @@ bun run server
 In another terminal:
 
 ```bash
-bun run packages/cli/index.ts --server http://localhost:3000 login
+./bun run packages/cli/index.ts --server http://localhost:3000 login
 ```
 
 Or set `ME_SERVER` to avoid passing `--server` every time:
 
 ```bash
 export ME_SERVER=http://localhost:3000
-bun run packages/cli/index.ts login
+./bun run packages/cli/index.ts login
 ```
 
 After login, the server URL is stored as the default in `~/.config/me/credentials.yaml`, so subsequent commands don't need `--server`.
@@ -185,20 +185,20 @@ After login, the server URL is stored as the default in `~/.config/me/credential
 
 | Command | Description |
 |---|---|
-| `bun run server` | Start the server |
-| `bun run setup` | Create databases, run migrations, bootstrap engine |
-| `bun run pg` | Build and start PostgreSQL in Docker |
-| `bun run pg:rm` | Stop and remove the PostgreSQL container |
-| `bun run psql` | Connect to PostgreSQL with psql |
-| `bun run test` | Run tests |
-| `bun run check` | Format + lint + typecheck |
-| `bun run build` | Compile CLI binary (current platform) |
-| `bun run build:all` | Cross-compile CLI for all platforms |
-| `bun run install:local` | Build and install local CLI binary to your PATH |
-| `bun run clean` | Remove build artifacts |
-| `bun run generate:master-key` | Generate a new encryption master key |
-| `bun run release:client` | Cut a client release (CLI + npm packages) |
-| `bun run release:server` | Cut a server release (deploys to prod) |
+| `./bun run server` | Start the server |
+| `./bun run setup` | Create databases, run migrations, bootstrap engine |
+| `./bun run pg` | Build and start PostgreSQL in Docker |
+| `./bun run pg:rm` | Stop and remove the PostgreSQL container |
+| `./bun run psql` | Connect to PostgreSQL with psql |
+| `./bun run test` | Run tests |
+| `./bun run check` | Format + lint + typecheck |
+| `./bun run build` | Compile CLI binary (current platform) |
+| `./bun run build:all` | Cross-compile CLI for all platforms |
+| `./bun run install:local` | Build and install local CLI binary to your PATH |
+| `./bun run clean` | Remove build artifacts |
+| `./bun run generate:master-key` | Generate a new encryption master key |
+| `./bun run release:client` | Cut a client release (CLI + npm packages) |
+| `./bun run release:server` | Cut a server release (deploys to prod) |
 
 ## Releases
 
@@ -251,12 +251,12 @@ client that requires a server feature added in a specific release.
 - Bump `MIN_CLIENT_VERSION` when **the server** drops support for an older
   protocol shape. After the bump, clients below the new minimum will see
   `CLIENT_VERSION_INCOMPATIBLE` instead of confusing 4xx/5xx errors.
-  The `bun run release:server` script prompts for this; you can also edit
+  The `./bun run release:server` script prompts for this; you can also edit
   `version.ts` directly.
 - Bump `MIN_SERVER_VERSION` when **the client** depends on a feature that
   only newer servers expose. After the bump, the client refuses to talk to
   older servers with `SERVER_VERSION_INCOMPATIBLE`.
-  The `bun run release:client` script prompts for this.
+  The `./bun run release:client` script prompts for this.
 
 Rule of thumb: pin the new minimum at the *current* counterpart version
 (e.g. when releasing server `0.2.0` that drops support for protocol shapes
@@ -268,7 +268,7 @@ upgrade prompt and "method not found" / "invalid params" mid-command.
 
 ### Two scripts
 
-**`bun run release:client`** — bumps the version in:
+**`./bun run release:client`** — bumps the version in:
 
 - `package.json`
 - `packages/cli/package.json`
@@ -290,9 +290,9 @@ The `v*` tag triggers `.github/workflows/release.yml`, which:
 - Updates the Homebrew formula.
 
 It also triggers `.github/workflows/docs.yml`, which rebuilds and
-publishes the MkDocs site from the tag's commit (see [Docs deployment](#docs-deployment)).
+publishes the docs site from the tag's commit (see [Docs deployment](#docs-deployment)).
 
-**`bun run release:server`** — bumps the version in the server-side packages
+**`./bun run release:server`** — bumps the version in the server-side packages
 in lockstep:
 
 - `packages/accounts/package.json`
@@ -309,7 +309,7 @@ Commits, creates an annotated tag `server/v<version>`, and pushes.
 The `server/v*` tag triggers `.github/workflows/deploy-prod.yaml`, which
 builds the server image from `packages/server/Dockerfile` and deploys it
 to prod. It also triggers `.github/workflows/docs.yml`, which rebuilds
-and publishes the MkDocs site from the tag's commit (see
+and publishes the docs site from the tag's commit (see
 [Docs deployment](#docs-deployment)).
 
 The dev environment is redeployed automatically by
@@ -319,12 +319,12 @@ server path — no tag required.
 ### Usage
 
 ```bash
-bun run release:client 0.2.0       # explicit version
-bun run release:client patch       # 0.1.16 -> 0.1.17
-bun run release:client minor       # 0.1.16 -> 0.2.0
-bun run release:client             # prompts for version
+./bun run release:client 0.2.0       # explicit version
+./bun run release:client patch       # 0.1.16 -> 0.1.17
+./bun run release:client minor       # 0.1.16 -> 0.2.0
+./bun run release:client             # prompts for version
 
-bun run release:server patch       # same arg shapes; tags server/v<...>
+./bun run release:server patch       # same arg shapes; tags server/v<...>
 ```
 
 Both scripts require:
@@ -353,16 +353,16 @@ Because the client and server release independently, the typical sequence
 for a change that spans both sides is:
 
 1. Land a backwards-compatible server change on `main`. Dev auto-deploys.
-2. `bun run release:server` to tag `server/v<next>` and deploy prod.
+2. `./bun run release:server` to tag `server/v<next>` and deploy prod.
 3. Land the client change on `main` that depends on the new server behavior.
-4. `bun run release:client` to publish the CLI and npm packages.
+4. `./bun run release:client` to publish the CLI and npm packages.
 
 The server counter and the client counter will diverge over time — that's
 expected. They're not related after this split.
 
 ### Docs deployment
 
-The MkDocs site at <https://docs.memory.build/> is deployed by
+The docs site at <https://docs.memory.build/> (built from `packages/docs-site/`) is deployed by
 `.github/workflows/docs.yml`. It is **not** auto-deployed on every push
 to `main`, because the docs describe both client (CLI/MCP) and server
 behavior, and `main` typically contains changes that aren't yet released
@@ -391,7 +391,7 @@ Database migrations run at server startup using `SERVER_VERSION` as the
 `serverVersion` passed to the runners. When you add a new migration file under
 `packages/engine/migrate/migrations/` or `packages/accounts/migrate/migrations/`:
 
-- Cut a **server** release afterwards (`bun run release:server`) to advance
+- Cut a **server** release afterwards (`./bun run release:server`) to advance
   `SERVER_VERSION` and propagate the migration to prod.
 - The migration's `applied_at_version` column and the schema's `version`
   row will reflect the new `SERVER_VERSION`.

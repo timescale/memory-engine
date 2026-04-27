@@ -25,7 +25,7 @@ console.log("\nBuilding for all platforms...\n");
 await Promise.all(
   targets.map(async ({ target, suffix, ext }) => {
     const output = `me-${suffix}${ext ?? ""}`;
-    await $`bun build --compile --target=${target} ./packages/cli/index.ts --outfile ${distDir}/${output}`;
+    await $`./bun build --compile --target=${target} ./packages/cli/index.ts --outfile ${distDir}/${output}`;
     console.log(`  done ${output}`);
   }),
 );

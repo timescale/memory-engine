@@ -4,7 +4,7 @@
  * import. Produces `packages/cli/serve/web-assets.generated.ts` which
  * exports a `Map<path, { contentType, data }>`.
  *
- * Run after `vite build` and before `bun build --compile` so the UI ships
+ * Run after `vite build` and before `./bun build --compile` so the UI ships
  * inside the `me` binary. Safe to run with no dist/: emits an empty map.
  */
 import {
