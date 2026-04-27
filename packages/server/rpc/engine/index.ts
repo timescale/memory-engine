@@ -11,7 +11,7 @@ import { userMethods } from "./user";
  *
  * Memory methods (chunk 3):
  * - memory.create, memory.batchCreate, memory.get, memory.update, memory.delete
- * - memory.search, memory.tree, memory.move, memory.deleteTree
+ * - memory.search, memory.tree, memory.move, memory.deleteTree, memory.countTree
  *
  * User, grant, role methods (chunk 4):
  * - user.create, user.get, user.getByName, user.list, user.rename, user.delete

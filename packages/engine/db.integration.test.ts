@@ -569,12 +569,9 @@ describe("memory ops", () => {
       tree: "drymove.source.child",
     });
 
-    // Simulate dry-run: count via searchMemories (same as RPC handler)
-    const preview = await db.searchMemories({
-      tree: "drymove.source",
-      limit: 1000,
-    });
-    expect(preview.total).toBe(2);
+    // Dry-run preview uses countTree (same as RPC handler)
+    const preview = await db.countTree("drymove.source");
+    expect(preview.count).toBe(2);
 
     // Verify memories were NOT moved
     const fetched1 = await db.getMemory(m1.id);
@@ -582,6 +579,54 @@ describe("memory ops", () => {
 
     const fetched2 = await db.getMemory(m2.id);
     expect(fetched2!.tree).toBe("drymove.source.child");
+  });
+
+  test("countTree returns accurate count above 1000 (TNT-59 regression)", async () => {
+    const db = createEngineDB(sql, schema);
+    db.setUser(testPrincipalId);
+
+    // Insert 1500 memories under a tree path. The bug capped the dry-run
+    // count at 1000 because the handler used searchMemories with limit:1000.
+    const total = 1500;
+    const batchSize = 500;
+    for (let start = 0; start < total; start += batchSize) {
+      const batch = Array.from({ length: batchSize }, (_, i) => ({
+        content: `Bulk ${start + i}`,
+        tree: "bulk.count.regression",
+      }));
+      await db.batchCreateMemories(batch);
+    }
+
+    // Sanity: searchMemories with limit:1000 (the old, buggy preview) caps at 1000.
+    const cappedPreview = await db.searchMemories({
+      tree: "bulk.count.regression",
+      limit: 1000,
+    });
+    expect(cappedPreview.total).toBe(1000);
+
+    // countTree returns the true count, unbounded.
+    const count = await db.countTree("bulk.count.regression");
+    expect(count.count).toBe(total);
+
+    // Cleanup so subsequent tree-related tests aren't affected.
+    const deleted = await db.deleteTree("bulk.count.regression");
+    expect(deleted.count).toBe(total);
+  });
+
+  test("countTree includes descendants and is empty for unknown paths", async () => {
+    const db = createEngineDB(sql, schema);
+    db.setUser(testPrincipalId);
+
+    await db.createMemory({ content: "A", tree: "count.tree" });
+    await db.createMemory({ content: "B", tree: "count.tree.child" });
+    await db.createMemory({ content: "C", tree: "count.tree.child.deep" });
+    await db.createMemory({ content: "D", tree: "count.other" });
+
+    const inside = await db.countTree("count.tree");
+    expect(inside.count).toBe(3);
+
+    const empty = await db.countTree("count.does.not.exist");
+    expect(empty.count).toBe(0);
   });
 
   test("batchCreateMemories creates multiple memories", async () => {

@@ -1,7 +1,7 @@
 /**
  * Engine RPC contract — maps method names to params/result schema pairs.
  *
- * Covers all 34 methods on POST /api/v1/engine/rpc (API key auth).
+ * Covers all 35 methods on POST /api/v1/engine/rpc (API key auth).
  */
 import type { z } from "zod";
 
@@ -33,6 +33,8 @@ import {
 import {
   memoryBatchCreateParams,
   memoryBatchCreateResult,
+  memoryCountTreeParams,
+  memoryCountTreeResult,
   memoryCreateParams,
   memoryDeleteParams,
   memoryDeleteResult,
@@ -106,14 +108,14 @@ function method<TParams extends z.ZodType, TResult extends z.ZodType>(
 }
 
 /**
- * Engine RPC method contract — all 34 methods.
+ * Engine RPC method contract — all 35 methods.
  *
  * Each entry maps a method name to its params and result Zod schemas.
  * The client library uses this for type inference and optional response validation.
  * The server uses the params schemas for input validation.
  */
 export const engineMethods = {
-  // Memory (9)
+  // Memory (10)
   "memory.create": method(memoryCreateParams, memoryResponse),
   "memory.batchCreate": method(
     memoryBatchCreateParams,
@@ -126,6 +128,7 @@ export const engineMethods = {
   "memory.tree": method(memoryTreeParams, memoryTreeResult),
   "memory.move": method(memoryMoveParams, memoryMoveResult),
   "memory.deleteTree": method(memoryDeleteTreeParams, memoryDeleteTreeResult),
+  "memory.countTree": method(memoryCountTreeParams, memoryCountTreeResult),
 
   // User (6)
   "user.create": method(userCreateParams, userResponse),

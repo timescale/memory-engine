@@ -16,6 +16,7 @@ import { generateEmbedding } from "@memory.build/embedding";
 import type { Memory, SearchResult, TreeNode } from "@memory.build/engine";
 import type {
   MemoryBatchCreateParams,
+  MemoryCountTreeParams,
   MemoryCreateParams,
   MemoryDeleteParams,
   MemoryDeleteTreeParams,
@@ -29,6 +30,7 @@ import type {
 } from "@memory.build/protocol/engine/memory";
 import {
   memoryBatchCreateParams,
+  memoryCountTreeParams,
   memoryCreateParams,
   memoryDeleteParams,
   memoryDeleteTreeParams,
@@ -352,11 +354,7 @@ async function memoryMove(
   const { db } = context as EngineContext;
 
   if (params.dryRun) {
-    const result = await db.searchMemories({
-      tree: params.source,
-      limit: 1000,
-    });
-    return { count: result.total };
+    return db.countTree(params.source);
   }
 
   const result = await db.moveTree(params.source, params.destination);
@@ -374,17 +372,24 @@ async function memoryDeleteTree(
   const { db } = context as EngineContext;
 
   if (params.dryRun) {
-    // For dry run, we need to count without deleting
-    // The engine ops doesn't support dry run directly, so we search and count
-    const result = await db.searchMemories({
-      tree: params.tree,
-      limit: 1000, // Count up to 1000
-    });
-    return { count: result.total };
+    return db.countTree(params.tree);
   }
 
   const result = await db.deleteTree(params.tree);
   return result;
+}
+
+/**
+ * memory.countTree - Count memories under a tree path.
+ */
+async function memoryCountTree(
+  params: MemoryCountTreeParams,
+  context: HandlerContext,
+): Promise<{ count: number }> {
+  assertEngineContext(context);
+  const { db } = context as EngineContext;
+
+  return db.countTree(params.tree);
 }
 
 // =============================================================================
@@ -404,4 +409,5 @@ export const memoryMethods = buildRegistry()
   .register("memory.tree", memoryTreeParams, memoryTree)
   .register("memory.move", memoryMoveParams, memoryMove)
   .register("memory.deleteTree", memoryDeleteTreeParams, memoryDeleteTree)
+  .register("memory.countTree", memoryCountTreeParams, memoryCountTree)
   .build();

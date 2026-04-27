@@ -41,6 +41,8 @@ import type {
   GrantRevokeResult,
   MemoryBatchCreateParams,
   MemoryBatchCreateResult,
+  MemoryCountTreeParams,
+  MemoryCountTreeResult,
   MemoryCreateParams,
   MemoryDeleteParams,
   MemoryDeleteResult,
@@ -128,6 +130,7 @@ export interface MemoryNamespace {
   tree(params?: MemoryTreeParams): Promise<MemoryTreeResult>;
   move(params: MemoryMoveParams): Promise<MemoryMoveResult>;
   deleteTree(params: MemoryDeleteTreeParams): Promise<MemoryDeleteTreeResult>;
+  countTree(params: MemoryCountTreeParams): Promise<MemoryCountTreeResult>;
 }
 
 export interface UserNamespace {
@@ -264,6 +267,7 @@ export function createClient(options: ClientOptions = {}): EngineClient {
     tree: (params) => call("memory.tree", params ?? {}),
     move: (params) => call("memory.move", params),
     deleteTree: (params) => call("memory.deleteTree", params),
+    countTree: (params) => call("memory.countTree", params),
   };
 
   const user: UserNamespace = {
