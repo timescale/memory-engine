@@ -6,7 +6,7 @@
  * leaves show "Delete…", path nodes show "Delete subtree…".
  */
 import { useEffect, useRef } from "react";
-import { useUi } from "../../store/ui.ts";
+import { useUi } from "../store/ui.ts";
 
 export function ContextMenu() {
   const state = useUi((s) => s.contextMenu);

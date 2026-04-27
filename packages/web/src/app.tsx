@@ -4,9 +4,10 @@
  * Left pane: the `TreeView`, which runs in one of two modes depending on
  * whether the filter has any active criteria. Browse mode renders the
  * full path hierarchy from `memory.tree` with leaves loaded lazily per
- * expanded path; search mode renders a tree of matching memories from
- * `memory.search`. The header's filter UI (simple / advanced) is the only
- * place that drives the mode switch.
+ * expanded path; search mode renders matching memories from `memory.search`.
+ * When a text filter is active, the left pane splits into relevance-sorted
+ * results above the matching tree. The header's filter UI (simple / advanced)
+ * is the only place that drives the mode switch.
  *
  * Right pane: the editor/viewer for the currently selected memory, fetched
  * by id. URL state carries the selection + filter for shareable links.
@@ -16,15 +17,15 @@ import type { MemoryResponse } from "@memory.build/client";
 import { useEffect } from "react";
 import { useShallow } from "zustand/shallow";
 import { useMemory, useTree } from "./api/queries.ts";
+import { ContextMenu } from "./components/ContextMenu.tsx";
 import { DeleteMemoryDialog } from "./components/dialogs/DeleteMemoryDialog.tsx";
 import { DeleteTreeDialog } from "./components/dialogs/DeleteTreeDialog.tsx";
 import { EditorPane } from "./components/editor/EditorPane.tsx";
 import { SidebarResizer } from "./components/layout/SidebarResizer.tsx";
 import { AdvancedSearchSection } from "./components/search/AdvancedSearchSection.tsx";
 import { SimpleSearchBar } from "./components/search/SimpleSearchBar.tsx";
+import { TreeView } from "./components/TreeView.tsx";
 import { ToastStack } from "./components/toast/Toast.tsx";
-import { ContextMenu } from "./components/tree/ContextMenu.tsx";
-import { TreeView } from "./components/tree/TreeView.tsx";
 import { MetadataPanel } from "./components/viewer/MetadataPanel.tsx";
 import { expansionPathsForMemoryTree } from "./lib/tree-build.ts";
 import { useUrlSync } from "./lib/useUrlSync.ts";
@@ -79,7 +80,7 @@ export function App() {
 
       <div className="flex min-h-0 flex-1">
         <aside
-          className="shrink-0 overflow-auto border-r border-slate-200 bg-white"
+          className="shrink-0 overflow-hidden border-r border-slate-200 bg-white"
           style={{ width: sidebarWidth }}
         >
           <TreeView />

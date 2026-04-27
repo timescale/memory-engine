@@ -1,19 +1,13 @@
 /**
  * Tree view — dual-mode renderer.
  *
- * Browse mode (no active search filter):
- *   - Fetches the full path hierarchy from `memory.tree` (no limit, no
- *     content) so every path is always visible.
- *   - Leaves load lazily per expanded path; a single always-on query
- *     surfaces empty-tree memories under the synthetic `.` bucket.
+ * Browse mode (no active search filter): fetches the full path hierarchy
+ * from `memory.tree` and lazy-loads leaves per expanded path.
  *
- * Search mode (filter has at least one criterion):
- *   - Runs `memory.search` with the normalized filter and builds a tree
- *     from the matching memories. Leaves render inline (no lazy fetch)
- *     and paths are force-expanded so every match is visible without
- *     hunting.
- *   - The 1000-row search cap is acceptable here because it applies to
- *     matches, not to the universe of memories.
+ * Search mode (filter has at least one criterion): runs `memory.search` and
+ * builds a matching tree from the results. When a text filter is present,
+ * the sidebar splits vertically and shows relevance-sorted flat results
+ * above that matching tree.
  */
 import { useEffect, useMemo, useRef } from "react";
 import { useShallow } from "zustand/shallow";
@@ -21,16 +15,18 @@ import {
   useMemories,
   useMemoriesAtExactPath,
   useTree,
-} from "../../api/queries.ts";
+} from "../api/queries.ts";
+import { hasTextFilter } from "../lib/search-results.ts";
 import {
   buildPathTree,
   buildSearchTree,
   collectPaths,
-} from "../../lib/tree-build.ts";
-import { useDebounced } from "../../lib/useDebounced.ts";
-import { selectSearchParams, useFilter } from "../../store/filter.ts";
-import { useSelection } from "../../store/selection.ts";
-import { PathRow } from "./TreeNodeRow.tsx";
+} from "../lib/tree-build.ts";
+import { useDebounced } from "../lib/useDebounced.ts";
+import { selectSearchParams, useFilter } from "../store/filter.ts";
+import { useSelection } from "../store/selection.ts";
+import { SearchSplitPane } from "./SearchSplitPane.tsx";
+import { TreeContent } from "./TreeContent.tsx";
 
 export function TreeView() {
   const filterState = useFilter(
@@ -46,6 +42,7 @@ export function TreeView() {
     [debouncedFilter],
   );
   const searchActive = Object.keys(searchParams).length > 0;
+  const textFilterActive = hasTextFilter(debouncedFilter);
 
   // Browse-mode queries — fire only when search is inactive.
   const tree = useTree();
@@ -60,9 +57,10 @@ export function TreeView() {
     return buildPathTree(treeNodes, rootLeafCount);
   }, [tree.data?.nodes, rootLeaves.data?.total]);
 
+  const searchResults = search.data?.results ?? [];
   const searchRoots = useMemo(
-    () => buildSearchTree(search.data?.results ?? []),
-    [search.data?.results],
+    () => buildSearchTree(searchResults),
+    [searchResults],
   );
 
   const roots = searchActive ? searchRoots : browseRoots;
@@ -96,45 +94,28 @@ export function TreeView() {
 
   const activeError = searchActive ? search.error : tree.error;
   const activeLoading = searchActive ? search.isLoading : tree.isLoading;
+  const treeContent = (
+    <TreeContent
+      activeError={activeError}
+      activeLoading={activeLoading}
+      context={context}
+      roots={roots}
+      searchActive={searchActive}
+    />
+  );
 
-  if (activeError) {
-    return (
-      <div className="p-4 text-sm text-red-700">
-        <p className="font-medium">
-          {searchActive ? "Search failed" : "Failed to load tree"}
-        </p>
-        <p className="mt-1 text-xs text-red-600">
-          {activeError instanceof Error
-            ? activeError.message
-            : String(activeError)}
-        </p>
-      </div>
-    );
-  }
-
-  if (activeLoading) {
-    return (
-      <div className="p-4 text-sm text-slate-500">
-        {searchActive ? "Searching…" : "Loading tree…"}
-      </div>
-    );
-  }
-
-  if (roots.length === 0) {
-    return (
-      <div className="p-4 text-sm text-slate-500">
-        {searchActive
-          ? "No memories match the current filter."
-          : "No memories yet. Create one from the CLI or MCP server to see it here."}
-      </div>
-    );
+  if (!textFilterActive) {
+    return <div className="h-full overflow-auto">{treeContent}</div>;
   }
 
   return (
-    <div className="py-1" role="tree" aria-label="Memories">
-      {roots.map((node) => (
-        <PathRow key={node.path} node={node} context={context} />
-      ))}
-    </div>
+    <SearchSplitPane
+      results={searchResults}
+      loading={search.isLoading}
+      error={search.error}
+      filter={debouncedFilter}
+    >
+      {treeContent}
+    </SearchSplitPane>
   );
 }

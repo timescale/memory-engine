@@ -7,6 +7,10 @@
  */
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import {
+  clampSearchResultsHeight,
+  DEFAULT_SEARCH_RESULTS_HEIGHT,
+} from "../lib/split-pane.ts";
 
 export const MIN_SIDEBAR_WIDTH = 200;
 export const MAX_SIDEBAR_WIDTH = 720;
@@ -16,12 +20,15 @@ interface LayoutState {
   sidebarWidth: number;
   /** When true, the header's search pane is hidden and only the summary is shown. */
   searchCollapsed: boolean;
+  /** Height in pixels of the relevance-results pane above the tree. */
+  searchResultsHeight: number;
 }
 
 interface LayoutActions {
   setSidebarWidth(width: number): void;
   setSearchCollapsed(collapsed: boolean): void;
   toggleSearchCollapsed(): void;
+  setSearchResultsHeight(height: number): void;
 }
 
 export function clampSidebarWidth(width: number): number {
@@ -36,6 +43,7 @@ export const useLayout = create<LayoutState & LayoutActions>()(
     (set) => ({
       sidebarWidth: DEFAULT_SIDEBAR_WIDTH,
       searchCollapsed: false,
+      searchResultsHeight: DEFAULT_SEARCH_RESULTS_HEIGHT,
       setSidebarWidth(width) {
         set({ sidebarWidth: clampSidebarWidth(width) });
       },
@@ -44,6 +52,9 @@ export const useLayout = create<LayoutState & LayoutActions>()(
       },
       toggleSearchCollapsed() {
         set((state) => ({ searchCollapsed: !state.searchCollapsed }));
+      },
+      setSearchResultsHeight(height) {
+        set({ searchResultsHeight: clampSearchResultsHeight(height) });
       },
     }),
     {
