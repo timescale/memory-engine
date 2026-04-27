@@ -568,6 +568,23 @@ export function memoryOps(ctx: OpsContext) {
     },
 
     /**
+     * Count memories under a tree path (unbounded).
+     *
+     * Used to preview the impact of `deleteTree` / `moveTree` without
+     * being limited by a search `limit`.
+     */
+    async countTree(treePath: string): Promise<{ count: number }> {
+      return withTx(ctx, "read", "countTree", async (sql) => {
+        const rows = await sql`
+          select count(*)::int as count
+          from ${sql.unsafe(schema)}.memory
+          where tree <@ ${treePath}::ltree
+        `;
+        return { count: Number(rows[0]?.count ?? 0) };
+      });
+    },
+
+    /**
      * Move memories from one tree path to another
      */
     async moveTree(

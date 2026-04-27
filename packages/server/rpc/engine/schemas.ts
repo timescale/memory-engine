@@ -32,6 +32,7 @@ export {
 } from "@memory.build/protocol/engine/grant";
 export {
   type MemoryBatchCreateParams,
+  type MemoryCountTreeParams,
   type MemoryCreateParams,
   type MemoryDeleteParams,
   type MemoryDeleteTreeParams,
@@ -41,6 +42,7 @@ export {
   type MemoryTreeParams,
   type MemoryUpdateParams,
   memoryBatchCreateParams as memoryBatchCreateSchema,
+  memoryCountTreeParams as memoryCountTreeSchema,
   // Memory params
   memoryCreateParams as memoryCreateSchema,
   memoryDeleteParams as memoryDeleteSchema,

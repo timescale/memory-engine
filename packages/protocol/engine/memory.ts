@@ -129,6 +129,15 @@ export const memoryDeleteTreeParams = z.object({
 
 export type MemoryDeleteTreeParams = z.infer<typeof memoryDeleteTreeParams>;
 
+/**
+ * memory.countTree params.
+ */
+export const memoryCountTreeParams = z.object({
+  tree: treePathSchema.min(1, "tree path is required"),
+});
+
+export type MemoryCountTreeParams = z.infer<typeof memoryCountTreeParams>;
+
 // =============================================================================
 // Result Schemas
 // =============================================================================
@@ -229,3 +238,12 @@ export const memoryDeleteTreeResult = z.object({
 });
 
 export type MemoryDeleteTreeResult = z.infer<typeof memoryDeleteTreeResult>;
+
+/**
+ * memory.countTree result.
+ */
+export const memoryCountTreeResult = z.object({
+  count: z.number().int(),
+});
+
+export type MemoryCountTreeResult = z.infer<typeof memoryCountTreeResult>;

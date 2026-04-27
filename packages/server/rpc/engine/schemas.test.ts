@@ -13,6 +13,7 @@ import {
   grantListSchema,
   grantRevokeSchema,
   memoryBatchCreateSchema,
+  memoryCountTreeSchema,
   memoryCreateSchema,
   memoryDeleteSchema,
   memoryDeleteTreeSchema,
@@ -419,6 +420,27 @@ describe("memoryDeleteTreeSchema", () => {
     const result = memoryDeleteTreeSchema.safeParse({
       tree: "",
     });
+    expect(result.success).toBe(false);
+  });
+});
+
+describe("memoryCountTreeSchema", () => {
+  test("accepts valid tree path", () => {
+    const result = memoryCountTreeSchema.safeParse({
+      tree: "old.stuff",
+    });
+    expect(result.success).toBe(true);
+  });
+
+  test("rejects empty tree path", () => {
+    const result = memoryCountTreeSchema.safeParse({
+      tree: "",
+    });
+    expect(result.success).toBe(false);
+  });
+
+  test("rejects missing tree path", () => {
+    const result = memoryCountTreeSchema.safeParse({});
     expect(result.success).toBe(false);
   });
 });
