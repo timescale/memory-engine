@@ -22,11 +22,13 @@ import {
   parseContent,
 } from "../parsers/index.ts";
 
-const DOCS_BASE = "https://docs.memory.build";
+// Exported so docs-links.test.ts can resolve the `${DOCS_BASE}/...` template
+// literals embedded in tool descriptions back into concrete URLs.
+export const DOCS_BASE = "https://docs.memory.build";
 const MCP_DOCS_BASE = `${DOCS_BASE}/mcp`;
 
 /** URL to a tool's raw Markdown documentation page. */
-function docUrl(tool: string): string {
+export function docUrl(tool: string): string {
   return `${MCP_DOCS_BASE}/${tool}.md`;
 }
 
