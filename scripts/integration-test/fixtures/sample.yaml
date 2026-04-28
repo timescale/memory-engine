@@ -1,0 +1,20 @@
+- content: |
+    YAML fixture A — a short note imported from a YAML array. Used by the
+    me CLI integration test to exercise the parseYaml path of
+    `me memory import`.
+  tree: __TREE_BASE__.imports.yaml
+  meta:
+    itest: true
+    run_id: __RUN_ID__
+    source: yaml_fixture
+    seq: 1
+
+- content: |
+    YAML fixture B — second entry in the same file to verify multi-doc
+    array imports. Should land at the same tree path.
+  tree: __TREE_BASE__.imports.yaml
+  meta:
+    itest: true
+    run_id: __RUN_ID__
+    source: yaml_fixture
+    seq: 2

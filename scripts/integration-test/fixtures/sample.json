@@ -1,0 +1,11 @@
+[
+  {
+    "content": "JSON fixture — single memory imported from a JSON array. Exercises the parseJson path of `me memory import` against the dev server.",
+    "tree": "__TREE_BASE__.imports.json",
+    "meta": {
+      "itest": true,
+      "run_id": "__RUN_ID__",
+      "source": "json_fixture"
+    }
+  }
+]
