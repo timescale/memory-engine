@@ -27,10 +27,37 @@ function rowToOrgMember(row: OrgMemberRow): OrgMember {
 }
 
 /**
- * Check if a PostgreSQL error is the "org_must_have_owner" trigger exception
+ * Verify that removing or demoting `identityId` from `orgId` would leave at
+ * least one other owner in place. Throws ORG_MUST_HAVE_OWNER otherwise.
+ *
+ * The query takes `for update` row locks on every other owner row in the
+ * org. This closes the race where two concurrent transactions, each
+ * removing a different owner, both observe the other's row as still
+ * present and proceed — leaving the org with zero owners. With `for
+ * update`, the second transaction blocks on the first's row locks, sees
+ * the post-commit count, and correctly fails. The previous DB trigger
+ * had the same race; this hardens it.
  */
-function isOrgOwnerError(err: unknown): boolean {
-  return err instanceof Error && err.message?.includes("org_must_have_owner");
+async function assertAnotherOwnerExists(
+  sql: import("bun").SQL,
+  schema: string,
+  orgId: string,
+  identityId: string,
+): Promise<void> {
+  const rows = await sql<{ identity_id: string }[]>`
+    select identity_id
+    from ${sql.unsafe(schema)}.org_member
+    where org_id = ${orgId}
+      and role = 'owner'
+      and identity_id <> ${identityId}
+    for update
+  `;
+  if (rows.length === 0) {
+    throw new AccountsError(
+      "ORG_MUST_HAVE_OWNER",
+      "Cannot remove the last owner from an organization",
+    );
+  }
 }
 
 export function orgMemberOps(ctx: AccountsContext) {
@@ -63,21 +90,25 @@ export function orgMemberOps(ctx: AccountsContext) {
 
     async removeMember(orgId: string, identityId: string): Promise<boolean> {
       return withTx(ctx, "removeMember", async (sql) => {
-        try {
-          const result = await sql`
-            delete from ${sql.unsafe(schema)}.org_member
-            where org_id = ${orgId} and identity_id = ${identityId}
-          `;
-          return result.count > 0;
-        } catch (err) {
-          if (isOrgOwnerError(err)) {
-            throw new AccountsError(
-              "ORG_MUST_HAVE_OWNER",
-              "Cannot remove the last owner from an organization",
-            );
-          }
-          throw err;
+        // Fetch the target row with `for update` so the row stays stable
+        // under our feet while we decide whether to delete it.
+        const [target] = await sql<{ role: OrgRole }[]>`
+          select role
+          from ${sql.unsafe(schema)}.org_member
+          where org_id = ${orgId} and identity_id = ${identityId}
+          for update
+        `;
+        if (!target) return false;
+
+        if (target.role === "owner") {
+          await assertAnotherOwnerExists(sql, schema, orgId, identityId);
         }
+
+        const result = await sql`
+          delete from ${sql.unsafe(schema)}.org_member
+          where org_id = ${orgId} and identity_id = ${identityId}
+        `;
+        return result.count > 0;
       });
     },
 
@@ -87,22 +118,26 @@ export function orgMemberOps(ctx: AccountsContext) {
       newRole: OrgRole,
     ): Promise<boolean> {
       return withTx(ctx, "updateRole", async (sql) => {
-        try {
-          const result = await sql`
-            update ${sql.unsafe(schema)}.org_member
-            set role = ${newRole}
-            where org_id = ${orgId} and identity_id = ${identityId}
-          `;
-          return result.count > 0;
-        } catch (err) {
-          if (isOrgOwnerError(err)) {
-            throw new AccountsError(
-              "ORG_MUST_HAVE_OWNER",
-              "Cannot remove the last owner from an organization",
-            );
-          }
-          throw err;
+        const [target] = await sql<{ role: OrgRole }[]>`
+          select role
+          from ${sql.unsafe(schema)}.org_member
+          where org_id = ${orgId} and identity_id = ${identityId}
+          for update
+        `;
+        if (!target) return false;
+
+        // Only block the transition that would orphan the org: an owner
+        // being changed to anything other than owner.
+        if (target.role === "owner" && newRole !== "owner") {
+          await assertAnotherOwnerExists(sql, schema, orgId, identityId);
         }
+
+        const result = await sql`
+          update ${sql.unsafe(schema)}.org_member
+          set role = ${newRole}
+          where org_id = ${orgId} and identity_id = ${identityId}
+        `;
+        return result.count > 0;
       });
     },
 
