@@ -2,7 +2,7 @@
  * Unit tests for MCP install helpers.
  */
 import { describe, expect, test } from "bun:test";
-import { buildMeCommand, buildOpenCodeConfig } from "./install.ts";
+import { buildMeCommand, buildOpenCodeConfig, MCP_TOOLS } from "./install.ts";
 
 describe("buildMeCommand", () => {
   test("uses bare 'me' command on PATH", () => {
@@ -94,5 +94,145 @@ describe("buildOpenCodeConfig", () => {
         command: meCmd,
       },
     });
+  });
+});
+
+// Helpers to fish a tool out of the registry without leaking internal types.
+function findCliTool(bin: string) {
+  const tool = MCP_TOOLS.find((t) => t.bin === bin);
+  if (!tool || tool.method !== "cli") {
+    throw new Error(`expected CLI tool with bin '${bin}'`);
+  }
+  return tool;
+}
+
+describe("Claude Code scope handling", () => {
+  const meCmd = ["me", "mcp", "--api-key", "k", "--server", "https://x"];
+  const claude = findCliTool("claude");
+
+  test("addCmd defaults to --scope user", () => {
+    expect(claude.addCmd(meCmd, {})).toEqual([
+      "claude",
+      "mcp",
+      "add",
+      "--scope",
+      "user",
+      "me",
+      "--",
+      ...meCmd,
+    ]);
+  });
+
+  test("addCmd honors explicit project scope", () => {
+    expect(claude.addCmd(meCmd, { scope: "project" })).toEqual([
+      "claude",
+      "mcp",
+      "add",
+      "--scope",
+      "project",
+      "me",
+      "--",
+      ...meCmd,
+    ]);
+  });
+
+  test("addCmd honors explicit local scope", () => {
+    expect(claude.addCmd(meCmd, { scope: "local" })).toEqual([
+      "claude",
+      "mcp",
+      "add",
+      "--scope",
+      "local",
+      "me",
+      "--",
+      ...meCmd,
+    ]);
+  });
+
+  test("removeCmd defaults to --scope user", () => {
+    expect(claude.removeCmd({})).toEqual([
+      "claude",
+      "mcp",
+      "remove",
+      "--scope",
+      "user",
+      "me",
+    ]);
+  });
+
+  test("removeCmd honors explicit project scope", () => {
+    expect(claude.removeCmd({ scope: "project" })).toEqual([
+      "claude",
+      "mcp",
+      "remove",
+      "--scope",
+      "project",
+      "me",
+    ]);
+  });
+});
+
+describe("Gemini CLI scope handling", () => {
+  const meCmd = ["me", "mcp", "--api-key", "k", "--server", "https://x"];
+  const gemini = findCliTool("gemini");
+
+  test("addCmd defaults to --scope user", () => {
+    expect(gemini.addCmd(meCmd, {})).toEqual([
+      "gemini",
+      "mcp",
+      "add",
+      "--scope",
+      "user",
+      "me",
+      ...meCmd,
+    ]);
+  });
+
+  test("addCmd honors explicit project scope", () => {
+    expect(gemini.addCmd(meCmd, { scope: "project" })).toEqual([
+      "gemini",
+      "mcp",
+      "add",
+      "--scope",
+      "project",
+      "me",
+      ...meCmd,
+    ]);
+  });
+
+  test("removeCmd defaults to --scope user", () => {
+    expect(gemini.removeCmd({})).toEqual([
+      "gemini",
+      "mcp",
+      "remove",
+      "--scope",
+      "user",
+      "me",
+    ]);
+  });
+});
+
+describe("Codex CLI (no scope)", () => {
+  const meCmd = ["me", "mcp", "--api-key", "k", "--server", "https://x"];
+  const codex = findCliTool("codex");
+
+  test("addCmd ignores scope opt", () => {
+    expect(codex.addCmd(meCmd, { scope: "project" })).toEqual([
+      "codex",
+      "mcp",
+      "add",
+      "me",
+      "--",
+      ...meCmd,
+    ]);
+  });
+
+  test("removeCmd ignores scope opt", () => {
+    expect(codex.removeCmd({ scope: "project" })).toEqual([
+      "codex",
+      "mcp",
+      "remove",
+      "me",
+    ]);
   });
 });

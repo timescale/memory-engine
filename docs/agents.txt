@@ -14,8 +14,9 @@ mcp:
     opencode: me opencode install
     codex_cli: me codex install
     gemini_cli: me gemini install
-    claude_code: claude plugin marketplace add timescale/memory-engine && claude plugin install memory-engine@memory-engine
-  description: Memory engine ships as an MCP server. OpenCode, Codex CLI, and Gemini CLI use agent-specific install commands. Claude Code uses the Memory Engine plugin.
+    claude_code: me claude install
+    claude_code_plugin: claude plugin marketplace add timescale/memory-engine && claude plugin install memory-engine@memory-engine
+  description: Memory engine ships as an MCP server. OpenCode, Codex CLI, Gemini CLI, and Claude Code all support MCP-only install via `me <agent> install`. Claude Code additionally supports a full plugin (hooks + slash commands + MCP) via Claude Code's plugin marketplace.
   compatible_clients:
     - Claude Code
     - Codex CLI

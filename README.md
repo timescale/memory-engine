@@ -40,8 +40,9 @@ me memory search "how does authentication work"
 me opencode install
 me codex install
 me gemini install
+me claude install            # MCP-only
 
-# Claude Code uses the Memory Engine plugin
+# Or, for the full Claude Code plugin (hooks + slash commands + MCP):
 claude plugin marketplace add timescale/memory-engine
 claude plugin install memory-engine@memory-engine
 ```

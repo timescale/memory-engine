@@ -20,6 +20,7 @@ me gemini install [options]
 |--------|-------------|
 | `--api-key <key>` | API key to embed in the MCP config. |
 | `--server <url>` | Server URL to embed in the MCP config. |
+| `-s, --scope <scope>` | Gemini CLI config scope: `user` or `project`. Default: `user`. |
 
 If no `--api-key` or `--server` is provided, values are resolved from `~/.config/me/credentials.yaml` (set by `me login` and `me engine use`).
 
