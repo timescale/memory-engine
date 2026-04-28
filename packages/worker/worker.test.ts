@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { RateLimitError } from "@memory.build/embedding";
+import { SQL } from "bun";
 import { WorkerPool } from "./pool";
 import { Worker } from "./worker";
 
@@ -256,6 +257,74 @@ describe("Worker", () => {
     // Best-effort: prune errors must not poison the worker error backoff.
     expect(worker.stats.consecutiveErrors).toBe(0);
     expect(worker.stats.totalPruned).toBe(0);
+  });
+
+  test("drops target on missing-schema error without poisoning backoff", async () => {
+    // Reproduces logfire span cd87bc5c03339416: an engine was deleted between
+    // discover() refreshes, claim_embedding_batch threw "schema does not
+    // exist", and the worker reported a top-level error + entered exponential
+    // backoff for ~60s until the next refresh dropped the dead schema.
+    const liveSchema = "me_live1234567890";
+    const deadSchema = "me_dead1234567890";
+    const claimedBy: string[] = [];
+    let lastSchema: string | null = null;
+
+    const mockSql = createMockSql({
+      begin: async (fn: (tx: unknown) => Promise<unknown>) => {
+        const tx = {
+          unsafe: async (q: string) => {
+            // Track which schema the search_path is being set to
+            const m = q.match(/SET LOCAL search_path TO (\w+)/);
+            if (m) {
+              lastSchema = m[1] as string;
+              return [];
+            }
+            if (q.includes("claim_embedding_batch")) {
+              if (lastSchema === deadSchema) {
+                throw new SQL.PostgresError(
+                  `schema "${deadSchema}" does not exist`,
+                  { code: "3F000", errno: "3F000" },
+                );
+              }
+              claimedBy.push(lastSchema ?? "");
+              return [];
+            }
+            return [];
+          },
+        };
+        return fn(tx);
+      },
+    });
+
+    const worker = new Worker(mockSql as never, {
+      embedding: {
+        provider: "openai",
+        model: "test",
+        dimensions: 3,
+      },
+      discover: async () => [
+        { schema: liveSchema, shard: 1 },
+        { schema: deadSchema, shard: 1 },
+      ],
+      idleDelayMs: 50,
+      drainTimeoutMs: 200,
+      refreshIntervalMs: 1_000_000, // don't refresh during test
+    });
+
+    await worker.start();
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    await worker.stop();
+
+    // Missing-schema must NOT trip the worker error backoff path.
+    expect(worker.stats.consecutiveErrors).toBe(0);
+    expect(worker.stats.lastError).toBeUndefined();
+    // Dead schema dropped exactly once, then filtered out of the rotation.
+    expect(worker.stats.enginesDropped).toBe(1);
+    // Live schema kept being polled across multiple loop iterations even
+    // though we only saw one enginesDropped — proves the live target wasn't
+    // collateral damage when its sibling threw.
+    expect(claimedBy.length).toBeGreaterThanOrEqual(2);
+    expect(claimedBy.every((s) => s === liveSchema)).toBe(true);
   });
 
   test("rate limit error uses Retry-After backoff, does not increment consecutiveErrors", async () => {

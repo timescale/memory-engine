@@ -39,6 +39,12 @@ export interface WorkerStats {
   totalProcessed: number;
   totalFailed: number;
   totalPruned: number;
+  /**
+   * Number of times an engine was dropped from the in-memory target list
+   * because its schema no longer exists in PostgreSQL (e.g. engine deleted
+   * between discover() refreshes). Self-heals on the next refresh.
+   */
+  enginesDropped: number;
   consecutiveErrors: number;
   lastError?: string;
 }

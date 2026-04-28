@@ -1,11 +1,20 @@
 import { RateLimitError } from "@memory.build/embedding";
 import { info, reportError, warning } from "@pydantic/logfire-node";
-import type { SQL } from "bun";
+import { SQL } from "bun";
 import { processBatch, pruneQueue } from "./process";
 import type { WorkerConfig, WorkerStats } from "./types";
 
 /** Minimum backoff when rate limited, even if Retry-After is shorter. */
 const RATE_LIMIT_FLOOR_MS = 30_000;
+
+/**
+ * SQLSTATE 3F000 = invalid_schema_name. Raised when the engine's schema
+ * no longer exists — typically because the engine was deleted between
+ * discover() refreshes. Treated as benign: drop the target and continue.
+ */
+function isMissingSchemaError(error: unknown): boolean {
+  return error instanceof SQL.PostgresError && error.errno === "3F000";
+}
 
 /**
  * Abortable sleep. Resolves when the timer fires, OR immediately when the
@@ -58,6 +67,7 @@ export class Worker {
     totalProcessed: 0,
     totalFailed: 0,
     totalPruned: 0,
+    enginesDropped: 0,
     consecutiveErrors: 0,
   };
 
@@ -127,10 +137,31 @@ async function run(
 
       try {
         let anyWork = false;
+        // Schemas that disappeared mid-iteration. Filtered out of `targets`
+        // after the loop so we don't keep retrying them until the next
+        // discover() refresh. Defensive: tolerates engines being deleted
+        // between refreshes without poisoning the worker error backoff.
+        const droppedSchemas = new Set<string>();
 
         for (const target of targets) {
           if (signal.aborted) break;
-          const result = await processBatch(sql, target, config);
+
+          let result: Awaited<ReturnType<typeof processBatch>>;
+          try {
+            result = await processBatch(sql, target, config);
+          } catch (err) {
+            if (isMissingSchemaError(err)) {
+              warning("Embedding target schema no longer exists, dropping", {
+                "worker.schema": target.schema,
+                "worker.shard": target.shard,
+              });
+              droppedSchemas.add(target.schema);
+              stats.enginesDropped++;
+              continue;
+            }
+            throw err;
+          }
+
           if (result.claimed > 0) {
             anyWork = true;
           } else {
@@ -141,19 +172,30 @@ async function run(
               const pruned = await pruneQueue(sql, target, pruneRetention);
               stats.totalPruned += pruned;
             } catch (pruneError) {
-              warning("Embedding queue prune failed", {
-                "worker.schema": target.schema,
-                "worker.shard": target.shard,
-                error:
-                  pruneError instanceof Error
-                    ? pruneError.message
-                    : String(pruneError),
-              });
+              if (isMissingSchemaError(pruneError)) {
+                // Schema dropped between claim and prune in the same cycle.
+                // Drop the target now to avoid re-trying it next cycle.
+                droppedSchemas.add(target.schema);
+                stats.enginesDropped++;
+              } else {
+                warning("Embedding queue prune failed", {
+                  "worker.schema": target.schema,
+                  "worker.shard": target.shard,
+                  error:
+                    pruneError instanceof Error
+                      ? pruneError.message
+                      : String(pruneError),
+                });
+              }
             }
           }
           stats.schemasPolled++;
           stats.totalProcessed += result.succeeded;
           stats.totalFailed += result.failed;
+        }
+
+        if (droppedSchemas.size > 0) {
+          targets = targets.filter((t) => !droppedSchemas.has(t.schema));
         }
 
         consecutiveErrors = 0;
