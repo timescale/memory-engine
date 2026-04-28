@@ -14,20 +14,20 @@
     },
     "packages/accounts": {
       "name": "@memory.build/accounts",
-      "version": "0.1.17",
+      "version": "0.1.18",
       "dependencies": {
         "@pydantic/logfire-node": "^0.13.1",
       },
     },
     "packages/cli": {
       "name": "@memory.build/cli",
-      "version": "0.2.0",
+      "version": "0.2.1",
       "bin": {
         "me": "./index.ts",
       },
       "dependencies": {
         "@bomb.sh/tab": "^0.0.12",
-        "@clack/prompts": "^0.9.0",
+        "@clack/prompts": "^1.2.0",
         "@memory.build/client": "workspace:*",
         "@memory.build/protocol": "workspace:*",
         "@modelcontextprotocol/sdk": "^1.25.3",
@@ -38,7 +38,7 @@
     },
     "packages/client": {
       "name": "@memory.build/client",
-      "version": "0.2.0",
+      "version": "0.2.1",
       "dependencies": {
         "@memory.build/protocol": "workspace:*",
       },
@@ -83,7 +83,7 @@
     },
     "packages/embedding": {
       "name": "@memory.build/embedding",
-      "version": "0.1.17",
+      "version": "0.1.18",
       "dependencies": {
         "@ai-sdk/openai": "^3.0.0",
         "@pydantic/logfire-node": "^0.13.1",
@@ -92,14 +92,14 @@
     },
     "packages/engine": {
       "name": "@memory.build/engine",
-      "version": "0.1.17",
+      "version": "0.1.18",
       "dependencies": {
         "@pydantic/logfire-node": "^0.13.1",
       },
     },
     "packages/protocol": {
       "name": "@memory.build/protocol",
-      "version": "0.2.0",
+      "version": "0.2.1",
       "dependencies": {
         "zod": "^4.0.0",
       },
@@ -112,7 +112,7 @@
     },
     "packages/server": {
       "name": "memory-engine-server",
-      "version": "0.1.17",
+      "version": "0.1.18",
       "dependencies": {
         "@memory.build/accounts": "workspace:*",
         "@memory.build/embedding": "workspace:*",
@@ -153,7 +153,7 @@
     },
     "packages/worker": {
       "name": "@memory.build/worker",
-      "version": "0.1.17",
+      "version": "0.1.18",
       "dependencies": {
         "@memory.build/embedding": "workspace:*",
         "@memory.build/engine": "workspace:*",
@@ -233,9 +233,9 @@
 
     "@bomb.sh/tab": ["@bomb.sh/tab@0.0.12", "", { "peerDependencies": { "cac": "^6.7.14", "citty": "^0.1.6", "commander": "^13.1.0" }, "optionalPeers": ["cac", "citty", "commander"], "bin": { "tab": "dist/bin/cli.js" } }, "sha512-dYRwg4MqfHR5/BcTy285XOGRhjQFmNpaJBZ0tl2oU+RY595MQ5ApTF6j3OvauPAooHL6cfoOZMySQrOQztT8RQ=="],
 
-    "@clack/core": ["@clack/core@0.4.1", "", { "dependencies": { "picocolors": "^1.0.0", "sisteransi": "^1.0.5" } }, "sha512-Pxhij4UXg8KSr7rPek6Zowm+5M22rbd2g1nfojHJkxp5YkFqiZ2+YLEM/XGVIzvGOcM0nqjIFxrpDwWRZYWYjA=="],
+    "@clack/core": ["@clack/core@1.2.0", "", { "dependencies": { "fast-wrap-ansi": "^0.1.3", "sisteransi": "^1.0.5" } }, "sha512-qfxof/3T3t9DPU/Rj3OmcFyZInceqj/NVtO9rwIuJqCUgh32gwPjpFQQp/ben07qKlhpwq7GzfWpST4qdJ5Drg=="],
 
-    "@clack/prompts": ["@clack/prompts@0.9.1", "", { "dependencies": { "@clack/core": "0.4.1", "picocolors": "^1.0.0", "sisteransi": "^1.0.5" } }, "sha512-JIpyaboYZeWYlyP0H+OoPPxd6nqueG/CmN6ixBiNFsIDHREevjIf0n0Ohh5gr5C8pEDknzgvz+pIJ8dMhzWIeg=="],
+    "@clack/prompts": ["@clack/prompts@1.2.0", "", { "dependencies": { "@clack/core": "1.2.0", "fast-string-width": "^1.1.0", "fast-wrap-ansi": "^0.1.3", "sisteransi": "^1.0.5" } }, "sha512-4jmztR9fMqPMjz6H/UZXj0zEmE43ha1euENwkckKKel4XpSfokExPo5AiVStdHSAlHekz4d0CA/r45Ok1E4D3w=="],
 
     "@emnapi/runtime": ["@emnapi/runtime@1.10.0", "", { "dependencies": { "tslib": "^2.4.0" } }, "sha512-ewvYlk86xUoGI0zQRNq/mC+16R1QeDlKQy21Ki3oSYXNgLb45GV1P6A0M+/s6nyCuNDqe5VpaY84BzXGwVbwFA=="],
 
@@ -881,7 +881,13 @@
 
     "fast-deep-equal": ["fast-deep-equal@3.1.3", "", {}, "sha512-f3qQ9oQy9j2AhBe/H9VC91wLmKBCCU/gDOnKNAYG5hswO7BLKj09Hc5HYNz9cGI++xlpDCIgDaitVs03ATR84Q=="],
 
+    "fast-string-truncated-width": ["fast-string-truncated-width@1.2.1", "", {}, "sha512-Q9acT/+Uu3GwGj+5w/zsGuQjh9O1TyywhIwAxHudtWrgF09nHOPrvTLhQevPbttcxjr/SNN7mJmfOw/B1bXgow=="],
+
+    "fast-string-width": ["fast-string-width@1.1.0", "", { "dependencies": { "fast-string-truncated-width": "^1.2.0" } }, "sha512-O3fwIVIH5gKB38QNbdg+3760ZmGz0SZMgvwJbA1b2TGXceKE6A2cOlfogh1iw8lr049zPyd7YADHy+B7U4W9bQ=="],
+
     "fast-uri": ["fast-uri@3.1.0", "", {}, "sha512-iPeeDKJSWf4IEOasVVrknXpaBV0IApz/gp7S2bb7Z4Lljbl2MGJRqInZiUrQwV16cpzw/D3S5j5Julj/gT52AA=="],
+
+    "fast-wrap-ansi": ["fast-wrap-ansi@0.1.6", "", { "dependencies": { "fast-string-width": "^1.1.0" } }, "sha512-HlUwET7a5gqjURj70D5jl7aC3Zmy4weA1SHUfM0JFI0Ptq987NH2TwbBFLoERhfwk+E+eaq4EK3jXoT+R3yp3w=="],
 
     "fdir": ["fdir@6.5.0", "", { "peerDependencies": { "picomatch": "^3 || ^4" }, "optionalPeers": ["picomatch"] }, "sha512-tIbYtZbucOs0BRGqPJkshJUYdL+SDH7dVM8gjy+ERp3WAUjLEFJE+02kanyHtwjWOnwrKYBiwAmM0p4kLJAnXg=="],
 
