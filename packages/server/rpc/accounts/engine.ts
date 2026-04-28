@@ -307,7 +307,15 @@ function slugifyUserName(name: string): string {
 
 /**
  * engine.delete - Delete an engine permanently.
- * Marks the engine as deleted in accounts DB, then drops the schema.
+ *
+ * Three-step sequence (each step is idempotent so a failed prior attempt
+ * can be retried to completion):
+ *   1. Mark the engine row status='deleted' so middleware rejects new
+ *      API-key auth immediately, even if subsequent steps stall.
+ *   2. Drop the engine schema (uses `drop schema if exists`).
+ *   3. Hard-delete the engine row from the accounts DB so it no longer
+ *      blocks `org.delete` and disappears from listings.
+ *
  * Requires owner role on the org.
  */
 async function engineDelete(
@@ -328,21 +336,26 @@ async function engineDelete(
     throw new AppError("FORBIDDEN", "Only owners can delete engines");
   }
 
-  // Already deleted — idempotent
-  if (engine.status === "deleted") {
-    return { deleted: true };
+  // Step 1: Mark as deleted (idempotent — bumping updated_at on a row that
+  // is already 'deleted' is harmless and lets us proceed to retry steps
+  // 2 and 3 if a previous attempt failed mid-way).
+  if (engine.status !== "deleted") {
+    await db.updateEngine(engine.id, { status: "deleted" });
   }
 
-  // Mark as deleted first (blocks new API key auth immediately)
-  await db.updateEngine(engine.id, { status: "deleted" });
-
-  // Drop the engine schema with retries (in-flight operations may hold locks)
+  // Step 2: Drop the engine schema. `drop schema if exists` is idempotent.
   const schema = `me_${engine.slug}`;
   await dropSchemaWithRetry(engineSql, schema, {
     retries: 3,
     delayMs: 2000,
     shardId: engine.shardId,
   });
+
+  // Step 3: Hard-delete the row so it no longer blocks org deletion or
+  // appears in engine listings. Must come after the schema drop — if we
+  // delete the row first and the schema drop then fails, the schema is
+  // orphaned with no metadata to find it.
+  await db.deleteEngine(engine.id);
 
   return { deleted: true };
 }
