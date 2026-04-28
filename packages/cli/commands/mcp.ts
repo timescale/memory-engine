@@ -4,8 +4,9 @@
  * Does NOT use the credentials file. API key must be provided
  * via --api-key or ME_API_KEY env var.
  *
- * MCP registration with individual AI tools has moved to per-agent commands:
- *   me claude install, me opencode install, me gemini install, me codex install
+ * MCP registration with individual AI tools lives in per-agent commands:
+ *   me opencode install, me gemini install, me codex install
+ * Claude Code uses the Memory Engine plugin instead of a CLI installer.
  */
 import { Command } from "commander";
 import { runMcpServer } from "../mcp/server.ts";

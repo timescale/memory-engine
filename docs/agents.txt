@@ -10,8 +10,12 @@ docs: https://docs.memory.build
 
 # MCP server
 mcp:
-  install: me mcp install
-  description: Memory engine ships as an MCP server. Install it and your AI tools get memory without any integration work.
+  install:
+    opencode: me opencode install
+    codex_cli: me codex install
+    gemini_cli: me gemini install
+    claude_code: claude plugin marketplace add timescale/memory-engine && claude plugin install memory-engine@memory-engine
+  description: Memory engine ships as an MCP server. OpenCode, Codex CLI, and Gemini CLI use agent-specific install commands. Claude Code uses the Memory Engine plugin.
   compatible_clients:
     - Claude Code
     - Codex CLI

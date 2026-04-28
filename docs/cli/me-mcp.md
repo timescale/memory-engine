@@ -7,7 +7,6 @@ The `me mcp` command runs Memory Engine as a [Model Context Protocol](https://mo
 ## Commands
 
 - [me mcp](#me-mcp-1) -- run the MCP server
-- [me mcp install](#me-mcp-install) -- register with AI tools
 
 ---
 
@@ -25,44 +24,26 @@ me mcp [options]
 
 The server URL is resolved from `--server` (global option) > `ME_SERVER` env > `https://api.memory.build`.
 
-This command is typically not run directly -- it is invoked by AI tools (Claude Code, Gemini CLI, etc.) based on the MCP configuration created by `me mcp install`.
+This command is typically not run directly -- it is invoked by AI tools based on their MCP configuration.
 
 ---
 
-## me mcp install
+## Installation
 
-Register `me` as an MCP server with AI tools.
+MCP registration lives under agent-specific commands:
+
+| Tool | Command |
+|------|---------|
+| OpenCode | [`me opencode install`](me-opencode.md#me-opencode-install) |
+| Codex CLI | [`me codex install`](me-codex.md#me-codex-install) |
+| Gemini CLI | [`me gemini install`](me-gemini.md#me-gemini-install) |
+| Claude Code | [`me claude`](me-claude.md) plugin hooks |
+
+Claude Code uses the Memory Engine plugin instead of MCP registration through the `me` CLI:
 
 ```
-me mcp install [tools...] [options]
+claude plugin marketplace add timescale/memory-engine
+claude plugin install memory-engine@memory-engine [--scope user|project|local]
 ```
 
-| Argument | Required | Description |
-|----------|----------|-------------|
-| `tools...` | no | Tool names to install (default: all detected). |
-
-| Option | Description |
-|--------|-------------|
-| `--api-key <key>` | API key to embed in the MCP config. |
-| `--server <url>` | Server URL to embed in the MCP config. |
-
-Detects installed AI tools on your PATH and registers `me` as an MCP server with each one. Supported tools:
-
-| Tool | Binary | Method |
-|------|--------|--------|
-| Claude Code | `claude` | `claude mcp add` |
-| Gemini CLI | `gemini` | `gemini mcp add` |
-| Codex CLI | `codex` | `codex mcp add` |
-| OpenCode | `opencode` | Edits `~/.config/opencode/opencode.json` |
-
-If no `--api-key` or `--server` is provided, values are resolved from `~/.config/me/credentials.yaml` (set by `me login` and `me engine use`).
-
-### Example
-
-```bash
-# Install for all detected tools using stored credentials
-me mcp install
-
-# Install for Claude Code only with explicit credentials
-me mcp install claude --api-key me.xxx --server https://api.memory.build
-```
+Then start Claude Code, run `/plugin`, select `memory-engine`, and configure `api_key`, `server`, and `tree_prefix`.
