@@ -11,6 +11,11 @@ import { buildMeCommand, installMcpServer, MCP_TOOLS } from "./install.ts";
 export interface AgentInstallOptions {
   apiKey?: string;
   server?: string;
+  /**
+   * Configuration scope for tools that support it (Claude Code, Gemini CLI).
+   * Ignored by tools without a scope concept (Codex, OpenCode).
+   */
+  scope?: string;
 }
 
 /**
@@ -63,7 +68,7 @@ export async function runAgentMcpInstall(
 
   const spin = clack.spinner();
   spin.start(`Registering with ${tool.name}...`);
-  const result = await installMcpServer(tool, meCmd);
+  const result = await installMcpServer(tool, meCmd, { scope: opts.scope });
 
   if (result.success) {
     spin.stop(result.message);

@@ -1,18 +1,23 @@
 /**
  * me claude — Claude Code integration commands.
  *
- * Just one subcommand: `me claude hook --event <name>`. The plugin itself
- * is installed via Claude Code's native flow:
+ * Two integration paths:
  *
- *   claude plugin marketplace add timescale/memory-engine
- *   claude plugin install memory-engine@memory-engine [--scope user|project|local]
- *   # then, in a Claude Code session:
- *   /plugin  # select memory-engine, Configure, fill api_key/server/tree_prefix
+ *   1. Full plugin (hooks + slash commands + MCP) via Claude Code's native
+ *      plugin marketplace:
  *
- * Claude Code delivers the configured values to our hook as
- * CLAUDE_PLUGIN_OPTION_* env vars.
+ *        claude plugin marketplace add timescale/memory-engine
+ *        claude plugin install memory-engine@memory-engine [--scope user|project|local]
+ *        # then, in a Claude Code session:
+ *        /plugin  # select memory-engine, Configure, fill api_key/server/tree_prefix
+ *
+ *      Claude Code delivers the configured values to our hook (`me claude
+ *      hook --event <name>`) via CLAUDE_PLUGIN_OPTION_* env vars.
+ *
+ *   2. MCP-only via `me claude install`. Registers `me` as an MCP server
+ *      with Claude Code (no hooks, no slash commands — just the tools).
  */
-import { Command } from "commander";
+import { Command, InvalidArgumentError } from "commander";
 import {
   captureHookEvent,
   HOOK_EVENT_NAMES,
@@ -21,7 +26,56 @@ import {
   resolveHookConfigFromEnv,
 } from "../claude/capture.ts";
 import { claudeImporter } from "../importers/claude.ts";
+import {
+  type AgentInstallOptions,
+  runAgentMcpInstall,
+} from "../mcp/agent-install.ts";
 import { buildAgentImportSubcommand } from "./import.ts";
+
+const CLAUDE_SCOPES = ["local", "user", "project"] as const;
+type ClaudeScope = (typeof CLAUDE_SCOPES)[number];
+
+function parseClaudeScope(value: string): ClaudeScope {
+  if (!CLAUDE_SCOPES.includes(value as ClaudeScope)) {
+    throw new InvalidArgumentError(
+      `must be one of: ${CLAUDE_SCOPES.join(", ")}`,
+    );
+  }
+  return value as ClaudeScope;
+}
+
+/**
+ * me claude install — register me as an MCP server with Claude Code.
+ *
+ * MCP-only: leaves the full Claude Code plugin install flow alone. Use this
+ * if you want the `me` MCP tools available in Claude Code but don't want the
+ * plugin's hooks or slash commands.
+ */
+function createClaudeInstallCommand(): Command {
+  return new Command("install")
+    .description("register me as an MCP server with Claude Code")
+    .option("--api-key <key>", "API key to embed in MCP config")
+    .option("--server <url>", "server URL to embed in MCP config")
+    .option(
+      "-s, --scope <scope>",
+      `Claude Code config scope (${CLAUDE_SCOPES.join(", ")})`,
+      parseClaudeScope,
+      "user",
+    )
+    .action(
+      async (
+        opts: AgentInstallOptions & { scope: ClaudeScope },
+        cmd: Command,
+      ) => {
+        const globalOpts = cmd.optsWithGlobals();
+        await runAgentMcpInstall("claude", {
+          apiKey: opts.apiKey,
+          server: globalOpts.server ?? opts.server,
+          scope: opts.scope,
+        });
+      },
+    );
+}
 
 /**
  * me claude hook — invoked by the Claude Code plugin to capture events as
@@ -101,6 +155,7 @@ function createClaudeHookCommand(): Command {
 
 export function createClaudeCommand(): Command {
   const claude = new Command("claude").description("Claude Code integration");
+  claude.addCommand(createClaudeInstallCommand());
   claude.addCommand(createClaudeHookCommand());
   claude.addCommand(
     buildAgentImportSubcommand(

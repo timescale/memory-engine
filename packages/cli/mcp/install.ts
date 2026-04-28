@@ -13,6 +13,16 @@ import { dirname, join } from "node:path";
 // Tool Registry
 // =============================================================================
 
+/**
+ * Per-install options shared across tool installers.
+ *
+ * - `scope`: configuration scope for tools that support it (Claude Code,
+ *   Gemini CLI). Ignored by tools without a scope concept (Codex, OpenCode).
+ */
+export interface McpInstallOpts {
+  scope?: string;
+}
+
 interface McpToolBase {
   name: string;
   bin: string;
@@ -20,13 +30,13 @@ interface McpToolBase {
 
 interface McpToolCli extends McpToolBase {
   method: "cli";
-  addCmd: (meCmd: string[]) => string[];
-  removeCmd: string[];
+  addCmd: (meCmd: string[], opts: McpInstallOpts) => string[];
+  removeCmd: (opts: McpInstallOpts) => string[];
 }
 
 interface McpToolJsonFile extends McpToolBase {
   method: "json-file";
-  install: (meCmd: string[]) => Promise<InstallResult>;
+  install: (meCmd: string[], opts: McpInstallOpts) => Promise<InstallResult>;
 }
 
 type McpTool = McpToolCli | McpToolJsonFile;
@@ -36,39 +46,53 @@ export const MCP_TOOLS: McpTool[] = [
     name: "Claude Code",
     bin: "claude",
     method: "cli",
-    addCmd: (meCmd) => [
+    addCmd: (meCmd, { scope = "user" }) => [
       "claude",
       "mcp",
       "add",
       "--scope",
-      "user",
+      scope,
       "me",
       "--",
       ...meCmd,
     ],
-    removeCmd: ["claude", "mcp", "remove", "--scope", "user", "me"],
+    removeCmd: ({ scope = "user" }) => [
+      "claude",
+      "mcp",
+      "remove",
+      "--scope",
+      scope,
+      "me",
+    ],
   },
   {
     name: "Gemini CLI",
     bin: "gemini",
     method: "cli",
-    addCmd: (meCmd) => [
+    addCmd: (meCmd, { scope = "user" }) => [
       "gemini",
       "mcp",
       "add",
       "--scope",
-      "user",
+      scope,
       "me",
       ...meCmd,
     ],
-    removeCmd: ["gemini", "mcp", "remove", "--scope", "user", "me"],
+    removeCmd: ({ scope = "user" }) => [
+      "gemini",
+      "mcp",
+      "remove",
+      "--scope",
+      scope,
+      "me",
+    ],
   },
   {
     name: "Codex CLI",
     bin: "codex",
     method: "cli",
     addCmd: (meCmd) => ["codex", "mcp", "add", "me", "--", ...meCmd],
-    removeCmd: ["codex", "mcp", "remove", "me"],
+    removeCmd: () => ["codex", "mcp", "remove", "me"],
   },
   {
     name: "OpenCode",
@@ -114,8 +138,9 @@ export interface InstallResult {
 async function runAddCmd(
   tool: McpToolCli,
   meCmd: string[],
+  opts: McpInstallOpts,
 ): Promise<{ exitCode: number; stderr: string }> {
-  const cmd = tool.addCmd(meCmd);
+  const cmd = tool.addCmd(meCmd, opts);
   const proc = Bun.spawn(cmd, { stdout: "pipe", stderr: "pipe" });
   const exitCode = await proc.exited;
   const stderr = exitCode === 0 ? "" : await new Response(proc.stderr).text();
@@ -131,8 +156,9 @@ async function runAddCmd(
 async function installViaCli(
   tool: McpToolCli,
   meCmd: string[],
+  opts: McpInstallOpts,
 ): Promise<InstallResult> {
-  let { exitCode, stderr } = await runAddCmd(tool, meCmd);
+  let { exitCode, stderr } = await runAddCmd(tool, meCmd, opts);
 
   if (exitCode === 0) {
     return { success: true, message: `Registered with ${tool.name}` };
@@ -140,10 +166,13 @@ async function installViaCli(
 
   // Prior registration exists — remove it and re-add with current credentials
   if (stderr.includes("already exists")) {
-    const rm = Bun.spawn(tool.removeCmd, { stdout: "pipe", stderr: "pipe" });
+    const rm = Bun.spawn(tool.removeCmd(opts), {
+      stdout: "pipe",
+      stderr: "pipe",
+    });
     await rm.exited;
 
-    ({ exitCode, stderr } = await runAddCmd(tool, meCmd));
+    ({ exitCode, stderr } = await runAddCmd(tool, meCmd, opts));
 
     if (exitCode === 0) {
       return {
@@ -165,11 +194,12 @@ async function installViaCli(
 export async function installMcpServer(
   tool: McpTool,
   meCmd: string[],
+  opts: McpInstallOpts = {},
 ): Promise<InstallResult> {
   if (tool.method === "cli") {
-    return installViaCli(tool, meCmd);
+    return installViaCli(tool, meCmd, opts);
   }
-  return tool.install(meCmd);
+  return tool.install(meCmd, opts);
 }
 
 // =============================================================================
@@ -217,7 +247,10 @@ export function buildOpenCodeConfig(
  * Creates the config file and its parent directory if missing.
  * Preserves any other keys in the existing config.
  */
-async function installOpenCode(meCmd: string[]): Promise<InstallResult> {
+async function installOpenCode(
+  meCmd: string[],
+  _opts: McpInstallOpts,
+): Promise<InstallResult> {
   const configPath = openCodeConfigPath();
 
   let existing: Record<string, unknown> = {};
