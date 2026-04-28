@@ -221,6 +221,25 @@ describe("org-member", () => {
     expect(owners.length).toBe(1);
     expect(owners[0]?.identityId).toBe(owner2.id);
   });
+
+  test("delete org cascades to org_member even when sole owner exists", async () => {
+    // Regression: previously the org_member_owner_check trigger refused
+    // the cascade, making it impossible to delete an org you owned. The
+    // invariant now lives in removeMember/updateRole so the cascade
+    // proceeds unimpeded.
+    const org = await db.createOrg({ name: "Sole Owner Cascade" });
+    const identity = await db.createIdentity({
+      email: "sole-owner-cascade@example.com",
+      name: "Sole Owner",
+    });
+    await db.addMember(org.id, identity.id, "owner");
+
+    const deleted = await db.deleteOrg(org.id);
+    expect(deleted).toBe(true);
+
+    const members = await db.listMembers(org.id);
+    expect(members.length).toBe(0);
+  });
 });
 
 // ---------------------------------------------------------------------------
