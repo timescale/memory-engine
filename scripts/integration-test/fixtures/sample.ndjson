@@ -1,0 +1,3 @@
+{"content":"NDJSON fixture line 1 — imported from a newline-delimited JSON file. Exercises the JSON parser's NDJSON branch.","tree":"__TREE_BASE__.imports.ndjson","meta":{"itest":true,"run_id":"__RUN_ID__","source":"ndjson_fixture","seq":1}}
+{"content":"NDJSON fixture line 2 — second record, same tree, different sequence number.","tree":"__TREE_BASE__.imports.ndjson","meta":{"itest":true,"run_id":"__RUN_ID__","source":"ndjson_fixture","seq":2}}
+{"content":"NDJSON fixture line 3 — third record, ensures the parser keeps reading after a newline.","tree":"__TREE_BASE__.imports.ndjson","meta":{"itest":true,"run_id":"__RUN_ID__","source":"ndjson_fixture","seq":3}}

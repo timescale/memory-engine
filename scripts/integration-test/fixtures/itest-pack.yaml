@@ -1,0 +1,40 @@
+name: me_itest_pack
+version: "0.1.0"
+description: >-
+  Integration test fixture pack used by scripts/integration-test.ts to
+  exercise `me pack validate`, `me pack install`, and `me pack list`. Safe
+  to delete; not for human consumption.
+id-prefix: "019b00ff"
+format: 1
+memories:
+  - id: "019b00ff-0001-7000-8000-000000000001"
+    tree: "alpha"
+    meta:
+      type: "fixture"
+      topic: "alpha"
+    content: |
+      # Pack memory alpha
+
+      First memory in the integration-test pack. Lives under
+      `pack.me_itest_pack.alpha` once installed.
+
+  - id: "019b00ff-0001-7000-8000-000000000002"
+    tree: "beta"
+    meta:
+      type: "fixture"
+      topic: "beta"
+    content: |
+      # Pack memory beta
+
+      Second memory in the integration-test pack. Lives under
+      `pack.me_itest_pack.beta` once installed.
+
+  - id: "019b00ff-0001-7000-8000-000000000003"
+    meta:
+      type: "fixture"
+      topic: "root"
+    content: |
+      # Pack memory root
+
+      Third memory has no `tree` set — it lands at the root pack tree
+      `pack.me_itest_pack`.
