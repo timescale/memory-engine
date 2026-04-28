@@ -26,6 +26,7 @@ import { createOwnerCommand } from "./commands/owner.ts";
 import { createPackCommand } from "./commands/pack.ts";
 import { createRoleCommand } from "./commands/role.ts";
 import { createServeCommand } from "./commands/serve.ts";
+import { createUpgradeCommand } from "./commands/upgrade.ts";
 import { createUserCommand } from "./commands/user.ts";
 import { createVersionCommand } from "./commands/version.ts";
 import { createWhoamiCommand } from "./commands/whoami.ts";
@@ -61,6 +62,7 @@ program.addCommand(createWhoamiCommand());
 
 // Version + compatibility check
 program.addCommand(createVersionCommand());
+program.addCommand(createUpgradeCommand());
 
 // Engine commands
 program.addCommand(createEngineCommand());
