@@ -4,7 +4,7 @@
  * Just one subcommand: `me claude hook --event <name>`. The plugin itself
  * is installed via Claude Code's native flow:
  *
- *   claude plugin marketplace add <source>       # register marketplace
+ *   claude plugin marketplace add timescale/memory-engine
  *   claude plugin install memory-engine@memory-engine [--scope user|project|local]
  *   # then, in a Claude Code session:
  *   /plugin  # select memory-engine, Configure, fill api_key/server/tree_prefix

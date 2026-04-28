@@ -36,8 +36,14 @@ me memory create "Auth uses bcrypt with cost 12" --tree design.auth
 # Search by meaning + keywords
 me memory search "how does authentication work"
 
-# Connect to your AI tools (Claude Code, Gemini, Codex, OpenCode)
-me mcp install
+# Connect to your AI tools
+me opencode install
+me codex install
+me gemini install
+
+# Claude Code uses the Memory Engine plugin
+claude plugin marketplace add timescale/memory-engine
+claude plugin install memory-engine@memory-engine
 ```
 
 ## How it works

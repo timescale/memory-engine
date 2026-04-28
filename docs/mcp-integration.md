@@ -24,32 +24,41 @@ You need an API key. Run `me whoami` to see your active engine, or create an API
 
 The server defaults to `https://api.memory.build`. Pass `--server <url>` only if you're running a self-hosted engine.
 
-### Automatic
+### Agent-specific installers
 
 ```bash
-me mcp install
+me opencode install
+me codex install
+me gemini install
 ```
 
-This detects AI tools on your PATH and registers Memory Engine with each one. It reads your API key and server URL from the credentials file and bakes them into each tool's MCP configuration, so the `me mcp` process can authenticate without the credentials file.
+These commands register Memory Engine with the named tool. They read your API key and server URL from the credentials file and bake them into the tool's MCP configuration, so the `me mcp` process can authenticate without the credentials file.
 
-See [`me mcp install`](cli/me-mcp.md) for the full command reference.
+See the agent-specific command references for details: [`me opencode install`](cli/me-opencode.md#me-opencode-install), [`me codex install`](cli/me-codex.md#me-codex-install), and [`me gemini install`](cli/me-gemini.md#me-gemini-install).
 
-| Tool | Detection |
-|------|-----------|
-| Claude Code | `claude` binary |
-| Gemini CLI | `gemini` binary |
-| Codex CLI | `codex` binary |
-| OpenCode | `opencode` binary |
+| Tool | Install command |
+|------|-----------------|
+| OpenCode | `me opencode install` |
+| Codex CLI | `me codex install` |
+| Gemini CLI | `me gemini install` |
+| Claude Code | Claude Code plugin, described below |
 
 ### Claude Code
 
 ```bash
-claude mcp add --scope user me -- me mcp --api-key <key> --server <url>
+claude plugin marketplace add timescale/memory-engine
+claude plugin install memory-engine@memory-engine [--scope user|project|local]
 ```
 
-This registers `me` as a user-scoped MCP server. Claude Code will start the `me mcp` process automatically in every conversation.
+Claude Code uses the Memory Engine plugin. After installing it, start a Claude Code session, run `/plugin`, select `memory-engine`, and configure `api_key`, `server`, and `tree_prefix`. The plugin provides the MCP server and captures Claude Code session events as memories.
 
 ### Gemini CLI
+
+```bash
+me gemini install
+```
+
+To configure manually:
 
 ```bash
 gemini mcp add --scope user me me mcp --api-key <key> --server <url>
@@ -58,12 +67,18 @@ gemini mcp add --scope user me me mcp --api-key <key> --server <url>
 ### Codex CLI
 
 ```bash
+me codex install
+```
+
+To configure manually:
+
+```bash
 codex mcp add me -- me mcp --api-key <key> --server <url>
 ```
 
 ### OpenCode
 
-`me mcp install` edits `~/.config/opencode/opencode.json` directly, adding an entry under `mcp.me`. To configure manually, add this to that file:
+`me opencode install` edits `~/.config/opencode/opencode.json` directly, adding an entry under `mcp.me`. To configure manually, add this to that file:
 
 ```json
 {
@@ -193,7 +208,7 @@ me_memory_search({tree: "design.*"})
 
 1. Verify the `me` binary is on your PATH: `which me`
 2. Test the server directly: `echo '{}' | me mcp --api-key <key> --server <url>`
-3. Re-install: `me mcp install`
+3. Re-install with the agent-specific command, for example `me opencode install`, `me codex install`, or `me gemini install`. For Claude Code, open `/plugin` and reconfigure `memory-engine`.
 
 ### Agent can't find memories
 

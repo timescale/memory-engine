@@ -23,4 +23,4 @@ me gemini install [options]
 
 If no `--api-key` or `--server` is provided, values are resolved from `~/.config/me/credentials.yaml` (set by `me login` and `me engine use`).
 
-This is equivalent to `me mcp install gemini` -- see [me mcp](me-mcp.md) for the multi-tool installer.
+For manual MCP client configuration, see [MCP Integration](../mcp-integration.md).

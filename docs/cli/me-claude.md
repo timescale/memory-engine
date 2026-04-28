@@ -24,7 +24,7 @@ me claude hook --event <name>
 This command is not run directly -- the Claude Code plugin calls it. The plugin is installed via Claude Code's native flow:
 
 ```bash
-claude plugin marketplace add <source>
+claude plugin marketplace add timescale/memory-engine
 claude plugin install memory-engine@memory-engine [--scope user|project|local]
 # then, in a Claude Code session:
 /plugin  # select memory-engine, Configure, fill api_key/server/tree_prefix

@@ -64,13 +64,24 @@ Starts a local web UI on `http://127.0.0.1:3000` (or the next free port) with a 
 
 ## Connect to AI tools
 
-Register Memory Engine as an MCP server with your AI coding tools:
+Register Memory Engine with your AI coding tools:
 
 ```bash
-me mcp install
+me opencode install
+me codex install
+me gemini install
 ```
 
-This auto-detects Claude Code, Gemini CLI, Codex CLI, and OpenCode on your PATH and registers `me` with each one. After installation, your AI agent has access to 10 memory tools -- create, search, get, update, delete, and more.
+For Claude Code, install the Memory Engine plugin instead:
+
+```bash
+claude plugin marketplace add timescale/memory-engine
+claude plugin install memory-engine@memory-engine
+```
+
+Then start Claude Code, run `/plugin`, select `memory-engine`, and configure `api_key`, `server`, and `tree_prefix`.
+
+After installation, your AI agent has access to memory tools -- create, search, get, update, delete, and more.
 
 See [MCP Integration](mcp-integration.md) for details.
 
