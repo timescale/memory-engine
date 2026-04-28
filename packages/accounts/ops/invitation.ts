@@ -5,7 +5,7 @@ import type {
   Invitation,
   OrgRole,
 } from "../types";
-import { generateToken, hashToken, verifyToken } from "../util/hash";
+import { generateToken, tokenHash } from "../util/hash";
 import { withTx } from "./_tx";
 
 interface InvitationRow {
@@ -13,7 +13,6 @@ interface InvitationRow {
   org_id: string;
   email: string;
   role: OrgRole;
-  token: string;
   invited_by: string;
   expires_at: Date;
   accepted_at: Date | null;
@@ -43,7 +42,7 @@ export function invitationOps(ctx: AccountsContext) {
       const { orgId, email, role, invitedBy, expiresInDays = 7 } = params;
 
       const rawToken = generateToken();
-      const tokenHash = await hashToken(rawToken);
+      const hash = tokenHash(rawToken);
       const expiresAt = new Date();
       expiresAt.setDate(expiresAt.getDate() + expiresInDays);
 
@@ -51,16 +50,16 @@ export function invitationOps(ctx: AccountsContext) {
         // Upsert: replace existing pending invitation for same org+email
         const rows = await sql<InvitationRow[]>`
           insert into ${sql.unsafe(schema)}.invitation
-            (org_id, email, role, token, invited_by, expires_at)
-          values (${orgId}, ${email}, ${role}, ${tokenHash}, ${invitedBy}, ${expiresAt})
+            (org_id, email, role, token_hash, invited_by, expires_at)
+          values (${orgId}, ${email}, ${role}, ${hash}, ${invitedBy}, ${expiresAt})
           on conflict (org_id, email)
           do update set
             role = excluded.role,
-            token = excluded.token,
+            token_hash = excluded.token_hash,
             invited_by = excluded.invited_by,
             expires_at = excluded.expires_at,
             accepted_at = null
-          returning id, org_id, email, role, token, invited_by, expires_at, accepted_at, created_at
+          returning id, org_id, email, role, invited_by, expires_at, accepted_at, created_at
         `;
         const row = rows[0];
         if (!row) {
@@ -74,24 +73,21 @@ export function invitationOps(ctx: AccountsContext) {
     },
 
     async getInvitationByToken(rawToken: string): Promise<Invitation | null> {
+      const hash = tokenHash(rawToken);
+
       return withTx(ctx, "getInvitationByToken", async (sql) => {
-        // Get all pending invitations and verify token against each
-        // This is necessary because we can't query by hash directly
+        // Single indexed lookup on the partial unique index:
+        //   invitation_token_hash_uniq (token_hash) where accepted_at is null.
         const rows = await sql<InvitationRow[]>`
-          select id, org_id, email, role, token, invited_by, expires_at, accepted_at, created_at
+          select id, org_id, email, role, invited_by, expires_at, accepted_at, created_at
           from ${sql.unsafe(schema)}.invitation
-          where accepted_at is null
+          where token_hash = ${hash}
+            and accepted_at is null
             and expires_at > now()
+          limit 1
         `;
-
-        for (const row of rows) {
-          const valid = await verifyToken(rawToken, row.token);
-          if (valid) {
-            return rowToInvitation(row);
-          }
-        }
-
-        return null;
+        const row = rows[0];
+        return row ? rowToInvitation(row) : null;
       });
     },
 
@@ -102,7 +98,7 @@ export function invitationOps(ctx: AccountsContext) {
           set accepted_at = now()
           where id = ${id}
             and accepted_at is null
-          returning id, org_id, email, role, token, invited_by, expires_at, accepted_at, created_at
+          returning id, org_id, email, role, invited_by, expires_at, accepted_at, created_at
         `;
         const row = rows[0];
         return row ? rowToInvitation(row) : null;
@@ -122,7 +118,7 @@ export function invitationOps(ctx: AccountsContext) {
     async listPendingInvitations(orgId: string): Promise<Invitation[]> {
       return withTx(ctx, "listPendingInvitations", async (sql) => {
         const rows = await sql<InvitationRow[]>`
-          select id, org_id, email, role, token, invited_by, expires_at, accepted_at, created_at
+          select id, org_id, email, role, invited_by, expires_at, accepted_at, created_at
           from ${sql.unsafe(schema)}.invitation
           where org_id = ${orgId}
             and accepted_at is null

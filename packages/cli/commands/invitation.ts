@@ -57,7 +57,7 @@ function createInvitationCreateCommand(): Command {
           );
         });
       } catch (error) {
-        handleError(error, fmt);
+        handleError(error, fmt, { sessionServer: creds.server });
       }
     });
 }
@@ -104,7 +104,7 @@ function createInvitationListCommand(): Command {
           );
         });
       } catch (error) {
-        handleError(error, fmt);
+        handleError(error, fmt, { sessionServer: creds.server });
       }
     });
 }
@@ -147,7 +147,7 @@ function createInvitationAcceptCommand(): Command {
           }
         });
       } catch (error) {
-        handleError(error, fmt);
+        handleError(error, fmt, { sessionServer: creds.server });
       }
     });
 }
@@ -178,7 +178,7 @@ function createInvitationRevokeCommand(): Command {
           }
         });
       } catch (error) {
-        handleError(error, fmt);
+        handleError(error, fmt, { sessionServer: creds.server });
       }
     });
 }

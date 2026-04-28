@@ -1,33 +1,14 @@
 /**
- * Token hashing utilities using Argon2id
+ * Token utilities for session and invitation tokens.
  *
- * Used for session tokens and invitation tokens - we only need to verify,
- * not retrieve the original value.
+ * Tokens are 256-bit CSPRNG output (base64url-encoded). We store sha256(token)
+ * in a unique-indexed column and look up by it directly — no slow-hash verifier
+ * is needed because the token's entropy alone defeats offline preimage attacks.
+ * See migration 009_session_lookup.sql for the rationale.
  */
 
 /**
- * Hash a token for storage using Argon2id
- */
-export async function hashToken(token: string): Promise<string> {
-  return Bun.password.hash(token, {
-    algorithm: "argon2id",
-    memoryCost: 19456,
-    timeCost: 2,
-  });
-}
-
-/**
- * Verify a token against its hash
- */
-export async function verifyToken(
-  token: string,
-  hash: string,
-): Promise<boolean> {
-  return Bun.password.verify(token, hash);
-}
-
-/**
- * Generate a random token (32 bytes, base64url encoded)
+ * Generate a random token (32 bytes, base64url encoded).
  */
 export function generateToken(): string {
   const bytes = crypto.getRandomValues(new Uint8Array(32));
@@ -35,4 +16,12 @@ export function generateToken(): string {
     .replace(/\+/g, "-")
     .replace(/\//g, "_")
     .replace(/=/g, "");
+}
+
+/**
+ * Compute the lookup hash stored in the session/invitation `token_hash` column.
+ * Returns 32 raw bytes suitable for binding directly to a `bytea` parameter.
+ */
+export function tokenHash(rawToken: string): Buffer {
+  return new Bun.CryptoHasher("sha256").update(rawToken).digest();
 }
