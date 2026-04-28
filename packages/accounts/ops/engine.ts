@@ -111,6 +111,21 @@ export function engineOps(ctx: AccountsContext) {
       });
     },
 
+    /**
+     * Hard-delete an engine row. Returns true if a row was deleted, false
+     * if no row matched. Caller is responsible for first dropping the
+     * engine schema; this only removes the accounts-side metadata.
+     */
+    async deleteEngine(id: string): Promise<boolean> {
+      return withTx(ctx, "deleteEngine", async (sql) => {
+        const result = await sql`
+          delete from ${sql.unsafe(schema)}.engine
+          where id = ${id}
+        `;
+        return result.count > 0;
+      });
+    },
+
     /** List all active engines across all orgs (for embedding worker discovery) */
     async listActiveEngines(): Promise<{ slug: string; shardId: number }[]> {
       return withTx(ctx, "listActiveEngines", async (sql) => {
