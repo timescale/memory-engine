@@ -249,6 +249,27 @@ export function getEngineApiKey(
 }
 
 /**
+ * Clear just the session token for a server, leaving any stored engines and
+ * API keys in place. Used after the server tells us the session is expired so
+ * the next command surfaces "Not logged in" instead of repeating the 401.
+ *
+ * No-op if no credentials are stored for the server, or if the token came
+ * from $ME_SESSION_TOKEN (we can't unset an env var the user controls).
+ */
+export function clearSessionToken(server: string): void {
+  const creds = readCredentials();
+  const origin = normalizeOrigin(server);
+
+  const entry = creds.servers[origin];
+  if (!entry?.session_token) {
+    return;
+  }
+  delete entry.session_token;
+
+  writeCredentials(creds);
+}
+
+/**
  * Clear all credentials for a server.
  */
 export function clearServerCredentials(server: string): void {

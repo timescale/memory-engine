@@ -55,7 +55,7 @@ function createOrgListCommand(): Command {
           );
         });
       } catch (error) {
-        handleError(error, fmt);
+        handleError(error, fmt, { sessionServer: creds.server });
       }
     });
 }
@@ -84,7 +84,7 @@ function createOrgCreateCommand(): Command {
           console.log(`  Slug: ${org.slug}`);
         });
       } catch (error) {
-        handleError(error, fmt);
+        handleError(error, fmt, { sessionServer: creds.server });
       }
     });
 }
@@ -130,7 +130,7 @@ function createOrgDeleteCommand(): Command {
           }
         });
       } catch (error) {
-        handleError(error, fmt);
+        handleError(error, fmt, { sessionServer: creds.server });
       }
     });
 }
@@ -176,7 +176,7 @@ function createOrgMemberListCommand(): Command {
           );
         });
       } catch (error) {
-        handleError(error, fmt);
+        handleError(error, fmt, { sessionServer: creds.server });
       }
     });
 }
@@ -213,7 +213,7 @@ function createOrgMemberAddCommand(): Command {
           );
         });
       } catch (error) {
-        handleError(error, fmt);
+        handleError(error, fmt, { sessionServer: creds.server });
       }
     });
 }
@@ -266,7 +266,7 @@ function createOrgMemberRemoveCommand(): Command {
           }
         });
       } catch (error) {
-        handleError(error, fmt);
+        handleError(error, fmt, { sessionServer: creds.server });
       }
     });
 }

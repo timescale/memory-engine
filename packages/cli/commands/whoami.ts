@@ -1,11 +1,11 @@
 /**
  * me whoami — show current identity and active engine.
  */
-import * as clack from "@clack/prompts";
 import { Command } from "commander";
-import { createAccountsClient, RpcError } from "../client.ts";
+import { createAccountsClient } from "../client.ts";
 import { resolveCredentials } from "../credentials.ts";
 import { getOutputFormat, output } from "../output.ts";
+import { handleError, requireSession } from "../util.ts";
 
 export function createWhoamiCommand(): Command {
   return new Command("whoami")
@@ -14,21 +14,7 @@ export function createWhoamiCommand(): Command {
       const globalOpts = cmd.optsWithGlobals();
       const creds = resolveCredentials(globalOpts.server);
       const fmt = getOutputFormat(globalOpts);
-
-      if (!creds.sessionToken) {
-        if (fmt === "text") {
-          clack.log.error(
-            `Not logged in to ${creds.server}. Run 'me login' first.`,
-          );
-        } else {
-          output(
-            { error: "Not logged in", server: creds.server },
-            fmt,
-            () => {},
-          );
-        }
-        process.exit(1);
-      }
+      requireSession(creds, fmt);
 
       const accounts = createAccountsClient({
         url: creds.server,
@@ -61,19 +47,7 @@ export function createWhoamiCommand(): Command {
           }
         });
       } catch (error) {
-        const msg =
-          error instanceof RpcError
-            ? error.message
-            : error instanceof Error
-              ? error.message
-              : String(error);
-
-        if (fmt === "text") {
-          clack.log.error(msg);
-        } else {
-          output({ error: msg, server: creds.server }, fmt, () => {});
-        }
-        process.exit(1);
+        handleError(error, fmt, { sessionServer: creds.server });
       }
     });
 }

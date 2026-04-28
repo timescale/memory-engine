@@ -4,5 +4,5 @@ export {
   createAccountsDB,
 } from "./db";
 export * from "./types";
-export { generateToken, hashToken, verifyToken } from "./util/hash";
+export { generateToken, tokenHash } from "./util/hash";
 export { generateSlug } from "./util/slug";

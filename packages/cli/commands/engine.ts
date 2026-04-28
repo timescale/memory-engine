@@ -8,7 +8,7 @@
  */
 import * as clack from "@clack/prompts";
 import { Command } from "commander";
-import { createAccountsClient, RpcError } from "../client.ts";
+import { createAccountsClient } from "../client.ts";
 import {
   getEngineApiKey,
   resolveCredentials,
@@ -78,15 +78,7 @@ function createEngineListCommand(): Command {
       const globalOpts = cmd.optsWithGlobals();
       const creds = resolveCredentials(globalOpts.server);
       const fmt = getOutputFormat(globalOpts);
-
-      if (!creds.sessionToken) {
-        if (fmt === "text") {
-          clack.log.error("Not logged in. Run 'me login' first.");
-        } else {
-          output({ error: "Not logged in" }, fmt, () => {});
-        }
-        process.exit(1);
-      }
+      requireSession(creds, fmt);
 
       const accounts = createAccountsClient({
         url: creds.server,
@@ -124,18 +116,7 @@ function createEngineListCommand(): Command {
           );
         });
       } catch (error) {
-        const msg =
-          error instanceof RpcError
-            ? error.message
-            : error instanceof Error
-              ? error.message
-              : String(error);
-        if (fmt === "text") {
-          clack.log.error(msg);
-        } else {
-          output({ error: msg }, fmt, () => {});
-        }
-        process.exit(1);
+        handleError(error, fmt, { sessionServer: creds.server });
       }
     });
 }
@@ -246,15 +227,7 @@ function createEngineUseCommand(): Command {
       const globalOpts = cmd.optsWithGlobals();
       const creds = resolveCredentials(globalOpts.server);
       const fmt = getOutputFormat(globalOpts);
-
-      if (!creds.sessionToken) {
-        if (fmt === "text") {
-          clack.log.error("Not logged in. Run 'me login' first.");
-        } else {
-          output({ error: "Not logged in" }, fmt, () => {});
-        }
-        process.exit(1);
-      }
+      requireSession(creds, fmt);
 
       const accounts = createAccountsClient({
         url: creds.server,
@@ -319,18 +292,7 @@ function createEngineUseCommand(): Command {
           },
         );
       } catch (error) {
-        const msg =
-          error instanceof RpcError
-            ? error.message
-            : error instanceof Error
-              ? error.message
-              : String(error);
-        if (fmt === "text") {
-          clack.log.error(msg);
-        } else {
-          output({ error: msg }, fmt, () => {});
-        }
-        process.exit(1);
+        handleError(error, fmt, { sessionServer: creds.server });
       }
     });
 }
@@ -370,7 +332,7 @@ function createEngineCreateCommand(): Command {
           console.log(`  Status: ${engine.status}`);
         });
       } catch (error) {
-        handleError(error, fmt);
+        handleError(error, fmt, { sessionServer: creds.server });
       }
     });
 }
@@ -436,7 +398,7 @@ function createEngineDeleteCommand(): Command {
           }
         });
       } catch (error) {
-        handleError(error, fmt);
+        handleError(error, fmt, { sessionServer: creds.server });
       }
     });
 }

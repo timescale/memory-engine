@@ -10,7 +10,7 @@
 import * as clack from "@clack/prompts";
 import type { AccountsClient, EngineClient } from "./client.ts";
 import { RpcError } from "./client.ts";
-import type { ResolvedCredentials } from "./credentials.ts";
+import { clearSessionToken, type ResolvedCredentials } from "./credentials.ts";
 import type { OutputFormat } from "./output.ts";
 import { output } from "./output.ts";
 
@@ -287,20 +287,54 @@ export async function resolveMember(
 }
 
 /**
- * Handle an error from an RPC call. Formats per output mode and exits.
+ * Detect an authentication error from the server.
+ *
+ * The server's `unauthorized()` helper sends an HTTP 401 with body
+ * `{"error":{"message": "...", "code": "UNAUTHORIZED"}}`. The transport wraps
+ * that into an RpcError. The string code lands either on `data.code`
+ * (`appCode`) or on `code` itself depending on which envelope path the
+ * response took, so we check both.
  */
-export function handleError(error: unknown, fmt: OutputFormat): never {
-  const msg =
+function isUnauthorized(error: unknown): boolean {
+  if (!(error instanceof RpcError)) return false;
+  if (error.appCode === "UNAUTHORIZED") return true;
+  // The server's HTTP error envelope puts the string code on the top-level
+  // `code` field. RpcError types `code` as number, but the runtime value can
+  // be a string when the response wasn't a strict JSON-RPC envelope.
+  return (error.code as unknown) === "UNAUTHORIZED";
+}
+
+/**
+ * Handle an error from an RPC call. Formats per output mode and exits.
+ *
+ * Pass `opts.sessionServer` for commands that authenticate with a session
+ * token. When the server returns UNAUTHORIZED we clear the stored token for
+ * that server (so the next command says "Not logged in") and replace the
+ * generic message with an actionable "Run 'me login' to sign in again." hint.
+ */
+export function handleError(
+  error: unknown,
+  fmt: OutputFormat,
+  opts?: { sessionServer?: string },
+): never {
+  let msg =
     error instanceof RpcError
       ? error.message
       : error instanceof Error
         ? error.message
         : String(error);
+  let code: string | undefined;
+
+  if (opts?.sessionServer && isUnauthorized(error)) {
+    clearSessionToken(opts.sessionServer);
+    msg = "Session expired. Run 'me login' to sign in again.";
+    code = "UNAUTHORIZED";
+  }
 
   if (fmt === "text") {
     clack.log.error(msg);
   } else {
-    output({ error: msg }, fmt, () => {});
+    output(code ? { error: msg, code } : { error: msg }, fmt, () => {});
   }
   process.exit(1);
 }
