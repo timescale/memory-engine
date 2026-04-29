@@ -8,6 +8,7 @@ API keys authenticate users to an engine. Each key is scoped to a single user an
 
 - [me apikey list](#me-apikey-list) -- list API keys for a user
 - [me apikey create](#me-apikey-create) -- create a new API key
+- [me apikey show](#me-apikey-show) -- show a stored API key from credentials.yaml
 - [me apikey revoke](#me-apikey-revoke) -- revoke an API key
 - [me apikey delete](#me-apikey-delete) -- permanently delete an API key
 
@@ -47,6 +48,30 @@ me apikey create <user> [name] [options]
 | `--expires <timestamp>` | Expiration timestamp (ISO 8601). |
 
 The raw key value is displayed only once at creation time. Store it securely.
+
+---
+
+## me apikey show
+
+Show the API key stored locally in `credentials.yaml` for an engine. Reads only — no network call.
+
+```
+me apikey show [options]
+```
+
+| Option | Description |
+|--------|-------------|
+| `--engine <slug>` | Engine slug to look up. Defaults to the active engine for the resolved server. |
+
+The active server is resolved in the usual order (`--server` flag > `ME_SERVER` env > `default_server` in `credentials.yaml`). The active engine comes from that server's `active_engine` entry; switch it with `me engine use <slug>` or override per-call with `--engine`.
+
+Errors when no engine can be resolved or when the named engine has no stored API key.
+
+Useful for scripting:
+
+```sh
+export ME_API_KEY=$(me apikey show --json | jq -r .apiKey)
+```
 
 ---
 

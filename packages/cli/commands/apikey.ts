@@ -3,13 +3,18 @@
  *
  * - me apikey list <user>: List API keys for a user
  * - me apikey create <user> [name]: Create a new API key
+ * - me apikey show: Show the API key stored in credentials.yaml
  * - me apikey revoke <id>: Revoke an API key
  * - me apikey delete <id>: Permanently delete an API key
  */
 import * as clack from "@clack/prompts";
 import { Command } from "commander";
 import { createClient } from "../client.ts";
-import { resolveCredentials } from "../credentials.ts";
+import {
+  getServerCredentials,
+  resolveCredentials,
+  resolveServer,
+} from "../credentials.ts";
 import { getOutputFormat, output, table } from "../output.ts";
 import {
   handleError,
@@ -99,6 +104,40 @@ function createApiKeyCreateCommand(): Command {
     });
 }
 
+function createApiKeyShowCommand(): Command {
+  return new Command("show")
+    .description("show the API key stored in credentials.yaml for an engine")
+    .option("--engine <slug>", "engine slug (defaults to the active engine)")
+    .action(async (opts, cmd) => {
+      const globalOpts = cmd.optsWithGlobals();
+      const fmt = getOutputFormat(globalOpts);
+      try {
+        const server = resolveServer(globalOpts.server);
+        const stored = getServerCredentials(server);
+        const engine: string | undefined = opts.engine ?? stored.active_engine;
+        if (!engine) {
+          throw new Error(
+            "no active engine for this server. Run 'me engine use <slug>' or pass --engine <slug>.",
+          );
+        }
+        const apiKey = stored.engines?.[engine]?.api_key;
+        if (!apiKey) {
+          throw new Error(
+            `no API key stored for engine '${engine}' on ${server}.`,
+          );
+        }
+
+        output({ server, engine, apiKey }, fmt, () => {
+          console.log(`  Server:  ${server}`);
+          console.log(`  Engine:  ${engine}`);
+          console.log(`  API key: ${apiKey}`);
+        });
+      } catch (error) {
+        handleError(error, fmt);
+      }
+    });
+}
+
 function createApiKeyRevokeCommand(): Command {
   return new Command("revoke")
     .description("revoke an API key")
@@ -173,6 +212,7 @@ export function createApiKeyCommand(): Command {
   const apikey = new Command("apikey").description("manage API keys");
   apikey.addCommand(createApiKeyListCommand());
   apikey.addCommand(createApiKeyCreateCommand());
+  apikey.addCommand(createApiKeyShowCommand());
   apikey.addCommand(createApiKeyRevokeCommand());
   apikey.addCommand(createApiKeyDeleteCommand());
   return apikey;
