@@ -1,6 +1,6 @@
 {
   "name": "@memory.build/protocol",
-  "version": "0.2.4",
+  "version": "0.2.5",
   "description": "Protocol schemas and types for Memory Engine",
   "repository": {
     "type": "git",
