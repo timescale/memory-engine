@@ -647,6 +647,59 @@ describe("memory ops", () => {
     }
   });
 
+  test("batchCreateMemories skips duplicate ids without rolling back", async () => {
+    const db = createEngineDB(sql, schema);
+    db.setUser(testPrincipalId);
+
+    // Two distinct UUIDv7s plus a duplicate of the first. The duplicate
+    // would otherwise hit the memory_pkey unique constraint and abort the
+    // transaction, taking the unique siblings down with it.
+    const idA = "019ddff0-0000-7000-8000-000000000a01";
+    const idB = "019ddff0-0000-7000-8000-000000000b01";
+
+    const ids = await db.batchCreateMemories([
+      { id: idA, content: "Dup batch A", tree: "dup.batch" },
+      { id: idA, content: "Dup batch A redux", tree: "dup.batch" },
+      { id: idB, content: "Dup batch B", tree: "dup.batch" },
+    ]);
+
+    // Only the unique inserts are returned — the duplicate is silently dropped.
+    expect(ids).toEqual([idA, idB]);
+
+    // Both unique rows landed; the first content wins (dup is skipped, not updated).
+    const a = await db.getMemory(idA);
+    expect(a?.content).toBe("Dup batch A");
+    const b = await db.getMemory(idB);
+    expect(b?.content).toBe("Dup batch B");
+  });
+
+  test("batchCreateMemories tolerates ids that already exist in the table", async () => {
+    const db = createEngineDB(sql, schema);
+    db.setUser(testPrincipalId);
+
+    const id = "019ddff0-0000-7000-8000-000000000c01";
+    await db.batchCreateMemories([
+      { id, content: "Existing row", tree: "dup.preexisting" },
+    ]);
+
+    // Re-submitting a batch that includes the existing id should succeed,
+    // returning only the genuinely new ids and leaving the existing row's
+    // content untouched.
+    const newId = "019ddff0-0000-7000-8000-000000000c02";
+    const ids = await db.batchCreateMemories([
+      { id, content: "Re-attempted insert", tree: "dup.preexisting" },
+      {
+        id: newId,
+        content: "Sibling that should land",
+        tree: "dup.preexisting",
+      },
+    ]);
+
+    expect(ids).toEqual([newId]);
+    const original = await db.getMemory(id);
+    expect(original?.content).toBe("Existing row");
+  });
+
   test("getTree returns tree structure", async () => {
     const db = createEngineDB(sql, schema);
     db.setUser(testPrincipalId);

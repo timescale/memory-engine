@@ -450,7 +450,20 @@ export function memoryOps(ctx: OpsContext) {
     },
 
     /**
-     * Batch create memories
+     * Batch create memories.
+     *
+     * Inserts skip duplicates by id (`ON CONFLICT (id) DO NOTHING`) so that
+     * a duplicate id in a single batch — or a retry of a partially-applied
+     * batch — does not abort the surrounding transaction. The returned ids
+     * may therefore be shorter than `params` when conflicts occur. Callers
+     * that care which inputs landed should compare ids against the input.
+     *
+     * This is safe because callers typically supply deterministic ids (e.g.
+     * the importer derives UUIDv7 from a stable hash of the source message),
+     * so a conflict means "we already have this row" rather than "two
+     * unrelated callers raced on a generated id." Callers without
+     * deterministic ids let the column default produce fresh UUIDv7s and
+     * never collide.
      */
     async batchCreateMemories(params: CreateMemoryParams[]): Promise<string[]> {
       if (params.length === 0) {
@@ -467,13 +480,13 @@ export function memoryOps(ctx: OpsContext) {
               (${p.id ? sql`id,` : sql``} content, meta, tree, temporal, created_by)
             values
               (${p.id ? sql`${p.id},` : sql``} ${p.content}, ${p.meta ?? {}}::jsonb, ${p.tree ?? ""}::ltree, ${temporalStr}::tstzrange, ${p.createdBy ?? null})
+            on conflict (id) do nothing
             returning id
           `;
           const row = rows[0];
-          if (!row) {
-            throw new Error("Failed to create memory in batch");
+          if (row) {
+            ids.push(row.id);
           }
-          ids.push(row.id);
         }
         return ids;
       });
