@@ -39,10 +39,27 @@ import { deterministicMessageUuidV7 } from "./uuid.ts";
 export const IMPORTER_VERSION = "1";
 
 /**
- * Maximum memories per `memory.batchCreate` call (matches the protocol
+ * Hard cap on memories per `memory.batchCreate` call (matches the protocol
  * limit). Sessions with more messages than this are split into chunks.
  */
 const BATCH_CREATE_CHUNK = 1000;
+
+/**
+ * Soft byte budget per `memory.batchCreate` request body.
+ *
+ * The server caps request bodies at 1 MiB by default
+ * (`packages/server/middleware/size-limit.ts`). With a count-only cap of 1000,
+ * a single chunk of moderately-sized assistant messages routinely exceeds
+ * 1 MiB and the request is rejected with HTTP 413 — taking the entire chunk
+ * down with it. We instead cut chunks early when their estimated wire size
+ * approaches a budget that leaves room for the JSON-RPC envelope plus headers.
+ *
+ * 768 KiB leaves ~256 KiB of headroom under the 1 MiB default server limit.
+ * A single memory larger than the budget still gets sent in its own
+ * singleton chunk; if the server rejects it, the per-chunk catch records
+ * the failure without affecting siblings.
+ */
+const BATCH_CREATE_BYTES_BUDGET = 768 * 1024;
 
 /**
  * Maximum memories per `memory.search` lookup. Same protocol limit. A
@@ -299,13 +316,19 @@ async function writeSession(
     }
   }
 
-  // Inserts: one batchCreate per chunk.
+  // Inserts: one batchCreate per chunk. Chunks are cut by byte budget OR
+  // count cap, whichever fires first, so a chunk's serialized request body
+  // stays under the server's request size limit.
   if (toInsert.length > 0) {
     if (options.dryRun) {
       outcome.inserted += toInsert.length;
     } else {
-      for (let i = 0; i < toInsert.length; i += BATCH_CREATE_CHUNK) {
-        const chunk = toInsert.slice(i, i + BATCH_CREATE_CHUNK);
+      for (const chunk of chunkByBytes(
+        toInsert,
+        BATCH_CREATE_BYTES_BUDGET,
+        BATCH_CREATE_CHUNK,
+        approxMemoryBytes,
+      )) {
         try {
           await engine.memory.batchCreate({ memories: chunk });
           outcome.inserted += chunk.length;
@@ -472,6 +495,47 @@ export function dedupByMemoryId<T extends { memoryId: string }>(
     unique.push(item);
   }
   return { unique, duplicates };
+}
+
+/**
+ * Approximate the wire size of a single `MemoryCreateParams` when it lands
+ * inside a JSON-RPC `memory.batchCreate` request. Accurate enough for
+ * chunking decisions; we don't need to model the envelope exactly.
+ */
+export function approxMemoryBytes(m: MemoryCreateParams): number {
+  return JSON.stringify(m).length;
+}
+
+/**
+ * Split `items` into chunks where each chunk's summed `size(item)` stays
+ * under `byteBudget`, capped at `countCap` items per chunk. An item whose
+ * own size exceeds the budget gets its own singleton chunk so the caller
+ * can still attempt it (and fail loudly server-side, rather than silently
+ * dropping it client-side).
+ *
+ * Exported for unit testing.
+ */
+export function* chunkByBytes<T>(
+  items: T[],
+  byteBudget: number,
+  countCap: number,
+  size: (item: T) => number,
+): Generator<T[]> {
+  let chunk: T[] = [];
+  let bytes = 0;
+  for (const item of items) {
+    const itemBytes = size(item);
+    const wouldOverflow = chunk.length > 0 && bytes + itemBytes > byteBudget;
+    const atCountCap = chunk.length >= countCap;
+    if (wouldOverflow || atCountCap) {
+      yield chunk;
+      chunk = [];
+      bytes = 0;
+    }
+    chunk.push(item);
+    bytes += itemBytes;
+  }
+  if (chunk.length > 0) yield chunk;
 }
 
 export type { ProgressReporter } from "./progress.ts";
