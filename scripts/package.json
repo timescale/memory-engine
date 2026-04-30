@@ -1,5 +1,8 @@
 {
   "name": "scripts",
   "private": true,
-  "type": "module"
+  "type": "module",
+  "dependencies": {
+    "yaml": "^2.7.0"
+  }
 }

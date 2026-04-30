@@ -100,9 +100,11 @@ me pack install packs/typescript-best-practices-v0.2.0.yaml
 
 ## Writing your own pack
 
-1. Choose a unique ID prefix (8 hex characters).
-2. Create a YAML file with the pack header and memory array.
-3. Validate with `me pack validate`.
-4. Install with `me pack install`.
+1. Claim a unique ID prefix (8 hex characters) in [`packs/registry.yaml`](https://github.com/anomalyco/memory-engine/blob/main/packs/registry.yaml) — this is the source of truth for prefix allocation and is checked by CI.
+2. Generate deterministic memory IDs for the new prefix: `./bun run scripts/pack-uuids.ts <prefix>`.
+3. Create a YAML file with the pack envelope and memory array.
+4. Validate with `me pack validate`.
+5. Run `./bun run scripts/validate-packs.ts` to check cross-pack invariants and registry consistency.
+6. Install with `me pack install`.
 
-See the `packs/` directory in this repository for examples.
+See the [`packs/` directory](https://github.com/anomalyco/memory-engine/tree/main/packs) and [`packs/README.md`](https://github.com/anomalyco/memory-engine/blob/main/packs/README.md) for examples and the full authoring guide.

@@ -1,0 +1,18 @@
+# ID prefix registry — source of truth for pack ID prefixes.
+#
+# Each pack claims a unique 8-character UUIDv7 timestamp prefix. Add a new
+# entry here BEFORE authoring a new pack, then run:
+#
+#     ./bun run scripts/pack-uuids.ts <prefix>
+#
+# to mint deterministic memory IDs. Prefixes are allocated sequentially.
+# CI cross-checks every pack's envelope against this file (see
+# scripts/validate-packs.ts).
+prefixes:
+  "019b0001": pack-authoring
+  "019b0002": skill-to-pack
+  "019b0003": codebase-index
+  "019b0004": docs-to-pack
+  "019b0005": git-history
+  "019b0006": github-content
+  "019b0007": build-postgres-queue
