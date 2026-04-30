@@ -256,7 +256,16 @@ async function writeSession(
     });
   }
 
-  if (planned.length === 0) return outcome;
+  // A session JSONL can contain two events that share the same `event.uuid`
+  // (resume artefacts, sidechain merges, replay wrappers). The deterministic
+  // UUIDv7 is keyed on (tool, sessionId, messageId), so duplicates collapse
+  // to the same id and would otherwise hit the unique constraint server-side
+  // — taking the whole batch's transaction down with them. Drop them here.
+  const dedup = dedupByMemoryId(planned);
+  outcome.skipped += dedup.duplicates;
+  const deduped = dedup.unique;
+
+  if (deduped.length === 0) return outcome;
 
   // Bulk-fetch existing message ids for this session in one search.
   let existing: Map<string, string | undefined>;
@@ -265,8 +274,8 @@ async function writeSession(
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
     // The whole session fails if we can't determine existing state.
-    outcome.failed += planned.length;
-    for (const p of planned) {
+    outcome.failed += deduped.length;
+    for (const p of deduped) {
       outcome.errors.push({
         messageId: p.message.messageId,
         error: `existing-state lookup failed: ${msg}`,
@@ -279,7 +288,7 @@ async function writeSession(
   const toUpdate: Array<{ messageId: string; payload: MemoryCreateParams }> =
     [];
 
-  for (const p of planned) {
+  for (const p of deduped) {
     const existingVersion = existing.get(p.memoryId);
     if (existingVersion === undefined) {
       toInsert.push(p.payload);
@@ -439,6 +448,30 @@ function logOutcome(
       else console.log(errLine);
     }
   }
+}
+
+/**
+ * Drop items whose `memoryId` has already been seen, preserving order.
+ * Exported so the dedup behavior can be unit-tested without standing up
+ * a fake EngineClient. Used by `writeSession` to absorb sessions whose
+ * JSONL has duplicate `event.uuid` entries (which would otherwise produce
+ * two planned memories with the same deterministic UUIDv7).
+ */
+export function dedupByMemoryId<T extends { memoryId: string }>(
+  items: T[],
+): { unique: T[]; duplicates: number } {
+  const seen = new Set<string>();
+  const unique: T[] = [];
+  let duplicates = 0;
+  for (const item of items) {
+    if (seen.has(item.memoryId)) {
+      duplicates++;
+      continue;
+    }
+    seen.add(item.memoryId);
+    unique.push(item);
+  }
+  return { unique, duplicates };
 }
 
 export type { ProgressReporter } from "./progress.ts";
