@@ -12,4 +12,9 @@ export {
   type Identity,
 } from "./authenticate";
 export { checkClientVersion } from "./client-version";
-export { checkSizeLimit, MAX_BODY_SIZE } from "./size-limit";
+export {
+  checkSizeLimit,
+  DEFAULT_MAX_BODY_SIZE,
+  MAX_BODY_SIZE,
+  resolveMaxBodySize,
+} from "./size-limit";
