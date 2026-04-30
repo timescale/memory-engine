@@ -10,7 +10,7 @@
     {
       "name": "memory-engine",
       "source": "./packages/claude-plugin",
-      "description": "Captures user prompts and agent responses to Memory Engine for persistent context across sessions"
+      "description": "Captures user prompts and agent responses to Memory Engine for persistent context across sessions. Includes the /use-memory skill for switching engines mid-session."
     }
   ]
 }

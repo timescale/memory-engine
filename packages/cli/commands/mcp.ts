@@ -1,45 +1,24 @@
 /**
- * me mcp — run the MCP server over stdio.
- *
- * Does NOT use the credentials file. API key must be provided
- * via --api-key or ME_API_KEY env var.
+ * me mcp: run the MCP server over stdio.
  *
  * MCP registration with individual AI tools lives in per-agent commands:
  *   me opencode install, me gemini install, me codex install
  * Claude Code uses the Memory Engine plugin instead of a CLI installer.
  */
 import { Command } from "commander";
+import { resolveCredentials } from "../credentials.ts";
 import { runMcpServer } from "../mcp/server.ts";
 
-const DEFAULT_SERVER = "https://api.memory.build";
-
-/**
- * me mcp — run the MCP server over stdio.
- *
- * Does NOT use the credentials file. API key must be provided
- * via --api-key or ME_API_KEY env var.
- */
 function createMcpRunAction() {
   return async (_opts: Record<string, unknown>, cmd: Command) => {
     const opts = cmd.optsWithGlobals();
-
-    // Resolve API key: --api-key > ME_API_KEY
-    const apiKey =
-      (opts.apiKey as string | undefined) ?? process.env.ME_API_KEY;
-    if (!apiKey) {
-      console.error(
-        "Error: API key required. Provide via --api-key or ME_API_KEY env var.",
-      );
-      process.exit(1);
-    }
-
-    // Resolve server: --server > ME_SERVER > default
-    const server =
-      (opts.server as string | undefined) ??
-      process.env.ME_SERVER ??
-      DEFAULT_SERVER;
-
-    await runMcpServer({ apiKey, server });
+    const creds = resolveCredentials(opts.server as string | undefined);
+    const apiKey = (opts.apiKey as string | undefined) || creds.apiKey;
+    await runMcpServer({
+      apiKey,
+      server: creds.server,
+      sessionToken: creds.sessionToken,
+    });
   };
 }
 

@@ -1,10 +1,10 @@
 # MCP Integration
 
-Memory Engine integrates with AI coding agents via the [Model Context Protocol](https://modelcontextprotocol.io/) (MCP). This gives agents 10 memory tools they can use to store and retrieve knowledge across conversations.
+Memory Engine integrates with AI coding agents via the [Model Context Protocol](https://modelcontextprotocol.io/) (MCP). This gives agents tools to store and retrieve knowledge across conversations, plus session tools to inspect and switch the active engine.
 
 ## How it works
 
-When an AI tool launches `me mcp`, it spawns a child process that communicates over **stdin/stdout** using the MCP protocol. The process is a stateless proxy — each tool call is translated into an HTTP request to the Memory Engine API. No data is stored locally.
+When an AI tool launches `me mcp`, it spawns a child process that communicates over **stdin/stdout** using the MCP protocol. Each memory tool call is translated into an HTTP request to the Memory Engine API. No memory data is stored locally; the only per-session state is the currently-bound engine and a cache of API clients keyed by engine slug.
 
 ```
 ┌──────────────┐   stdio (JSON-RPC)   ┌──────────┐   HTTPS   ┌────────────────┐
@@ -12,9 +12,16 @@ When an AI tool launches `me mcp`, it spawns a child process that communicates o
 └──────────────┘                      └──────────┘           └────────────────┘
 ```
 
-Authentication is baked into the command via `--api-key` and `--server` flags. The AI agent never sees or handles credentials — it just calls MCP tools and gets results back.
+The agent never sees or handles credentials. It just calls MCP tools and gets results back.
 
-Each `me mcp` instance is locked to a single engine via its API key. The MCP server does **not** read the credentials file — the API key must be provided via `--api-key` or the `ME_API_KEY` environment variable. The server URL defaults to `https://api.memory.build` (the hosted engine) but can be overridden with `--server` or `ME_SERVER`.
+### Session state
+
+A session starts in one of two states:
+
+- **BOUND**: launched with `--api-key`. The session is locked to that engine for memory tool calls. This is what the Claude Code plugin and the agent-specific installers do today.
+- **FRESH**: launched without `--api-key`. The server reads `~/.config/me/credentials.yaml` so the session can list available engines and bind to one via `me_session_use_engine`. Memory tools error until an engine is bound.
+
+In either state, `me_session_use_engine` can switch the active engine within a session as long as a local API key for the target engine exists in the credentials file. The server URL defaults to `https://api.memory.build` (the hosted engine) but can be overridden with `--server` or `ME_SERVER`.
 
 ## Setup
 
@@ -141,6 +148,8 @@ Point your client at this command with `stdio` as the transport type.
 
 Once connected, the agent has access to:
 
+### Memory tools
+
 | Tool | Purpose |
 |------|---------|
 | `me_memory_create` | Store a new memory |
@@ -153,6 +162,15 @@ Once connected, the agent has access to:
 | `me_memory_tree` | View the tree structure |
 | `me_memory_import` | Bulk import from file or content |
 | `me_memory_export` | Bulk export with filters |
+
+### Session and engine tools
+
+| Tool | Purpose |
+|------|---------|
+| `me_engine_list` | List engines visible to the active credentials, marking which have a local API key |
+| `me_session_get_engine` | Report the engine bound to this session, or FRESH if none |
+| `me_session_use_engine` | Bind this session to an engine by slug, name, or ID (per-session, not persisted) |
+| `me_session_provision_engine` | Mint and persist an API key for an engine when no local key exists, then bind the session |
 
 See [MCP Tool Reference](mcp/me_memory_search.md) for detailed documentation on each tool.
 

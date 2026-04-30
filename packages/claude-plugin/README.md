@@ -4,7 +4,8 @@ Captures your Claude Code conversations to [Memory Engine](https://memory.build)
 
 ## Components
 
-- **MCP server** (`me mcp`) — memory tools (search, create, get, update, delete, tree, import, export, etc.) available to the agent during sessions.
+- **MCP server** (`me mcp`) — memory tools (search, create, get, update, delete, tree, import, export, etc.) plus session/engine tools (`me_engine_list`, `me_session_get_engine`, `me_session_use_engine`, `me_session_provision_engine`) available to the agent during sessions.
+- **`/use-memory` skill** — pick or switch the engine this session reads from and writes to, without restarting Claude Code. Provisions an API key in-session if one doesn't already exist locally. Slash invocation: `/use-memory <engine>` (or `/memory-engine:use-memory <engine>` if disambiguation is needed).
 - **Hooks**:
   - `UserPromptSubmit` captures your prompt as a memory.
   - `Stop` captures the agent's final response as a memory.
@@ -125,7 +126,10 @@ Inside the team repo, sessions capture to the team engine. Outside, they capture
 
 ## Change API key / switch engine
 
-Repeat the `/plugin → memory-engine → Configure` flow. Paste a new api_key. Values take effect immediately.
+Two ways:
+
+- **Persistent default for all new sessions**: repeat the `/plugin → memory-engine → Configure` flow. Paste a new api_key. Values take effect immediately for newly-started sessions.
+- **In-session switch**: type `/use-memory <engine>` inside an active session. The skill calls `me_session_use_engine` and (if needed) `me_session_provision_engine` to bind the running MCP session to the chosen engine without restart. Per-session and in-memory; closing Claude Code resets it. The userConfig api_key is unchanged.
 
 ## Uninstall
 

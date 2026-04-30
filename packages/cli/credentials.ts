@@ -222,6 +222,28 @@ export function storeApiKey(
   writeCredentials(creds);
 }
 
+// Like storeApiKey, but does NOT touch active_engine. Used by the MCP server
+// when provisioning a key in-session: the binding lives in process memory and
+// must not change which engine the next CLI process treats as active.
+export function addEngineApiKey(
+  server: string,
+  engineSlug: string,
+  apiKey: string,
+): void {
+  const creds = readCredentials();
+  const origin = normalizeOrigin(server);
+
+  if (!creds.servers[origin]) {
+    creds.servers[origin] = {};
+  }
+  if (!creds.servers[origin].engines) {
+    creds.servers[origin].engines = {};
+  }
+  creds.servers[origin].engines[engineSlug] = { api_key: apiKey };
+
+  writeCredentials(creds);
+}
+
 /**
  * Set the active engine for a server (without modifying API keys).
  */
@@ -246,6 +268,15 @@ export function getEngineApiKey(
 ): string | undefined {
   const stored = getServerCredentials(server);
   return stored.engines?.[engineSlug]?.api_key;
+}
+
+/**
+ * Engine slug parsed from a `me.<slug>.<keyId>.<secret>` API key.
+ */
+export function parseEngineSlugFromKey(apiKey: string): string | undefined {
+  const parts = apiKey.split(".");
+  if (parts.length < 4 || parts[0] !== "me") return undefined;
+  return parts[1];
 }
 
 /**

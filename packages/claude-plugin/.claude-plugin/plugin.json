@@ -1,7 +1,8 @@
 {
   "name": "memory-engine",
-  "version": "0.1.0",
-  "description": "Captures user prompts and agent responses to Memory Engine for persistent context across sessions",
+  "version": "0.2.0",
+  "description": "Captures user prompts and agent responses to Memory Engine for persistent context across sessions. Includes the /use-memory skill for switching engines mid-session.",
+  "skills": "./skills/",
   "author": {
     "name": "Timescale Memory Engine Team"
   },

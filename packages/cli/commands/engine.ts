@@ -30,41 +30,40 @@ const UUIDV7_RE =
 /**
  * Flattened engine info with org context.
  */
-interface EngineInfo {
+export interface EngineInfo {
   id: string;
   slug: string;
   name: string;
   status: string;
   orgId: string;
+  orgSlug: string;
   orgName: string;
 }
 
 /**
  * Fetch all engines across all the user's orgs.
  */
-async function fetchAllEngines(
+export async function fetchAllEngines(
   accounts: ReturnType<typeof createAccountsClient>,
 ): Promise<EngineInfo[]> {
   const { orgs } = await accounts.org.list();
-  const engines: EngineInfo[] = [];
-
-  for (const org of orgs) {
-    const { engines: orgEngines } = await accounts.engine.list({
-      orgId: org.id,
-    });
-    for (const engine of orgEngines) {
-      engines.push({
-        id: engine.id,
-        slug: engine.slug,
-        name: engine.name,
-        status: engine.status,
-        orgId: org.id,
-        orgName: org.name,
-      });
-    }
-  }
-
-  return engines;
+  const perOrg = await Promise.all(
+    orgs.map(async (org) => {
+      const { engines } = await accounts.engine.list({ orgId: org.id });
+      return engines.map(
+        (engine): EngineInfo => ({
+          id: engine.id,
+          slug: engine.slug,
+          name: engine.name,
+          status: engine.status,
+          orgId: org.id,
+          orgSlug: org.slug,
+          orgName: org.name,
+        }),
+      );
+    }),
+  );
+  return perOrg.flat();
 }
 
 /**

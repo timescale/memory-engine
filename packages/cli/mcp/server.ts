@@ -13,14 +13,26 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { stringify as yamlStringify } from "yaml";
 import { z } from "zod";
 import { CLIENT_VERSION } from "../../../version";
-import type { EngineClient } from "../client.ts";
-import { createClient } from "../client.ts";
+import {
+  type AccountsClient,
+  createAccountsClient,
+  createClient,
+  type EngineClient,
+} from "../client.ts";
+import { fetchAllEngines } from "../commands/engine.ts";
 import { formatMemoryAsMarkdown } from "../commands/memory.ts";
+import {
+  addEngineApiKey,
+  getEngineApiKey,
+  getServerCredentials,
+  parseEngineSlugFromKey,
+} from "../credentials.ts";
 import {
   detectFormatFromExtension,
   type ImportFormat,
   parseContent,
 } from "../parsers/index.ts";
+import { inOrg, resolveEngineForSession } from "./engine-resolve.ts";
 
 // Exported so docs-links.test.ts can resolve the `${DOCS_BASE}/...` template
 // literals embedded in tool descriptions back into concrete URLs.
@@ -43,10 +55,64 @@ const MCP_INSTRUCTIONS = `memory engine — permanent memory for AI agents. Stor
 Integration guide: ${DOCS_BASE}/mcp-integration.md`;
 
 // =============================================================================
+// Session State
+// =============================================================================
+
+interface ActiveEngine {
+  slug: string;
+  name?: string;
+  orgSlug?: string;
+  orgName?: string;
+}
+
+interface McpSession {
+  server: string;
+  sessionToken?: string;
+  activeEngine: ActiveEngine | null;
+  clients: Map<string, EngineClient>;
+}
+
+function requireClient(session: McpSession): EngineClient {
+  if (!session.activeEngine) {
+    throw new Error(
+      "No engine is bound to this MCP session. " +
+        "Call me_session_use_engine (or run /use-memory <engine> in Claude Code) first.",
+    );
+  }
+  const slug = session.activeEngine.slug;
+  const cached = session.clients.get(slug);
+  if (cached) return cached;
+
+  const key = getEngineApiKey(session.server, slug);
+  if (!key) {
+    throw new Error(
+      `No local API key for engine '${slug}'. ` +
+        `Call me_session_provision_engine with engine='${slug}' to mint one, then retry.`,
+    );
+  }
+  const fresh = createClient({ url: session.server, apiKey: key });
+  session.clients.set(slug, fresh);
+  return fresh;
+}
+
+function requireAccountsClient(session: McpSession): AccountsClient {
+  if (!session.sessionToken) {
+    throw new Error(
+      "Not logged in: no session token in ~/.config/me/credentials.yaml. " +
+        "Run `me login` outside Claude Code, then try again.",
+    );
+  }
+  return createAccountsClient({
+    url: session.server,
+    sessionToken: session.sessionToken,
+  });
+}
+
+// =============================================================================
 // Tool Registration
 // =============================================================================
 
-function registerTools(server: McpServer, client: EngineClient): void {
+function registerTools(server: McpServer, session: McpSession): void {
   // me_memory_create
   server.registerTool(
     "me_memory_create",
@@ -99,7 +165,7 @@ Docs: ${docUrl("me_memory_create")}`,
       },
     },
     async (args) => {
-      const result = await client.memory.create({
+      const result = await requireClient(session).memory.create({
         id: args.id ?? undefined,
         content: args.content,
         meta: args.meta ?? undefined,
@@ -243,7 +309,7 @@ Docs: ${docUrl("me_memory_search")}`,
       },
     },
     async (args) => {
-      const result = await client.memory.search({
+      const result = await requireClient(session).memory.search({
         semantic: args.semantic ?? undefined,
         fulltext: args.fulltext ?? undefined,
         grep: args.grep ?? undefined,
@@ -300,7 +366,7 @@ Docs: ${docUrl("me_memory_get")}`,
       },
     },
     async (args) => {
-      const result = await client.memory.get({ id: args.id });
+      const result = await requireClient(session).memory.get({ id: args.id });
       return {
         content: [
           { type: "text" as const, text: JSON.stringify(result, null, 2) },
@@ -359,7 +425,7 @@ Docs: ${docUrl("me_memory_update")}`,
       },
     },
     async (args) => {
-      const result = await client.memory.update({
+      const result = await requireClient(session).memory.update({
         id: args.id,
         content: args.content ?? undefined,
         meta: args.meta ?? undefined,
@@ -400,7 +466,9 @@ Docs: ${docUrl("me_memory_delete")}`,
       },
     },
     async (args) => {
-      const result = await client.memory.delete({ id: args.id });
+      const result = await requireClient(session).memory.delete({
+        id: args.id,
+      });
       return {
         content: [
           { type: "text" as const, text: JSON.stringify(result, null, 2) },
@@ -438,7 +506,7 @@ Docs: ${docUrl("me_memory_delete_tree")}`,
       },
     },
     async (args) => {
-      const result = await client.memory.deleteTree({
+      const result = await requireClient(session).memory.deleteTree({
         tree: args.tree,
         dryRun: args.dry_run,
       });
@@ -475,7 +543,7 @@ Docs: ${docUrl("me_memory_mv")}`,
       },
     },
     async (args) => {
-      const result = await client.memory.move({
+      const result = await requireClient(session).memory.move({
         source: args.source,
         destination: args.destination,
         dryRun: args.dry_run,
@@ -521,7 +589,7 @@ Docs: ${docUrl("me_memory_tree")}`,
       },
     },
     async (args) => {
-      const result = await client.memory.tree({
+      const result = await requireClient(session).memory.tree({
         tree: args.tree ?? undefined,
         levels: args.levels && args.levels > 0 ? args.levels : undefined,
       });
@@ -660,7 +728,7 @@ Docs: ${docUrl("me_memory_import")}`,
         throw new Error("Either path or content is required.");
       }
 
-      const result = await client.memory.batchCreate({
+      const result = await requireClient(session).memory.batchCreate({
         memories: allMemories,
       });
 
@@ -766,8 +834,8 @@ Docs: ${docUrl("me_memory_export")}`,
         };
       }
 
-      const result = await client.memory.search(
-        searchParams as Parameters<typeof client.memory.search>[0],
+      const result = await requireClient(session).memory.search(
+        searchParams as Parameters<EngineClient["memory"]["search"]>[0],
       );
 
       // Strip to import-compatible fields
@@ -892,6 +960,318 @@ Docs: ${docUrl("me_memory_export")}`,
       };
     },
   );
+
+  // me_session_get_engine
+  server.registerTool(
+    "me_session_get_engine",
+    {
+      title: "Show Active Engine",
+      description: `Return which Memory Engine this MCP session is currently bound to. Read-only; never exposes the API key.
+
+Returns { bound: false } if the session has not yet been bound to any engine via me_session_use_engine. Useful before destructive writes to confirm the target engine.
+
+Docs: ${docUrl("me_session_get_engine")}`,
+      inputSchema: {},
+      annotations: {
+        title: "Show Active Engine",
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+      },
+    },
+    async () => ({
+      content: [
+        {
+          type: "text" as const,
+          text: JSON.stringify(
+            session.activeEngine
+              ? { bound: true, engine: session.activeEngine }
+              : { bound: false },
+            null,
+            2,
+          ),
+        },
+      ],
+    }),
+  );
+
+  // me_session_use_engine
+  server.registerTool(
+    "me_session_use_engine",
+    {
+      title: "Switch Active Engine",
+      description: `Bind this MCP session to a specific Memory Engine. All subsequent me_memory_* tool calls in this session will read from and write to the chosen engine.
+
+Per-session, in-memory only. Does NOT modify ~/.config/me/credentials.yaml or affect other Claude Code sessions or other MCP clients. Switching back to a previously-used engine is free; the API key is cached for the lifetime of this MCP process.
+
+Use this when you want to scope memory writes to a team-shared engine (e.g. an investigation knowledge base) without polluting a personal default engine.
+
+Errors if no local API key exists for the target engine. Call me_session_provision_engine first to mint one.
+
+Docs: ${docUrl("me_session_use_engine")}`,
+      inputSchema: {
+        engine: z
+          .string()
+          .min(1)
+          .describe(
+            "Engine slug, name, or ID. Combine with org for disambiguation (e.g. an engine named 'oncall' that exists in two orgs).",
+          ),
+        org: z
+          .string()
+          .optional()
+          .nullable()
+          .describe(
+            "Optional org disambiguator: org slug, name, or ID. Omit unless engine is ambiguous.",
+          ),
+        validate: z
+          .boolean()
+          .optional()
+          .nullable()
+          .describe(
+            "If true (default), round-trip a cheap call to verify the stored key works before committing the switch.",
+          ),
+      },
+      annotations: {
+        title: "Switch Active Engine",
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+      },
+    },
+    async (args) => {
+      const accounts = requireAccountsClient(session);
+      const all = await fetchAllEngines(accounts);
+      const target = resolveEngineForSession(
+        all,
+        args.engine,
+        args.org ?? undefined,
+      );
+
+      const key = getEngineApiKey(session.server, target.slug);
+      if (!key) {
+        throw new Error(
+          `No local API key for engine '${target.slug}'. ` +
+            `Call me_session_provision_engine with engine='${target.slug}' to mint one, then retry.`,
+        );
+      }
+
+      const cached = session.clients.get(target.slug);
+      const validate = args.validate !== false && !cached;
+      if (validate) {
+        const probe = createClient({ url: session.server, apiKey: key });
+        await probe.memory.tree({ levels: 1 });
+        session.clients.set(target.slug, probe);
+      } else if (!cached) {
+        session.clients.set(
+          target.slug,
+          createClient({ url: session.server, apiKey: key }),
+        );
+      }
+
+      const previous = session.activeEngine?.slug ?? null;
+      session.activeEngine = {
+        slug: target.slug,
+        name: target.name,
+        orgSlug: target.orgSlug,
+        orgName: target.orgName,
+      };
+
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: JSON.stringify(
+              {
+                engine: {
+                  id: target.id,
+                  slug: target.slug,
+                  name: target.name,
+                  org: { slug: target.orgSlug, name: target.orgName },
+                },
+                previous_engine: previous,
+                validated: validate,
+              },
+              null,
+              2,
+            ),
+          },
+        ],
+      };
+    },
+  );
+
+  // me_session_provision_engine
+  server.registerTool(
+    "me_session_provision_engine",
+    {
+      title: "Provision Engine API Key",
+      description: `Mint a fresh API key for a Memory Engine on the active server, persist it to ~/.config/me/credentials.yaml under engines.<slug>.api_key, and bind this MCP session to that engine. Use this when me_session_use_engine errors with "No local API key for engine '<slug>'".
+
+Uses the session token from credentials.yaml (so the user must have run \`me login\` previously). Calls accounts.engine.setupAccess on the server, which authorizes the current user against the engine and returns a raw key.
+
+Idempotent: if a key already exists for the target engine, no setupAccess call is made; the session is bound using the existing key. Does NOT change credentials.yaml's active_engine; this tool only adds keys, it never silently changes which engine the next CLI process treats as default.
+
+Docs: ${docUrl("me_session_provision_engine")}`,
+      inputSchema: {
+        engine: z
+          .string()
+          .min(1)
+          .describe("Engine slug, name, or ID to provision."),
+        org: z
+          .string()
+          .optional()
+          .nullable()
+          .describe(
+            "Optional org disambiguator: org slug, name, or ID. Omit unless engine is ambiguous.",
+          ),
+      },
+      annotations: {
+        title: "Provision Engine API Key",
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+      },
+    },
+    async (args) => {
+      const accounts = requireAccountsClient(session);
+      const all = await fetchAllEngines(accounts);
+      const target = resolveEngineForSession(
+        all,
+        args.engine,
+        args.org ?? undefined,
+      );
+
+      const existingKey = getEngineApiKey(session.server, target.slug);
+      let provisioned = false;
+      let apiKey: string;
+      if (existingKey) {
+        apiKey = existingKey;
+      } else {
+        const result = await accounts.engine.setupAccess({
+          engineId: target.id,
+        });
+        addEngineApiKey(session.server, result.engineSlug, result.rawKey);
+        apiKey = result.rawKey;
+        provisioned = true;
+      }
+
+      if (!session.clients.has(target.slug)) {
+        session.clients.set(
+          target.slug,
+          createClient({ url: session.server, apiKey }),
+        );
+      }
+
+      const previous = session.activeEngine?.slug ?? null;
+      session.activeEngine = {
+        slug: target.slug,
+        name: target.name,
+        orgSlug: target.orgSlug,
+        orgName: target.orgName,
+      };
+
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: JSON.stringify(
+              {
+                engine: {
+                  id: target.id,
+                  slug: target.slug,
+                  name: target.name,
+                  org: { slug: target.orgSlug, name: target.orgName },
+                },
+                previous_engine: previous,
+                provisioned,
+              },
+              null,
+              2,
+            ),
+          },
+        ],
+      };
+    },
+  );
+
+  // me_engine_list
+  server.registerTool(
+    "me_engine_list",
+    {
+      title: "List Engines",
+      description: `List engines this identity has access to across all orgs. Read-only. Uses the session token from credentials.yaml, not the active engine's API key, so it works regardless of which engine is currently bound (or even when none is bound).
+
+Use as the first step of an engine-switching flow: enumerate, then call me_session_use_engine with the chosen slug.
+
+Docs: ${docUrl("me_engine_list")}`,
+      inputSchema: {
+        filter: z
+          .string()
+          .optional()
+          .nullable()
+          .describe(
+            "Substring filter on engine name or slug (case-insensitive). Useful when the user typed a partial name.",
+          ),
+        org: z
+          .string()
+          .optional()
+          .nullable()
+          .describe("Restrict to a single org by slug, name, or ID."),
+        has_local_key: z
+          .boolean()
+          .optional()
+          .nullable()
+          .describe(
+            "If true, only return engines for which a local API key is already stored (i.e. ready to bind without provisioning).",
+          ),
+      },
+      annotations: {
+        title: "List Engines",
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+      },
+    },
+    async (args) => {
+      const accounts = requireAccountsClient(session);
+      const engines = await fetchAllEngines(accounts);
+
+      const filter = args.filter?.toLowerCase();
+      const org = args.org ?? undefined;
+      const onlyLocal = args.has_local_key === true;
+      // Read credentials.yaml once instead of N times (one per engine).
+      const localKeys = getServerCredentials(session.server).engines ?? {};
+      const activeSlug = session.activeEngine?.slug;
+
+      const filtered = engines
+        .filter((e) => (org ? inOrg(e, org) : true))
+        .filter((e) =>
+          filter
+            ? e.slug.toLowerCase().includes(filter) ||
+              e.name.toLowerCase().includes(filter)
+            : true,
+        )
+        .map((e) => ({
+          id: e.id,
+          slug: e.slug,
+          name: e.name,
+          status: e.status,
+          org: { slug: e.orgSlug, name: e.orgName, id: e.orgId },
+          has_local_key: Boolean(localKeys[e.slug]?.api_key),
+          active: activeSlug === e.slug,
+        }))
+        .filter((e) => (onlyLocal ? e.has_local_key : true));
+
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: JSON.stringify({ engines: filtered }, null, 2),
+          },
+        ],
+      };
+    },
+  );
 }
 
 // =============================================================================
@@ -925,15 +1305,39 @@ function setupShutdownHandlers(mcpServer: McpServer): void {
 // =============================================================================
 
 export interface McpServerOptions {
-  apiKey: string;
+  apiKey?: string;
   server: string;
+  sessionToken?: string;
 }
 
 /**
  * Run MCP server over stdio.
  */
 export async function runMcpServer(options: McpServerOptions): Promise<void> {
-  const client = createClient({ url: options.server, apiKey: options.apiKey });
+  const session: McpSession = {
+    server: options.server,
+    sessionToken: options.sessionToken,
+    activeEngine: null,
+    clients: new Map(),
+  };
+
+  // Bootstrap path keeps the existing Claude Code plugin's .mcp.json working
+  // unchanged: --api-key seeds the session as already bound. name/org fill in
+  // later if the agent calls me_session_use_engine.
+  if (options.apiKey) {
+    const slug = parseEngineSlugFromKey(options.apiKey);
+    if (slug) {
+      session.activeEngine = { slug };
+      session.clients.set(
+        slug,
+        createClient({ url: options.server, apiKey: options.apiKey }),
+      );
+    } else {
+      console.error(
+        "Warning: --api-key did not match the expected `me.<slug>.<id>.<secret>` shape; ignoring.",
+      );
+    }
+  }
 
   const mcpServer = new McpServer(
     {
@@ -945,7 +1349,7 @@ export async function runMcpServer(options: McpServerOptions): Promise<void> {
     },
   );
 
-  registerTools(mcpServer, client);
+  registerTools(mcpServer, session);
 
   const transport = new StdioServerTransport();
   await mcpServer.connect(transport);
