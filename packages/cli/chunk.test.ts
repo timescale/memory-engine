@@ -178,8 +178,8 @@ describe("batchCreateChunked", () => {
     expect(result.insertedIds).toEqual([]);
     expect(result.failedIds.sort()).toEqual(["a", "b"]);
     expect(result.errors).toHaveLength(2);
-    expect(result.errors[0].chunkIndex).toBe(0);
-    expect(result.errors[1].chunkIndex).toBe(1);
+    expect(result.errors[0]?.chunkIndex).toBe(0);
+    expect(result.errors[1]?.chunkIndex).toBe(1);
   });
 
   test("server returns shorter ids than requested (simulating ON CONFLICT)", async () => {
