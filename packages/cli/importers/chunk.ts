@@ -23,14 +23,14 @@ import type { MemoryCreateParams } from "@memory.build/protocol/engine";
 export const BATCH_CREATE_CHUNK = 1000;
 
 /**
- * Soft byte budget per `memory.batchCreate` request body.
+ * Soft byte budget per `memory.batchCreate` request body, in UTF-8 bytes.
  *
  * The server caps request bodies at 1 MiB by default
  * (`packages/server/middleware/size-limit.ts`). With a count-only cap of
  * 1000, a single chunk of moderately-sized assistant messages routinely
  * exceeds 1 MiB and the request is rejected with HTTP 413 — taking the
  * entire chunk down with it. We instead cut chunks early when their
- * estimated wire size approaches a budget that leaves room for the
+ * estimated UTF-8 wire size approaches a budget that leaves room for the
  * JSON-RPC envelope plus headers.
  *
  * 768 KiB leaves ~256 KiB of headroom under the 1 MiB default server limit.
@@ -41,12 +41,19 @@ export const BATCH_CREATE_CHUNK = 1000;
 export const BATCH_CREATE_BYTES_BUDGET = 768 * 1024;
 
 /**
- * Approximate the wire size of a single `MemoryCreateParams` when it lands
- * inside a JSON-RPC `memory.batchCreate` request. Accurate enough for
- * chunking decisions; we don't need to model the envelope exactly.
+ * Approximate the UTF-8 wire size of a single `MemoryCreateParams` when
+ * it lands inside a JSON-RPC `memory.batchCreate` request. Accurate
+ * enough for chunking decisions; we don't model the envelope exactly.
+ *
+ * Uses `Buffer.byteLength(_, "utf8")` rather than `String.prototype.length`
+ * (which counts UTF-16 code units) so non-ASCII content — CJK code blocks,
+ * emoji, accented Latin — is sized at the byte count the server actually
+ * sees on the wire, not the JS character count. For ASCII-only content
+ * the two are identical; for CJK the byte count is ~3× the char count,
+ * and for supplementary-plane emoji 2× (4 bytes vs 2 surrogate units).
  */
 export function approxMemoryBytes(m: MemoryCreateParams): number {
-  return JSON.stringify(m).length;
+  return Buffer.byteLength(JSON.stringify(m), "utf8");
 }
 
 /**
