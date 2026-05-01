@@ -78,4 +78,15 @@ describe("approxMemoryBytes", () => {
     });
     expect(b).toBeGreaterThan(a);
   });
+
+  test("counts UTF-8 bytes, not UTF-16 code units, for non-ASCII content", () => {
+    // "abc" and "日本語" both have JS .length === 3, but the CJK string is
+    // 9 UTF-8 bytes (3 bytes per char) — so the wire-size estimate must
+    // differ. A String.length-based implementation would return identical
+    // values here, missing roughly 6 bytes of real wire weight per CJK
+    // memory and silently shrinking the headroom under the 1 MiB cap.
+    const ascii = approxMemoryBytes({ content: "abc", tree: "t" });
+    const cjk = approxMemoryBytes({ content: "日本語", tree: "t" });
+    expect(cjk).toBeGreaterThan(ascii + 5);
+  });
 });
