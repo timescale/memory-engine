@@ -27,17 +27,25 @@ See [File Formats](../formats.md) for full schema documentation, examples, and f
 ```json
 {
   "imported": 2,
+  "skipped": 1,
   "ids": [
     "0194a000-0001-7000-8000-000000000001",
     "0194a000-0002-7000-8000-000000000002"
+  ],
+  "skippedIds": [
+    "0194a000-0003-7000-8000-000000000003"
   ]
 }
 ```
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `imported` | `number` | Number of memories successfully imported. |
-| `ids` | `string[]` | UUIDs of the created memories. |
+| `imported` | `number` | Number of memories successfully imported on this call. |
+| `skipped` | `number` | Number of memories whose explicit `id` already existed in the engine. Always present (may be `0`). |
+| `ids` | `string[]` | UUIDs of the memories actually inserted on this call. |
+| `skippedIds` | `string[]` | The explicit ids that were skipped because they already existed. Always present (may be empty). Inspect any of these with `me_memory_get` to see what's there. |
+
+The tool is idempotent for memories with explicit ids: re-calling with the same arguments leaves the engine in the same state, with all previously-imported ids appearing in `skippedIds` instead of `ids`. Memories submitted without an explicit `id` get a server-generated UUIDv7 and never collide.
 
 ## Examples
 

@@ -570,7 +570,9 @@ Docs: ${docUrl("me_memory_import")}`,
         title: "Import Memories",
         readOnlyHint: false,
         destructiveHint: false,
-        idempotentHint: false,
+        // Server-side `ON CONFLICT (id) DO NOTHING` makes repeat calls with
+        // the same explicit ids land the engine in the same state.
+        idempotentHint: true,
       },
     },
     async (args) => {
@@ -660,16 +662,30 @@ Docs: ${docUrl("me_memory_import")}`,
         throw new Error("Either path or content is required.");
       }
 
+      const explicitIds = allMemories
+        .map((m) => m.id)
+        .filter((id): id is string => typeof id === "string");
+
       const result = await client.memory.batchCreate({
         memories: allMemories,
       });
+
+      // Server-side `ON CONFLICT (id) DO NOTHING` may silently drop
+      // duplicate ids; surface those so the caller can investigate.
+      const insertedSet = new Set(result.ids);
+      const skippedIds = explicitIds.filter((id) => !insertedSet.has(id));
 
       return {
         content: [
           {
             type: "text" as const,
             text: JSON.stringify(
-              { imported: result.ids.length, ids: result.ids },
+              {
+                imported: result.ids.length,
+                skipped: skippedIds.length,
+                ids: result.ids,
+                skippedIds,
+              },
               null,
               2,
             ),
