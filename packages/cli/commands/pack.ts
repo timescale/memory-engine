@@ -146,12 +146,34 @@ function createPackInstallCommand(): Command {
 
         // Step 5: Dry run report
         if (opts.dryRun) {
+          // Predict skips: rows that survive the stale-deletion (i.e. already
+          // at the target version) will trigger `ON CONFLICT DO NOTHING` for
+          // any matching ids in the install set. We can't predict collisions
+          // with non-pack memories without extra lookups, so the actual
+          // install may surface additional `skippedConflict` warnings.
+          const survivingIds = new Set(
+            existing.results
+              .filter((m) => {
+                const meta = m.meta as Record<string, unknown> | undefined;
+                const packMeta = meta?.pack as
+                  | Record<string, unknown>
+                  | undefined;
+                return packMeta?.version === packVersion;
+              })
+              .map((m) => m.id),
+          );
+          const wouldSkipIdempotent = memories.filter(
+            (m) => m.id && survivingIds.has(m.id),
+          ).length;
+          const wouldInstall = memories.length - wouldSkipIdempotent;
+
           output(
             {
               dryRun: true,
               pack: packName,
               version: packVersion,
-              wouldInstall: memories.length,
+              wouldInstall,
+              wouldSkipIdempotent,
               wouldDeleteStale: stale.length,
               existingTotal: existing.results.length,
             },
@@ -159,8 +181,13 @@ function createPackInstallCommand(): Command {
             () => {
               console.log(`  Pack: ${packName} v${packVersion}`);
               console.log(
-                `  Would install: ${memories.length} ${memories.length === 1 ? "memory" : "memories"}`,
+                `  Would install: ${wouldInstall} ${wouldInstall === 1 ? "memory" : "memories"}`,
               );
+              if (wouldSkipIdempotent > 0) {
+                console.log(
+                  `  Would skip (already present): ${wouldSkipIdempotent}`,
+                );
+              }
               console.log(`  Would delete stale: ${stale.length}`);
               console.log(`  Existing: ${existing.results.length}`);
             },
@@ -218,20 +245,76 @@ function createPackInstallCommand(): Command {
 
         spin?.stop("Done");
 
-        output(
-          {
-            pack: packName,
-            version: packVersion,
-            installed: result.ids.length,
-            staleRemoved: stale.length,
-          },
-          fmt,
-          () => {
+        // Post-#64 `batchCreate` returns only ids it actually inserted —
+        // conflicting ids are silently skipped. Classify the skips so the
+        // user sees benign re-installs vs real id collisions.
+        const requestedIds = createParams
+          .map((p) => p.id)
+          .filter((x): x is string => typeof x === "string");
+        const { idempotent, conflict } = classifySkips({
+          requestedIds,
+          insertedIds: result.ids,
+          existing: existing.results,
+          packName,
+          packVersion,
+        });
+
+        const installed = result.ids.length;
+        const skippedIdempotent = idempotent.length;
+        const skippedConflict = conflict.length;
+        const skipped = skippedIdempotent + skippedConflict;
+
+        const jsonOut: Record<string, unknown> = {
+          pack: packName,
+          version: packVersion,
+          installed,
+          staleRemoved: stale.length,
+          skipped,
+          skippedIdempotent,
+          skippedConflict,
+        };
+        if (skippedConflict > 0) {
+          jsonOut.skippedConflictIds = conflict;
+        }
+
+        output(jsonOut, fmt, () => {
+          // Pure idempotent re-install — distinct success line.
+          if (
+            installed === 0 &&
+            stale.length === 0 &&
+            skippedIdempotent > 0 &&
+            skippedConflict === 0
+          ) {
             clack.log.success(
-              `Installed pack '${packName}' v${packVersion}: ${result.ids.length} ${result.ids.length === 1 ? "memory" : "memories"}${stale.length > 0 ? ` (${stale.length} stale removed)` : ""}`,
+              `Pack '${packName}' v${packVersion} already installed (${skippedIdempotent} ${skippedIdempotent === 1 ? "memory" : "memories"} present, no changes)`,
             );
-          },
-        );
+          } else {
+            const lines: string[] = [];
+            lines.push(
+              `Installed pack '${packName}' v${packVersion}: ${installed} ${installed === 1 ? "memory" : "memories"}`,
+            );
+            if (stale.length > 0) {
+              lines.push(
+                `    └ ${stale.length} stale removed (from previous version)`,
+              );
+            }
+            if (skippedIdempotent > 0) {
+              lines.push(
+                `    └ ${skippedIdempotent} already present (skipped)`,
+              );
+            }
+            clack.log.success(lines.join("\n"));
+          }
+
+          if (skippedConflict > 0) {
+            const idsList = conflict.map((id) => `    ${id}`).join("\n");
+            const noun = skippedConflict === 1 ? "memory" : "memories";
+            const verb = skippedConflict === 1 ? "collides" : "collide";
+            clack.log.warn(
+              `${skippedConflict} ${noun} not installed — id ${verb} with existing non-pack ${noun}:\n${idsList}\n  Inspect with: me memory get <id>`,
+            );
+          }
+        });
       } catch (error) {
         handleError(error, fmt);
       }
@@ -302,6 +385,59 @@ function createPackListCommand(): Command {
         handleError(error, fmt);
       }
     });
+}
+
+// =============================================================================
+// Skip classification (post-#64 batchCreate semantics)
+// =============================================================================
+
+/**
+ * `engine.memory.batchCreate` uses `ON CONFLICT (id) DO NOTHING` server-side,
+ * so the returned `ids` array can be shorter than the request when conflicts
+ * occur. For pack install, those silent skips fall into two buckets:
+ *
+ * - **idempotent**: the row is already present and tagged with this pack
+ *   name + version (a benign re-install of the same version)
+ * - **conflict**:   the id is held by something else — a different pack,
+ *   a different version, or a non-pack memory the user wrote themselves.
+ *   Surfaced as a warning so a real id collision isn't silently masked.
+ *
+ * Pure function exported for unit testing.
+ */
+export function classifySkips(args: {
+  requestedIds: string[];
+  insertedIds: string[];
+  existing: ReadonlyArray<{ id: string; meta?: unknown }>;
+  packName: string;
+  packVersion: string;
+}): { idempotent: string[]; conflict: string[] } {
+  const inserted = new Set(args.insertedIds);
+  const existingById = new Map<string, unknown>(
+    args.existing.map((m) => [m.id, m.meta]),
+  );
+  const idempotent: string[] = [];
+  const conflict: string[] = [];
+
+  for (const id of args.requestedIds) {
+    if (inserted.has(id)) continue;
+
+    const meta = existingById.get(id);
+    const packMeta =
+      meta && typeof meta === "object"
+        ? (meta as Record<string, unknown>).pack
+        : undefined;
+    const pm =
+      packMeta && typeof packMeta === "object"
+        ? (packMeta as Record<string, unknown>)
+        : undefined;
+
+    if (pm?.name === args.packName && pm?.version === args.packVersion) {
+      idempotent.push(id);
+    } else {
+      conflict.push(id);
+    }
+  }
+  return { idempotent, conflict };
 }
 
 // =============================================================================
