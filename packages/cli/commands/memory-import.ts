@@ -69,6 +69,25 @@ interface ImportResult {
   errors: Array<{ source: string; error: string }>;
 }
 
+/**
+ * Compute which explicit ids were skipped by the server.
+ *
+ * `engine.memory.batchCreate` uses `ON CONFLICT (id) DO NOTHING` server-side
+ * (post-#64), so the returned `ids` array can be shorter than the request
+ * when conflicts occur. Memories submitted without an explicit `id` get a
+ * server-generated UUIDv7 that statistically can't collide, so only
+ * explicit-id requests can be skipped.
+ *
+ * Pure function exported for unit testing.
+ */
+export function computeSkippedIds(
+  explicitIds: string[],
+  insertedIds: string[],
+): string[] {
+  const inserted = new Set(insertedIds);
+  return explicitIds.filter((id) => !inserted.has(id));
+}
+
 export function createMemoryImportCommand(): Command {
   return new Command("import")
     .description("import memories from files or stdin")
@@ -247,6 +266,8 @@ export function createMemoryImportCommand(): Command {
       // Actual import
       const engine = createClient({ url: creds.server, apiKey: creds.apiKey });
 
+      let skippedIds: string[] = [];
+
       try {
         const createParams = allMemories.map(({ memory: mem }) => ({
           content: mem.content,
@@ -256,12 +277,17 @@ export function createMemoryImportCommand(): Command {
           ...(mem.temporal ? { temporal: mem.temporal } : {}),
         }));
 
+        const explicitIds = createParams
+          .map((p) => p.id)
+          .filter((id): id is string => typeof id === "string");
+
         const response = await engine.memory.batchCreate({
           memories: createParams,
         });
 
         result.imported = response.ids.length;
         result.ids = response.ids;
+        skippedIds = computeSkippedIds(explicitIds, response.ids);
       } catch (error) {
         const msg = error instanceof Error ? error.message : String(error);
         result.errors.push({ source: "server", error: msg });
@@ -269,11 +295,14 @@ export function createMemoryImportCommand(): Command {
       }
 
       // Output results
+      const skipped = skippedIds.length;
       output(
         {
           imported: result.imported,
+          skipped,
           failed: result.failed + result.errors.length,
           ids: result.ids,
+          skippedIds,
           errors: result.errors,
         },
         fmt,
@@ -288,6 +317,9 @@ export function createMemoryImportCommand(): Command {
                 `  ✓ ${source} (${count} ${count === 1 ? "memory" : "memories"})`,
               );
             }
+            for (const id of skippedIds) {
+              console.log(`  ⊝ ${id} (id already exists)`);
+            }
             for (const { source, error } of result.errors) {
               console.log(`  ✗ ${source}: ${error}`);
             }
@@ -298,9 +330,25 @@ export function createMemoryImportCommand(): Command {
               console.error(error);
             }
           }
-          console.log(
-            `Imported ${result.imported} ${result.imported === 1 ? "memory" : "memories"}`,
-          );
+          // Distinct line for the "everything was already there" case so the
+          // user isn't left wondering why `Imported 0` is reported.
+          if (
+            result.imported === 0 &&
+            skipped > 0 &&
+            result.errors.length === 0
+          ) {
+            console.log(
+              `Imported 0 memories (${skipped} already exist, no changes)`,
+            );
+          } else if (skipped > 0) {
+            console.log(
+              `Imported ${result.imported} ${result.imported === 1 ? "memory" : "memories"} (${skipped} skipped — id already exists)`,
+            );
+          } else {
+            console.log(
+              `Imported ${result.imported} ${result.imported === 1 ? "memory" : "memories"}`,
+            );
+          }
         },
       );
 
