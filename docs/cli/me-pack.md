@@ -88,6 +88,15 @@ JSON mode (`--format json`) returns:
 | `skippedIdempotent` | Skipped because already present at this version. |
 | `skippedConflict` | Skipped because the id is held by something not from this pack/version. |
 | `skippedConflictIds` | Array of conflicting ids (only present when `skippedConflict > 0`). |
+| `failed` | Memories in chunks that errored before reaching the server. |
+| `failedIds` | Array of ids in failed chunks (only present when `failed > 0`). |
+| `errors` | Per-chunk error detail: `{ chunkIndex, itemCount, ids, error }` (only present when `failed > 0`). |
+
+### Chunking and partial failures
+
+Large packs are sliced into multiple `batchCreate` requests under the hood to fit under the server's request-body limit. Chunks are sent sequentially. If a chunk fails (network error, server error), siblings are not affected -- the successful chunks still land. The failed memories are reported under `failed` / `failedIds` / `errors`.
+
+A partial install is crash-safe: re-running `me pack install` with the same pack file picks up where the previous run left off. The step-3 search finds the inserted memories as already-at-this-version (idempotent), and the missing ids are filled in. The text output adds a `└ N failed (chunk error — re-run to retry)` line and a `clack.log.error` block with per-chunk error detail when this happens.
 
 ### Example
 

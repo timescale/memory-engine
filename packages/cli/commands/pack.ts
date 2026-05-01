@@ -9,6 +9,7 @@
 import { readFileSync } from "node:fs";
 import * as clack from "@clack/prompts";
 import { Command } from "commander";
+import { batchCreateChunked } from "../chunk.ts";
 import { createClient } from "../client.ts";
 import { resolveCredentials } from "../credentials.ts";
 import { getOutputFormat, output, table } from "../output.ts";
@@ -239,30 +240,38 @@ function createPackInstallCommand(): Command {
           ...(mem.temporal ? { temporal: mem.temporal } : {}),
         }));
 
-        const result = await engine.memory.batchCreate({
-          memories: createParams,
-        });
+        // Chunked batch create — large packs are sliced under the
+        // server's request-body limit, and a single failed chunk doesn't
+        // take down its siblings (re-running install will self-heal).
+        const {
+          insertedIds,
+          failedIds,
+          errors: chunkErrors,
+        } = await batchCreateChunked(engine, createParams);
 
         spin?.stop("Done");
 
         // Post-#64 `batchCreate` returns only ids it actually inserted —
         // conflicting ids are silently skipped. Classify the skips so the
-        // user sees benign re-installs vs real id collisions.
+        // user sees benign re-installs vs real id collisions, excluding
+        // failed-chunk ids (those never reached the server).
         const requestedIds = createParams
           .map((p) => p.id)
           .filter((x): x is string => typeof x === "string");
         const { idempotent, conflict } = classifySkips({
           requestedIds,
-          insertedIds: result.ids,
+          insertedIds,
+          failedIds,
           existing: existing.results,
           packName,
           packVersion,
         });
 
-        const installed = result.ids.length;
+        const installed = insertedIds.length;
         const skippedIdempotent = idempotent.length;
         const skippedConflict = conflict.length;
         const skipped = skippedIdempotent + skippedConflict;
+        const failed = failedIds.length;
 
         const jsonOut: Record<string, unknown> = {
           pack: packName,
@@ -272,9 +281,14 @@ function createPackInstallCommand(): Command {
           skipped,
           skippedIdempotent,
           skippedConflict,
+          failed,
         };
         if (skippedConflict > 0) {
           jsonOut.skippedConflictIds = conflict;
+        }
+        if (failed > 0) {
+          jsonOut.failedIds = failedIds;
+          jsonOut.errors = chunkErrors;
         }
 
         output(jsonOut, fmt, () => {
@@ -283,7 +297,8 @@ function createPackInstallCommand(): Command {
             installed === 0 &&
             stale.length === 0 &&
             skippedIdempotent > 0 &&
-            skippedConflict === 0
+            skippedConflict === 0 &&
+            failed === 0
           ) {
             clack.log.success(
               `Pack '${packName}' v${packVersion} already installed (${skippedIdempotent} ${skippedIdempotent === 1 ? "memory" : "memories"} present, no changes)`,
@@ -303,6 +318,11 @@ function createPackInstallCommand(): Command {
                 `    └ ${skippedIdempotent} already present (skipped)`,
               );
             }
+            if (failed > 0) {
+              lines.push(
+                `    └ ${failed} failed (chunk error — re-run to retry)`,
+              );
+            }
             clack.log.success(lines.join("\n"));
           }
 
@@ -312,6 +332,18 @@ function createPackInstallCommand(): Command {
             const verb = skippedConflict === 1 ? "collides" : "collide";
             clack.log.warn(
               `${skippedConflict} ${noun} not installed — id ${verb} with existing non-pack ${noun}:\n${idsList}\n  Inspect with: me memory get <id>`,
+            );
+          }
+
+          if (failed > 0) {
+            const errLines = chunkErrors
+              .map(
+                (e) =>
+                  `    chunk ${e.chunkIndex} (${e.itemCount} items): ${e.error}`,
+              )
+              .join("\n");
+            clack.log.error(
+              `${failed} ${failed === 1 ? "memory" : "memories"} failed before reaching the server:\n${errLines}\n  Re-run \`me pack install\` to retry — already-installed memories will be skipped.`,
             );
           }
         });
@@ -394,24 +426,34 @@ function createPackListCommand(): Command {
 /**
  * `engine.memory.batchCreate` uses `ON CONFLICT (id) DO NOTHING` server-side,
  * so the returned `ids` array can be shorter than the request when conflicts
- * occur. For pack install, those silent skips fall into two buckets:
+ * occur. For pack install, ids that didn't land fall into three buckets:
  *
  * - **idempotent**: the row is already present and tagged with this pack
  *   name + version (a benign re-install of the same version)
  * - **conflict**:   the id is held by something else — a different pack,
  *   a different version, or a non-pack memory the user wrote themselves.
  *   Surfaced as a warning so a real id collision isn't silently masked.
+ * - **failed (excluded here)**: the id was in a chunk that errored before
+ *   reaching the server. Callers pass these via `failedIds` so they don't
+ *   get mis-classified as conflicts; they're tracked separately under
+ *   the `failed` bucket in the install output.
  *
  * Pure function exported for unit testing.
  */
 export function classifySkips(args: {
   requestedIds: string[];
   insertedIds: string[];
+  /**
+   * Ids that were submitted but never reached the server because their
+   * containing chunk errored. Optional — if omitted, treated as empty.
+   */
+  failedIds?: string[];
   existing: ReadonlyArray<{ id: string; meta?: unknown }>;
   packName: string;
   packVersion: string;
 }): { idempotent: string[]; conflict: string[] } {
   const inserted = new Set(args.insertedIds);
+  const failed = new Set(args.failedIds ?? []);
   const existingById = new Map<string, unknown>(
     args.existing.map((m) => [m.id, m.meta]),
   );
@@ -419,7 +461,7 @@ export function classifySkips(args: {
   const conflict: string[] = [];
 
   for (const id of args.requestedIds) {
-    if (inserted.has(id)) continue;
+    if (inserted.has(id) || failed.has(id)) continue;
 
     const meta = existingById.get(id);
     const packMeta =

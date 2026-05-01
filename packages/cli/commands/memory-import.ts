@@ -284,8 +284,11 @@ export function createMemoryImportCommand(): Command {
       // Chunked batch create — large imports are sliced under the
       // server's request-body limit, and a single failed chunk doesn't
       // take down the rest of the import.
-      const { insertedIds, failedIds, errors: chunkErrors } =
-        await batchCreateChunked(engine, createParams);
+      const {
+        insertedIds,
+        failedIds,
+        errors: chunkErrors,
+      } = await batchCreateChunked(engine, createParams);
 
       result.imported = insertedIds.length;
       result.ids = insertedIds;
