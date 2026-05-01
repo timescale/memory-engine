@@ -28,13 +28,15 @@ See [File Formats](../formats.md) for full schema documentation, examples, and f
 {
   "imported": 2,
   "skipped": 1,
+  "failed": 0,
   "ids": [
     "0194a000-0001-7000-8000-000000000001",
     "0194a000-0002-7000-8000-000000000002"
   ],
   "skippedIds": [
     "0194a000-0003-7000-8000-000000000003"
-  ]
+  ],
+  "errors": []
 }
 ```
 
@@ -42,10 +44,18 @@ See [File Formats](../formats.md) for full schema documentation, examples, and f
 |-------|------|-------------|
 | `imported` | `number` | Number of memories successfully imported on this call. |
 | `skipped` | `number` | Number of memories whose explicit `id` already existed in the engine. Always present (may be `0`). |
+| `failed` | `number` | Number of memories in chunks that errored before reaching the server. Always present (may be `0`). |
 | `ids` | `string[]` | UUIDs of the memories actually inserted on this call. |
 | `skippedIds` | `string[]` | The explicit ids that were skipped because they already existed. Always present (may be empty). Inspect any of these with `me_memory_get` to see what's there. |
+| `errors` | `Array<{ chunkIndex, itemCount, ids, error }>` | One entry per failed chunk. Always present (may be empty). |
 
 The tool is idempotent for memories with explicit ids: re-calling with the same arguments leaves the engine in the same state, with all previously-imported ids appearing in `skippedIds` instead of `ids`. Memories submitted without an explicit `id` get a server-generated UUIDv7 and never collide.
+
+### Chunking and partial failures
+
+Large imports are sliced into multiple `batchCreate` requests under the hood to fit under the server's request-body limit. Chunks are sent sequentially. If a chunk fails, siblings are not affected -- the successful chunks still land. The failed chunk's items are reported under `failed`/`errors`, and re-calling with the same arguments will pick up where the previous call left off.
+
+The tool throws only when **every** chunk fails (total failure). For mixed outcomes it returns the partial-success detail above so the caller can decide how to react.
 
 ## Examples
 

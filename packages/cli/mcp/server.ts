@@ -13,6 +13,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { stringify as yamlStringify } from "yaml";
 import { z } from "zod";
 import { CLIENT_VERSION } from "../../../version";
+import { batchCreateChunked } from "../chunk.ts";
 import type { EngineClient } from "../client.ts";
 import { createClient } from "../client.ts";
 import { formatMemoryAsMarkdown } from "../commands/memory.ts";
@@ -571,7 +572,11 @@ Docs: ${docUrl("me_memory_import")}`,
         readOnlyHint: false,
         destructiveHint: false,
         // Server-side `ON CONFLICT (id) DO NOTHING` makes repeat calls with
-        // the same explicit ids land the engine in the same state.
+        // the same explicit ids land the engine in the same state. With
+        // chunking, a partial-failure call can be retried safely: ids
+        // already inserted are skipped, ids in failed chunks are
+        // re-attempted, and the final state converges to "all submitted
+        // ids present" once at least one call gets each chunk through.
         idempotentHint: true,
       },
     },
@@ -666,14 +671,33 @@ Docs: ${docUrl("me_memory_import")}`,
         .map((m) => m.id)
         .filter((id): id is string => typeof id === "string");
 
-      const result = await client.memory.batchCreate({
-        memories: allMemories,
-      });
+      // Chunked batch create — large imports are sliced under the
+      // server's request-body limit, and a single failed chunk doesn't
+      // take down the rest of the import.
+      const { insertedIds, failedIds, errors } = await batchCreateChunked(
+        client,
+        allMemories,
+      );
+
+      // Throw only on total failure — the agent should see partial-success
+      // detail rather than an opaque error for mixed outcomes.
+      if (insertedIds.length === 0 && errors.length > 0) {
+        throw new Error(
+          errors.length === 1
+            ? errors[0]?.error
+            : `All ${errors.length} chunks failed; first error: ${errors[0]?.error}`,
+        );
+      }
 
       // Server-side `ON CONFLICT (id) DO NOTHING` may silently drop
       // duplicate ids; surface those so the caller can investigate.
-      const insertedSet = new Set(result.ids);
-      const skippedIds = explicitIds.filter((id) => !insertedSet.has(id));
+      // Failed-chunk ids never reached the server, so they're not
+      // skipped — they're reported separately under `failed`/`errors`.
+      const insertedSet = new Set(insertedIds);
+      const failedSet = new Set(failedIds);
+      const skippedIds = explicitIds.filter(
+        (id) => !insertedSet.has(id) && !failedSet.has(id),
+      );
 
       return {
         content: [
@@ -681,10 +705,12 @@ Docs: ${docUrl("me_memory_import")}`,
             type: "text" as const,
             text: JSON.stringify(
               {
-                imported: result.ids.length,
+                imported: insertedIds.length,
                 skipped: skippedIds.length,
-                ids: result.ids,
+                failed: failedIds.length,
+                ids: insertedIds,
                 skippedIds,
+                errors,
               },
               null,
               2,
