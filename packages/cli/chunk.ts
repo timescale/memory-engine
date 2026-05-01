@@ -105,3 +105,87 @@ export function* chunkMemoriesForBatchCreate(
     approxMemoryBytes,
   );
 }
+
+/**
+ * Minimal client shape `batchCreateChunked` needs. Structurally typed so
+ * callers can pass an `EngineClient` or a stub in tests without coupling
+ * this module to the full client surface.
+ */
+export interface BatchCreateClient {
+  memory: {
+    batchCreate: (params: {
+      memories: MemoryCreateParams[];
+    }) => Promise<{ ids: string[] }>;
+  };
+}
+
+/** Result of a chunked `batchCreate` run. */
+export interface BatchCreateChunkedResult {
+  /** Ids the server confirmed inserted (across all successful chunks). */
+  insertedIds: string[];
+  /**
+   * Explicit ids submitted in chunks that errored, flattened across all
+   * failed chunks for callers that just need a set of "ids to exclude
+   * from skip classification." For per-chunk error attribution use
+   * `errors[].ids` instead.
+   *
+   * These were never processed by the server, so they are neither
+   * inserted nor skipped.
+   */
+  failedIds: string[];
+  /** One entry per failed chunk. */
+  errors: Array<{
+    /** 0-based index of the failed chunk in submission order. */
+    chunkIndex: number;
+    /** Total items in the chunk (including those without explicit ids). */
+    itemCount: number;
+    /** Explicit ids in this chunk (subset of `itemCount`). */
+    ids: string[];
+    error: string;
+  }>;
+}
+
+/**
+ * Run `client.memory.batchCreate` over `memories`, automatically slicing
+ * the input into chunks that fit under the server's request-body limit.
+ *
+ * Chunks are sent sequentially. A failed chunk is recorded once in
+ * `errors` and its explicit ids are added to `failedIds`; it does not
+ * abort siblings. Successful chunks contribute to `insertedIds`.
+ *
+ * Note: the returned `insertedIds` may be shorter than the number of
+ * inputs in successful chunks because the server uses
+ * `ON CONFLICT (id) DO NOTHING`. Use `computeSkippedIds` (or, for packs,
+ * `classifySkips` with `failedIds`) to classify the missing ids.
+ */
+export async function batchCreateChunked(
+  client: BatchCreateClient,
+  memories: MemoryCreateParams[],
+): Promise<BatchCreateChunkedResult> {
+  const insertedIds: string[] = [];
+  const failedIds: string[] = [];
+  const errors: BatchCreateChunkedResult["errors"] = [];
+  let chunkIndex = 0;
+
+  for (const chunk of chunkMemoriesForBatchCreate(memories)) {
+    try {
+      const { ids } = await client.memory.batchCreate({ memories: chunk });
+      insertedIds.push(...ids);
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      const ids = chunk
+        .map((p) => p.id)
+        .filter((x): x is string => typeof x === "string");
+      failedIds.push(...ids);
+      errors.push({
+        chunkIndex,
+        itemCount: chunk.length,
+        ids,
+        error: msg,
+      });
+    }
+    chunkIndex++;
+  }
+
+  return { insertedIds, failedIds, errors };
+}

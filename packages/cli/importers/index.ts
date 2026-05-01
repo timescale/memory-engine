@@ -16,7 +16,7 @@
 
 import type { MemoryCreateParams } from "@memory.build/protocol/engine";
 import type { EngineClient } from "../client.ts";
-import { chunkMemoriesForBatchCreate } from "../chunk.ts";
+import { batchCreateChunked } from "../chunk.ts";
 import type { ProgressReporter } from "./progress.ts";
 import { SlugRegistry } from "./slug.ts";
 import { renderMessageContent, synthesizeTitle } from "./transcript.ts";
@@ -301,19 +301,18 @@ async function writeSession(
     if (options.dryRun) {
       outcome.inserted += toInsert.length;
     } else {
-      for (const chunk of chunkMemoriesForBatchCreate(toInsert)) {
-        try {
-          await engine.memory.batchCreate({ memories: chunk });
-          outcome.inserted += chunk.length;
-        } catch (error) {
-          const msg = error instanceof Error ? error.message : String(error);
-          outcome.failed += chunk.length;
-          for (const c of chunk) {
-            outcome.errors.push({
-              messageId: c.id ?? "(unknown)",
-              error: msg,
-            });
-          }
+      const { insertedIds, errors } = await batchCreateChunked(
+        engine,
+        toInsert,
+      );
+      outcome.inserted += insertedIds.length;
+      // Each chunk error contributes its full itemCount to `failed` and
+      // attaches the same message to each id in that chunk — matching the
+      // pre-chunking behavior of one error row per attempted message.
+      for (const e of errors) {
+        outcome.failed += e.itemCount;
+        for (const id of e.ids) {
+          outcome.errors.push({ messageId: id, error: e.error });
         }
       }
     }
