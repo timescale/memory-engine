@@ -10,6 +10,7 @@ import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import * as clack from "@clack/prompts";
 import { Command } from "commander";
+import { batchCreateChunked } from "../chunk.ts";
 import { createClient } from "../client.ts";
 import { resolveCredentials } from "../credentials.ts";
 import { getOutputFormat, output } from "../output.ts";
@@ -268,31 +269,42 @@ export function createMemoryImportCommand(): Command {
 
       let skippedIds: string[] = [];
 
-      try {
-        const createParams = allMemories.map(({ memory: mem }) => ({
-          content: mem.content,
-          ...(mem.id ? { id: mem.id } : {}),
-          ...(mem.meta ? { meta: mem.meta } : {}),
-          ...(mem.tree ? { tree: mem.tree } : {}),
-          ...(mem.temporal ? { temporal: mem.temporal } : {}),
-        }));
+      const createParams = allMemories.map(({ memory: mem }) => ({
+        content: mem.content,
+        ...(mem.id ? { id: mem.id } : {}),
+        ...(mem.meta ? { meta: mem.meta } : {}),
+        ...(mem.tree ? { tree: mem.tree } : {}),
+        ...(mem.temporal ? { temporal: mem.temporal } : {}),
+      }));
 
-        const explicitIds = createParams
-          .map((p) => p.id)
-          .filter((id): id is string => typeof id === "string");
+      const explicitIds = createParams
+        .map((p) => p.id)
+        .filter((id): id is string => typeof id === "string");
 
-        const response = await engine.memory.batchCreate({
-          memories: createParams,
+      // Chunked batch create — large imports are sliced under the
+      // server's request-body limit, and a single failed chunk doesn't
+      // take down the rest of the import.
+      const { insertedIds, failedIds, errors: chunkErrors } =
+        await batchCreateChunked(engine, createParams);
+
+      result.imported = insertedIds.length;
+      result.ids = insertedIds;
+      result.failed = failedIds.length;
+      for (const e of chunkErrors) {
+        result.errors.push({
+          source: `chunk ${e.chunkIndex} (${e.itemCount} items)`,
+          error: e.error,
         });
-
-        result.imported = response.ids.length;
-        result.ids = response.ids;
-        skippedIds = computeSkippedIds(explicitIds, response.ids);
-      } catch (error) {
-        const msg = error instanceof Error ? error.message : String(error);
-        result.errors.push({ source: "server", error: msg });
-        result.failed = allMemories.length;
       }
+
+      // Skipped = explicit ids requested but neither inserted nor in a
+      // failed chunk. Failed-chunk ids never reached the server, so they
+      // are not "skipped due to id collision" — they're a separate class
+      // already accounted for in `result.failed`.
+      const failedSet = new Set(failedIds);
+      skippedIds = computeSkippedIds(explicitIds, insertedIds).filter(
+        (id) => !failedSet.has(id),
+      );
 
       // Output results
       const skipped = skippedIds.length;
