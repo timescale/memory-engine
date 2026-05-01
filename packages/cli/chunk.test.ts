@@ -188,9 +188,7 @@ describe("batchCreateChunked", () => {
     // helper should faithfully report the 2 inserted; classifying the
     // missing one as "skipped" is the caller's job.
     const client = stubClient(async (memories) => ({
-      ids: memories
-        .map((m) => m.id ?? "auto")
-        .filter((id) => id !== "dup"), // server "drops" the dup id
+      ids: memories.map((m) => m.id ?? "auto").filter((id) => id !== "dup"), // server "drops" the dup id
     }));
     const result = await batchCreateChunked(client, [
       mem("a"),

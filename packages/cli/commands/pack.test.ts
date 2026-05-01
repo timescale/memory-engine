@@ -137,4 +137,38 @@ describe("classifySkips", () => {
     expect(result.idempotent).toEqual([]);
     expect(result.conflict).toEqual([]);
   });
+
+  test("excludes failedIds from classification (failed != skipped)", () => {
+    // Chunk containing "b" errored — "b" never reached the server, so it
+    // must not be counted as either idempotent or conflict. Without the
+    // failedIds parameter it would have been mis-classified as conflict
+    // (no existing row → looks like a non-pack id collision).
+    const result = classifySkips({
+      requestedIds: ["a", "b", "c"],
+      insertedIds: ["a"],
+      failedIds: ["b"],
+      existing: [{ id: "c", meta: { pack: { name: "foo", version: "1" } } }],
+      packName: "foo",
+      packVersion: "1",
+    });
+    expect(result.idempotent).toEqual(["c"]);
+    expect(result.conflict).toEqual([]);
+    // "b" is in neither bucket — caller tracks it under `failed`.
+  });
+
+  test("handles all four categories in one classification", () => {
+    const result = classifySkips({
+      requestedIds: ["inserted", "idem", "conflict", "failed"],
+      insertedIds: ["inserted"],
+      failedIds: ["failed"],
+      existing: [
+        { id: "idem", meta: { pack: { name: "foo", version: "1" } } },
+        { id: "conflict", meta: { pack: { name: "other", version: "1" } } },
+      ],
+      packName: "foo",
+      packVersion: "1",
+    });
+    expect(result.idempotent).toEqual(["idem"]);
+    expect(result.conflict).toEqual(["conflict"]);
+  });
 });

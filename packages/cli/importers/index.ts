@@ -15,8 +15,8 @@
  */
 
 import type { MemoryCreateParams } from "@memory.build/protocol/engine";
-import type { EngineClient } from "../client.ts";
 import { batchCreateChunked } from "../chunk.ts";
+import type { EngineClient } from "../client.ts";
 import type { ProgressReporter } from "./progress.ts";
 import { SlugRegistry } from "./slug.ts";
 import { renderMessageContent, synthesizeTitle } from "./transcript.ts";
