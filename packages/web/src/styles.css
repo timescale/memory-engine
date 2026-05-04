@@ -7,6 +7,14 @@ body,
   height: 100%;
 }
 
+/* Tailwind v4 dropped the implicit `cursor: pointer` on buttons; restore
+ * it for any non-disabled <button> so interactive controls feel right. */
+@layer base {
+  button:not(:disabled) {
+    cursor: pointer;
+  }
+}
+
 /* Lightweight prose styles for react-markdown output.
  * Keeps line length comfortable, adds vertical rhythm, and makes code,
  * tables, and blockquotes readable without pulling in a full typography

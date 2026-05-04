@@ -7,11 +7,13 @@
  * see what's in effect without expanding. Clear and the Simple/Advanced
  * mode toggle stay visible in both states.
  */
+import { useRefreshMemories } from "../../api/queries.ts";
 import { summarizeFilter, useFilter } from "../../store/filter.ts";
 import { useLayout } from "../../store/layout.ts";
 import { DisclosureCaret } from "../DisclosureCaret.tsx";
 import { AdvancedSearchPanel } from "./AdvancedSearchPanel.tsx";
 import { ModeToggle } from "./ModeToggle.tsx";
+import { RefreshIcon } from "./RefreshIcon.tsx";
 
 export function AdvancedSearchSection() {
   const filter = useFilter();
@@ -19,6 +21,7 @@ export function AdvancedSearchSection() {
   const clear = useFilter((s) => s.clear);
   const searchCollapsed = useLayout((s) => s.searchCollapsed);
   const toggleSearchCollapsed = useLayout((s) => s.toggleSearchCollapsed);
+  const refresh = useRefreshMemories();
 
   const { chips, hasFilter } = summarizeFilter(filter);
 
@@ -56,9 +59,20 @@ export function AdvancedSearchSection() {
           <button
             type="button"
             onClick={clear}
+            title="Clear all search filters"
             className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 hover:bg-slate-100"
           >
             Clear
+          </button>
+
+          <button
+            type="button"
+            onClick={refresh}
+            title="Re-run the query for the freshest results"
+            aria-label="Refresh"
+            className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 hover:bg-slate-100"
+          >
+            <RefreshIcon />
           </button>
         </div>
       </div>

@@ -9,7 +9,12 @@ import type {
   MemorySearchParams,
   MemoryUpdateParams,
 } from "@memory.build/client";
-import { type QueryClient, useMutation, useQuery } from "@tanstack/react-query";
+import {
+  type QueryClient,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import { memoryEngineClient } from "./client.ts";
 
 const SEARCH_LIMIT = 1000;
@@ -145,6 +150,16 @@ function invalidateTreeQueries(queryClient: QueryClient) {
   queryClient.invalidateQueries({ queryKey: ["memory-tree"] });
   queryClient.invalidateQueries({ queryKey: ["memories-at-exact-path"] });
   queryClient.invalidateQueries({ queryKey: ["memories"] });
+}
+
+/**
+ * Returns a callback that invalidates every memory-related query so the
+ * UI refetches the freshest data. Used by the search bar's Refresh
+ * button.
+ */
+export function useRefreshMemories() {
+  const queryClient = useQueryClient();
+  return () => invalidateTreeQueries(queryClient);
 }
 
 /**

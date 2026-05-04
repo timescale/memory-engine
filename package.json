@@ -15,6 +15,8 @@
     "clean": "rm -rf packages/cli/dist dist",
     "docs": "./bun --filter @memory.build/docs-site dev",
     "docs:build": "./bun --filter @memory.build/docs-site build",
+    "web": "./bun --filter @memory.build/web dev",
+    "web:build": "./bun --filter @memory.build/web build",
     "generate:master-key": "./bun scripts/generate-master-key.ts",
     "install:local": "./bun scripts/install-local.ts",
     "lint": "biome check",

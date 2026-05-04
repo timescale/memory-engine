@@ -17,11 +17,13 @@ export function ModeToggle({
         active={current === "simple"}
         onClick={() => onChange("simple")}
         label="Simple"
+        title="Switch to simple search"
       />
       <ToggleButton
         active={current === "advanced"}
         onClick={() => onChange("advanced")}
         label="Advanced"
+        title="Switch to advanced search with filter fields"
       />
     </div>
   );
@@ -31,15 +33,18 @@ function ToggleButton({
   active,
   onClick,
   label,
+  title,
 }: {
   active: boolean;
   onClick: () => void;
   label: string;
+  title: string;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
+      title={title}
       className={[
         "rounded px-3 py-1.5 transition-colors",
         active
