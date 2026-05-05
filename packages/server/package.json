@@ -1,6 +1,6 @@
 {
   "name": "memory-engine-server",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "dependencies": {
     "@memory.build/accounts": "workspace:*",
     "@memory.build/embedding": "workspace:*",
