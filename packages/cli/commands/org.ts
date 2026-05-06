@@ -3,6 +3,7 @@
  *
  * - me org list: List your organizations
  * - me org create <name>: Create an organization
+ * - me org rename <name-or-id> <new-name>: Rename an organization
  * - me org delete <name-or-id>: Delete an organization
  * - me org member list [org]: List members
  * - me org member add <email-or-id> <role>: Add a member
@@ -82,6 +83,43 @@ function createOrgCreateCommand(): Command {
           clack.log.success(`Created organization '${org.name}'`);
           console.log(`  ID:   ${org.id}`);
           console.log(`  Slug: ${org.slug}`);
+        });
+      } catch (error) {
+        handleError(error, fmt, { sessionServer: creds.server });
+      }
+    });
+}
+
+function createOrgRenameCommand(): Command {
+  return new Command("rename")
+    .description("rename an organization")
+    .argument("<name-or-id>", "organization name, slug, or ID")
+    .argument("<new-name>", "new organization name")
+    .action(async (nameOrId: string, newName: string, _opts, cmd) => {
+      const globalOpts = cmd.optsWithGlobals();
+      const creds = resolveCredentials(globalOpts.server);
+      const fmt = getOutputFormat(globalOpts);
+      requireSession(creds, fmt);
+
+      const accounts = createAccountsClient({
+        url: creds.server,
+        sessionToken: creds.sessionToken,
+      });
+
+      try {
+        const org = await resolveOrg(accounts, fmt, undefined, nameOrId);
+        const oldName = org.name;
+        const updated = await accounts.org.update({
+          id: org.id,
+          name: newName,
+        });
+
+        output(updated, fmt, () => {
+          clack.log.success(
+            `Renamed organization '${oldName}' → '${updated.name}'`,
+          );
+          console.log(`  ID:   ${updated.id}`);
+          console.log(`  Slug: ${updated.slug}`);
         });
       } catch (error) {
         handleError(error, fmt, { sessionServer: creds.server });
@@ -289,6 +327,7 @@ export function createOrgCommand(): Command {
   const org = new Command("org").description("manage organizations");
   org.addCommand(createOrgListCommand());
   org.addCommand(createOrgCreateCommand());
+  org.addCommand(createOrgRenameCommand());
   org.addCommand(createOrgDeleteCommand());
   org.addCommand(createOrgMemberCommand());
   return org;

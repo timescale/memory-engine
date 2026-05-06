@@ -111,6 +111,36 @@ describe("org", () => {
     expect(fetched?.id).toBe(org.id);
   });
 
+  test("update org name", async () => {
+    const org = await db.createOrg({ name: "Original Name" });
+
+    const updated = await db.updateOrg(org.id, { name: "Renamed" });
+    expect(updated).toBe(true);
+
+    const fetched = await db.getOrg(org.id);
+    expect(fetched?.name).toBe("Renamed");
+    // Slug should be unchanged
+    expect(fetched?.slug).toBe(org.slug);
+    // updated_at should be set
+    expect(fetched?.updatedAt).not.toBeNull();
+  });
+
+  test("update org returns false for unknown id", async () => {
+    const result = await db.updateOrg("019d694f-79f6-7595-8faf-b70b01c11f98", {
+      name: "Whatever",
+    });
+    expect(result).toBe(false);
+  });
+
+  test("update org with no fields is a no-op", async () => {
+    const org = await db.createOrg({ name: "No Fields" });
+    const result = await db.updateOrg(org.id, {});
+    expect(result).toBe(false);
+
+    const fetched = await db.getOrg(org.id);
+    expect(fetched?.name).toBe("No Fields");
+  });
+
   test("list orgs by identity", async () => {
     const identity = await db.createIdentity({
       email: "orglist@example.com",
@@ -286,6 +316,37 @@ describe("engine", () => {
 
     const fetched = await db.getEngine(engine.id);
     expect(fetched?.status).toBe("suspended");
+  });
+
+  test("update engine name", async () => {
+    const org = await db.createOrg({ name: "Rename" });
+    const engine = await db.createEngine({
+      orgId: org.id,
+      name: "Old Engine Name",
+    });
+
+    const updated = await db.updateEngine(engine.id, {
+      name: "New Engine Name",
+    });
+    expect(updated).toBe(true);
+
+    const fetched = await db.getEngine(engine.id);
+    expect(fetched?.name).toBe("New Engine Name");
+    // Slug must remain stable across renames
+    expect(fetched?.slug).toBe(engine.slug);
+    expect(fetched?.updatedAt).not.toBeNull();
+  });
+
+  test("update engine name conflicts with sibling in same org", async () => {
+    const org = await db.createOrg({ name: "Sibling Conflict" });
+    await db.createEngine({ orgId: org.id, name: "Existing" });
+    const target = await db.createEngine({ orgId: org.id, name: "Target" });
+
+    // Renaming "Target" to "Existing" should hit the (org_id, name) unique
+    // constraint and throw a Postgres error.
+    await expect(
+      db.updateEngine(target.id, { name: "Existing" }),
+    ).rejects.toThrow();
   });
 
   test("list engines by org", async () => {

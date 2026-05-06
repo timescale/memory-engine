@@ -33,6 +33,7 @@ import {
   engineSetupAccessParams,
   engineUpdateParams,
 } from "@memory.build/protocol/accounts/engine";
+import { SQL } from "bun";
 import { embeddingConstants } from "../../config";
 import { AppError } from "../errors";
 import { buildRegistry } from "../registry";
@@ -198,10 +199,28 @@ async function engineUpdate(
     );
   }
 
-  const updated = await db.updateEngine(params.id, {
-    name: params.name,
-    status: params.status,
-  });
+  let updated: boolean;
+  try {
+    updated = await db.updateEngine(params.id, {
+      name: params.name,
+      status: params.status,
+    });
+  } catch (err) {
+    // Translate the unique-name violation on (org_id, name) into a
+    // friendly CONFLICT error so the CLI can show a clean message.
+    if (
+      err instanceof SQL.PostgresError &&
+      err.errno === "23505" &&
+      typeof err.constraint === "string" &&
+      err.constraint.includes("name")
+    ) {
+      throw new AppError(
+        "CONFLICT",
+        `An engine named '${params.name}' already exists in this organization`,
+      );
+    }
+    throw err;
+  }
 
   if (!updated) {
     throw new AppError("NOT_FOUND", `Engine not found: ${params.id}`);

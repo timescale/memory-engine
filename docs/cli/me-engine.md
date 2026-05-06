@@ -9,6 +9,7 @@ An engine is an isolated memory database. Each engine has its own memories, user
 - [me engine list](#me-engine-list) -- list engines across all your organizations
 - [me engine use](#me-engine-use) -- select the active engine
 - [me engine create](#me-engine-create) -- create a new engine
+- [me engine rename](#me-engine-rename) -- rename an engine
 - [me engine delete](#me-engine-delete) -- permanently delete an engine
 
 ---
@@ -57,6 +58,27 @@ me engine create <name> [options]
 |--------|-------------|
 | `--org <id>` | Organization ID. If omitted, an interactive picker is shown. |
 | `--language <lang>` | Text search language (default: `english`). |
+
+---
+
+## me engine rename
+
+Rename an engine.
+
+```
+me engine rename <id-or-name> <new-name>
+```
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `id-or-name` | yes | Engine ID or name. |
+| `new-name` | yes | New engine name. |
+
+Renaming changes only the human-readable name. The engine slug -- which backs the underlying database schema (`me_<slug>`) and any stored API keys -- is randomly generated at creation time and never changes. Renaming does not invalidate the active engine selection or any API keys.
+
+Engine names must be unique within an organization. Renaming to a name already used by another engine in the same org fails with a `CONFLICT` error.
+
+Requires the `owner` or `admin` role on the organization that owns the engine.
 
 ---
 

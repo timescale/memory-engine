@@ -8,6 +8,7 @@ Organizations group engines and members. Each engine belongs to exactly one orga
 
 - [me org list](#me-org-list) -- list your organizations
 - [me org create](#me-org-create) -- create an organization
+- [me org rename](#me-org-rename) -- rename an organization
 - [me org delete](#me-org-delete) -- delete an organization
 - [me org member list](#me-org-member-list) -- list organization members
 - [me org member add](#me-org-member-add) -- add a member
@@ -38,6 +39,25 @@ me org create <name>
 | Argument | Required | Description |
 |----------|----------|-------------|
 | `name` | yes | Organization name. |
+
+---
+
+## me org rename
+
+Rename an organization.
+
+```
+me org rename <name-or-id> <new-name>
+```
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `name-or-id` | yes | Organization name, slug, or ID. |
+| `new-name` | yes | New organization name. |
+
+Renaming changes only the human-readable name. The org slug is randomly generated at creation time and never changes, so any references to the org by slug or ID continue to work.
+
+Requires the `owner` or `admin` role on the organization.
 
 ---
 

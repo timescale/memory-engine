@@ -334,6 +334,147 @@ describe("engine.create integration", () => {
 });
 
 // ---------------------------------------------------------------------------
+// engine.update Tests
+// ---------------------------------------------------------------------------
+
+describe("engine.update integration", () => {
+  function getCreateHandler() {
+    const handler = engineMethods.get("engine.create")?.handler;
+    if (!handler) throw new Error("engine.create handler not found");
+    return handler;
+  }
+
+  function getUpdateHandler() {
+    const handler = engineMethods.get("engine.update")?.handler;
+    if (!handler) throw new Error("engine.update handler not found");
+    return handler;
+  }
+
+  test("owner can rename engine; slug is unchanged", async () => {
+    const create = getCreateHandler();
+    const update = getUpdateHandler();
+    const context = createContext(testIdentity);
+
+    const created = (await create(
+      { orgId: testOrgId, name: "Rename Source" },
+      context,
+    )) as { id: string; slug: string; updatedAt: string | null };
+
+    const result = (await update(
+      { id: created.id, name: "Renamed Engine" },
+      context,
+    )) as { id: string; name: string; slug: string; updatedAt: string | null };
+
+    expect(result.id).toBe(created.id);
+    expect(result.name).toBe("Renamed Engine");
+    expect(result.slug).toBe(created.slug);
+    expect(result.updatedAt).not.toBeNull();
+
+    // Verify the underlying schema name (which uses slug) is unaffected.
+    expect(await schemaExists(engineSql, `me_${created.slug}`)).toBe(true);
+  });
+
+  test("admin can rename engine", async () => {
+    const create = getCreateHandler();
+    const update = getUpdateHandler();
+    const ownerCtx = createContext(testIdentity);
+
+    const created = (await create(
+      { orgId: testOrgId, name: "Admin Rename Source" },
+      ownerCtx,
+    )) as { id: string };
+
+    const admin = await accountsDb.createIdentity({
+      email: "rename-admin@example.com",
+      name: "Rename Admin",
+    });
+    await accountsDb.addMember(testOrgId, admin.id, "admin");
+
+    const result = (await update(
+      { id: created.id, name: "Admin Renamed" },
+      createContext(admin),
+    )) as { name: string };
+
+    expect(result.name).toBe("Admin Renamed");
+  });
+
+  test("member (non-admin) cannot rename engine", async () => {
+    const create = getCreateHandler();
+    const update = getUpdateHandler();
+    const ownerCtx = createContext(testIdentity);
+
+    const created = (await create(
+      { orgId: testOrgId, name: "Member Rename Source" },
+      ownerCtx,
+    )) as { id: string };
+
+    const member = await accountsDb.createIdentity({
+      email: "rename-member@example.com",
+      name: "Rename Member",
+    });
+    await accountsDb.addMember(testOrgId, member.id, "member");
+
+    await expect(
+      update(
+        { id: created.id, name: "Forbidden Rename" },
+        createContext(member),
+      ),
+    ).rejects.toThrow("Only owners and admins can update engines");
+  });
+
+  test("non-member cannot rename engine", async () => {
+    const create = getCreateHandler();
+    const update = getUpdateHandler();
+    const ownerCtx = createContext(testIdentity);
+
+    const created = (await create(
+      { orgId: testOrgId, name: "Outsider Rename Source" },
+      ownerCtx,
+    )) as { id: string };
+
+    const outsider = await accountsDb.createIdentity({
+      email: "rename-outsider@example.com",
+      name: "Rename Outsider",
+    });
+
+    await expect(
+      update(
+        { id: created.id, name: "Outsider Rename" },
+        createContext(outsider),
+      ),
+    ).rejects.toThrow("Only owners and admins can update engines");
+  });
+
+  test("rename to a sibling's name returns CONFLICT", async () => {
+    const create = getCreateHandler();
+    const update = getUpdateHandler();
+    const context = createContext(testIdentity);
+
+    await create({ orgId: testOrgId, name: "Conflict A" }, context);
+    const second = (await create(
+      { orgId: testOrgId, name: "Conflict B" },
+      context,
+    )) as { id: string };
+
+    await expect(
+      update({ id: second.id, name: "Conflict A" }, context),
+    ).rejects.toThrow(/already exists in this organization/);
+  });
+
+  test("rename a non-existent engine returns NOT_FOUND", async () => {
+    const update = getUpdateHandler();
+    const context = createContext(testIdentity);
+
+    await expect(
+      update(
+        { id: "019d694f-79f6-7595-8faf-b70b01c11f98", name: "Nope" },
+        context,
+      ),
+    ).rejects.toThrow(/Engine not found/);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // engine.setupAccess Tests
 // ---------------------------------------------------------------------------
 

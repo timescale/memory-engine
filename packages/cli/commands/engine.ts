@@ -4,6 +4,7 @@
  * - me engine list: List engines across all your orgs
  * - me engine use [id-or-name]: Select the active engine
  * - me engine create <name>: Create a new engine in an org
+ * - me engine rename <id-or-name> <new-name>: Rename an engine
  * - me engine delete <id-or-name>: Permanently delete an engine
  */
 import * as clack from "@clack/prompts";
@@ -338,6 +339,56 @@ function createEngineCreateCommand(): Command {
 }
 
 /**
+ * me engine rename — rename an engine.
+ *
+ * Renaming changes only the human-readable name. The engine slug
+ * (which backs the underlying `me_<slug>` schema and any stored API
+ * keys) remains unchanged, so the active engine selection and
+ * API-key access are unaffected.
+ */
+function createEngineRenameCommand(): Command {
+  return new Command("rename")
+    .description("rename an engine")
+    .argument("<id-or-name>", "engine ID or name")
+    .argument("<new-name>", "new engine name")
+    .action(async (idOrName: string, newName: string, _opts, cmd) => {
+      const globalOpts = cmd.optsWithGlobals();
+      const creds = resolveCredentials(globalOpts.server);
+      const fmt = getOutputFormat(globalOpts);
+      requireSession(creds, fmt);
+
+      const accounts = createAccountsClient({
+        url: creds.server,
+        sessionToken: creds.sessionToken,
+      });
+
+      try {
+        const engines = await fetchAllEngines(accounts);
+        const engine = await resolveEngine(engines, idOrName, fmt);
+        if (!engine) {
+          handleError(new Error(`Engine not found: ${idOrName}`), fmt);
+        }
+
+        const oldName = engine.name;
+        const updated = await accounts.engine.update({
+          id: engine.id,
+          name: newName,
+        });
+
+        output(updated, fmt, () => {
+          clack.log.success(
+            `Renamed engine '${oldName}' → '${updated.name}' (${engine.orgName})`,
+          );
+          console.log(`  ID:   ${updated.id}`);
+          console.log(`  Slug: ${updated.slug}`);
+        });
+      } catch (error) {
+        handleError(error, fmt, { sessionServer: creds.server });
+      }
+    });
+}
+
+/**
  * me engine delete — permanently delete an engine and all its data.
  */
 function createEngineDeleteCommand(): Command {
@@ -412,6 +463,7 @@ export function createEngineCommand(): Command {
   engine.addCommand(createEngineListCommand());
   engine.addCommand(createEngineUseCommand());
   engine.addCommand(createEngineCreateCommand());
+  engine.addCommand(createEngineRenameCommand());
   engine.addCommand(createEngineDeleteCommand());
 
   return engine;
