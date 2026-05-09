@@ -226,6 +226,7 @@ describe("Server-Database Wiring", () => {
         orgId: "org-456",
         slug: "abc123xyz789",
         name: "Test Engine",
+        shardId: 1,
         status: "active",
       };
 

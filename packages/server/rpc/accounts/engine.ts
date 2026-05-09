@@ -278,7 +278,7 @@ async function engineSetupAccess(
 
   // Create an EngineDB for this engine's schema
   const schema = `me_${engine.slug}`;
-  const engineDb = createEngineDB(engineSql, schema);
+  const engineDb = createEngineDB(engineSql, schema, { shard: engine.shardId });
 
   // Find or create a user for this identity
   let user = await engineDb.getUserByIdentity(identity.id);

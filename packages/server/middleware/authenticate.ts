@@ -41,6 +41,7 @@ export interface EngineInfo {
   orgId: string;
   slug: string;
   name: string;
+  shardId: number;
   status: "active" | "suspended" | "deleted";
 }
 
@@ -67,7 +68,11 @@ export interface EngineAuthContext {
  * Factory function type for creating EngineDB instances.
  * Allows dependency injection for testing.
  */
-export type CreateEngineDBFn = (sql: SQL, schema: string) => EngineDB;
+export type CreateEngineDBFn = (
+  sql: SQL,
+  schema: string,
+  options?: { shard?: number },
+) => EngineDB;
 
 /**
  * Union type for all auth contexts.
@@ -207,7 +212,7 @@ export async function authenticateEngine(
 
   // 5. Create EngineDB for this engine's schema
   const schema = `${ENGINE_SCHEMA_PREFIX}${engineSlug}`;
-  const db = createEngineDBFn(engineSql, schema);
+  const db = createEngineDBFn(engineSql, schema, { shard: engine.shardId });
 
   // 6. Validate API key
   const validation = await db.validateApiKey(lookupId, secret);
@@ -228,6 +233,7 @@ export async function authenticateEngine(
     orgId: engine.orgId,
     slug: engine.slug,
     name: engine.name,
+    shardId: engine.shardId,
     status: engine.status,
   };
 

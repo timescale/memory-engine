@@ -106,6 +106,7 @@ describe("authenticateEngine", () => {
     orgId: "org-456",
     slug: "abc123xyz789",
     name: "Test Engine",
+    shardId: 7,
     status: "active",
   };
 
@@ -282,6 +283,11 @@ describe("authenticateEngine", () => {
       expect(result.context.apiKeyId).toBe("apikey-abc");
       expect(result.context.engine).toEqual(mockEngine);
       expect(mockEngineDb.setUser).toHaveBeenCalledWith("user-789");
+      expect(mockCreateEngineDBSuccess).toHaveBeenCalledWith(
+        {} as SQL,
+        "me_abc123xyz789",
+        { shard: 7 },
+      );
     }
   });
 });
