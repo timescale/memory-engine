@@ -19,6 +19,18 @@ const ROLE_MAP = {
   admin: null, // No role change
 } as const;
 
+const ENGINE_STATEMENT_TIMEOUT = process.env.ENGINE_STATEMENT_TIMEOUT ?? "25s";
+const ENGINE_LOCK_TIMEOUT = process.env.ENGINE_LOCK_TIMEOUT ?? "5s";
+
+/**
+ * Bound engine queries so production failures surface before clients give up.
+ * Uses transaction-local GUCs so pooled connections do not retain settings.
+ */
+export async function setLocalEngineTimeouts(sql: SQL): Promise<void> {
+  await sql`SELECT set_config('statement_timeout', ${ENGINE_STATEMENT_TIMEOUT}, true)`;
+  await sql`SELECT set_config('lock_timeout', ${ENGINE_LOCK_TIMEOUT}, true)`;
+}
+
 /**
  * Execute a function within a transaction context.
  *
@@ -27,6 +39,7 @@ const ROLE_MAP = {
  *
  * If not inside a transaction, opens a new one with:
  * - SET LOCAL pgdog.shard (if shard is set, for future sharding)
+ * - SET LOCAL statement_timeout / lock_timeout
  * - SET LOCAL search_path (insurance — all SQL is schema-qualified)
  * - SET LOCAL ROLE (me_ro for read, me_rw for write)
  * - set_config('me.user_id', ...) (for RLS)
@@ -61,6 +74,8 @@ export async function withTx<T>(
         if (ctx.shard !== undefined) {
           await tx.unsafe(`SET LOCAL pgdog.shard TO ${ctx.shard}`);
         }
+
+        await setLocalEngineTimeouts(tx);
 
         // Set search_path: engine schema first, then public (for extension types like ltree)
         await tx.unsafe(`SET LOCAL search_path TO ${ctx.schema}, public`);

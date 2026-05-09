@@ -1,5 +1,5 @@
 import type { SQL } from "bun";
-import { deriveContext } from "./ops/_tx";
+import { deriveContext, setLocalEngineTimeouts } from "./ops/_tx";
 import { type ApiKeyOps, apiKeyOps } from "./ops/api-key";
 import { type GrantOps, grantOps } from "./ops/grant";
 import { type MemoryOps, memoryOps } from "./ops/memory";
@@ -138,6 +138,7 @@ export function createEngineDB(
         if (ctx.shard !== undefined) {
           await tx.unsafe(`SET LOCAL pgdog.shard TO ${ctx.shard}`);
         }
+        await setLocalEngineTimeouts(tx);
         await tx.unsafe(`SET LOCAL search_path TO ${schema}, public`);
         await tx.unsafe(`SET LOCAL ROLE ${role}`);
         if (userId) {

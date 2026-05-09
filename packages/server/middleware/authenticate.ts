@@ -4,7 +4,7 @@ import {
   type EngineDB,
   parseApiKey,
 } from "@memory.build/engine";
-import { debug } from "@pydantic/logfire-node";
+import { debug, span } from "@pydantic/logfire-node";
 import type { SQL } from "bun";
 import { forbidden, unauthorized } from "../util/response";
 
@@ -169,6 +169,21 @@ export async function authenticateEngine(
   accountsDb: AccountsDB,
   engineSql: SQL,
   createEngineDBFn: CreateEngineDBFn = createEngineDB,
+): Promise<AuthResult> {
+  return span("auth.engine", {
+    attributes: {
+      "auth.type": "engine",
+    },
+    callback: () =>
+      authenticateEngineInner(request, accountsDb, engineSql, createEngineDBFn),
+  });
+}
+
+async function authenticateEngineInner(
+  request: Request,
+  accountsDb: AccountsDB,
+  engineSql: SQL,
+  createEngineDBFn: CreateEngineDBFn,
 ): Promise<AuthResult> {
   // 1. Extract bearer token
   const token = extractBearerToken(request);

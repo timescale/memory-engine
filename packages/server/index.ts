@@ -81,6 +81,8 @@ configure({
 //   ENGINE_POOL_IDLE_TIMEOUT       - Idle timeout in seconds (default: 30)
 //   ENGINE_POOL_MAX_LIFETIME       - Max lifetime in seconds, 0=forever (default: 0)
 //   ENGINE_POOL_CONNECTION_TIMEOUT - Connection timeout in seconds (default: 30)
+//   ENGINE_STATEMENT_TIMEOUT       - Per-engine-query timeout (default: 25s)
+//   ENGINE_LOCK_TIMEOUT            - Per-engine-lock wait timeout (default: 5s)
 //
 // Cleanup:
 //   DEVICE_FLOW_CLEANUP_CRON - Cron schedule for cleaning up expired device auths
