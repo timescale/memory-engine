@@ -1,4 +1,5 @@
 import { type SQL, semver } from "bun";
+import { setLocalEngineTimeouts } from "../ops/_tx";
 import { assertEngineSchema } from "./discover";
 import migration001 from "./migrations/001_updated_at.sql" with {
   type: "text",
@@ -68,13 +69,15 @@ export async function migrateEngine(
   serverVersion: string,
   shardId?: number,
 ): Promise<MigrateResult> {
-  await assertEngineSchema(sql, schema);
   const resolved = resolveConfig(schema, config);
 
   return await sql.begin(async (tx) => {
     if (shardId !== undefined) {
       await tx.unsafe(`set local pgdog.shard to ${shardId}`);
     }
+    await setLocalEngineTimeouts(tx);
+
+    await assertEngineSchema(tx, schema);
 
     // 1. Acquire advisory lock with retry
     const [{ lock_id }] = await tx`

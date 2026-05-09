@@ -1,5 +1,6 @@
 import type { SQL } from "bun";
 
+import { setLocalEngineTimeouts } from "../ops/_tx";
 import { isValidSlug, slugToSchema } from "./discover";
 import { type MigrateResult, migrateEngine } from "./runner";
 import type { EngineConfig } from "./template";
@@ -29,6 +30,7 @@ export async function provisionEngine(
     if (shardId !== undefined) {
       await tx.unsafe(`set local pgdog.shard to ${shardId}`);
     }
+    await setLocalEngineTimeouts(tx);
 
     // Create schema (fails if exists - use migrateEngine for existing schemas)
     await tx.unsafe(`create schema ${schema}`);

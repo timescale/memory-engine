@@ -15,6 +15,7 @@ import {
   type EngineConfig,
   provisionEngine,
 } from "@memory.build/engine";
+import { setLocalEngineTimeouts } from "@memory.build/engine/ops/_tx";
 import type {
   EngineCreateParams,
   EngineDeleteParams,
@@ -109,6 +110,7 @@ async function engineCreate(
     try {
       await engineSql.begin(async (tx) => {
         await tx.unsafe(`set local pgdog.shard to ${engine.shardId}`);
+        await setLocalEngineTimeouts(tx);
         await tx.unsafe(`drop schema if exists ${schema} cascade`);
       });
     } catch {
@@ -394,6 +396,7 @@ async function dropSchemaWithRetry(
     try {
       await sql.begin(async (tx) => {
         await tx.unsafe(`set local pgdog.shard to ${opts.shardId}`);
+        await setLocalEngineTimeouts(tx);
         await tx.unsafe(`set local lock_timeout = '5s'`);
         await tx.unsafe(`drop schema if exists ${schema} cascade`);
       });

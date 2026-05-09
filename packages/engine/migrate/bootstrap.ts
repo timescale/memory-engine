@@ -1,8 +1,12 @@
 import { SQL, semver } from "bun";
+import { setLocalEngineTimeouts } from "../ops/_tx";
 
 export async function bootstrap(sql: SQL): Promise<void> {
-  await ensurePrerequisites(sql);
-  await ensureRoles(sql);
+  await sql.begin(async (tx) => {
+    await setLocalEngineTimeouts(tx);
+    await ensurePrerequisites(tx);
+    await ensureRoles(tx);
+  });
 }
 
 async function ensurePrerequisites(sql: SQL): Promise<void> {

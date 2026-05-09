@@ -27,8 +27,12 @@ const ENGINE_LOCK_TIMEOUT = process.env.ENGINE_LOCK_TIMEOUT ?? "5s";
  * Uses transaction-local GUCs so pooled connections do not retain settings.
  */
 export async function setLocalEngineTimeouts(sql: SQL): Promise<void> {
-  await sql`SELECT set_config('statement_timeout', ${ENGINE_STATEMENT_TIMEOUT}, true)`;
-  await sql`SELECT set_config('lock_timeout', ${ENGINE_LOCK_TIMEOUT}, true)`;
+  await sql.unsafe("SELECT set_config('statement_timeout', $1, true)", [
+    ENGINE_STATEMENT_TIMEOUT,
+  ]);
+  await sql.unsafe("SELECT set_config('lock_timeout', $1, true)", [
+    ENGINE_LOCK_TIMEOUT,
+  ]);
 }
 
 /**

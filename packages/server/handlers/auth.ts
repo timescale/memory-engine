@@ -11,6 +11,7 @@
 
 import type { AccountsDB, Identity } from "@memory.build/accounts";
 import { type EngineConfig, provisionEngine } from "@memory.build/engine";
+import { setLocalEngineTimeouts } from "@memory.build/engine/ops/_tx";
 import { info, reportError } from "@pydantic/logfire-node";
 import type { SQL } from "bun";
 import {
@@ -420,6 +421,7 @@ async function provisionPersonalAccount(
       try {
         await engineSql.begin(async (tx) => {
           await tx.unsafe(`set local pgdog.shard to ${engine.shardId}`);
+          await setLocalEngineTimeouts(tx);
           await tx.unsafe(`drop schema if exists ${schema} cascade`);
         });
       } catch {

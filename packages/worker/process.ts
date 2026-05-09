@@ -3,6 +3,7 @@ import {
   generateEmbeddings,
   RateLimitError,
 } from "@memory.build/embedding";
+import { setLocalEngineTimeouts } from "@memory.build/engine/ops/_tx";
 import { info, span } from "@pydantic/logfire-node";
 import type { SQL } from "bun";
 import type { EngineTarget, ProcessResult, WorkerConfig } from "./types";
@@ -21,6 +22,7 @@ export async function pruneQueue(
   const { schema, shard } = target;
   return sql.begin(async (tx) => {
     await tx.unsafe(`SET LOCAL pgdog.shard TO ${shard}`);
+    await setLocalEngineTimeouts(tx);
     await tx.unsafe(`SET LOCAL search_path TO ${schema}, public`);
     await tx.unsafe("SET LOCAL ROLE me_embed");
     const rows = (await tx.unsafe(
@@ -56,6 +58,7 @@ export async function processBatch(
   // --- Claim ---
   const claimed = await sql.begin(async (tx) => {
     await tx.unsafe(`SET LOCAL pgdog.shard TO ${shard}`);
+    await setLocalEngineTimeouts(tx);
     await tx.unsafe(`SET LOCAL search_path TO ${schema}, public`);
     await tx.unsafe("SET LOCAL ROLE me_embed");
     return tx.unsafe(
@@ -92,6 +95,7 @@ export async function processBatch(
           // and should not consume max_attempts
           await sql.begin(async (tx) => {
             await tx.unsafe(`SET LOCAL pgdog.shard TO ${shard}`);
+            await setLocalEngineTimeouts(tx);
             await tx.unsafe(`SET LOCAL search_path TO ${schema}, public`);
             await tx.unsafe("SET LOCAL ROLE me_embed");
             for (const row of claimed) {
@@ -116,6 +120,7 @@ export async function processBatch(
 
       await sql.begin(async (tx) => {
         await tx.unsafe(`SET LOCAL pgdog.shard TO ${shard}`);
+        await setLocalEngineTimeouts(tx);
         await tx.unsafe(`SET LOCAL search_path TO ${schema}, public`);
         await tx.unsafe("SET LOCAL ROLE me_embed");
 
