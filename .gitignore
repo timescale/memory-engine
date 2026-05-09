@@ -42,6 +42,7 @@ tmp
 scratch
 .mcp.json
 opencode.json
+opencode.jsonc
 .gemini
 .codex
 .claude
