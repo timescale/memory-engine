@@ -1,3 +1,4 @@
+import { span } from "@pydantic/logfire-node";
 import type {
   ApiKey,
   CreateApiKeyParams,
@@ -85,11 +86,21 @@ export function apiKeyOps(ctx: OpsContext, engineSlug: string) {
       secret: string,
     ): Promise<ValidateApiKeyResult> {
       return withTx(ctx, "admin", "validateApiKey", async (sql) => {
-        const [row] = await sql<ApiKeyRow[]>`
-          select id, user_id, lookup_id, key_hash, name, expires_at, last_used_at, created_at, revoked_at
-          from ${sql.unsafe(schema)}.api_key
-          where lookup_id = ${lookupId}
-        `;
+        const row = await span("db.api_key.lookup", {
+          attributes: {
+            "db.schema": schema,
+            "engine.slug": engineSlug,
+            "api_key.lookup_id": lookupId,
+          },
+          callback: async () => {
+            const [apiKey] = await sql<ApiKeyRow[]>`
+              select id, user_id, lookup_id, key_hash, name, expires_at, last_used_at, created_at, revoked_at
+              from ${sql.unsafe(schema)}.api_key
+              where lookup_id = ${lookupId}
+            `;
+            return apiKey;
+          },
+        });
 
         if (!row) {
           return { valid: false, error: "API key not found" };
@@ -103,17 +114,36 @@ export function apiKeyOps(ctx: OpsContext, engineSlug: string) {
           return { valid: false, error: "API key has expired" };
         }
 
-        const secretValid = await verifySecret(secret, row.key_hash);
+        const secretValid = await span("auth.api_key.verify_secret", {
+          attributes: {
+            "db.schema": schema,
+            "engine.slug": engineSlug,
+            "api_key.id": row.id,
+            "api_key.lookup_id": lookupId,
+          },
+          callback: () => verifySecret(secret, row.key_hash),
+        });
         if (!secretValid) {
           return { valid: false, error: "Invalid API key secret" };
         }
 
         // Update last_used_at
-        await sql`
-          update ${sql.unsafe(schema)}.api_key
-          set last_used_at = now()
-          where id = ${row.id}
-        `;
+        await span("db.api_key.touch_last_used", {
+          attributes: {
+            "db.schema": schema,
+            "engine.slug": engineSlug,
+            "api_key.id": row.id,
+            "api_key.lookup_id": lookupId,
+            "user.id": row.user_id,
+          },
+          callback: async () => {
+            await sql`
+              update ${sql.unsafe(schema)}.api_key
+              set last_used_at = now()
+              where id = ${row.id}
+            `;
+          },
+        });
 
         return {
           valid: true,

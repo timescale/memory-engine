@@ -205,7 +205,13 @@ async function authenticateEngineInner(
   const { engineSlug, lookupId, secret } = parsed;
 
   // 3. Look up engine in accounts DB
-  const engine = await accountsDb.getEngineBySlug(engineSlug);
+  const engine = await span("auth.engine.accounts_lookup", {
+    attributes: {
+      "engine.slug": engineSlug,
+      "api_key.lookup_id": lookupId,
+    },
+    callback: () => accountsDb.getEngineBySlug(engineSlug),
+  });
   if (!engine) {
     // Generic error to prevent engine enumeration
     debug("engine auth failed: engine not found", { engineSlug });
@@ -230,7 +236,16 @@ async function authenticateEngineInner(
   const db = createEngineDBFn(engineSql, schema, { shard: engine.shardId });
 
   // 6. Validate API key
-  const validation = await db.validateApiKey(lookupId, secret);
+  const validation = await span("auth.engine.validate_api_key", {
+    attributes: {
+      "db.schema": schema,
+      "engine.id": engine.id,
+      "engine.slug": engineSlug,
+      "engine.shard": engine.shardId,
+      "api_key.lookup_id": lookupId,
+    },
+    callback: () => db.validateApiKey(lookupId, secret),
+  });
   if (!validation.valid || !validation.userId || !validation.apiKeyId) {
     debug("engine auth failed: API key validation failed", {
       engineSlug,
