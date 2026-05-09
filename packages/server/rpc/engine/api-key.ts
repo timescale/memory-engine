@@ -40,7 +40,6 @@ function toApiKeyResponse(apiKey: ApiKey): ApiKeyResponse {
     lookupId: apiKey.lookupId,
     name: apiKey.name,
     expiresAt: apiKey.expiresAt?.toISOString() ?? null,
-    lastUsedAt: apiKey.lastUsedAt?.toISOString() ?? null,
     createdAt: apiKey.createdAt.toISOString(),
     revokedAt: apiKey.revokedAt?.toISOString() ?? null,
   };

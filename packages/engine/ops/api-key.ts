@@ -23,7 +23,6 @@ interface ApiKeyRow {
   key_hash: string;
   name: string;
   expires_at: Date | null;
-  last_used_at: Date | null;
   created_at: Date;
   revoked_at: Date | null;
 }
@@ -35,7 +34,6 @@ function rowToApiKey(row: ApiKeyRow): ApiKey {
     lookupId: row.lookup_id,
     name: row.name,
     expiresAt: row.expires_at,
-    lastUsedAt: row.last_used_at,
     createdAt: row.created_at,
     revokedAt: row.revoked_at,
   };
@@ -65,7 +63,7 @@ export function apiKeyOps(ctx: OpsContext, engineSlug: string) {
             (user_id, lookup_id, key_hash, name, expires_at)
           values
             (${userId}, ${lookupId}, ${keyHash}, ${name}, ${expiresAt})
-          returning id, user_id, lookup_id, key_hash, name, expires_at, last_used_at, created_at, revoked_at
+          returning id, user_id, lookup_id, key_hash, name, expires_at, created_at, revoked_at
         `;
         const row = rows[0];
         if (!row) {
@@ -94,7 +92,7 @@ export function apiKeyOps(ctx: OpsContext, engineSlug: string) {
           },
           callback: async () => {
             const [apiKey] = await sql<ApiKeyRow[]>`
-              select id, user_id, lookup_id, key_hash, name, expires_at, last_used_at, created_at, revoked_at
+              select id, user_id, lookup_id, key_hash, name, expires_at, created_at, revoked_at
               from ${sql.unsafe(schema)}.api_key
               where lookup_id = ${lookupId}
             `;
@@ -127,24 +125,6 @@ export function apiKeyOps(ctx: OpsContext, engineSlug: string) {
           return { valid: false, error: "Invalid API key secret" };
         }
 
-        // Update last_used_at
-        await span("db.api_key.touch_last_used", {
-          attributes: {
-            "db.schema": schema,
-            "engine.slug": engineSlug,
-            "api_key.id": row.id,
-            "api_key.lookup_id": lookupId,
-            "user.id": row.user_id,
-          },
-          callback: async () => {
-            await sql`
-              update ${sql.unsafe(schema)}.api_key
-              set last_used_at = now()
-              where id = ${row.id}
-            `;
-          },
-        });
-
         return {
           valid: true,
           userId: row.user_id,
@@ -159,7 +139,7 @@ export function apiKeyOps(ctx: OpsContext, engineSlug: string) {
     async getApiKey(id: string): Promise<ApiKey | null> {
       return withTx(ctx, "admin", "getApiKey", async (sql) => {
         const [row] = await sql<ApiKeyRow[]>`
-          select id, user_id, lookup_id, key_hash, name, expires_at, last_used_at, created_at, revoked_at
+          select id, user_id, lookup_id, key_hash, name, expires_at, created_at, revoked_at
           from ${sql.unsafe(schema)}.api_key
           where id = ${id}
         `;
@@ -173,7 +153,7 @@ export function apiKeyOps(ctx: OpsContext, engineSlug: string) {
     async listApiKeys(userId: string): Promise<ApiKey[]> {
       return withTx(ctx, "admin", "listApiKeys", async (sql) => {
         const rows = await sql<ApiKeyRow[]>`
-          select id, user_id, lookup_id, key_hash, name, expires_at, last_used_at, created_at, revoked_at
+          select id, user_id, lookup_id, key_hash, name, expires_at, created_at, revoked_at
           from ${sql.unsafe(schema)}.api_key
           where user_id = ${userId}
           order by created_at desc

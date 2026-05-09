@@ -68,7 +68,6 @@ export const apiKeyResponse = z.object({
   lookupId: z.string(),
   name: z.string(),
   expiresAt: z.string().nullable(),
-  lastUsedAt: z.string().nullable(),
   createdAt: z.string(),
   revokedAt: z.string().nullable(),
 });

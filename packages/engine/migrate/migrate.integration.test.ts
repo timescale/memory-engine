@@ -108,7 +108,7 @@ describe("single-engine migration", () => {
     const result = await migrateEngine(sql, schema, undefined, "0.1.0");
     expect(result.status).toBe("ok");
     expect(result.applied).toHaveLength(0);
-    expect(await countMigrations(sql, schema)).toBe(6);
+    expect(await countMigrations(sql, schema)).toBe(7);
   });
 
   test("records migration metadata", async () => {
@@ -117,7 +117,7 @@ describe("single-engine migration", () => {
       from ${schema}.migration
       order by name
     `);
-    expect(rows).toHaveLength(6);
+    expect(rows).toHaveLength(7);
     for (const row of rows) {
       expect(row.applied_at_version).toBe("0.1.0");
       expect(row.applied_at).toBeTruthy();
@@ -618,8 +618,8 @@ describe("advisory locks", () => {
       expect(["ok", "skipped"]).toContain(result.status);
     }
 
-    // Exactly 6 migrations should exist
-    expect(await countMigrations(sql, schema)).toBe(6);
+    // Exactly 7 migrations should exist
+    expect(await countMigrations(sql, schema)).toBe(7);
   });
 
   test("concurrent migrateEngine on different schemas — both proceed", async () => {
@@ -658,7 +658,7 @@ describe("provisioning", () => {
     );
     expect(result.schema).toBe("me_prov00000001");
     expect(result.migrateResult.status).toBe("ok");
-    expect(result.migrateResult.applied).toHaveLength(6);
+    expect(result.migrateResult.applied).toHaveLength(7);
     expect(await schemaExists(sql, "me_prov00000001")).toBe(true);
     expect(await tableExists(sql, "me_prov00000001", "memory")).toBe(true);
     expect(await tableExists(sql, "me_prov00000001", "user")).toBe(true);
@@ -700,7 +700,7 @@ describe("dry run", () => {
     await sql.unsafe(`create schema if not exists ${schema}`);
 
     const result = await dryRun(sql, schema);
-    expect(result.pending).toHaveLength(6);
+    expect(result.pending).toHaveLength(7);
     expect(result.applied).toHaveLength(0);
   });
 
@@ -711,7 +711,7 @@ describe("dry run", () => {
 
     const result = await dryRun(sql, schema);
     expect(result.pending).toHaveLength(0);
-    expect(result.applied).toHaveLength(6);
+    expect(result.applied).toHaveLength(7);
   });
 });
 

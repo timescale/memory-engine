@@ -77,7 +77,6 @@ export interface ApiKey {
   lookupId: string;
   name: string;
   expiresAt: Date | null;
-  lastUsedAt: Date | null;
   createdAt: Date;
   revokedAt: Date | null;
 }

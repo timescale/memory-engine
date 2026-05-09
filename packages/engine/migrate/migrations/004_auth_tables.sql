@@ -29,7 +29,6 @@ create table {{schema}}.api_key
 , key_hash text not null
 , name text not null
 , expires_at timestamptz
-, last_used_at timestamptz
 , created_at timestamptz not null default now()
 , revoked_at timestamptz
 );

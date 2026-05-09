@@ -47,11 +47,10 @@ function createApiKeyListCommand(): Command {
             return;
           }
           table(
-            ["id", "name", "last_used", "status"],
+            ["id", "name", "status"],
             apiKeys.map((k) => [
               k.id,
               k.name,
-              k.lastUsedAt ?? "never",
               k.revokedAt ? "revoked" : "active",
             ]),
           );

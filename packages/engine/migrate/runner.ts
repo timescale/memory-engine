@@ -17,6 +17,9 @@ import migration005 from "./migrations/005_embedding_queue.sql" with {
 import migration006 from "./migrations/006_prune_embedding_queue.sql" with {
   type: "text",
 };
+import migration007 from "./migrations/007_drop_api_key_last_used_at.sql" with {
+  type: "text",
+};
 import { type EngineConfig, resolveConfig, template } from "./template";
 
 interface Migration {
@@ -31,6 +34,7 @@ const migrations: Migration[] = [
   { name: "004_auth_tables", sql: migration004 },
   { name: "005_embedding_queue", sql: migration005 },
   { name: "006_prune_embedding_queue", sql: migration006 },
+  { name: "007_drop_api_key_last_used_at", sql: migration007 },
 ];
 
 export interface MigrateResult {
