@@ -27,6 +27,14 @@ const WORKER_ENGINE_TIMEOUTS: EngineTimeouts = {
     DEFAULT_ENGINE_TIMEOUTS.idleInTransactionSessionTimeout,
 };
 
+const WORKER_ENGINE_TIMEOUT_ATTRIBUTES = {
+  "db.statement_timeout": WORKER_ENGINE_TIMEOUTS.statementTimeout,
+  "db.lock_timeout": WORKER_ENGINE_TIMEOUTS.lockTimeout,
+  "db.transaction_timeout": WORKER_ENGINE_TIMEOUTS.transactionTimeout,
+  "db.idle_in_transaction_session_timeout":
+    WORKER_ENGINE_TIMEOUTS.idleInTransactionSessionTimeout,
+};
+
 /**
  * Delete terminal-outcome queue rows older than the retention window.
  * Runs in its own transaction; failures don't affect the claim path.
@@ -81,6 +89,7 @@ export async function processBatch(
       "worker.shard": shard,
       "batch.requested_size": batchSize,
       "batch.lock_duration": lockDuration,
+      ...WORKER_ENGINE_TIMEOUT_ATTRIBUTES,
     },
     callback: async () => {
       const rows = await sql.begin(async (tx) => {
@@ -101,6 +110,7 @@ export async function processBatch(
           "batch.claimed": rows.length,
           "batch.memoryIds": rows.map((r) => r.memory_id),
           "batch.queueIds": rows.map((r) => r.queue_id),
+          ...WORKER_ENGINE_TIMEOUT_ATTRIBUTES,
         });
       }
 
@@ -175,6 +185,7 @@ export async function processBatch(
           "batch.size": claimed.length,
           "batch.embed_successes": embedResults.filter((r) => !r.error).length,
           "batch.embed_errors": embedResults.filter((r) => r.error).length,
+          ...WORKER_ENGINE_TIMEOUT_ATTRIBUTES,
         },
         callback: async () => {
           await sql.begin(async (tx) => {
