@@ -83,44 +83,34 @@ export async function processBatch(
   const lockDuration = config.lockDuration ?? "5 minutes";
 
   // --- Claim ---
-  const claimed = await span("embedding.claim_batch", {
-    attributes: {
-      "worker.schema": schema,
-      "worker.shard": shard,
-      "batch.requested_size": batchSize,
-      "batch.lock_duration": lockDuration,
-      ...WORKER_ENGINE_TIMEOUT_ATTRIBUTES,
-    },
-    callback: async () => {
-      const rows = await sql.begin(async (tx) => {
-        await tx.unsafe(`SET LOCAL pgdog.shard TO ${shard}`);
-        await setLocalEngineTimeouts(tx, WORKER_ENGINE_TIMEOUTS);
-        await tx.unsafe(`SET LOCAL search_path TO ${schema}, public`);
-        await tx.unsafe("SET LOCAL ROLE me_embed");
-        return tx.unsafe(
-          `SELECT * FROM ${schema}.claim_embedding_batch($1, $2::interval)`,
-          [batchSize, lockDuration],
-        ) as Promise<ClaimedRow[]>;
-      });
-
-      if (rows.length > 0) {
-        info("Embedding batch claimed", {
-          "worker.schema": schema,
-          "worker.shard": shard,
-          "batch.claimed": rows.length,
-          "batch.memoryIds": rows.map((r) => r.memory_id),
-          "batch.queueIds": rows.map((r) => r.queue_id),
-          ...WORKER_ENGINE_TIMEOUT_ATTRIBUTES,
-        });
-      }
-
-      return rows;
-    },
+  const claimStart = performance.now();
+  const claimed = await sql.begin(async (tx) => {
+    await tx.unsafe(`SET LOCAL pgdog.shard TO ${shard}`);
+    await setLocalEngineTimeouts(tx, WORKER_ENGINE_TIMEOUTS);
+    await tx.unsafe(`SET LOCAL search_path TO ${schema}, public`);
+    await tx.unsafe("SET LOCAL ROLE me_embed");
+    return tx.unsafe(
+      `SELECT * FROM ${schema}.claim_embedding_batch($1, $2::interval)`,
+      [batchSize, lockDuration],
+    ) as Promise<ClaimedRow[]>;
   });
+  const claimDurationMs = performance.now() - claimStart;
 
   if (claimed.length === 0) {
     return { claimed: 0, succeeded: 0, failed: 0 };
   }
+
+  info("Embedding batch claimed", {
+    "worker.schema": schema,
+    "worker.shard": shard,
+    "batch.claimed": claimed.length,
+    "batch.requested_size": batchSize,
+    "batch.lock_duration": lockDuration,
+    "batch.claim_duration_ms": claimDurationMs,
+    "batch.memoryIds": claimed.map((r) => r.memory_id),
+    "batch.queueIds": claimed.map((r) => r.queue_id),
+    ...WORKER_ENGINE_TIMEOUT_ATTRIBUTES,
+  });
 
   // Process claimed items with telemetry
   return span("embedding.batch", {
@@ -128,7 +118,12 @@ export async function processBatch(
       "worker.schema": schema,
       "worker.shard": shard,
       "batch.size": claimed.length,
+      "batch.requested_size": batchSize,
+      "batch.lock_duration": lockDuration,
+      "batch.claim_duration_ms": claimDurationMs,
       "batch.memoryIds": claimed.map((r) => r.memory_id),
+      "batch.queueIds": claimed.map((r) => r.queue_id),
+      ...WORKER_ENGINE_TIMEOUT_ATTRIBUTES,
     },
     callback: async () => {
       // --- Embed ---
