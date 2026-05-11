@@ -30,6 +30,7 @@ import { createUpgradeCommand } from "./commands/upgrade.ts";
 import { createUserCommand } from "./commands/user.ts";
 import { createVersionCommand } from "./commands/version.ts";
 import { createWhoamiCommand } from "./commands/whoami.ts";
+import { createWikipediaCommand } from "./commands/wikipedia.ts";
 import { setExpanded } from "./output.ts";
 
 const SHELLS = ["zsh", "bash", "fish", "powershell"] as const;
@@ -87,6 +88,9 @@ program.addCommand(createCodexCommand());
 
 // Local web UI
 program.addCommand(createServeCommand());
+
+// Dataset imports
+program.addCommand(createWikipediaCommand());
 
 // Engine-level RBAC commands
 program.addCommand(createUserCommand());
