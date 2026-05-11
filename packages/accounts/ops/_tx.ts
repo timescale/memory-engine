@@ -9,6 +9,34 @@ import { span } from "@pydantic/logfire-node";
 import type { SQL } from "bun";
 import type { AccountsContext } from "../types";
 
+const ACCOUNTS_STATEMENT_TIMEOUT =
+  process.env.ACCOUNTS_STATEMENT_TIMEOUT ?? "25s";
+const ACCOUNTS_LOCK_TIMEOUT = process.env.ACCOUNTS_LOCK_TIMEOUT ?? "5s";
+const ACCOUNTS_TRANSACTION_TIMEOUT =
+  process.env.ACCOUNTS_TRANSACTION_TIMEOUT ?? "30s";
+const ACCOUNTS_IDLE_IN_TRANSACTION_SESSION_TIMEOUT =
+  process.env.ACCOUNTS_IDLE_IN_TRANSACTION_SESSION_TIMEOUT ?? "30s";
+
+/**
+ * Bound accounts transactions with transaction-local GUCs so pooled
+ * connections do not retain settings.
+ */
+export async function setLocalAccountsTimeouts(sql: SQL): Promise<void> {
+  await sql.unsafe("SELECT set_config('statement_timeout', $1, true)", [
+    ACCOUNTS_STATEMENT_TIMEOUT,
+  ]);
+  await sql.unsafe("SELECT set_config('lock_timeout', $1, true)", [
+    ACCOUNTS_LOCK_TIMEOUT,
+  ]);
+  await sql.unsafe("SELECT set_config('transaction_timeout', $1, true)", [
+    ACCOUNTS_TRANSACTION_TIMEOUT,
+  ]);
+  await sql.unsafe(
+    "SELECT set_config('idle_in_transaction_session_timeout', $1, true)",
+    [ACCOUNTS_IDLE_IN_TRANSACTION_SESSION_TIMEOUT],
+  );
+}
+
 /**
  * Execute a function within a transaction context.
  *
@@ -31,6 +59,7 @@ export async function withTx<T>(
     },
     callback: () =>
       ctx.sql.begin(async (tx) => {
+        await setLocalAccountsTimeouts(tx);
         await tx.unsafe(`SET LOCAL search_path TO ${ctx.schema}, public`);
         return fn(tx);
       }),

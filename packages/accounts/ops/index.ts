@@ -1,4 +1,4 @@
-export { deriveContext, withTx } from "./_tx";
+export { deriveContext, setLocalAccountsTimeouts, withTx } from "./_tx";
 export { type DeviceAuthOps, deviceAuthOps } from "./device-auth";
 export { type EngineOps, engineOps } from "./engine";
 export { type IdentityOps, identityOps } from "./identity";

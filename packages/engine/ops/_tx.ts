@@ -19,20 +19,42 @@ const ROLE_MAP = {
   admin: null, // No role change
 } as const;
 
-const ENGINE_STATEMENT_TIMEOUT = process.env.ENGINE_STATEMENT_TIMEOUT ?? "25s";
-const ENGINE_LOCK_TIMEOUT = process.env.ENGINE_LOCK_TIMEOUT ?? "5s";
+export interface EngineTimeouts {
+  statementTimeout: string;
+  lockTimeout: string;
+  transactionTimeout: string;
+  idleInTransactionSessionTimeout: string;
+}
+
+export const DEFAULT_ENGINE_TIMEOUTS: EngineTimeouts = {
+  statementTimeout: process.env.ENGINE_STATEMENT_TIMEOUT ?? "25s",
+  lockTimeout: process.env.ENGINE_LOCK_TIMEOUT ?? "5s",
+  transactionTimeout: process.env.ENGINE_TRANSACTION_TIMEOUT ?? "30s",
+  idleInTransactionSessionTimeout:
+    process.env.ENGINE_IDLE_IN_TRANSACTION_SESSION_TIMEOUT ?? "30s",
+};
 
 /**
  * Bound engine queries so production failures surface before clients give up.
  * Uses transaction-local GUCs so pooled connections do not retain settings.
  */
-export async function setLocalEngineTimeouts(sql: SQL): Promise<void> {
+export async function setLocalEngineTimeouts(
+  sql: SQL,
+  timeouts: EngineTimeouts = DEFAULT_ENGINE_TIMEOUTS,
+): Promise<void> {
   await sql.unsafe("SELECT set_config('statement_timeout', $1, true)", [
-    ENGINE_STATEMENT_TIMEOUT,
+    timeouts.statementTimeout,
   ]);
   await sql.unsafe("SELECT set_config('lock_timeout', $1, true)", [
-    ENGINE_LOCK_TIMEOUT,
+    timeouts.lockTimeout,
   ]);
+  await sql.unsafe("SELECT set_config('transaction_timeout', $1, true)", [
+    timeouts.transactionTimeout,
+  ]);
+  await sql.unsafe(
+    "SELECT set_config('idle_in_transaction_session_timeout', $1, true)",
+    [timeouts.idleInTransactionSessionTimeout],
+  );
 }
 
 /**
@@ -43,7 +65,7 @@ export async function setLocalEngineTimeouts(sql: SQL): Promise<void> {
  *
  * If not inside a transaction, opens a new one with:
  * - SET LOCAL pgdog.shard (if shard is set, for future sharding)
- * - SET LOCAL statement_timeout / lock_timeout
+ * - SET LOCAL statement_timeout / lock_timeout / transaction timeouts
  * - SET LOCAL search_path (insurance — all SQL is schema-qualified)
  * - SET LOCAL ROLE (me_ro for read, me_rw for write)
  * - set_config('me.user_id', ...) (for RLS)

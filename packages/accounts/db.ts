@@ -17,6 +17,7 @@ import {
   orgOps,
   type SessionOps,
   sessionOps,
+  setLocalAccountsTimeouts,
 } from "./ops";
 import type { AccountsContext } from "./types";
 import { createAccountsCrypto } from "./util/crypto";
@@ -85,6 +86,7 @@ export function createAccountsDB(
 
     async withTransaction<T>(fn: (db: AccountsDB) => Promise<T>): Promise<T> {
       return sql.begin(async (tx) => {
+        await setLocalAccountsTimeouts(tx);
         await tx.unsafe(`SET LOCAL search_path TO ${schema}, public`);
 
         const txCrypto = createAccountsCrypto(options.masterKey, {

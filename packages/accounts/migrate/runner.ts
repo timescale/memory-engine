@@ -1,4 +1,5 @@
 import { type SQL, semver } from "bun";
+import { setLocalAccountsTimeouts } from "../ops/_tx";
 import migration001 from "./migrations/001_updated_at.sql" with {
   type: "text",
 };
@@ -115,6 +116,8 @@ export async function migrate(
   const { schema } = resolved;
 
   return await sql.begin(async (tx) => {
+    await setLocalAccountsTimeouts(tx);
+
     // Acquire advisory lock with retry
     const [{ lock_id }] =
       await tx`select hashtext(${schema})::bigint as lock_id`;

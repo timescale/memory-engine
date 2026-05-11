@@ -72,17 +72,23 @@ configure({
 //
 // Connection Pool - Accounts Database:
 //   ACCOUNTS_POOL_MAX                - Max connections (default: 10)
-//   ACCOUNTS_POOL_IDLE_TIMEOUT       - Idle timeout in seconds (default: 30)
+//   ACCOUNTS_POOL_IDLE_REAP_SECONDS  - Close idle pooled connections after N seconds (default: 300)
 //   ACCOUNTS_POOL_MAX_LIFETIME       - Max lifetime in seconds, 0=forever (default: 0)
 //   ACCOUNTS_POOL_CONNECTION_TIMEOUT - Connection timeout in seconds (default: 30)
+//   ACCOUNTS_STATEMENT_TIMEOUT       - Per-accounts-query timeout (default: 25s)
+//   ACCOUNTS_LOCK_TIMEOUT            - Per-accounts-lock wait timeout (default: 5s)
+//   ACCOUNTS_TRANSACTION_TIMEOUT     - Per-accounts-transaction timeout (default: 30s)
+//   ACCOUNTS_IDLE_IN_TRANSACTION_SESSION_TIMEOUT - Idle-in-transaction timeout (default: 30s)
 //
 // Connection Pool - Engine Database:
 //   ENGINE_POOL_MAX                - Max connections (default: 20)
-//   ENGINE_POOL_IDLE_TIMEOUT       - Idle timeout in seconds (default: 30)
+//   ENGINE_POOL_IDLE_REAP_SECONDS  - Close idle pooled connections after N seconds (default: 300)
 //   ENGINE_POOL_MAX_LIFETIME       - Max lifetime in seconds, 0=forever (default: 0)
 //   ENGINE_POOL_CONNECTION_TIMEOUT - Connection timeout in seconds (default: 30)
 //   ENGINE_STATEMENT_TIMEOUT       - Per-engine-query timeout (default: 25s)
 //   ENGINE_LOCK_TIMEOUT            - Per-engine-lock wait timeout (default: 5s)
+//   ENGINE_TRANSACTION_TIMEOUT     - Per-engine-transaction timeout (default: 30s)
+//   ENGINE_IDLE_IN_TRANSACTION_SESSION_TIMEOUT - Idle-in-transaction timeout (default: 30s)
 //
 // Cleanup:
 //   DEVICE_FLOW_CLEANUP_CRON - Cron schedule for cleaning up expired device auths
@@ -95,6 +101,10 @@ configure({
 //   WORKER_IDLE_DELAY_MS      - Poll interval when idle in ms (default: 10000)
 //   WORKER_MAX_BACKOFF_MS     - Max error backoff in ms (default: 60000)
 //   WORKER_REFRESH_INTERVAL_MS - Engine re-discovery interval in ms (default: 60000)
+//   WORKER_ENGINE_STATEMENT_TIMEOUT - Worker engine query timeout (default: ENGINE_STATEMENT_TIMEOUT)
+//   WORKER_ENGINE_LOCK_TIMEOUT - Worker engine lock wait timeout (default: ENGINE_LOCK_TIMEOUT)
+//   WORKER_ENGINE_TRANSACTION_TIMEOUT - Worker engine transaction timeout (default: ENGINE_TRANSACTION_TIMEOUT)
+//   WORKER_ENGINE_IDLE_IN_TRANSACTION_SESSION_TIMEOUT - Worker engine idle-in-transaction timeout (default: ENGINE_IDLE_IN_TRANSACTION_SESSION_TIMEOUT)
 //
 // =============================================================================
 
@@ -149,10 +159,10 @@ const accountsPoolMax = parseIntEnv(
   process.env.ACCOUNTS_POOL_MAX || "",
   "10",
 );
-const accountsPoolIdleTimeout = parseIntEnv(
-  "ACCOUNTS_POOL_IDLE_TIMEOUT",
-  process.env.ACCOUNTS_POOL_IDLE_TIMEOUT || "",
-  "30",
+const accountsPoolIdleReapSeconds = parseIntEnv(
+  "ACCOUNTS_POOL_IDLE_REAP_SECONDS",
+  process.env.ACCOUNTS_POOL_IDLE_REAP_SECONDS || "",
+  "300",
 );
 const accountsPoolMaxLifetime = parseIntEnv(
   "ACCOUNTS_POOL_MAX_LIFETIME",
@@ -171,10 +181,10 @@ const enginePoolMax = parseIntEnv(
   process.env.ENGINE_POOL_MAX || "",
   "20",
 );
-const enginePoolIdleTimeout = parseIntEnv(
-  "ENGINE_POOL_IDLE_TIMEOUT",
-  process.env.ENGINE_POOL_IDLE_TIMEOUT || "",
-  "30",
+const enginePoolIdleReapSeconds = parseIntEnv(
+  "ENGINE_POOL_IDLE_REAP_SECONDS",
+  process.env.ENGINE_POOL_IDLE_REAP_SECONDS || "",
+  "300",
 );
 const enginePoolMaxLifetime = parseIntEnv(
   "ENGINE_POOL_MAX_LIFETIME",
@@ -283,14 +293,14 @@ if (masterKeyBuffer.length !== 32) {
 // Create database connection pools
 const accountsSql = new Bun.SQL(accountsDatabaseUrl, {
   max: accountsPoolMax,
-  idleTimeout: accountsPoolIdleTimeout,
+  idleTimeout: accountsPoolIdleReapSeconds,
   maxLifetime: accountsPoolMaxLifetime,
   connectionTimeout: accountsPoolConnectionTimeout,
 });
 
 const engineSql = new Bun.SQL(engineDatabaseUrl, {
   max: enginePoolMax,
-  idleTimeout: enginePoolIdleTimeout,
+  idleTimeout: enginePoolIdleReapSeconds,
   maxLifetime: enginePoolMaxLifetime,
   connectionTimeout: enginePoolConnectionTimeout,
 });
