@@ -57,6 +57,7 @@ function getEmbedManyOptions(config: EmbeddingConfig): EmbedManyOptions {
  * {
  *   "error": {
  *     "message": "Invalid 'input': maximum context length is 8192 tokens.",
+ *     // or: "Invalid 'input[429]': maximum input length is 8192 tokens."
  *     "type": "invalid_request_error",
  *     "param": null,
  *     "code": null
@@ -65,7 +66,11 @@ function getEmbedManyOptions(config: EmbeddingConfig): EmbedManyOptions {
  */
 function isContextLengthError(error: unknown): boolean {
   if (error instanceof Error) {
-    return error.message.includes("maximum context length");
+    const message = error.message.toLowerCase();
+    return (
+      message.includes("maximum context length") ||
+      message.includes("maximum input length")
+    );
   }
   return false;
 }

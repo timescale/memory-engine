@@ -375,4 +375,77 @@ describe("rate limit handling", () => {
       server.stop();
     }
   });
+
+  test("batch maximum input length errors fall back to individual retries", async () => {
+    const requests: string[] = [];
+    const mockEmbedding = Array.from({ length: 1536 }, (_, i) => i * 0.001);
+    const server = Bun.serve({
+      port: 0,
+      async fetch(req) {
+        const body = (await req.json()) as { input: string | string[] };
+        const input = Array.isArray(body.input) ? body.input[0] : body.input;
+        requests.push(input ?? "");
+
+        if (requests.length === 1) {
+          return new Response(
+            JSON.stringify({
+              error: {
+                message:
+                  "Invalid 'input[0]': maximum input length is 8192 tokens.",
+                type: "invalid_request_error",
+              },
+            }),
+            { status: 400 },
+          );
+        }
+
+        if ((input?.length ?? 0) > 300) {
+          return new Response(
+            JSON.stringify({
+              error: {
+                message:
+                  "Invalid 'input': maximum input length is 8192 tokens.",
+                type: "invalid_request_error",
+              },
+            }),
+            { status: 400 },
+          );
+        }
+
+        return Response.json({
+          object: "list",
+          data: [{ object: "embedding", embedding: mockEmbedding, index: 0 }],
+          model: "text-embedding-3-small",
+          usage: { prompt_tokens: 5, total_tokens: 5 },
+        });
+      },
+    });
+
+    try {
+      const config: EmbeddingConfig = {
+        provider: "openai",
+        model: "text-embedding-3-small",
+        dimensions: 1536,
+        apiKey: "test-key",
+        baseUrl: `http://localhost:${server.port}/v1`,
+        options: { maxRetries: 0, maxTokens: 100 },
+      };
+
+      const results = await generateEmbeddings(
+        [{ id: "1", content: "x".repeat(350) }],
+        config,
+      );
+
+      expect(results).toHaveLength(1);
+      expect(results[0]?.error).toBeUndefined();
+      expect(results[0]?.embedding).toHaveLength(1536);
+
+      // 1 batch request, then individual retries at 3.8 and 3.0 chars/token.
+      expect(requests).toHaveLength(3);
+      expect(requests[1]).toBe("x".repeat(350));
+      expect(requests[2]).toBe("x".repeat(300));
+    } finally {
+      server.stop();
+    }
+  });
 });
