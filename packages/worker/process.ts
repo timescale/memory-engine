@@ -12,28 +12,19 @@ import { info, reportError, span, warning } from "@pydantic/logfire-node";
 import type { SQL } from "bun";
 import type { EngineTarget, ProcessResult, WorkerConfig } from "./types";
 
-const WORKER_ENGINE_TIMEOUTS: EngineTimeouts = {
-  statementTimeout:
-    process.env.WORKER_ENGINE_STATEMENT_TIMEOUT ??
-    DEFAULT_ENGINE_TIMEOUTS.statementTimeout,
-  lockTimeout:
-    process.env.WORKER_ENGINE_LOCK_TIMEOUT ??
-    DEFAULT_ENGINE_TIMEOUTS.lockTimeout,
-  transactionTimeout:
-    process.env.WORKER_ENGINE_TRANSACTION_TIMEOUT ??
-    DEFAULT_ENGINE_TIMEOUTS.transactionTimeout,
-  idleInTransactionSessionTimeout:
-    process.env.WORKER_ENGINE_IDLE_IN_TRANSACTION_SESSION_TIMEOUT ??
-    DEFAULT_ENGINE_TIMEOUTS.idleInTransactionSessionTimeout,
-};
+function workerEngineTimeouts(config?: WorkerConfig): EngineTimeouts {
+  return config?.workerEngineTimeouts ?? DEFAULT_ENGINE_TIMEOUTS;
+}
 
-const WORKER_ENGINE_TIMEOUT_ATTRIBUTES = {
-  "db.statement_timeout": WORKER_ENGINE_TIMEOUTS.statementTimeout,
-  "db.lock_timeout": WORKER_ENGINE_TIMEOUTS.lockTimeout,
-  "db.transaction_timeout": WORKER_ENGINE_TIMEOUTS.transactionTimeout,
-  "db.idle_in_transaction_session_timeout":
-    WORKER_ENGINE_TIMEOUTS.idleInTransactionSessionTimeout,
-};
+function workerEngineTimeoutAttributes(timeouts: EngineTimeouts) {
+  return {
+    "db.statement_timeout": timeouts.statementTimeout,
+    "db.lock_timeout": timeouts.lockTimeout,
+    "db.transaction_timeout": timeouts.transactionTimeout,
+    "db.idle_in_transaction_session_timeout":
+      timeouts.idleInTransactionSessionTimeout,
+  };
+}
 
 function asError(error: unknown): Error {
   return error instanceof Error ? error : new Error(String(error));
@@ -49,11 +40,13 @@ export async function pruneQueue(
   sql: SQL,
   target: EngineTarget,
   retention: string,
+  config?: WorkerConfig,
 ): Promise<number> {
   const { schema, shard } = target;
+  const timeouts = workerEngineTimeouts(config);
   return sql.begin(async (tx) => {
     await tx.unsafe(`SET LOCAL pgdog.shard TO ${shard}`);
-    await setLocalEngineTimeouts(tx, WORKER_ENGINE_TIMEOUTS);
+    await setLocalEngineTimeouts(tx, timeouts);
     await tx.unsafe(`SET LOCAL search_path TO ${schema}, public`);
     await tx.unsafe("SET LOCAL ROLE me_embed");
     const rows = (await tx.unsafe(
@@ -85,12 +78,14 @@ export async function processBatch(
   const { schema, shard } = target;
   const batchSize = config.batchSize ?? 10;
   const lockDuration = config.lockDuration ?? "5 minutes";
+  const timeouts = workerEngineTimeouts(config);
+  const timeoutAttributes = workerEngineTimeoutAttributes(timeouts);
 
   // --- Claim ---
   const claimStart = performance.now();
   const claimed = await sql.begin(async (tx) => {
     await tx.unsafe(`SET LOCAL pgdog.shard TO ${shard}`);
-    await setLocalEngineTimeouts(tx, WORKER_ENGINE_TIMEOUTS);
+    await setLocalEngineTimeouts(tx, timeouts);
     await tx.unsafe(`SET LOCAL search_path TO ${schema}, public`);
     await tx.unsafe("SET LOCAL ROLE me_embed");
     return tx.unsafe(
@@ -113,7 +108,7 @@ export async function processBatch(
     "batch.claim_duration_ms": claimDurationMs,
     "batch.memoryIds": claimed.map((r) => r.memory_id),
     "batch.queueIds": claimed.map((r) => r.queue_id),
-    ...WORKER_ENGINE_TIMEOUT_ATTRIBUTES,
+    ...timeoutAttributes,
   });
 
   // Process claimed items with telemetry
@@ -127,7 +122,7 @@ export async function processBatch(
       "batch.claim_duration_ms": claimDurationMs,
       "batch.memoryIds": claimed.map((r) => r.memory_id),
       "batch.queueIds": claimed.map((r) => r.queue_id),
-      ...WORKER_ENGINE_TIMEOUT_ATTRIBUTES,
+      ...timeoutAttributes,
     },
     callback: async () => {
       // --- Embed ---
@@ -145,7 +140,7 @@ export async function processBatch(
           // and should not consume max_attempts
           await sql.begin(async (tx) => {
             await tx.unsafe(`SET LOCAL pgdog.shard TO ${shard}`);
-            await setLocalEngineTimeouts(tx, WORKER_ENGINE_TIMEOUTS);
+            await setLocalEngineTimeouts(tx, timeouts);
             await tx.unsafe(`SET LOCAL search_path TO ${schema}, public`);
             await tx.unsafe("SET LOCAL ROLE me_embed");
             for (const row of claimed) {
@@ -184,14 +179,14 @@ export async function processBatch(
           "batch.size": claimed.length,
           "batch.embed_successes": embedResults.filter((r) => !r.error).length,
           "batch.embed_errors": embedResults.filter((r) => r.error).length,
-          ...WORKER_ENGINE_TIMEOUT_ATTRIBUTES,
+          ...timeoutAttributes,
         },
         callback: async () => {
           for (const row of claimed) {
             try {
               await sql.begin(async (tx) => {
                 await tx.unsafe(`SET LOCAL pgdog.shard TO ${shard}`);
-                await setLocalEngineTimeouts(tx, WORKER_ENGINE_TIMEOUTS);
+                await setLocalEngineTimeouts(tx, timeouts);
                 await tx.unsafe(`SET LOCAL search_path TO ${schema}, public`);
                 await tx.unsafe("SET LOCAL ROLE me_embed");
 
@@ -258,7 +253,7 @@ export async function processBatch(
               try {
                 await sql.begin(async (tx) => {
                   await tx.unsafe(`SET LOCAL pgdog.shard TO ${shard}`);
-                  await setLocalEngineTimeouts(tx, WORKER_ENGINE_TIMEOUTS);
+                  await setLocalEngineTimeouts(tx, timeouts);
                   await tx.unsafe(`SET LOCAL search_path TO ${schema}, public`);
                   await tx.unsafe("SET LOCAL ROLE me_embed");
                   await tx.unsafe(
