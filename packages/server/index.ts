@@ -8,6 +8,10 @@ import {
 } from "@memory.build/engine/migrate";
 import { bootstrap as bootstrapEngine } from "@memory.build/engine/migrate/bootstrap";
 import { migrateAll as migrateEngines } from "@memory.build/engine/migrate/runner";
+import {
+  DEFAULT_ENGINE_TIMEOUTS,
+  type EngineTimeouts,
+} from "@memory.build/engine/ops/_tx";
 import { WorkerPool } from "@memory.build/worker";
 import { configure, info, reportError, span } from "@pydantic/logfire-node";
 import { MIN_CLIENT_VERSION, SERVER_VERSION } from "../../version";
@@ -90,6 +94,17 @@ configure({
 //   ENGINE_TRANSACTION_TIMEOUT     - Per-engine-transaction timeout (default: 30s)
 //   ENGINE_IDLE_IN_TRANSACTION_SESSION_TIMEOUT - Idle-in-transaction timeout (default: 30s)
 //
+// Embedding Worker Engine Database:
+//   WORKER_ENGINE_DATABASE_URL             - PostgreSQL connection string for worker engine traffic (default: ENGINE_DATABASE_URL)
+//   WORKER_ENGINE_POOL_MAX                 - Max worker engine connections (default: WORKER_COUNT)
+//   WORKER_ENGINE_POOL_IDLE_REAP_SECONDS   - Close idle pooled connections after N seconds (default: ENGINE_POOL_IDLE_REAP_SECONDS)
+//   WORKER_ENGINE_POOL_MAX_LIFETIME        - Max lifetime in seconds, 0=forever (default: ENGINE_POOL_MAX_LIFETIME)
+//   WORKER_ENGINE_POOL_CONNECTION_TIMEOUT  - Connection timeout in seconds (default: ENGINE_POOL_CONNECTION_TIMEOUT)
+//   WORKER_ENGINE_STATEMENT_TIMEOUT        - Worker engine query timeout (default: ENGINE_STATEMENT_TIMEOUT)
+//   WORKER_ENGINE_LOCK_TIMEOUT             - Worker engine lock wait timeout (default: ENGINE_LOCK_TIMEOUT)
+//   WORKER_ENGINE_TRANSACTION_TIMEOUT      - Worker engine transaction timeout (default: ENGINE_TRANSACTION_TIMEOUT)
+//   WORKER_ENGINE_IDLE_IN_TRANSACTION_SESSION_TIMEOUT - Worker engine idle-in-transaction timeout (default: ENGINE_IDLE_IN_TRANSACTION_SESSION_TIMEOUT)
+//
 // Cleanup:
 //   DEVICE_FLOW_CLEANUP_CRON - Cron schedule for cleaning up expired device auths
 //                              (default: "*/15 * * * *" = every 15 minutes, UTC)
@@ -101,10 +116,6 @@ configure({
 //   WORKER_IDLE_DELAY_MS      - Poll interval when idle in ms (default: 10000)
 //   WORKER_MAX_BACKOFF_MS     - Max error backoff in ms (default: 60000)
 //   WORKER_REFRESH_INTERVAL_MS - Engine re-discovery interval in ms (default: 60000)
-//   WORKER_ENGINE_STATEMENT_TIMEOUT - Worker engine query timeout (default: ENGINE_STATEMENT_TIMEOUT)
-//   WORKER_ENGINE_LOCK_TIMEOUT - Worker engine lock wait timeout (default: ENGINE_LOCK_TIMEOUT)
-//   WORKER_ENGINE_TRANSACTION_TIMEOUT - Worker engine transaction timeout (default: ENGINE_TRANSACTION_TIMEOUT)
-//   WORKER_ENGINE_IDLE_IN_TRANSACTION_SESSION_TIMEOUT - Worker engine idle-in-transaction timeout (default: ENGINE_IDLE_IN_TRANSACTION_SESSION_TIMEOUT)
 //
 // =============================================================================
 
@@ -153,6 +164,12 @@ const deviceFlowCleanupCron =
 
 const accountsSchema = process.env.ACCOUNTS_SCHEMA || "accounts";
 
+const workerCount = parseIntEnv(
+  "WORKER_COUNT",
+  process.env.WORKER_COUNT || "",
+  "2",
+);
+
 // Connection pool settings - Accounts database
 const accountsPoolMax = parseIntEnv(
   "ACCOUNTS_POOL_MAX",
@@ -196,6 +213,44 @@ const enginePoolConnectionTimeout = parseIntEnv(
   process.env.ENGINE_POOL_CONNECTION_TIMEOUT || "",
   "30",
 );
+
+// Connection pool settings - Embedding worker engine database
+const workerEngineDatabaseUrl =
+  process.env.WORKER_ENGINE_DATABASE_URL || engineDatabaseUrl;
+const workerEnginePoolMax = parseIntEnv(
+  "WORKER_ENGINE_POOL_MAX",
+  process.env.WORKER_ENGINE_POOL_MAX || "",
+  String(Math.max(workerCount, 1)),
+);
+const workerEnginePoolIdleReapSeconds = parseIntEnv(
+  "WORKER_ENGINE_POOL_IDLE_REAP_SECONDS",
+  process.env.WORKER_ENGINE_POOL_IDLE_REAP_SECONDS || "",
+  String(enginePoolIdleReapSeconds),
+);
+const workerEnginePoolMaxLifetime = parseIntEnv(
+  "WORKER_ENGINE_POOL_MAX_LIFETIME",
+  process.env.WORKER_ENGINE_POOL_MAX_LIFETIME || "",
+  String(enginePoolMaxLifetime),
+);
+const workerEnginePoolConnectionTimeout = parseIntEnv(
+  "WORKER_ENGINE_POOL_CONNECTION_TIMEOUT",
+  process.env.WORKER_ENGINE_POOL_CONNECTION_TIMEOUT || "",
+  String(enginePoolConnectionTimeout),
+);
+const workerEngineTimeouts: EngineTimeouts = {
+  statementTimeout:
+    process.env.WORKER_ENGINE_STATEMENT_TIMEOUT ??
+    DEFAULT_ENGINE_TIMEOUTS.statementTimeout,
+  lockTimeout:
+    process.env.WORKER_ENGINE_LOCK_TIMEOUT ??
+    DEFAULT_ENGINE_TIMEOUTS.lockTimeout,
+  transactionTimeout:
+    process.env.WORKER_ENGINE_TRANSACTION_TIMEOUT ??
+    DEFAULT_ENGINE_TIMEOUTS.transactionTimeout,
+  idleInTransactionSessionTimeout:
+    process.env.WORKER_ENGINE_IDLE_IN_TRANSACTION_SESSION_TIMEOUT ??
+    DEFAULT_ENGINE_TIMEOUTS.idleInTransactionSessionTimeout,
+};
 
 // =============================================================================
 // Embedding Config
@@ -305,6 +360,13 @@ const engineSql = new Bun.SQL(engineDatabaseUrl, {
   connectionTimeout: enginePoolConnectionTimeout,
 });
 
+const workerEngineSql = new Bun.SQL(workerEngineDatabaseUrl, {
+  max: workerEnginePoolMax,
+  idleTimeout: workerEnginePoolIdleReapSeconds,
+  maxLifetime: workerEnginePoolMaxLifetime,
+  connectionTimeout: workerEnginePoolConnectionTimeout,
+});
+
 // Create accounts DB with operations layer
 const accountsDb = createAccountsDB(accountsSql, accountsSchema, {
   masterKey: masterKeyBuffer,
@@ -410,13 +472,7 @@ const router = createRouter(serverContext);
 // Embedding Worker Pool
 // =============================================================================
 
-const workerCount = parseIntEnv(
-  "WORKER_COUNT",
-  process.env.WORKER_COUNT || "",
-  "2",
-);
-
-const workerPool = new WorkerPool(engineSql, {
+const workerPool = new WorkerPool(workerEngineSql, {
   embedding: embeddingConfig,
   discover: async () => {
     const engines = await accountsDb.listActiveEngines();
@@ -446,6 +502,7 @@ const workerPool = new WorkerPool(engineSql, {
     process.env.WORKER_REFRESH_INTERVAL_MS || "",
     "60000",
   ),
+  workerEngineTimeouts,
 });
 
 await workerPool.start(workerCount);
@@ -535,6 +592,7 @@ async function shutdown() {
   try {
     await accountsSql.close();
     await engineSql.close();
+    await workerEngineSql.close();
   } catch (error) {
     reportError("Error closing database connections", error as Error);
   }

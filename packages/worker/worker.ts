@@ -169,7 +169,12 @@ async function run(
             // terminal queue rows. Best-effort: failures are logged but do
             // not trigger the worker error backoff path.
             try {
-              const pruned = await pruneQueue(sql, target, pruneRetention);
+              const pruned = await pruneQueue(
+                sql,
+                target,
+                pruneRetention,
+                config,
+              );
               stats.totalPruned += pruned;
             } catch (pruneError) {
               if (isMissingSchemaError(pruneError)) {

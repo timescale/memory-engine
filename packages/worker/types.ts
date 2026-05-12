@@ -1,4 +1,5 @@
 import type { EmbeddingConfig } from "@memory.build/embedding";
+import type { EngineTimeouts } from "@memory.build/engine/ops/_tx";
 
 export interface EngineTarget {
   schema: string;
@@ -19,6 +20,8 @@ export interface WorkerConfig {
   maxBackoffMs?: number;
   /** How often to re-discover engines (default: 60_000ms) */
   refreshIntervalMs?: number;
+  /** PostgreSQL transaction/session timeouts for worker engine DB work */
+  workerEngineTimeouts?: EngineTimeouts;
   /** Exit gracefully after this much idle time (optional) */
   drainTimeoutMs?: number;
   /**

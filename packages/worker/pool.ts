@@ -3,7 +3,7 @@ import type { WorkerConfig, WorkerStats } from "./types";
 import { Worker } from "./worker";
 
 /**
- * Pool of N embedding workers sharing a single SQL connection pool.
+ * Pool of N embedding workers using the provided SQL connection pool.
  * Each worker independently discovers engines, shuffles its target list,
  * and polls queues. FOR UPDATE SKIP LOCKED prevents double-processing.
  */
