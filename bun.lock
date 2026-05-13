@@ -163,6 +163,7 @@
     "scripts": {
       "name": "scripts",
       "dependencies": {
+        "@memory.build/embedding": "workspace:*",
         "yaml": "^2.7.0",
       },
     },
