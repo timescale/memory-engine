@@ -14,7 +14,7 @@ Common variables:
 - `query_prefix`: optional SQL prefix. Defaults to `--` so the next line is a normal `SELECT`. Use `explain (analyze, buffers, settings)` for plans.
 - `fulltext`: BM25 query text.
 - `semantic`: semantic query text used to generate `emb` via `scripts/embed-query.ts`.
-- `emb`: embedding literal. If omitted, semantic files generate `queries/emb.txt` with `\!`.
+- `emb`: embedding literal in pgvector/halfvec format, for example `[0.1,-0.2,...]`. If omitted, semantic files generate `queries/emb.txt` with `\!`.
 - `tree`: ltree path filter.
 - `meta`: JSON object for `meta @> ...` filters.
 
@@ -40,3 +40,19 @@ psql "$DATABASE_URL" \
 ```
 
 Timing is enabled only around the query body, not around setup or embedding generation.
+
+The semantic helper writes `semantic` to `queries/semantic.txt` with `select
+:'semantic'` and `\g`, then runs the embedding script with `\!`. It uses fixed
+shell paths because psql does not expand psql variables inside `\!` shell
+commands. Pass `emb` directly if you want to bypass generation.
+
+`15-diagnose-semantic-visibility.sql` checks whether the selected RLS user can
+see any embedded rows and whether a known memory ID is visible/embedded.
+
+`17-diagnose-auth-owner.sql` runs without switching to `me_ro` so you can inspect
+engine users, identity mappings, grants, role membership, and the known memory row
+with the fork owner/admin connection.
+
+`02-semantic.sql` mirrors the current app query. `16-semantic-index-order.sql`
+uses the pgvector-recommended `ORDER BY embedding <=> query LIMIT n` shape to
+check whether the HNSW index can be used.

@@ -41,7 +41,17 @@ function parseIntegerEnv(name: string): number | undefined {
 await loadDotEnv();
 
 const outputPath = process.argv[2] ?? DEFAULT_OUTPUT;
-const queryArg = process.argv.slice(3).join(" ").trim();
+const args = process.argv.slice(3);
+const queryFileIndex = args.indexOf("--query-file");
+const queryFile = args[queryFileIndex + 1];
+if (queryFileIndex >= 0 && !queryFile) {
+  throw new Error("--query-file requires a path");
+}
+const queryArg = (
+  queryFileIndex >= 0
+    ? await Bun.file(queryFile as string).text()
+    : args.join(" ")
+).trim();
 const query = queryArg || prompt("Semantic query: ")?.trim();
 if (!query) {
   throw new Error("Semantic query is required");
