@@ -1,5 +1,5 @@
 -- Semantic/HNSW search with JSONB metadata filter.
--- Required: schema, user_id, meta. Provide emb or semantic. Optional: limit, emb_file, query_prefix.
+-- Required: schema, user_id, meta. Provide emb or semantic. Optional: limit, query_prefix.
 -- Mirrors buildSemanticQuery with common filters in app order: meta.
 
 \ir _setup.sql

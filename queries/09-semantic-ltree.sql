@@ -1,5 +1,5 @@
 -- Semantic/HNSW search with ltree subtree filter.
--- Required: schema, user_id, tree. Provide emb or semantic. Optional: limit, emb_file, query_prefix.
+-- Required: schema, user_id, tree. Provide emb or semantic. Optional: limit, query_prefix.
 -- Mirrors buildSemanticQuery with common filters in app order: tree.
 
 \ir _setup.sql

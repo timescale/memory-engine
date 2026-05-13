@@ -1,6 +1,7 @@
--- Semantic/HNSW search.
+-- Semantic/HNSW search ordered by raw distance for pgvector index eligibility.
 -- Required: schema, user_id. Provide emb or semantic. Optional: limit, query_prefix.
--- Mirrors buildSemanticQuery without additional filters and without semanticThreshold.
+-- This is NOT exactly what the current app query does; it is the pgvector-recommended
+-- order shape for using an ANN index: ORDER BY embedding <=> query LIMIT n.
 
 \ir _setup.sql
 \ir _embedding.sql
@@ -22,7 +23,7 @@ select
 from :"schema".memory
 where embedding is not null
   and (embedding <=> :'emb'::halfvec) < 1.0
-order by score desc, created_at desc
+order by embedding <=> :'emb'::halfvec, created_at desc
 limit :limit;
 
 \ir _teardown.sql

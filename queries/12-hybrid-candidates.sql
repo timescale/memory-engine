@@ -1,6 +1,6 @@
 -- Hybrid candidate queries: BM25 candidate query followed by semantic candidate query.
 -- Required: schema, user_id, fulltext. Provide emb or semantic.
--- Optional: candidate_limit, emb_file, query_prefix.
+-- Optional: candidate_limit, query_prefix.
 -- The app runs these two queries in parallel, fuses IDs in TypeScript, then fetches by ID.
 -- psql runs them sequentially but keeps each query faithful to the app SQL.
 
