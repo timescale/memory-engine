@@ -1,5 +1,5 @@
 const variables: Record<string, string> = {
-  schema: "me_01",
+  schema: "me",
   embedding_dimensions: "1536",
   bm25_text_config: "english",
   bm25_k1: "1.2",

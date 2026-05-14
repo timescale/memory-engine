@@ -22,10 +22,10 @@ select current_setting('server_version_num')::int < 180000 as bad_pg_version
 -------------------------------------------------------------------------------
 -- ensure extensions installed
 -------------------------------------------------------------------------------
-create extension if not exists citext;
-create extension if not exists ltree;
-create extension if not exists vector;
-create extension if not exists pg_textsearch;
+create extension if not exists citext with schema public version '1.6';
+create extension if not exists ltree with schema public version '1.3';
+create extension if not exists vector with schema public version '0.8.2';
+create extension if not exists pg_textsearch with schema public version '1.1.0';
 
 -------------------------------------------------------------------------------
 -- database roles
@@ -97,9 +97,7 @@ create table {{schema}}."user"
 ( id uuid primary key default uuidv7() check (uuid_extract_version(id) = 7)
 , name citext not null unique
 , identity_id uuid check (identity_id is null or uuid_extract_version(identity_id) = 7) -- soft FK to accounts.identity
-, can_login boolean not null default true  -- false = role (grant container)
 , superuser boolean not null default false
-, createrole boolean not null default false -- can create other users/roles
 , created_at timestamptz not null default now()
 , updated_at timestamptz
 );
@@ -124,11 +122,11 @@ create table {{schema}}.role_membership
 , member_id uuid not null references {{schema}}."user"(id) on delete cascade
 , with_admin_option boolean not null default false
 , created_at timestamptz not null default now()
-, primary key (role_id, member_id)
+, primary key (member_id, role_id)
 , constraint no_self_membership check (role_id != member_id)
 );
 
-create index idx_role_membership_member on {{schema}}.role_membership(member_id);
+create index idx_role_membership_role on {{schema}}.role_membership(role_id) include (member_id);
 
 revoke all on {{schema}}.role_membership from public;
 grant select on {{schema}}.role_membership to me_ro;
@@ -148,7 +146,7 @@ as $func$
     select rm.role_id
     from {{schema}}.role_membership rm
     where rm.member_id = _role_id
-    union all
+    union
     select rm.role_id
     from {{schema}}.role_membership rm
     inner join ancestors a on a.id = rm.member_id
@@ -165,9 +163,12 @@ parallel safe
 set search_path to pg_catalog, {{schema}}, pg_temp
 ;
 
-revoke all on {{schema}}.would_create_cycle(uuid, uuid) from public;
-grant execute on {{schema}}.would_create_cycle(uuid, uuid) to me_rw;
+revoke all on function {{schema}}.would_create_cycle(uuid, uuid) from public;
+grant execute on function {{schema}}.would_create_cycle(uuid, uuid) to me_rw;
 
+-------------------------------------------------------------------------------
+-- role_membership_before_write trigger
+-------------------------------------------------------------------------------
 -- Prevent role membership cycles for ordinary writes.
 -- Note: this check observes the current transaction snapshot. Concurrent
 -- transactions that insert/update related role edges can still race unless the
@@ -181,7 +182,6 @@ begin
     raise exception 'role membership would create a cycle: role_id %, member_id %', new.role_id, new.member_id
       using errcode = 'integrity_constraint_violation';
   end if;
-
   return new;
 end;
 $func$ language plpgsql volatile security invoker
@@ -192,6 +192,86 @@ create trigger role_membership_before_write_trg
 before insert or update of role_id, member_id on {{schema}}.role_membership
 for each row
 execute function {{schema}}.role_membership_before_write()
+;
+
+-------------------------------------------------------------------------------
+-- explode_role_membership
+-------------------------------------------------------------------------------
+create or replace function {{schema}}.explode_role_membership(_user_id uuid)
+returns table
+( role_id uuid
+, superuser bool
+, dist int4
+)
+as $func$
+  with recursive ancestors(id, dist) as
+  (
+    select rm.role_id, 1::int4
+    from {{schema}}.role_membership rm
+    where rm.member_id = _user_id
+    union
+    select rm.role_id, a.dist + 1
+    from {{schema}}.role_membership rm
+    inner join ancestors a on a.id = rm.member_id
+  )
+  select
+    u.id
+  , u.superuser
+  , 0::int4
+  from {{schema}}."user" u
+  where u.id = _user_id
+  union
+  select
+    u.id
+  , u.superuser
+  , a.dist
+  from {{schema}}."user" u
+  inner join ancestors a on (u.id = a.id)
+$func$ language sql stable security invoker
+set search_path to pg_catalog, {{schema}}, pg_temp
+;
+
+-------------------------------------------------------------------------------
+-- grant_role_membership
+-------------------------------------------------------------------------------
+create or replace function {{schema}}.grant_role_membership(_role_id uuid, _member_id uuid, _with_admin_option bool default false)
+returns void
+as $func$
+begin
+  -- exclusive write access required to fully ensure against cycle creation by concurrent writes
+  lock table {{schema}}.role_membership in share row exclusive mode;
+  -- role_membership_before_write_trg protects against cycles in the graph
+  insert into {{schema}}.role_membership
+  ( role_id
+  , member_id
+  , with_admin_option
+  )
+  values
+  ( _role_id
+  , _member_id
+  , _with_admin_option
+  );
+end;
+$func$ language plpgsql volatile security invoker
+set search_path to pg_catalog, {{schema}}, pg_temp
+;
+
+-------------------------------------------------------------------------------
+-- revoke_role_membership
+-------------------------------------------------------------------------------
+create or replace function {{schema}}.revoke_role_membership(_role uuid, _member_id uuid)
+returns void
+as $func$
+begin
+  lock table {{schema}}.role_membership in share row exclusive mode;
+
+  delete from {{schema}}.role_membership d
+  where d.role_id = _role_id
+  and d.member_id = _member_id
+  ;
+end;
+$func$ language plpgsql volatile security invoker
+set search_path to pg_catalog, {{schema}}, pg_temp
 ;
 
 -------------------------------------------------------------------------------
@@ -383,9 +463,9 @@ execute function {{schema}}.enqueue_embedding()
 -- claim_embedding_batch
 -------------------------------------------------------------------------------
 create or replace function {{schema}}.claim_embedding_batch
-( batch_size int default 10
-, lock_duration interval default '5 minutes'
-, max_attempts int default 3
+( _batch_size int default 10
+, _lock_duration interval default '5 minutes'
+, _max_attempts int default 3
 )
 returns table
 ( queue_id bigint
@@ -395,9 +475,9 @@ returns table
 )
 as $func$
 declare
-  rec record;
-  mem record;
-  claimed_count int = 0;
+  _rec record;
+  _mem record;
+  _claimed_count int = 0;
 begin
   -- bulk-cancel visible queue rows superseded by a newer row for the same memory
   update {{schema}}.embedding_queue eq
@@ -421,10 +501,10 @@ begin
   , last_error = coalesce(last_error, 'exceeded max attempts (worker crash)')
   where outcome is null
   and vt <= now()
-  and attempts >= max_attempts
+  and attempts >= _max_attempts
   ;
 
-  for rec in
+  for _rec in
   (
     select
       eq.id
@@ -433,48 +513,48 @@ begin
     from {{schema}}.embedding_queue eq
     where eq.outcome is null
     and eq.vt <= now()
-    and eq.attempts < max_attempts
+    and eq.attempts < _max_attempts
     order by eq.vt
     for update skip locked
   )
   loop
     -- check memory still exists + current version
     select m.content, m.embedding_version
-    into mem
+    into _mem
     from {{schema}}.memory m
-    where m.id = rec.memory_id
+    where m.id = _rec.memory_id
     ;
 
-    if not found or mem.content is null then
+    if not found or _mem.content is null then
       -- memory deleted or empty → cancel queue row
       update {{schema}}.embedding_queue
       set outcome = 'cancelled'
-      where id = rec.id;
+      where id = _rec.id;
       continue;
     end if;
 
-    if rec.embedding_version != mem.embedding_version then
+    if _rec.embedding_version != _mem.embedding_version then
       -- stale version → cancel
       update {{schema}}.embedding_queue
       set outcome = 'cancelled'
-      where id = rec.id;
+      where id = _rec.id;
       continue;
     end if;
 
     -- claim this row
     update {{schema}}.embedding_queue q set
-      vt = now() + lock_duration
+      vt = now() + _lock_duration
     , attempts = q.attempts + 1
-    where id = rec.id;
+    where id = _rec.id;
 
-    queue_id = rec.id;
-    memory_id = rec.memory_id;
-    embedding_version = rec.embedding_version;
-    content = mem.content;
+    queue_id = _rec.id;
+    memory_id = _rec.memory_id;
+    embedding_version = _rec.embedding_version;
+    content = _mem.content;
     return next;
 
-    claimed_count = claimed_count + 1;
-    exit when claimed_count >= batch_size;
+    _claimed_count = _claimed_count + 1;
+    exit when _claimed_count >= _batch_size;
   end loop;
 end;
 $func$
@@ -493,9 +573,7 @@ grant execute on function {{schema}}.claim_embedding_batch(int, interval, int) t
 --
 -- relies on embedding_queue_archive_idx (created_at) where outcome is not null
 -- from migration 005, so the no-op case is cheap.
-create or replace function {{schema}}.prune_embedding_queue
-( retention interval default '7 days'
-)
+create or replace function {{schema}}.prune_embedding_queue(_retention interval default '7 days')
 returns bigint
 as $func$
 declare
@@ -503,7 +581,7 @@ declare
 begin
   delete from {{schema}}.embedding_queue
   where outcome is not null
-  and created_at < now() - retention
+  and created_at < now() - _retention
   ;
   get diagnostics pruned = row_count;
   return pruned;
