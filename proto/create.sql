@@ -112,6 +112,125 @@ for each row
 execute function {{schema}}.update_updated_at()
 ;
 
+revoke all on {{schema}}."user" from public;
+grant select on {{schema}}."user" to me_ro;
+grant select, insert, update, delete on {{schema}}."user" to me_rw;
+
+-------------------------------------------------------------------------------
+-- role membership
+-------------------------------------------------------------------------------
+create table {{schema}}.role_membership
+( role_id   uuid not null references {{schema}}."user"(id) on delete cascade
+, member_id uuid not null references {{schema}}."user"(id) on delete cascade
+, with_admin_option boolean not null default false
+, created_at timestamptz not null default now()
+, primary key (role_id, member_id)
+, constraint no_self_membership check (role_id != member_id)
+);
+
+create index idx_role_membership_member on {{schema}}.role_membership(member_id);
+
+revoke all on {{schema}}.role_membership from public;
+grant select on {{schema}}.role_membership to me_ro;
+grant select, insert, update, delete on {{schema}}.role_membership to me_rw;
+
+-------------------------------------------------------------------------------
+-- would_create_cycle
+-------------------------------------------------------------------------------
+create function {{schema}}.would_create_cycle
+( _role_id uuid
+, _member_id uuid
+)
+returns boolean
+as $func$
+  with recursive ancestors(id) as
+  (
+    select rm.role_id
+    from {{schema}}.role_membership rm
+    where rm.member_id = _role_id
+    union all
+    select rm.role_id
+    from {{schema}}.role_membership rm
+    inner join ancestors a on a.id = rm.member_id
+  )
+  select _member_id = _role_id
+    or exists
+    (
+      select 1
+      from ancestors
+      where id = _member_id
+    )
+$func$ language sql stable security invoker
+parallel safe
+set search_path to pg_catalog, {{schema}}, pg_temp
+;
+
+revoke all on {{schema}}.would_create_cycle(uuid, uuid) from public;
+grant execute on {{schema}}.would_create_cycle(uuid, uuid) to me_rw;
+
+-- Prevent role membership cycles for ordinary writes.
+-- Note: this check observes the current transaction snapshot. Concurrent
+-- transactions that insert/update related role edges can still race unless the
+-- caller uses stronger locking or serializable transactions around
+-- role_membership writes.
+create function {{schema}}.role_membership_before_write()
+returns trigger
+as $func$
+begin
+  if {{schema}}.would_create_cycle(new.role_id, new.member_id) then
+    raise exception 'role membership would create a cycle: role_id %, member_id %', new.role_id, new.member_id
+      using errcode = 'integrity_constraint_violation';
+  end if;
+
+  return new;
+end;
+$func$ language plpgsql volatile security invoker
+set search_path to pg_catalog, {{schema}}, pg_temp
+;
+
+create trigger role_membership_before_write_trg
+before insert or update of role_id, member_id on {{schema}}.role_membership
+for each row
+execute function {{schema}}.role_membership_before_write()
+;
+
+-------------------------------------------------------------------------------
+-- tree ownership
+-------------------------------------------------------------------------------
+create table {{schema}}.tree_owner
+( tree_path ltree not null primary key
+, user_id uuid not null references {{schema}}."user" (id) on delete cascade
+, created_by uuid references {{schema}}."user" (id)
+, created_at timestamptz not null default now()
+);
+
+create index idx_tree_owner_user on {{schema}}.tree_owner (user_id);
+create index idx_tree_owner_gist on {{schema}}.tree_owner using gist (tree_path);
+
+revoke all on {{schema}}.tree_owner from public;
+grant select on {{schema}}.tree_owner to me_ro;
+grant select, insert, update, delete on {{schema}}.tree_owner to me_rw;
+
+-------------------------------------------------------------------------------
+-- tree grants
+-------------------------------------------------------------------------------
+create table {{schema}}.tree_grant
+( id uuid primary key default uuidv7() check (uuid_extract_version(id) = 7)
+, user_id uuid not null references {{schema}}."user"(id) on delete cascade
+, tree_path ltree not null
+, actions text[] not null check (actions <@ '{read,create,update,delete}'::text[])
+, granted_by uuid references {{schema}}."user"(id)
+, created_at timestamptz not null default now()
+, with_grant_option boolean not null default false
+);
+
+create unique index idx_tree_grant_unique on {{schema}}.tree_grant (user_id, tree_path);
+create index idx_tree_grant_path on {{schema}}.tree_grant using gist (tree_path);
+
+revoke all on {{schema}}.tree_grant from public;
+grant select on {{schema}}.tree_grant to me_ro;
+grant select, insert, update, delete on {{schema}}.tree_grant to me_rw;
+
 -------------------------------------------------------------------------------
 -- memory
 -------------------------------------------------------------------------------
@@ -124,10 +243,11 @@ create table {{schema}}.memory
 , embedding halfvec({{embedding_dimensions}})
 , embedding_version int4 not null default 1
 , created_at timestamptz not null default now()
-, created_by uuid references {{schema}}."user" (id) on delete set null
+, created_by uuid
 , updated_at timestamptz
 );
 
+revoke all on {{schema}}.memory from public;
 grant select on {{schema}}.memory to me_ro;
 grant select, insert, update, delete on {{schema}}.memory to me_rw;
 grant select, update on {{schema}}.memory to me_embed;
@@ -398,6 +518,9 @@ set search_path to pg_catalog, {{schema}}, pg_temp
 grant execute on function {{schema}}.prune_embedding_queue(interval) to me_embed;
 
 
+
+
+
 -------------------------------------------------------------------------------
 -- api keys
 -------------------------------------------------------------------------------
@@ -416,79 +539,6 @@ create table {{schema}}.api_key
 create index idx_api_key_user on {{schema}}.api_key (user_id);
 create index idx_api_key_lookup on {{schema}}.api_key (lookup_id) where revoked_at is null;
 
--------------------------------------------------------------------------------
--- tree grants
--------------------------------------------------------------------------------
-create table {{schema}}.tree_grant
-( id            uuid primary key default uuidv7() check (uuid_extract_version(id) = 7)
-, user_id       uuid not null references {{schema}}."user"(id) on delete cascade
-, tree_path     ltree not null
-, actions       text[] not null
-, granted_by    uuid references {{schema}}."user"(id)
-, created_at    timestamptz not null default now()
-, with_grant_option boolean not null default false
-, constraint valid_actions check (
-    actions <@ '{read,create,update,delete}'::text[]
-  )
-);
-
-create unique index idx_tree_grant_unique on {{schema}}.tree_grant (user_id, tree_path);
-create index idx_tree_grant_user on {{schema}}.tree_grant using btree (user_id);
-create index idx_tree_grant_path on {{schema}}.tree_grant using gist (tree_path);
-
--------------------------------------------------------------------------------
--- role membership
--------------------------------------------------------------------------------
-create table {{schema}}.role_membership
-( role_id   uuid not null references {{schema}}."user"(id) on delete cascade
-, member_id uuid not null references {{schema}}."user"(id) on delete cascade
-, with_admin_option boolean not null default false
-, created_at timestamptz not null default now()
-, primary key (role_id, member_id)
-, constraint no_self_membership check (role_id <> member_id)
-);
-
-create index idx_role_membership_member on {{schema}}.role_membership(member_id);
-
--- ===== Cycle Detection =====
-create function {{schema}}.would_create_cycle
-( _role_id uuid
-, _member_id uuid
-)
-returns boolean
-as $func$
-  with recursive ancestors(id) as (
-    select rm.role_id
-    from {{schema}}.role_membership rm
-    where rm.member_id = _role_id
-    union
-    select rm.role_id
-    from {{schema}}.role_membership rm
-    inner join ancestors a on a.id = rm.member_id
-  )
-  select _member_id = _role_id
-    or exists
-    (
-      select 1
-      from ancestors
-      where id = _member_id
-    )
-$func$ language sql stable security invoker
-set search_path to pg_catalog, {{schema}}, pg_temp
-;
-
--------------------------------------------------------------------------------
--- tree ownership
--------------------------------------------------------------------------------
-create table {{schema}}.tree_owner
-( tree_path    ltree primary key
-, user_id      uuid not null references {{schema}}."user"(id) on delete cascade
-, created_by   uuid references {{schema}}."user"(id)
-, created_at   timestamptz not null default now()
-);
-
-create index idx_tree_owner_user on {{schema}}.tree_owner (user_id);
-create index idx_tree_owner_gist on {{schema}}.tree_owner using gist (tree_path);
 
 -------------------------------------------------------------------------------
 -- tree access
@@ -537,13 +587,8 @@ set search_path to pg_catalog, {{schema}}, public, pg_temp
 revoke all on function {{schema}}.tree_access(uuid, text) from public;
 grant execute on function {{schema}}.tree_access(uuid, text) to me_ro, me_rw;
 
--- defense in depth: revoke PUBLIC access on auth tables
-revoke all on {{schema}}."user" from public;
-revoke all on {{schema}}.api_key from public;
-revoke all on {{schema}}.tree_grant from public;
-revoke all on {{schema}}.role_membership from public;
-revoke all on {{schema}}.tree_owner from public;
 
+/*
 -- ===== RLS on memory =====
 alter table {{schema}}.memory enable row level security;
 
@@ -604,6 +649,4 @@ create policy memory_delete on {{schema}}.memory
     )
   );
 
--- ===== Memory FK =====
-alter table {{schema}}.memory add constraint memory_created_by_fk
-  foreign key (created_by) references {{schema}}."user"(id) on delete set null;
+*/
