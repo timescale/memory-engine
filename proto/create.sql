@@ -96,23 +96,20 @@ set search_path to {{schema}}, pg_temp;
 create table {{schema}}."user"
 ( id uuid primary key default uuidv7() check (uuid_extract_version(id) = 7)
 , name citext not null unique
-, identity_id uuid check (identity_id is null or uuid_extract_version(identity_id) = 7) -- soft FK to accounts.identity
 , superuser boolean not null default false
 , created_at timestamptz not null default now()
 , updated_at timestamptz
 );
 
-create index idx_user_identity_id on {{schema}}."user" (identity_id) where identity_id is not null;
-
-create trigger user_updated_at
+create or replace trigger user_updated_at
 before update on {{schema}}."user"
 for each row
 execute function {{schema}}.update_updated_at()
 ;
 
 revoke all on {{schema}}."user" from public;
-grant select on {{schema}}."user" to me_ro;
-grant select, insert, update, delete on {{schema}}."user" to me_rw;
+grant select on {{schema}}."user" to me_ro, me_rw;
+-- NO direct writes on the table. must go through functions
 
 -------------------------------------------------------------------------------
 -- role membership
@@ -129,13 +126,13 @@ create table {{schema}}.role_membership
 create index idx_role_membership_role on {{schema}}.role_membership(role_id) include (member_id);
 
 revoke all on {{schema}}.role_membership from public;
-grant select on {{schema}}.role_membership to me_ro;
-grant select, insert, update, delete on {{schema}}.role_membership to me_rw;
+grant select on {{schema}}.role_membership to me_ro, me_rw;
+-- NO direct writes on the table. must go through functions
 
 -------------------------------------------------------------------------------
 -- would_create_cycle
 -------------------------------------------------------------------------------
-create function {{schema}}.would_create_cycle
+create or replace function {{schema}}.would_create_cycle
 ( _role_id uuid
 , _member_id uuid
 )
@@ -158,7 +155,7 @@ as $func$
       from ancestors
       where id = _member_id
     )
-$func$ language sql stable security invoker
+$func$ language sql stable security definer
 parallel safe
 set search_path to pg_catalog, {{schema}}, pg_temp
 ;
@@ -174,7 +171,7 @@ grant execute on function {{schema}}.would_create_cycle(uuid, uuid) to me_rw;
 -- transactions that insert/update related role edges can still race unless the
 -- caller uses stronger locking or serializable transactions around
 -- role_membership writes.
-create function {{schema}}.role_membership_before_write()
+create or replace function {{schema}}.role_membership_before_write()
 returns trigger
 as $func$
 begin
@@ -184,11 +181,11 @@ begin
   end if;
   return new;
 end;
-$func$ language plpgsql volatile security invoker
+$func$ language plpgsql volatile security definer
 set search_path to pg_catalog, {{schema}}, pg_temp
 ;
 
-create trigger role_membership_before_write_trg
+create or replace trigger role_membership_before_write_trg
 before insert or update of role_id, member_id on {{schema}}.role_membership
 for each row
 execute function {{schema}}.role_membership_before_write()
@@ -228,18 +225,67 @@ as $func$
   from {{schema}}."user" u
   inner join ancestors a on (u.id = a.id)
 $func$ language sql stable security invoker
+;
+
+revoke all on function {{schema}}.explode_role_membership(uuid) from public;
+grant execute on function {{schema}}.explode_role_membership(uuid) to me_ro, me_rw;
+
+-------------------------------------------------------------------------------
+-- is_superuser
+-------------------------------------------------------------------------------
+create or replace function {{schema}}.is_superuser(_user_id uuid)
+returns boolean
+as $func$
+  select exists
+  (
+    select 1
+    from {{schema}}.explode_role_membership(_user_id) x
+    where x.superuser
+  )
+$func$ language sql stable security definer
 set search_path to pg_catalog, {{schema}}, pg_temp
 ;
+
+revoke all on function {{schema}}.is_superuser(uuid) from public;
+grant execute on function {{schema}}.is_superuser(uuid) to me_ro, me_rw;
 
 -------------------------------------------------------------------------------
 -- grant_role_membership
 -------------------------------------------------------------------------------
-create or replace function {{schema}}.grant_role_membership(_role_id uuid, _member_id uuid, _with_admin_option bool default false)
+create or replace function {{schema}}.grant_role_membership
+( _grantor_id uuid
+, _role_id uuid
+, _member_id uuid
+, _with_admin_option bool default false
+)
 returns void
 as $func$
+declare
+  _allowed bool;
 begin
   -- exclusive write access required to fully ensure against cycle creation by concurrent writes
   lock table {{schema}}.role_membership in share row exclusive mode;
+
+  -- is grantor allowed to do this?
+  select
+    exists
+    (
+      -- does the grantor have with admin privilege directly on this role?
+      select 1
+      from {{schema}}.role_membership rm
+      where rm.role_id = _role_id
+      and rm.member_id = _grantor_id
+      and rm.with_admin_option
+    )
+    or {{schema}}.is_superuser(_grantor_id) -- or are they a superuser (even indirectly)?
+  into strict _allowed
+  ;
+
+  if not _allowed then
+    raise exception 'grantor must be a superuser or have with admin option on role: grantor_id % role_id %', _grantor_id, _role_id
+      using errcode = 'insufficient_privilege';
+  end if;
+
   -- role_membership_before_write_trg protects against cycles in the graph
   insert into {{schema}}.role_membership
   ( role_id
@@ -250,20 +296,52 @@ begin
   ( _role_id
   , _member_id
   , _with_admin_option
-  );
+  )
+  on conflict (member_id, role_id)
+  do update set with_admin_option = _with_admin_option
+  ;
 end;
-$func$ language plpgsql volatile security invoker
+$func$ language plpgsql volatile security definer
 set search_path to pg_catalog, {{schema}}, pg_temp
 ;
+
+revoke all on function {{schema}}.grant_role_membership(uuid, uuid, uuid, bool) from public;
+grant execute on function {{schema}}.grant_role_membership(uuid, uuid, uuid, bool) to me_rw;
 
 -------------------------------------------------------------------------------
 -- revoke_role_membership
 -------------------------------------------------------------------------------
-create or replace function {{schema}}.revoke_role_membership(_role uuid, _member_id uuid)
+create or replace function {{schema}}.revoke_role_membership
+( _revoker_id uuid
+, _role_id uuid
+, _member_id uuid
+)
 returns void
 as $func$
+declare
+  _allowed bool;
 begin
   lock table {{schema}}.role_membership in share row exclusive mode;
+
+  -- is revoker allowed to do this?
+  select
+    exists
+    (
+      -- does the revoker have with admin privilege directly on this role?
+      select 1
+      from {{schema}}.role_membership rm
+      where rm.role_id = _role_id
+      and rm.member_id = _revoker_id
+      and rm.with_admin_option
+    )
+    or {{schema}}.is_superuser(_revoker_id) -- or are they a superuser (even indirectly)?
+  into strict _allowed
+  ;
+
+  if not _allowed then
+    raise exception 'revoker must be a superuser or have with admin option on role: revoker_id % role_id %', _revoker_id, _role_id
+      using errcode = 'insufficient_privilege';
+  end if;
 
   delete from {{schema}}.role_membership d
   where d.role_id = _role_id
@@ -273,6 +351,9 @@ end;
 $func$ language plpgsql volatile security invoker
 set search_path to pg_catalog, {{schema}}, pg_temp
 ;
+
+revoke all on function {{schema}}.grant_role_membership(uuid, uuid, uuid, bool) from public;
+grant execute on function {{schema}}.grant_role_membership(uuid, uuid, uuid, bool) to me_rw;
 
 -------------------------------------------------------------------------------
 -- tree ownership
@@ -310,6 +391,110 @@ create index idx_tree_grant_path on {{schema}}.tree_grant using gist (tree_path)
 revoke all on {{schema}}.tree_grant from public;
 grant select on {{schema}}.tree_grant to me_ro;
 grant select, insert, update, delete on {{schema}}.tree_grant to me_rw;
+
+-------------------------------------------------------------------------------
+-- calc_tree_privileges
+-------------------------------------------------------------------------------
+create or replace function {{schema}}.calc_tree_privileges(_user_id uuid)
+returns table
+( role_id uuid
+, tree_path ltree
+, actions text[]
+, reason text
+)
+as $func$
+  with r as
+  (
+    -- the user
+    select
+      u.id as role_id
+    , u.superuser
+    from me."user" u
+    where u.id = _user_id
+    union
+    -- the roles they belong to
+    select
+      x.role_id
+    , x.superuser
+    from {{schema}}.explode_role_membership(_user_id) x
+  )
+  -- superuser
+  select
+    r.role_id
+  , ''::ltree as tree_path
+  , array['read', 'create', 'update', 'delete'] as actions
+  , 'superuser' as reason
+  from r
+  where r.superuser
+  union all
+  -- ownership
+  select
+    r.role_id
+  , o.tree_path
+  , array['read', 'create', 'update', 'delete'] as actions
+  , 'owner' as reason
+  from r
+  inner join {{schema}}.tree_owner o on (r.role_id = o.user_id)
+  union all
+  -- grants
+  select
+    r.role_id
+  , g.tree_path
+  , g.actions
+  , 'grant' as reason
+  from r
+  inner join {{schema}}.tree_grant g on (r.role_id = g.user_id)
+$func$ language sql stable security definer
+set search_path to pg_catalog, {{schema}}, public, pg_temp
+;
+
+revoke all on function {{schema}}.calc_tree_privileges(uuid) from public;
+grant execute on function {{schema}}.calc_tree_privileges(uuid) to me_ro, me_rw;
+
+-------------------------------------------------------------------------------
+-- has_tree_privilege
+-------------------------------------------------------------------------------
+create or replace function {{schema}}.has_tree_privilege
+( _user_id uuid
+, _tree_path ltree
+, _actions text[]
+)
+returns bool
+as $func$
+  select
+  -- is the user a superuser?
+  exists
+    (
+      select 1
+      from {{schema}}.explode_role_membership(_user_id) x
+      where x.superuser
+    )
+  -- or do they own the branch of the tree?
+  or exists
+    (
+      select 1
+      from {{schema}}.explode_role_membership(_user_id) x
+      inner join {{schema}}.tree_owner o
+      on (x.role_id = o.user_id and o.tree_path @> _tree_path)
+    )
+  -- or do they have an explicit grant to the branch?
+  or exists
+    (
+      select 1
+      from {{schema}}.explode_role_membership(_user_id) x
+      inner join {{schema}}.tree_grant g
+      on
+      ( x.role_id = g.user_id
+      and g.tree_path @> _tree_path
+      and g.actions @> _actions
+      )
+    )
+$func$ language sql stable security definer
+set search_path to pg_catalog, {{schema}}, public, pg_temp
+;
+
+revoke all on function {{schema}}.has_tree_privilege(uuid, ltree, text[]) from public;
+grant execute on function {{schema}}.has_tree_privilege(uuid, ltree, text[]) to me_ro, me_rw;
 
 -------------------------------------------------------------------------------
 -- memory
@@ -392,11 +577,10 @@ end;
 $func$ language plpgsql volatile security definer
 set search_path to {{schema}}, public, pg_temp; -- public required for pgvector's `is not distinct from`
 
-create trigger memory_before_update_trg
+create or replace trigger memory_before_update_trg
 before update on {{schema}}.memory
 for each row
 execute function {{schema}}.memory_before_update();
-
 
 -------------------------------------------------------------------------------
 -- embedding queue
@@ -442,14 +626,14 @@ set search_path to pg_catalog, {{schema}}, pg_temp
 -------------------------------------------------------------------------------
 -- enqueuing triggers
 -------------------------------------------------------------------------------
-create trigger memory_enqueue_embedding_insert
+create or replace trigger memory_enqueue_embedding_insert
 after insert on {{schema}}.memory
 for each row
 when (new.embedding is null) -- it's possible to insert WITH an embedding
 execute function {{schema}}.enqueue_embedding()
 ;
 
-create trigger memory_enqueue_embedding_update
+create or replace trigger memory_enqueue_embedding_update
 after update on {{schema}}.memory
 for each row
 when
@@ -616,115 +800,3 @@ create table {{schema}}.api_key
 
 create index idx_api_key_user on {{schema}}.api_key (user_id);
 create index idx_api_key_lookup on {{schema}}.api_key (lookup_id) where revoked_at is null;
-
-
--------------------------------------------------------------------------------
--- tree access
--------------------------------------------------------------------------------
--- Returns set of tree paths the user can access for the given action.
--- Superusers get ''::ltree (empty root) which matches all paths via <@.
-create function {{schema}}.tree_access
-( _user_id uuid
-, _action text
-)
-returns setof ltree
-as $func$
-  with recursive effective_roles(user_id) as
-  (
-    select _user_id
-    union
-    select rm.role_id
-    from {{schema}}.role_membership rm
-    inner join effective_roles er on (er.user_id = rm.member_id)
-  )
-  select distinct tree_path
-  from
-  (
-    -- superuser: empty ltree matches everything via <@
-    select ''::ltree as tree_path
-    from {{schema}}."user" u
-    inner join effective_roles er on (u.id = er.user_id)
-    where u.superuser
-    union
-    -- ownership grants full access
-    select o.tree_path
-    from {{schema}}.tree_owner o
-    inner join effective_roles er on (er.user_id = o.user_id)
-    union
-    -- explicit grants for the requested action
-    select g.tree_path
-    from {{schema}}.tree_grant g
-    inner join effective_roles er on (er.user_id = g.user_id)
-    where _action = any(g.actions)
-  )
-$func$
-language sql stable security definer
-set search_path to pg_catalog, {{schema}}, public, pg_temp
-;
-
-revoke all on function {{schema}}.tree_access(uuid, text) from public;
-grant execute on function {{schema}}.tree_access(uuid, text) to me_ro, me_rw;
-
-
-/*
--- ===== RLS on memory =====
-alter table {{schema}}.memory enable row level security;
-
-create policy memory_select on {{schema}}.memory
-  for select to me_ro, me_rw
-  using
-  (
-    exists
-    (
-      select true
-      from {{schema}}.tree_access(current_setting('me.user_id', true)::uuid, 'read') ta(tree_path)
-      where tree <@ ta.tree_path
-    )
-  );
-
-create policy memory_insert on {{schema}}.memory
-  for insert to me_rw
-  with check
-  (
-    exists
-    (
-      select true
-      from {{schema}}.tree_access(current_setting('me.user_id', true)::uuid, 'create') ta(tree_path)
-      where tree <@ ta.tree_path
-    )
-  );
-
-create policy memory_update on {{schema}}.memory
-  for update to me_rw
-  using
-  (
-    exists
-    (
-      select true
-      from {{schema}}.tree_access(current_setting('me.user_id', true)::uuid, 'update') ta(tree_path)
-      where tree <@ ta.tree_path
-    )
-  )
-  with check
-  (
-    exists
-    (
-      select true
-      from {{schema}}.tree_access(current_setting('me.user_id', true)::uuid, 'update') ta(tree_path)
-      where tree <@ ta.tree_path
-    )
-  );
-
-create policy memory_delete on {{schema}}.memory
-  for delete to me_rw
-  using
-  (
-    exists
-    (
-      select true
-      from {{schema}}.tree_access(current_setting('me.user_id', true)::uuid, 'delete') ta(tree_path)
-      where tree <@ ta.tree_path
-    )
-  );
-
-*/
