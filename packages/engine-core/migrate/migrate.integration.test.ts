@@ -128,16 +128,34 @@ describe("migrateEngine", () => {
     expect(await schemaExists(schema)).toBe(true);
     expect(await tableExists(schema, "version")).toBe(true);
     expect(await tableExists(schema, "migration")).toBe(true);
+    expect(await tableExists(schema, "user")).toBe(true);
+    expect(await tableExists(schema, "role_membership")).toBe(true);
+    expect(await tableExists(schema, "tree_owner")).toBe(true);
+    expect(await tableExists(schema, "tree_grant")).toBe(true);
+    expect(await tableExists(schema, "memory")).toBe(true);
+    expect(await tableExists(schema, "embedding_queue")).toBe(true);
     expect(await engineVersion(schema)).toBe("0.1.0");
 
     const rows = await getSql()`
       select name, applied_at_version, applied_at
       from ${getSql()(schema)}.migration
+      order by name
     `;
-    expect(rows).toHaveLength(1);
-    expect(rows[0].name).toBe("001_updated_at");
-    expect(rows[0].applied_at_version).toBe("0.1.0");
-    expect(rows[0].applied_at).toBeTruthy();
+    expect(rows.map((row: { name: string }) => row.name)).toEqual([
+      "001_user",
+      "002_role_membership",
+      "003_tree_ownership",
+      "004_tree_grant",
+      "005_memory",
+      "006_embedding_queue",
+    ]);
+    for (const row of rows as Array<{
+      applied_at_version: string;
+      applied_at: Date;
+    }>) {
+      expect(row.applied_at_version).toBe("0.1.0");
+      expect(row.applied_at).toBeTruthy();
+    }
   });
 
   test("is idempotent", async () => {
@@ -147,7 +165,7 @@ describe("migrateEngine", () => {
     await migrateEngine(getSql(), { slug, targetVersion: "0.1.0" });
     await migrateEngine(getSql(), { slug, targetVersion: "0.1.0" });
 
-    expect(await migrationCount(schema)).toBe(1);
+    expect(await migrationCount(schema)).toBe(6);
     expect(await engineVersion(schema)).toBe("0.1.0");
   });
 
@@ -180,7 +198,7 @@ describe("migrateEngine", () => {
     await migrateEngine(getSql(), { slug, targetVersion: "0.2.0" });
     await migrateEngine(getSql(), { slug, targetVersion: "0.2.0" });
 
-    expect(await migrationCount(schema)).toBe(1);
+    expect(await migrationCount(schema)).toBe(6);
     expect(await engineVersion(schema)).toBe("0.2.0");
   });
 
@@ -191,7 +209,7 @@ describe("migrateEngine", () => {
     await migrateEngine(getSql(), { slug, targetVersion: "0.1.0" });
     await migrateEngine(getSql(), { slug, targetVersion: "0.2.0" });
 
-    expect(await migrationCount(schema)).toBe(1);
+    expect(await migrationCount(schema)).toBe(6);
     expect(await engineVersion(schema)).toBe("0.2.0");
   });
 

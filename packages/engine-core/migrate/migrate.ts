@@ -3,16 +3,57 @@ import type { SQL } from "bun";
 import { semver } from "bun";
 import { isValidSlug, slugToSchema } from "../slug";
 
-import migration001 from "./migrations/001_updated_at.sql" with {
+import incremental001 from "./incremental/001_user.sql" with { type: "text" };
+import incremental002 from "./incremental/002_role_membership.sql" with {
+  type: "text",
+};
+import incremental003 from "./incremental/003_tree_ownership.sql" with {
+  type: "text",
+};
+import incremental004 from "./incremental/004_tree_grant.sql" with {
+  type: "text",
+};
+import incremental005 from "./incremental/005_memory.sql" with { type: "text" };
+import incremental006 from "./incremental/006_embedding_queue.sql" with {
   type: "text",
 };
 
-interface Migration {
+interface Incremental {
   name: string;
   sql: string;
 }
 
-const migrations: Migration[] = [{ name: "001_updated_at", sql: migration001 }];
+const incrementals: Incremental[] = [
+  { name: "001_user", sql: incremental001 },
+  { name: "002_role_membership", sql: incremental002 },
+  { name: "003_tree_ownership", sql: incremental003 },
+  { name: "004_tree_grant", sql: incremental004 },
+  { name: "005_memory", sql: incremental005 },
+  { name: "006_embedding_queue", sql: incremental006 },
+];
+
+import idempotent001 from "./idempotent/001_role_membership.sql" with {
+  type: "text",
+};
+import idempotent002 from "./idempotent/002_tree_privileges.sql" with {
+  type: "text",
+};
+import idempotent003 from "./idempotent/003_memory.sql" with { type: "text" };
+import idempotent004 from "./idempotent/004_embedding_queue.sql" with {
+  type: "text",
+};
+
+interface Idempotent {
+  name: string;
+  sql: string;
+}
+
+const idempotents: Idempotent[] = [
+  { name: "001_role_membership", sql: idempotent001 },
+  { name: "002_tree_privileges", sql: idempotent002 },
+  { name: "003_memory", sql: idempotent003 },
+  { name: "004_embedding_queue", sql: idempotent004 },
+];
 
 export interface MigrateEngineOptions {
   slug: string;
@@ -108,6 +149,22 @@ function normalizeMigrateEngineOptions(
   };
 }
 
+function templateVars(
+  schema: string,
+  options: NormalizedMigrateEngineOptions,
+): Record<string, unknown> {
+  return {
+    ...options,
+    schema,
+    embedding_dimensions: options.embeddingDimensions,
+    bm25_text_config: options.bm25TextConfig,
+    bm25_k1: options.bm25K1,
+    bm25_b: options.bm25B,
+    hnsw_m: options.hnswM,
+    hnsw_ef_construction: options.hnswEfConstruction,
+  };
+}
+
 function advisoryLockKey(schema: string): [number, number] {
   const digest = createHash("sha256").update(schema).digest();
   return [digest.readInt32BE(0), digest.readInt32BE(4)];
@@ -187,13 +244,29 @@ async function runMigrations(
   // check ownership
   await assertSchemaOwnership(tx, schema);
 
-  // check version (reject downgrades)
-  await assertVersion(tx, schema, options.targetVersion);
+  // check version
+  const [{ version: dbVersion }] = await tx`
+    select version from ${tx(schema)}.version
+  `;
+  const cmp = semver.order(options.targetVersion, dbVersion);
+  // abort if target is older than the database
+  if (cmp < 0) {
+    throw new Error(
+      `Target version (${options.targetVersion}) is older than database version (${dbVersion}). ` +
+        "Please upgrade the server.",
+    );
+  }
+  if (cmp === 0) {
+    // version matches. no need to run migrations
+    return;
+  }
 
-  // run migrations
-  const sorted = [...migrations].sort((a, b) => a.name.localeCompare(b.name));
+  // run incremental migrations
+  const sorted1 = [...incrementals].sort((a, b) =>
+    a.name.localeCompare(b.name),
+  );
 
-  for (const migration of sorted) {
+  for (const migration of sorted1) {
     const [{ existing }] = await tx`
       select exists
       (
@@ -207,15 +280,19 @@ async function runMigrations(
       continue;
     }
 
-    const templateVars: Record<string, unknown> = {
-      ...options,
-      schema,
-    };
-    const renderedSql = template(migration.sql, templateVars);
+    const renderedSql = template(migration.sql, templateVars(schema, options));
     await tx.unsafe(renderedSql);
     await tx`
       insert into ${tx(schema)}.migration (name, applied_at_version)
       values (${migration.name}, ${options.targetVersion})`;
+  }
+
+  // run idempotent migrations
+  const sorted2 = [...idempotents].sort((a, b) => a.name.localeCompare(b.name));
+
+  for (const migration of sorted2) {
+    const renderedSql = template(migration.sql, templateVars(schema, options));
+    await tx.unsafe(renderedSql);
   }
 
   // update version
@@ -233,24 +310,6 @@ async function assertSchemaOwnership(tx: SQL, schema: string): Promise<void> {
   if (!result?.is_owner) {
     throw new Error(
       `Only the owner of the ${schema} schema can run database migrations`,
-    );
-  }
-}
-
-async function assertVersion(
-  tx: SQL,
-  schema: string,
-  targetVersion: string,
-): Promise<void> {
-  const [{ version: dbVersion }] = await tx`
-    select version from ${tx(schema)}.version
-  `;
-
-  const cmp = semver.order(targetVersion, dbVersion);
-  if (cmp < 0) {
-    throw new Error(
-      `Target version (${targetVersion}) is older than database version (${dbVersion}). ` +
-        "Please upgrade the server.",
     );
   }
 }
