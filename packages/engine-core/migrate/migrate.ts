@@ -102,7 +102,7 @@ function normalizeMigrateEngineOptions(
     hnswEfConstruction: options.hnswEfConstruction ?? 64,
     statementTimeout: options.statementTimeout ?? "20s",
     lockTimeout: options.lockTimeout ?? "5s",
-    transactionTimeout: options.transactionTimeout ?? "1m",
+    transactionTimeout: options.transactionTimeout ?? "1min",
     idleInTransactionSessionTimeout:
       options.idleInTransactionSessionTimeout ?? "5s",
   };

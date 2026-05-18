@@ -1,0 +1,207 @@
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { SQL } from "bun";
+import { bootstrapEngineDatabase } from "./bootstrap";
+import { migrateEngine } from "./migrate";
+
+const adminUrl =
+  process.env.ENGINE_CORE_TEST_DATABASE_URL ??
+  "postgresql://postgres@localhost:5432/postgres";
+
+// These tests expect the local Postgres image from docker/Dockerfile.postgres,
+// usually started with `./bun run pg`, unless ENGINE_CORE_TEST_DATABASE_URL is set.
+
+let dbName: string | undefined;
+let sql: SQL | undefined;
+
+function assertSafeIdentifier(name: string): void {
+  if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(name)) {
+    throw new Error(`Unsafe database identifier: ${name}`);
+  }
+}
+
+function getSql(): SQL {
+  if (!sql) throw new Error("test database is not initialized");
+  return sql;
+}
+
+function randomSlug(): string {
+  return `t${Math.random().toString(36).slice(2, 13).padEnd(11, "0")}`;
+}
+
+function schemaFor(slug: string): string {
+  return `me_${slug}`;
+}
+
+async function createTestDatabase(): Promise<string> {
+  dbName = `test_engine_core_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  assertSafeIdentifier(dbName);
+
+  const admin = new SQL(adminUrl);
+  try {
+    await admin.unsafe(`create database ${dbName}`);
+  } finally {
+    await admin.close();
+  }
+
+  const url = new URL(adminUrl);
+  url.pathname = `/${dbName}`;
+  return url.toString();
+}
+
+async function dropTestDatabase(): Promise<void> {
+  if (!dbName) return;
+  assertSafeIdentifier(dbName);
+
+  const admin = new SQL(adminUrl);
+  try {
+    await admin`
+      select pg_terminate_backend(pid)
+      from pg_stat_activity
+      where datname = ${dbName}
+        and pid <> pg_backend_pid()
+    `;
+    await admin.unsafe(`drop database if exists ${dbName}`);
+  } finally {
+    await admin.close();
+    dbName = undefined;
+  }
+}
+
+async function schemaExists(schema: string): Promise<boolean> {
+  const [{ exists }] = await getSql()`
+    select exists (
+      select 1
+      from information_schema.schemata
+      where schema_name = ${schema}
+    ) as exists
+  `;
+  return exists;
+}
+
+async function tableExists(schema: string, table: string): Promise<boolean> {
+  const [{ exists }] = await getSql()`
+    select exists (
+      select 1
+      from information_schema.tables
+      where table_schema = ${schema}
+        and table_name = ${table}
+    ) as exists
+  `;
+  return exists;
+}
+
+async function migrationCount(schema: string): Promise<number> {
+  const [{ count }] = await getSql()`
+    select count(*)::int as count
+    from ${getSql()(schema)}.migration
+  `;
+  return count;
+}
+
+async function engineVersion(schema: string): Promise<string> {
+  const [{ version }] = await getSql()`
+    select version
+    from ${getSql()(schema)}.version
+  `;
+  return version;
+}
+
+beforeAll(async () => {
+  const connectionString = await createTestDatabase();
+  sql = new SQL(connectionString);
+  await bootstrapEngineDatabase(sql);
+});
+
+afterAll(async () => {
+  await sql?.close();
+  sql = undefined;
+  await dropTestDatabase();
+});
+
+describe("migrateEngine", () => {
+  test("provisions a new engine schema", async () => {
+    const slug = randomSlug();
+    const schema = schemaFor(slug);
+
+    await migrateEngine(getSql(), { slug, targetVersion: "0.1.0" });
+
+    expect(await schemaExists(schema)).toBe(true);
+    expect(await tableExists(schema, "version")).toBe(true);
+    expect(await tableExists(schema, "migration")).toBe(true);
+    expect(await engineVersion(schema)).toBe("0.1.0");
+
+    const rows = await getSql()`
+      select name, applied_at_version, applied_at
+      from ${getSql()(schema)}.migration
+    `;
+    expect(rows).toHaveLength(1);
+    expect(rows[0].name).toBe("001_updated_at");
+    expect(rows[0].applied_at_version).toBe("0.1.0");
+    expect(rows[0].applied_at).toBeTruthy();
+  });
+
+  test("is idempotent", async () => {
+    const slug = randomSlug();
+    const schema = schemaFor(slug);
+
+    await migrateEngine(getSql(), { slug, targetVersion: "0.1.0" });
+    await migrateEngine(getSql(), { slug, targetVersion: "0.1.0" });
+
+    expect(await migrationCount(schema)).toBe(1);
+    expect(await engineVersion(schema)).toBe("0.1.0");
+  });
+
+  test("rejects invalid slug", async () => {
+    await expect(
+      migrateEngine(getSql(), { slug: "bad-slug", targetVersion: "0.1.0" }),
+    ).rejects.toThrow("Invalid engine slug");
+  });
+
+  test("rejects invalid targetVersion", async () => {
+    await expect(
+      migrateEngine(getSql(), { slug: randomSlug(), targetVersion: "nope" }),
+    ).rejects.toThrow("Invalid target version");
+  });
+
+  test("rejects downgrade", async () => {
+    const slug = randomSlug();
+
+    await migrateEngine(getSql(), { slug, targetVersion: "0.2.0" });
+
+    await expect(
+      migrateEngine(getSql(), { slug, targetVersion: "0.1.0" }),
+    ).rejects.toThrow("older than database version");
+  });
+
+  test("allows equal current version rerun", async () => {
+    const slug = randomSlug();
+    const schema = schemaFor(slug);
+
+    await migrateEngine(getSql(), { slug, targetVersion: "0.2.0" });
+    await migrateEngine(getSql(), { slug, targetVersion: "0.2.0" });
+
+    expect(await migrationCount(schema)).toBe(1);
+    expect(await engineVersion(schema)).toBe("0.2.0");
+  });
+
+  test("allows upgrade without pending migrations", async () => {
+    const slug = randomSlug();
+    const schema = schemaFor(slug);
+
+    await migrateEngine(getSql(), { slug, targetVersion: "0.1.0" });
+    await migrateEngine(getSql(), { slug, targetVersion: "0.2.0" });
+
+    expect(await migrationCount(schema)).toBe(1);
+    expect(await engineVersion(schema)).toBe("0.2.0");
+  });
+
+  test("rejects unsafe shardId", async () => {
+    await expect(
+      migrateEngine(getSql(), {
+        slug: randomSlug(),
+        targetVersion: "0.1.0",
+        shardId: Number.MAX_SAFE_INTEGER + 1,
+      }),
+    ).rejects.toThrow("shardId must be a safe integer");
+  });
+});
