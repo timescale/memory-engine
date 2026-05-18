@@ -1,0 +1,6 @@
+{
+  "name": "@memory.build/engine-core",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module"
+}
