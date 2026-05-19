@@ -15,6 +15,7 @@
     "clean": "rm -rf packages/cli/dist dist",
     "docs": "./bun --filter @memory.build/docs-site dev",
     "docs:build": "./bun --filter @memory.build/docs-site build",
+    "engine-core:migrate": "./bun scripts/migrate-engine-core.ts",
     "web": "./bun --filter @memory.build/web dev",
     "web:build": "./bun --filter @memory.build/web build",
     "generate:master-key": "./bun scripts/generate-master-key.ts",

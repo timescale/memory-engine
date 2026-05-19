@@ -28,6 +28,41 @@ for each row
 execute function {{schema}}.memory_before_update();
 
 -------------------------------------------------------------------------------
+-- get memory
+-------------------------------------------------------------------------------
+create or replace function {{schema}}.get_memory
+( _user_id uuid
+, _id uuid default null
+)
+returns table
+( id uuid
+, tree ltree
+, meta jsonb
+, temporal tstzrange
+, content text
+, created_at timestamptz
+, updated_at timestamptz
+, has_embedding bool
+)
+as $func$
+  select
+    m.id
+  , m.tree
+  , m.meta
+  , m.temporal
+  , m.content
+  , m.created_at
+  , m.updated_at
+  , m.embedding is not null
+  into _memory
+  from {{schema}}.memory m
+  where m.id = _id
+  and {{schema}}.has_tree_privilege(_user_id, m.tree, array['read'])
+$func$ language sql stable security definer
+set search_path to pg_catalog, {{schema}}, public, pg_temp
+;
+
+-------------------------------------------------------------------------------
 -- create memory
 -------------------------------------------------------------------------------
 create or replace function {{schema}}.create_memory
@@ -82,17 +117,31 @@ create or replace function {{schema}}.update_memory
 returns bool
 as $func$
 begin
-  if not {{schema}}.has_tree_privilege(_user_id, _tree, array['update']) then
-    raise exception 'user (%) must be a superuser or own or have update on the tree path %', _user_id, _tree
-      using errcode = 'insufficient_privilege';
-  end if;
-
-  update {{schema}}.memory set
+  with p as materialized
+  (
+    select p.tree_path, p.actions
+    from {{schema}}.calc_tree_privileges(_user_id) p
+  )
+  update {{schema}}.memory m set
     tree = _tree
   , meta = meta || _meta
   , temporal = _temporal
   , content = _content
-  where id = _id
+  where m.id = _id
+  and exists
+  (
+    select 1
+    from p
+    where p.tree_path @> m.tree
+    and p.actions @> array['update']
+  )
+  and (m.tree @> _tree or exists
+  (
+    select 1
+    from p
+    where p.tree_path @> _tree
+    and p.actions @> array['insert']
+  ))
   ;
   return found;
 end;
@@ -101,45 +150,68 @@ set search_path to pg_catalog, {{schema}}, public, pg_temp
 ;
 
 -------------------------------------------------------------------------------
--- move memories
+-- move tree
 -------------------------------------------------------------------------------
-create or replace function {{schema}}.move_memories
+create or replace function {{schema}}.move_tree
 ( _user_id uuid
-, _query lquery
-, _to ltree
+, _src ltree
+, _dst ltree
+, _dry_run bool default false
 )
-returns uuid[]
+returns bigint
 as $func$
 declare
-  _moved uuid[];
+  _moved bigint;
 begin
-  -- must have create on target tree path
-  if not {{schema}}.has_tree_privilege(_user_id, _to, array['create']) then
-    raise exception 'user (%) must be a superuser or own or have create on the tree path %', _user_id, _to
+  -- must have create on _dst tree path
+  if not {{schema}}.has_tree_privilege(_user_id, _dst, array['create']) then
+    raise exception 'user (%) must be a superuser or own or have create on the tree path %', _user_id, _dst
       using errcode = 'insufficient_privilege';
   end if;
 
-  with x as
+  with p as materialized
   (
-    -- must have update on source tree paths
-    select
-      p.role_id
-    , p.tree_path
+    select p.tree_path
     from {{schema}}.calc_tree_privileges(_user_id) p
-    where p.actions @> array['update']
+  )
+  , x as
+  (
+    select m.id
+    from {{schema}}.memory m
+    where _src @> m.tree
+    and exists
+    (
+      select 1
+      from p
+      where p.tree_path @> m.tree
+      and p.actions @> array['read']
+    )
+    and
+    (
+      m.tree @> _dst
+      and exists
+      (
+        select 1
+        from p.tree_path @> m.tree
+
+      )
+    )
   )
   , u as
   (
-    update {{schema}}.memory m set tree = _to
+    update {{schema}}.memory m
+    set tree =
+      case
+        when nlevel(m.tree) = nlevel(_src) then _dst
+        else _dst || subpath(m.tree, nlevel(_src), nlevel(m.tree) - nlevel(_src))
+      end
     from x
-    where m.tree ~ _query
-    and x.tree_path @> m.tree
-    returning id
+    where m.id = x.id
+    and not _dry_run
   )
-  select array_agg(u.id) into strict _moved
-  from u
+  select count(*) into strict _moved
+  from x
   ;
-
   return _moved;
 end;
 $func$ language plpgsql volatile security definer
@@ -147,78 +219,42 @@ set search_path to pg_catalog, {{schema}}, public, pg_temp
 ;
 
 -------------------------------------------------------------------------------
--- move memories
+-- copy tree
 -------------------------------------------------------------------------------
-create or replace function {{schema}}.move_memories
+create or replace function {{schema}}.copy_tree
 ( _user_id uuid
-, _query ltxtquery
-, _to ltree
+, _src ltree
+, _dst ltree
+, _dry_run bool default false
 )
-returns uuid[]
+returns bigint
 as $func$
 declare
-  _moved uuid[];
+  _copied bigint;
 begin
-  -- must have create on target tree path
-  if not {{schema}}.has_tree_privilege(_user_id, _to, array['create']) then
-    raise exception 'user (%) must be a superuser or own or have create on the tree path %', _user_id, _to
+  -- must have create on _dst tree path
+  if not {{schema}}.has_tree_privilege(_user_id, _dst, array['create']) then
+    raise exception 'user (%) must be a superuser or own or have create on the tree path %', _user_id, _dst
       using errcode = 'insufficient_privilege';
   end if;
 
-  with x as
+  with p as materialized
   (
-    -- must have update on source tree paths
-    select
-      p.role_id
-    , p.tree_path
-    from {{schema}}.calc_tree_privileges(_user_id) p
-    where p.actions @> array['update']
-  )
-  , u as
-  (
-    update {{schema}}.memory m set tree = _to
-    from x
-    where m.tree @ _query
-    and x.tree_path @> m.tree
-    returning id
-  )
-  select array_agg(u.id) into strict _moved
-  from u
-  ;
-
-  return _moved;
-end;
-$func$ language plpgsql volatile security definer
-set search_path to pg_catalog, {{schema}}, public, pg_temp
-;
-
--------------------------------------------------------------------------------
--- copy memories
--------------------------------------------------------------------------------
-create or replace function {{schema}}.copy_memories
-( _user_id uuid
-, _query lquery
-, _to ltree
-)
-returns uuid[]
-as $func$
-declare
-  _copied uuid[];
-begin
-  -- must have create on target tree path
-  if not {{schema}}.has_tree_privilege(_user_id, _to, array['create']) then
-    raise exception 'user (%) must be a superuser or own or have create on the tree path %', _user_id, _to
-      using errcode = 'insufficient_privilege';
-  end if;
-
-  with x as
-  (
-    -- must have read on source tree paths
-    select
-      p.role_id
-    , p.tree_path
+    select p.tree_path
     from {{schema}}.calc_tree_privileges(_user_id) p
     where p.actions @> array['read']
+  )
+  , m as
+  (
+    select m.*
+    from {{schema}}.memory m
+    where _src @> m.tree
+    and exists
+    (
+      select 1
+      from p
+      where p.tree_path @> m.tree
+    )
   )
   , i as
   (
@@ -232,78 +268,19 @@ begin
     )
     select
       m.meta
-    , _to
+    , case
+        when nlevel(m.tree) = nlevel(_src) then _dst
+        else _dst || subpath(m.tree, nlevel(_src), nlevel(m.tree) - nlevel(_src))
+      end as dst
     , m.temporal
     , m.content
     , m.embedding
     , m.embedding_version
-    from {{schema}}.memory m
-    inner join x on (x.tree_path @> m.tree)
-    where m.tree ~ _query
-    returning id
+    from m
+    where not _dry_run
   )
-  select array_agg(i.id) into strict _copied
-  from i
-  ;
-
-  return _copied;
-end;
-$func$ language plpgsql volatile security definer
-set search_path to pg_catalog, {{schema}}, public, pg_temp
-;
-
--------------------------------------------------------------------------------
--- copy memories
--------------------------------------------------------------------------------
-create or replace function {{schema}}.copy_memories
-( _user_id uuid
-, _query ltxtquery
-, _to ltree
-)
-returns uuid[]
-as $func$
-declare
-  _copied uuid[];
-begin
-  -- must have create on target tree path
-  if not {{schema}}.has_tree_privilege(_user_id, _to, array['create']) then
-    raise exception 'user (%) must be a superuser or own or have create on the tree path %', _user_id, _to
-      using errcode = 'insufficient_privilege';
-  end if;
-
-  with x as
-  (
-    -- must have read on source tree paths
-    select
-      p.role_id
-    , p.tree_path
-    from {{schema}}.calc_tree_privileges(_user_id) p
-    where p.actions @> array['read']
-  )
-  , i as
-  (
-    insert into {{schema}}.memory
-    ( meta
-    , tree
-    , temporal
-    , content
-    , embedding
-    , embedding_version
-    )
-    select
-      m.meta
-    , _to
-    , m.temporal
-    , m.content
-    , m.embedding
-    , m.embedding_version
-    from {{schema}}.memory m
-    inner join x on (x.tree_path @> m.tree)
-    where m.tree @ _query
-    returning id
-  )
-  select array_agg(i.id) into strict _copied
-  from i
+  select count(*) into strict _copied
+  from m
   ;
 
   return _copied;
@@ -348,63 +325,141 @@ set search_path to pg_catalog, {{schema}}, public, pg_temp
 ;
 
 -------------------------------------------------------------------------------
--- delete memories
+-- delete tree
 -------------------------------------------------------------------------------
-create or replace function {{schema}}.delete_memories
+create or replace function {{schema}}.delete_tree
 ( _user_id uuid
-, _query lquery
+, _tree ltree
+, _dry_run bool default false
 )
-returns uuid[]
+returns bigint
 as $func$
-  with x as
+  with p as materialized
   (
-    select
-      p.role_id
-    , p.tree_path
+    select p.tree_path
     from {{schema}}.calc_tree_privileges(_user_id) p
     where p.actions @> array['delete']
+  )
+  , m as
+  (
+    select m.id
+    from {{schema}}.memory m
+    where _tree @> m.tree
+    and exists
+    (
+      select 1
+      from p
+      where p.tree @> m.tree
+    )
   )
   , d as
   (
     delete from {{schema}}.memory m
     using x
-    where m.tree ~ _query
-    and x.tree_path @> m.tree
-    returning id
+    where m.id = x.id
+    and not _dry_run
   )
-  select array_agg(d.id)
-  from d
+  select count(*)
+  from x
 $func$ language sql volatile security definer
 set search_path to pg_catalog, {{schema}}, public, pg_temp
 ;
 
 -------------------------------------------------------------------------------
--- delete memories
+-- count tree
 -------------------------------------------------------------------------------
-create or replace function {{schema}}.delete_memories
+create or replace function {{schema}}.count_tree
+( _user_id uuid
+, _query lquery
+, _actions text[]
+)
+returns bigint
+as $func$
+  with x as materialized
+  (
+    select p.tree_path
+    from {{schema}}.calc_tree_privileges(_user_id) p
+    where p.actions @> (coalesce(_actions, array['read']))
+  )
+  select count(*)
+  from {{schema}}.memory m
+  where m.tree ~ _query
+  and exists
+  (
+    select 1
+    from x
+    where x.tree_path @> m.tree
+  )
+$func$ language sql stable security definer
+set search_path to pg_catalog, {{schema}}, public, pg_temp
+;
+
+-------------------------------------------------------------------------------
+-- count tree
+-------------------------------------------------------------------------------
+create or replace function {{schema}}.count_tree
 ( _user_id uuid
 , _query ltxtquery
+, _actions text[]
 )
-returns uuid[]
+returns bigint
 as $func$
-  with x as
+  with x as materialized
   (
-    select
-      p.role_id
-    , p.tree_path
+    select p.tree_path
     from {{schema}}.calc_tree_privileges(_user_id) p
-    where p.actions @> array['delete']
+    where p.actions @> (coalesce(_actions, array['read']))
   )
-  , d as
+  select count(*)
+  from {{schema}}.memory m
+  where m.tree @ _query
+  and exists
   (
-    delete from {{schema}}.memory m
-    using x
-    where m.tree @ _query
-    and x.tree_path @> m.tree
-    returning id
+    select 1
+    from x
+    where x.tree_path @> m.tree
   )
-  select array_agg(d.id)
-  from d
-$func$ language sql volatile security definer
+$func$ language sql stable security definer
+set search_path to pg_catalog, {{schema}}, public, pg_temp
+;
+
+-------------------------------------------------------------------------------
+-- list tree
+-------------------------------------------------------------------------------
+create or replace function {{schema}}.list_tree
+( _user_id uuid
+, _query lquery
+)
+returns table
+( tree ltree
+, count bigint
+)
+as $func$
+  with p as
+  (
+    select p.tree_path
+    from {{schema}}.calc_tree_privileges(_user_id) p
+    where p.actions @> array['read']
+  )
+  , m as
+  (
+    select distinct m.id, m.tree
+    from {{schema}}.memory m
+    where m.tree ~ _query
+    and exists
+    (
+      select 1
+      from p
+      where p.tree_path @> m.tree
+    )
+  )
+  select
+    subltree(m.tree, 0, i) as tree
+  , count(m.id) as count
+  from m
+  cross join lateral generate_series(1, nlevel(m.tree)) i
+  group by 1
+  order by 1
+$func$ language sql stable security definer
 set search_path to pg_catalog, {{schema}}, public, pg_temp
 ;

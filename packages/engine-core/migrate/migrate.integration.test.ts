@@ -329,4 +329,196 @@ describe("migrateEngine", () => {
     `;
     expect(exists).toBe(false);
   }, 30_000);
+
+  test("lists tree breadcrumbs without double-counting overlapping privileges", async () => {
+    const slug = randomSlug();
+    const schema = schemaFor(slug);
+    const db = getSql();
+
+    await migrateEngine(db, { slug, targetVersion: "0.1.0" });
+
+    const [{ id: userId }] = await db`
+      insert into ${db(schema)}."user" (name)
+      values (${`tree_user_${slug}`})
+      returning id
+    `;
+
+    await db`
+      insert into ${db(schema)}.tree_owner (tree_path, user_id)
+      values ('work'::ltree, ${userId}::uuid)
+    `;
+    await db`
+      insert into ${db(schema)}.tree_grant (user_id, tree_path, actions)
+      values (${userId}::uuid, 'work.api'::ltree, array['read']::text[])
+    `;
+    await db`
+      insert into ${db(schema)}.memory (tree, content)
+      values
+        ('work.api.auth'::ltree, 'auth')
+      , ('work.api.search'::ltree, 'search')
+      , ('work.ui'::ltree, 'ui')
+    `;
+
+    const rows = await db`
+      select tree::text, count::int
+      from ${db(schema)}.list_tree(${userId}::uuid, 'work.api.*{0,}'::lquery)
+    `;
+
+    expect(rows).toEqual([
+      { tree: "work", count: 2 },
+      { tree: "work.api", count: 2 },
+      { tree: "work.api.auth", count: 1 },
+      { tree: "work.api.search", count: 1 },
+    ]);
+  });
+
+  test("moves a tree by rewriting the source prefix", async () => {
+    const slug = randomSlug();
+    const schema = schemaFor(slug);
+    const db = getSql();
+
+    await migrateEngine(db, { slug, targetVersion: "0.1.0" });
+
+    const [{ id: userId }] = await db`
+      insert into ${db(schema)}."user" (name)
+      values (${`move_user_${slug}`})
+      returning id
+    `;
+
+    await db`
+      insert into ${db(schema)}.tree_owner (tree_path, user_id)
+      values
+        ('work'::ltree, ${userId}::uuid)
+      , ('archive'::ltree, ${userId}::uuid)
+    `;
+    await db`
+      insert into ${db(schema)}.tree_grant (user_id, tree_path, actions)
+      values (${userId}::uuid, 'work.api'::ltree, array['update']::text[])
+    `;
+    await db`
+      insert into ${db(schema)}.memory (tree, content)
+      values
+        ('work.api'::ltree, 'api')
+      , ('work.api.auth'::ltree, 'auth')
+      , ('work.ui'::ltree, 'ui')
+    `;
+
+    const [{ count: dryRunCount }] = await db`
+      select ${db(schema)}.move_tree(
+        ${userId}::uuid,
+        'work.api'::ltree,
+        'archive.api'::ltree,
+        true
+      )::int as count
+    `;
+    expect(dryRunCount).toBe(2);
+
+    const dryRunRows = await db`
+      select tree::text, content
+      from ${db(schema)}.memory
+      order by tree::text
+    `;
+    expect(dryRunRows).toEqual([
+      { tree: "work.api", content: "api" },
+      { tree: "work.api.auth", content: "auth" },
+      { tree: "work.ui", content: "ui" },
+    ]);
+
+    const [{ count: moveCount }] = await db`
+      select ${db(schema)}.move_tree(
+        ${userId}::uuid,
+        'work.api'::ltree,
+        'archive.api'::ltree,
+        false
+      )::int as count
+    `;
+    expect(moveCount).toBe(2);
+
+    const movedRows = await db`
+      select tree::text, content
+      from ${db(schema)}.memory
+      order by tree::text
+    `;
+    expect(movedRows).toEqual([
+      { tree: "archive.api", content: "api" },
+      { tree: "archive.api.auth", content: "auth" },
+      { tree: "work.ui", content: "ui" },
+    ]);
+  });
+
+  test("copies a tree by rewriting the source prefix", async () => {
+    const slug = randomSlug();
+    const schema = schemaFor(slug);
+    const db = getSql();
+
+    await migrateEngine(db, { slug, targetVersion: "0.1.0" });
+
+    const [{ id: userId }] = await db`
+      insert into ${db(schema)}."user" (name)
+      values (${`copy_user_${slug}`})
+      returning id
+    `;
+
+    await db`
+      insert into ${db(schema)}.tree_owner (tree_path, user_id)
+      values
+        ('work'::ltree, ${userId}::uuid)
+      , ('archive'::ltree, ${userId}::uuid)
+    `;
+    await db`
+      insert into ${db(schema)}.tree_grant (user_id, tree_path, actions)
+      values (${userId}::uuid, 'work.api'::ltree, array['read']::text[])
+    `;
+    await db`
+      insert into ${db(schema)}.memory (tree, content)
+      values
+        ('work.api'::ltree, 'api')
+      , ('work.api.auth'::ltree, 'auth')
+      , ('work.ui'::ltree, 'ui')
+    `;
+
+    const [{ count: dryRunCount }] = await db`
+      select ${db(schema)}.copy_tree(
+        ${userId}::uuid,
+        'work.api'::ltree,
+        'archive.api'::ltree,
+        true
+      )::int as count
+    `;
+    expect(dryRunCount).toBe(2);
+
+    const dryRunRows = await db`
+      select tree::text, content
+      from ${db(schema)}.memory
+      order by tree::text, content
+    `;
+    expect(dryRunRows).toEqual([
+      { tree: "work.api", content: "api" },
+      { tree: "work.api.auth", content: "auth" },
+      { tree: "work.ui", content: "ui" },
+    ]);
+
+    const [{ count: copyCount }] = await db`
+      select ${db(schema)}.copy_tree(
+        ${userId}::uuid,
+        'work.api'::ltree,
+        'archive.api'::ltree,
+        false
+      )::int as count
+    `;
+    expect(copyCount).toBe(2);
+
+    const copiedRows = await db`
+      select tree::text, content
+      from ${db(schema)}.memory
+      order by tree::text, content
+    `;
+    expect(copiedRows).toEqual([
+      { tree: "archive.api", content: "api" },
+      { tree: "archive.api.auth", content: "auth" },
+      { tree: "work.api", content: "api" },
+      { tree: "work.api.auth", content: "auth" },
+      { tree: "work.ui", content: "ui" },
+    ]);
+  });
 });
