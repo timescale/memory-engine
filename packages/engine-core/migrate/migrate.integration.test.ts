@@ -222,4 +222,109 @@ describe("migrateEngine", () => {
       }),
     ).rejects.toThrow("shardId must be a safe integer");
   });
+
+  test("grants and revokes tree actions", async () => {
+    const slug = randomSlug();
+    const schema = schemaFor(slug);
+    const db = getSql();
+
+    await migrateEngine(db, { slug, targetVersion: "0.1.0" });
+
+    const [{ id: ownerId }] = await db`
+      insert into ${db(schema)}."user" (name)
+      values (${`owner_${slug}`})
+      returning id
+    `;
+    const [{ id: granteeId }] = await db`
+      insert into ${db(schema)}."user" (name)
+      values (${`grantee_${slug}`})
+      returning id
+    `;
+    const [{ id: outsiderId }] = await db`
+      insert into ${db(schema)}."user" (name)
+      values (${`outsider_${slug}`})
+      returning id
+    `;
+
+    await db`
+      insert into ${db(schema)}.tree_owner (tree_path, user_id)
+      values ('project'::ltree, ${ownerId}::uuid)
+    `;
+
+    try {
+      await db`
+        select ${db(schema)}.grant_tree_actions(
+          ${outsiderId}::uuid,
+          array['read']::text[],
+          'project.alpha'::ltree,
+          ${granteeId}::uuid
+        )
+      `;
+      throw new Error("expected grant_tree_actions to reject");
+    } catch (error) {
+      expect(String(error)).toContain("must be a superuser or own the tree path");
+    }
+
+    await db`
+      select ${db(schema)}.grant_tree_actions(
+        ${ownerId}::uuid,
+        array['read']::text[],
+        'project.alpha'::ltree,
+        ${granteeId}::uuid
+      )
+    `;
+    await db`
+      select ${db(schema)}.grant_tree_actions(
+        ${ownerId}::uuid,
+        array['update']::text[],
+        'project.alpha'::ltree,
+        ${granteeId}::uuid
+      )
+    `;
+
+    const [{ actions: grantedActions }] = await db`
+      select actions
+      from ${db(schema)}.tree_grant
+      where user_id = ${granteeId}::uuid
+      and tree_path = 'project.alpha'::ltree
+    `;
+    expect(grantedActions).toEqual(["read", "update"]);
+
+    await db`
+      select ${db(schema)}.revoke_tree_actions(
+        ${ownerId}::uuid,
+        array['read']::text[],
+        'project.alpha'::ltree,
+        ${granteeId}::uuid
+      )
+    `;
+
+    const [{ actions: remainingActions }] = await db`
+      select actions
+      from ${db(schema)}.tree_grant
+      where user_id = ${granteeId}::uuid
+      and tree_path = 'project.alpha'::ltree
+    `;
+    expect(remainingActions).toEqual(["update"]);
+
+    await db`
+      select ${db(schema)}.revoke_tree_actions(
+        ${ownerId}::uuid,
+        array['update']::text[],
+        'project.alpha'::ltree,
+        ${granteeId}::uuid
+      )
+    `;
+
+    const [{ exists }] = await db`
+      select exists
+      (
+        select 1
+        from ${db(schema)}.tree_grant
+        where user_id = ${granteeId}::uuid
+        and tree_path = 'project.alpha'::ltree
+      ) as exists
+    `;
+    expect(exists).toBe(false);
+  }, 30_000);
 });

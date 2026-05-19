@@ -24,8 +24,7 @@ as $func$
       from ancestors
       where id = _member_id
     )
-$func$ language sql stable security invoker
-parallel safe
+$func$ language sql stable security invoker parallel safe
 ;
 
 -------------------------------------------------------------------------------
@@ -56,9 +55,9 @@ execute function {{schema}}.role_membership_before_write()
 ;
 
 -------------------------------------------------------------------------------
--- explode_role_membership
+-- calc_role_membership
 -------------------------------------------------------------------------------
-create or replace function {{schema}}.explode_role_membership(_user_id uuid)
+create or replace function {{schema}}.calc_role_membership(_user_id uuid)
 returns table
 ( role_id uuid
 , superuser bool
@@ -100,7 +99,7 @@ as $func$
   select exists
   (
     select 1
-    from {{schema}}.explode_role_membership(_user_id) x
+    from {{schema}}.calc_role_membership(_user_id) x
     where x.superuser
   )
 $func$ language sql stable security definer
@@ -203,6 +202,6 @@ begin
   and d.member_id = _member_id
   ;
 end;
-$func$ language plpgsql volatile security invoker
+$func$ language plpgsql volatile security definer
 set search_path to pg_catalog, {{schema}}, pg_temp
 ;

@@ -42,6 +42,12 @@ import idempotent003 from "./idempotent/003_memory.sql" with { type: "text" };
 import idempotent004 from "./idempotent/004_embedding_queue.sql" with {
   type: "text",
 };
+import idempotent005 from "./idempotent/005_tree_ownership.sql" with {
+  type: "text",
+};
+import idempotent006 from "./idempotent/006_tree_grant.sql" with {
+  type: "text",
+};
 
 interface Idempotent {
   name: string;
@@ -53,6 +59,8 @@ const idempotents: Idempotent[] = [
   { name: "002_tree_privileges", sql: idempotent002 },
   { name: "003_memory", sql: idempotent003 },
   { name: "004_embedding_queue", sql: idempotent004 },
+  { name: "005_tree_ownership", sql: idempotent005 },
+  { name: "006_tree_grant", sql: idempotent006 },
 ];
 
 export interface MigrateEngineOptions {

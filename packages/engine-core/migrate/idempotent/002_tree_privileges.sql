@@ -11,18 +11,11 @@ returns table
 as $func$
   with r as
   (
-    -- the user
-    select
-      u.id as role_id
-    , u.superuser
-    from {{schema}}."user" u
-    where u.id = _user_id
-    union
-    -- the roles they belong to
+    -- the user and the roles they belong to
     select
       x.role_id
     , x.superuser
-    from {{schema}}.explode_role_membership(_user_id) x
+    from {{schema}}.calc_role_membership(_user_id) x
   )
   -- superuser
   select
@@ -70,5 +63,5 @@ as $func$
     where x.tree_path @> _tree_path
     and x.actions @> _actions
   )
-$func$ language sql stable security definer
+$func$ language sql stable security invoker
 ;

@@ -131,7 +131,7 @@ begin
   end loop;
 end;
 $func$
-language plpgsql volatile
+language plpgsql volatile security definer
 set search_path to pg_catalog, {{schema}}, pg_temp
 ;
 
@@ -158,6 +158,6 @@ begin
   return pruned;
 end;
 $func$
-language plpgsql volatile
+language plpgsql volatile security definer
 set search_path to pg_catalog, {{schema}}, pg_temp
 ;
