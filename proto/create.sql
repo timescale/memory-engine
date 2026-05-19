@@ -1,0 +1,802 @@
+
+-------------------------------------------------------------------------------
+-- check database version
+-------------------------------------------------------------------------------
+select current_setting('server_version_num')::int < 180000 as bad_pg_version
+\gset
+\if :bad_pg_version
+\warn postgres 18 or greater required
+\q
+\endif
+
+-------------------------------------------------------------------------------
+-- check database version
+-------------------------------------------------------------------------------
+select current_setting('server_version_num')::int < 180000 as bad_pg_version
+\gset
+\if :bad_pg_version
+\warn postgres 18 or greater required
+\q
+\endif
+
+-------------------------------------------------------------------------------
+-- ensure extensions installed
+-------------------------------------------------------------------------------
+create extension if not exists citext with schema public version '1.6';
+create extension if not exists ltree with schema public version '1.3';
+create extension if not exists vector with schema public version '0.8.2';
+create extension if not exists pg_textsearch with schema public version '1.1.0';
+
+-------------------------------------------------------------------------------
+-- database roles
+-------------------------------------------------------------------------------
+do $block$
+declare
+  _roles text[] = array['me_ro', 'me_rw', 'me_embed'];
+  _role text;
+  _sql text;
+begin
+  for _role in select * from unnest(_roles) loop
+    perform
+    from pg_roles r
+    where r.rolname = _role;
+    if found then
+      continue;
+    end if;
+    _sql = format($sql$create role %I nologin$sql$, _role);
+    execute _sql;
+    _sql = format($sql$grant %I to %I$sql$, _role, current_user);
+    execute _sql;
+  end loop;
+end;
+$block$;
+
+-------------------------------------------------------------------------------
+-- engine schema
+-------------------------------------------------------------------------------
+drop schema if exists {{schema}} cascade;
+create schema {{schema}};
+
+-------------------------------------------------------------------------------
+-- grant usage on engine schema to roles
+-------------------------------------------------------------------------------
+do $block$
+declare
+  _roles text[] = array['me_ro', 'me_rw', 'me_embed'];
+  _role text;
+  _sql text;
+begin
+  for _role in select * from unnest(_roles)
+  loop
+    _sql = format($sql$grant usage on schema %I to %I$sql$, '{{schema}}', _role);
+    execute _sql;
+  end loop;
+end;
+$block$;
+
+-------------------------------------------------------------------------------
+-- generic updated_at trigger
+-------------------------------------------------------------------------------
+create or replace function {{schema}}.update_updated_at()
+returns trigger
+as $func$
+begin
+  new.updated_at = pg_catalog.now();
+  return new;
+end;
+$func$ language plpgsql volatile security definer
+set search_path to {{schema}}, pg_temp;
+
+-------------------------------------------------------------------------------
+-- users
+-------------------------------------------------------------------------------
+-- User: thing that accesses memories, or a role (can_login = false)
+-- identity_id is a soft FK to accounts.identity (nullable for service users)
+-- Note: "user" is a reserved word, must be quoted
+create table {{schema}}."user"
+( id uuid primary key default uuidv7() check (uuid_extract_version(id) = 7)
+, name citext not null unique
+, superuser boolean not null default false
+, created_at timestamptz not null default now()
+, updated_at timestamptz
+);
+
+create or replace trigger user_updated_at
+before update on {{schema}}."user"
+for each row
+execute function {{schema}}.update_updated_at()
+;
+
+revoke all on {{schema}}."user" from public;
+grant select on {{schema}}."user" to me_ro, me_rw;
+-- NO direct writes on the table. must go through functions
+
+-------------------------------------------------------------------------------
+-- role membership
+-------------------------------------------------------------------------------
+create table {{schema}}.role_membership
+( role_id   uuid not null references {{schema}}."user"(id) on delete cascade
+, member_id uuid not null references {{schema}}."user"(id) on delete cascade
+, with_admin_option boolean not null default false
+, created_at timestamptz not null default now()
+, primary key (member_id, role_id)
+, constraint no_self_membership check (role_id != member_id)
+);
+
+create index idx_role_membership_role on {{schema}}.role_membership(role_id) include (member_id);
+
+revoke all on {{schema}}.role_membership from public;
+grant select on {{schema}}.role_membership to me_ro, me_rw;
+-- NO direct writes on the table. must go through functions
+
+-------------------------------------------------------------------------------
+-- would_create_cycle
+-------------------------------------------------------------------------------
+create or replace function {{schema}}.would_create_cycle
+( _role_id uuid
+, _member_id uuid
+)
+returns boolean
+as $func$
+  with recursive ancestors(id) as
+  (
+    select rm.role_id
+    from {{schema}}.role_membership rm
+    where rm.member_id = _role_id
+    union
+    select rm.role_id
+    from {{schema}}.role_membership rm
+    inner join ancestors a on a.id = rm.member_id
+  )
+  select _member_id = _role_id
+    or exists
+    (
+      select 1
+      from ancestors
+      where id = _member_id
+    )
+$func$ language sql stable security definer
+parallel safe
+set search_path to pg_catalog, {{schema}}, pg_temp
+;
+
+revoke all on function {{schema}}.would_create_cycle(uuid, uuid) from public;
+grant execute on function {{schema}}.would_create_cycle(uuid, uuid) to me_rw;
+
+-------------------------------------------------------------------------------
+-- role_membership_before_write trigger
+-------------------------------------------------------------------------------
+-- Prevent role membership cycles for ordinary writes.
+-- Note: this check observes the current transaction snapshot. Concurrent
+-- transactions that insert/update related role edges can still race unless the
+-- caller uses stronger locking or serializable transactions around
+-- role_membership writes.
+create or replace function {{schema}}.role_membership_before_write()
+returns trigger
+as $func$
+begin
+  if {{schema}}.would_create_cycle(new.role_id, new.member_id) then
+    raise exception 'role membership would create a cycle: role_id %, member_id %', new.role_id, new.member_id
+      using errcode = 'integrity_constraint_violation';
+  end if;
+  return new;
+end;
+$func$ language plpgsql volatile security definer
+set search_path to pg_catalog, {{schema}}, pg_temp
+;
+
+create or replace trigger role_membership_before_write_trg
+before insert or update of role_id, member_id on {{schema}}.role_membership
+for each row
+execute function {{schema}}.role_membership_before_write()
+;
+
+-------------------------------------------------------------------------------
+-- explode_role_membership
+-------------------------------------------------------------------------------
+create or replace function {{schema}}.explode_role_membership(_user_id uuid)
+returns table
+( role_id uuid
+, superuser bool
+, dist int4
+)
+as $func$
+  with recursive ancestors(id, dist) as
+  (
+    select rm.role_id, 1::int4
+    from {{schema}}.role_membership rm
+    where rm.member_id = _user_id
+    union
+    select rm.role_id, a.dist + 1
+    from {{schema}}.role_membership rm
+    inner join ancestors a on a.id = rm.member_id
+  )
+  select
+    u.id
+  , u.superuser
+  , 0::int4
+  from {{schema}}."user" u
+  where u.id = _user_id
+  union
+  select
+    u.id
+  , u.superuser
+  , a.dist
+  from {{schema}}."user" u
+  inner join ancestors a on (u.id = a.id)
+$func$ language sql stable security invoker
+;
+
+revoke all on function {{schema}}.explode_role_membership(uuid) from public;
+grant execute on function {{schema}}.explode_role_membership(uuid) to me_ro, me_rw;
+
+-------------------------------------------------------------------------------
+-- is_superuser
+-------------------------------------------------------------------------------
+create or replace function {{schema}}.is_superuser(_user_id uuid)
+returns boolean
+as $func$
+  select exists
+  (
+    select 1
+    from {{schema}}.explode_role_membership(_user_id) x
+    where x.superuser
+  )
+$func$ language sql stable security definer
+set search_path to pg_catalog, {{schema}}, pg_temp
+;
+
+revoke all on function {{schema}}.is_superuser(uuid) from public;
+grant execute on function {{schema}}.is_superuser(uuid) to me_ro, me_rw;
+
+-------------------------------------------------------------------------------
+-- grant_role_membership
+-------------------------------------------------------------------------------
+create or replace function {{schema}}.grant_role_membership
+( _grantor_id uuid
+, _role_id uuid
+, _member_id uuid
+, _with_admin_option bool default false
+)
+returns void
+as $func$
+declare
+  _allowed bool;
+begin
+  -- exclusive write access required to fully ensure against cycle creation by concurrent writes
+  lock table {{schema}}.role_membership in share row exclusive mode;
+
+  -- is grantor allowed to do this?
+  select
+    exists
+    (
+      -- does the grantor have with admin privilege directly on this role?
+      select 1
+      from {{schema}}.role_membership rm
+      where rm.role_id = _role_id
+      and rm.member_id = _grantor_id
+      and rm.with_admin_option
+    )
+    or {{schema}}.is_superuser(_grantor_id) -- or are they a superuser (even indirectly)?
+  into strict _allowed
+  ;
+
+  if not _allowed then
+    raise exception 'grantor must be a superuser or have with admin option on role: grantor_id % role_id %', _grantor_id, _role_id
+      using errcode = 'insufficient_privilege';
+  end if;
+
+  -- role_membership_before_write_trg protects against cycles in the graph
+  insert into {{schema}}.role_membership
+  ( role_id
+  , member_id
+  , with_admin_option
+  )
+  values
+  ( _role_id
+  , _member_id
+  , _with_admin_option
+  )
+  on conflict (member_id, role_id)
+  do update set with_admin_option = _with_admin_option
+  ;
+end;
+$func$ language plpgsql volatile security definer
+set search_path to pg_catalog, {{schema}}, pg_temp
+;
+
+revoke all on function {{schema}}.grant_role_membership(uuid, uuid, uuid, bool) from public;
+grant execute on function {{schema}}.grant_role_membership(uuid, uuid, uuid, bool) to me_rw;
+
+-------------------------------------------------------------------------------
+-- revoke_role_membership
+-------------------------------------------------------------------------------
+create or replace function {{schema}}.revoke_role_membership
+( _revoker_id uuid
+, _role_id uuid
+, _member_id uuid
+)
+returns void
+as $func$
+declare
+  _allowed bool;
+begin
+  lock table {{schema}}.role_membership in share row exclusive mode;
+
+  -- is revoker allowed to do this?
+  select
+    exists
+    (
+      -- does the revoker have with admin privilege directly on this role?
+      select 1
+      from {{schema}}.role_membership rm
+      where rm.role_id = _role_id
+      and rm.member_id = _revoker_id
+      and rm.with_admin_option
+    )
+    or {{schema}}.is_superuser(_revoker_id) -- or are they a superuser (even indirectly)?
+  into strict _allowed
+  ;
+
+  if not _allowed then
+    raise exception 'revoker must be a superuser or have with admin option on role: revoker_id % role_id %', _revoker_id, _role_id
+      using errcode = 'insufficient_privilege';
+  end if;
+
+  delete from {{schema}}.role_membership d
+  where d.role_id = _role_id
+  and d.member_id = _member_id
+  ;
+end;
+$func$ language plpgsql volatile security invoker
+set search_path to pg_catalog, {{schema}}, pg_temp
+;
+
+revoke all on function {{schema}}.grant_role_membership(uuid, uuid, uuid, bool) from public;
+grant execute on function {{schema}}.grant_role_membership(uuid, uuid, uuid, bool) to me_rw;
+
+-------------------------------------------------------------------------------
+-- tree ownership
+-------------------------------------------------------------------------------
+create table {{schema}}.tree_owner
+( tree_path ltree not null primary key
+, user_id uuid not null references {{schema}}."user" (id) on delete cascade
+, created_by uuid references {{schema}}."user" (id)
+, created_at timestamptz not null default now()
+);
+
+create index idx_tree_owner_user on {{schema}}.tree_owner (user_id);
+create index idx_tree_owner_gist on {{schema}}.tree_owner using gist (tree_path);
+
+revoke all on {{schema}}.tree_owner from public;
+grant select on {{schema}}.tree_owner to me_ro;
+grant select, insert, update, delete on {{schema}}.tree_owner to me_rw;
+
+-------------------------------------------------------------------------------
+-- tree grants
+-------------------------------------------------------------------------------
+create table {{schema}}.tree_grant
+( id uuid primary key default uuidv7() check (uuid_extract_version(id) = 7)
+, user_id uuid not null references {{schema}}."user"(id) on delete cascade
+, tree_path ltree not null
+, actions text[] not null check (actions <@ '{read,create,update,delete}'::text[])
+, granted_by uuid references {{schema}}."user"(id)
+, created_at timestamptz not null default now()
+, with_grant_option boolean not null default false
+);
+
+create unique index idx_tree_grant_unique on {{schema}}.tree_grant (user_id, tree_path);
+create index idx_tree_grant_path on {{schema}}.tree_grant using gist (tree_path);
+
+revoke all on {{schema}}.tree_grant from public;
+grant select on {{schema}}.tree_grant to me_ro;
+grant select, insert, update, delete on {{schema}}.tree_grant to me_rw;
+
+-------------------------------------------------------------------------------
+-- calc_tree_privileges
+-------------------------------------------------------------------------------
+create or replace function {{schema}}.calc_tree_privileges(_user_id uuid)
+returns table
+( role_id uuid
+, tree_path ltree
+, actions text[]
+, reason text
+)
+as $func$
+  with r as
+  (
+    -- the user
+    select
+      u.id as role_id
+    , u.superuser
+    from me."user" u
+    where u.id = _user_id
+    union
+    -- the roles they belong to
+    select
+      x.role_id
+    , x.superuser
+    from {{schema}}.explode_role_membership(_user_id) x
+  )
+  -- superuser
+  select
+    r.role_id
+  , ''::ltree as tree_path
+  , array['read', 'create', 'update', 'delete'] as actions
+  , 'superuser' as reason
+  from r
+  where r.superuser
+  union all
+  -- ownership
+  select
+    r.role_id
+  , o.tree_path
+  , array['read', 'create', 'update', 'delete'] as actions
+  , 'owner' as reason
+  from r
+  inner join {{schema}}.tree_owner o on (r.role_id = o.user_id)
+  union all
+  -- grants
+  select
+    r.role_id
+  , g.tree_path
+  , g.actions
+  , 'grant' as reason
+  from r
+  inner join {{schema}}.tree_grant g on (r.role_id = g.user_id)
+$func$ language sql stable security definer
+set search_path to pg_catalog, {{schema}}, public, pg_temp
+;
+
+revoke all on function {{schema}}.calc_tree_privileges(uuid) from public;
+grant execute on function {{schema}}.calc_tree_privileges(uuid) to me_ro, me_rw;
+
+-------------------------------------------------------------------------------
+-- has_tree_privilege
+-------------------------------------------------------------------------------
+create or replace function {{schema}}.has_tree_privilege
+( _user_id uuid
+, _tree_path ltree
+, _actions text[]
+)
+returns bool
+as $func$
+  select
+  -- is the user a superuser?
+  exists
+    (
+      select 1
+      from {{schema}}.explode_role_membership(_user_id) x
+      where x.superuser
+    )
+  -- or do they own the branch of the tree?
+  or exists
+    (
+      select 1
+      from {{schema}}.explode_role_membership(_user_id) x
+      inner join {{schema}}.tree_owner o
+      on (x.role_id = o.user_id and o.tree_path @> _tree_path)
+    )
+  -- or do they have an explicit grant to the branch?
+  or exists
+    (
+      select 1
+      from {{schema}}.explode_role_membership(_user_id) x
+      inner join {{schema}}.tree_grant g
+      on
+      ( x.role_id = g.user_id
+      and g.tree_path @> _tree_path
+      and g.actions @> _actions
+      )
+    )
+$func$ language sql stable security definer
+set search_path to pg_catalog, {{schema}}, public, pg_temp
+;
+
+revoke all on function {{schema}}.has_tree_privilege(uuid, ltree, text[]) from public;
+grant execute on function {{schema}}.has_tree_privilege(uuid, ltree, text[]) to me_ro, me_rw;
+
+-------------------------------------------------------------------------------
+-- memory
+-------------------------------------------------------------------------------
+create table {{schema}}.memory
+( id uuid not null primary key default uuidv7() check (uuid_extract_version(id) = 7)
+, meta jsonb not null default '{}'
+, tree ltree not null default ''::ltree
+, temporal tstzrange
+, content text not null
+, embedding halfvec({{embedding_dimensions}})
+, embedding_version int4 not null default 1
+, created_at timestamptz not null default now()
+, created_by uuid
+, updated_at timestamptz
+);
+
+revoke all on {{schema}}.memory from public;
+grant select on {{schema}}.memory to me_ro;
+grant select, insert, update, delete on {{schema}}.memory to me_rw;
+grant select, update on {{schema}}.memory to me_embed;
+
+-- index for faceted search
+create index memory_meta_gin_idx on {{schema}}.memory using gin (meta);
+
+-- index for temporal search
+create index memory_temporal_gist_idx on {{schema}}.memory using gist (temporal) where (temporal is not null);
+
+-- index for BM25 text search
+create index memory_content_bm25_idx on {{schema}}.memory using bm25 (content)
+with (text_config = {{bm25_text_config}}, k1 = {{bm25_k1}}, b = {{bm25_b}});
+
+-- index for vector similarity search
+create index memory_embedding_hnsw_idx on {{schema}}.memory using hnsw (embedding halfvec_cosine_ops)
+with (m = {{hnsw_m}}, ef_construction = {{hnsw_ef_construction}});
+
+-- index for hierarchical organization
+create index memory_tree_gist_idx on {{schema}}.memory using gist (tree);
+
+-- make sure the metadata is an object
+alter table {{schema}}.memory add check (jsonb_typeof(meta) = 'object');
+
+/*
+enforce consistent temporal range conventions:
+- point-in-time events: lower = upper with inclusive bounds '[same,same]'
+- time periods: lower < upper with inclusive-exclusive bounds '[start,end)'
+*/
+alter table {{schema}}.memory add constraint temporal_bounds_convention check
+(
+	temporal is null
+	or (
+		-- point-in-time: both bounds equal and inclusive
+		(lower(temporal) = upper(temporal) and lower_inc(temporal) and upper_inc(temporal))
+		or
+		-- time range: start before end, inclusive-exclusive
+		(lower(temporal) < upper(temporal) and lower_inc(temporal) and not upper_inc(temporal))
+	)
+);
+
+-------------------------------------------------------------------------------
+-- memory triggers
+-------------------------------------------------------------------------------
+create or replace function {{schema}}.memory_before_update()
+returns trigger
+as $func$
+begin
+  -- always update the timestamp
+  new.updated_at = pg_catalog.now();
+
+  -- content changed -> new embedding needs to be generated
+  if old.content is distinct from new.content
+     and old.embedding is not distinct from new.embedding
+  then
+    new.embedding = null;
+    new.embedding_version = old.embedding_version operator(pg_catalog.+) 1;
+  end if;
+
+  return new;
+end;
+$func$ language plpgsql volatile security definer
+set search_path to {{schema}}, public, pg_temp; -- public required for pgvector's `is not distinct from`
+
+create or replace trigger memory_before_update_trg
+before update on {{schema}}.memory
+for each row
+execute function {{schema}}.memory_before_update();
+
+-------------------------------------------------------------------------------
+-- embedding queue
+-------------------------------------------------------------------------------
+-- per-engine embedding queue table
+create table {{schema}}.embedding_queue
+( id bigint generated always as identity primary key
+, memory_id uuid not null references {{schema}}.memory(id) on delete cascade
+, embedding_version int not null
+, vt timestamptz not null default now()
+, outcome text check (outcome is null or outcome in ('completed', 'failed', 'cancelled'))
+, attempts int not null default 0
+, last_error text
+, created_at timestamptz not null default now()
+);
+
+-- index to find items to claim
+create index embedding_queue_claim_idx on {{schema}}.embedding_queue (vt) where outcome is null;
+-- index also used in finding items to claim. used to ensure there aren't any items for the same memory with a newer version
+create index embedding_queue_memory_idx on {{schema}}.embedding_queue (memory_id, embedding_version desc) where outcome is null;
+-- index to find items that have resolved to an outcome. these can be pruned
+create index embedding_queue_archive_idx on {{schema}}.embedding_queue (created_at) where outcome is not null;
+
+grant select, update, delete on {{schema}}.embedding_queue to me_embed;
+
+-------------------------------------------------------------------------------
+-- enqueue_embedding
+-------------------------------------------------------------------------------
+-- this must be security definer because we won't allow me_rw to access queue directly
+create or replace function {{schema}}.enqueue_embedding()
+returns trigger
+as $func$
+begin
+  insert into {{schema}}.embedding_queue (memory_id, embedding_version)
+  values (new.id, new.embedding_version);
+  return new;
+end;
+$func$
+language plpgsql volatile security definer
+set search_path to pg_catalog, {{schema}}, pg_temp
+;
+
+-------------------------------------------------------------------------------
+-- enqueuing triggers
+-------------------------------------------------------------------------------
+create or replace trigger memory_enqueue_embedding_insert
+after insert on {{schema}}.memory
+for each row
+when (new.embedding is null) -- it's possible to insert WITH an embedding
+execute function {{schema}}.enqueue_embedding()
+;
+
+create or replace trigger memory_enqueue_embedding_update
+after update on {{schema}}.memory
+for each row
+when
+( old.content is distinct from new.content
+  and new.embedding is null
+)
+execute function {{schema}}.enqueue_embedding()
+;
+
+-------------------------------------------------------------------------------
+-- claim_embedding_batch
+-------------------------------------------------------------------------------
+create or replace function {{schema}}.claim_embedding_batch
+( _batch_size int default 10
+, _lock_duration interval default '5 minutes'
+, _max_attempts int default 3
+)
+returns table
+( queue_id bigint
+, memory_id uuid
+, embedding_version int
+, content text
+)
+as $func$
+declare
+  _rec record;
+  _mem record;
+  _claimed_count int = 0;
+begin
+  -- bulk-cancel visible queue rows superseded by a newer row for the same memory
+  update {{schema}}.embedding_queue eq
+  set outcome = 'cancelled'
+  where eq.outcome is null
+  and eq.vt <= now()
+  and exists
+  (
+    select 1
+    from {{schema}}.embedding_queue newer
+    where newer.memory_id = eq.memory_id
+    and newer.embedding_version > eq.embedding_version
+    and newer.outcome is null
+  );
+
+  -- sweep: finalize exhausted rows orphaned by worker crash
+  -- (attempts reached max but outcome was never written back)
+  update {{schema}}.embedding_queue
+  set
+    outcome = 'failed'
+  , last_error = coalesce(last_error, 'exceeded max attempts (worker crash)')
+  where outcome is null
+  and vt <= now()
+  and attempts >= _max_attempts
+  ;
+
+  for _rec in
+  (
+    select
+      eq.id
+    , eq.memory_id
+    , eq.embedding_version
+    from {{schema}}.embedding_queue eq
+    where eq.outcome is null
+    and eq.vt <= now()
+    and eq.attempts < _max_attempts
+    order by eq.vt
+    for update skip locked
+  )
+  loop
+    -- check memory still exists + current version
+    select m.content, m.embedding_version
+    into _mem
+    from {{schema}}.memory m
+    where m.id = _rec.memory_id
+    ;
+
+    if not found or _mem.content is null then
+      -- memory deleted or empty → cancel queue row
+      update {{schema}}.embedding_queue
+      set outcome = 'cancelled'
+      where id = _rec.id;
+      continue;
+    end if;
+
+    if _rec.embedding_version != _mem.embedding_version then
+      -- stale version → cancel
+      update {{schema}}.embedding_queue
+      set outcome = 'cancelled'
+      where id = _rec.id;
+      continue;
+    end if;
+
+    -- claim this row
+    update {{schema}}.embedding_queue q set
+      vt = now() + _lock_duration
+    , attempts = q.attempts + 1
+    where id = _rec.id;
+
+    queue_id = _rec.id;
+    memory_id = _rec.memory_id;
+    embedding_version = _rec.embedding_version;
+    content = _mem.content;
+    return next;
+
+    _claimed_count = _claimed_count + 1;
+    exit when _claimed_count >= _batch_size;
+  end loop;
+end;
+$func$
+language plpgsql volatile
+set search_path to pg_catalog, {{schema}}, pg_temp
+;
+
+grant execute on function {{schema}}.claim_embedding_batch(int, interval, int) to me_embed;
+
+-------------------------------------------------------------------------------
+-- prune embedding queue
+-------------------------------------------------------------------------------
+-- prune terminal queue rows older than the retention window.
+-- runs opportunistically from the worker on engines that returned no
+-- claimable work, so the queue table doesn't grow unbounded.
+--
+-- relies on embedding_queue_archive_idx (created_at) where outcome is not null
+-- from migration 005, so the no-op case is cheap.
+create or replace function {{schema}}.prune_embedding_queue(_retention interval default '7 days')
+returns bigint
+as $func$
+declare
+  pruned bigint;
+begin
+  delete from {{schema}}.embedding_queue
+  where outcome is not null
+  and created_at < now() - _retention
+  ;
+  get diagnostics pruned = row_count;
+  return pruned;
+end;
+$func$
+language plpgsql volatile
+set search_path to pg_catalog, {{schema}}, pg_temp
+;
+
+-- me_embed already has DELETE on embedding_queue (granted in 005);
+-- this just exposes the function entrypoint.
+grant execute on function {{schema}}.prune_embedding_queue(interval) to me_embed;
+
+
+
+
+
+-------------------------------------------------------------------------------
+-- api keys
+-------------------------------------------------------------------------------
+-- Engine-scoped, user-scoped authentication
+create table {{schema}}.api_key
+( id uuid primary key default uuidv7() check (uuid_extract_version(id) = 7)
+, user_id uuid not null references {{schema}}."user" on delete cascade
+, lookup_id text unique not null check (lookup_id ~ '^[A-Za-z0-9_-]{16}$')
+, key_hash text not null
+, name text not null
+, expires_at timestamptz
+, created_at timestamptz not null default now()
+, revoked_at timestamptz
+);
+
+create index idx_api_key_user on {{schema}}.api_key (user_id);
+create index idx_api_key_lookup on {{schema}}.api_key (lookup_id) where revoked_at is null;
