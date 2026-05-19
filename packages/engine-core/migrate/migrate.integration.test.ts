@@ -262,7 +262,9 @@ describe("migrateEngine", () => {
       `;
       throw new Error("expected grant_tree_actions to reject");
     } catch (error) {
-      expect(String(error)).toContain("must be a superuser or own the tree path");
+      expect(String(error)).toContain(
+        "must be a superuser or own the tree path",
+      );
     }
 
     await db`

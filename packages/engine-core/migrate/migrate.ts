@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { info, reportError, span } from "@pydantic/logfire-node";
 import type { SQL } from "bun";
 import { semver } from "bun";
 import { isValidSlug, slugToSchema } from "../slug";
@@ -100,40 +101,81 @@ export async function migrateEngine(
   options: MigrateEngineOptions,
 ): Promise<void> {
   const opts = normalizeMigrateEngineOptions(options);
+  const attributes = migrateAttributes(opts);
 
-  if (!isValidSlug(opts.slug)) {
-    throw new Error(
-      `Invalid engine slug: "${opts.slug}" — must be 12 lowercase alphanumeric characters`,
-    );
-  }
-  if (!semver.satisfies(opts.targetVersion, "*")) {
-    throw new Error(`Invalid target version: "${opts.targetVersion}"`);
-  }
-  const schema = slugToSchema(opts.slug);
-  const [key1, key2] = advisoryLockKey(`memory-engine:schema:${schema}`);
+  await span("engine_core.migrate", {
+    attributes,
+    callback: async () => {
+      try {
+        if (!isValidSlug(opts.slug)) {
+          throw new Error(
+            `Invalid engine slug: "${opts.slug}" — must be 12 lowercase alphanumeric characters`,
+          );
+        }
+        if (!semver.satisfies(opts.targetVersion, "*")) {
+          throw new Error(`Invalid target version: "${opts.targetVersion}"`);
+        }
+        const schema = slugToSchema(opts.slug);
+        const schemaAttributes = { ...attributes, "db.schema": schema };
+        const [key1, key2] = advisoryLockKey(`memory-engine:schema:${schema}`);
 
-  await sql.begin(async (tx) => {
-    if (opts.shardId !== undefined) {
-      if (!Number.isSafeInteger(opts.shardId)) {
-        throw new Error(`shardId must be a safe integer, got: ${opts.shardId}`);
+        await sql.begin(async (tx) => {
+          if (opts.shardId !== undefined) {
+            if (!Number.isSafeInteger(opts.shardId)) {
+              throw new Error(
+                `shardId must be a safe integer, got: ${opts.shardId}`,
+              );
+            }
+            await tx.unsafe(`set local pgdog.shard to ${String(opts.shardId)}`);
+          }
+          await tx`select set_config('statement_timeout', ${opts.statementTimeout}, true)`;
+          await tx`select set_config('lock_timeout', ${opts.lockTimeout}, true)`;
+          await tx`select set_config('transaction_timeout', ${opts.transactionTimeout}, true)`;
+          await tx`select set_config('idle_in_transaction_session_timeout', ${opts.idleInTransactionSessionTimeout}, true)`;
+          const acquired = await span("engine_core.migrate.acquire_lock", {
+            attributes: schemaAttributes,
+            callback: () => acquireAdvisoryLock(tx, key1, key2),
+          });
+          if (!acquired) {
+            throw new Error(
+              `Unable to acquire lock for engine slug ${opts.slug} migrations.`,
+            );
+          }
+
+          if (!(await doesEngineExist(tx, schema))) {
+            await span("engine_core.migrate.provision", {
+              attributes: schemaAttributes,
+              callback: () => provisionEngine(tx, schema),
+            });
+            info("Engine core schema provisioned", schemaAttributes);
+          }
+          await span("engine_core.migrate.run", {
+            attributes: schemaAttributes,
+            callback: () => runMigrations(tx, schema, opts),
+          });
+        });
+        info("Engine core migrations completed", schemaAttributes);
+      } catch (error) {
+        reportError("Engine core migration failed", error as Error, attributes);
+        throw error;
       }
-      await tx.unsafe(`set local pgdog.shard to ${String(opts.shardId)}`);
-    }
-    await tx`select set_config('statement_timeout', ${opts.statementTimeout}, true)`;
-    await tx`select set_config('lock_timeout', ${opts.lockTimeout}, true)`;
-    await tx`select set_config('transaction_timeout', ${opts.transactionTimeout}, true)`;
-    await tx`select set_config('idle_in_transaction_session_timeout', ${opts.idleInTransactionSessionTimeout}, true)`;
-    if (!(await acquireAdvisoryLock(tx, key1, key2))) {
-      throw new Error(
-        `Unable to acquire lock for engine slug ${opts.slug} migrations.`,
-      );
-    }
-
-    if (!(await doesEngineExist(tx, schema))) {
-      await provisionEngine(tx, schema);
-    }
-    await runMigrations(tx, schema, opts);
+    },
   });
+}
+
+function migrateAttributes(
+  options: NormalizedMigrateEngineOptions,
+): Record<string, unknown> {
+  return {
+    "engine.slug": options.slug,
+    "engine.target_version": options.targetVersion,
+    "db.shard": options.shardId,
+    "db.statement_timeout": options.statementTimeout,
+    "db.lock_timeout": options.lockTimeout,
+    "db.transaction_timeout": options.transactionTimeout,
+    "db.idle_in_transaction_session_timeout":
+      options.idleInTransactionSessionTimeout,
+  };
 }
 
 function normalizeMigrateEngineOptions(
@@ -266,6 +308,11 @@ async function runMigrations(
   }
   if (cmp === 0) {
     // version matches. no need to run migrations
+    info("Engine core migration skipped, version current", {
+      "db.schema": schema,
+      "engine.version": dbVersion,
+      "engine.target_version": options.targetVersion,
+    });
     return;
   }
 
@@ -288,19 +335,51 @@ async function runMigrations(
       continue;
     }
 
-    const renderedSql = template(migration.sql, templateVars(schema, options));
-    await tx.unsafe(renderedSql);
-    await tx`
-      insert into ${tx(schema)}.migration (name, applied_at_version)
-      values (${migration.name}, ${options.targetVersion})`;
+    await span("engine_core.migrate.incremental", {
+      attributes: {
+        "db.schema": schema,
+        "engine.migration": migration.name,
+        "engine.migration_type": "incremental",
+        "engine.target_version": options.targetVersion,
+      },
+      callback: async () => {
+        const renderedSql = template(
+          migration.sql,
+          templateVars(schema, options),
+        );
+        await tx.unsafe(renderedSql);
+        await tx`
+          insert into ${tx(schema)}.migration (name, applied_at_version)
+          values (${migration.name}, ${options.targetVersion})`;
+      },
+    });
+    info("Engine core migration applied", {
+      "db.schema": schema,
+      "engine.migration": migration.name,
+      "engine.migration_type": "incremental",
+      "engine.target_version": options.targetVersion,
+    });
   }
 
   // run idempotent migrations
   const sorted2 = [...idempotents].sort((a, b) => a.name.localeCompare(b.name));
 
   for (const migration of sorted2) {
-    const renderedSql = template(migration.sql, templateVars(schema, options));
-    await tx.unsafe(renderedSql);
+    await span("engine_core.migrate.idempotent", {
+      attributes: {
+        "db.schema": schema,
+        "engine.migration": migration.name,
+        "engine.migration_type": "idempotent",
+        "engine.target_version": options.targetVersion,
+      },
+      callback: async () => {
+        const renderedSql = template(
+          migration.sql,
+          templateVars(schema, options),
+        );
+        await tx.unsafe(renderedSql);
+      },
+    });
   }
 
   // update version

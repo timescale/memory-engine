@@ -1,4 +1,12 @@
+import { info, reportError, span } from "@pydantic/logfire-node";
 import { SQL, semver } from "bun";
+
+const REQUIRED_EXTENSIONS = [
+  { name: "citext", minVersion: "1.6" },
+  { name: "ltree", minVersion: "1.3" },
+  { name: "vector", minVersion: "0.8.2" },
+  { name: "pg_textsearch", minVersion: "1.1.0" },
+] as const;
 
 export async function bootstrapEngineDatabase(
   sql: SQL,
@@ -8,21 +16,53 @@ export async function bootstrapEngineDatabase(
   idleInTransactionSessionTimeout: string = "30s",
   shardId?: number,
 ): Promise<void> {
-  await sql.begin(async (tx) => {
-    if (shardId !== undefined) {
-      await tx.unsafe(`set local pgdog.shard to ${String(shardId)}`);
-    }
-    await ensurePostgresVersion(tx);
-    await acquireAdvisoryLock(tx);
-    await tx`select set_config('statement_timeout', ${statementTimeout}, true)`;
-    await tx`select set_config('lock_timeout', ${lockTimeout}, true)`;
-    await tx`select set_config('transaction_timeout', ${transactionTimeout}, true)`;
-    await tx`select set_config('idle_in_transaction_session_timeout', ${idleInTransactionSessionTimeout}, true)`;
-    await ensureExtension(tx, "citext", "1.6");
-    await ensureExtension(tx, "ltree", "1.3");
-    await ensureExtension(tx, "vector", "0.8.2");
-    await ensureExtension(tx, "pg_textsearch", "1.1.0");
-    await ensureRoles(tx);
+  const attributes = {
+    "db.shard": shardId,
+    "db.statement_timeout": statementTimeout,
+    "db.lock_timeout": lockTimeout,
+    "db.transaction_timeout": transactionTimeout,
+    "db.idle_in_transaction_session_timeout": idleInTransactionSessionTimeout,
+    "engine_core.required_extensions": REQUIRED_EXTENSIONS.map(
+      (extension) => `${extension.name}@>=${extension.minVersion}`,
+    ),
+  };
+
+  await span("engine_core.bootstrap", {
+    attributes,
+    callback: async () => {
+      try {
+        await sql.begin(async (tx) => {
+          if (shardId !== undefined) {
+            await tx.unsafe(`set local pgdog.shard to ${String(shardId)}`);
+          }
+          await ensurePostgresVersion(tx);
+          await span("engine_core.bootstrap.acquire_lock", {
+            callback: () => acquireAdvisoryLock(tx),
+          });
+          await tx`select set_config('statement_timeout', ${statementTimeout}, true)`;
+          await tx`select set_config('lock_timeout', ${lockTimeout}, true)`;
+          await tx`select set_config('transaction_timeout', ${transactionTimeout}, true)`;
+          await tx`select set_config('idle_in_transaction_session_timeout', ${idleInTransactionSessionTimeout}, true)`;
+          for (const extension of REQUIRED_EXTENSIONS) {
+            await span("engine_core.bootstrap.ensure_extension", {
+              attributes: {
+                "db.extension": extension.name,
+                "db.extension_min_version": extension.minVersion,
+              },
+              callback: () =>
+                ensureExtension(tx, extension.name, extension.minVersion),
+            });
+          }
+          await span("engine_core.bootstrap.ensure_roles", {
+            callback: () => ensureRoles(tx),
+          });
+        });
+        info("Engine core bootstrap completed", attributes);
+      } catch (error) {
+        reportError("Engine core bootstrap failed", error as Error, attributes);
+        throw error;
+      }
+    },
   });
 }
 

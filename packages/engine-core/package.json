@@ -2,5 +2,8 @@
   "name": "@memory.build/engine-core",
   "version": "0.0.0",
   "private": true,
-  "type": "module"
+  "type": "module",
+  "dependencies": {
+    "@pydantic/logfire-node": "^0.13.1"
+  }
 }
