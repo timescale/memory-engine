@@ -53,9 +53,11 @@ export async function bootstrapEngineDatabase(
                 ensureExtension(tx, extension.name, extension.minVersion),
             });
           }
+          /* TODO: remove
           await span("engine_core.bootstrap.ensure_roles", {
             callback: () => ensureRoles(tx),
           });
+          */
         });
         info("Engine core bootstrap completed", attributes);
       } catch (error) {
@@ -159,6 +161,7 @@ async function ensureExtension(
   }
 }
 
+/* TODO: remove this
 async function ensureRoles(tx: SQL): Promise<void> {
   await tx.unsafe(`
     do $block$
@@ -183,3 +186,4 @@ async function ensureRoles(tx: SQL): Promise<void> {
     $block$;
   `);
 }
+*/

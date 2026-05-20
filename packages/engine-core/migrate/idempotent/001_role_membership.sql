@@ -25,6 +25,7 @@ as $func$
       where id = _member_id
     )
 $func$ language sql stable security invoker parallel safe
+set search_path to pg_catalog, {{schema}}, public, pg_temp
 ;
 
 -------------------------------------------------------------------------------
@@ -45,7 +46,8 @@ begin
   end if;
   return new;
 end;
-$func$ language plpgsql volatile security definer
+$func$ language plpgsql volatile security invoker
+set search_path to pg_catalog, {{schema}}, public, pg_temp
 ;
 
 create or replace trigger role_membership_before_write_trg
@@ -102,8 +104,7 @@ as $func$
     from {{schema}}.calc_role_membership(_user_id) x
     where x.superuser
   )
-$func$ language sql stable security definer
-set search_path to pg_catalog, {{schema}}, pg_temp
+$func$ language sql stable security invoker
 ;
 
 -------------------------------------------------------------------------------
@@ -113,7 +114,7 @@ create or replace function {{schema}}.grant_role_membership
 ( _grantor_id uuid
 , _role_id uuid
 , _member_id uuid
-, _with_admin_option bool default false
+, _admin bool default false
 )
 returns void
 as $func$
@@ -132,7 +133,7 @@ begin
       from {{schema}}.role_membership rm
       where rm.role_id = _role_id
       and rm.member_id = _grantor_id
-      and rm.with_admin_option
+      and rm.admin
     )
     or {{schema}}.is_superuser(_grantor_id) -- or are they a superuser (even indirectly)?
   into strict _allowed
@@ -147,18 +148,18 @@ begin
   insert into {{schema}}.role_membership
   ( role_id
   , member_id
-  , with_admin_option
+  , admin
   )
   values
   ( _role_id
   , _member_id
-  , _with_admin_option
+  , _admin
   )
   on conflict (member_id, role_id)
-  do update set with_admin_option = _with_admin_option
+  do update set admin = _admin
   ;
 end;
-$func$ language plpgsql volatile security definer
+$func$ language plpgsql volatile security invoker
 set search_path to pg_catalog, {{schema}}, pg_temp
 ;
 
@@ -186,7 +187,7 @@ begin
       from {{schema}}.role_membership rm
       where rm.role_id = _role_id
       and rm.member_id = _revoker_id
-      and rm.with_admin_option
+      and rm.admin
     )
     or {{schema}}.is_superuser(_revoker_id) -- or are they a superuser (even indirectly)?
   into strict _allowed
@@ -202,6 +203,6 @@ begin
   and d.member_id = _member_id
   ;
 end;
-$func$ language plpgsql volatile security definer
+$func$ language plpgsql volatile security invoker
 set search_path to pg_catalog, {{schema}}, pg_temp
 ;

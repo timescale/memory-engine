@@ -4,17 +4,17 @@ import type { SQL } from "bun";
 import { semver } from "bun";
 import { isValidSlug, slugToSchema } from "../slug";
 
+import provisionSql from "./incremental/000_provision.sql" with {
+  type: "text",
+};
 import incremental001 from "./incremental/001_user.sql" with { type: "text" };
 import incremental002 from "./incremental/002_role_membership.sql" with {
   type: "text",
 };
-import incremental003 from "./incremental/003_tree_ownership.sql" with {
+import incremental003 from "./incremental/003_tree_access.sql" with {
   type: "text",
 };
-import incremental004 from "./incremental/004_tree_grant.sql" with {
-  type: "text",
-};
-import incremental005 from "./incremental/005_memory.sql" with { type: "text" };
+import incremental004 from "./incremental/004_memory.sql" with { type: "text" };
 import incremental006 from "./incremental/006_embedding_queue.sql" with {
   type: "text",
 };
@@ -27,16 +27,15 @@ interface Incremental {
 const incrementals: Incremental[] = [
   { name: "001_user", sql: incremental001 },
   { name: "002_role_membership", sql: incremental002 },
-  { name: "003_tree_ownership", sql: incremental003 },
-  { name: "004_tree_grant", sql: incremental004 },
-  { name: "005_memory", sql: incremental005 },
+  { name: "003_tree_access", sql: incremental003 },
+  { name: "004_memory", sql: incremental004 },
   { name: "006_embedding_queue", sql: incremental006 },
 ];
 
 import idempotent001 from "./idempotent/001_role_membership.sql" with {
   type: "text",
 };
-import idempotent002 from "./idempotent/002_tree_privileges.sql" with {
+import idempotent002 from "./idempotent/002_tree_access.sql" with {
   type: "text",
 };
 import idempotent003 from "./idempotent/003_memory.sql" with { type: "text" };
@@ -57,7 +56,7 @@ interface Idempotent {
 
 const idempotents: Idempotent[] = [
   { name: "001_role_membership", sql: idempotent001 },
-  { name: "002_tree_privileges", sql: idempotent002 },
+  { name: "002_tree_access", sql: idempotent002 },
   { name: "003_memory", sql: idempotent003 },
   { name: "004_embedding_queue", sql: idempotent004 },
   { name: "005_tree_ownership", sql: idempotent005 },
@@ -261,29 +260,7 @@ async function doesEngineExist(tx: SQL, schema: string): Promise<boolean> {
 }
 
 async function provisionEngine(tx: SQL, schema: string): Promise<void> {
-  await tx`create schema ${tx(schema)}`;
-
-  // grant usage to all roles
-  await tx`grant usage on schema ${tx(schema)} to me_ro, me_rw, me_embed`;
-
-  // version tracking table (single row)
-  await tx`
-    create table ${tx(schema)}.version
-    ( version text not null
-    , at timestamptz not null default now()
-    )
-  `;
-  await tx`create unique index version_singleton_idx on ${tx(schema)}.version ((true))`; // only allow one row
-  await tx`insert into ${tx(schema)}.version (version) values ('0.0.0')`;
-
-  // migration tracking table
-  await tx`
-    create table ${tx(schema)}.migration
-    ( name text not null constraint migration_pkey primary key
-    , applied_at_version text not null
-    , applied_at timestamptz not null default pg_catalog.clock_timestamp()
-    )
-  `;
+  await tx.unsafe(template(provisionSql, { schema }));
 }
 
 async function runMigrations(

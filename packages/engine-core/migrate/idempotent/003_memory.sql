@@ -18,7 +18,7 @@ begin
 
   return new;
 end;
-$func$ language plpgsql volatile security definer
+$func$ language plpgsql volatile security invoker
 set search_path to pg_catalog, {{schema}}, public, pg_temp -- public required for pgvector's `is not distinct from`
 ;
 
@@ -54,11 +54,10 @@ as $func$
   , m.created_at
   , m.updated_at
   , m.embedding is not null
-  into _memory
   from {{schema}}.memory m
   where m.id = _id
-  and {{schema}}.has_tree_privilege(_user_id, m.tree, array['read'])
-$func$ language sql stable security definer
+  and {{schema}}.has_tree_access(_user_id, m.tree, 1)
+$func$ language sql stable security invoker
 set search_path to pg_catalog, {{schema}}, public, pg_temp
 ;
 
@@ -76,8 +75,8 @@ create or replace function {{schema}}.create_memory
 returns uuid
 as $func$
 begin
-  if not {{schema}}.has_tree_privilege(_user_id, _tree, array['create']) then
-    raise exception 'user (%) must be a superuser or own or have create on the tree path %', _user_id, _tree
+  if not {{schema}}.has_tree_access(_user_id, _tree, 2) then
+    raise exception 'insufficient tree access'
       using errcode = 'insufficient_privilege';
   end if;
 
@@ -99,53 +98,100 @@ begin
   ;
   return _id;
 end;
-$func$ language plpgsql volatile security definer
+$func$ language plpgsql volatile security invoker
 set search_path to pg_catalog, {{schema}}, public, pg_temp
 ;
 
 -------------------------------------------------------------------------------
--- update memory
+-- patch memory
 -------------------------------------------------------------------------------
-create or replace function {{schema}}.update_memory
+create or replace function {{schema}}.patch_memory
 ( _user_id uuid
 , _id uuid
-, _tree ltree
-, _content text
-, _meta jsonb default '{}'
-, _temporal tstzrange default null
+, _patch jsonb
 )
 returns bool
 as $func$
+declare
+  _src ltree;
+  _dst ltree;
+  _ok bool;
 begin
-  with p as materialized
-  (
-    select p.tree_path, p.actions
-    from {{schema}}.calc_tree_privileges(_user_id) p
-  )
-  update {{schema}}.memory m set
-    tree = _tree
-  , meta = meta || _meta
-  , temporal = _temporal
-  , content = _content
-  where m.id = _id
-  and exists
-  (
-    select 1
-    from p
-    where p.tree_path @> m.tree
-    and p.actions @> array['update']
-  )
-  and (m.tree @> _tree or exists
-  (
-    select 1
-    from p
-    where p.tree_path @> _tree
-    and p.actions @> array['insert']
-  ))
+  -- at least one valid field must be present
+  select count(*) filter (where k in ('meta', 'tree', 'temporal', 'content')) > 0
+  into strict _ok
+  from jsonb_each(_patch) o(k, v)
   ;
-  return found;
+
+  if not _ok then
+    raise exception 'no valid patch fields found'
+      using errcode = 'invalid_parameter_value';
+  end if;
+
+  _dst = (_patch->>'tree')::ltree;
+
+  -- cannot set tree to null
+  if _patch ? 'tree' and _dst is null then
+    raise exception 'tree cannot be set to null'
+      using errcode = 'invalid_parameter_value';
+  end if;
+
+  -- find the existing memory and get it's tree
+  select m.tree into _src
+  from {{schema}}.memory m
+  where m.id = _id
+  for update -- don't let anyone "move" the memory while we're working on it
+  ;
+
+  if not found then
+    return false;
+  end if;
+
+  with a as materialized
+  (
+    select a.tree_path, a.access
+    from {{schema}}.calc_tree_access(_user_id) a
+  )
+  select
+    exists
+    (
+      select 1
+      from a
+      where a.tree_path @> _src
+      and a.access >= 2
+    )
+    and
+    (
+      _dst is null
+      or _src @> _dst
+      or exists
+      (
+        select 1
+        from a
+        where a.tree_path @> _dst
+        and a.access >= 2
+      )
+    )
+  into strict _ok
+  ;
+
+  if not _ok then
+    raise exception 'insufficient tree access'
+      using errcode = 'insufficient_privilege';
+  end if;
+
+  update {{schema}}.memory m set
+    tree = case when _patch ? 'tree' then (_patch->>'tree')::ltree else m.tree end
+  , meta = case when _patch ? 'meta' then _patch->'meta' else m.meta end
+  , temporal = case when _patch ? 'temporal' then (_patch->>'temporal')::tstzrange else m.temporal end
+  , content = case when _patch ? 'content' then _patch->>'content' else m.content end
+  where id = _id
+  returning id into _id
+  ;
+
+  return _id is not null;
 end;
-$func$ language plpgsql volatile security definer
+$func$ language plpgsql volatile security invoker
 set search_path to pg_catalog, {{schema}}, public, pg_temp
 ;
 
@@ -161,41 +207,50 @@ create or replace function {{schema}}.move_tree
 returns bigint
 as $func$
 declare
+  _has_src bool;
+  _has_dst bool;
   _moved bigint;
 begin
-  -- must have create on _dst tree path
-  if not {{schema}}.has_tree_privilege(_user_id, _dst, array['create']) then
-    raise exception 'user (%) must be a superuser or own or have create on the tree path %', _user_id, _dst
+  -- must have read/write on _src
+  -- must have read/write on _dst
+  with a as materialized
+  (
+    select a.tree_path, a.access
+    from {{schema}}.calc_tree_access(_user_id) a
+  )
+  select
+    exists
+    (
+      select 1
+      from a
+      where a.tree_path @> _src
+      and a.access >= 2
+    )
+  , exists
+    (
+      select 1
+      from a
+      where a.tree_path @> _dst
+      and a.access >= 2
+    )
+  into strict _has_src, _has_dst
+  ;
+
+  if not _has_src then
+    raise exception 'insufficient tree access'
       using errcode = 'insufficient_privilege';
   end if;
 
-  with p as materialized
-  (
-    select p.tree_path
-    from {{schema}}.calc_tree_privileges(_user_id) p
-  )
-  , x as
+  if not _has_dst then
+    raise exception 'insufficient tree access'
+      using errcode = 'insufficient_privilege';
+  end if;
+
+  with x as
   (
     select m.id
     from {{schema}}.memory m
     where _src @> m.tree
-    and exists
-    (
-      select 1
-      from p
-      where p.tree_path @> m.tree
-      and p.actions @> array['read']
-    )
-    and
-    (
-      m.tree @> _dst
-      and exists
-      (
-        select 1
-        from p.tree_path @> m.tree
-
-      )
-    )
   )
   , u as
   (
@@ -214,7 +269,7 @@ begin
   ;
   return _moved;
 end;
-$func$ language plpgsql volatile security definer
+$func$ language plpgsql volatile security invoker
 set search_path to pg_catalog, {{schema}}, public, pg_temp
 ;
 
@@ -230,31 +285,50 @@ create or replace function {{schema}}.copy_tree
 returns bigint
 as $func$
 declare
+  _has_src bool;
+  _has_dst bool;
   _copied bigint;
 begin
-  -- must have create on _dst tree path
-  if not {{schema}}.has_tree_privilege(_user_id, _dst, array['create']) then
-    raise exception 'user (%) must be a superuser or own or have create on the tree path %', _user_id, _dst
+  -- must have read on _src
+  -- must have read/write on _dst
+  with a as materialized
+  (
+    select a.tree_path, a.access
+    from {{schema}}.calc_tree_access(_user_id) a
+  )
+  select
+    exists
+    (
+      select 1
+      from a
+      where a.tree_path @> _src
+      and a.access >= 1
+    )
+  , exists
+    (
+      select 1
+      from a
+      where a.tree_path @> _dst
+      and a.access >= 2
+    )
+  into strict _has_src, _has_dst
+  ;
+
+  if not _has_src then
+    raise exception 'insufficient tree access'
       using errcode = 'insufficient_privilege';
   end if;
 
-  with p as materialized
-  (
-    select p.tree_path
-    from {{schema}}.calc_tree_privileges(_user_id) p
-    where p.actions @> array['read']
-  )
-  , m as
+  if not _has_dst then
+    raise exception 'insufficient tree access'
+      using errcode = 'insufficient_privilege';
+  end if;
+
+  with m as
   (
     select m.*
     from {{schema}}.memory m
     where _src @> m.tree
-    and exists
-    (
-      select 1
-      from p
-      where p.tree_path @> m.tree
-    )
   )
   , i as
   (
@@ -285,7 +359,7 @@ begin
 
   return _copied;
 end;
-$func$ language plpgsql volatile security definer
+$func$ language plpgsql volatile security invoker
 set search_path to pg_catalog, {{schema}}, public, pg_temp
 ;
 
@@ -304,14 +378,15 @@ begin
   select m.tree into _tree
   from {{schema}}.memory m
   where m.id = _id
+  for update
   ;
 
   if not found then
     return false;
   end if;
 
-  if not {{schema}}.has_tree_privilege(_user_id, _tree, array['delete']) then
-    raise exception 'user (%) must be a superuser or own or have delete on the tree path %', _user_id, _tree
+  if not {{schema}}.has_tree_access(_user_id, _tree, 2) then
+    raise exception 'insufficient tree access'
       using errcode = 'insufficient_privilege';
   end if;
 
@@ -320,7 +395,7 @@ begin
   ;
   return found;
 end;
-$func$ language plpgsql volatile security definer
+$func$ language plpgsql volatile security invoker
 set search_path to pg_catalog, {{schema}}, public, pg_temp
 ;
 
@@ -334,34 +409,75 @@ create or replace function {{schema}}.delete_tree
 )
 returns bigint
 as $func$
-  with p as materialized
+declare
+  _has_access bool;
+  _deleted bigint;
+begin
+  -- must have read/write on _tree
+  select exists
   (
-    select p.tree_path
-    from {{schema}}.calc_tree_privileges(_user_id) p
-    where p.actions @> array['delete']
+    select 1
+    from {{schema}}.calc_tree_access(_user_id) a
+    where a.tree_path @> _tree
+    and a.access >= 2
   )
-  , m as
-  (
-    select m.id
+  into strict _has_access
+  ;
+
+  if not _has_access then
+    raise exception 'insufficient tree access'
+      using errcode = 'insufficient_privilege';
+  end if;
+
+  if _dry_run then
+    select count(*) into strict _deleted
     from {{schema}}.memory m
     where _tree @> m.tree
-    and exists
+    ;
+  else
+    with d as
     (
-      select 1
-      from p
-      where p.tree @> m.tree
+      delete from {{schema}}.memory m
+      where _tree @> m.tree
+      returning id
     )
-  )
-  , d as
+    select count(*) into strict _deleted
+    from d
+    ;
+  end if;
+
+  return _deleted;
+end;
+$func$ language plpgsql volatile security invoker
+set search_path to pg_catalog, {{schema}}, public, pg_temp
+;
+
+-------------------------------------------------------------------------------
+-- count tree
+-------------------------------------------------------------------------------
+create or replace function {{schema}}.count_tree
+( _user_id uuid
+, _tree ltree
+, _access int4
+)
+returns bigint
+as $func$
+  with x as materialized
   (
-    delete from {{schema}}.memory m
-    using x
-    where m.id = x.id
-    and not _dry_run
+    select a.tree_path
+    from {{schema}}.calc_tree_access(_user_id) a
+    where a.access >= _access
   )
   select count(*)
-  from x
-$func$ language sql volatile security definer
+  from {{schema}}.memory m
+  where _tree @> m.tree
+  and exists
+  (
+    select 1
+    from x
+    where x.tree_path @> m.tree
+  )
+$func$ language sql stable security invoker
 set search_path to pg_catalog, {{schema}}, public, pg_temp
 ;
 
@@ -371,15 +487,15 @@ set search_path to pg_catalog, {{schema}}, public, pg_temp
 create or replace function {{schema}}.count_tree
 ( _user_id uuid
 , _query lquery
-, _actions text[]
+, _access int4
 )
 returns bigint
 as $func$
   with x as materialized
   (
-    select p.tree_path
-    from {{schema}}.calc_tree_privileges(_user_id) p
-    where p.actions @> (coalesce(_actions, array['read']))
+    select a.tree_path
+    from {{schema}}.calc_tree_access(_user_id) a
+    where a.access >= _access
   )
   select count(*)
   from {{schema}}.memory m
@@ -390,7 +506,7 @@ as $func$
     from x
     where x.tree_path @> m.tree
   )
-$func$ language sql stable security definer
+$func$ language sql stable security invoker
 set search_path to pg_catalog, {{schema}}, public, pg_temp
 ;
 
@@ -400,15 +516,15 @@ set search_path to pg_catalog, {{schema}}, public, pg_temp
 create or replace function {{schema}}.count_tree
 ( _user_id uuid
 , _query ltxtquery
-, _actions text[]
+, _access int4
 )
 returns bigint
 as $func$
   with x as materialized
   (
-    select p.tree_path
-    from {{schema}}.calc_tree_privileges(_user_id) p
-    where p.actions @> (coalesce(_actions, array['read']))
+    select a.tree_path
+    from {{schema}}.calc_tree_access(_user_id) a
+    where a.access >= _access
   )
   select count(*)
   from {{schema}}.memory m
@@ -419,7 +535,7 @@ as $func$
     from x
     where x.tree_path @> m.tree
   )
-$func$ language sql stable security definer
+$func$ language sql stable security invoker
 set search_path to pg_catalog, {{schema}}, public, pg_temp
 ;
 
@@ -435,11 +551,11 @@ returns table
 , count bigint
 )
 as $func$
-  with p as
+  with a as materialized
   (
-    select p.tree_path
-    from {{schema}}.calc_tree_privileges(_user_id) p
-    where p.actions @> array['read']
+    select a.tree_path
+    from {{schema}}.calc_tree_access(_user_id) a
+    where a.access >= 1
   )
   , m as
   (
@@ -449,8 +565,8 @@ as $func$
     and exists
     (
       select 1
-      from p
-      where p.tree_path @> m.tree
+      from a
+      where a.tree_path @> m.tree
     )
   )
   select
@@ -460,6 +576,6 @@ as $func$
   cross join lateral generate_series(1, nlevel(m.tree)) i
   group by 1
   order by 1
-$func$ language sql stable security definer
+$func$ language sql stable security invoker
 set search_path to pg_catalog, {{schema}}, public, pg_temp
 ;

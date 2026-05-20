@@ -40,7 +40,7 @@ begin
   )
   ;
 end;
-$func$ language plpgsql volatile security definer
+$func$ language plpgsql volatile security invoker
 set search_path to pg_catalog, {{schema}}, public, pg_temp
 ;
 
@@ -102,6 +102,6 @@ begin
     ;
   end if;
 end;
-$func$ language plpgsql volatile security definer
+$func$ language plpgsql volatile security invoker
 set search_path to pg_catalog, {{schema}}, public, pg_temp
 ;
