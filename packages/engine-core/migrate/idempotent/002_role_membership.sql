@@ -108,6 +108,40 @@ $func$ language sql stable security invoker
 ;
 
 -------------------------------------------------------------------------------
+-- list_direct_role_members
+-------------------------------------------------------------------------------
+create or replace function {{schema}}.list_direct_role_members
+( _requestor_id uuid
+, _role_id uuid
+)
+returns table
+( member_id uuid
+, admin bool
+)
+as $func$
+  select
+    r.member_id
+  , r.admin
+  from {{schema}}.role_membership r
+  where r.role_id = _role_id
+  and
+  (
+    -- requestor must be an admin on role
+    -- or requestor must be a superuser
+    exists
+    (
+      select 1
+      from {{schema}}.role_membership m
+      where m.role_id = _role_id
+      and m.member_id = _requestor_id
+      and m.admin
+    )
+    or {{schema}}.is_superuser(_requestor_id)
+  )
+$func$ language sql stable security invoker
+;
+
+-------------------------------------------------------------------------------
 -- grant_role_membership
 -------------------------------------------------------------------------------
 create or replace function {{schema}}.grant_role_membership

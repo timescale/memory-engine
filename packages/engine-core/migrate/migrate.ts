@@ -32,20 +32,16 @@ const incrementals: Incremental[] = [
   { name: "006_embedding_queue", sql: incremental006 },
 ];
 
-import idempotent001 from "./idempotent/001_role_membership.sql" with {
+import idempotent001 from "./idempotent/001_user.sql" with { type: "text" };
+import idempotent002 from "./idempotent/002_role_membership.sql" with {
   type: "text",
 };
-import idempotent002 from "./idempotent/002_tree_access.sql" with {
+import idempotent003 from "./idempotent/003_tree_access.sql" with {
   type: "text",
 };
-import idempotent003 from "./idempotent/003_memory.sql" with { type: "text" };
-import idempotent004 from "./idempotent/004_embedding_queue.sql" with {
-  type: "text",
-};
-import idempotent005 from "./idempotent/005_tree_ownership.sql" with {
-  type: "text",
-};
-import idempotent006 from "./idempotent/006_tree_grant.sql" with {
+import idempotent004 from "./idempotent/004_memory.sql" with { type: "text" };
+import idempotent005 from "./idempotent/005_search.sql" with { type: "text" };
+import idempotent006 from "./idempotent/006_embedding_queue.sql" with {
   type: "text",
 };
 
@@ -55,12 +51,12 @@ interface Idempotent {
 }
 
 const idempotents: Idempotent[] = [
-  { name: "001_role_membership", sql: idempotent001 },
-  { name: "002_tree_access", sql: idempotent002 },
-  { name: "003_memory", sql: idempotent003 },
-  { name: "004_embedding_queue", sql: idempotent004 },
-  { name: "005_tree_ownership", sql: idempotent005 },
-  { name: "006_tree_grant", sql: idempotent006 },
+  { name: "001_user", sql: idempotent001 },
+  { name: "002_role_membership", sql: idempotent002 },
+  { name: "003_tree_access", sql: idempotent003 },
+  { name: "004_memory", sql: idempotent004 },
+  { name: "005_search", sql: idempotent005 },
+  { name: "006_embedding_queue", sql: idempotent006 },
 ];
 
 export interface MigrateEngineOptions {
