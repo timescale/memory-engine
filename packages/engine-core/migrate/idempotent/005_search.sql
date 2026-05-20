@@ -5,11 +5,13 @@
 create or replace function {{schema}}.search_memory
 ( _user_id uuid
 , _bm25 bm25query default null
+, _vec halfvec({{embedding_dimensions}}) default null
+, _max_vec_dist float8 default null
 , _ltree ltree default null
 , _lquery lquery default null
 , _ltxtquery ltxtquery default null
 , _meta_contains jsonb default null
-, _temporal_contains tstzrange default null
+, _temporal_within tstzrange default null
 , _temporal_overlaps tstzrange default null
 , _temporal_before timestamptz default null
 , _temporal_after timestamptz default null
@@ -35,14 +37,42 @@ declare
   _order_by text;
   _sql text;
 begin
+  -- _bm25 OR _vec but NOT BOTH
+  if _bm25 is not null and _vec is not null then
+    raise exception 'providing both _bm25 and _vec is not supported'
+      using errcode = 'invalid_parameter_value';
+  end if;
+
+  if _max_vec_dist is not null and _vec is null then
+    raise exception '_max_vec_dist provided but _vec was not provided'
+      using errcode = 'invalid_parameter_value';
+  end if;
+
   -- min 1, max 1000, default 10
   _limit = greatest(least(coalesce(_limit, 10), 1000), 1);
 
+  -- bm25 or semantic
   -- score and order by
-  case when _bm25 is not null then
+  case
+  when _bm25 is not null then
     _filter_count = _filter_count + 1;
     _score = format($sql$, (m.content <@> %L::bm25query) * -1 as score$sql$, _bm25);
     _order_by = format($sql$order by m.content <@> %L::bm25query, m.id$sql$, _bm25);
+  when _vec is not null then
+    _filter_count = _filter_count + 1;
+    _score = format($sql$, (m.embedding <=> %L::halfvec({{embedding_dimensions}})) * -1 as score$sql$, _vec);
+    _order_by = format($sql$order by m.embedding <=> %L::halfvec({{embedding_dimensions}}), m.id$sql$, _vec);
+    _filters = array_append
+    ( _filters
+    , $sql$and m.embedding is not null$sql$
+    );
+    if _max_vec_dist is not null then
+      _filter_count = _filter_count + 1;
+      _filters = array_append
+      ( _filters
+      , format($sql$and (m.embedding <=> %L::halfvec({{embedding_dimensions}})) <= %L::float8$sql$, _vec, _max_vec_dist)
+      );
+    end if;
   else
     _score = $sql$, -1 as score$sql$;
     _order_by = $sql$order by m.id;
@@ -84,12 +114,12 @@ begin
     );
   end if;
 
-  -- temporal_contains
-  if _temporal_contains is not null then
+  -- temporal_within
+  if _temporal_within is not null then
     _filter_count = _filter_count + 1;
     _filters = array_append
     ( _filters
-    , format($sql$and %L::tstzrange @> m.temporal$sql$, _temporal_contains)
+    , format($sql$and %L::tstzrange @> m.temporal$sql$, _temporal_within)
     );
   end if;
 
@@ -107,7 +137,7 @@ begin
     _filter_count = _filter_count + 1;
     _filters = array_append
     ( _filters
-    , format($sql$and m.temporal << tstzrange(%L::timestamptz, %L::timestamptz, '[]')$sql$, _temporal_before, _temporal_before)
+    , format($sql$and tstzrange('-infinity'::timestamptz, %L::timestamptz, '[]') @> m.temporal$sql$, _temporal_before)
     );
   end if;
 
@@ -116,7 +146,7 @@ begin
     _filter_count = _filter_count + 1;
     _filters = array_append
     ( _filters
-    , format($sql$and tstzrange(%L::timestamptz, %L::timestamptz, '[]') << m.temporal$sql$, _temporal_after, _temporal_after)
+    , format($sql$and tstzrange(%L::timestamptz, 'infinity'::timestamptz, '[]') @> m.temporal$sql$, _temporal_after)
     );
   end if;
 
@@ -132,10 +162,12 @@ begin
     );
   end if;
 
+  assert array_length(_filters, 1) > 0;
+
   -- construct the query
   _sql = format(
   $sql$
-  with x as
+  with x as materialized
   (
     select a.tree_path
     from {{schema}}.calc_tree_access($1) a
