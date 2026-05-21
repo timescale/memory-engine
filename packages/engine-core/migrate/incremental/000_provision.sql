@@ -1,13 +1,11 @@
 create schema {{schema}};
 
-grant usage on schema {{schema}} to me_ro, me_rw, me_embed;
-
 create table {{schema}}.version
 ( version text not null
 , at timestamptz not null default now()
 );
 
-create unique index version_singleton_idx on {{schema}}.version ((true));
+create unique index version_singleton_idx on {{schema}}.version ((true)); -- only ONE row allowed
 insert into {{schema}}.version (version) values ('0.0.0');
 
 create table {{schema}}.migration
