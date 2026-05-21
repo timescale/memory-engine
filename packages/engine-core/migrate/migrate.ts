@@ -15,6 +15,7 @@ import incremental003 from "./incremental/003_tree_access.sql" with {
   type: "text",
 };
 import incremental004 from "./incremental/004_memory.sql" with { type: "text" };
+import incremental005 from "./incremental/005_search.sql" with { type: "text" };
 import incremental006 from "./incremental/006_embedding_queue.sql" with {
   type: "text",
 };
@@ -29,6 +30,7 @@ const incrementals: Incremental[] = [
   { name: "002_role_membership", sql: incremental002 },
   { name: "003_tree_access", sql: incremental003 },
   { name: "004_memory", sql: incremental004 },
+  { name: "005_search", sql: incremental005 },
   { name: "006_embedding_queue", sql: incremental006 },
 ];
 

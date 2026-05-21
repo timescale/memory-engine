@@ -1,4 +1,3 @@
-
 -------------------------------------------------------------------------------
 -- search_memory
 -------------------------------------------------------------------------------
@@ -56,10 +55,14 @@ begin
   case
   when _bm25 is not null then
     _filter_count = _filter_count + 1;
+    -- <@> is negative bm25 score. smaller values means better match. order by this for index scans
+    -- negative score * -1 = score. higher score means better match
     _score = format($sql$, (m.content <@> %L::bm25query) * -1 as score$sql$, _bm25);
     _order_by = format($sql$order by m.content <@> %L::bm25query, m.id$sql$, _bm25);
   when _vec is not null then
     _filter_count = _filter_count + 1;
+    -- <=> is cosine distance. smaller distance means better match. order by this for index scans
+    -- distance * -1 = "score". higher score means better match
     _score = format($sql$, (m.embedding <=> %L::halfvec({{embedding_dimensions}})) * -1 as score$sql$, _vec);
     _order_by = format($sql$order by m.embedding <=> %L::halfvec({{embedding_dimensions}}), m.id$sql$, _vec);
     _filters = array_append
@@ -162,8 +165,6 @@ begin
     );
   end if;
 
-  assert array_length(_filters, 1) > 0;
-
   -- construct the query
   _sql = format(
   $sql$
@@ -195,14 +196,133 @@ begin
   limit $2
   $sql$
   , _score
-  , (
+  , coalesce
+    ((
       select string_agg(x, E'\n  ')
       from unnest(_filters) x
-    )
+    ), '')
   , _order_by
   );
 
   return query execute _sql using _user_id, _limit;
+end;
+$func$ language plpgsql stable security invoker
+set search_path to pg_catalog, {{schema}}, public, pg_temp
+;
+
+-------------------------------------------------------------------------------
+-- hybrid_search_memory
+-------------------------------------------------------------------------------
+create or replace function {{schema}}.hybrid_search_memory
+( _user_id uuid
+, _bm25 bm25query
+, _vec halfvec({{embedding_dimensions}})
+, _max_vec_dist float8 default null
+, _ltree ltree default null
+, _lquery lquery default null
+, _ltxtquery ltxtquery default null
+, _meta_contains jsonb default null
+, _temporal_within tstzrange default null
+, _temporal_overlaps tstzrange default null
+, _temporal_before timestamptz default null
+, _temporal_after timestamptz default null
+, _regexp text default null
+, _k float8 default 60.0
+, _candidate_limit bigint default 30
+, _fulltext_weight float8 default 1.0
+, _semantic_weight float8 default 1.0
+, _limit bigint default 10
+)
+returns table
+( id uuid
+, meta jsonb
+, tree ltree
+, temporal tstzrange
+, content text
+, has_embedding bool
+, created_at timestamptz
+, updated_at timestamptz
+, score float8
+)
+as $func$
+declare
+begin
+  if _bm25 is null then
+    raise exception '_bm25 must not be null'
+      using errcode = 'invalid_parameter_value';
+  end if;
+
+  if _vec is null then
+    raise exception '_vec must not be null'
+      using errcode = 'invalid_parameter_value';
+  end if;
+
+  _k = greatest(coalesce(_k, 60.0), 0.0);
+  _limit = greatest(least(coalesce(_limit, 10), 1000), 1);
+  _candidate_limit = greatest
+    ( least(coalesce(_candidate_limit, 30), 1000)
+    , _limit
+    );
+  _fulltext_weight = greatest(least(coalesce(_fulltext_weight, 1.0), 1.0), 0.0);
+  _semantic_weight = greatest(least(coalesce(_semantic_weight, 1.0), 1.0), 0.0);
+
+  -- reciprocal rank fusion
+  return query
+  select
+    coalesce(x1.id, x2.id) as id
+  , coalesce(x1.meta, x2.meta) as meta
+  , coalesce(x1.tree, x2.tree) as tree
+  , coalesce(x1.temporal, x2.temporal) as temporal
+  , coalesce(x1.content, x2.content) as content
+  , coalesce(x1.has_embedding, x2.has_embedding) as has_embedding
+  , coalesce(x1.created_at, x2.created_at) as created_at
+  , coalesce(x1.updated_at, x2.updated_at) as updated_at
+  ,   coalesce(_fulltext_weight / (_k + x1.rank), 0.0)
+    + coalesce(_semantic_weight / (_k + x2.rank), 0.0) as score
+  from
+  (
+    select
+      row_number() over (order by m.score desc, m.id) as rank
+    , m.*
+    from {{schema}}.search_memory
+    ( _user_id => _user_id
+    , _bm25 => _bm25
+    , _ltree => _ltree
+    , _lquery => _lquery
+    , _ltxtquery => _ltxtquery
+    , _meta_contains => _meta_contains
+    , _temporal_within => _temporal_within
+    , _temporal_overlaps => _temporal_overlaps
+    , _temporal_before => _temporal_before
+    , _temporal_after => _temporal_after
+    , _regexp => _regexp
+    , _limit => _candidate_limit
+    ) m
+  ) x1
+  full outer join
+  (
+    select
+      row_number() over (order by m.score desc, m.id) as rank
+    , m.*
+    from {{schema}}.search_memory
+    ( _user_id => _user_id
+    , _vec => _vec
+    , _max_vec_dist => _max_vec_dist
+    , _ltree => _ltree
+    , _lquery => _lquery
+    , _ltxtquery => _ltxtquery
+    , _meta_contains => _meta_contains
+    , _temporal_within => _temporal_within
+    , _temporal_overlaps => _temporal_overlaps
+    , _temporal_before => _temporal_before
+    , _temporal_after => _temporal_after
+    , _regexp => _regexp
+    , _limit => _candidate_limit
+    ) m
+  ) x2 on (x1.id = x2.id)
+  order by score desc, id
+  limit _limit
+  ;
 end;
 $func$ language plpgsql stable security invoker
 set search_path to pg_catalog, {{schema}}, public, pg_temp
