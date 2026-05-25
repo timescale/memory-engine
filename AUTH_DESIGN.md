@@ -30,10 +30,10 @@ The whole system is built from these. There is no per-memory ACL, no deny rules,
 
 ## Principals
 
-All principals live in a single table, distinguished by `kind`:
+All principals live in a single **global** table, distinguished by `kind`. This is the only auth-related table that is not per-collection — grants, group memberships, and the memory rows themselves all live in per-collection schemas (see *Implementation Notes / Schema layout*).
 
 ```
-principals
+me.principal
 ──────────────────────────────────────────────────────────────────────────────────
 id    kind    email?       owner_id?   secret_hash?   collection_id?   name
 u1    human   alice@…      —           —              —                Alice
@@ -43,7 +43,7 @@ a2    agent   —            u1          <hash>         —                Meeti
 g1    group   —            —           —              work             Engineering
 ```
 
-`collection_id` is set only for groups (which are collection-scoped) and is null for users and agents.
+`collection_id` is set only for groups (which are collection-scoped) and identifies which collection that group belongs to; it is null for users and agents. The principals table is global so that `<c>.grant.principal_id` has a single, uniform FK target regardless of principal kind.
 
 ### Users (humans)
 
@@ -146,18 +146,18 @@ Path-style granularity exists *below* the management line, never *across* it.
 
 ## Grants
 
-A grant is the system's only permission primitive:
+A grant is the system's only permission primitive. Grants live in the collection's own schema, so the collection identity is the schema name — there is no `collection_id` column on the grant row:
 
 ```
-grants
+<c>.grant     -- e.g. work.grant
 ─────────────────────────────────────────────────────────────
-principal_id   collection_id   role          paths        private?
-u1             work            Editor        *
-u1             work            Editor        ~u1.*        true
-a1             work            Contributor   meetings.*
+principal_id   role          paths        private?
+u1             Editor        *
+u1             Editor        ~u1.*        true
+a1             Editor        meetings.*
 ```
 
-A principal can hold multiple grants in the same collection. Each grant has:
+`principal_id` references `me.principal.id` (global). A principal can hold multiple grants in the same collection. Each grant has:
 
 - `role` — one of the five roles above.
 - `paths` — an ltree prefix (or set of prefixes). Defaults to `*` (whole collection). **Required to be empty/`*` if role is Admin or Owner.**
@@ -334,7 +334,7 @@ A Group is a collection-scoped principal-like entity that bundles members and ca
 
 - **Collection-scoped.** A group exists within exactly one collection. There are no global or cross-collection groups.
 - **Same grant shape.** Grants point to groups via `principal_id` just like users and agents. A group's grants are not constrained to be a subset of any user's — groups define their own access, and members inherit it by being in the group.
-- **Membership.** A user is in a group iff a row exists in `group_members(group_id, user_id)`. Agents do not belong to groups directly; they inherit through the owner-ceiling rule from their owner's group memberships.
+- **Membership.** A user is in a group iff a row exists in `<c>.group_member(group_id, user_id)` in the group's collection schema. Both `group_id` and `user_id` reference `me.principal.id`. Agents do not belong to groups directly; they inherit through the owner-ceiling rule from their owner's group memberships.
 - **Management.** Adding or removing members requires the `manage_members` capability on the collection (Admin or Owner). Creating or deleting groups also requires this capability.
 - **Effective resolution.** A user's effective grants in a collection = direct grants ∪ grants of every group they belong to. The max-of-role rule (per matching path) applies across the union.
 
@@ -366,7 +366,7 @@ who_can_see(memory_id="...") →
   - Claude Desktop (Editor via owner-ceiling, Alice's grant)
 ```
 
-Cheap to compute if and only if the permission model has stayed clean. If `who_can_see` becomes expensive or unintuitive, that is the canary that complexity has crept in — back off.
+Cheap to compute if and only if the permission model has stayed clean. The implementation is a single-collection scan of `<c>.grant` joined with `<c>.group_member` — both small, both indexed. If `who_can_see` becomes expensive or unintuitive, that is the canary that complexity has crept in — back off.
 
 ### Sudo-access log
 
@@ -611,16 +611,85 @@ Time-of-day, IP, geo, MFA-required conditions. Rejected for Phase 1. If needed, 
 
 ## Implementation Notes
 
-### PostgreSQL RLS
+### Schema layout
 
-Permission enforcement lives in the database via Row-Level Security. The application sets two session GUCs at the start of each request:
+Each collection lives in its own schema. The principals table is the only auth-related table that is global:
 
 ```
-SET LOCAL me.principal_id = '<resolved principal>';
-SET LOCAL me.sudo_until = '<expiry or null>';
+me.principal                                          -- global: users, agents, groups
+                                                      -- (group rows have collection_id set)
+
+<c>.memory                                            -- per-collection
+<c>.grant         ( principal_id, role, paths, private? )
+<c>.group_member  ( group_id, user_id )               -- both reference me.principal.id
 ```
 
-Policies on `me.memory` consult these GUCs to admit or deny rows. This puts the enforcement at the same layer as the data, eliminating bypass risk from application bugs.
+Because memory queries target one collection at a time, the schema is fixed when the query is built. Collection identity is implicit in the schema choice; no `collection_id` columns appear on the data tables. The relevant `<c>.grant` and `<c>.group_member` tables are tiny (bounded by membership count), which is what makes query-time authorization cheap.
+
+### Query-time authorization (CTE + qual)
+
+Enforcement is a CTE materializing the principal's effective grants in the target collection, plus a qual appended to every memory query. Both pieces hit indexes and add negligible cost on top of the BM25/halfvec scan.
+
+GUCs set per request:
+
+```
+SET LOCAL me.principal_id        = '<id>';
+SET LOCAL me.owner_id            = '<id or null>';      -- agents only
+SET LOCAL me.delegate            = '<bool>';            -- agents only
+SET LOCAL me.sudo_collection_id  = '<id or null>';      -- non-null only inside sudo
+```
+
+For a human, or a delegating agent (same shape — substitute `:p_id := :owner_id`):
+
+```sql
+WITH my_grants AS MATERIALIZED (
+  SELECT paths FROM c.grant WHERE principal_id = :p_id
+  UNION ALL
+  SELECT g.paths
+  FROM   c.grant g
+  JOIN   c.group_member gm ON gm.group_id = g.principal_id
+  WHERE  gm.user_id = :p_id
+)
+SELECT m.*
+FROM   c.memory m
+WHERE  EXISTS (SELECT 1 FROM my_grants WHERE m.tree <@ ANY (paths))
+  AND  ( m.tree !~ '~*.*'                              -- not in any private subtree
+         OR m.tree <@ ('~' || :p_id)::ltree            -- or it's mine
+         OR :sudo_collection_id IS NOT NULL )          -- or sudo active for this collection
+```
+
+For a non-delegating agent: two CTEs, both quals must hold, no private subtree access.
+
+```sql
+WITH
+agent_grants AS MATERIALIZED (
+  SELECT paths FROM c.grant WHERE principal_id = :agent_id
+),
+owner_grants AS MATERIALIZED (
+  SELECT paths FROM c.grant WHERE principal_id = :owner_id
+  UNION ALL
+  SELECT g.paths FROM c.grant g
+  JOIN   c.group_member gm ON gm.group_id = g.principal_id
+  WHERE  gm.user_id = :owner_id
+)
+SELECT m.*
+FROM   c.memory m
+WHERE  EXISTS (SELECT 1 FROM agent_grants WHERE m.tree <@ ANY (paths))
+  AND  EXISTS (SELECT 1 FROM owner_grants WHERE m.tree <@ ANY (paths))
+  AND  m.tree !~ '~*.*'
+```
+
+Path intersection happens automatically: each memory has one `tree` value, and both EXISTS clauses test it against their respective grant prefixes; the row survives only if both cover it.
+
+### Enforcement boundary
+
+Every memory query goes through a query-builder that injects the CTE and qual. To prevent bypass from a query that forgets the injection, raw table access is revoked from the application role; reads go through a security-barrier view `<c>.memory_authz` that embeds the CTE + qual. A bypass therefore requires schema-level privilege escalation, not just an application bug.
+
+Row-Level Security is a viable alternative for environments that prefer DB-level policy enforcement; it gives the same safety property at higher per-row cost. The schema-per-collection layout makes RLS unnecessary in practice — the security-barrier-view approach is faster and equally safe.
+
+### Audit side-effects
+
+Sudo-access logging (`log_sudo_access`, `notify_owner`) and the general write activity log cannot live in a `USING` clause. They are implemented via row-level triggers on `<c>.memory` and `<c>.grant`, and via application-level wrappers around the sudo read path. The qual + CTE handles admission; side effects are layered on top.
 
 ### Agent secret storage
 
