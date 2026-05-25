@@ -2,12 +2,13 @@
 
 ## Overview
 
-This document specifies the permission system for Memory Engine. The whole model is built from four primitives:
+This document specifies the permission system for Memory Engine. The whole model is built from five primitives:
 
 - **Collection** — a tenancy boundary; every memory lives in exactly one.
 - **Path** — a hierarchical label (ltree) inside a collection.
-- **Role** — a fixed capability tier: Viewer, Editor, Admin, Owner.
-- **Grant** — a `(principal, collection, role, paths)` tuple. The only permission primitive.
+- **Role** — a memory capability tier: Viewer or Editor.
+- **Grant** — a `(principal, collection, role, paths)` tuple. The primitive for *memory* access.
+- **Member** — a user joined to a collection, carrying collection-level flags (`is_admin`). The primitive for *collection* management.
 
 The design is:
 
@@ -26,8 +27,9 @@ Where this overlaps with existing products (GitHub, Notion, Slack, Drive) and wh
 | **User** | A human principal with a global OAuth identity. |
 | **Agent** | A non-human principal owned by a user (or by a collection). Authenticates via a secret. |
 | **Collection** | The tenancy boundary. Every memory lives in exactly one collection. |
-| **Grant** | A `(principal, collection, role, paths)` tuple. The permission primitive. |
-| **Role** | A fixed capability tier (Viewer / Editor / Admin / Owner). |
+| **Member** | A user joined to a collection. Carries collection-level capability flags (`is_admin`). |
+| **Grant** | A `(principal, collection, role, paths)` tuple. The permission primitive for *memory* access. |
+| **Role** | A memory capability tier (Viewer / Editor). |
 | **Path scope** | An ltree prefix filter that restricts a grant to a subtree within its collection. |
 | **Private subtree** | A reserved path (`~<principal>.*`) only the owning principal sees by default. |
 
@@ -102,8 +104,8 @@ Collections are intended to be few in number and switched between intentionally;
 
 Two flavors at the user-visible layer (same shape under the hood):
 
-- **Personal collection.** Auto-provisioned on user signup. Owner = the user.
-- **Shared collection.** Explicitly created. Owner = an Organization (a billing/admin grouping introduced in Phase 3) or a single user.
+- **Personal collection.** Auto-provisioned on user signup. The user is its sole admin.
+- **Shared collection.** Explicitly created. Starts with the creator as admin; admins can promote other members. Phase 3 introduces Organizations as a billing/admin grouping that can hold collections.
 
 Collections are lightweight to *create*, but meant to be heavyweight in what they *separate*. The model is "a few collections per person, each a clean context, organized internally by paths" — not "one collection with deeply nested permission overrides," and not "a new collection every time finer permissions are needed."
 
@@ -123,35 +125,37 @@ A new **path** when:
 
 Rule of thumb: **if changing collection feels heavyweight, that is working as intended.** Paths are for everyday organization; collections are for actual context shifts.
 
-## Roles
+## Roles and Membership
 
-Four roles, fixed set. Roles split into two tiers based on what they govern.
+Capability is split across two storage primitives:
 
-The set is deliberately coarse. Finer gradations make `who_can_see` harder to answer and force users to learn a permission vocabulary instead of just seeing who is on the project. Custom roles are a Phase 4 escape valve, not a Phase 1 feature.
+- **Grants** carry *memory* capability (Viewer/Editor) and may be path-scoped.
+- **Member rows** carry *collection* capability (`is_admin`). Never path-scoped.
+
+This split keeps grants uniformly path-scopable (no "must be `*`" invariants on certain roles) and makes "who can manage this collection?" a one-column lookup rather than a role-tier scan. It also separates the two questions cleanly: a billing/HR admin can have `is_admin=true` with no grants — they manage people but can't read content.
 
 ### Memory roles (path-scopable)
 
-These govern actions on individual memories. A grant with one of these roles **can** carry a path filter.
+These govern actions on individual memories. A grant carries one of these roles plus a path filter.
 
 | Role | Read | Create | Edit any | Delete |
 |---|---|---|---|---|
 | Viewer | ✓ | | | |
 | Editor | ✓ | ✓ | ✓ | ✓ |
 
-### Collection roles (always collection-wide)
+### Member flags (collection-wide)
 
-These govern actions on the collection itself. A grant with one of these roles **must not** carry a path filter — reject at the API level if one is supplied. Both imply Editor on all memories within the collection.
+| Flag | Meaning |
+|---|---|
+| `is_admin` | Can manage members (add, remove, promote, demote), delete the collection, and enter sudo mode (Phase 2). |
 
-| Role | All Editor capabilities | Manage members | Delete collection |
-|---|---|---|---|
-| Admin | ✓ | ✓ | |
-| Owner | ✓ | ✓ | ✓ |
+`is_admin` is independent of grants. The UI exposes "Admin" as a *role preset* — selecting it sets `is_admin=true` on the member row and writes an Editor-at-`*` grant in one step — but under the hood they remain two atoms that can be set independently.
 
-Path-style granularity exists *below* the management line, never *across* it.
+The set is deliberately coarse. Finer gradations make `who_can_see` harder to answer and force users to learn a permission vocabulary instead of just seeing who is on the project. A finer admin tier (e.g., separating "delete collection" from "manage members") is a Phase 4 escape valve, not a Phase 1 feature.
 
 ## Grants
 
-A grant is the system's only permission primitive. Grants live in the collection's own schema, so the collection identity is the schema name — there is no `collection_id` column on the grant row:
+A grant is the permission primitive for *memory* access (collection-management capability lives on the member row — see *Roles and Membership*). Grants live in the collection's own schema, so the collection identity is the schema name — there is no `collection_id` column on the grant row:
 
 ```
 <c>.grant     -- e.g. work.grant
@@ -164,8 +168,8 @@ a1             Editor        meetings.*
 
 `principal_id` references `me.principal.id` (global). A principal can hold multiple grants in the same collection. Each grant has:
 
-- `role` — one of the five roles above.
-- `paths` — an ltree prefix (or set of prefixes). Defaults to `*` (whole collection). **Required to be empty/`*` if role is Admin or Owner.**
+- `role` — Viewer or Editor.
+- `paths` — an ltree prefix (or set of prefixes). Defaults to `*` (whole collection).
 - `private` — a boolean flag. Used only by the system to mark the implicit per-member private-subtree grant. Users cannot set it.
 
 ### Resolution rule
@@ -253,13 +257,13 @@ The `private = true` flag changes resolution **only** inside the `~P.*` subtree:
 
 > **Phase 2 feature.** In Phase 1, private subtrees are strictly private — no admin override exists. The mechanism below specifies the eventual Phase 2 design; the rules and transparency guarantees are what we're committing to when sudo ships, not what's available at MVP.
 
-Collection Admins and Owners can access another member's private subtree by explicitly entering **sudo mode** — a re-authenticated, time-bounded, single-purpose elevation. It is narrow in *capability*: it only crosses the private-subtree boundary; it is not a general elevation. Admins already have manage_members and edit-all-shared-memories without sudo; the mode exists solely to cross the privacy line. Necessary for legitimate operational needs (account recovery, compliance investigation, off-boarding), and designed so it cannot be done quietly.
+Members with `is_admin=true` can access another member's private subtree by explicitly entering **sudo mode** — a re-authenticated, time-bounded, single-purpose elevation. It is narrow in *capability*: it only crosses the private-subtree boundary; it is not a general elevation. Admins already have member-management and (if they also hold an Editor grant) edit-all-shared-memories without sudo; the mode exists solely to cross the privacy line. Necessary for legitimate operational needs (account recovery, compliance investigation, off-boarding), and designed so it cannot be done quietly.
 
 Sudo mode rules:
 
 1. **Explicit entry, required reason.** `me sudo --collection <c> --reason "<free text>"`. The reason is stored verbatim.
 2. **Re-authentication required.** Entering sudo requires a fresh proof-of-identity — password re-entry, OAuth re-consent, or MFA challenge per organization policy — not just an active session. Sudo issues a new short-lived credential rather than upgrading the existing one. This makes sudo a true step-up authentication event, equivalent in shape to GitHub's "sudo mode."
-3. **Human principals only.** Agents cannot enter sudo, even when owned by an Admin. The owner-ceiling rule provides no path to a capability the owner must re-authenticate to acquire — agents have no way to re-authenticate, so the capability is structurally unreachable. Private subtrees are therefore safe from agents acting under admin owners, even with full delegation.
+3. **Human principals only.** Agents cannot enter sudo, even when owned by an admin. The owner-ceiling rule provides no path to a capability the owner must re-authenticate to acquire — agents have no way to re-authenticate, so the capability is structurally unreachable. Private subtrees are therefore safe from agents acting under admin owners, even with full delegation.
 4. **Time-bounded.** Session expires after a short window (default 15 minutes, configurable up to 1 hour). Re-entry requires a fresh reason and a fresh re-authentication. The elevation cannot self-extend.
 5. **Per-access audit.** Every read or write of a private memory while sudo'd writes an audit record `(admin, target, memory_id, action, timestamp, reason, sudo_session_id)`.
 6. **Owner is notified.** The principal whose private space was accessed receives a notification (in-product + email) at each access. Cannot be suppressed by the admin.
@@ -338,7 +342,7 @@ A Group is a collection-scoped principal-like entity that bundles members and ca
 - **Collection-scoped.** A group exists within exactly one collection. There are no global or cross-collection groups.
 - **Same grant shape.** Grants point to groups via `principal_id` just like users and agents. A group's grants are not constrained to be a subset of any user's — groups define their own access, and members inherit it by being in the group.
 - **Membership.** A user is in a group iff a row exists in `<c>.group_member(group_id, user_id)` in the group's collection schema. Both `group_id` and `user_id` reference `me.principal.id`. Agents do not belong to groups directly; they inherit through the owner-ceiling rule from their owner's group memberships.
-- **Management.** Adding or removing members requires the `manage_members` capability on the collection (Admin or Owner). Creating or deleting groups also requires this capability.
+- **Management.** Adding or removing group members, or creating/deleting groups, requires `is_admin` on the collection.
 - **Effective resolution.** A user's effective grants in a collection = direct grants ∪ grants of every group they belong to. The max-of-role rule (per matching path) applies across the union.
 
 Why not global groups: rename-and-blast-radius problems. A global group renamed or deleted has cross-tenant effects users do not expect, and it forces an organizational structure on the system before customers have one in mind. Collection-scoped keeps the blast radius contained and lets each collection structure its own membership independently.
@@ -351,7 +355,7 @@ Sharing is **invite-by-handle**: access is granted to named principals with expl
 
 Two levels:
 
-1. **Private** (default for new collections). Only the owner.
+1. **Private** (default for new collections). Only the creator (admin).
 2. **Invite by handle/email** → role. The primary mechanism.
 
 Link sharing, domain-based sharing ("anyone in @example.com gets Viewer"), and request-access flows are deferred to Phase 4 (only if demanded). Most teams don't actually need them, and the "anyone with the link" pattern is a leading cause of "who can see this?" confusion — exactly what this design exists to avoid.
@@ -395,6 +399,10 @@ All writes (create, edit, delete, move) record `(principal, action, memory_id, b
 
 ## Permission Resolution Algorithm (Complete)
 
+Memory actions (`read`, `create`, `edit`, `delete`, `move`) go through `can(requester, action, memory)`. Collection-management actions (`manage_members`, `delete_collection`) go through a separate `can_manage(requester, collection, action)` check that consults `<c>.member.is_admin` and does not touch grants.
+
+### Memory actions
+
 For a request `(requester, action, memory)`:
 
 ```python
@@ -414,7 +422,7 @@ def can(requester, action, memory):
         elif is_sudo_admin(principal, collection):
             # is_sudo_admin requires: principal.kind == 'human',
             # an active (re-authenticated, unexpired) sudo session scoped to
-            # this collection, and Admin or Owner role.
+            # this collection, and `<c>.member.is_admin = true` for principal.
             log_sudo_access(principal, X, memory)
             notify_owner(X, principal, memory)
             applicable = grants_of(X, collection) + grants_of(principal, collection)
@@ -452,9 +460,21 @@ Where `capabilities(role)` is:
 ```
 Viewer:       { read }
 Editor:       { read, create, edit, delete, move }
-Admin:        Editor ∪ { manage_members }
-Owner:        Admin ∪ { delete_collection, transfer_ownership }
 ```
+
+### Collection-management actions
+
+```python
+def can_manage(requester, collection, action):
+    # action ∈ { manage_members, delete_collection }
+    principal = authenticate(requester)
+    if principal is None: return False
+    if principal.kind != 'human': return False   # agents cannot manage collections
+    member = member_of(principal, collection)
+    return member is not None and member.is_admin
+```
+
+Agents have no path to collection-management actions: they are not members, and the check rejects on `kind != 'human'`. This is the same structural guarantee that keeps agents out of sudo mode.
 
 ## Worked Examples
 
@@ -463,8 +483,10 @@ Owner:        Admin ∪ { delete_collection, transfer_ownership }
 Alice signs up. System creates:
 
 - Principal `u_alice` (kind=human).
-- Personal collection `alice-personal` with `u_alice` as Owner.
-- Implicit private-subtree grant `(u_alice, alice-personal, Editor, ~u_alice.*, private=true)` (always present per-member).
+- Personal collection `alice-personal`.
+- Member row `(u_alice, is_admin=true)` in `alice-personal`.
+- Grant `(u_alice, Editor, *)` — her read/write access to all shared paths.
+- Implicit private-subtree grant `(u_alice, Editor, ~u_alice.*, private=true)` (always present per-member).
 
 Alice can do anything in her own collection. She can store private notes under `~me.*` (alias for `~u_alice.*`). No one else has access.
 
@@ -496,24 +518,27 @@ System creates:
 
 Effective permissions for `a_ingester`:
 
-- `meetings.notes` → Editor (own grant) ∩ Owner (Alice's ceiling) = Editor. Can create, edit, and delete within `meetings.*`.
+- `meetings.notes` → Editor (own grant) ∩ Editor (Alice's ceiling at `*`) = Editor. Can create, edit, and delete within `meetings.*`.
 - `projects.foo` → no grant matches → no access.
 - `~u_alice.diary` → no grant in the private subtree → no access. Alice's private space is safe even from her own narrowed agents.
 
 ### Shared work collection
 
-Alice creates a shared collection `work` and invites Bob as Editor:
+Alice creates a shared collection `work`. System creates:
 
-- Implicit private subtrees for Alice (`~u_alice.*`) and Bob (`~u_bob.*`) automatically registered.
-- Direct grant: `(u_bob, work, Editor, *)`.
+- Member row `(u_alice, is_admin=true)`, grant `(u_alice, Editor, *)`, implicit `~u_alice.*` private grant.
+
+Alice invites Bob as Editor:
+
+- Member row `(u_bob, is_admin=false)`, grant `(u_bob, Editor, *)`, implicit `~u_bob.*` private grant.
 
 Bob can read and write everything except Alice's private subtree.
 
-Alice promotes Carol to Admin:
+Alice promotes Carol using the Admin preset:
 
-- Grant: `(u_carol, work, Admin, *)` — note path filter must be `*`/empty for Admin.
+- Member row `(u_carol, is_admin=true)`, grant `(u_carol, Editor, *)`, implicit `~u_carol.*` private grant.
 
-Carol can manage members and edit all memories — but not see Alice's or Bob's private subtrees without entering sudo mode. When she does:
+Carol can now manage members and edit all memories — but not see Alice's or Bob's private subtrees without entering sudo mode. When she does:
 
 ```bash
 me sudo --collection work --reason "Off-boarding Bob, retrieving customer notes"
@@ -547,9 +572,10 @@ Ship the model end-to-end with the minimum viable surface:
 
 - Principals: User (OAuth via GitHub/Google), Agent (user-owned), Group (collection-scoped).
 - Auto-provisioned personal collection per user.
-- Explicit shared collections, user-owned.
-- Four roles, fixed.
+- Explicit shared collections, created by a user who becomes its first admin.
+- Two memory roles (Viewer, Editor); collection-level capability via `<c>.member.is_admin`.
 - Grants table with path filters, max-of-role resolution.
+- Member table (`<c>.member`) holding `is_admin` and membership metadata.
 - Group membership (`group_members`) with grant inheritance for users.
 - Private subtrees — strictly private in Phase 1, no admin override (sudo arrives in Phase 2).
 - Agent secrets (create/rotate/revoke), full-delegation default.
@@ -558,7 +584,7 @@ Ship the model end-to-end with the minimum viable surface:
 
 ### Phase 2
 
-- Sudo mode for Admins/Owners to access private subtrees: re-authentication flow, time-bounded credentials, MFA gate, owner notifications (in-product + email), queryable `sudo_audit` table.
+- Sudo mode for admins (`is_admin=true`) to access private subtrees: re-authentication flow, time-bounded credentials, MFA gate, owner notifications (in-product + email), queryable `sudo_audit` table.
 - "Transfer to admin under sudo" option in member off-boarding.
 - Collection-owned agents (service accounts owned by a collection, not a user).
 - "Block agent" mechanism for collection admins to suspend a foreign-user's agent from acting in their collection.
@@ -572,7 +598,7 @@ Ship the model end-to-end with the minimum viable surface:
 - Organization-level groups invitable into collections as units.
 - Link sharing (off by default, opt-in per collection). Deferred from Phase 2 — the "invite by handle" path covers the realistic use cases, and link sharing introduces the "who can see this?" surface area the rest of the design exists to avoid.
 - Domain-based sharing, request-access flow.
-- Custom roles (caller-defined capability sets).
+- Finer admin tiers (e.g., separating "delete collection" from "manage members") and/or fully custom roles.
 
 Per-memory ACL overrides are **not** in any phase. If they ever become unavoidable, the design needs to be re-examined from the top, because their addition will reshape resolution semantics.
 
@@ -591,7 +617,7 @@ Each overlaps partially, but each has friction as a primary frame:
 - **Slack workspaces** map well at the conceptual level (workspace = collection, channels ≈ paths, DMs-with-self ≈ private subtree, bots = agents, eDiscovery = sudo), but Slack's channel namespace is flat, not hierarchical.
 - **Drive's** defining features — per-file ACLs, link sharing as the dominant mechanism, folder-inherited permissions — are explicitly rejected here for the same reason they cause "who can see this?" pain in Drive itself.
 
-The design stands on its own four primitives (collection, path, role, grant) rather than borrowing a product framing. Each candidate analogy required disowning more than it carried, so none is used as the doc's anchor. Inline comparisons (e.g., bearer tokens, step-up auth) appear only where they help a reader place a specific mechanism.
+The design stands on its own five primitives (collection, path, role, grant, member) rather than borrowing a product framing. Each candidate analogy required disowning more than it carried, so none is used as the doc's anchor. Inline comparisons (e.g., bearer tokens, step-up auth) appear only where they help a reader place a specific mechanism.
 
 ### Principal-to-principal mirror grants
 
@@ -633,10 +659,13 @@ me.principal                                          -- global: users, agents, 
 
 <c>.memory                                            -- per-collection
 <c>.grant         ( principal_id, role, paths, private? )
+<c>.member        ( user_id, is_admin, joined_at, invited_by )
 <c>.group_member  ( group_id, user_id )               -- both reference me.principal.id
 ```
 
-Because memory queries target one collection at a time, the schema is fixed when the query is built. Collection identity is implicit in the schema choice; no `collection_id` columns appear on the data tables. The relevant `<c>.grant` and `<c>.group_member` tables are tiny (bounded by membership count), which is what makes query-time authorization cheap.
+Because memory queries target one collection at a time, the schema is fixed when the query is built. Collection identity is implicit in the schema choice; no `collection_id` columns appear on the data tables. The relevant `<c>.grant`, `<c>.member`, and `<c>.group_member` tables are tiny (bounded by membership count), which is what makes query-time authorization cheap.
+
+`<c>.member` holds one row per user joined to the collection. It carries the `is_admin` flag (collection-management capability) plus membership metadata. Agents are not members — they hold grants directly and are bounded by their owner. Membership is the source of identity-in-this-collection; grants are the source of memory capability; the two are kept separate so that "manage this collection" is a single-column lookup independent of grant resolution.
 
 ### Query-time authorization (CTE + qual)
 
@@ -726,7 +755,7 @@ Agent secrets, by contrast, can never produce a sudo credential: the `me sudo` e
 Existing single-user installations migrate by:
 
 1. Creating one principal row per user.
-2. Creating one personal collection per user with an Owner grant.
+2. Creating one personal collection per user, with a member row `(user_id, is_admin=true)` and an Editor-at-`*` grant.
 3. Mapping any existing memories to the new collection.
 4. No existing data has agents or shared collections; those are net-new in this model.
 
