@@ -19,6 +19,17 @@ The design is:
 
 Where this overlaps with existing products (GitHub, Notion, Slack, Drive) and where it deviates, see *Considered and Rejected → Anchoring on a familiar product*.
 
+## Differences from other design
+
+1. Groups are non-recursive and  Members are non-recursive. Thus principals get permissions from themselves and the groups they belong to.
+2. Private directories is a first-class concept that has its own rules and is not part of the regular grant system. This makes a grant on the root NOT have access to private directories. Only admins-under-sudo and the user themselves has access. Makes grants on root workable.
+3. Agents are of two types
+- delegated: inherit all permissions of owners
+- non-delegated: have their own perms.
+-> in both cases: agent permissions never greater than their owners. 
+ 
+
+
 ## Core Concepts
 
 | Concept | Role |
@@ -183,7 +194,7 @@ For a given `(principal P, memory M)`, the effective role is computed as follows
 2. **Additive max-of-role.** Outside any private subtree, look at the principal's own grants plus any inherited group grants (Phase 3). Select all grants whose `paths` filter matches `M.path`. The effective role is the highest role among them. No matching grant ⇒ no access.
 3. **Owner ceiling (for agents).** If `P` is an agent, intersect the result with the owner's effective role at `M`. The lower of the two wins.
 
-Pseudocode:
+Pseudocode (the efficient SQL realization — a small indexed CTE plus a qual against `<c>.memory` — is in *Implementation Notes / Query-time authorization (CTE + qual)*):
 
 ```python
 def effective_role(principal, memory):
