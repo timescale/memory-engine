@@ -217,7 +217,7 @@ def effective_role(principal, memory):
     return role
 ```
 
-Agents are not members and have no private subtree of their own. The private branch shortcircuits before any grant or delegation lookup, so even a full-delegation agent never enters its owner's `~owner.*` — consistent with the *Human principals only* rule under *Sudo mode rules*.
+Agents are not members and have no private subtree of their own. The private branch shortcircuits before any grant or delegation lookup, so even a full-delegation agent never enters its owner's `~owner.*` — consistent with the *Human principals only* rule under *Sudo mode rules*. (Whether this is the right tradeoff vs. honoring full delegation literally is flagged in *Open Questions*.)
 
 ### Why this shape
 
@@ -798,6 +798,7 @@ Existing single-user installations migrate by:
 2. **Cross-collection search for an agent.** When an agent has grants on N collections, should `memory.search` natively span them? Recommend: yes, scoped by the agent's effective collections. UI defaults to single-collection search.
 3. **Per-grant expiry.** A grant that auto-expires at a date is useful for temporary access (contractors, due-diligence). Lightweight to add; defer unless real demand.
 4. **Quotas tied to grants.** Rate limits, storage caps per principal. Out of scope for this document; belongs to the operational layer.
+5. **Agent access to its owner's private subtree.** The current design treats `~owner.*` as off-limits to agents, even under full delegation: agents are not members, the private branch shortcircuits before delegation, and there is no "re-authenticate as the human" path for a bearer-token agent. This gives a strong invariant — anything written under `~me.*` was put there by *me*, never by my own agents — and matches the *Human principals only* sudo rule. The argument against: "full delegation" arguably promises "the agent sees everything I see," and the owner's own data isn't a privacy boundary against herself; locking the agent out forces users to keep AI-relevant personal notes outside their private subtree (or in a separate collection), which may be confusing. The choice is between *blast-radius minimization* (current) and *delegation-as-stated* (alternative). Revisit if users report the current behavior as surprising or as forcing awkward workarounds; an opt-in per-agent flag (`--include-owner-private`) is the obvious escape valve if we soften.
 
 ## Alternatives
 
