@@ -6,7 +6,11 @@ This document specifies the permission system for Memory Engine. It is designed 
 
 - **Simple for the common case.** Personal collections and small-team sharing should require zero permission concepts beyond "invite a member with a role."
 - **Sufficient for the complex case.** Path-scoped grants, private subtrees, and agent principals cover the realistic edge cases without descending into AWS-IAM complexity.
-- **Familiar.** Mental model is "Google Drive shared drives + service principals." Anyone who has used Drive or GitHub teams should be productive within minutes.
+- **Familiar.** Two anchor points:
+  - Collections, members, roles, and agents work like a **GitHub organization with collaborators and fine-grained PATs**. Each collection is a context; members hold fixed roles; bearer-token agents act on a member's behalf with optional narrower scope.
+  - Private subtrees work like a **Unix home directory** (`~me/`) — a personal area inside a shared space, invisible to others by default.
+
+  Where the design rejects a familiar pattern (per-file ACLs, link sharing as primary, deny rules), it does so for the same reasons those patterns are unloved in Drive/Notion: they make "who can see this?" hard to answer.
 - **Extensible.** Phase-1 ships a minimal model; later phases add groups, link sharing, and organizations purely additively.
 
 ## Core Concepts
@@ -48,6 +52,8 @@ g1    group   —            —           —              work             Eng
 - A user can be a member of any number of collections.
 
 ### Agents
+
+Conceptually, an agent is a **fine-grained personal access token**: scoped, revocable, and capped by its owner's permissions. The mechanics below all fall out of that framing.
 
 - A non-human principal. Acts on behalf of an AI system, automation, or any caller using a long-lived secret.
 - Has an `owner_id` referencing a user (or, in Phase 2, referencing a collection — see *Collection-owned agents*).
@@ -113,6 +119,8 @@ Rule of thumb: **if changing collection feels heavyweight, that is working as in
 ## Roles
 
 Five roles, fixed set. Roles split into two tiers based on what they govern.
+
+This is a deliberately coarsened version of **GitHub's role ladder** (Read / Triage / Write / Maintain / Admin). The coarsening is intentional: finer gradations make `who_can_see` harder to answer and force users to learn a permission vocabulary instead of just seeing who is on the project. Custom roles are a Phase 4 escape valve, not a Phase 1 feature.
 
 ### Memory roles (path-scopable)
 
@@ -208,7 +216,7 @@ When a principal lists tree nodes (the path namespace), they see only nodes that
 
 ## Private Subtrees
 
-Every member of a collection gets a reserved path prefix `~<principal-id>.*` that is private by default. Used for personal scratch space, drafts, agent memories the user doesn't want others to see, etc.
+Think of `~me.*` as a **Unix-style home directory** inside the collection — a personal area within the shared space, invisible to others by default. Every member of a collection gets a reserved path prefix `~<principal-id>.*` that is private by default. Used for personal scratch space, drafts, agent memories the user doesn't want others to see, etc.
 
 The private subtree is scoped to *drafts and personal notes within this context* (e.g., 1:1 notes inside a work collection, half-baked ideas about a shared project). It is **not** a substitute for keeping different contexts in different collections — personal finances belong in a personal collection, not in `~me.*` inside the work collection. The two private mechanisms are complementary: personal collections separate *contexts*; private subtrees separate the personal-but-context-relevant from the shared content within a single context.
 
@@ -228,6 +236,8 @@ The `private = true` flag changes resolution **only** inside the `~P.*` subtree:
 ### Admin access via sudo mode
 
 > **Phase 2 feature.** In Phase 1, private subtrees are strictly private — no admin override exists. The mechanism below specifies the eventual Phase 2 design; the rules and transparency guarantees are what we're committing to when sudo ships, not what's available at MVP.
+
+This mirrors **GitHub's sudo mode** in shape — re-authentication, time-bounded, scoped to a sensitive operation. It is narrower in *capability*: it only crosses the private-subtree boundary; it is not a general elevation. Admins already have manage_members and edit-all-shared-memories without sudo; the mode exists solely to cross the privacy line.
 
 The exception to the exception: collection Admins and Owners can access another member's private subtree by explicitly entering **sudo mode**. This is necessary for legitimate operational needs (account recovery, compliance investigation, off-boarding) but designed so it cannot be done quietly.
 
@@ -323,13 +333,14 @@ Phase 4 introduces the option of *organization-level groups* that can be invited
 
 ## Sharing Surface
 
-Three levels, ordered by surface area:
+The sharing model is **invite-by-handle, as in GitHub** — not link-sharing, as in Drive. Access is granted to named principals with explicit roles; there is no anonymous-link path to the data.
+
+Two levels:
 
 1. **Private** (default for new collections). Only the owner.
 2. **Invite by handle/email** → role. The primary mechanism.
-3. **Link share** (off by default, opt-in per collection). Anyone with the link gets a specified role. Can be disabled at the organization level.
 
-Domain-based sharing ("anyone in @example.com gets Viewer") and request-access flows are deferred until a real customer asks. Most don't.
+Link sharing, domain-based sharing ("anyone in @example.com gets Viewer"), and request-access flows are deferred to Phase 4 (only if demanded). Most teams don't actually need them, and the "anyone with the link" pattern is the single biggest cause of "who can see this?" confusion in Drive — exactly what this design exists to avoid.
 
 ## Audit and Transparency
 
@@ -530,7 +541,6 @@ Ship the model end-to-end with the minimum viable surface:
 - Sudo mode for Admins/Owners to access private subtrees: re-authentication flow, time-bounded credentials, MFA gate, owner notifications (in-product + email), queryable `sudo_audit` table.
 - "Transfer to admin under sudo" option in member off-boarding.
 - Collection-owned agents (service accounts owned by a collection, not a user).
-- Link sharing (off by default, opt-in per collection).
 - "Block agent" mechanism for collection admins to suspend a foreign-user's agent from acting in their collection.
 
 ### Phase 3
@@ -540,6 +550,7 @@ Ship the model end-to-end with the minimum viable surface:
 ### Phase 4 (only if demanded)
 
 - Organization-level groups invitable into collections as units.
+- Link sharing (off by default, opt-in per collection). Deferred from Phase 2 — the "invite by handle" path covers the realistic use cases, and link sharing introduces the "who can see this?" surface area the rest of the design exists to avoid.
 - Domain-based sharing, request-access flow.
 - Custom roles (caller-defined capability sets).
 
@@ -548,6 +559,10 @@ Per-memory ACL overrides are **not** in any phase. If they ever become unavoidab
 ## Considered and Rejected
 
 These options were considered during design and explicitly turned down. Documented here so future contributors don't need to re-litigate them.
+
+### Drive as the primary mental model
+
+Drive's defining features — per-file ACLs, link sharing as the dominant mechanism, folder-inherited permissions — are exactly what this design rejects. Anchoring readers on Drive sets expectations the design then has to fight on every page. GitHub's permission model (named collaborators with roles, PATs for automation, sudo for break-glass, no per-file ACLs) matches what was actually built; the doc anchors there instead. Unix `~user/` covers the private-subtree concept where GitHub has no good analog.
 
 ### Per-collection users
 
