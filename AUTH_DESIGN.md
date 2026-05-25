@@ -76,16 +76,18 @@ Cascading effects, free of charge:
 - Owner narrows their own role → agent's effective role narrows.
 - Owner deleted → agent's permissions evaluate to nothing.
 
-### Full-delegation shortcut
+### Delegation
 
-By default, an agent with no explicit grants takes on its owner's grants directly. This is the most common case (one user, one personal agent that should see everything the user can):
+An agent always has its own grants (possibly empty) and is always capped by its owner's permissions. *Delegation* is a per-agent toggle that adds the owner's effective role at each memory as an additional grant candidate:
 
 ```
-delegate = true  →  effective(A, M) = grants_resolve(O, M)
-delegate = false →  effective(A, M) = grants_resolve(A, M) ∩ grants_resolve(O, M)
+candidates = own matching grants  ⋃  (owner's role at M, if delegate=true)
+effective(A, M) = max(candidates) capped by effective(O, M)
 ```
 
-`delegate` defaults to `true` at creation. Setting `delegate = false` and adding explicit grants lets the user narrow what the agent can see.
+`delegate=true` is the default. It produces "agent sees everything the owner sees." `delegate=false` produces "agent sees only what its explicit grants permit, capped by owner." Setting explicit grants on a delegating agent is allowed but rarely useful — they can only match what the synthetic delegation grant already covers, and the owner-ceiling caps them either way.
+
+The same algorithm runs whether delegating or not — one resolver, with delegation contributing an extra candidate. The `delegate` toggle does one thing: include the owner's view as a synthetic grant. The "ignore own grants when delegating" rule is unnecessary; owner-ceiling already subsumes it.
 
 ## Collections
 
@@ -175,16 +177,25 @@ Pseudocode:
 def effective_role(principal, memory):
     if memory.path matches ~X.*:
         applicable = grants(principal_id = X)
-        if requester_is_sudo_admin(principal): 
+        if requester_is_sudo_admin(principal):
             applicable += grants(principal_id = principal)
     else:
         applicable = grants(principal_id = principal)
         # plus group grants for any groups principal is in
 
     matching = [g for g in applicable if g.paths covers memory.path]
-    if not matching: return None
-    role = max(g.role for g in matching)
+    candidates = [g.role for g in matching]
 
+    # Delegation: synthetic candidate equal to owner's effective role
+    if principal.kind == 'agent' and principal.delegate:
+        owner_role = effective_role(principal.owner, memory)
+        if owner_role is not None:
+            candidates.append(owner_role)
+
+    if not candidates: return None
+    role = max(candidates)
+
+    # Owner-ceiling (always applies to agents, including delegating ones)
     if principal.kind == 'agent':
         role = min(role, effective_role(principal.owner, memory))
     return role
@@ -412,12 +423,18 @@ def can(requester, action, memory):
 
     # 4. Filter by path
     matching = [g for g in applicable if g.paths covers memory.path]
-    if not matching: return False
+    candidates = [g.role for g in matching]
 
-    # 5. Compute role
-    role = max(g.role for g in matching)
+    # 5. Delegation: synthetic candidate equal to owner's effective role
+    if principal.kind == 'agent' and principal.delegate:
+        owner_role = effective_role(principal.owner, memory)
+        if owner_role is not None:
+            candidates.append(owner_role)
 
-    # 6. Owner ceiling for agents
+    if not candidates: return False
+
+    # 6. Compute role and apply owner-ceiling for agents
+    role = max(candidates)
     if principal.kind == 'agent':
         owner_role = effective_role(principal.owner, memory)
         if owner_role is None: return False
@@ -563,6 +580,10 @@ These options were considered during design and explicitly turned down. Document
 ### Drive as the primary mental model
 
 Drive's defining features — per-file ACLs, link sharing as the dominant mechanism, folder-inherited permissions — are exactly what this design rejects. Anchoring readers on Drive sets expectations the design then has to fight on every page. GitHub's permission model (named collaborators with roles, PATs for automation, sudo for break-glass, no per-file ACLs) matches what was actually built; the doc anchors there instead. Unix `~user/` covers the private-subtree concept where GitHub has no good analog.
+
+### Principal-to-principal mirror grants
+
+A generalization of agent delegation: any principal could be granted "mirror principal X's access." This would unify agent delegation, executive-assistant access, handoff scenarios, and audit-observer patterns under one primitive. Rejected for Phase 1 because (a) the only currently-needed case — agent delegation — is already cleanly handled by the synthetic-grant model above, (b) mirror grants change a static-row algebra into a graph traversal, making `who_can_see` significantly harder to compute and explain, (c) they introduce new privacy semantics (does Bob mirroring Alice include `~alice.*`? — surely not, but that's a new carve-out to specify), and (d) the use cases beyond agents are unproven. Revisit in Phase 4 if real demand emerges.
 
 ### Per-collection users
 
