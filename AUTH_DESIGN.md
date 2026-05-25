@@ -83,14 +83,32 @@ delegate = false →  effective(A, M) = grants_resolve(A, M) ∩ grants_resolve(
 
 ## Collections
 
-A collection is the unit of tenancy, sharing, and search scope. Every memory belongs to exactly one collection.
+A collection is a **context boundary** — the unit of tenancy, sharing, search, and agent connection. Every memory belongs to exactly one collection.
+
+The mental model is closer to a GitHub organization or a Slack workspace than to a Drive folder: a user has a small number of collections, switches between them intentionally, and the separation between them is meant to be *hard*. Personal finances do not belong in a "private path" inside a work collection — they belong in a different collection, because the agents connected to work, the people work is shared with, and the backups/exports/audits of work are all different from the personal ones.
 
 Two flavors at the user-visible layer (same shape under the hood):
 
 - **Personal collection.** Auto-provisioned on user signup. Owner = the user.
 - **Shared collection.** Explicitly created. Owner = an Organization (a billing/admin grouping introduced in Phase 3) or a single user.
 
-Collections are cheap to create. The model is "many collections, each simply permissioned" rather than "one collection with deeply nested permission overrides."
+Collections are lightweight to *create*, but meant to be heavyweight in what they *separate*. The model is "a few collections per person, each a clean context, organized internally by paths" — not "one collection with deeply nested permission overrides," and not "a new collection every time finer permissions are needed."
+
+### Collection vs path: when to use which
+
+A new **collection** when:
+
+- It's a different trust boundary (different set of collaborators, different agents connected).
+- It's a different domain of life or org (personal vs work, two distinct clients, side-project vs day-job).
+- It should be backed up, exported, or audited independently.
+
+A new **path** when:
+
+- It's the same context, just organized differently (`projects.acme.*`, `meetings.*`, `references.*` within `work`).
+- An agent should read all of one context but only write to part of it (path-scoped grants on a single collection).
+- A member wants personal drafts inside an otherwise-shared context (the `~user.*` private subtree).
+
+Rule of thumb: **if changing collection feels heavyweight, that is working as intended.** Paths are for everyday organization; collections are for actual context shifts.
 
 ## Roles
 
@@ -191,6 +209,8 @@ When a principal lists tree nodes (the path namespace), they see only nodes that
 ## Private Subtrees
 
 Every member of a collection gets a reserved path prefix `~<principal-id>.*` that is private by default. Used for personal scratch space, drafts, agent memories the user doesn't want others to see, etc.
+
+The private subtree is scoped to *drafts and personal notes within this context* (e.g., 1:1 notes inside a work collection, half-baked ideas about a shared project). It is **not** a substitute for keeping different contexts in different collections — personal finances belong in a personal collection, not in `~me.*` inside the work collection. The two private mechanisms are complementary: personal collections separate *contexts*; private subtrees separate the personal-but-context-relevant from the shared content within a single context.
 
 ### Mechanics
 
@@ -543,7 +563,7 @@ Tokens carrying their own scope object distinct from grants. Rejected after unif
 
 ### Per-memory ACL overrides
 
-Allowing memory-level permissions that override collection-level ones (the Notion/Drive pattern). Rejected: the dominant cause of "I can't tell who has access to this" pain in those products. The escape valve when path scopes aren't enough is to create a separate collection — they're cheap.
+Allowing memory-level permissions that override collection-level ones (the Notion/Drive pattern). Rejected: the dominant cause of "I can't tell who has access to this" pain in those products. The escape valve when path scopes aren't enough is to create a separate collection — appropriate when the content is actually a different context (different collaborators, different trust boundary). If it's the same context, paths suffice.
 
 ### Deny rules
 
