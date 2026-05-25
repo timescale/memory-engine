@@ -31,7 +31,7 @@ Where this overlaps with existing products (GitHub, Notion, Slack, Drive) and wh
 | **Grant** | A `(principal, collection, role, paths)` tuple. The permission primitive for *memory* access. |
 | **Role** | A memory capability tier (Viewer / Editor). |
 | **Path scope** | An ltree prefix filter that restricts a grant to a subtree within its collection. |
-| **Private subtree** | A reserved path (`~<principal>.*`) only the owning principal sees by default. |
+| **Private subtree** | A reserved path (`~<user-id>.*`) only the owning member sees by default. Derived from membership; no grant row. |
 
 The whole system is built from these. There is no per-memory ACL, no deny rules, no conditions, no cross-collection inheritance.
 
@@ -160,9 +160,8 @@ A grant is the permission primitive for *memory* access (collection-management c
 ```
 <c>.grant     -- e.g. work.grant
 ─────────────────────────────────────────────────────────────
-principal_id   role          paths        private?
+principal_id   role          paths
 u1             Editor        *
-u1             Editor        ~u1.*        true
 a1             Editor        meetings.*
 ```
 
@@ -170,32 +169,40 @@ a1             Editor        meetings.*
 
 - `role` — Viewer or Editor.
 - `paths` — an ltree prefix (or set of prefixes). Defaults to `*` (whole collection).
-- `private` — a boolean flag. Used only by the system to mark the implicit per-member private-subtree grant. Users cannot set it.
+
+A user's private subtree (`~<user-id>.*`) is **not** represented as a grant row. Membership in the collection (a row in `<c>.member`) is what entitles a user to their own private subtree; see *Private Subtrees*.
 
 ### Resolution rule
 
 For a given `(principal P, memory M)`, the effective role is computed as follows:
 
-1. **Private-subtree carve-out.** If `M.path` starts with `~X.*` for some principal `X`, then only grants where `principal_id = X` (or where the requester is in *sudo mode* — see below) contribute. All other grants are silenced.
-2. **Additive max-of-role.** Among the grants that contribute (the principal's own grants, plus inherited group grants in Phase 3), select all grants whose `paths` filter matches `M.path`. The effective role is the highest role among them. No matching grant ⇒ no access.
+1. **Private-subtree carve-out.** If `M.path` starts with `~X.*` for some user `X`:
+   - If `P` is `X` and `X` is a member of the collection, `P` has Editor on `M` (no grant lookup needed).
+   - If `P` is in *sudo mode* (and `is_admin`), `P` has Editor on `M` (audited; see *Sudo mode*).
+   - Otherwise, no access — even collection-wide grants like Editor at `*` do not apply inside `~X.*`.
+2. **Additive max-of-role.** Outside any private subtree, look at the principal's own grants plus any inherited group grants (Phase 3). Select all grants whose `paths` filter matches `M.path`. The effective role is the highest role among them. No matching grant ⇒ no access.
 3. **Owner ceiling (for agents).** If `P` is an agent, intersect the result with the owner's effective role at `M`. The lower of the two wins.
 
 Pseudocode:
 
 ```python
 def effective_role(principal, memory):
+    # 1. Private-subtree carve-out — derived from membership, not grants
     if memory.path matches ~X.*:
-        applicable = grants(principal_id = X)
-        if requester_is_sudo_admin(principal):
-            applicable += grants(principal_id = principal)
-    else:
-        applicable = grants(principal_id = principal)
-        # plus group grants for any groups principal is in
+        if principal.kind == 'human' and principal.id == X and is_member(X, memory.collection):
+            return Editor
+        if is_sudo_admin(principal, memory.collection):
+            return Editor
+        return None
+
+    # 2. Normal path — additive grants
+    applicable = grants(principal_id = principal)
+    # plus group grants for any groups principal is in
 
     matching = [g for g in applicable if g.paths covers memory.path]
     candidates = [g.role for g in matching]
 
-    # Delegation: synthetic candidate equal to owner's effective role
+    # 3. Delegation: synthetic candidate equal to owner's effective role
     if principal.kind == 'agent' and principal.delegate:
         owner_role = effective_role(principal.owner, memory)
         if owner_role is not None:
@@ -204,11 +211,13 @@ def effective_role(principal, memory):
     if not candidates: return None
     role = max(candidates)
 
-    # Owner-ceiling (always applies to agents, including delegating ones)
+    # 4. Owner-ceiling (always applies to agents, including delegating ones)
     if principal.kind == 'agent':
         role = min(role, effective_role(principal.owner, memory))
     return role
 ```
+
+Agents are not members and have no private subtree of their own. The private branch shortcircuits before any grant or delegation lookup, so even a full-delegation agent never enters its owner's `~owner.*` — consistent with the *Human principals only* rule under *Sudo mode rules*.
 
 ### Why this shape
 
@@ -236,22 +245,19 @@ When a principal lists tree nodes (the path namespace), they see only nodes that
 
 ## Private Subtrees
 
-Every member of a collection gets a reserved path prefix `~<principal-id>.*` that is private by default — a personal area within the shared space, invisible to others. Used for personal scratch space, drafts, agent memories the user doesn't want others to see, etc.
+Every member of a collection gets a reserved path prefix `~<user-id>.*` that is private by default — a personal area within the shared space, invisible to others. Used for personal scratch space, drafts, agent memories the user doesn't want others to see, etc.
 
 The private subtree is scoped to *drafts and personal notes within this context* (e.g., 1:1 notes inside a work collection, half-baked ideas about a shared project). It is **not** a substitute for keeping different contexts in different collections — personal finances belong in a personal collection, not in `~me.*` inside the work collection. The two private mechanisms are complementary: personal collections separate *contexts*; private subtrees separate the personal-but-context-relevant from the shared content within a single context.
 
 ### Mechanics
 
-When a principal is added to a collection, the system registers an implicit grant:
+Private subtrees are **derived from membership**, not from any grant row. When a user is a member of collection `C` (has a row in `<c>.member`), they automatically have Editor on `~<user-id>.*` within `C`. No row in `<c>.grant` represents this; the resolver shortcircuits the private branch using `is_member()` alone.
 
-```
-(principal = P, collection = C, role = Editor, paths = ~P.*, private = true)
-```
+The carve-out rule:
 
-The `private = true` flag changes resolution **only** inside the `~P.*` subtree:
-
-- Other principals' grants do **not** apply inside `~P.*`, even collection-wide ones like Editor at `*`.
+- Inside `~X.*`, **only** `X` themselves (and `is_admin` members in active sudo mode) have access. Grants — including collection-wide Editor at `*` — do not apply inside `~X.*`.
 - This is the **single carve-out** to additive max-of-role resolution.
+- The carve-out covers only humans. Agents have no private subtree, even when their owner has one.
 
 ### Admin access via sudo mode
 
@@ -279,7 +285,7 @@ If a principal needs a shared-with-two-people space, they create a separate coll
 
 ### Off-boarding
 
-When a member is removed from a collection, their `~<principal>.*` subtree must be explicitly resolved. The UI forces the choice:
+When a member is removed from a collection, their `~<user-id>.*` subtree must be explicitly resolved before the member row is deleted. The UI forces the choice:
 
 - **Keep, orphan.** Contents preserved, hidden from everyone, not surfaced in search.
 - **Transfer to admin under sudo.** *(Phase 2)* Re-parented to an admin's space, audited.
@@ -415,28 +421,28 @@ def can(requester, action, memory):
     collection = memory.collection_id
     if collection is None: return False
 
-    # 3. Find applicable grants under private-subtree carve-out
+    # 3. Private-subtree carve-out — derived from membership, not grants
     if memory.path matches ~X.*:
-        if principal.id == X:
-            applicable = grants_of(X, collection)
-        elif is_sudo_admin(principal, collection):
+        if principal.kind == 'human' and principal.id == X and is_member(X, collection):
+            return action in capabilities(Editor)
+        if is_sudo_admin(principal, collection):
             # is_sudo_admin requires: principal.kind == 'human',
             # an active (re-authenticated, unexpired) sudo session scoped to
             # this collection, and `<c>.member.is_admin = true` for principal.
             log_sudo_access(principal, X, memory)
             notify_owner(X, principal, memory)
-            applicable = grants_of(X, collection) + grants_of(principal, collection)
-        else:
-            return False  # other principals can't see foreign private subtrees
-    else:
-        applicable = grants_of(principal, collection)
-        applicable += grants_of_groups_containing(principal, collection)
+            return action in capabilities(Editor)
+        return False  # other principals can't see foreign private subtrees
 
-    # 4. Filter by path
+    # 4. Normal path — collect applicable grants
+    applicable = grants_of(principal, collection)
+    applicable += grants_of_groups_containing(principal, collection)
+
+    # 5. Filter by path
     matching = [g for g in applicable if g.paths covers memory.path]
     candidates = [g.role for g in matching]
 
-    # 5. Delegation: synthetic candidate equal to owner's effective role
+    # 6. Delegation: synthetic candidate equal to owner's effective role
     if principal.kind == 'agent' and principal.delegate:
         owner_role = effective_role(principal.owner, memory)
         if owner_role is not None:
@@ -444,14 +450,14 @@ def can(requester, action, memory):
 
     if not candidates: return False
 
-    # 6. Compute role and apply owner-ceiling for agents
+    # 7. Compute role and apply owner-ceiling for agents
     role = max(candidates)
     if principal.kind == 'agent':
         owner_role = effective_role(principal.owner, memory)
         if owner_role is None: return False
         role = min(role, owner_role)
 
-    # 7. Check action against role capabilities
+    # 8. Check action against role capabilities
     return action in capabilities(role)
 ```
 
@@ -486,9 +492,8 @@ Alice signs up. System creates:
 - Personal collection `alice-personal`.
 - Member row `(u_alice, is_admin=true)` in `alice-personal`.
 - Grant `(u_alice, Editor, *)` — her read/write access to all shared paths.
-- Implicit private-subtree grant `(u_alice, Editor, ~u_alice.*, private=true)` (always present per-member).
 
-Alice can do anything in her own collection. She can store private notes under `~me.*` (alias for `~u_alice.*`). No one else has access.
+Her access to `~u_alice.*` is implied by her member row — no separate grant is stored. Alice can do anything in her own collection. She can store private notes under `~me.*` (alias for `~u_alice.*`). No one else has access.
 
 ### Alice adds Claude Desktop
 
@@ -501,7 +506,7 @@ System creates:
 - Principal `a_claude` (kind=agent, owner=u_alice, delegate=true).
 - Returns a secret.
 
-Effective permissions for `a_claude`: identical to Alice's, since delegate=true. Including her private subtree (it's hers, the agent acts as her).
+Effective permissions for `a_claude`: identical to Alice's on shared paths, since delegate=true. Alice's `~u_alice.*` subtree is **not** accessible to the agent — private subtrees are reserved for the human member and are not crossed by delegation. If Alice needs her agent to operate on personal notes, she stores them at a non-private path (or in a separate personal collection she's comfortable connecting an agent to).
 
 ### Alice adds a meeting ingester, narrowed
 
@@ -520,23 +525,23 @@ Effective permissions for `a_ingester`:
 
 - `meetings.notes` → Editor (own grant) ∩ Editor (Alice's ceiling at `*`) = Editor. Can create, edit, and delete within `meetings.*`.
 - `projects.foo` → no grant matches → no access.
-- `~u_alice.diary` → no grant in the private subtree → no access. Alice's private space is safe even from her own narrowed agents.
+- `~u_alice.diary` → private branch, agent is not a member → no access. Alice's private space is safe even from her own narrowed agents.
 
 ### Shared work collection
 
 Alice creates a shared collection `work`. System creates:
 
-- Member row `(u_alice, is_admin=true)`, grant `(u_alice, Editor, *)`, implicit `~u_alice.*` private grant.
+- Member row `(u_alice, is_admin=true)`, grant `(u_alice, Editor, *)`. Membership entitles her to `~u_alice.*`.
 
 Alice invites Bob as Editor:
 
-- Member row `(u_bob, is_admin=false)`, grant `(u_bob, Editor, *)`, implicit `~u_bob.*` private grant.
+- Member row `(u_bob, is_admin=false)`, grant `(u_bob, Editor, *)`. Membership entitles him to `~u_bob.*`.
 
 Bob can read and write everything except Alice's private subtree.
 
 Alice promotes Carol using the Admin preset:
 
-- Member row `(u_carol, is_admin=true)`, grant `(u_carol, Editor, *)`, implicit `~u_carol.*` private grant.
+- Member row `(u_carol, is_admin=true)`, grant `(u_carol, Editor, *)`. Membership entitles her to `~u_carol.*`.
 
 Carol can now manage members and edit all memories — but not see Alice's or Bob's private subtrees without entering sudo mode. When she does:
 
@@ -658,7 +663,7 @@ me.principal                                          -- global: users, agents, 
                                                       -- (group rows have collection_id set)
 
 <c>.memory                                            -- per-collection
-<c>.grant         ( principal_id, role, paths, private? )
+<c>.grant         ( principal_id, role, paths )
 <c>.member        ( user_id, is_admin, joined_at, invited_by )
 <c>.group_member  ( group_id, user_id )               -- both reference me.principal.id
 ```
@@ -666,6 +671,8 @@ me.principal                                          -- global: users, agents, 
 Because memory queries target one collection at a time, the schema is fixed when the query is built. Collection identity is implicit in the schema choice; no `collection_id` columns appear on the data tables. The relevant `<c>.grant`, `<c>.member`, and `<c>.group_member` tables are tiny (bounded by membership count), which is what makes query-time authorization cheap.
 
 `<c>.member` holds one row per user joined to the collection. It carries the `is_admin` flag (collection-management capability) plus membership metadata. Agents are not members — they hold grants directly and are bounded by their owner. Membership is the source of identity-in-this-collection; grants are the source of memory capability; the two are kept separate so that "manage this collection" is a single-column lookup independent of grant resolution.
+
+A member's entitlement to their own `~<user-id>.*` private subtree is **derived from the member row** — no grant row represents it. This keeps "are you a member?" and "do you have a private subtree?" the same question (one source of truth) and removes the `private` flag the grant table would otherwise need.
 
 ### Query-time authorization (CTE + qual)
 
@@ -680,26 +687,52 @@ SET LOCAL me.delegate            = '<bool>';            -- agents only
 SET LOCAL me.sudo_collection_id  = '<id or null>';      -- non-null only inside sudo
 ```
 
-For a human, or a delegating agent (same shape — substitute `:p_id := :owner_id`):
+For a **human** requester:
 
 ```sql
 WITH my_grants AS MATERIALIZED (
-  SELECT paths FROM c.grant WHERE principal_id = :p_id
+  SELECT paths FROM c.grant WHERE principal_id = :user_id
   UNION ALL
   SELECT g.paths
   FROM   c.grant g
   JOIN   c.group_member gm ON gm.group_id = g.principal_id
-  WHERE  gm.user_id = :p_id
+  WHERE  gm.user_id = :user_id
+  UNION ALL
+  -- Membership-derived entitlement to ~user_id.* — no grant row stored
+  SELECT ARRAY[('~' || :user_id)::ltree]
+  FROM   c.member
+  WHERE  user_id = :user_id
 )
 SELECT m.*
 FROM   c.memory m
-WHERE  EXISTS (SELECT 1 FROM my_grants WHERE m.tree <@ ANY (paths))
-  AND  ( m.tree !~ '~*.*'                              -- not in any private subtree
-         OR m.tree <@ ('~' || :p_id)::ltree            -- or it's mine
-         OR :sudo_collection_id IS NOT NULL )          -- or sudo active for this collection
+WHERE  EXISTS (SELECT 1 FROM my_grants g WHERE m.tree <@ ANY (g.paths))
+  AND  ( subpath(m.tree, 0, 1)::text NOT LIKE '~%'      -- not in any private subtree
+         OR m.tree <@ ('~' || :user_id)::ltree          -- or it's mine
+         OR :sudo_collection_id IS NOT NULL )           -- or sudo active for this collection
 ```
 
-For a non-delegating agent: two CTEs, both quals must hold, no private subtree access.
+The synthetic `ARRAY[('~' || :user_id)::ltree]` row appears in `my_grants` if and only if the requester is a member. That is the entire mechanism by which membership entitles a user to their private subtree — no `<c>.grant` row, no flag.
+
+For a **delegating agent**: grants come from the owner; private subtrees are off-limits (agents are not members and delegation does not cross the privacy line).
+
+```sql
+WITH owner_grants AS MATERIALIZED (
+  SELECT paths FROM c.grant WHERE principal_id = :owner_id
+  UNION ALL
+  SELECT g.paths
+  FROM   c.grant g
+  JOIN   c.group_member gm ON gm.group_id = g.principal_id
+  WHERE  gm.user_id = :owner_id
+)
+SELECT m.*
+FROM   c.memory m
+WHERE  EXISTS (SELECT 1 FROM owner_grants g WHERE m.tree <@ ANY (g.paths))
+  AND  subpath(m.tree, 0, 1)::text NOT LIKE '~%'        -- agents never enter private subtrees
+```
+
+Note: the membership-derived row is **not** included — that is what makes "delegation does not cross the privacy line" a property of the SQL, not just policy.
+
+For a **non-delegating agent**: two CTEs, both quals must hold, no private subtree access.
 
 ```sql
 WITH
@@ -717,7 +750,7 @@ SELECT m.*
 FROM   c.memory m
 WHERE  EXISTS (SELECT 1 FROM agent_grants WHERE m.tree <@ ANY (paths))
   AND  EXISTS (SELECT 1 FROM owner_grants WHERE m.tree <@ ANY (paths))
-  AND  m.tree !~ '~*.*'
+  AND  subpath(m.tree, 0, 1)::text NOT LIKE '~%'
 ```
 
 Path intersection happens automatically: each memory has one `tree` value, and both EXISTS clauses test it against their respective grant prefixes; the row survives only if both cover it.
