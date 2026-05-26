@@ -72,6 +72,23 @@ Per-memory ACL overrides are **not** in any phase. If they ever become unavoidab
 
 This section specifies the complete model that ships first. Read this end-to-end to understand the system as it will exist on day one. Forward pointers to Phase 2+ appear where a reader benefits from knowing that a feature is coming, but Phase 2+ mechanics are deferred to their own sections below.
 
+## Summary
+
+**One-line shape.** A member of a collection has Editor on their own `~<user-id>.*` subtree (membership-derived, no grant row), nobody else except admins-under-sudo have access; grants govern everything else; agents are extensions of their owner, capped by the owner-ceiling. Agents can get all of their owner's permissions (delegated) or explicitly have their own grants (owner-capped).
+
+**Primitives shipped.** Users (global OAuth identity via GitHub/Google), user-owned agents (bearer-token, full-delegation default), collections (personal auto-provisioned, shared explicitly created), members (carrying `is_admin`), grants (path-scoped, Viewer/Editor), collection-scoped groups, paths (ltree prefixes).
+
+**Resolver.** A single CTE materializes the principal's applicable grants — direct + group + membership-derived private subtree — and a qual against `<c>.memory` enforces them. One named carve-out (private subtrees) is the only non-additive rule. `who_can_see(memory)` reads the same tables and is cheap.
+
+**Out at MVP.** Sudo mode (admins have *no* override into private subtrees in Phase 1), collection-owned agents, block-agent, general write activity log, transfer-to-admin off-boarding, organizations, link sharing, finer admin tiers — each deferred to its respective later phase.
+
+## Open Questions
+
+Both easy to change:
+
+1. **Agent access to its owner's private subtree.** Current design locks agents out of `~owner.*` even under full delegation — strong invariant ("anything in `~me.*` was put there by me"), but forces users to keep AI-relevant personal notes outside their private subtree. Revisit if surprising in practice; opt-in `--include-owner-private` flag is the obvious escape valve.
+2. **Agents in groups.** Current design treats agents as grant targets but not group members — they inherit org structure through their owner's groups via owner-ceiling, never directly. Defer until fleet-of-agents management becomes a concrete pain; purely additive when added.
+
 ## Core Concepts
 
 | Concept | Role |
@@ -871,6 +888,7 @@ These ship only if customer demand is concrete. The defaults are not in the syst
 - **Domain-based sharing** ("anyone in @example.com gets Viewer") and **request-access flow**.
 - **Organization-level groups** invitable into collections as units (separate concept from Phase 1's collection-scoped groups).
 - **Finer admin tiers** (e.g., separating "delete collection" from "manage members") and/or fully custom roles.
+- **Per-grant expiry.** A grant that auto-expires at a date for temporary access (contractors, due-diligence). Lightweight to add; defer until requested.
 
 Per-memory ACL overrides are **not** in any phase. If they ever become unavoidable, the design needs to be re-examined from the top, because their addition will reshape resolution semantics.
 
@@ -922,14 +940,6 @@ User-authored deny entries on grants. Rejected: introduces the AWS-IAM "explicit
 ### Conditions on grants
 
 Time-of-day, IP, geo, MFA-required conditions. Rejected for Phase 1. If needed, attach them as policy at the authentication layer, not as a grant attribute.
-
-## Open Questions
-
-1. **Multiple personal collections per user.** Strict-single keeps the mental model tight; multiple lets users self-organize without involving an Org. Recommend: single in Phase 1, add multiples if pulled.
-2. **Cross-collection search for an agent.** When an agent has grants on N collections, should `memory.search` natively span them? Recommend: yes, scoped by the agent's effective collections. UI defaults to single-collection search.
-3. **Per-grant expiry.** A grant that auto-expires at a date is useful for temporary access (contractors, due-diligence). Lightweight to add; defer unless real demand.
-4. **Quotas tied to grants.** Rate limits, storage caps per principal. Out of scope for this document; belongs to the operational layer.
-5. **Agent access to its owner's private subtree.** The current design treats `~owner.*` as off-limits to agents, even under full delegation: agents are not members, the private branch shortcircuits before delegation, and there is no "re-authenticate as the human" path for a bearer-token agent. This gives a strong invariant — anything written under `~me.*` was put there by *me*, never by my own agents — and matches the *Human principals only* sudo rule. The argument against: "full delegation" arguably promises "the agent sees everything I see," and the owner's own data isn't a privacy boundary against herself; locking the agent out forces users to keep AI-relevant personal notes outside their private subtree (or in a separate collection), which may be confusing. The choice is between *blast-radius minimization* (current) and *delegation-as-stated* (alternative). Revisit if users report the current behavior as surprising or as forcing awkward workarounds; an opt-in per-agent flag (`--include-owner-private`) is the obvious escape valve if we soften.
 
 ## Alternatives
 
