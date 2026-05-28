@@ -10,7 +10,7 @@ create table core.principal
 , owner_id uuid references core.principal (user_id) on delete cascade -- points to agent's owner
 , space_id uuid references core.space (id) on delete cascade
 , kind text not null check (kind in ('group', 'user', 'agent'))
-, name citext not null check (name::text !~ '/')
+, name citext not null check (name::text !~ '/') -- agent names are displayed as <user>/<agent>
 , created_at timestamptz not null default now()
 , updated_at timestamptz
 , check
