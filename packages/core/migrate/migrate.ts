@@ -38,13 +38,19 @@ const incrementals: Incremental[] = [
 ];
 
 import idempotent000 from "./idempotent/000_update.sql" with { type: "text" };
+import idempotent001 from "./idempotent/001_tree_access.sql" with {
+  type: "text",
+};
 
 interface Idempotent {
   name: string;
   sql: string;
 }
 
-const idempotents: Idempotent[] = [{ name: "000_update", sql: idempotent000 }];
+const idempotents: Idempotent[] = [
+  { name: "000_update", sql: idempotent000 },
+  { name: "001_tree_access", sql: idempotent001 },
+];
 
 const CORE_SCHEMA = "core";
 const REQUIRED_EXTENSIONS = [
