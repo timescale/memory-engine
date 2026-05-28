@@ -13,7 +13,7 @@ returns table
 as $func$
   select
     gm.group_id
-  , gm.admin and (not m.kind = 'agent') -- agent's cannot be group admins
+  , gm.admin and (not m.kind = 'a') -- agent's cannot be group admins
   from core.principal m -- the member
   -- assert the member belongs to the space
   inner join core.principal_space psm on (m.id = psm.principal_id and psm.space_id = _space_id)

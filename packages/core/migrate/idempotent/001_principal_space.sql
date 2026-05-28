@@ -29,7 +29,7 @@ as $func$
   select coalesce
   (
     (
-      select ps.admin and (not p.kind = 'agent') -- agents cannot be space admins
+      select ps.admin and (not p.kind = 'a') -- agents cannot be space admins
       from core.principal_space ps
       inner join core.principal p on (ps.principal_id = p.id)
       where ps.principal_id = _principal_id
