@@ -11,6 +11,7 @@ create table {{schema}}.embedding_queue
 , attempts int not null default 0
 , last_error text
 , created_at timestamptz not null default now()
+, updated_at timestamptz
 );
 
 -- index to find items to claim

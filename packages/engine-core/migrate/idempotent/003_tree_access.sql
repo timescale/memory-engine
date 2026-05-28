@@ -8,28 +8,11 @@ returns table
 , access int2
 )
 as $func$
-  with r as
-  (
-    -- the user and the roles they belong to
-    select
-      x.role_id
-    , x.superuser
-    from {{schema}}.calc_role_membership(_user_id) x
-  )
-  -- superuser
-  select
-    r.role_id
-  , ''::ltree as tree_path
-  , 3::int2 /* owner */ as access
-  from r
-  where r.superuser
-  union all
-  -- grants
   select
     r.role_id
   , a.tree_path
   , a.access::int2
-  from r
+  from {{schema}}.calc_role_membership(_user_id) r
   inner join {{schema}}.tree_access a on (r.role_id = a.user_id)
 $func$ language sql stable security invoker
 ;

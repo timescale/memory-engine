@@ -1,142 +1,31 @@
 -------------------------------------------------------------------------------
--- would_create_cycle
+-- has_user_admin
 -------------------------------------------------------------------------------
-create or replace function {{schema}}.would_create_cycle
-( _role_id uuid
-, _member_id uuid
-)
-returns boolean
-as $func$
-  with recursive ancestors(id) as
-  (
-    select rm.role_id
-    from {{schema}}.role_membership rm
-    where rm.member_id = _role_id
-    union
-    select rm.role_id
-    from {{schema}}.role_membership rm
-    inner join ancestors a on a.id = rm.member_id
-  )
-  select _member_id = _role_id
-    or exists
-    (
-      select 1
-      from ancestors
-      where id = _member_id
-    )
-$func$ language sql stable security invoker parallel safe
-set search_path to pg_catalog, {{schema}}, public, pg_temp
-;
-
--------------------------------------------------------------------------------
--- role_membership_before_write trigger
--------------------------------------------------------------------------------
--- Prevent role membership cycles for ordinary writes.
--- Note: this check observes the current transaction snapshot. Concurrent
--- transactions that insert/update related role edges can still race unless the
--- caller uses stronger locking or serializable transactions around
--- role_membership writes.
-create or replace function {{schema}}.role_membership_before_write()
-returns trigger
-as $func$
-begin
-  if {{schema}}.would_create_cycle(new.role_id, new.member_id) then
-    raise exception 'role membership would create a cycle: role_id %, member_id %', new.role_id, new.member_id
-      using errcode = 'integrity_constraint_violation';
-  end if;
-  return new;
-end;
-$func$ language plpgsql volatile security invoker
-set search_path to pg_catalog, {{schema}}, public, pg_temp
-;
-
-create or replace trigger role_membership_before_write_trg
-before insert or update of role_id, member_id on {{schema}}.role_membership
-for each row
-execute function {{schema}}.role_membership_before_write()
-;
-
--------------------------------------------------------------------------------
--- calc_role_membership
--------------------------------------------------------------------------------
-create or replace function {{schema}}.calc_role_membership(_user_id uuid)
-returns table
-( role_id uuid
-, superuser bool
-, dist int4
-)
-as $func$
-  with recursive ancestors(id, dist) as
-  (
-    select rm.role_id, 1::int4
-    from {{schema}}.role_membership rm
-    where rm.member_id = _user_id
-    union
-    select rm.role_id, a.dist + 1
-    from {{schema}}.role_membership rm
-    inner join ancestors a on a.id = rm.member_id
-  )
-  select
-    u.id
-  , u.superuser
-  , 0::int4
-  from {{schema}}."user" u
-  where u.id = _user_id
-  union
-  select
-    u.id
-  , u.superuser
-  , a.dist
-  from {{schema}}."user" u
-  inner join ancestors a on (u.id = a.id)
-$func$ language sql stable security invoker
-;
-
--------------------------------------------------------------------------------
--- is_superuser
--------------------------------------------------------------------------------
-create or replace function {{schema}}.is_superuser(_user_id uuid)
+create or replace function {{schema}}.has_user_admin(_actor_id uuid)
 returns boolean
 as $func$
   select exists
   (
     select 1
-    from {{schema}}.calc_role_membership(_user_id) x
-    where x.superuser
+    from {{schema}}.role_membership r
+    where r.member_id = _actor_id
+    and r.role_id = '00584580-f000-7000-8000-000000000001'
   )
 $func$ language sql stable security invoker
 ;
 
 -------------------------------------------------------------------------------
--- list_direct_role_members
+-- has_tree_admin
 -------------------------------------------------------------------------------
-create or replace function {{schema}}.list_direct_role_members
-( _requestor_id uuid
-, _role_id uuid
-)
-returns table
-( member_id uuid
-, admin bool
-)
+create or replace function {{schema}}.has_tree_admin(_actor_id uuid)
+returns boolean
 as $func$
-  select
-    r.member_id
-  , r.admin
-  from {{schema}}.role_membership r
-  where r.role_id = _role_id
-  and
+  select exists
   (
-    -- requestor must be an admin on role
-    -- or requestor must be a superuser
-    exists
-    (
-      select 1
-      from {{schema}}.role_membership m
-      where m.role_id = _role_id
-      and m.member_id = _requestor_id
-      and m.admin
-    )
-    or {{schema}}.is_superuser(_requestor_id)
+    select 1
+    from {{schema}}.role_membership r
+    where r.member_id = _actor_id
+    and r.role_id = '00584580-f000-7000-8000-000000000002'
   )
 $func$ language sql stable security invoker
 ;
@@ -154,31 +43,41 @@ returns void
 as $func$
 declare
   _allowed bool;
+  _has_admin bool;
 begin
-  -- exclusive write access required to fully ensure against cycle creation by concurrent writes
-  lock table {{schema}}.role_membership in share row exclusive mode;
-
   -- is grantor allowed to do this?
   select
     exists
     (
       -- does the grantor have with admin privilege directly on this role?
       select 1
-      from {{schema}}.role_membership rm
-      where rm.role_id = _role_id
-      and rm.member_id = _grantor_id
-      and rm.admin
+      from {{schema}}.role_membership r
+      where r.role_id = _role_id
+      and r.member_id = _grantor_id
+      and r.admin
     )
-    or {{schema}}.is_superuser(_grantor_id) -- or are they a superuser (even indirectly)?
+    or {{schema}}.has_user_admin(_grantor_id) -- or are they a user-admin?
   into strict _allowed
   ;
 
   if not _allowed then
-    raise exception 'grantor must be a superuser or have with admin option on role: grantor_id % role_id %', _grantor_id, _role_id
+    -- is grantor a member of the role, and member their delegate?
+    select r.admin into _has_admin
+    from {{schema}}.actor o
+    inner join {{schema}}.actor d on (o.user_id = d.owner_id)
+    inner join {{schema}}.role_membership r on (o.member_id = r.member_id)
+    where r.role_id = _role_id
+    and o.user_id = _grantor_id
+    and d.user_id = _member_id
+    ;
+
+  end if;
+
+  if not _allowed then
+    raise exception 'not allowed'
       using errcode = 'insufficient_privilege';
   end if;
 
-  -- role_membership_before_write_trg protects against cycles in the graph
   insert into {{schema}}.role_membership
   ( role_id
   , member_id
@@ -210,8 +109,6 @@ as $func$
 declare
   _allowed bool;
 begin
-  lock table {{schema}}.role_membership in share row exclusive mode;
-
   -- is revoker allowed to do this?
   select
     exists
@@ -223,12 +120,12 @@ begin
       and rm.member_id = _revoker_id
       and rm.admin
     )
-    or {{schema}}.is_superuser(_revoker_id) -- or are they a superuser (even indirectly)?
+    or {{schema}}.has_user_admin(_revoker_id) -- or are they a user-admin?
   into strict _allowed
   ;
 
   if not _allowed then
-    raise exception 'revoker must be a superuser or have with admin option on role: revoker_id % role_id %', _revoker_id, _role_id
+    raise exception 'revoker not allowed to administer role'
       using errcode = 'insufficient_privilege';
   end if;
 
