@@ -14,13 +14,8 @@ as $func$
   select
     ta.tree_path
   , ta.access
-  from core.principal m
-  inner join core.principal_space psu on (m.id = psu.principal_id and psu.space_id = _space_id)
-  inner join core.group_member gm on (m.member_id = gm.member_id and gm.space_id = _space_id)
-  inner join core.principal g on (gm.group_id = g.group_id and g.space_id = _space_id)
-  inner join core.principal_space psg on (g.id = psg.principal_id and psg.space_id = _space_id)
-  inner join core.tree_access ta on (g.id = ta.principal_id and ta.space_id = _space_id)
-  where m.member_id = _member_id
+  from core.member_groups(_member_id, _space_id) mg
+  inner join core.tree_access ta on (mg.group_id = ta.principal_id and ta.space_id = _space_id)
 $func$ language sql stable security invoker
 ;
 

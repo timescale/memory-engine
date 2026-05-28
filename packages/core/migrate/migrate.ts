@@ -61,7 +61,13 @@ const incrementals: Incremental[] = [
 ];
 
 import idempotent000 from "./idempotent/000_update.sql" with { type: "text" };
-import idempotent001 from "./idempotent/001_tree_access.sql" with {
+import idempotent001 from "./idempotent/001_principal_space.sql" with {
+  type: "text",
+};
+import idempotent002 from "./idempotent/002_group_member.sql" with {
+  type: "text",
+};
+import idempotent003 from "./idempotent/003_tree_access.sql" with {
   type: "text",
 };
 
@@ -74,9 +80,19 @@ interface Idempotent {
 const idempotents: Idempotent[] = [
   { name: "000_update", file: "idempotent/000_update.sql", sql: idempotent000 },
   {
-    name: "001_tree_access",
-    file: "idempotent/001_tree_access.sql",
+    name: "001_principal_space",
+    file: "idempotent/001_principal_space.sql",
     sql: idempotent001,
+  },
+  {
+    name: "002_group_member",
+    file: "idempotent/002_group_member.sql",
+    sql: idempotent002,
+  },
+  {
+    name: "003_tree_access",
+    file: "idempotent/003_tree_access.sql",
+    sql: idempotent003,
   },
 ];
 
