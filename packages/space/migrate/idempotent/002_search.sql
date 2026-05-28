@@ -2,7 +2,7 @@
 -- search_memory
 -------------------------------------------------------------------------------
 create or replace function {{schema}}.search_memory
-( _user_id uuid
+( _tree_access jsonb
 , _bm25 bm25query default null
 , _vec halfvec({{embedding_dimensions}}) default null
 , _max_vec_dist float8 default null
@@ -170,9 +170,9 @@ begin
   $sql$
   with x as materialized
   (
-    select a.tree_path
-    from {{schema}}.calc_tree_access($1) a
-    where a.access >= 1
+    select x.tree_path
+    from jsonb_to_recordset(_tree_access) x(tree_path ltree, access int)
+    where x.access >= 1
   )
   select
     m.id
@@ -214,7 +214,7 @@ set search_path to pg_catalog, {{schema}}, public, pg_temp
 -- hybrid_search_memory
 -------------------------------------------------------------------------------
 create or replace function {{schema}}.hybrid_search_memory
-( _user_id uuid
+( _tree_access jsonb
 , _bm25 bm25query
 , _vec halfvec({{embedding_dimensions}})
 , _max_vec_dist float8 default null
@@ -285,7 +285,7 @@ begin
       row_number() over (order by m.score desc, m.id) as rank
     , m.*
     from {{schema}}.search_memory
-    ( _user_id => _user_id
+    ( _tree_access => _tree_access
     , _bm25 => _bm25
     , _ltree => _ltree
     , _lquery => _lquery
@@ -305,7 +305,7 @@ begin
       row_number() over (order by m.score desc, m.id) as rank
     , m.*
     from {{schema}}.search_memory
-    ( _user_id => _user_id
+    ( _tree_access => _tree_access
     , _vec => _vec
     , _max_vec_dist => _max_vec_dist
     , _ltree => _ltree
