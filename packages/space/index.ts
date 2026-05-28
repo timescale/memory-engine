@@ -6,3 +6,4 @@ export {
   schemaToSlug,
   slugToSchema,
 } from "./slug";
+export { SPACE_SCHEMA_VERSION } from "./version";

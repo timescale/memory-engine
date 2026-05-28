@@ -3,6 +3,7 @@ import { info, reportError, span } from "@pydantic/logfire-node";
 import type { SQL } from "bun";
 import { semver } from "bun";
 import { isValidSlug, slugToSchema } from "../slug";
+import { SPACE_SCHEMA_VERSION } from "../version";
 
 import provisionSql from "./incremental/000_provision.sql" with {
   type: "text",
@@ -22,7 +23,6 @@ const incrementals: Incremental[] = [
   { name: "002_embedding_queue", sql: incremental002 },
 ];
 
-import idempotent000 from "./idempotent/000_update.sql" with { type: "text" };
 import idempotent001 from "./idempotent/001_memory.sql" with { type: "text" };
 import idempotent002 from "./idempotent/002_search.sql" with { type: "text" };
 import idempotent003 from "./idempotent/003_embedding_queue.sql" with {
@@ -35,7 +35,6 @@ interface Idempotent {
 }
 
 const idempotents: Idempotent[] = [
-  { name: "000_update", sql: idempotent000 },
   { name: "001_memory", sql: idempotent001 },
   { name: "002_search", sql: idempotent002 },
   { name: "003_embedding_queue", sql: idempotent003 },
@@ -43,7 +42,6 @@ const idempotents: Idempotent[] = [
 
 export interface MigrateSpaceOptions {
   slug: string;
-  targetVersion: string;
   shardId?: number;
   embeddingDimensions?: number;
   bm25TextConfig?: string;
@@ -59,7 +57,7 @@ export interface MigrateSpaceOptions {
 
 interface NormalizedMigrateSpaceOptions {
   slug: string;
-  targetVersion: string;
+  schemaVersion: string;
   shardId?: number;
   embeddingDimensions: number;
   bm25TextConfig: string;
@@ -89,8 +87,8 @@ export async function migrateSpace(
             `Invalid space slug: "${opts.slug}" — must be 12 lowercase alphanumeric characters`,
           );
         }
-        if (!semver.satisfies(opts.targetVersion, "*")) {
-          throw new Error(`Invalid target version: "${opts.targetVersion}"`);
+        if (!semver.satisfies(opts.schemaVersion, "*")) {
+          throw new Error(`Invalid schema version: "${opts.schemaVersion}"`);
         }
         const schema = slugToSchema(opts.slug);
         const schemaAttributes = { ...attributes, "db.schema": schema };
@@ -145,7 +143,7 @@ function migrateAttributes(
 ): Record<string, unknown> {
   return {
     "space.slug": options.slug,
-    "space.target_version": options.targetVersion,
+    "space.schema_version": options.schemaVersion,
     "db.shard": options.shardId,
     "db.statement_timeout": options.statementTimeout,
     "db.lock_timeout": options.lockTimeout,
@@ -160,7 +158,7 @@ function normalizeMigrateSpaceOptions(
 ): NormalizedMigrateSpaceOptions {
   return {
     slug: options.slug,
-    targetVersion: options.targetVersion,
+    schemaVersion: SPACE_SCHEMA_VERSION,
     shardId: options.shardId,
     embeddingDimensions: options.embeddingDimensions ?? 1536,
     bm25TextConfig: options.bm25TextConfig ?? "english",
@@ -253,11 +251,11 @@ async function runMigrations(
   const [{ version: dbVersion }] = await tx`
     select version from ${tx(schema)}.version
   `;
-  const cmp = semver.order(options.targetVersion, dbVersion);
+  const cmp = semver.order(options.schemaVersion, dbVersion);
   // abort if target is older than the database
   if (cmp < 0) {
     throw new Error(
-      `Target version (${options.targetVersion}) is older than database version (${dbVersion}). ` +
+      `Schema version (${options.schemaVersion}) is older than database version (${dbVersion}). ` +
         "Please upgrade the server.",
     );
   }
@@ -266,7 +264,7 @@ async function runMigrations(
     info("Space migration skipped, version current", {
       "db.schema": schema,
       "space.version": dbVersion,
-      "space.target_version": options.targetVersion,
+      "space.schema_version": options.schemaVersion,
     });
     return;
   }
@@ -295,7 +293,7 @@ async function runMigrations(
         "db.schema": schema,
         "space.migration": migration.name,
         "space.migration_type": "incremental",
-        "space.target_version": options.targetVersion,
+        "space.schema_version": options.schemaVersion,
       },
       callback: async () => {
         const renderedSql = template(
@@ -305,14 +303,14 @@ async function runMigrations(
         await tx.unsafe(renderedSql);
         await tx`
           insert into ${tx(schema)}.migration (name, applied_at_version)
-          values (${migration.name}, ${options.targetVersion})`;
+          values (${migration.name}, ${options.schemaVersion})`;
       },
     });
     info("Space migration applied", {
       "db.schema": schema,
       "space.migration": migration.name,
       "space.migration_type": "incremental",
-      "space.target_version": options.targetVersion,
+      "space.schema_version": options.schemaVersion,
     });
   }
 
@@ -325,7 +323,7 @@ async function runMigrations(
         "db.schema": schema,
         "space.migration": migration.name,
         "space.migration_type": "idempotent",
-        "space.target_version": options.targetVersion,
+        "space.schema_version": options.schemaVersion,
       },
       callback: async () => {
         const renderedSql = template(
@@ -338,7 +336,7 @@ async function runMigrations(
   }
 
   // update version
-  await tx`update ${tx(schema)}.version set version = ${options.targetVersion}, at = now()`;
+  await tx`update ${tx(schema)}.version set version = ${options.schemaVersion}, at = now()`;
 }
 
 async function assertSchemaOwnership(tx: SQL, schema: string): Promise<void> {

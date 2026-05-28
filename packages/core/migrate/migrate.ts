@@ -1,24 +1,50 @@
 import { createHash } from "node:crypto";
 import { info, reportError, span } from "@pydantic/logfire-node";
 import { SQL, semver } from "bun";
+import { CORE_SCHEMA_VERSION } from "../version";
 
 import provisionSql from "./incremental/000_provision.sql" with {
   type: "text",
 };
+import incremental001 from "./incremental/001_shard.sql" with { type: "text" };
+import incremental002 from "./incremental/002_space.sql" with { type: "text" };
+import incremental003 from "./incremental/003_principal.sql" with {
+  type: "text",
+};
+import incremental004 from "./incremental/004_principal_space.sql" with {
+  type: "text",
+};
+import incremental005 from "./incremental/005_group_member.sql" with {
+  type: "text",
+};
+import incremental006 from "./incremental/006_tree_access.sql" with {
+  type: "text",
+};
+import incremental007 from "./incremental/007_api_key.sql" with { type: "text" };
 
 interface Incremental {
   name: string;
   sql: string;
 }
 
-const incrementals: Incremental[] = [];
+const incrementals: Incremental[] = [
+  { name: "001_shard", sql: incremental001 },
+  { name: "002_space", sql: incremental002 },
+  { name: "003_principal", sql: incremental003 },
+  { name: "004_principal_space", sql: incremental004 },
+  { name: "005_group_member", sql: incremental005 },
+  { name: "006_tree_access", sql: incremental006 },
+  { name: "007_api_key", sql: incremental007 },
+];
+
+import idempotent000 from "./idempotent/000_update.sql" with { type: "text" };
 
 interface Idempotent {
   name: string;
   sql: string;
 }
 
-const idempotents: Idempotent[] = [];
+const idempotents: Idempotent[] = [{ name: "000_update", sql: idempotent000 }];
 
 const CORE_SCHEMA = "core";
 const REQUIRED_EXTENSIONS = [
@@ -29,7 +55,6 @@ const REQUIRED_EXTENSIONS = [
 ] as const;
 
 export interface MigrateCoreOptions {
-  targetVersion: string;
   statementTimeout?: string;
   lockTimeout?: string;
   transactionTimeout?: string;
@@ -37,7 +62,7 @@ export interface MigrateCoreOptions {
 }
 
 interface NormalizedMigrateCoreOptions {
-  targetVersion: string;
+  schemaVersion: string;
   statementTimeout: string;
   lockTimeout: string;
   transactionTimeout: string;
@@ -46,7 +71,7 @@ interface NormalizedMigrateCoreOptions {
 
 export async function migrateCore(
   sql: SQL,
-  options: MigrateCoreOptions,
+  options: MigrateCoreOptions = {},
 ): Promise<void> {
   const opts = normalizeMigrateCoreOptions(options);
   const attributes = migrateAttributes(opts);
@@ -55,8 +80,8 @@ export async function migrateCore(
     attributes,
     callback: async () => {
       try {
-        if (!semver.satisfies(opts.targetVersion, "*")) {
-          throw new Error(`Invalid target version: "${opts.targetVersion}"`);
+        if (!semver.satisfies(opts.schemaVersion, "*")) {
+          throw new Error(`Invalid schema version: "${opts.schemaVersion}"`);
         }
         const [key1, key2] = advisoryLockKey("memory-core:schema:core");
 
@@ -111,7 +136,7 @@ function migrateAttributes(
 ): Record<string, unknown> {
   return {
     "db.schema": CORE_SCHEMA,
-    "core.target_version": options.targetVersion,
+    "core.schema_version": options.schemaVersion,
     "core.required_extensions": REQUIRED_EXTENSIONS.map(
       (extension) => `${extension.name}@>=${extension.minVersion}`,
     ),
@@ -127,7 +152,7 @@ function normalizeMigrateCoreOptions(
   options: MigrateCoreOptions,
 ): NormalizedMigrateCoreOptions {
   return {
-    targetVersion: options.targetVersion,
+    schemaVersion: CORE_SCHEMA_VERSION,
     statementTimeout: options.statementTimeout ?? "20s",
     lockTimeout: options.lockTimeout ?? "5s",
     transactionTimeout: options.transactionTimeout ?? "1min",
@@ -258,10 +283,10 @@ async function runMigrations(
   const [{ version: dbVersion }] = await tx`
     select version from core.version
   `;
-  const cmp = semver.order(options.targetVersion, dbVersion);
+  const cmp = semver.order(options.schemaVersion, dbVersion);
   if (cmp < 0) {
     throw new Error(
-      `Target version (${options.targetVersion}) is older than database version (${dbVersion}). ` +
+      `Schema version (${options.schemaVersion}) is older than database version (${dbVersion}). ` +
         "Please upgrade the server.",
     );
   }
@@ -269,7 +294,7 @@ async function runMigrations(
     info("Core migration skipped, version current", {
       "db.schema": CORE_SCHEMA,
       "core.version": dbVersion,
-      "core.target_version": options.targetVersion,
+      "core.schema_version": options.schemaVersion,
     });
     return;
   }
@@ -297,20 +322,20 @@ async function runMigrations(
         "db.schema": CORE_SCHEMA,
         "core.migration": migration.name,
         "core.migration_type": "incremental",
-        "core.target_version": options.targetVersion,
+        "core.schema_version": options.schemaVersion,
       },
       callback: async () => {
         await tx.unsafe(migration.sql);
         await tx`
           insert into core.migration (name, applied_at_version)
-          values (${migration.name}, ${options.targetVersion})`;
+          values (${migration.name}, ${options.schemaVersion})`;
       },
     });
     info("Core migration applied", {
       "db.schema": CORE_SCHEMA,
       "core.migration": migration.name,
       "core.migration_type": "incremental",
-      "core.target_version": options.targetVersion,
+      "core.schema_version": options.schemaVersion,
     });
   }
 
@@ -322,13 +347,13 @@ async function runMigrations(
         "db.schema": CORE_SCHEMA,
         "core.migration": migration.name,
         "core.migration_type": "idempotent",
-        "core.target_version": options.targetVersion,
+        "core.schema_version": options.schemaVersion,
       },
       callback: () => tx.unsafe(migration.sql),
     });
   }
 
-  await tx`update core.version set version = ${options.targetVersion}, at = now()`;
+  await tx`update core.version set version = ${options.schemaVersion}, at = now()`;
 }
 
 async function assertSchemaOwnership(tx: SQL): Promise<void> {
