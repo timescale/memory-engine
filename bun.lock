@@ -49,6 +49,13 @@
         "typescript",
       ],
     },
+    "packages/core": {
+      "name": "@memory.build/core",
+      "version": "0.2.5",
+      "dependencies": {
+        "@pydantic/logfire-node": "^0.13.1",
+      },
+    },
     "packages/docs-site": {
       "name": "@memory.build/docs-site",
       "version": "0.0.0",
@@ -121,6 +128,13 @@
         "@memory.build/worker": "workspace:*",
         "@pydantic/logfire-node": "^0.13.1",
         "zod": "^4.0.0",
+      },
+    },
+    "packages/space": {
+      "name": "@memory.build/space",
+      "version": "0.2.5",
+      "dependencies": {
+        "@pydantic/logfire-node": "^0.13.1",
       },
     },
     "packages/web": {
@@ -369,6 +383,8 @@
 
     "@memory.build/client": ["@memory.build/client@workspace:packages/client"],
 
+    "@memory.build/core": ["@memory.build/core@workspace:packages/core"],
+
     "@memory.build/docs-site": ["@memory.build/docs-site@workspace:packages/docs-site"],
 
     "@memory.build/embedding": ["@memory.build/embedding@workspace:packages/embedding"],
@@ -376,6 +392,8 @@
     "@memory.build/engine": ["@memory.build/engine@workspace:packages/engine"],
 
     "@memory.build/protocol": ["@memory.build/protocol@workspace:packages/protocol"],
+
+    "@memory.build/space": ["@memory.build/space@workspace:packages/space"],
 
     "@memory.build/web": ["@memory.build/web@workspace:packages/web"],
 

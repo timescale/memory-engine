@@ -1,0 +1,347 @@
+import { createHash } from "node:crypto";
+import { info, reportError, span } from "@pydantic/logfire-node";
+import { SQL, semver } from "bun";
+
+import provisionSql from "./incremental/000_provision.sql" with {
+  type: "text",
+};
+
+interface Incremental {
+  name: string;
+  sql: string;
+}
+
+const incrementals: Incremental[] = [];
+
+interface Idempotent {
+  name: string;
+  sql: string;
+}
+
+const idempotents: Idempotent[] = [];
+
+const CORE_SCHEMA = "core";
+const REQUIRED_EXTENSIONS = [
+  { name: "citext", minVersion: "1.6" },
+  { name: "ltree", minVersion: "1.3" },
+  { name: "vector", minVersion: "0.8.2" },
+  { name: "pg_textsearch", minVersion: "1.1.0" },
+] as const;
+
+export interface MigrateCoreOptions {
+  targetVersion: string;
+  statementTimeout?: string;
+  lockTimeout?: string;
+  transactionTimeout?: string;
+  idleInTransactionSessionTimeout?: string;
+}
+
+interface NormalizedMigrateCoreOptions {
+  targetVersion: string;
+  statementTimeout: string;
+  lockTimeout: string;
+  transactionTimeout: string;
+  idleInTransactionSessionTimeout: string;
+}
+
+export async function migrateCore(
+  sql: SQL,
+  options: MigrateCoreOptions,
+): Promise<void> {
+  const opts = normalizeMigrateCoreOptions(options);
+  const attributes = migrateAttributes(opts);
+
+  await span("core.migrate", {
+    attributes,
+    callback: async () => {
+      try {
+        if (!semver.satisfies(opts.targetVersion, "*")) {
+          throw new Error(`Invalid target version: "${opts.targetVersion}"`);
+        }
+        const [key1, key2] = advisoryLockKey("memory-core:schema:core");
+
+        await sql.begin(async (tx) => {
+          await tx`select set_config('statement_timeout', ${opts.statementTimeout}, true)`;
+          await tx`select set_config('lock_timeout', ${opts.lockTimeout}, true)`;
+          await tx`select set_config('transaction_timeout', ${opts.transactionTimeout}, true)`;
+          await tx`select set_config('idle_in_transaction_session_timeout', ${opts.idleInTransactionSessionTimeout}, true)`;
+          const acquired = await span("core.migrate.acquire_lock", {
+            attributes,
+            callback: () => acquireAdvisoryLock(tx, key1, key2),
+          });
+          if (!acquired) {
+            throw new Error("Unable to acquire lock for core migrations.");
+          }
+
+          await ensurePostgresVersion(tx);
+          for (const extension of REQUIRED_EXTENSIONS) {
+            await span("core.migrate.ensure_extension", {
+              attributes: {
+                "db.extension": extension.name,
+                "db.extension_min_version": extension.minVersion,
+              },
+              callback: () =>
+                ensureExtension(tx, extension.name, extension.minVersion),
+            });
+          }
+
+          if (!(await doesCoreExist(tx))) {
+            await span("core.migrate.provision", {
+              attributes,
+              callback: () => provisionCore(tx),
+            });
+            info("Core schema provisioned", attributes);
+          }
+          await span("core.migrate.run", {
+            attributes,
+            callback: () => runMigrations(tx, opts),
+          });
+        });
+        info("Core migrations completed", attributes);
+      } catch (error) {
+        reportError("Core migration failed", error as Error, attributes);
+        throw error;
+      }
+    },
+  });
+}
+
+function migrateAttributes(
+  options: NormalizedMigrateCoreOptions,
+): Record<string, unknown> {
+  return {
+    "db.schema": CORE_SCHEMA,
+    "core.target_version": options.targetVersion,
+    "core.required_extensions": REQUIRED_EXTENSIONS.map(
+      (extension) => `${extension.name}@>=${extension.minVersion}`,
+    ),
+    "db.statement_timeout": options.statementTimeout,
+    "db.lock_timeout": options.lockTimeout,
+    "db.transaction_timeout": options.transactionTimeout,
+    "db.idle_in_transaction_session_timeout":
+      options.idleInTransactionSessionTimeout,
+  };
+}
+
+function normalizeMigrateCoreOptions(
+  options: MigrateCoreOptions,
+): NormalizedMigrateCoreOptions {
+  return {
+    targetVersion: options.targetVersion,
+    statementTimeout: options.statementTimeout ?? "20s",
+    lockTimeout: options.lockTimeout ?? "5s",
+    transactionTimeout: options.transactionTimeout ?? "1min",
+    idleInTransactionSessionTimeout:
+      options.idleInTransactionSessionTimeout ?? "5s",
+  };
+}
+
+function advisoryLockKey(schema: string): [number, number] {
+  const digest = createHash("sha256").update(schema).digest();
+  return [digest.readInt32BE(0), digest.readInt32BE(4)];
+}
+
+const MAX_LOCK_RETRIES = 5;
+const BASE_DELAY_MS = 100;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function acquireAdvisoryLock(
+  tx: SQL,
+  key1: number,
+  key2: number,
+): Promise<boolean> {
+  let acquired = false;
+  for (let attempt = 0; attempt < MAX_LOCK_RETRIES; attempt++) {
+    const [result] = await tx`
+      select pg_try_advisory_xact_lock(${key1}, ${key2}) as acquired
+    `;
+    if (result.acquired) {
+      acquired = true;
+      break;
+    }
+    if (attempt < MAX_LOCK_RETRIES - 1) {
+      await sleep(BASE_DELAY_MS * 2 ** attempt);
+    }
+  }
+  return acquired;
+}
+
+async function doesCoreExist(tx: SQL): Promise<boolean> {
+  const [{ coreExists }] = await tx`
+    select exists
+    (
+      select 1
+      from pg_namespace n
+      where n.nspname = ${CORE_SCHEMA}
+    ) as "coreExists"
+    `;
+  return coreExists;
+}
+
+async function provisionCore(tx: SQL): Promise<void> {
+  await tx.unsafe(provisionSql);
+}
+
+async function ensurePostgresVersion(tx: SQL): Promise<void> {
+  const [{ server_version_num }] = await tx`
+    select current_setting('server_version_num')::int as server_version_num
+  `;
+  if (server_version_num < 180000) {
+    throw new Error(
+      `PostgreSQL version 18 or higher is required (found ${server_version_num})`,
+    );
+  }
+}
+
+async function ensureExtension(
+  tx: SQL,
+  name: string,
+  minVersion: string,
+): Promise<void> {
+  const [installed] = await tx`
+    select x.extversion, n.nspname
+    from pg_extension x
+    inner join pg_namespace n on (x.extnamespace = n.oid)
+    where x.extname = ${name}
+  `;
+
+  if (installed) {
+    if (
+      installed.nspname === "public" &&
+      semver.order(installed.extversion, minVersion) >= 0
+    ) {
+      return;
+    }
+    throw new Error(
+      `Extension "${name}" version ${minVersion} or higher is required in the "public" schema (found ${installed.extversion} installed in "${installed.nspname}")`,
+    );
+  }
+
+  const [available] = await tx`
+    select default_version
+    from pg_available_extensions
+    where name = ${name}
+  `;
+
+  if (!available || semver.order(available.default_version, minVersion) < 0) {
+    const found = available
+      ? `found ${available.default_version} available`
+      : "not available";
+    throw new Error(
+      `Extension "${name}" version ${minVersion} or higher is required (${found})`,
+    );
+  }
+
+  try {
+    await tx`create extension if not exists ${tx(name)} with schema public`;
+  } catch (error: unknown) {
+    if (
+      error instanceof SQL.PostgresError &&
+      error.errno === "23505" &&
+      error.constraint === "pg_extension_name_index"
+    ) {
+      return;
+    }
+    throw error;
+  }
+}
+
+async function runMigrations(
+  tx: SQL,
+  options: NormalizedMigrateCoreOptions,
+): Promise<void> {
+  await assertSchemaOwnership(tx);
+
+  const [{ version: dbVersion }] = await tx`
+    select version from core.version
+  `;
+  const cmp = semver.order(options.targetVersion, dbVersion);
+  if (cmp < 0) {
+    throw new Error(
+      `Target version (${options.targetVersion}) is older than database version (${dbVersion}). ` +
+        "Please upgrade the server.",
+    );
+  }
+  if (cmp === 0) {
+    info("Core migration skipped, version current", {
+      "db.schema": CORE_SCHEMA,
+      "core.version": dbVersion,
+      "core.target_version": options.targetVersion,
+    });
+    return;
+  }
+
+  const sorted1 = [...incrementals].sort((a, b) =>
+    a.name.localeCompare(b.name),
+  );
+
+  for (const migration of sorted1) {
+    const [{ existing }] = await tx`
+      select exists
+      (
+        select 1
+        from core.migration
+        where name = ${migration.name}
+      ) as existing
+      `;
+
+    if (existing) {
+      continue;
+    }
+
+    await span("core.migrate.incremental", {
+      attributes: {
+        "db.schema": CORE_SCHEMA,
+        "core.migration": migration.name,
+        "core.migration_type": "incremental",
+        "core.target_version": options.targetVersion,
+      },
+      callback: async () => {
+        await tx.unsafe(migration.sql);
+        await tx`
+          insert into core.migration (name, applied_at_version)
+          values (${migration.name}, ${options.targetVersion})`;
+      },
+    });
+    info("Core migration applied", {
+      "db.schema": CORE_SCHEMA,
+      "core.migration": migration.name,
+      "core.migration_type": "incremental",
+      "core.target_version": options.targetVersion,
+    });
+  }
+
+  const sorted2 = [...idempotents].sort((a, b) => a.name.localeCompare(b.name));
+
+  for (const migration of sorted2) {
+    await span("core.migrate.idempotent", {
+      attributes: {
+        "db.schema": CORE_SCHEMA,
+        "core.migration": migration.name,
+        "core.migration_type": "idempotent",
+        "core.target_version": options.targetVersion,
+      },
+      callback: () => tx.unsafe(migration.sql),
+    });
+  }
+
+  await tx`update core.version set version = ${options.targetVersion}, at = now()`;
+}
+
+async function assertSchemaOwnership(tx: SQL): Promise<void> {
+  const [result] = await tx`
+    select
+      n.nspowner = (select pg_catalog.to_regrole(current_user)::oid) as is_owner
+    from pg_catalog.pg_namespace n
+    where n.nspname = ${CORE_SCHEMA}
+  `;
+
+  if (!result?.is_owner) {
+    throw new Error(
+      "Only the owner of the core schema can run database migrations",
+    );
+  }
+}
