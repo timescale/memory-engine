@@ -14,14 +14,14 @@
     },
     "packages/accounts": {
       "name": "@memory.build/accounts",
-      "version": "0.2.0",
+      "version": "0.2.5",
       "dependencies": {
         "@pydantic/logfire-node": "^0.13.1",
       },
     },
     "packages/cli": {
       "name": "@memory.build/cli",
-      "version": "0.2.5",
+      "version": "0.2.6",
       "bin": {
         "me": "./index.ts",
       },
@@ -38,7 +38,7 @@
     },
     "packages/client": {
       "name": "@memory.build/client",
-      "version": "0.2.5",
+      "version": "0.2.6",
       "dependencies": {
         "@memory.build/protocol": "workspace:*",
       },
@@ -90,7 +90,7 @@
     },
     "packages/embedding": {
       "name": "@memory.build/embedding",
-      "version": "0.2.0",
+      "version": "0.2.5",
       "dependencies": {
         "@ai-sdk/openai": "^3.0.0",
         "@pydantic/logfire-node": "^0.13.1",
@@ -99,14 +99,14 @@
     },
     "packages/engine": {
       "name": "@memory.build/engine",
-      "version": "0.2.0",
+      "version": "0.2.5",
       "dependencies": {
         "@pydantic/logfire-node": "^0.13.1",
       },
     },
     "packages/protocol": {
       "name": "@memory.build/protocol",
-      "version": "0.2.5",
+      "version": "0.2.6",
       "dependencies": {
         "zod": "^4.0.0",
       },
@@ -119,7 +119,7 @@
     },
     "packages/server": {
       "name": "memory-engine-server",
-      "version": "0.2.0",
+      "version": "0.2.5",
       "dependencies": {
         "@memory.build/accounts": "workspace:*",
         "@memory.build/embedding": "workspace:*",
@@ -167,7 +167,7 @@
     },
     "packages/worker": {
       "name": "@memory.build/worker",
-      "version": "0.2.0",
+      "version": "0.2.5",
       "dependencies": {
         "@memory.build/embedding": "workspace:*",
         "@memory.build/engine": "workspace:*",
@@ -177,7 +177,9 @@
     "scripts": {
       "name": "scripts",
       "dependencies": {
+        "@memory.build/core": "workspace:*",
         "@memory.build/embedding": "workspace:*",
+        "@memory.build/space": "workspace:*",
         "yaml": "^2.7.0",
       },
     },

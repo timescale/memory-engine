@@ -20,21 +20,44 @@ import incremental005 from "./incremental/005_group_member.sql" with {
 import incremental006 from "./incremental/006_tree_access.sql" with {
   type: "text",
 };
-import incremental007 from "./incremental/007_api_key.sql" with { type: "text" };
+import incremental007 from "./incremental/007_api_key.sql" with {
+  type: "text",
+};
 
 interface Incremental {
   name: string;
+  file: string;
   sql: string;
 }
 
 const incrementals: Incremental[] = [
-  { name: "001_shard", sql: incremental001 },
-  { name: "002_space", sql: incremental002 },
-  { name: "003_principal", sql: incremental003 },
-  { name: "004_principal_space", sql: incremental004 },
-  { name: "005_group_member", sql: incremental005 },
-  { name: "006_tree_access", sql: incremental006 },
-  { name: "007_api_key", sql: incremental007 },
+  { name: "001_shard", file: "incremental/001_shard.sql", sql: incremental001 },
+  { name: "002_space", file: "incremental/002_space.sql", sql: incremental002 },
+  {
+    name: "003_principal",
+    file: "incremental/003_principal.sql",
+    sql: incremental003,
+  },
+  {
+    name: "004_principal_space",
+    file: "incremental/004_principal_space.sql",
+    sql: incremental004,
+  },
+  {
+    name: "005_group_member",
+    file: "incremental/005_group_member.sql",
+    sql: incremental005,
+  },
+  {
+    name: "006_tree_access",
+    file: "incremental/006_tree_access.sql",
+    sql: incremental006,
+  },
+  {
+    name: "007_api_key",
+    file: "incremental/007_api_key.sql",
+    sql: incremental007,
+  },
 ];
 
 import idempotent000 from "./idempotent/000_update.sql" with { type: "text" };
@@ -44,12 +67,17 @@ import idempotent001 from "./idempotent/001_tree_access.sql" with {
 
 interface Idempotent {
   name: string;
+  file: string;
   sql: string;
 }
 
 const idempotents: Idempotent[] = [
-  { name: "000_update", sql: idempotent000 },
-  { name: "001_tree_access", sql: idempotent001 },
+  { name: "000_update", file: "idempotent/000_update.sql", sql: idempotent000 },
+  {
+    name: "001_tree_access",
+    file: "idempotent/001_tree_access.sql",
+    sql: idempotent001,
+  },
 ];
 
 const CORE_SCHEMA = "core";
@@ -61,6 +89,7 @@ const REQUIRED_EXTENSIONS = [
 ] as const;
 
 export interface MigrateCoreOptions {
+  logSqlFiles?: boolean;
   statementTimeout?: string;
   lockTimeout?: string;
   transactionTimeout?: string;
@@ -68,6 +97,7 @@ export interface MigrateCoreOptions {
 }
 
 interface NormalizedMigrateCoreOptions {
+  logSqlFiles: boolean;
   schemaVersion: string;
   statementTimeout: string;
   lockTimeout: string;
@@ -118,8 +148,12 @@ export async function migrateCore(
 
           if (!(await doesCoreExist(tx))) {
             await span("core.migrate.provision", {
-              attributes,
-              callback: () => provisionCore(tx),
+              attributes: {
+                ...attributes,
+                "core.migration_file": "incremental/000_provision.sql",
+                "core.migration_type": "provision",
+              },
+              callback: () => provisionCore(tx, opts),
             });
             info("Core schema provisioned", attributes);
           }
@@ -158,6 +192,7 @@ function normalizeMigrateCoreOptions(
   options: MigrateCoreOptions,
 ): NormalizedMigrateCoreOptions {
   return {
+    logSqlFiles: options.logSqlFiles ?? false,
     schemaVersion: CORE_SCHEMA_VERSION,
     statementTimeout: options.statementTimeout ?? "20s",
     lockTimeout: options.lockTimeout ?? "5s",
@@ -212,8 +247,17 @@ async function doesCoreExist(tx: SQL): Promise<boolean> {
   return coreExists;
 }
 
-async function provisionCore(tx: SQL): Promise<void> {
-  await tx.unsafe(provisionSql);
+async function provisionCore(
+  tx: SQL,
+  options: NormalizedMigrateCoreOptions,
+): Promise<void> {
+  await executeSqlFile(
+    tx,
+    options,
+    "provision",
+    "incremental/000_provision.sql",
+    provisionSql,
+  );
 }
 
 async function ensurePostgresVersion(tx: SQL): Promise<void> {
@@ -327,11 +371,18 @@ async function runMigrations(
       attributes: {
         "db.schema": CORE_SCHEMA,
         "core.migration": migration.name,
+        "core.migration_file": migration.file,
         "core.migration_type": "incremental",
         "core.schema_version": options.schemaVersion,
       },
       callback: async () => {
-        await tx.unsafe(migration.sql);
+        await executeSqlFile(
+          tx,
+          options,
+          "incremental",
+          migration.file,
+          migration.sql,
+        );
         await tx`
           insert into core.migration (name, applied_at_version)
           values (${migration.name}, ${options.schemaVersion})`;
@@ -340,6 +391,7 @@ async function runMigrations(
     info("Core migration applied", {
       "db.schema": CORE_SCHEMA,
       "core.migration": migration.name,
+      "core.migration_file": migration.file,
       "core.migration_type": "incremental",
       "core.schema_version": options.schemaVersion,
     });
@@ -352,14 +404,110 @@ async function runMigrations(
       attributes: {
         "db.schema": CORE_SCHEMA,
         "core.migration": migration.name,
+        "core.migration_file": migration.file,
         "core.migration_type": "idempotent",
         "core.schema_version": options.schemaVersion,
       },
-      callback: () => tx.unsafe(migration.sql),
+      callback: () =>
+        executeSqlFile(
+          tx,
+          options,
+          "idempotent",
+          migration.file,
+          migration.sql,
+        ),
     });
   }
 
   await tx`update core.version set version = ${options.schemaVersion}, at = now()`;
+}
+
+async function executeSqlFile(
+  tx: SQL,
+  options: NormalizedMigrateCoreOptions,
+  type: string,
+  file: string,
+  sqlText: string,
+): Promise<void> {
+  logSqlFile(options, type, file);
+  try {
+    await tx.unsafe(sqlText);
+  } catch (error) {
+    logSqlExecutionError(options, type, file, sqlText, error);
+    throw error;
+  }
+}
+
+function logSqlFile(
+  options: NormalizedMigrateCoreOptions,
+  type: string,
+  file: string,
+): void {
+  if (!options.logSqlFiles) return;
+  console.error(`[migrate:db] core ${type} packages/core/migrate/${file}`);
+}
+
+function logSqlExecutionError(
+  options: NormalizedMigrateCoreOptions,
+  type: string,
+  file: string,
+  sqlText: string,
+  error: unknown,
+): void {
+  if (!options.logSqlFiles) return;
+  console.error(
+    `[migrate:db] failed core ${type} packages/core/migrate/${file}`,
+  );
+  logPostgresSqlLocation(sqlText, error);
+}
+
+function logPostgresSqlLocation(sqlText: string, error: unknown): void {
+  if (!(error instanceof SQL.PostgresError)) return;
+  const position = Number(error.position);
+  if (!Number.isSafeInteger(position) || position < 1) return;
+
+  const location = sqlLocation(sqlText, position);
+  if (!location) return;
+  console.error(
+    `[migrate:db] sql position ${position} -> line ${location.line}, column ${location.column}`,
+  );
+  console.error(sqlContext(sqlText, location.line, location.column));
+}
+
+function sqlLocation(
+  sqlText: string,
+  position: number,
+): { line: number; column: number } | undefined {
+  if (position > sqlText.length + 1) return undefined;
+  let line = 1;
+  let column = 1;
+  for (let i = 0; i < position - 1; i++) {
+    if (sqlText.charCodeAt(i) === 10) {
+      line++;
+      column = 1;
+    } else {
+      column++;
+    }
+  }
+  return { line, column };
+}
+
+function sqlContext(sqlText: string, line: number, column: number): string {
+  const lines = sqlText.split("\n");
+  const start = Math.max(1, line - 2);
+  const end = Math.min(lines.length, line + 2);
+  const width = String(end).length;
+  const output = ["[migrate:db] sql context:"];
+
+  for (let n = start; n <= end; n++) {
+    const marker = n === line ? ">" : " ";
+    output.push(`${marker} ${String(n).padStart(width)} | ${lines[n - 1]}`);
+    if (n === line) {
+      output.push(`  ${" ".repeat(width)} | ${" ".repeat(column - 1)}^`);
+    }
+  }
+
+  return output.join("\n");
 }
 
 async function assertSchemaOwnership(tx: SQL): Promise<void> {

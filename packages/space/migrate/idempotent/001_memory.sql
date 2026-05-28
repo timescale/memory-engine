@@ -28,10 +28,46 @@ for each row
 execute function {{schema}}.memory_before_update();
 
 -------------------------------------------------------------------------------
+-- tree_access
+-------------------------------------------------------------------------------
+create or replace function {{schema}}.tree_access(_tree_access jsonb)
+returns table
+( tree_path ltree
+, access int
+)
+as $func$
+  select
+    x.tree_path
+  , x.access
+  from jsonb_to_recordset(_tree_access) x(tree_path ltree, access int)
+$func$ language sql immutable strict security invoker
+;
+
+-------------------------------------------------------------------------------
+-- has_tree_access
+-------------------------------------------------------------------------------
+create or replace function {{schema}}.has_tree_access
+( _tree_access jsonb
+, _tree_path ltree
+, _access int
+)
+returns bool
+as $func$
+  select exists
+  (
+    select 1
+    from {{schema}}.tree_access(_tree_access) x
+    where x.tree_path @> _tree_path
+    and x.access >= _access
+  )
+$func$ language sql immutable strict security invoker
+;
+
+-------------------------------------------------------------------------------
 -- get memory
 -------------------------------------------------------------------------------
 create or replace function {{schema}}.get_memory
-( _user_id uuid
+( _tree_access jsonb
 , _id uuid default null
 )
 returns table
@@ -56,7 +92,7 @@ as $func$
   , m.embedding is not null
   from {{schema}}.memory m
   where m.id = _id
-  and {{schema}}.has_tree_access(_user_id, m.tree, 1)
+  and {{schema}}.has_tree_access(_tree_access, m.tree, 1)
 $func$ language sql stable security invoker
 set search_path to pg_catalog, {{schema}}, public, pg_temp
 ;
@@ -65,7 +101,7 @@ set search_path to pg_catalog, {{schema}}, public, pg_temp
 -- create memory
 -------------------------------------------------------------------------------
 create or replace function {{schema}}.create_memory
-( _user_id uuid
+( _tree_access jsonb
 , _tree ltree
 , _content text
 , _id uuid default null
@@ -75,7 +111,7 @@ create or replace function {{schema}}.create_memory
 returns uuid
 as $func$
 begin
-  if not {{schema}}.has_tree_access(_user_id, _tree, 2) then
+  if not {{schema}}.has_tree_access(_tree_access, _tree, 2) then
     raise exception 'insufficient tree access'
       using errcode = 'insufficient_privilege';
   end if;
@@ -106,7 +142,7 @@ set search_path to pg_catalog, {{schema}}, public, pg_temp
 -- patch memory
 -------------------------------------------------------------------------------
 create or replace function {{schema}}.patch_memory
-( _user_id uuid
+( _tree_access jsonb
 , _id uuid
 , _patch jsonb
 )
@@ -150,7 +186,7 @@ begin
   with a as materialized
   (
     select a.tree_path, a.access
-    from {{schema}}.calc_tree_access(_user_id) a
+    from {{schema}}.tree_access(_tree_access) a
   )
   select
     exists
@@ -199,7 +235,7 @@ set search_path to pg_catalog, {{schema}}, public, pg_temp
 -- move tree
 -------------------------------------------------------------------------------
 create or replace function {{schema}}.move_tree
-( _user_id uuid
+( _tree_access jsonb
 , _src ltree
 , _dst ltree
 , _dry_run bool default false
@@ -216,7 +252,7 @@ begin
   with a as materialized
   (
     select a.tree_path, a.access
-    from {{schema}}.calc_tree_access(_user_id) a
+    from {{schema}}.tree_access(_tree_access) a
   )
   select
     exists
@@ -277,7 +313,7 @@ set search_path to pg_catalog, {{schema}}, public, pg_temp
 -- copy tree
 -------------------------------------------------------------------------------
 create or replace function {{schema}}.copy_tree
-( _user_id uuid
+( _tree_access jsonb
 , _src ltree
 , _dst ltree
 , _dry_run bool default false
@@ -294,7 +330,7 @@ begin
   with a as materialized
   (
     select a.tree_path, a.access
-    from {{schema}}.calc_tree_access(_user_id) a
+    from {{schema}}.tree_access(_tree_access) a
   )
   select
     exists
@@ -367,7 +403,7 @@ set search_path to pg_catalog, {{schema}}, public, pg_temp
 -- delete memory
 -------------------------------------------------------------------------------
 create or replace function {{schema}}.delete_memory
-( _user_id uuid
+( _tree_access jsonb
 , _id uuid
 )
 returns bool
@@ -385,7 +421,7 @@ begin
     return false;
   end if;
 
-  if not {{schema}}.has_tree_access(_user_id, _tree, 2) then
+  if not {{schema}}.has_tree_access(_tree_access, _tree, 2) then
     raise exception 'insufficient tree access'
       using errcode = 'insufficient_privilege';
   end if;
@@ -403,7 +439,7 @@ set search_path to pg_catalog, {{schema}}, public, pg_temp
 -- delete tree
 -------------------------------------------------------------------------------
 create or replace function {{schema}}.delete_tree
-( _user_id uuid
+( _tree_access jsonb
 , _tree ltree
 , _dry_run bool default false
 )
@@ -417,7 +453,7 @@ begin
   select exists
   (
     select 1
-    from {{schema}}.calc_tree_access(_user_id) a
+    from {{schema}}.tree_access(_tree_access) a
     where a.tree_path @> _tree
     and a.access >= 2
   )
@@ -456,7 +492,7 @@ set search_path to pg_catalog, {{schema}}, public, pg_temp
 -- count tree
 -------------------------------------------------------------------------------
 create or replace function {{schema}}.count_tree
-( _user_id uuid
+( _tree_access jsonb
 , _tree ltree
 , _access int4
 )
@@ -465,7 +501,7 @@ as $func$
   with x as materialized
   (
     select a.tree_path
-    from {{schema}}.calc_tree_access(_user_id) a
+    from {{schema}}.tree_access(_tree_access) a
     where a.access >= _access
   )
   select count(*)
@@ -485,7 +521,7 @@ set search_path to pg_catalog, {{schema}}, public, pg_temp
 -- count tree
 -------------------------------------------------------------------------------
 create or replace function {{schema}}.count_tree
-( _user_id uuid
+( _tree_access jsonb
 , _query lquery
 , _access int4
 )
@@ -494,7 +530,7 @@ as $func$
   with x as materialized
   (
     select a.tree_path
-    from {{schema}}.calc_tree_access(_user_id) a
+    from {{schema}}.tree_access(_tree_access) a
     where a.access >= _access
   )
   select count(*)
@@ -514,7 +550,7 @@ set search_path to pg_catalog, {{schema}}, public, pg_temp
 -- count tree
 -------------------------------------------------------------------------------
 create or replace function {{schema}}.count_tree
-( _user_id uuid
+( _tree_access jsonb
 , _query ltxtquery
 , _access int4
 )
@@ -523,7 +559,7 @@ as $func$
   with x as materialized
   (
     select a.tree_path
-    from {{schema}}.calc_tree_access(_user_id) a
+    from {{schema}}.tree_access(_tree_access) a
     where a.access >= _access
   )
   select count(*)
@@ -543,7 +579,7 @@ set search_path to pg_catalog, {{schema}}, public, pg_temp
 -- list tree
 -------------------------------------------------------------------------------
 create or replace function {{schema}}.list_tree
-( _user_id uuid
+( _tree_access jsonb
 , _query lquery
 )
 returns table
@@ -554,7 +590,7 @@ as $func$
   with a as materialized
   (
     select a.tree_path
-    from {{schema}}.calc_tree_access(_user_id) a
+    from {{schema}}.tree_access(_tree_access) a
     where a.access >= 1
   )
   , m as

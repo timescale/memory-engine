@@ -1,7 +1,6 @@
 import { createHash } from "node:crypto";
 import { info, reportError, span } from "@pydantic/logfire-node";
-import type { SQL } from "bun";
-import { semver } from "bun";
+import { SQL, semver } from "bun";
 import { isValidSlug, slugToSchema } from "../slug";
 import { SPACE_SCHEMA_VERSION } from "../version";
 
@@ -15,12 +14,21 @@ import incremental002 from "./incremental/002_embedding_queue.sql" with {
 
 interface Incremental {
   name: string;
+  file: string;
   sql: string;
 }
 
 const incrementals: Incremental[] = [
-  { name: "001_memory", sql: incremental001 },
-  { name: "002_embedding_queue", sql: incremental002 },
+  {
+    name: "001_memory",
+    file: "incremental/001_memory.sql",
+    sql: incremental001,
+  },
+  {
+    name: "002_embedding_queue",
+    file: "incremental/002_embedding_queue.sql",
+    sql: incremental002,
+  },
 ];
 
 import idempotent001 from "./idempotent/001_memory.sql" with { type: "text" };
@@ -31,17 +39,23 @@ import idempotent003 from "./idempotent/003_embedding_queue.sql" with {
 
 interface Idempotent {
   name: string;
+  file: string;
   sql: string;
 }
 
 const idempotents: Idempotent[] = [
-  { name: "001_memory", sql: idempotent001 },
-  { name: "002_search", sql: idempotent002 },
-  { name: "003_embedding_queue", sql: idempotent003 },
+  { name: "001_memory", file: "idempotent/001_memory.sql", sql: idempotent001 },
+  { name: "002_search", file: "idempotent/002_search.sql", sql: idempotent002 },
+  {
+    name: "003_embedding_queue",
+    file: "idempotent/003_embedding_queue.sql",
+    sql: idempotent003,
+  },
 ];
 
 export interface MigrateSpaceOptions {
   slug: string;
+  logSqlFiles?: boolean;
   shardId?: number;
   embeddingDimensions?: number;
   bm25TextConfig?: string;
@@ -57,6 +71,7 @@ export interface MigrateSpaceOptions {
 
 interface NormalizedMigrateSpaceOptions {
   slug: string;
+  logSqlFiles: boolean;
   schemaVersion: string;
   shardId?: number;
   embeddingDimensions: number;
@@ -119,8 +134,12 @@ export async function migrateSpace(
 
           if (!(await doesSpaceExist(tx, schema))) {
             await span("space.migrate.provision", {
-              attributes: schemaAttributes,
-              callback: () => provisionSpace(tx, schema),
+              attributes: {
+                ...schemaAttributes,
+                "space.migration_file": "incremental/000_provision.sql",
+                "space.migration_type": "provision",
+              },
+              callback: () => provisionSpace(tx, schema, opts),
             });
             info("Space schema provisioned", schemaAttributes);
           }
@@ -158,6 +177,7 @@ function normalizeMigrateSpaceOptions(
 ): NormalizedMigrateSpaceOptions {
   return {
     slug: options.slug,
+    logSqlFiles: options.logSqlFiles ?? false,
     schemaVersion: SPACE_SCHEMA_VERSION,
     shardId: options.shardId,
     embeddingDimensions: options.embeddingDimensions ?? 1536,
@@ -235,8 +255,19 @@ async function doesSpaceExist(tx: SQL, schema: string): Promise<boolean> {
   return spaceExists;
 }
 
-async function provisionSpace(tx: SQL, schema: string): Promise<void> {
-  await tx.unsafe(template(provisionSql, { schema }));
+async function provisionSpace(
+  tx: SQL,
+  schema: string,
+  options: NormalizedMigrateSpaceOptions,
+): Promise<void> {
+  await executeSqlFile(
+    tx,
+    options,
+    schema,
+    "provision",
+    "incremental/000_provision.sql",
+    template(provisionSql, { schema }),
+  );
 }
 
 async function runMigrations(
@@ -292,6 +323,7 @@ async function runMigrations(
       attributes: {
         "db.schema": schema,
         "space.migration": migration.name,
+        "space.migration_file": migration.file,
         "space.migration_type": "incremental",
         "space.schema_version": options.schemaVersion,
       },
@@ -300,7 +332,14 @@ async function runMigrations(
           migration.sql,
           templateVars(schema, options),
         );
-        await tx.unsafe(renderedSql);
+        await executeSqlFile(
+          tx,
+          options,
+          schema,
+          "incremental",
+          migration.file,
+          renderedSql,
+        );
         await tx`
           insert into ${tx(schema)}.migration (name, applied_at_version)
           values (${migration.name}, ${options.schemaVersion})`;
@@ -309,6 +348,7 @@ async function runMigrations(
     info("Space migration applied", {
       "db.schema": schema,
       "space.migration": migration.name,
+      "space.migration_file": migration.file,
       "space.migration_type": "incremental",
       "space.schema_version": options.schemaVersion,
     });
@@ -322,6 +362,7 @@ async function runMigrations(
       attributes: {
         "db.schema": schema,
         "space.migration": migration.name,
+        "space.migration_file": migration.file,
         "space.migration_type": "idempotent",
         "space.schema_version": options.schemaVersion,
       },
@@ -330,13 +371,113 @@ async function runMigrations(
           migration.sql,
           templateVars(schema, options),
         );
-        await tx.unsafe(renderedSql);
+        await executeSqlFile(
+          tx,
+          options,
+          schema,
+          "idempotent",
+          migration.file,
+          renderedSql,
+        );
       },
     });
   }
 
   // update version
   await tx`update ${tx(schema)}.version set version = ${options.schemaVersion}, at = now()`;
+}
+
+async function executeSqlFile(
+  tx: SQL,
+  options: NormalizedMigrateSpaceOptions,
+  schema: string,
+  type: string,
+  file: string,
+  sqlText: string,
+): Promise<void> {
+  logSqlFile(options, schema, type, file);
+  try {
+    await tx.unsafe(sqlText);
+  } catch (error) {
+    logSqlExecutionError(options, schema, type, file, sqlText, error);
+    throw error;
+  }
+}
+
+function logSqlFile(
+  options: NormalizedMigrateSpaceOptions,
+  schema: string,
+  type: string,
+  file: string,
+): void {
+  if (!options.logSqlFiles) return;
+  console.error(
+    `[migrate:db] space ${schema} ${type} packages/space/migrate/${file}`,
+  );
+}
+
+function logSqlExecutionError(
+  options: NormalizedMigrateSpaceOptions,
+  schema: string,
+  type: string,
+  file: string,
+  sqlText: string,
+  error: unknown,
+): void {
+  if (!options.logSqlFiles) return;
+  console.error(
+    `[migrate:db] failed space ${schema} ${type} packages/space/migrate/${file}`,
+  );
+  logPostgresSqlLocation(sqlText, error);
+}
+
+function logPostgresSqlLocation(sqlText: string, error: unknown): void {
+  if (!(error instanceof SQL.PostgresError)) return;
+  const position = Number(error.position);
+  if (!Number.isSafeInteger(position) || position < 1) return;
+
+  const location = sqlLocation(sqlText, position);
+  if (!location) return;
+  console.error(
+    `[migrate:db] sql position ${position} -> line ${location.line}, column ${location.column}`,
+  );
+  console.error(sqlContext(sqlText, location.line, location.column));
+}
+
+function sqlLocation(
+  sqlText: string,
+  position: number,
+): { line: number; column: number } | undefined {
+  if (position > sqlText.length + 1) return undefined;
+  let line = 1;
+  let column = 1;
+  for (let i = 0; i < position - 1; i++) {
+    if (sqlText.charCodeAt(i) === 10) {
+      line++;
+      column = 1;
+    } else {
+      column++;
+    }
+  }
+  return { line, column };
+}
+
+function sqlContext(sqlText: string, line: number, column: number): string {
+  const lines = sqlText.split("\n");
+  const start = Math.max(1, line - 2);
+  const end = Math.min(lines.length, line + 2);
+  const width = String(end).length;
+  const output = ["[migrate:db] sql context:"];
+
+  for (let n = start; n <= end; n++) {
+    const marker = n === line ? ">" : " ";
+    output.push(`${marker} ${String(n).padStart(width)} | ${lines[n - 1]}`);
+    if (n === line) {
+      output.push(`  ${" ".repeat(width)} | ${" ".repeat(column - 1)}^`);
+    }
+  }
+
+  return output.join("\n");
 }
 
 async function assertSchemaOwnership(tx: SQL, schema: string): Promise<void> {

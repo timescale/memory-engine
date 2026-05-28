@@ -3,10 +3,10 @@
 -------------------------------------------------------------------------------
 create table core.principal
 ( id uuid not null primary key default uuidv7() check (uuid_extract_version(id) = 7)
-, user_id uuid generated always as (case when kind = 'user' then id else null end) stored
-, group_id uuid generated always as (case when kind = 'group' then id else null end) stored
-, agent_id uuid generated always as (case when kind = 'agent' then id else null end) stored
-, member_id uuid generated always as (case when kind in ('user', 'agent') then id else null end) stored
+, user_id uuid unique nulls distinct generated always as (case when kind = 'user' then id else null end) stored
+, group_id uuid unique nulls distinct generated always as (case when kind = 'group' then id else null end) stored
+, agent_id uuid unique nulls distinct generated always as (case when kind = 'agent' then id else null end) stored
+, member_id uuid unique nulls distinct generated always as (case when kind in ('user', 'agent') then id else null end) stored
 , owner_id uuid references core.principal (user_id) on delete cascade -- points to agent's owner
 , space_id uuid references core.space (id) on delete cascade
 , kind text not null check (kind in ('group', 'user', 'agent'))
@@ -26,11 +26,6 @@ create table core.principal
     (kind != 'group' and space_id is null) -- users and agents are global
   )
 );
-
-create unique index on core.principal (user_id) where user_id is not null;
-create unique index on core.principal (group_id) include (space_id) where group_id is not null;
-create unique index on core.principal (agent_id) where agent_id is not null;
-create unique index on core.principal (member_id) where member_id is not null;
 
 -- users must have a globally unique name
 create unique index on core.principal (name) where user_id is not null;

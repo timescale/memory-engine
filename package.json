@@ -21,6 +21,7 @@
     "install:local": "./bun scripts/install-local.ts",
     "lint": "biome check",
     "me": "./bun run packages/cli/index.ts",
+    "migrate:db": "./bun scripts/migrate-db.ts",
     "pg": "./bun run pg:build && docker run -d --name me-postgres -e POSTGRES_HOST_AUTH_METHOD=trust -p 127.0.0.1:5432:5432 me-postgres",
     "pg:build": "docker build -t me-postgres -f docker/Dockerfile.postgres docker/",
     "pg:rm": "docker rm -f me-postgres",

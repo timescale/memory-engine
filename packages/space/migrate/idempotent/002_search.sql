@@ -78,7 +78,7 @@ begin
     end if;
   else
     _score = $sql$, -1 as score$sql$;
-    _order_by = $sql$order by m.id;
+    _order_by = $sql$order by m.id$sql$;
   end case;
 
   -- ltree
@@ -171,7 +171,7 @@ begin
   with x as materialized
   (
     select x.tree_path
-    from jsonb_to_recordset(_tree_access) x(tree_path ltree, access int)
+    from jsonb_to_recordset($1) x(tree_path ltree, access int)
     where x.access >= 1
   )
   select
@@ -197,14 +197,17 @@ begin
   $sql$
   , _score
   , coalesce
-    ((
-      select string_agg(x, E'\n  ')
-      from unnest(_filters) x
-    ), '')
+    (
+      (
+        select string_agg(x, E'\n  ')
+        from unnest(_filters) x
+      )
+    , ''
+    )
   , _order_by
   );
 
-  return query execute _sql using _user_id, _limit;
+  return query execute _sql using _tree_access, _limit;
 end;
 $func$ language plpgsql stable security invoker
 set search_path to pg_catalog, {{schema}}, public, pg_temp

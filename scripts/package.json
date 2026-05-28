@@ -3,7 +3,9 @@
   "private": true,
   "type": "module",
   "dependencies": {
+    "@memory.build/core": "workspace:*",
     "@memory.build/embedding": "workspace:*",
+    "@memory.build/space": "workspace:*",
     "yaml": "^2.7.0"
   }
 }
