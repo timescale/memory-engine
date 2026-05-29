@@ -11,7 +11,7 @@
   "scripts": {
     "build": "./bun run --filter '@memory.build/cli' build",
     "build:all": "./bun scripts/build-all.ts",
-    "check": "./bun i --silent && ./bun run typecheck && ./bun run lint --write && ./bun run test --only-failures",
+    "check": "./bun i --silent && ./bun scripts/bundle-web-assets.ts && ./bun run typecheck && ./bun run lint --write && ./bun run test --only-failures",
     "clean": "rm -rf packages/cli/dist dist",
     "docs": "./bun --filter @memory.build/docs-site dev",
     "docs:build": "./bun --filter @memory.build/docs-site build",
