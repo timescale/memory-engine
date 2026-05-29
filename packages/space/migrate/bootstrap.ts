@@ -1,5 +1,5 @@
 import { info, reportError, span } from "@pydantic/logfire-node";
-import { SQL, semver } from "bun";
+import { type SQL, semver } from "bun";
 
 const REQUIRED_EXTENSIONS = [
   { name: "citext", minVersion: "1.6" },
@@ -147,17 +147,5 @@ async function ensureExtension(
     );
   }
 
-  try {
-    await tx`create extension if not exists ${tx(name)} with schema public`;
-  } catch (error: unknown) {
-    // Ignore duplicate extension errors (race condition in concurrent calls)
-    if (
-      error instanceof SQL.PostgresError &&
-      error.errno === "23505" &&
-      error.constraint === "pg_extension_name_index"
-    ) {
-      return;
-    }
-    throw error;
-  }
+  await tx`create extension if not exists ${tx(name)} with schema public`;
 }

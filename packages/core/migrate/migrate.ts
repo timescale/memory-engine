@@ -2,10 +2,6 @@ import { createHash } from "node:crypto";
 import { info, reportError, span } from "@pydantic/logfire-node";
 import { SQL, semver } from "bun";
 import { CORE_SCHEMA_VERSION } from "../version";
-
-import provisionSql from "./provision.sql" with {
-  type: "text",
-};
 import incremental001 from "./incremental/001_shard.sql" with { type: "text" };
 import incremental002 from "./incremental/002_space.sql" with { type: "text" };
 import incremental003 from "./incremental/003_principal.sql" with {
@@ -23,6 +19,7 @@ import incremental006 from "./incremental/006_tree_access.sql" with {
 import incremental007 from "./incremental/007_api_key.sql" with {
   type: "text",
 };
+import provisionSql from "./provision.sql" with { type: "text" };
 
 interface Incremental {
   name: string;
@@ -267,13 +264,7 @@ async function provisionCore(
   tx: SQL,
   options: NormalizedMigrateCoreOptions,
 ): Promise<void> {
-  await executeSqlFile(
-    tx,
-    options,
-    "provision",
-    "provision.sql",
-    provisionSql,
-  );
+  await executeSqlFile(tx, options, "provision", "provision.sql", provisionSql);
 }
 
 async function ensurePostgresVersion(tx: SQL): Promise<void> {
@@ -326,18 +317,7 @@ async function ensureExtension(
     );
   }
 
-  try {
-    await tx`create extension if not exists ${tx(name)} with schema public`;
-  } catch (error: unknown) {
-    if (
-      error instanceof SQL.PostgresError &&
-      error.errno === "23505" &&
-      error.constraint === "pg_extension_name_index"
-    ) {
-      return;
-    }
-    throw error;
-  }
+  await tx`create extension if not exists ${tx(name)} with schema public`;
 }
 
 async function runMigrations(
