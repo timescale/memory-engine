@@ -8,10 +8,8 @@ create table core.group_member
 , admin bool not null default false
 , created_at timestamptz not null default now()
 , updated_at timestamptz
-, unique (member_id, space_id, group_id) include (admin)
+, unique (space_id, member_id, group_id) include (admin)
 );
 
--- index for listing members of a group
-create index on core.group_member (group_id, member_id) include (admin);
--- index for listing groups in a space
-create index on core.group_member (space_id, group_id);
+-- index for listing groups in a space and/or members of a group
+create index on core.group_member (space_id, group_id, member_id) include (admin);
