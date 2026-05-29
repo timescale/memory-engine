@@ -3,14 +3,11 @@ import { info, reportError, span } from "@pydantic/logfire-node";
 import { SQL, semver } from "bun";
 import { isValidSlug, slugToSchema } from "../slug";
 import { SPACE_SCHEMA_VERSION } from "../version";
-
-import provisionSql from "./provision.sql" with {
-  type: "text",
-};
 import incremental001 from "./incremental/001_memory.sql" with { type: "text" };
 import incremental002 from "./incremental/002_embedding_queue.sql" with {
   type: "text",
 };
+import provisionSql from "./provision.sql" with { type: "text" };
 
 interface Incremental {
   name: string;
