@@ -2,21 +2,20 @@ import { createHash } from "node:crypto";
 import { info, reportError, span } from "@pydantic/logfire-node";
 import { SQL, semver } from "bun";
 import { CORE_SCHEMA_VERSION } from "../version";
-import incremental001 from "./incremental/001_shard.sql" with { type: "text" };
-import incremental002 from "./incremental/002_space.sql" with { type: "text" };
-import incremental003 from "./incremental/003_principal.sql" with {
+import incremental001 from "./incremental/001_space.sql" with { type: "text" };
+import incremental002 from "./incremental/002_principal.sql" with {
   type: "text",
 };
-import incremental004 from "./incremental/004_principal_space.sql" with {
+import incremental003 from "./incremental/003_principal_space.sql" with {
   type: "text",
 };
-import incremental005 from "./incremental/005_group_member.sql" with {
+import incremental004 from "./incremental/004_group_member.sql" with {
   type: "text",
 };
-import incremental006 from "./incremental/006_tree_access.sql" with {
+import incremental005 from "./incremental/005_tree_access.sql" with {
   type: "text",
 };
-import incremental007 from "./incremental/007_api_key.sql" with {
+import incremental006 from "./incremental/006_api_key.sql" with {
   type: "text",
 };
 import provisionSql from "./provision.sql" with { type: "text" };
@@ -28,32 +27,31 @@ interface Incremental {
 }
 
 const incrementals: Incremental[] = [
-  { name: "001_shard", file: "incremental/001_shard.sql", sql: incremental001 },
-  { name: "002_space", file: "incremental/002_space.sql", sql: incremental002 },
+  { name: "001_space", file: "incremental/001_space.sql", sql: incremental001 },
   {
-    name: "003_principal",
-    file: "incremental/003_principal.sql",
+    name: "002_principal",
+    file: "incremental/002_principal.sql",
+    sql: incremental002,
+  },
+  {
+    name: "003_principal_space",
+    file: "incremental/003_principal_space.sql",
     sql: incremental003,
   },
   {
-    name: "004_principal_space",
-    file: "incremental/004_principal_space.sql",
+    name: "004_group_member",
+    file: "incremental/004_group_member.sql",
     sql: incremental004,
   },
   {
-    name: "005_group_member",
-    file: "incremental/005_group_member.sql",
+    name: "005_tree_access",
+    file: "incremental/005_tree_access.sql",
     sql: incremental005,
   },
   {
-    name: "006_tree_access",
-    file: "incremental/006_tree_access.sql",
+    name: "006_api_key",
+    file: "incremental/006_api_key.sql",
     sql: incremental006,
-  },
-  {
-    name: "007_api_key",
-    file: "incremental/007_api_key.sql",
-    sql: incremental007,
   },
 ];
 
