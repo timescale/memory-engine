@@ -4,7 +4,7 @@ import { SQL, semver } from "bun";
 import { isValidSlug, slugToSchema } from "../slug";
 import { SPACE_SCHEMA_VERSION } from "../version";
 
-import provisionSql from "./incremental/000_provision.sql" with {
+import provisionSql from "./provision.sql" with {
   type: "text",
 };
 import incremental001 from "./incremental/001_memory.sql" with { type: "text" };
@@ -136,7 +136,7 @@ export async function migrateSpace(
             await span("space.migrate.provision", {
               attributes: {
                 ...schemaAttributes,
-                "space.migration_file": "incremental/000_provision.sql",
+                "space.migration_file": "provision.sql",
                 "space.migration_type": "provision",
               },
               callback: () => provisionSpace(tx, schema, opts),
@@ -265,7 +265,7 @@ async function provisionSpace(
     options,
     schema,
     "provision",
-    "incremental/000_provision.sql",
+    "provision.sql",
     template(provisionSql, { schema }),
   );
 }

@@ -3,7 +3,7 @@ import { info, reportError, span } from "@pydantic/logfire-node";
 import { SQL, semver } from "bun";
 import { CORE_SCHEMA_VERSION } from "../version";
 
-import provisionSql from "./incremental/000_provision.sql" with {
+import provisionSql from "./provision.sql" with {
   type: "text",
 };
 import incremental001 from "./incremental/001_shard.sql" with { type: "text" };
@@ -166,7 +166,7 @@ export async function migrateCore(
             await span("core.migrate.provision", {
               attributes: {
                 ...attributes,
-                "core.migration_file": "incremental/000_provision.sql",
+                "core.migration_file": "provision.sql",
                 "core.migration_type": "provision",
               },
               callback: () => provisionCore(tx, opts),
@@ -271,7 +271,7 @@ async function provisionCore(
     tx,
     options,
     "provision",
-    "incremental/000_provision.sql",
+    "provision.sql",
     provisionSql,
   );
 }
