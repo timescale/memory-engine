@@ -283,10 +283,11 @@ async function runMigrations(
   // abort if target is older than the database
   if (cmp < 0) {
     throw new Error(
-      `Schema version (${options.schemaVersion}) is older than database version (${dbVersion}). ` +
-        "Please upgrade the server.",
+      `Application version (${options.schemaVersion}) is older than database version (${dbVersion}). ` +
+        "Please upgrade the application.",
     );
   }
+  /* run migrations regardless
   if (cmp === 0) {
     // version matches. no need to run migrations
     info("Space migration skipped, version current", {
@@ -296,6 +297,7 @@ async function runMigrations(
     });
     return;
   }
+  */
 
   // run incremental migrations
   const sorted1 = [...incrementals].sort((a, b) =>

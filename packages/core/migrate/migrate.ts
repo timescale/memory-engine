@@ -332,10 +332,11 @@ async function runMigrations(
   const cmp = semver.order(options.schemaVersion, dbVersion);
   if (cmp < 0) {
     throw new Error(
-      `Schema version (${options.schemaVersion}) is older than database version (${dbVersion}). ` +
-        "Please upgrade the server.",
+      `Application version (${options.schemaVersion}) is older than database version (${dbVersion}). ` +
+        "Please upgrade the application.",
     );
   }
+  /* run migrations regardless
   if (cmp === 0) {
     info("Core migration skipped, version current", {
       "db.schema": CORE_SCHEMA,
@@ -344,6 +345,7 @@ async function runMigrations(
     });
     return;
   }
+  */
 
   const sorted1 = [...incrementals].sort((a, b) =>
     a.name.localeCompare(b.name),
