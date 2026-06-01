@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { info, reportError, span } from "@pydantic/logfire-node";
-import { SQL, semver } from "bun";
+import { semver } from "bun";
+import type { ISql, Sql as SQL } from "postgres";
 import { CORE_SCHEMA_VERSION } from "../version";
 import incremental001 from "./incremental/001_space.sql" with { type: "text" };
 import incremental002 from "./incremental/002_principal.sql" with {
@@ -91,7 +92,14 @@ const idempotents: Idempotent[] = [
   },
 ];
 
-const CORE_SCHEMA = "core";
+/**
+ * The core control-plane schema name. Production always uses "core"; the name
+ * is a parameter so tests can provision throwaway, isolated cores (and so the
+ * SQL is templated symmetrically with the per-space migrations). Reference this
+ * constant rather than hardcoding "core" elsewhere.
+ */
+export const CORE_SCHEMA = "core";
+
 const REQUIRED_EXTENSIONS = [
   { name: "citext", minVersion: "1.6" },
   { name: "ltree", minVersion: "1.3" },
@@ -100,6 +108,7 @@ const REQUIRED_EXTENSIONS = [
 ] as const;
 
 export interface MigrateCoreOptions {
+  schema?: string;
   logSqlFiles?: boolean;
   statementTimeout?: string;
   lockTimeout?: string;
@@ -108,6 +117,7 @@ export interface MigrateCoreOptions {
 }
 
 interface NormalizedMigrateCoreOptions {
+  schema: string;
   logSqlFiles: boolean;
   schemaVersion: string;
   statementTimeout: string;
@@ -127,10 +137,17 @@ export async function migrateCore(
     attributes,
     callback: async () => {
       try {
+        if (!isValidSchemaName(opts.schema)) {
+          throw new Error(
+            `Invalid core schema name: "${opts.schema}" — must be a valid lowercase SQL identifier (<= 63 chars)`,
+          );
+        }
         if (!semver.satisfies(opts.schemaVersion, "*")) {
           throw new Error(`Invalid schema version: "${opts.schemaVersion}"`);
         }
-        const [key1, key2] = advisoryLockKey("memory-core:schema:core");
+        const [key1, key2] = advisoryLockKey(
+          `memory-core:schema:${opts.schema}`,
+        );
 
         await sql.begin(async (tx) => {
           await tx`select set_config('statement_timeout', ${opts.statementTimeout}, true)`;
@@ -157,7 +174,7 @@ export async function migrateCore(
             });
           }
 
-          if (!(await doesCoreExist(tx))) {
+          if (!(await doesCoreExist(tx, opts.schema))) {
             await span("core.migrate.provision", {
               attributes: {
                 ...attributes,
@@ -186,7 +203,7 @@ function migrateAttributes(
   options: NormalizedMigrateCoreOptions,
 ): Record<string, unknown> {
   return {
-    "db.schema": CORE_SCHEMA,
+    "db.schema": options.schema,
     "core.schema_version": options.schemaVersion,
     "core.required_extensions": REQUIRED_EXTENSIONS.map(
       (extension) => `${extension.name}@>=${extension.minVersion}`,
@@ -203,6 +220,7 @@ function normalizeMigrateCoreOptions(
   options: MigrateCoreOptions,
 ): NormalizedMigrateCoreOptions {
   return {
+    schema: options.schema ?? CORE_SCHEMA,
     logSqlFiles: options.logSqlFiles ?? false,
     schemaVersion: CORE_SCHEMA_VERSION,
     statementTimeout: options.statementTimeout ?? "20s",
@@ -211,6 +229,10 @@ function normalizeMigrateCoreOptions(
     idleInTransactionSessionTimeout:
       options.idleInTransactionSessionTimeout ?? "5s",
   };
+}
+
+function isValidSchemaName(schema: string): boolean {
+  return /^[a-z_][a-z0-9_]*$/.test(schema) && schema.length <= 63;
 }
 
 function advisoryLockKey(schema: string): [number, number] {
@@ -226,7 +248,7 @@ function sleep(ms: number): Promise<void> {
 }
 
 async function acquireAdvisoryLock(
-  tx: SQL,
+  tx: ISql<{}>,
   key1: number,
   key2: number,
 ): Promise<boolean> {
@@ -235,7 +257,7 @@ async function acquireAdvisoryLock(
     const [result] = await tx`
       select pg_try_advisory_xact_lock(${key1}, ${key2}) as acquired
     `;
-    if (result.acquired) {
+    if (result?.acquired) {
       acquired = true;
       break;
     }
@@ -246,29 +268,36 @@ async function acquireAdvisoryLock(
   return acquired;
 }
 
-async function doesCoreExist(tx: SQL): Promise<boolean> {
-  const [{ coreExists }] = await tx`
+async function doesCoreExist(tx: ISql<{}>, schema: string): Promise<boolean> {
+  const [row] = await tx`
     select exists
     (
       select 1
       from pg_namespace n
-      where n.nspname = ${CORE_SCHEMA}
+      where n.nspname = ${schema}
     ) as "coreExists"
     `;
-  return coreExists;
+  return Boolean(row?.coreExists);
 }
 
 async function provisionCore(
-  tx: SQL,
+  tx: ISql<{}>,
   options: NormalizedMigrateCoreOptions,
 ): Promise<void> {
-  await executeSqlFile(tx, options, "provision", "provision.sql", provisionSql);
+  await executeSqlFile(
+    tx,
+    options,
+    "provision",
+    "provision.sql",
+    template(provisionSql, { schema: options.schema }),
+  );
 }
 
-async function ensurePostgresVersion(tx: SQL): Promise<void> {
-  const [{ server_version_num }] = await tx`
+async function ensurePostgresVersion(tx: ISql<{}>): Promise<void> {
+  const [row] = await tx`
     select current_setting('server_version_num')::int as server_version_num
   `;
+  const server_version_num = Number(row?.server_version_num);
   if (server_version_num < 180000) {
     throw new Error(
       `PostgreSQL version 18 or higher is required (found ${server_version_num})`,
@@ -277,7 +306,7 @@ async function ensurePostgresVersion(tx: SQL): Promise<void> {
 }
 
 async function ensureExtension(
-  tx: SQL,
+  tx: ISql<{}>,
   name: string,
   minVersion: string,
 ): Promise<void> {
@@ -319,14 +348,16 @@ async function ensureExtension(
 }
 
 async function runMigrations(
-  tx: SQL,
+  tx: ISql<{}>,
   options: NormalizedMigrateCoreOptions,
 ): Promise<void> {
-  await assertSchemaOwnership(tx);
+  const schema = options.schema;
+  await assertSchemaOwnership(tx, schema);
 
-  const [{ version: dbVersion }] = await tx`
-    select version from core.version
+  const [versionRow] = await tx`
+    select version from ${tx(schema)}.version
   `;
+  const dbVersion: string = versionRow?.version;
   const cmp = semver.order(options.schemaVersion, dbVersion);
   if (cmp < 0) {
     throw new Error(
@@ -337,7 +368,7 @@ async function runMigrations(
   /* run migrations regardless
   if (cmp === 0) {
     info("Core migration skipped, version current", {
-      "db.schema": CORE_SCHEMA,
+      "db.schema": schema,
       "core.version": dbVersion,
       "core.schema_version": options.schemaVersion,
     });
@@ -350,22 +381,22 @@ async function runMigrations(
   );
 
   for (const migration of sorted1) {
-    const [{ existing }] = await tx`
+    const [existingRow] = await tx`
       select exists
       (
         select 1
-        from core.migration
+        from ${tx(schema)}.migration
         where name = ${migration.name}
       ) as existing
       `;
 
-    if (existing) {
+    if (existingRow?.existing) {
       continue;
     }
 
     await span("core.migrate.incremental", {
       attributes: {
-        "db.schema": CORE_SCHEMA,
+        "db.schema": schema,
         "core.migration": migration.name,
         "core.migration_file": migration.file,
         "core.migration_type": "incremental",
@@ -377,15 +408,15 @@ async function runMigrations(
           options,
           "incremental",
           migration.file,
-          migration.sql,
+          template(migration.sql, { schema }),
         );
         await tx`
-          insert into core.migration (name, applied_at_version)
+          insert into ${tx(schema)}.migration (name, applied_at_version)
           values (${migration.name}, ${options.schemaVersion})`;
       },
     });
     info("Core migration applied", {
-      "db.schema": CORE_SCHEMA,
+      "db.schema": schema,
       "core.migration": migration.name,
       "core.migration_file": migration.file,
       "core.migration_type": "incremental",
@@ -398,7 +429,7 @@ async function runMigrations(
   for (const migration of sorted2) {
     await span("core.migrate.idempotent", {
       attributes: {
-        "db.schema": CORE_SCHEMA,
+        "db.schema": schema,
         "core.migration": migration.name,
         "core.migration_file": migration.file,
         "core.migration_type": "idempotent",
@@ -410,16 +441,16 @@ async function runMigrations(
           options,
           "idempotent",
           migration.file,
-          migration.sql,
+          template(migration.sql, { schema }),
         ),
     });
   }
 
-  await tx`update core.version set version = ${options.schemaVersion}, at = now()`;
+  await tx`update ${tx(schema)}.version set version = ${options.schemaVersion}, at = now()`;
 }
 
 async function executeSqlFile(
-  tx: SQL,
+  tx: ISql<{}>,
   options: NormalizedMigrateCoreOptions,
   type: string,
   file: string,
@@ -458,8 +489,8 @@ function logSqlExecutionError(
 }
 
 function logPostgresSqlLocation(sqlText: string, error: unknown): void {
-  if (!(error instanceof SQL.PostgresError)) return;
-  const position = Number(error.position);
+  // postgres-js sets `position` (1-based) on server errors; non-PG errors won't.
+  const position = Number((error as { position?: unknown })?.position);
   if (!Number.isSafeInteger(position) || position < 1) return;
 
   const location = sqlLocation(sqlText, position);
@@ -506,17 +537,29 @@ function sqlContext(sqlText: string, line: number, column: number): string {
   return output.join("\n");
 }
 
-async function assertSchemaOwnership(tx: SQL): Promise<void> {
+async function assertSchemaOwnership(
+  tx: ISql<{}>,
+  schema: string,
+): Promise<void> {
   const [result] = await tx`
     select
       n.nspowner = (select pg_catalog.to_regrole(current_user)::oid) as is_owner
     from pg_catalog.pg_namespace n
-    where n.nspname = ${CORE_SCHEMA}
+    where n.nspname = ${schema}
   `;
 
   if (!result?.is_owner) {
     throw new Error(
-      "Only the owner of the core schema can run database migrations",
+      `Only the owner of the ${schema} schema can run database migrations`,
     );
   }
+}
+
+function template(sql: string, vars: Record<string, unknown>): string {
+  return sql.replace(/\{\{(\w+)\}\}/g, (_, key) => {
+    if (!(key in vars)) {
+      throw new Error(`Missing template variable: ${key}`);
+    }
+    return String(vars[key]);
+  });
 }

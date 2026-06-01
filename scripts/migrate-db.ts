@@ -6,7 +6,7 @@ import {
   SPACE_SCHEMA_VERSION,
   slugToSchema,
 } from "@memory.build/space";
-import { SQL } from "bun";
+import postgres from "postgres";
 
 const DEFAULT_DATABASE_URL = "postgresql://postgres@127.0.0.1:5432/postgres";
 const DEFAULT_SPACE_SLUG = "dev000000001";
@@ -59,7 +59,7 @@ async function main(): Promise<void> {
   const mode = parseMode(process.argv[2]);
   const url = databaseUrl();
   const spaceSlug = process.env.SPACE_SLUG ?? DEFAULT_SPACE_SLUG;
-  const sql = new SQL(url);
+  const sql = postgres(url, { onnotice: () => {} });
 
   console.log(`Database: ${url}`);
   console.log(`Mode: ${mode}`);
@@ -84,7 +84,7 @@ async function main(): Promise<void> {
       console.log(`Migrated space ${slugToSchema(spaceSlug)}.`);
     }
   } finally {
-    await sql.close();
+    await sql.end();
   }
 }
 

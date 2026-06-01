@@ -54,6 +54,7 @@
       "version": "0.2.5",
       "dependencies": {
         "@pydantic/logfire-node": "^0.13.1",
+        "postgres": "^3.4.9",
       },
     },
     "packages/docs-site": {
@@ -135,6 +136,7 @@
       "version": "0.2.5",
       "dependencies": {
         "@pydantic/logfire-node": "^0.13.1",
+        "postgres": "^3.4.9",
       },
     },
     "packages/web": {
@@ -180,6 +182,7 @@
         "@memory.build/core": "workspace:*",
         "@memory.build/embedding": "workspace:*",
         "@memory.build/space": "workspace:*",
+        "postgres": "^3.4.9",
         "yaml": "^2.7.0",
       },
     },
@@ -1224,6 +1227,8 @@
     "pkce-challenge": ["pkce-challenge@5.0.1", "", {}, "sha512-wQ0b/W4Fr01qtpHlqSqspcj3EhBvimsdh0KlHhH8HRZnMsEa0ea2fTULOXOS9ccQr3om+GcGRk4e+isrZWV8qQ=="],
 
     "postcss": ["postcss@8.5.10", "", { "dependencies": { "nanoid": "^3.3.11", "picocolors": "^1.1.1", "source-map-js": "^1.2.1" } }, "sha512-pMMHxBOZKFU6HgAZ4eyGnwXF/EvPGGqUr0MnZ5+99485wwW41kW91A4LOGxSHhgugZmSChL5AlElNdwlNgcnLQ=="],
+
+    "postgres": ["postgres@3.4.9", "", {}, "sha512-GD3qdB0x1z9xgFI6cdRD6xu2Sp2WCOEoe3mtnyB5Ee0XrrL5Pe+e4CCnJrRMnL1zYtRDZmQQVbvOttLnKDLnaw=="],
 
     "postgres-array": ["postgres-array@2.0.0", "", {}, "sha512-VpZrUqU5A69eQyW2c5CA1jtLecCsN2U/bD6VilrFDWq5+5UIEVO7nazS3TEcHf1zuPYO/sqGvUvW62g86RXZuA=="],
 

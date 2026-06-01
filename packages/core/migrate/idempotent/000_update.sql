@@ -1,5 +1,5 @@
 -- generic trigger function to update updated_at timestamp
-create or replace function core.update_updated_at()
+create or replace function {{schema}}.update_updated_at()
 returns trigger
 as $func$
 begin
@@ -7,29 +7,29 @@ begin
   return new;
 end;
 $func$ language plpgsql volatile security definer
-set search_path to core, pg_temp;
+set search_path to {{schema}}, pg_temp;
 
 create or replace trigger space_before_update_trg
-before update on core.space
+before update on {{schema}}.space
 for each row
-execute function core.update_updated_at();
+execute function {{schema}}.update_updated_at();
 
 create or replace trigger principal_before_update_trg
-before update on core.principal
+before update on {{schema}}.principal
 for each row
-execute function core.update_updated_at();
+execute function {{schema}}.update_updated_at();
 
 create or replace trigger principal_space_before_update_trg
-before update on core.principal_space
+before update on {{schema}}.principal_space
 for each row
-execute function core.update_updated_at();
+execute function {{schema}}.update_updated_at();
 
 create or replace trigger group_member_before_update_trg
-before update on core.group_member
+before update on {{schema}}.group_member
 for each row
-execute function core.update_updated_at();
+execute function {{schema}}.update_updated_at();
 
 create or replace trigger tree_access_before_update_trg
-before update on core.tree_access
+before update on {{schema}}.tree_access
 for each row
-execute function core.update_updated_at();
+execute function {{schema}}.update_updated_at();

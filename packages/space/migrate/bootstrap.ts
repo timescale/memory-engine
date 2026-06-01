@@ -1,5 +1,6 @@
 import { info, reportError, span } from "@pydantic/logfire-node";
-import { type SQL, semver } from "bun";
+import { semver } from "bun";
+import type { ISql, Sql as SQL } from "postgres";
 
 const REQUIRED_EXTENSIONS = [
   { name: "citext", minVersion: "1.6" },
@@ -77,13 +78,13 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function acquireAdvisoryLock(tx: SQL): Promise<void> {
+async function acquireAdvisoryLock(tx: ISql<{}>): Promise<void> {
   let acquired = false;
   for (let attempt = 0; attempt < MAX_LOCK_RETRIES; attempt++) {
     const [result] = await tx`
       select pg_try_advisory_xact_lock(${BOOTSTRAP_LOCK_ID}) as acquired
     `;
-    if (result.acquired) {
+    if (result?.acquired) {
       acquired = true;
       break;
     }
@@ -97,19 +98,20 @@ async function acquireAdvisoryLock(tx: SQL): Promise<void> {
   }
 }
 
-async function ensurePostgresVersion(tx: SQL): Promise<void> {
-  const [{ server_version_num }] = await tx`
+async function ensurePostgresVersion(tx: ISql<{}>): Promise<void> {
+  const [row] = await tx`
     select current_setting('server_version_num')::int as server_version_num
   `;
-  if (server_version_num < 180000) {
+  const serverVersionNum = Number(row?.server_version_num);
+  if (serverVersionNum < 180000) {
     throw new Error(
-      `PostgreSQL version 18 or higher is required (found ${server_version_num})`,
+      `PostgreSQL version 18 or higher is required (found ${serverVersionNum})`,
     );
   }
 }
 
 async function ensureExtension(
-  tx: SQL,
+  tx: ISql<{}>,
   name: string,
   minVersion: string,
 ): Promise<void> {

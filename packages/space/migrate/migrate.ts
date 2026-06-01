@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { info, reportError, span } from "@pydantic/logfire-node";
-import { SQL, semver } from "bun";
+import { semver } from "bun";
+import type { ISql, Sql as SQL } from "postgres";
 import { isValidSlug, slugToSchema } from "../slug";
 import { SPACE_SCHEMA_VERSION } from "../version";
 import incremental001 from "./incremental/001_memory.sql" with { type: "text" };
@@ -220,7 +221,7 @@ function sleep(ms: number): Promise<void> {
 }
 
 async function acquireAdvisoryLock(
-  tx: SQL,
+  tx: ISql<{}>,
   key1: number,
   key2: number,
 ): Promise<boolean> {
@@ -229,7 +230,7 @@ async function acquireAdvisoryLock(
     const [result] = await tx`
       select pg_try_advisory_xact_lock(${key1}, ${key2}) as acquired
     `;
-    if (result.acquired) {
+    if (result?.acquired) {
       acquired = true;
       break;
     }
@@ -240,8 +241,8 @@ async function acquireAdvisoryLock(
   return acquired;
 }
 
-async function doesSpaceExist(tx: SQL, schema: string): Promise<boolean> {
-  const [{ spaceExists }] = await tx`
+async function doesSpaceExist(tx: ISql<{}>, schema: string): Promise<boolean> {
+  const [row] = await tx`
     select exists
     (
       select 1
@@ -249,11 +250,11 @@ async function doesSpaceExist(tx: SQL, schema: string): Promise<boolean> {
       where n.nspname = ${schema}
     ) as "spaceExists"
     `;
-  return spaceExists;
+  return Boolean(row?.spaceExists);
 }
 
 async function provisionSpace(
-  tx: SQL,
+  tx: ISql<{}>,
   schema: string,
   options: NormalizedMigrateSpaceOptions,
 ): Promise<void> {
@@ -268,7 +269,7 @@ async function provisionSpace(
 }
 
 async function runMigrations(
-  tx: SQL,
+  tx: ISql<{}>,
   schema: string,
   options: NormalizedMigrateSpaceOptions,
 ): Promise<void> {
@@ -276,9 +277,10 @@ async function runMigrations(
   await assertSchemaOwnership(tx, schema);
 
   // check version
-  const [{ version: dbVersion }] = await tx`
+  const [versionRow] = await tx`
     select version from ${tx(schema)}.version
   `;
+  const dbVersion: string = versionRow?.version;
   const cmp = semver.order(options.schemaVersion, dbVersion);
   // abort if target is older than the database
   if (cmp < 0) {
@@ -305,7 +307,7 @@ async function runMigrations(
   );
 
   for (const migration of sorted1) {
-    const [{ existing }] = await tx`
+    const [existingRow] = await tx`
       select exists
       (
         select 1
@@ -314,7 +316,7 @@ async function runMigrations(
       ) as existing
       `;
 
-    if (existing) {
+    if (existingRow?.existing) {
       continue;
     }
 
@@ -387,7 +389,7 @@ async function runMigrations(
 }
 
 async function executeSqlFile(
-  tx: SQL,
+  tx: ISql<{}>,
   options: NormalizedMigrateSpaceOptions,
   schema: string,
   type: string,
@@ -431,8 +433,8 @@ function logSqlExecutionError(
 }
 
 function logPostgresSqlLocation(sqlText: string, error: unknown): void {
-  if (!(error instanceof SQL.PostgresError)) return;
-  const position = Number(error.position);
+  // postgres-js sets `position` (1-based) on server errors; non-PG errors won't.
+  const position = Number((error as { position?: unknown })?.position);
   if (!Number.isSafeInteger(position) || position < 1) return;
 
   const location = sqlLocation(sqlText, position);
@@ -479,7 +481,10 @@ function sqlContext(sqlText: string, line: number, column: number): string {
   return output.join("\n");
 }
 
-async function assertSchemaOwnership(tx: SQL, schema: string): Promise<void> {
+async function assertSchemaOwnership(
+  tx: ISql<{}>,
+  schema: string,
+): Promise<void> {
   const [result] = await tx`
     select
       n.nspowner = (select pg_catalog.to_regrole(current_user)::oid) as is_owner
