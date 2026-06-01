@@ -1,6 +1,5 @@
 import type { Sql as SQL } from "postgres";
 import postgres from "postgres";
-import { slugToSchema } from "../slug";
 import { type MigrateSpaceOptions, migrateSpace } from "./migrate";
 
 // ---------------------------------------------------------------------------
@@ -26,6 +25,20 @@ export function connect(max = 10): SQL {
   // onnotice silences the routine "… already exists, skipping" NOTICEs that the
   // idempotent migrations emit (postgres-js prints them to the console by default).
   return postgres(resolveTestDatabaseUrl(), { max, onnotice: () => {} });
+}
+
+/**
+ * Test spaces provision under a `metest_<slug>` schema instead of the production
+ * `me_<slug>`, so leftover test schemas are distinguishable from real spaces by
+ * name alone: scripts/clean-test-schemas.ts sweeps `metest_*` (and
+ * `core_test_*`) and can never touch a production `me_*` space. `metest_`
+ * deliberately does not start with the `me_` engine-schema prefix.
+ */
+const TEST_SCHEMA_PREFIX = "metest_";
+
+/** The throwaway schema name a test space provisions under (`metest_<slug>`). */
+export function testSchema(slug: string): string {
+  return `${TEST_SCHEMA_PREFIX}${slug}`;
 }
 
 const SLUG_ALPHABET = "abcdefghijklmnopqrstuvwxyz0123456789";
@@ -55,15 +68,19 @@ export class TestSpace {
   private constructor(sql: SQL, slug: string) {
     this.sql = sql;
     this.slug = slug;
-    this.schema = slugToSchema(slug);
+    this.schema = testSchema(slug);
   }
 
   static async create(
     sql: SQL,
-    options: Omit<MigrateSpaceOptions, "slug"> & { slug?: string } = {},
+    options: Omit<MigrateSpaceOptions, "slug" | "schema"> & {
+      slug?: string;
+    } = {},
   ): Promise<TestSpace> {
     const slug = options.slug ?? randomSlug();
-    await migrateSpace(sql, { ...options, slug });
+    // Provision under metest_<slug> so leftovers are name-distinguishable from
+    // production me_<slug> spaces (see clean-test-schemas.ts).
+    await migrateSpace(sql, { ...options, slug, schema: testSchema(slug) });
     return new TestSpace(sql, slug);
   }
 

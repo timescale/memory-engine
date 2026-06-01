@@ -94,10 +94,20 @@ TEST_DATABASE_URL="$(ghost connect testing_me)" \
 ```
 
 Isolation is **schema-level** (ghost forbids `create database`): each test
-provisions its own schema — `core_test_<rand>` for core, `me_<slug>` for
+provisions its own schema — `core_test_<rand>` for core, `metest_<slug>` for
 spaces — so the suites are fully concurrent and parallel-safe across files.
-The core migrations are templated so production uses `core` while tests target
-throwaway schemas and never touch a real control plane.
+Both core and space migrations are templated, so production uses `core` /
+`me_<slug>` while tests target throwaway schemas and never touch real data.
+Test spaces deliberately use the `metest_` prefix (not the production `me_`)
+via `migrateSpace`'s `schema` override, so leftovers are distinguishable from
+real spaces by name alone.
+
+`test:db` first runs `test:db:clean` (`scripts/clean-test-schemas.ts`) to
+reclaim orphaned `core_test_*` / `metest_*` schemas left by hard-interrupted
+runs. It is age-gated (only drops schemas older than 60 min, so a concurrent
+`test:db` sharing the database is safe) and a no-op against a production
+database — neither pattern can match a real schema. Use `test:db:clean:all`
+for a deliberate full reset when nothing else is using the database.
 
 ## Style Guides
 

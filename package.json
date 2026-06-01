@@ -31,7 +31,9 @@
     "server": "./bun run packages/server/index.ts",
     "setup": "./bun scripts/setup.ts",
     "test": "./bun test packages",
-    "test:db": "find packages/core packages/space -name '*.integration.test.ts' -print0 | xargs -0 -P 4 -n 1 ./bun test --timeout 30000",
+    "test:db": "./bun run test:db:clean && find packages/core packages/space -name '*.integration.test.ts' -print0 | xargs -0 -P 4 -n 1 ./bun test --timeout 30000",
+    "test:db:clean": "./bun scripts/clean-test-schemas.ts",
+    "test:db:clean:all": "./bun scripts/clean-test-schemas.ts --all",
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {

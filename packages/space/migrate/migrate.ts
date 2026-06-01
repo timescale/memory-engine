@@ -53,6 +53,14 @@ const idempotents: Idempotent[] = [
 
 export interface MigrateSpaceOptions {
   slug: string;
+  /**
+   * Override the target schema name. Defaults to `slugToSchema(slug)` (the
+   * production `me_<slug>`). Provided for tests, which provision under a
+   * `metest_<slug>` prefix so leftovers are trivially distinguishable from real
+   * spaces (see scripts/clean-test-schemas.ts). Must be a valid lowercase SQL
+   * identifier; the slug is still validated and used for locking/telemetry.
+   */
+  schema?: string;
   logSqlFiles?: boolean;
   shardId?: number;
   embeddingDimensions?: number;
@@ -69,6 +77,7 @@ export interface MigrateSpaceOptions {
 
 interface NormalizedMigrateSpaceOptions {
   slug: string;
+  schema?: string;
   logSqlFiles: boolean;
   schemaVersion: string;
   shardId?: number;
@@ -100,10 +109,15 @@ export async function migrateSpace(
             `Invalid space slug: "${opts.slug}" — must be 12 lowercase alphanumeric characters`,
           );
         }
+        if (opts.schema !== undefined && !isValidSchemaName(opts.schema)) {
+          throw new Error(
+            `Invalid schema override: "${opts.schema}" — must be a valid lowercase SQL identifier (<= 63 chars)`,
+          );
+        }
         if (!semver.satisfies(opts.schemaVersion, "*")) {
           throw new Error(`Invalid schema version: "${opts.schemaVersion}"`);
         }
-        const schema = slugToSchema(opts.slug);
+        const schema = opts.schema ?? slugToSchema(opts.slug);
         const schemaAttributes = { ...attributes, "db.schema": schema };
         const [key1, key2] = advisoryLockKey(`memory-space:schema:${schema}`);
 
@@ -175,6 +189,7 @@ function normalizeMigrateSpaceOptions(
 ): NormalizedMigrateSpaceOptions {
   return {
     slug: options.slug,
+    schema: options.schema,
     logSqlFiles: options.logSqlFiles ?? false,
     schemaVersion: SPACE_SCHEMA_VERSION,
     shardId: options.shardId,
@@ -206,6 +221,10 @@ function templateVars(
     hnsw_m: options.hnswM,
     hnsw_ef_construction: options.hnswEfConstruction,
   };
+}
+
+function isValidSchemaName(schema: string): boolean {
+  return /^[a-z_][a-z0-9_]*$/.test(schema) && schema.length <= 63;
 }
 
 function advisoryLockKey(schema: string): [number, number] {

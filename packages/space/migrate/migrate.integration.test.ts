@@ -187,7 +187,7 @@ describe("migration behavior", () => {
   test("is idempotent: re-running is safe", async () => {
     await withTestSpace(sql, {}, async (space) => {
       const before = await appliedMigrations(sql, space.schema);
-      await migrateSpace(sql, { slug: space.slug });
+      await migrateSpace(sql, { slug: space.slug, schema: space.schema });
       expect(await appliedMigrations(sql, space.schema)).toEqual(before);
       expect(await getSchemaVersion(sql, space.schema)).toBe(
         SPACE_SCHEMA_VERSION,
@@ -198,9 +198,9 @@ describe("migration behavior", () => {
   test("rejects a downgrade (db version newer than app)", async () => {
     await withTestSpace(sql, {}, async (space) => {
       await sql.unsafe(`update ${space.schema}.version set version = '99.0.0'`);
-      await expect(migrateSpace(sql, { slug: space.slug })).rejects.toThrow(
-        /older than database version/,
-      );
+      await expect(
+        migrateSpace(sql, { slug: space.slug, schema: space.schema }),
+      ).rejects.toThrow(/older than database version/);
     });
   });
 
