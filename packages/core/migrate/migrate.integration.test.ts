@@ -59,6 +59,15 @@ const EXPECTED_FUNCTIONS = [
 
 const REQUIRED_EXTENSIONS = ["citext", "ltree", "vector", "pg_textsearch"];
 
+/** A valid space slug: 12 lowercase alphanumerics (see space.slug check). */
+function randomSlug(): string {
+  const alphabet = "abcdefghijklmnopqrstuvwxyz0123456789";
+  const bytes = crypto.getRandomValues(new Uint8Array(12));
+  let slug = "";
+  for (const b of bytes) slug += alphabet[b % 36];
+  return slug;
+}
+
 let sql: SQL;
 // One migrated core shared by all read-only shape/function assertions.
 let canonical: TestCore;
@@ -201,6 +210,71 @@ describe("access-control functions are callable", () => {
       `select ${s}.is_principal_space_admin('${dummy}', '${dummy}') as v`,
     );
     expect(b?.v).toBe(false);
+  });
+});
+
+describe("agent_tree_access clamps agent access to its owner", () => {
+  // Regression for the `max(x.access)` + `group by tree_path` at the end of
+  // agent_tree_access (idempotent/003_tree_access.sql). Setup:
+  //
+  //   agent grants: foo = owner(3),  foo.bar = read(1)   <- foo.bar is redundant,
+  //   owner grants: foo.bar = write(2)                      already covered by foo=3
+  //
+  // The inner UNION then emits foo.bar twice with different access levels:
+  //   * arm 1 keeps the agent's (foo.bar, read)  — the owner's foo.bar covers it
+  //   * arm 2 keeps the owner's (foo.bar, write) — the agent's foo covers it
+  // Without the trailing max/group-by, agent_tree_access would return foo.bar
+  // twice; the effective access is the highest surviving row, (foo.bar, write).
+  // `foo` itself never surfaces — the owner grants nothing at or above it.
+  test("collapses the two clamp directions into one row per path", async () => {
+    await withTestCore(sql, {}, async (core) => {
+      const s = core.schema;
+
+      const [space] = await sql.unsafe(
+        `insert into ${s}.space (slug, name) values ($1, $2) returning id`,
+        [randomSlug(), "clamp"],
+      );
+      const spaceId = space?.id as string;
+
+      const [owner] = await sql.unsafe(
+        `insert into ${s}.principal (kind, name) values ('u', 'owner') returning id`,
+      );
+      const ownerId = owner?.id as string;
+
+      const [agent] = await sql.unsafe(
+        `insert into ${s}.principal (kind, name, owner_id) values ('a', 'agent', $1) returning id`,
+        [ownerId],
+      );
+      const agentId = agent?.id as string;
+
+      // both principals must belong to the space for the access functions to see them
+      await sql.unsafe(
+        `insert into ${s}.principal_space (space_id, principal_id) values ($1, $2), ($1, $3)`,
+        [spaceId, ownerId, agentId],
+      );
+
+      await sql.unsafe(
+        `insert into ${s}.tree_access (space_id, principal_id, tree_path, access) values
+           ($1, $2, 'foo', 3),
+           ($1, $2, 'foo.bar', 1),
+           ($1, $3, 'foo.bar', 2)`,
+        [spaceId, agentId, ownerId],
+      );
+
+      const rows = await sql.unsafe(
+        `select tree_path::text as tree_path, access
+         from ${s}.agent_tree_access($1, $2)
+         order by tree_path`,
+        [agentId, spaceId],
+      );
+      const result = rows.map((r) => ({
+        tree_path: r.tree_path as string,
+        access: r.access as number,
+      }));
+
+      // One clamped row, access collapsed to the max of the two union arms.
+      expect(result).toEqual([{ tree_path: "foo.bar", access: 2 }]);
+    });
   });
 });
 

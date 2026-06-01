@@ -83,6 +83,16 @@ TEST_DATABASE_URL="$(ghost connect testing_me)" ./bun run test:db
 
 `testing_me` is the dedicated ghost database for these tests.
 
+To run a single integration file directly, pass `--timeout 30000` (as `test:db`
+does). bun's default 5s timeout isn't enough over a remote ghost connection —
+the migrating `beforeAll` provisions a full core/space and overruns it, which
+surfaces as a misleading "beforeEach/afterEach hook timed out":
+
+```bash
+TEST_DATABASE_URL="$(ghost connect testing_me)" \
+  ./bun test --timeout 30000 packages/core/migrate/migrate.integration.test.ts
+```
+
 Isolation is **schema-level** (ghost forbids `create database`): each test
 provisions its own schema — `core_test_<rand>` for core, `me_<slug>` for
 spaces — so the suites are fully concurrent and parallel-safe across files.
