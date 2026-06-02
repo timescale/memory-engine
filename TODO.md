@@ -15,20 +15,20 @@ later is cheap if distribution returns.
 - [ ] Keep `space/` free of `core/` imports (and vice versa) so the re-split escape
       hatch stays open — worth a Biome `noRestrictedImports` rule to enforce it.
 
-## Consolidate duplicated test-utils (now an internal module)
+## Consolidate duplicated test-utils
 
-`packages/database/core/migrate/test-utils.ts` and
-`packages/database/space/migrate/test-utils.ts` duplicate ~110 lines of generic,
-driver-level helpers: `resolveTestDatabaseUrl`, `connect`, `expectReject`, and schema
-introspection (`schemaExists`, `tableExists`, `listTables`, `listFunctions`,
-`listTriggers`, `appliedMigrations`, `getSchemaVersion`).
-
-- [ ] Move the generic helpers into one shared internal module (e.g.
-      `packages/database/migrate/test-utils.ts`) imported by both core/ and space/
-      tests. Keep package-specific provisioning where it is: `TestCore`/`TestSpace`,
-      `randomCoreSchema`/`randomSlug`, `columnType`, the index helpers.
-- [ ] `engine`/`accounts` carry their own `tableExists`/`schemaExists` copies too;
-      they're separate packages, so sharing with them still needs a dev-only package
+- [x] Done — the generic, driver-level helpers (`resolveTestDatabaseUrl`, `connect`,
+      `expectReject`, and schema introspection: `schemaExists`, `tableExists`,
+      `listTables`, `listFunctions`, `listTriggers`, `extensionInstalled`,
+      `columnType`, `listIndexes`, `getIndexDef`, `getIndexReloptions`,
+      `appliedMigrations`, `getSchemaVersion`) now live once in
+      `packages/database/migrate/test-utils.ts`. `core/migrate/test-utils.ts` and
+      `space/migrate/test-utils.ts` `export *` from it and add only their
+      provisioning (`TestCore`/`withTestCore`/`randomCoreSchema`;
+      `TestSpace`/`withTestSpace`/`randomSlug`/`testSchema`), so the test files are
+      unchanged. Verified: typecheck/lint clean, unit + ghost db suites pass.
+- [ ] `engine`/`accounts` still carry their own `tableExists`/`schemaExists` copies.
+      They're separate packages, so sharing with them needs a dev-only package
       (or fold them in during the postgres.js rollout).
 
 ## Consolidate the migration runner logic (now an internal module)
