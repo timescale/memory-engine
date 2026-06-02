@@ -1,22 +1,33 @@
-import { createHash } from "node:crypto";
 import { info, reportError, span } from "@pydantic/logfire-node";
 import { semver } from "bun";
-import type { ISql, Sql as SQL } from "postgres";
+import type { Sql as SQL } from "postgres";
+import {
+  acquireAdvisoryLock,
+  advisoryLockKey,
+  applySessionTimeouts,
+  doesSchemaExist,
+  executeSqlFile,
+  isValidSchemaName,
+  type Migration,
+  runSchemaMigrations,
+  template,
+} from "../../migrate/kit";
 import { isValidSlug, slugToSchema } from "../slug";
 import { SPACE_SCHEMA_VERSION } from "../version";
+import idempotent001 from "./idempotent/001_memory.sql" with { type: "text" };
+import idempotent002 from "./idempotent/002_search.sql" with { type: "text" };
+import idempotent003 from "./idempotent/003_embedding_queue.sql" with {
+  type: "text",
+};
 import incremental001 from "./incremental/001_memory.sql" with { type: "text" };
 import incremental002 from "./incremental/002_embedding_queue.sql" with {
   type: "text",
 };
 import provisionSql from "./provision.sql" with { type: "text" };
 
-interface Incremental {
-  name: string;
-  file: string;
-  sql: string;
-}
+const DIR = "packages/database/space/migrate";
 
-const incrementals: Incremental[] = [
+const incrementals: Migration[] = [
   {
     name: "001_memory",
     file: "incremental/001_memory.sql",
@@ -29,19 +40,7 @@ const incrementals: Incremental[] = [
   },
 ];
 
-import idempotent001 from "./idempotent/001_memory.sql" with { type: "text" };
-import idempotent002 from "./idempotent/002_search.sql" with { type: "text" };
-import idempotent003 from "./idempotent/003_embedding_queue.sql" with {
-  type: "text",
-};
-
-interface Idempotent {
-  name: string;
-  file: string;
-  sql: string;
-}
-
-const idempotents: Idempotent[] = [
+const idempotents: Migration[] = [
   { name: "001_memory", file: "idempotent/001_memory.sql", sql: idempotent001 },
   { name: "002_search", file: "idempotent/002_search.sql", sql: idempotent002 },
   {
@@ -130,10 +129,7 @@ export async function migrateSpace(
             }
             await tx.unsafe(`set local pgdog.shard to ${String(opts.shardId)}`);
           }
-          await tx`select set_config('statement_timeout', ${opts.statementTimeout}, true)`;
-          await tx`select set_config('lock_timeout', ${opts.lockTimeout}, true)`;
-          await tx`select set_config('transaction_timeout', ${opts.transactionTimeout}, true)`;
-          await tx`select set_config('idle_in_transaction_session_timeout', ${opts.idleInTransactionSessionTimeout}, true)`;
+          await applySessionTimeouts(tx, opts);
           const acquired = await span("space.migrate.acquire_lock", {
             attributes: schemaAttributes,
             callback: () => acquireAdvisoryLock(tx, key1, key2),
@@ -144,20 +140,38 @@ export async function migrateSpace(
             );
           }
 
-          if (!(await doesSpaceExist(tx, schema))) {
+          if (!(await doesSchemaExist(tx, schema))) {
             await span("space.migrate.provision", {
               attributes: {
                 ...schemaAttributes,
                 "space.migration_file": "provision.sql",
                 "space.migration_type": "provision",
               },
-              callback: () => provisionSpace(tx, schema, opts),
+              callback: () =>
+                executeSqlFile(tx, template(provisionSql, { schema }), {
+                  logSqlFiles: opts.logSqlFiles,
+                  label: "space",
+                  schema,
+                  type: "provision",
+                  dir: DIR,
+                  file: "provision.sql",
+                }),
             });
             info("Space schema provisioned", schemaAttributes);
           }
           await span("space.migrate.run", {
             attributes: schemaAttributes,
-            callback: () => runMigrations(tx, schema, opts),
+            callback: () =>
+              runSchemaMigrations(tx, {
+                schema,
+                schemaVersion: opts.schemaVersion,
+                incrementals,
+                idempotents,
+                templateVars: templateVars(schema, opts),
+                label: "space",
+                dir: DIR,
+                logSqlFiles: opts.logSqlFiles,
+              }),
           });
         });
         info("Space migrations completed", schemaAttributes);
@@ -221,305 +235,4 @@ function templateVars(
     hnsw_m: options.hnswM,
     hnsw_ef_construction: options.hnswEfConstruction,
   };
-}
-
-function isValidSchemaName(schema: string): boolean {
-  return /^[a-z_][a-z0-9_]*$/.test(schema) && schema.length <= 63;
-}
-
-function advisoryLockKey(schema: string): [number, number] {
-  const digest = createHash("sha256").update(schema).digest();
-  return [digest.readInt32BE(0), digest.readInt32BE(4)];
-}
-
-const MAX_LOCK_RETRIES = 5;
-const BASE_DELAY_MS = 100;
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-async function acquireAdvisoryLock(
-  tx: ISql,
-  key1: number,
-  key2: number,
-): Promise<boolean> {
-  let acquired = false;
-  for (let attempt = 0; attempt < MAX_LOCK_RETRIES; attempt++) {
-    const [result] = await tx`
-      select pg_try_advisory_xact_lock(${key1}, ${key2}) as acquired
-    `;
-    if (result?.acquired) {
-      acquired = true;
-      break;
-    }
-    if (attempt < MAX_LOCK_RETRIES - 1) {
-      await sleep(BASE_DELAY_MS * 2 ** attempt);
-    }
-  }
-  return acquired;
-}
-
-async function doesSpaceExist(tx: ISql, schema: string): Promise<boolean> {
-  const [row] = await tx`
-    select exists
-    (
-      select 1
-      from pg_namespace n
-      where n.nspname = ${schema}
-    ) as "spaceExists"
-    `;
-  return Boolean(row?.spaceExists);
-}
-
-async function provisionSpace(
-  tx: ISql,
-  schema: string,
-  options: NormalizedMigrateSpaceOptions,
-): Promise<void> {
-  await executeSqlFile(
-    tx,
-    options,
-    schema,
-    "provision",
-    "provision.sql",
-    template(provisionSql, { schema }),
-  );
-}
-
-async function runMigrations(
-  tx: ISql,
-  schema: string,
-  options: NormalizedMigrateSpaceOptions,
-): Promise<void> {
-  // check ownership
-  await assertSchemaOwnership(tx, schema);
-
-  // check version
-  const [versionRow] = await tx`
-    select version from ${tx(schema)}.version
-  `;
-  const dbVersion: string = versionRow?.version;
-  const cmp = semver.order(options.schemaVersion, dbVersion);
-  // abort if target is older than the database
-  if (cmp < 0) {
-    throw new Error(
-      `Application version (${options.schemaVersion}) is older than database version (${dbVersion}). ` +
-        "Please upgrade the application.",
-    );
-  }
-  /* run migrations regardless
-  if (cmp === 0) {
-    // version matches. no need to run migrations
-    info("Space migration skipped, version current", {
-      "db.schema": schema,
-      "space.version": dbVersion,
-      "space.schema_version": options.schemaVersion,
-    });
-    return;
-  }
-  */
-
-  // run incremental migrations
-  const sorted1 = [...incrementals].sort((a, b) =>
-    a.name.localeCompare(b.name),
-  );
-
-  for (const migration of sorted1) {
-    const [existingRow] = await tx`
-      select exists
-      (
-        select 1
-        from ${tx(schema)}.migration
-        where name = ${migration.name}
-      ) as existing
-      `;
-
-    if (existingRow?.existing) {
-      continue;
-    }
-
-    await span("space.migrate.incremental", {
-      attributes: {
-        "db.schema": schema,
-        "space.migration": migration.name,
-        "space.migration_file": migration.file,
-        "space.migration_type": "incremental",
-        "space.schema_version": options.schemaVersion,
-      },
-      callback: async () => {
-        const renderedSql = template(
-          migration.sql,
-          templateVars(schema, options),
-        );
-        await executeSqlFile(
-          tx,
-          options,
-          schema,
-          "incremental",
-          migration.file,
-          renderedSql,
-        );
-        await tx`
-          insert into ${tx(schema)}.migration (name, applied_at_version)
-          values (${migration.name}, ${options.schemaVersion})`;
-      },
-    });
-    info("Space migration applied", {
-      "db.schema": schema,
-      "space.migration": migration.name,
-      "space.migration_file": migration.file,
-      "space.migration_type": "incremental",
-      "space.schema_version": options.schemaVersion,
-    });
-  }
-
-  // run idempotent migrations
-  const sorted2 = [...idempotents].sort((a, b) => a.name.localeCompare(b.name));
-
-  for (const migration of sorted2) {
-    await span("space.migrate.idempotent", {
-      attributes: {
-        "db.schema": schema,
-        "space.migration": migration.name,
-        "space.migration_file": migration.file,
-        "space.migration_type": "idempotent",
-        "space.schema_version": options.schemaVersion,
-      },
-      callback: async () => {
-        const renderedSql = template(
-          migration.sql,
-          templateVars(schema, options),
-        );
-        await executeSqlFile(
-          tx,
-          options,
-          schema,
-          "idempotent",
-          migration.file,
-          renderedSql,
-        );
-      },
-    });
-  }
-
-  // update version
-  await tx`update ${tx(schema)}.version set version = ${options.schemaVersion}, at = now()`;
-}
-
-async function executeSqlFile(
-  tx: ISql,
-  options: NormalizedMigrateSpaceOptions,
-  schema: string,
-  type: string,
-  file: string,
-  sqlText: string,
-): Promise<void> {
-  logSqlFile(options, schema, type, file);
-  try {
-    await tx.unsafe(sqlText);
-  } catch (error) {
-    logSqlExecutionError(options, schema, type, file, sqlText, error);
-    throw error;
-  }
-}
-
-function logSqlFile(
-  options: NormalizedMigrateSpaceOptions,
-  schema: string,
-  type: string,
-  file: string,
-): void {
-  if (!options.logSqlFiles) return;
-  console.error(
-    `[migrate:db] space ${schema} ${type} packages/space/migrate/${file}`,
-  );
-}
-
-function logSqlExecutionError(
-  options: NormalizedMigrateSpaceOptions,
-  schema: string,
-  type: string,
-  file: string,
-  sqlText: string,
-  error: unknown,
-): void {
-  if (!options.logSqlFiles) return;
-  console.error(
-    `[migrate:db] failed space ${schema} ${type} packages/space/migrate/${file}`,
-  );
-  logPostgresSqlLocation(sqlText, error);
-}
-
-function logPostgresSqlLocation(sqlText: string, error: unknown): void {
-  // postgres-js sets `position` (1-based) on server errors; non-PG errors won't.
-  const position = Number((error as { position?: unknown })?.position);
-  if (!Number.isSafeInteger(position) || position < 1) return;
-
-  const location = sqlLocation(sqlText, position);
-  if (!location) return;
-  console.error(
-    `[migrate:db] sql position ${position} -> line ${location.line}, column ${location.column}`,
-  );
-  console.error(sqlContext(sqlText, location.line, location.column));
-}
-
-function sqlLocation(
-  sqlText: string,
-  position: number,
-): { line: number; column: number } | undefined {
-  if (position > sqlText.length + 1) return undefined;
-  let line = 1;
-  let column = 1;
-  for (let i = 0; i < position - 1; i++) {
-    if (sqlText.charCodeAt(i) === 10) {
-      line++;
-      column = 1;
-    } else {
-      column++;
-    }
-  }
-  return { line, column };
-}
-
-function sqlContext(sqlText: string, line: number, column: number): string {
-  const lines = sqlText.split("\n");
-  const start = Math.max(1, line - 2);
-  const end = Math.min(lines.length, line + 2);
-  const width = String(end).length;
-  const output = ["[migrate:db] sql context:"];
-
-  for (let n = start; n <= end; n++) {
-    const marker = n === line ? ">" : " ";
-    output.push(`${marker} ${String(n).padStart(width)} | ${lines[n - 1]}`);
-    if (n === line) {
-      output.push(`  ${" ".repeat(width)} | ${" ".repeat(column - 1)}^`);
-    }
-  }
-
-  return output.join("\n");
-}
-
-async function assertSchemaOwnership(tx: ISql, schema: string): Promise<void> {
-  const [result] = await tx`
-    select
-      n.nspowner = (select pg_catalog.to_regrole(current_user)::oid) as is_owner
-    from pg_catalog.pg_namespace n
-    where n.nspname = ${schema}
-  `;
-
-  if (!result?.is_owner) {
-    throw new Error(
-      `Only the owner of the ${schema} schema can run database migrations`,
-    );
-  }
-}
-
-function template(sql: string, vars: Record<string, unknown>): string {
-  return sql.replace(/\{\{(\w+)\}\}/g, (_, key) => {
-    if (!(key in vars)) {
-      throw new Error(`Missing template variable: ${key}`);
-    }
-    return String(vars[key]);
-  });
 }

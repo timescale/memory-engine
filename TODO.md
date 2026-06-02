@@ -31,21 +31,19 @@ later is cheap if distribution returns.
       They're separate packages, so sharing with them needs a dev-only package
       (or fold them in during the postgres.js rollout).
 
-## Consolidate the migration runner logic (now an internal module)
+## Consolidate the migration runner logic
 
-`packages/database/core/migrate/migrate.ts`, `.../space/migrate/migrate.ts`, and
-`.../space/migrate/bootstrap.ts` duplicate most of the migration machinery:
-
-- advisory locking (`advisoryLockKey`, `acquireAdvisoryLock`, retry/backoff)
-- SQL-file execution with error-location logging (`executeSqlFile`,
-  `logPostgresSqlLocation`, `sqlLocation`, `sqlContext`)
-- extension / Postgres-version preconditions (`ensureExtension`,
-  `ensurePostgresVersion`, `REQUIRED_EXTENSIONS`)
-- `{{template}}` rendering
-- the incremental-once / idempotent-always runner, with version + migration tracking
-- telemetry span wrapping
-
-- [ ] Extract into a shared internal module (e.g. `packages/database/migrate/_kit.ts`)
-      parameterized by schema name, the ordered incremental/idempotent SQL lists, and
-      template vars. `migrateCore` / `migrateSpace` / `bootstrapSpaceDatabase` become
-      thin callers, leaving each `migrate.ts` with only its schema-specific bits.
+- [x] Done — the shared machinery lives in `packages/database/migrate/kit.ts`:
+      advisory locking (`advisoryLockKey`, `acquireAdvisoryLock`), session timeouts
+      (`applySessionTimeouts`), extension / Postgres-version preconditions
+      (`ensurePostgresVersion`, `ensureExtension`, `ensureRequiredExtensions`,
+      `REQUIRED_EXTENSIONS`), schema checks (`doesSchemaExist`,
+      `assertSchemaOwnership`, `isValidSchemaName`), `{{…}}` `template` rendering,
+      SQL-file execution with error-location logging (`executeSqlFile`), and the
+      incremental-once / idempotent-always `runSchemaMigrations` runner — all
+      parameterized by a `label` (drives span/attribute/log names) + `dir`.
+      `migrateCore` / `migrateSpace` / `bootstrapSpaceDatabase` are now thin
+      orchestrators holding only their schema-specific bits (options, SQL lists,
+      slug/shard handling, template vars). Verified: typecheck/lint clean,
+      unit + ghost db suites pass. (bootstrap's lock moved from a hardcoded
+      single-key id to the shared two-key derived lock.)

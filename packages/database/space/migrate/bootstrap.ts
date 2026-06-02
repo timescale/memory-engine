@@ -1,13 +1,13 @@
 import { info, reportError, span } from "@pydantic/logfire-node";
-import { semver } from "bun";
-import type { ISql, Sql as SQL } from "postgres";
-
-const REQUIRED_EXTENSIONS = [
-  { name: "citext", minVersion: "1.6" },
-  { name: "ltree", minVersion: "1.3" },
-  { name: "vector", minVersion: "0.8.2" },
-  { name: "pg_textsearch", minVersion: "1.1.0" },
-] as const;
+import type { Sql as SQL } from "postgres";
+import {
+  acquireAdvisoryLock,
+  advisoryLockKey,
+  applySessionTimeouts,
+  ensurePostgresVersion,
+  ensureRequiredExtensions,
+  REQUIRED_EXTENSIONS,
+} from "../../migrate/kit";
 
 /**
  * Prepare a physical database to host space schemas.
@@ -38,28 +38,25 @@ export async function bootstrapSpaceDatabase(
     attributes,
     callback: async () => {
       try {
+        const [key1, key2] = advisoryLockKey("memory-space:bootstrap");
         await sql.begin(async (tx) => {
           if (shardId !== undefined) {
             await tx.unsafe(`set local pgdog.shard to ${String(shardId)}`);
           }
           await ensurePostgresVersion(tx);
-          await span("space.bootstrap.acquire_lock", {
-            callback: () => acquireAdvisoryLock(tx),
+          const acquired = await span("space.bootstrap.acquire_lock", {
+            callback: () => acquireAdvisoryLock(tx, key1, key2),
           });
-          await tx`select set_config('statement_timeout', ${statementTimeout}, true)`;
-          await tx`select set_config('lock_timeout', ${lockTimeout}, true)`;
-          await tx`select set_config('transaction_timeout', ${transactionTimeout}, true)`;
-          await tx`select set_config('idle_in_transaction_session_timeout', ${idleInTransactionSessionTimeout}, true)`;
-          for (const extension of REQUIRED_EXTENSIONS) {
-            await span("space.bootstrap.ensure_extension", {
-              attributes: {
-                "db.extension": extension.name,
-                "db.extension_min_version": extension.minVersion,
-              },
-              callback: () =>
-                ensureExtension(tx, extension.name, extension.minVersion),
-            });
+          if (!acquired) {
+            throw new Error("Failed to acquire advisory lock");
           }
+          await applySessionTimeouts(tx, {
+            statementTimeout,
+            lockTimeout,
+            transactionTimeout,
+            idleInTransactionSessionTimeout,
+          });
+          await ensureRequiredExtensions(tx, "space.bootstrap");
         });
         info("Space bootstrap completed", attributes);
       } catch (error) {
@@ -68,86 +65,4 @@ export async function bootstrapSpaceDatabase(
       }
     },
   });
-}
-
-const MAX_LOCK_RETRIES = 5;
-const BASE_DELAY_MS = 100;
-const BOOTSTRAP_LOCK_ID = 1982010637711;
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-async function acquireAdvisoryLock(tx: ISql): Promise<void> {
-  let acquired = false;
-  for (let attempt = 0; attempt < MAX_LOCK_RETRIES; attempt++) {
-    const [result] = await tx`
-      select pg_try_advisory_xact_lock(${BOOTSTRAP_LOCK_ID}) as acquired
-    `;
-    if (result?.acquired) {
-      acquired = true;
-      break;
-    }
-    if (attempt < MAX_LOCK_RETRIES - 1) {
-      await sleep(BASE_DELAY_MS * 2 ** attempt);
-    }
-  }
-
-  if (!acquired) {
-    throw new Error(`Failed to acquire advisory lock`);
-  }
-}
-
-async function ensurePostgresVersion(tx: ISql): Promise<void> {
-  const [row] = await tx`
-    select current_setting('server_version_num')::int as server_version_num
-  `;
-  const serverVersionNum = Number(row?.server_version_num);
-  if (serverVersionNum < 180000) {
-    throw new Error(
-      `PostgreSQL version 18 or higher is required (found ${serverVersionNum})`,
-    );
-  }
-}
-
-async function ensureExtension(
-  tx: ISql,
-  name: string,
-  minVersion: string,
-): Promise<void> {
-  const [installed] = await tx`
-    select x.extversion, n.nspname
-    from pg_extension x
-    inner join pg_namespace n on (x.extnamespace = n.oid)
-    where x.extname = ${name}
-  `;
-
-  if (installed) {
-    if (
-      installed.nspname === "public" &&
-      semver.order(installed.extversion, minVersion) >= 0
-    ) {
-      return;
-    }
-    throw new Error(
-      `Extension "${name}" version ${minVersion} or higher is required in the "public" schema (found ${installed.extversion} installed in "${installed.nspname}")`,
-    );
-  }
-
-  const [available] = await tx`
-    select default_version
-    from pg_available_extensions
-    where name = ${name}
-  `;
-
-  if (!available || semver.order(available.default_version, minVersion) < 0) {
-    const found = available
-      ? `found ${available.default_version} available`
-      : "not available";
-    throw new Error(
-      `Extension "${name}" version ${minVersion} or higher is required (${found})`,
-    );
-  }
-
-  await tx`create extension if not exists ${tx(name)} with schema public`;
 }
