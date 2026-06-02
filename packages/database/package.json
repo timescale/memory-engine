@@ -1,5 +1,5 @@
 {
-  "name": "@memory.build/core",
+  "name": "@memory.build/database",
   "version": "0.2.5",
   "private": true,
   "type": "module",

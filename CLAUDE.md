@@ -90,7 +90,7 @@ surfaces as a misleading "beforeEach/afterEach hook timed out":
 
 ```bash
 TEST_DATABASE_URL="$(ghost connect testing_me)" \
-  ./bun test --timeout 30000 packages/core/migrate/migrate.integration.test.ts
+  ./bun test --timeout 30000 packages/database/core/migrate/migrate.integration.test.ts
 ```
 
 Isolation is **schema-level** (ghost forbids `create database`): each test
@@ -143,8 +143,8 @@ pool — e.g. the engine/accounts pools in `packages/server/index.ts` — can we
 server until restart. Both `postgres` (postgres.js) and `pg` fix it on the Bun runtime;
 we use **postgres.js** because `Bun.SQL`'s API was modeled on it, so it's a near-drop-in.
 
-**Done & verified (local + ghost):** the migrate path — `packages/core/migrate/*`,
-`packages/space/migrate/*` (incl. `test-utils.ts`), and `scripts/migrate-db.ts`.
+**Done & verified (local + ghost):** the migrate path — `packages/database/core/migrate/*`,
+`packages/database/space/migrate/*` (incl. `test-utils.ts`), and `scripts/migrate-db.ts`.
 
 **Remaining**, package by package, each behind its own integration tests:
 `packages/engine` (`db.ts`, `ops/*`, `migrate/*`), `packages/accounts` (`db.ts`, `ops/*`,

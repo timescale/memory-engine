@@ -1,11 +1,12 @@
 #!/usr/bin/env bun
-import { CORE_SCHEMA_VERSION, migrateCore } from "@memory.build/core";
 import {
   bootstrapSpaceDatabase,
+  CORE_SCHEMA_VERSION,
+  migrateCore,
   migrateSpace,
   SPACE_SCHEMA_VERSION,
   slugToSchema,
-} from "@memory.build/space";
+} from "@memory.build/database";
 import postgres from "postgres";
 
 const DEFAULT_DATABASE_URL = "postgresql://postgres@127.0.0.1:5432/postgres";

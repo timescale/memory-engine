@@ -3,9 +3,8 @@
   "private": true,
   "type": "module",
   "dependencies": {
-    "@memory.build/core": "workspace:*",
+    "@memory.build/database": "workspace:*",
     "@memory.build/embedding": "workspace:*",
-    "@memory.build/space": "workspace:*",
     "postgres": "^3.4.9",
     "yaml": "^2.7.0"
   }

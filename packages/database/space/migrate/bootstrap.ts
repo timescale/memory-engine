@@ -78,7 +78,7 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function acquireAdvisoryLock(tx: ISql<{}>): Promise<void> {
+async function acquireAdvisoryLock(tx: ISql): Promise<void> {
   let acquired = false;
   for (let attempt = 0; attempt < MAX_LOCK_RETRIES; attempt++) {
     const [result] = await tx`
@@ -98,7 +98,7 @@ async function acquireAdvisoryLock(tx: ISql<{}>): Promise<void> {
   }
 }
 
-async function ensurePostgresVersion(tx: ISql<{}>): Promise<void> {
+async function ensurePostgresVersion(tx: ISql): Promise<void> {
   const [row] = await tx`
     select current_setting('server_version_num')::int as server_version_num
   `;
@@ -111,7 +111,7 @@ async function ensurePostgresVersion(tx: ISql<{}>): Promise<void> {
 }
 
 async function ensureExtension(
-  tx: ISql<{}>,
+  tx: ISql,
   name: string,
   minVersion: string,
 ): Promise<void> {

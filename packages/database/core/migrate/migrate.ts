@@ -248,7 +248,7 @@ function sleep(ms: number): Promise<void> {
 }
 
 async function acquireAdvisoryLock(
-  tx: ISql<{}>,
+  tx: ISql,
   key1: number,
   key2: number,
 ): Promise<boolean> {
@@ -268,7 +268,7 @@ async function acquireAdvisoryLock(
   return acquired;
 }
 
-async function doesCoreExist(tx: ISql<{}>, schema: string): Promise<boolean> {
+async function doesCoreExist(tx: ISql, schema: string): Promise<boolean> {
   const [row] = await tx`
     select exists
     (
@@ -281,7 +281,7 @@ async function doesCoreExist(tx: ISql<{}>, schema: string): Promise<boolean> {
 }
 
 async function provisionCore(
-  tx: ISql<{}>,
+  tx: ISql,
   options: NormalizedMigrateCoreOptions,
 ): Promise<void> {
   await executeSqlFile(
@@ -293,7 +293,7 @@ async function provisionCore(
   );
 }
 
-async function ensurePostgresVersion(tx: ISql<{}>): Promise<void> {
+async function ensurePostgresVersion(tx: ISql): Promise<void> {
   const [row] = await tx`
     select current_setting('server_version_num')::int as server_version_num
   `;
@@ -306,7 +306,7 @@ async function ensurePostgresVersion(tx: ISql<{}>): Promise<void> {
 }
 
 async function ensureExtension(
-  tx: ISql<{}>,
+  tx: ISql,
   name: string,
   minVersion: string,
 ): Promise<void> {
@@ -348,7 +348,7 @@ async function ensureExtension(
 }
 
 async function runMigrations(
-  tx: ISql<{}>,
+  tx: ISql,
   options: NormalizedMigrateCoreOptions,
 ): Promise<void> {
   const schema = options.schema;
@@ -450,7 +450,7 @@ async function runMigrations(
 }
 
 async function executeSqlFile(
-  tx: ISql<{}>,
+  tx: ISql,
   options: NormalizedMigrateCoreOptions,
   type: string,
   file: string,
@@ -537,10 +537,7 @@ function sqlContext(sqlText: string, line: number, column: number): string {
   return output.join("\n");
 }
 
-async function assertSchemaOwnership(
-  tx: ISql<{}>,
-  schema: string,
-): Promise<void> {
+async function assertSchemaOwnership(tx: ISql, schema: string): Promise<void> {
   const [result] = await tx`
     select
       n.nspowner = (select pg_catalog.to_regrole(current_user)::oid) as is_owner

@@ -49,8 +49,8 @@
         "typescript",
       ],
     },
-    "packages/core": {
-      "name": "@memory.build/core",
+    "packages/database": {
+      "name": "@memory.build/database",
       "version": "0.2.5",
       "dependencies": {
         "@pydantic/logfire-node": "^0.13.1",
@@ -131,14 +131,6 @@
         "zod": "^4.0.0",
       },
     },
-    "packages/space": {
-      "name": "@memory.build/space",
-      "version": "0.2.5",
-      "dependencies": {
-        "@pydantic/logfire-node": "^0.13.1",
-        "postgres": "^3.4.9",
-      },
-    },
     "packages/web": {
       "name": "@memory.build/web",
       "version": "0.1.17",
@@ -179,9 +171,8 @@
     "scripts": {
       "name": "scripts",
       "dependencies": {
-        "@memory.build/core": "workspace:*",
+        "@memory.build/database": "workspace:*",
         "@memory.build/embedding": "workspace:*",
-        "@memory.build/space": "workspace:*",
         "postgres": "^3.4.9",
         "yaml": "^2.7.0",
       },
@@ -388,7 +379,7 @@
 
     "@memory.build/client": ["@memory.build/client@workspace:packages/client"],
 
-    "@memory.build/core": ["@memory.build/core@workspace:packages/core"],
+    "@memory.build/database": ["@memory.build/database@workspace:packages/database"],
 
     "@memory.build/docs-site": ["@memory.build/docs-site@workspace:packages/docs-site"],
 
@@ -397,8 +388,6 @@
     "@memory.build/engine": ["@memory.build/engine@workspace:packages/engine"],
 
     "@memory.build/protocol": ["@memory.build/protocol@workspace:packages/protocol"],
-
-    "@memory.build/space": ["@memory.build/space@workspace:packages/space"],
 
     "@memory.build/web": ["@memory.build/web@workspace:packages/web"],
 

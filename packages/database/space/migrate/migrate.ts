@@ -240,7 +240,7 @@ function sleep(ms: number): Promise<void> {
 }
 
 async function acquireAdvisoryLock(
-  tx: ISql<{}>,
+  tx: ISql,
   key1: number,
   key2: number,
 ): Promise<boolean> {
@@ -260,7 +260,7 @@ async function acquireAdvisoryLock(
   return acquired;
 }
 
-async function doesSpaceExist(tx: ISql<{}>, schema: string): Promise<boolean> {
+async function doesSpaceExist(tx: ISql, schema: string): Promise<boolean> {
   const [row] = await tx`
     select exists
     (
@@ -273,7 +273,7 @@ async function doesSpaceExist(tx: ISql<{}>, schema: string): Promise<boolean> {
 }
 
 async function provisionSpace(
-  tx: ISql<{}>,
+  tx: ISql,
   schema: string,
   options: NormalizedMigrateSpaceOptions,
 ): Promise<void> {
@@ -288,7 +288,7 @@ async function provisionSpace(
 }
 
 async function runMigrations(
-  tx: ISql<{}>,
+  tx: ISql,
   schema: string,
   options: NormalizedMigrateSpaceOptions,
 ): Promise<void> {
@@ -408,7 +408,7 @@ async function runMigrations(
 }
 
 async function executeSqlFile(
-  tx: ISql<{}>,
+  tx: ISql,
   options: NormalizedMigrateSpaceOptions,
   schema: string,
   type: string,
@@ -500,10 +500,7 @@ function sqlContext(sqlText: string, line: number, column: number): string {
   return output.join("\n");
 }
 
-async function assertSchemaOwnership(
-  tx: ISql<{}>,
-  schema: string,
-): Promise<void> {
+async function assertSchemaOwnership(tx: ISql, schema: string): Promise<void> {
   const [result] = await tx`
     select
       n.nspowner = (select pg_catalog.to_regrole(current_user)::oid) as is_owner
