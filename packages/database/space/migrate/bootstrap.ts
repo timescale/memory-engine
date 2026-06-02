@@ -21,10 +21,8 @@ export async function bootstrapSpaceDatabase(
   lockTimeout: string = "5s",
   transactionTimeout: string = "30s",
   idleInTransactionSessionTimeout: string = "30s",
-  shardId?: number,
 ): Promise<void> {
   const attributes = {
-    "db.shard": shardId,
     "db.statement_timeout": statementTimeout,
     "db.lock_timeout": lockTimeout,
     "db.transaction_timeout": transactionTimeout,
@@ -40,9 +38,6 @@ export async function bootstrapSpaceDatabase(
       try {
         const [key1, key2] = advisoryLockKey("memory-space:bootstrap");
         await sql.begin(async (tx) => {
-          if (shardId !== undefined) {
-            await tx.unsafe(`set local pgdog.shard to ${String(shardId)}`);
-          }
           await ensurePostgresVersion(tx);
           const acquired = await span("space.bootstrap.acquire_lock", {
             callback: () => acquireAdvisoryLock(tx, key1, key2),

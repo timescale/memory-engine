@@ -61,7 +61,6 @@ export interface MigrateSpaceOptions {
    */
   schema?: string;
   logSqlFiles?: boolean;
-  shardId?: number;
   embeddingDimensions?: number;
   bm25TextConfig?: string;
   bm25K1?: number;
@@ -79,7 +78,6 @@ interface NormalizedMigrateSpaceOptions {
   schema?: string;
   logSqlFiles: boolean;
   schemaVersion: string;
-  shardId?: number;
   embeddingDimensions: number;
   bm25TextConfig: string;
   bm25K1: number;
@@ -121,14 +119,6 @@ export async function migrateSpace(
         const [key1, key2] = advisoryLockKey(`memory-space:schema:${schema}`);
 
         await sql.begin(async (tx) => {
-          if (opts.shardId !== undefined) {
-            if (!Number.isSafeInteger(opts.shardId)) {
-              throw new Error(
-                `shardId must be a safe integer, got: ${opts.shardId}`,
-              );
-            }
-            await tx.unsafe(`set local pgdog.shard to ${String(opts.shardId)}`);
-          }
           await applySessionTimeouts(tx, opts);
           const acquired = await span("space.migrate.acquire_lock", {
             attributes: schemaAttributes,
@@ -189,7 +179,6 @@ function migrateAttributes(
   return {
     "space.slug": options.slug,
     "space.schema_version": options.schemaVersion,
-    "db.shard": options.shardId,
     "db.statement_timeout": options.statementTimeout,
     "db.lock_timeout": options.lockTimeout,
     "db.transaction_timeout": options.transactionTimeout,
@@ -206,7 +195,6 @@ function normalizeMigrateSpaceOptions(
     schema: options.schema,
     logSqlFiles: options.logSqlFiles ?? false,
     schemaVersion: SPACE_SCHEMA_VERSION,
-    shardId: options.shardId,
     embeddingDimensions: options.embeddingDimensions ?? 1536,
     bm25TextConfig: options.bm25TextConfig ?? "english",
     bm25K1: options.bm25K1 ?? 1.2,
