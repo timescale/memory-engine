@@ -1,19 +1,19 @@
-import type { SQL } from "bun";
+import type { Sql } from "postgres";
 import type { WorkerConfig, WorkerStats } from "./types";
 import { Worker } from "./worker";
 
 /**
  * Pool of N embedding workers using the provided SQL connection pool.
- * Each worker independently discovers engines, shuffles its target list,
+ * Each worker independently discovers spaces, shuffles its target list,
  * and polls queues. FOR UPDATE SKIP LOCKED prevents double-processing.
  */
 export class WorkerPool {
-  private readonly sql: SQL;
+  private readonly sql: Sql;
   private readonly config: WorkerConfig;
   private workers: Worker[] = [];
   private running = false;
 
-  constructor(sql: SQL, config: WorkerConfig) {
+  constructor(sql: Sql, config: WorkerConfig) {
     this.sql = sql;
     this.config = config;
   }
@@ -44,7 +44,7 @@ export class WorkerPool {
       totalProcessed: 0,
       totalFailed: 0,
       totalPruned: 0,
-      enginesDropped: 0,
+      spacesDropped: 0,
       consecutiveErrors: 0,
     };
     for (const worker of this.workers) {
@@ -53,7 +53,7 @@ export class WorkerPool {
       agg.totalProcessed += s.totalProcessed;
       agg.totalFailed += s.totalFailed;
       agg.totalPruned += s.totalPruned;
-      agg.enginesDropped += s.enginesDropped;
+      agg.spacesDropped += s.spacesDropped;
       agg.consecutiveErrors = Math.max(
         agg.consecutiveErrors,
         s.consecutiveErrors,

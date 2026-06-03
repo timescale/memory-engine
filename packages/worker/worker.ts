@@ -1,6 +1,6 @@
 import { RateLimitError } from "@memory.build/embedding";
 import { info, reportError, warning } from "@pydantic/logfire-node";
-import { SQL } from "bun";
+import type { Sql } from "postgres";
 import { processBatch, pruneQueue } from "./process";
 import type { WorkerConfig, WorkerStats } from "./types";
 
@@ -8,12 +8,12 @@ import type { WorkerConfig, WorkerStats } from "./types";
 const RATE_LIMIT_FLOOR_MS = 30_000;
 
 /**
- * SQLSTATE 3F000 = invalid_schema_name. Raised when the engine's schema
- * no longer exists — typically because the engine was deleted between
- * discover() refreshes. Treated as benign: drop the target and continue.
+ * SQLSTATE 3F000 = invalid_schema_name. Raised when the space's schema no
+ * longer exists — typically because the space was deleted between discover()
+ * refreshes. Treated as benign: drop the target and continue.
  */
 function isMissingSchemaError(error: unknown): boolean {
-  return error instanceof SQL.PostgresError && error.errno === "3F000";
+  return (error as { code?: string }).code === "3F000";
 }
 
 /**
@@ -51,14 +51,14 @@ function shuffle<T>(arr: T[]): T[] {
 }
 
 /**
- * Embedding worker. Discovers engines from the accounts DB and polls their
- * embedding queues in round-robin, generating embeddings for new memories.
+ * Embedding worker. Discovers spaces and polls their embedding queues in
+ * round-robin, generating embeddings for new memories.
  *
  * Adaptive delay: loops immediately when work is found, sleeps idleDelayMs
  * when idle. Exponential backoff on consecutive errors.
  */
 export class Worker {
-  private readonly sql: SQL;
+  private readonly sql: Sql;
   private readonly config: WorkerConfig;
   private abort: AbortController | null = null;
   private runPromise: Promise<void> | null = null;
@@ -67,11 +67,11 @@ export class Worker {
     totalProcessed: 0,
     totalFailed: 0,
     totalPruned: 0,
-    enginesDropped: 0,
+    spacesDropped: 0,
     consecutiveErrors: 0,
   };
 
-  constructor(sql: SQL, config: WorkerConfig) {
+  constructor(sql: Sql, config: WorkerConfig) {
     this.sql = sql;
     this.config = config;
   }
@@ -105,7 +105,7 @@ export class Worker {
 }
 
 async function run(
-  sql: SQL,
+  sql: Sql,
   config: WorkerConfig,
   signal: AbortSignal,
   stats: WorkerStats,
@@ -153,10 +153,9 @@ async function run(
             if (isMissingSchemaError(err)) {
               warning("Embedding target schema no longer exists, dropping", {
                 "worker.schema": target.schema,
-                "worker.shard": target.shard,
               });
               droppedSchemas.add(target.schema);
-              stats.enginesDropped++;
+              stats.spacesDropped++;
               continue;
             }
             throw err;
@@ -181,11 +180,10 @@ async function run(
                 // Schema dropped between claim and prune in the same cycle.
                 // Drop the target now to avoid re-trying it next cycle.
                 droppedSchemas.add(target.schema);
-                stats.enginesDropped++;
+                stats.spacesDropped++;
               } else {
                 warning("Embedding queue prune failed", {
                   "worker.schema": target.schema,
-                  "worker.shard": target.shard,
                   error:
                     pruneError instanceof Error
                       ? pruneError.message
@@ -229,7 +227,7 @@ async function run(
           warning("Rate limited by embedding provider, backing off", {
             backoffMs,
             retryAfterMs: error.retryAfterMs,
-            engineCount: targets.length,
+            spaceCount: targets.length,
           });
 
           if (signal.aborted) break;
@@ -243,7 +241,7 @@ async function run(
         stats.lastError = errorMsg;
         reportError("Worker batch processing failed", error as Error, {
           consecutiveErrors,
-          engineCount: targets.length,
+          spaceCount: targets.length,
         });
 
         if (signal.aborted) break;
@@ -258,7 +256,7 @@ async function run(
   } finally {
     info("Embedding worker stopped", {
       consecutiveErrors,
-      engineCount: targets.length,
+      spaceCount: targets.length,
     });
   }
 }

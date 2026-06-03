@@ -5,8 +5,9 @@
   "type": "module",
   "main": "index.ts",
   "dependencies": {
-    "@memory.build/engine": "workspace:*",
+    "@memory.build/database": "workspace:*",
     "@memory.build/embedding": "workspace:*",
-    "@pydantic/logfire-node": "^0.13.1"
+    "@pydantic/logfire-node": "^0.13.1",
+    "postgres": "^3.4.9"
   }
 }

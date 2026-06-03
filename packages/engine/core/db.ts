@@ -27,6 +27,8 @@ import type {
 export interface CoreStore {
   createSpace(slug: string, name: string, language?: string): Promise<string>;
   getSpace(slug: string): Promise<Space | null>;
+  /** All spaces (e.g. for the embedding worker to discover me_<slug> schemas). */
+  listSpaces(): Promise<Space[]>;
 
   createUser(id: string, name: string): Promise<string>;
   createAgent(ownerId: string, name: string, id?: string): Promise<string>;
@@ -199,6 +201,11 @@ export function coreStore(sql: Sql, schema: string = CORE_SCHEMA): CoreStore {
     async getSpace(slug) {
       const [row] = await sql`select * from ${sch}.get_space(${slug})`;
       return row ? mapSpace(row) : null;
+    },
+
+    async listSpaces() {
+      const rows = await sql`select * from ${sch}.list_spaces()`;
+      return rows.map(mapSpace);
     },
 
     async createUser(id, name) {

@@ -1,6 +1,5 @@
 import { describe, expect, test } from "bun:test";
 import { RateLimitError } from "@memory.build/embedding";
-import { SQL } from "bun";
 import { WorkerPool } from "./pool";
 import { Worker } from "./worker";
 
@@ -76,7 +75,7 @@ describe("Worker", () => {
       },
       discover: async () => {
         discoverCalls++;
-        return [{ schema: "me_test12345678", shard: 1 }];
+        return [{ schema: "me_test12345678" }];
       },
       idleDelayMs: 50,
       drainTimeoutMs: 100,
@@ -144,7 +143,7 @@ describe("Worker", () => {
         model: "test",
         dimensions: 3,
       },
-      discover: async () => [{ schema: "me_test12345678", shard: 1 }],
+      discover: async () => [{ schema: "me_test12345678" }],
       idleDelayMs: 50,
       drainTimeoutMs: 150,
       refreshIntervalMs: 1_000_000,
@@ -204,7 +203,7 @@ describe("Worker", () => {
         model: "test",
         dimensions: 3,
       },
-      discover: async () => [{ schema: "me_test12345678", shard: 1 }],
+      discover: async () => [{ schema: "me_test12345678" }],
       idleDelayMs: 50,
       drainTimeoutMs: 150,
       refreshIntervalMs: 1_000_000,
@@ -243,7 +242,7 @@ describe("Worker", () => {
         model: "test",
         dimensions: 3,
       },
-      discover: async () => [{ schema: "me_test12345678", shard: 1 }],
+      discover: async () => [{ schema: "me_test12345678" }],
       idleDelayMs: 50,
       drainTimeoutMs: 150,
       refreshIntervalMs: 1_000_000,
@@ -281,9 +280,10 @@ describe("Worker", () => {
             }
             if (q.includes("claim_embedding_batch")) {
               if (lastSchema === deadSchema) {
-                throw new SQL.PostgresError(
-                  `schema "${deadSchema}" does not exist`,
-                  { code: "3F000", errno: "3F000" },
+                // postgres.js surfaces SQLSTATE on `.code`; 3F000 = missing schema
+                throw Object.assign(
+                  new Error(`schema "${deadSchema}" does not exist`),
+                  { code: "3F000" },
                 );
               }
               claimedBy.push(lastSchema ?? "");
@@ -302,10 +302,7 @@ describe("Worker", () => {
         model: "test",
         dimensions: 3,
       },
-      discover: async () => [
-        { schema: liveSchema, shard: 1 },
-        { schema: deadSchema, shard: 1 },
-      ],
+      discover: async () => [{ schema: liveSchema }, { schema: deadSchema }],
       idleDelayMs: 50,
       drainTimeoutMs: 200,
       refreshIntervalMs: 1_000_000, // don't refresh during test
@@ -319,9 +316,9 @@ describe("Worker", () => {
     expect(worker.stats.consecutiveErrors).toBe(0);
     expect(worker.stats.lastError).toBeUndefined();
     // Dead schema dropped exactly once, then filtered out of the rotation.
-    expect(worker.stats.enginesDropped).toBe(1);
+    expect(worker.stats.spacesDropped).toBe(1);
     // Live schema kept being polled across multiple loop iterations even
-    // though we only saw one enginesDropped — proves the live target wasn't
+    // though we only saw one spacesDropped — proves the live target wasn't
     // collateral damage when its sibling threw.
     expect(claimedBy.length).toBeGreaterThanOrEqual(2);
     expect(claimedBy.every((s) => s === liveSchema)).toBe(true);
@@ -390,7 +387,7 @@ describe("Worker", () => {
         model: "test",
         dimensions: 3,
       },
-      discover: async () => [{ schema: "me_test12345678", shard: 1 }],
+      discover: async () => [{ schema: "me_test12345678" }],
       idleDelayMs: 50,
       drainTimeoutMs: 200,
       refreshIntervalMs: 1_000_000,
@@ -433,7 +430,7 @@ describe("WorkerPool", () => {
         model: "test",
         dimensions: 3,
       },
-      discover: async () => [{ schema: "me_test12345678", shard: 1 }],
+      discover: async () => [{ schema: "me_test12345678" }],
       idleDelayMs: 50,
       drainTimeoutMs: 150,
       refreshIntervalMs: 1_000_000,
@@ -540,7 +537,7 @@ describe("WorkerPool", () => {
         model: "test",
         dimensions: 3,
       },
-      discover: async () => [{ schema: "me_test12345678", shard: 1 }],
+      discover: async () => [{ schema: "me_test12345678" }],
       idleDelayMs: 60_000,
       maxBackoffMs: 60_000,
       refreshIntervalMs: 1_000_000,

@@ -36,3 +36,25 @@ as $func$
 $func$ language sql stable security invoker
 set search_path to pg_catalog, {{schema}}, public, pg_temp
 ;
+
+-------------------------------------------------------------------------------
+-- list_spaces
+-- All spaces, newest first. Used by the embedding worker to discover the
+-- me_<slug> data schemas to process.
+-------------------------------------------------------------------------------
+create or replace function {{schema}}.list_spaces()
+returns table
+( id uuid
+, slug text
+, name text
+, language text
+, created_at timestamptz
+, updated_at timestamptz
+)
+as $func$
+  select s.id, s.slug, s.name::text, s.language, s.created_at, s.updated_at
+  from {{schema}}.space s
+  order by s.created_at desc
+$func$ language sql stable security invoker
+set search_path to pg_catalog, {{schema}}, public, pg_temp
+;

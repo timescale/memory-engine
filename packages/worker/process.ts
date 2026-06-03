@@ -3,20 +3,21 @@ import {
   generateEmbeddings,
   RateLimitError,
 } from "@memory.build/embedding";
-import {
-  DEFAULT_ENGINE_TIMEOUTS,
-  type EngineTimeouts,
-  setLocalEngineTimeouts,
-} from "@memory.build/engine/ops/_tx";
 import { info, reportError, span, warning } from "@pydantic/logfire-node";
-import type { SQL } from "bun";
-import type { EngineTarget, ProcessResult, WorkerConfig } from "./types";
+import type { Sql } from "postgres";
+import {
+  DEFAULT_WORKER_TIMEOUTS,
+  type ProcessResult,
+  type SpaceTarget,
+  type WorkerConfig,
+  type WorkerTimeouts,
+} from "./types";
 
-function workerEngineTimeouts(config?: WorkerConfig): EngineTimeouts {
-  return config?.workerEngineTimeouts ?? DEFAULT_ENGINE_TIMEOUTS;
+function workerTimeouts(config?: WorkerConfig): WorkerTimeouts {
+  return config?.timeouts ?? DEFAULT_WORKER_TIMEOUTS;
 }
 
-function workerEngineTimeoutAttributes(timeouts: EngineTimeouts) {
+function timeoutAttributes(timeouts: WorkerTimeouts) {
   return {
     "db.statement_timeout": timeouts.statementTimeout,
     "db.lock_timeout": timeouts.lockTimeout,
@@ -24,6 +25,32 @@ function workerEngineTimeoutAttributes(timeouts: EngineTimeouts) {
     "db.idle_in_transaction_session_timeout":
       timeouts.idleInTransactionSessionTimeout,
   };
+}
+
+/**
+ * Set transaction-local search_path + timeouts. The new model is not sharded
+ * and the space functions are security-invoker, so the worker runs as the pool
+ * user with no SET ROLE.
+ */
+async function prepareTx(
+  tx: Sql,
+  schema: string,
+  timeouts: WorkerTimeouts,
+): Promise<void> {
+  await tx.unsafe(`SET LOCAL search_path TO ${schema}, public`);
+  await tx.unsafe("SELECT set_config('statement_timeout', $1, true)", [
+    timeouts.statementTimeout,
+  ]);
+  await tx.unsafe("SELECT set_config('lock_timeout', $1, true)", [
+    timeouts.lockTimeout,
+  ]);
+  await tx.unsafe("SELECT set_config('transaction_timeout', $1, true)", [
+    timeouts.transactionTimeout,
+  ]);
+  await tx.unsafe(
+    "SELECT set_config('idle_in_transaction_session_timeout', $1, true)",
+    [timeouts.idleInTransactionSessionTimeout],
+  );
 }
 
 function asError(error: unknown): Error {
@@ -37,24 +64,21 @@ function asError(error: unknown): Error {
  * Returns the number of rows pruned.
  */
 export async function pruneQueue(
-  sql: SQL,
-  target: EngineTarget,
+  sql: Sql,
+  target: SpaceTarget,
   retention: string,
   config?: WorkerConfig,
 ): Promise<number> {
-  const { schema, shard } = target;
-  const timeouts = workerEngineTimeouts(config);
+  const { schema } = target;
+  const timeouts = workerTimeouts(config);
   return sql.begin(async (tx) => {
-    await tx.unsafe(`SET LOCAL pgdog.shard TO ${shard}`);
-    await setLocalEngineTimeouts(tx, timeouts);
-    await tx.unsafe(`SET LOCAL search_path TO ${schema}, public`);
-    await tx.unsafe("SET LOCAL ROLE me_embed");
+    await prepareTx(tx as unknown as Sql, schema, timeouts);
     const rows = (await tx.unsafe(
       `SELECT ${schema}.prune_embedding_queue($1::interval) AS pruned`,
       [retention],
     )) as { pruned: string | number | null }[];
     return Number(rows[0]?.pruned ?? 0);
-  });
+  }) as Promise<number>;
 }
 
 interface ClaimedRow {
@@ -69,30 +93,30 @@ interface ClaimedRow {
  *
  * Claim and write-back are separate transactions — if the worker crashes
  * between them, the visibility timeout expires and rows become claimable again.
+ * Rows that exhaust their attempts are finalized to 'failed' by the claim
+ * function's sweep, so write-back only records last_error and leaves the
+ * outcome NULL on transient failure.
  */
 export async function processBatch(
-  sql: SQL,
-  target: EngineTarget,
+  sql: Sql,
+  target: SpaceTarget,
   config: WorkerConfig,
 ): Promise<ProcessResult> {
-  const { schema, shard } = target;
+  const { schema } = target;
   const batchSize = config.batchSize ?? 10;
   const lockDuration = config.lockDuration ?? "5 minutes";
-  const timeouts = workerEngineTimeouts(config);
-  const timeoutAttributes = workerEngineTimeoutAttributes(timeouts);
+  const timeouts = workerTimeouts(config);
+  const attrs = timeoutAttributes(timeouts);
 
   // --- Claim ---
   const claimStart = performance.now();
-  const claimed = await sql.begin(async (tx) => {
-    await tx.unsafe(`SET LOCAL pgdog.shard TO ${shard}`);
-    await setLocalEngineTimeouts(tx, timeouts);
-    await tx.unsafe(`SET LOCAL search_path TO ${schema}, public`);
-    await tx.unsafe("SET LOCAL ROLE me_embed");
+  const claimed = (await sql.begin(async (tx) => {
+    await prepareTx(tx as unknown as Sql, schema, timeouts);
     return tx.unsafe(
       `SELECT * FROM ${schema}.claim_embedding_batch($1, $2::interval)`,
       [batchSize, lockDuration],
-    ) as Promise<ClaimedRow[]>;
-  });
+    );
+  })) as ClaimedRow[];
   const claimDurationMs = performance.now() - claimStart;
 
   if (claimed.length === 0) {
@@ -101,28 +125,25 @@ export async function processBatch(
 
   info("Embedding batch claimed", {
     "worker.schema": schema,
-    "worker.shard": shard,
     "batch.claimed": claimed.length,
     "batch.requested_size": batchSize,
     "batch.lock_duration": lockDuration,
     "batch.claim_duration_ms": claimDurationMs,
     "batch.memoryIds": claimed.map((r) => r.memory_id),
     "batch.queueIds": claimed.map((r) => r.queue_id),
-    ...timeoutAttributes,
+    ...attrs,
   });
 
-  // Process claimed items with telemetry
   return span("embedding.batch", {
     attributes: {
       "worker.schema": schema,
-      "worker.shard": shard,
       "batch.size": claimed.length,
       "batch.requested_size": batchSize,
       "batch.lock_duration": lockDuration,
       "batch.claim_duration_ms": claimDurationMs,
       "batch.memoryIds": claimed.map((r) => r.memory_id),
       "batch.queueIds": claimed.map((r) => r.queue_id),
-      ...timeoutAttributes,
+      ...attrs,
     },
     callback: async () => {
       // --- Embed ---
@@ -137,12 +158,9 @@ export async function processBatch(
       } catch (error) {
         if (error instanceof RateLimitError) {
           // Undo the attempt increment from claim — rate limits are transient
-          // and should not consume max_attempts
+          // and should not consume the attempt budget.
           await sql.begin(async (tx) => {
-            await tx.unsafe(`SET LOCAL pgdog.shard TO ${shard}`);
-            await setLocalEngineTimeouts(tx, timeouts);
-            await tx.unsafe(`SET LOCAL search_path TO ${schema}, public`);
-            await tx.unsafe("SET LOCAL ROLE me_embed");
+            await prepareTx(tx as unknown as Sql, schema, timeouts);
             for (const row of claimed) {
               await tx.unsafe(
                 `UPDATE ${schema}.embedding_queue
@@ -158,14 +176,12 @@ export async function processBatch(
 
       info("Embedding batch generated", {
         "worker.schema": schema,
-        "worker.shard": shard,
         "batch.claimed": claimed.length,
         "batch.generated": embedResults.length,
         "batch.embed_successes": embedResults.filter((r) => !r.error).length,
         "batch.embed_errors": embedResults.filter((r) => r.error).length,
       });
 
-      // Build lookup: memory_id → embed result
       const resultMap = new Map(embedResults.map((r) => [r.id, r]));
 
       // --- Write-back ---
@@ -175,32 +191,29 @@ export async function processBatch(
       await span("embedding.write_back", {
         attributes: {
           "worker.schema": schema,
-          "worker.shard": shard,
           "batch.size": claimed.length,
           "batch.embed_successes": embedResults.filter((r) => !r.error).length,
           "batch.embed_errors": embedResults.filter((r) => r.error).length,
-          ...timeoutAttributes,
+          ...attrs,
         },
         callback: async () => {
           for (const row of claimed) {
             try {
               await sql.begin(async (tx) => {
-                await tx.unsafe(`SET LOCAL pgdog.shard TO ${shard}`);
-                await setLocalEngineTimeouts(tx, timeouts);
-                await tx.unsafe(`SET LOCAL search_path TO ${schema}, public`);
-                await tx.unsafe("SET LOCAL ROLE me_embed");
+                await prepareTx(tx as unknown as Sql, schema, timeouts);
 
                 const result = resultMap.get(row.memory_id);
 
                 if (!result || result.error) {
-                  // Embedding failed — record error, leave outcome NULL for retry.
-                  // Queue row may be CASCADE-deleted if memory was deleted; 0 rows is fine.
+                  // Embedding failed — record the error, leave outcome NULL so
+                  // the row retries; the claim sweep fails it once attempts are
+                  // exhausted. (Row may be CASCADE-deleted if the memory was
+                  // deleted; 0 rows updated is fine.)
                   const error = result?.error ?? "No embedding result returned";
                   await tx.unsafe(
                     `UPDATE ${schema}.embedding_queue
                      SET last_error = $1
-                       , outcome = CASE WHEN attempts >= max_attempts THEN 'failed' END
-                     WHERE id = $2`,
+                     WHERE id = $2 AND outcome IS NULL`,
                     [error, row.queue_id],
                   );
                   failed++;
@@ -218,8 +231,7 @@ export async function processBatch(
                 );
 
                 if (updated.length === 0) {
-                  // Content changed or memory deleted between claim and embed — cancel.
-                  // Queue row may already be CASCADE-deleted; 0 rows updated is fine.
+                  // Content changed or memory deleted between claim and embed.
                   await tx.unsafe(
                     `UPDATE ${schema}.embedding_queue
                      SET outcome = 'cancelled'
@@ -227,9 +239,6 @@ export async function processBatch(
                     [row.queue_id],
                   );
                 } else {
-                  // Embedding written — mark completed.
-                  // Queue row may be CASCADE-deleted if memory deleted between these two
-                  // statements; 0 rows updated is fine.
                   await tx.unsafe(
                     `UPDATE ${schema}.embedding_queue
                      SET outcome = 'completed'
@@ -244,7 +253,6 @@ export async function processBatch(
               failed++;
               reportError("Embedding row write-back failed", err, {
                 "worker.schema": schema,
-                "worker.shard": shard,
                 "queue.id": row.queue_id,
                 "memory.id": row.memory_id,
                 "memory.embedding_version": row.embedding_version,
@@ -252,14 +260,10 @@ export async function processBatch(
 
               try {
                 await sql.begin(async (tx) => {
-                  await tx.unsafe(`SET LOCAL pgdog.shard TO ${shard}`);
-                  await setLocalEngineTimeouts(tx, timeouts);
-                  await tx.unsafe(`SET LOCAL search_path TO ${schema}, public`);
-                  await tx.unsafe("SET LOCAL ROLE me_embed");
+                  await prepareTx(tx as unknown as Sql, schema, timeouts);
                   await tx.unsafe(
                     `UPDATE ${schema}.embedding_queue
                      SET last_error = $1
-                       , outcome = CASE WHEN attempts >= max_attempts THEN 'failed' END
                      WHERE id = $2 AND outcome IS NULL`,
                     [err.message, row.queue_id],
                   );
@@ -267,7 +271,6 @@ export async function processBatch(
               } catch (recordError) {
                 warning("Failed to record embedding row write-back error", {
                   "worker.schema": schema,
-                  "worker.shard": shard,
                   "queue.id": row.queue_id,
                   "memory.id": row.memory_id,
                   error: asError(recordError).message,

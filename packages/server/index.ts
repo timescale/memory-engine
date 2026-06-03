@@ -6,6 +6,7 @@ import {
   bootstrapSpaceDatabase,
   migrateAuth,
   migrateCore,
+  slugToSchema as spaceSlugToSchema,
 } from "@memory.build/database";
 import type { EmbeddingConfig } from "@memory.build/embedding";
 import { coreStore } from "@memory.build/engine/core";
@@ -16,10 +17,10 @@ import {
 import { bootstrap as bootstrapEngine } from "@memory.build/engine/migrate/bootstrap";
 import { migrateAll as migrateEngines } from "@memory.build/engine/migrate/runner";
 import {
-  DEFAULT_ENGINE_TIMEOUTS,
-  type EngineTimeouts,
-} from "@memory.build/engine/ops/_tx";
-import { WorkerPool } from "@memory.build/worker";
+  DEFAULT_WORKER_TIMEOUTS,
+  WorkerPool,
+  type WorkerTimeouts,
+} from "@memory.build/worker";
 import { configure, info, reportError, span } from "@pydantic/logfire-node";
 import postgres from "postgres";
 import { MIN_CLIENT_VERSION, SERVER_VERSION } from "../../version";
@@ -242,19 +243,19 @@ const workerEnginePoolConnectionTimeout = parseIntEnv(
   process.env.WORKER_ENGINE_POOL_CONNECTION_TIMEOUT || "",
   String(enginePoolConnectionTimeout),
 );
-const workerEngineTimeouts: EngineTimeouts = {
+const workerTimeouts: WorkerTimeouts = {
   statementTimeout:
     process.env.WORKER_ENGINE_STATEMENT_TIMEOUT ??
-    DEFAULT_ENGINE_TIMEOUTS.statementTimeout,
+    DEFAULT_WORKER_TIMEOUTS.statementTimeout,
   lockTimeout:
     process.env.WORKER_ENGINE_LOCK_TIMEOUT ??
-    DEFAULT_ENGINE_TIMEOUTS.lockTimeout,
+    DEFAULT_WORKER_TIMEOUTS.lockTimeout,
   transactionTimeout:
     process.env.WORKER_ENGINE_TRANSACTION_TIMEOUT ??
-    DEFAULT_ENGINE_TIMEOUTS.transactionTimeout,
+    DEFAULT_WORKER_TIMEOUTS.transactionTimeout,
   idleInTransactionSessionTimeout:
     process.env.WORKER_ENGINE_IDLE_IN_TRANSACTION_SESSION_TIMEOUT ??
-    DEFAULT_ENGINE_TIMEOUTS.idleInTransactionSessionTimeout,
+    DEFAULT_WORKER_TIMEOUTS.idleInTransactionSessionTimeout,
 };
 
 // =============================================================================
@@ -357,11 +358,14 @@ const engineSql = new Bun.SQL(engineDatabaseUrl, {
   connectionTimeout: enginePoolConnectionTimeout,
 });
 
-const workerEngineSql = new Bun.SQL(workerEngineDatabaseUrl, {
+// Dedicated worker pool (postgres.js) on the new-model DB — the embedding
+// worker processes the per-space me_<slug> schemas that live there.
+const workerDb = postgres(workerEngineDatabaseUrl, {
   max: workerEnginePoolMax,
-  idleTimeout: workerEnginePoolIdleReapSeconds,
-  maxLifetime: workerEnginePoolMaxLifetime,
-  connectionTimeout: workerEnginePoolConnectionTimeout,
+  idle_timeout: workerEnginePoolIdleReapSeconds,
+  max_lifetime: workerEnginePoolMaxLifetime,
+  connect_timeout: workerEnginePoolConnectionTimeout,
+  onnotice: () => {},
 });
 
 // New-model pool (postgres.js): the auth + core control plane and the per-space
@@ -489,14 +493,11 @@ const router = createRouter(serverContext);
 // Embedding Worker Pool
 // =============================================================================
 
-const workerPool = new WorkerPool(workerEngineSql, {
+const workerPool = new WorkerPool(workerDb, {
   embedding: embeddingConfig,
   discover: async () => {
-    const engines = await accountsDb.listActiveEngines();
-    return engines.map((e) => ({
-      schema: slugToSchema(e.slug),
-      shard: e.shardId,
-    }));
+    const spaces = await core.listSpaces();
+    return spaces.map((s) => ({ schema: spaceSlugToSchema(s.slug) }));
   },
   batchSize: parseIntEnv(
     "WORKER_BATCH_SIZE",
@@ -519,7 +520,7 @@ const workerPool = new WorkerPool(workerEngineSql, {
     process.env.WORKER_REFRESH_INTERVAL_MS || "",
     "60000",
   ),
-  workerEngineTimeouts,
+  timeouts: workerTimeouts,
 });
 
 await workerPool.start(workerCount);
@@ -619,7 +620,7 @@ async function shutdown() {
   try {
     await accountsSql.close();
     await engineSql.close();
-    await workerEngineSql.close();
+    await workerDb.end();
     await db.end();
   } catch (error) {
     reportError("Error closing database connections", error as Error);

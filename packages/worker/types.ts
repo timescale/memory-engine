@@ -1,15 +1,29 @@
 import type { EmbeddingConfig } from "@memory.build/embedding";
-import type { EngineTimeouts } from "@memory.build/engine/ops/_tx";
 
-export interface EngineTarget {
+/** A space schema (me_<slug>) the worker should process. */
+export interface SpaceTarget {
   schema: string;
-  shard: number;
 }
+
+/** Transaction-local timeouts applied to each worker DB transaction. */
+export interface WorkerTimeouts {
+  statementTimeout: string;
+  lockTimeout: string;
+  transactionTimeout: string;
+  idleInTransactionSessionTimeout: string;
+}
+
+export const DEFAULT_WORKER_TIMEOUTS: WorkerTimeouts = {
+  statementTimeout: "25s",
+  lockTimeout: "5s",
+  transactionTimeout: "30s",
+  idleInTransactionSessionTimeout: "30s",
+};
 
 export interface WorkerConfig {
   embedding: EmbeddingConfig;
-  /** Discover active engines (schema + shard) from accounts DB */
-  discover: () => Promise<EngineTarget[]>;
+  /** Discover the spaces (me_<slug> schemas) to process. */
+  discover: () => Promise<SpaceTarget[]>;
   /** Number of queue entries to claim per batch (default: 10) */
   batchSize?: number;
   /** PostgreSQL interval for claim lock duration (default: '5 minutes') */
@@ -18,10 +32,10 @@ export interface WorkerConfig {
   idleDelayMs?: number;
   /** Maximum backoff delay on consecutive errors (default: 60_000ms) */
   maxBackoffMs?: number;
-  /** How often to re-discover engines (default: 60_000ms) */
+  /** How often to re-discover spaces (default: 60_000ms) */
   refreshIntervalMs?: number;
-  /** PostgreSQL transaction/session timeouts for worker engine DB work */
-  workerEngineTimeouts?: EngineTimeouts;
+  /** PostgreSQL transaction/session timeouts for worker DB work */
+  timeouts?: WorkerTimeouts;
   /** Exit gracefully after this much idle time (optional) */
   drainTimeoutMs?: number;
   /**
@@ -43,11 +57,11 @@ export interface WorkerStats {
   totalFailed: number;
   totalPruned: number;
   /**
-   * Number of times an engine was dropped from the in-memory target list
-   * because its schema no longer exists in PostgreSQL (e.g. engine deleted
+   * Number of times a space was dropped from the in-memory target list
+   * because its schema no longer exists in PostgreSQL (e.g. space deleted
    * between discover() refreshes). Self-heals on the next refresh.
    */
-  enginesDropped: number;
+  spacesDropped: number;
   consecutiveErrors: number;
   lastError?: string;
 }
