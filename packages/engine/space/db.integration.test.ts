@@ -1,4 +1,4 @@
-// Integration tests for the space data-plane TS layer (createSpaceDB).
+// Integration tests for the space data-plane TS layer (spaceStore).
 //
 // Provisions a throwaway metest_<slug> schema via migrateSpace (small embedding
 // dims for speed) and exercises the wrappers against the real SQL functions.
@@ -7,7 +7,7 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { migrateSpace } from "@memory.build/database";
 import postgres, { type Sql } from "postgres";
-import { createSpaceDB, type SpaceDB } from "./db";
+import { type SpaceStore, spaceStore } from "./db";
 import type { TreeAccess } from "./types";
 
 const URL =
@@ -28,14 +28,14 @@ const READONLY: TreeAccess = [{ tree_path: "work", access: 1 }];
 
 let sql: Sql;
 let schema: string;
-let db: SpaceDB;
+let db: SpaceStore;
 
 beforeAll(async () => {
   sql = postgres(URL, { onnotice: () => {} });
   const slug = randomSlug();
   schema = `metest_${slug}`;
   await migrateSpace(sql, { slug, schema, embeddingDimensions: 4 });
-  db = createSpaceDB(sql, schema);
+  db = spaceStore(sql, schema);
 });
 
 afterAll(async () => {

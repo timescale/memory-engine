@@ -1,4 +1,4 @@
-// Integration tests for the core control-plane TS layer (createCoreDB).
+// Integration tests for the core control-plane TS layer (coreStore).
 //
 // Provisions a throwaway `core_test_<rand>` schema via migrateCore and exercises
 // the thin wrappers against the real SQL functions. Run with a database, e.g.:
@@ -8,7 +8,7 @@ import { afterAll, beforeAll, expect, test } from "bun:test";
 import { migrateCore } from "@memory.build/database";
 import postgres, { type Sql } from "postgres";
 import { formatApiKey, parseApiKey } from "./api-key";
-import { type CoreDB, createCoreDB } from "./db";
+import { type CoreStore, coreStore } from "./db";
 
 const URL =
   process.env.TEST_DATABASE_URL ??
@@ -26,13 +26,13 @@ const randomSlug = () => randomFrom(12);
 
 let sql: Sql;
 let schema: string;
-let db: CoreDB;
+let db: CoreStore;
 
 beforeAll(async () => {
   sql = postgres(URL, { onnotice: () => {} });
   schema = randomCoreSchema();
   await migrateCore(sql, { schema });
-  db = createCoreDB(sql, schema);
+  db = coreStore(sql, schema);
 });
 
 afterAll(async () => {

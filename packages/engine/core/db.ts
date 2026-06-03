@@ -18,7 +18,7 @@ import type {
  * packages/database/core/migrate/idempotent/*.sql; none query core tables
  * directly. Access enforcement and multi-table logic live in the SQL.
  */
-export interface CoreDB {
+export interface CoreStore {
   createSpace(slug: string, name: string, language?: string): Promise<string>;
   getSpace(slug: string): Promise<Space | null>;
 
@@ -75,7 +75,7 @@ export interface CoreDB {
   ): Promise<ValidatedApiKey | null>;
 
   /** Run operations atomically against the same transaction. */
-  withTransaction<T>(fn: (db: CoreDB) => Promise<T>): Promise<T>;
+  withTransaction<T>(fn: (db: CoreStore) => Promise<T>): Promise<T>;
 }
 
 function mapSpace(row: Record<string, unknown>): Space {
@@ -101,10 +101,10 @@ function mapPrincipal(row: Record<string, unknown>): Principal {
   };
 }
 
-export function createCoreDB(sql: Sql, schema: string = CORE_SCHEMA): CoreDB {
+export function coreStore(sql: Sql, schema: string = CORE_SCHEMA): CoreStore {
   const sch = sql(schema); // escaped schema identifier reused across queries
 
-  const db: CoreDB = {
+  const db: CoreStore = {
     async createSpace(slug, name, language) {
       const [row] = await sql`
         select ${sch}.create_space(${slug}, ${name}, ${language ?? null}) as id
@@ -213,9 +213,9 @@ export function createCoreDB(sql: Sql, schema: string = CORE_SCHEMA): CoreDB {
       };
     },
 
-    async withTransaction<T>(fn: (db: CoreDB) => Promise<T>): Promise<T> {
+    async withTransaction<T>(fn: (db: CoreStore) => Promise<T>): Promise<T> {
       return sql.begin((tx) =>
-        fn(createCoreDB(tx as unknown as Sql, schema)),
+        fn(coreStore(tx as unknown as Sql, schema)),
       ) as Promise<T>;
     },
   };

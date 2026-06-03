@@ -5,7 +5,7 @@ export {
   hashApiKeySecret,
   parseApiKey,
 } from "./api-key";
-export { type CoreDB, createCoreDB } from "./db";
+export { type CoreStore, coreStore } from "./db";
 export type {
   AccessLevel,
   CreatedApiKey,

@@ -18,7 +18,7 @@ import type {
  * passes the `treeAccess` set (from core.buildTreeAccess) for access enforcement.
  * No table queries in TS; no RLS (access is the jsonb argument).
  */
-export interface SpaceDB {
+export interface SpaceStore {
   createMemory(
     treeAccess: TreeAccess,
     params: CreateMemoryParams,
@@ -82,7 +82,7 @@ function mapSearchItem(row: Record<string, unknown>): SearchResultItem {
   return { ...mapMemory(row), score: Number(row.score) };
 }
 
-export function createSpaceDB(sql: Sql, schema: string): SpaceDB {
+export function spaceStore(sql: Sql, schema: string): SpaceStore {
   const sch = sql(schema);
   const bm25Index = `${schema}.memory_content_bm25_idx`;
 

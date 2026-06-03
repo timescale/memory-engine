@@ -1,4 +1,4 @@
-export { createSpaceDB, type SpaceDB } from "./db";
+export { type SpaceStore, spaceStore } from "./db";
 export type {
   CreateMemoryParams,
   HybridSearchOptions,

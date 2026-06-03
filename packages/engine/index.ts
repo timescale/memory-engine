@@ -2,7 +2,7 @@
 
 // New core control-plane + space data-plane layers (target the core / me_<slug>
 // schemas via SQL functions). Namespaced to avoid clashing with the legacy flat
-// exports below during the migration: core.createCoreDB, space.createSpaceDB, etc.
+// exports below during the migration: core.coreStore, space.spaceStore, etc.
 export * as core from "./core";
 export {
   type CreateEngineDBOptions,
