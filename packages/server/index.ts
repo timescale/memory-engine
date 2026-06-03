@@ -63,8 +63,6 @@ configure({
 // Required:
 //   ACCOUNTS_DATABASE_URL - PostgreSQL connection string for accounts database
 //                          (stores engines, API keys, users)
-//   ACCOUNTS_MASTER_KEY   - 32-byte hex string for encrypting API keys at rest
-//                          Generate with: openssl rand -hex 32
 //   ENGINE_DATABASE_URL   - PostgreSQL connection string for engine databases
 //                          (stores memories, each engine in its own schema)
 //   API_BASE_URL          - Public URL for OAuth callbacks
@@ -142,11 +140,6 @@ const port = process.env.PORT || 3000;
 const accountsDatabaseUrl = process.env.ACCOUNTS_DATABASE_URL;
 if (!accountsDatabaseUrl) {
   throw new Error("ACCOUNTS_DATABASE_URL environment variable is required");
-}
-
-const accountsMasterKey = process.env.ACCOUNTS_MASTER_KEY;
-if (!accountsMasterKey) {
-  throw new Error("ACCOUNTS_MASTER_KEY environment variable is required");
 }
 
 const engineDatabaseUrl = process.env.ENGINE_DATABASE_URL;
@@ -337,14 +330,6 @@ if (configuredProviders.length === 0) {
 // Database Pools
 // =============================================================================
 
-// Parse master key from hex string to Buffer
-const masterKeyBuffer = Buffer.from(accountsMasterKey, "hex");
-if (masterKeyBuffer.length !== 32) {
-  throw new Error(
-    "ACCOUNTS_MASTER_KEY must be a 32-byte (64 character) hex string",
-  );
-}
-
 // Create database connection pools
 const accountsSql = new Bun.SQL(accountsDatabaseUrl, {
   max: accountsPoolMax,
@@ -368,9 +353,7 @@ const workerEngineSql = new Bun.SQL(workerEngineDatabaseUrl, {
 });
 
 // Create accounts DB with operations layer
-const accountsDb = createAccountsDB(accountsSql, accountsSchema, {
-  masterKey: masterKeyBuffer,
-});
+const accountsDb = createAccountsDB(accountsSql, accountsSchema);
 
 // =============================================================================
 // Database Bootstrap & Migrations (blocking — server won't serve until current)
@@ -399,15 +382,6 @@ if (accountsMigrateResult.applied.length > 0) {
   });
 } else {
   info("Accounts schema up to date");
-}
-
-// Ensure encryption data key exists (idempotent)
-try {
-  const keyId = await accountsDb.createDataKey();
-  await accountsDb.activateDataKey(keyId);
-  info("Encryption data key created", { keyId });
-} catch {
-  // Key already exists — expected on subsequent startups
 }
 
 // Migrate all engine schemas

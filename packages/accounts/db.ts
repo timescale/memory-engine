@@ -20,11 +20,6 @@ import {
   setLocalAccountsTimeouts,
 } from "./ops";
 import type { AccountsContext } from "./types";
-import { createAccountsCrypto } from "./util/crypto";
-
-export interface CreateAccountsDBOptions {
-  masterKey: Buffer;
-}
 
 type AllOps = DeviceAuthOps &
   IdentityOps &
@@ -36,10 +31,6 @@ type AllOps = DeviceAuthOps &
   SessionOps;
 
 export interface AccountsDB extends AllOps {
-  /** Create a new encryption data key (does not activate) */
-  createDataKey(): Promise<number>;
-  /** Activate an encryption data key */
-  activateDataKey(keyId: number): Promise<void>;
   /** Execute operations within a transaction */
   withTransaction<T>(fn: (db: AccountsDB) => Promise<T>): Promise<T>;
 }
@@ -57,18 +48,11 @@ function composeOps(ctx: AccountsContext): AllOps {
   };
 }
 
-export function createAccountsDB(
-  sql: SQL,
-  schema: string,
-  options: CreateAccountsDBOptions,
-): AccountsDB {
-  const crypto = createAccountsCrypto(options.masterKey, { sql, schema });
-
+export function createAccountsDB(sql: SQL, schema: string): AccountsDB {
   const ctx: AccountsContext = {
     sql,
     schema,
     inTransaction: false,
-    crypto,
   };
 
   const ops = composeOps(ctx);
@@ -76,30 +60,16 @@ export function createAccountsDB(
   const db: AccountsDB = {
     ...ops,
 
-    createDataKey(): Promise<number> {
-      return crypto.createDataKey();
-    },
-
-    activateDataKey(keyId: number): Promise<void> {
-      return crypto.activateDataKey(keyId);
-    },
-
     async withTransaction<T>(fn: (db: AccountsDB) => Promise<T>): Promise<T> {
       return sql.begin(async (tx) => {
         await setLocalAccountsTimeouts(tx);
         await tx.unsafe(`SET LOCAL search_path TO ${schema}, public`);
 
-        const txCrypto = createAccountsCrypto(options.masterKey, {
-          sql: tx,
-          schema,
-        });
-        const txCtx = deriveContext({ ...ctx, crypto: txCrypto }, tx);
+        const txCtx = deriveContext(ctx, tx);
         const txOps = composeOps(txCtx);
 
         const txDb: AccountsDB = {
           ...txOps,
-          createDataKey: () => txCrypto.createDataKey(),
-          activateDataKey: (keyId) => txCrypto.activateDataKey(keyId),
           withTransaction: <U>(nestedFn: (db: AccountsDB) => Promise<U>) =>
             nestedFn(txDb),
         };

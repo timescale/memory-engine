@@ -59,17 +59,6 @@ ACCOUNTS_DATABASE_URL=postgres://postgres@localhost:5432/accounts
 ENGINE_DATABASE_URL=postgres://postgres@localhost:5432/shard1
 ```
 
-**Encryption master key** — 32-byte hex string for encrypting API keys at rest:
-
-```bash
-./bun run generate:master-key
-```
-
-Paste the output into `.env`:
-
-```
-ACCOUNTS_MASTER_KEY=<output from above>
-```
 
 **Server URL and port** — `API_BASE_URL` is used to construct OAuth callback URLs. `PORT` controls which port the server listens on. They must be consistent:
 
@@ -125,7 +114,6 @@ GITHUB_CLIENT_SECRET=...
 # Database
 ACCOUNTS_DATABASE_URL=postgres://postgres@localhost:5432/accounts
 ENGINE_DATABASE_URL=postgres://postgres@localhost:5432/shard1
-ACCOUNTS_MASTER_KEY=<./bun run generate:master-key>
 
 # Server
 API_BASE_URL=http://localhost:3000

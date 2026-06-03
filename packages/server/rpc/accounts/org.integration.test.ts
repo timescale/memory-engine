@@ -17,23 +17,13 @@ import type { HandlerContext } from "../types";
 import { orgMethods } from "./org";
 import type { AccountsRpcContext } from "./types";
 
-const TEST_MASTER_KEY = Buffer.from(
-  "0123456789abcdef0123456789abcdef",
-  "utf-8",
-);
-
 let accountsTestDb: AccountsTestDatabase;
 let accountsDb: AccountsDB;
 let testIdentity: Identity;
 
 beforeAll(async () => {
   accountsTestDb = await AccountsTestDatabase.create();
-  accountsDb = createAccountsDB(accountsTestDb.sql, accountsTestDb.schema, {
-    masterKey: TEST_MASTER_KEY,
-  });
-
-  const keyId = await accountsDb.createDataKey();
-  await accountsDb.activateDataKey(keyId);
+  accountsDb = createAccountsDB(accountsTestDb.sql, accountsTestDb.schema);
 
   testIdentity = await accountsDb.createIdentity({
     email: "org-rpc-test@example.com",

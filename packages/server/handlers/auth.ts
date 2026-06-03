@@ -347,17 +347,13 @@ export async function oauthCallbackHandler(
       await provisionPersonalAccount(ctx, identity);
     }
 
-    // Link OAuth account (upserts if exists)
+    // Link OAuth account (upserts if exists). Login-only: we do not persist
+    // the provider tokens — they were used above only to fetch the identity.
     await ctx.db.linkOAuthAccount({
       identityId: identity.id,
       provider,
       providerAccountId: userInfo.providerAccountId,
       email: userInfo.email,
-      accessToken: tokens.accessToken,
-      refreshToken: tokens.refreshToken ?? undefined,
-      tokenExpiresAt: tokens.expiresIn
-        ? new Date(Date.now() + tokens.expiresIn * 1000)
-        : undefined,
     });
 
     // Mark device as authorized

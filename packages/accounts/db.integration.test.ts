@@ -3,25 +3,13 @@ import { type AccountsDB, createAccountsDB } from "./db";
 import { TestDatabase } from "./migrate/test-utils";
 import { AccountsError } from "./types";
 
-// Test master key (32 bytes for AES-256)
-const TEST_MASTER_KEY = Buffer.from(
-  "0123456789abcdef0123456789abcdef",
-  "utf-8",
-);
-
 let testDb: TestDatabase;
 let db: AccountsDB;
 
 beforeAll(async () => {
   testDb = await TestDatabase.create();
 
-  db = createAccountsDB(testDb.sql, testDb.schema, {
-    masterKey: TEST_MASTER_KEY,
-  });
-
-  // Create and activate an encryption key for tests
-  const keyId = await db.createDataKey();
-  await db.activateDataKey(keyId);
+  db = createAccountsDB(testDb.sql, testDb.schema);
 });
 
 afterAll(async () => {
@@ -535,8 +523,6 @@ describe("oauth", () => {
       provider: "github",
       providerAccountId: "gh-123",
       email: "oauth@example.com",
-      accessToken: "access-token-123",
-      refreshToken: "refresh-token-456",
     });
 
     expect(oauth.provider).toBe("github");
@@ -544,49 +530,6 @@ describe("oauth", () => {
 
     const fetched = await db.getOAuthAccount("github", "gh-123");
     expect(fetched?.id).toBe(oauth.id);
-  });
-
-  test("get decrypted tokens", async () => {
-    const identity = await db.createIdentity({
-      email: "oauthtokens@example.com",
-      name: "OAuth Tokens",
-    });
-
-    const oauth = await db.linkOAuthAccount({
-      identityId: identity.id,
-      provider: "google",
-      providerAccountId: "google-abc",
-      accessToken: "my-access-token",
-      refreshToken: "my-refresh-token",
-    });
-
-    const tokens = await db.getOAuthTokens(oauth.id);
-    expect(tokens?.accessToken).toBe("my-access-token");
-    expect(tokens?.refreshToken).toBe("my-refresh-token");
-  });
-
-  test("refresh oauth tokens", async () => {
-    const identity = await db.createIdentity({
-      email: "refreshtokens@example.com",
-      name: "Refresh Tokens",
-    });
-
-    const oauth = await db.linkOAuthAccount({
-      identityId: identity.id,
-      provider: "github",
-      providerAccountId: "gh-refresh",
-      accessToken: "old-access",
-      refreshToken: "old-refresh",
-    });
-
-    await db.refreshOAuthTokens(oauth.id, {
-      accessToken: "new-access",
-      refreshToken: "new-refresh",
-    });
-
-    const tokens = await db.getOAuthTokens(oauth.id);
-    expect(tokens?.accessToken).toBe("new-access");
-    expect(tokens?.refreshToken).toBe("new-refresh");
   });
 
   test("list oauth accounts by identity", async () => {
@@ -599,52 +542,15 @@ describe("oauth", () => {
       identityId: identity.id,
       provider: "github",
       providerAccountId: "gh-multi",
-      accessToken: "token1",
     });
     await db.linkOAuthAccount({
       identityId: identity.id,
       provider: "google",
       providerAccountId: "google-multi",
-      accessToken: "token2",
     });
 
     const accounts = await db.getOAuthAccountsByIdentity(identity.id);
     expect(accounts.length).toBe(2);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Encryption key rotation test
-// ---------------------------------------------------------------------------
-
-describe("encryption key rotation", () => {
-  test("can rotate encryption keys", async () => {
-    const identity = await db.createIdentity({
-      email: "rotation@example.com",
-      name: "Rotation Test",
-    });
-
-    // Link with current key
-    const oauth = await db.linkOAuthAccount({
-      identityId: identity.id,
-      provider: "github",
-      providerAccountId: "gh-rotation",
-      accessToken: "original-token",
-    });
-
-    // Create and activate new key
-    const newKeyId = await db.createDataKey();
-    await db.activateDataKey(newKeyId);
-
-    // Old tokens should still decrypt (using old key stored with them)
-    const tokens = await db.getOAuthTokens(oauth.id);
-    expect(tokens?.accessToken).toBe("original-token");
-
-    // New tokens will use the new key
-    await db.refreshOAuthTokens(oauth.id, { accessToken: "rotated-token" });
-
-    const newTokens = await db.getOAuthTokens(oauth.id);
-    expect(newTokens?.accessToken).toBe("rotated-token");
   });
 });
 

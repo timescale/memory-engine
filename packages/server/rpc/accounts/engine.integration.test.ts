@@ -23,12 +23,6 @@ import type { HandlerContext } from "../types";
 import { engineMethods } from "./engine";
 import type { AccountsRpcContext } from "./types";
 
-// Test master key (32 bytes for AES-256)
-const TEST_MASTER_KEY = Buffer.from(
-  "0123456789abcdef0123456789abcdef",
-  "utf-8",
-);
-
 // Test fixtures
 let accountsTestDb: AccountsTestDatabase;
 let engineTestDb: EngineTestDatabase;
@@ -43,13 +37,7 @@ let testIdentity: Identity;
 beforeAll(async () => {
   // Set up accounts database
   accountsTestDb = await AccountsTestDatabase.create();
-  accountsDb = createAccountsDB(accountsTestDb.sql, accountsTestDb.schema, {
-    masterKey: TEST_MASTER_KEY,
-  });
-
-  // Create and activate encryption key
-  const keyId = await accountsDb.createDataKey();
-  await accountsDb.activateDataKey(keyId);
+  accountsDb = createAccountsDB(accountsTestDb.sql, accountsTestDb.schema);
 
   // Set up engine database
   engineTestDb = new EngineTestDatabase();

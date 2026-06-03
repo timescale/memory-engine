@@ -4,18 +4,10 @@ import type { SQL } from "bun";
 // Context
 // =============================================================================
 
-export interface AccountsCrypto {
-  encrypt(plaintext: string): Promise<{ ciphertext: string; keyId: number }>;
-  decrypt(ciphertext: string, keyId: number): Promise<string>;
-  createDataKey(): Promise<number>;
-  activateDataKey(keyId: number): Promise<void>;
-}
-
 export interface AccountsContext {
   sql: SQL;
   schema: string;
   inTransaction: boolean;
-  crypto: AccountsCrypto;
 }
 
 // =============================================================================
@@ -34,9 +26,7 @@ export type AccountsErrorCode =
   | "SESSION_EXPIRED"
   | "OAUTH_ACCOUNT_NOT_FOUND"
   | "DUPLICATE_SLUG"
-  | "DUPLICATE_EMAIL"
-  | "ENCRYPTION_KEY_NOT_FOUND"
-  | "NO_ACTIVE_ENCRYPTION_KEY";
+  | "DUPLICATE_EMAIL";
 
 export class AccountsError extends Error {
   constructor(
@@ -173,9 +163,6 @@ export interface LinkOAuthParams {
   provider: OAuthProvider;
   providerAccountId: string;
   email?: string;
-  accessToken: string;
-  refreshToken?: string;
-  tokenExpiresAt?: Date;
 }
 
 // =============================================================================
@@ -197,16 +184,6 @@ export interface CreateSessionParams {
 export interface CreateSessionResult {
   session: Session;
   rawToken: string;
-}
-
-// =============================================================================
-// EncryptionKey
-// =============================================================================
-
-export interface EncryptionKey {
-  id: number;
-  active: boolean;
-  createdAt: Date;
 }
 
 // =============================================================================
