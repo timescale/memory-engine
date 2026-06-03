@@ -11,6 +11,21 @@ export type PrincipalKind = "u" | "g" | "a";
 /** Access levels stored in core.tree_access: 1 = read, 2 = write, 3 = owner. */
 export type AccessLevel = 1 | 2 | 3;
 
+/** Named tree-access levels — use instead of the raw 1/2/3. */
+export const ACCESS = {
+  read: 1,
+  write: 2,
+  owner: 3,
+} as const satisfies Record<string, AccessLevel>;
+
+/**
+ * The root tree path: the empty ltree (`''`), which is the ancestor of every
+ * path — so a grant here covers the whole space. (ltree separates with `.`, not
+ * `/`, and its root is the empty path; `/` is not an ltree concept and is
+ * reserved for agent names like `user/agent`.)
+ */
+export const ROOT_PATH = "";
+
 export interface Space {
   id: string;
   slug: string;

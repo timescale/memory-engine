@@ -3,11 +3,14 @@
   "version": "0.2.5",
   "dependencies": {
     "@memory.build/accounts": "workspace:*",
+    "@memory.build/auth": "workspace:*",
+    "@memory.build/database": "workspace:*",
     "@memory.build/embedding": "workspace:*",
     "@memory.build/engine": "workspace:*",
     "@memory.build/protocol": "workspace:*",
     "@memory.build/worker": "workspace:*",
     "@pydantic/logfire-node": "^0.13.1",
+    "postgres": "^3.4.9",
     "zod": "^4.0.0"
   },
   "exports": {

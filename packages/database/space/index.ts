@@ -5,6 +5,7 @@ export {
   provisionSpace,
 } from "./migrate/migrate";
 export {
+  generateSlug,
   isValidSlug,
   isValidSpaceSchema,
   schemaToSlug,

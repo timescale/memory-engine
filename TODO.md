@@ -51,6 +51,25 @@ objects):
       migrate bootstrap (`ensureExtension` installs `with schema public`) — decide
       holistically before changing the function `search_path`s.
 
+## User-facing tree-path convention (lenient input → canonical ltree)
+
+Tree paths are stored as ltree (dot-separated; the root is the empty path,
+exported as `core.ROOT_PATH`). Internally everything stays ltree-native (the
+store layer, the SQL functions, `provisionUser`). At the **user-facing boundary**
+(RPC handlers, CLI, MCP) we want lenient input normalized once to that canonical
+form — the right convention is what's natural for users, not what ltree accepts.
+
+- [ ] Add a shared `normalizeTreePath(input): string` util (home: alongside the
+      slug helpers in `packages/database/space`, or a small `path.ts`). Rules:
+      split on `/[./]+/`, drop empty segments, validate each is a legal ltree
+      label, join with `.`. So `/foo/bar`, `foo/bar`, `foo.bar` → `foo.bar`; and
+      `""`, `/`, `.` → `""` (root). Use it in **every** user-facing entry point
+      so they behave identically. Wire in Phase 4 with the memory/grant RPC +
+      CLI + MCP.
+- [ ] Decide the canonical **output/display** form (echoed in search results,
+      `grant list`, etc.): dot-style `work.projects` (matches current docs) vs
+      filesystem-style `/work/projects`. Input stays lenient; output is one form.
+
 ## Consolidate the migration runner logic
 
 - [x] Done — the shared machinery lives in `packages/database/migrate/kit.ts`:

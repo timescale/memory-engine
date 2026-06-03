@@ -15,3 +15,4 @@ export type {
   TreeAccess,
   ValidatedApiKey,
 } from "./types";
+export { ACCESS, ROOT_PATH } from "./types";
