@@ -1,8 +1,8 @@
 // Main exports
 
-// New core control-plane layer (targets the `core` schema via SQL functions).
-// Namespaced to avoid clashing with the legacy formatApiKey/parseApiKey above
-// during the migration; consumers use core.createCoreDB, core.parseApiKey, etc.
+// New core control-plane + space data-plane layers (target the core / me_<slug>
+// schemas via SQL functions). Namespaced to avoid clashing with the legacy flat
+// exports below during the migration: core.createCoreDB, space.createSpaceDB, etc.
 export * as core from "./core";
 export {
   type CreateEngineDBOptions,
@@ -11,6 +11,7 @@ export {
 } from "./db";
 // Re-export migrate module
 export * from "./migrate";
+export * as space from "./space";
 // Type exports
 export {
   type ApiKey,

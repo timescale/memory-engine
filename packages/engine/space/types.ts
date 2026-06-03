@@ -1,0 +1,92 @@
+/**
+ * Types for the space data-plane TS layer.
+ *
+ * Thin wrappers over the space SQL functions (packages/database/space/migrate/
+ * idempotent/*.sql). Every method takes a `treeAccess` set — the jsonb produced
+ * by core.buildTreeAccess — which the SQL functions use to enforce access.
+ */
+
+import type { TreeAccess } from "../core/types";
+
+export type { TreeAccess };
+
+/** tstzrange rendered as its text form, e.g. "[2024-01-01,2024-01-02)". */
+export type TemporalRange = string;
+
+export interface Memory {
+  id: string;
+  tree: string;
+  meta: Record<string, unknown>;
+  temporal: TemporalRange | null;
+  content: string;
+  hasEmbedding: boolean;
+  createdAt: Date;
+  updatedAt: Date | null;
+}
+
+export interface SearchResultItem extends Memory {
+  score: number;
+}
+
+export interface CreateMemoryParams {
+  tree: string;
+  content: string;
+  id?: string;
+  meta?: Record<string, unknown>;
+  temporal?: TemporalRange;
+}
+
+export interface MemoryPatch {
+  tree?: string;
+  meta?: Record<string, unknown>;
+  temporal?: TemporalRange | null;
+  content?: string;
+}
+
+/** Filters shared by search (and the count/list tree helpers where relevant). */
+export interface MemoryFilters {
+  /** ancestor-or-self match: only memories at/under this path. */
+  ltree?: string;
+  /** ltree lquery pattern. */
+  lquery?: string;
+  /** ltree full-text ltxtquery. */
+  ltxtquery?: string;
+  /** meta @> this object. */
+  metaContains?: Record<string, unknown>;
+  temporalWithin?: TemporalRange;
+  temporalOverlaps?: TemporalRange;
+  temporalBefore?: string;
+  temporalAfter?: string;
+  /** case-insensitive regexp on content (must be combined with another filter). */
+  regexp?: string;
+}
+
+export interface SearchOptions extends MemoryFilters {
+  /** BM25 full-text query string. Mutually exclusive with `vec`. */
+  bm25?: string;
+  /** Pre-computed query embedding. Mutually exclusive with `bm25`. */
+  vec?: number[];
+  /** Max cosine distance (only with `vec`). */
+  maxVecDist?: number;
+  limit?: number;
+}
+
+export interface HybridSearchOptions extends MemoryFilters {
+  /** BM25 full-text query string (required). */
+  bm25: string;
+  /** Pre-computed query embedding (required). */
+  vec: number[];
+  maxVecDist?: number;
+  /** RRF constant (default 60). */
+  k?: number;
+  /** Per-arm candidate pool size (default 30). */
+  candidateLimit?: number;
+  fulltextWeight?: number;
+  semanticWeight?: number;
+  limit?: number;
+}
+
+export interface TreeListEntry {
+  tree: string;
+  count: number;
+}
