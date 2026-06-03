@@ -1,6 +1,11 @@
 // packages/server/index.ts
 import { createAccountsDB } from "@memory.build/accounts";
 import { migrate as migrateAccounts } from "@memory.build/accounts/migrate/runner";
+import {
+  bootstrapSpaceDatabase,
+  migrateAuth,
+  migrateCore,
+} from "@memory.build/database";
 import type { EmbeddingConfig } from "@memory.build/embedding";
 import {
   discoverEngineSchemas,
@@ -14,6 +19,7 @@ import {
 } from "@memory.build/engine/ops/_tx";
 import { WorkerPool } from "@memory.build/worker";
 import { configure, info, reportError, span } from "@pydantic/logfire-node";
+import postgres from "postgres";
 import { MIN_CLIENT_VERSION, SERVER_VERSION } from "../../version";
 import { embeddingConstants } from "./config";
 import type { ServerContext } from "./context";
@@ -352,6 +358,17 @@ const workerEngineSql = new Bun.SQL(workerEngineDatabaseUrl, {
   connectionTimeout: workerEnginePoolConnectionTimeout,
 });
 
+// New-model pool (postgres.js): the auth + core control plane and the per-space
+// me_<slug> data schemas all live in one database, one pool. The legacy Bun.SQL
+// accountsSql/engineSql pools above stay until Phase 5 removes the old paths.
+const db = postgres(engineDatabaseUrl, {
+  max: enginePoolMax,
+  idle_timeout: enginePoolIdleReapSeconds,
+  max_lifetime: enginePoolMaxLifetime,
+  connect_timeout: enginePoolConnectionTimeout,
+  onnotice: () => {},
+});
+
 // Create accounts DB with operations layer
 const accountsDb = createAccountsDB(accountsSql, accountsSchema);
 
@@ -425,6 +442,15 @@ if (engineSchemas.length > 0) {
 } else {
   info("No engine schemas to migrate");
 }
+
+// New model (Phase 4 cutover): prepare the DB for per-space schemas and migrate
+// the auth + core control-plane schemas on the single postgres.js pool. These
+// run alongside the legacy schemas above; the new auth/memory paths consume
+// them as they come online (4B+).
+await bootstrapSpaceDatabase(db);
+await migrateCore(db);
+await migrateAuth(db);
+info("Core + auth schemas migrated");
 
 // =============================================================================
 // Router
@@ -567,6 +593,7 @@ async function shutdown() {
     await accountsSql.close();
     await engineSql.close();
     await workerEngineSql.close();
+    await db.end();
   } catch (error) {
     reportError("Error closing database connections", error as Error);
   }
