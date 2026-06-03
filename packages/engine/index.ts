@@ -1,4 +1,9 @@
 // Main exports
+
+// New core control-plane layer (targets the `core` schema via SQL functions).
+// Namespaced to avoid clashing with the legacy formatApiKey/parseApiKey above
+// during the migration; consumers use core.createCoreDB, core.parseApiKey, etc.
+export * as core from "./core";
 export {
   type CreateEngineDBOptions,
   createEngineDB,
