@@ -31,6 +31,26 @@ later is cheap if distribution returns.
       They're separate packages, so sharing with them needs a dev-only package
       (or fold them in during the postgres.js rollout).
 
+## Harden `search_path` on SQL functions (+ maybe move extensions off `public`)
+
+All the schema SQL functions currently set
+`search_path to pg_catalog, {{schema}}, public, pg_temp`. They can be tightened
+(every object reference is already schema-qualified, and none create temp
+objects):
+
+- [ ] Auth (and likely core/space) data functions → `pg_catalog, public`: drop
+      `{{schema}}` (nothing unqualified) and `pg_temp` (so a temp object can never
+      shadow). The SECURITY DEFINER `update_updated_at` trigger fn can go all the
+      way to `search_path = ''` — it only uses `pg_catalog.now()` + the NEW record.
+- [ ] `public` only has to stay because of `citext` (the `users.email` column +
+      the `_email::citext` compare; its `=` operator can't be cleanly
+      schema-qualified in `a = b`). Consider installing extensions
+      (`citext`, and engine's `ltree`/`vector`/`pg_textsearch`) into a dedicated
+      `extensions` schema instead of `public`; then the path becomes
+      `pg_catalog, extensions` and `public` drops out entirely. This touches the
+      migrate bootstrap (`ensureExtension` installs `with schema public`) — decide
+      holistically before changing the function `search_path`s.
+
 ## Consolidate the migration runner logic
 
 - [x] Done — the shared machinery lives in `packages/database/migrate/kit.ts`:

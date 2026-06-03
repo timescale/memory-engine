@@ -16,6 +16,12 @@ import {
 } from "../../migrate/kit";
 import { AUTH_SCHEMA_VERSION } from "../version";
 import idempotent000 from "./idempotent/000_update.sql" with { type: "text" };
+import idempotent001 from "./idempotent/001_user.sql" with { type: "text" };
+import idempotent002 from "./idempotent/002_session.sql" with { type: "text" };
+import idempotent003 from "./idempotent/003_account.sql" with { type: "text" };
+import idempotent004 from "./idempotent/004_device_auth.sql" with {
+  type: "text",
+};
 import incremental001 from "./incremental/001_users.sql" with { type: "text" };
 import incremental002 from "./incremental/002_accounts.sql" with {
   type: "text",
@@ -66,6 +72,22 @@ const incrementals: Migration[] = [
 
 const idempotents: Migration[] = [
   { name: "000_update", file: "idempotent/000_update.sql", sql: idempotent000 },
+  { name: "001_user", file: "idempotent/001_user.sql", sql: idempotent001 },
+  {
+    name: "002_session",
+    file: "idempotent/002_session.sql",
+    sql: idempotent002,
+  },
+  {
+    name: "003_account",
+    file: "idempotent/003_account.sql",
+    sql: idempotent003,
+  },
+  {
+    name: "004_device_auth",
+    file: "idempotent/004_device_auth.sql",
+    sql: idempotent004,
+  },
 ];
 
 /**

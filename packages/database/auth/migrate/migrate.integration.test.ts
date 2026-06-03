@@ -43,7 +43,19 @@ const EXPECTED_MIGRATIONS = [
   "005_verifications",
 ];
 
-const EXPECTED_FUNCTIONS = ["update_updated_at"];
+const EXPECTED_FUNCTIONS = [
+  "update_updated_at",
+  "create_user",
+  "get_user",
+  "get_user_by_email",
+  "create_session",
+  "validate_session",
+  "upsert_account",
+  "get_account_by_provider",
+  "create_device_auth",
+  "authorize_device",
+  "poll_device",
+];
 
 // The auth schema deliberately requires only citext — not the engine extensions.
 const REQUIRED_EXTENSIONS = ["citext"];
@@ -215,6 +227,173 @@ describe("schema constraints enforce", () => {
          values ('${crypto.randomUUID()}', '${code}', 'google', '${crypto.randomUUID()}', now() + interval '15 min')`,
       ),
     );
+  });
+});
+
+describe("auth functions", () => {
+  const email = () => `fn_${crypto.randomUUID().slice(0, 8)}@example.com`;
+
+  test("create_user + get_user + get_user_by_email (citext)", async () => {
+    await withTestAuth(sql, {}, async (auth) => {
+      const s = auth.schema;
+      const e = email();
+      const [u] = await sql.unsafe(
+        `select ${s}.create_user($1, $2, $3) as id`,
+        [e, "Alice", true],
+      );
+      const id = u?.id as string;
+
+      const [byId] = await sql.unsafe(`select * from ${s}.get_user($1)`, [id]);
+      expect(byId?.id).toBe(id);
+      expect(byId?.email).toBe(e);
+      expect(byId?.email_verified).toBe(true);
+
+      // citext: lookup is case-insensitive
+      const [byEmail] = await sql.unsafe(
+        `select * from ${s}.get_user_by_email($1)`,
+        [e.toUpperCase()],
+      );
+      expect(byEmail?.id).toBe(id);
+    });
+  });
+
+  test("create_session + validate_session (valid + expired)", async () => {
+    await withTestAuth(sql, {}, async (auth) => {
+      const s = auth.schema;
+      const [u] = await sql.unsafe(`select ${s}.create_user($1, $2) as id`, [
+        email(),
+        "Bob",
+      ]);
+      const userId = u?.id as string;
+
+      await sql.unsafe(
+        `select ${s}.create_session($1, $2::bytea, now() + interval '1 day')`,
+        [userId, "\\xabcd"],
+      );
+      const valid = await sql.unsafe(
+        `select * from ${s}.validate_session($1::bytea)`,
+        ["\\xabcd"],
+      );
+      expect(valid.length).toBe(1);
+      expect(valid[0]?.user_id).toBe(userId);
+
+      await sql.unsafe(
+        `select ${s}.create_session($1, $2::bytea, now() - interval '1 second')`,
+        [userId, "\\xbeef"],
+      );
+      const expired = await sql.unsafe(
+        `select * from ${s}.validate_session($1::bytea)`,
+        ["\\xbeef"],
+      );
+      expect(expired.length).toBe(0);
+    });
+  });
+
+  test("upsert_account + get_account_by_provider (login lookup, idempotent)", async () => {
+    await withTestAuth(sql, {}, async (auth) => {
+      const s = auth.schema;
+      const [u] = await sql.unsafe(`select ${s}.create_user($1, $2) as id`, [
+        email(),
+        "Carol",
+      ]);
+      const userId = u?.id as string;
+      const acct = crypto.randomUUID();
+
+      await sql.unsafe(`select ${s}.upsert_account($1, 'github', $2)`, [
+        userId,
+        acct,
+      ]);
+      const found = await sql.unsafe(
+        `select * from ${s}.get_account_by_provider('github', $1)`,
+        [acct],
+      );
+      expect(found[0]?.user_id).toBe(userId);
+
+      // re-upsert the same (provider, account) stays one row
+      await sql.unsafe(`select ${s}.upsert_account($1, 'github', $2)`, [
+        userId,
+        acct,
+      ]);
+      const [n] = await sql.unsafe(
+        `select count(*)::int as n from ${s}.accounts where provider_id='github' and account_id=$1`,
+        [acct],
+      );
+      expect(n?.n).toBe(1);
+
+      const none = await sql.unsafe(
+        `select * from ${s}.get_account_by_provider('github', $1)`,
+        [crypto.randomUUID()],
+      );
+      expect(none.length).toBe(0);
+    });
+  });
+
+  test("device flow: create → lookups → poll_device → authorize", async () => {
+    await withTestAuth(sql, {}, async (auth) => {
+      const s = auth.schema;
+      const [u] = await sql.unsafe(`select ${s}.create_user($1, $2) as id`, [
+        email(),
+        "Dave",
+      ]);
+      const userId = u?.id as string;
+
+      const deviceCode = crypto.randomUUID();
+      const userCode = "ABCD-2345";
+      const oauthState = crypto.randomUUID();
+      await sql.unsafe(
+        `select ${s}.create_device_auth($1, $2, 'google', $3, now() + interval '15 min')`,
+        [deviceCode, userCode, oauthState],
+      );
+
+      const byState = await sql.unsafe(
+        `select * from ${s}.get_device_by_oauth_state($1)`,
+        [oauthState],
+      );
+      expect(byState[0]?.device_code).toBe(deviceCode);
+      const byUserCode = await sql.unsafe(
+        `select * from ${s}.get_device_by_user_code($1)`,
+        [userCode],
+      );
+      expect(byUserCode[0]?.device_code).toBe(deviceCode);
+
+      // poll before authorization → pending (interval 0 bypasses rate limit)
+      const [p1] = await sql.unsafe(`select * from ${s}.poll_device($1, 0)`, [
+        deviceCode,
+      ]);
+      expect(p1?.status).toBe("pending");
+      expect(p1?.user_id).toBeNull();
+
+      // immediate re-poll with the default interval → slow_down
+      const [sd] = await sql.unsafe(`select * from ${s}.poll_device($1)`, [
+        deviceCode,
+      ]);
+      expect(sd?.status).toBe("slow_down");
+
+      // authorize binds the user; a second authorize is a no-op
+      const [a] = await sql.unsafe(
+        `select ${s}.authorize_device($1, $2) as ok`,
+        [deviceCode, userId],
+      );
+      expect(a?.ok).toBe(true);
+      const [a2] = await sql.unsafe(
+        `select ${s}.authorize_device($1, $2) as ok`,
+        [deviceCode, userId],
+      );
+      expect(a2?.ok).toBe(false);
+
+      // poll now resolves to authorized + the bound user
+      const [p2] = await sql.unsafe(`select * from ${s}.poll_device($1, 0)`, [
+        deviceCode,
+      ]);
+      expect(p2?.status).toBe("authorized");
+      expect(p2?.user_id).toBe(userId);
+
+      // unknown / expired device code → expired
+      const [ex] = await sql.unsafe(`select * from ${s}.poll_device($1, 0)`, [
+        crypto.randomUUID(),
+      ]);
+      expect(ex?.status).toBe("expired");
+    });
   });
 });
 
