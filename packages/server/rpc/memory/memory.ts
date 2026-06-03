@@ -455,7 +455,7 @@ async function memoryCountTree(
 // Registry
 // =============================================================================
 
-export const memoryMethods = buildRegistry()
+export const memoryDataMethods = buildRegistry()
   .register("memory.create", memoryCreateParams, memoryCreate)
   .register("memory.batchCreate", memoryBatchCreateParams, memoryBatchCreate)
   .register("memory.get", memoryGetParams, memoryGet)

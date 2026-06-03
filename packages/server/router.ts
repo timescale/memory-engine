@@ -15,12 +15,14 @@ import {
   authenticateEngine,
 } from "./middleware/authenticate";
 import { authenticateSpace } from "./middleware/authenticate-space";
+import { authenticateUser } from "./middleware/authenticate-user";
 import { checkClientVersion } from "./middleware/client-version";
 import {
   accountsMethods,
   createRpcHandler,
   engineMethods,
   memoryMethods,
+  userMethods,
 } from "./rpc";
 import { notFound } from "./util/response";
 
@@ -223,8 +225,18 @@ export function createRouter(ctx: ServerContext): Router {
       principalId: spaceContext.principalId,
       apiKeyId: spaceContext.apiKeyId,
       treeAccess: spaceContext.treeAccess,
+      admin: spaceContext.admin,
       embeddingConfig,
     };
+  });
+
+  // User RPC (new model): session-only, user-scoped (agent lifecycle)
+  const userRpcHandler = createRpcHandler(userMethods, async (request) => {
+    const result = await authenticateUser(request, auth);
+    if (!result.ok) {
+      return result.error;
+    }
+    return { core, userId: result.context.userId };
   });
 
   /**
@@ -311,6 +323,13 @@ export function createRouter(ctx: ServerContext): Router {
       method: "POST",
       pattern: "/api/v1/memory/rpc",
       handler: withClientVersionCheck(memoryRpcHandler),
+    },
+
+    // User RPC (new model: session-only, user-scoped agent lifecycle)
+    {
+      method: "POST",
+      pattern: "/api/v1/user/rpc",
+      handler: withClientVersionCheck(userRpcHandler),
     },
   ];
 

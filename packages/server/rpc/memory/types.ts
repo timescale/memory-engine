@@ -23,6 +23,8 @@ export interface SpaceRpcContext extends HandlerContext {
   apiKeyId: string | null;
   /** The principal's effective grants in this space — the access gate. */
   treeAccess: TreeAccess;
+  /** Whether the principal is a space admin (principal_space.admin). */
+  admin: boolean;
   /** Embedding config for semantic search (optional). */
   embeddingConfig?: EmbeddingConfig;
 }

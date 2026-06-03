@@ -130,6 +130,19 @@ test("groups: create, list, rename, members, delete", async () => {
   expect(await core.listSpaceGroups(spaceId)).toHaveLength(0);
 });
 
+test("group grants are inherited transitively (Model 2)", async () => {
+  // a user who is ONLY a group member (no direct principal_space row, no direct
+  // grant) inherits the group's grant via build_tree_access.
+  const groupOnly = await v7();
+  await core.createUser(groupOnly, `go_${rand(8)}@example.com`);
+  const groupId = await core.createGroup(spaceId, `grp_${rand(6)}`);
+  await core.addGroupMember(spaceId, groupId, groupOnly);
+  await core.grantTreeAccess(spaceId, groupId, "shared", ACCESS.write);
+
+  const ta = await core.buildTreeAccess(groupOnly, spaceId);
+  expect(ta).toContainEqual({ tree_path: "shared", access: ACCESS.write });
+});
+
 test("listTreeAccessGrants returns grants; filterable by principal", async () => {
   await core.grantTreeAccess(spaceId, userId, "a.b", ACCESS.write);
   await core.grantTreeAccess(spaceId, userId, "c", ACCESS.owner);

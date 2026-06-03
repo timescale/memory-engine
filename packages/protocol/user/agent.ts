@@ -1,0 +1,49 @@
+/**
+ * Agent method schemas (agent.*) for the user RPC.
+ *
+ * Agents are a user's global service accounts (owned by the user, names unique
+ * per user, not scoped to a space). Their lifecycle lives on the session-only
+ * user endpoint (POST /api/v1/user/rpc); bringing an agent into a space and
+ * minting its (space-bound) api key are space-endpoint operations.
+ */
+import { z } from "zod";
+import { nameSchema, uuidv7Schema } from "../fields.ts";
+
+export const agentResponse = z.object({
+  id: z.string(),
+  name: z.string(),
+  createdAt: z.string(),
+  updatedAt: z.string().nullable(),
+});
+export type AgentResponse = z.infer<typeof agentResponse>;
+
+// agent.create — create an agent owned by the calling user
+export const agentCreateParams = z.object({ name: nameSchema });
+export type AgentCreateParams = z.infer<typeof agentCreateParams>;
+
+export const agentCreateResult = z.object({ id: z.string() });
+export type AgentCreateResult = z.infer<typeof agentCreateResult>;
+
+// agent.list — the caller's agents
+export const agentListParams = z.object({});
+export type AgentListParams = z.infer<typeof agentListParams>;
+
+export const agentListResult = z.object({ agents: z.array(agentResponse) });
+export type AgentListResult = z.infer<typeof agentListResult>;
+
+// agent.rename
+export const agentRenameParams = z.object({
+  id: uuidv7Schema,
+  name: nameSchema,
+});
+export type AgentRenameParams = z.infer<typeof agentRenameParams>;
+
+export const agentRenameResult = z.object({ renamed: z.boolean() });
+export type AgentRenameResult = z.infer<typeof agentRenameResult>;
+
+// agent.delete
+export const agentDeleteParams = z.object({ id: uuidv7Schema });
+export type AgentDeleteParams = z.infer<typeof agentDeleteParams>;
+
+export const agentDeleteResult = z.object({ deleted: z.boolean() });
+export type AgentDeleteResult = z.infer<typeof agentDeleteResult>;

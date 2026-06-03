@@ -47,6 +47,8 @@ export interface SpaceAuthContext {
   apiKeyId: string | null;
   /** The principal's effective grants in this space — the access gate. */
   treeAccess: TreeAccess;
+  /** Whether the principal is a space admin (principal_space.admin). */
+  admin: boolean;
 }
 
 export type SpaceAuthResult =
@@ -155,8 +157,10 @@ async function authenticateSpaceInner(
     return { ok: false, error: forbidden("No access to this space") };
   }
 
-  // 6. Bind the data-plane store to this space's schema.
+  // 6. Bind the data-plane store to this space's schema, and resolve whether
+  // the principal is a space admin (membership-level management authority).
   const store = spaceStore(db, slugToSchema(space.slug));
+  const admin = await core.isSpaceAdmin(principalId, space.id);
 
   debug("space auth succeeded", {
     slug,
@@ -173,6 +177,7 @@ async function authenticateSpaceInner(
       principalId,
       apiKeyId,
       treeAccess,
+      admin,
     },
   };
 }

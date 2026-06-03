@@ -102,6 +102,32 @@ set search_path to pg_catalog, {{schema}}, public, pg_temp
 ;
 
 -------------------------------------------------------------------------------
+-- list_agents
+-- A user's agents (global; agents are owned by a user, not scoped to a space).
+-------------------------------------------------------------------------------
+create or replace function {{schema}}.list_agents
+( _owner_id uuid
+)
+returns table
+( id uuid
+, kind text
+, name text
+, owner_id uuid
+, space_id uuid
+, created_at timestamptz
+, updated_at timestamptz
+)
+as $func$
+  select p.id, p.kind, p.name::text, p.owner_id, p.space_id, p.created_at, p.updated_at
+  from {{schema}}.principal p
+  where p.kind = 'a'
+  and p.owner_id = _owner_id
+  order by p.name
+$func$ language sql stable security invoker
+set search_path to pg_catalog, {{schema}}, public, pg_temp
+;
+
+-------------------------------------------------------------------------------
 -- list_space_groups
 -- All groups belonging to a space (groups are space-scoped via space_id).
 -------------------------------------------------------------------------------

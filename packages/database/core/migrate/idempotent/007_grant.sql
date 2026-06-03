@@ -47,13 +47,16 @@ set search_path to pg_catalog, {{schema}}, public, pg_temp
 
 -------------------------------------------------------------------------------
 -- list_tree_access_grants
--- The grant rows in a space, optionally for a single principal. (Owner listing
--- is this filtered to access = 3 by the caller.) Distinct from build_tree_access,
--- which resolves a member's *effective* access set; this lists the raw grants.
+-- The grant rows in a space, optionally filtered to a single principal and/or
+-- to a subtree (_under: only grants at-or-below this path, i.e. _under @> path).
+-- (Owner listing is this filtered to access = 3 by the caller.) Distinct from
+-- build_tree_access, which resolves a member's *effective* access set; this
+-- lists the raw grants.
 -------------------------------------------------------------------------------
 create or replace function {{schema}}.list_tree_access_grants
 ( _space_id uuid
 , _principal_id uuid default null
+, _under ltree default null
 )
 returns table
 ( principal_id uuid
@@ -67,6 +70,7 @@ as $func$
   from {{schema}}.tree_access t
   where t.space_id = _space_id
   and (_principal_id is null or t.principal_id = _principal_id)
+  and (_under is null or _under @> t.tree_path)
   order by t.principal_id, t.tree_path
 $func$ language sql stable security invoker
 set search_path to pg_catalog, {{schema}}, public, pg_temp

@@ -52,3 +52,9 @@ export type {
   MethodRegistry,
   RegisteredMethod,
 } from "./types";
+export {
+  assertUserRpcContext,
+  isUserRpcContext,
+  type UserRpcContext,
+  userMethods,
+} from "./user";

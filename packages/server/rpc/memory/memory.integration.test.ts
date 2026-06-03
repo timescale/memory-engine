@@ -20,7 +20,7 @@ import { type AppErrorCode, isAppError } from "@memory.build/protocol/errors";
 import postgres, { type Sql } from "postgres";
 import { provisionUser } from "../../provision";
 import type { HandlerContext } from "../types";
-import { memoryMethods } from "./memory";
+import { memoryDataMethods } from "./memory";
 
 const URL =
   process.env.TEST_DATABASE_URL ??
@@ -50,7 +50,7 @@ function call<T = unknown>(
   params: unknown,
   ta: TreeAccess = treeAccess,
 ): Promise<T> {
-  const registered = memoryMethods.get(method);
+  const registered = memoryDataMethods.get(method);
   if (!registered) throw new Error(`no handler for ${method}`);
   const context = {
     request: new Request("http://localhost/api/v1/memory/rpc"),

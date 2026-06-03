@@ -43,8 +43,18 @@ export interface CoreStore {
     spaceId: string,
     kind?: PrincipalKind,
   ): Promise<SpaceMember[]>;
+  /** Whether a principal is an admin of a space (agents are never admins). */
+  isSpaceAdmin(principalId: string, spaceId: string): Promise<boolean>;
+  /** Whether a member is an admin of a group (agents are never group admins). */
+  isGroupAdmin(
+    memberId: string,
+    groupId: string,
+    spaceId: string,
+  ): Promise<boolean>;
   /** Groups belonging to a space. */
   listSpaceGroups(spaceId: string): Promise<Group[]>;
+  /** A user's agents (global; agents are owned by a user, not a space). */
+  listAgents(ownerId: string): Promise<Principal[]>;
 
   addPrincipalToSpace(
     spaceId: string,
@@ -86,12 +96,14 @@ export interface CoreStore {
     treePath: string,
   ): Promise<boolean>;
   /**
-   * The raw grant rows in a space, optionally for a single principal. Distinct
+   * The raw grant rows in a space, optionally for a single principal and/or
+   * restricted to a subtree (`under`: grants at-or-below this path). Distinct
    * from buildTreeAccess, which resolves a member's *effective* access set.
    */
   listTreeAccessGrants(
     spaceId: string,
     principalId?: string,
+    under?: string,
   ): Promise<TreeGrant[]>;
 
   /** Resolve a member's effective grants in a space (for the space functions). */
@@ -246,6 +258,25 @@ export function coreStore(sql: Sql, schema: string = CORE_SCHEMA): CoreStore {
       return rows.map(mapGroup);
     },
 
+    async listAgents(ownerId) {
+      const rows = await sql`select * from ${sch}.list_agents(${ownerId})`;
+      return rows.map(mapPrincipal);
+    },
+
+    async isSpaceAdmin(principalId, spaceId) {
+      const [row] = await sql`
+        select ${sch}.is_principal_space_admin(${principalId}, ${spaceId}) as ok
+      `;
+      return Boolean(row?.ok);
+    },
+
+    async isGroupAdmin(memberId, groupId, spaceId) {
+      const [row] = await sql`
+        select ${sch}.is_group_admin(${memberId}, ${groupId}, ${spaceId}) as ok
+      `;
+      return Boolean(row?.ok);
+    },
+
     async addPrincipalToSpace(spaceId, principalId, admin = false) {
       await sql`select ${sch}.add_principal_to_space(${spaceId}, ${principalId}, ${admin})`;
     },
@@ -310,9 +341,11 @@ export function coreStore(sql: Sql, schema: string = CORE_SCHEMA): CoreStore {
       return Boolean(row?.removed);
     },
 
-    async listTreeAccessGrants(spaceId, principalId) {
+    async listTreeAccessGrants(spaceId, principalId, under) {
       const rows = await sql`
-        select * from ${sch}.list_tree_access_grants(${spaceId}, ${principalId ?? null})
+        select * from ${sch}.list_tree_access_grants(
+          ${spaceId}, ${principalId ?? null}, ${under ?? null}::ltree
+        )
       `;
       return rows.map(
         (r): TreeGrant => ({
