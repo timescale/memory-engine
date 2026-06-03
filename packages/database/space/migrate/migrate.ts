@@ -1,6 +1,6 @@
 import { info, reportError, span } from "@pydantic/logfire-node";
 import { semver } from "bun";
-import type { Sql as SQL } from "postgres";
+import type { ISql, Sql as SQL } from "postgres";
 import {
   acquireAdvisoryLock,
   advisoryLockKey,
@@ -90,6 +90,74 @@ interface NormalizedMigrateSpaceOptions {
   idleInTransactionSessionTimeout: string;
 }
 
+/** Validate options and resolve the target schema name. */
+function resolveSchema(opts: NormalizedMigrateSpaceOptions): string {
+  if (!isValidSlug(opts.slug)) {
+    throw new Error(
+      `Invalid space slug: "${opts.slug}" — must be 12 lowercase alphanumeric characters`,
+    );
+  }
+  if (opts.schema !== undefined && !isValidSchemaName(opts.schema)) {
+    throw new Error(
+      `Invalid schema override: "${opts.schema}" — must be a valid lowercase SQL identifier (<= 63 chars)`,
+    );
+  }
+  if (!semver.satisfies(opts.schemaVersion, "*")) {
+    throw new Error(`Invalid schema version: "${opts.schemaVersion}"`);
+  }
+  return opts.schema ?? slugToSchema(opts.slug);
+}
+
+/** Provision (if missing) then run all migrations, against a given transaction. */
+async function provisionAndRun(
+  tx: ISql,
+  schema: string,
+  opts: NormalizedMigrateSpaceOptions,
+): Promise<void> {
+  if (!(await doesSchemaExist(tx, schema))) {
+    await executeSqlFile(tx, template(provisionSql, { schema }), {
+      logSqlFiles: opts.logSqlFiles,
+      label: "space",
+      schema,
+      type: "provision",
+      dir: DIR,
+      file: "provision.sql",
+    });
+  }
+  await runSchemaMigrations(tx, {
+    schema,
+    schemaVersion: opts.schemaVersion,
+    incrementals,
+    idempotents,
+    templateVars: templateVars(schema, opts),
+    label: "space",
+    dir: DIR,
+    logSqlFiles: opts.logSqlFiles,
+  });
+}
+
+/**
+ * Provision + migrate a space schema within the CALLER's transaction — no own
+ * transaction and no advisory lock. Because schema creation is transactional,
+ * the caller can compose this atomically with other writes (e.g. provisionUser
+ * creates the me_<slug> schema + the core/auth rows in one transaction, so any
+ * failure rolls the schema back — no orphan, no cleanup).
+ *
+ * Use `migrateSpace` for the standalone re-migrate path: it owns its
+ * transaction + advisory lock to serialize concurrent migrators of an existing
+ * space. Skipping the lock here is safe — a freshly generated slug has no
+ * contender, and the schema-name / `space.slug` uniqueness makes any race
+ * fail-and-roll-back.
+ */
+export async function provisionSpace(
+  tx: ISql,
+  options: MigrateSpaceOptions,
+): Promise<void> {
+  const opts = normalizeMigrateSpaceOptions(options);
+  const schema = resolveSchema(opts);
+  await provisionAndRun(tx, schema, opts);
+}
+
 export async function migrateSpace(
   sql: SQL,
   options: MigrateSpaceOptions,
@@ -101,20 +169,7 @@ export async function migrateSpace(
     attributes,
     callback: async () => {
       try {
-        if (!isValidSlug(opts.slug)) {
-          throw new Error(
-            `Invalid space slug: "${opts.slug}" — must be 12 lowercase alphanumeric characters`,
-          );
-        }
-        if (opts.schema !== undefined && !isValidSchemaName(opts.schema)) {
-          throw new Error(
-            `Invalid schema override: "${opts.schema}" — must be a valid lowercase SQL identifier (<= 63 chars)`,
-          );
-        }
-        if (!semver.satisfies(opts.schemaVersion, "*")) {
-          throw new Error(`Invalid schema version: "${opts.schemaVersion}"`);
-        }
-        const schema = opts.schema ?? slugToSchema(opts.slug);
+        const schema = resolveSchema(opts);
         const schemaAttributes = { ...attributes, "db.schema": schema };
         const [key1, key2] = advisoryLockKey(`memory-space:schema:${schema}`);
 
@@ -129,40 +184,7 @@ export async function migrateSpace(
               `Unable to acquire lock for space slug ${opts.slug} migrations.`,
             );
           }
-
-          if (!(await doesSchemaExist(tx, schema))) {
-            await span("space.migrate.provision", {
-              attributes: {
-                ...schemaAttributes,
-                "space.migration_file": "provision.sql",
-                "space.migration_type": "provision",
-              },
-              callback: () =>
-                executeSqlFile(tx, template(provisionSql, { schema }), {
-                  logSqlFiles: opts.logSqlFiles,
-                  label: "space",
-                  schema,
-                  type: "provision",
-                  dir: DIR,
-                  file: "provision.sql",
-                }),
-            });
-            info("Space schema provisioned", schemaAttributes);
-          }
-          await span("space.migrate.run", {
-            attributes: schemaAttributes,
-            callback: () =>
-              runSchemaMigrations(tx, {
-                schema,
-                schemaVersion: opts.schemaVersion,
-                incrementals,
-                idempotents,
-                templateVars: templateVars(schema, opts),
-                label: "space",
-                dir: DIR,
-                logSqlFiles: opts.logSqlFiles,
-              }),
-          });
+          await provisionAndRun(tx, schema, opts);
         });
         info("Space migrations completed", schemaAttributes);
       } catch (error) {

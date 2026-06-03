@@ -16,7 +16,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import type { Sql as SQL } from "postgres";
 import { SPACE_SCHEMA_VERSION } from "../version";
 import { bootstrapSpaceDatabase } from "./bootstrap";
-import { migrateSpace } from "./migrate";
+import { migrateSpace, provisionSpace } from "./migrate";
 import {
   appliedMigrations,
   columnType,
@@ -28,8 +28,10 @@ import {
   listIndexes,
   listTables,
   listTriggers,
+  randomSlug,
   schemaExists,
   TestSpace,
+  tableExists,
   withTestSpace,
 } from "./test-utils";
 
@@ -92,6 +94,40 @@ beforeAll(async () => {
 afterAll(async () => {
   await Promise.all([canonical?.drop(), dim768?.drop(), customIdx?.drop()]);
   await sql.end();
+});
+
+describe("provisionSpace (caller-transaction, transactional DDL)", () => {
+  test("rolls back the whole schema when the caller's transaction aborts", async () => {
+    const slug = randomSlug();
+    const schema = `metest_${slug}`;
+    await expect(
+      sql.begin(async (tx) => {
+        await provisionSpace(tx, { slug, schema, embeddingDimensions: 4 });
+        // visible inside the transaction (schema + memory table created)
+        const [r] =
+          await tx`select to_regclass(${`${schema}.memory`}) is not null as present`;
+        expect(r?.present).toBe(true);
+        throw new Error("rollback");
+      }),
+    ).rejects.toThrow("rollback");
+    // schema + bm25/hnsw index DDL all rolled back — nothing left behind
+    expect(await schemaExists(sql, schema)).toBe(false);
+  });
+
+  test("commits a fully-migrated space when the transaction succeeds", async () => {
+    const slug = randomSlug();
+    const schema = `metest_${slug}`;
+    try {
+      await sql.begin(async (tx) => {
+        await provisionSpace(tx, { slug, schema, embeddingDimensions: 4 });
+      });
+      expect(await schemaExists(sql, schema)).toBe(true);
+      expect(await tableExists(sql, schema, "memory")).toBe(true);
+      expect(await getSchemaVersion(sql, schema)).toBe(SPACE_SCHEMA_VERSION);
+    } finally {
+      await sql.unsafe(`drop schema if exists ${schema} cascade`);
+    }
+  });
 });
 
 describe("provisioned space schema", () => {

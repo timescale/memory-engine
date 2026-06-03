@@ -1,5 +1,9 @@
 export { bootstrapSpaceDatabase } from "./migrate/bootstrap";
-export { type MigrateSpaceOptions, migrateSpace } from "./migrate/migrate";
+export {
+  type MigrateSpaceOptions,
+  migrateSpace,
+  provisionSpace,
+} from "./migrate/migrate";
 export {
   isValidSlug,
   isValidSpaceSchema,
