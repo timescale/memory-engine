@@ -278,6 +278,324 @@ describe("agent_tree_access clamps agent access to its owner", () => {
   });
 });
 
+describe("control-plane functions", () => {
+  /** A fresh uuidv7 from the database (principal.id requires version 7). */
+  async function v7(): Promise<string> {
+    const [row] = await sql.unsafe(`select uuidv7() as id`);
+    return row?.id as string;
+  }
+
+  type Grant = { tree_path: string; access: number };
+
+  test("create_space + create_user + grant → build_tree_access returns the search_memory jsonb shape", async () => {
+    await withTestCore(sql, {}, async (core) => {
+      const s = core.schema;
+      const [sp] = await sql.unsafe(`select ${s}.create_space($1, $2) as id`, [
+        randomSlug(),
+        "Test Space",
+      ]);
+      const spaceId = sp?.id as string;
+
+      const userId = await v7();
+      await sql.unsafe(`select ${s}.create_user($1, $2) as id`, [
+        userId,
+        "alice",
+      ]);
+      await sql.unsafe(`select ${s}.add_principal_to_space($1, $2, $3)`, [
+        spaceId,
+        userId,
+        true,
+      ]);
+      await sql.unsafe(`select ${s}.grant_tree_access($1, $2, $3::ltree, $4)`, [
+        spaceId,
+        userId,
+        "work.projects",
+        2,
+      ]);
+
+      const [row] = await sql.unsafe(
+        `select ${s}.build_tree_access($1, $2) as ta`,
+        [userId, spaceId],
+      );
+      const ta = row?.ta as Grant[];
+      expect(ta).toEqual([{ tree_path: "work.projects", access: 2 }]);
+    });
+  });
+
+  test("build_tree_access includes access granted via a group", async () => {
+    await withTestCore(sql, {}, async (core) => {
+      const s = core.schema;
+      const [sp] = await sql.unsafe(`select ${s}.create_space($1, $2) as id`, [
+        randomSlug(),
+        "Team Space",
+      ]);
+      const spaceId = sp?.id as string;
+
+      const userId = await v7();
+      await sql.unsafe(`select ${s}.create_user($1, $2) as id`, [
+        userId,
+        "bob",
+      ]);
+      const [grp] = await sql.unsafe(`select ${s}.create_group($1, $2) as id`, [
+        spaceId,
+        "engineering",
+      ]);
+      const groupId = grp?.id as string;
+
+      // both the user and the group must be members of the space
+      await sql.unsafe(`select ${s}.add_principal_to_space($1, $2, $3)`, [
+        spaceId,
+        userId,
+        false,
+      ]);
+      await sql.unsafe(`select ${s}.add_principal_to_space($1, $2, $3)`, [
+        spaceId,
+        groupId,
+        false,
+      ]);
+      await sql.unsafe(`select ${s}.add_group_member($1, $2, $3, $4)`, [
+        spaceId,
+        groupId,
+        userId,
+        false,
+      ]);
+      // grant to the GROUP, not the user
+      await sql.unsafe(`select ${s}.grant_tree_access($1, $2, $3::ltree, $4)`, [
+        spaceId,
+        groupId,
+        "shared.docs",
+        1,
+      ]);
+
+      const [row] = await sql.unsafe(
+        `select ${s}.build_tree_access($1, $2) as ta`,
+        [userId, spaceId],
+      );
+      const ta = row?.ta as Grant[];
+      expect(ta).toContainEqual({ tree_path: "shared.docs", access: 1 });
+    });
+  });
+
+  test("remove_group_member revokes group-inherited access", async () => {
+    await withTestCore(sql, {}, async (core) => {
+      const s = core.schema;
+      const [sp] = await sql.unsafe(`select ${s}.create_space($1, $2) as id`, [
+        randomSlug(),
+        "Team",
+      ]);
+      const spaceId = sp?.id as string;
+      const userId = await v7();
+      await sql.unsafe(`select ${s}.create_user($1, $2)`, [userId, "erin"]);
+      const [grp] = await sql.unsafe(`select ${s}.create_group($1, $2) as id`, [
+        spaceId,
+        "ops",
+      ]);
+      const groupId = grp?.id as string;
+      await sql.unsafe(`select ${s}.add_principal_to_space($1, $2, $3)`, [
+        spaceId,
+        userId,
+        false,
+      ]);
+      await sql.unsafe(`select ${s}.add_principal_to_space($1, $2, $3)`, [
+        spaceId,
+        groupId,
+        false,
+      ]);
+      await sql.unsafe(`select ${s}.add_group_member($1, $2, $3, $4)`, [
+        spaceId,
+        groupId,
+        userId,
+        false,
+      ]);
+      await sql.unsafe(`select ${s}.grant_tree_access($1, $2, $3::ltree, $4)`, [
+        spaceId,
+        groupId,
+        "team.notes",
+        2,
+      ]);
+
+      // sanity: access is inherited via the group
+      const [before] = await sql.unsafe(
+        `select ${s}.build_tree_access($1, $2) as ta`,
+        [userId, spaceId],
+      );
+      expect(before?.ta as Grant[]).toContainEqual({
+        tree_path: "team.notes",
+        access: 2,
+      });
+
+      const [removed] = await sql.unsafe(
+        `select ${s}.remove_group_member($1, $2, $3) as removed`,
+        [spaceId, groupId, userId],
+      );
+      expect(removed?.removed).toBe(true);
+
+      const [after] = await sql.unsafe(
+        `select ${s}.build_tree_access($1, $2) as ta`,
+        [userId, spaceId],
+      );
+      expect(after?.ta).toEqual([]);
+
+      // second remove is a no-op
+      const [again] = await sql.unsafe(
+        `select ${s}.remove_group_member($1, $2, $3) as removed`,
+        [spaceId, groupId, userId],
+      );
+      expect(again?.removed).toBe(false);
+    });
+  });
+
+  test("remove_principal_from_space cascades grants + group memberships (space-scoped)", async () => {
+    await withTestCore(sql, {}, async (core) => {
+      const s = core.schema;
+      const [sp] = await sql.unsafe(`select ${s}.create_space($1, $2) as id`, [
+        randomSlug(),
+        "Cascade",
+      ]);
+      const spaceId = sp?.id as string;
+      const userId = await v7();
+      await sql.unsafe(`select ${s}.create_user($1, $2)`, [userId, "frank"]);
+      const [grp] = await sql.unsafe(`select ${s}.create_group($1, $2) as id`, [
+        spaceId,
+        "team",
+      ]);
+      const groupId = grp?.id as string;
+
+      await sql.unsafe(`select ${s}.add_principal_to_space($1, $2, $3)`, [
+        spaceId,
+        userId,
+        false,
+      ]);
+      await sql.unsafe(`select ${s}.add_principal_to_space($1, $2, $3)`, [
+        spaceId,
+        groupId,
+        false,
+      ]);
+      await sql.unsafe(`select ${s}.add_group_member($1, $2, $3, $4)`, [
+        spaceId,
+        groupId,
+        userId,
+        false,
+      ]);
+      await sql.unsafe(`select ${s}.grant_tree_access($1, $2, $3::ltree, $4)`, [
+        spaceId,
+        userId,
+        "direct",
+        2,
+      ]);
+      await sql.unsafe(`select ${s}.grant_tree_access($1, $2, $3::ltree, $4)`, [
+        spaceId,
+        groupId,
+        "shared",
+        1,
+      ]);
+
+      const [removed] = await sql.unsafe(
+        `select ${s}.remove_principal_from_space($1, $2) as removed`,
+        [spaceId, userId],
+      );
+      expect(removed?.removed).toBe(true);
+
+      const count = async (table: string, col: string, id: string) => {
+        const [r] = await sql.unsafe(
+          `select count(*)::int as n from ${s}.${table} where space_id=$1 and ${col}=$2`,
+          [spaceId, id],
+        );
+        return Number(r?.n);
+      };
+      // the user's membership, direct grant, and group membership are all gone
+      expect(await count("principal_space", "principal_id", userId)).toBe(0);
+      expect(await count("tree_access", "principal_id", userId)).toBe(0);
+      expect(await count("group_member", "member_id", userId)).toBe(0);
+      // the group itself and its own grant are untouched
+      expect(await count("principal_space", "principal_id", groupId)).toBe(1);
+      expect(await count("tree_access", "principal_id", groupId)).toBe(1);
+    });
+  });
+
+  test("remove_tree_access_grant drops the grant", async () => {
+    await withTestCore(sql, {}, async (core) => {
+      const s = core.schema;
+      const [sp] = await sql.unsafe(`select ${s}.create_space($1, $2) as id`, [
+        randomSlug(),
+        "Sp",
+      ]);
+      const spaceId = sp?.id as string;
+      const userId = await v7();
+      await sql.unsafe(`select ${s}.create_user($1, $2)`, [userId, "carol"]);
+      await sql.unsafe(`select ${s}.add_principal_to_space($1, $2, $3)`, [
+        spaceId,
+        userId,
+        false,
+      ]);
+      await sql.unsafe(`select ${s}.grant_tree_access($1, $2, $3::ltree, $4)`, [
+        spaceId,
+        userId,
+        "a.b",
+        3,
+      ]);
+
+      const [first] = await sql.unsafe(
+        `select ${s}.remove_tree_access_grant($1, $2, $3::ltree) as removed`,
+        [spaceId, userId, "a.b"],
+      );
+      expect(first?.removed).toBe(true);
+      const [second] = await sql.unsafe(
+        `select ${s}.remove_tree_access_grant($1, $2, $3::ltree) as removed`,
+        [spaceId, userId, "a.b"],
+      );
+      expect(second?.removed).toBe(false);
+
+      const [row] = await sql.unsafe(
+        `select ${s}.build_tree_access($1, $2) as ta`,
+        [userId, spaceId],
+      );
+      expect(row?.ta).toEqual([]);
+    });
+  });
+
+  test("create_api_key + validate_api_key (good, wrong-secret, expired)", async () => {
+    await withTestCore(sql, {}, async (core) => {
+      const s = core.schema;
+      const userId = await v7();
+      await sql.unsafe(`select ${s}.create_user($1, $2)`, [userId, "dave"]);
+
+      const lookup = "abcdEFGH12345678"; // 16 chars, matches lookup_id check
+      await sql.unsafe(`select ${s}.create_api_key($1, $2, $3, $4)`, [
+        userId,
+        lookup,
+        "hashed-secret",
+        "default",
+      ]);
+
+      const valid = await sql.unsafe(
+        `select member_id from ${s}.validate_api_key($1, $2)`,
+        [lookup, "hashed-secret"],
+      );
+      expect(valid.length).toBe(1);
+      expect(valid[0]?.member_id).toBe(userId);
+
+      const wrong = await sql.unsafe(
+        `select member_id from ${s}.validate_api_key($1, $2)`,
+        [lookup, "nope"],
+      );
+      expect(wrong.length).toBe(0);
+
+      // expired key
+      const lookup2 = "ZYXW9876_-abcdef";
+      await sql.unsafe(
+        `select ${s}.create_api_key($1, $2, $3, $4, $5::timestamptz)`,
+        [userId, lookup2, "h2", "expired", "2000-01-01T00:00:00Z"],
+      );
+      const expired = await sql.unsafe(
+        `select member_id from ${s}.validate_api_key($1, $2)`,
+        [lookup2, "h2"],
+      );
+      expect(expired.length).toBe(0);
+    });
+  });
+});
+
 describe("migration behavior", () => {
   test("is idempotent: re-running changes no migration rows or version", async () => {
     await withTestCore(sql, {}, async (core) => {

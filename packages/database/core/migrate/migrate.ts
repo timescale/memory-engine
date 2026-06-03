@@ -26,6 +26,15 @@ import idempotent002 from "./idempotent/002_group_member.sql" with {
 import idempotent003 from "./idempotent/003_tree_access.sql" with {
   type: "text",
 };
+import idempotent004 from "./idempotent/004_space.sql" with { type: "text" };
+import idempotent005 from "./idempotent/005_principal.sql" with {
+  type: "text",
+};
+import idempotent006 from "./idempotent/006_membership.sql" with {
+  type: "text",
+};
+import idempotent007 from "./idempotent/007_grant.sql" with { type: "text" };
+import idempotent008 from "./idempotent/008_api_key.sql" with { type: "text" };
 import incremental001 from "./incremental/001_space.sql" with { type: "text" };
 import incremental002 from "./incremental/002_principal.sql" with {
   type: "text",
@@ -91,6 +100,23 @@ const idempotents: Migration[] = [
     name: "003_tree_access",
     file: "idempotent/003_tree_access.sql",
     sql: idempotent003,
+  },
+  { name: "004_space", file: "idempotent/004_space.sql", sql: idempotent004 },
+  {
+    name: "005_principal",
+    file: "idempotent/005_principal.sql",
+    sql: idempotent005,
+  },
+  {
+    name: "006_membership",
+    file: "idempotent/006_membership.sql",
+    sql: idempotent006,
+  },
+  { name: "007_grant", file: "idempotent/007_grant.sql", sql: idempotent007 },
+  {
+    name: "008_api_key",
+    file: "idempotent/008_api_key.sql",
+    sql: idempotent008,
   },
 ];
 

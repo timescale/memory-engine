@@ -126,3 +126,44 @@ as $func$
   group by x.tree_path
 $func$ language sql stable security invoker
 ;
+
+-------------------------------------------------------------------------------
+-- build_tree_access
+--
+-- The bridge from core's access model to the space data-plane functions:
+-- resolves a member's (user or agent) effective grants in a space and returns
+-- them as the jsonb array shape that space.search_memory / *_memory consume via
+-- jsonb_to_recordset(...) x(tree_path ltree, access int).
+-------------------------------------------------------------------------------
+create or replace function {{schema}}.build_tree_access
+( _member_id uuid
+, _space_id uuid
+)
+returns jsonb
+as $func$
+  with access as
+  (
+    select ta.tree_path, ta.access
+    from {{schema}}.principal p
+    cross join lateral
+    (
+      -- dispatch on kind; the off-kind branch's id column is null -> no rows
+      select uta.tree_path, uta.access
+      from {{schema}}.user_tree_access(p.user_id, _space_id) uta
+      where p.kind = 'u'
+      union all
+      select ata.tree_path, ata.access
+      from {{schema}}.agent_tree_access(p.agent_id, _space_id) ata
+      where p.kind = 'a'
+    ) ta
+    where p.member_id = _member_id
+  )
+  select coalesce
+  (
+    jsonb_agg(jsonb_build_object('tree_path', a.tree_path::text, 'access', a.access))
+  , '[]'::jsonb
+  )
+  from access a
+$func$ language sql stable security invoker
+set search_path to pg_catalog, {{schema}}, public, pg_temp
+;
