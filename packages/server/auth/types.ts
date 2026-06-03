@@ -114,6 +114,8 @@ export interface OAuthUserInfo {
   providerAccountId: string;
   /** User's email */
   email: string;
+  /** Whether the provider has verified the user controls this email. */
+  emailVerified: boolean;
   /** User's display name */
   name: string;
 }

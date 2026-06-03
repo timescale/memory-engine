@@ -1,6 +1,7 @@
 // packages/server/index.ts
 import { createAccountsDB } from "@memory.build/accounts";
 import { migrate as migrateAccounts } from "@memory.build/accounts/migrate/runner";
+import { authStore } from "@memory.build/auth";
 import {
   bootstrapSpaceDatabase,
   migrateAuth,
@@ -162,6 +163,10 @@ const deviceFlowCleanupCron =
   process.env.DEVICE_FLOW_CLEANUP_CRON || "*/15 * * * *";
 
 const accountsSchema = process.env.ACCOUNTS_SCHEMA || "accounts";
+
+// New-model schema names (single DB, postgres.js pool): auth + core control plane.
+const authSchema = process.env.AUTH_SCHEMA || "auth";
+const coreSchema = process.env.CORE_SCHEMA || "core";
 
 const workerCount = parseIntEnv(
   "WORKER_COUNT",
@@ -372,6 +377,9 @@ const db = postgres(engineDatabaseUrl, {
 // Create accounts DB with operations layer
 const accountsDb = createAccountsDB(accountsSql, accountsSchema);
 
+// Auth store (auth schema) on the new-model postgres.js pool.
+const auth = authStore(db, authSchema);
+
 // =============================================================================
 // Database Bootstrap & Migrations (blocking — server won't serve until current)
 // =============================================================================
@@ -460,6 +468,10 @@ const serverContext: ServerContext = {
   accountsDb,
   accountsSql,
   engineSql,
+  db,
+  auth,
+  authSchema,
+  coreSchema,
   embeddingConfig,
   apiBaseUrl,
   serverVersion: SERVER_VERSION,
@@ -512,15 +524,25 @@ info("Embedding worker pool started", { workers: workerCount });
 // Cleanup Jobs
 // =============================================================================
 
-// Cleanup expired device authorizations on a cron schedule (UTC)
+// Sweep expired device authorizations and sessions on a cron schedule (UTC).
+// Both live in the auth schema now; terminal device states delete themselves on
+// poll, so this only reclaims rows that were abandoned before completing.
 const cleanupCron = Bun.cron(deviceFlowCleanupCron, async () => {
   try {
-    const count = await accountsDb.deleteExpired();
-    if (count > 0) {
-      info("Cleaned up expired device authorizations", { count });
+    const devices = await auth.deleteExpiredDevices();
+    if (devices > 0) {
+      info("Cleaned up expired device authorizations", { count: devices });
     }
   } catch (error) {
     reportError("Failed to cleanup device authorizations", error as Error);
+  }
+  try {
+    const sessions = await auth.cleanupExpiredSessions();
+    if (sessions > 0) {
+      info("Cleaned up expired sessions", { count: sessions });
+    }
+  } catch (error) {
+    reportError("Failed to cleanup expired sessions", error as Error);
   }
 });
 

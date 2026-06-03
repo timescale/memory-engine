@@ -145,36 +145,32 @@ export async function fetchGitHubUserInfo(
     id: number;
     login: string;
     name: string | null;
-    email: string | null;
   };
 
-  // If email is not public, fetch from emails endpoint
-  let email = userData.email;
-  if (!email) {
-    email = await fetchGitHubPrimaryEmail(accessToken);
-  }
-
-  if (!email) {
+  // Always resolve the email via /user/emails so we get its `verified` flag
+  // (the public profile email field carries no verification signal).
+  const primary = await fetchGitHubPrimaryEmail(accessToken);
+  if (!primary) {
     throw new Error(
-      "GitHub account does not have a verified email address. Please add and verify an email in your GitHub settings.",
+      "GitHub account does not have an email address. Please add one in your GitHub settings.",
     );
   }
 
   return {
     providerAccountId: String(userData.id),
-    email,
+    email: primary.email,
+    emailVerified: primary.verified,
     name: userData.name || userData.login,
   };
 }
 
 /**
- * Fetch user's primary verified email from GitHub.
- *
- * @param accessToken - OAuth access token
+ * Fetch the user's primary email from GitHub, with its verified flag.
+ * (Returns the primary email if present, else the first; null if none.)
  */
 async function fetchGitHubPrimaryEmail(
   accessToken: string,
-): Promise<string | null> {
+): Promise<{ email: string; verified: boolean } | null> {
   const response = await fetch("https://api.github.com/user/emails", {
     headers: {
       Authorization: `Bearer ${accessToken}`,
@@ -184,7 +180,6 @@ async function fetchGitHubPrimaryEmail(
   });
 
   if (!response.ok) {
-    // If we can't fetch emails, return null and let caller handle it
     return null;
   }
 
@@ -194,13 +189,6 @@ async function fetchGitHubPrimaryEmail(
     verified: boolean;
   }>;
 
-  // Find primary verified email
-  const primary = emails.find((e) => e.primary && e.verified);
-  if (primary) {
-    return primary.email;
-  }
-
-  // Fall back to any verified email
-  const verified = emails.find((e) => e.verified);
-  return verified?.email ?? null;
+  const chosen = emails.find((e) => e.primary) ?? emails[0];
+  return chosen ? { email: chosen.email, verified: chosen.verified } : null;
 }

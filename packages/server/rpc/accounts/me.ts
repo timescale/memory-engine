@@ -1,10 +1,7 @@
 /**
- * Accounts RPC me methods.
- *
- * Implements:
- * - me.get: Get the current authenticated identity
+ * Accounts RPC me/identity methods (auth-schema backed).
  */
-import type { Identity } from "@memory.build/accounts";
+import type { User } from "@memory.build/auth";
 import type {
   IdentityGetByEmailParams,
   IdentityGetByEmailResult,
@@ -17,58 +14,43 @@ import {
 } from "@memory.build/protocol/accounts/identity";
 import { buildRegistry } from "../registry";
 import type { HandlerContext } from "../types";
-import { assertAccountsRpcContext } from "./types";
+import { type AccountsRpcContext, assertAccountsRpcContext } from "./types";
 
-/**
- * Convert an Identity to a serializable response.
- */
-function toIdentityResponse(identity: Identity): IdentityResponse {
+function toIdentityResponse(user: User): IdentityResponse {
   return {
-    id: identity.id,
-    email: identity.email,
-    name: identity.name,
-    createdAt: identity.createdAt.toISOString(),
-    updatedAt: identity.updatedAt?.toISOString() ?? null,
+    id: user.id,
+    email: user.email,
+    name: user.name,
+    createdAt: user.createdAt.toISOString(),
+    updatedAt: user.updatedAt?.toISOString() ?? null,
   };
 }
 
-// =============================================================================
-// Method Handlers
-// =============================================================================
-
-/**
- * me.get - Get the current authenticated identity.
- */
+/** me.get — the current authenticated user. */
 async function meGet(
   _params: MeGetParams,
   context: HandlerContext,
 ): Promise<IdentityResponse> {
   assertAccountsRpcContext(context);
-  // Identity is already available from authentication - no DB lookup needed
-  return toIdentityResponse(context.identity);
+  const { auth, identity } = context as AccountsRpcContext;
+  const user = await auth.getUser(identity.id);
+  if (!user) {
+    throw new Error("Authenticated user not found");
+  }
+  return toIdentityResponse(user);
 }
 
-/**
- * identity.getByEmail - Look up an identity by email address.
- */
+/** identity.getByEmail — look up a user by email. */
 async function identityGetByEmail(
   params: IdentityGetByEmailParams,
   context: HandlerContext,
 ): Promise<IdentityGetByEmailResult> {
   assertAccountsRpcContext(context);
-  const { db } = context as import("./types").AccountsRpcContext;
-
-  const identity = await db.getIdentityByEmail(params.email);
-  return { identity: identity ? toIdentityResponse(identity) : null };
+  const { auth } = context as AccountsRpcContext;
+  const user = await auth.getUserByEmail(params.email);
+  return { identity: user ? toIdentityResponse(user) : null };
 }
 
-// =============================================================================
-// Registry
-// =============================================================================
-
-/**
- * Build the me/identity methods registry.
- */
 export const meMethods = buildRegistry()
   .register("me.get", meGetParams, meGet)
   .register("identity.getByEmail", identityGetByEmailParams, identityGetByEmail)

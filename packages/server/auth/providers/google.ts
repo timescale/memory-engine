@@ -40,14 +40,14 @@ export function getGoogleConfig(): OAuthProviderConfig {
  */
 export function buildGoogleAuthUrl(state: string, redirectUri: string): string {
   const config = getGoogleConfig();
+  // Login-only: we use the access token once (to read the profile) and never
+  // store it, so we don't request offline access or force a consent prompt.
   const params = new URLSearchParams({
     client_id: config.clientId,
     redirect_uri: redirectUri,
     response_type: "code",
     scope: config.scopes.join(" "),
     state,
-    access_type: "offline",
-    prompt: "consent",
   });
 
   return `${config.authorizationUrl}?${params.toString()}`;
@@ -137,6 +137,7 @@ export async function fetchGoogleUserInfo(
   return {
     providerAccountId: data.id,
     email: data.email,
+    emailVerified: Boolean(data.verified_email),
     name: data.name || data.email.split("@")[0] || "User",
   };
 }

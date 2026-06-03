@@ -39,6 +39,9 @@ function createContext(identity: Identity): HandlerContext {
   return {
     request: new Request("http://localhost"),
     db: accountsDb,
+    // org handlers are legacy (AccountsDB) and never touch the auth store;
+    // a stub object satisfies the assertAccountsRpcContext guard.
+    auth: {} as unknown,
     identity,
     // org.update never touches engineSql; a stub that satisfies the
     // assertAccountsRpcContext type guard (typeof === "function") is enough.

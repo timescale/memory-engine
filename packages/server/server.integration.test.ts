@@ -1,7 +1,9 @@
 import { afterAll, beforeAll, describe, expect, mock, test } from "bun:test";
 import type { AccountsDB } from "@memory.build/accounts";
+import type { AuthStore } from "@memory.build/auth";
 import type { EmbeddingConfig } from "@memory.build/embedding";
 import type { SQL } from "bun";
+import type { Sql } from "postgres";
 import { MIN_CLIENT_VERSION, SERVER_VERSION } from "../../version";
 import type { ServerContext } from "./context";
 import { MAX_BODY_SIZE } from "./middleware/size-limit";
@@ -16,19 +18,29 @@ function createMockContext(): ServerContext {
     accountsDb: {
       validateSession: mock(() => Promise.resolve(null)),
       getEngineBySlug: mock(() => Promise.resolve(null)),
-      // Device auth operations for auth endpoint tests
-      create: mock(() => Promise.resolve({})),
-      getByDeviceCode: mock(() => Promise.resolve(null)),
-      getByUserCode: mock(() => Promise.resolve(null)),
-      getByOAuthState: mock(() => Promise.resolve(null)),
-      updateLastPoll: mock(() => Promise.resolve(null)),
-      authorize: mock(() => Promise.resolve(false)),
-      deny: mock(() => Promise.resolve(false)),
-      delete: mock(() => Promise.resolve(false)),
-      deleteExpired: mock(() => Promise.resolve(0)),
     } as unknown as AccountsDB,
     accountsSql: {} as SQL,
     engineSql: {} as SQL,
+    db: {} as Sql,
+    auth: {
+      // Session validation: no session → accounts RPC stays 401.
+      validateSession: mock(() => Promise.resolve(null)),
+      // Device flow operations exercised by the auth endpoint tests.
+      createDeviceAuth: mock((_provider: string) =>
+        Promise.resolve({
+          deviceCode: "test-device-code",
+          userCode: "WXYZ-2345",
+          oauthState: "test-oauth-state",
+          expiresIn: 900,
+        }),
+      ),
+      // Unknown device codes poll as expired.
+      pollDevice: mock(() =>
+        Promise.resolve({ status: "expired", userId: null }),
+      ),
+    } as unknown as AuthStore,
+    authSchema: "auth",
+    coreSchema: "core",
     embeddingConfig: {
       provider: "openai",
       model: "text-embedding-3-small",

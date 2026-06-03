@@ -1,4 +1,5 @@
 import type { AccountsDB } from "@memory.build/accounts";
+import type { AuthStore } from "@memory.build/auth";
 import {
   createEngineDB,
   type EngineDB,
@@ -23,14 +24,13 @@ export const ENGINE_SCHEMA_PREFIX = "me_";
 // =============================================================================
 
 /**
- * Identity from accounts DB (for accounts RPC).
+ * The authenticated principal for accounts RPC — the session-validated user
+ * (auth.users), kept lightweight; me.get fetches the full record when needed.
  */
 export interface Identity {
   id: string;
   email: string;
   name: string;
-  createdAt: Date;
-  updatedAt: Date | null;
 }
 
 /**
@@ -119,11 +119,11 @@ export function extractBearerToken(request: Request): string | null {
 
 /**
  * Authenticate request for accounts RPC.
- * Validates session token and returns identity.
+ * Validates the session token (auth schema) and returns the user as identity.
  */
 export async function authenticateAccounts(
   request: Request,
-  accountsDb: AccountsDB,
+  auth: AuthStore,
 ): Promise<AuthResult> {
   const token = extractBearerToken(request);
   if (!token) {
@@ -134,8 +134,8 @@ export async function authenticateAccounts(
     };
   }
 
-  const sessionResult = await accountsDb.validateSession(token);
-  if (!sessionResult) {
+  const session = await auth.validateSession(token);
+  if (!session) {
     debug("accounts auth failed: invalid or expired session");
     return {
       ok: false,
@@ -143,12 +143,16 @@ export async function authenticateAccounts(
     };
   }
 
-  debug("accounts auth succeeded", { identityId: sessionResult.identity.id });
+  debug("accounts auth succeeded", { userId: session.userId });
   return {
     ok: true,
     context: {
       type: "accounts",
-      identity: sessionResult.identity,
+      identity: {
+        id: session.userId,
+        email: session.email,
+        name: session.name,
+      },
     },
   };
 }

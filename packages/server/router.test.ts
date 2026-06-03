@@ -1,7 +1,9 @@
 import { describe, expect, mock, test } from "bun:test";
 import type { AccountsDB } from "@memory.build/accounts";
+import type { AuthStore } from "@memory.build/auth";
 import type { EmbeddingConfig } from "@memory.build/embedding";
 import type { SQL } from "bun";
+import type { Sql } from "postgres";
 import { MIN_CLIENT_VERSION, SERVER_VERSION } from "../../version";
 import type { ServerContext } from "./context";
 import { createRouter } from "./router";
@@ -15,6 +17,12 @@ function createMockContext(): ServerContext {
     } as unknown as AccountsDB,
     accountsSql: {} as SQL,
     engineSql: {} as SQL,
+    db: {} as Sql,
+    auth: {
+      validateSession: mock(() => Promise.resolve(null)),
+    } as unknown as AuthStore,
+    authSchema: "auth",
+    coreSchema: "core",
     embeddingConfig: {
       provider: "openai",
       model: "text-embedding-3-small",

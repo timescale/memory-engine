@@ -4,6 +4,7 @@
  * Extends the base HandlerContext with accounts-specific fields.
  */
 import type { AccountsDB } from "@memory.build/accounts";
+import type { AuthStore } from "@memory.build/auth";
 import type { SQL } from "bun";
 import type { Identity } from "../../middleware/authenticate";
 import type { HandlerContext } from "../types";
@@ -20,9 +21,11 @@ import type { HandlerContext } from "../types";
  * Authentication middleware populates these fields via OAuth session validation.
  */
 export interface AccountsRpcContext extends HandlerContext {
-  /** AccountsDB instance */
+  /** Legacy AccountsDB instance (org/engine/member/invitation, until Phase 5) */
   db: AccountsDB;
-  /** Authenticated identity */
+  /** Auth store (auth schema): me/session/identity */
+  auth: AuthStore;
+  /** Authenticated user (session-validated) */
   identity: Identity;
   /** SQL connection to the engine database */
   engineSql: SQL;
@@ -40,6 +43,9 @@ export function isAccountsRpcContext(
     "db" in ctx &&
     typeof ctx.db === "object" &&
     ctx.db !== null &&
+    "auth" in ctx &&
+    typeof ctx.auth === "object" &&
+    ctx.auth !== null &&
     "identity" in ctx &&
     typeof ctx.identity === "object" &&
     ctx.identity !== null &&

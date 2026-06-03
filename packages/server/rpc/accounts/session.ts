@@ -27,9 +27,9 @@ async function sessionRevoke(
   context: HandlerContext,
 ): Promise<{ revoked: boolean }> {
   assertAccountsRpcContext(context);
-  const { db, identity } = context as AccountsRpcContext;
+  const { auth, identity } = context as AccountsRpcContext;
 
-  const count = await db.deleteSessionsByIdentity(identity.id);
+  const count = await auth.deleteSessionsByUser(identity.id);
   return { revoked: count > 0 };
 }
 

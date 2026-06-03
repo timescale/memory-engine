@@ -1,5 +1,6 @@
 import { describe, expect, mock, test } from "bun:test";
 import type { AccountsDB } from "@memory.build/accounts";
+import type { AuthStore } from "@memory.build/auth";
 import type { EngineDB } from "@memory.build/engine";
 import type { SQL } from "bun";
 import {
@@ -44,17 +45,24 @@ describe("authenticateAccounts", () => {
     id: "identity-123",
     email: "test@example.com",
     name: "Test User",
-    createdAt: new Date("2026-01-01T00:00:00Z"),
-    updatedAt: null,
+  };
+
+  // A validate_session row: the session plus its user.
+  const validatedSession = {
+    sessionId: "session-1",
+    userId: mockIdentity.id,
+    email: mockIdentity.email,
+    name: mockIdentity.name,
+    expiresAt: new Date("2026-12-31T00:00:00Z"),
   };
 
   test("returns 401 when no Authorization header", async () => {
     const request = new Request("http://localhost/test");
-    const mockDb = {
+    const mockAuth = {
       validateSession: mock(() => Promise.resolve(null)),
-    } as unknown as AccountsDB;
+    } as unknown as AuthStore;
 
-    const result = await authenticateAccounts(request, mockDb);
+    const result = await authenticateAccounts(request, mockAuth);
 
     expect(result.ok).toBe(false);
     if (!result.ok) {
@@ -67,9 +75,9 @@ describe("authenticateAccounts", () => {
       headers: { Authorization: "Bearer invalid-token" },
     });
     const validateSession = mock(() => Promise.resolve(null));
-    const mockDb = { validateSession } as unknown as AccountsDB;
+    const mockAuth = { validateSession } as unknown as AuthStore;
 
-    const result = await authenticateAccounts(request, mockDb);
+    const result = await authenticateAccounts(request, mockAuth);
 
     expect(result.ok).toBe(false);
     if (!result.ok) {
@@ -82,16 +90,11 @@ describe("authenticateAccounts", () => {
     const request = new Request("http://localhost/test", {
       headers: { Authorization: "Bearer valid-token" },
     });
-    const mockDb = {
-      validateSession: mock(() =>
-        Promise.resolve({
-          session: { id: "session-1", identityId: mockIdentity.id },
-          identity: mockIdentity,
-        }),
-      ),
-    } as unknown as AccountsDB;
+    const mockAuth = {
+      validateSession: mock(() => Promise.resolve(validatedSession)),
+    } as unknown as AuthStore;
 
-    const result = await authenticateAccounts(request, mockDb);
+    const result = await authenticateAccounts(request, mockAuth);
 
     expect(result.ok).toBe(true);
     if (result.ok && result.context.type === "accounts") {

@@ -10,8 +10,10 @@
 
 import { describe, expect, mock, test } from "bun:test";
 import type { AccountsDB } from "@memory.build/accounts";
+import type { AuthStore } from "@memory.build/auth";
 import type { EmbeddingConfig } from "@memory.build/embedding";
 import type { SQL } from "bun";
+import type { Sql } from "postgres";
 import { MIN_CLIENT_VERSION, SERVER_VERSION } from "../../version";
 import type { ServerContext } from "./context";
 import type { EngineInfo } from "./middleware/authenticate";
@@ -22,15 +24,23 @@ import { createRouter } from "./router";
 // =============================================================================
 
 function createMockAccountsDb(overrides?: {
-  validateSession?: ReturnType<typeof mock>;
   getEngineBySlug?: ReturnType<typeof mock>;
 }): AccountsDB {
   return {
-    validateSession:
-      overrides?.validateSession ?? mock(() => Promise.resolve(null)),
     getEngineBySlug:
       overrides?.getEngineBySlug ?? mock(() => Promise.resolve(null)),
   } as unknown as AccountsDB;
+}
+
+function createMockAuth(overrides?: {
+  validateSession?: ReturnType<typeof mock>;
+  getUser?: ReturnType<typeof mock>;
+}): AuthStore {
+  return {
+    validateSession:
+      overrides?.validateSession ?? mock(() => Promise.resolve(null)),
+    getUser: overrides?.getUser ?? mock(() => Promise.resolve(null)),
+  } as unknown as AuthStore;
 }
 
 /**
@@ -62,6 +72,10 @@ function createMockContext(overrides?: Partial<ServerContext>): ServerContext {
     accountsDb: createMockAccountsDb(),
     accountsSql: {} as SQL,
     engineSql: createMockEngineSql(),
+    db: {} as Sql,
+    auth: createMockAuth(),
+    authSchema: "auth",
+    coreSchema: "core",
     embeddingConfig: {
       provider: "openai",
       model: "text-embedding-3-small",
@@ -173,11 +187,24 @@ describe("Server-Database Wiring", () => {
       };
 
       const ctx = createMockContext({
-        accountsDb: createMockAccountsDb({
+        auth: createMockAuth({
           validateSession: mock(() =>
             Promise.resolve({
-              session: { id: "session-1", identityId: mockIdentity.id },
-              identity: mockIdentity,
+              sessionId: "session-1",
+              userId: mockIdentity.id,
+              email: mockIdentity.email,
+              name: mockIdentity.name,
+              expiresAt: new Date("2026-12-31T00:00:00Z"),
+            }),
+          ),
+          getUser: mock(() =>
+            Promise.resolve({
+              id: mockIdentity.id,
+              email: mockIdentity.email,
+              name: mockIdentity.name,
+              emailVerified: true,
+              createdAt: new Date("2026-01-01T00:00:00Z"),
+              updatedAt: null,
             }),
           ),
         }),

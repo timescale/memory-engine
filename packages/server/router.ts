@@ -1,6 +1,7 @@
 import type { ServerContext } from "./context";
 import {
   type AuthHandlerContext,
+  deviceApproveHandler,
   deviceCodeHandler,
   deviceTokenHandler,
   deviceVerifyGetHandler,
@@ -123,18 +124,23 @@ export function createRouter(ctx: ServerContext): Router {
     accountsDb,
     accountsSql,
     engineSql,
+    db,
+    auth,
+    authSchema,
+    coreSchema,
     embeddingConfig,
     apiBaseUrl,
     serverVersion,
     minClientVersion,
   } = ctx;
 
-  // Auth handler context for device flow endpoints
+  // Auth handler context for the device flow + OAuth endpoints
   const authCtx: AuthHandlerContext = {
-    db: accountsDb,
+    auth,
+    db,
+    authSchema,
+    coreSchema,
     baseUrl: apiBaseUrl,
-    engineSql,
-    serverVersion,
   };
 
   // Wrap an RPC handler with the X-Client-Version check, so requests from
@@ -176,19 +182,20 @@ export function createRouter(ctx: ServerContext): Router {
   const accountsRpcHandler = createRpcHandler(
     accountsMethods,
     async (request) => {
-      const auth = await authenticateAccounts(request, accountsDb);
-      if (!auth.ok) {
-        return auth.error;
+      const result = await authenticateAccounts(request, auth);
+      if (!result.ok) {
+        return result.error;
       }
-      // TypeScript narrows auth.context to AuthContext after ok check
+      // TypeScript narrows result.context to AuthContext after ok check
       // We know it's AccountsAuthContext since we called authenticateAccounts
-      const ctx = auth.context;
-      if (ctx.type !== "accounts") {
+      const authContext = result.context;
+      if (authContext.type !== "accounts") {
         throw new Error("Unexpected auth context type");
       }
       return {
         db: accountsDb,
-        identity: ctx.identity,
+        auth,
+        identity: authContext.identity,
         engineSql,
         serverVersion,
       };
@@ -244,6 +251,13 @@ export function createRouter(ctx: ServerContext): Router {
       method: "POST",
       pattern: "/api/v1/auth/device/verify",
       handler: (req) => deviceVerifyPostHandler(req, authCtx),
+    },
+
+    // OAuth Device Flow - User approves/denies after OAuth (consent step)
+    {
+      method: "POST",
+      pattern: "/api/v1/auth/device/approve",
+      handler: (req) => deviceApproveHandler(req, authCtx),
     },
 
     // OAuth Callback - Provider redirects here after user authorizes
