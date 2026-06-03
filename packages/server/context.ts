@@ -1,6 +1,7 @@
 import type { AccountsDB } from "@memory.build/accounts";
 import type { AuthStore } from "@memory.build/auth";
 import type { EmbeddingConfig } from "@memory.build/embedding";
+import type { CoreStore } from "@memory.build/engine/core";
 import type { SQL } from "bun";
 import type { Sql } from "postgres";
 
@@ -19,6 +20,8 @@ export interface ServerContext {
   db: Sql;
   /** Auth store (auth schema): me/session/identity/device + OAuth accounts */
   auth: AuthStore;
+  /** Core control-plane store (core schema): spaces/principals/grants/api-keys */
+  core: CoreStore;
   /** The auth schema name */
   authSchema: string;
   /** The core control-plane schema name */

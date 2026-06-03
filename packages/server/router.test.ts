@@ -2,6 +2,7 @@ import { describe, expect, mock, test } from "bun:test";
 import type { AccountsDB } from "@memory.build/accounts";
 import type { AuthStore } from "@memory.build/auth";
 import type { EmbeddingConfig } from "@memory.build/embedding";
+import type { CoreStore } from "@memory.build/engine/core";
 import type { SQL } from "bun";
 import type { Sql } from "postgres";
 import { MIN_CLIENT_VERSION, SERVER_VERSION } from "../../version";
@@ -21,6 +22,7 @@ function createMockContext(): ServerContext {
     auth: {
       validateSession: mock(() => Promise.resolve(null)),
     } as unknown as AuthStore,
+    core: {} as unknown as CoreStore,
     authSchema: "auth",
     coreSchema: "core",
     embeddingConfig: {

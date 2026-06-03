@@ -14,8 +14,14 @@ import {
   authenticateAccounts,
   authenticateEngine,
 } from "./middleware/authenticate";
+import { authenticateSpace } from "./middleware/authenticate-space";
 import { checkClientVersion } from "./middleware/client-version";
-import { accountsMethods, createRpcHandler, engineMethods } from "./rpc";
+import {
+  accountsMethods,
+  createRpcHandler,
+  engineMethods,
+  memoryMethods,
+} from "./rpc";
 import { notFound } from "./util/response";
 
 /**
@@ -126,6 +132,7 @@ export function createRouter(ctx: ServerContext): Router {
     engineSql,
     db,
     auth,
+    core,
     authSchema,
     coreSchema,
     embeddingConfig,
@@ -201,6 +208,24 @@ export function createRouter(ctx: ServerContext): Router {
       };
     },
   );
+
+  // Memory RPC (new model): authenticate principal + space, provide space context
+  const memoryRpcHandler = createRpcHandler(memoryMethods, async (request) => {
+    const result = await authenticateSpace(request, { core, auth, db });
+    if (!result.ok) {
+      return result.error;
+    }
+    const spaceContext = result.context;
+    return {
+      store: spaceContext.store,
+      core: spaceContext.core,
+      space: spaceContext.space,
+      principalId: spaceContext.principalId,
+      apiKeyId: spaceContext.apiKeyId,
+      treeAccess: spaceContext.treeAccess,
+      embeddingConfig,
+    };
+  });
 
   /**
    * Application routes.
@@ -279,6 +304,13 @@ export function createRouter(ctx: ServerContext): Router {
       method: "POST",
       pattern: "/api/v1/engine/rpc",
       handler: withClientVersionCheck(engineRpcHandler),
+    },
+
+    // Memory RPC (new model: space data-plane + management)
+    {
+      method: "POST",
+      pattern: "/api/v1/memory/rpc",
+      handler: withClientVersionCheck(memoryRpcHandler),
     },
   ];
 

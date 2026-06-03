@@ -8,6 +8,7 @@ import {
   migrateCore,
 } from "@memory.build/database";
 import type { EmbeddingConfig } from "@memory.build/embedding";
+import { coreStore } from "@memory.build/engine/core";
 import {
   discoverEngineSchemas,
   slugToSchema,
@@ -380,6 +381,9 @@ const accountsDb = createAccountsDB(accountsSql, accountsSchema);
 // Auth store (auth schema) on the new-model postgres.js pool.
 const auth = authStore(db, authSchema);
 
+// Core control-plane store (core schema) on the same pool.
+const core = coreStore(db, coreSchema);
+
 // =============================================================================
 // Database Bootstrap & Migrations (blocking — server won't serve until current)
 // =============================================================================
@@ -470,6 +474,7 @@ const serverContext: ServerContext = {
   engineSql,
   db,
   auth,
+  core,
   authSchema,
   coreSchema,
   embeddingConfig,

@@ -6,7 +6,6 @@ export {
   engineMethods,
   isEngineContext,
 } from "./engine";
-
 // Errors
 export {
   APP_ERROR_CODES,
@@ -24,9 +23,14 @@ export {
   parseError,
   RPC_ERROR_CODES,
 } from "./errors";
-
 // Handler
 export { createRpcHandler, handleRpcRequest } from "./handler";
+export {
+  assertSpaceRpcContext,
+  isSpaceRpcContext,
+  memoryMethods,
+  type SpaceRpcContext,
+} from "./memory";
 // Registry
 export {
   buildRegistry,

@@ -11,6 +11,13 @@ export {
   extractBearerToken,
   type Identity,
 } from "./authenticate";
+export {
+  authenticateSpace,
+  SPACE_HEADER,
+  type SpaceAuthContext,
+  type SpaceAuthDeps,
+  type SpaceAuthResult,
+} from "./authenticate-space";
 export { checkClientVersion } from "./client-version";
 export {
   checkSizeLimit,

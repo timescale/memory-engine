@@ -1,0 +1,215 @@
+// Integration test for space authentication (authenticateSpace).
+//
+// Stands up auth + core schemas and the space DB in one database, provisions a
+// user (auth identity + core principal + space + owner grant), then exercises
+// the session and api-key credential modes plus the failure paths.
+//   TEST_DATABASE_URL="postgresql://postgres@127.0.0.1:5432/postgres" \
+//     bun test --timeout 30000 \
+//     packages/server/middleware/authenticate-space.integration.test.ts
+import { afterAll, beforeAll, expect, test } from "bun:test";
+import { authStore } from "@memory.build/auth";
+import {
+  bootstrapSpaceDatabase,
+  migrateAuth,
+  migrateCore,
+} from "@memory.build/database";
+import { core as engineCore } from "@memory.build/engine";
+import postgres, { type Sql } from "postgres";
+import { provisionUser } from "../provision";
+import { authenticateSpace, SPACE_HEADER } from "./authenticate-space";
+
+const URL =
+  process.env.TEST_DATABASE_URL ??
+  "postgresql://postgres@127.0.0.1:5432/postgres";
+
+const rand = () => {
+  const a = "abcdefghijklmnopqrstuvwxyz0123456789";
+  const bytes = crypto.getRandomValues(new Uint8Array(8));
+  let s = "";
+  for (const b of bytes) s += a[b % 36];
+  return s;
+};
+const email = () => `space_${crypto.randomUUID().slice(0, 8)}@example.com`;
+
+let sql: Sql;
+let authSchema: string;
+let coreSchema: string;
+const createdSpaceSchemas: string[] = [];
+
+// The deps authenticateSpace needs; bound to the test schemas.
+function deps() {
+  return {
+    core: engineCore.coreStore(sql, coreSchema),
+    auth: authStore(sql, authSchema),
+    db: sql,
+  };
+}
+
+/** Build a request with optional bearer token + X-Me-Space header. */
+function req(opts: { token?: string; space?: string }): Request {
+  const headers: Record<string, string> = {};
+  if (opts.token) headers.Authorization = `Bearer ${opts.token}`;
+  if (opts.space) headers[SPACE_HEADER] = opts.space;
+  return new Request("http://localhost/api/v1/memory/rpc", {
+    method: "POST",
+    headers,
+  });
+}
+
+// Provision a user + space and return its slug, the user id, and a session token.
+async function provision() {
+  const r = await provisionUser(
+    sql,
+    { auth: authSchema, core: coreSchema },
+    {
+      email: email(),
+      name: "Tester",
+      provider: "github",
+      accountId: crypto.randomUUID(),
+    },
+  );
+  createdSpaceSchemas.push(`me_${r.spaceSlug}`);
+  const { token } = await authStore(sql, authSchema).createSession(r.userId);
+  return { ...r, token };
+}
+
+beforeAll(async () => {
+  sql = postgres(URL, { onnotice: () => {} });
+  authSchema = `auth_test_${rand()}`;
+  coreSchema = `core_test_${rand()}`;
+  await bootstrapSpaceDatabase(sql);
+  await migrateAuth(sql, { schema: authSchema });
+  await migrateCore(sql, { schema: coreSchema });
+});
+
+afterAll(async () => {
+  for (const s of createdSpaceSchemas) {
+    await sql.unsafe(`drop schema if exists ${s} cascade`);
+  }
+  await sql.unsafe(`drop schema if exists ${authSchema} cascade`);
+  await sql.unsafe(`drop schema if exists ${coreSchema} cascade`);
+  await sql.end();
+});
+
+test("session: member with owner grant resolves space + treeAccess", async () => {
+  const p = await provision();
+  const result = await authenticateSpace(
+    req({ token: p.token, space: p.spaceSlug }),
+    deps(),
+  );
+  expect(result.ok).toBe(true);
+  if (result.ok) {
+    expect(result.context.space.id).toBe(p.spaceId);
+    expect(result.context.principalId).toBe(p.userId);
+    expect(result.context.apiKeyId).toBeNull();
+    expect(result.context.treeAccess).toContainEqual({
+      tree_path: engineCore.ROOT_PATH,
+      access: engineCore.ACCESS.owner,
+    });
+  }
+});
+
+test("api key: agent of the space resolves with apiKeyId set", async () => {
+  const p = await provision();
+  const core = engineCore.coreStore(sql, coreSchema);
+
+  const agentId = await core.createAgent(p.userId, `agent-${rand()}`);
+  await core.addPrincipalToSpace(p.spaceId, agentId);
+  await core.grantTreeAccess(
+    p.spaceId,
+    agentId,
+    engineCore.ROOT_PATH,
+    engineCore.ACCESS.read,
+  );
+  const key = await core.createApiKey(agentId, "ci");
+  const fullKey = engineCore.formatApiKey(
+    p.spaceSlug,
+    key.lookupId,
+    key.secret,
+  );
+
+  const result = await authenticateSpace(
+    req({ token: fullKey, space: p.spaceSlug }),
+    deps(),
+  );
+  expect(result.ok).toBe(true);
+  if (result.ok) {
+    expect(result.context.principalId).toBe(agentId);
+    expect(result.context.apiKeyId).not.toBeNull();
+    expect(result.context.treeAccess.length).toBeGreaterThan(0);
+  }
+});
+
+test("missing Authorization → 401", async () => {
+  const result = await authenticateSpace(
+    req({ space: "abcdef012345" }),
+    deps(),
+  );
+  expect(result.ok).toBe(false);
+  if (!result.ok) expect(result.error.status).toBe(401);
+});
+
+test("missing X-Me-Space → 400", async () => {
+  const p = await provision();
+  const result = await authenticateSpace(req({ token: p.token }), deps());
+  expect(result.ok).toBe(false);
+  if (!result.ok) expect(result.error.status).toBe(400);
+});
+
+test("unknown space → 401", async () => {
+  const p = await provision();
+  const result = await authenticateSpace(
+    req({ token: p.token, space: "zzzzzz999999" }),
+    deps(),
+  );
+  expect(result.ok).toBe(false);
+  if (!result.ok) expect(result.error.status).toBe(401);
+});
+
+test("invalid session token → 401", async () => {
+  const p = await provision();
+  const result = await authenticateSpace(
+    req({ token: "not-a-real-session-token", space: p.spaceSlug }),
+    deps(),
+  );
+  expect(result.ok).toBe(false);
+  if (!result.ok) expect(result.error.status).toBe(401);
+});
+
+test("api key slug ≠ header → 400 (SPACE_MISMATCH)", async () => {
+  const p = await provision();
+  const other = await provision();
+  const core = engineCore.coreStore(sql, coreSchema);
+  const agentId = await core.createAgent(p.userId, `agent-${rand()}`);
+  await core.grantTreeAccess(
+    p.spaceId,
+    agentId,
+    engineCore.ROOT_PATH,
+    engineCore.ACCESS.read,
+  );
+  const key = await core.createApiKey(agentId, "ci");
+  // key minted for p's slug, but header points at a different space
+  const fullKey = engineCore.formatApiKey(
+    p.spaceSlug,
+    key.lookupId,
+    key.secret,
+  );
+  const result = await authenticateSpace(
+    req({ token: fullKey, space: other.spaceSlug }),
+    deps(),
+  );
+  expect(result.ok).toBe(false);
+  if (!result.ok) expect(result.error.status).toBe(400);
+});
+
+test("session: member of another space has no grant here → 403", async () => {
+  const a = await provision();
+  const b = await provision();
+  // b's session against a's space — b has no grant in a's space.
+  const result = await authenticateSpace(
+    req({ token: b.token, space: a.spaceSlug }),
+    deps(),
+  );
+  expect(result.ok).toBe(false);
+  if (!result.ok) expect(result.error.status).toBe(403);
+});
