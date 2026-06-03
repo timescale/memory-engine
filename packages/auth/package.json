@@ -1,0 +1,10 @@
+{
+  "name": "@memory.build/auth",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@memory.build/database": "workspace:*",
+    "postgres": "^3.4.9"
+  }
+}
