@@ -44,3 +44,30 @@ as $func$
 $func$ language sql volatile security invoker
 set search_path to pg_catalog, {{schema}}, public, pg_temp
 ;
+
+-------------------------------------------------------------------------------
+-- list_tree_access_grants
+-- The grant rows in a space, optionally for a single principal. (Owner listing
+-- is this filtered to access = 3 by the caller.) Distinct from build_tree_access,
+-- which resolves a member's *effective* access set; this lists the raw grants.
+-------------------------------------------------------------------------------
+create or replace function {{schema}}.list_tree_access_grants
+( _space_id uuid
+, _principal_id uuid default null
+)
+returns table
+( principal_id uuid
+, tree_path text
+, access int
+, created_at timestamptz
+, updated_at timestamptz
+)
+as $func$
+  select t.principal_id, t.tree_path::text, t.access, t.created_at, t.updated_at
+  from {{schema}}.tree_access t
+  where t.space_id = _space_id
+  and (_principal_id is null or t.principal_id = _principal_id)
+  order by t.principal_id, t.tree_path
+$func$ language sql stable security invoker
+set search_path to pg_catalog, {{schema}}, public, pg_temp
+;

@@ -98,3 +98,106 @@ as $func$
 $func$ language sql volatile security invoker
 set search_path to pg_catalog, {{schema}}, public, pg_temp
 ;
+
+-------------------------------------------------------------------------------
+-- list_space_members
+-- Principals that belong to a space, deduplicated: either added directly
+-- (principal_space) or reached through a group in the space (group_member) —
+-- group membership confers space access, so both count. `direct` is true when
+-- the principal has a direct membership row; `admin` is its direct-membership
+-- admin flag (false for group-only members). Optional kind filter
+-- ('u' | 'a' | 'g'); null returns all.
+-------------------------------------------------------------------------------
+create or replace function {{schema}}.list_space_members
+( _space_id uuid
+, _kind text default null
+)
+returns table
+( id uuid
+, kind text
+, name text
+, owner_id uuid
+, direct bool
+, admin bool
+, created_at timestamptz
+, updated_at timestamptz
+)
+as $func$
+  with mem as
+  (
+    -- directly added to the space
+    select ps.principal_id as id, true as direct, ps.admin as admin
+    from {{schema}}.principal_space ps
+    where ps.space_id = _space_id
+    union all
+    -- reached through a group belonging to the space
+    select gm.member_id as id, false as direct, false as admin
+    from {{schema}}.group_member gm
+    where gm.space_id = _space_id
+  )
+  , agg as
+  (
+    select id, bool_or(direct) as direct, bool_or(admin) as admin
+    from mem
+    group by id
+  )
+  select p.id, p.kind, p.name::text, p.owner_id, agg.direct, agg.admin, p.created_at, p.updated_at
+  from agg
+  join {{schema}}.principal p on p.id = agg.id
+  where (_kind is null or p.kind = _kind)
+  order by p.kind, p.name
+$func$ language sql stable security invoker
+set search_path to pg_catalog, {{schema}}, public, pg_temp
+;
+
+-------------------------------------------------------------------------------
+-- list_group_members
+-- Members (users / agents) of a group within a space, with the admin flag.
+-------------------------------------------------------------------------------
+create or replace function {{schema}}.list_group_members
+( _space_id uuid
+, _group_id uuid
+)
+returns table
+( member_id uuid
+, kind text
+, name text
+, admin bool
+, created_at timestamptz
+)
+as $func$
+  select gm.member_id, p.kind, p.name::text, gm.admin, gm.created_at
+  from {{schema}}.group_member gm
+  join {{schema}}.principal p on p.id = gm.member_id
+  where gm.space_id = _space_id
+  and gm.group_id = _group_id
+  order by p.name
+$func$ language sql stable security invoker
+set search_path to pg_catalog, {{schema}}, public, pg_temp
+;
+
+-------------------------------------------------------------------------------
+-- list_groups_for_member
+-- Groups within a space that a member (user / agent) belongs to, with the
+-- admin flag.
+-------------------------------------------------------------------------------
+create or replace function {{schema}}.list_groups_for_member
+( _space_id uuid
+, _member_id uuid
+)
+returns table
+( group_id uuid
+, name text
+, admin bool
+, created_at timestamptz
+)
+as $func$
+  select gm.group_id, p.name::text, gm.admin, gm.created_at
+  from {{schema}}.group_member gm
+  join {{schema}}.principal p on p.id = gm.group_id
+  where gm.space_id = _space_id
+  and gm.member_id = _member_id
+  order by p.name
+$func$ language sql stable security invoker
+set search_path to pg_catalog, {{schema}}, public, pg_temp
+;

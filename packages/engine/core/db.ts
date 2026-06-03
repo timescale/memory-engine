@@ -3,11 +3,17 @@ import type { Sql } from "postgres";
 import { generateLookupId, generateSecret, hashApiKeySecret } from "./api-key";
 import type {
   AccessLevel,
+  ApiKeyInfo,
   CreatedApiKey,
+  Group,
+  GroupMember,
+  GroupMembership,
   Principal,
   PrincipalKind,
   Space,
+  SpaceMember,
   TreeAccess,
+  TreeGrant,
   ValidatedApiKey,
 } from "./types";
 
@@ -26,6 +32,19 @@ export interface CoreStore {
   createAgent(ownerId: string, name: string, id?: string): Promise<string>;
   createGroup(spaceId: string, name: string, id?: string): Promise<string>;
   getPrincipal(id: string): Promise<Principal | null>;
+  /** Resolve a global user (kind 'u') by name (email). */
+  getUserByName(name: string): Promise<Principal | null>;
+  /** Rename an agent or group (never a user — its name is its identity email). */
+  renamePrincipal(id: string, name: string): Promise<boolean>;
+  deletePrincipal(id: string): Promise<boolean>;
+
+  /** Principals in a space — directly or via a group (each flagged `direct`). */
+  listSpaceMembers(
+    spaceId: string,
+    kind?: PrincipalKind,
+  ): Promise<SpaceMember[]>;
+  /** Groups belonging to a space. */
+  listSpaceGroups(spaceId: string): Promise<Group[]>;
 
   addPrincipalToSpace(
     spaceId: string,
@@ -47,6 +66,13 @@ export interface CoreStore {
     groupId: string,
     memberId: string,
   ): Promise<boolean>;
+  /** Members (users / agents) of a group within a space. */
+  listGroupMembers(spaceId: string, groupId: string): Promise<GroupMember[]>;
+  /** Groups within a space that a member belongs to. */
+  listGroupsForMember(
+    spaceId: string,
+    memberId: string,
+  ): Promise<GroupMembership[]>;
 
   grantTreeAccess(
     spaceId: string,
@@ -59,6 +85,14 @@ export interface CoreStore {
     principalId: string,
     treePath: string,
   ): Promise<boolean>;
+  /**
+   * The raw grant rows in a space, optionally for a single principal. Distinct
+   * from buildTreeAccess, which resolves a member's *effective* access set.
+   */
+  listTreeAccessGrants(
+    spaceId: string,
+    principalId?: string,
+  ): Promise<TreeGrant[]>;
 
   /** Resolve a member's effective grants in a space (for the space functions). */
   buildTreeAccess(memberId: string, spaceId: string): Promise<TreeAccess>;
@@ -73,6 +107,10 @@ export interface CoreStore {
     lookupId: string,
     secret: string,
   ): Promise<ValidatedApiKey | null>;
+  getApiKey(id: string): Promise<ApiKeyInfo | null>;
+  listApiKeys(memberId: string): Promise<ApiKeyInfo[]>;
+  /** Hard-delete a key (revoke ≡ delete; there is no soft-revoke state). */
+  deleteApiKey(id: string): Promise<boolean>;
 
   /** Run operations atomically against the same transaction. */
   withTransaction<T>(fn: (db: CoreStore) => Promise<T>): Promise<T>;
@@ -98,6 +136,39 @@ function mapPrincipal(row: Record<string, unknown>): Principal {
     spaceId: (row.space_id as string | null) ?? null,
     createdAt: row.created_at as Date,
     updatedAt: (row.updated_at as Date | null) ?? null,
+  };
+}
+
+function mapSpaceMember(row: Record<string, unknown>): SpaceMember {
+  return {
+    id: row.id as string,
+    kind: row.kind as PrincipalKind,
+    name: row.name as string,
+    ownerId: (row.owner_id as string | null) ?? null,
+    direct: Boolean(row.direct),
+    admin: Boolean(row.admin),
+    createdAt: row.created_at as Date,
+    updatedAt: (row.updated_at as Date | null) ?? null,
+  };
+}
+
+function mapGroup(row: Record<string, unknown>): Group {
+  return {
+    id: row.id as string,
+    name: row.name as string,
+    createdAt: row.created_at as Date,
+    updatedAt: (row.updated_at as Date | null) ?? null,
+  };
+}
+
+function mapApiKeyInfo(row: Record<string, unknown>): ApiKeyInfo {
+  return {
+    id: row.id as string,
+    memberId: row.member_id as string,
+    lookupId: row.lookup_id as string,
+    name: row.name as string,
+    createdAt: row.created_at as Date,
+    expiresAt: (row.expires_at as Date | null) ?? null,
   };
 }
 
@@ -145,6 +216,36 @@ export function coreStore(sql: Sql, schema: string = CORE_SCHEMA): CoreStore {
       return row ? mapPrincipal(row) : null;
     },
 
+    async getUserByName(name) {
+      const [row] = await sql`select * from ${sch}.get_user_by_name(${name})`;
+      return row ? mapPrincipal(row) : null;
+    },
+
+    async renamePrincipal(id, name) {
+      const [row] = await sql`
+        select ${sch}.rename_principal(${id}, ${name}) as ok
+      `;
+      return Boolean(row?.ok);
+    },
+
+    async deletePrincipal(id) {
+      const [row] = await sql`select ${sch}.delete_principal(${id}) as ok`;
+      return Boolean(row?.ok);
+    },
+
+    async listSpaceMembers(spaceId, kind) {
+      const rows = await sql`
+        select * from ${sch}.list_space_members(${spaceId}, ${kind ?? null})
+      `;
+      return rows.map(mapSpaceMember);
+    },
+
+    async listSpaceGroups(spaceId) {
+      const rows =
+        await sql`select * from ${sch}.list_space_groups(${spaceId})`;
+      return rows.map(mapGroup);
+    },
+
     async addPrincipalToSpace(spaceId, principalId, admin = false) {
       await sql`select ${sch}.add_principal_to_space(${spaceId}, ${principalId}, ${admin})`;
     },
@@ -167,6 +268,35 @@ export function coreStore(sql: Sql, schema: string = CORE_SCHEMA): CoreStore {
       return Boolean(row?.removed);
     },
 
+    async listGroupMembers(spaceId, groupId) {
+      const rows = await sql`
+        select * from ${sch}.list_group_members(${spaceId}, ${groupId})
+      `;
+      return rows.map(
+        (r): GroupMember => ({
+          memberId: r.member_id as string,
+          kind: r.kind as PrincipalKind,
+          name: r.name as string,
+          admin: Boolean(r.admin),
+          createdAt: r.created_at as Date,
+        }),
+      );
+    },
+
+    async listGroupsForMember(spaceId, memberId) {
+      const rows = await sql`
+        select * from ${sch}.list_groups_for_member(${spaceId}, ${memberId})
+      `;
+      return rows.map(
+        (r): GroupMembership => ({
+          groupId: r.group_id as string,
+          name: r.name as string,
+          admin: Boolean(r.admin),
+          createdAt: r.created_at as Date,
+        }),
+      );
+    },
+
     async grantTreeAccess(spaceId, principalId, treePath, access) {
       await sql`
         select ${sch}.grant_tree_access(${spaceId}, ${principalId}, ${treePath}::ltree, ${access})
@@ -178,6 +308,21 @@ export function coreStore(sql: Sql, schema: string = CORE_SCHEMA): CoreStore {
         select ${sch}.remove_tree_access_grant(${spaceId}, ${principalId}, ${treePath}::ltree) as removed
       `;
       return Boolean(row?.removed);
+    },
+
+    async listTreeAccessGrants(spaceId, principalId) {
+      const rows = await sql`
+        select * from ${sch}.list_tree_access_grants(${spaceId}, ${principalId ?? null})
+      `;
+      return rows.map(
+        (r): TreeGrant => ({
+          principalId: r.principal_id as string,
+          treePath: r.tree_path as string,
+          access: r.access as AccessLevel,
+          createdAt: r.created_at as Date,
+          updatedAt: (r.updated_at as Date | null) ?? null,
+        }),
+      );
     },
 
     async buildTreeAccess(memberId, spaceId) {
@@ -211,6 +356,21 @@ export function coreStore(sql: Sql, schema: string = CORE_SCHEMA): CoreStore {
         memberId: row.member_id as string,
         apiKeyId: row.api_key_id as string,
       };
+    },
+
+    async getApiKey(id) {
+      const [row] = await sql`select * from ${sch}.get_api_key(${id})`;
+      return row ? mapApiKeyInfo(row) : null;
+    },
+
+    async listApiKeys(memberId) {
+      const rows = await sql`select * from ${sch}.list_api_keys(${memberId})`;
+      return rows.map(mapApiKeyInfo);
+    },
+
+    async deleteApiKey(id) {
+      const [row] = await sql`select ${sch}.delete_api_key(${id}) as ok`;
+      return Boolean(row?.ok);
     },
 
     async withTransaction<T>(fn: (db: CoreStore) => Promise<T>): Promise<T> {

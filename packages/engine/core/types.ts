@@ -68,3 +68,63 @@ export interface ValidatedApiKey {
   /** The api_key row id. */
   apiKeyId: string;
 }
+
+/**
+ * A principal that belongs to a space — directly or through a group.
+ * `direct` is true for a direct (principal_space) membership; `admin` is the
+ * direct-membership admin flag (false for group-only members).
+ */
+export interface SpaceMember {
+  id: string;
+  kind: PrincipalKind;
+  name: string;
+  ownerId: string | null;
+  direct: boolean;
+  admin: boolean;
+  createdAt: Date;
+  updatedAt: Date | null;
+}
+
+/** A group (kind 'g') belonging to a space. */
+export interface Group {
+  id: string;
+  name: string;
+  createdAt: Date;
+  updatedAt: Date | null;
+}
+
+/** A member (user / agent) of a group, with the group admin flag. */
+export interface GroupMember {
+  memberId: string;
+  kind: PrincipalKind;
+  name: string;
+  admin: boolean;
+  createdAt: Date;
+}
+
+/** A group a member belongs to, with the group admin flag. */
+export interface GroupMembership {
+  groupId: string;
+  name: string;
+  admin: boolean;
+  createdAt: Date;
+}
+
+/** A tree-access grant row. */
+export interface TreeGrant {
+  principalId: string;
+  treePath: string;
+  access: AccessLevel;
+  createdAt: Date;
+  updatedAt: Date | null;
+}
+
+/** Api key metadata (never includes the secret). */
+export interface ApiKeyInfo {
+  id: string;
+  memberId: string;
+  lookupId: string;
+  name: string;
+  createdAt: Date;
+  expiresAt: Date | null;
+}

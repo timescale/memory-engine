@@ -8,11 +8,17 @@ export {
 export { type CoreStore, coreStore } from "./db";
 export type {
   AccessLevel,
+  ApiKeyInfo,
   CreatedApiKey,
+  Group,
+  GroupMember,
+  GroupMembership,
   Principal,
   PrincipalKind,
   Space,
+  SpaceMember,
   TreeAccess,
+  TreeGrant,
   ValidatedApiKey,
 } from "./types";
 export { ACCESS, ROOT_PATH } from "./types";
