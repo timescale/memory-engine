@@ -1,5 +1,5 @@
 -------------------------------------------------------------------------------
--- create_device_auth  (OAuth 2.0 device flow)
+-- create_device_auth  (OAuth 2.0 device flow). status defaults to 'pending'.
 -------------------------------------------------------------------------------
 create or replace function {{schema}}.create_device_auth
 ( _device_code text
@@ -18,7 +18,6 @@ $func$ language sql volatile security invoker
 set search_path to pg_catalog, {{schema}}, public, pg_temp
 ;
 
--- shared return shape for the device lookups (unexpired rows only)
 -------------------------------------------------------------------------------
 -- get_device_by_user_code  (browser code entry; caller normalizes the code)
 -------------------------------------------------------------------------------
@@ -31,12 +30,12 @@ returns table
 , expires_at timestamptz
 , last_poll timestamptz
 , user_id uuid
-, denied bool
+, status text
 , created_at timestamptz
 )
 as $func$
   select d.device_code, d.user_code, d.provider, d.oauth_state, d.expires_at,
-         d.last_poll, d.user_id, d.denied, d.created_at
+         d.last_poll, d.user_id, d.status, d.created_at
   from {{schema}}.device_authorization d
   where d.user_code = _user_code and d.expires_at > now()
 $func$ language sql stable security invoker
@@ -44,7 +43,7 @@ set search_path to pg_catalog, {{schema}}, public, pg_temp
 ;
 
 -------------------------------------------------------------------------------
--- get_device_by_oauth_state  (OAuth callback)
+-- get_device_by_oauth_state  (OAuth callback + consent)
 -------------------------------------------------------------------------------
 create or replace function {{schema}}.get_device_by_oauth_state(_oauth_state text)
 returns table
@@ -55,12 +54,12 @@ returns table
 , expires_at timestamptz
 , last_poll timestamptz
 , user_id uuid
-, denied bool
+, status text
 , created_at timestamptz
 )
 as $func$
   select d.device_code, d.user_code, d.provider, d.oauth_state, d.expires_at,
-         d.last_poll, d.user_id, d.denied, d.created_at
+         d.last_poll, d.user_id, d.status, d.created_at
   from {{schema}}.device_authorization d
   where d.oauth_state = _oauth_state and d.expires_at > now()
 $func$ language sql stable security invoker
@@ -68,9 +67,10 @@ set search_path to pg_catalog, {{schema}}, public, pg_temp
 ;
 
 -------------------------------------------------------------------------------
--- authorize_device  (callback success → bind the user)
+-- bind_device_user  (callback resolved the user; status stays 'pending' until
+-- the human consents). Returns false if already bound / not pending / expired.
 -------------------------------------------------------------------------------
-create or replace function {{schema}}.authorize_device(_device_code text, _user_id uuid)
+create or replace function {{schema}}.bind_device_user(_device_code text, _user_id uuid)
 returns bool
 as $func$
   with u as
@@ -79,8 +79,8 @@ as $func$
     set user_id = _user_id
     where device_code = _device_code
       and expires_at > now()
+      and status = 'pending'
       and user_id is null
-      and denied = false
     returning 1
   )
   select exists (select 1 from u)
@@ -89,7 +89,28 @@ set search_path to pg_catalog, {{schema}}, public, pg_temp
 ;
 
 -------------------------------------------------------------------------------
--- deny_device
+-- approve_device  (the human consented). Requires a bound user + pending status.
+-------------------------------------------------------------------------------
+create or replace function {{schema}}.approve_device(_device_code text)
+returns bool
+as $func$
+  with u as
+  (
+    update {{schema}}.device_authorization
+    set status = 'approved'
+    where device_code = _device_code
+      and expires_at > now()
+      and status = 'pending'
+      and user_id is not null
+    returning 1
+  )
+  select exists (select 1 from u)
+$func$ language sql volatile security invoker
+set search_path to pg_catalog, {{schema}}, public, pg_temp
+;
+
+-------------------------------------------------------------------------------
+-- deny_device  (the human denied, or the OAuth step failed)
 -------------------------------------------------------------------------------
 create or replace function {{schema}}.deny_device(_device_code text)
 returns bool
@@ -97,10 +118,10 @@ as $func$
   with u as
   (
     update {{schema}}.device_authorization
-    set denied = true
+    set status = 'denied'
     where device_code = _device_code
       and expires_at > now()
-      and user_id is null
+      and status = 'pending'
     returning 1
   )
   select exists (select 1 from u)
@@ -109,14 +130,14 @@ set search_path to pg_catalog, {{schema}}, public, pg_temp
 ;
 
 -------------------------------------------------------------------------------
--- poll_device  (CLI polling — resolves the device-flow state in one call)
--- Returns a status, plus the bound user when authorized:
+-- poll_device  (CLI polling — resolves the poll state in one call). Returns the
+-- stored status (pending|approved|denied) straight through, plus two poll-only
+-- outcomes:
 --   'expired'    — no unexpired device with this code
 --   'slow_down'  — polled within _min_interval_secs (last_poll NOT advanced)
---   'denied'     — the user denied the request
---   'pending'    — not yet authorized
---   'authorized' — bound to user_id (caller then mints a session + deletes it)
--- Subsumes the old get_device_by_device_code + update_device_last_poll.
+--   'pending'    — created/bound but not yet approved
+--   'denied'     — the request was denied
+--   'approved'   — bound user_id; the caller mints a session + deletes the device
 -------------------------------------------------------------------------------
 create or replace function {{schema}}.poll_device
 ( _device_code text
@@ -147,13 +168,9 @@ begin
   set last_poll = now()
   where device_code = _device_code;
 
-  if _d.denied then
-    return query select 'denied'::text, null::uuid;
-  elsif _d.user_id is not null then
-    return query select 'authorized'::text, _d.user_id;
-  else
-    return query select 'pending'::text, null::uuid;
-  end if;
+  -- stored status passes straight through; user_id only when approved
+  return query
+    select _d.status, case when _d.status = 'approved' then _d.user_id else null::uuid end;
 end;
 $func$ language plpgsql volatile security invoker
 set search_path to pg_catalog, {{schema}}, public, pg_temp

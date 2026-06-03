@@ -52,15 +52,17 @@ export interface CreatedDeviceAuth {
   expiresIn: number;
 }
 
-export type DevicePollStatus =
-  | "expired"
-  | "slow_down"
-  | "denied"
-  | "pending"
-  | "authorized";
+/** The stored device_authorization state (better-auth-shaped). */
+export type DeviceStatus = "pending" | "approved" | "denied";
+
+/**
+ * The poll-result vocabulary returned by poll_device: the stored DeviceStatus
+ * (pending|approved|denied) passed straight through, plus two poll-only outcomes.
+ */
+export type DevicePollStatus = DeviceStatus | "expired" | "slow_down";
 
 export interface DevicePollResult {
   status: DevicePollStatus;
-  /** Set only when status === "authorized". */
+  /** Set only when status === "approved". */
   userId: string | null;
 }

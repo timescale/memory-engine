@@ -16,6 +16,7 @@ import type {
   CreateUserOptions,
   DevicePollResult,
   DevicePollStatus,
+  DeviceStatus,
   OAuthProvider,
   User,
   ValidatedSession,
@@ -65,12 +66,16 @@ export interface AuthStore {
   createDeviceAuth(provider: OAuthProvider): Promise<CreatedDeviceAuth>;
   getDeviceByUserCode(userCode: string): Promise<DeviceAuthRow | null>;
   getDeviceByOAuthState(oauthState: string): Promise<DeviceAuthRow | null>;
-  /** Resolve the poll state machine in one call (see core poll_device). */
+  /** Resolve the poll state machine in one call (see poll_device). */
   pollDevice(
     deviceCode: string,
     minIntervalSecs?: number,
   ): Promise<DevicePollResult>;
-  authorizeDevice(deviceCode: string, userId: string): Promise<boolean>;
+  /** Callback bound the resolved user (status stays 'pending' until consent). */
+  bindDeviceUser(deviceCode: string, userId: string): Promise<boolean>;
+  /** Consent: approve the bound device (→ 'approved'). */
+  approveDevice(deviceCode: string): Promise<boolean>;
+  /** Consent denied, or OAuth failed (→ 'denied'). */
   denyDevice(deviceCode: string): Promise<boolean>;
   deleteDevice(deviceCode: string): Promise<boolean>;
   deleteExpiredDevices(): Promise<number>;
@@ -87,7 +92,7 @@ export interface DeviceAuthRow {
   expiresAt: Date;
   lastPoll: Date | null;
   userId: string | null;
-  denied: boolean;
+  status: DeviceStatus;
   createdAt: Date;
 }
 
@@ -121,7 +126,7 @@ function mapDevice(row: Record<string, unknown>): DeviceAuthRow {
     expiresAt: row.expires_at as Date,
     lastPoll: (row.last_poll as Date | null) ?? null,
     userId: (row.user_id as string | null) ?? null,
-    denied: Boolean(row.denied),
+    status: row.status as DeviceStatus,
     createdAt: row.created_at as Date,
   };
 }
@@ -254,9 +259,15 @@ export function authStore(sql: Sql, schema: string = AUTH_SCHEMA): AuthStore {
       };
     },
 
-    async authorizeDevice(deviceCode, userId) {
+    async bindDeviceUser(deviceCode, userId) {
       const [row] = await sql`
-        select ${sch}.authorize_device(${deviceCode}, ${userId}) as ok`;
+        select ${sch}.bind_device_user(${deviceCode}, ${userId}) as ok`;
+      return Boolean(row?.ok);
+    },
+
+    async approveDevice(deviceCode) {
+      const [row] = await sql`
+        select ${sch}.approve_device(${deviceCode}) as ok`;
       return Boolean(row?.ok);
     },
 

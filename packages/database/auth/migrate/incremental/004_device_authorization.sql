@@ -11,8 +11,8 @@ create table {{schema}}.device_authorization
 , oauth_state text        not null unique                                       -- CSRF binding for the OAuth callback
 , expires_at  timestamptz not null                                              -- short TTL (~15 min)
 , last_poll   timestamptz                                                       -- rate-limiting the CLI poll
-, user_id     uuid        references {{schema}}.users (id) on delete cascade    -- null until authorized
-, denied      boolean     not null default false
+, user_id     uuid        references {{schema}}.users (id) on delete cascade    -- bound once the callback resolves the user
+, status      text        not null default 'pending' check (status in ('pending', 'approved', 'denied')) -- approved only after explicit consent
 , created_at  timestamptz not null default now()
 );
 

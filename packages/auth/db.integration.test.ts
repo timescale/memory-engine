@@ -111,11 +111,13 @@ test("device flow: create → lookup (normalized code) → poll → authorize", 
   const byState = await db.getDeviceByOAuthState(oauthState);
   expect(byState?.deviceCode).toBe(deviceCode);
 
-  // pending → authorize → authorized
+  // pending → bind (callback) → still pending → approve (consent) → authorized
   expect((await db.pollDevice(deviceCode, 0)).status).toBe("pending");
-  expect(await db.authorizeDevice(deviceCode, id)).toBe(true);
+  expect(await db.bindDeviceUser(deviceCode, id)).toBe(true);
+  expect((await db.pollDevice(deviceCode, 0)).status).toBe("pending");
+  expect(await db.approveDevice(deviceCode)).toBe(true);
   const poll = await db.pollDevice(deviceCode, 0);
-  expect(poll.status).toBe("authorized");
+  expect(poll.status).toBe("approved");
   expect(poll.userId).toBe(id);
 });
 

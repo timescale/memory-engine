@@ -53,7 +53,8 @@ const EXPECTED_FUNCTIONS = [
   "upsert_account",
   "get_account_by_provider",
   "create_device_auth",
-  "authorize_device",
+  "bind_device_user",
+  "approve_device",
   "poll_device",
 ];
 
@@ -328,7 +329,7 @@ describe("auth functions", () => {
     });
   });
 
-  test("device flow: create → lookups → poll_device → authorize", async () => {
+  test("device flow: create → bind → consent → authorized (and deny path)", async () => {
     await withTestAuth(sql, {}, async (auth) => {
       const s = auth.schema;
       const [u] = await sql.unsafe(`select ${s}.create_user($1, $2) as id`, [
@@ -350,18 +351,18 @@ describe("auth functions", () => {
         [oauthState],
       );
       expect(byState[0]?.device_code).toBe(deviceCode);
+      expect(byState[0]?.status).toBe("pending");
       const byUserCode = await sql.unsafe(
         `select * from ${s}.get_device_by_user_code($1)`,
         [userCode],
       );
       expect(byUserCode[0]?.device_code).toBe(deviceCode);
 
-      // poll before authorization → pending (interval 0 bypasses rate limit)
+      // before binding → pending (interval 0 bypasses rate limit)
       const [p1] = await sql.unsafe(`select * from ${s}.poll_device($1, 0)`, [
         deviceCode,
       ]);
       expect(p1?.status).toBe("pending");
-      expect(p1?.user_id).toBeNull();
 
       // immediate re-poll with the default interval → slow_down
       const [sd] = await sql.unsafe(`select * from ${s}.poll_device($1)`, [
@@ -369,24 +370,47 @@ describe("auth functions", () => {
       ]);
       expect(sd?.status).toBe("slow_down");
 
-      // authorize binds the user; a second authorize is a no-op
-      const [a] = await sql.unsafe(
-        `select ${s}.authorize_device($1, $2) as ok`,
+      // callback binds the user, but status stays pending until consent
+      const [b] = await sql.unsafe(
+        `select ${s}.bind_device_user($1, $2) as ok`,
         [deviceCode, userId],
       );
-      expect(a?.ok).toBe(true);
-      const [a2] = await sql.unsafe(
-        `select ${s}.authorize_device($1, $2) as ok`,
-        [deviceCode, userId],
+      expect(b?.ok).toBe(true);
+      const [pBound] = await sql.unsafe(
+        `select * from ${s}.poll_device($1, 0)`,
+        [deviceCode],
       );
-      expect(a2?.ok).toBe(false);
+      expect(pBound?.status).toBe("pending"); // bound but NOT yet approved
 
-      // poll now resolves to authorized + the bound user
+      // consent: approve → authorized; a second approve is a no-op
+      const [ap] = await sql.unsafe(`select ${s}.approve_device($1) as ok`, [
+        deviceCode,
+      ]);
+      expect(ap?.ok).toBe(true);
+      const [ap2] = await sql.unsafe(`select ${s}.approve_device($1) as ok`, [
+        deviceCode,
+      ]);
+      expect(ap2?.ok).toBe(false);
+
       const [p2] = await sql.unsafe(`select * from ${s}.poll_device($1, 0)`, [
         deviceCode,
       ]);
-      expect(p2?.status).toBe("authorized");
+      expect(p2?.status).toBe("approved");
       expect(p2?.user_id).toBe(userId);
+
+      // deny path on a separate device → poll resolves to denied
+      const dc2 = crypto.randomUUID();
+      await sql.unsafe(
+        `select ${s}.create_device_auth($1, $2, 'google', $3, now() + interval '15 min')`,
+        [dc2, "WXYZ-3456", crypto.randomUUID()],
+      );
+      expect(
+        (await sql.unsafe(`select ${s}.deny_device($1) as ok`, [dc2]))[0]?.ok,
+      ).toBe(true);
+      const [pd] = await sql.unsafe(`select * from ${s}.poll_device($1, 0)`, [
+        dc2,
+      ]);
+      expect(pd?.status).toBe("denied");
 
       // unknown / expired device code → expired
       const [ex] = await sql.unsafe(`select * from ${s}.poll_device($1, 0)`, [

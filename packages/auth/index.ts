@@ -15,6 +15,7 @@ export type {
   CreateUserOptions,
   DevicePollResult,
   DevicePollStatus,
+  DeviceStatus,
   OAuthProvider,
   User,
   ValidatedSession,
