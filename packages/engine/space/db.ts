@@ -63,6 +63,9 @@ export interface SpaceStore {
     treeAccess: TreeAccess,
     options: HybridSearchOptions,
   ): Promise<SearchResultItem[]>;
+
+  /** Run operations atomically against the same transaction. */
+  withTransaction<T>(fn: (store: SpaceStore) => Promise<T>): Promise<T>;
 }
 
 function mapMemory(row: Record<string, unknown>): Memory {
@@ -242,6 +245,14 @@ export function spaceStore(sql: Sql, schema: string): SpaceStore {
           ${o.limit ?? 10}
         )`;
       return rows.map(mapSearchItem);
+    },
+
+    async withTransaction<T>(
+      fn: (store: SpaceStore) => Promise<T>,
+    ): Promise<T> {
+      return sql.begin((tx) =>
+        fn(spaceStore(tx as unknown as Sql, schema)),
+      ) as Promise<T>;
     },
   };
 }

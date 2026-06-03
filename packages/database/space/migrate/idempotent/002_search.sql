@@ -77,7 +77,8 @@ begin
       );
     end if;
   else
-    _score = $sql$, -1 as score$sql$;
+    -- no ranking arm: constant score, typed float8 to match the return column
+    _score = $sql$, (-1)::float8 as score$sql$;
     _order_by = $sql$order by m.id$sql$;
   end case;
 
