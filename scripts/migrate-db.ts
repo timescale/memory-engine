@@ -18,7 +18,7 @@ function usage(): string {
   return `Usage: ./bun run migrate:db [all|core|space-db|space]
 
 Environment:
-  DATABASE_URL       Postgres connection string. Falls back to ENGINE_DATABASE_URL, then ${DEFAULT_DATABASE_URL}
+  DATABASE_URL       Postgres connection string. Defaults to ${DEFAULT_DATABASE_URL}
   SPACE_SLUG         Space slug to migrate. Defaults to ${DEFAULT_SPACE_SLUG}
 
 Modes:
@@ -49,11 +49,7 @@ function parseMode(arg: string | undefined): Mode {
 }
 
 function databaseUrl(): string {
-  return (
-    process.env.DATABASE_URL ??
-    process.env.ENGINE_DATABASE_URL ??
-    DEFAULT_DATABASE_URL
-  );
+  return process.env.DATABASE_URL ?? DEFAULT_DATABASE_URL;
 }
 
 async function main(): Promise<void> {

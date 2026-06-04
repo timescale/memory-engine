@@ -52,11 +52,10 @@ cp .env.sample .env
 
 #### Required variables
 
-**Database connections** — both point to the local Docker Postgres, but use separate databases:
+**Database connection** — one database holds the `auth` + `core` control plane and every per-space `me_<slug>` schema:
 
 ```
-ACCOUNTS_DATABASE_URL=postgres://postgres@localhost:5432/accounts
-ENGINE_DATABASE_URL=postgres://postgres@localhost:5432/shard1
+DATABASE_URL=postgres://postgres@localhost:5432/memory_engine
 ```
 
 
@@ -112,8 +111,7 @@ GITHUB_CLIENT_SECRET=...
 
 ```bash
 # Database
-ACCOUNTS_DATABASE_URL=postgres://postgres@localhost:5432/accounts
-ENGINE_DATABASE_URL=postgres://postgres@localhost:5432/shard1
+DATABASE_URL=postgres://postgres@localhost:5432/memory_engine
 
 # Server
 API_BASE_URL=http://localhost:3000

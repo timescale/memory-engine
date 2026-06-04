@@ -11,7 +11,7 @@
  *
  * Prerequisites:
  *   1. Postgres running (`./bun run pg`)
- *   2. .env filled in (ACCOUNTS_DATABASE_URL, ENGINE_DATABASE_URL)
+ *   2. .env filled in (DATABASE_URL)
  *
  * Usage:
  *   ./bun run setup
@@ -32,8 +32,7 @@ function requireEnv(name: string): string {
   return value;
 }
 
-const ACCOUNTS_DATABASE_URL = requireEnv("ACCOUNTS_DATABASE_URL");
-const ENGINE_DATABASE_URL = requireEnv("ENGINE_DATABASE_URL");
+const DATABASE_URL = requireEnv("DATABASE_URL");
 
 // =============================================================================
 // Database creation
@@ -75,9 +74,8 @@ async function main() {
   console.log("=== Memory Engine: Local Dev Setup ===");
   console.log("");
 
-  console.log("Ensuring databases exist...");
-  await ensureDatabase(ACCOUNTS_DATABASE_URL);
-  await ensureDatabase(ENGINE_DATABASE_URL);
+  console.log("Ensuring database exists...");
+  await ensureDatabase(DATABASE_URL);
   console.log("");
 
   console.log("Done! Start the server to run bootstrap + migrations:");

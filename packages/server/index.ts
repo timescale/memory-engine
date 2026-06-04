@@ -62,7 +62,7 @@ configure({
 // =============================================================================
 //
 // Required:
-//   ENGINE_DATABASE_URL   - PostgreSQL connection string for the database that
+//   DATABASE_URL   - PostgreSQL connection string for the database that
 //                          holds the auth + core control plane and every
 //                          per-space me_<slug> schema (one DB, one pool)
 //   API_BASE_URL          - Public URL for OAuth callbacks
@@ -74,25 +74,21 @@ configure({
 //   CORE_SCHEMA     - Core control-plane schema name (default: "core")
 //
 // Connection Pool - Database:
-//   ENGINE_POOL_MAX                - Max connections (default: 20)
-//   ENGINE_POOL_IDLE_REAP_SECONDS  - Close idle pooled connections after N seconds (default: 300)
-//   ENGINE_POOL_MAX_LIFETIME       - Max lifetime in seconds, 0=forever (default: 0)
-//   ENGINE_POOL_CONNECTION_TIMEOUT - Connection timeout in seconds (default: 30)
-//   ENGINE_STATEMENT_TIMEOUT       - Per-engine-query timeout (default: 25s)
-//   ENGINE_LOCK_TIMEOUT            - Per-engine-lock wait timeout (default: 5s)
-//   ENGINE_TRANSACTION_TIMEOUT     - Per-engine-transaction timeout (default: 30s)
-//   ENGINE_IDLE_IN_TRANSACTION_SESSION_TIMEOUT - Idle-in-transaction timeout (default: 30s)
+//   DB_POOL_MAX                - Max connections (default: 20)
+//   DB_POOL_IDLE_REAP_SECONDS  - Close idle pooled connections after N seconds (default: 300)
+//   DB_POOL_MAX_LIFETIME       - Max lifetime in seconds, 0=forever (default: 0)
+//   DB_POOL_CONNECTION_TIMEOUT - Connection timeout in seconds (default: 30)
 //
-// Embedding Worker Engine Database:
-//   WORKER_ENGINE_DATABASE_URL             - PostgreSQL connection string for worker engine traffic (default: ENGINE_DATABASE_URL)
-//   WORKER_ENGINE_POOL_MAX                 - Max worker engine connections (default: WORKER_COUNT)
-//   WORKER_ENGINE_POOL_IDLE_REAP_SECONDS   - Close idle pooled connections after N seconds (default: ENGINE_POOL_IDLE_REAP_SECONDS)
-//   WORKER_ENGINE_POOL_MAX_LIFETIME        - Max lifetime in seconds, 0=forever (default: ENGINE_POOL_MAX_LIFETIME)
-//   WORKER_ENGINE_POOL_CONNECTION_TIMEOUT  - Connection timeout in seconds (default: ENGINE_POOL_CONNECTION_TIMEOUT)
-//   WORKER_ENGINE_STATEMENT_TIMEOUT        - Worker engine query timeout (default: ENGINE_STATEMENT_TIMEOUT)
-//   WORKER_ENGINE_LOCK_TIMEOUT             - Worker engine lock wait timeout (default: ENGINE_LOCK_TIMEOUT)
-//   WORKER_ENGINE_TRANSACTION_TIMEOUT      - Worker engine transaction timeout (default: ENGINE_TRANSACTION_TIMEOUT)
-//   WORKER_ENGINE_IDLE_IN_TRANSACTION_SESSION_TIMEOUT - Worker engine idle-in-transaction timeout (default: ENGINE_IDLE_IN_TRANSACTION_SESSION_TIMEOUT)
+// Embedding Worker Database:
+//   WORKER_DATABASE_URL             - PostgreSQL connection string for worker traffic (default: DATABASE_URL)
+//   WORKER_DB_POOL_MAX                 - Max worker connections (default: WORKER_COUNT)
+//   WORKER_DB_POOL_IDLE_REAP_SECONDS   - Close idle pooled connections after N seconds (default: DB_POOL_IDLE_REAP_SECONDS)
+//   WORKER_DB_POOL_MAX_LIFETIME        - Max lifetime in seconds, 0=forever (default: DB_POOL_MAX_LIFETIME)
+//   WORKER_DB_POOL_CONNECTION_TIMEOUT  - Connection timeout in seconds (default: DB_POOL_CONNECTION_TIMEOUT)
+//   WORKER_DB_STATEMENT_TIMEOUT        - Worker query timeout (default: built-in worker default)
+//   WORKER_DB_LOCK_TIMEOUT             - Worker lock wait timeout (default: built-in worker default)
+//   WORKER_DB_TRANSACTION_TIMEOUT      - Worker transaction timeout (default: built-in worker default)
+//   WORKER_DB_IDLE_IN_TRANSACTION_SESSION_TIMEOUT - Worker idle-in-transaction timeout (default: built-in worker default)
 //
 // Cleanup:
 //   DEVICE_FLOW_CLEANUP_CRON - Cron schedule for cleaning up expired device auths
@@ -104,7 +100,7 @@ configure({
 //   WORKER_LOCK_DURATION      - PostgreSQL interval for claim lock (default: "5 minutes")
 //   WORKER_IDLE_DELAY_MS      - Poll interval when idle in ms (default: 10000)
 //   WORKER_MAX_BACKOFF_MS     - Max error backoff in ms (default: 60000)
-//   WORKER_REFRESH_INTERVAL_MS - Engine re-discovery interval in ms (default: 60000)
+//   WORKER_REFRESH_INTERVAL_MS - Space re-discovery interval in ms (default: 60000)
 //
 // =============================================================================
 
@@ -128,9 +124,9 @@ function parseIntEnv(
 
 const port = process.env.PORT || 3000;
 
-const engineDatabaseUrl = process.env.ENGINE_DATABASE_URL;
-if (!engineDatabaseUrl) {
-  throw new Error("ENGINE_DATABASE_URL environment variable is required");
+const databaseUrl = process.env.DATABASE_URL;
+if (!databaseUrl) {
+  throw new Error("DATABASE_URL environment variable is required");
 }
 
 const apiBaseUrl = process.env.API_BASE_URL;
@@ -152,62 +148,60 @@ const workerCount = parseIntEnv(
 );
 
 // Connection pool settings - database
-const enginePoolMax = parseIntEnv(
-  "ENGINE_POOL_MAX",
-  process.env.ENGINE_POOL_MAX || "",
+const dbPoolMax = parseIntEnv(
+  "DB_POOL_MAX",
+  process.env.DB_POOL_MAX || "",
   "20",
 );
-const enginePoolIdleReapSeconds = parseIntEnv(
-  "ENGINE_POOL_IDLE_REAP_SECONDS",
-  process.env.ENGINE_POOL_IDLE_REAP_SECONDS || "",
+const dbPoolIdleReapSeconds = parseIntEnv(
+  "DB_POOL_IDLE_REAP_SECONDS",
+  process.env.DB_POOL_IDLE_REAP_SECONDS || "",
   "300",
 );
-const enginePoolMaxLifetime = parseIntEnv(
-  "ENGINE_POOL_MAX_LIFETIME",
-  process.env.ENGINE_POOL_MAX_LIFETIME || "",
+const dbPoolMaxLifetime = parseIntEnv(
+  "DB_POOL_MAX_LIFETIME",
+  process.env.DB_POOL_MAX_LIFETIME || "",
   "0",
 );
-const enginePoolConnectionTimeout = parseIntEnv(
-  "ENGINE_POOL_CONNECTION_TIMEOUT",
-  process.env.ENGINE_POOL_CONNECTION_TIMEOUT || "",
+const dbPoolConnectionTimeout = parseIntEnv(
+  "DB_POOL_CONNECTION_TIMEOUT",
+  process.env.DB_POOL_CONNECTION_TIMEOUT || "",
   "30",
 );
 
-// Connection pool settings - Embedding worker engine database
-const workerEngineDatabaseUrl =
-  process.env.WORKER_ENGINE_DATABASE_URL || engineDatabaseUrl;
-const workerEnginePoolMax = parseIntEnv(
-  "WORKER_ENGINE_POOL_MAX",
-  process.env.WORKER_ENGINE_POOL_MAX || "",
+// Connection pool settings - embedding worker database
+const workerDatabaseUrl = process.env.WORKER_DATABASE_URL || databaseUrl;
+const workerDbPoolMax = parseIntEnv(
+  "WORKER_DB_POOL_MAX",
+  process.env.WORKER_DB_POOL_MAX || "",
   String(Math.max(workerCount, 1)),
 );
-const workerEnginePoolIdleReapSeconds = parseIntEnv(
-  "WORKER_ENGINE_POOL_IDLE_REAP_SECONDS",
-  process.env.WORKER_ENGINE_POOL_IDLE_REAP_SECONDS || "",
-  String(enginePoolIdleReapSeconds),
+const workerDbPoolIdleReapSeconds = parseIntEnv(
+  "WORKER_DB_POOL_IDLE_REAP_SECONDS",
+  process.env.WORKER_DB_POOL_IDLE_REAP_SECONDS || "",
+  String(dbPoolIdleReapSeconds),
 );
-const workerEnginePoolMaxLifetime = parseIntEnv(
-  "WORKER_ENGINE_POOL_MAX_LIFETIME",
-  process.env.WORKER_ENGINE_POOL_MAX_LIFETIME || "",
-  String(enginePoolMaxLifetime),
+const workerDbPoolMaxLifetime = parseIntEnv(
+  "WORKER_DB_POOL_MAX_LIFETIME",
+  process.env.WORKER_DB_POOL_MAX_LIFETIME || "",
+  String(dbPoolMaxLifetime),
 );
-const workerEnginePoolConnectionTimeout = parseIntEnv(
-  "WORKER_ENGINE_POOL_CONNECTION_TIMEOUT",
-  process.env.WORKER_ENGINE_POOL_CONNECTION_TIMEOUT || "",
-  String(enginePoolConnectionTimeout),
+const workerDbPoolConnectionTimeout = parseIntEnv(
+  "WORKER_DB_POOL_CONNECTION_TIMEOUT",
+  process.env.WORKER_DB_POOL_CONNECTION_TIMEOUT || "",
+  String(dbPoolConnectionTimeout),
 );
 const workerTimeouts: WorkerTimeouts = {
   statementTimeout:
-    process.env.WORKER_ENGINE_STATEMENT_TIMEOUT ??
+    process.env.WORKER_DB_STATEMENT_TIMEOUT ??
     DEFAULT_WORKER_TIMEOUTS.statementTimeout,
   lockTimeout:
-    process.env.WORKER_ENGINE_LOCK_TIMEOUT ??
-    DEFAULT_WORKER_TIMEOUTS.lockTimeout,
+    process.env.WORKER_DB_LOCK_TIMEOUT ?? DEFAULT_WORKER_TIMEOUTS.lockTimeout,
   transactionTimeout:
-    process.env.WORKER_ENGINE_TRANSACTION_TIMEOUT ??
+    process.env.WORKER_DB_TRANSACTION_TIMEOUT ??
     DEFAULT_WORKER_TIMEOUTS.transactionTimeout,
   idleInTransactionSessionTimeout:
-    process.env.WORKER_ENGINE_IDLE_IN_TRANSACTION_SESSION_TIMEOUT ??
+    process.env.WORKER_DB_IDLE_IN_TRANSACTION_SESSION_TIMEOUT ??
     DEFAULT_WORKER_TIMEOUTS.idleInTransactionSessionTimeout,
 };
 
@@ -215,7 +209,7 @@ const workerTimeouts: WorkerTimeouts = {
 // Embedding Config
 // =============================================================================
 //
-// Model and dimensions are hardcoded - all engines use the same embedding model.
+// Model and dimensions are hardcoded - all spaces use the same embedding model.
 // Only the API key is configurable via environment variable.
 //
 // Required:
@@ -298,21 +292,21 @@ if (configuredProviders.length === 0) {
 
 // Dedicated worker pool (postgres.js) — the embedding worker processes the
 // per-space me_<slug> schemas.
-const workerDb = postgres(workerEngineDatabaseUrl, {
-  max: workerEnginePoolMax,
-  idle_timeout: workerEnginePoolIdleReapSeconds,
-  max_lifetime: workerEnginePoolMaxLifetime,
-  connect_timeout: workerEnginePoolConnectionTimeout,
+const workerDb = postgres(workerDatabaseUrl, {
+  max: workerDbPoolMax,
+  idle_timeout: workerDbPoolIdleReapSeconds,
+  max_lifetime: workerDbPoolMaxLifetime,
+  connect_timeout: workerDbPoolConnectionTimeout,
   onnotice: () => {},
 });
 
 // The single application pool (postgres.js): the auth + core control plane and
 // the per-space me_<slug> data schemas all live in one database, one pool.
-const db = postgres(engineDatabaseUrl, {
-  max: enginePoolMax,
-  idle_timeout: enginePoolIdleReapSeconds,
-  max_lifetime: enginePoolMaxLifetime,
-  connect_timeout: enginePoolConnectionTimeout,
+const db = postgres(databaseUrl, {
+  max: dbPoolMax,
+  idle_timeout: dbPoolIdleReapSeconds,
+  max_lifetime: dbPoolMaxLifetime,
+  connect_timeout: dbPoolConnectionTimeout,
   onnotice: () => {},
 });
 
