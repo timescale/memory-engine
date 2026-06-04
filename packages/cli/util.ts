@@ -100,6 +100,47 @@ export function buildMemoryClient(
   });
 }
 
+/**
+ * Resolve a principal in the active space to its id. Accepts a UUIDv7 (used
+ * as-is) or a name — for users the name is their email; for agents/groups it is
+ * the display name. Optionally constrained to a kind ('u' | 'a' | 'g'). Listing
+ * principals requires space-manager authority; callers without it should pass a
+ * UUID. Exits with an actionable error on miss / ambiguity.
+ */
+export async function resolveSpacePrincipalId(
+  memory: MemoryClient,
+  input: string,
+  fmt: OutputFormat,
+  kind?: "u" | "a" | "g",
+): Promise<string> {
+  if (UUIDV7_RE.test(input)) return input;
+
+  const { principals } = await memory.principal.list(kind ? { kind } : {});
+  const lower = input.toLowerCase();
+  const matches = principals.filter((p) => p.name.toLowerCase() === lower);
+
+  if (matches.length === 1 && matches[0]) return matches[0].id;
+
+  if (matches.length === 0) {
+    const msg = `No ${kind === "g" ? "group" : "principal"} named '${input}' in this space.`;
+    if (fmt === "text") {
+      clack.log.error(msg);
+    } else {
+      output({ error: msg }, fmt, () => {});
+    }
+    process.exit(1);
+  }
+
+  const msg = `Multiple principals named '${input}'. Use the id instead:`;
+  if (fmt === "text") {
+    clack.log.error(msg);
+    for (const m of matches) console.log(`  ${m.name} (${m.kind}) — ${m.id}`);
+  } else {
+    output({ error: msg, matches }, fmt, () => {});
+  }
+  process.exit(1);
+}
+
 interface OrgInfo {
   id: string;
   name: string;

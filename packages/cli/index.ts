@@ -9,12 +9,14 @@ import { Command } from "commander";
  * and all command groups, then runs.
  */
 import { CLIENT_VERSION } from "../../version";
+import { createAccessCommand } from "./commands/access.ts";
 import { createApiKeyCommand } from "./commands/apikey.ts";
 import { createClaudeCommand } from "./commands/claude.ts";
 import { createCodexCommand } from "./commands/codex.ts";
 import { createEngineCommand } from "./commands/engine.ts";
 import { createGeminiCommand } from "./commands/gemini.ts";
 import { createGrantCommand } from "./commands/grant.ts";
+import { createGroupCommand } from "./commands/group.ts";
 import { createInvitationCommand } from "./commands/invitation.ts";
 import { createLoginCommand } from "./commands/login.ts";
 import { createLogoutCommand } from "./commands/logout.ts";
@@ -73,6 +75,8 @@ program.addCommand(createEngineCommand());
 
 // Space commands (new model)
 program.addCommand(createSpaceCommand());
+program.addCommand(createGroupCommand());
+program.addCommand(createAccessCommand());
 
 // Org commands
 program.addCommand(createOrgCommand());
