@@ -1,9 +1,7 @@
 import { afterAll, beforeAll, describe, expect, mock, test } from "bun:test";
-import type { AccountsDB } from "@memory.build/accounts";
 import type { AuthStore } from "@memory.build/auth";
 import type { EmbeddingConfig } from "@memory.build/embedding";
 import type { CoreStore } from "@memory.build/engine/core";
-import type { SQL } from "bun";
 import type { Sql } from "postgres";
 import { MIN_CLIENT_VERSION, SERVER_VERSION } from "../../version";
 import type { ServerContext } from "./context";
@@ -16,15 +14,9 @@ let baseUrl: string;
 // Mock ServerContext for testing
 function createMockContext(): ServerContext {
   return {
-    accountsDb: {
-      validateSession: mock(() => Promise.resolve(null)),
-      getEngineBySlug: mock(() => Promise.resolve(null)),
-    } as unknown as AccountsDB,
-    accountsSql: {} as SQL,
-    engineSql: {} as SQL,
     db: {} as Sql,
     auth: {
-      // Session validation: no session → accounts RPC stays 401.
+      // Session validation: no session → user RPC stays 401.
       validateSession: mock(() => Promise.resolve(null)),
       // Device flow operations exercised by the auth endpoint tests.
       createDeviceAuth: mock((_provider: string) =>
@@ -129,7 +121,7 @@ describe("server integration", () => {
     test("rejects requests with oversized Content-Length header", async () => {
       // Create a request with a misleading Content-Length header
       // In real scenarios, the header would match the actual body
-      const request = new Request(`${baseUrl}/api/v1/accounts/rpc`, {
+      const request = new Request(`${baseUrl}/api/v1/memory/rpc`, {
         method: "POST",
         headers: {
           "Content-Length": String(MAX_BODY_SIZE + 1),
@@ -145,12 +137,12 @@ describe("server integration", () => {
     });
 
     test("allows normal sized requests", async () => {
-      const response = await fetch(`${baseUrl}/api/v1/accounts/rpc`, {
+      const response = await fetch(`${baseUrl}/api/v1/user/rpc`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ jsonrpc: "2.0", method: "test", id: 1 }),
+        body: JSON.stringify({ jsonrpc: "2.0", method: "whoami", id: 1 }),
       });
       // Should get 401 (auth required) not 413 (size limit)
       // Auth is checked after size limit passes
@@ -159,23 +151,38 @@ describe("server integration", () => {
   });
 
   describe("RPC endpoints", () => {
-    test("POST /api/v1/accounts/rpc returns 401 without auth", async () => {
-      const response = await fetch(`${baseUrl}/api/v1/accounts/rpc`, {
+    test("POST /api/v1/memory/rpc returns 401 without auth", async () => {
+      const response = await fetch(`${baseUrl}/api/v1/memory/rpc`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "X-Me-Space": "abc123def456",
+        },
         body: JSON.stringify({}),
       });
       // Auth is required before JSON-RPC processing
       expect(response.status).toBe(401);
     });
 
-    test("POST /api/v1/accounts/rpc returns 401 for unauthenticated requests", async () => {
-      const response = await fetch(`${baseUrl}/api/v1/accounts/rpc`, {
+    test("POST /api/v1/memory/rpc returns 400 when X-Me-Space is missing", async () => {
+      const response = await fetch(`${baseUrl}/api/v1/memory/rpc`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer some-token",
+        },
+        body: JSON.stringify({ jsonrpc: "2.0", method: "memory.get", id: 1 }),
+      });
+      expect(response.status).toBe(400);
+    });
+
+    test("POST /api/v1/user/rpc returns 401 for unauthenticated requests", async () => {
+      const response = await fetch(`${baseUrl}/api/v1/user/rpc`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           jsonrpc: "2.0",
-          method: "unknown.method",
+          method: "whoami",
           id: 1,
         }),
       });
@@ -183,22 +190,8 @@ describe("server integration", () => {
       expect(response.status).toBe(401);
     });
 
-    test("POST /api/v1/engine/rpc returns 401 without auth", async () => {
-      const response = await fetch(`${baseUrl}/api/v1/engine/rpc`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          jsonrpc: "2.0",
-          method: "unknown.method",
-          id: 1,
-        }),
-      });
-      // Auth is required before method lookup
-      expect(response.status).toBe(401);
-    });
-
-    test("GET /api/v1/accounts/rpc returns 404 (wrong method)", async () => {
-      const response = await fetch(`${baseUrl}/api/v1/accounts/rpc`);
+    test("GET /api/v1/memory/rpc returns 404 (wrong method)", async () => {
+      const response = await fetch(`${baseUrl}/api/v1/memory/rpc`);
       expect(response.status).toBe(404);
     });
   });

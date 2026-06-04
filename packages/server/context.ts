@@ -1,8 +1,6 @@
-import type { AccountsDB } from "@memory.build/accounts";
 import type { AuthStore } from "@memory.build/auth";
 import type { EmbeddingConfig } from "@memory.build/embedding";
 import type { CoreStore } from "@memory.build/engine/core";
-import type { SQL } from "bun";
 import type { Sql } from "postgres";
 
 /**
@@ -10,13 +8,7 @@ import type { Sql } from "postgres";
  * Passed to createRouter() at startup.
  */
 export interface ServerContext {
-  /** Accounts database operations (legacy: org/engine, until Phase 5) */
-  accountsDb: AccountsDB;
-  /** Accounts database pool (for health checks) */
-  accountsSql: SQL;
-  /** Engine database pool (EngineDB created per-request based on slug) */
-  engineSql: SQL;
-  /** New-model pool (postgres.js): auth + core + per-space schemas, one DB */
+  /** Pool (postgres.js): auth + core + per-space schemas, one DB */
   db: Sql;
   /** Auth store (auth schema): me/session/identity/device + OAuth accounts */
   auth: AuthStore;

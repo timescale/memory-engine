@@ -5,7 +5,7 @@ import { checkClientVersion } from "./client-version";
 const MIN = "0.2.0";
 
 function req(headers: Record<string, string> = {}): Request {
-  return new Request("http://localhost/api/v1/engine/rpc", {
+  return new Request("http://localhost/api/v1/memory/rpc", {
     method: "POST",
     headers,
   });

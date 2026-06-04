@@ -10,20 +10,10 @@ import {
 } from "./handlers/auth";
 import { healthHandler, readyHandler } from "./handlers/health";
 import { versionHandler } from "./handlers/version";
-import {
-  authenticateAccounts,
-  authenticateEngine,
-} from "./middleware/authenticate";
 import { authenticateSpace } from "./middleware/authenticate-space";
 import { authenticateUser } from "./middleware/authenticate-user";
 import { checkClientVersion } from "./middleware/client-version";
-import {
-  accountsMethods,
-  createRpcHandler,
-  engineMethods,
-  memoryMethods,
-  userMethods,
-} from "./rpc";
+import { createRpcHandler, memoryMethods, userMethods } from "./rpc";
 import { notFound } from "./util/response";
 
 /**
@@ -129,9 +119,6 @@ export interface Router {
  */
 export function createRouter(ctx: ServerContext): Router {
   const {
-    accountsDb,
-    accountsSql,
-    engineSql,
     db,
     auth,
     core,
@@ -165,51 +152,6 @@ export function createRouter(ctx: ServerContext): Router {
       return inner(request);
     };
   }
-
-  // Engine RPC: authenticate and provide db context
-  const engineRpcHandler = createRpcHandler(engineMethods, async (request) => {
-    const auth = await authenticateEngine(request, accountsDb, engineSql);
-    if (!auth.ok) {
-      return auth.error;
-    }
-    // TypeScript narrows auth.context to AuthContext after ok check
-    // We know it's EngineAuthContext since we called authenticateEngine
-    const ctx = auth.context;
-    if (ctx.type !== "engine") {
-      throw new Error("Unexpected auth context type");
-    }
-    return {
-      db: ctx.db,
-      userId: ctx.userId,
-      apiKeyId: ctx.apiKeyId,
-      engine: ctx.engine,
-      embeddingConfig,
-    };
-  });
-
-  // Accounts RPC: authenticate and provide identity context
-  const accountsRpcHandler = createRpcHandler(
-    accountsMethods,
-    async (request) => {
-      const result = await authenticateAccounts(request, auth);
-      if (!result.ok) {
-        return result.error;
-      }
-      // TypeScript narrows result.context to AuthContext after ok check
-      // We know it's AccountsAuthContext since we called authenticateAccounts
-      const authContext = result.context;
-      if (authContext.type !== "accounts") {
-        throw new Error("Unexpected auth context type");
-      }
-      return {
-        db: accountsDb,
-        auth,
-        identity: authContext.identity,
-        engineSql,
-        serverVersion,
-      };
-    },
-  );
 
   // Memory RPC (new model): authenticate principal + space, provide space context
   const memoryRpcHandler = createRpcHandler(memoryMethods, async (request) => {
@@ -254,7 +196,7 @@ export function createRouter(ctx: ServerContext): Router {
     {
       method: "GET",
       pattern: "/ready",
-      handler: readyHandler(accountsSql, engineSql),
+      handler: readyHandler(db),
     },
 
     // Version compatibility check (unauthenticated)
@@ -302,20 +244,6 @@ export function createRouter(ctx: ServerContext): Router {
       method: "GET",
       pattern: "/api/v1/auth/callback/:provider",
       handler: (req, params) => oauthCallbackHandler(req, params, authCtx),
-    },
-
-    // Accounts RPC
-    {
-      method: "POST",
-      pattern: "/api/v1/accounts/rpc",
-      handler: withClientVersionCheck(accountsRpcHandler),
-    },
-
-    // Engine RPC
-    {
-      method: "POST",
-      pattern: "/api/v1/engine/rpc",
-      handler: withClientVersionCheck(engineRpcHandler),
     },
 
     // Memory RPC (new model: space data-plane + management)

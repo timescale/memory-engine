@@ -1,5 +1,5 @@
 import { info } from "@pydantic/logfire-node";
-import type { SQL } from "bun";
+import type { Sql } from "postgres";
 import { json, text } from "../util/response";
 
 /**
@@ -14,32 +14,23 @@ export function healthHandler(_request: Request): Response {
 
 /**
  * Readiness check handler.
- * Verifies both database pools are alive via SELECT 1.
- * Returns 200 if both succeed, 503 if either fails.
+ * Verifies the database pool is alive via SELECT 1.
+ * Returns 200 on success, 503 on failure.
  */
 export function readyHandler(
-  accountsSql: SQL,
-  engineSql: SQL,
+  db: Sql,
 ): (_request: Request) => Promise<Response> {
   return async (_request: Request) => {
     const checks: Record<string, string> = {};
 
-    const [accountsResult, engineResult] = await Promise.allSettled([
-      accountsSql`SELECT 1`,
-      engineSql`SELECT 1`,
-    ]);
+    const [dbResult] = await Promise.allSettled([db`SELECT 1`]);
 
-    checks.accounts_db =
-      accountsResult.status === "fulfilled"
+    checks.db =
+      dbResult.status === "fulfilled"
         ? "ok"
-        : `error: ${accountsResult.reason instanceof Error ? accountsResult.reason.message : String(accountsResult.reason)}`;
+        : `error: ${dbResult.reason instanceof Error ? dbResult.reason.message : String(dbResult.reason)}`;
 
-    checks.engine_db =
-      engineResult.status === "fulfilled"
-        ? "ok"
-        : `error: ${engineResult.reason instanceof Error ? engineResult.reason.message : String(engineResult.reason)}`;
-
-    const allOk = checks.accounts_db === "ok" && checks.engine_db === "ok";
+    const allOk = checks.db === "ok";
 
     return json(
       {

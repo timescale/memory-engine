@@ -1,6 +1,4 @@
 // packages/server/index.ts
-import { createAccountsDB } from "@memory.build/accounts";
-import { migrate as migrateAccounts } from "@memory.build/accounts/migrate/runner";
 import { authStore } from "@memory.build/auth";
 import {
   bootstrapSpaceDatabase,
@@ -10,12 +8,6 @@ import {
 } from "@memory.build/database";
 import type { EmbeddingConfig } from "@memory.build/embedding";
 import { coreStore } from "@memory.build/engine/core";
-import {
-  discoverEngineSchemas,
-  slugToSchema,
-} from "@memory.build/engine/migrate";
-import { bootstrap as bootstrapEngine } from "@memory.build/engine/migrate/bootstrap";
-import { migrateAll as migrateEngines } from "@memory.build/engine/migrate/runner";
 import {
   DEFAULT_WORKER_TIMEOUTS,
   WorkerPool,
@@ -70,28 +62,18 @@ configure({
 // =============================================================================
 //
 // Required:
-//   ACCOUNTS_DATABASE_URL - PostgreSQL connection string for accounts database
-//                          (stores engines, API keys, users)
-//   ENGINE_DATABASE_URL   - PostgreSQL connection string for engine databases
-//                          (stores memories, each engine in its own schema)
+//   ENGINE_DATABASE_URL   - PostgreSQL connection string for the database that
+//                          holds the auth + core control plane and every
+//                          per-space me_<slug> schema (one DB, one pool)
 //   API_BASE_URL          - Public URL for OAuth callbacks
 //                          (e.g., "https://memory.build")
 //
 // Optional:
 //   PORT            - HTTP server port (default: 3000)
-//   ACCOUNTS_SCHEMA - Schema name in accounts database (default: "accounts")
+//   AUTH_SCHEMA     - Auth schema name (default: "auth")
+//   CORE_SCHEMA     - Core control-plane schema name (default: "core")
 //
-// Connection Pool - Accounts Database:
-//   ACCOUNTS_POOL_MAX                - Max connections (default: 10)
-//   ACCOUNTS_POOL_IDLE_REAP_SECONDS  - Close idle pooled connections after N seconds (default: 300)
-//   ACCOUNTS_POOL_MAX_LIFETIME       - Max lifetime in seconds, 0=forever (default: 0)
-//   ACCOUNTS_POOL_CONNECTION_TIMEOUT - Connection timeout in seconds (default: 30)
-//   ACCOUNTS_STATEMENT_TIMEOUT       - Per-accounts-query timeout (default: 25s)
-//   ACCOUNTS_LOCK_TIMEOUT            - Per-accounts-lock wait timeout (default: 5s)
-//   ACCOUNTS_TRANSACTION_TIMEOUT     - Per-accounts-transaction timeout (default: 30s)
-//   ACCOUNTS_IDLE_IN_TRANSACTION_SESSION_TIMEOUT - Idle-in-transaction timeout (default: 30s)
-//
-// Connection Pool - Engine Database:
+// Connection Pool - Database:
 //   ENGINE_POOL_MAX                - Max connections (default: 20)
 //   ENGINE_POOL_IDLE_REAP_SECONDS  - Close idle pooled connections after N seconds (default: 300)
 //   ENGINE_POOL_MAX_LIFETIME       - Max lifetime in seconds, 0=forever (default: 0)
@@ -146,11 +128,6 @@ function parseIntEnv(
 
 const port = process.env.PORT || 3000;
 
-const accountsDatabaseUrl = process.env.ACCOUNTS_DATABASE_URL;
-if (!accountsDatabaseUrl) {
-  throw new Error("ACCOUNTS_DATABASE_URL environment variable is required");
-}
-
 const engineDatabaseUrl = process.env.ENGINE_DATABASE_URL;
 if (!engineDatabaseUrl) {
   throw new Error("ENGINE_DATABASE_URL environment variable is required");
@@ -164,9 +141,7 @@ if (!apiBaseUrl) {
 const deviceFlowCleanupCron =
   process.env.DEVICE_FLOW_CLEANUP_CRON || "*/15 * * * *";
 
-const accountsSchema = process.env.ACCOUNTS_SCHEMA || "accounts";
-
-// New-model schema names (single DB, postgres.js pool): auth + core control plane.
+// Schema names (single DB, postgres.js pool): auth + core control plane.
 const authSchema = process.env.AUTH_SCHEMA || "auth";
 const coreSchema = process.env.CORE_SCHEMA || "core";
 
@@ -176,29 +151,7 @@ const workerCount = parseIntEnv(
   "2",
 );
 
-// Connection pool settings - Accounts database
-const accountsPoolMax = parseIntEnv(
-  "ACCOUNTS_POOL_MAX",
-  process.env.ACCOUNTS_POOL_MAX || "",
-  "10",
-);
-const accountsPoolIdleReapSeconds = parseIntEnv(
-  "ACCOUNTS_POOL_IDLE_REAP_SECONDS",
-  process.env.ACCOUNTS_POOL_IDLE_REAP_SECONDS || "",
-  "300",
-);
-const accountsPoolMaxLifetime = parseIntEnv(
-  "ACCOUNTS_POOL_MAX_LIFETIME",
-  process.env.ACCOUNTS_POOL_MAX_LIFETIME || "",
-  "0",
-);
-const accountsPoolConnectionTimeout = parseIntEnv(
-  "ACCOUNTS_POOL_CONNECTION_TIMEOUT",
-  process.env.ACCOUNTS_POOL_CONNECTION_TIMEOUT || "",
-  "30",
-);
-
-// Connection pool settings - Engine database
+// Connection pool settings - database
 const enginePoolMax = parseIntEnv(
   "ENGINE_POOL_MAX",
   process.env.ENGINE_POOL_MAX || "",
@@ -343,23 +296,8 @@ if (configuredProviders.length === 0) {
 // Database Pools
 // =============================================================================
 
-// Create database connection pools
-const accountsSql = new Bun.SQL(accountsDatabaseUrl, {
-  max: accountsPoolMax,
-  idleTimeout: accountsPoolIdleReapSeconds,
-  maxLifetime: accountsPoolMaxLifetime,
-  connectionTimeout: accountsPoolConnectionTimeout,
-});
-
-const engineSql = new Bun.SQL(engineDatabaseUrl, {
-  max: enginePoolMax,
-  idleTimeout: enginePoolIdleReapSeconds,
-  maxLifetime: enginePoolMaxLifetime,
-  connectionTimeout: enginePoolConnectionTimeout,
-});
-
-// Dedicated worker pool (postgres.js) on the new-model DB — the embedding
-// worker processes the per-space me_<slug> schemas that live there.
+// Dedicated worker pool (postgres.js) — the embedding worker processes the
+// per-space me_<slug> schemas.
 const workerDb = postgres(workerEngineDatabaseUrl, {
   max: workerEnginePoolMax,
   idle_timeout: workerEnginePoolIdleReapSeconds,
@@ -368,9 +306,8 @@ const workerDb = postgres(workerEngineDatabaseUrl, {
   onnotice: () => {},
 });
 
-// New-model pool (postgres.js): the auth + core control plane and the per-space
-// me_<slug> data schemas all live in one database, one pool. The legacy Bun.SQL
-// accountsSql/engineSql pools above stay until Phase 5 removes the old paths.
+// The single application pool (postgres.js): the auth + core control plane and
+// the per-space me_<slug> data schemas all live in one database, one pool.
 const db = postgres(engineDatabaseUrl, {
   max: enginePoolMax,
   idle_timeout: enginePoolIdleReapSeconds,
@@ -379,10 +316,7 @@ const db = postgres(engineDatabaseUrl, {
   onnotice: () => {},
 });
 
-// Create accounts DB with operations layer
-const accountsDb = createAccountsDB(accountsSql, accountsSchema);
-
-// Auth store (auth schema) on the new-model postgres.js pool.
+// Auth store (auth schema) on the application pool.
 const auth = authStore(db, authSchema);
 
 // Core control-plane store (core schema) on the same pool.
@@ -392,77 +326,10 @@ const core = coreStore(db, coreSchema);
 // Database Bootstrap & Migrations (blocking — server won't serve until current)
 // =============================================================================
 
-// Bootstrap engine database (extensions + roles, idempotent)
-// If the DB user lacks CREATE EXTENSION privileges (e.g., RDS), this will
-// throw with a clear error describing what's missing.
-await bootstrapEngine(engineSql);
-info("Engine database bootstrapped");
-
-// Migrate accounts schema (scaffold creates schema if missing)
-const accountsMigrateResult = await migrateAccounts(
-  accountsSql,
-  { schema: accountsSchema },
-  SERVER_VERSION,
-);
-if (accountsMigrateResult.status === "error") {
-  throw new Error(
-    `Accounts migration failed: ${accountsMigrateResult.error?.message}`,
-  );
-}
-if (accountsMigrateResult.applied.length > 0) {
-  info("Accounts migrations applied", {
-    applied: accountsMigrateResult.applied,
-  });
-} else {
-  info("Accounts schema up to date");
-}
-
-// Migrate all engine schemas
-const engineSchemas = await discoverEngineSchemas(engineSql);
-if (engineSchemas.length > 0) {
-  const engineMigrateResults = await migrateEngines(
-    engineSql,
-    engineSchemas,
-    { embedding_dimensions: embeddingConstants.dimensions },
-    SERVER_VERSION,
-  );
-
-  let totalApplied = 0;
-  let totalErrors = 0;
-  for (const [schema, result] of engineMigrateResults) {
-    if (result.status === "error") {
-      totalErrors++;
-      reportError(
-        `Engine migration failed for ${schema}`,
-        result.error ?? new Error("Unknown migration error"),
-      );
-    } else if (result.applied.length > 0) {
-      totalApplied += result.applied.length;
-    }
-  }
-
-  if (totalErrors > 0) {
-    throw new Error(
-      `${totalErrors} engine schema(s) failed to migrate. Check logs for details.`,
-    );
-  }
-
-  if (totalApplied > 0) {
-    info("Engine migrations applied", {
-      schemas: engineSchemas.length,
-      totalApplied,
-    });
-  } else {
-    info("Engine schemas up to date", { schemas: engineSchemas.length });
-  }
-} else {
-  info("No engine schemas to migrate");
-}
-
-// New model (Phase 4 cutover): prepare the DB for per-space schemas and migrate
-// the auth + core control-plane schemas on the single postgres.js pool. These
-// run alongside the legacy schemas above; the new auth/memory paths consume
-// them as they come online (4B+).
+// Prepare the database for per-space schemas (extensions + roles, idempotent)
+// and migrate the auth + core control-plane schemas on the application pool.
+// If the DB user lacks CREATE EXTENSION privileges (e.g., RDS), bootstrap
+// throws with a clear error describing what's missing.
 await bootstrapSpaceDatabase(db);
 await migrateCore(db);
 await migrateAuth(db);
@@ -473,9 +340,6 @@ info("Core + auth schemas migrated");
 // =============================================================================
 
 const serverContext: ServerContext = {
-  accountsDb,
-  accountsSql,
-  engineSql,
   db,
   auth,
   core,
@@ -618,8 +482,6 @@ async function shutdown() {
 
   // Close database pools
   try {
-    await accountsSql.close();
-    await engineSql.close();
     await workerDb.end();
     await db.end();
   } catch (error) {

@@ -1,9 +1,7 @@
 import { describe, expect, mock, test } from "bun:test";
-import type { AccountsDB } from "@memory.build/accounts";
 import type { AuthStore } from "@memory.build/auth";
 import type { EmbeddingConfig } from "@memory.build/embedding";
 import type { CoreStore } from "@memory.build/engine/core";
-import type { SQL } from "bun";
 import type { Sql } from "postgres";
 import { MIN_CLIENT_VERSION, SERVER_VERSION } from "../../version";
 import type { ServerContext } from "./context";
@@ -12,12 +10,6 @@ import { createRouter } from "./router";
 // Mock ServerContext for testing
 function createMockContext(): ServerContext {
   return {
-    accountsDb: {
-      validateSession: mock(() => Promise.resolve(null)),
-      getEngineBySlug: mock(() => Promise.resolve(null)),
-    } as unknown as AccountsDB,
-    accountsSql: {} as SQL,
-    engineSql: {} as SQL,
     db: {} as Sql,
     auth: {
       validateSession: mock(() => Promise.resolve(null)),
@@ -113,30 +105,30 @@ describe("matchRoute", () => {
     });
   });
 
-  describe("accounts RPC endpoint", () => {
-    test("matches POST /api/v1/accounts/rpc", () => {
-      const match = router.matchRoute("POST", "/api/v1/accounts/rpc");
+  describe("memory RPC endpoint", () => {
+    test("matches POST /api/v1/memory/rpc", () => {
+      const match = router.matchRoute("POST", "/api/v1/memory/rpc");
       expect(match).not.toBeNull();
-      expect(match?.route.pattern).toBe("/api/v1/accounts/rpc");
+      expect(match?.route.pattern).toBe("/api/v1/memory/rpc");
       expect(match?.params).toEqual({});
     });
 
-    test("does not match GET /api/v1/accounts/rpc", () => {
-      const match = router.matchRoute("GET", "/api/v1/accounts/rpc");
+    test("does not match GET /api/v1/memory/rpc", () => {
+      const match = router.matchRoute("GET", "/api/v1/memory/rpc");
       expect(match).toBeNull();
     });
   });
 
-  describe("engine RPC endpoint", () => {
-    test("matches POST /api/v1/engine/rpc", () => {
-      const match = router.matchRoute("POST", "/api/v1/engine/rpc");
+  describe("user RPC endpoint", () => {
+    test("matches POST /api/v1/user/rpc", () => {
+      const match = router.matchRoute("POST", "/api/v1/user/rpc");
       expect(match).not.toBeNull();
-      expect(match?.route.pattern).toBe("/api/v1/engine/rpc");
+      expect(match?.route.pattern).toBe("/api/v1/user/rpc");
       expect(match?.params).toEqual({});
     });
 
-    test("does not match GET /api/v1/engine/rpc", () => {
-      const match = router.matchRoute("GET", "/api/v1/engine/rpc");
+    test("does not match GET /api/v1/user/rpc", () => {
+      const match = router.matchRoute("GET", "/api/v1/user/rpc");
       expect(match).toBeNull();
     });
   });
@@ -214,7 +206,7 @@ describe("handleRequest", () => {
     const ctx = createMockContext();
     const router = createRouter(ctx);
 
-    const request = new Request("http://localhost/api/v1/engine/rpc", {
+    const request = new Request("http://localhost/api/v1/memory/rpc", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -242,7 +234,7 @@ describe("handleRequest", () => {
     const ctx = createMockContext();
     const router = createRouter(ctx);
 
-    const request = new Request("http://localhost/api/v1/engine/rpc", {
+    const request = new Request("http://localhost/api/v1/memory/rpc", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
