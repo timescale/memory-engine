@@ -4,7 +4,12 @@
 //     bun test --timeout 30000 \
 //     packages/server/rpc/user/agent.integration.test.ts
 import { afterAll, beforeAll, beforeEach, expect, test } from "bun:test";
-import { bootstrapSpaceDatabase, migrateCore } from "@memory.build/database";
+import { authStore } from "@memory.build/auth";
+import {
+  bootstrapSpaceDatabase,
+  migrateAuth,
+  migrateCore,
+} from "@memory.build/database";
 import { ACCESS, coreStore, ROOT_PATH } from "@memory.build/engine/core";
 import { type AppErrorCode, isAppError } from "@memory.build/protocol/errors";
 import postgres, { type Sql } from "postgres";
@@ -25,6 +30,7 @@ const rand = (n: number) => {
 
 let sql: Sql;
 let coreSchema: string;
+let authSchema: string;
 let userId: string;
 const createdSpaceSchemas: string[] = [];
 
@@ -38,6 +44,7 @@ function call<T = unknown>(
   const context = {
     request: new Request("http://localhost/api/v1/user/rpc"),
     core: coreStore(sql, coreSchema),
+    auth: authStore(sql, authSchema),
     userId: asUser,
     db: sql,
     coreSchema,
@@ -65,8 +72,10 @@ async function makeUser(): Promise<string> {
 beforeAll(async () => {
   sql = postgres(URL, { onnotice: () => {} });
   coreSchema = `core_test_${rand(8)}`;
+  authSchema = `auth_test_${rand(8)}`;
   await bootstrapSpaceDatabase(sql); // extensions for me_<slug> (space.create)
   await migrateCore(sql, { schema: coreSchema });
+  await migrateAuth(sql, { schema: authSchema });
 });
 
 afterAll(async () => {
@@ -74,11 +83,30 @@ afterAll(async () => {
     await sql.unsafe(`drop schema if exists ${s} cascade`);
   }
   await sql.unsafe(`drop schema if exists ${coreSchema} cascade`);
+  await sql.unsafe(`drop schema if exists ${authSchema} cascade`);
   await sql.end();
 });
 
 beforeEach(async () => {
   userId = await makeUser();
+});
+
+test("whoami returns the session's identity", async () => {
+  // a user in the auth schema; whoami resolves it from ctx.auth by id
+  const email = `who_${rand(8)}@example.com`;
+  const id = await authStore(sql, authSchema).createUser(email, "Who Am I");
+
+  const me = await call<{ id: string; email: string; name: string }>(
+    "whoami",
+    {},
+    id,
+  );
+  expect(me).toEqual({ id, email, name: "Who Am I" });
+});
+
+test("whoami is UNAUTHORIZED when the user row is gone", async () => {
+  const [row] = await sql`select uuidv7() as id`;
+  await expectAppError(call("whoami", {}, row?.id as string), "UNAUTHORIZED");
 });
 
 test("create / list / rename / delete the caller's agents", async () => {

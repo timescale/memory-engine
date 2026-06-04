@@ -5,6 +5,7 @@
 import type { MethodRegistry } from "../types";
 import { agentMethods } from "./agent";
 import { spaceMethods } from "./space";
+import { whoamiMethods } from "./whoami";
 
 export {
   assertUserRpcContext,
@@ -12,8 +13,9 @@ export {
   type UserRpcContext,
 } from "./types";
 
-/** The user-endpoint registry: agent lifecycle + space discovery. */
+/** The user-endpoint registry: identity + agent lifecycle + space discovery. */
 export const userMethods: MethodRegistry = new Map([
+  ...whoamiMethods,
   ...agentMethods,
   ...spaceMethods,
 ]);

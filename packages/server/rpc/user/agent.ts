@@ -3,8 +3,8 @@
  *
  * Agents are a user's global service accounts. The lifecycle here is purely
  * user-scoped: create / list / rename / delete the caller's own agents.
- * Bringing an agent into a space (member.add) and minting its space-bound api
- * key (apiKey.create) are space-endpoint operations.
+ * Bringing an agent into a space (principal.add) and minting its space-bound
+ * api key (apiKey.create) are space-endpoint operations.
  */
 import type { Principal } from "@memory.build/engine/core";
 import type {

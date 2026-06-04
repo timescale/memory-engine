@@ -1,31 +1,34 @@
 /**
- * me login — authenticate via OAuth device flow.
+ * me login [space] — authenticate via OAuth device flow, then pick the active space.
  *
- * 1. User picks a provider (Google/GitHub)
- * 2. CLI starts device flow, gets user code + verification URL
- * 3. Opens browser (or tells user to visit URL manually)
- * 4. Polls until user completes auth
- * 5. Stores session token in credentials file
- * 6. Fetches and displays identity
+ * 1. Compatibility check (fail fast before the browser round-trip)
+ * 2. Start device flow, show user code + URL, open browser
+ * 3. Poll until the user authorizes → session token
+ * 4. Store the session token for the server
+ * 5. Fetch identity (whoami) and the caller's spaces
+ * 6. Select the active space (the X-Me-Space the rest of the CLI is scoped to):
+ *      - a [space] argument (slug or name) is honored if it matches
+ *      - otherwise auto-select when the user has exactly one space
+ *      - multiple → prompt (text) / report (json); zero → suggest `me space create`
  */
 import * as clack from "@clack/prompts";
 import type { OAuthProvider } from "@memory.build/protocol/auth/device-flow";
+import type { MemberSpaceResponse } from "@memory.build/protocol/user";
 import { Command } from "commander";
 import { CLIENT_VERSION, MIN_SERVER_VERSION } from "../../../version";
 import {
   checkServerVersion,
-  createAccountsClient,
   createAuthClient,
+  createUserClient,
   DeviceFlowError,
   RpcError,
 } from "../client.ts";
 import {
-  getEngineApiKey,
   resolveServer,
-  storeApiKey,
+  setActiveSpace,
   storeSessionToken,
 } from "../credentials.ts";
-import { getOutputFormat, output } from "../output.ts";
+import { getOutputFormat, type OutputFormat, output } from "../output.ts";
 
 /**
  * Attempt to open a URL in the user's default browser.
@@ -48,26 +51,37 @@ async function openBrowser(url: string): Promise<void> {
   }
 }
 
+/**
+ * Match a [space] argument against the caller's spaces, by slug (exact) or name
+ * (case-insensitive). Returns the match, or null when nothing/ambiguous matches.
+ */
+function matchSpace(
+  spaces: MemberSpaceResponse[],
+  input: string,
+): MemberSpaceResponse | null {
+  const bySlug = spaces.find((s) => s.slug === input);
+  if (bySlug) return bySlug;
+  const lower = input.toLowerCase();
+  const byName = spaces.filter((s) => s.name.toLowerCase() === lower);
+  return byName.length === 1 ? (byName[0] ?? null) : null;
+}
+
 export function createLoginCommand(): Command {
   return new Command("login")
-    .description("authenticate with Memory Engine via OAuth")
-    .action(async (_opts, cmd) => {
+    .description("authenticate with Memory Engine and select the active space")
+    .argument("[space]", "space to activate after login (slug or name)")
+    .action(async (spaceArg: string | undefined, _opts, cmd) => {
       const globalOpts = cmd.optsWithGlobals();
       const server = resolveServer(globalOpts.server);
       const fmt = getOutputFormat(globalOpts);
 
       const auth = createAuthClient({ url: server });
 
-      // --- Provider selection ---
       if (fmt === "text") {
         clack.intro("me login");
       }
 
-      // --- Compatibility check ---
-      // Verify that this CLI and the server agree on a compatible version
-      // before sending the user through the OAuth round-trip. Failing here
-      // is much friendlier than failing after they've authorized in their
-      // browser.
+      // --- Compatibility check (before the OAuth round-trip) ---
       try {
         await checkServerVersion({
           url: server,
@@ -75,12 +89,7 @@ export function createLoginCommand(): Command {
           minServerVersion: MIN_SERVER_VERSION,
         });
       } catch (error) {
-        const msg =
-          error instanceof RpcError
-            ? error.message
-            : error instanceof Error
-              ? error.message
-              : String(error);
+        const msg = error instanceof Error ? error.message : String(error);
         if (fmt === "text") {
           clack.log.error(msg);
           clack.outro("Login failed.");
@@ -99,7 +108,7 @@ export function createLoginCommand(): Command {
 
       let flow: Awaited<ReturnType<typeof auth.startDeviceFlow>>;
       try {
-        flow = await auth.startDeviceFlow(provider as OAuthProvider);
+        flow = await auth.startDeviceFlow(provider);
       } catch (error) {
         spin?.stop("Failed to start device flow.");
         const msg = error instanceof Error ? error.message : String(error);
@@ -114,17 +123,15 @@ export function createLoginCommand(): Command {
 
       spin?.stop("Device flow started.");
 
-      // --- Display code and open browser ---
       if (fmt === "text") {
         clack.note(
           `Code: ${flow.userCode}\nURL:  ${flow.verificationUri}`,
           "Enter this code in your browser",
         );
       }
-
       await openBrowser(flow.verificationUri);
 
-      // --- Poll for token ---
+      // --- Poll for the session token ---
       spin?.start("Waiting for authorization...");
 
       try {
@@ -132,102 +139,37 @@ export function createLoginCommand(): Command {
           interval: flow.interval,
           expiresIn: flow.expiresIn,
         });
-
         spin?.stop("Authorized!");
 
-        // Store session token
         storeSessionToken(server, result.sessionToken);
 
-        // Fetch identity via accounts client
-        const accounts = createAccountsClient({
+        const user = createUserClient({
           url: server,
-          sessionToken: result.sessionToken,
+          token: result.sessionToken,
         });
-        const identity = await accounts.me.get();
+        const identity = await user.whoami();
+        const { spaces } = await user.space.list();
 
-        // Auto-select engine if exactly one exists
-        let engineInfo: {
-          name: string;
-          slug: string;
-          orgName: string;
-        } | null = null;
-        let engineCount = 0;
+        const active = await selectSpace(server, spaces, spaceArg, fmt);
 
-        try {
-          const { orgs } = await accounts.org.list();
-          const allEngines: Array<{
-            id: string;
-            slug: string;
-            name: string;
-            orgName: string;
-          }> = [];
-          for (const org of orgs) {
-            const { engines } = await accounts.engine.list({
-              orgId: org.id,
-            });
-            for (const e of engines) {
-              if (e.status === "active") {
-                allEngines.push({
-                  id: e.id,
-                  slug: e.slug,
-                  name: e.name,
-                  orgName: org.name,
-                });
-              }
-            }
-          }
-          engineCount = allEngines.length;
-
-          if (allEngines.length === 1 && allEngines[0]) {
-            const engine = allEngines[0];
-            // Check if we already have a key for this engine
-            const existingKey = getEngineApiKey(server, engine.slug);
-            if (existingKey) {
-              // Already have a key — just ensure it's active
-              const { setActiveEngine } = await import("../credentials.ts");
-              setActiveEngine(server, engine.slug);
-              engineInfo = {
-                name: engine.name,
-                slug: engine.slug,
-                orgName: engine.orgName,
-              };
-            } else {
-              // Bootstrap access
-              const setupResult = await accounts.engine.setupAccess({
-                engineId: engine.id,
-              });
-              storeApiKey(server, setupResult.engineSlug, setupResult.rawKey);
-              engineInfo = {
-                name: setupResult.engineName,
-                slug: setupResult.engineSlug,
-                orgName: setupResult.orgName,
-              };
-            }
-          }
-        } catch {
-          // Engine auto-select is best-effort — don't fail login
-        }
-
-        output({ server, identity, engine: engineInfo }, fmt, () => {
+        output({ server, identity, space: active }, fmt, () => {
           clack.log.success(
             `Logged in as ${identity.name} (${identity.email})`,
           );
           clack.log.info(`Server: ${server}`);
-          if (engineInfo) {
-            clack.log.info(
-              `Engine: ${engineInfo.name} (${engineInfo.orgName})`,
-            );
-          } else if (engineCount > 1) {
-            clack.log.info(
-              "Multiple engines found. Run 'me engine use' to select one.",
-            );
+          if (active) {
+            clack.log.info(`Space:  ${active.name} (${active.slug})`);
+          } else if (spaces.length === 0) {
+            clack.log.info("No spaces yet. Run 'me space create <name>'.");
+          } else {
+            clack.log.info("Run 'me space use <space>' to select a space.");
           }
           clack.outro("Done!");
         });
       } catch (error) {
         spin?.stop("Authorization failed.");
         const msg =
-          error instanceof DeviceFlowError
+          error instanceof DeviceFlowError || error instanceof RpcError
             ? error.message
             : error instanceof Error
               ? error.message
@@ -241,4 +183,53 @@ export function createLoginCommand(): Command {
         process.exit(1);
       }
     });
+}
+
+/**
+ * Resolve and persist the active space after login. Returns the selected space,
+ * or null when none could be selected (and leaves the active space unchanged).
+ */
+async function selectSpace(
+  server: string,
+  spaces: MemberSpaceResponse[],
+  spaceArg: string | undefined,
+  fmt: OutputFormat,
+): Promise<MemberSpaceResponse | null> {
+  // Explicit argument wins.
+  if (spaceArg) {
+    const match = matchSpace(spaces, spaceArg);
+    if (!match) {
+      const msg = `No space matching '${spaceArg}'.`;
+      if (fmt === "text") {
+        clack.log.error(msg);
+        for (const s of spaces) console.log(`  ${s.name} (${s.slug})`);
+      }
+      // Don't abort the whole login — the session is already stored.
+      return null;
+    }
+    setActiveSpace(server, match.slug);
+    return match;
+  }
+
+  // Exactly one space → auto-select.
+  if (spaces.length === 1 && spaces[0]) {
+    setActiveSpace(server, spaces[0].slug);
+    return spaces[0];
+  }
+
+  // Multiple spaces in an interactive session → prompt.
+  if (spaces.length > 1 && fmt === "text") {
+    const choice = await clack.select({
+      message: "Select the active space",
+      options: spaces.map((s) => ({
+        value: s.slug,
+        label: `${s.name} (${s.slug})`,
+      })),
+    });
+    if (clack.isCancel(choice)) return null;
+    setActiveSpace(server, choice as string);
+    return spaces.find((s) => s.slug === choice) ?? null;
+  }
+
+  return null;
 }

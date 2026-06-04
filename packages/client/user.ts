@@ -22,6 +22,8 @@ import type {
   SpaceListResult,
   SpaceRenameParams,
   SpaceRenameResult,
+  WhoamiParams,
+  WhoamiResult,
 } from "@memory.build/protocol/user";
 import { rpcCall, type TransportConfig } from "./transport.ts";
 
@@ -55,6 +57,8 @@ export interface SpaceNamespace {
 }
 
 export interface UserClient {
+  /** The identity behind the session token. */
+  whoami(params?: WhoamiParams): Promise<WhoamiResult>;
   agent: AgentNamespace;
   space: SpaceNamespace;
   /** Update the session token at runtime. */
@@ -81,6 +85,7 @@ export function createUserClient(options: UserClientOptions = {}): UserClient {
   }
 
   return {
+    whoami: (p) => rpc("whoami", p ?? {}),
     agent: {
       create: (p) => rpc("agent.create", p),
       list: (p) => rpc("agent.list", p ?? {}),

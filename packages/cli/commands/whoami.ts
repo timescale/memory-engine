@@ -1,51 +1,48 @@
 /**
- * me whoami — show current identity and active engine.
+ * me whoami — show the current identity, server, and active space.
  */
 import { Command } from "commander";
-import { createAccountsClient } from "../client.ts";
+import { createUserClient } from "../client.ts";
 import { resolveCredentials } from "../credentials.ts";
 import { getOutputFormat, output } from "../output.ts";
 import { handleError, requireSession } from "../util.ts";
 
 export function createWhoamiCommand(): Command {
   return new Command("whoami")
-    .description("show current identity and active engine")
+    .description("show current identity, server, and active space")
     .action(async (_opts, cmd) => {
       const globalOpts = cmd.optsWithGlobals();
       const creds = resolveCredentials(globalOpts.server);
       const fmt = getOutputFormat(globalOpts);
       requireSession(creds, fmt);
 
-      const accounts = createAccountsClient({
+      const user = createUserClient({
         url: creds.server,
-        sessionToken: creds.sessionToken,
+        token: creds.sessionToken,
       });
 
       try {
-        const identity = await accounts.me.get();
+        const identity = await user.whoami();
 
-        const data: Record<string, unknown> = {
-          server: creds.server,
-          identity: {
-            id: identity.id,
-            name: identity.name,
-            email: identity.email,
+        output(
+          {
+            server: creds.server,
+            identity,
+            activeSpace: creds.activeSpace ?? null,
           },
-          activeEngine: creds.activeEngine ?? null,
-          hasApiKey: !!creds.apiKey,
-        };
-
-        output(data, fmt, () => {
-          console.log(`  Name:   ${identity.name}`);
-          console.log(`  Email:  ${identity.email}`);
-          console.log(`  ID:     ${identity.id}`);
-          console.log(`  Server: ${creds.server}`);
-          if (creds.activeEngine) {
-            console.log(`  Engine: ${creds.activeEngine}`);
-          } else {
-            console.log("  Engine: (none — run 'me engine use' to select)");
-          }
-        });
+          fmt,
+          () => {
+            console.log(`  Name:   ${identity.name}`);
+            console.log(`  Email:  ${identity.email}`);
+            console.log(`  ID:     ${identity.id}`);
+            console.log(`  Server: ${creds.server}`);
+            if (creds.activeSpace) {
+              console.log(`  Space:  ${creds.activeSpace}`);
+            } else {
+              console.log("  Space:  (none — run 'me space use <space>')");
+            }
+          },
+        );
       } catch (error) {
         handleError(error, fmt, { sessionServer: creds.server });
       }

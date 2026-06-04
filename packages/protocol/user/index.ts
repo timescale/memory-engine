@@ -25,9 +25,11 @@ import {
   spaceRenameParams,
   spaceRenameResult,
 } from "./space.ts";
+import { whoamiParams, whoamiResult } from "./whoami.ts";
 
 export * from "./agent.ts";
 export * from "./space.ts";
+export * from "./whoami.ts";
 
 function method<TParams extends z.ZodType, TResult extends z.ZodType>(
   params: TParams,
@@ -36,8 +38,10 @@ function method<TParams extends z.ZodType, TResult extends z.ZodType>(
   return { params, result };
 }
 
-/** User RPC method contract (agent lifecycle + space discovery). */
+/** User RPC method contract (identity + agent lifecycle + space discovery). */
 export const userMethods = {
+  whoami: method(whoamiParams, whoamiResult),
+
   "agent.create": method(agentCreateParams, agentCreateResult),
   "agent.list": method(agentListParams, agentListResult),
   "agent.rename": method(agentRenameParams, agentRenameResult),
