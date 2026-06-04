@@ -3,6 +3,22 @@
 Tracked follow-up work. For the in-progress Bun.SQL → postgres.js driver swap,
 see `CLAUDE.md` → "Database driver migration" (status + per-file recipe).
 
+## Worker: call space SQL functions instead of raw queries
+
+The embedding worker's write-back in `packages/worker/process.ts` still issues
+raw `UPDATE embedding_queue …` / `UPDATE memory SET embedding …` statements,
+against the "logic in DB functions, TS calls functions" principle the rest of
+the cutover follows.
+
+- [ ] Add space SQL functions for the write-back path (e.g.
+      `complete_embedding(queue_id, memory_id, embedding_version, embedding)`
+      that does the version-guarded memory update + sets the queue outcome to
+      `completed`/`cancelled` atomically, plus `fail_embedding(queue_id, error)`
+      and the rate-limit `release_embedding(queue_id)` attempt-undo), and have
+      `process.ts` call those instead of inline SQL. Claim already goes through
+      `claim_embedding_batch`; this finishes the job for the write-back/prune
+      side so the worker holds no embedded SQL.
+
 ## Decision: `core` and `space` are one package (`@memory.build/database`)
 
 Resolved (2026-06): merged `packages/core` + `packages/space` into a single
