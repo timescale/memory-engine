@@ -30,13 +30,13 @@
  * ```
  */
 
-export type * from "@memory.build/protocol/engine/memory";
 export type {
   Meta,
   SearchWeights,
   Temporal,
   TemporalFilter,
 } from "@memory.build/protocol/fields";
+export type * from "@memory.build/protocol/memory";
 
 export type { AuthClient, AuthClientOptions, PollOptions } from "./auth.ts";
 // Auth client

@@ -12,6 +12,8 @@
  * await me.principal.list({});
  * ```
  */
+
+import { SPACE_HEADER } from "@memory.build/protocol/headers";
 import type {
   MemoryBatchCreateParams,
   MemoryBatchCreateResult,
@@ -31,8 +33,7 @@ import type {
   MemoryTreeParams,
   MemoryTreeResult,
   MemoryUpdateParams,
-} from "@memory.build/protocol/engine/memory";
-import { SPACE_HEADER } from "@memory.build/protocol/headers";
+} from "@memory.build/protocol/memory";
 import type {
   ApiKeyCreateParams,
   ApiKeyCreateResult,

@@ -2,7 +2,7 @@
  * Tests for the byte-aware chunker in `chunk.ts`.
  */
 import { describe, expect, test } from "bun:test";
-import type { MemoryCreateParams } from "@memory.build/protocol/engine";
+import type { MemoryCreateParams } from "@memory.build/protocol/memory";
 import {
   approxMemoryBytes,
   type BatchCreateClient,

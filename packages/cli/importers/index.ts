@@ -14,7 +14,7 @@
  * time and are expected to be rare.
  */
 
-import type { MemoryCreateParams } from "@memory.build/protocol/engine";
+import type { MemoryCreateParams } from "@memory.build/protocol/memory";
 import { batchCreateChunked } from "../chunk.ts";
 import type { MemoryClient } from "../client.ts";
 import type { ProgressReporter } from "./progress.ts";

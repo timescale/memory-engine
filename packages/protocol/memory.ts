@@ -10,7 +10,7 @@ import {
   treeFilterSchema,
   treePathSchema,
   uuidv7Schema,
-} from "../fields.ts";
+} from "./fields.ts";
 
 // =============================================================================
 // Params Schemas

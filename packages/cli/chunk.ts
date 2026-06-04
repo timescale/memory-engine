@@ -14,7 +14,7 @@
  * that callers should reach for unless they need a custom budget.
  */
 
-import type { MemoryCreateParams } from "@memory.build/protocol/engine";
+import type { MemoryCreateParams } from "@memory.build/protocol/memory";
 
 /**
  * Hard cap on memories per `memory.batchCreate` call. Matches the protocol

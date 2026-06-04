@@ -32,7 +32,7 @@ import type {
   MemoryTreeParams,
   MemoryTreeResult,
   MemoryUpdateParams,
-} from "@memory.build/protocol/engine/memory";
+} from "@memory.build/protocol/memory";
 import {
   memoryBatchCreateParams,
   memoryCountTreeParams,
@@ -44,7 +44,7 @@ import {
   memorySearchParams,
   memoryTreeParams,
   memoryUpdateParams,
-} from "@memory.build/protocol/engine/memory";
+} from "@memory.build/protocol/memory";
 import { AppError } from "../errors";
 import { buildRegistry } from "../registry";
 import type { HandlerContext } from "../types";
