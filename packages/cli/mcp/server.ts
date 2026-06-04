@@ -14,8 +14,8 @@ import { stringify as yamlStringify } from "yaml";
 import { z } from "zod";
 import { CLIENT_VERSION } from "../../../version";
 import { batchCreateChunked } from "../chunk.ts";
-import type { EngineClient } from "../client.ts";
-import { createClient } from "../client.ts";
+import type { MemoryClient } from "../client.ts";
+import { createMemoryClient } from "../client.ts";
 import { formatMemoryAsMarkdown } from "../commands/memory.ts";
 import {
   detectFormatFromExtension,
@@ -47,7 +47,7 @@ Integration guide: ${DOCS_BASE}/mcp-integration.md`;
 // Tool Registration
 // =============================================================================
 
-function registerTools(server: McpServer, client: EngineClient): void {
+function registerTools(server: McpServer, client: MemoryClient): void {
   // me_memory_create
   server.registerTool(
     "me_memory_create",
@@ -967,15 +967,23 @@ function setupShutdownHandlers(mcpServer: McpServer): void {
 // =============================================================================
 
 export interface McpServerOptions {
-  apiKey: string;
+  /** Base server URL. */
   server: string;
+  /** Bearer token — a session token (human) or an agent api key. */
+  token: string;
+  /** Active space slug (sent as X-Me-Space). */
+  space: string;
 }
 
 /**
  * Run MCP server over stdio.
  */
 export async function runMcpServer(options: McpServerOptions): Promise<void> {
-  const client = createClient({ url: options.server, apiKey: options.apiKey });
+  const client = createMemoryClient({
+    url: options.server,
+    token: options.token,
+    space: options.space,
+  });
 
   const mcpServer = new McpServer(
     {

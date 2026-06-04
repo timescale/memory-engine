@@ -34,7 +34,9 @@ export async function runAgentMcpInstall(
     process.exit(1);
   }
 
-  // Resolve credentials: flags > credentials file
+  // Resolve credentials: flags > env (ME_API_KEY) > server default. MCP configs
+  // bake in a long-lived agent api key (a human session would expire), so an
+  // api key is required here — mint one with `me apikey create <agent>`.
   let { apiKey, server } = opts;
   if (!apiKey || !server) {
     const creds = resolveCredentials(server);
@@ -44,7 +46,7 @@ export async function runAgentMcpInstall(
 
   if (!apiKey) {
     clack.log.error(
-      "No API key available. Either pass --api-key or run 'me engine use' first.",
+      "No API key available. Pass --api-key or set ME_API_KEY — mint one with 'me apikey create <agent>'.",
     );
     process.exit(1);
   }
