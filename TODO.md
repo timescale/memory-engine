@@ -29,6 +29,18 @@ implies users can mint their own keys.
       `member == self` (a user) in addition to agents the caller owns. Weigh
       against the "humans use sessions only" security stance.
 
+## CLI: `me apikey create <agent>` when the agent isn't in the space
+
+`apiKey.create` requires the agent already be a member of the active space
+(`requireOwnedAgent` → NOT_FOUND otherwise). `me apikey create <agent>` surfaces
+that raw NOT_FOUND, so the user has to know to run `me agent add <agent>` first.
+
+- [ ] Improve the UX: either pre-check membership in `me apikey create` and emit
+      an actionable hint ("agent X isn't in this space — run `me agent add X`"),
+      or offer to add it (self-service `principal.add`, which is already allowed
+      for your own agent) before minting the key. Map the server NOT_FOUND to the
+      friendlier message at minimum.
+
 ## Space invitations
 
 The CLI spec includes `me space invite` / `invite list` / `invite revoke`
