@@ -125,3 +125,56 @@ test("rename/delete of a non-existent agent → NOT_FOUND", async () => {
     "NOT_FOUND",
   );
 });
+
+test("space.list returns the spaces the user belongs to (with admin flag)", async () => {
+  const core = coreStore(sql, coreSchema);
+  const spaceId = await core.createSpace(rand(12), "My Space");
+  await core.addPrincipalToSpace(spaceId, userId, true);
+
+  const res = await call<{
+    spaces: { id: string; name: string; admin: boolean }[];
+  }>("space.list", {});
+  const mine = res.spaces.find((s) => s.id === spaceId);
+  expect(mine).toBeDefined();
+  expect(mine?.name).toBe("My Space");
+  expect(mine?.admin).toBe(true);
+
+  // a brand-new user with no memberships sees no spaces
+  const other = await makeUser();
+  const otherList = await call<{ spaces: unknown[] }>("space.list", {}, other);
+  expect(otherList.spaces).toHaveLength(0);
+});
+
+test("space.list includes spaces reached only via group membership", async () => {
+  const core = coreStore(sql, coreSchema);
+  const spaceId = await core.createSpace(rand(12), "Group Space");
+  const groupId = await core.createGroup(spaceId, "team");
+  // the user is NOT added to principal_space — only to a group in the space
+  await core.addGroupMember(spaceId, groupId, userId);
+
+  const res = await call<{ spaces: { id: string; admin: boolean }[] }>(
+    "space.list",
+    {},
+  );
+  const mine = res.spaces.find((s) => s.id === spaceId);
+  expect(mine).toBeDefined(); // group membership confers space membership
+  expect(mine?.admin).toBe(false); // but not direct-membership admin
+});
+
+test("space.list reflects admin inherited via an admin group", async () => {
+  const core = coreStore(sql, coreSchema);
+  const spaceId = await core.createSpace(rand(12), "Admin Group Space");
+  const groupId = await core.createGroup(spaceId, "admins");
+  // designate the group itself as an admin member of the space
+  await core.addPrincipalToSpace(spaceId, groupId, true);
+  // the user is only in that group (no direct principal_space row)
+  await core.addGroupMember(spaceId, groupId, userId);
+
+  const res = await call<{ spaces: { id: string; admin: boolean }[] }>(
+    "space.list",
+    {},
+  );
+  const mine = res.spaces.find((s) => s.id === spaceId);
+  expect(mine).toBeDefined();
+  expect(mine?.admin).toBe(true); // admin transfers transitively through the group
+});

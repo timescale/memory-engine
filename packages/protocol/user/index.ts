@@ -15,8 +15,10 @@ import {
   agentRenameParams,
   agentRenameResult,
 } from "./agent.ts";
+import { spaceListParams, spaceListResult } from "./space.ts";
 
 export * from "./agent.ts";
+export * from "./space.ts";
 
 function method<TParams extends z.ZodType, TResult extends z.ZodType>(
   params: TParams,
@@ -25,12 +27,14 @@ function method<TParams extends z.ZodType, TResult extends z.ZodType>(
   return { params, result };
 }
 
-/** User RPC method contract (agent lifecycle). */
+/** User RPC method contract (agent lifecycle + space discovery). */
 export const userMethods = {
   "agent.create": method(agentCreateParams, agentCreateResult),
   "agent.list": method(agentListParams, agentListResult),
   "agent.rename": method(agentRenameParams, agentRenameResult),
   "agent.delete": method(agentDeleteParams, agentDeleteResult),
+
+  "space.list": method(spaceListParams, spaceListResult),
 } as const;
 
 export type UserMethodName = keyof typeof userMethods;

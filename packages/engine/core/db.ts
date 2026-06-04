@@ -8,6 +8,7 @@ import type {
   Group,
   GroupMember,
   GroupMembership,
+  MemberSpace,
   Principal,
   PrincipalKind,
   Space,
@@ -29,6 +30,8 @@ export interface CoreStore {
   getSpace(slug: string): Promise<Space | null>;
   /** All spaces (e.g. for the embedding worker to discover me_<slug> schemas). */
   listSpaces(): Promise<Space[]>;
+  /** Spaces a member belongs to (directly or via a group), with admin flag. */
+  listSpacesForMember(memberId: string): Promise<MemberSpace[]>;
 
   createUser(id: string, name: string): Promise<string>;
   createAgent(ownerId: string, name: string, id?: string): Promise<string>;
@@ -206,6 +209,15 @@ export function coreStore(sql: Sql, schema: string = CORE_SCHEMA): CoreStore {
     async listSpaces() {
       const rows = await sql`select * from ${sch}.list_spaces()`;
       return rows.map(mapSpace);
+    },
+
+    async listSpacesForMember(memberId) {
+      const rows = await sql`
+        select * from ${sch}.list_spaces_for_member(${memberId})
+      `;
+      return rows.map(
+        (r): MemberSpace => ({ ...mapSpace(r), admin: Boolean(r.admin) }),
+      );
     },
 
     async createUser(id, name) {

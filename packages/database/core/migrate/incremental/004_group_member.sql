@@ -13,3 +13,7 @@ create table {{schema}}.group_member
 
 -- index for listing groups in a space and/or members of a group
 create index on {{schema}}.group_member (space_id, group_id, member_id) include (admin);
+
+-- index for finding a member's spaces/groups across the whole space set
+-- (e.g. list_spaces_for_member's member_id lookup, with no space_id filter)
+create index on {{schema}}.group_member (member_id, space_id);

@@ -35,6 +35,11 @@ export interface Space {
   updatedAt: Date | null;
 }
 
+/** A space a principal belongs to, with the principal's direct-membership admin flag. */
+export interface MemberSpace extends Space {
+  admin: boolean;
+}
+
 export interface Principal {
   id: string;
   kind: PrincipalKind;

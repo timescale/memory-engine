@@ -3,6 +3,30 @@
 Tracked follow-up work. For the in-progress Bun.SQL → postgres.js driver swap,
 see `CLAUDE.md` → "Database driver migration" (status + per-file recipe).
 
+## Reconsider: api keys for users (not just agents)
+
+Keys are currently agent-only (`apiKey.create` is gated by `requireOwnedAgent`;
+humans authenticate via session). The intended CLI surface treats `ME_API_KEY`
+as pointing to a "user|agent" and `me apikey create` defaulting to self, which
+implies users can mint their own keys.
+
+- [ ] Decide whether to allow user-owned api keys. `validate_api_key` already
+      returns the principal regardless of kind, and `authenticateSpace` would
+      work unchanged — so it's mostly relaxing the `apiKey.create` gate to allow
+      `member == self` (a user) in addition to agents the caller owns. Weigh
+      against the "humans use sessions only" security stance.
+
+## Space invitations
+
+The CLI spec includes `me space invite` / `invite list` / `invite revoke`
+(invite a user by email into a space with an initial role/grant). Deferred from
+4E — it's a new subsystem.
+
+- [ ] Design + build space-scoped invitations: a core table (space_id, email,
+      role/grant, token, status, expiry), RPC on the space endpoint
+      (invite.create/list/revoke + accept on the user endpoint), and the email/
+      link delivery. Mirrors the device-flow consent UX where relevant.
+
 ## Worker: call space SQL functions instead of raw queries
 
 The embedding worker's write-back in `packages/worker/process.ts` still issues

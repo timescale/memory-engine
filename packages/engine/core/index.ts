@@ -13,6 +13,7 @@ export type {
   Group,
   GroupMember,
   GroupMembership,
+  MemberSpace,
   Principal,
   PrincipalKind,
   Space,

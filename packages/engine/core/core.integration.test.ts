@@ -130,6 +130,23 @@ test("groups: create, list, rename, members, delete", async () => {
   expect(await core.listSpaceGroups(spaceId)).toHaveLength(0);
 });
 
+test("space admin transfers through an admin group", async () => {
+  const groupId = await core.createGroup(spaceId, `admins_${rand(6)}`);
+  // designate the group itself as an admin member of the space
+  await core.addPrincipalToSpace(spaceId, groupId, true);
+
+  // a user added only to that group inherits space-admin transitively
+  const member = await v7();
+  await core.createUser(member, `m_${rand(8)}@example.com`);
+  await core.addGroupMember(spaceId, groupId, member);
+  expect(await core.isSpaceAdmin(member, spaceId)).toBe(true);
+
+  // a non-member is not an admin
+  const stranger = await v7();
+  await core.createUser(stranger, `s_${rand(8)}@example.com`);
+  expect(await core.isSpaceAdmin(stranger, spaceId)).toBe(false);
+});
+
 test("group grants are inherited transitively (Model 2)", async () => {
   // a user who is ONLY a group member (no direct principal_space row, no direct
   // grant) inherits the group's grant via build_tree_access.
