@@ -26,6 +26,7 @@ import { createOwnerCommand } from "./commands/owner.ts";
 import { createPackCommand } from "./commands/pack.ts";
 import { createRoleCommand } from "./commands/role.ts";
 import { createServeCommand } from "./commands/serve.ts";
+import { createSpaceCommand } from "./commands/space.ts";
 import { createUpgradeCommand } from "./commands/upgrade.ts";
 import { createUserCommand } from "./commands/user.ts";
 import { createVersionCommand } from "./commands/version.ts";
@@ -66,6 +67,9 @@ program.addCommand(createUpgradeCommand());
 
 // Engine commands
 program.addCommand(createEngineCommand());
+
+// Space commands (new model)
+program.addCommand(createSpaceCommand());
 
 // Org commands
 program.addCommand(createOrgCommand());

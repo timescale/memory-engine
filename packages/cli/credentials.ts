@@ -282,6 +282,19 @@ export function setActiveSpace(server: string, spaceSlug: string): void {
 }
 
 /**
+ * Clear the active space for a server (e.g. after deleting it). No-op if none
+ * is set.
+ */
+export function clearActiveSpace(server: string): void {
+  const creds = readCredentials();
+  const origin = normalizeOrigin(server);
+  const entry = creds.servers[origin];
+  if (!entry?.active_space) return;
+  delete entry.active_space;
+  writeCredentials(creds);
+}
+
+/**
  * Resolve the active space slug for a server.
  *
  * Priority: --space flag > ME_SPACE env > stored active_space.

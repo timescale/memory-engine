@@ -8,8 +8,13 @@
  * - Error handling
  */
 import * as clack from "@clack/prompts";
-import type { AccountsClient, EngineClient } from "./client.ts";
-import { RpcError } from "./client.ts";
+import type {
+  AccountsClient,
+  EngineClient,
+  MemoryClient,
+  UserClient,
+} from "./client.ts";
+import { createMemoryClient, createUserClient, RpcError } from "./client.ts";
 import { clearSessionToken, type ResolvedCredentials } from "./credentials.ts";
 import type { OutputFormat } from "./output.ts";
 import { output } from "./output.ts";
@@ -69,6 +74,30 @@ export function requireSpace(
     }
     process.exit(1);
   }
+}
+
+/**
+ * Build a user client (session-only, /api/v1/user/rpc). Call requireSession
+ * first so the token is present.
+ */
+export function buildUserClient(
+  creds: ResolvedCredentials & { sessionToken: string },
+): UserClient {
+  return createUserClient({ url: creds.server, token: creds.sessionToken });
+}
+
+/**
+ * Build a memory client (session + active space, /api/v1/memory/rpc). Call
+ * requireSession and requireSpace first so both are present.
+ */
+export function buildMemoryClient(
+  creds: ResolvedCredentials & { sessionToken: string; activeSpace: string },
+): MemoryClient {
+  return createMemoryClient({
+    url: creds.server,
+    token: creds.sessionToken,
+    space: creds.activeSpace,
+  });
 }
 
 interface OrgInfo {
