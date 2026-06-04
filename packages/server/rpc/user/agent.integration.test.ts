@@ -194,6 +194,61 @@ test("space.create provisions a space the caller owns + admins", async () => {
   expect(ta).toContainEqual({ tree_path: ROOT_PATH, access: ACCESS.owner });
 });
 
+test("space.rename renames; space.delete removes the space + schema", async () => {
+  const created = await call<{ id: string; slug: string }>("space.create", {
+    name: "Temp Space",
+  });
+  const schema = `me_${created.slug}`;
+  createdSpaceSchemas.push(schema);
+
+  // rename
+  expect(
+    (
+      await call<{ renamed: boolean }>("space.rename", {
+        slug: created.slug,
+        name: "Renamed Space",
+      })
+    ).renamed,
+  ).toBe(true);
+  const after = await call<{ spaces: { id: string; name: string }[] }>(
+    "space.list",
+    {},
+  );
+  expect(after.spaces.find((s) => s.id === created.id)?.name).toBe(
+    "Renamed Space",
+  );
+
+  // delete: core row gone + data schema dropped
+  expect(
+    (await call<{ deleted: boolean }>("space.delete", { slug: created.slug }))
+      .deleted,
+  ).toBe(true);
+  const gone = await call<{ spaces: { id: string }[] }>("space.list", {});
+  expect(gone.spaces.some((s) => s.id === created.id)).toBe(false);
+  const [row] = await sql.unsafe(
+    `select exists (select 1 from information_schema.schemata where schema_name = $1) as e`,
+    [schema],
+  );
+  expect(Boolean(row?.e)).toBe(false);
+});
+
+test("space.rename/delete require space admin", async () => {
+  const created = await call<{ id: string; slug: string }>("space.create", {
+    name: "Owned Space",
+  });
+  createdSpaceSchemas.push(`me_${created.slug}`);
+  // a different user who is not a member/admin
+  const intruder = await makeUser();
+  await expectAppError(
+    call("space.rename", { slug: created.slug, name: "Hijacked" }, intruder),
+    "FORBIDDEN",
+  );
+  await expectAppError(
+    call("space.delete", { slug: created.slug }, intruder),
+    "FORBIDDEN",
+  );
+});
+
 test("space.list reflects admin inherited via an admin group", async () => {
   const core = coreStore(sql, coreSchema);
   const spaceId = await core.createSpace(rand(12), "Admin Group Space");

@@ -32,6 +32,13 @@ export interface CoreStore {
   listSpaces(): Promise<Space[]>;
   /** Spaces a member belongs to (directly or via a group), with admin flag. */
   listSpacesForMember(memberId: string): Promise<MemberSpace[]>;
+  /** Rename a space (by slug). Returns true if it existed. */
+  renameSpace(slug: string, name: string): Promise<boolean>;
+  /**
+   * Delete a space's core row (cascades memberships/groups/grants). The
+   * me_<slug> data schema must be dropped separately. Returns true if it existed.
+   */
+  deleteSpace(slug: string): Promise<boolean>;
 
   createUser(id: string, name: string): Promise<string>;
   createAgent(ownerId: string, name: string, id?: string): Promise<string>;
@@ -218,6 +225,17 @@ export function coreStore(sql: Sql, schema: string = CORE_SCHEMA): CoreStore {
       return rows.map(
         (r): MemberSpace => ({ ...mapSpace(r), admin: Boolean(r.admin) }),
       );
+    },
+
+    async renameSpace(slug, name) {
+      const [row] =
+        await sql`select ${sch}.rename_space(${slug}, ${name}) as ok`;
+      return Boolean(row?.ok);
+    },
+
+    async deleteSpace(slug) {
+      const [row] = await sql`select ${sch}.delete_space(${slug}) as ok`;
+      return Boolean(row?.ok);
     },
 
     async createUser(id, name) {

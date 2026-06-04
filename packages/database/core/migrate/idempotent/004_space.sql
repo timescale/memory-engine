@@ -16,6 +16,44 @@ set search_path to pg_catalog, {{schema}}, public, pg_temp
 ;
 
 -------------------------------------------------------------------------------
+-- rename_space
+-------------------------------------------------------------------------------
+create or replace function {{schema}}.rename_space
+( _slug text
+, _name text
+)
+returns bool
+as $func$
+  with u as
+  (
+    update {{schema}}.space set name = _name where slug = _slug returning 1
+  )
+  select exists (select 1 from u)
+$func$ language sql volatile security invoker
+set search_path to pg_catalog, {{schema}}, public, pg_temp
+;
+
+-------------------------------------------------------------------------------
+-- delete_space
+-- Deletes the core.space row; FKs cascade its memberships, groups, grants, and
+-- group memberships. The me_<slug> data schema is dropped separately by the
+-- caller (DDL). Returns true if a space with this slug existed.
+-------------------------------------------------------------------------------
+create or replace function {{schema}}.delete_space
+( _slug text
+)
+returns bool
+as $func$
+  with d as
+  (
+    delete from {{schema}}.space where slug = _slug returning 1
+  )
+  select exists (select 1 from d)
+$func$ language sql volatile security invoker
+set search_path to pg_catalog, {{schema}}, public, pg_temp
+;
+
+-------------------------------------------------------------------------------
 -- get_space
 -------------------------------------------------------------------------------
 create or replace function {{schema}}.get_space

@@ -4,28 +4,55 @@
  * User-scoped space discovery: the spaces the calling user belongs to. The CLI
  * uses this to pick the X-Me-Space that scopes the rest of its commands.
  */
-import { generateSlug, provisionSpace } from "@memory.build/database";
+import {
+  generateSlug,
+  provisionSpace,
+  slugToSchema,
+} from "@memory.build/database";
 import {
   ACCESS,
   coreStore,
   type MemberSpace,
   ROOT_PATH,
+  type Space,
 } from "@memory.build/engine/core";
 import type {
   MemberSpaceResponse,
   SpaceCreateParams,
   SpaceCreateResult,
+  SpaceDeleteParams,
+  SpaceDeleteResult,
   SpaceListParams,
   SpaceListResult,
+  SpaceRenameParams,
+  SpaceRenameResult,
 } from "@memory.build/protocol/user";
 import {
   spaceCreateParams,
+  spaceDeleteParams,
   spaceListParams,
+  spaceRenameParams,
 } from "@memory.build/protocol/user";
 import type { Sql } from "postgres";
+import { AppError } from "../errors";
 import { buildRegistry } from "../registry";
 import type { HandlerContext } from "../types";
 import { assertUserRpcContext, type UserRpcContext } from "./types";
+
+/** Resolve a space by slug and require the caller to be its admin. */
+async function requireSpaceAdminFor(
+  ctx: UserRpcContext,
+  slug: string,
+): Promise<Space> {
+  const space = await ctx.core.getSpace(slug);
+  if (!space) {
+    throw new AppError("NOT_FOUND", `Space not found: ${slug}`);
+  }
+  if (!(await ctx.core.isSpaceAdmin(ctx.userId, space.id))) {
+    throw new AppError("FORBIDDEN", "This action requires being a space admin");
+  }
+  return space;
+}
 
 function toMemberSpaceResponse(s: MemberSpace): MemberSpaceResponse {
   return {
@@ -75,7 +102,47 @@ async function spaceCreate(
   return { id, slug };
 }
 
+/** Rename a space's display name (admin only); the slug is immutable. */
+async function spaceRename(
+  params: SpaceRenameParams,
+  context: HandlerContext,
+): Promise<SpaceRenameResult> {
+  assertUserRpcContext(context);
+  const ctx = context as UserRpcContext;
+  await requireSpaceAdminFor(ctx, params.slug);
+  const renamed = await ctx.core.renameSpace(params.slug, params.name);
+  return { renamed };
+}
+
+/**
+ * Delete a space (admin only): drop its core row (cascading memberships/groups/
+ * grants) and its me_<slug> data schema, atomically.
+ */
+async function spaceDelete(
+  params: SpaceDeleteParams,
+  context: HandlerContext,
+): Promise<SpaceDeleteResult> {
+  assertUserRpcContext(context);
+  const ctx = context as UserRpcContext;
+  const space = await requireSpaceAdminFor(ctx, params.slug);
+
+  const deleted = (await ctx.db.begin(async (tx) => {
+    const core = coreStore(tx as unknown as Sql, ctx.coreSchema);
+    const ok = await core.deleteSpace(space.slug);
+    // slug came from the DB (validated by the slug check constraint); safe to
+    // interpolate into the DDL.
+    await tx.unsafe(
+      `drop schema if exists ${slugToSchema(space.slug)} cascade`,
+    );
+    return ok;
+  })) as boolean;
+
+  return { deleted };
+}
+
 export const spaceMethods = buildRegistry()
   .register("space.list", spaceListParams, spaceList)
   .register("space.create", spaceCreateParams, spaceCreate)
+  .register("space.rename", spaceRenameParams, spaceRename)
+  .register("space.delete", spaceDeleteParams, spaceDelete)
   .build();

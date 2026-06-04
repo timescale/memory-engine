@@ -37,3 +37,24 @@ export const spaceCreateResult = z.object({
   slug: z.string(),
 });
 export type SpaceCreateResult = z.infer<typeof spaceCreateResult>;
+
+/** A space's slug (12-char routing key). */
+const spaceSlugSchema = z.string().regex(/^[a-z0-9]{12}$/);
+
+// space.rename — change a space's display name (admin only). The slug (and
+// thus the me_<slug> schema, api keys, and routing) is immutable.
+export const spaceRenameParams = z.object({
+  slug: spaceSlugSchema,
+  name: nameSchema,
+});
+export type SpaceRenameParams = z.infer<typeof spaceRenameParams>;
+
+export const spaceRenameResult = z.object({ renamed: z.boolean() });
+export type SpaceRenameResult = z.infer<typeof spaceRenameResult>;
+
+// space.delete — delete a space + its data schema (admin only)
+export const spaceDeleteParams = z.object({ slug: spaceSlugSchema });
+export type SpaceDeleteParams = z.infer<typeof spaceDeleteParams>;
+
+export const spaceDeleteResult = z.object({ deleted: z.boolean() });
+export type SpaceDeleteResult = z.infer<typeof spaceDeleteResult>;
