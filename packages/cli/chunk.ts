@@ -108,7 +108,7 @@ export function* chunkMemoriesForBatchCreate(
 
 /**
  * Minimal client shape `batchCreateChunked` needs. Structurally typed so
- * callers can pass an `EngineClient` or a stub in tests without coupling
+ * callers can pass a `MemoryClient` or a stub in tests without coupling
  * this module to the full client surface.
  */
 export interface BatchCreateClient {

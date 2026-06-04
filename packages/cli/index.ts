@@ -14,11 +14,8 @@ import { createAgentCommand } from "./commands/agent.ts";
 import { createApiKeyCommand } from "./commands/apikey.ts";
 import { createClaudeCommand } from "./commands/claude.ts";
 import { createCodexCommand } from "./commands/codex.ts";
-import { createEngineCommand } from "./commands/engine.ts";
 import { createGeminiCommand } from "./commands/gemini.ts";
-import { createGrantCommand } from "./commands/grant.ts";
 import { createGroupCommand } from "./commands/group.ts";
-import { createInvitationCommand } from "./commands/invitation.ts";
 import { createLoginCommand } from "./commands/login.ts";
 import { createLogoutCommand } from "./commands/logout.ts";
 import { createMcpCommand } from "./commands/mcp.ts";
@@ -27,14 +24,10 @@ import {
   createMemoryCommand,
 } from "./commands/memory.ts";
 import { createOpenCodeCommand } from "./commands/opencode.ts";
-import { createOrgCommand } from "./commands/org.ts";
-import { createOwnerCommand } from "./commands/owner.ts";
 import { createPackCommand } from "./commands/pack.ts";
-import { createRoleCommand } from "./commands/role.ts";
 import { createServeCommand } from "./commands/serve.ts";
 import { createSpaceCommand } from "./commands/space.ts";
 import { createUpgradeCommand } from "./commands/upgrade.ts";
-import { createUserCommand } from "./commands/user.ts";
 import { createVersionCommand } from "./commands/version.ts";
 import { createWhoamiCommand } from "./commands/whoami.ts";
 import { setExpanded } from "./output.ts";
@@ -71,21 +64,12 @@ program.addCommand(createWhoamiCommand());
 program.addCommand(createVersionCommand());
 program.addCommand(createUpgradeCommand());
 
-// Engine commands
-program.addCommand(createEngineCommand());
-
-// Space commands (new model)
+// Space commands (the new model: spaces, groups, access, agents, api keys)
 program.addCommand(createSpaceCommand());
 program.addCommand(createGroupCommand());
 program.addCommand(createAccessCommand());
 program.addCommand(createAgentCommand());
 program.addCommand(createApiKeyCommand());
-
-// Org commands
-program.addCommand(createOrgCommand());
-
-// Invitation commands
-program.addCommand(createInvitationCommand());
 
 // Memory commands — both as `me memory <cmd>` and top-level aliases (`me search`)
 program.addCommand(createMemoryCommand());
@@ -102,12 +86,6 @@ program.addCommand(createCodexCommand());
 
 // Local web UI
 program.addCommand(createServeCommand());
-
-// Engine-level RBAC commands (legacy; removed in 4E-CLI-7)
-program.addCommand(createUserCommand());
-program.addCommand(createGrantCommand());
-program.addCommand(createRoleCommand());
-program.addCommand(createOwnerCommand());
 
 // Pack commands
 program.addCommand(createPackCommand());

@@ -3,23 +3,24 @@
  *
  * Two concerns:
  *
- * 1. Serve the web UI (placeholder HTML in step 2; embedded Vite build later).
- * 2. Proxy `POST /rpc` to the configured engine's JSON-RPC endpoint with the
- *    stored API key injected (implemented in step 3).
+ * 1. Serve the embedded web UI (Vite build).
+ * 2. Proxy `POST /rpc` to the space memory JSON-RPC endpoint, injecting the
+ *    session token (Authorization: Bearer) and the active space (X-Me-Space).
  *
  * The proxy is intentionally transparent — it forwards request bodies
- * byte-for-byte and streams responses back, so any future `memory.*` RPC
- * methods work without backend changes here.
+ * byte-for-byte and streams responses back, so any `memory.*` (and management)
+ * RPC methods work without backend changes here.
  */
+import { SPACE_HEADER } from "@memory.build/protocol/headers";
 import { resolveAssetResponse } from "./web-assets.ts";
 
 export interface ServeOptions {
-  /** Remote engine server URL (e.g., https://api.memory.build). */
+  /** Remote server URL (e.g., https://api.memory.build). */
   server: string;
-  /** API key for the active engine. Forwarded as Authorization: Bearer. */
-  apiKey: string;
-  /** Active engine slug (for diagnostics / display). */
-  engineSlug: string;
+  /** Session token. Forwarded as Authorization: Bearer. */
+  token: string;
+  /** Active space slug. Forwarded as X-Me-Space. */
+  space: string;
   /** Hostname to bind (defaults to 127.0.0.1). */
   host: string;
   /** Port to bind. Use `findAvailablePort` first if you want auto-discovery. */
@@ -27,10 +28,10 @@ export interface ServeOptions {
 }
 
 /**
- * Path on the remote server where the engine JSON-RPC endpoint lives.
- * Kept as a constant so step 5's tests can assert the exact URL.
+ * Path on the remote server where the space memory JSON-RPC endpoint lives.
+ * Kept as a constant so tests can assert the exact URL.
  */
-export const ENGINE_RPC_PATH = "/api/v1/engine/rpc";
+export const MEMORY_RPC_PATH = "/api/v1/memory/rpc";
 
 export interface RunningServer {
   /** The URL the server is listening on (e.g., http://127.0.0.1:3000). */
@@ -117,14 +118,15 @@ async function proxyRpc(
   req: Request,
   options: ServeOptions,
 ): Promise<Response> {
-  const targetUrl = new URL(ENGINE_RPC_PATH, options.server).toString();
+  const targetUrl = new URL(MEMORY_RPC_PATH, options.server).toString();
 
   // Rebuild the outgoing headers: drop hop-by-hop / host headers, keep
-  // Content-Type (the body needs it), and set our own Authorization.
+  // Content-Type (the body needs it), and set our own Authorization + space.
   const outHeaders = new Headers();
   const contentType = req.headers.get("Content-Type");
   if (contentType) outHeaders.set("Content-Type", contentType);
-  outHeaders.set("Authorization", `Bearer ${options.apiKey}`);
+  outHeaders.set("Authorization", `Bearer ${options.token}`);
+  outHeaders.set(SPACE_HEADER, options.space);
   outHeaders.set("Accept", "application/json");
 
   try {

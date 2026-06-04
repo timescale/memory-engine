@@ -7,42 +7,17 @@
  * import everything from one place.
  */
 import {
-  type AccountsClient,
-  type AccountsClientOptions,
   type AuthClient,
   type AuthClientOptions,
-  createAccountsClient as baseCreateAccountsClient,
   createAuthClient as baseCreateAuthClient,
-  createClient as baseCreateClient,
   createMemoryClient as baseCreateMemoryClient,
   createUserClient as baseCreateUserClient,
-  type ClientOptions,
-  type EngineClient,
   type MemoryClient,
   type MemoryClientOptions,
   type UserClient,
   type UserClientOptions,
 } from "@memory.build/client";
 import { CLIENT_VERSION } from "../../version";
-
-/**
- * Engine client factory with `clientVersion: CLIENT_VERSION` injected.
- */
-export function createClient(options: ClientOptions = {}): EngineClient {
-  return baseCreateClient({ clientVersion: CLIENT_VERSION, ...options });
-}
-
-/**
- * Accounts client factory with `clientVersion: CLIENT_VERSION` injected.
- */
-export function createAccountsClient(
-  options: AccountsClientOptions = {},
-): AccountsClient {
-  return baseCreateAccountsClient({
-    clientVersion: CLIENT_VERSION,
-    ...options,
-  });
-}
 
 /**
  * Auth client factory.
@@ -56,7 +31,7 @@ export function createAuthClient(options: AuthClientOptions = {}): AuthClient {
 }
 
 /**
- * Memory client factory (new model: space data-plane + management) with
+ * Memory client factory (space data-plane + management) with
  * `clientVersion: CLIENT_VERSION` injected. Talks to /api/v1/memory/rpc with the
  * active space carried as X-Me-Space.
  */
@@ -67,7 +42,7 @@ export function createMemoryClient(
 }
 
 /**
- * User client factory (new model: agent lifecycle + space discovery) with
+ * User client factory (agent lifecycle + space discovery + whoami) with
  * `clientVersion: CLIENT_VERSION` injected. Talks to /api/v1/user/rpc.
  */
 export function createUserClient(options: UserClientOptions = {}): UserClient {
@@ -77,15 +52,11 @@ export function createUserClient(options: UserClientOptions = {}): UserClient {
 // Re-export types and helpers used across the CLI. Pass-through so command
 // files don't need to dual-import from "@memory.build/client".
 export {
-  type AccountsClient,
-  type AccountsClientOptions,
   type AuthClient,
   type AuthClientOptions,
   type CheckServerVersionOptions,
-  type ClientOptions,
   checkServerVersion,
   DeviceFlowError,
-  type EngineClient,
   isRpcError,
   type MemoryClient,
   type MemoryClientOptions,

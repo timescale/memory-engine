@@ -2,7 +2,7 @@
  * Unit tests for Claude Code hook capture logic.
  */
 import { describe, expect, test } from "bun:test";
-import type { EngineClient } from "@memory.build/client";
+import type { MemoryClient } from "@memory.build/client";
 import {
   buildMeta,
   captureHookEvent,
@@ -24,6 +24,7 @@ const BASE_EVENT = {
 const CONFIG: HookConfig = {
   server: "https://api.example.com",
   apiKey: "me.eng123.aaa.bbb",
+  space: "eng123",
   treePrefix: "claude_code.sessions",
 };
 
@@ -150,9 +151,9 @@ describe("buildMeta", () => {
 // captureHookEvent
 // =============================================================================
 
-/** Build a mock EngineClient that records the last memory.create call. */
+/** Build a mock MemoryClient that records the last memory.create call. */
 function mockClient(): {
-  client: EngineClient;
+  client: MemoryClient;
   calls: Array<Record<string, unknown>>;
 } {
   const calls: Array<Record<string, unknown>> = [];
@@ -163,7 +164,7 @@ function mockClient(): {
         return { id: "01960000-0000-7000-8000-000000000000" };
       },
     },
-  } as unknown as EngineClient;
+  } as unknown as MemoryClient;
   return { client, calls };
 }
 
@@ -253,6 +254,7 @@ describe("resolveHookConfigFromEnv", () => {
     });
     expect(cfg).toEqual({
       apiKey: "me.eng.aaa.bbb",
+      space: "eng",
       server: "https://api.example.com",
       treePrefix: "my.prefix",
     });
@@ -264,6 +266,7 @@ describe("resolveHookConfigFromEnv", () => {
     });
     expect(cfg).toEqual({
       apiKey: "me.eng.aaa.bbb",
+      space: "eng",
       server: "https://api.memory.build",
       treePrefix: "claude_code.sessions",
     });

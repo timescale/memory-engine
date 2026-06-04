@@ -5,9 +5,10 @@
  * upstream — no network access required.
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { SPACE_HEADER } from "@memory.build/protocol/headers";
 import {
-  ENGINE_RPC_PATH,
   findAvailablePort,
+  MEMORY_RPC_PATH,
   type RunningServer,
   startHttpServer,
 } from "./http-server.ts";
@@ -72,8 +73,8 @@ describe("startHttpServer", () => {
     const servePort = await findAvailablePort("127.0.0.1", 34200);
     running = startHttpServer({
       server: mock.url,
-      apiKey: "me.test.key",
-      engineSlug: "test-engine",
+      token: "sess-test-token",
+      space: "abc123def456",
       host: "127.0.0.1",
       port: servePort,
     });
@@ -127,18 +128,23 @@ describe("startHttpServer", () => {
     expect(json.result.ok).toBe(true);
 
     expect(mock.lastRequest?.method).toBe("POST");
-    expect(mock.lastRequest?.path).toBe(ENGINE_RPC_PATH);
+    expect(mock.lastRequest?.path).toBe(MEMORY_RPC_PATH);
     expect(mock.lastRequest?.body).toBe(rpcBody);
   });
 
-  test("/rpc injects Authorization: Bearer <apiKey>", async () => {
+  test("/rpc injects Authorization: Bearer <token> and X-Me-Space", async () => {
     await fetch(`${running.url}/rpc`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: "{}",
     });
 
-    expect(mock.lastRequest?.headers.authorization).toBe("Bearer me.test.key");
+    expect(mock.lastRequest?.headers.authorization).toBe(
+      "Bearer sess-test-token",
+    );
+    expect(mock.lastRequest?.headers[SPACE_HEADER.toLowerCase()]).toBe(
+      "abc123def456",
+    );
   });
 
   test("/rpc surfaces upstream status codes", async () => {

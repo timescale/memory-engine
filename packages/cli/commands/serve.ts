@@ -3,7 +3,8 @@
  *
  * Launches a local HTTP server that:
  * - serves the embedded Vite-built React app
- * - proxies POST /rpc to the configured engine, injecting the stored API key
+ * - proxies POST /rpc to the space memory endpoint, injecting the session token
+ *   and the active space (X-Me-Space)
  *
  * Usage:
  *   me serve [--port <port>] [--host <host>] [--no-open]
@@ -16,7 +17,7 @@ import { Command } from "commander";
 import { resolveCredentials } from "../credentials.ts";
 import { getOutputFormat, output } from "../output.ts";
 import { findAvailablePort, startHttpServer } from "../serve/http-server.ts";
-import { requireEngine } from "../util.ts";
+import { requireSession, requireSpace } from "../util.ts";
 
 const DEFAULT_PORT = 3000;
 const DEFAULT_HOST = "127.0.0.1";
@@ -40,7 +41,8 @@ export function createServeCommand(): Command {
       const fmt = getOutputFormat(globalOpts);
 
       const creds = resolveCredentials(globalOpts.server);
-      requireEngine(creds, fmt);
+      requireSession(creds, fmt);
+      requireSpace(creds, fmt);
 
       const host: string = opts.host ?? DEFAULT_HOST;
       const explicitPortFlag = opts.port !== undefined;
@@ -74,8 +76,8 @@ export function createServeCommand(): Command {
       try {
         running = startHttpServer({
           server: creds.server,
-          apiKey: creds.apiKey,
-          engineSlug: creds.activeEngine ?? "",
+          token: creds.sessionToken,
+          space: creds.activeSpace,
           host,
           port,
         });
@@ -95,9 +97,7 @@ export function createServeCommand(): Command {
       if (fmt === "text") {
         clack.log.success(`Memory Engine UI running at ${running.url}`);
         console.log(`  Remote server: ${creds.server}`);
-        if (creds.activeEngine) {
-          console.log(`  Active engine: ${creds.activeEngine}`);
-        }
+        console.log(`  Active space:  ${creds.activeSpace}`);
         console.log("  Press Ctrl+C to stop.");
       } else {
         output(
@@ -106,7 +106,7 @@ export function createServeCommand(): Command {
             host,
             port: port,
             server: creds.server,
-            engine: creds.activeEngine,
+            space: creds.activeSpace,
           },
           fmt,
           () => {},

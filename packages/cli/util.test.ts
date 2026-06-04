@@ -1,41 +1,70 @@
 /**
  * Unit tests for CLI utility helpers.
  *
- * Tests resolution functions with mocked clients.
+ * Tests the space-model resolution functions with mocked clients.
  */
 import { describe, expect, mock, test } from "bun:test";
-import type { EngineClient } from "@memory.build/client";
+import type { MemoryClient, UserClient } from "@memory.build/client";
 
-// We test the exported functions via dynamic import to avoid
-// pulling in @clack/prompts at top level (it touches process.stdin).
-const { resolveUserId } = await import("./util.ts");
+// Dynamic import to avoid pulling in @clack/prompts at top level (it touches
+// process.stdin).
+const { resolveSpacePrincipalId, resolveAgentId } = await import("./util.ts");
+
+const UUID = "019d694f-79f6-7595-8faf-b70b01c11f98";
 
 // =============================================================================
-// resolveUserId
+// resolveSpacePrincipalId
 // =============================================================================
 
-describe("resolveUserId", () => {
-  test("returns UUID as-is when input is a valid UUIDv7", async () => {
-    const engine = {} as EngineClient; // should not be called
-    const id = "019d694f-79f6-7595-8faf-b70b01c11f98";
-    const result = await resolveUserId(engine, id);
-    expect(result).toBe(id);
+describe("resolveSpacePrincipalId", () => {
+  test("returns a UUIDv7 as-is without listing principals", async () => {
+    const memory = {
+      principal: { list: mock(() => Promise.reject(new Error("unused"))) },
+    } as unknown as MemoryClient;
+    expect(await resolveSpacePrincipalId(memory, UUID, "text")).toBe(UUID);
+    expect(memory.principal.list).not.toHaveBeenCalled();
   });
 
-  test("resolves name via engine.user.getByName", async () => {
-    const engine = {
-      user: {
-        getByName: mock(() =>
+  test("resolves a name via principal.list (with optional kind)", async () => {
+    const memory = {
+      principal: {
+        list: mock(() =>
           Promise.resolve({
-            id: "019d694f-79f6-7595-8faf-b70b01c11f98",
-            name: "alice",
+            principals: [{ id: UUID, kind: "g", name: "eng" }],
           }),
         ),
       },
-    } as unknown as EngineClient;
+    } as unknown as MemoryClient;
 
-    const result = await resolveUserId(engine, "alice");
-    expect(result).toBe("019d694f-79f6-7595-8faf-b70b01c11f98");
-    expect(engine.user.getByName).toHaveBeenCalledWith({ name: "alice" });
+    const id = await resolveSpacePrincipalId(memory, "eng", "text", "g");
+    expect(id).toBe(UUID);
+    expect(memory.principal.list).toHaveBeenCalledWith({ kind: "g" });
+  });
+});
+
+// =============================================================================
+// resolveAgentId
+// =============================================================================
+
+describe("resolveAgentId", () => {
+  test("returns a UUIDv7 as-is without listing agents", async () => {
+    const user = {
+      agent: { list: mock(() => Promise.reject(new Error("unused"))) },
+    } as unknown as UserClient;
+    expect(await resolveAgentId(user, UUID, "text")).toBe(UUID);
+    expect(user.agent.list).not.toHaveBeenCalled();
+  });
+
+  test("resolves a name via agent.list", async () => {
+    const user = {
+      agent: {
+        list: mock(() =>
+          Promise.resolve({ agents: [{ id: UUID, name: "bot" }] }),
+        ),
+      },
+    } as unknown as UserClient;
+
+    expect(await resolveAgentId(user, "bot", "text")).toBe(UUID);
+    expect(user.agent.list).toHaveBeenCalled();
   });
 });

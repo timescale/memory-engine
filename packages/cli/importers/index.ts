@@ -16,7 +16,7 @@
 
 import type { MemoryCreateParams } from "@memory.build/protocol/engine";
 import { batchCreateChunked } from "../chunk.ts";
-import type { EngineClient } from "../client.ts";
+import type { MemoryClient } from "../client.ts";
 import type { ProgressReporter } from "./progress.ts";
 import { SlugRegistry } from "./slug.ts";
 import { renderMessageContent, synthesizeTitle } from "./transcript.ts";
@@ -98,7 +98,7 @@ export interface WriteOptions {
 
 /** Run discovery + writes for a single importer. */
 export async function runImport(
-  engine: EngineClient,
+  engine: MemoryClient,
   importer: Importer,
   importerOptions: ImporterOptions,
   writeOptions: WriteOptions,
@@ -176,7 +176,7 @@ export async function runImport(
  *      updates are issued one at a time (rare path).
  */
 async function writeSession(
-  engine: EngineClient,
+  engine: MemoryClient,
   session: ImportedSession,
   title: string,
   tree: string,
@@ -352,7 +352,7 @@ async function writeSession(
  * `undefined` when the record was written before the field existed).
  */
 async function fetchExistingMessageVersions(
-  engine: EngineClient,
+  engine: MemoryClient,
   session: ImportedSession,
   tree: string,
 ): Promise<Map<string, string | undefined>> {
@@ -448,7 +448,7 @@ function logOutcome(
 /**
  * Drop items whose `memoryId` has already been seen, preserving order.
  * Exported so the dedup behavior can be unit-tested without standing up
- * a fake EngineClient. Used by `writeSession` to absorb sessions whose
+ * a fake MemoryClient. Used by `writeSession` to absorb sessions whose
  * JSONL has duplicate `event.uuid` entries (which would otherwise produce
  * two planned memories with the same deterministic UUIDv7).
  */

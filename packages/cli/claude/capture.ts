@@ -3,11 +3,11 @@
  *
  * Pure functions for event parsing, project derivation, and metadata
  * construction are testable in isolation. The `captureHookEvent` entry
- * point handles memory creation via EngineClient.
+ * point handles memory creation via the memory client.
  */
 
 import { CLIENT_VERSION } from "../../../version";
-import { createClient, type EngineClient } from "../client.ts";
+import { createMemoryClient, type MemoryClient } from "../client.ts";
 
 // =============================================================================
 // Hook config (derived at runtime from CLAUDE_PLUGIN_OPTION_* env vars)
@@ -16,10 +16,19 @@ import { createClient, type EngineClient } from "../client.ts";
 export interface HookConfig {
   /** Memory Engine server URL. */
   server: string;
-  /** API key (from the plugin's sensitive userConfig). */
+  /** Agent api key (from the plugin's sensitive userConfig). */
   apiKey: string;
+  /** Active space slug (X-Me-Space); defaults to the api key's own slug. */
+  space: string;
   /** Tree path prefix for captured memories (ltree). */
   treePrefix: string;
+}
+
+/** Extract the space slug embedded in an api key (`me.<slug>.<lookup>.<secret>`). */
+export function slugFromApiKey(apiKey: string): string | undefined {
+  if (!apiKey.startsWith("me.")) return undefined;
+  const parts = apiKey.split(".");
+  return parts.length >= 4 ? parts[1] : undefined;
 }
 
 // =============================================================================
@@ -166,8 +175,13 @@ export function resolveHookConfigFromEnv(
   const apiKey = env.CLAUDE_PLUGIN_OPTION_API_KEY;
   if (!apiKey) return null;
 
+  // The space defaults to the api key's own slug; an explicit env var overrides.
+  const space = env.CLAUDE_PLUGIN_OPTION_SPACE || slugFromApiKey(apiKey);
+  if (!space) return null;
+
   return {
     apiKey,
+    space,
     server: env.CLAUDE_PLUGIN_OPTION_SERVER || DEFAULT_SERVER,
     treePrefix: env.CLAUDE_PLUGIN_OPTION_TREE_PREFIX || DEFAULT_TREE_PREFIX,
   };
@@ -185,7 +199,7 @@ export interface CaptureResult {
 
 export interface CaptureOptions {
   /** Override the client (for tests). */
-  client?: EngineClient;
+  client?: MemoryClient;
   /** Override timestamp (for deterministic tests). */
   now?: () => Date;
 }
@@ -212,7 +226,12 @@ export async function captureHookEvent(
   const now = (opts.now ?? (() => new Date()))();
 
   const client =
-    opts.client ?? createClient({ url: config.server, apiKey: config.apiKey });
+    opts.client ??
+    createMemoryClient({
+      url: config.server,
+      token: config.apiKey,
+      space: config.space,
+    });
 
   const result = await client.memory.create({
     content,

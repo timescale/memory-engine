@@ -2,19 +2,23 @@
  * me pack — memory pack management commands.
  *
  * - me pack validate <file>: Validate a pack file locally
- * - me pack install <file>: Install a memory pack into the active engine
- * - me pack list: List installed packs in the active engine
+ * - me pack install <file>: Install a memory pack into the active space
+ * - me pack list: List installed packs in the active space
  */
 
 import { readFileSync } from "node:fs";
 import * as clack from "@clack/prompts";
 import { Command } from "commander";
 import { batchCreateChunked } from "../chunk.ts";
-import { createClient } from "../client.ts";
 import { resolveCredentials } from "../credentials.ts";
 import { getOutputFormat, output, table } from "../output.ts";
 import { parsePack, validatePackConstraints } from "../parsers/pack.ts";
-import { handleError, requireEngine, requireSession } from "../util.ts";
+import {
+  buildMemoryClient,
+  handleError,
+  requireSession,
+  requireSpace,
+} from "../util.ts";
 
 // =============================================================================
 // Validate
@@ -91,7 +95,7 @@ function createPackValidateCommand(): Command {
 
 function createPackInstallCommand(): Command {
   return new Command("install")
-    .description("install a memory pack into the active engine")
+    .description("install a memory pack into the active space")
     .argument("<file>", "pack YAML file to install")
     .option("--dry-run", "preview what would happen without making changes")
     .option("-y, --yes", "skip confirmation for stale memory deletion")
@@ -100,7 +104,7 @@ function createPackInstallCommand(): Command {
       const creds = resolveCredentials(globalOpts.server);
       const fmt = getOutputFormat(globalOpts);
       requireSession(creds, fmt);
-      requireEngine(creds, fmt);
+      requireSpace(creds, fmt);
 
       try {
         // Step 1: Read and validate
@@ -126,14 +130,11 @@ function createPackInstallCommand(): Command {
         const packName = envelope.name;
         const packVersion = envelope.version;
 
-        // Step 2: Connect to engine
-        const engine = createClient({
-          url: creds.server,
-          apiKey: creds.apiKey,
-        });
+        // Step 2: connect to the active space
+        const client = buildMemoryClient(creds);
 
         // Step 3: Search for existing memories with same pack name
-        const existing = await engine.memory.search({
+        const existing = await client.memory.search({
           meta: { pack: { name: packName } },
           limit: 1000,
         });
@@ -215,7 +216,7 @@ function createPackInstallCommand(): Command {
           );
 
           for (const mem of stale) {
-            await engine.memory.delete({ id: mem.id });
+            await client.memory.delete({ id: mem.id });
           }
 
           spin?.stop(
@@ -247,7 +248,7 @@ function createPackInstallCommand(): Command {
           insertedIds,
           failedIds,
           errors: chunkErrors,
-        } = await batchCreateChunked(engine, createParams);
+        } = await batchCreateChunked(client, createParams);
 
         spin?.stop("Done");
 
@@ -360,19 +361,19 @@ function createPackInstallCommand(): Command {
 function createPackListCommand(): Command {
   return new Command("list")
     .alias("ls")
-    .description("list installed packs in the active engine")
+    .description("list installed packs in the active space")
     .action(async (_opts, cmd) => {
       const globalOpts = cmd.optsWithGlobals();
       const creds = resolveCredentials(globalOpts.server);
       const fmt = getOutputFormat(globalOpts);
       requireSession(creds, fmt);
-      requireEngine(creds, fmt);
+      requireSpace(creds, fmt);
 
-      const engine = createClient({ url: creds.server, apiKey: creds.apiKey });
+      const client = buildMemoryClient(creds);
 
       try {
         // Search for all memories with meta.pack
-        const result = await engine.memory.search({
+        const result = await client.memory.search({
           meta: { pack: {} },
           limit: 1000,
         });
@@ -424,7 +425,7 @@ function createPackListCommand(): Command {
 // =============================================================================
 
 /**
- * `engine.memory.batchCreate` uses `ON CONFLICT (id) DO NOTHING` server-side,
+ * `client.memory.batchCreate` uses `ON CONFLICT (id) DO NOTHING` server-side,
  * so the returned `ids` array can be shorter than the request when conflicts
  * occur. For pack install, ids that didn't land fall into three buckets:
  *

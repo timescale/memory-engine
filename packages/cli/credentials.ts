@@ -22,9 +22,6 @@
  * Linux `secret-tool`, Windows credential manager) with a fall back to this 0600
  * file when no keychain is available (CI, headless Linux). The file would then
  * hold only non-secret pointers (default_server, active_space).
- *
- * The `active_engine` / `engines` fields are the legacy engine-model shape; they
- * are read for backward compatibility but new logins write the space shape.
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
@@ -42,22 +39,12 @@ export const DEFAULT_SERVER = "https://api.memory.build";
 // =============================================================================
 
 /**
- * Per-engine credential entry (legacy engine model).
- */
-export interface EngineCredentials {
-  api_key: string;
-}
-
-/**
  * Per-server credential entry.
  */
 export interface ServerCredentials {
   session_token?: string;
   /** Active space slug (sent as X-Me-Space). */
   active_space?: string;
-  /** Legacy engine model — read for back-compat; new logins write `active_space`. */
-  active_engine?: string;
-  engines?: Record<string, EngineCredentials>;
 }
 
 /**
@@ -74,11 +61,10 @@ export interface CredentialsFile {
 export interface ResolvedCredentials {
   server: string;
   sessionToken?: string;
+  /** Agent api key — ME_API_KEY only; never persisted. */
   apiKey?: string;
   /** Active space slug (the X-Me-Space) — ME_SPACE env > stored active_space. */
   activeSpace?: string;
-  /** Legacy engine model. */
-  activeEngine?: string;
 }
 
 // =============================================================================
@@ -212,56 +198,6 @@ export function storeSessionToken(server: string, token: string): void {
   writeCredentials(creds);
 }
 
-/**
- * Store an API key for an engine on a server.
- * Also sets the engine as active.
- */
-export function storeApiKey(
-  server: string,
-  engineSlug: string,
-  apiKey: string,
-): void {
-  const creds = readCredentials();
-  const origin = normalizeOrigin(server);
-
-  if (!creds.servers[origin]) {
-    creds.servers[origin] = {};
-  }
-  if (!creds.servers[origin].engines) {
-    creds.servers[origin].engines = {};
-  }
-  creds.servers[origin].engines[engineSlug] = { api_key: apiKey };
-  creds.servers[origin].active_engine = engineSlug;
-
-  writeCredentials(creds);
-}
-
-/**
- * Set the active engine for a server (without modifying API keys).
- */
-export function setActiveEngine(server: string, engineSlug: string): void {
-  const creds = readCredentials();
-  const origin = normalizeOrigin(server);
-
-  if (!creds.servers[origin]) {
-    creds.servers[origin] = {};
-  }
-  creds.servers[origin].active_engine = engineSlug;
-
-  writeCredentials(creds);
-}
-
-/**
- * Get the API key for a specific engine on a server.
- */
-export function getEngineApiKey(
-  server: string,
-  engineSlug: string,
-): string | undefined {
-  const stored = getServerCredentials(server);
-  return stored.engines?.[engineSlug]?.api_key;
-}
-
 // =============================================================================
 // Space Operations (new model)
 // =============================================================================
@@ -366,29 +302,18 @@ export function resolveServer(flagValue?: string): string {
 /**
  * Resolve all credentials for the active server.
  *
- * For each credential type, env vars take priority over the stored file.
- * API key is resolved from the active engine's stored key.
+ * The session token (ME_SESSION_TOKEN env > stored) authenticates humans; the
+ * active space (ME_SPACE env > stored active_space) is the X-Me-Space. An agent
+ * api key is never persisted — it only ever comes from ME_API_KEY.
  */
 export function resolveCredentials(serverFlag?: string): ResolvedCredentials {
   const server = resolveServer(serverFlag);
   const stored = getServerCredentials(server);
 
-  // Resolve API key: env var > active engine's stored key
-  const activeEngine = stored.active_engine;
-  const storedApiKey = activeEngine
-    ? stored.engines?.[activeEngine]?.api_key
-    : undefined;
-
-  // New model: the active space (X-Me-Space); ME_SPACE overrides the stored
-  // active_space. Api keys are never stored — an agent key only ever comes from
-  // ME_API_KEY (the legacy engine key remains as a fallback until removed).
-  const activeSpace = process.env.ME_SPACE ?? stored.active_space;
-
   return {
     server,
     sessionToken: process.env.ME_SESSION_TOKEN ?? stored.session_token,
-    apiKey: process.env.ME_API_KEY ?? storedApiKey,
-    activeSpace,
-    activeEngine,
+    apiKey: process.env.ME_API_KEY,
+    activeSpace: process.env.ME_SPACE ?? stored.active_space,
   };
 }

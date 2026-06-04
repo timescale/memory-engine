@@ -24,7 +24,6 @@
  */
 import * as clack from "@clack/prompts";
 import { Command } from "commander";
-import { createClient } from "../client.ts";
 import { resolveCredentials } from "../credentials.ts";
 import {
   createProgressReporter,
@@ -35,7 +34,12 @@ import {
 } from "../importers/index.ts";
 import type { ImporterOptions } from "../importers/types.ts";
 import { getOutputFormat, output } from "../output.ts";
-import { handleError, requireEngine, requireSession } from "../util.ts";
+import {
+  buildMemoryClient,
+  handleError,
+  requireSession,
+  requireSpace,
+} from "../util.ts";
 
 const DEFAULT_TREE_ROOT = "projects";
 const DEFAULT_SESSIONS_NODE_NAME = "agent_sessions";
@@ -161,7 +165,7 @@ async function runAndRender(
   );
   const fmt = getOutputFormat(globalOpts);
   requireSession(creds, fmt);
-  requireEngine(creds, fmt);
+  requireSpace(creds, fmt);
 
   let config: ReturnType<typeof buildOptions>;
   try {
@@ -170,7 +174,7 @@ async function runAndRender(
     handleError(error, fmt);
   }
 
-  const engine = createClient({ url: creds.server, apiKey: creds.apiKey });
+  const engine = buildMemoryClient(creds);
 
   if (fmt === "text" && config.write.verbose) {
     const sourceNote = config.importer.source ?? importer.defaultSource;
