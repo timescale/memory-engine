@@ -2,12 +2,13 @@
  * Shared Memory Engine client for the web UI.
  *
  * The browser talks to the same-origin `/rpc` proxy exposed by `me serve`.
- * That proxy injects the stored API key, so this client intentionally has no
- * API key configured. Vite proxies `/rpc` to `me serve` during local dev.
+ * That proxy injects the session token (Authorization) and the active space
+ * (X-Me-Space), so this client carries neither. Vite proxies `/rpc` to
+ * `me serve` during local dev.
  */
-import { createClient } from "@memory.build/client";
+import { createMemoryClient } from "@memory.build/client";
 
-export const memoryEngineClient = createClient({
+export const memoryEngineClient = createMemoryClient({
   url: "",
   rpcPath: "/rpc",
   retries: 0,

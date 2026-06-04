@@ -1,22 +1,23 @@
 /**
  * @memory.build/client — Client library for Memory Engine.
  *
- * Three clients for different use cases:
+ * Two clients, both authenticated by a bearer token:
  *
- * - {@link createClient} — Engine client (API key auth).
- *   The primary client for memory operations, search, user/grant management.
+ * - {@link createMemoryClient} — space data-plane + management.
+ *   Talks to /api/v1/memory/rpc with the active space carried as X-Me-Space.
+ *   Memory CRUD/search plus principal/group/grant/apiKey management.
  *
- * - {@link createAccountsClient} — Accounts client (session token auth).
- *   For managing organizations, engines, and invitations. Used by CLI.
+ * - {@link createUserClient} — session-only, user-scoped.
+ *   Talks to /api/v1/user/rpc: whoami, agent lifecycle, space discovery.
  *
- * - {@link createAuthClient} — Auth client (no auth).
+ * - {@link createAuthClient} — auth client (no auth).
  *   OAuth device flow for CLI login. Returns a session token.
  *
  * @example
  * ```ts
- * import { createClient } from "@memory.build/client";
+ * import { createMemoryClient } from "@memory.build/client";
  *
- * const me = createClient({ apiKey: "me.xxx.yyy" });
+ * const me = createMemoryClient({ token: sessionToken, space: "abc123def456" });
  *
  * await me.memory.create({
  *   content: "TypeScript was released in 2012",
@@ -29,7 +30,7 @@
  * ```
  */
 
-export type * from "@memory.build/protocol/engine";
+export type * from "@memory.build/protocol/engine/memory";
 export type {
   Meta,
   SearchWeights,
@@ -37,44 +38,23 @@ export type {
   TemporalFilter,
 } from "@memory.build/protocol/fields";
 
-export type {
-  AccountsClient,
-  AccountsClientOptions,
-  AccountsEngineNamespace,
-  InvitationNamespace,
-  MeNamespace,
-  OrgMemberNamespace,
-  OrgNamespace,
-  SessionNamespace,
-} from "./accounts.ts";
-// Accounts client
-export { createAccountsClient } from "./accounts.ts";
 export type { AuthClient, AuthClientOptions, PollOptions } from "./auth.ts";
 // Auth client
 export { createAuthClient, DeviceFlowError } from "./auth.ts";
-export type {
-  ApiKeyNamespace,
-  ClientOptions,
-  EngineClient,
-  GrantNamespace,
-  MemoryNamespace,
-  OwnerNamespace,
-  RoleNamespace,
-  UserNamespace,
-} from "./engine.ts";
-// Engine client (legacy; removed in Phase 5)
-export { createClient } from "./engine.ts";
 // Errors
 export { isRpcError, RpcError } from "./errors.ts";
-// Memory client (new model: space data-plane + management)
+// Memory client (space data-plane + management)
 export {
+  type ApiKeyNamespace,
   createMemoryClient,
+  type GrantNamespace,
   type GroupNamespace,
   type MemoryClient,
   type MemoryClientOptions,
+  type MemoryNamespace,
   type PrincipalNamespace,
 } from "./memory.ts";
-// User client (new model: agent lifecycle + space discovery/management)
+// User client (session-only: whoami, agent lifecycle, space discovery)
 export {
   type AgentNamespace,
   createUserClient,
