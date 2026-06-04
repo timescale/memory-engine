@@ -10,6 +10,7 @@ import { Command } from "commander";
  */
 import { CLIENT_VERSION } from "../../version";
 import { createAccessCommand } from "./commands/access.ts";
+import { createAgentCommand } from "./commands/agent.ts";
 import { createApiKeyCommand } from "./commands/apikey.ts";
 import { createClaudeCommand } from "./commands/claude.ts";
 import { createCodexCommand } from "./commands/codex.ts";
@@ -77,6 +78,8 @@ program.addCommand(createEngineCommand());
 program.addCommand(createSpaceCommand());
 program.addCommand(createGroupCommand());
 program.addCommand(createAccessCommand());
+program.addCommand(createAgentCommand());
+program.addCommand(createApiKeyCommand());
 
 // Org commands
 program.addCommand(createOrgCommand());
@@ -100,12 +103,11 @@ program.addCommand(createCodexCommand());
 // Local web UI
 program.addCommand(createServeCommand());
 
-// Engine-level RBAC commands
+// Engine-level RBAC commands (legacy; removed in 4E-CLI-7)
 program.addCommand(createUserCommand());
 program.addCommand(createGrantCommand());
 program.addCommand(createRoleCommand());
 program.addCommand(createOwnerCommand());
-program.addCommand(createApiKeyCommand());
 
 // Pack commands
 program.addCommand(createPackCommand());

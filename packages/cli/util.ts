@@ -141,6 +141,35 @@ export async function resolveSpacePrincipalId(
   process.exit(1);
 }
 
+/**
+ * Resolve one of the caller's agents to its id, by UUIDv7 or name (agent names
+ * are unique per user). Exits with an actionable error on miss / ambiguity.
+ */
+export async function resolveAgentId(
+  user: UserClient,
+  input: string,
+  fmt: OutputFormat,
+): Promise<string> {
+  if (UUIDV7_RE.test(input)) return input;
+  const { agents } = await user.agent.list();
+  const lower = input.toLowerCase();
+  const matches = agents.filter((a) => a.name.toLowerCase() === lower);
+  if (matches.length === 1 && matches[0]) return matches[0].id;
+
+  const msg =
+    matches.length === 0
+      ? `No agent named '${input}'. Run 'me agent list'.`
+      : `Multiple agents named '${input}'. Use the agent id instead.`;
+  if (fmt === "text") {
+    clack.log.error(msg);
+    if (matches.length > 1)
+      for (const a of matches) console.log(`  ${a.name} — ${a.id}`);
+  } else {
+    output({ error: msg, matches }, fmt, () => {});
+  }
+  process.exit(1);
+}
+
 interface OrgInfo {
   id: string;
   name: string;
