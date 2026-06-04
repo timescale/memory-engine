@@ -10,7 +10,7 @@ import { unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { stringify as yamlStringify } from "yaml";
-import type { EngineClient } from "../client.ts";
+import type { MemoryClient } from "../client.ts";
 import { parseMarkdown } from "../parsers/markdown.ts";
 
 interface ParsedMemory {
@@ -115,7 +115,7 @@ function hasChanges(
  * Edit a memory interactively.
  */
 export async function editMemory(
-  engine: EngineClient,
+  engine: MemoryClient,
   id: string,
 ): Promise<void> {
   const original = await engine.memory.get({ id });

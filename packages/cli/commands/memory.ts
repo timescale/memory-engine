@@ -18,10 +18,14 @@ import { join } from "node:path";
 import * as clack from "@clack/prompts";
 import { Command } from "commander";
 import { stringify as yamlStringify } from "yaml";
-import { createClient } from "../client.ts";
 import { resolveCredentials } from "../credentials.ts";
 import { getOutputFormat, output, table } from "../output.ts";
-import { handleError, requireEngine, requireSession } from "../util.ts";
+import {
+  buildMemoryClient,
+  handleError,
+  requireSession,
+  requireSpace,
+} from "../util.ts";
 import { editMemory } from "./memory-edit.ts";
 import { createMemoryImportCommand } from "./memory-import.ts";
 import { renderTree } from "./memory-tree.ts";
@@ -104,7 +108,7 @@ function createMemoryCreateCommand(): Command {
       const creds = resolveCredentials(globalOpts.server);
       const fmt = getOutputFormat(globalOpts);
       requireSession(creds, fmt);
-      requireEngine(creds, fmt);
+      requireSpace(creds, fmt);
 
       // Resolve content: positional > --content flag > stdin
       let content = positionalContent ?? opts.content;
@@ -127,7 +131,7 @@ function createMemoryCreateCommand(): Command {
         process.exit(1);
       }
 
-      const engine = createClient({ url: creds.server, apiKey: creds.apiKey });
+      const client = buildMemoryClient(creds);
 
       try {
         const params: Record<string, unknown> = { content };
@@ -135,8 +139,8 @@ function createMemoryCreateCommand(): Command {
         if (opts.meta) params.meta = parseMeta(opts.meta);
         if (opts.temporal) params.temporal = parseTemporal(opts.temporal);
 
-        const memory = await engine.memory.create(
-          params as Parameters<typeof engine.memory.create>[0],
+        const memory = await client.memory.create(
+          params as Parameters<typeof client.memory.create>[0],
         );
 
         output(memory, fmt, () => {
@@ -159,12 +163,12 @@ function createMemoryGetCommand(): Command {
       const creds = resolveCredentials(globalOpts.server);
       const fmt = getOutputFormat(globalOpts);
       requireSession(creds, fmt);
-      requireEngine(creds, fmt);
+      requireSpace(creds, fmt);
 
-      const engine = createClient({ url: creds.server, apiKey: creds.apiKey });
+      const client = buildMemoryClient(creds);
 
       try {
-        const memory = await engine.memory.get({ id });
+        const memory = await client.memory.get({ id });
 
         // --json / --yaml: structured output
         if (fmt !== "text") {
@@ -232,7 +236,7 @@ function createMemorySearchCommand(): Command {
       const creds = resolveCredentials(globalOpts.server);
       const fmt = getOutputFormat(globalOpts);
       requireSession(creds, fmt);
-      requireEngine(creds, fmt);
+      requireSpace(creds, fmt);
 
       // Resolve search text. A positional query runs hybrid search
       if (query && opts.semantic && opts.fulltext) {
@@ -304,7 +308,7 @@ function createMemorySearchCommand(): Command {
           weights.fulltext = Number.parseFloat(opts.weightFulltext);
       }
 
-      const engine = createClient({ url: creds.server, apiKey: creds.apiKey });
+      const client = buildMemoryClient(creds);
 
       try {
         const params: Record<string, unknown> = {
@@ -323,8 +327,8 @@ function createMemorySearchCommand(): Command {
           params.semanticThreshold = Number.parseFloat(opts.semanticThreshold);
         if (opts.orderBy) params.orderBy = opts.orderBy;
 
-        const result = await engine.memory.search(
-          params as Parameters<typeof engine.memory.search>[0],
+        const result = await client.memory.search(
+          params as Parameters<typeof client.memory.search>[0],
         );
 
         output(result, fmt, () => {
@@ -368,7 +372,7 @@ function createMemoryUpdateCommand(): Command {
       const creds = resolveCredentials(globalOpts.server);
       const fmt = getOutputFormat(globalOpts);
       requireSession(creds, fmt);
-      requireEngine(creds, fmt);
+      requireSpace(creds, fmt);
 
       // Resolve content
       let content = opts.content;
@@ -387,7 +391,7 @@ function createMemoryUpdateCommand(): Command {
         process.exit(1);
       }
 
-      const engine = createClient({ url: creds.server, apiKey: creds.apiKey });
+      const client = buildMemoryClient(creds);
 
       try {
         const params: Record<string, unknown> = { id };
@@ -396,8 +400,8 @@ function createMemoryUpdateCommand(): Command {
         if (opts.meta) params.meta = parseMeta(opts.meta);
         if (opts.temporal) params.temporal = parseTemporal(opts.temporal);
 
-        const memory = await engine.memory.update(
-          params as Parameters<typeof engine.memory.update>[0],
+        const memory = await client.memory.update(
+          params as Parameters<typeof client.memory.update>[0],
         );
 
         output(memory, fmt, () => {
@@ -421,14 +425,14 @@ function createMemoryDeleteCommand(): Command {
       const creds = resolveCredentials(globalOpts.server);
       const fmt = getOutputFormat(globalOpts);
       requireSession(creds, fmt);
-      requireEngine(creds, fmt);
+      requireSpace(creds, fmt);
 
-      const engine = createClient({ url: creds.server, apiKey: creds.apiKey });
+      const client = buildMemoryClient(creds);
 
       try {
         if (UUIDV7_RE.test(idOrTree)) {
           // Single memory delete
-          const result = await engine.memory.delete({ id: idOrTree });
+          const result = await client.memory.delete({ id: idOrTree });
           output(result, fmt, () => {
             if (result.deleted) {
               clack.log.success(`Deleted memory ${idOrTree}`);
@@ -438,7 +442,7 @@ function createMemoryDeleteCommand(): Command {
           });
         } else {
           // Tree delete — always dry-run first
-          const preview = await engine.memory.deleteTree({
+          const preview = await client.memory.deleteTree({
             tree: idOrTree,
             dryRun: true,
           });
@@ -473,7 +477,7 @@ function createMemoryDeleteCommand(): Command {
             }
           }
 
-          const result = await engine.memory.deleteTree({
+          const result = await client.memory.deleteTree({
             tree: idOrTree,
             dryRun: false,
           });
@@ -498,12 +502,12 @@ function createMemoryEditCommand(): Command {
       const creds = resolveCredentials(globalOpts.server);
       const fmt = getOutputFormat(globalOpts);
       requireSession(creds, fmt);
-      requireEngine(creds, fmt);
+      requireSpace(creds, fmt);
 
-      const engine = createClient({ url: creds.server, apiKey: creds.apiKey });
+      const client = buildMemoryClient(creds);
 
       try {
-        await editMemory(engine, id);
+        await editMemory(client, id);
       } catch (error) {
         handleError(error, fmt);
       }
@@ -520,17 +524,17 @@ function createMemoryTreeCommand(): Command {
       const creds = resolveCredentials(globalOpts.server);
       const fmt = getOutputFormat(globalOpts);
       requireSession(creds, fmt);
-      requireEngine(creds, fmt);
+      requireSpace(creds, fmt);
 
-      const engine = createClient({ url: creds.server, apiKey: creds.apiKey });
+      const client = buildMemoryClient(creds);
 
       try {
         const params: Record<string, unknown> = {};
         if (filter) params.tree = filter;
         if (opts.levels) params.levels = Number.parseInt(opts.levels, 10);
 
-        const result = await engine.memory.tree(
-          params as Parameters<typeof engine.memory.tree>[0],
+        const result = await client.memory.tree(
+          params as Parameters<typeof client.memory.tree>[0],
         );
 
         output(result, fmt, () => {
@@ -555,13 +559,13 @@ function createMemoryMoveCommand(): Command {
       const creds = resolveCredentials(globalOpts.server);
       const fmt = getOutputFormat(globalOpts);
       requireSession(creds, fmt);
-      requireEngine(creds, fmt);
+      requireSpace(creds, fmt);
 
-      const engine = createClient({ url: creds.server, apiKey: creds.apiKey });
+      const client = buildMemoryClient(creds);
 
       try {
         // Always dry-run first to show preview
-        const preview = await engine.memory.move({
+        const preview = await client.memory.move({
           source: src,
           destination: dst,
           dryRun: true,
@@ -597,7 +601,7 @@ function createMemoryMoveCommand(): Command {
           }
         }
 
-        const result = await engine.memory.move({
+        const result = await client.memory.move({
           source: src,
           destination: dst,
         });
@@ -651,7 +655,7 @@ function createMemoryExportCommand(): Command {
       const creds = resolveCredentials(globalOpts.server);
       const fmt = getOutputFormat(globalOpts);
       requireSession(creds, fmt);
-      requireEngine(creds, fmt);
+      requireSpace(creds, fmt);
 
       const format = opts.format as "json" | "yaml" | "md";
       if (!["json", "yaml", "md"].includes(format)) {
@@ -694,11 +698,11 @@ function createMemoryExportCommand(): Command {
         };
       }
 
-      const engine = createClient({ url: creds.server, apiKey: creds.apiKey });
+      const client = buildMemoryClient(creds);
 
       try {
-        const result = await engine.memory.search(
-          searchParams as Parameters<typeof engine.memory.search>[0],
+        const result = await client.memory.search(
+          searchParams as Parameters<typeof client.memory.search>[0],
         );
 
         const memories = result.results.map((r: Record<string, unknown>) =>
@@ -871,17 +875,36 @@ function renderMarkdownAnsi(content: string): string {
 // Command Group
 // =============================================================================
 
+/**
+ * Build a fresh set of the memory subcommands. A Commander command can only be
+ * attached to one parent, so callers that want them in two places (the `memory`
+ * group and the top-level aliases) each call this for their own instances.
+ */
+function memorySubcommands(): Command[] {
+  return [
+    createMemoryCreateCommand(),
+    createMemoryGetCommand(),
+    createMemorySearchCommand(),
+    createMemoryUpdateCommand(),
+    createMemoryDeleteCommand(),
+    createMemoryEditCommand(),
+    createMemoryTreeCommand(),
+    createMemoryMoveCommand(),
+    createMemoryImportCommand(),
+    createMemoryExportCommand(),
+  ];
+}
+
 export function createMemoryCommand(): Command {
   const memory = new Command("memory").description("manage memories");
-  memory.addCommand(createMemoryCreateCommand());
-  memory.addCommand(createMemoryGetCommand());
-  memory.addCommand(createMemorySearchCommand());
-  memory.addCommand(createMemoryUpdateCommand());
-  memory.addCommand(createMemoryDeleteCommand());
-  memory.addCommand(createMemoryEditCommand());
-  memory.addCommand(createMemoryTreeCommand());
-  memory.addCommand(createMemoryMoveCommand());
-  memory.addCommand(createMemoryImportCommand());
-  memory.addCommand(createMemoryExportCommand());
+  for (const c of memorySubcommands()) memory.addCommand(c);
   return memory;
+}
+
+/**
+ * The memory subcommands as top-level aliases (`me search`, `me create`, …) so
+ * the `memory` word is optional for the common data-plane operations.
+ */
+export function createMemoryAliasCommands(): Command[] {
+  return memorySubcommands();
 }

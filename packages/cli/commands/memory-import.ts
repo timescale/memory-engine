@@ -11,7 +11,6 @@ import { resolve } from "node:path";
 import * as clack from "@clack/prompts";
 import { Command } from "commander";
 import { batchCreateChunked } from "../chunk.ts";
-import { createClient } from "../client.ts";
 import { resolveCredentials } from "../credentials.ts";
 import { getOutputFormat, output } from "../output.ts";
 import {
@@ -19,7 +18,7 @@ import {
   type ParsedMemory,
   parseContent,
 } from "../parsers/index.ts";
-import { requireEngine, requireSession } from "../util.ts";
+import { buildMemoryClient, requireSession, requireSpace } from "../util.ts";
 
 /**
  * Collect files from a path. If directory, requires --recursive.
@@ -103,7 +102,7 @@ export function createMemoryImportCommand(): Command {
       const creds = resolveCredentials(globalOpts.server);
       const fmt = getOutputFormat(globalOpts);
       requireSession(creds, fmt);
-      requireEngine(creds, fmt);
+      requireSpace(creds, fmt);
 
       // Validate format option
       if (opts.format && !["md", "yaml", "json"].includes(opts.format)) {
@@ -265,7 +264,7 @@ export function createMemoryImportCommand(): Command {
       }
 
       // Actual import
-      const engine = createClient({ url: creds.server, apiKey: creds.apiKey });
+      const engine = buildMemoryClient(creds);
 
       let skippedIds: string[] = [];
 

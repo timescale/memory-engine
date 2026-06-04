@@ -19,7 +19,10 @@ import { createInvitationCommand } from "./commands/invitation.ts";
 import { createLoginCommand } from "./commands/login.ts";
 import { createLogoutCommand } from "./commands/logout.ts";
 import { createMcpCommand } from "./commands/mcp.ts";
-import { createMemoryCommand } from "./commands/memory.ts";
+import {
+  createMemoryAliasCommands,
+  createMemoryCommand,
+} from "./commands/memory.ts";
 import { createOpenCodeCommand } from "./commands/opencode.ts";
 import { createOrgCommand } from "./commands/org.ts";
 import { createOwnerCommand } from "./commands/owner.ts";
@@ -77,8 +80,9 @@ program.addCommand(createOrgCommand());
 // Invitation commands
 program.addCommand(createInvitationCommand());
 
-// Memory commands
+// Memory commands — both as `me memory <cmd>` and top-level aliases (`me search`)
 program.addCommand(createMemoryCommand());
+for (const c of createMemoryAliasCommands()) program.addCommand(c);
 
 // MCP server
 program.addCommand(createMcpCommand());
