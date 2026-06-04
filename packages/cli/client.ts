@@ -14,8 +14,14 @@ import {
   createAccountsClient as baseCreateAccountsClient,
   createAuthClient as baseCreateAuthClient,
   createClient as baseCreateClient,
+  createMemoryClient as baseCreateMemoryClient,
+  createUserClient as baseCreateUserClient,
   type ClientOptions,
   type EngineClient,
+  type MemoryClient,
+  type MemoryClientOptions,
+  type UserClient,
+  type UserClientOptions,
 } from "@memory.build/client";
 import { CLIENT_VERSION } from "../../version";
 
@@ -49,6 +55,25 @@ export function createAuthClient(options: AuthClientOptions = {}): AuthClient {
   return baseCreateAuthClient(options);
 }
 
+/**
+ * Memory client factory (new model: space data-plane + management) with
+ * `clientVersion: CLIENT_VERSION` injected. Talks to /api/v1/memory/rpc with the
+ * active space carried as X-Me-Space.
+ */
+export function createMemoryClient(
+  options: MemoryClientOptions = {},
+): MemoryClient {
+  return baseCreateMemoryClient({ clientVersion: CLIENT_VERSION, ...options });
+}
+
+/**
+ * User client factory (new model: agent lifecycle + space discovery) with
+ * `clientVersion: CLIENT_VERSION` injected. Talks to /api/v1/user/rpc.
+ */
+export function createUserClient(options: UserClientOptions = {}): UserClient {
+  return baseCreateUserClient({ clientVersion: CLIENT_VERSION, ...options });
+}
+
 // Re-export types and helpers used across the CLI. Pass-through so command
 // files don't need to dual-import from "@memory.build/client".
 export {
@@ -62,5 +87,9 @@ export {
   DeviceFlowError,
   type EngineClient,
   isRpcError,
+  type MemoryClient,
+  type MemoryClientOptions,
   RpcError,
+  type UserClient,
+  type UserClientOptions,
 } from "@memory.build/client";

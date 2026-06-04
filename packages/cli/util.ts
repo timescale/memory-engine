@@ -51,6 +51,26 @@ export function requireEngine(
   }
 }
 
+/**
+ * Ensure an active space (the X-Me-Space) is selected. Exits with an error if
+ * not. Used by the space-scoped commands (memory, group, access, …).
+ */
+export function requireSpace(
+  creds: ResolvedCredentials,
+  fmt: OutputFormat,
+): asserts creds is ResolvedCredentials & { activeSpace: string } {
+  if (!creds.activeSpace) {
+    if (fmt === "text") {
+      clack.log.error(
+        "No active space. Run 'me space use <space>' to select one, or set ME_SPACE.",
+      );
+    } else {
+      output({ error: "No active space" }, fmt, () => {});
+    }
+    process.exit(1);
+  }
+}
+
 interface OrgInfo {
   id: string;
   name: string;
