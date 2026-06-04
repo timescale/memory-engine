@@ -1,9 +1,0 @@
-{
-  "name": "@memory.build/accounts",
-  "version": "0.2.5",
-  "private": true,
-  "type": "module",
-  "dependencies": {
-    "@pydantic/logfire-node": "^0.13.1"
-  }
-}

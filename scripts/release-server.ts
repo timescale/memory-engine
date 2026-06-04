@@ -25,11 +25,10 @@ import semver from "semver";
 const root = join(import.meta.dirname, "..");
 
 // Server-side package.json files. `packages/server/package.json` is the
-// canonical source of truth for SERVER_VERSION; the other four are sibling
+// canonical source of truth for SERVER_VERSION; the others are sibling
 // internal packages consumed by the server via `workspace:*`. They are
 // bumped in lockstep for visual consistency — none of them publish.
 const PACKAGE_JSONS = [
-  "packages/accounts/package.json",
   "packages/embedding/package.json",
   "packages/engine/package.json",
   "packages/server/package.json",

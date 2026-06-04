@@ -9,7 +9,8 @@ on:
       - packages/embedding/**
       - packages/worker/**
       - packages/protocol/**
-      - packages/accounts/**
+      - packages/auth/**
+      - packages/database/**
       - scripts/**
       - package.json
       - bun.lock

@@ -2,7 +2,6 @@
   "name": "memory-engine-server",
   "version": "0.2.5",
   "dependencies": {
-    "@memory.build/accounts": "workspace:*",
     "@memory.build/auth": "workspace:*",
     "@memory.build/database": "workspace:*",
     "@memory.build/embedding": "workspace:*",
