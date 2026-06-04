@@ -383,6 +383,41 @@ test("group member management allows a group admin (not a space admin)", async (
   );
 });
 
+test("group.listForMember: an agent's owner can list its groups", async () => {
+  // owner sets up: a member who owns an agent, the agent is in a group
+  const member = await makeUser();
+  const agentId = await makeAgent(member);
+  await call("member.add", { principalId: agentId });
+  const { id: groupId } = await call<{ id: string }>("group.create", {
+    name: "bots",
+  });
+  await call("group.addMember", { groupId, memberId: agentId });
+
+  // the member (agent owner, not a space admin) can list their agent's groups
+  const as = {
+    principalId: member,
+    treeAccess: [] as TreeAccess,
+    admin: false,
+  };
+  const res = await call<{ groups: { groupId: string }[] }>(
+    "group.listForMember",
+    { memberId: agentId },
+    as,
+  );
+  expect(res.groups.some((g) => g.groupId === groupId)).toBe(true);
+
+  // a stranger who doesn't own the agent cannot
+  const stranger = await makeUser();
+  await expectAppError(
+    call(
+      "group.listForMember",
+      { memberId: agentId },
+      { principalId: stranger, treeAccess: [] as TreeAccess, admin: false },
+    ),
+    "FORBIDDEN",
+  );
+});
+
 test("group management requires admin — owner@root is not enough", async () => {
   // a member who owns the whole data tree (owner@root) but is NOT a space admin
   const member = await makeUser();
