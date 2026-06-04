@@ -6,7 +6,7 @@
  * be removed. On confirm, re-issues the call with `dryRun: false`.
  */
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { memoryEngineClient } from "../../api/client.ts";
+import { memoryClient } from "../../api/client.ts";
 import { useDeleteTree } from "../../api/queries.ts";
 import { useSelection } from "../../store/selection.ts";
 import { useUi } from "../../store/ui.ts";
@@ -26,7 +26,7 @@ export function DeleteTreeDialog() {
     enabled: treePath !== null,
     queryKey: ["deleteTreeDryRun", treePath],
     queryFn: () =>
-      memoryEngineClient.memory.deleteTree({
+      memoryClient.memory.deleteTree({
         tree: treePath as string,
         dryRun: true,
       }),

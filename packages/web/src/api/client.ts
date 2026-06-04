@@ -8,7 +8,7 @@
  */
 import { createMemoryClient } from "@memory.build/client";
 
-export const memoryEngineClient = createMemoryClient({
+export const memoryClient = createMemoryClient({
   url: "",
   rpcPath: "/rpc",
   retries: 0,

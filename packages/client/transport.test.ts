@@ -45,7 +45,7 @@ function captureFetch(): {
 
 const baseConfig = {
   url: "https://api.example.com",
-  path: "/api/v1/engine/rpc",
+  path: "/api/v1/memory/rpc",
   timeout: 5_000,
   retries: 0,
 } satisfies Omit<TransportConfig, "clientVersion" | "token">;
