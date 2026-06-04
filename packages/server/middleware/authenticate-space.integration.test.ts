@@ -13,7 +13,7 @@ import {
   migrateAuth,
   migrateCore,
 } from "@memory.build/database";
-import { core as engineCore } from "@memory.build/engine";
+import * as engineCore from "@memory.build/engine/core";
 import postgres, { type Sql } from "postgres";
 import { provisionUser } from "../provision";
 import { authenticateSpace, SPACE_HEADER } from "./authenticate-space";

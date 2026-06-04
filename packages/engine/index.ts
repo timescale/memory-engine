@@ -1,46 +1,8 @@
-// Main exports
-
-// New core control-plane + space data-plane layers (target the core / me_<slug>
-// schemas via SQL functions). Namespaced to avoid clashing with the legacy flat
-// exports below during the migration: core.coreStore, space.spaceStore, etc.
+// The engine package is the runtime layer over the new-model schemas:
+//   - core:  control plane (core schema) — spaces, principals, membership,
+//            groups, tree-access grants, api keys.
+//   - space: data plane (per-space me_<slug> schema) — memory CRUD, tree, search.
+// Namespaced so callers pick a plane explicitly: `core.coreStore`, `space.spaceStore`.
+// Subpath imports (`@memory.build/engine/core`, `/space`) are equivalent.
 export * as core from "./core";
-export {
-  type CreateEngineDBOptions,
-  createEngineDB,
-  type EngineDB,
-} from "./db";
-// Re-export migrate module
-export * from "./migrate";
 export * as space from "./space";
-// Type exports
-export {
-  type ApiKey,
-  type CreateApiKeyParams,
-  type CreateApiKeyResult,
-  type CreateMemoryParams,
-  type CreateUserParams,
-  type GetTreeParams,
-  type GrantTreeAccessParams,
-  type Memory,
-  NotImplementedError,
-  type OpsContext,
-  type RoleInfo,
-  type RoleMember,
-  type SearchParams,
-  type SearchResult,
-  type SearchResultItem,
-  type SearchWeights,
-  type TemporalFilter,
-  type TreeGrant,
-  type TreeNode,
-  type TreeOwner,
-  type UpdateMemoryParams,
-  type User,
-  type ValidateApiKeyResult,
-} from "./types";
-// Utility exports
-export {
-  extractEngineSlug,
-  formatApiKey,
-  parseApiKey,
-} from "./util";

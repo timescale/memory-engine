@@ -11,8 +11,9 @@ import {
   migrateAuth,
   migrateCore,
 } from "@memory.build/database";
-import { core as engineCore, space as engineSpace } from "@memory.build/engine";
 import type { TreeAccess } from "@memory.build/engine/core";
+import * as engineCore from "@memory.build/engine/core";
+import * as engineSpace from "@memory.build/engine/space";
 import { type AppErrorCode, isAppError } from "@memory.build/protocol/errors";
 import postgres, { type Sql } from "postgres";
 import { provisionUser } from "../../provision";

@@ -1,6 +1,6 @@
 import { authStore, type OAuthProvider } from "@memory.build/auth";
 import { generateSlug, provisionSpace } from "@memory.build/database";
-import { core as engineCore } from "@memory.build/engine";
+import * as engineCore from "@memory.build/engine/core";
 import type { Sql } from "postgres";
 
 /**
