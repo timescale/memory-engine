@@ -236,7 +236,7 @@ export function createRouter(ctx: ServerContext): Router {
     if (!result.ok) {
       return result.error;
     }
-    return { core, userId: result.context.userId };
+    return { core, userId: result.context.userId, db, coreSchema };
   });
 
   /**

@@ -15,7 +15,12 @@ import {
   agentRenameParams,
   agentRenameResult,
 } from "./agent.ts";
-import { spaceListParams, spaceListResult } from "./space.ts";
+import {
+  spaceCreateParams,
+  spaceCreateResult,
+  spaceListParams,
+  spaceListResult,
+} from "./space.ts";
 
 export * from "./agent.ts";
 export * from "./space.ts";
@@ -35,6 +40,7 @@ export const userMethods = {
   "agent.delete": method(agentDeleteParams, agentDeleteResult),
 
   "space.list": method(spaceListParams, spaceListResult),
+  "space.create": method(spaceCreateParams, spaceCreateResult),
 } as const;
 
 export type UserMethodName = keyof typeof userMethods;

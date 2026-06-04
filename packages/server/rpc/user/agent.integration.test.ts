@@ -4,8 +4,8 @@
 //     bun test --timeout 30000 \
 //     packages/server/rpc/user/agent.integration.test.ts
 import { afterAll, beforeAll, beforeEach, expect, test } from "bun:test";
-import { migrateCore } from "@memory.build/database";
-import { coreStore } from "@memory.build/engine/core";
+import { bootstrapSpaceDatabase, migrateCore } from "@memory.build/database";
+import { ACCESS, coreStore, ROOT_PATH } from "@memory.build/engine/core";
 import { type AppErrorCode, isAppError } from "@memory.build/protocol/errors";
 import postgres, { type Sql } from "postgres";
 import type { HandlerContext } from "../types";
@@ -26,6 +26,7 @@ const rand = (n: number) => {
 let sql: Sql;
 let coreSchema: string;
 let userId: string;
+const createdSpaceSchemas: string[] = [];
 
 function call<T = unknown>(
   method: string,
@@ -38,6 +39,8 @@ function call<T = unknown>(
     request: new Request("http://localhost/api/v1/user/rpc"),
     core: coreStore(sql, coreSchema),
     userId: asUser,
+    db: sql,
+    coreSchema,
   } as unknown as HandlerContext;
   return registered.handler(params, context) as Promise<T>;
 }
@@ -62,10 +65,14 @@ async function makeUser(): Promise<string> {
 beforeAll(async () => {
   sql = postgres(URL, { onnotice: () => {} });
   coreSchema = `core_test_${rand(8)}`;
+  await bootstrapSpaceDatabase(sql); // extensions for me_<slug> (space.create)
   await migrateCore(sql, { schema: coreSchema });
 });
 
 afterAll(async () => {
+  for (const s of createdSpaceSchemas) {
+    await sql.unsafe(`drop schema if exists ${s} cascade`);
+  }
   await sql.unsafe(`drop schema if exists ${coreSchema} cascade`);
   await sql.end();
 });
@@ -159,6 +166,32 @@ test("space.list includes spaces reached only via group membership", async () =>
   const mine = res.spaces.find((s) => s.id === spaceId);
   expect(mine).toBeDefined(); // group membership confers space membership
   expect(mine?.admin).toBe(false); // but not direct-membership admin
+});
+
+test("space.create provisions a space the caller owns + admins", async () => {
+  const res = await call<{ id: string; slug: string }>("space.create", {
+    name: "Fresh Space",
+  });
+  createdSpaceSchemas.push(`me_${res.slug}`);
+  expect(res.slug).toMatch(/^[a-z0-9]{12}$/);
+
+  // the me_<slug> data schema was provisioned
+  const [row] = await sql.unsafe(
+    `select exists (select 1 from information_schema.schemata where schema_name = $1) as e`,
+    [`me_${res.slug}`],
+  );
+  expect(Boolean(row?.e)).toBe(true);
+
+  // it shows up in the caller's spaces, as admin
+  const list = await call<{ spaces: { id: string; admin: boolean }[] }>(
+    "space.list",
+    {},
+  );
+  expect(list.spaces.find((s) => s.id === res.id)?.admin).toBe(true);
+
+  // and the creator is owner of the root path
+  const ta = await coreStore(sql, coreSchema).buildTreeAccess(userId, res.id);
+  expect(ta).toContainEqual({ tree_path: ROOT_PATH, access: ACCESS.owner });
 });
 
 test("space.list reflects admin inherited via an admin group", async () => {

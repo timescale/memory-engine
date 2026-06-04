@@ -5,6 +5,7 @@
  * select the X-Me-Space the rest of the commands are scoped to.
  */
 import { z } from "zod";
+import { nameSchema } from "../fields.ts";
 
 export const memberSpaceResponse = z.object({
   id: z.string(),
@@ -26,3 +27,13 @@ export const spaceListResult = z.object({
   spaces: z.array(memberSpaceResponse),
 });
 export type SpaceListResult = z.infer<typeof spaceListResult>;
+
+// space.create — create a new space; the caller becomes admin + owner@root
+export const spaceCreateParams = z.object({ name: nameSchema });
+export type SpaceCreateParams = z.infer<typeof spaceCreateParams>;
+
+export const spaceCreateResult = z.object({
+  id: z.string(),
+  slug: z.string(),
+});
+export type SpaceCreateResult = z.infer<typeof spaceCreateResult>;

@@ -3,6 +3,7 @@
  * the calling user manages their own global service accounts (agents).
  */
 import type { CoreStore } from "@memory.build/engine/core";
+import type { Sql } from "postgres";
 import type { HandlerContext } from "../types";
 
 export interface UserRpcContext extends HandlerContext {
@@ -10,6 +11,10 @@ export interface UserRpcContext extends HandlerContext {
   core: CoreStore;
   /** The authenticated user id (== the core user-principal id). */
   userId: string;
+  /** New-model pool — for transactional provisioning (space.create). */
+  db: Sql;
+  /** The core control-plane schema name. */
+  coreSchema: string;
 }
 
 export function isUserRpcContext(ctx: HandlerContext): ctx is UserRpcContext {
