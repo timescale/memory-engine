@@ -12,7 +12,7 @@ import type {
   Principal,
   PrincipalKind,
   Space,
-  SpaceMember,
+  SpacePrincipal,
   TreeAccess,
   TreeGrant,
   ValidatedApiKey,
@@ -51,10 +51,10 @@ export interface CoreStore {
   deletePrincipal(id: string): Promise<boolean>;
 
   /** Principals in a space — directly or via a group (each flagged `direct`). */
-  listSpaceMembers(
+  listSpacePrincipals(
     spaceId: string,
     kind?: PrincipalKind,
-  ): Promise<SpaceMember[]>;
+  ): Promise<SpacePrincipal[]>;
   /** Whether a principal is an admin of a space (agents are never admins). */
   isSpaceAdmin(principalId: string, spaceId: string): Promise<boolean>;
   /** Whether a member is an admin of a group (agents are never group admins). */
@@ -163,7 +163,7 @@ function mapPrincipal(row: Record<string, unknown>): Principal {
   };
 }
 
-function mapSpaceMember(row: Record<string, unknown>): SpaceMember {
+function mapSpacePrincipal(row: Record<string, unknown>): SpacePrincipal {
   return {
     id: row.id as string,
     kind: row.kind as PrincipalKind,
@@ -282,11 +282,11 @@ export function coreStore(sql: Sql, schema: string = CORE_SCHEMA): CoreStore {
       return Boolean(row?.ok);
     },
 
-    async listSpaceMembers(spaceId, kind) {
+    async listSpacePrincipals(spaceId, kind) {
       const rows = await sql`
-        select * from ${sch}.list_space_members(${spaceId}, ${kind ?? null})
+        select * from ${sch}.list_space_principals(${spaceId}, ${kind ?? null})
       `;
-      return rows.map(mapSpaceMember);
+      return rows.map(mapSpacePrincipal);
     },
 
     async listSpaceGroups(spaceId) {

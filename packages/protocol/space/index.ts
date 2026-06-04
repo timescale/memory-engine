@@ -45,20 +45,20 @@ import {
   groupRenameResult,
 } from "./group.ts";
 import {
-  memberAddParams,
-  memberAddResult,
-  memberListParams,
-  memberListResult,
-  memberRemoveParams,
-  memberRemoveResult,
-  memberResolveByEmailParams,
-  memberResolveByEmailResult,
-} from "./member.ts";
+  principalAddParams,
+  principalAddResult,
+  principalListParams,
+  principalListResult,
+  principalRemoveParams,
+  principalRemoveResult,
+  principalResolveByEmailParams,
+  principalResolveByEmailResult,
+} from "./principal.ts";
 
 export * from "./api-key.ts";
 export * from "./grant.ts";
 export * from "./group.ts";
-export * from "./member.ts";
+export * from "./principal.ts";
 
 function method<TParams extends z.ZodType, TResult extends z.ZodType>(
   params: TParams,
@@ -72,13 +72,13 @@ function method<TParams extends z.ZodType, TResult extends z.ZodType>(
  * Served on the memory endpoint together with the memory.* methods.
  */
 export const spaceMethods = {
-  // Membership (4)
-  "member.list": method(memberListParams, memberListResult),
-  "member.add": method(memberAddParams, memberAddResult),
-  "member.remove": method(memberRemoveParams, memberRemoveResult),
-  "member.resolveByEmail": method(
-    memberResolveByEmailParams,
-    memberResolveByEmailResult,
+  // Membership (4) — the space roster holds principals (user | agent | group)
+  "principal.list": method(principalListParams, principalListResult),
+  "principal.add": method(principalAddParams, principalAddResult),
+  "principal.remove": method(principalRemoveParams, principalRemoveResult),
+  "principal.resolveByEmail": method(
+    principalResolveByEmailParams,
+    principalResolveByEmailResult,
   ),
 
   // Groups (8)

@@ -10,7 +10,7 @@ import type {
   GroupMember,
   GroupMembership,
   Principal,
-  SpaceMember,
+  SpacePrincipal,
   TreeGrant,
 } from "@memory.build/engine/core";
 import { ACCESS, ROOT_PATH } from "@memory.build/engine/core";
@@ -20,7 +20,7 @@ import type {
   GroupMembershipResponse,
   GroupResponse,
   PrincipalResponse,
-  SpaceMemberResponse,
+  SpacePrincipalResponse,
   TreeGrantResponse,
 } from "@memory.build/protocol/space";
 import { guardCore } from "../core-error";
@@ -135,7 +135,7 @@ export async function callerOwnsAgent(
   context: SpaceRpcContext,
   principalId: string,
 ): Promise<boolean> {
-  const agents = await context.core.listSpaceMembers(context.space.id, "a");
+  const agents = await context.core.listSpacePrincipals(context.space.id, "a");
   const agent = agents.find((a) => a.id === principalId);
   return agent !== undefined && agent.ownerId === context.principalId;
 }
@@ -148,7 +148,7 @@ export async function requireOwnedAgent(
   context: SpaceRpcContext,
   agentId: string,
 ): Promise<void> {
-  const agents = await context.core.listSpaceMembers(context.space.id, "a");
+  const agents = await context.core.listSpacePrincipals(context.space.id, "a");
   const agent = agents.find((a) => a.id === agentId);
   if (!agent) {
     throw new AppError(
@@ -163,8 +163,8 @@ export async function requireOwnedAgent(
 
 /**
  * True if `principalId` is an agent owned by the caller, checked globally (not
- * scoped to the current space). Used by member.add so a member can bring their
- * OWN agent into a space before it is a member there.
+ * scoped to the current space). Used by principal.add so a member can bring
+ * their OWN agent into a space before it is a member there.
  */
 export async function callerOwnsAgentGlobal(
   context: SpaceRpcContext,
@@ -182,7 +182,9 @@ export async function callerOwnsAgentGlobal(
 // Serializers (Date → ISO)
 // =============================================================================
 
-export function toSpaceMemberResponse(m: SpaceMember): SpaceMemberResponse {
+export function toSpacePrincipalResponse(
+  m: SpacePrincipal,
+): SpacePrincipalResponse {
   return {
     id: m.id,
     kind: m.kind,

@@ -9,8 +9,8 @@ import type { MethodRegistry } from "../types";
 import { apiKeyMethods } from "./api-key";
 import { grantMethods } from "./grant";
 import { groupMethods } from "./group";
-import { memberMethods } from "./member";
 import { memoryDataMethods } from "./memory";
+import { principalMethods } from "./principal";
 
 export {
   assertSpaceRpcContext,
@@ -24,7 +24,7 @@ export {
  */
 export const memoryMethods: MethodRegistry = new Map([
   ...memoryDataMethods,
-  ...memberMethods,
+  ...principalMethods,
   ...groupMethods,
   ...grantMethods,
   ...apiKeyMethods,

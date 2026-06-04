@@ -62,11 +62,26 @@ export type {
   RoleNamespace,
   UserNamespace,
 } from "./engine.ts";
-// Engine client (primary)
+// Engine client (legacy; removed in Phase 5)
 export { createClient } from "./engine.ts";
-
 // Errors
 export { isRpcError, RpcError } from "./errors.ts";
+// Memory client (new model: space data-plane + management)
+export {
+  createMemoryClient,
+  type GroupNamespace,
+  type MemoryClient,
+  type MemoryClientOptions,
+  type PrincipalNamespace,
+} from "./memory.ts";
+// User client (new model: agent lifecycle + space discovery/management)
+export {
+  type AgentNamespace,
+  createUserClient,
+  type SpaceNamespace,
+  type UserClient,
+  type UserClientOptions,
+} from "./user.ts";
 // Version compatibility check
 export {
   type CheckServerVersionOptions,

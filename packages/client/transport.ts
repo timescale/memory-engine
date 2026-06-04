@@ -4,7 +4,7 @@
  * Handles HTTP communication, retry logic with exponential backoff,
  * timeouts, and JSON-RPC envelope formatting.
  */
-import { CLIENT_VERSION_HEADER } from "@memory.build/protocol";
+import { CLIENT_VERSION_HEADER } from "@memory.build/protocol/headers";
 import type {
   JsonRpcErrorResponse,
   JsonRpcResponse,
@@ -35,6 +35,11 @@ export interface TransportConfig {
    * before dispatch. Optional — older callers without this set still work.
    */
   clientVersion?: string;
+  /**
+   * Extra headers sent on every RPC (e.g. `X-Me-Space` to select the space for
+   * the memory endpoint). Merged after the built-in headers.
+   */
+  headers?: Record<string, string>;
 }
 
 // =============================================================================
@@ -93,6 +98,9 @@ export async function rpcCall<TResult>(
   }
   if (config.clientVersion) {
     headers[CLIENT_VERSION_HEADER] = config.clientVersion;
+  }
+  if (config.headers) {
+    Object.assign(headers, config.headers);
   }
 
   let lastError: Error | undefined;

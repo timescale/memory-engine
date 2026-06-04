@@ -17,7 +17,7 @@ export type {
   Principal,
   PrincipalKind,
   Space,
-  SpaceMember,
+  SpacePrincipal,
   TreeAccess,
   TreeGrant,
   ValidatedApiKey,

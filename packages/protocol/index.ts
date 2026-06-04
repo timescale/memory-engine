@@ -20,6 +20,8 @@ export * from "./engine/index.ts";
 export * from "./errors.ts";
 // Shared field validators
 export * from "./fields.ts";
+// HTTP header names
+export * from "./headers.ts";
 // JSON-RPC 2.0 envelope types
 export * from "./jsonrpc.ts";
 // Version compatibility schemas

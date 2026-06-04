@@ -3,11 +3,11 @@
  *
  * Groups are space-scoped principals used to bundle members for tree-access
  * grants. Group membership confers space access (a group member is a space
- * member, flagged direct=false in member.list).
+ * member, flagged direct=false in principal.list).
  */
 import { z } from "zod";
 import { nameSchema, uuidv7Schema } from "../fields.ts";
-import { principalKindSchema } from "./member.ts";
+import { principalKindSchema } from "./principal.ts";
 
 export const groupResponse = z.object({
   id: z.string(),

@@ -84,7 +84,7 @@ async function makeUser(): Promise<string> {
 
 /**
  * Create a global agent owned by `owner` (the user-endpoint operation), returning
- * its id. Not yet a member of any space — member.add brings it in.
+ * its id. Not yet a member of any space — principal.add brings it in.
  */
 function makeAgent(owner: string): Promise<string> {
   return engineCore
@@ -130,32 +130,35 @@ beforeEach(async () => {
     .buildTreeAccess(r.userId, r.spaceId);
 });
 
-test("member: list / resolveByEmail / add / remove", async () => {
-  const listed = await call<{ members: { id: string; admin: boolean }[] }>(
-    "member.list",
+test("principal: list / resolveByEmail / add / remove", async () => {
+  const listed = await call<{ principals: { id: string; admin: boolean }[] }>(
+    "principal.list",
     {},
   );
-  expect(listed.members.some((m) => m.id === ownerId && m.admin)).toBe(true);
+  expect(listed.principals.some((m) => m.id === ownerId && m.admin)).toBe(true);
 
   const resolved = await call<{ principal: { id: string } | null }>(
-    "member.resolveByEmail",
+    "principal.resolveByEmail",
     { email: ownerEmail },
   );
   expect(resolved.principal?.id).toBe(ownerId);
 
   const other = await makeUser();
   expect(
-    (await call<{ added: boolean }>("member.add", { principalId: other }))
+    (await call<{ added: boolean }>("principal.add", { principalId: other }))
       .added,
   ).toBe(true);
   expect(
-    (await call<{ members: { id: string }[] }>("member.list", {})).members.some(
-      (m) => m.id === other,
-    ),
+    (
+      await call<{ principals: { id: string }[] }>("principal.list", {})
+    ).principals.some((m) => m.id === other),
   ).toBe(true);
   expect(
-    (await call<{ removed: boolean }>("member.remove", { principalId: other }))
-      .removed,
+    (
+      await call<{ removed: boolean }>("principal.remove", {
+        principalId: other,
+      })
+    ).removed,
   ).toBe(true);
 });
 
@@ -227,7 +230,7 @@ test("apiKey: create (agent-only) / list / get / delete", async () => {
   // agent lifecycle is the user endpoint's job; here the owner brings an agent
   // into the space, then mints its (space-bound) key.
   const agentId = await makeAgent(ownerId);
-  await call("member.add", { principalId: agentId });
+  await call("principal.add", { principalId: agentId });
   const created = await call<{ id: string; key: string }>("apiKey.create", {
     agentId,
     name: "ci",
@@ -269,14 +272,14 @@ test("roster/group management requires admin or owner", async () => {
     treeAccess: [{ tree_path: "sub", access: 2 }] as TreeAccess,
     admin: false,
   };
-  await expectAppError(call("member.list", {}, as), "FORBIDDEN");
+  await expectAppError(call("principal.list", {}, as), "FORBIDDEN");
   await expectAppError(call("group.create", { name: "x" }, as), "FORBIDDEN");
 });
 
 test("a space admin (without owner@root) has management authority", async () => {
   // an admin member with only read access, no owner grant anywhere
   const adminMember = await makeUser();
-  await call("member.add", { principalId: adminMember, admin: true });
+  await call("principal.add", { principalId: adminMember, admin: true });
   await call("grant.set", {
     principalId: adminMember,
     treePath: "x",
@@ -289,7 +292,8 @@ test("a space admin (without owner@root) has management authority", async () => 
 
   // can manage the roster and grant anywhere despite holding no owner grant
   expect(
-    (await call<{ members: unknown[] }>("member.list", {}, as)).members.length,
+    (await call<{ principals: unknown[] }>("principal.list", {}, as)).principals
+      .length,
   ).toBeGreaterThan(0);
   const stranger = await makeUser();
   expect(
@@ -387,7 +391,7 @@ test("group.listForMember: an agent's owner can list its groups", async () => {
   // owner sets up: a member who owns an agent, the agent is in a group
   const member = await makeUser();
   const agentId = await makeAgent(member);
-  await call("member.add", { principalId: agentId });
+  await call("principal.add", { principalId: agentId });
   const { id: groupId } = await call<{ id: string }>("group.create", {
     name: "bots",
   });
@@ -421,7 +425,7 @@ test("group.listForMember: an agent's owner can list its groups", async () => {
 test("group management requires admin — owner@root is not enough", async () => {
   // a member who owns the whole data tree (owner@root) but is NOT a space admin
   const member = await makeUser();
-  await call("member.add", { principalId: member });
+  await call("principal.add", { principalId: member });
   await call("grant.set", { principalId: member, treePath: "", access: 3 });
   const ta = await engineCore
     .coreStore(sql, coreSchema)
@@ -430,7 +434,8 @@ test("group management requires admin — owner@root is not enough", async () =>
 
   // owner@root can manage the roster and grant access (it's their data)
   expect(
-    (await call<{ members: unknown[] }>("member.list", {}, as)).members.length,
+    (await call<{ principals: unknown[] }>("principal.list", {}, as)).principals
+      .length,
   ).toBeGreaterThan(0);
   // but groups are structural — admin only
   await expectAppError(call("group.create", { name: "g" }, as), "FORBIDDEN");
@@ -439,7 +444,7 @@ test("group management requires admin — owner@root is not enough", async () =>
 test("grant authority is path-scoped: a subtree owner delegates within it", async () => {
   // a member who owns "proj" (not the root) can manage access under proj only
   const member = await makeUser();
-  await call("member.add", { principalId: member });
+  await call("principal.add", { principalId: member });
   await call("grant.set", { principalId: member, treePath: "proj", access: 3 });
   const memberTA = await engineCore
     .coreStore(sql, coreSchema)
@@ -478,7 +483,7 @@ test("grant authority is path-scoped: a subtree owner delegates within it", asyn
 test("self-service: a non-owner member brings their own agent into the space", async () => {
   // owner onboards a second user with write (not owner) on a subtree
   const member = await makeUser();
-  await call("member.add", { principalId: member });
+  await call("principal.add", { principalId: member });
   await call("grant.set", { principalId: member, treePath: "proj", access: 2 });
   const memberTA = await engineCore
     .coreStore(sql, coreSchema)
@@ -486,11 +491,16 @@ test("self-service: a non-owner member brings their own agent into the space", a
   const as = { principalId: member, treeAccess: memberTA };
 
   // the member created their agent on the user endpoint (simulated via core);
-  // they bring it into the space (self-service member.add) without owner rights
+  // they bring it into the space (self-service principal.add) without owner rights
   const agentId = await makeAgent(member);
   expect(
-    (await call<{ added: boolean }>("member.add", { principalId: agentId }, as))
-      .added,
+    (
+      await call<{ added: boolean }>(
+        "principal.add",
+        { principalId: agentId },
+        as,
+      )
+    ).added,
   ).toBe(true);
 
   // and mint its key + self-grant it (capped by their own access)
@@ -511,10 +521,10 @@ test("self-service: a non-owner member brings their own agent into the space", a
   ).toBe(true);
 
   // but the member cannot manage the roster, add a stranger, or grant to others
-  await expectAppError(call("member.list", {}, as), "FORBIDDEN");
+  await expectAppError(call("principal.list", {}, as), "FORBIDDEN");
   const stranger = await makeUser();
   await expectAppError(
-    call("member.add", { principalId: stranger }, as),
+    call("principal.add", { principalId: stranger }, as),
     "FORBIDDEN",
   );
   await expectAppError(

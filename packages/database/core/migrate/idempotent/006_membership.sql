@@ -100,7 +100,7 @@ set search_path to pg_catalog, {{schema}}, public, pg_temp
 ;
 
 -------------------------------------------------------------------------------
--- list_space_members
+-- list_space_principals
 -- Principals that belong to a space, deduplicated: either added directly
 -- (principal_space) or reached through a group in the space (group_member) —
 -- group membership confers space access, so both count. `direct` is true when
@@ -108,7 +108,7 @@ set search_path to pg_catalog, {{schema}}, public, pg_temp
 -- admin flag (false for group-only members). Optional kind filter
 -- ('u' | 'a' | 'g'); null returns all.
 -------------------------------------------------------------------------------
-create or replace function {{schema}}.list_space_members
+create or replace function {{schema}}.list_space_principals
 ( _space_id uuid
 , _kind text default null
 )

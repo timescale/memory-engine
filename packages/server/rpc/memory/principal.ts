@@ -1,21 +1,21 @@
 /**
- * Space membership handlers (member.*) — the space roster (principal_space).
+ * Space membership handlers (principal.*) — the space roster (principal_space).
  */
 import type {
-  MemberAddParams,
-  MemberAddResult,
-  MemberListParams,
-  MemberListResult,
-  MemberRemoveParams,
-  MemberRemoveResult,
-  MemberResolveByEmailParams,
-  MemberResolveByEmailResult,
+  PrincipalAddParams,
+  PrincipalAddResult,
+  PrincipalListParams,
+  PrincipalListResult,
+  PrincipalRemoveParams,
+  PrincipalRemoveResult,
+  PrincipalResolveByEmailParams,
+  PrincipalResolveByEmailResult,
 } from "@memory.build/protocol/space";
 import {
-  memberAddParams,
-  memberListParams,
-  memberRemoveParams,
-  memberResolveByEmailParams,
+  principalAddParams,
+  principalListParams,
+  principalRemoveParams,
+  principalResolveByEmailParams,
 } from "@memory.build/protocol/space";
 import { buildRegistry } from "../registry";
 import type { HandlerContext } from "../types";
@@ -24,28 +24,28 @@ import {
   guardCore,
   requireSpaceManager,
   toPrincipalResponse,
-  toSpaceMemberResponse,
+  toSpacePrincipalResponse,
 } from "./support";
 import { assertSpaceRpcContext, type SpaceRpcContext } from "./types";
 
-async function memberList(
-  params: MemberListParams,
+async function principalList(
+  params: PrincipalListParams,
   context: HandlerContext,
-): Promise<MemberListResult> {
+): Promise<PrincipalListResult> {
   assertSpaceRpcContext(context);
   const ctx = context as SpaceRpcContext;
   requireSpaceManager(ctx);
-  const members = await ctx.core.listSpaceMembers(
+  const principals = await ctx.core.listSpacePrincipals(
     ctx.space.id,
     params.kind ?? undefined,
   );
-  return { members: members.map(toSpaceMemberResponse) };
+  return { principals: principals.map(toSpacePrincipalResponse) };
 }
 
-async function memberAdd(
-  params: MemberAddParams,
+async function principalAdd(
+  params: PrincipalAddParams,
   context: HandlerContext,
-): Promise<MemberAddResult> {
+): Promise<PrincipalAddResult> {
   assertSpaceRpcContext(context);
   const ctx = context as SpaceRpcContext;
   // Bringing your OWN agent into a space is self-service (it stays capped by
@@ -67,10 +67,10 @@ async function memberAdd(
   return { added: true };
 }
 
-async function memberRemove(
-  params: MemberRemoveParams,
+async function principalRemove(
+  params: PrincipalRemoveParams,
   context: HandlerContext,
-): Promise<MemberRemoveResult> {
+): Promise<PrincipalRemoveResult> {
   assertSpaceRpcContext(context);
   const ctx = context as SpaceRpcContext;
   requireSpaceManager(ctx);
@@ -80,10 +80,10 @@ async function memberRemove(
   return { removed };
 }
 
-async function memberResolveByEmail(
-  params: MemberResolveByEmailParams,
+async function principalResolveByEmail(
+  params: PrincipalResolveByEmailParams,
   context: HandlerContext,
-): Promise<MemberResolveByEmailResult> {
+): Promise<PrincipalResolveByEmailResult> {
   assertSpaceRpcContext(context);
   const ctx = context as SpaceRpcContext;
   requireSpaceManager(ctx);
@@ -91,13 +91,13 @@ async function memberResolveByEmail(
   return { principal: principal ? toPrincipalResponse(principal) : null };
 }
 
-export const memberMethods = buildRegistry()
-  .register("member.list", memberListParams, memberList)
-  .register("member.add", memberAddParams, memberAdd)
-  .register("member.remove", memberRemoveParams, memberRemove)
+export const principalMethods = buildRegistry()
+  .register("principal.list", principalListParams, principalList)
+  .register("principal.add", principalAddParams, principalAdd)
+  .register("principal.remove", principalRemoveParams, principalRemove)
   .register(
-    "member.resolveByEmail",
-    memberResolveByEmailParams,
-    memberResolveByEmail,
+    "principal.resolveByEmail",
+    principalResolveByEmailParams,
+    principalResolveByEmail,
   )
   .build();

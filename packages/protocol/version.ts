@@ -13,17 +13,7 @@
  */
 import { z } from "zod";
 
-// =============================================================================
-// Headers
-// =============================================================================
-
-/**
- * Header name the client uses to advertise its CLIENT_VERSION on every RPC.
- *
- * The server short-circuits requests with an incompatible client version
- * before dispatching them to a handler.
- */
-export const CLIENT_VERSION_HEADER = "X-Client-Version";
+// Header constants (CLIENT_VERSION_HEADER, SPACE_HEADER) live in ./headers.ts.
 
 // =============================================================================
 // GET /api/v1/version

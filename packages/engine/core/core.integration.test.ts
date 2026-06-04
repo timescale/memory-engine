@@ -68,25 +68,25 @@ test("renamePrincipal refuses to rename users", async () => {
   expect((await core.getPrincipal(userId))?.name).toBe(userName);
 });
 
-test("listSpaceMembers lists direct members with admin flag and kind filter", async () => {
-  const all = await core.listSpaceMembers(spaceId);
+test("listSpacePrincipals lists direct principals with admin flag and kind filter", async () => {
+  const all = await core.listSpacePrincipals(spaceId);
   expect(all).toHaveLength(1);
   expect(all[0]?.id).toBe(userId);
   expect(all[0]?.direct).toBe(true);
   expect(all[0]?.admin).toBe(true);
 
-  expect(await core.listSpaceMembers(spaceId, "u")).toHaveLength(1);
-  expect(await core.listSpaceMembers(spaceId, "g")).toHaveLength(0);
+  expect(await core.listSpacePrincipals(spaceId, "u")).toHaveLength(1);
+  expect(await core.listSpacePrincipals(spaceId, "g")).toHaveLength(0);
 });
 
-test("listSpaceMembers includes group-only members (flagged direct=false)", async () => {
+test("listSpacePrincipals includes group-only principals (flagged direct=false)", async () => {
   // a second user who is NOT added to the space directly, only via a group
   const groupOnlyId = await v7();
   await core.createUser(groupOnlyId, `grouponly_${rand(8)}@example.com`);
   const groupId = await core.createGroup(spaceId, "team");
   await core.addGroupMember(spaceId, groupId, groupOnlyId);
 
-  const members = await core.listSpaceMembers(spaceId, "u");
+  const members = await core.listSpacePrincipals(spaceId, "u");
   const byId = Object.fromEntries(members.map((m) => [m.id, m]));
   // owner is a direct member
   expect(byId[userId]?.direct).toBe(true);
@@ -99,7 +99,7 @@ test("listSpaceMembers includes group-only members (flagged direct=false)", asyn
 test("agents appear as space members of kind 'a'", async () => {
   const agentId = await core.createAgent(userId, `agent-${rand(6)}`);
   await core.addPrincipalToSpace(spaceId, agentId);
-  const agents = await core.listSpaceMembers(spaceId, "a");
+  const agents = await core.listSpacePrincipals(spaceId, "a");
   expect(agents).toHaveLength(1);
   expect(agents[0]?.id).toBe(agentId);
   expect(agents[0]?.ownerId).toBe(userId);

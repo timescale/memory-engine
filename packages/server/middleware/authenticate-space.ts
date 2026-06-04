@@ -22,13 +22,13 @@ import {
   type TreeAccess,
 } from "@memory.build/engine/core";
 import { type SpaceStore, spaceStore } from "@memory.build/engine/space";
+import { SPACE_HEADER } from "@memory.build/protocol/headers";
 import { debug, span } from "@pydantic/logfire-node";
 import type { Sql } from "postgres";
 import { error, forbidden, unauthorized } from "../util/response";
 import { extractBearerToken } from "./authenticate";
 
-/** Header that selects which space a session / api-key request targets. */
-export const SPACE_HEADER = "X-Me-Space";
+export { SPACE_HEADER };
 
 /**
  * The authenticated principal + resolved space for a memory RPC request.

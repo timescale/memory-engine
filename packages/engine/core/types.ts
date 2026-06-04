@@ -79,7 +79,7 @@ export interface ValidatedApiKey {
  * `direct` is true for a direct (principal_space) membership; `admin` is the
  * direct-membership admin flag (false for group-only members).
  */
-export interface SpaceMember {
+export interface SpacePrincipal {
   id: string;
   kind: PrincipalKind;
   name: string;
