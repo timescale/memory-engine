@@ -175,18 +175,6 @@ form — the right convention is what's natural for users, not what ltree accept
       unit + ghost db suites pass. (bootstrap's lock moved from a hardcoded
       single-key id to the shared two-key derived lock.)
 
-## OS keychain for CLI credentials
-
-The CLI credentials file (`~/.config/me/credentials.yaml`, 0600) stores the
-session token + active space in plaintext. (Api keys are never stored — they
-come from `ME_API_KEY` only.) A code TODO marker lives in
-`packages/cli/credentials.ts`.
-
-- [ ] Move the session token into the OS keychain (macOS `security`, Linux
-      `secret-tool`, Windows credential manager) with a fallback to the 0600
-      file when no keychain is available (CI, headless Linux). The file would
-      then hold only non-secret pointers (`default_server`, `active_space`).
-
 ## Refresh `docs/` for the principal / space model
 
 The `docs/` pages (getting-started, concepts, access-control, `cli/*`, `mcp/*`)

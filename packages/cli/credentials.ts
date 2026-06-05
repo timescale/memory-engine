@@ -1,32 +1,28 @@
 /**
- * Credential storage — multi-server, multi-space credential management.
+ * Credential storage — multi-server credential management.
  *
- * Stores the session token (humans) and per-space agent API keys in
- * $XDG_CONFIG_HOME/me/credentials.yaml (default: ~/.config/me/).
- *
- * The file holds the human session token and the active space; it never stores
- * api keys. Api keys are for agents, which run elsewhere and receive their key
- * via the `ME_API_KEY` env var (or pasted into their MCP config). `apiKey.create`
- * prints the key once — the operator places it where the agent runs.
+ * The session token (the one persisted secret) lives in the OS keychain when
+ * available (see ./keychain.ts), else in the 0600 credentials file at
+ * $XDG_CONFIG_HOME/me/credentials.yaml (default: ~/.config/me/). The file always
+ * holds the non-secret pointers (default_server, per-server active_space) and —
+ * only on hosts without a keychain — the session token too. Api keys are never
+ * stored: agents receive their key via `ME_API_KEY` (or their MCP config);
+ * `apiKey.create` prints it once.
  *
  * File format:
  * ```yaml
  * default_server: https://api.memory.build
  * servers:
  *   https://api.memory.build:
- *     session_token: "..."          # human session (used with X-Me-Space)
+ *     session_token: "..."          # only on hosts without a keychain
  *     active_space: "abc123def456"  # active space slug (the X-Me-Space)
  * ```
- *
- * TODO(keychain): move the session token into the OS keychain (macOS `security`,
- * Linux `secret-tool`, Windows credential manager) with a fall back to this 0600
- * file when no keychain is available (CI, headless Linux). The file would then
- * hold only non-secret pointers (default_server, active_space).
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { parse, stringify } from "yaml";
+import { keychainDelete, keychainGet, keychainSet } from "./keychain.ts";
 
 // =============================================================================
 // Constants
@@ -182,8 +178,10 @@ export function getServerCredentials(server: string): ServerCredentials {
 }
 
 /**
- * Store a session token for a server.
- * Also sets this server as the default.
+ * Store a session token for a server, and set it as the default. Prefers the OS
+ * keychain; only when that's unavailable does the token land in the (0600) file.
+ * Either way the file records the server (default_server) so the token can be
+ * found again — and any stale file copy is dropped once the keychain has it.
  */
 export function storeSessionToken(server: string, token: string): void {
   const creds = readCredentials();
@@ -192,7 +190,12 @@ export function storeSessionToken(server: string, token: string): void {
   if (!creds.servers[origin]) {
     creds.servers[origin] = {};
   }
-  creds.servers[origin].session_token = token;
+  if (keychainSet(origin, token)) {
+    // Keychain is the source of truth now — don't also persist it in the file.
+    delete creds.servers[origin].session_token;
+  } else {
+    creds.servers[origin].session_token = token;
+  }
   creds.default_server = origin;
 
   writeCredentials(creds);
@@ -249,29 +252,29 @@ export function resolveSpace(
  * API keys in place. Used after the server tells us the session is expired so
  * the next command surfaces "Not logged in" instead of repeating the 401.
  *
- * No-op if no credentials are stored for the server, or if the token came
+ * Clears both the keychain entry and any file copy. No-op for a token that came
  * from $ME_SESSION_TOKEN (we can't unset an env var the user controls).
  */
 export function clearSessionToken(server: string): void {
-  const creds = readCredentials();
   const origin = normalizeOrigin(server);
+  keychainDelete(origin);
 
+  const creds = readCredentials();
   const entry = creds.servers[origin];
-  if (!entry?.session_token) {
-    return;
+  if (entry?.session_token) {
+    delete entry.session_token;
+    writeCredentials(creds);
   }
-  delete entry.session_token;
-
-  writeCredentials(creds);
 }
 
 /**
- * Clear all credentials for a server.
+ * Clear all credentials for a server (keychain token + file entry).
  */
 export function clearServerCredentials(server: string): void {
   const creds = readCredentials();
   const origin = normalizeOrigin(server);
 
+  keychainDelete(origin);
   delete creds.servers[origin];
 
   // If we just cleared the default server, reset to default
@@ -312,7 +315,13 @@ export function resolveCredentials(serverFlag?: string): ResolvedCredentials {
 
   return {
     server,
-    sessionToken: process.env.ME_SESSION_TOKEN ?? stored.session_token,
+    // env wins; then the file (the keychain-free fallback); then the keychain.
+    // The token lives in exactly one of file/keychain, so checking the file
+    // first avoids a keychain lookup on hosts that use the file fallback.
+    sessionToken:
+      process.env.ME_SESSION_TOKEN ??
+      stored.session_token ??
+      keychainGet(normalizeOrigin(server)),
     apiKey: process.env.ME_API_KEY,
     activeSpace: process.env.ME_SPACE ?? stored.active_space,
   };
