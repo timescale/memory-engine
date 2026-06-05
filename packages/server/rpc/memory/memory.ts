@@ -7,8 +7,9 @@
  * (the space model has no per-memory creator), search `total` is the returned
  * row count, and `orderBy` is ignored (ranked search is score-desc only).
  */
+import { SHARE_NAMESPACE } from "@memory.build/database";
 import { generateEmbedding } from "@memory.build/embedding";
-import { ACCESS, ROOT_PATH } from "@memory.build/engine/core";
+import { ACCESS } from "@memory.build/engine/core";
 import type {
   SearchResultItem,
   Memory as SpaceMemory,
@@ -180,7 +181,7 @@ async function memoryCreate(
       id: params.id ?? undefined,
       content: params.content,
       meta: params.meta ?? undefined,
-      tree: inputTreePath(ctx, params.tree ?? ROOT_PATH),
+      tree: inputTreePath(ctx, params.tree ?? SHARE_NAMESPACE),
       temporal: formatTemporal(params.temporal),
     }),
   );
@@ -209,7 +210,7 @@ async function memoryBatchCreate(
             id: m.id ?? undefined,
             content: m.content,
             meta: m.meta ?? undefined,
-            tree: inputTreePath(ctx, m.tree ?? ROOT_PATH),
+            tree: inputTreePath(ctx, m.tree ?? SHARE_NAMESPACE),
             temporal: formatTemporal(m.temporal),
           }),
         );

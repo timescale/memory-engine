@@ -170,6 +170,15 @@ test("~ home + lenient separators normalize on input, reverse-map on output", as
   );
 });
 
+test("create without a tree defaults to the shared root (`share`)", async () => {
+  // the default creator owns `share` (no root grant in beforeEach), so a bare
+  // create lands there and succeeds.
+  const created = await call<{ tree: string }>("memory.create", {
+    content: "shared by default",
+  });
+  expect(created.tree).toBe("share");
+});
+
 test("create → get round-trips content/tree/meta and createdBy is null", async () => {
   const created = await call<{ id: string; createdBy: string | null }>(
     "memory.create",
