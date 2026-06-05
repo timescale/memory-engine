@@ -15,7 +15,6 @@ import type {
   Group,
   GroupMember,
   GroupMembership,
-  Principal,
   SpaceInvitation,
   SpacePrincipal,
   TreeGrant,
@@ -26,7 +25,6 @@ import type {
   GroupMemberResponse,
   GroupMembershipResponse,
   GroupResponse,
-  PrincipalResponse,
   SpaceInvitationResponse,
   SpacePrincipalResponse,
   TreeGrantResponse,
@@ -241,18 +239,6 @@ export function toSpacePrincipalResponse(
     admin: m.admin,
     createdAt: m.createdAt.toISOString(),
     updatedAt: m.updatedAt?.toISOString() ?? null,
-  };
-}
-
-export function toPrincipalResponse(p: Principal): PrincipalResponse {
-  return {
-    id: p.id,
-    kind: p.kind,
-    name: p.name,
-    ownerId: p.ownerId,
-    spaceId: p.spaceId,
-    createdAt: p.createdAt.toISOString(),
-    updatedAt: p.updatedAt?.toISOString() ?? null,
   };
 }
 

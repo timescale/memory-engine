@@ -17,18 +17,18 @@ const UUID = "019d694f-79f6-7595-8faf-b70b01c11f98";
 // =============================================================================
 
 describe("resolveSpacePrincipalId", () => {
-  test("returns a UUIDv7 as-is without listing principals", async () => {
+  test("returns a UUIDv7 as-is without resolving", async () => {
     const memory = {
-      principal: { list: mock(() => Promise.reject(new Error("unused"))) },
+      principal: { resolve: mock(() => Promise.reject(new Error("unused"))) },
     } as unknown as MemoryClient;
     expect(await resolveSpacePrincipalId(memory, UUID, "text")).toBe(UUID);
-    expect(memory.principal.list).not.toHaveBeenCalled();
+    expect(memory.principal.resolve).not.toHaveBeenCalled();
   });
 
-  test("resolves a name via principal.list (with optional kind)", async () => {
+  test("resolves a name via principal.resolve (with optional kind)", async () => {
     const memory = {
       principal: {
-        list: mock(() =>
+        resolve: mock(() =>
           Promise.resolve({
             principals: [{ id: UUID, kind: "g", name: "eng" }],
           }),
@@ -38,7 +38,10 @@ describe("resolveSpacePrincipalId", () => {
 
     const id = await resolveSpacePrincipalId(memory, "eng", "text", "g");
     expect(id).toBe(UUID);
-    expect(memory.principal.list).toHaveBeenCalledWith({ kind: "g" });
+    expect(memory.principal.resolve).toHaveBeenCalledWith({
+      name: "eng",
+      kind: "g",
+    });
   });
 });
 

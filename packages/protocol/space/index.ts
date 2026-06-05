@@ -57,10 +57,12 @@ import {
   principalAddResult,
   principalListParams,
   principalListResult,
+  principalLookupParams,
+  principalLookupResult,
   principalRemoveParams,
   principalRemoveResult,
-  principalResolveByEmailParams,
-  principalResolveByEmailResult,
+  principalResolveParams,
+  principalResolveResult,
 } from "./principal.ts";
 
 export * from "./api-key.ts";
@@ -85,10 +87,8 @@ export const spaceMethods = {
   "principal.list": method(principalListParams, principalListResult),
   "principal.add": method(principalAddParams, principalAddResult),
   "principal.remove": method(principalRemoveParams, principalRemoveResult),
-  "principal.resolveByEmail": method(
-    principalResolveByEmailParams,
-    principalResolveByEmailResult,
-  ),
+  "principal.resolve": method(principalResolveParams, principalResolveResult),
+  "principal.lookup": method(principalLookupParams, principalLookupResult),
 
   // Groups (8)
   "group.create": method(groupCreateParams, groupCreateResult),

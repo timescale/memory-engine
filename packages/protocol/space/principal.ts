@@ -11,7 +11,7 @@
  * api-key holders).
  */
 import { z } from "zod";
-import { emailSchema, nameSchema, uuidv7Schema } from "../fields.ts";
+import { nameSchema, uuidv7Schema } from "../fields.ts";
 
 /** Principal kind: user / group / agent. */
 export const principalKindSchema = z.enum(["u", "g", "a"]);
@@ -34,17 +34,13 @@ export const spacePrincipalResponse = z.object({
 });
 export type SpacePrincipalResponse = z.infer<typeof spacePrincipalResponse>;
 
-/** A resolved principal (used by principal.resolveByEmail). */
-export const principalResponse = z.object({
+/** A principal reference: the minimal shape returned by resolve / lookup. */
+export const principalRef = z.object({
   id: z.string(),
   kind: principalKindSchema,
   name: z.string(),
-  ownerId: z.string().nullable(),
-  spaceId: z.string().nullable(),
-  createdAt: z.string(),
-  updatedAt: z.string().nullable(),
 });
-export type PrincipalResponse = z.infer<typeof principalResponse>;
+export type PrincipalRef = z.infer<typeof principalRef>;
 
 // principal.list
 export const principalListParams = z.object({
@@ -74,18 +70,33 @@ export type PrincipalRemoveParams = z.infer<typeof principalRemoveParams>;
 export const principalRemoveResult = z.object({ removed: z.boolean() });
 export type PrincipalRemoveResult = z.infer<typeof principalRemoveResult>;
 
-// principal.resolveByEmail — find a global user by email (to add to the space)
-export const principalResolveByEmailParams = z.object({ email: emailSchema });
-export type PrincipalResolveByEmailParams = z.infer<
-  typeof principalResolveByEmailParams
->;
-
-export const principalResolveByEmailResult = z.object({
-  principal: principalResponse.nullable(),
+// principal.resolve — resolve principals in this space by exact name
+// (case-insensitive), optionally constrained to a kind. Available to any space
+// member: a targeted name->id lookup, not roster enumeration (that is
+// principal.list). Returns all matches so the caller can detect ambiguity.
+export const principalResolveParams = z.object({
+  name: z.string().min(1),
+  kind: principalKindSchema.optional().nullable(),
 });
-export type PrincipalResolveByEmailResult = z.infer<
-  typeof principalResolveByEmailResult
->;
+export type PrincipalResolveParams = z.infer<typeof principalResolveParams>;
+
+export const principalResolveResult = z.object({
+  principals: z.array(principalRef),
+});
+export type PrincipalResolveResult = z.infer<typeof principalResolveResult>;
+
+// principal.lookup — reverse lookup: resolve a batch of principal ids to their
+// names/kinds (for display, e.g. grant listings). Available to any space member;
+// only ids that are in the space come back (you cannot enumerate by guessing).
+export const principalLookupParams = z.object({
+  ids: z.array(uuidv7Schema),
+});
+export type PrincipalLookupParams = z.infer<typeof principalLookupParams>;
+
+export const principalLookupResult = z.object({
+  principals: z.array(principalRef),
+});
+export type PrincipalLookupResult = z.infer<typeof principalLookupResult>;
 
 // shared by agent.* / group.* mutation results
 export { nameSchema };

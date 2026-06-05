@@ -139,13 +139,12 @@ function createAccessListCommand(): Command {
           treePath: opts.path ?? null,
         });
 
-        // Map principal ids → names for display (best-effort).
+        // Map principal ids → names for display (member-accessible lookup).
         const names = new Map<string, string>();
-        try {
-          const { principals } = await memory.principal.list({});
+        const ids = [...new Set(grants.map((g) => g.principalId))];
+        if (ids.length > 0) {
+          const { principals } = await memory.principal.lookup({ ids });
           for (const p of principals) names.set(p.id, p.name);
-        } catch {
-          // listing principals may require more authority than listing grants
         }
 
         output({ grants }, fmt, () => {

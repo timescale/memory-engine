@@ -139,18 +139,12 @@ beforeEach(async () => {
     .buildTreeAccess(r.userId, r.spaceId);
 });
 
-test("principal: list / resolveByEmail / add / remove", async () => {
+test("principal: list / add / remove", async () => {
   const listed = await call<{ principals: { id: string; admin: boolean }[] }>(
     "principal.list",
     {},
   );
   expect(listed.principals.some((m) => m.id === ownerId && m.admin)).toBe(true);
-
-  const resolved = await call<{ principal: { id: string } | null }>(
-    "principal.resolveByEmail",
-    { email: ownerEmail },
-  );
-  expect(resolved.principal?.id).toBe(ownerId);
 
   const other = await makeUser();
   expect(
@@ -169,6 +163,49 @@ test("principal: list / resolveByEmail / add / remove", async () => {
       })
     ).removed,
   ).toBe(true);
+});
+
+test("principal.resolve / lookup are available to non-admin members (list is admin-only)", async () => {
+  const email = `target_${rand(8)}@example.com`;
+  const targetId = await makeUserWithEmail(email);
+  await call("principal.add", { principalId: targetId }); // added by the admin owner
+
+  // a non-admin caller: resolve/lookup have no authority gate beyond being in the
+  // space, so they work; principal.list (full enumeration) does not.
+  const asMember = {
+    principalId: targetId,
+    treeAccess: [{ tree_path: "x", access: 1 }] as TreeAccess,
+    admin: false,
+  };
+
+  const resolved = await call<{ principals: { id: string; name: string }[] }>(
+    "principal.resolve",
+    { name: email.toUpperCase() }, // case-insensitive
+    asMember,
+  );
+  expect(resolved.principals).toHaveLength(1);
+  expect(resolved.principals[0]?.id).toBe(targetId);
+
+  const looked = await call<{ principals: { id: string; name: string }[] }>(
+    "principal.lookup",
+    { ids: [targetId] },
+    asMember,
+  );
+  expect(looked.principals[0]?.name).toBe(email);
+
+  // a name that isn't in the space resolves to nothing
+  expect(
+    (
+      await call<{ principals: unknown[] }>(
+        "principal.resolve",
+        { name: `nobody_${rand(8)}@example.com` },
+        asMember,
+      )
+    ).principals,
+  ).toHaveLength(0);
+
+  // full enumeration stays admin-only
+  await expectAppError(call("principal.list", {}, asMember), "FORBIDDEN");
 });
 
 test("group: create / list / members / rename / delete", async () => {
@@ -537,13 +574,13 @@ test("structural mutations require admin — owner@root is not enough", async ()
     .buildTreeAccess(member, space.id);
   const as = { principalId: member, treeAccess: ta, admin: false };
 
-  // owner@root can READ the roster and manage grants (it's their data)...
+  // owner@root can manage grants on its data — e.g. list them...
   expect(
-    (await call<{ principals: unknown[] }>("principal.list", {}, as)).principals
-      .length,
+    (await call<{ grants: unknown[] }>("grant.list", {}, as)).grants.length,
   ).toBeGreaterThan(0);
-  // ...but structural changes are admin-only: adding/removing roster members and
-  // creating groups. Owning the data tree is not structural authority.
+  // ...but the roster (enumeration + add/remove) and groups are admin-only:
+  // owning the data tree is not structural authority.
+  await expectAppError(call("principal.list", {}, as), "FORBIDDEN");
   const stranger = await makeUser();
   await expectAppError(
     call("principal.add", { principalId: stranger }, as),

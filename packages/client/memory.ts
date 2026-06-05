@@ -75,10 +75,12 @@ import type {
   PrincipalAddResult,
   PrincipalListParams,
   PrincipalListResult,
+  PrincipalLookupParams,
+  PrincipalLookupResult,
   PrincipalRemoveParams,
   PrincipalRemoveResult,
-  PrincipalResolveByEmailParams,
-  PrincipalResolveByEmailResult,
+  PrincipalResolveParams,
+  PrincipalResolveResult,
 } from "@memory.build/protocol/space";
 import { rpcCall, type TransportConfig } from "./transport.ts";
 
@@ -118,9 +120,10 @@ export interface PrincipalNamespace {
   list(params?: PrincipalListParams): Promise<PrincipalListResult>;
   add(params: PrincipalAddParams): Promise<PrincipalAddResult>;
   remove(params: PrincipalRemoveParams): Promise<PrincipalRemoveResult>;
-  resolveByEmail(
-    params: PrincipalResolveByEmailParams,
-  ): Promise<PrincipalResolveByEmailResult>;
+  /** Resolve principals in the space by name (member-accessible). */
+  resolve(params: PrincipalResolveParams): Promise<PrincipalResolveResult>;
+  /** Reverse-lookup principal ids → name/kind (member-accessible). */
+  lookup(params: PrincipalLookupParams): Promise<PrincipalLookupResult>;
 }
 
 export interface GroupNamespace {
@@ -210,7 +213,8 @@ export function createMemoryClient(
       list: (p) => rpc("principal.list", p ?? {}),
       add: (p) => rpc("principal.add", p),
       remove: (p) => rpc("principal.remove", p),
-      resolveByEmail: (p) => rpc("principal.resolveByEmail", p),
+      resolve: (p) => rpc("principal.resolve", p),
+      lookup: (p) => rpc("principal.lookup", p),
     },
     group: {
       create: (p) => rpc("group.create", p),

@@ -6,16 +6,19 @@ import type {
   PrincipalAddResult,
   PrincipalListParams,
   PrincipalListResult,
+  PrincipalLookupParams,
+  PrincipalLookupResult,
   PrincipalRemoveParams,
   PrincipalRemoveResult,
-  PrincipalResolveByEmailParams,
-  PrincipalResolveByEmailResult,
+  PrincipalResolveParams,
+  PrincipalResolveResult,
 } from "@memory.build/protocol/space";
 import {
   principalAddParams,
   principalListParams,
+  principalLookupParams,
   principalRemoveParams,
-  principalResolveByEmailParams,
+  principalResolveParams,
 } from "@memory.build/protocol/space";
 import { buildRegistry } from "../registry";
 import type { HandlerContext } from "../types";
@@ -23,8 +26,6 @@ import {
   callerOwnsAgentGlobal,
   guardCore,
   requireSpaceAdmin,
-  requireSpaceManager,
-  toPrincipalResponse,
   toSpacePrincipalResponse,
 } from "./support";
 import { assertSpaceRpcContext, type SpaceRpcContext } from "./types";
@@ -35,7 +36,9 @@ async function principalList(
 ): Promise<PrincipalListResult> {
   assertSpaceRpcContext(context);
   const ctx = context as SpaceRpcContext;
-  requireSpaceManager(ctx);
+  // Enumerating the whole roster is structural — admin only. (Targeted name / id
+  // lookups for any member are principal.resolve / principal.lookup.)
+  requireSpaceAdmin(ctx);
   const principals = await ctx.core.listSpacePrincipals(
     ctx.space.id,
     params.kind ?? undefined,
@@ -83,24 +86,47 @@ async function principalRemove(
   return { removed };
 }
 
-async function principalResolveByEmail(
-  params: PrincipalResolveByEmailParams,
+async function principalResolve(
+  params: PrincipalResolveParams,
   context: HandlerContext,
-): Promise<PrincipalResolveByEmailResult> {
+): Promise<PrincipalResolveResult> {
   assertSpaceRpcContext(context);
   const ctx = context as SpaceRpcContext;
-  requireSpaceManager(ctx);
-  const principal = await ctx.core.getUserByName(params.email);
-  return { principal: principal ? toPrincipalResponse(principal) : null };
+  // No authority gate beyond space participation: reaching this handler means the
+  // caller has access in this space (the authenticate-space membership gate). This
+  // is a targeted name->id lookup, not roster enumeration (that is principal.list).
+  const principals = await ctx.core.listSpacePrincipals(
+    ctx.space.id,
+    params.kind ?? undefined,
+  );
+  const lower = params.name.trim().toLowerCase();
+  const matches = principals
+    .filter((p) => p.name.toLowerCase() === lower)
+    .map((p) => ({ id: p.id, kind: p.kind, name: p.name }));
+  return { principals: matches };
+}
+
+async function principalLookup(
+  params: PrincipalLookupParams,
+  context: HandlerContext,
+): Promise<PrincipalLookupResult> {
+  assertSpaceRpcContext(context);
+  const ctx = context as SpaceRpcContext;
+  // Member-accessible reverse lookup (id -> name/kind) for display; only ids that
+  // are in the space come back. Same gating rationale as principalResolve.
+  const ids = new Set(params.ids);
+  if (ids.size === 0) return { principals: [] };
+  const principals = await ctx.core.listSpacePrincipals(ctx.space.id);
+  const found = principals
+    .filter((p) => ids.has(p.id))
+    .map((p) => ({ id: p.id, kind: p.kind, name: p.name }));
+  return { principals: found };
 }
 
 export const principalMethods = buildRegistry()
   .register("principal.list", principalListParams, principalList)
   .register("principal.add", principalAddParams, principalAdd)
   .register("principal.remove", principalRemoveParams, principalRemove)
-  .register(
-    "principal.resolveByEmail",
-    principalResolveByEmailParams,
-    principalResolveByEmail,
-  )
+  .register("principal.resolve", principalResolveParams, principalResolve)
+  .register("principal.lookup", principalLookupParams, principalLookup)
   .build();
