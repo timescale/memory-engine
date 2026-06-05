@@ -70,6 +70,27 @@ the cutover follows.
       tests cover the functions directly (incl. the write-back-time version
       mismatch → `cancelled`, and fail/release no-op once terminal).
 
+## Worker: batch the embedding write-back (fewer DB round-trips)
+
+`processBatch`'s write-back loops over each claimed row in its own `sql.begin`
+transaction, calling `complete_embedding` / `fail_embedding` one row at a time —
+so a batch of N claimed rows costs ~N transactions / round-trips on the
+write-back side (the claim is already a single call). Over a remote DB that
+per-row latency dominates a batch.
+
+- [ ] Make the write-back set-based: a batch SQL function (e.g.
+      `complete_embeddings(_rows jsonb)` taking
+      `[{queue_id, memory_id, embedding_version, embedding}]`, doing the
+      version-guarded memory updates + queue finalization in one statement-pair
+      and returning per-row outcomes), called once per batch instead of per row.
+      Do the same for the transient-fail and rate-limit `release` paths (one
+      call covering the whole batch). Keep the version-guard
+      `completed`/`cancelled` semantics (data-driven, not errors).
+- [ ] Decide error isolation: one transaction for the batch is simplest but a
+      single poison row (e.g. a malformed vector) would fail the whole batch.
+      Consider a per-row fallback when the batched call errors, so one bad row
+      doesn't block its siblings (which today each commit independently).
+
 ## Decision: `core` and `space` are one package (`@memory.build/database`)
 
 Resolved (2026-06): merged `packages/core` + `packages/space` into a single
