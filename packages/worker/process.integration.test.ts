@@ -208,11 +208,14 @@ describe("processBatch integration (space model)", () => {
         ),
       ).rejects.toBeInstanceOf(RateLimitError);
 
-      // claim incremented attempts to 1, the RateLimitError handler decremented
-      // it back to 0 so the transient failure isn't charged.
+      // claim incremented attempts to 1 and locked the row (vt in the future);
+      // the RateLimitError handler released it — attempts back to 0 (the
+      // transient failure isn't charged) and vt reset so it's immediately
+      // claimable again rather than waiting out the full claim lock.
       const queue = await getQueueEntries(memoryId);
       const entry = queue.find((q) => q.outcome === null);
       expect(entry?.attempts).toBe(0);
+      expect((entry?.vt as Date).getTime()).toBeLessThanOrEqual(Date.now());
     } finally {
       server.stop();
     }
@@ -433,21 +436,39 @@ describe("write-back SQL functions", () => {
     expect(q?.last_error).toBe("boom"); // unchanged
   });
 
-  test("release_embedding decrements attempts, floors at 0, no-op once terminal", async () => {
+  test("release_embedding decrements attempts, resets vt, floors at 0, no-op once terminal", async () => {
     const { memoryId, queueId } = await pendingRow("release me");
+    // Simulate a claim: attempt charged + locked (vt pushed into the future).
     await sql.unsafe(
-      `UPDATE ${schema}.embedding_queue SET attempts = 2 WHERE id = $1`,
+      `UPDATE ${schema}.embedding_queue
+       SET attempts = 2, vt = now() + interval '5 minutes' WHERE id = $1`,
       [queueId],
     );
 
     await sql.unsafe(`SELECT ${schema}.release_embedding($1)`, [queueId]);
-    expect(Number((await getQueueEntries(memoryId))[0]?.attempts)).toBe(1);
+    const [released] = (await sql.unsafe(
+      `SELECT attempts, (vt <= now()) AS claimable
+       FROM ${schema}.embedding_queue WHERE id = $1`,
+      [queueId],
+    )) as { attempts: number; claimable: boolean }[];
+    expect(Number(released?.attempts)).toBe(1);
+    expect(released?.claimable).toBe(true); // vt reset → eligible again now
 
+    // Floors at 0.
     await sql.unsafe(
       `UPDATE ${schema}.embedding_queue SET attempts = 0 WHERE id = $1`,
       [queueId],
     );
     await sql.unsafe(`SELECT ${schema}.release_embedding($1)`, [queueId]);
     expect(Number((await getQueueEntries(memoryId))[0]?.attempts)).toBe(0);
+
+    // No-op once terminal.
+    await sql.unsafe(
+      `UPDATE ${schema}.embedding_queue
+       SET outcome = 'completed', attempts = 5 WHERE id = $1`,
+      [queueId],
+    );
+    await sql.unsafe(`SELECT ${schema}.release_embedding($1)`, [queueId]);
+    expect(Number((await getQueueEntries(memoryId))[0]?.attempts)).toBe(5);
   });
 });

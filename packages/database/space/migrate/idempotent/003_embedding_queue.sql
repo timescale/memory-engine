@@ -227,8 +227,12 @@ language sql volatile security invoker
 set search_path to pg_catalog, {{schema}}, pg_temp
 ;
 
--- Undo the attempt increment from claim (rate-limit backoff): a transient rate
--- limit must not consume the attempt budget. No-op once the row is terminal.
+-- Undo a claim for a transient rate limit — the inverse of claim_embedding_batch:
+-- decrement attempts (the rate limit must not consume the attempt budget) AND
+-- reset the visibility timeout so the row is immediately claimable again.
+-- Without resetting vt the row would sit out the full claim lock (~minutes)
+-- before retrying; the worker's own rate-limit backoff (honoring Retry-After)
+-- paces the actual retry. No-op once the row is terminal.
 create or replace function {{schema}}.release_embedding
 ( _queue_id bigint
 )
@@ -236,6 +240,7 @@ returns void
 as $func$
   update {{schema}}.embedding_queue
   set attempts = greatest(attempts - 1, 0)
+    , vt = now()
   where id = _queue_id
   and outcome is null
   ;
