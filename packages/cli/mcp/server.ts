@@ -107,9 +107,9 @@ Docs: ${docUrl("me_memory_create")}`,
         tree: args.tree ?? undefined,
         temporal: args.temporal
           ? {
-            start: args.temporal.start,
-            end: args.temporal.end ?? undefined,
-          }
+              start: args.temporal.start,
+              end: args.temporal.end ?? undefined,
+            }
           : undefined,
       });
       return {
@@ -252,16 +252,16 @@ Docs: ${docUrl("me_memory_search")}`,
         tree: args.tree ?? undefined,
         temporal: args.temporal
           ? {
-            contains: args.temporal.contains ?? undefined,
-            overlaps: args.temporal.overlaps ?? undefined,
-            within: args.temporal.within ?? undefined,
-          }
+              contains: args.temporal.contains ?? undefined,
+              overlaps: args.temporal.overlaps ?? undefined,
+              within: args.temporal.within ?? undefined,
+            }
           : undefined,
         weights: args.weights
           ? {
-            fulltext: args.weights.fulltext ?? undefined,
-            semantic: args.weights.semantic ?? undefined,
-          }
+              fulltext: args.weights.fulltext ?? undefined,
+              semantic: args.weights.semantic ?? undefined,
+            }
           : undefined,
         candidateLimit:
           args.candidateLimit && args.candidateLimit > 0
@@ -367,9 +367,9 @@ Docs: ${docUrl("me_memory_update")}`,
         tree: args.tree ?? undefined,
         temporal: args.temporal
           ? {
-            start: args.temporal.start,
-            end: args.temporal.end ?? undefined,
-          }
+              start: args.temporal.start,
+              end: args.temporal.end ?? undefined,
+            }
           : undefined,
       });
       return {
@@ -817,7 +817,7 @@ Docs: ${docUrl("me_memory_export")}`,
         id: r.id,
         content: r.content,
         ...((r.meta as Record<string, unknown> | undefined) &&
-          Object.keys(r.meta as Record<string, unknown>).length > 0
+        Object.keys(r.meta as Record<string, unknown>).length > 0
           ? { meta: r.meta }
           : {}),
         ...(r.tree ? { tree: r.tree } : {}),
