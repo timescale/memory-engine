@@ -1,22 +1,33 @@
 /**
- * Credential storage — multi-server credential management.
+ * Credential + config storage — multi-server.
  *
- * The session token (the one persisted secret) lives in the OS keychain when
- * available (see ./keychain.ts), else in the 0600 credentials file at
- * $XDG_CONFIG_HOME/me/credentials.yaml (default: ~/.config/me/). The file always
- * holds the non-secret pointers (default_server, per-server active_space) and —
- * only on hosts without a keychain — the session token too. Api keys are never
- * stored: agents receive their key via `ME_API_KEY` (or their MCP config);
- * `apiKey.create` prints it once.
+ * Two files under $XDG_CONFIG_HOME/me (default ~/.config/me):
+ *   - config.yaml      — non-secret: the default server + each server's active
+ *                        space (the X-Me-Space).
+ *   - credentials.yaml — 0600, secrets only: the session-token fallback, used
+ *                        when no OS keychain is available (see ./keychain.ts);
+ *                        empty / absent on hosts with a keychain.
  *
- * File format:
+ * The session token (the one secret) prefers the OS keychain; the file is the
+ * fallback. Api keys are never stored — agents get their key via `ME_API_KEY`
+ * (or their MCP config); `apiKey.create` prints it once.
+ *
+ * config.yaml:
  * ```yaml
  * default_server: https://api.memory.build
  * servers:
  *   https://api.memory.build:
- *     session_token: "..."          # only on hosts without a keychain
- *     active_space: "abc123def456"  # active space slug (the X-Me-Space)
+ *     active_space: abc123def456
  * ```
+ * credentials.yaml (0600):
+ * ```yaml
+ * servers:
+ *   https://api.memory.build:
+ *     session_token: "..."   # only when there's no keychain
+ * ```
+ *
+ * A pre-split credentials.yaml (which once held default_server + active_space
+ * next to the token) is migrated to this layout on first read.
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
@@ -25,35 +36,34 @@ import { parse, stringify } from "yaml";
 import { keychainDelete, keychainGet, keychainSet } from "./keychain.ts";
 
 // =============================================================================
-// Constants
+// Constants & types
 // =============================================================================
 
 export const DEFAULT_SERVER = "https://api.memory.build";
 
-// =============================================================================
-// Types
-// =============================================================================
-
-/**
- * Per-server credential entry.
- */
-export interface ServerCredentials {
-  session_token?: string;
-  /** Active space slug (sent as X-Me-Space). */
+/** Per-server non-secret config. */
+export interface ServerConfig {
+  /** Active space slug (the X-Me-Space). */
   active_space?: string;
 }
 
-/**
- * Full credentials file structure.
- */
-export interface CredentialsFile {
+/** config.yaml structure. */
+export interface ConfigFile {
   default_server: string;
-  servers: Record<string, ServerCredentials>;
+  servers: Record<string, ServerConfig>;
 }
 
-/**
- * Resolved credentials for a specific server.
- */
+/** Per-server secrets — the keychain-free fallback. */
+export interface ServerSecrets {
+  session_token?: string;
+}
+
+/** credentials.yaml structure (secrets only). */
+export interface CredentialsFile {
+  servers: Record<string, ServerSecrets>;
+}
+
+/** Resolved credentials for a specific server. */
 export interface ResolvedCredentials {
   server: string;
   sessionToken?: string;
@@ -67,19 +77,17 @@ export interface ResolvedCredentials {
 // Path Helpers
 // =============================================================================
 
-/**
- * Get the config directory path.
- * Respects $XDG_CONFIG_HOME, defaults to ~/.config/me.
- */
+/** Config directory — respects $XDG_CONFIG_HOME, defaults to ~/.config/me. */
 function getConfigDir(): string {
   const xdg = process.env.XDG_CONFIG_HOME;
   const base = xdg || join(homedir(), ".config");
   return join(base, "me");
 }
 
-/**
- * Get the credentials file path.
- */
+function getConfigPath(): string {
+  return join(getConfigDir(), "config.yaml");
+}
+
 function getCredentialsPath(): string {
   return join(getConfigDir(), "credentials.yaml");
 }
@@ -99,17 +107,14 @@ export function normalizeOrigin(url: string): string {
   }
   try {
     const parsed = new URL(url);
-    // Remove default ports
     if (
       (parsed.protocol === "https:" && parsed.port === "443") ||
       (parsed.protocol === "http:" && parsed.port === "80")
     ) {
       parsed.port = "";
     }
-    // Return origin (scheme + host + port, no trailing slash)
     return parsed.origin;
   } catch {
-    // If URL parsing fails, return as-is with trailing slash stripped
     return url.replace(/\/+$/, "");
   }
 }
@@ -118,124 +123,198 @@ export function normalizeOrigin(url: string): string {
 // Read / Write
 // =============================================================================
 
-/**
- * Read the credentials file. Returns empty structure if file doesn't exist.
- */
-export function readCredentials(): CredentialsFile {
-  const path = getCredentialsPath();
-  if (!existsSync(path)) {
-    return {
-      default_server: DEFAULT_SERVER,
-      servers: {},
-    };
-  }
+function ensureDir(): void {
+  const dir = getConfigDir();
+  if (!existsSync(dir)) mkdirSync(dir, { recursive: true, mode: 0o700 });
+}
 
+/** Read config.yaml (non-secret). Empty structure if absent / unparseable. */
+function readConfig(): ConfigFile {
+  migrateLegacyIfNeeded();
+  const path = getConfigPath();
+  if (!existsSync(path)) return { default_server: DEFAULT_SERVER, servers: {} };
   try {
-    const content = readFileSync(path, "utf-8");
-    const data = parse(content) as Partial<CredentialsFile> | null;
+    const data = parse(
+      readFileSync(path, "utf-8"),
+    ) as Partial<ConfigFile> | null;
     return {
       default_server: data?.default_server ?? DEFAULT_SERVER,
       servers: data?.servers ?? {},
     };
   } catch {
-    return {
-      default_server: DEFAULT_SERVER,
-      servers: {},
-    };
+    return { default_server: DEFAULT_SERVER, servers: {} };
   }
 }
 
-/**
- * Write the credentials file atomically with secure permissions.
- * Creates the config directory if it doesn't exist.
- */
-export function writeCredentials(creds: CredentialsFile): void {
-  const dir = getConfigDir();
+/** Write config.yaml. Non-secret, but the dir is 0700 (owner-only). */
+function writeConfig(config: ConfigFile): void {
+  ensureDir();
+  writeFileSync(getConfigPath(), stringify(config, { lineWidth: 0 }));
+}
+
+/** Read credentials.yaml (secrets). Empty structure if absent / unparseable. */
+function readSecrets(): CredentialsFile {
+  migrateLegacyIfNeeded();
   const path = getCredentialsPath();
-
-  // Create config directory with 0700 (owner-only)
-  if (!existsSync(dir)) {
-    mkdirSync(dir, { recursive: true, mode: 0o700 });
+  if (!existsSync(path)) return { servers: {} };
+  try {
+    const data = parse(
+      readFileSync(path, "utf-8"),
+    ) as Partial<CredentialsFile> | null;
+    return { servers: data?.servers ?? {} };
+  } catch {
+    return { servers: {} };
   }
-
-  const content = stringify(creds, { lineWidth: 0 });
-
-  // Write with 0600 (owner read/write only)
-  writeFileSync(path, content, { mode: 0o600 });
 }
 
-// =============================================================================
-// Server Credential Operations
-// =============================================================================
+/** Write credentials.yaml with 0600 (owner read/write only). */
+function writeSecrets(secrets: CredentialsFile): void {
+  ensureDir();
+  writeFileSync(getCredentialsPath(), stringify(secrets, { lineWidth: 0 }), {
+    mode: 0o600,
+  });
+}
 
 /**
- * Get credentials for a specific server.
+ * One-time split of a pre-split credentials.yaml — which used to hold
+ * default_server + per-server active_space alongside the token — into config.yaml
+ * (non-secret) + a secret-only credentials.yaml. A no-op once config.yaml exists,
+ * and when there's nothing legacy to move.
  */
-export function getServerCredentials(server: string): ServerCredentials {
-  const creds = readCredentials();
-  const origin = normalizeOrigin(server);
-  return creds.servers[origin] ?? {};
+function migrateLegacyIfNeeded(): void {
+  if (existsSync(getConfigPath()) || !existsSync(getCredentialsPath())) return;
+
+  let legacy: {
+    default_server?: unknown;
+    servers?: Record<
+      string,
+      { session_token?: unknown; active_space?: unknown }
+    >;
+  } | null;
+  try {
+    legacy = parse(readFileSync(getCredentialsPath(), "utf-8"));
+  } catch {
+    return;
+  }
+  if (!legacy || typeof legacy !== "object") return;
+
+  const config: ConfigFile = {
+    default_server:
+      typeof legacy.default_server === "string"
+        ? legacy.default_server
+        : DEFAULT_SERVER,
+    servers: {},
+  };
+  const secrets: CredentialsFile = { servers: {} };
+  let sawLegacy = typeof legacy.default_server === "string";
+  for (const [origin, entry] of Object.entries(legacy.servers ?? {})) {
+    if (typeof entry?.active_space === "string") {
+      config.servers[origin] = { active_space: entry.active_space };
+      sawLegacy = true;
+    }
+    if (typeof entry?.session_token === "string") {
+      secrets.servers[origin] = { session_token: entry.session_token };
+    }
+  }
+  if (!sawLegacy) return; // already secret-only — nothing to migrate
+
+  writeConfig(config);
+  writeSecrets(secrets);
 }
 
+// =============================================================================
+// Per-server accessors
+// =============================================================================
+
+/** Non-secret config for a server (active space). */
+export function getServerConfig(server: string): ServerConfig {
+  return readConfig().servers[normalizeOrigin(server)] ?? {};
+}
+
+/** Secrets for a server (the keychain-free session-token fallback). */
+export function getServerSecrets(server: string): ServerSecrets {
+  return readSecrets().servers[normalizeOrigin(server)] ?? {};
+}
+
+// =============================================================================
+// Session token
+// =============================================================================
+
 /**
- * Store a session token for a server, and set it as the default. Prefers the OS
- * keychain; only when that's unavailable does the token land in the (0600) file.
- * Either way the file records the server (default_server) so the token can be
- * found again — and any stale file copy is dropped once the keychain has it.
+ * Store a session token for a server, and record it as the default server.
+ * Prefers the OS keychain; only when that's unavailable does the token land in
+ * the 0600 credentials file (and any stale file copy is dropped once the
+ * keychain has it). The default server is non-secret config (config.yaml).
  */
 export function storeSessionToken(server: string, token: string): void {
-  const creds = readCredentials();
   const origin = normalizeOrigin(server);
 
-  if (!creds.servers[origin]) {
-    creds.servers[origin] = {};
-  }
+  const secrets = readSecrets();
   if (keychainSet(origin, token)) {
-    // Keychain is the source of truth now — don't also persist it in the file.
-    delete creds.servers[origin].session_token;
+    if (secrets.servers[origin]) {
+      delete secrets.servers[origin]; // keychain is the source of truth
+      writeSecrets(secrets);
+    }
   } else {
-    creds.servers[origin].session_token = token;
+    secrets.servers[origin] = { session_token: token };
+    writeSecrets(secrets);
   }
-  creds.default_server = origin;
 
-  writeCredentials(creds);
+  const config = readConfig();
+  config.default_server = origin;
+  writeConfig(config);
+}
+
+/**
+ * Clear a server's session token from both the keychain and the file. Keeps
+ * non-secret config (active space, default server). No-op for a token that came
+ * from $ME_SESSION_TOKEN (we can't unset an env var the user controls).
+ */
+export function clearSessionToken(server: string): void {
+  const origin = normalizeOrigin(server);
+  keychainDelete(origin);
+
+  const secrets = readSecrets();
+  if (secrets.servers[origin]) {
+    delete secrets.servers[origin];
+    writeSecrets(secrets);
+  }
+}
+
+/**
+ * Log out of a server: clear its session secret (keychain + file) but keep the
+ * non-secret config (active space, default server) so a re-login resumes where
+ * you left off.
+ */
+export function clearServerCredentials(server: string): void {
+  clearSessionToken(server);
 }
 
 // =============================================================================
-// Space Operations (new model)
+// Active space (config)
 // =============================================================================
 
-/**
- * Set the active space (the X-Me-Space) for a server.
- */
+/** Set the active space (the X-Me-Space) for a server. */
 export function setActiveSpace(server: string, spaceSlug: string): void {
-  const creds = readCredentials();
+  const config = readConfig();
   const origin = normalizeOrigin(server);
-
-  if (!creds.servers[origin]) {
-    creds.servers[origin] = {};
-  }
-  creds.servers[origin].active_space = spaceSlug;
-
-  writeCredentials(creds);
+  if (!config.servers[origin]) config.servers[origin] = {};
+  config.servers[origin].active_space = spaceSlug;
+  writeConfig(config);
 }
 
-/**
- * Clear the active space for a server (e.g. after deleting it). No-op if none
- * is set.
- */
+/** Clear the active space for a server (e.g. after deleting it). No-op if unset. */
 export function clearActiveSpace(server: string): void {
-  const creds = readCredentials();
+  const config = readConfig();
   const origin = normalizeOrigin(server);
-  const entry = creds.servers[origin];
+  const entry = config.servers[origin];
   if (!entry?.active_space) return;
   delete entry.active_space;
-  writeCredentials(creds);
+  writeConfig(config);
 }
 
 /**
  * Resolve the active space slug for a server.
- *
  * Priority: --space flag > ME_SPACE env > stored active_space.
  */
 export function resolveSpace(
@@ -244,45 +323,7 @@ export function resolveSpace(
 ): string | undefined {
   if (flagValue) return flagValue;
   if (process.env.ME_SPACE) return process.env.ME_SPACE;
-  return getServerCredentials(server).active_space;
-}
-
-/**
- * Clear just the session token for a server, leaving any stored engines and
- * API keys in place. Used after the server tells us the session is expired so
- * the next command surfaces "Not logged in" instead of repeating the 401.
- *
- * Clears both the keychain entry and any file copy. No-op for a token that came
- * from $ME_SESSION_TOKEN (we can't unset an env var the user controls).
- */
-export function clearSessionToken(server: string): void {
-  const origin = normalizeOrigin(server);
-  keychainDelete(origin);
-
-  const creds = readCredentials();
-  const entry = creds.servers[origin];
-  if (entry?.session_token) {
-    delete entry.session_token;
-    writeCredentials(creds);
-  }
-}
-
-/**
- * Clear all credentials for a server (keychain token + file entry).
- */
-export function clearServerCredentials(server: string): void {
-  const creds = readCredentials();
-  const origin = normalizeOrigin(server);
-
-  keychainDelete(origin);
-  delete creds.servers[origin];
-
-  // If we just cleared the default server, reset to default
-  if (creds.default_server === origin) {
-    creds.default_server = DEFAULT_SERVER;
-  }
-
-  writeCredentials(creds);
+  return getServerConfig(server).active_space;
 }
 
 // =============================================================================
@@ -291,38 +332,36 @@ export function clearServerCredentials(server: string): void {
 
 /**
  * Resolve the active server URL.
- *
- * Priority: --server flag > ME_SERVER env > default_server in creds > DEFAULT_SERVER
+ * Priority: --server flag > ME_SERVER env > default_server (config) > DEFAULT_SERVER
  */
 export function resolveServer(flagValue?: string): string {
   if (flagValue) return normalizeOrigin(flagValue);
   if (process.env.ME_SERVER) return normalizeOrigin(process.env.ME_SERVER);
-
-  const creds = readCredentials();
-  return creds.default_server;
+  return readConfig().default_server;
 }
 
 /**
- * Resolve all credentials for the active server.
- *
- * The session token (ME_SESSION_TOKEN env > stored) authenticates humans; the
- * active space (ME_SPACE env > stored active_space) is the X-Me-Space. An agent
- * api key is never persisted — it only ever comes from ME_API_KEY.
+ * Resolve all credentials for the active server. The session token
+ * (ME_SESSION_TOKEN env > file > keychain) authenticates humans; the active
+ * space (ME_SPACE env > config) is the X-Me-Space. An agent api key is never
+ * persisted — it only ever comes from ME_API_KEY.
  */
 export function resolveCredentials(serverFlag?: string): ResolvedCredentials {
   const server = resolveServer(serverFlag);
-  const stored = getServerCredentials(server);
+  const origin = normalizeOrigin(server);
+  const config = getServerConfig(server);
+  const secrets = getServerSecrets(server);
 
   return {
     server,
-    // env wins; then the file (the keychain-free fallback); then the keychain.
-    // The token lives in exactly one of file/keychain, so checking the file
-    // first avoids a keychain lookup on hosts that use the file fallback.
+    // env wins; then the file (keychain-free fallback); then the keychain. The
+    // token lives in exactly one of file/keychain, so checking the file first
+    // avoids a keychain lookup on hosts that use the file fallback.
     sessionToken:
       process.env.ME_SESSION_TOKEN ??
-      stored.session_token ??
-      keychainGet(normalizeOrigin(server)),
+      secrets.session_token ??
+      keychainGet(origin),
     apiKey: process.env.ME_API_KEY,
-    activeSpace: process.env.ME_SPACE ?? stored.active_space,
+    activeSpace: process.env.ME_SPACE ?? config.active_space,
   };
 }

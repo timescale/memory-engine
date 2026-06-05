@@ -8,10 +8,12 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import {
   existsSync,
+  mkdirSync,
   mkdtempSync,
   readFileSync,
   rmSync,
   statSync,
+  writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -53,8 +55,8 @@ test("store + resolve a session token (file fallback)", () => {
   const r = creds.resolveCredentials(SERVER);
   expect(r.server).toBe(SERVER);
   expect(r.sessionToken).toBe("tok-123");
-  // fallback stores the token in the file (only when there's no keychain)
-  expect(creds.getServerCredentials(SERVER).session_token).toBe("tok-123");
+  // fallback stores the token in the secrets file (no keychain)
+  expect(creds.getServerSecrets(SERVER).session_token).toBe("tok-123");
 });
 
 test("the credentials file is written 0600", () => {
@@ -91,11 +93,61 @@ test("active space: set / resolve / clear; ME_SPACE wins", () => {
   expect(creds.resolveCredentials(SERVER).activeSpace).toBeUndefined();
 });
 
-test("clearServerCredentials drops the entry and resets the default", () => {
+test("logout clears the secret but keeps the active space", () => {
   creds.storeSessionToken(SERVER, "tok");
   creds.setActiveSpace(SERVER, "abc123def456");
-  creds.clearServerCredentials(SERVER);
+  creds.clearServerCredentials(SERVER); // logout
   const r = creds.resolveCredentials(SERVER);
   expect(r.sessionToken).toBeUndefined();
-  expect(r.activeSpace).toBeUndefined();
+  expect(r.activeSpace).toBe("abc123def456"); // non-secret config survives logout
+});
+
+test("secrets and config live in separate files", () => {
+  creds.storeSessionToken(SERVER, "tok-sep");
+  creds.setActiveSpace(SERVER, "abc123def456");
+  const configFile = readFileSync(
+    join(configDir, "me", "config.yaml"),
+    "utf-8",
+  );
+  const credsFile = readFileSync(
+    join(configDir, "me", "credentials.yaml"),
+    "utf-8",
+  );
+  // config.yaml has the active space (non-secret), not the token
+  expect(configFile).toContain("abc123def456");
+  expect(configFile).not.toContain("tok-sep");
+  // credentials.yaml has the token (fallback), not the active space
+  expect(credsFile).toContain("tok-sep");
+  expect(credsFile).not.toContain("abc123def456");
+});
+
+test("migrates a legacy credentials.yaml (token + active_space + default)", () => {
+  // a pre-split credentials.yaml that bundled everything together
+  const dir = join(configDir, "me");
+  mkdirSync(dir, { recursive: true, mode: 0o700 });
+  writeFileSync(
+    join(dir, "credentials.yaml"),
+    [
+      `default_server: ${SERVER}`,
+      "servers:",
+      `  ${SERVER}:`,
+      "    session_token: legacy-tok",
+      "    active_space: legacyspace1",
+    ].join("\n"),
+    { mode: 0o600 },
+  );
+
+  // reading resolves all three, migrating the non-secret bits out
+  const r = creds.resolveCredentials();
+  expect(r.server).toBe(SERVER);
+  expect(r.sessionToken).toBe("legacy-tok");
+  expect(r.activeSpace).toBe("legacyspace1");
+
+  // config.yaml now exists with the non-secret bits; credentials.yaml is
+  // secret-only (no active_space left behind)
+  const configFile = readFileSync(join(dir, "config.yaml"), "utf-8");
+  expect(configFile).toContain("legacyspace1");
+  const credsFile = readFileSync(join(dir, "credentials.yaml"), "utf-8");
+  expect(credsFile).toContain("legacy-tok");
+  expect(credsFile).not.toContain("legacyspace1");
 });
