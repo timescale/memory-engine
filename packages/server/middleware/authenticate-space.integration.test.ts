@@ -102,8 +102,9 @@ test("session: member with owner grant resolves space + treeAccess", async () =>
     expect(result.context.space.id).toBe(p.spaceId);
     expect(result.context.principalId).toBe(p.userId);
     expect(result.context.apiKeyId).toBeNull();
+    // the creator owns the shared root (and its own home), not owner@root
     expect(result.context.treeAccess).toContainEqual({
-      tree_path: engineCore.ROOT_PATH,
+      tree_path: "share",
       access: engineCore.ACCESS.owner,
     });
   }
@@ -115,10 +116,12 @@ test("api key: agent of the space resolves with apiKeyId set", async () => {
 
   const agentId = await core.createAgent(p.userId, `agent-${rand()}`);
   await core.addPrincipalToSpace(p.spaceId, agentId);
+  // grant within the owner's access (it owns `share`) so the agent's clamped
+  // effective access is non-empty — the owner is no longer owner@root.
   await core.grantTreeAccess(
     p.spaceId,
     agentId,
-    engineCore.ROOT_PATH,
+    "share",
     engineCore.ACCESS.read,
   );
   const key = await core.createApiKey(agentId, "ci");

@@ -217,9 +217,10 @@ test("space.create provisions a space the caller owns + admins", async () => {
   );
   expect(list.spaces.find((s) => s.id === res.id)?.admin).toBe(true);
 
-  // and the creator is owner of the root path
+  // the creator owns the shared root (and its home), not owner@root
   const ta = await coreStore(sql, coreSchema).buildTreeAccess(userId, res.id);
-  expect(ta).toContainEqual({ tree_path: ROOT_PATH, access: ACCESS.owner });
+  expect(ta).toContainEqual({ tree_path: "share", access: ACCESS.owner });
+  expect(ta).not.toContainEqual({ tree_path: ROOT_PATH, access: ACCESS.owner });
 });
 
 test("space.rename renames; space.delete removes the space + schema", async () => {

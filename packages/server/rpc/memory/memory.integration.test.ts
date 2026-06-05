@@ -109,12 +109,26 @@ beforeEach(async () => {
   );
   createdSpaceSchemas.push(`me_${r.spaceSlug}`);
   store = engineSpace.spaceStore(sql, `me_${r.spaceSlug}`);
+  // The default creator owns its home + the shared root (`share`), not the whole
+  // tree — so these tests write under `share.*`. (The normalization test, which
+  // needs arbitrary paths, elevates itself to owner@root.)
   treeAccess = await core.buildTreeAccess(r.userId, r.spaceId);
   space = { id: r.spaceId, slug: r.spaceSlug };
   principalId = r.userId;
 });
 
 test("~ home + lenient separators normalize on input, reverse-map on output", async () => {
+  // This test writes to arbitrary (non-home, non-share) paths to exercise path
+  // normalization, so elevate the owner to owner@root for it.
+  const core = engineCore.coreStore(sql, coreSchema);
+  await core.grantTreeAccess(
+    space.id,
+    principalId,
+    engineCore.ROOT_PATH,
+    engineCore.ACCESS.owner,
+  );
+  treeAccess = await core.buildTreeAccess(principalId, space.id);
+
   const home = `home.${principalId.replace(/-/g, "")}`;
 
   // `~/notes` (slash accepted on input) stores under the caller's home and
@@ -159,7 +173,7 @@ test("~ home + lenient separators normalize on input, reverse-map on output", as
 test("create → get round-trips content/tree/meta and createdBy is null", async () => {
   const created = await call<{ id: string; createdBy: string | null }>(
     "memory.create",
-    { content: "hello world", tree: "notes.work", meta: { tag: "a" } },
+    { content: "hello world", tree: "share.notes.work", meta: { tag: "a" } },
   );
   expect(created.createdBy).toBeNull();
 
@@ -171,7 +185,7 @@ test("create → get round-trips content/tree/meta and createdBy is null", async
     hasEmbedding: boolean;
   }>("memory.get", { id: created.id });
   expect(got.content).toBe("hello world");
-  expect(got.tree).toBe("notes.work");
+  expect(got.tree).toBe("share.notes.work");
   expect(got.meta).toEqual({ tag: "a" });
   expect(got.hasEmbedding).toBe(false);
 });
@@ -179,6 +193,7 @@ test("create → get round-trips content/tree/meta and createdBy is null", async
 test("create with temporal round-trips as {start,end}", async () => {
   const created = await call<{ id: string }>("memory.create", {
     content: "temporal one",
+    tree: "share",
     temporal: { start: "2024-01-01T00:00:00Z", end: "2024-01-02T00:00:00Z" },
   });
   const got = await call<{ temporal: { start: string; end: string } | null }>(
@@ -194,19 +209,20 @@ test("create with temporal round-trips as {start,end}", async () => {
 test("update patches fields", async () => {
   const created = await call<{ id: string }>("memory.create", {
     content: "before",
-    tree: "a",
+    tree: "share.a",
   });
   const updated = await call<{ content: string; tree: string }>(
     "memory.update",
-    { id: created.id, content: "after", tree: "a.b" },
+    { id: created.id, content: "after", tree: "share.a.b" },
   );
   expect(updated.content).toBe("after");
-  expect(updated.tree).toBe("a.b");
+  expect(updated.tree).toBe("share.a.b");
 });
 
 test("delete removes; get then NOT_FOUND", async () => {
   const created = await call<{ id: string }>("memory.create", {
     content: "doomed",
+    tree: "share",
   });
   const res = await call<{ deleted: boolean }>("memory.delete", {
     id: created.id,
@@ -224,14 +240,14 @@ test("get / delete unknown id → NOT_FOUND", async () => {
 test("batchCreate inserts all and is retrievable", async () => {
   const res = await call<{ ids: string[] }>("memory.batchCreate", {
     memories: [
-      { content: "one", tree: "batch" },
-      { content: "two", tree: "batch" },
-      { content: "three", tree: "batch.sub" },
+      { content: "one", tree: "share.batch" },
+      { content: "two", tree: "share.batch" },
+      { content: "three", tree: "share.batch.sub" },
     ],
   });
   expect(res.ids).toHaveLength(3);
   const count = await call<{ count: number }>("memory.countTree", {
-    tree: "batch",
+    tree: "share.batch",
   });
   expect(count.count).toBe(3);
 });
@@ -239,93 +255,97 @@ test("batchCreate inserts all and is retrievable", async () => {
 test("tree returns descendant node counts under a path", async () => {
   await call("memory.batchCreate", {
     memories: [
-      { content: "x", tree: "root.a" },
-      { content: "y", tree: "root.a.deep" },
-      { content: "z", tree: "root.b" },
+      { content: "x", tree: "share.root.a" },
+      { content: "y", tree: "share.root.a.deep" },
+      { content: "z", tree: "share.root.b" },
     ],
   });
   const res = await call<{ nodes: { path: string; count: number }[] }>(
     "memory.tree",
-    { tree: "root" },
+    { tree: "share.root" },
   );
   const byPath = Object.fromEntries(res.nodes.map((n) => [n.path, n.count]));
-  expect(byPath["root.a"]).toBe(2);
-  expect(byPath["root.a.deep"]).toBe(1);
-  expect(byPath["root.b"]).toBe(1);
+  expect(byPath["share.root.a"]).toBe(2);
+  expect(byPath["share.root.a.deep"]).toBe(1);
+  expect(byPath["share.root.b"]).toBe(1);
   // the base path itself is excluded
-  expect(byPath.root).toBeUndefined();
+  expect(byPath["share.root"]).toBeUndefined();
 });
 
 test("tree respects levels depth limit", async () => {
   await call("memory.batchCreate", {
-    memories: [{ content: "deep", tree: "t.a.b.c" }],
+    memories: [{ content: "deep", tree: "share.t.a.b.c" }],
   });
   const res = await call<{ nodes: { path: string }[] }>("memory.tree", {
-    tree: "t",
+    tree: "share.t",
     levels: 1,
   });
   const paths = res.nodes.map((n) => n.path);
-  expect(paths).toContain("t.a");
-  expect(paths).not.toContain("t.a.b");
+  expect(paths).toContain("share.t.a");
+  expect(paths).not.toContain("share.t.a.b");
 });
 
 test("move relocates a subtree (dryRun counts without moving)", async () => {
   await call("memory.batchCreate", {
     memories: [
-      { content: "m1", tree: "src.x" },
-      { content: "m2", tree: "src.y" },
+      { content: "m1", tree: "share.src.x" },
+      { content: "m2", tree: "share.src.y" },
     ],
   });
   const dry = await call<{ count: number }>("memory.move", {
-    source: "src",
-    destination: "dst",
+    source: "share.src",
+    destination: "share.dst",
     dryRun: true,
   });
   expect(dry.count).toBe(2);
-  // still under src
+  // still under share.src
   expect(
-    (await call<{ count: number }>("memory.countTree", { tree: "src" })).count,
+    (await call<{ count: number }>("memory.countTree", { tree: "share.src" }))
+      .count,
   ).toBe(2);
 
   const moved = await call<{ count: number }>("memory.move", {
-    source: "src",
-    destination: "dst",
+    source: "share.src",
+    destination: "share.dst",
   });
   expect(moved.count).toBe(2);
   expect(
-    (await call<{ count: number }>("memory.countTree", { tree: "src" })).count,
+    (await call<{ count: number }>("memory.countTree", { tree: "share.src" }))
+      .count,
   ).toBe(0);
   expect(
-    (await call<{ count: number }>("memory.countTree", { tree: "dst" })).count,
+    (await call<{ count: number }>("memory.countTree", { tree: "share.dst" }))
+      .count,
   ).toBe(2);
 });
 
 test("deleteTree removes a subtree (dryRun counts without deleting)", async () => {
   await call("memory.batchCreate", {
     memories: [
-      { content: "d1", tree: "gone.a" },
-      { content: "d2", tree: "gone.b" },
+      { content: "d1", tree: "share.gone.a" },
+      { content: "d2", tree: "share.gone.b" },
     ],
   });
   const dry = await call<{ count: number }>("memory.deleteTree", {
-    tree: "gone",
+    tree: "share.gone",
     dryRun: true,
   });
   expect(dry.count).toBe(2);
   const del = await call<{ count: number }>("memory.deleteTree", {
-    tree: "gone",
+    tree: "share.gone",
   });
   expect(del.count).toBe(2);
   expect(
-    (await call<{ count: number }>("memory.countTree", { tree: "gone" })).count,
+    (await call<{ count: number }>("memory.countTree", { tree: "share.gone" }))
+      .count,
   ).toBe(0);
 });
 
 test("search: fulltext (bm25) finds matching content", async () => {
   await call("memory.batchCreate", {
     memories: [
-      { content: "the quick brown fox", tree: "s" },
-      { content: "lazy dogs sleep", tree: "s" },
+      { content: "the quick brown fox", tree: "share.s" },
+      { content: "lazy dogs sleep", tree: "share.s" },
     ],
   });
   const res = await call<{ results: { content: string }[]; total: number }>(
@@ -339,15 +359,15 @@ test("search: fulltext (bm25) finds matching content", async () => {
 test("search: tree filter only (no ranking) returns matches", async () => {
   await call("memory.batchCreate", {
     memories: [
-      { content: "in scope", tree: "scope.a" },
-      { content: "out of scope", tree: "other" },
+      { content: "in scope", tree: "share.scope.a" },
+      { content: "out of scope", tree: "share.other" },
     ],
   });
   const res = await call<{ results: { tree: string }[] }>("memory.search", {
-    tree: "scope",
+    tree: "share.scope",
   });
   expect(res.results.length).toBe(1);
-  expect(res.results[0]?.tree).toBe("scope.a");
+  expect(res.results[0]?.tree).toBe("share.scope.a");
 });
 
 test("search: grep alone is rejected", async () => {

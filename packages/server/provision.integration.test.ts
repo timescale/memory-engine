@@ -95,11 +95,20 @@ test("provisions a new user: identity + principal + space + owner grant", async 
   expect(space?.id).toBe(r.spaceId);
   expect(await schemaExists(`me_${r.spaceSlug}`)).toBe(true);
 
-  // owner of the space root
+  // the creator's default grants: owner of its home + the shared root (`share`),
+  // but NOT owner@root
   const ta = await engineCore
     .coreStore(sql, coreSchema)
     .buildTreeAccess(r.userId, r.spaceId);
   expect(ta).toContainEqual({
+    tree_path: "share",
+    access: engineCore.ACCESS.owner,
+  });
+  expect(ta).toContainEqual({
+    tree_path: `home.${r.userId.replace(/-/g, "")}`,
+    access: engineCore.ACCESS.owner,
+  });
+  expect(ta).not.toContainEqual({
     tree_path: engineCore.ROOT_PATH,
     access: engineCore.ACCESS.owner,
   });

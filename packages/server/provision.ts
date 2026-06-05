@@ -1,5 +1,9 @@
 import { authStore, type OAuthProvider } from "@memory.build/auth";
-import { generateSlug, provisionSpace } from "@memory.build/database";
+import {
+  generateSlug,
+  provisionSpace,
+  SHARE_NAMESPACE,
+} from "@memory.build/database";
 import * as engineCore from "@memory.build/engine/core";
 import type { Sql } from "postgres";
 
@@ -11,7 +15,8 @@ import type { Sql } from "postgres";
  *   - core.principal (kind 'u') sharing the SAME id as auth.users
  *   - a default core.space + its me_<slug> data schema (provisionSpace runs the
  *     schema DDL inside this transaction)
- *   - the user's owner grant on the space root
+ *   - the user as space admin + owner of its home and the shared root (`share`),
+ *     not owner@root
  *
  * Because schema creation is transactional, any failure rolls the whole thing
  * back — no orphaned me_<slug> schema, no cleanup code. No API key is minted:
@@ -39,6 +44,28 @@ export interface ProvisionUserResult {
   spaceSlug: string;
 }
 
+/**
+ * Grant a new space's creator its default access — shared by first-login
+ * provisioning and `space.create` so the two stay in lockstep. The creator
+ * becomes a space admin who owns its home (via add_principal_to_space) and the
+ * shared root (`share`), but NOT owner@root: it sees `/share` and its own `~`,
+ * not other members' homes. As an admin it can self-grant owner@root later if it
+ * wants the whole tree. Call inside the space-creation transaction.
+ */
+export async function addSpaceCreator(
+  core: engineCore.CoreStore,
+  spaceId: string,
+  userId: string,
+): Promise<void> {
+  await core.addPrincipalToSpace(spaceId, userId, true); // admin + owner@home
+  await core.grantTreeAccess(
+    spaceId,
+    userId,
+    SHARE_NAMESPACE,
+    engineCore.ACCESS.owner,
+  );
+}
+
 export function provisionUser(
   sql: Sql,
   schemas: { auth: string; core: string },
@@ -63,14 +90,7 @@ export function provisionUser(
 
     const spaceId = await core.createSpace(slug, params.spaceName ?? "default");
     await provisionSpace(tx, { slug }); // creates the me_<slug> data schema
-    await core.addPrincipalToSpace(spaceId, userId, true);
-    // owner of the root path → the user owns the whole space
-    await core.grantTreeAccess(
-      spaceId,
-      userId,
-      engineCore.ROOT_PATH,
-      engineCore.ACCESS.owner,
-    );
+    await addSpaceCreator(core, spaceId, userId);
 
     return { userId, spaceId, spaceSlug: slug };
   }) as Promise<ProvisionUserResult>;

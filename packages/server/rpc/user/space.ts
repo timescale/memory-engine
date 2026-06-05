@@ -10,10 +10,8 @@ import {
   slugToSchema,
 } from "@memory.build/database";
 import {
-  ACCESS,
   coreStore,
   type MemberSpace,
-  ROOT_PATH,
   type Space,
 } from "@memory.build/engine/core";
 import type {
@@ -34,6 +32,7 @@ import {
   spaceRenameParams,
 } from "@memory.build/protocol/user";
 import type { Sql } from "postgres";
+import { addSpaceCreator } from "../../provision";
 import { AppError } from "../errors";
 import { buildRegistry } from "../registry";
 import type { HandlerContext } from "../types";
@@ -77,10 +76,12 @@ async function spaceList(
 }
 
 /**
- * Create a new space and make the calling user its admin + owner of the root.
- * Atomic: the core.space row, the me_<slug> data schema, the membership, and the
- * owner grant all land in one transaction (any failure rolls the schema back).
- * The new space starts with an empty tree.
+ * Create a new space. The creator becomes a space admin and owner of its own
+ * home (via add_principal_to_space) and of the shared root (`share`) — but NOT
+ * owner@root, so it sees `/share` and `~` but not other members' homes. As an
+ * admin it can self-grant owner@root later if it wants the whole tree. Atomic:
+ * the core.space row, the me_<slug> data schema, the membership, and the grant
+ * all land in one transaction (any failure rolls the schema back).
  */
 async function spaceCreate(
   params: SpaceCreateParams,
@@ -94,8 +95,7 @@ async function spaceCreate(
     const core = coreStore(tx as unknown as Sql, ctx.coreSchema);
     const spaceId = await core.createSpace(slug, params.name);
     await provisionSpace(tx, { slug }); // creates the me_<slug> data schema
-    await core.addPrincipalToSpace(spaceId, ctx.userId, true);
-    await core.grantTreeAccess(spaceId, ctx.userId, ROOT_PATH, ACCESS.owner);
+    await addSpaceCreator(core, spaceId, ctx.userId);
     return spaceId;
   })) as string;
 
