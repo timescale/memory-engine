@@ -3,19 +3,6 @@
 Tracked follow-up work. For the in-progress Bun.SQL → postgres.js driver swap,
 see `CLAUDE.md` → "Database driver migration" (status + per-file recipe).
 
-## Space owner flag (protect destructive ops)
-
-`space.delete` (and `space.rename`) are currently gated on space-admin
-(`principal_space.admin`, which is transitive through admin groups). Deleting a
-space drops the whole `me_<slug>` schema (all memories), so any admin — including
-one who inherited admin via a group — can destroy everything.
-
-- [ ] Consider a distinct space-**owner** notion (e.g. a `principal_space.owner`
-      flag, or treating owner@root as the gate) for the truly destructive ops
-      (delete, and maybe transfer-ownership), keeping admin for routine
-      structural management (groups, members, grants). Decide whether owner is
-      transitive through groups (probably not) and how ownership is transferred.
-
 ## Reconsider: api keys for users (not just agents)
 
 Keys are currently agent-only (`apiKey.create` is gated by `requireOwnedAgent`;

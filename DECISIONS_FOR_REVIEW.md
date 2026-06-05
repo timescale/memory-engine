@@ -35,3 +35,31 @@ paths already stored under the current rule (`home.<agentId>.…`) would not
 migrate automatically.
 
 **Status:** needs review.
+
+---
+
+## Destructive space ops (`space.delete` / `space.rename`) gated on admin — no separate owner flag
+
+**Date:** 2026-06-05 · **Area:** core authority model
+
+`space.delete` and `space.rename` are gated on **space-admin**
+(`principal_space.admin`, which is transitive through admin groups). `delete`
+drops the whole `me_<slug>` schema — all of the space's memories — so **any**
+space-admin, including one who inherited admin via a group, can destroy
+everything.
+
+**Decision:** leave it as-is for now. Admins can delete; we will **not** add a
+distinct space-**owner** notion to protect destructive ops until someone
+actually asks for it.
+
+**Alternative (deferred):** a separate owner gate for the truly destructive ops
+— e.g. a `principal_space.owner` flag, or treating owner@root as the gate —
+keeping plain admin for routine structural management (groups, members, grants).
+Would also need decisions on whether owner is transitive through groups
+(probably not) and how ownership transfers.
+
+**Revisit when:** there's a request for delete protection / "are you sure"
+beyond the CLI's type-the-name confirmation, or the first report of an admin
+nuking a space. At that point implement the owner gate above.
+
+**Status:** decided (defer); revisit on request.
