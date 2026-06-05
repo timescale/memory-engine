@@ -74,13 +74,6 @@ function asValidationError(e: unknown): AppError {
     : new AppError("VALIDATION_ERROR", "Invalid tree path");
 }
 
-/** Owner-level grant (3) at the space root — owns the whole space. */
-export function isSpaceOwner(context: SpaceRpcContext): boolean {
-  return context.treeAccess.some(
-    (g) => g.tree_path === ROOT_PATH && g.access >= ACCESS.owner,
-  );
-}
-
 /**
  * Structural authority over the space (principal_space.admin). Required for
  * managing groups — a structural construct of the space, distinct from data
@@ -111,25 +104,6 @@ export async function requireGroupAdmin(
     throw new AppError(
       "FORBIDDEN",
       "Managing group members requires being a space admin or an admin of the group",
-    );
-  }
-}
-
-/**
- * Space-management authority: a space admin (principal_space.admin) or the
- * space owner (owner@root). Gates roster management and broad grant listing —
- * controlling access to data the owner owns. (Per-subtree grant delegation is
- * handled by requireTreeOwner; group structure requires requireSpaceAdmin.)
- */
-export function isSpaceManager(context: SpaceRpcContext): boolean {
-  return context.admin || isSpaceOwner(context);
-}
-
-export function requireSpaceManager(context: SpaceRpcContext): void {
-  if (!isSpaceManager(context)) {
-    throw new AppError(
-      "FORBIDDEN",
-      "Space management requires being a space admin or owner",
     );
   }
 }
