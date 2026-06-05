@@ -56,6 +56,54 @@
           }
         }
       }
+    },
+    {
+      "includes": ["packages/database/space/**"],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "patterns": [
+                  {
+                    "group": [
+                      "**/core",
+                      "**/core/**",
+                      "@memory.build/database"
+                    ],
+                    "message": "packages/database/space must not import core/ (nor the package root, which re-exports it). Keep the data plane free of the control plane so the space/core split stays cheap to undo."
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "includes": ["packages/database/core/**"],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "patterns": [
+                  {
+                    "group": [
+                      "**/space",
+                      "**/space/**",
+                      "@memory.build/database"
+                    ],
+                    "message": "packages/database/core must not import space/ (nor the package root, which re-exports it). Keep the control plane free of the data plane so the space/core split stays cheap to undo."
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
     }
   ],
   "css": {

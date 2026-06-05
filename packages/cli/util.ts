@@ -149,21 +149,22 @@ export async function resolveAgentId(
 }
 
 /**
- * Detect an authentication error from the server.
- *
- * The server's `unauthorized()` helper sends an HTTP 401 with body
- * `{"error":{"message": "...", "code": "UNAUTHORIZED"}}`. The transport wraps
- * that into an RpcError. The string code lands either on `data.code`
- * (`appCode`) or on `code` itself depending on which envelope path the
- * response took, so we check both.
+ * True when `error` is a server AppError with the given string code. The code
+ * lands either on `data.code` (`appCode`) or on `code` itself depending on which
+ * envelope path the response took (RpcError types `code` as number, but the
+ * runtime value can be the string code when the response wasn't a strict
+ * JSON-RPC envelope), so we check both.
+ */
+export function isAppErrorCode(error: unknown, code: string): boolean {
+  if (!(error instanceof RpcError)) return false;
+  return error.appCode === code || (error.code as unknown) === code;
+}
+
+/**
+ * Detect an authentication error from the server (HTTP 401 / `UNAUTHORIZED`).
  */
 function isUnauthorized(error: unknown): boolean {
-  if (!(error instanceof RpcError)) return false;
-  if (error.appCode === "UNAUTHORIZED") return true;
-  // The server's HTTP error envelope puts the string code on the top-level
-  // `code` field. RpcError types `code` as number, but the runtime value can
-  // be a string when the response wasn't a strict JSON-RPC envelope.
-  return (error.code as unknown) === "UNAUTHORIZED";
+  return isAppErrorCode(error, "UNAUTHORIZED");
 }
 
 /**

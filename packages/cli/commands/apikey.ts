@@ -20,6 +20,7 @@ import {
   buildMemoryClient,
   buildUserClient,
   handleError,
+  isAppErrorCode,
   requireSession,
   requireSpace,
   resolveAgentId,
@@ -61,6 +62,17 @@ function createApiKeyCreateCommand(): Command {
           );
         });
       } catch (error) {
+        // apiKey.create requires the agent to already be in the space; surface
+        // the prerequisite instead of a bare NOT_FOUND.
+        if (isAppErrorCode(error, "NOT_FOUND")) {
+          const msg = `Agent '${agent}' isn't in this space yet — run 'me agent add ${agent}' first, then 'me apikey create' again.`;
+          if (fmt === "text") {
+            clack.log.error(msg);
+          } else {
+            output({ error: msg, code: "NOT_FOUND" }, fmt, () => {});
+          }
+          process.exit(1);
+        }
         handleError(error, fmt, { sessionServer: creds.server });
       }
     });

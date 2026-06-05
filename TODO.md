@@ -22,11 +22,11 @@ implies users can mint their own keys.
 (`requireOwnedAgent` → NOT_FOUND otherwise). `me apikey create <agent>` surfaces
 that raw NOT_FOUND, so the user has to know to run `me agent add <agent>` first.
 
-- [ ] Improve the UX: either pre-check membership in `me apikey create` and emit
-      an actionable hint ("agent X isn't in this space — run `me agent add X`"),
-      or offer to add it (self-service `principal.add`, which is already allowed
-      for your own agent) before minting the key. Map the server NOT_FOUND to the
-      friendlier message at minimum.
+- [x] Done (2026-06-05) — `me apikey create` now maps the server `NOT_FOUND` to
+      an actionable message ("Agent '<agent>' isn't in this space yet — run
+      'me agent add <agent>' first"). Added a reusable `isAppErrorCode` helper to
+      util.ts. (Auto-adding the agent was considered but skipped — silently
+      changing space membership as a side effect of minting a key is surprising.)
 
 ## Space invitations
 
@@ -87,8 +87,12 @@ sharding/distribution of spaces is off the table for now. The per-slug schema mo
 and the `set local pgdog.shard` code stay in the `space/` module, so re-splitting
 later is cheap if distribution returns.
 
-- [ ] Keep `space/` free of `core/` imports (and vice versa) so the re-split escape
-      hatch stays open — worth a Biome `noRestrictedImports` rule to enforce it.
+- [x] Done (2026-06-05) — Biome `noRestrictedImports` overrides in `biome.json`
+      forbid `packages/database/space/**` from importing core (`**/core`,
+      `**/core/**`, or the package root `@memory.build/database` which re-exports
+      it) and symmetrically forbid core from importing space, each with an
+      explanatory message. Verified it fires on a cross-import in both
+      directions.
 
 ## Consolidate duplicated test-utils
 
