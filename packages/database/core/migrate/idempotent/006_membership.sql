@@ -1,6 +1,9 @@
 -------------------------------------------------------------------------------
 -- add_principal_to_space
--- Adds (or updates the admin flag of) a principal's membership in a space.
+-- Adds (or updates the admin flag of) a principal's membership in a space, and
+-- grants a joining user owner over its home directory. The single chokepoint
+-- every join path goes through (provisioning, invite redemption, direct add),
+-- so a user's membership always implies home ownership.
 -------------------------------------------------------------------------------
 create or replace function {{schema}}.add_principal_to_space
 ( _space_id uuid
@@ -12,7 +15,22 @@ as $func$
   insert into {{schema}}.principal_space (space_id, principal_id, admin)
   values (_space_id, _principal_id, _admin)
   on conflict (principal_id, space_id) do update set
-    admin = excluded.admin -- updated_at maintained by the before-update trigger
+    admin = excluded.admin; -- updated_at maintained by the before-update trigger
+
+  -- A user owns its home directory (home.<user_id>, hyphens stripped); see
+  -- packages/database/space/path.ts homePrefix() for the matching client form.
+  -- Users only: an agent's effective grants are clamped to its owner's by
+  -- agent_tree_access, so an auto home grant would be inert (the owner has no
+  -- access over the agent's home); groups have no home either. Idempotent and
+  -- non-clobbering: an existing home grant is left untouched.
+  insert into {{schema}}.tree_access (space_id, principal_id, tree_path, access)
+  select _space_id, _principal_id
+       , ('home.' || replace(_principal_id::text, '-', ''))::ltree
+       , 3 -- owner
+  from {{schema}}.principal p
+  where p.id = _principal_id
+  and p.kind = 'u'
+  on conflict (space_id, principal_id, tree_path) do nothing
 $func$ language sql volatile security invoker
 set search_path to pg_catalog, {{schema}}, public, pg_temp
 ;

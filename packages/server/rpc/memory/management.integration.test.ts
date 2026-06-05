@@ -278,7 +278,8 @@ test("roster/group management requires admin or owner", async () => {
 });
 
 test("a space admin (without owner@root) has management authority", async () => {
-  // an admin member with only read access, no owner grant anywhere
+  // an admin member with read on a path (plus its own home from joining), but no
+  // owner@root — so the management authority here comes from admin, not ownership
   const adminMember = await makeUser();
   await call("principal.add", { principalId: adminMember, admin: true });
   await call("grant.set", {

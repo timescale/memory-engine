@@ -78,7 +78,13 @@ test("grant + buildTreeAccess returns the search_memory jsonb shape", async () =
   await db.grantTreeAccess(spaceId, userId, "work.projects", 2);
 
   const ta = await db.buildTreeAccess(userId, spaceId);
-  expect(ta).toEqual([{ tree_path: "work.projects", access: 2 }]);
+  // addPrincipalToSpace also grants the user owner@home.
+  expect(ta).toContainEqual({ tree_path: "work.projects", access: 2 });
+  expect(ta).toContainEqual({
+    tree_path: `home.${userId.replace(/-/g, "")}`,
+    access: 3,
+  });
+  expect(ta).toHaveLength(2);
 });
 
 test("group access flows through buildTreeAccess; removeGroupMember revokes it", async () => {
@@ -98,7 +104,10 @@ test("group access flows through buildTreeAccess; removeGroupMember revokes it",
   });
 
   expect(await db.removeGroupMember(spaceId, groupId, userId)).toBe(true);
-  expect(await db.buildTreeAccess(userId, spaceId)).toEqual([]);
+  // still a space member: the group grant is gone, the user keeps its home.
+  expect(await db.buildTreeAccess(userId, spaceId)).toEqual([
+    { tree_path: `home.${userId.replace(/-/g, "")}`, access: 3 },
+  ]);
 });
 
 test("createApiKey + validateApiKey (good / wrong secret)", async () => {

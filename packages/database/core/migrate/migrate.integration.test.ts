@@ -285,6 +285,9 @@ describe("control-plane functions", () => {
     return row?.id as string;
   }
 
+  /** A principal's canonical home path (mirrors space/path.ts homePrefix). */
+  const homePath = (id: string) => `home.${id.replace(/-/g, "")}`;
+
   type Grant = { tree_path: string; access: number };
 
   test("create_space + create_user + grant → build_tree_access returns the search_memory jsonb shape", async () => {
@@ -318,7 +321,66 @@ describe("control-plane functions", () => {
         [userId, spaceId],
       );
       const ta = row?.ta as Grant[];
-      expect(ta).toEqual([{ tree_path: "work.projects", access: 2 }]);
+      // add_principal_to_space also grants the user owner@home; the explicit
+      // grant adds to it.
+      expect(ta).toContainEqual({ tree_path: "work.projects", access: 2 });
+      expect(ta).toContainEqual({ tree_path: homePath(userId), access: 3 });
+      expect(ta).toHaveLength(2);
+    });
+  });
+
+  test("add_principal_to_space grants owner@home to users, idempotently; not agents/groups", async () => {
+    await withTestCore(sql, {}, async (core) => {
+      const s = core.schema;
+      const [sp] = await sql.unsafe(`select ${s}.create_space($1, $2) as id`, [
+        randomSlug(),
+        "Homes",
+      ]);
+      const spaceId = sp?.id as string;
+
+      const userId = await v7();
+      await sql.unsafe(`select ${s}.create_user($1, $2)`, [userId, "homer"]);
+      const agentId = await v7();
+      await sql.unsafe(`select ${s}.create_agent($1, $2, $3)`, [
+        userId, // owner
+        `agent_${randomSlug()}`, // name
+        agentId, // id
+      ]);
+      const [grp] = await sql.unsafe(`select ${s}.create_group($1, $2) as id`, [
+        spaceId,
+        `grp_${randomSlug()}`,
+      ]);
+      const groupId = grp?.id as string;
+
+      // add each twice to prove the home grant is idempotent
+      for (const id of [userId, agentId, groupId]) {
+        await sql.unsafe(`select ${s}.add_principal_to_space($1, $2, $3)`, [
+          spaceId,
+          id,
+          false,
+        ]);
+        await sql.unsafe(`select ${s}.add_principal_to_space($1, $2, $3)`, [
+          spaceId,
+          id,
+          false,
+        ]);
+      }
+
+      const grants = async (id: string): Promise<Grant[]> => {
+        const rows = await sql.unsafe(
+          `select tree_path::text, access from ${s}.tree_access
+           where space_id = $1 and principal_id = $2`,
+          [spaceId, id],
+        );
+        return rows as unknown as Grant[];
+      };
+      // the user gets exactly one owner@home grant (not duplicated by re-add)
+      expect(await grants(userId)).toEqual([
+        { tree_path: homePath(userId), access: 3 },
+      ]);
+      // agents are excluded (would be clamped to the owner) and groups have no home
+      expect(await grants(agentId)).toEqual([]);
+      expect(await grants(groupId)).toEqual([]);
     });
   });
 
@@ -434,7 +496,9 @@ describe("control-plane functions", () => {
         `select ${s}.build_tree_access($1, $2) as ta`,
         [userId, spaceId],
       );
-      expect(after?.ta).toEqual([]);
+      // still a space member (only left the group): the group grant is gone,
+      // but the user keeps its own home.
+      expect(after?.ta).toEqual([{ tree_path: homePath(userId), access: 3 }]);
 
       // second remove is a no-op
       const [again] = await sql.unsafe(
@@ -550,7 +614,8 @@ describe("control-plane functions", () => {
         `select ${s}.build_tree_access($1, $2) as ta`,
         [userId, spaceId],
       );
-      expect(row?.ta).toEqual([]);
+      // the explicit a.b grant is gone; the user keeps its own home.
+      expect(row?.ta).toEqual([{ tree_path: homePath(userId), access: 3 }]);
     });
   });
 

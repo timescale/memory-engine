@@ -164,16 +164,19 @@ test("listTreeAccessGrants returns grants; filterable by principal", async () =>
   await core.grantTreeAccess(spaceId, userId, "a.b", ACCESS.write);
   await core.grantTreeAccess(spaceId, userId, "c", ACCESS.owner);
 
+  // the owner also has owner@home, granted when it joined the space (beforeEach)
+  const home = `home.${userId.replace(/-/g, "")}`;
+
   const all = await core.listTreeAccessGrants(spaceId);
   const paths = all.map((g) => g.treePath).sort();
-  expect(paths).toEqual(["a.b", "c"]);
+  expect(paths).toEqual([home, "a.b", "c"].sort());
   expect(all.find((g) => g.treePath === "c")?.access).toBe(ACCESS.owner);
 
   const forUser = await core.listTreeAccessGrants(spaceId, userId);
-  expect(forUser).toHaveLength(2);
+  expect(forUser).toHaveLength(3);
 
   expect(await core.removeTreeAccessGrant(spaceId, userId, "a.b")).toBe(true);
-  expect(await core.listTreeAccessGrants(spaceId)).toHaveLength(1);
+  expect(await core.listTreeAccessGrants(spaceId)).toHaveLength(2);
 });
 
 test("api keys: create, get, list, delete (no secret leaked)", async () => {

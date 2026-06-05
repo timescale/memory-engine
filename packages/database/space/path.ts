@@ -28,6 +28,15 @@
 /** The reserved top-level namespace for per-principal home directories. */
 export const HOME_NAMESPACE = "home";
 
+/**
+ * The reserved top-level namespace for a space's shared tree. Unlike `home`,
+ * this is a single shared root (not per-principal) and carries no input sugar —
+ * `share/x` normalizes like any other path. It exists as a named constant
+ * because membership/invitations grant a configurable level (read/write/owner)
+ * at this root; see core `redeem_space_invitations`.
+ */
+export const SHARE_NAMESPACE = "share";
+
 /** A legal ltree label (PostgreSQL 16+): letters, digits, underscore, hyphen. */
 const LTREE_LABEL = /^[A-Za-z0-9_-]+$/;
 

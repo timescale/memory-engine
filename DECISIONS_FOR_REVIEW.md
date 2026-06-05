@@ -63,3 +63,36 @@ beyond the CLI's type-the-name confirmation, or the first report of an admin
 nuking a space. At that point implement the owner gate above.
 
 **Status:** decided (defer); revisit on request.
+
+---
+
+## Home grant at join is for users only — agents get no auto home
+
+**Date:** 2026-06-05 · **Area:** membership (`add_principal_to_space`, INV-1)
+
+`add_principal_to_space` now writes a real `owner @ home.<member>` grant when a
+**user** joins a space (the single chokepoint every join path goes through:
+provisioning, invite redemption, direct add). **Agents are deliberately excluded.**
+
+**Why exclude agents:** `agent_tree_access` clamps an agent's effective grants to
+its owner's — an agent can never exceed what its owner can reach. A typical owner
+(an invited user) holds `owner@home.<ownerId>` and maybe `share`, but **nothing**
+over `home.<agentId>`. So an auto `owner@home.<agentId>` grant would be clamped to
+nothing: an inert, misleading row in `tree_access` that `build_tree_access` never
+returns. Users have no clamp, so their home grant is always effective.
+
+**Tension with the `~` decision above:** that entry frames an agent's `~` as
+`home.<agentId>` — its own isolated home. With agents excluded here, an agent's
+`~` still *resolves* to `home.<agentId>` but carries **no access by default**; the
+agent can only use it if its owner explicitly grants it there (and, because of the
+clamp, the owner must hold that access too).
+
+**How to change it (give agents real homes):** options — (a) nest agent homes
+under the owner (`home.<ownerId>.…`) so the owner's home grant covers them; or
+(b) in `add_principal_to_space` for an agent, also grant the **owner**
+`owner@home.<agentId>` so the clamp passes (owner can then see into agent homes);
+or (c) relax the clamp for the agent's own home subtree. Each needs a deliberate
+call on owner visibility into agent data. The gate is `and p.kind = 'u'` in
+`packages/database/core/migrate/idempotent/006_membership.sql`.
+
+**Status:** needs review.
