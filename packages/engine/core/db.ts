@@ -11,7 +11,9 @@ import type {
   MemberSpace,
   Principal,
   PrincipalKind,
+  RedeemedInvitation,
   Space,
+  SpaceInvitation,
   SpacePrincipal,
   TreeAccess,
   TreeGrant,
@@ -135,6 +137,35 @@ export interface CoreStore {
   listApiKeys(memberId: string): Promise<ApiKeyInfo[]>;
   /** Hard-delete a key (revoke ≡ delete; there is no soft-revoke state). */
   deleteApiKey(id: string): Promise<boolean>;
+
+  /**
+   * Issue (or update, if one is already pending) an invitation to a space,
+   * keyed by invitee email — so it can be issued before the user registers.
+   * `shareAccess` null means no share grant. Returns the invitation id.
+   */
+  createSpaceInvitation(
+    spaceId: string,
+    email: string,
+    opts: {
+      admin: boolean;
+      shareAccess: AccessLevel | null;
+      invitedBy: string;
+    },
+  ): Promise<string>;
+  /** Pending invitations for a space (accepted ones are history). */
+  listSpaceInvitations(spaceId: string): Promise<SpaceInvitation[]>;
+  /** Revoke a pending invitation by email. Returns true if one was removed. */
+  revokeSpaceInvitation(spaceId: string, email: string): Promise<boolean>;
+  /**
+   * Redeem all pending invitations for a (now-registered, verified) email:
+   * join each space (owner@home), grant share access where set, mark accepted.
+   * Idempotent; the user must already exist as a core principal. Returns the
+   * spaces joined.
+   */
+  redeemSpaceInvitations(
+    userId: string,
+    email: string,
+  ): Promise<RedeemedInvitation[]>;
 
   /** Run operations atomically against the same transaction. */
   withTransaction<T>(fn: (db: CoreStore) => Promise<T>): Promise<T>;
@@ -441,6 +472,55 @@ export function coreStore(sql: Sql, schema: string = CORE_SCHEMA): CoreStore {
     async deleteApiKey(id) {
       const [row] = await sql`select ${sch}.delete_api_key(${id}) as ok`;
       return Boolean(row?.ok);
+    },
+
+    async createSpaceInvitation(spaceId, email, opts) {
+      const [row] = await sql`
+        select ${sch}.create_space_invitation(
+          ${spaceId}, ${email}, ${opts.admin}, ${opts.shareAccess ?? null}, ${opts.invitedBy}
+        ) as id
+      `;
+      if (!row) throw new Error("create_space_invitation returned no row");
+      return row.id as string;
+    },
+
+    async listSpaceInvitations(spaceId) {
+      const rows = await sql`
+        select * from ${sch}.list_space_invitations(${spaceId})
+      `;
+      return rows.map(
+        (r): SpaceInvitation => ({
+          id: r.id as string,
+          email: r.email as string,
+          admin: Boolean(r.admin),
+          shareAccess: (r.share_access as AccessLevel | null) ?? null,
+          invitedBy: (r.invited_by as string | null) ?? null,
+          invitedByName: (r.invited_by_name as string | null) ?? null,
+          createdAt: r.created_at as Date,
+        }),
+      );
+    },
+
+    async revokeSpaceInvitation(spaceId, email) {
+      const [row] = await sql`
+        select ${sch}.revoke_space_invitation(${spaceId}, ${email}) as ok
+      `;
+      return Boolean(row?.ok);
+    },
+
+    async redeemSpaceInvitations(userId, email) {
+      const rows = await sql`
+        select * from ${sch}.redeem_space_invitations(${userId}, ${email})
+      `;
+      return rows.map(
+        (r): RedeemedInvitation => ({
+          spaceId: r.space_id as string,
+          slug: r.slug as string,
+          name: r.name as string,
+          admin: Boolean(r.admin),
+          shareAccess: (r.share_access as AccessLevel | null) ?? null,
+        }),
+      );
     },
 
     async withTransaction<T>(fn: (db: CoreStore) => Promise<T>): Promise<T> {

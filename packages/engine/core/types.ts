@@ -133,3 +133,31 @@ export interface ApiKeyInfo {
   createdAt: Date;
   expiresAt: Date | null;
 }
+
+/**
+ * A pending invitation to a space, keyed by invitee email (so an invite can be
+ * issued before the user registers). Redeemed at login against the verified
+ * email; see CoreStore.redeemSpaceInvitations.
+ */
+export interface SpaceInvitation {
+  id: string;
+  email: string;
+  /** Make the user a space admin on redemption. */
+  admin: boolean;
+  /** Access granted at the shared root on redemption; null = no share grant. */
+  shareAccess: AccessLevel | null;
+  /** The principal who issued the invite (null if it has since been deleted). */
+  invitedBy: string | null;
+  /** Display name of the inviter (a user's name is their email), if resolvable. */
+  invitedByName: string | null;
+  createdAt: Date;
+}
+
+/** A space joined by redeeming an invitation. */
+export interface RedeemedInvitation {
+  spaceId: string;
+  slug: string;
+  name: string;
+  admin: boolean;
+  shareAccess: AccessLevel | null;
+}

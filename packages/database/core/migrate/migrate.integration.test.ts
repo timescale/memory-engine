@@ -34,6 +34,7 @@ const EXPECTED_TABLES = [
   "principal",
   "principal_space",
   "space",
+  "space_invitation",
   "tree_access",
   "version",
 ];
@@ -45,6 +46,7 @@ const EXPECTED_MIGRATIONS = [
   "004_group_member",
   "005_tree_access",
   "006_api_key",
+  "007_space_invitation",
 ];
 
 const EXPECTED_FUNCTIONS = [
@@ -127,6 +129,7 @@ describe("provisioned core schema", () => {
       "principal_space",
       "group_member",
       "tree_access",
+      "space_invitation",
     ]) {
       const triggers = await listTriggers(sql, canonical.schema, table);
       expect(triggers).toContain(`${table}_before_update_trg`);
@@ -616,6 +619,102 @@ describe("control-plane functions", () => {
       );
       // the explicit a.b grant is gone; the user keeps its own home.
       expect(row?.ta).toEqual([{ tree_path: homePath(userId), access: 3 }]);
+    });
+  });
+
+  test("space invitations: create (upsert) / list / redeem (join + home + share) / revoke", async () => {
+    await withTestCore(sql, {}, async (core) => {
+      const s = core.schema;
+      const [sp] = await sql.unsafe(`select ${s}.create_space($1, $2) as id`, [
+        randomSlug(),
+        "Invites",
+      ]);
+      const spaceId = sp?.id as string;
+
+      // inviter must exist as a principal (invited_by FK)
+      const inviterId = await v7();
+      await sql.unsafe(`select ${s}.create_user($1, $2)`, [
+        inviterId,
+        "inviter@example.com",
+      ]);
+
+      const email = "invitee@example.com";
+      const create = (admin: boolean, share: number | null) =>
+        sql.unsafe(
+          `select ${s}.create_space_invitation($1, $2, $3, $4, $5) as id`,
+          [spaceId, email, admin, share, inviterId],
+        );
+
+      // create (read share, not admin), then re-create promotes the SAME pending
+      // row to admin + owner share (upsert, not a duplicate)
+      const [c1] = await create(false, 1);
+      const inviteId = c1?.id as string;
+      expect(inviteId).toBeTruthy();
+      const [c2] = await create(true, 3);
+      expect(c2?.id).toBe(inviteId);
+
+      // list: one pending invite with the updated fields + the inviter's name
+      const listed = await sql.unsafe(
+        `select * from ${s}.list_space_invitations($1)`,
+        [spaceId],
+      );
+      expect(listed).toHaveLength(1);
+      expect(listed[0]?.email).toBe(email);
+      expect(listed[0]?.admin).toBe(true);
+      expect(listed[0]?.share_access).toBe(3);
+      expect(listed[0]?.invited_by_name).toBe("inviter@example.com");
+
+      // the invitee registers, then redeems (email match is case-insensitive)
+      const userId = await v7();
+      await sql.unsafe(`select ${s}.create_user($1, $2)`, [userId, email]);
+      const redeemed = await sql.unsafe(
+        `select * from ${s}.redeem_space_invitations($1, $2)`,
+        [userId, "INVITEE@EXAMPLE.COM"],
+      );
+      expect(redeemed).toHaveLength(1);
+      expect(redeemed[0]?.space_id).toBe(spaceId);
+      expect(redeemed[0]?.admin).toBe(true);
+      expect(redeemed[0]?.share_access).toBe(3);
+
+      // joined as admin, with owner@home (add_principal_to_space) + owner@share
+      const [ps] = await sql.unsafe(
+        `select admin from ${s}.principal_space where space_id=$1 and principal_id=$2`,
+        [spaceId, userId],
+      );
+      expect(ps?.admin).toBe(true);
+      const [taRow] = await sql.unsafe(
+        `select ${s}.build_tree_access($1, $2) as ta`,
+        [userId, spaceId],
+      );
+      const ta = taRow?.ta as Grant[];
+      expect(ta).toContainEqual({ tree_path: homePath(userId), access: 3 });
+      expect(ta).toContainEqual({ tree_path: "share", access: 3 });
+
+      // accepted: gone from the pending list, and re-redeem is a no-op
+      expect(
+        await sql.unsafe(`select * from ${s}.list_space_invitations($1)`, [
+          spaceId,
+        ]),
+      ).toHaveLength(0);
+      expect(
+        await sql.unsafe(
+          `select * from ${s}.redeem_space_invitations($1, $2)`,
+          [userId, email],
+        ),
+      ).toHaveLength(0);
+
+      // revoke: a fresh pending invite is revocable once
+      await create(false, null); // re-invite the same email (now allowed: prior is accepted)
+      const [r1] = await sql.unsafe(
+        `select ${s}.revoke_space_invitation($1, $2) as ok`,
+        [spaceId, email],
+      );
+      expect(r1?.ok).toBe(true);
+      const [r2] = await sql.unsafe(
+        `select ${s}.revoke_space_invitation($1, $2) as ok`,
+        [spaceId, email],
+      );
+      expect(r2?.ok).toBe(false);
     });
   });
 

@@ -33,3 +33,8 @@ create or replace trigger tree_access_before_update_trg
 before update on {{schema}}.tree_access
 for each row
 execute function {{schema}}.update_updated_at();
+
+create or replace trigger space_invitation_before_update_trg
+before update on {{schema}}.space_invitation
+for each row
+execute function {{schema}}.update_updated_at();

@@ -179,6 +179,56 @@ test("listTreeAccessGrants returns grants; filterable by principal", async () =>
   expect(await core.listTreeAccessGrants(spaceId)).toHaveLength(2);
 });
 
+test("space invitations: create / list / redeem / revoke via the store", async () => {
+  // spaceId + the owner userId come from beforeEach; the owner is the inviter
+  const email = `invitee_${rand(8)}@example.com`;
+  const inviteId = await core.createSpaceInvitation(spaceId, email, {
+    admin: true,
+    shareAccess: ACCESS.write,
+    invitedBy: userId,
+  });
+  expect(inviteId).toBeTruthy();
+
+  const pending = await core.listSpaceInvitations(spaceId);
+  expect(pending).toHaveLength(1);
+  expect(pending[0]?.email).toBe(email);
+  expect(pending[0]?.admin).toBe(true);
+  expect(pending[0]?.shareAccess).toBe(ACCESS.write);
+  expect(pending[0]?.invitedBy).toBe(userId);
+  expect(pending[0]?.invitedByName).toBe(userName);
+
+  // the invitee registers and redeems
+  const inviteeId = await v7();
+  await core.createUser(inviteeId, email);
+  const joined = await core.redeemSpaceInvitations(inviteeId, email);
+  expect(joined).toHaveLength(1);
+  expect(joined[0]?.spaceId).toBe(spaceId);
+  expect(joined[0]?.slug).toBeTruthy();
+  expect(joined[0]?.admin).toBe(true);
+  expect(joined[0]?.shareAccess).toBe(ACCESS.write);
+
+  // effective access: owner@home (from joining) + write@share
+  const ta = await core.buildTreeAccess(inviteeId, spaceId);
+  expect(ta).toContainEqual({
+    tree_path: `home.${inviteeId.replace(/-/g, "")}`,
+    access: ACCESS.owner,
+  });
+  expect(ta).toContainEqual({ tree_path: "share", access: ACCESS.write });
+
+  // accepted → no longer pending; re-redeem is a no-op
+  expect(await core.listSpaceInvitations(spaceId)).toHaveLength(0);
+  expect(await core.redeemSpaceInvitations(inviteeId, email)).toHaveLength(0);
+
+  // a fresh invite (with no share grant) is revocable once
+  await core.createSpaceInvitation(spaceId, email, {
+    admin: false,
+    shareAccess: null,
+    invitedBy: userId,
+  });
+  expect(await core.revokeSpaceInvitation(spaceId, email)).toBe(true);
+  expect(await core.revokeSpaceInvitation(spaceId, email)).toBe(false);
+});
+
 test("api keys: create, get, list, delete (no secret leaked)", async () => {
   const key = await core.createApiKey(userId, "ci");
   expect(key.secret).toBeTruthy();
