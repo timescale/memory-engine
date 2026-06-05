@@ -28,16 +28,18 @@ that raw NOT_FOUND, so the user has to know to run `me agent add <agent>` first.
       util.ts. (Auto-adding the agent was considered but skipped — silently
       changing space membership as a side effect of minting a key is surprising.)
 
-## Space invitations
+## Space invitations: email delivery + expiry (deferred from v1)
 
-The CLI spec includes `me space invite` / `invite list` / `invite revoke`
-(invite a user by email into a space with an initial role/grant). Deferred from
-4E — it's a new subsystem.
+Space invitations are built (INV-1..5): an email-keyed `core.space_invitation`,
+redeemed at verified login (or applied immediately for an already-registered
+user), with `me space invite <email> [--admin] [--share …]` / `invite list` /
+`invite revoke`. Two pieces were intentionally deferred from v1:
 
-- [ ] Design + build space-scoped invitations: a core table (space_id, email,
-      role/grant, token, status, expiry), RPC on the space endpoint
-      (invite.create/list/revoke + accept on the user endpoint), and the email/
-      link delivery. Mirrors the device-flow consent UX where relevant.
+- [ ] Email/link delivery — v1 sends no notification; a pending invite is only
+      acted on when the invitee next signs in (auto-redeemed) or is told out of
+      band. Send an invitation email with a sign-in link.
+- [ ] Invite expiry — `space_invitation` has no expiry; a pending invite lives
+      until redeemed or revoked. Add an expiry column (+ a sweep) if wanted.
 
 ## Worker: call space SQL functions instead of raw queries
 
