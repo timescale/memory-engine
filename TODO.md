@@ -124,16 +124,25 @@ store layer, the SQL functions, `provisionUser`). At the **user-facing boundary*
 (RPC handlers, CLI, MCP) we want lenient input normalized once to that canonical
 form — the right convention is what's natural for users, not what ltree accepts.
 
-- [ ] Add a shared `normalizeTreePath(input): string` util (home: alongside the
-      slug helpers in `packages/database/space`, or a small `path.ts`). Rules:
-      split on `/[./]+/`, drop empty segments, validate each is a legal ltree
-      label, join with `.`. So `/foo/bar`, `foo/bar`, `foo.bar` → `foo.bar`; and
-      `""`, `/`, `.` → `""` (root). Use it in **every** user-facing entry point
-      so they behave identically. Wire in Phase 4 with the memory/grant RPC +
-      CLI + MCP.
-- [ ] Decide the canonical **output/display** form (echoed in search results,
-      `grant list`, etc.): dot-style `work.projects` (matches current docs) vs
-      filesystem-style `/work/projects`. Input stays lenient; output is one form.
+- [x] Done — `packages/database/space/path.ts` exports `normalizeTreePath`
+      (strict, concrete paths), `normalizeTreeFilter` (lenient, lquery/ltxtquery
+      passes through), `homePrefix`, and `denormalizeTreePath`. Wired **server-side**
+      in the space RPC handlers (`rpc/memory/memory.ts` + `grant.ts` via
+      `inputTreePath`/`inputTreeFilter`/`displayTreePath` in `support.ts`), which
+      is the single chokepoint for CLI + MCP + web (they send raw input; the
+      server normalizes). Includes `~` home directories: a leading `~` expands to
+      `home.<principalId-without-hyphens>` (the authenticated caller), reverse-
+      mapped to `~/…` on output for the caller's own home. Labels allow
+      `[A-Za-z0-9_-]` (PG16+ hyphens). Malformed input → `VALIDATION_ERROR`.
+- [ ] **Output form is only half-decided.** The caller's home reverse-maps to
+      slash-style `~/a/b`, but non-home paths still display dot-style
+      `work.projects`. Decide whether to unify all output on one separator
+      (dot vs slash) — if slash, update the docs (which use dot) and the
+      `denormalizeTreePath` non-home branch.
+- [ ] Reverse-mapping only covers the **caller's own** home (other principals'
+      homes show the raw `home.<uuid>.…`). Fine for now; revisit if listing
+      other members' home paths becomes common (would need a uuid→`~user` or
+      handle lookup).
 
 ## Consolidate the migration runner logic
 

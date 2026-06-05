@@ -4,6 +4,12 @@
  * serializers.
  */
 
+import {
+  denormalizeTreePath,
+  normalizeTreeFilter,
+  normalizeTreePath,
+  TreePathError,
+} from "@memory.build/database";
 import type {
   ApiKeyInfo,
   Group,
@@ -28,6 +34,45 @@ import { AppError } from "../errors";
 import type { SpaceRpcContext } from "./types";
 
 export { guardCore };
+
+// =============================================================================
+// Tree-path normalization at the user-facing boundary
+// =============================================================================
+
+/**
+ * Normalize a concrete tree path from the wire to canonical ltree, expanding a
+ * leading `~` to the caller's home. Maps malformed input to a validation error.
+ */
+export function inputTreePath(ctx: SpaceRpcContext, raw: string): string {
+  try {
+    return normalizeTreePath(raw, { home: ctx.principalId });
+  } catch (e) {
+    throw asValidationError(e);
+  }
+}
+
+/** Like `inputTreePath` but for a search filter (lquery/ltxtquery passes through). */
+export function inputTreeFilter(ctx: SpaceRpcContext, raw: string): string {
+  try {
+    return normalizeTreeFilter(raw, { home: ctx.principalId });
+  } catch (e) {
+    throw asValidationError(e);
+  }
+}
+
+/** Reverse the home expansion for display: the caller's home shows as `~/…`. */
+export function displayTreePath(ctx: SpaceRpcContext, stored: string): string {
+  return denormalizeTreePath(stored, { home: ctx.principalId });
+}
+
+function asValidationError(e: unknown): AppError {
+  if (e instanceof TreePathError) {
+    return new AppError("VALIDATION_ERROR", e.message);
+  }
+  return e instanceof AppError
+    ? e
+    : new AppError("VALIDATION_ERROR", "Invalid tree path");
+}
 
 /** Owner-level grant (3) at the space root — owns the whole space. */
 export function isSpaceOwner(context: SpaceRpcContext): boolean {
@@ -239,10 +284,13 @@ export function toGroupMembershipResponse(
   };
 }
 
-export function toTreeGrantResponse(g: TreeGrant): TreeGrantResponse {
+export function toTreeGrantResponse(
+  g: TreeGrant,
+  ctx: SpaceRpcContext,
+): TreeGrantResponse {
   return {
     principalId: g.principalId,
-    treePath: g.treePath,
+    treePath: displayTreePath(ctx, g.treePath),
     access: g.access,
     createdAt: g.createdAt.toISOString(),
     updatedAt: g.updatedAt?.toISOString() ?? null,

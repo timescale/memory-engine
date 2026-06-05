@@ -20,6 +20,7 @@ import type { HandlerContext } from "../types";
 import {
   callerOwnsAgent,
   guardCore,
+  inputTreePath,
   isSpaceManager,
   ownsTreePath,
   requireSpaceManager,
@@ -50,12 +51,13 @@ async function grantSet(
 ): Promise<GrantSetResult> {
   assertSpaceRpcContext(context);
   const ctx = context as SpaceRpcContext;
-  await requireGrantAuthority(ctx, params.principalId, params.treePath);
+  const treePath = inputTreePath(ctx, params.treePath);
+  await requireGrantAuthority(ctx, params.principalId, treePath);
   await guardCore(() =>
     ctx.core.grantTreeAccess(
       ctx.space.id,
       params.principalId,
-      params.treePath,
+      treePath,
       params.access,
     ),
   );
@@ -68,13 +70,10 @@ async function grantRemove(
 ): Promise<GrantRemoveResult> {
   assertSpaceRpcContext(context);
   const ctx = context as SpaceRpcContext;
-  await requireGrantAuthority(ctx, params.principalId, params.treePath);
+  const treePath = inputTreePath(ctx, params.treePath);
+  await requireGrantAuthority(ctx, params.principalId, treePath);
   const removed = await guardCore(() =>
-    ctx.core.removeTreeAccessGrant(
-      ctx.space.id,
-      params.principalId,
-      params.treePath,
-    ),
+    ctx.core.removeTreeAccessGrant(ctx.space.id, params.principalId, treePath),
   );
   return { removed };
 }
@@ -85,25 +84,26 @@ async function grantList(
 ): Promise<GrantListResult> {
   assertSpaceRpcContext(context);
   const ctx = context as SpaceRpcContext;
+  const treePath =
+    params.treePath !== undefined && params.treePath !== null
+      ? inputTreePath(ctx, params.treePath)
+      : undefined;
   // Authorized when listing your OWN agent's grants, or a subtree you own, or
   // (broadly) as a space manager.
   const ownAgent =
     params.principalId !== undefined &&
     params.principalId !== null &&
     (await callerOwnsAgent(ctx, params.principalId));
-  const pathOwner =
-    params.treePath !== undefined &&
-    params.treePath !== null &&
-    ownsTreePath(ctx, params.treePath);
+  const pathOwner = treePath !== undefined && ownsTreePath(ctx, treePath);
   if (!ownAgent && !pathOwner) {
     requireSpaceManager(ctx);
   }
   const grants = await ctx.core.listTreeAccessGrants(
     ctx.space.id,
     params.principalId ?? undefined,
-    params.treePath ?? undefined,
+    treePath,
   );
-  return { grants: grants.map(toTreeGrantResponse) };
+  return { grants: grants.map((g) => toTreeGrantResponse(g, ctx)) };
 }
 
 export const grantMethods = buildRegistry()

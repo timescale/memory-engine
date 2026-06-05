@@ -5,6 +5,15 @@ export {
   provisionSpace,
 } from "./migrate/migrate";
 export {
+  denormalizeTreePath,
+  HOME_NAMESPACE,
+  homePrefix,
+  normalizeTreeFilter,
+  normalizeTreePath,
+  TreePathError,
+  type TreePathOptions,
+} from "./path";
+export {
   generateSlug,
   isValidSlug,
   isValidSpaceSchema,
