@@ -151,3 +151,55 @@ form — the right convention is what's natural for users, not what ltree accept
       slug/shard handling, template vars). Verified: typecheck/lint clean,
       unit + ghost db suites pass. (bootstrap's lock moved from a hardcoded
       single-key id to the shared two-key derived lock.)
+
+## OS keychain for CLI credentials
+
+The CLI credentials file (`~/.config/me/credentials.yaml`, 0600) stores the
+session token + active space in plaintext. (Api keys are never stored — they
+come from `ME_API_KEY` only.) A code TODO marker lives in
+`packages/cli/credentials.ts`.
+
+- [ ] Move the session token into the OS keychain (macOS `security`, Linux
+      `secret-tool`, Windows credential manager) with a fallback to the 0600
+      file when no keychain is available (CI, headless Linux). The file would
+      then hold only non-secret pointers (`default_server`, `active_space`).
+
+## Refresh `docs/` for the principal / space model
+
+The `docs/` pages (getting-started, concepts, access-control, `cli/*`, `mcp/*`)
+still describe the retired engine / org / role / accounts model. `CLAUDE.md` is
+now the authoritative summary of the current design.
+
+- [ ] Rewrite the docs to the new model: principals (user | agent | group),
+      spaces (immutable slug / renamable name, `X-Me-Space`), 3-level
+      tree-access grants, session-vs-api-key auth, and the
+      `me space/group/access/agent/apikey/memory` command surface. Update
+      `docs/cli/*` (drop engine/org/invitation/user/owner/role; add
+      space/group/access/agent) and `docs/mcp/*`. The docs-site renders these.
+
+## Deploy: env rename coordination (Phase 5)
+
+Phase 5 renamed the server's required DB env var and removed the accounts DB.
+The server throws at boot if `DATABASE_URL` is unset (no back-compat fallback,
+by design).
+
+- [ ] With the `multiplayer` → `main` deploy: set `DATABASE_URL` (was
+      `ENGINE_DATABASE_URL`) in every environment; `ACCOUNTS_DATABASE_URL` is no
+      longer read; pool tunables renamed `ENGINE_POOL_*` → `DB_POOL_*` and
+      `WORKER_ENGINE_*` → `WORKER_*` / `WORKER_DB_*`. The old `accounts` schema
+      (and any old RLS `me_<slug>` engine schemas) are now orphaned — no
+      migration drops them; remove manually if a non-fresh DB ever runs this.
+
+## `me serve` web UI: finish + verify
+
+`packages/web` is the React UI for `me serve`. Its bundled assets
+(`packages/cli/serve/web-assets.generated.ts`) are an empty placeholder,
+`packages/web` is excluded from the root typecheck (and has pre-existing Monaco
+typecheck errors), and there is no serve → `/api/v1/memory/rpc` integration
+test. The `/rpc` proxy + web client are migrated (session token + `X-Me-Space`)
+but unproven at runtime.
+
+- [ ] Build/bundle the web UI (`scripts/bundle-web-assets.ts`), fix the Monaco
+      typecheck errors, and add an end-to-end check that the `me serve` `/rpc`
+      proxy reaches the memory endpoint. Decide whether `packages/web` should be
+      in CI / the root typecheck.
