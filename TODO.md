@@ -3,19 +3,6 @@
 Tracked follow-up work. For the in-progress Bun.SQL → postgres.js driver swap,
 see `CLAUDE.md` → "Database driver migration" (status + per-file recipe).
 
-## Reconsider: api keys for users (not just agents)
-
-Keys are currently agent-only (`apiKey.create` is gated by `requireOwnedAgent`;
-humans authenticate via session). The intended CLI surface treats `ME_API_KEY`
-as pointing to a "user|agent" and `me apikey create` defaulting to self, which
-implies users can mint their own keys.
-
-- [ ] Decide whether to allow user-owned api keys. `validate_api_key` already
-      returns the principal regardless of kind, and `authenticateSpace` would
-      work unchanged — so it's mostly relaxing the `apiKey.create` gate to allow
-      `member == self` (a user) in addition to agents the caller owns. Weigh
-      against the "humans use sessions only" security stance.
-
 ## CLI: `me apikey create <agent>` when the agent isn't in the space
 
 `apiKey.create` requires the agent already be a member of the active space

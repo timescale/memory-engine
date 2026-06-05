@@ -96,3 +96,28 @@ call on owner visibility into agent data. The gate is `and p.kind = 'u'` in
 `packages/database/core/migrate/idempotent/006_membership.sql`.
 
 **Status:** needs review.
+
+---
+
+## Should users be able to mint their own API keys? (currently agent-only)
+
+**Date:** 2026-06-05 · **Area:** auth / api keys
+
+API keys are currently **agent-only**: `apiKey.create` is gated by
+`requireOwnedAgent`, and humans authenticate via session. But the intended CLI
+surface treats `ME_API_KEY` as pointing to a "user | agent" and `me apikey
+create` as defaulting to self — which implies users can mint their own keys.
+
+**The decision:** allow user-owned api keys, or keep "humans use sessions only"?
+
+**Cost if yes (small):** `validate_api_key` already returns the principal
+regardless of kind and `authenticateSpace` works unchanged, so it's mostly
+relaxing the `apiKey.create` gate to allow `member == self` (a user) in addition
+to agents the caller owns.
+
+**Why it's a real decision:** weigh CLI ergonomics (a user scripting against their
+own space without a browser session) against the security stance that human auth
+stays interactive/session-only — an api key is a long-lived bearer secret, so
+making them mintable for users widens that surface.
+
+**Status:** needs decision.
