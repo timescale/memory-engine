@@ -12,6 +12,10 @@
  * <principal> is a UUID, or a name (user = email, agent/group = display name).
  */
 import * as clack from "@clack/prompts";
+import {
+  accessLevelName,
+  parseAccessLevel,
+} from "@memory.build/protocol/space";
 import { Command } from "commander";
 import { resolveCredentials } from "../credentials.ts";
 import { getOutputFormat, output, table } from "../output.ts";
@@ -22,25 +26,6 @@ import {
   requireSpace,
   resolveSpacePrincipalId,
 } from "../util.ts";
-
-/** Access level: r = read (1), w = write (2), o = owner (3). */
-const LEVELS: Record<string, 1 | 2 | 3> = {
-  r: 1,
-  read: 1,
-  w: 2,
-  write: 2,
-  o: 3,
-  owner: 3,
-};
-const LEVEL_NAME: Record<number, string> = {
-  1: "read",
-  2: "write",
-  3: "owner",
-};
-
-function parseLevel(input: string): 1 | 2 | 3 | null {
-  return LEVELS[input.toLowerCase()] ?? null;
-}
 
 function createAccessGrantCommand(): Command {
   return new Command("grant")
@@ -59,7 +44,7 @@ function createAccessGrantCommand(): Command {
         requireSession(creds, fmt);
         requireSpace(creds, fmt);
 
-        const access = parseLevel(level);
+        const access = parseAccessLevel(level);
         if (!access) {
           handleError(
             new Error(`Invalid level '${level}'. Use r, w, or o.`),
@@ -84,7 +69,7 @@ function createAccessGrantCommand(): Command {
             fmt,
             () => {
               clack.log.success(
-                `Granted ${LEVEL_NAME[access]} on '${path}' to ${principal}`,
+                `Granted ${accessLevelName(access)} on '${path}' to ${principal}`,
               );
             },
           );
@@ -173,7 +158,7 @@ function createAccessListCommand(): Command {
             grants.map((g) => [
               names.get(g.principalId) ?? g.principalId,
               g.treePath === "" ? "(root)" : g.treePath,
-              LEVEL_NAME[g.access] ?? String(g.access),
+              accessLevelName(g.access),
             ]),
           );
         });

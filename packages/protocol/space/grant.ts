@@ -16,6 +16,34 @@ export const accessLevelSchema = z.union([
 ]);
 export type AccessLevel = z.infer<typeof accessLevelSchema>;
 
+/** The canonical name for an access level (1 → "read", 2 → "write", 3 → "owner"). */
+export function accessLevelName(
+  level: AccessLevel,
+): "read" | "write" | "owner" {
+  return level === 1 ? "read" : level === 2 ? "write" : "owner";
+}
+
+/**
+ * Parse a human access-level string to its numeric level, or null if unknown.
+ * Accepts the full names (read/write/owner) and single-letter forms (r/w/o),
+ * case-insensitively. The "none" sentinel (no grant) is the caller's concern.
+ */
+export function parseAccessLevel(input: string): AccessLevel | null {
+  switch (input.trim().toLowerCase()) {
+    case "r":
+    case "read":
+      return 1;
+    case "w":
+    case "write":
+      return 2;
+    case "o":
+    case "owner":
+      return 3;
+    default:
+      return null;
+  }
+}
+
 export const treeGrantResponse = z.object({
   principalId: z.string(),
   treePath: z.string(),

@@ -65,6 +65,12 @@ import type {
   GroupRemoveMemberResult,
   GroupRenameParams,
   GroupRenameResult,
+  InviteCreateParams,
+  InviteCreateResult,
+  InviteListParams,
+  InviteListResult,
+  InviteRevokeParams,
+  InviteRevokeResult,
   PrincipalAddParams,
   PrincipalAddResult,
   PrincipalListParams,
@@ -138,6 +144,12 @@ export interface GrantNamespace {
   list(params?: GrantListParams): Promise<GrantListResult>;
 }
 
+export interface InviteNamespace {
+  create(params: InviteCreateParams): Promise<InviteCreateResult>;
+  list(params?: InviteListParams): Promise<InviteListResult>;
+  revoke(params: InviteRevokeParams): Promise<InviteRevokeResult>;
+}
+
 export interface ApiKeyNamespace {
   create(params: ApiKeyCreateParams): Promise<ApiKeyCreateResult>;
   list(params: ApiKeyListParams): Promise<ApiKeyListResult>;
@@ -150,6 +162,7 @@ export interface MemoryClient {
   principal: PrincipalNamespace;
   group: GroupNamespace;
   grant: GrantNamespace;
+  invite: InviteNamespace;
   apiKey: ApiKeyNamespace;
 
   /** Update the bearer token (session or api key) at runtime. */
@@ -213,6 +226,11 @@ export function createMemoryClient(
       set: (p) => rpc("grant.set", p),
       remove: (p) => rpc("grant.remove", p),
       list: (p) => rpc("grant.list", p ?? {}),
+    },
+    invite: {
+      create: (p) => rpc("invite.create", p),
+      list: (p) => rpc("invite.list", p ?? {}),
+      revoke: (p) => rpc("invite.revoke", p),
     },
     apiKey: {
       create: (p) => rpc("apiKey.create", p),

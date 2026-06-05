@@ -6,12 +6,20 @@
  * - me space create <name>:        create a space and make it active
  * - me space rename <space> <name>: rename a space's display label
  * - me space delete <space>:       delete a space and all its data
- * - me space invite <email> [--admin]: add an existing user to the active space
+ * - me space invite <email> [--admin] [--share <level>]: invite by email (adds
+ *     an existing user now, else a pending invite redeemed at their first login)
+ * - me space invite list:          list pending invitations
+ * - me space invite revoke <email>: revoke a pending invitation
  *
  * <space> accepts a slug (exact) or a name (case-insensitive). The slug is the
  * immutable 12-char routing key; the name is the renamable display label.
  */
 import * as clack from "@clack/prompts";
+import {
+  type AccessLevel,
+  accessLevelName,
+  parseAccessLevel,
+} from "@memory.build/protocol/space";
 import type { MemberSpaceResponse } from "@memory.build/protocol/user";
 import { Command } from "commander";
 import { createUserClient } from "../client.ts";
@@ -294,12 +302,33 @@ function createSpaceDeleteCommand(): Command {
     });
 }
 
-function createSpaceInviteCommand(): Command {
-  return new Command("invite")
-    .description("add an existing user to the active space (by email)")
-    .argument("<email>", "the user's email")
-    .option("--admin", "grant space-admin (manage members and groups)")
-    .action(async (email: string, opts, cmd) => {
+/**
+ * Map a `--share` value to the nullable access level: "none" → null (no share
+ * grant), otherwise read/write/owner via the shared parser. Exits on bad input.
+ */
+function parseShareLevel(value: string, fmt: OutputFormat): AccessLevel | null {
+  if (value.trim().toLowerCase() === "none") return null;
+  const level = parseAccessLevel(value);
+  if (level !== null) return level;
+  const msg = `Invalid --share value '${value}'. Use none, read, write, or owner.`;
+  if (fmt === "text") {
+    clack.log.error(msg);
+  } else {
+    output({ error: msg }, fmt, () => {});
+  }
+  process.exit(1);
+}
+
+/** Display label for a stored share-access level (null → "none"). */
+function shareLabel(level: AccessLevel | null): string {
+  return level === null ? "none" : accessLevelName(level);
+}
+
+function createSpaceInviteListCommand(): Command {
+  return new Command("list")
+    .alias("ls")
+    .description("list pending invitations for the active space")
+    .action(async (_opts, cmd) => {
       const globalOpts = cmd.optsWithGlobals();
       const creds = resolveCredentials(globalOpts.server);
       const fmt = getOutputFormat(globalOpts);
@@ -307,32 +336,111 @@ function createSpaceInviteCommand(): Command {
       requireSpace(creds, fmt);
 
       const memory = buildMemoryClient(creds);
-
       try {
-        const { principal } = await memory.principal.resolveByEmail({ email });
-        if (!principal) {
-          const msg = `No user found with email '${email}'. They must sign in once before they can be added.`;
-          if (fmt === "text") {
-            clack.log.error(msg);
-          } else {
-            output({ error: msg }, fmt, () => {});
+        const { invitations } = await memory.invite.list();
+        output({ invitations }, fmt, () => {
+          if (invitations.length === 0) {
+            console.log("  No pending invitations.");
+            return;
           }
-          process.exit(1);
-        }
-
-        const result = await memory.principal.add({
-          principalId: principal.id,
-          admin: opts.admin === true,
-        });
-        output({ email, principalId: principal.id, ...result }, fmt, () => {
-          clack.log.success(
-            `Added ${email} to the space${opts.admin ? " as an admin" : ""}.`,
+          table(
+            ["email", "admin", "share", "invited by", "created"],
+            invitations.map((i) => [
+              i.email,
+              i.admin ? "yes" : "",
+              shareLabel(i.shareAccess),
+              i.invitedByName ?? "",
+              i.createdAt,
+            ]),
           );
         });
       } catch (error) {
         handleError(error, fmt, { sessionServer: creds.server });
       }
     });
+}
+
+function createSpaceInviteRevokeCommand(): Command {
+  return new Command("revoke")
+    .description("revoke a pending invitation by email")
+    .argument("<email>", "the invitee's email")
+    .action(async (email: string, _opts, cmd) => {
+      const globalOpts = cmd.optsWithGlobals();
+      const creds = resolveCredentials(globalOpts.server);
+      const fmt = getOutputFormat(globalOpts);
+      requireSession(creds, fmt);
+      requireSpace(creds, fmt);
+
+      const memory = buildMemoryClient(creds);
+      try {
+        const result = await memory.invite.revoke({ email });
+        output({ email, ...result }, fmt, () => {
+          if (result.revoked) {
+            clack.log.success(`Revoked the invitation for ${email}.`);
+          } else {
+            clack.log.warn(`No pending invitation for ${email}.`);
+          }
+        });
+      } catch (error) {
+        handleError(error, fmt, { sessionServer: creds.server });
+      }
+    });
+}
+
+function createSpaceInviteCommand(): Command {
+  const invite = new Command("invite")
+    .description("invite a user to the active space by email")
+    .argument("[email]", "the invitee's email (omit when using a subcommand)")
+    .option("--admin", "make the user a space admin")
+    .option(
+      "--share <level>",
+      "shared-root access to grant: none | read | write | owner",
+      "read",
+    )
+    .action(async (email: string | undefined, opts, cmd) => {
+      const globalOpts = cmd.optsWithGlobals();
+      const creds = resolveCredentials(globalOpts.server);
+      const fmt = getOutputFormat(globalOpts);
+      requireSession(creds, fmt);
+      requireSpace(creds, fmt);
+
+      if (!email) {
+        const msg =
+          "An email is required: me space invite <email> [--admin] [--share <level>]";
+        if (fmt === "text") {
+          clack.log.error(msg);
+        } else {
+          output({ error: msg }, fmt, () => {});
+        }
+        process.exit(1);
+      }
+
+      const shareAccess = parseShareLevel(opts.share, fmt);
+      const memory = buildMemoryClient(creds);
+      try {
+        const result = await memory.invite.create({
+          email,
+          admin: opts.admin === true,
+          shareAccess,
+        });
+        output({ email, ...result }, fmt, () => {
+          if (result.applied) {
+            clack.log.success(
+              `Added ${email} to the space${opts.admin ? " as an admin" : ""}.`,
+            );
+          } else {
+            clack.log.success(
+              `Invited ${email} — they'll join when they next sign in.`,
+            );
+          }
+        });
+      } catch (error) {
+        handleError(error, fmt, { sessionServer: creds.server });
+      }
+    });
+  invite.addCommand(createSpaceInviteListCommand());
+  invite.addCommand(createSpaceInviteRevokeCommand());
+  return invite;
 }
 
 export function createSpaceCommand(): Command {

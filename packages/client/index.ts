@@ -49,6 +49,7 @@ export {
   createMemoryClient,
   type GrantNamespace,
   type GroupNamespace,
+  type InviteNamespace,
   type MemoryClient,
   type MemoryClientOptions,
   type MemoryNamespace,
