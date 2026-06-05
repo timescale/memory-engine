@@ -11,11 +11,12 @@
 // schema names that are impossible in production:
 //
 //   * `core_test_*` — core tests; production's control plane is the bare `core`.
+//   * `auth_test_*` — auth tests; production's auth schema is the bare `auth`.
 //   * `metest_*`    — space tests; production spaces are `me_<slug>`. Tests
 //                     deliberately provision under the `metest_` prefix (see
-//                     packages/space/migrate/test-utils.ts) so they never share
-//                     a name with a real space, and `metest_` does not start
-//                     with the `me_` engine prefix.
+//                     packages/database/space/migrate/test-utils.ts) so they
+//                     never share a name with a real space, and `metest_` does
+//                     not start with the `me_` engine prefix.
 //
 // The result: pointed at a real database, this script is a no-op — neither
 // pattern can match a production schema.
@@ -32,8 +33,13 @@ import postgres, { type Sql } from "postgres";
 const DEFAULT_TEST_DATABASE_URL =
   "postgresql://postgres@127.0.0.1:5432/postgres";
 
-// Production-impossible test schema patterns. core_test_<rand>, metest_<slug>.
-const TEST_SCHEMA_PATTERNS = ["^core_test_[a-z0-9]+$", "^metest_[a-z0-9]{12}$"];
+// Production-impossible test schema patterns.
+// core_test_<rand>, auth_test_<rand>, metest_<slug>.
+const TEST_SCHEMA_PATTERNS = [
+  "^core_test_[a-z0-9]+$",
+  "^auth_test_[a-z0-9]+$",
+  "^metest_[a-z0-9]{12}$",
+];
 
 const SAFE_IDENTIFIER = /^[a-z_][a-z0-9_]*$/;
 
@@ -52,8 +58,9 @@ function parseArgs(argv: string[]): Options {
         `Usage: ./bun scripts/clean-test-schemas.ts [--all] [--older-than-min N] [--quiet]
 
 Drops orphaned integration-test schemas from TEST_DATABASE_URL (default
-${DEFAULT_TEST_DATABASE_URL}): core_test_* and metest_* schemas. Safe against
-production databases (no-op there — neither pattern can match a real schema).
+${DEFAULT_TEST_DATABASE_URL}): core_test_*, auth_test_*, and metest_* schemas.
+Safe against production databases (no-op there — no pattern can match a real
+schema).
 
   --all                Ignore age; drop every matching schema. Use only when no
                        other test run shares the database.

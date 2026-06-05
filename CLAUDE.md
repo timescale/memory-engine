@@ -9,7 +9,7 @@ All project documentation lives in `docs/`:
 - [Getting Started](docs/getting-started.md) -- install, login, first memory
 - [Core Concepts](docs/concepts.md) -- memories, tree paths, metadata, search modes
 - [File Formats](docs/formats.md) -- JSON, YAML, Markdown, NDJSON import/export schemas
-- [Access Control](docs/access-control.md) -- users, roles, grants, ownership
+- [Access Control](docs/access-control.md) -- principals, groups, tree-access grants
 - [Memory Packs](docs/memory-packs.md) -- pre-built knowledge collections
 - [MCP Integration](docs/mcp-integration.md) -- connecting AI agents
 - [CLI Reference](docs/cli/) -- full command reference
@@ -17,33 +17,55 @@ All project documentation lives in `docs/`:
 
 Read the relevant docs before starting work on a subsystem.
 
+> **Note**: the authoritative summary of the current model (principals / spaces /
+> the auth+core+space schemas) is in this file. Some `docs/` pages still describe
+> the retired engine/org/role model and may lag — trust this file when they
+> disagree, and fix the docs as you touch them.
+
 ## Quick Reference
 
-- **Tech stack**: Bun, TypeScript, PostgreSQL 18 (pgvector, pg_textsearch, ltree, JSONB)
-- **Core schema**: Single table `memory` per engine schema (`me_<slug>`) -- content, meta (JSONB), tree (ltree), temporal (tstzrange), embedding (halfvec(1536))
-- **Search**: Hybrid BM25 + semantic via Reciprocal Rank Fusion
-- **API**: JSON-RPC 2.0 over HTTP -- engine RPC (`/api/v1/engine/rpc`) and accounts RPC (`/api/v1/accounts/rpc`), plus REST auth endpoints (OAuth device flow)
-- **Auth**: Tree-grant RBAC with PostgreSQL RLS; OAuth (GitHub, Google) for hosted accounts
-- **Embedding**: Vercel AI SDK; OpenAI `text-embedding-3-small` (1536-dim) in production; Ollama supported for local dev
-- **CLI**: `me` binary (login, logout, whoami, org, engine, invitation, memory, mcp, user, grant, role, owner, apikey, pack)
+- **Tech stack**: Bun, TypeScript, PostgreSQL 18 (pgvector/halfvec, pg_textsearch BM25, ltree, citext, JSONB), **postgres.js** driver. One database, one pool.
+- **Schemas** (three, one database): `auth` (better-auth-shaped: `users`, `sessions`, `accounts`, `device_authorization`), `core` (control plane: `principal`, `space`, `principal_space`, `group_member`, `tree_access`, `api_key`), and per-space `me_<slug>` (data plane: the single `memory` table). `auth.users.id == core.principal.id` for user principals.
+- **Memory table** (per space): `content`, `meta` (JSONB), `tree` (ltree), `temporal` (tstzrange), `embedding` (halfvec(1536)).
+- **Search**: hybrid BM25 + semantic via Reciprocal Rank Fusion, computed in SQL functions.
+- **Access**: no RLS. `core.build_tree_access(principalId, spaceId)` produces a `_tree_access` jsonb (rows of `tree_path` + `access`) passed into the space SQL functions (`search_memory`, `get_memory`, …). Three additive levels: **1 = read, 2 = write, 3 = owner**; owner@root (the empty ltree path) owns the whole space.
+- **API**: JSON-RPC 2.0 over HTTP, two endpoints:
+  - `/api/v1/memory/rpc` — session **or** api-key bearer + required `X-Me-Space: <slug>` header. Memory data plane (`memory.*`) + space management (`principal.*`, `group.*`, `grant.*`, `apiKey.*`).
+  - `/api/v1/user/rpc` — session only (an api key never authenticates here; agents can't manage agents). `whoami`, `agent.*`, `space.*`.
+  - Plus REST OAuth device-flow endpoints under `/api/v1/auth/*`.
+- **Auth**: humans use a **session token** (OAuth device flow, GitHub/Google); agents use an **api key** (`me.<slug>.<lookupId>.<secret>`). Session + api-key secrets are sha256 (compared by equality in SQL), not argon2.
+- **Embedding**: Vercel AI SDK; OpenAI `text-embedding-3-small` (1536-dim) in production; Ollama supported for local dev.
+- **CLI**: `me` binary — `login`, `logout`, `whoami`, `space`, `group`, `access`, `agent`, `apikey`, `memory` (+ top-level aliases like `me search`, `me create`), `mcp`, `claude`/`codex`/`gemini`/`opencode`, `serve`, `pack`.
+
+## Principals, members, spaces (terminology)
+
+- **Principal** = the union **user | agent | group** (`principal.kind` = `'u'` | `'a'` | `'g'`). The space roster (`principal_space`) holds principals. `principal.member_id` is a generated column equal to `id` for users/agents (NOT groups).
+- **Member** = the **user/agent** sense only — group members and api-key holders. So params split as `principalId` (roster / grants, any kind) vs `memberId` (group membership, api keys; u|a only). The space-roster surface is principal-centric (`principal.*` methods, `SpacePrincipal` type), reserving "member" for u|a.
+- **Space**: identified by an immutable 12-char `slug` (which is the `me_<slug>` schema name, the api-key prefix, and the `X-Me-Space` value) and a renamable `name`. `me space rename` changes only the name. No org / engine / shard concepts.
+- **Admin**: `principal_space.admin` is *structural* authority (manage groups + roster), distinct from data ownership (owner@root via `tree_access`). It transfers **transitively** through a group whose own `principal_space.admin` is true; agents are never admins.
+- **Transitive membership** (Model 2): a group member gains the group's space membership, its space-admin (if the group is admin), and its tree-access grants.
 
 ## Project Structure
 
 ```
 packages/
-  cli/          # CLI and MCP server (the `me` binary)
-  client/       # TypeScript client for the engine API
-  engine/       # Core engine (database operations, search, embedding)
-  protocol/     # Shared types and Zod schemas (JSON-RPC methods)
-  hosted/       # Hosted/multi-tenant provisioning
+  auth/         # auth-schema store: users, sessions, oauth accounts, device flow
+  cli/          # CLI + MCP server (the `me` binary)
+  claude-plugin/# Claude Code plugin (capture hooks, slash commands)
+  client/       # TS client: createMemoryClient + createUserClient (+ auth device flow)
+  database/     # schema migrations (auth, core, space) + shared migrate kit
   docs-site/    # Next.js static site that renders `docs/` for docs.memory.build
+  embedding/    # vector embedding providers (OpenAI, Ollama)
+  engine/       # runtime stores over the SQL functions: core (control plane) + space (data plane)
+  protocol/     # shared Zod schemas + types: memory + space + user contracts; auth/fields/headers/jsonrpc/errors/version
+  server/       # HTTP server, routing, RPC handlers, OAuth, first-login provisioning
+  web/          # React UI served by `me serve` (talks to the same-origin /rpc proxy)
+  worker/       # background embedding queue processor
 packs/            # Memory packs (pre-built knowledge collections)
 docs/
   cli/          # CLI command reference (one file per command group)
   mcp/          # MCP tool reference (one file per tool)
 ```
-
-> **Note**: `packages/hosted` is the target package name; the current implementation is split across `packages/accounts` (org/member/engine management, OAuth), `packages/server` (HTTP server, routing, RPC handlers), `packages/embedding` (vector embedding providers), and `packages/worker` (background embedding queue processor).
 
 ## Build, Lint, and Test
 
@@ -71,6 +93,9 @@ Always use the `./bun` wrapper script (auto-installs the pinned Bun version):
 
 **Important**: After making code changes, always run `./bun run check`.
 
+> `packages/web` and `packages/docs-site` are excluded from the root typecheck
+> (they have their own); `./bun run check` does not cover them.
+
 ### Database integration tests
 
 `*.integration.test.ts` files run against a real PostgreSQL 18 with the
@@ -85,8 +110,8 @@ TEST_DATABASE_URL="$(ghost connect testing_me)" ./bun run test:db
 
 To run a single integration file directly, pass `--timeout 30000` (as `test:db`
 does). bun's default 5s timeout isn't enough over a remote ghost connection —
-the migrating `beforeAll` provisions a full core/space and overruns it, which
-surfaces as a misleading "beforeEach/afterEach hook timed out":
+the migrating `beforeAll` provisions a full auth/core/space and overruns it,
+which surfaces as a misleading "beforeEach/afterEach hook timed out":
 
 ```bash
 TEST_DATABASE_URL="$(ghost connect testing_me)" \
@@ -94,26 +119,26 @@ TEST_DATABASE_URL="$(ghost connect testing_me)" \
 ```
 
 Isolation is **schema-level** (ghost forbids `create database`): each test
-provisions its own schema — `core_test_<rand>` for core, `metest_<slug>` for
-spaces — so the suites are fully concurrent and parallel-safe across files.
-Both core and space migrations are templated, so production uses `core` /
-`me_<slug>` while tests target throwaway schemas and never touch real data.
-Test spaces deliberately use the `metest_` prefix (not the production `me_`)
-via `migrateSpace`'s `schema` override, so leftovers are distinguishable from
-real spaces by name alone.
+provisions its own throwaway schema(s) — `core_test_<rand>` for core,
+`auth_test_<rand>` for auth, `metest_<slug>` for spaces — so the suites are
+fully concurrent and parallel-safe across files. All migrations are templated,
+so production uses `core` / `auth` / `me_<slug>` while tests target throwaway
+schemas and never touch real data. Test spaces deliberately use the `metest_`
+prefix (not the production `me_`) so leftovers are distinguishable from real
+spaces by name alone.
 
 `test:db` first runs `test:db:clean` (`scripts/clean-test-schemas.ts`) to
-reclaim orphaned `core_test_*` / `metest_*` schemas left by hard-interrupted
-runs. It is age-gated (only drops schemas older than 60 min, so a concurrent
-`test:db` sharing the database is safe) and a no-op against a production
-database — neither pattern can match a real schema. Use `test:db:clean:all`
+reclaim orphaned `core_test_*` / `auth_test_*` / `metest_*` schemas left by
+hard-interrupted runs. It is age-gated (only drops schemas older than 60 min, so
+a concurrent `test:db` sharing the database is safe) and a no-op against a
+production database — no pattern can match a real schema. Use `test:db:clean:all`
 for a deliberate full reset when nothing else is using the database.
 
 ## Style Guides
 
 **TypeScript**: Biome for linting and formatting. Config in `biome.json`.
 
-**SQL**: Lowercase keywords, leading-comma table definitions, inline comments after columns, native `uuid` with `uuidv7()`.
+**SQL**: Lowercase keywords, leading-comma table definitions, inline comments after columns, native `uuid` with `uuidv7()`. Logic lives in SQL functions; the TS stores call functions rather than querying tables directly.
 
 ```sql
 create table me.memory
@@ -128,44 +153,29 @@ create table me.memory
 
 ## Key Design Decisions
 
-- **Single table**: All memory types live in `me.memory`. Complexity comes from conventions in `meta` and `tree`, not schema proliferation.
-- **Database-native**: Uses PostgreSQL extensions (ltree, pgvector, JSONB GIN, tstzrange, BM25) instead of application-layer abstractions.
-- **Flexibility over prescription**: `meta` accepts any JSON, `tree` paths are user-defined, `temporal` is optional. No enforced conventions.
-- **MCP compatibility**: All tool parameters are required (nullable for optional). Uses `z.record(z.string(), z.any())` for meta instead of `z.record(z.unknown())` (which crashes the MCP SDK).
+- **One DB, one pool**: `auth` + `core` + every `me_<slug>` live in one Postgres database behind one postgres.js pool (plus a dedicated worker pool). Sharding / pgdog distribution is deferred; the per-slug schema model keeps a future re-split cheap.
+- **Single memory table per space**: all memory lives in `me_<slug>.memory`. Complexity comes from conventions in `meta` and `tree`, not schema proliferation.
+- **Database-native**: PostgreSQL extensions (ltree, pgvector/halfvec, JSONB GIN, tstzrange, BM25) instead of application-layer abstractions.
+- **Access via `tree_access`, not RLS**: RLS was unperformant. `build_tree_access` produces a `_tree_access` jsonb passed into the space functions; there is no `me.user_id` GUC. Three levels (read/write/owner); owner@root delegates within a subtree.
+- **Two endpoints, two auth modes**: memory RPC (session or api key + `X-Me-Space`) vs user RPC (session only). `extractBearerToken` is the one shared auth helper.
+- **Principal vs member** terminology (see above): principal = u|a|g; member/`memberId` = u|a.
+- **CLI credentials**: the credentials file (`~/.config/me/credentials.yaml`, 0600) stores only the **session token + active space** per server. **Api keys are never persisted** — an agent key only ever comes from `ME_API_KEY` (humans authenticate with sessions; `apiKey.create` prints the key once for the operator to place where the agent runs). Env: `ME_SERVER` / `ME_API_KEY` / `ME_SPACE`. *TODO*: move the session token into the OS keychain with a 0600-file fallback.
+- **Header constants** (`CLIENT_VERSION_HEADER`, `SPACE_HEADER`) live in `@memory.build/protocol/headers`.
+- **MCP compatibility**: all tool parameters are required (nullable for optional). Uses `z.record(z.string(), z.any())` for meta instead of `z.record(z.unknown())` (which crashes the MCP SDK).
 
-## Database driver migration: Bun.SQL → postgres.js (in progress)
+## Database driver: postgres.js
 
-**Why:** `Bun.SQL` (`new Bun.SQL(...)`) does not return a pooled connection after a
-query or `begin()` callback errors — after `max` such errors the pool drains and the
-next acquire hangs forever (Bun bug [oven-sh/bun#22395](https://github.com/oven-sh/bun/issues/22395),
-reproduced on 1.3.13 and 1.3.14). Any *expected* constraint violation on a long-lived
-pool — e.g. the engine/accounts pools in `packages/server/index.ts` — can wedge the
-server until restart. Both `postgres` (postgres.js) and `pg` fix it on the Bun runtime;
-we use **postgres.js** because `Bun.SQL`'s API was modeled on it, so it's a near-drop-in.
+The runtime is fully on **postgres.js**. We moved off `Bun.SQL` because it does
+not return a pooled connection after a query or `begin()` callback errors —
+after `max` such errors the pool drains and the next acquire hangs forever (Bun
+bug [oven-sh/bun#22395](https://github.com/oven-sh/bun/issues/22395)). The single
+application pool + the worker pool + all stores and migrations use postgres.js.
+The only remaining `Bun.SQL` use is `scripts/setup.ts`, a dev-only
+create-database helper (short-lived, no long pool — the bug doesn't bite).
 
-**Done & verified (local + ghost):** the migrate path — `packages/database/core/migrate/*`,
-`packages/database/space/migrate/*` (incl. `test-utils.ts`), and `scripts/migrate-db.ts`.
+Gotchas when writing DB code / tests:
 
-**Remaining**, package by package, each behind its own integration tests:
-`packages/engine` (`db.ts`, `ops/*`, `migrate/*`), `packages/accounts` (`db.ts`, `ops/*`,
-`migrate/*`), `packages/server` (`index.ts` pools, `context.ts`, handlers), `packages/worker`.
-Spot-check `halfvec`/`ltree`/`tstzrange` round-trips and the `sql(identifier)` interpolations.
-
-**Per-file recipe:**
-- Add `"postgres": "^3.4.9"` to the package's `package.json`.
-- `import { SQL } from "bun"` → `import postgres from "postgres"` (value) and/or
-  `import type { Sql as SQL } from "postgres"` (type). Type a param that receives a
-  transaction (`sql.begin`'s `tx`) as `ISql<{}>` — both `Sql` and `TransactionSql` extend
-  `ISql`; keep `Sql<{}>` only for code that calls `.begin`.
-- `new Bun.SQL(url, { max, idleTimeout, maxLifetime, connectionTimeout })` →
-  `postgres(url, { max, idle_timeout, max_lifetime, connect_timeout, onnotice: () => {} })`
-  (snake_case; `onnotice` silences routine migration NOTICEs).
-- `sql.close()` → `sql.end()`.
-- `error instanceof SQL.PostgresError` → duck-type (`(error as { position?: unknown }).position`).
-- Rows: postgres.js returns a typed `Row` (index signature), but `noUncheckedIndexedAccess`
-  makes `rows[0]` possibly-`undefined` → `const [row] = ...; row?.col`, and drop
-  `(r: { col: T })` annotations on `.map` callbacks (`r` is `Row`).
-
-**Test gotcha:** `expect(sql\`…\`).rejects` **hangs** in bun:test — it doesn't drive
-postgres.js's lazy `PendingQuery`. Assert query failures with try/catch (see `expectReject`
-in `migrate/test-utils.ts`). `expect(migrateX(…)).rejects` is fine (real async-fn Promise).
+- Pass jsonb to SQL functions via `sql.json(v)` — a raw `JSON.stringify` double-encodes and a raw array sends as a PG array.
+- `noUncheckedIndexedAccess` makes `rows[0]` possibly-`undefined` → `const [row] = ...; row?.col`; don't annotate `.map((r: {col}) => …)` (the row is a typed `Row`).
+- `expect(sql\`…\`).rejects` **hangs** in bun:test — it doesn't drive postgres.js's lazy `PendingQuery`. Assert query failures with try/catch (see `expectReject` in `packages/database/migrate/test-utils.ts`). `expect(migrateX(…)).rejects` is fine (a real async-fn Promise).
+- `to_bm25query(text, index_name text)` — the index name is `text`, not `regclass`. citext function params: compare with `_x::citext` or it silently degrades to case-sensitive `text = text`.
