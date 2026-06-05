@@ -161,3 +161,85 @@ $func$
 language plpgsql volatile security invoker
 set search_path to pg_catalog, {{schema}}, pg_temp
 ;
+
+-------------------------------------------------------------------------------
+-- write-back: complete_embedding / fail_embedding / release_embedding
+-- The worker claims with claim_embedding_batch, generates embeddings out of
+-- band, then finalizes each row through one of these (so the worker holds no
+-- inline SQL). Claim and write-back are separate transactions; on a transient
+-- failure the row keeps outcome NULL and becomes claimable again after its
+-- visibility timeout.
+-------------------------------------------------------------------------------
+
+-- Version-guarded write-back. Writes the embedding to the memory only if its
+-- embedding_version still matches the claimed version, then finalizes the queue
+-- row: 'completed' when written, 'cancelled' when the memory was superseded
+-- (content changed → newer version) or deleted in the meantime. Atomic; returns
+-- the outcome.
+create or replace function {{schema}}.complete_embedding
+( _queue_id bigint
+, _memory_id uuid
+, _embedding_version int
+, _embedding halfvec
+)
+returns text
+as $func$
+declare
+  _updated int;
+  _outcome text;
+begin
+  update {{schema}}.memory
+  set embedding = _embedding
+  where id = _memory_id
+  and embedding_version = _embedding_version
+  ;
+  get diagnostics _updated = row_count;
+
+  _outcome = case when _updated > 0 then 'completed' else 'cancelled' end;
+
+  update {{schema}}.embedding_queue
+  set outcome = _outcome
+  where id = _queue_id
+  ;
+  return _outcome;
+end;
+$func$
+language plpgsql volatile security invoker
+set search_path to pg_catalog, {{schema}}, pg_temp
+;
+
+-- Record a transient embedding error without finalizing: leaves outcome NULL so
+-- the row retries (the claim sweep fails it once attempts are exhausted). No-op
+-- when the row is already terminal or was CASCADE-deleted with its memory.
+create or replace function {{schema}}.fail_embedding
+( _queue_id bigint
+, _error text
+)
+returns void
+as $func$
+  update {{schema}}.embedding_queue
+  set last_error = _error
+  where id = _queue_id
+  and outcome is null
+  ;
+$func$
+language sql volatile security invoker
+set search_path to pg_catalog, {{schema}}, pg_temp
+;
+
+-- Undo the attempt increment from claim (rate-limit backoff): a transient rate
+-- limit must not consume the attempt budget. No-op once the row is terminal.
+create or replace function {{schema}}.release_embedding
+( _queue_id bigint
+)
+returns void
+as $func$
+  update {{schema}}.embedding_queue
+  set attempts = greatest(attempts - 1, 0)
+  where id = _queue_id
+  and outcome is null
+  ;
+$func$
+language sql volatile security invoker
+set search_path to pg_catalog, {{schema}}, pg_temp
+;

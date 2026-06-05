@@ -59,14 +59,16 @@ raw `UPDATE embedding_queue …` / `UPDATE memory SET embedding …` statements,
 against the "logic in DB functions, TS calls functions" principle the rest of
 the cutover follows.
 
-- [ ] Add space SQL functions for the write-back path (e.g.
-      `complete_embedding(queue_id, memory_id, embedding_version, embedding)`
-      that does the version-guarded memory update + sets the queue outcome to
-      `completed`/`cancelled` atomically, plus `fail_embedding(queue_id, error)`
-      and the rate-limit `release_embedding(queue_id)` attempt-undo), and have
-      `process.ts` call those instead of inline SQL. Claim already goes through
-      `claim_embedding_batch`; this finishes the job for the write-back/prune
-      side so the worker holds no embedded SQL.
+- [x] Done (2026-06-05) — added `complete_embedding(queue_id, memory_id,
+      embedding_version, embedding)` (version-guarded memory write + atomic
+      `completed`/`cancelled` queue finalization, returns the outcome),
+      `fail_embedding(queue_id, error)` (record transient error, leave outcome
+      NULL), and `release_embedding(queue_id)` (attempt-undo for rate limits) to
+      `space/migrate/idempotent/003_embedding_queue.sql`. `process.ts` calls them
+      via `tx.unsafe` (like the existing claim/prune); it now holds zero inline
+      DML. Existing process integration tests regression-guard the behavior; new
+      tests cover the functions directly (incl. the write-back-time version
+      mismatch → `cancelled`, and fail/release no-op once terminal).
 
 ## Decision: `core` and `space` are one package (`@memory.build/database`)
 

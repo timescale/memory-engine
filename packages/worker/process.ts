@@ -162,12 +162,9 @@ export async function processBatch(
           await sql.begin(async (tx) => {
             await prepareTx(tx as unknown as Sql, schema, timeouts);
             for (const row of claimed) {
-              await tx.unsafe(
-                `UPDATE ${schema}.embedding_queue
-                 SET attempts = greatest(attempts - 1, 0)
-                 WHERE id = $1 AND outcome IS NULL`,
-                [row.queue_id],
-              );
+              await tx.unsafe(`SELECT ${schema}.release_embedding($1)`, [
+                row.queue_id,
+              ]);
             }
           });
         }
@@ -210,42 +207,29 @@ export async function processBatch(
                   // exhausted. (Row may be CASCADE-deleted if the memory was
                   // deleted; 0 rows updated is fine.)
                   const error = result?.error ?? "No embedding result returned";
-                  await tx.unsafe(
-                    `UPDATE ${schema}.embedding_queue
-                     SET last_error = $1
-                     WHERE id = $2 AND outcome IS NULL`,
-                    [error, row.queue_id],
-                  );
+                  await tx.unsafe(`SELECT ${schema}.fail_embedding($1, $2)`, [
+                    row.queue_id,
+                    error,
+                  ]);
                   failed++;
                   return;
                 }
 
-                // Version-guarded write to memory.
+                // Version-guarded write-back: writes the memory iff its version
+                // still matches the claim and finalizes the queue row —
+                // 'completed', or 'cancelled' if the memory was superseded
+                // (content changed → newer version) or deleted between claim
+                // and embed.
                 const vecLiteral = `[${result.embedding.join(",")}]`;
-                const updated = await tx.unsafe(
-                  `UPDATE ${schema}.memory
-                   SET embedding = $1::halfvec
-                   WHERE id = $2 AND embedding_version = $3
-                   RETURNING id`,
-                  [vecLiteral, row.memory_id, row.embedding_version],
+                await tx.unsafe(
+                  `SELECT ${schema}.complete_embedding($1, $2, $3, $4::halfvec)`,
+                  [
+                    row.queue_id,
+                    row.memory_id,
+                    row.embedding_version,
+                    vecLiteral,
+                  ],
                 );
-
-                if (updated.length === 0) {
-                  // Content changed or memory deleted between claim and embed.
-                  await tx.unsafe(
-                    `UPDATE ${schema}.embedding_queue
-                     SET outcome = 'cancelled'
-                     WHERE id = $1`,
-                    [row.queue_id],
-                  );
-                } else {
-                  await tx.unsafe(
-                    `UPDATE ${schema}.embedding_queue
-                     SET outcome = 'completed'
-                     WHERE id = $1`,
-                    [row.queue_id],
-                  );
-                }
                 succeeded++;
               });
             } catch (error) {
@@ -261,12 +245,10 @@ export async function processBatch(
               try {
                 await sql.begin(async (tx) => {
                   await prepareTx(tx as unknown as Sql, schema, timeouts);
-                  await tx.unsafe(
-                    `UPDATE ${schema}.embedding_queue
-                     SET last_error = $1
-                     WHERE id = $2 AND outcome IS NULL`,
-                    [err.message, row.queue_id],
-                  );
+                  await tx.unsafe(`SELECT ${schema}.fail_embedding($1, $2)`, [
+                    row.queue_id,
+                    err.message,
+                  ]);
                 });
               } catch (recordError) {
                 warning("Failed to record embedding row write-back error", {

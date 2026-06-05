@@ -356,3 +356,98 @@ describe("processBatch integration (space model)", () => {
     expect(result).toEqual({ claimed: 0, succeeded: 0, failed: 0 });
   });
 });
+
+describe("write-back SQL functions", () => {
+  beforeEach(clearPending);
+
+  const zeroVec = `[${Array.from({ length: 1536 }, () => 0).join(",")}]`;
+
+  async function pendingRow(content: string) {
+    const memoryId = await insertMemory(content);
+    const [q] = await getQueueEntries(memoryId);
+    return {
+      memoryId,
+      queueId: q?.id as string,
+      version: Number(q?.embedding_version),
+    };
+  }
+
+  test("complete_embedding writes the vector and marks 'completed' on a version match", async () => {
+    const { memoryId, queueId, version } = await pendingRow("complete me");
+
+    const [r] = (await sql.unsafe(
+      `SELECT ${schema}.complete_embedding($1, $2, $3, $4::halfvec) AS outcome`,
+      [queueId, memoryId, version, zeroVec],
+    )) as { outcome: string }[];
+    expect(r?.outcome).toBe("completed");
+
+    const [mem] = await sql.unsafe(
+      `SELECT embedding FROM ${schema}.memory WHERE id = $1`,
+      [memoryId],
+    );
+    expect(mem?.embedding).not.toBeNull();
+    const [q] = await getQueueEntries(memoryId);
+    expect(q?.outcome).toBe("completed");
+  });
+
+  test("complete_embedding cancels (no write) when the version no longer matches", async () => {
+    const { memoryId, queueId, version } = await pendingRow("superseded");
+
+    const [r] = (await sql.unsafe(
+      `SELECT ${schema}.complete_embedding($1, $2, $3, $4::halfvec) AS outcome`,
+      [queueId, memoryId, version + 1, zeroVec], // stale version
+    )) as { outcome: string }[];
+    expect(r?.outcome).toBe("cancelled");
+
+    const [mem] = await sql.unsafe(
+      `SELECT embedding FROM ${schema}.memory WHERE id = $1`,
+      [memoryId],
+    );
+    expect(mem?.embedding).toBeNull(); // not written
+    const [q] = await getQueueEntries(memoryId);
+    expect(q?.outcome).toBe("cancelled");
+  });
+
+  test("fail_embedding records last_error and leaves outcome NULL; no-op once terminal", async () => {
+    const { memoryId, queueId } = await pendingRow("fail me");
+
+    await sql.unsafe(`SELECT ${schema}.fail_embedding($1, $2)`, [
+      queueId,
+      "boom",
+    ]);
+    let [q] = await getQueueEntries(memoryId);
+    expect(q?.outcome).toBeNull();
+    expect(q?.last_error).toBe("boom");
+
+    // Finalize, then a later fail must not touch the terminal row.
+    await sql.unsafe(
+      `UPDATE ${schema}.embedding_queue SET outcome = 'completed' WHERE id = $1`,
+      [queueId],
+    );
+    await sql.unsafe(`SELECT ${schema}.fail_embedding($1, $2)`, [
+      queueId,
+      "later",
+    ]);
+    [q] = await getQueueEntries(memoryId);
+    expect(q?.outcome).toBe("completed");
+    expect(q?.last_error).toBe("boom"); // unchanged
+  });
+
+  test("release_embedding decrements attempts, floors at 0, no-op once terminal", async () => {
+    const { memoryId, queueId } = await pendingRow("release me");
+    await sql.unsafe(
+      `UPDATE ${schema}.embedding_queue SET attempts = 2 WHERE id = $1`,
+      [queueId],
+    );
+
+    await sql.unsafe(`SELECT ${schema}.release_embedding($1)`, [queueId]);
+    expect(Number((await getQueueEntries(memoryId))[0]?.attempts)).toBe(1);
+
+    await sql.unsafe(
+      `UPDATE ${schema}.embedding_queue SET attempts = 0 WHERE id = $1`,
+      [queueId],
+    );
+    await sql.unsafe(`SELECT ${schema}.release_embedding($1)`, [queueId]);
+    expect(Number((await getQueueEntries(memoryId))[0]?.attempts)).toBe(0);
+  });
+});
