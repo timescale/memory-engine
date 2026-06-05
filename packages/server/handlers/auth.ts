@@ -11,6 +11,7 @@
  */
 
 import type { AuthStore, OAuthProvider } from "@memory.build/auth";
+import { type CoreStore, coreStore } from "@memory.build/engine/core";
 import { info, reportError } from "@pydantic/logfire-node";
 import type { Sql } from "postgres";
 import { buildAuthUrl, exchangeCode, fetchUserInfo } from "../auth/providers";
@@ -179,11 +180,42 @@ export async function deviceVerifyPostHandler(
 }
 
 /**
+ * Redeem pending space invitations for a just-verified login email: join the
+ * user to each invited space (owner@home + the per-invite share level).
+ * Idempotent, and best-effort — a redemption failure is logged and swallowed so
+ * it never fails the sign-in (the next login retries). Returns the number of
+ * spaces joined. The caller MUST have verified the user owns this email first
+ * (invitations are email-keyed; redeeming for an unverified email would let a
+ * caller claim invites sent to an address they don't control).
+ */
+export async function redeemInvitationsForVerifiedLogin(
+  core: CoreStore,
+  userId: string,
+  email: string,
+): Promise<number> {
+  try {
+    const joined = await core.redeemSpaceInvitations(userId, email);
+    if (joined.length > 0) {
+      info("Redeemed space invitations", { email, spaces: joined.length });
+    }
+    return joined.length;
+  } catch (err) {
+    reportError(
+      "Invitation redemption failed (continuing sign-in)",
+      err as Error,
+      { email },
+    );
+    return 0;
+  }
+}
+
+/**
  * GET /api/v1/auth/callback/:provider — OAuth callback.
  *
- * Resolves the user (account → verified email → provision), binds them to the
- * device (status stays 'pending'), and shows the consent page. Authorization
- * only happens when the human approves (POST /device/approve).
+ * Resolves the user (account → verified email → provision), redeems pending
+ * space invitations for the verified email, binds them to the device (status
+ * stays 'pending'), and shows the consent page. Authorization only happens when
+ * the human approves (POST /device/approve).
  */
 export async function oauthCallbackHandler(
   request: Request,
@@ -271,6 +303,14 @@ export async function oauthCallbackHandler(
         info("Provisioned new user", { email: userInfo.email });
       }
     }
+
+    // The email is verified (gated above) → proven owned, so redeem any pending
+    // space invitations sent to it (the user joins each invited space).
+    await redeemInvitationsForVerifiedLogin(
+      coreStore(ctx.db, ctx.coreSchema),
+      userId,
+      userInfo.email,
+    );
 
     // Bind the user; the device stays 'pending' until the human consents.
     await ctx.auth.bindDeviceUser(device.deviceCode, userId);
