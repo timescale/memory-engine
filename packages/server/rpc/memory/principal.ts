@@ -22,6 +22,7 @@ import type { HandlerContext } from "../types";
 import {
   callerOwnsAgentGlobal,
   guardCore,
+  requireSpaceAdmin,
   requireSpaceManager,
   toPrincipalResponse,
   toSpacePrincipalResponse,
@@ -49,13 +50,14 @@ async function principalAdd(
   assertSpaceRpcContext(context);
   const ctx = context as SpaceRpcContext;
   // Bringing your OWN agent into a space is self-service (it stays capped by
-  // your access); adding anyone else requires space-owner authority. A member
-  // can't grant themselves admin on their own agent membership.
+  // your access); adding anyone else is a structural roster change that requires
+  // space-admin (owner@root is not enough). A member can't grant themselves admin
+  // on their own agent membership.
   const ownAgent =
     params.admin !== true &&
     (await callerOwnsAgentGlobal(ctx, params.principalId));
   if (!ownAgent) {
-    requireSpaceManager(ctx);
+    requireSpaceAdmin(ctx);
   }
   await guardCore(() =>
     ctx.core.addPrincipalToSpace(
@@ -73,7 +75,8 @@ async function principalRemove(
 ): Promise<PrincipalRemoveResult> {
   assertSpaceRpcContext(context);
   const ctx = context as SpaceRpcContext;
-  requireSpaceManager(ctx);
+  // Removing a roster member is structural, like adding — space-admin only.
+  requireSpaceAdmin(ctx);
   const removed = await guardCore(() =>
     ctx.core.removePrincipalFromSpace(ctx.space.id, params.principalId),
   );

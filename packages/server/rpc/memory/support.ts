@@ -16,6 +16,7 @@ import type {
   GroupMember,
   GroupMembership,
   Principal,
+  SpaceInvitation,
   SpacePrincipal,
   TreeGrant,
 } from "@memory.build/engine/core";
@@ -26,6 +27,7 @@ import type {
   GroupMembershipResponse,
   GroupResponse,
   PrincipalResponse,
+  SpaceInvitationResponse,
   SpacePrincipalResponse,
   TreeGrantResponse,
 } from "@memory.build/protocol/space";
@@ -305,5 +307,19 @@ export function toApiKeyInfoResponse(k: ApiKeyInfo): ApiKeyInfoResponse {
     name: k.name,
     createdAt: k.createdAt.toISOString(),
     expiresAt: k.expiresAt?.toISOString() ?? null,
+  };
+}
+
+export function toSpaceInvitationResponse(
+  i: SpaceInvitation,
+): SpaceInvitationResponse {
+  return {
+    id: i.id,
+    email: i.email,
+    admin: i.admin,
+    shareAccess: i.shareAccess,
+    invitedBy: i.invitedBy,
+    invitedByName: i.invitedByName,
+    createdAt: i.createdAt.toISOString(),
   };
 }

@@ -224,3 +224,20 @@ but unproven at runtime.
       typecheck errors, and add an end-to-end check that the `me serve` `/rpc`
       proxy reaches the memory endpoint. Decide whether `packages/web` should be
       in CI / the root typecheck.
+
+## Review remaining `requireSpaceManager` endpoints (post INV-4)
+
+INV-4 moved the structural roster mutations (`principal.add`, `principal.remove`)
+and all `invite.*` to `requireSpaceAdmin` (admin only — owner@root is not enough),
+matching group management. The remaining manager-gated endpoints
+(`requireSpaceManager` / `isSpaceManager` = admin **or** owner@root) were left
+as-is and should be reviewed for the same admin-vs-manager question:
+
+- [ ] `principal.list` and `principal.resolveByEmail`
+      (`rpc/memory/principal.ts`) — reads of the roster. Decide whether viewing
+      the roster / resolving a user by email should be admin-only, or whether
+      owner@root is fine (current behavior).
+- [ ] `grant.list` (`rpc/memory/grant.ts`), plus the `isSpaceManager` branch in
+      `requireGrantAuthority` used by `grant.set` / `grant.remove`. These are
+      data-access (owner@path) operations, so manager/owner is probably correct —
+      confirm they should *not* become admin-only.

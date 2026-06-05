@@ -9,6 +9,7 @@ import type { MethodRegistry } from "../types";
 import { apiKeyMethods } from "./api-key";
 import { grantMethods } from "./grant";
 import { groupMethods } from "./group";
+import { invitationMethods } from "./invitation";
 import { memoryDataMethods } from "./memory";
 import { principalMethods } from "./principal";
 
@@ -27,5 +28,6 @@ export const memoryMethods: MethodRegistry = new Map([
   ...principalMethods,
   ...groupMethods,
   ...grantMethods,
+  ...invitationMethods,
   ...apiKeyMethods,
 ]);

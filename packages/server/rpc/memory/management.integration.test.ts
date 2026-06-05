@@ -93,6 +93,14 @@ function makeAgent(owner: string): Promise<string> {
     .createAgent(owner, `agent_${rand(6)}`);
 }
 
+/** Create a registered user with a known email (the invite key), returning its id. */
+async function makeUserWithEmail(email: string): Promise<string> {
+  const [row] = await sql`select uuidv7() as id`;
+  const id = row?.id as string;
+  await engineCore.coreStore(sql, coreSchema).createUser(id, email);
+  return id;
+}
+
 beforeAll(async () => {
   sql = postgres(URL, { onnotice: () => {} });
   authSchema = `auth_test_${rand(8)}`;
@@ -225,6 +233,101 @@ test("grant: set / list / remove", async () => {
       })
     ).removed,
   ).toBe(true);
+});
+
+test("invite.create: a not-yet-registered email creates a pending invite; list + revoke", async () => {
+  const email = `newcomer_${rand(8)}@example.com`;
+  const res = await call<{
+    applied: boolean;
+    invitationId: string | null;
+    principalId: string | null;
+  }>("invite.create", { email, admin: false, shareAccess: 1 });
+  expect(res.applied).toBe(false);
+  expect(res.invitationId).toBeTruthy();
+  expect(res.principalId).toBeNull();
+
+  const { invitations } = await call<{
+    invitations: {
+      email: string;
+      shareAccess: number | null;
+      invitedByName: string | null;
+    }[];
+  }>("invite.list", {});
+  expect(invitations).toHaveLength(1);
+  expect(invitations[0]?.email).toBe(email);
+  expect(invitations[0]?.shareAccess).toBe(1);
+  expect(invitations[0]?.invitedByName).toBe(ownerEmail); // the owner invited
+
+  expect(
+    (await call<{ revoked: boolean }>("invite.revoke", { email })).revoked,
+  ).toBe(true);
+  expect(
+    (await call<{ invitations: unknown[] }>("invite.list", {})).invitations,
+  ).toHaveLength(0);
+});
+
+test("invite.create: an already-registered user is added immediately (no pending invite)", async () => {
+  const email = `existing_${rand(8)}@example.com`;
+  const existingId = await makeUserWithEmail(email);
+
+  const res = await call<{
+    applied: boolean;
+    invitationId: string | null;
+    principalId: string | null;
+  }>("invite.create", { email, admin: true, shareAccess: 2 });
+  expect(res.applied).toBe(true);
+  expect(res.principalId).toBe(existingId);
+  expect(res.invitationId).toBeNull();
+
+  // they are a space admin now, with owner@home + write@share
+  const core = engineCore.coreStore(sql, coreSchema);
+  const principals = await core.listSpacePrincipals(space.id);
+  expect(principals.find((p) => p.id === existingId)?.admin).toBe(true);
+  const ta = await core.buildTreeAccess(existingId, space.id);
+  expect(ta).toContainEqual({
+    tree_path: `home.${existingId.replace(/-/g, "")}`,
+    access: 3,
+  });
+  expect(ta).toContainEqual({ tree_path: "share", access: 2 });
+
+  // joined → not shown as a pending invitation
+  expect(
+    (await call<{ invitations: unknown[] }>("invite.list", {})).invitations,
+  ).toHaveLength(0);
+});
+
+test("invite.* require space-admin authority (owner@root is not enough)", async () => {
+  // a plain member with no authority
+  const plain = await makeUser();
+  const asPlain = {
+    principalId: plain,
+    treeAccess: [] as TreeAccess,
+    admin: false,
+  };
+  await expectAppError(call("invite.list", {}, asPlain), "FORBIDDEN");
+
+  // a member who owns the whole data tree (owner@root) but is NOT a space admin
+  // is still forbidden — inviting is structural, like group management
+  const rootOwner = await makeUser();
+  await call("principal.add", { principalId: rootOwner });
+  await call("grant.set", { principalId: rootOwner, treePath: "", access: 3 });
+  const ta = await engineCore
+    .coreStore(sql, coreSchema)
+    .buildTreeAccess(rootOwner, space.id);
+  const asOwner = { principalId: rootOwner, treeAccess: ta, admin: false };
+  await expectAppError(
+    call(
+      "invite.create",
+      { email: `x_${rand(8)}@example.com`, admin: false, shareAccess: 1 },
+      asOwner,
+    ),
+    "FORBIDDEN",
+  );
+  await expectAppError(call("invite.list", {}, asOwner), "FORBIDDEN");
+  await expectAppError(
+    call("invite.revoke", { email: `x_${rand(8)}@example.com` }, asOwner),
+    "FORBIDDEN",
+  );
 });
 
 test("apiKey: create (agent-only) / list / get / delete", async () => {
@@ -424,7 +527,7 @@ test("group.listForMember: an agent's owner can list its groups", async () => {
   );
 });
 
-test("group management requires admin — owner@root is not enough", async () => {
+test("structural mutations require admin — owner@root is not enough", async () => {
   // a member who owns the whole data tree (owner@root) but is NOT a space admin
   const member = await makeUser();
   await call("principal.add", { principalId: member });
@@ -434,12 +537,22 @@ test("group management requires admin — owner@root is not enough", async () =>
     .buildTreeAccess(member, space.id);
   const as = { principalId: member, treeAccess: ta, admin: false };
 
-  // owner@root can manage the roster and grant access (it's their data)
+  // owner@root can READ the roster and manage grants (it's their data)...
   expect(
     (await call<{ principals: unknown[] }>("principal.list", {}, as)).principals
       .length,
   ).toBeGreaterThan(0);
-  // but groups are structural — admin only
+  // ...but structural changes are admin-only: adding/removing roster members and
+  // creating groups. Owning the data tree is not structural authority.
+  const stranger = await makeUser();
+  await expectAppError(
+    call("principal.add", { principalId: stranger }, as),
+    "FORBIDDEN",
+  );
+  await expectAppError(
+    call("principal.remove", { principalId: member }, as),
+    "FORBIDDEN",
+  );
   await expectAppError(call("group.create", { name: "g" }, as), "FORBIDDEN");
 });
 

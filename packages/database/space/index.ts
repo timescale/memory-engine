@@ -10,6 +10,7 @@ export {
   homePrefix,
   normalizeTreeFilter,
   normalizeTreePath,
+  SHARE_NAMESPACE,
   TreePathError,
   type TreePathOptions,
 } from "./path";

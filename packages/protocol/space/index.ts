@@ -45,6 +45,14 @@ import {
   groupRenameResult,
 } from "./group.ts";
 import {
+  inviteCreateParams,
+  inviteCreateResult,
+  inviteListParams,
+  inviteListResult,
+  inviteRevokeParams,
+  inviteRevokeResult,
+} from "./invitation.ts";
+import {
   principalAddParams,
   principalAddResult,
   principalListParams,
@@ -58,6 +66,7 @@ import {
 export * from "./api-key.ts";
 export * from "./grant.ts";
 export * from "./group.ts";
+export * from "./invitation.ts";
 export * from "./principal.ts";
 
 function method<TParams extends z.ZodType, TResult extends z.ZodType>(
@@ -101,6 +110,11 @@ export const spaceMethods = {
   "grant.set": method(grantSetParams, grantSetResult),
   "grant.remove": method(grantRemoveParams, grantRemoveResult),
   "grant.list": method(grantListParams, grantListResult),
+
+  // Invitations (3) — email-keyed; adds existing users now, else pending
+  "invite.create": method(inviteCreateParams, inviteCreateResult),
+  "invite.list": method(inviteListParams, inviteListResult),
+  "invite.revoke": method(inviteRevokeParams, inviteRevokeResult),
 
   // Api keys (4)
   "apiKey.create": method(apiKeyCreateParams, apiKeyCreateResult),
