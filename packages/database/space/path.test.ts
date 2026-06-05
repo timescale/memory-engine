@@ -84,10 +84,10 @@ describe("homePrefix", () => {
 });
 
 describe("denormalizeTreePath", () => {
-  test("reverse-maps the caller's home to ~ with slash separators", () => {
+  test("reverse-maps the caller's home to ~ with the canonical dot separator", () => {
     expect(denormalizeTreePath(HOME, { home: ID })).toBe("~");
-    expect(denormalizeTreePath(`${HOME}.bar`, { home: ID })).toBe("~/bar");
-    expect(denormalizeTreePath(`${HOME}.a.b`, { home: ID })).toBe("~/a/b");
+    expect(denormalizeTreePath(`${HOME}.bar`, { home: ID })).toBe("~.bar");
+    expect(denormalizeTreePath(`${HOME}.a.b`, { home: ID })).toBe("~.a.b");
   });
 
   test("leaves non-home paths (and other principals' homes) unchanged", () => {
@@ -101,7 +101,7 @@ describe("denormalizeTreePath", () => {
   });
 
   test("round-trips with normalizeTreePath", () => {
-    const display = denormalizeTreePath(`${HOME}.a.b`, { home: ID }); // ~/a/b
+    const display = denormalizeTreePath(`${HOME}.a.b`, { home: ID }); // ~.a.b
     expect(normalizeTreePath(display, { home: ID })).toBe(`${HOME}.a.b`);
   });
 });

@@ -117,14 +117,15 @@ beforeEach(async () => {
 test("~ home + lenient separators normalize on input, reverse-map on output", async () => {
   const home = `home.${principalId.replace(/-/g, "")}`;
 
-  // `~/notes` is stored under the caller's home and reads back as `~/notes`.
+  // `~/notes` (slash accepted on input) stores under the caller's home and
+  // reads back in canonical dot form as `~.notes`.
   const a = await call<{ id: string; tree: string }>("memory.create", {
     content: "home note",
     tree: "~/notes",
   });
-  expect(a.tree).toBe("~/notes");
+  expect(a.tree).toBe("~.notes");
   expect((await call<{ tree: string }>("memory.get", { id: a.id })).tree).toBe(
-    "~/notes",
+    "~.notes",
   );
 
   // The raw stored ltree is home.<id>.notes — proves real expansion, not just display.
@@ -141,12 +142,12 @@ test("~ home + lenient separators normalize on input, reverse-map on output", as
   });
   expect(b.tree).toBe("work.projects");
 
-  // memory.tree with a `~` base finds the home node, reverse-mapped to `~/notes`.
+  // memory.tree with a `~` base finds the home node, reverse-mapped to `~.notes`.
   const tree = await call<{ nodes: { path: string; count: number }[] }>(
     "memory.tree",
     { tree: "~" },
   );
-  expect(tree.nodes.some((n) => n.path === "~/notes")).toBe(true);
+  expect(tree.nodes.some((n) => n.path === "~.notes")).toBe(true);
 
   // An illegal label is a validation error.
   await expectAppError(

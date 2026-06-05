@@ -132,13 +132,11 @@ form — the right convention is what's natural for users, not what ltree accept
       is the single chokepoint for CLI + MCP + web (they send raw input; the
       server normalizes). Includes `~` home directories: a leading `~` expands to
       `home.<principalId-without-hyphens>` (the authenticated caller), reverse-
-      mapped to `~/…` on output for the caller's own home. Labels allow
+      mapped to `~.…` on output for the caller's own home. Labels allow
       `[A-Za-z0-9_-]` (PG16+ hyphens). Malformed input → `VALIDATION_ERROR`.
-- [ ] **Output form is only half-decided.** The caller's home reverse-maps to
-      slash-style `~/a/b`, but non-home paths still display dot-style
-      `work.projects`. Decide whether to unify all output on one separator
-      (dot vs slash) — if slash, update the docs (which use dot) and the
-      `denormalizeTreePath` non-home branch.
+- [x] Output form decided (2026-06-05): **dot is the canonical separator
+      everywhere** (`work.projects`, and home as `~.blah`); slashes are accepted
+      on input but never emitted. Docs already use dots, so no doc change needed.
 - [ ] Reverse-mapping only covers the **caller's own** home (other principals'
       homes show the raw `home.<uuid>.…`). Fine for now; revisit if listing
       other members' home paths becomes common (would need a uuid→`~user` or

@@ -127,9 +127,10 @@ export function normalizeTreeFilter(
 
 /**
  * Reverse of the home expansion, for display. A path under the given
- * principal's home is shown with a leading `~` and slash separators
- * (`home.<id>` → `~`, `home.<id>.a.b` → `~/a/b`); everything else (including
- * other principals' homes) is returned unchanged.
+ * principal's home is shown with a leading `~`, keeping the canonical dot
+ * separator (`home.<id>` → `~`, `home.<id>.a.b` → `~.a.b`); everything else
+ * (including other principals' homes) is returned unchanged. Dot is the
+ * canonical output separator throughout.
  */
 export function denormalizeTreePath(
   path: string,
@@ -139,8 +140,7 @@ export function denormalizeTreePath(
   const prefix = homePrefix(opts.home);
   if (path === prefix) return "~";
   if (path.startsWith(`${prefix}.`)) {
-    const rest = path.slice(prefix.length + 1);
-    return `~/${rest.split(".").join("/")}`;
+    return `~${path.slice(prefix.length)}`; // home.<id>.a.b → ~.a.b
   }
   return path;
 }
