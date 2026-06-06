@@ -28,7 +28,7 @@ decided. Items the redesign lists but the code does **not** build live in §1b.
 | A | Auth tables | `core.session`, `core.oauth_identity`, `core.oauth_flow` live in `core` | Separate `auth` schema (better-auth shaped): `auth.users/sessions/accounts/device_authorization/verifications`; `auth.users.id == core.principal.id` | **Major** | **Keep current** (see §2.A) |
 | B | Tree provisioning / private areas | V1 provisions **no** structure; magic private paths **deferred**; creator gets `owner@root` | Reserved roots `home.<member_id>` (`~` sugar) + `share` (`SHARE_NAMESPACE`); creator gets `admin` + `owner@home` + `owner@share` (**not** `owner@root`); bare create defaults to `share` | **Major** | **Keep current** (UX; see §2.B) |
 | D | Access function | `core.effective_tree_access(_space_id, _principal_id)` → `returns table(tree_path, access)` | `core.build_tree_access(_member_id, _space_id)` → `returns jsonb` | Naming | **Keep current** (see §3.D) |
-| E | API endpoints | A single JSON-RPC API (implied) | **Two** endpoints: `/api/v1/memory/rpc` + `/api/v1/user/rpc`, plus REST `/api/v1/auth/*` | Naming/shape | — |
+| E | API endpoints | A single JSON-RPC API (implied) | **Two** endpoints: `/api/v1/memory/rpc` + `/api/v1/user/rpc`, plus REST `/api/v1/auth/*` | Naming/shape | **Keep current** (see §3.E) |
 
 ### 1b. Not implemented (gaps vs. the redesign)
 
@@ -202,7 +202,7 @@ the weaker spec to be updated. Reasoning per axis:
 
 Per CLAUDE.md the auth gate is "non-empty `build_tree_access`."
 
-### E. Two RPC endpoints, plus REST auth
+### E. Two RPC endpoints, plus REST auth — decision: **keep the current implementation**
 
 The redesign describes "the hosted API server exposes JSON-RPC over HTTPS" as a
 single surface. The implementation splits it (`packages/server/router.ts:252`):
@@ -214,8 +214,27 @@ single surface. The implementation splits it (`packages/server/router.ts:252`):
 - `/api/v1/auth/*` — REST device-flow endpoints (`device/code`, `device/token`,
   `device/verify`, `device/approve`, `callback/:provider`).
 
-The split (agents can't manage agents/spaces) is a real design decision absent
-from the doc.
+**Decision: keep current.** The split isn't arbitrary — it encodes two orthogonal
+policies as endpoint-level invariants:
+
+- **Credential.** `/user/rpc` is session-only — api keys are *rejected*, not just
+  unprivileged (`authenticate-user.ts`). So "agents can't manage agents / keys /
+  spaces" is **impossible by construction**: an agent can't even reach
+  `agent.*` / `apiKey.*` / `space.*`. On a single endpoint this would be a
+  per-method "session-only" flag — a privilege-escalation bug waiting for the
+  first forgotten flag.
+- **Scope.** `/memory/rpc` is space-scoped (required `X-Me-Space`); the
+  `/user/rpc` methods are inherently global/pre-space (`space.list` / `space.create`
+  can't sit behind a space header).
+
+The REST `/auth/*` routes aren't really a divergence: OAuth device flow + provider
+callbacks are redirect/poll/browser-shaped and can't be JSON-RPC methods — the
+redesign's "JSON-RPC over HTTPS" simply omitted that auth must be REST. The cost
+is two client classes (`createMemoryClient` / `createUserClient`) sharing the same
+`protocol` + transport packages — minor. The single-endpoint alternative is
+simpler to *document* but weaker: it demotes a structural security boundary to a
+per-method flag. So this reads as the doc under-specifying, not a considered
+alternative; "JSON-RPC over HTTPS" still describes the data/control plane.
 
 ### CLI verb renames (vs. the redesign's command list)
 
@@ -365,6 +384,6 @@ If REDESIGN.md is meant to track reality, these lines are now stale:
 - Command list: `space alter`→`rename`, `apikey revoke`→`delete`, `agent group
   list`→`agent groups`; add `me agent add`; `me memory copy` and `me user group
   list` are unbuilt; the single-API framing should mention the two RPC endpoints
-  + `/api/v1/auth/*`.
+  + `/api/v1/auth/*` (decided to keep the split — see §3.E).
 - Add the **last-admin safeguard** to a "not yet implemented" list so it isn't
   assumed to exist.
