@@ -37,9 +37,11 @@ Listed in the redesign but not built. Detail in §4.
 | # | Topic | Redesign wants | Status |
 |---|-------|----------------|--------|
 | C | Embedding config | Per-space model/dimension, recorded in `core.space` | Not implemented (hardcoded uniform; templated DDL only) |
-| F | Last-admin safeguard | Must prevent removing/demoting the last admin | Not implemented |
 | G | `me memory copy`/`cp` | Listed in §"Memory Commands" | Not implemented |
 | H | `me user group list` | The one supported `me user` command for v1 | Not implemented |
+
+(Item **F**, the last-admin safeguard, was previously listed here — now
+**implemented**; see §6.)
 
 The agent access-masking model (the part the doc was least confident about) **is**
 implemented as designed — see §6.
@@ -264,9 +266,6 @@ All same-intent, different spelling:
   dimensions`, `core/migrate/incremental/001_space.sql:9`) nor a shard/placement
   column. Consistent with the "no sharding in v1" non-goal, but the per-space
   hooks the redesign called for aren't there yet.
-- **F. Last-admin safeguard.** The redesign requires that no cascade or removal
-  may strip the last `principal_space.admin = true` from a space (§"Last-Admin
-  Safeguard", §`core.principal_space`). No such check exists in SQL or app code.
 - **G. `me memory copy` / `cp`.** Listed in §"Memory Commands"; `move`/`mv`
   exists, `copy`/`cp` does not (`commands/memory.ts`). The MCP server likewise has
   `me_memory_mv` but no copy tool.
@@ -337,6 +336,22 @@ about or most opinionated on, and the code honors them:
   anywhere; hard deletes via FK `on delete cascade` plus explicit cascade
   functions (`remove_principal_from_space`, etc.). Matches §"Deletion and
   Cascading".
+- **Last-admin safeguard** (was item F — now implemented, and stronger than the
+  redesign's wording). A space can't be left without an **effective** admin — a
+  *user* who is a direct admin **or** a member of an admin-flagged group. The
+  `enforce_last_admin` trigger fn (`core/migrate/idempotent/001_principal_space.sql`)
+  fires on `core.principal_space` (admin removed/demoted) **and** `core.group_member`
+  (member removed from an admin group), and rejects any change leaving zero
+  effective admins, raising SQLSTATE `ME001` → `LAST_ADMIN` (`rpc/core-error.ts`).
+  It covers every path uniformly — `principal.remove`, the `add_principal_to_space`
+  demote, removing the last member of the sole admin group, and FK cascades from
+  `delete_principal` (deleting an admin user/group) — and exempts whole-space
+  teardown (`delete_space` drops the `space` row first, so the trigger sees it gone
+  and skips; the `select … for update` also serializes concurrent removals).
+  Checking the *effective* set (not just the `principal_space.admin` flag) closes
+  the brick where a space's sole admin is an **empty admin group** — an
+  unrecoverable, ungoverned state the flag-only check would have allowed. Matches
+  (exceeds) §"Last-Admin Safeguard".
 - **Principal model.** `kind ∈ {u,a,g}`, generated `member_id` (u|a), generated
   `user_id`/`agent_id`/`group_id`, agent `owner_id → principal(user_id)`, name
   scoping (users global, agents per-owner, groups per-space). Matches §`core.principal`.
@@ -385,5 +400,6 @@ If REDESIGN.md is meant to track reality, these lines are now stale:
   list`→`agent groups`; add `me agent add`; `me memory copy` and `me user group
   list` are unbuilt; the single-API framing should mention the two RPC endpoints
   + `/api/v1/auth/*` (decided to keep the split — see §3.E).
-- Add the **last-admin safeguard** to a "not yet implemented" list so it isn't
-  assumed to exist.
+- The **last-admin safeguard** is now implemented (SQLSTATE `ME001` /
+  `LAST_ADMIN`, the `enforce_last_admin` trigger) — keep §"Last-Admin Safeguard"
+  and note the trigger-based enforcement + the admin-group-with-no-members edge.

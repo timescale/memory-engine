@@ -39,6 +39,8 @@ export const APP_ERROR_CODES = {
   FORBIDDEN: "FORBIDDEN",
   NOT_FOUND: "NOT_FOUND",
   CONFLICT: "CONFLICT",
+  /** Operation would leave a space without any admin (the last-admin safeguard). */
+  LAST_ADMIN: "LAST_ADMIN",
   RATE_LIMITED: "RATE_LIMITED",
   VALIDATION_ERROR: "VALIDATION_ERROR",
   EMBEDDING_NOT_CONFIGURED: "EMBEDDING_NOT_CONFIGURED",

@@ -166,6 +166,29 @@ test("principal: list / add / remove", async () => {
   ).toBe(true);
 });
 
+test("last-admin safeguard: removing/demoting the sole admin → LAST_ADMIN", async () => {
+  // the provisioned owner is the space's only admin
+  await expectAppError(
+    call("principal.remove", { principalId: ownerId }),
+    "LAST_ADMIN",
+  );
+  await expectAppError(
+    call("principal.add", { principalId: ownerId, admin: false }),
+    "LAST_ADMIN",
+  );
+
+  // promote a second admin, then the owner can be removed
+  const other = await makeUser();
+  await call("principal.add", { principalId: other, admin: true });
+  expect(
+    (
+      await call<{ removed: boolean }>("principal.remove", {
+        principalId: ownerId,
+      })
+    ).removed,
+  ).toBe(true);
+});
+
 test("principal.resolve / lookup are available to non-admin members (list is admin-only)", async () => {
   const email = `target_${rand(8)}@example.com`;
   const targetId = await makeUserWithEmail(email);

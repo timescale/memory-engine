@@ -5,13 +5,20 @@
 import { AppError } from "./errors";
 
 /**
- * Unique → CONFLICT (e.g. duplicate name); foreign-key / check / bad-input →
- * VALIDATION_ERROR; everything else propagates.
+ * Unique → CONFLICT (e.g. duplicate name); the last-admin guard (ME001) →
+ * LAST_ADMIN; foreign-key / check / bad-input → VALIDATION_ERROR; everything
+ * else propagates.
  */
 function mapCoreError(e: unknown): never {
   const code = (e as { code?: string }).code;
   if (code === "23505") {
     throw new AppError("CONFLICT", "A record with that name already exists");
+  }
+  if (code === "ME001") {
+    throw new AppError(
+      "LAST_ADMIN",
+      "This would leave the space without an admin — promote another principal to admin first.",
+    );
   }
   if (code === "23503" || code === "23514" || code === "22P02") {
     throw new AppError(

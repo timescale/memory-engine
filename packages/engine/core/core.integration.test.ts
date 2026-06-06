@@ -248,3 +248,110 @@ test("api keys: create, get, list, delete (no secret leaked)", async () => {
   expect(await core.getApiKey(key.id)).toBeNull();
   expect(await core.listApiKeys(userId)).toHaveLength(0);
 });
+
+// ---------------------------------------------------------------------------
+// last-admin safeguard (enforce_last_admin trigger on principal_space)
+// ---------------------------------------------------------------------------
+
+/** Assert a promise rejects with the last-admin guard's SQLSTATE (ME001). */
+async function expectLastAdmin(p: Promise<unknown>) {
+  try {
+    await p;
+    throw new Error("expected a last-admin (ME001) rejection, but it resolved");
+  } catch (e) {
+    expect((e as { code?: string }).code).toBe("ME001");
+  }
+}
+
+test("removing the last admin is rejected (ME001)", async () => {
+  // beforeEach made userId the space's sole admin.
+  await expectLastAdmin(core.removePrincipalFromSpace(spaceId, userId));
+  // rolled back — the admin is still a member
+  const all = await core.listSpacePrincipals(spaceId);
+  expect(all.find((p) => p.id === userId)?.admin).toBe(true);
+});
+
+test("demoting the last admin is rejected (ME001)", async () => {
+  await expectLastAdmin(core.addPrincipalToSpace(spaceId, userId, false));
+  const all = await core.listSpacePrincipals(spaceId);
+  expect(all.find((p) => p.id === userId)?.admin).toBe(true);
+});
+
+test("removing a non-last admin succeeds (another admin remains)", async () => {
+  const user2 = await v7();
+  await core.createUser(user2, `admin2_${rand(8)}@example.com`);
+  await core.addPrincipalToSpace(spaceId, user2, true); // 2nd admin
+
+  expect(await core.removePrincipalFromSpace(spaceId, userId)).toBe(true);
+  const admins = (await core.listSpacePrincipals(spaceId)).filter(
+    (p) => p.admin,
+  );
+  expect(admins.map((p) => p.id)).toEqual([user2]);
+});
+
+test("deleting a group that is the space's only admin is rejected (ME001)", async () => {
+  // a fresh space whose sole effective admin is a user via an admin group
+  const sid = await core.createSpace(rand(12), "Group-admin Space");
+  const groupId = await core.createGroup(sid, `admins_${rand(6)}`);
+  await core.addPrincipalToSpace(sid, groupId, true);
+  const member = await v7();
+  await core.createUser(member, `gm_${rand(8)}@example.com`);
+  await core.addGroupMember(sid, groupId, member); // effective admin via the group
+
+  await expectLastAdmin(core.deletePrincipal(groupId));
+  // rolled back — the group is still the space's admin
+  const admins = (await core.listSpacePrincipals(sid)).filter((p) => p.admin);
+  expect(admins.map((p) => p.id)).toContain(groupId);
+});
+
+test("removing the last member of the sole admin group is rejected (ME001)", async () => {
+  const sid = await core.createSpace(rand(12), "Group-admin Space");
+  const groupId = await core.createGroup(sid, `admins_${rand(6)}`);
+  await core.addPrincipalToSpace(sid, groupId, true); // group holds space-admin
+  const member = await v7();
+  await core.createUser(member, `gm_${rand(8)}@example.com`);
+  await core.addGroupMember(sid, groupId, member); // sole effective admin
+
+  // emptying the admin group leaves no effective admin
+  await expectLastAdmin(core.removeGroupMember(sid, groupId, member));
+  expect(
+    (await core.listGroupMembers(sid, groupId)).map((m) => m.memberId),
+  ).toEqual([member]);
+
+  // with a direct admin also present, removing the group member is fine
+  const direct = await v7();
+  await core.createUser(direct, `direct_${rand(8)}@example.com`);
+  await core.addPrincipalToSpace(sid, direct, true);
+  expect(await core.removeGroupMember(sid, groupId, member)).toBe(true);
+});
+
+test("an empty admin group is not an effective admin (the brick is closed)", async () => {
+  const sid = await core.createSpace(rand(12), "Brick Space");
+  const direct = await v7();
+  await core.createUser(direct, `creator_${rand(8)}@example.com`);
+  await core.addPrincipalToSpace(sid, direct, true); // the only real admin
+  const emptyGroup = await core.createGroup(sid, `empties_${rand(6)}`);
+  await core.addPrincipalToSpace(sid, emptyGroup, true); // admin flag, no members
+
+  // the empty admin group confers admin on nobody, so removing the direct admin
+  // would leave the space ungoverned — rejected.
+  await expectLastAdmin(core.removePrincipalFromSpace(sid, direct));
+  const admins = (await core.listSpacePrincipals(sid))
+    .filter((p) => p.admin)
+    .map((p) => p.id)
+    .sort();
+  expect(admins).toEqual([direct, emptyGroup].sort());
+});
+
+test("deleting the whole space is exempt from the guard (teardown)", async () => {
+  // a fresh space with a single admin — deleting the space drops the roster via
+  // FK cascade, which must NOT trip the last-admin guard.
+  const slug = rand(12);
+  const sid = await core.createSpace(slug, "Doomed Space");
+  const admin = await v7();
+  await core.createUser(admin, `doomed_${rand(8)}@example.com`);
+  await core.addPrincipalToSpace(sid, admin, true);
+
+  expect(await core.deleteSpace(slug)).toBe(true);
+  expect(await core.getSpace(slug)).toBeNull();
+});
