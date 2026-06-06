@@ -26,7 +26,7 @@ decided. Items the redesign lists but the code does **not** build live in §1b.
 | # | Topic | Redesign says | Implementation does | Severity | Decision |
 |---|-------|---------------|---------------------|----------|----------|
 | A | Auth tables | `core.session`, `core.oauth_identity`, `core.oauth_flow` live in `core` | Separate `auth` schema (better-auth shaped): `auth.users/sessions/accounts/device_authorization/verifications`; `auth.users.id == core.principal.id` | **Major** | **Keep current** (see §2.A) |
-| B | Tree provisioning / private areas | V1 provisions **no** structure; magic private paths **deferred**; creator gets `owner@root` | Reserved roots `home.<member_id>` (`~` sugar) + `share` (`SHARE_NAMESPACE`); creator gets `admin` + `owner@home` + `owner@share` (**not** `owner@root`); bare create defaults to `share` | **Major** | — |
+| B | Tree provisioning / private areas | V1 provisions **no** structure; magic private paths **deferred**; creator gets `owner@root` | Reserved roots `home.<member_id>` (`~` sugar) + `share` (`SHARE_NAMESPACE`); creator gets `admin` + `owner@home` + `owner@share` (**not** `owner@root`); bare create defaults to `share` | **Major** | **Keep current** (UX; see §2.B) |
 | D | Access function | `core.effective_tree_access(_space_id, _principal_id)` → `returns table(tree_path, access)` | `core.build_tree_access(_member_id, _space_id)` → `returns jsonb` | Naming | **Keep current** (see §3.D) |
 | E | API endpoints | A single JSON-RPC API (implied) | **Two** endpoints: `/api/v1/memory/rpc` + `/api/v1/user/rpc`, plus REST `/api/v1/auth/*` | Naming/shape | — |
 
@@ -105,7 +105,7 @@ Caveats (cost of this choice):
   `DECISIONS_FOR_REVIEW.md` → "No cross-schema FK between `core.principal` and
   `auth.users`" (current call: don't, defer to user-deletion / standalone-users).
 
-### B. Reserved tree paths and provisioning are built, not deferred
+### B. Reserved tree paths and provisioning are built, not deferred — decision: **keep the current implementation**
 
 This is the largest behavioral divergence. The redesign's V1 scope says (§"Private
 Areas", §"me space create"):
@@ -133,6 +133,20 @@ implicit subtraction), so the redesign's *non-goal* of "no negative access" is
 respected. But the **convention layer the redesign deferred is shipped**, and the
 creator's grant is `home`+`share` rather than `root`. Any reader of REDESIGN.md
 would expect a fresh space to be empty and root-owned; it is neither.
+
+**Decision: keep current — implemented deliberately, for UX.** Multiplayer spaces
+need a usable shared/private layout out of the box; making every new space's admin
+design an access model from scratch before writing a single memory is poor
+onboarding. The redesign itself calls the motivation valid and lists the
+shared/private provisioning as a `me space create` **stretch goal** — we chose to
+ship it. Importantly it's built the way the redesign *preferred*: ordinary
+positive ltree grants over conventional `home`/`share` roots, **not** magic
+private-path patterns or implicit deny rules — so the monotonic, no-deny non-goals
+still hold (the access evaluator stays a plain ltree-containment check). The one
+substantive thing to fold into REDESIGN.md is that the creator gets
+`owner@home` + `owner@share` rather than `owner@root` (so a creator doesn't see
+other members' homes; as an admin it can self-grant `owner@root` if it wants the
+whole tree).
 
 ---
 
@@ -338,7 +352,8 @@ If REDESIGN.md is meant to track reality, these lines are now stale:
   decided to keep the separate schema, see §2.A.
 - §"Private Areas" / §"me space create": the `home`/`share`/`~` convention and the
   creator's `owner@home`+`owner@share` (not `owner@root`) grant are shipped, not
-  deferred — update the V1 scope.
+  deferred — decided to keep (implemented for UX, see §2.B); promote the
+  shared/private provisioning from stretch goal to V1 scope.
 - §"Space": `core.space` does not yet carry embedding or placement columns
   (there's a TODO); embedding is hardcoded uniform. Either implement or downgrade
   the prose to "future."
