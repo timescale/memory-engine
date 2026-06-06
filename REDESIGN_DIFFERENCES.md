@@ -25,7 +25,7 @@ decided. Items the redesign lists but the code does **not** build live in §1b.
 
 | # | Topic | Redesign says | Implementation does | Severity | Decision |
 |---|-------|---------------|---------------------|----------|----------|
-| A | Auth tables | `core.session`, `core.oauth_identity`, `core.oauth_flow` live in `core` | Separate `auth` schema (better-auth shaped): `auth.users/sessions/accounts/device_authorization/verifications`; `auth.users.id == core.principal.id` | **Major** | — |
+| A | Auth tables | `core.session`, `core.oauth_identity`, `core.oauth_flow` live in `core` | Separate `auth` schema (better-auth shaped): `auth.users/sessions/accounts/device_authorization/verifications`; `auth.users.id == core.principal.id` | **Major** | **Keep current** (see §2.A) |
 | B | Tree provisioning / private areas | V1 provisions **no** structure; magic private paths **deferred**; creator gets `owner@root` | Reserved roots `home.<member_id>` (`~` sugar) + `share` (`SHARE_NAMESPACE`); creator gets `admin` + `owner@home` + `owner@share` (**not** `owner@root`); bare create defaults to `share` | **Major** | — |
 | D | Access function | `core.effective_tree_access(_space_id, _principal_id)` → `returns table(tree_path, access)` | `core.build_tree_access(_member_id, _space_id)` → `returns jsonb` | Naming | **Keep current** (see §3.D) |
 | E | API endpoints | A single JSON-RPC API (implied) | **Two** endpoints: `/api/v1/memory/rpc` + `/api/v1/user/rpc`, plus REST `/api/v1/auth/*` | Naming/shape | — |
@@ -48,7 +48,7 @@ implemented as designed — see §6.
 
 ## 2. Architectural divergences
 
-### A. Auth lives in a separate `auth` schema, not in `core`
+### A. Auth lives in a separate `auth` schema, not in `core` — decision: **keep the current implementation**
 
 The redesign places all authentication state in `core`: `core.session`,
 `core.oauth_identity`, `core.oauth_flow`. The implementation instead uses a
@@ -67,6 +67,43 @@ Net effect: the "authorization boundary lives entirely in `core`" framing in the
 redesign (§"Authorization Boundary") is true for *authorization* (principals,
 grants, groups) but **not** for *authentication* — authentication is its own
 schema. The redesign never mentions an `auth` schema or better-auth.
+
+After evaluating the two, **keep the separate `auth` schema** and update
+REDESIGN.md to describe it (per §7). Reasoning:
+
+- **Separation of concerns is real.** Authn (sessions, OAuth secrets, device
+  codes, PKCE, verification, expiry sweeps) and authz (the grant graph) have
+  different security surfaces and change cadences. Intermingling token/secret
+  tables with the grant graph — which every group/membership migration touches —
+  is exactly what you want to avoid, and it's consistent with the design's own
+  clean authz boundary (the `_tree_access` seam).
+- **An established auth *shape* beats greenfield SQL auth.** The redesign's
+  `core.oauth_flow`/`oauth_identity`/`session` are underspecified, hand-rolled
+  auth. Mirroring better-auth's vetted model (account linking, multi-provider,
+  verification, session lifecycle) is lower-risk and leaves a credible path to
+  adopt the library or a managed service later.
+- **The shared-id pattern neutralizes the redesign's main edge.**
+  `auth.users.id == core.principal.id` is the standard "identity table ↔ domain
+  entity share a PK" pattern: no mapping table, no meaningful duplication — two
+  concern-specific rows under one id, written atomically by `provisionUser`
+  (`packages/server/provision.ts:80,89`). You keep ~all the simplicity of "one
+  identity" while keeping the boundary.
+- **Preserves optionality.** The deliberate absence of a cross-schema FK keeps
+  `auth` splittable onto its own DB/service later (`packages/database/index.ts`
+  notes it could be "distributed across databases again").
+
+Caveats (cost of this choice):
+
+- It follows better-auth's **shape**, not the library — `packages/auth` depends
+  only on `@memory.build/database` + `postgres`, with deliberate divergences
+  (sha256 `token_hash`; a bespoke `device_authorization`). So the win is a vetted
+  schema + upgrade path, not free battle-tested code.
+- `auth.verifications` is a **dead table** carried for shape parity (never
+  written).
+- The `auth.users` ⇄ `core.principal` invariant is **app-enforced only** (no DB
+  FK). Whether to add one is its own decision — see
+  `DECISIONS_FOR_REVIEW.md` → "No cross-schema FK between `core.principal` and
+  `auth.users`" (current call: don't, defer to user-deletion / standalone-users).
 
 ### B. Reserved tree paths and provisioning are built, not deferred
 
@@ -297,7 +334,8 @@ about or most opinionated on, and the code honors them:
 If REDESIGN.md is meant to track reality, these lines are now stale:
 
 - Move `core.session` / `core.oauth_identity` / `core.oauth_flow` out of the
-  `core` section and document the separate `auth` schema (better-auth shape).
+  `core` section and document the separate `auth` schema (better-auth shape) —
+  decided to keep the separate schema, see §2.A.
 - §"Private Areas" / §"me space create": the `home`/`share`/`~` convention and the
   creator's `owner@home`+`owner@share` (not `owner@root`) grant are shipped, not
   deferred — update the V1 scope.

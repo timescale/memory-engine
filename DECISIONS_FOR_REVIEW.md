@@ -121,3 +121,53 @@ stays interactive/session-only — an api key is a long-lived bearer secret, so
 making them mintable for users widens that surface.
 
 **Status:** needs decision.
+
+---
+
+## No cross-schema FK between `core.principal` and `auth.users`
+
+**Date:** 2026-06-06 · **Area:** auth / core schema boundary
+
+For a user principal, `auth.users.id == core.principal.id`. That invariant is
+**app-enforced only** — `provisionUser` writes both rows with the same id in one
+`sql.begin` transaction (`packages/server/provision.ts:80,89`), and the two
+schemas reference each other nowhere (`core.principal` has no FK to `auth.users`;
+the `auth` migrations never mention `core`). **Decision: keep it app-enforced —
+do not add a DB-level cross-schema FK now.**
+
+**Alternative considered:** add `core.principal.user_id references auth.users(id)
+on delete cascade`. This is clean in shape — `user_id` is the generated column
+(`= id` when `kind='u'`, else null) and FKs ignore null columns, so it would
+constrain *only* user principals and leave agents/groups untouched; the cascade
+would also make "delete an identity" tear down the principal + its grant graph in
+one statement.
+
+**Why defer:**
+
+- **It makes migration order load-bearing, and today it isn't.** `auth` and
+  `core` are independent migrate runners; call sites order them inconsistently
+  (`authenticate-space` migrates auth→core; the agent/api-key integration tests
+  migrate core→auth). A core→auth FK forces auth-before-core everywhere and would
+  require standardizing production orchestration + fixing those test setups.
+- **It forecloses the deliberate split-DB hedge.** The no-FK decoupling is
+  intentional — `packages/database/index.ts` notes `auth` could be "distributed
+  across databases again" (it *was* a separate DB before the recent
+  consolidation). A cross-schema FK only works within one database.
+- **The drift it guards against is near-zero today.** The invariant has exactly
+  one writer (`provisionUser`, atomic), there's no user-deletion flow yet, and in
+  v1 every user principal is created via OAuth login (so always has an
+  `auth.users` row).
+- **It would prematurely settle a deferred design question** — "standalone
+  non-OAuth users" (service accounts) are deferred; a hard FK bakes in "every user
+  principal has an `auth.users` row," which should be decided when that lands.
+
+**How to change it (add the FK):** add `core.principal.user_id references
+auth.users(id) on delete cascade` (uses the existing u-only generated column),
+standardize the migration order to **auth-first** (production + the integration
+test `beforeAll`s), and decide whether standalone users get an `auth.users`
+identity row. The natural moment is when adding a `user delete` flow or finalizing
+standalone users — the cascade-on-identity-delete becomes a concrete win then. A
+cheap interim guard: a test asserting every `core.principal` `kind='u'` has a
+matching `auth.users` and vice versa.
+
+**Status:** decided (defer); revisit with user-deletion / standalone users.
