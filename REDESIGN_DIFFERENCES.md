@@ -29,6 +29,7 @@ decided. Items the redesign lists but the code does **not** build live in §1b.
 | B | Tree provisioning / private areas | V1 provisions **no** structure; magic private paths **deferred**; creator gets `owner@root` | Reserved roots `home.<member_id>` (`~` sugar) + `share` (`SHARE_NAMESPACE`); creator gets `admin` + `owner@home` + `owner@share` (**not** `owner@root`); bare create defaults to `share` | **Major** | **Keep current** (UX; see §2.B) |
 | D | Access function | `core.effective_tree_access(_space_id, _principal_id)` → `returns table(tree_path, access)` | `core.build_tree_access(_member_id, _space_id)` → `returns jsonb` | Naming | **Keep current** (see §3.D) |
 | E | API endpoints | A single JSON-RPC API (implied) | **Two** endpoints: `/api/v1/memory/rpc` + `/api/v1/user/rpc`, plus REST `/api/v1/auth/*` | Naming/shape | **Keep current** (see §3.E) |
+| H | User group listing | `me user group list <user>` (the one `me user` command) | `me group mine` lists your own groups (`whoami` + `group.listForMember`); no `me user` CLI for another user (the RPC already allows it for a space admin) | Partial | **Keep current** — `me group mine` serves the common (self) case; the `me user` surface stays deferred (admins can use the RPC for others) |
 
 ### 1b. Not implemented (gaps vs. the redesign)
 
@@ -38,10 +39,10 @@ Listed in the redesign but not built. Detail in §4.
 |---|-------|----------------|--------|
 | C | Embedding config | Per-space model/dimension, recorded in `core.space` | Not implemented (hardcoded uniform; templated DDL only) |
 | G | `me memory copy`/`cp` | Listed in §"Memory Commands" | Not implemented |
-| H | `me user group list` | The one supported `me user` command for v1 | Not implemented |
 
 (Item **F**, the last-admin safeguard, was previously listed here — now
-**implemented**; see §6.)
+**implemented**; see §6. Item **H**, user group listing, moved to §1a — it's
+partly built via `me group mine`.)
 
 The agent access-masking model (the part the doc was least confident about) **is**
 implemented as designed — see §6.
@@ -269,8 +270,6 @@ All same-intent, different spelling:
 - **G. `me memory copy` / `cp`.** Listed in §"Memory Commands"; `move`/`mv`
   exists, `copy`/`cp` does not (`commands/memory.ts`). The MCP server likewise has
   `me_memory_mv` but no copy tool.
-- **H. `me user group list <user>`.** The redesign names this the single
-  supported `me user` command for v1; there is **no `me user` command** at all.
 - **Verified-email enforcement on invite acceptance.** The redesign (§`core.space_invitation`)
   wants acceptance to require an OAuth-verified email matching the invitation
   ("possession of an invite link alone should not be sufficient"). Invitations

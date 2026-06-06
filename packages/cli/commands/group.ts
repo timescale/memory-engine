@@ -5,6 +5,7 @@
  * everyone in the group. Group membership also confers space membership.
  *
  * - me group list:                       list groups
+ * - me group mine:                       list the groups you are in
  * - me group create <name>:              create a group
  * - me group rename <group> <new-name>:  rename a group
  * - me group delete <group>:             delete a group
@@ -27,6 +28,7 @@ import {
 } from "../output.ts";
 import {
   buildMemoryClient,
+  buildUserClient,
   handleError,
   requireSession,
   requireSpace,
@@ -263,11 +265,45 @@ function createGroupMembersCommand(): Command {
     });
 }
 
+function createGroupMineCommand(): Command {
+  return new Command("mine")
+    .description("list the groups you are in (in the active space)")
+    .action(async (_opts, cmd) => {
+      const globalOpts = cmd.optsWithGlobals();
+      const creds = resolveCredentials(globalOpts.server);
+      const fmt = getOutputFormat(globalOpts);
+      requireSession(creds, fmt);
+      requireSpace(creds, fmt);
+
+      const user = buildUserClient(creds);
+      const memory = buildMemoryClient(creds);
+      try {
+        const me = await user.whoami();
+        const { groups } = await memory.group.listForMember({
+          memberId: me.id,
+        });
+        output({ groups }, fmt, () => {
+          if (groups.length === 0) {
+            console.log("  You're not in any groups in this space.");
+            return;
+          }
+          table(
+            ["group", "admin", "id"],
+            groups.map((g) => [g.name, g.admin ? "yes" : "", g.groupId]),
+          );
+        });
+      } catch (error) {
+        handleError(error, fmt, { sessionServer: creds.server });
+      }
+    });
+}
+
 export function createGroupCommand(): Command {
   const group = new Command("group").description(
     "manage groups in the active space",
   );
   group.addCommand(createGroupListCommand());
+  group.addCommand(createGroupMineCommand());
   group.addCommand(createGroupCreateCommand());
   group.addCommand(createGroupRenameCommand());
   group.addCommand(createGroupDeleteCommand());
