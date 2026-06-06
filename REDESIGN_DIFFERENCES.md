@@ -245,9 +245,10 @@ All same-intent, different spelling:
 
 - `me space alter` → **`me space rename`** (`commands/space.ts:212`).
 - `me agent group list` → **`me agent groups`** (`commands/agent.ts:161`).
-- `me apikey revoke` → **`me apikey delete`/`rm`** (+ a `me apikey get`)
-  (`commands/apikey.ts`). The rename aligns with the doc's own "no soft delete /
-  hard delete" stance, but the doc text still says `revoke`.
+- `me apikey revoke` → **`me apikey delete`** (aliases `rm`, `revoke`) (+ a
+  `me apikey get`) (`commands/apikey.ts`). Canonical verb is `delete` (aligning
+  with the "no soft delete / hard delete" stance — revoke ≡ delete); `revoke` is
+  kept as an alias for familiarity.
 - `me group member add/remove/list` → **`me group add` / `remove`(`rm-member`) /
   `members`** (`commands/group.ts`).
 

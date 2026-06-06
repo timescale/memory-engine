@@ -125,7 +125,7 @@ function createApiKeyGetCommand(): Command {
 
 function createApiKeyDeleteCommand(): Command {
   return new Command("delete")
-    .alias("rm")
+    .aliases(["rm", "revoke"])
     .description("delete (revoke) an API key")
     .argument("<id>", "API key id")
     .option("-y, --yes", "skip confirmation prompt")
