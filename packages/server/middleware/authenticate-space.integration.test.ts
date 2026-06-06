@@ -10,12 +10,14 @@ import { afterAll, beforeAll, expect, test } from "bun:test";
 import { authStore } from "@memory.build/auth";
 import {
   bootstrapSpaceDatabase,
+  generateSlug,
   migrateAuth,
   migrateCore,
+  provisionSpace,
 } from "@memory.build/database";
 import * as engineCore from "@memory.build/engine/core";
 import postgres, { type Sql } from "postgres";
-import { provisionUser } from "../provision";
+import { addSpaceCreator, provisionUser } from "../provision";
 import { authenticateSpace, SPACE_HEADER } from "./authenticate-space";
 
 const URL =
@@ -125,11 +127,7 @@ test("api key: agent of the space resolves with apiKeyId set", async () => {
     engineCore.ACCESS.read,
   );
   const key = await core.createApiKey(agentId, "ci");
-  const fullKey = engineCore.formatApiKey(
-    p.spaceSlug,
-    key.lookupId,
-    key.secret,
-  );
+  const fullKey = engineCore.formatApiKey(key.lookupId, key.secret);
 
   const result = await authenticateSpace(
     req({ token: fullKey, space: p.spaceSlug }),
@@ -140,6 +138,55 @@ test("api key: agent of the space resolves with apiKeyId set", async () => {
     expect(result.context.principalId).toBe(agentId);
     expect(result.context.apiKeyId).not.toBeNull();
     expect(result.context.treeAccess.length).toBeGreaterThan(0);
+  }
+});
+
+test("api key is global: one key authenticates into every space the agent belongs to", async () => {
+  const p = await provision();
+  const core = engineCore.coreStore(sql, coreSchema);
+
+  // A second space also created by p, so p (the agent's owner) has access in
+  // both — the agent's effective access is clamped to its owner's.
+  const slug2 = generateSlug();
+  const spaceId2 = await core.createSpace(slug2, "second");
+  await provisionSpace(sql, { slug: slug2 });
+  createdSpaceSchemas.push(`me_${slug2}`);
+  await addSpaceCreator(core, spaceId2, p.userId);
+
+  const agentId = await core.createAgent(p.userId, `agent-${rand()}`);
+  for (const sid of [p.spaceId, spaceId2]) {
+    await core.addPrincipalToSpace(sid, agentId);
+    await core.grantTreeAccess(sid, agentId, "share", engineCore.ACCESS.read);
+  }
+  const key = await core.createApiKey(agentId, "ci");
+  const fullKey = engineCore.formatApiKey(key.lookupId, key.secret);
+
+  for (const slug of [p.spaceSlug, slug2]) {
+    const result = await authenticateSpace(
+      req({ token: fullKey, space: slug }),
+      deps(),
+    );
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.context.principalId).toBe(agentId);
+  }
+});
+
+test("legacy 4-part api key → 401 with a LEGACY_API_KEY recreate message", async () => {
+  const p = await provision();
+  // A token shaped like the retired me.<slug>.<lookup>.<secret> format.
+  const legacy = `me.${p.spaceSlug}.${"a".repeat(16)}.${"s".repeat(32)}`;
+  const result = await authenticateSpace(
+    req({ token: legacy, space: p.spaceSlug }),
+    deps(),
+  );
+  expect(result.ok).toBe(false);
+  if (!result.ok) {
+    expect(result.error.status).toBe(401);
+    const body = (await result.error.json()) as {
+      error: { code: string; message: string };
+    };
+    expect(body.error.code).toBe("LEGACY_API_KEY");
+    expect(body.error.message).toContain("me apikey create");
   }
 });
 
@@ -179,30 +226,28 @@ test("invalid session token → 401", async () => {
   if (!result.ok) expect(result.error.status).toBe(401);
 });
 
-test("api key slug ≠ header → 400 (SPACE_MISMATCH)", async () => {
+test("api key: agent with no access in the requested space → 403", async () => {
   const p = await provision();
   const other = await provision();
   const core = engineCore.coreStore(sql, coreSchema);
   const agentId = await core.createAgent(p.userId, `agent-${rand()}`);
+  await core.addPrincipalToSpace(p.spaceId, agentId);
   await core.grantTreeAccess(
     p.spaceId,
     agentId,
-    engineCore.ROOT_PATH,
+    "share",
     engineCore.ACCESS.read,
   );
   const key = await core.createApiKey(agentId, "ci");
-  // key minted for p's slug, but header points at a different space
-  const fullKey = engineCore.formatApiKey(
-    p.spaceSlug,
-    key.lookupId,
-    key.secret,
-  );
+  // A valid global key, but the agent has no access in `other` — the access gate
+  // (build_tree_access empty) denies it rather than a parse-time rejection.
+  const fullKey = engineCore.formatApiKey(key.lookupId, key.secret);
   const result = await authenticateSpace(
     req({ token: fullKey, space: other.spaceSlug }),
     deps(),
   );
   expect(result.ok).toBe(false);
-  if (!result.ok) expect(result.error.status).toBe(400);
+  if (!result.ok) expect(result.error.status).toBe(403);
 });
 
 test("session: member of another space has no grant here → 403", async () => {

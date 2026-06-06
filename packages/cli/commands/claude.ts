@@ -57,6 +57,10 @@ function createClaudeInstallCommand(): Command {
     .option("--api-key <key>", "API key to embed in MCP config")
     .option("--server <url>", "server URL to embed in MCP config")
     .option(
+      "--space <slug>",
+      "space to embed in MCP config (else ME_SPACE / active space)",
+    )
+    .option(
       "-s, --scope <scope>",
       `Claude Code config scope (${CLAUDE_SCOPES.join(", ")})`,
       parseClaudeScope,
@@ -71,6 +75,7 @@ function createClaudeInstallCommand(): Command {
         await runAgentMcpInstall("claude", {
           apiKey: opts.apiKey,
           server: globalOpts.server ?? opts.server,
+          space: opts.space,
           scope: opts.scope,
         });
       },

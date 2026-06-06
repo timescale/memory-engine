@@ -2,8 +2,9 @@
  * User client — session-only, user-scoped operations.
  *
  * Talks to POST /api/v1/user/rpc, authenticated by a session token. Namespaces:
- * agent (a user's global service accounts) and space (discover/create/manage the
- * user's spaces — used by the CLI to pick the active X-Me-Space).
+ * agent (a user's global service accounts), apiKey (those agents' global keys),
+ * and space (discover/create/manage the user's spaces — used by the CLI to pick
+ * the active X-Me-Space).
  */
 import type {
   AgentCreateParams,
@@ -14,6 +15,14 @@ import type {
   AgentListResult,
   AgentRenameParams,
   AgentRenameResult,
+  ApiKeyCreateParams,
+  ApiKeyCreateResult,
+  ApiKeyDeleteParams,
+  ApiKeyDeleteResult,
+  ApiKeyGetParams,
+  ApiKeyGetResult,
+  ApiKeyListParams,
+  ApiKeyListResult,
   SpaceCreateParams,
   SpaceCreateResult,
   SpaceDeleteParams,
@@ -49,6 +58,13 @@ export interface AgentNamespace {
   delete(params: AgentDeleteParams): Promise<AgentDeleteResult>;
 }
 
+export interface ApiKeyNamespace {
+  create(params: ApiKeyCreateParams): Promise<ApiKeyCreateResult>;
+  list(params: ApiKeyListParams): Promise<ApiKeyListResult>;
+  get(params: ApiKeyGetParams): Promise<ApiKeyGetResult>;
+  delete(params: ApiKeyDeleteParams): Promise<ApiKeyDeleteResult>;
+}
+
 export interface SpaceNamespace {
   list(params?: SpaceListParams): Promise<SpaceListResult>;
   create(params: SpaceCreateParams): Promise<SpaceCreateResult>;
@@ -60,6 +76,7 @@ export interface UserClient {
   /** The identity behind the session token. */
   whoami(params?: WhoamiParams): Promise<WhoamiResult>;
   agent: AgentNamespace;
+  apiKey: ApiKeyNamespace;
   space: SpaceNamespace;
   /** Update the session token at runtime. */
   setToken(token: string): void;
@@ -91,6 +108,12 @@ export function createUserClient(options: UserClientOptions = {}): UserClient {
       list: (p) => rpc("agent.list", p ?? {}),
       rename: (p) => rpc("agent.rename", p),
       delete: (p) => rpc("agent.delete", p),
+    },
+    apiKey: {
+      create: (p) => rpc("apiKey.create", p),
+      list: (p) => rpc("apiKey.list", p),
+      get: (p) => rpc("apiKey.get", p),
+      delete: (p) => rpc("apiKey.delete", p),
     },
     space: {
       list: (p) => rpc("space.list", p ?? {}),

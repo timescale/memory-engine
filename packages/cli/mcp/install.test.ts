@@ -6,13 +6,17 @@ import { buildMeCommand, buildOpenCodeConfig, MCP_TOOLS } from "./install.ts";
 
 describe("buildMeCommand", () => {
   test("uses bare 'me' command on PATH", () => {
-    const cmd = buildMeCommand("test-key-123", "https://api.memory.build");
+    const cmd = buildMeCommand(
+      "test-key-123",
+      "https://api.memory.build",
+      "abc123def456",
+    );
     expect(cmd[0]).toBe("me");
     expect(cmd[1]).toBe("mcp");
   });
 
-  test("includes --api-key and --server with correct values", () => {
-    const cmd = buildMeCommand("k", "https://example.com");
+  test("includes --api-key, --server, and --space with correct values", () => {
+    const cmd = buildMeCommand("k", "https://example.com", "abc123def456");
     expect(cmd).toEqual([
       "me",
       "mcp",
@@ -20,6 +24,8 @@ describe("buildMeCommand", () => {
       "k",
       "--server",
       "https://example.com",
+      "--space",
+      "abc123def456",
     ]);
   });
 });

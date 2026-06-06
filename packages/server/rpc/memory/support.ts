@@ -1,6 +1,6 @@
 /**
- * Shared helpers for the space management handlers (member/agent/group/grant/
- * apiKey): the owner authorization gate, core SQL error mapping, and response
+ * Shared helpers for the space management handlers (member/group/grant/invite):
+ * the owner authorization gate, core SQL error mapping, and response
  * serializers.
  */
 
@@ -11,7 +11,6 @@ import {
   TreePathError,
 } from "@memory.build/database";
 import type {
-  ApiKeyInfo,
   Group,
   GroupMember,
   GroupMembership,
@@ -21,7 +20,6 @@ import type {
 } from "@memory.build/engine/core";
 import { ACCESS, ROOT_PATH } from "@memory.build/engine/core";
 import type {
-  ApiKeyInfoResponse,
   GroupMemberResponse,
   GroupMembershipResponse,
   GroupResponse,
@@ -160,27 +158,6 @@ export async function callerOwnsAgent(
 }
 
 /**
- * Assert the caller owns `agentId` (an agent in this space). NOT_FOUND if the
- * agent isn't a member of this space; FORBIDDEN if it's owned by someone else.
- */
-export async function requireOwnedAgent(
-  context: SpaceRpcContext,
-  agentId: string,
-): Promise<void> {
-  const agents = await context.core.listSpacePrincipals(context.space.id, "a");
-  const agent = agents.find((a) => a.id === agentId);
-  if (!agent) {
-    throw new AppError(
-      "NOT_FOUND",
-      `Agent not found in this space: ${agentId}`,
-    );
-  }
-  if (agent.ownerId !== context.principalId) {
-    throw new AppError("FORBIDDEN", "Not the owner of this agent");
-  }
-}
-
-/**
  * True if `principalId` is an agent owned by the caller, checked globally (not
  * scoped to the current space). Used by principal.add so a member can bring
  * their OWN agent into a space before it is a member there.
@@ -256,17 +233,6 @@ export function toTreeGrantResponse(
     access: g.access,
     createdAt: g.createdAt.toISOString(),
     updatedAt: g.updatedAt?.toISOString() ?? null,
-  };
-}
-
-export function toApiKeyInfoResponse(k: ApiKeyInfo): ApiKeyInfoResponse {
-  return {
-    id: k.id,
-    memberId: k.memberId,
-    lookupId: k.lookupId,
-    name: k.name,
-    createdAt: k.createdAt.toISOString(),
-    expiresAt: k.expiresAt?.toISOString() ?? null,
   };
 }
 

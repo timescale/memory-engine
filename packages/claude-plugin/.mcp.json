@@ -7,7 +7,9 @@
         "--server",
         "${user_config.server}",
         "--api-key",
-        "${user_config.api_key}"
+        "${user_config.api_key}",
+        "--space",
+        "${user_config.space}"
       ]
     }
   }

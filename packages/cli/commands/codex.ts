@@ -16,11 +16,16 @@ function createCodexInstallCommand(): Command {
     .description("register me as an MCP server with Codex CLI")
     .option("--api-key <key>", "API key to embed in MCP config")
     .option("--server <url>", "server URL to embed in MCP config")
+    .option(
+      "--space <slug>",
+      "space to embed in MCP config (else ME_SPACE / active space)",
+    )
     .action(async (opts: AgentInstallOptions, cmd: Command) => {
       const globalOpts = cmd.optsWithGlobals();
       await runAgentMcpInstall("codex", {
         apiKey: opts.apiKey,
         server: globalOpts.server ?? opts.server,
+        space: opts.space,
       });
     });
 }

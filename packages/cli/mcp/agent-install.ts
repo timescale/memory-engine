@@ -11,6 +11,8 @@ import { buildMeCommand, installMcpServer, MCP_TOOLS } from "./install.ts";
 export interface AgentInstallOptions {
   apiKey?: string;
   server?: string;
+  /** The space slug to bake into the MCP command (api keys are global). */
+  space?: string;
   /**
    * Configuration scope for tools that support it (Claude Code, Gemini CLI).
    * Ignored by tools without a scope concept (Codex, OpenCode).
@@ -34,14 +36,16 @@ export async function runAgentMcpInstall(
     process.exit(1);
   }
 
-  // Resolve credentials: flags > env (ME_API_KEY) > server default. MCP configs
-  // bake in a long-lived agent api key (a human session would expire), so an
-  // api key is required here — mint one with `me apikey create <agent>`.
-  let { apiKey, server } = opts;
-  if (!apiKey || !server) {
+  // Resolve credentials: flags > env (ME_API_KEY / ME_SPACE) > stored config.
+  // MCP configs bake in a long-lived agent api key (a human session would
+  // expire), so an api key is required here — mint one with
+  // `me apikey create <agent>`. Keys are global, so a space must be baked in too.
+  let { apiKey, server, space } = opts;
+  if (!apiKey || !server || !space) {
     const creds = resolveCredentials(server);
     if (!apiKey) apiKey = creds.apiKey;
     if (!server) server = creds.server;
+    if (!space) space = creds.activeSpace;
   }
 
   if (!apiKey) {
@@ -56,6 +60,13 @@ export async function runAgentMcpInstall(
     process.exit(1);
   }
 
+  if (!space) {
+    clack.log.error(
+      "No space available. Pass --space, set ME_SPACE, or run 'me space use <space>'.",
+    );
+    process.exit(1);
+  }
+
   // For CLI tools, require the binary to be on PATH. JSON-file tools
   // (e.g. OpenCode) just edit a config file and don't need the binary.
   if (tool.method === "cli" && Bun.which(tool.bin) === null) {
@@ -66,7 +77,7 @@ export async function runAgentMcpInstall(
   }
 
   // Build the me mcp command with baked-in credentials
-  const meCmd = buildMeCommand(apiKey, server);
+  const meCmd = buildMeCommand(apiKey, server, space);
 
   const spin = clack.spinner();
   spin.start(`Registering with ${tool.name}...`);

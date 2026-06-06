@@ -1,11 +1,14 @@
 /**
  * API key helpers for the core control plane.
  *
- * Key format (unchanged from the legacy engine): me.{spaceSlug}.{lookupId}.{secret}
+ * Key format: me.{lookupId}.{secret}
  *   - me           fixed prefix
- *   - spaceSlug    12-char lowercase alphanumeric (the core.space slug — routing)
  *   - lookupId     16-char id for the indexed db lookup
  *   - secret       32-char base64url random secret
+ *
+ * Keys are global per-principal credentials, not space-bound: the same key
+ * authenticates into any space the owning principal has been admitted to (the
+ * space is selected by the X-Me-Space header, gated by core.build_tree_access).
  *
  * The secret is high-entropy, so we store sha256(secret) and validate by
  * equality in SQL (core.validate_api_key) — no per-request argon2 verify. This
@@ -43,26 +46,38 @@ export function hashApiKeySecret(secret: string): string {
 }
 
 /** Assemble a full API key string from its parts. */
-export function formatApiKey(
-  spaceSlug: string,
-  lookupId: string,
-  secret: string,
-): string {
-  return `me.${spaceSlug}.${lookupId}.${secret}`;
+export function formatApiKey(lookupId: string, secret: string): string {
+  return `me.${lookupId}.${secret}`;
 }
 
 /** Parse an API key into its components; null if malformed. */
 export function parseApiKey(
   key: string,
-): { spaceSlug: string; lookupId: string; secret: string } | null {
+): { lookupId: string; secret: string } | null {
   const parts = key.split(".");
-  if (parts.length !== 4) {
+  if (parts.length !== 3) {
     return null;
   }
-  const [prefix, spaceSlug, lookupId, secret] = parts;
+  const [prefix, lookupId, secret] = parts;
   if (prefix !== "me") return null;
-  if (!spaceSlug || !/^[a-z0-9]{12}$/.test(spaceSlug)) return null;
   if (!lookupId || !/^[A-Za-z0-9_-]{16}$/.test(lookupId)) return null;
   if (!secret || secret.length !== SECRET_LENGTH) return null;
-  return { spaceSlug, lookupId, secret };
+  return { lookupId, secret };
+}
+
+/**
+ * True if the token is a legacy **space-scoped** api key
+ * (`me.<slug>.<lookupId>.<secret>`, the pre-global 4-part format). These no
+ * longer authenticate — callers use this to return a clear "recreate your key"
+ * error instead of a generic 401. New keys are 3-part (`parseApiKey`).
+ */
+export function isLegacyApiKey(token: string): boolean {
+  const parts = token.split(".");
+  return (
+    parts.length === 4 &&
+    parts[0] === "me" &&
+    /^[a-z0-9]{12}$/.test(parts[1] ?? "") &&
+    /^[A-Za-z0-9_-]{16}$/.test(parts[2] ?? "") &&
+    (parts[3]?.length ?? 0) === SECRET_LENGTH
+  );
 }

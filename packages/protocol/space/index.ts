@@ -3,21 +3,11 @@
  * POST /api/v1/memory/rpc alongside the memory.* data-plane methods.
  *
  * Follows the core model: principals (users/agents/groups), space membership,
- * group membership, 3-level tree-access grants, and agent api keys. (Agent
- * lifecycle is user-scoped and lives on the user endpoint; here agents are only
- * referenced as members / api-key holders.)
+ * group membership, and 3-level tree-access grants. (Agent lifecycle and api
+ * keys are user-scoped and live on the user endpoint; here agents are only
+ * referenced as members.)
  */
 import type { z } from "zod";
-import {
-  apiKeyCreateParams,
-  apiKeyCreateResult,
-  apiKeyDeleteParams,
-  apiKeyDeleteResult,
-  apiKeyGetParams,
-  apiKeyGetResult,
-  apiKeyListParams,
-  apiKeyListResult,
-} from "./api-key.ts";
 import {
   grantListParams,
   grantListResult,
@@ -65,7 +55,6 @@ import {
   principalResolveResult,
 } from "./principal.ts";
 
-export * from "./api-key.ts";
 export * from "./grant.ts";
 export * from "./group.ts";
 export * from "./invitation.ts";
@@ -79,7 +68,7 @@ function method<TParams extends z.ZodType, TResult extends z.ZodType>(
 }
 
 /**
- * Space management RPC method contract (member/agent/group/grant/apiKey).
+ * Space management RPC method contract (member/group/grant/invite).
  * Served on the memory endpoint together with the memory.* methods.
  */
 export const spaceMethods = {
@@ -115,12 +104,6 @@ export const spaceMethods = {
   "invite.create": method(inviteCreateParams, inviteCreateResult),
   "invite.list": method(inviteListParams, inviteListResult),
   "invite.revoke": method(inviteRevokeParams, inviteRevokeResult),
-
-  // Api keys (4)
-  "apiKey.create": method(apiKeyCreateParams, apiKeyCreateResult),
-  "apiKey.list": method(apiKeyListParams, apiKeyListResult),
-  "apiKey.get": method(apiKeyGetParams, apiKeyGetResult),
-  "apiKey.delete": method(apiKeyDeleteParams, apiKeyDeleteResult),
 } as const;
 
 export type SpaceMethodName = keyof typeof spaceMethods;

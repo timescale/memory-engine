@@ -24,6 +24,12 @@
       "default": "https://api.memory.build",
       "required": true
     },
+    "space": {
+      "type": "string",
+      "title": "Space",
+      "description": "Space slug to store memories in (the X-Me-Space). API keys are global, so the space must be set explicitly.",
+      "required": true
+    },
     "tree_prefix": {
       "type": "string",
       "title": "Tree prefix",

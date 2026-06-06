@@ -1,7 +1,8 @@
 // Integration test for the space management handlers (4C-2b): member / agent /
-// group / grant / apiKey, driven through the merged memory registry against a
+// group / grant / invite, driven through the merged memory registry against a
 // provisioned space. The provisioned owner has owner@root, satisfying the
-// management authorization gate.
+// management authorization gate. (Api keys are user-endpoint — see
+// rpc/user/api-key.integration.test.ts.)
 //   TEST_DATABASE_URL="postgresql://postgres@127.0.0.1:5432/postgres" \
 //     bun test --timeout 30000 \
 //     packages/server/rpc/memory/management.integration.test.ts
@@ -367,44 +368,6 @@ test("invite.* require space-admin authority (owner@root is not enough)", async 
   );
 });
 
-test("apiKey: create (agent-only) / list / get / delete", async () => {
-  // agent lifecycle is the user endpoint's job; here the owner brings an agent
-  // into the space, then mints its (space-bound) key.
-  const agentId = await makeAgent(ownerId);
-  await call("principal.add", { principalId: agentId });
-  const created = await call<{ id: string; key: string }>("apiKey.create", {
-    agentId,
-    name: "ci",
-  });
-  expect(created.key.startsWith(`me.${space.slug}.`)).toBe(true);
-
-  const list = await call<{ apiKeys: { id: string }[] }>("apiKey.list", {
-    memberId: agentId,
-  });
-  expect(list.apiKeys.map((k) => k.id)).toContain(created.id);
-
-  const got = await call<{ apiKey: { id: string } | null }>("apiKey.get", {
-    id: created.id,
-  });
-  expect(got.apiKey?.id).toBe(created.id);
-
-  expect(
-    (await call<{ deleted: boolean }>("apiKey.delete", { id: created.id }))
-      .deleted,
-  ).toBe(true);
-  expect(
-    (await call<{ apiKey: unknown }>("apiKey.get", { id: created.id })).apiKey,
-  ).toBeNull();
-});
-
-test("apiKey.create rejects a non-agent member", async () => {
-  // ownerId is a user, not an agent → NOT_FOUND in this space's agents
-  await expectAppError(
-    call("apiKey.create", { agentId: ownerId, name: "nope" }),
-    "NOT_FOUND",
-  );
-});
-
 test("roster/group management requires admin or owner", async () => {
   // a plain member: write access on a subtree, not an admin, not a root owner
   const member = await makeUser();
@@ -655,13 +618,8 @@ test("self-service: a non-owner member brings their own agent into the space", a
     ).added,
   ).toBe(true);
 
-  // and mint its key + self-grant it (capped by their own access)
-  const key = await call<{ key: string }>(
-    "apiKey.create",
-    { agentId, name: "k" },
-    as,
-  );
-  expect(key.key.startsWith(`me.${space.slug}.`)).toBe(true);
+  // and self-grant it (capped by their own access). Minting the agent's api key
+  // is a user-endpoint op (apiKey.* — see rpc/user/api-key.integration.test.ts).
   expect(
     (
       await call<{ granted: boolean }>(

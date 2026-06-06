@@ -5,10 +5,10 @@
  *
  * - {@link createMemoryClient} — space data-plane + management.
  *   Talks to /api/v1/memory/rpc with the active space carried as X-Me-Space.
- *   Memory CRUD/search plus principal/group/grant/apiKey management.
+ *   Memory CRUD/search plus principal/group/grant/invite management.
  *
  * - {@link createUserClient} — session-only, user-scoped.
- *   Talks to /api/v1/user/rpc: whoami, agent lifecycle, space discovery.
+ *   Talks to /api/v1/user/rpc: whoami, agent lifecycle, api keys, space discovery.
  *
  * - {@link createAuthClient} — auth client (no auth).
  *   OAuth device flow for CLI login. Returns a session token.
@@ -45,7 +45,6 @@ export { createAuthClient, DeviceFlowError } from "./auth.ts";
 export { isRpcError, RpcError } from "./errors.ts";
 // Memory client (space data-plane + management)
 export {
-  type ApiKeyNamespace,
   createMemoryClient,
   type GrantNamespace,
   type GroupNamespace,
@@ -55,9 +54,10 @@ export {
   type MemoryNamespace,
   type PrincipalNamespace,
 } from "./memory.ts";
-// User client (session-only: whoami, agent lifecycle, space discovery)
+// User client (session-only: whoami, agent lifecycle, api keys, space discovery)
 export {
   type AgentNamespace,
+  type ApiKeyNamespace,
   createUserClient,
   type SpaceNamespace,
   type UserClient,

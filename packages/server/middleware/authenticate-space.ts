@@ -5,18 +5,20 @@
  * (`treeAccess`) that the space SQL functions consume. Two credential modes,
  * discriminated by whether the bearer token parses as an api key:
  *
- *   - api key (agent): `me.<slug>.<lookupId>.<secret>` — validated against core.
+ *   - api key (agent): `me.<lookupId>.<secret>` — validated against core.
  *   - session (human): an opaque session token — validated against auth.
  *
  * The space is always selected by the `X-Me-Space` header (uniform for both
  * modes). `core.buildTreeAccess(principalId, space.id)` is the single
- * authorization gate: a principal with no grants in the space (including an api
- * key minted for a different space) resolves to an empty set and is denied.
+ * authorization gate: a principal with no grants in the space resolves to an
+ * empty set and is denied. Api keys are global, so a key whose principal isn't a
+ * member of the requested space is denied here rather than at parse time.
  */
 import type { AuthStore } from "@memory.build/auth";
 import { slugToSchema } from "@memory.build/database";
 import {
   type CoreStore,
+  isLegacyApiKey,
   parseApiKey,
   type Space,
   type TreeAccess,
@@ -116,22 +118,9 @@ async function authenticateSpaceInner(
   let apiKeyId: string | null;
 
   if (parsed) {
-    // The api key embeds its own slug; assert it matches the header so a
-    // misrouted key gives a clear error rather than a confusing 403 below.
-    if (parsed.spaceSlug !== slug) {
-      debug("space auth failed: api key slug != header", {
-        slug,
-        keySlug: parsed.spaceSlug,
-      });
-      return {
-        ok: false,
-        error: error(
-          `API key is not valid for space ${slug}`,
-          400,
-          "SPACE_MISMATCH",
-        ),
-      };
-    }
+    // Api keys are global; the space comes solely from the header. A key whose
+    // principal isn't a member of this space falls through to the empty-access
+    // gate below (403), not a parse-time rejection.
     const validated = await core.validateApiKey(parsed.lookupId, parsed.secret);
     if (!validated) {
       debug("space auth failed: invalid api key");
@@ -139,6 +128,19 @@ async function authenticateSpaceInner(
     }
     principalId = validated.memberId;
     apiKeyId = validated.apiKeyId;
+  } else if (isLegacyApiKey(token)) {
+    // A pre-global 4-part key (me.<slug>.<lookup>.<secret>). These no longer
+    // authenticate; tell the operator to recreate the key rather than failing
+    // with a confusing generic 401.
+    debug("space auth failed: legacy 4-part api key");
+    return {
+      ok: false,
+      error: error(
+        "This API key uses the old space-scoped format (me.<slug>.<id>.<secret>) and no longer works. Recreate it with `me apikey create <agent>`, then update ME_API_KEY or your MCP/plugin config.",
+        401,
+        "LEGACY_API_KEY",
+      ),
+    };
   } else {
     const session = await auth.validateSession(token);
     if (!session) {

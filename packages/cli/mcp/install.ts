@@ -116,11 +116,25 @@ export function detectInstalledTools(): McpTool[] {
 /**
  * Build the `me mcp` command array with baked-in credentials.
  *
- * Always uses bare `me` — the binary is expected to be on PATH
- * whether installed via the install script, Homebrew, or npm.
+ * Api keys are global, so the space must be baked in explicitly (`--space`).
+ * Always uses bare `me` — the binary is expected to be on PATH whether installed
+ * via the install script, Homebrew, or npm.
  */
-export function buildMeCommand(apiKey: string, serverUrl: string): string[] {
-  return ["me", "mcp", "--api-key", apiKey, "--server", serverUrl];
+export function buildMeCommand(
+  apiKey: string,
+  serverUrl: string,
+  space: string,
+): string[] {
+  return [
+    "me",
+    "mcp",
+    "--api-key",
+    apiKey,
+    "--server",
+    serverUrl,
+    "--space",
+    space,
+  ];
 }
 
 // =============================================================================

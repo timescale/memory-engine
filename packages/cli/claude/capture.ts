@@ -18,17 +18,10 @@ export interface HookConfig {
   server: string;
   /** Agent api key (from the plugin's sensitive userConfig). */
   apiKey: string;
-  /** Active space slug (X-Me-Space); defaults to the api key's own slug. */
+  /** Active space slug (X-Me-Space). */
   space: string;
   /** Tree path prefix for captured memories (ltree). */
   treePrefix: string;
-}
-
-/** Extract the space slug embedded in an api key (`me.<slug>.<lookup>.<secret>`). */
-export function slugFromApiKey(apiKey: string): string | undefined {
-  if (!apiKey.startsWith("me.")) return undefined;
-  const parts = apiKey.split(".");
-  return parts.length >= 4 ? parts[1] : undefined;
 }
 
 // =============================================================================
@@ -175,8 +168,8 @@ export function resolveHookConfigFromEnv(
   const apiKey = env.CLAUDE_PLUGIN_OPTION_API_KEY;
   if (!apiKey) return null;
 
-  // The space defaults to the api key's own slug; an explicit env var overrides.
-  const space = env.CLAUDE_PLUGIN_OPTION_SPACE || slugFromApiKey(apiKey);
+  // Api keys are global, so the space must be configured explicitly.
+  const space = env.CLAUDE_PLUGIN_OPTION_SPACE;
   if (!space) return null;
 
   return {

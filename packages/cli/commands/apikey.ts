@@ -1,8 +1,8 @@
 /**
- * me apikey — manage an agent's API keys in the active space.
+ * me apikey — manage your agents' API keys.
  *
- * Keys are agent-only (humans authenticate with a session). The agent must
- * already be in the space (see `me agent add`). The plaintext key is shown
+ * Keys are agent-only (humans authenticate with a session) and global: a key
+ * works in any space the agent has been admitted to. The plaintext key is shown
  * exactly once, by `create`. There is no revoke state — delete is the removal.
  *
  * - me apikey create <agent> [name] [--expires <ts>]: mint a key (shown once)
@@ -17,18 +17,15 @@ import { Command } from "commander";
 import { resolveCredentials } from "../credentials.ts";
 import { getOutputFormat, output, table } from "../output.ts";
 import {
-  buildMemoryClient,
   buildUserClient,
   handleError,
-  isAppErrorCode,
   requireSession,
-  requireSpace,
   resolveAgentId,
 } from "../util.ts";
 
 function createApiKeyCreateCommand(): Command {
   return new Command("create")
-    .description("mint an API key for an agent in the active space")
+    .description("mint an API key for one of your agents")
     .argument("<agent>", "agent id or name")
     .argument("[name]", "key name (auto-generated if omitted)")
     .option("--expires <timestamp>", "expiration timestamp (ISO 8601)")
@@ -37,15 +34,13 @@ function createApiKeyCreateCommand(): Command {
       const creds = resolveCredentials(globalOpts.server);
       const fmt = getOutputFormat(globalOpts);
       requireSession(creds, fmt);
-      requireSpace(creds, fmt);
 
       const user = buildUserClient(creds);
-      const memory = buildMemoryClient(creds);
       const keyName = name ?? `cli-${new Date().toISOString().slice(0, 10)}`;
 
       try {
         const agentId = await resolveAgentId(user, agent, fmt);
-        const result = await memory.apiKey.create({
+        const result = await user.apiKey.create({
           agentId,
           name: keyName,
           expiresAt: opts.expires ?? null,
@@ -58,21 +53,10 @@ function createApiKeyCreateCommand(): Command {
             "API key — save it now; it won't be shown again",
           );
           clack.log.info(
-            "Give it to the agent via ME_API_KEY or its MCP config.",
+            "Give it to the agent via ME_API_KEY or its MCP config. It works in any space the agent is a member of.",
           );
         });
       } catch (error) {
-        // apiKey.create requires the agent to already be in the space; surface
-        // the prerequisite instead of a bare NOT_FOUND.
-        if (isAppErrorCode(error, "NOT_FOUND")) {
-          const msg = `Agent '${agent}' isn't in this space yet — run 'me agent add ${agent}' first, then 'me apikey create' again.`;
-          if (fmt === "text") {
-            clack.log.error(msg);
-          } else {
-            output({ error: msg, code: "NOT_FOUND" }, fmt, () => {});
-          }
-          process.exit(1);
-        }
         handleError(error, fmt, { sessionServer: creds.server });
       }
     });
@@ -88,13 +72,11 @@ function createApiKeyListCommand(): Command {
       const creds = resolveCredentials(globalOpts.server);
       const fmt = getOutputFormat(globalOpts);
       requireSession(creds, fmt);
-      requireSpace(creds, fmt);
 
       const user = buildUserClient(creds);
-      const memory = buildMemoryClient(creds);
       try {
         const agentId = await resolveAgentId(user, agent, fmt);
-        const { apiKeys } = await memory.apiKey.list({ memberId: agentId });
+        const { apiKeys } = await user.apiKey.list({ memberId: agentId });
         output({ apiKeys }, fmt, () => {
           if (apiKeys.length === 0) {
             console.log("  No API keys.");
@@ -120,11 +102,10 @@ function createApiKeyGetCommand(): Command {
       const creds = resolveCredentials(globalOpts.server);
       const fmt = getOutputFormat(globalOpts);
       requireSession(creds, fmt);
-      requireSpace(creds, fmt);
 
-      const memory = buildMemoryClient(creds);
+      const user = buildUserClient(creds);
       try {
-        const { apiKey } = await memory.apiKey.get({ id });
+        const { apiKey } = await user.apiKey.get({ id });
         output({ apiKey }, fmt, () => {
           if (!apiKey) {
             clack.log.warn("API key not found.");
@@ -153,7 +134,6 @@ function createApiKeyDeleteCommand(): Command {
       const creds = resolveCredentials(globalOpts.server);
       const fmt = getOutputFormat(globalOpts);
       requireSession(creds, fmt);
-      requireSpace(creds, fmt);
 
       if (fmt === "text" && !opts.yes) {
         const confirmed = await clack.confirm({
@@ -166,9 +146,9 @@ function createApiKeyDeleteCommand(): Command {
         }
       }
 
-      const memory = buildMemoryClient(creds);
+      const user = buildUserClient(creds);
       try {
-        const result = await memory.apiKey.delete({ id });
+        const result = await user.apiKey.delete({ id });
         output({ id, ...result }, fmt, () => {
           if (result.deleted) clack.log.success("API key deleted.");
           else clack.log.warn("API key not found.");
@@ -181,7 +161,7 @@ function createApiKeyDeleteCommand(): Command {
 
 export function createApiKeyCommand(): Command {
   const apikey = new Command("apikey").description(
-    "manage agent API keys in the active space",
+    "manage your agents' API keys",
   );
   apikey.addCommand(createApiKeyCreateCommand());
   apikey.addCommand(createApiKeyListCommand());

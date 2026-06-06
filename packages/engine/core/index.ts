@@ -3,6 +3,7 @@ export {
   generateLookupId,
   generateSecret,
   hashApiKeySecret,
+  isLegacyApiKey,
   parseApiKey,
 } from "./api-key";
 export { type CoreStore, coreStore } from "./db";

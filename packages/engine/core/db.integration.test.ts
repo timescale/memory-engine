@@ -126,14 +126,12 @@ test("createApiKey + validateApiKey (good / wrong secret)", async () => {
 });
 
 test("api key string format round-trips with parseApiKey", async () => {
-  const slug = randomSlug();
   const userId = await newUserId();
   await db.createUser(userId, `erin_${userId.slice(0, 8)}`);
   const key = await db.createApiKey(userId, "fmt");
 
-  const str = formatApiKey(slug, key.lookupId, key.secret);
+  const str = formatApiKey(key.lookupId, key.secret);
   expect(parseApiKey(str)).toEqual({
-    spaceSlug: slug,
     lookupId: key.lookupId,
     secret: key.secret,
   });

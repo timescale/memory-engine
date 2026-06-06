@@ -14,6 +14,10 @@ that raw NOT_FOUND, so the user has to know to run `me agent add <agent>` first.
       'me agent add <agent>' first"). Added a reusable `isAppErrorCode` helper to
       util.ts. (Auto-adding the agent was considered but skipped — silently
       changing space membership as a side effect of minting a key is surprising.)
+- [x] Superseded (2026-06-05) — by the "API keys are global" change. `apiKey.*`
+      moved to the user RPC and minting now needs only agent ownership (no active
+      space, no `me agent add` prerequisite), so the NOT_FOUND mapping above was
+      removed from `me apikey create`. (`isAppErrorCode` stays in util.ts.)
 
 ## Space invitations: email delivery + expiry (deferred from v1)
 
@@ -174,6 +178,25 @@ now the authoritative summary of the current design.
       `me space/group/access/agent/apikey/memory` command surface. Update
       `docs/cli/*` (drop engine/org/invitation/user/owner/role; add
       space/group/access/agent) and `docs/mcp/*`. The docs-site renders these.
+- [ ] **API keys are global** (changed 2026-06-05) — document the model when the
+      docs are rewritten:
+      - Format is `me.<lookupId>.<secret>` (no space slug). One key works in
+        **any** space the owning agent has been admitted to; the space is chosen
+        per-request via `X-Me-Space`.
+      - `apiKey.*` lives on the **user RPC** (session-only) — TS consumers call
+        `createUserClient().apiKey.*`, not the memory client. `me apikey` needs
+        no active space.
+      - Minting a key requires only **agent ownership** — not space membership.
+        A freshly-minted key is inert until the agent is added to a space
+        (`me agent add`) and granted access there.
+      - **Owner masking caveat**: an agent's effective access is capped by its
+        owner's current access, so a key authenticates into a space only if the
+        *owner* also has access there (document this, it surprises people).
+      - `me <tool> install`, `me mcp`, and the Claude plugin now require an
+        explicit space (`--space` / `ME_SPACE` / active space; the plugin has a
+        new required `space` config) since the key no longer carries it.
+      - Migration note for any existing setups: old 4-part `me.<slug>....` keys
+        are invalid and must be re-minted.
 
 ## Deploy: env rename coordination (Phase 5)
 

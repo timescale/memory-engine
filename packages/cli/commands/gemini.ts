@@ -27,6 +27,10 @@ function createGeminiInstallCommand(): Command {
     .option("--api-key <key>", "API key to embed in MCP config")
     .option("--server <url>", "server URL to embed in MCP config")
     .option(
+      "--space <slug>",
+      "space to embed in MCP config (else ME_SPACE / active space)",
+    )
+    .option(
       "-s, --scope <scope>",
       `Gemini CLI config scope (${GEMINI_SCOPES.join(", ")})`,
       parseGeminiScope,
@@ -41,6 +45,7 @@ function createGeminiInstallCommand(): Command {
         await runAgentMcpInstall("gemini", {
           apiKey: opts.apiKey,
           server: globalOpts.server ?? opts.server,
+          space: opts.space,
           scope: opts.scope,
         });
       },

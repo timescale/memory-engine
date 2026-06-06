@@ -3,10 +3,9 @@
  *
  * The new-model replacement for the engine RPC, combining the memory data-plane
  * methods (spaceStore) with the space management methods (coreStore): membership,
- * agents, groups, tree-access grants, and agent api keys.
+ * groups, tree-access grants, and invitations.
  */
 import type { MethodRegistry } from "../types";
-import { apiKeyMethods } from "./api-key";
 import { grantMethods } from "./grant";
 import { groupMethods } from "./group";
 import { invitationMethods } from "./invitation";
@@ -21,7 +20,7 @@ export {
 
 /**
  * The full memory-endpoint registry: data-plane + space management methods.
- * (Agent lifecycle lives on the user endpoint — see rpc/user.)
+ * (Agent lifecycle and api keys live on the user endpoint — see rpc/user.)
  */
 export const memoryMethods: MethodRegistry = new Map([
   ...memoryDataMethods,
@@ -29,5 +28,4 @@ export const memoryMethods: MethodRegistry = new Map([
   ...groupMethods,
   ...grantMethods,
   ...invitationMethods,
-  ...apiKeyMethods,
 ]);

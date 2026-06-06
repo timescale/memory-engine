@@ -3,7 +3,8 @@
  *
  * Talks to POST /api/v1/memory/rpc, authenticated by a session token (human) or
  * an api key (agent), with the active space selected via the X-Me-Space header.
- * Namespaces: memory (data plane) + principal / group / grant / apiKey (management).
+ * Namespaces: memory (data plane) + principal / group / grant / invite (management).
+ * (Agent lifecycle and api keys live on the user client.)
  *
  * @example
  * ```ts
@@ -35,14 +36,6 @@ import type {
   MemoryUpdateParams,
 } from "@memory.build/protocol/memory";
 import type {
-  ApiKeyCreateParams,
-  ApiKeyCreateResult,
-  ApiKeyDeleteParams,
-  ApiKeyDeleteResult,
-  ApiKeyGetParams,
-  ApiKeyGetResult,
-  ApiKeyListParams,
-  ApiKeyListResult,
   GrantListParams,
   GrantListResult,
   GrantRemoveParams,
@@ -153,20 +146,12 @@ export interface InviteNamespace {
   revoke(params: InviteRevokeParams): Promise<InviteRevokeResult>;
 }
 
-export interface ApiKeyNamespace {
-  create(params: ApiKeyCreateParams): Promise<ApiKeyCreateResult>;
-  list(params: ApiKeyListParams): Promise<ApiKeyListResult>;
-  get(params: ApiKeyGetParams): Promise<ApiKeyGetResult>;
-  delete(params: ApiKeyDeleteParams): Promise<ApiKeyDeleteResult>;
-}
-
 export interface MemoryClient {
   memory: MemoryNamespace;
   principal: PrincipalNamespace;
   group: GroupNamespace;
   grant: GrantNamespace;
   invite: InviteNamespace;
-  apiKey: ApiKeyNamespace;
 
   /** Update the bearer token (session or api key) at runtime. */
   setToken(token: string): void;
@@ -235,12 +220,6 @@ export function createMemoryClient(
       create: (p) => rpc("invite.create", p),
       list: (p) => rpc("invite.list", p ?? {}),
       revoke: (p) => rpc("invite.revoke", p),
-    },
-    apiKey: {
-      create: (p) => rpc("apiKey.create", p),
-      list: (p) => rpc("apiKey.list", p),
-      get: (p) => rpc("apiKey.get", p),
-      delete: (p) => rpc("apiKey.delete", p),
     },
     setToken(token: string) {
       config.token = token;

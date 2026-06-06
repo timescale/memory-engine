@@ -20,14 +20,13 @@ File references are `path:line` against the repo root.
 | # | Topic | Redesign says | Implementation does | Severity |
 |---|-------|---------------|---------------------|----------|
 | A | Auth tables | `core.session`, `core.oauth_identity`, `core.oauth_flow` live in `core` | Separate `auth` schema (better-auth shaped): `auth.users/sessions/accounts/device_authorization/verifications`; `auth.users.id == core.principal.id` | **Major** |
-| B | API keys | **Global** per-principal; one key works across many spaces | **Space-scoped**: format `me.<slug>.<lookupId>.<secret>`, validated against `X-Me-Space` | **Major** |
-| C | Tree provisioning / private areas | V1 provisions **no** structure; magic private paths **deferred**; creator gets `owner@root` | Reserved roots `home.<member_id>` (`~` sugar) + `share` (`SHARE_NAMESPACE`); creator gets `admin` + `owner@home` + `owner@share` (**not** `owner@root`); bare create defaults to `share` | **Major** |
-| D | Embedding config | Per-space model/dimension, recorded in `core.space` | Hardcoded `text-embedding-3-small` / 1536 for all spaces; `core.space` has a TODO comment, no such columns | **Major** |
-| E | Access function | `core.effective_tree_access(_space_id, _principal_id)` → `returns table(tree_path, access)` | `core.build_tree_access(_member_id, _space_id)` → `returns jsonb` | Naming |
-| F | API endpoints | A single JSON-RPC API (implied) | **Two** endpoints: `/api/v1/memory/rpc` + `/api/v1/user/rpc`, plus REST `/api/v1/auth/*` | Naming/shape |
-| G | Last-admin safeguard | Must prevent removing/demoting the last admin | **Not implemented** | Gap |
-| H | `me memory copy`/`cp` | Listed | **Not implemented** | Gap |
-| I | `me user group list` | The one supported user command for v1 | **Not implemented** | Gap |
+| B | Tree provisioning / private areas | V1 provisions **no** structure; magic private paths **deferred**; creator gets `owner@root` | Reserved roots `home.<member_id>` (`~` sugar) + `share` (`SHARE_NAMESPACE`); creator gets `admin` + `owner@home` + `owner@share` (**not** `owner@root`); bare create defaults to `share` | **Major** |
+| C | Embedding config | Per-space model/dimension, recorded in `core.space` | Hardcoded `text-embedding-3-small` / 1536 for all spaces; `core.space` has a TODO comment, no such columns | **Major** |
+| D | Access function | `core.effective_tree_access(_space_id, _principal_id)` → `returns table(tree_path, access)` | `core.build_tree_access(_member_id, _space_id)` → `returns jsonb` | Naming |
+| E | API endpoints | A single JSON-RPC API (implied) | **Two** endpoints: `/api/v1/memory/rpc` + `/api/v1/user/rpc`, plus REST `/api/v1/auth/*` | Naming/shape |
+| F | Last-admin safeguard | Must prevent removing/demoting the last admin | **Not implemented** | Gap |
+| G | `me memory copy`/`cp` | Listed | **Not implemented** | Gap |
+| H | `me user group list` | The one supported user command for v1 | **Not implemented** | Gap |
 
 The agent access-masking model (the part the doc was least confident about) **is**
 implemented as designed — see §6.
@@ -56,28 +55,7 @@ redesign (§"Authorization Boundary") is true for *authorization* (principals,
 grants, groups) but **not** for *authentication* — authentication is its own
 schema. The redesign never mentions an `auth` schema or better-auth.
 
-### B. API keys are space-scoped, not global
-
-The redesign is explicit (§`core.api_key`): "API keys are global credentials for
-a principal, not credentials for a specific space… A user's agent can use the
-same key across multiple spaces."
-
-The implementation does the opposite. The key format is
-`me.<slug>.<lookupId>.<secret>` (`packages/engine/core/api-key.ts:4`,
-`packages/server/middleware/authenticate-space.ts:9`), so the **space slug is
-baked into the key**. `authenticate-space.ts:114` rejects the request if the
-key's slug doesn't match the `X-Me-Space` header. A key therefore authenticates
-into exactly one space; using an agent across N spaces requires N keys.
-
-`core.api_key` (`006_api_key.sql:4`) columns: `id, member_id (→ principal.member_id,
-u|a only), lookup_id (unique, 16-char), secret (sha256), name, created_at,
-expires_at`, with a unique `(member_id, name)`. Note the table itself has **no
-`space_id` column** — the scoping is purely via the slug embedded in the
-presented key string, not a DB relationship. This is worth reconciling: the
-storage is principal-global (as the redesign wants) but the credential string is
-space-bound (as the redesign rejects).
-
-### C. Reserved tree paths and provisioning are built, not deferred
+### B. Reserved tree paths and provisioning are built, not deferred
 
 This is the largest behavioral divergence. The redesign's V1 scope says (§"Private
 Areas", §"me space create"):
@@ -106,7 +84,7 @@ respected. But the **convention layer the redesign deferred is shipped**, and th
 creator's grant is `home`+`share` rather than `root`. Any reader of REDESIGN.md
 would expect a fresh space to be empty and root-owned; it is neither.
 
-### D. Embedding model/dimension is hardcoded, not per-space
+### C. Embedding model/dimension is hardcoded, not per-space
 
 The redesign (§"Space") wants the embedding model and dimension to be per-space,
 templated into the DDL, and recorded in `core.space` so the server can route
@@ -135,7 +113,7 @@ aren't there yet).
 
 ## 3. Naming / shape divergences (same concept, different surface)
 
-### E. Access resolution function
+### D. Access resolution function
 
 - Redesign: `core.effective_tree_access(_space_id uuid, _principal_id uuid)
   returns table(tree_path ltree, access int4)`.
@@ -150,15 +128,15 @@ Space functions consume it as a `_tree_access jsonb` argument
 not a later optimization. Per CLAUDE.md the auth gate is "non-empty
 `build_tree_access`."
 
-### F. Two RPC endpoints, plus REST auth
+### E. Two RPC endpoints, plus REST auth
 
 The redesign describes "the hosted API server exposes JSON-RPC over HTTPS" as a
 single surface. The implementation splits it (`packages/server/router.ts:252`):
 
 - `/api/v1/memory/rpc` — session **or** api-key + required `X-Me-Space`. Hosts
-  `memory.*`, `principal.*`, `group.*`, `grant.*`, `invite.*`, `apiKey.*`.
+  `memory.*`, `principal.*`, `group.*`, `grant.*`, `invite.*`.
 - `/api/v1/user/rpc` — **session only** (api keys rejected here). Hosts `whoami`,
-  `agent.*`, `space.*`.
+  `agent.*`, `apiKey.*`, `space.*`.
 - `/api/v1/auth/*` — REST device-flow endpoints (`device/code`, `device/token`,
   `device/verify`, `device/approve`, `callback/:provider`).
 
@@ -181,13 +159,13 @@ All same-intent, different spelling:
 
 ## 4. Not yet implemented (gaps vs. the redesign)
 
-- **G. Last-admin safeguard.** The redesign requires that no cascade or removal
+- **F. Last-admin safeguard.** The redesign requires that no cascade or removal
   may strip the last `principal_space.admin = true` from a space (§"Last-Admin
   Safeguard", §`core.principal_space`). No such check exists in SQL or app code.
-- **H. `me memory copy` / `cp`.** Listed in §"Memory Commands"; `move`/`mv`
+- **G. `me memory copy` / `cp`.** Listed in §"Memory Commands"; `move`/`mv`
   exists, `copy`/`cp` does not (`commands/memory.ts`). The MCP server likewise has
   `me_memory_mv` but no copy tool.
-- **I. `me user group list <user>`.** The redesign names this the single
+- **H. `me user group list <user>`.** The redesign names this the single
   supported `me user` command for v1; there is **no `me user` command** at all.
 - **Verified-email enforcement on invite acceptance.** The redesign (§`core.space_invitation`)
   wants acceptance to require an OAuth-verified email matching the invitation
@@ -285,8 +263,6 @@ If REDESIGN.md is meant to track reality, these lines are now stale:
 
 - Move `core.session` / `core.oauth_identity` / `core.oauth_flow` out of the
   `core` section and document the separate `auth` schema (better-auth shape).
-- `core.api_key`: reconcile "global credential" with the space-scoped
-  `me.<slug>....` key actually shipped.
 - §"Private Areas" / §"me space create": the `home`/`share`/`~` convention and the
   creator's `owner@home`+`owner@share` (not `owner@root`) grant are shipped, not
   deferred — update the V1 scope.

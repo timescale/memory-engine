@@ -1,9 +1,10 @@
 /**
  * Api key method schemas (apiKey.*).
  *
- * Keys are agent-only (humans authenticate via session). The plaintext key is
- * returned exactly once, by apiKey.create. There is no soft-revoke state:
- * apiKey.delete is the only removal (revoke ≡ delete).
+ * Keys are agent-only (humans authenticate via session) and global per-principal
+ * — not bound to a space. The plaintext key is returned exactly once, by
+ * apiKey.create. There is no soft-revoke state: apiKey.delete is the only
+ * removal (revoke ≡ delete).
  */
 import { z } from "zod";
 import { nameSchema, timestampSchema, uuidv7Schema } from "../fields.ts";
@@ -18,7 +19,7 @@ export const apiKeyInfoResponse = z.object({
 });
 export type ApiKeyInfoResponse = z.infer<typeof apiKeyInfoResponse>;
 
-// apiKey.create — mint a key for an agent in this space
+// apiKey.create — mint a key for an agent the caller owns
 export const apiKeyCreateParams = z.object({
   agentId: uuidv7Schema,
   name: nameSchema,

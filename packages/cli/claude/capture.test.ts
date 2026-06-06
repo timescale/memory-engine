@@ -23,7 +23,7 @@ const BASE_EVENT = {
 
 const CONFIG: HookConfig = {
   server: "https://api.example.com",
-  apiKey: "me.eng123.aaa.bbb",
+  apiKey: "me.lookupid12345678.secret",
   space: "eng123",
   treePrefix: "claude_code.sessions",
 };
@@ -246,15 +246,23 @@ describe("resolveHookConfigFromEnv", () => {
     expect(cfg).toBeNull();
   });
 
-  test("returns config when api_key is present", () => {
+  test("returns null when space is missing (keys are global)", () => {
     const cfg = resolveHookConfigFromEnv({
-      CLAUDE_PLUGIN_OPTION_API_KEY: "me.eng.aaa.bbb",
+      CLAUDE_PLUGIN_OPTION_API_KEY: "me.lookupid12345678.secret",
+    });
+    expect(cfg).toBeNull();
+  });
+
+  test("returns config when api_key and space are present", () => {
+    const cfg = resolveHookConfigFromEnv({
+      CLAUDE_PLUGIN_OPTION_API_KEY: "me.lookupid12345678.secret",
+      CLAUDE_PLUGIN_OPTION_SPACE: "eng123def456",
       CLAUDE_PLUGIN_OPTION_SERVER: "https://api.example.com",
       CLAUDE_PLUGIN_OPTION_TREE_PREFIX: "my.prefix",
     });
     expect(cfg).toEqual({
-      apiKey: "me.eng.aaa.bbb",
-      space: "eng",
+      apiKey: "me.lookupid12345678.secret",
+      space: "eng123def456",
       server: "https://api.example.com",
       treePrefix: "my.prefix",
     });
@@ -262,11 +270,12 @@ describe("resolveHookConfigFromEnv", () => {
 
   test("falls back to default server and tree_prefix", () => {
     const cfg = resolveHookConfigFromEnv({
-      CLAUDE_PLUGIN_OPTION_API_KEY: "me.eng.aaa.bbb",
+      CLAUDE_PLUGIN_OPTION_API_KEY: "me.lookupid12345678.secret",
+      CLAUDE_PLUGIN_OPTION_SPACE: "eng123def456",
     });
     expect(cfg).toEqual({
-      apiKey: "me.eng.aaa.bbb",
-      space: "eng",
+      apiKey: "me.lookupid12345678.secret",
+      space: "eng123def456",
       server: "https://api.memory.build",
       treePrefix: "claude_code.sessions",
     });
@@ -274,7 +283,8 @@ describe("resolveHookConfigFromEnv", () => {
 
   test("treats empty string as missing (falls back to default)", () => {
     const cfg = resolveHookConfigFromEnv({
-      CLAUDE_PLUGIN_OPTION_API_KEY: "me.eng.aaa.bbb",
+      CLAUDE_PLUGIN_OPTION_API_KEY: "me.lookupid12345678.secret",
+      CLAUDE_PLUGIN_OPTION_SPACE: "eng123def456",
       CLAUDE_PLUGIN_OPTION_SERVER: "",
       CLAUDE_PLUGIN_OPTION_TREE_PREFIX: "",
     });

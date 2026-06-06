@@ -2,9 +2,9 @@
  * Agent handlers (agent.*) for the user RPC.
  *
  * Agents are a user's global service accounts. The lifecycle here is purely
- * user-scoped: create / list / rename / delete the caller's own agents.
- * Bringing an agent into a space (principal.add) and minting its space-bound
- * api key (apiKey.create) are space-endpoint operations.
+ * user-scoped: create / list / rename / delete the caller's own agents, and
+ * mint their (global) api keys (apiKey.* — see ./api-key.ts). Bringing an agent
+ * into a space (principal.add) is a space-endpoint operation.
  */
 import type { Principal } from "@memory.build/engine/core";
 import type {
@@ -40,7 +40,7 @@ function toAgentResponse(p: Principal): AgentResponse {
 }
 
 /** Assert the caller owns this agent (globally). */
-async function requireOwnAgent(
+export async function requireOwnAgent(
   ctx: UserRpcContext,
   agentId: string,
 ): Promise<void> {

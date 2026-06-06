@@ -69,7 +69,7 @@ claude plugin install memory-engine@memory-engine --scope local     # this repo,
 
 ## Configure
 
-The plugin needs three values: `api_key`, `server`, and `tree_prefix`. Claude Code does not prompt for them at install time — you configure them from inside a session.
+The plugin needs four values: `api_key`, `server`, `space`, and `tree_prefix`. Claude Code does not prompt for them at install time — you configure them from inside a session.
 
 ```text
 claude                               # start a session
@@ -77,6 +77,7 @@ claude                               # start a session
 # → Installed → memory-engine → Configure
 # → api_key     (sensitive — stored in keychain)
 # → server      (default https://api.memory.build)
+# → space       (the space slug — api keys are global, so this is required)
 # → tree_prefix (default claude_code.sessions)
 # → values take effect immediately; no restart required
 ```
@@ -143,7 +144,7 @@ Claude Code handles the cleanup. Your captured memories and API keys are preserv
 The hook ran but userConfig isn't filled in. Open `/plugin → memory-engine → Configure` and set the api_key.
 
 **`Plugin option "X" isn't set` in Claude Code's error panel**
-A required userConfig value is missing for either a hook or the MCP server. Configure all three: api_key, server, tree_prefix.
+A required userConfig value is missing for either a hook or the MCP server. Configure all four: api_key, server, space, tree_prefix.
 
 **Hook fires but no memories appear**
 - Confirm the api_key is valid:
