@@ -15,18 +15,31 @@ File references are `path:line` against the repo root.
 
 ---
 
-## 1. TL;DR — the substantive divergences
+## 1. TL;DR
 
-| # | Topic | Redesign says | Implementation does | Severity |
-|---|-------|---------------|---------------------|----------|
-| A | Auth tables | `core.session`, `core.oauth_identity`, `core.oauth_flow` live in `core` | Separate `auth` schema (better-auth shaped): `auth.users/sessions/accounts/device_authorization/verifications`; `auth.users.id == core.principal.id` | **Major** |
-| B | Tree provisioning / private areas | V1 provisions **no** structure; magic private paths **deferred**; creator gets `owner@root` | Reserved roots `home.<member_id>` (`~` sugar) + `share` (`SHARE_NAMESPACE`); creator gets `admin` + `owner@home` + `owner@share` (**not** `owner@root`); bare create defaults to `share` | **Major** |
-| C | Embedding config | Per-space model/dimension, recorded in `core.space` | Hardcoded `text-embedding-3-small` / 1536 for all spaces; `core.space` has a TODO comment, no such columns | **Major** |
-| D | Access function | `core.effective_tree_access(_space_id, _principal_id)` → `returns table(tree_path, access)` | `core.build_tree_access(_member_id, _space_id)` → `returns jsonb` | Naming |
-| E | API endpoints | A single JSON-RPC API (implied) | **Two** endpoints: `/api/v1/memory/rpc` + `/api/v1/user/rpc`, plus REST `/api/v1/auth/*` | Naming/shape |
-| F | Last-admin safeguard | Must prevent removing/demoting the last admin | **Not implemented** | Gap |
-| G | `me memory copy`/`cp` | Listed | **Not implemented** | Gap |
-| H | `me user group list` | The one supported user command for v1 | **Not implemented** | Gap |
+### 1a. Differences
+
+Where the doc and the code diverge but both build the feature. The **Decision**
+column records items we've adjudicated (which side to keep); `—` = not yet
+decided. Items the redesign lists but the code does **not** build live in §1b.
+
+| # | Topic | Redesign says | Implementation does | Severity | Decision |
+|---|-------|---------------|---------------------|----------|----------|
+| A | Auth tables | `core.session`, `core.oauth_identity`, `core.oauth_flow` live in `core` | Separate `auth` schema (better-auth shaped): `auth.users/sessions/accounts/device_authorization/verifications`; `auth.users.id == core.principal.id` | **Major** | — |
+| B | Tree provisioning / private areas | V1 provisions **no** structure; magic private paths **deferred**; creator gets `owner@root` | Reserved roots `home.<member_id>` (`~` sugar) + `share` (`SHARE_NAMESPACE`); creator gets `admin` + `owner@home` + `owner@share` (**not** `owner@root`); bare create defaults to `share` | **Major** | — |
+| D | Access function | `core.effective_tree_access(_space_id, _principal_id)` → `returns table(tree_path, access)` | `core.build_tree_access(_member_id, _space_id)` → `returns jsonb` | Naming | **Keep current** (see §3.D) |
+| E | API endpoints | A single JSON-RPC API (implied) | **Two** endpoints: `/api/v1/memory/rpc` + `/api/v1/user/rpc`, plus REST `/api/v1/auth/*` | Naming/shape | — |
+
+### 1b. Not implemented (gaps vs. the redesign)
+
+Listed in the redesign but not built. Detail in §4.
+
+| # | Topic | Redesign wants | Status |
+|---|-------|----------------|--------|
+| C | Embedding config | Per-space model/dimension, recorded in `core.space` | Not implemented (hardcoded uniform; templated DDL only) |
+| F | Last-admin safeguard | Must prevent removing/demoting the last admin | Not implemented |
+| G | `me memory copy`/`cp` | Listed in §"Memory Commands" | Not implemented |
+| H | `me user group list` | The one supported `me user` command for v1 | Not implemented |
 
 The agent access-masking model (the part the doc was least confident about) **is**
 implemented as designed — see §6.
@@ -84,36 +97,11 @@ respected. But the **convention layer the redesign deferred is shipped**, and th
 creator's grant is `home`+`share` rather than `root`. Any reader of REDESIGN.md
 would expect a fresh space to be empty and root-owned; it is neither.
 
-### C. Embedding model/dimension is hardcoded, not per-space
-
-The redesign (§"Space") wants the embedding model and dimension to be per-space,
-templated into the DDL, and recorded in `core.space` so the server can route
-embedding work.
-
-Reality is split:
-
-- The DDL **is** templated: `embedding halfvec({{embedding_dimensions}})`
-  (`space/migrate/incremental/001_memory.sql:10`). So the *mechanism* exists.
-- But the value is **hardcoded to 1536 / `text-embedding-3-small` for every
-  space** server-side (`packages/server/config.ts:8`, `packages/server/index.ts:212`
-  comment: "Model and dimensions are hardcoded - all spaces use the same
-  embedding model").
-- `core.space` does **not** record provider/model/dimension. It literally carries
-  a TODO: `-- we likely need columns for embedding provider, model, dimensions`
-  (`core/migrate/incremental/001_space.sql:9`). There is also **no shard /
-  placement column**, though the redesign (§`core.space`) says the space record
-  "tracks placement information, such as the shard."
-
-So the "per-space embedding" and "placement metadata in `core.space`" parts of the
-redesign are not realized; all spaces are uniform and single-DB (consistent with
-the "no sharding in v1" non-goal, but the metadata hooks the redesign called for
-aren't there yet).
-
 ---
 
 ## 3. Naming / shape divergences (same concept, different surface)
 
-### D. Access resolution function
+### D. Access resolution function — decision: **keep the current implementation**
 
 - Redesign: `core.effective_tree_access(_space_id uuid, _principal_id uuid)
   returns table(tree_path ltree, access int4)`.
@@ -122,11 +110,46 @@ aren't there yet).
   **argument order**, takes **`_member_id`** (not `principal_id`), and returns a
   **JSONB array** of `{tree_path, access}` objects rather than a SQL table.
 
-Space functions consume it as a `_tree_access jsonb` argument
-(`space/migrate/idempotent/001_memory.sql:33`), matching the redesign's
-"pushed-down JSONB access set" future shape — but that's the *only* code path,
-not a later optimization. Per CLAUDE.md the auth gate is "non-empty
-`build_tree_access`."
+After evaluating the two, the current implementation is **better or equal on
+every axis** — so we keep the code and (per §7) treat REDESIGN.md's signature as
+the weaker spec to be updated. Reasoning per axis:
+
+- **Parameter `_member_id` (current) > `_principal_id` (redesign) — correctness.**
+  Effective access is only ever computed for an *authenticating actor* (a user or
+  agent). A group never authenticates and isn't owner-maskable, and
+  `build_tree_access` only dispatches `'u'`/`'a'`. `member_id` (the u|a-only
+  generated column) encodes that constraint in the signature; the redesign's
+  `_principal_id` is looser and wrongly implies a group could be passed.
+- **Argument order `(member_id, space_id)` (current) — consistency.** The whole
+  helper family is subject-first: `user_tree_access(_user_id, _space_id)`,
+  `agent_tree_access(_agent_id, _space_id)`, `member_tree_access(…, _space_id)`
+  (`003_tree_access.sql`). The redesign's space-first order would make the public
+  entry the lone exception.
+- **Return type `jsonb` (current) vs `table` (redesign) — `jsonb` fits this
+  architecture; the table form's edge is unrealized.** The set always
+  round-trips through the application layer: `build_tree_access` → TS array
+  (`packages/engine/core/db.ts:429`), where the app uses it for the **auth gate**
+  (`treeAccess.length === 0` → 403, `authenticate-space.ts`) and **owner checks**
+  (`rpc/memory/support.ts`), then passes it **back into every space function as a
+  jsonb argument** (`sql.json(treeAccess)::jsonb`,
+  `packages/engine/space/db.ts:101`; consumed via `jsonb_to_recordset` in
+  `space/migrate/idempotent/001_memory.sql:33`). The only advantage of a
+  table-returning function — joining it directly in SQL — is never used, because
+  nothing computes access purely in-SQL; the app is always in the loop. And it
+  would save nothing: postgres.js parses either return shape into the same
+  `[{tree_path, access}]` JS array, and the app re-serializes with `sql.json(…)`
+  on the way back down regardless. Meanwhile `jsonb` matches the future sharded
+  pushdown with **zero refactor**, and the typed/composable layer the redesign
+  wanted **already exists internally** as the `*_tree_access` table functions —
+  `build_tree_access` is explicitly just the jsonb *bridge* on top of them.
+- **Name `build_` vs `effective_` — cosmetic, the only place the redesign reads
+  nicer.** "Effective access" is the precise term for net/resolved permissions;
+  "build" describes the bridge role (its doc comment: "the bridge … returns …
+  the jsonb array shape"). Not worth a rename across SQL + `CLAUDE.md` + TS. If a
+  more semantic public name is ever wanted, `effective_tree_access` (returning
+  jsonb) is the one thing worth lifting from the redesign.
+
+Per CLAUDE.md the auth gate is "non-empty `build_tree_access`."
 
 ### E. Two RPC endpoints, plus REST auth
 
@@ -159,6 +182,18 @@ All same-intent, different spelling:
 
 ## 4. Not yet implemented (gaps vs. the redesign)
 
+- **C. Per-space embedding config + placement metadata.** The redesign (§"Space")
+  wants the embedding model/dimension per-space, templated into the DDL, and
+  recorded in `core.space`; the space record should also track placement (the
+  shard). Built only partway: the DDL **is** templated
+  (`embedding halfvec({{embedding_dimensions}})`,
+  `space/migrate/incremental/001_memory.sql:10`), but the value is **hardcoded to
+  1536 / `text-embedding-3-small` for every space** (`packages/server/config.ts:8`,
+  `packages/server/index.ts:212`). `core.space` records neither model/dimension
+  (it carries a TODO: `-- we likely need columns for embedding provider, model,
+  dimensions`, `core/migrate/incremental/001_space.sql:9`) nor a shard/placement
+  column. Consistent with the "no sharding in v1" non-goal, but the per-space
+  hooks the redesign called for aren't there yet.
 - **F. Last-admin safeguard.** The redesign requires that no cascade or removal
   may strip the last `principal_space.admin = true` from a space (§"Last-Admin
   Safeguard", §`core.principal_space`). No such check exists in SQL or app code.
@@ -269,9 +304,11 @@ If REDESIGN.md is meant to track reality, these lines are now stale:
 - §"Space": `core.space` does not yet carry embedding or placement columns
   (there's a TODO); embedding is hardcoded uniform. Either implement or downgrade
   the prose to "future."
-- §"Authorization Boundary": rename `effective_tree_access(_space_id,
+- §"Authorization Boundary": update `effective_tree_access(_space_id,
   _principal_id) returns table` to the real `build_tree_access(_member_id,
-  _space_id) returns jsonb`.
+  _space_id) returns jsonb` — the current signature is the preferred one (see
+  §3.D for the per-axis reasoning); optionally adopt the name `effective_…` while
+  keeping the `_member_id` argument and jsonb return.
 - Command list: `space alter`→`rename`, `apikey revoke`→`delete`, `agent group
   list`→`agent groups`; add `me agent add`; `me memory copy` and `me user group
   list` are unbuilt; the single-API framing should mention the two RPC endpoints
