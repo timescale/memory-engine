@@ -16,8 +16,12 @@ import { createMemoryClient, type MemoryClient } from "../client.ts";
 export interface HookConfig {
   /** Memory Engine server URL. */
   server: string;
-  /** Agent api key (from the plugin's sensitive userConfig). */
-  apiKey: string;
+  /**
+   * Bearer for the memory endpoint: the plugin's api key (sensitive userConfig)
+   * when set, else the user's `me login` session token. Both authenticate the
+   * memory endpoint.
+   */
+  token: string;
   /** Active space slug (X-Me-Space). */
   space: string;
   /** Tree path prefix for captured memories (ltree). */
@@ -154,28 +158,59 @@ export function buildMeta(
 export const DEFAULT_SERVER = "https://api.memory.build";
 export const DEFAULT_TREE_PREFIX = "claude_code.sessions";
 
+/** Credentials the hook falls back to when the plugin's api_key is unset. */
+export interface HookFallbackCreds {
+  apiKey?: string;
+  sessionToken?: string;
+  activeSpace?: string;
+  server?: string;
+}
+
 /**
- * Resolve the hook config from `CLAUDE_PLUGIN_OPTION_*` env vars exported
- * by Claude Code for the plugin. Returns null if required values are
- * missing.
+ * Treat unset / empty / unsubstituted-placeholder values as missing. Claude Code
+ * may substitute an empty string (or leave the literal `${user_config.x}`) for an
+ * optional userConfig field the user left blank.
+ */
+function blank(v: string | undefined): boolean {
+  return !v || /^\$\{.*\}$/.test(v);
+}
+
+/**
+ * Resolve the hook config. The bearer is the plugin's `api_key` (sensitive
+ * userConfig, delivered via `CLAUDE_PLUGIN_OPTION_API_KEY`) when set; otherwise
+ * it falls back to the user's `me login` session (passed in via `creds`, so this
+ * function stays pure/testable). The space comes from the plugin config, else the
+ * caller's active space. Returns null when no bearer or no space is available.
  *
- * Claude Code delivers `sensitive: true` userConfig values (like api_key)
- * through the same env var mechanism as non-sensitive ones.
+ * Claude Code delivers `sensitive: true` userConfig values (like api_key) through
+ * the same env var mechanism as non-sensitive ones.
  */
 export function resolveHookConfigFromEnv(
   env: NodeJS.ProcessEnv = process.env,
+  creds: HookFallbackCreds = {},
 ): HookConfig | null {
-  const apiKey = env.CLAUDE_PLUGIN_OPTION_API_KEY;
-  if (!apiKey) return null;
+  const pluginKey = blank(env.CLAUDE_PLUGIN_OPTION_API_KEY)
+    ? undefined
+    : env.CLAUDE_PLUGIN_OPTION_API_KEY;
+  // Bearer precedence mirrors `me mcp`: plugin key > ME_API_KEY > login session.
+  const token = pluginKey ?? creds.apiKey ?? creds.sessionToken;
+  if (!token) return null;
 
-  // Api keys are global, so the space must be configured explicitly.
-  const space = env.CLAUDE_PLUGIN_OPTION_SPACE;
+  // Space: plugin config, else the active space. Required either way (api keys
+  // are global, and a session still needs a target space).
+  const space = blank(env.CLAUDE_PLUGIN_OPTION_SPACE)
+    ? creds.activeSpace
+    : env.CLAUDE_PLUGIN_OPTION_SPACE;
   if (!space) return null;
 
+  const server = blank(env.CLAUDE_PLUGIN_OPTION_SERVER)
+    ? (creds.server ?? DEFAULT_SERVER)
+    : (env.CLAUDE_PLUGIN_OPTION_SERVER as string);
+
   return {
-    apiKey,
+    token,
     space,
-    server: env.CLAUDE_PLUGIN_OPTION_SERVER || DEFAULT_SERVER,
+    server,
     treePrefix: env.CLAUDE_PLUGIN_OPTION_TREE_PREFIX || DEFAULT_TREE_PREFIX,
   };
 }
@@ -222,7 +257,7 @@ export async function captureHookEvent(
     opts.client ??
     createMemoryClient({
       url: config.server,
-      token: config.apiKey,
+      token: config.token,
       space: config.space,
     });
 

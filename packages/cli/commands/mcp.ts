@@ -35,14 +35,25 @@ export function isLegacyApiKey(token: string): boolean {
   );
 }
 
+/**
+ * Treat unset / empty / unsubstituted-placeholder flag values as missing. The
+ * Claude Code plugin's .mcp.json substitutes `${user_config.api_key}` statically;
+ * when api_key is left blank that arrives as `""` (or the literal placeholder),
+ * which must fall through to the session, not be used as a token.
+ */
+function blankFlag(v: unknown): string | undefined {
+  if (typeof v !== "string" || v === "" || /^\$\{.*\}$/.test(v))
+    return undefined;
+  return v;
+}
+
 function createMcpRunAction() {
   return async (_opts: Record<string, unknown>, cmd: Command) => {
     const opts = cmd.optsWithGlobals();
     const creds = resolveCredentials(opts.server as string | undefined);
 
     // Token: --api-key > ME_API_KEY (creds.apiKey) > stored session token.
-    const token =
-      (opts.apiKey as string | undefined) ?? creds.apiKey ?? creds.sessionToken;
+    const token = blankFlag(opts.apiKey) ?? creds.apiKey ?? creds.sessionToken;
     if (!token) {
       console.error(
         "Error: no credentials. Run 'me login', or pass --api-key / set ME_API_KEY.",
@@ -60,7 +71,7 @@ function createMcpRunAction() {
     }
 
     // Space: --space > ME_SPACE / stored active space.
-    const space = (opts.space as string | undefined) ?? creds.activeSpace;
+    const space = blankFlag(opts.space) ?? creds.activeSpace;
     if (!space) {
       console.error(
         "Error: no active space. Run 'me space use <space>', or pass --space / set ME_SPACE.",

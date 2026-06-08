@@ -18,35 +18,30 @@ Captures your Claude Code conversations to [Memory Engine](https://memory.build)
    curl -fsSL https://install.memory.build | sh
    ```
 
-2. **Logged in** to a Memory Engine instance with an active engine:
+2. **Logged in** to a Memory Engine instance, with an active space selected:
 
    ```bash
    me login
-   me whoami   # confirms identity + active engine
+   me space use <space>   # select the space to capture into
+   me whoami              # confirms identity + active space
    ```
 
-3. **An API key** for the plugin. When you `me login`, an admin key for your identity is issued automatically and stored in your local credentials — you can look it up with:
+   That login session is all the plugin needs — `api_key` is **optional** (see below).
 
-   ```bash
-   # inspect your credentials file (contains the key for the active engine)
-   cat ~/.config/me/credentials.yaml
-   ```
+### Using a dedicated agent key (optional)
 
-   To paste that key into the plugin is the simplest path.
-
-### Restricting the plugin's privileges (optional but recommended)
-
-The key you configure for the plugin does **not** have to be your admin key. You can issue a separate, scoped-down key and paste *that* into the plugin, so the agent only has access to the tree paths you want it to touch:
+By default the plugin uses your `me login` session, so captures are attributed to **you**. To attribute captures to a separate, scoped-down **agent** identity instead — so it only touches the tree paths you allow — mint an api key and paste *that* into the plugin's `api_key`:
 
 ```bash
-# 1. Create a dedicated engine user for the agent
-me user create claude-code-agent
+# 1. Create a dedicated agent
+me agent create claude-code-agent
 
-# 2. Grant it just the access it needs — in this example, read+create on
+# 2. Add it to the space and grant just the access it needs — e.g. read+write on
 #    the capture subtree (grants cover all descendant paths via ltree)
-me grant create claude-code-agent claude_code.sessions read create
+me agent add claude-code-agent
+me access grant claude-code-agent claude_code.sessions w
 
-# 3. Issue an API key for that user
+# 3. Mint an API key for that agent
 me apikey create claude-code-agent plugin-key
 # → prints the raw key once; paste it into the plugin's api_key config
 ```
@@ -69,20 +64,20 @@ claude plugin install memory-engine@memory-engine --scope local     # this repo,
 
 ## Configure
 
-The plugin needs four values: `api_key`, `server`, `space`, and `tree_prefix`. Claude Code does not prompt for them at install time — you configure them from inside a session.
+The only required value is `space`. Claude Code does not prompt at install time — you configure from inside a session.
 
 ```text
 claude                               # start a session
 /plugin                              # open the plugin manager
 # → Installed → memory-engine → Configure
-# → api_key     (sensitive — stored in keychain)
+# → space       (the space slug — REQUIRED)
+# → api_key     (OPTIONAL, sensitive — blank = use your `me login` session)
 # → server      (default https://api.memory.build)
-# → space       (the space slug — api keys are global, so this is required)
 # → tree_prefix (default claude_code.sessions)
 # → values take effect immediately; no restart required
 ```
 
-Sensitive values (the api_key) go to your system keychain. Non-sensitive values go to the `settings.json` for the scope you installed in.
+Leave `api_key` blank to use your `me login` session (captures attributed to you); set it to use a dedicated agent key (see above). Sensitive values (the api_key) go to your system keychain; non-sensitive values go to the `settings.json` for the scope you installed in.
 
 ## Verify
 
@@ -140,11 +135,11 @@ Claude Code handles the cleanup. Your captured memories and API keys are preserv
 
 ## Troubleshooting
 
-**`[memory-engine] CLAUDE_PLUGIN_OPTION_API_KEY not set` in stderr**
-The hook ran but userConfig isn't filled in. Open `/plugin → memory-engine → Configure` and set the api_key.
+**`[memory-engine] no credentials` in stderr**
+The hook ran but found neither a `me login` session nor a configured api_key. Run `me login` (and `me space use <space>`), or open `/plugin → memory-engine → Configure` and set the api_key + space.
 
 **`Plugin option "X" isn't set` in Claude Code's error panel**
-A required userConfig value is missing for either a hook or the MCP server. Configure all four: api_key, server, space, tree_prefix.
+A required userConfig value is missing — `space` is required (api_key is optional). Configure it via `/plugin → memory-engine → Configure`.
 
 **Hook fires but no memories appear**
 - Confirm the api_key is valid:
@@ -155,4 +150,4 @@ A required userConfig value is missing for either a hook or the MCP server. Conf
 - Confirm `me` is on PATH from inside the Claude session: ask Claude to run `which me`.
 
 **MCP server shows "failed" in `/plugin`**
-Usually means api_key or server is missing from userConfig. Fix the configuration, then pick "Reconnect" from the plugin menu (or restart the session).
+Usually means there are no credentials to resolve: you're not logged in (`me login`) and no api_key is set, or `me` isn't on PATH. Fix it, then pick "Reconnect" from the plugin menu (or restart the session).

@@ -9,10 +9,12 @@
  *        claude plugin marketplace add timescale/memory-engine
  *        claude plugin install memory-engine@memory-engine [--scope user|project|local]
  *        # then, in a Claude Code session:
- *        /plugin  # select memory-engine, Configure, fill api_key/server/tree_prefix
+ *        /plugin  # select memory-engine, Configure, fill space (+ optional api_key)
  *
  *      Claude Code delivers the configured values to our hook (`me claude
- *      hook --event <name>`) via CLAUDE_PLUGIN_OPTION_* env vars.
+ *      hook --event <name>`) via CLAUDE_PLUGIN_OPTION_* env vars. api_key is
+ *      optional: left blank, the hook (and the plugin's MCP server) use your
+ *      `me login` session.
  *
  *   2. MCP-only via `me claude install`. Registers `me` as an MCP server
  *      with Claude Code (no hooks, no slash commands — just the tools).
@@ -25,6 +27,7 @@ import {
   type HookEventName,
   resolveHookConfigFromEnv,
 } from "../claude/capture.ts";
+import { resolveCredentials } from "../credentials.ts";
 import { claudeImporter } from "../importers/claude.ts";
 import {
   type AgentInstallOptions,
@@ -89,9 +92,9 @@ function createClaudeInstallCommand(): Command {
  * me claude hook — invoked by the Claude Code plugin to capture events as
  * memories.
  *
- * Reads the event JSON from stdin, pulls credentials + config from the
- * CLAUDE_PLUGIN_OPTION_* env vars that Claude Code exports for the plugin,
- * and creates a memory.
+ * Reads the event JSON from stdin, resolves config from the CLAUDE_PLUGIN_OPTION_*
+ * env vars Claude Code exports for the plugin (falling back to the `me login`
+ * session when no api_key is configured), and creates a memory.
  *
  * Best-effort: logs failures to stderr but always exits 0 so that a hook
  * failure never blocks a Claude Code session.
@@ -112,12 +115,16 @@ function createClaudeHookCommand(): Command {
         process.exit(0);
       }
 
-      // Resolve config from env
-      const config = resolveHookConfigFromEnv();
+      // Resolve config: the plugin's api_key if configured, else fall back to
+      // the user's `me login` session (resolved from the keychain/config).
+      const config = resolveHookConfigFromEnv(
+        process.env,
+        resolveCredentials(),
+      );
       if (!config) {
         console.error(
-          "[memory-engine] CLAUDE_PLUGIN_OPTION_API_KEY not set. " +
-            "Configure the plugin via `/plugin` in Claude Code.",
+          "[memory-engine] no credentials. Run `me login`, or set the plugin's " +
+            "api_key + space via `/plugin` in Claude Code.",
         );
         process.exit(0);
       }

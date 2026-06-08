@@ -12,10 +12,10 @@
   "userConfig": {
     "api_key": {
       "type": "string",
-      "title": "API key",
-      "description": "Memory Engine API key. Create one with `me apikey create` (or have an admin create one with restricted privileges for your agent).",
+      "title": "API key (optional)",
+      "description": "Optional. Leave blank to use your `me login` session — the plugin falls back to it automatically. Set an API key to attribute captures to a dedicated agent instead: create one with `me apikey create` (or have an admin create one with restricted privileges).",
       "sensitive": true,
-      "required": true
+      "required": false
     },
     "server": {
       "type": "string",
@@ -27,7 +27,7 @@
     "space": {
       "type": "string",
       "title": "Space",
-      "description": "Space slug to store memories in (the X-Me-Space). API keys are global, so the space must be set explicitly.",
+      "description": "Space slug to store memories in (the X-Me-Space). Required — the active space isn't read from your CLI config here.",
       "required": true
     },
     "tree_prefix": {
