@@ -36,35 +36,48 @@ export async function runAgentMcpInstall(
     process.exit(1);
   }
 
-  // Resolve credentials: flags > env (ME_API_KEY / ME_SPACE) > stored config.
-  // MCP configs bake in a long-lived agent api key (a human session would
-  // expire), so an api key is required here — mint one with
-  // `me apikey create <agent>`. Keys are global, so a space must be baked in too.
-  let { apiKey, server, space } = opts;
-  if (!apiKey || !server || !space) {
-    const creds = resolveCredentials(server);
-    if (!apiKey) apiKey = creds.apiKey;
-    if (!server) server = creds.server;
-    if (!space) space = creds.activeSpace;
-  }
-
-  if (!apiKey) {
-    clack.log.error(
-      "No API key available. Pass --api-key or set ME_API_KEY — mint one with 'me apikey create <agent>'.",
-    );
-    process.exit(1);
-  }
+  // Resolve credentials: flags > env (ME_API_KEY / ME_SERVER / ME_SPACE) >
+  // stored config.
+  const creds = resolveCredentials(opts.server);
+  const apiKey = opts.apiKey ?? creds.apiKey; // --api-key > ME_API_KEY
+  const server = opts.server ?? creds.server;
 
   if (!server) {
     clack.log.error("No server URL available. Pass --server or set ME_SERVER.");
     process.exit(1);
   }
 
-  if (!space) {
-    clack.log.error(
-      "No space available. Pass --space, set ME_SPACE, or run 'me space use <space>'.",
-    );
-    process.exit(1);
+  // Default path: no api key → the MCP server uses your login SESSION, resolved
+  // from the keychain/config at runtime each time it starts (so it survives
+  // `me login`). Pass --api-key / ME_API_KEY only for a headless agent that
+  // can't reach your keychain; that bakes a long-lived global key and must pin a
+  // space. The `--space` flag pins the space either way; otherwise the session
+  // path resolves it at runtime from ME_SPACE / active space.
+  let meCmd: string[];
+  if (apiKey) {
+    const space = opts.space ?? creds.activeSpace;
+    if (!space) {
+      clack.log.error(
+        "No space for the API key. Pass --space, set ME_SPACE, or run 'me space use <space>' (keys are global, so the space must be fixed).",
+      );
+      process.exit(1);
+    }
+    meCmd = buildMeCommand({ server, apiKey, space });
+  } else {
+    if (!creds.sessionToken) {
+      clack.log.error(
+        "Not logged in. Run 'me login' (the MCP server will use your session), or pass --api-key / set ME_API_KEY for a headless agent.",
+      );
+      process.exit(1);
+    }
+    // Bake only --server (+ an explicit --space pin if given); the session token
+    // and space resolve at runtime.
+    meCmd = buildMeCommand({ server, space: opts.space });
+    if (!opts.space && !creds.activeSpace) {
+      clack.log.warn(
+        "No active space set — the MCP server will fail until you run 'me space use <space>' (or set ME_SPACE). Re-run with --space to pin one.",
+      );
+    }
   }
 
   // For CLI tools, require the binary to be on PATH. JSON-file tools
@@ -75,9 +88,6 @@ export async function runAgentMcpInstall(
     );
     process.exit(1);
   }
-
-  // Build the me mcp command with baked-in credentials
-  const meCmd = buildMeCommand(apiKey, server, space);
 
   const spin = clack.spinner();
   spin.start(`Registering with ${tool.name}...`);

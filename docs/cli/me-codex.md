@@ -19,10 +19,11 @@ me codex install [options]
 
 | Option | Description |
 |--------|-------------|
-| `--api-key <key>` | API key to embed in the MCP config. |
+| `--api-key <key>` | API key for a headless agent. Default: the MCP server uses your `me login` session, resolved at runtime. |
+| `--space <slug>` | Pin a space. Default: resolve `ME_SPACE` / active space at runtime. |
 | `--server <url>` | Server URL to embed in the MCP config. |
 
-If no `--api-key` or `--server` is provided, values are resolved from `~/.config/me/credentials.yaml` (set by `me login` and `me engine use`).
+By default only the server URL is baked into the config: at runtime `me mcp` uses your `me login` session (resolved from the OS keychain / `~/.config/me` each run, so it survives re-login) and your active space (set by `me space use` / `ME_SPACE`). Pass `--api-key` (mint one with `me apikey create <agent>`) for a headless agent that cannot reach your keychain; that bakes the key and requires a pinned `--space`.
 
 For manual MCP client configuration, see [MCP Integration](../mcp-integration.md).
 

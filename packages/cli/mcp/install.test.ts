@@ -6,24 +6,46 @@ import { buildMeCommand, buildOpenCodeConfig, MCP_TOOLS } from "./install.ts";
 
 describe("buildMeCommand", () => {
   test("uses bare 'me' command on PATH", () => {
-    const cmd = buildMeCommand(
-      "test-key-123",
-      "https://api.memory.build",
-      "abc123def456",
-    );
+    const cmd = buildMeCommand({ server: "https://api.memory.build" });
     expect(cmd[0]).toBe("me");
     expect(cmd[1]).toBe("mcp");
   });
 
-  test("includes --api-key, --server, and --space with correct values", () => {
-    const cmd = buildMeCommand("k", "https://example.com", "abc123def456");
+  test("session default bakes only --server (token + space resolve at runtime)", () => {
+    const cmd = buildMeCommand({ server: "https://example.com" });
+    expect(cmd).toEqual(["me", "mcp", "--server", "https://example.com"]);
+    expect(cmd).not.toContain("--api-key");
+    expect(cmd).not.toContain("--space");
+  });
+
+  test("pins --space when given (session path with explicit space)", () => {
+    const cmd = buildMeCommand({
+      server: "https://example.com",
+      space: "abc123def456",
+    });
     expect(cmd).toEqual([
       "me",
       "mcp",
-      "--api-key",
-      "k",
       "--server",
       "https://example.com",
+      "--space",
+      "abc123def456",
+    ]);
+  });
+
+  test("headless agent bakes --api-key and --space", () => {
+    const cmd = buildMeCommand({
+      server: "https://example.com",
+      apiKey: "k",
+      space: "abc123def456",
+    });
+    expect(cmd).toEqual([
+      "me",
+      "mcp",
+      "--server",
+      "https://example.com",
+      "--api-key",
+      "k",
       "--space",
       "abc123def456",
     ]);

@@ -14,11 +14,14 @@ import { buildAgentImportSubcommand } from "./import.ts";
 function createCodexInstallCommand(): Command {
   return new Command("install")
     .description("register me as an MCP server with Codex CLI")
-    .option("--api-key <key>", "API key to embed in MCP config")
+    .option(
+      "--api-key <key>",
+      "API key for a headless agent (default: use your login session at runtime)",
+    )
     .option("--server <url>", "server URL to embed in MCP config")
     .option(
       "--space <slug>",
-      "space to embed in MCP config (else ME_SPACE / active space)",
+      "pin a space (default: resolve ME_SPACE / active space at runtime)",
     )
     .action(async (opts: AgentInstallOptions, cmd: Command) => {
       const globalOpts = cmd.optsWithGlobals();

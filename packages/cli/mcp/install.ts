@@ -114,27 +114,29 @@ export function detectInstalledTools(): McpTool[] {
 }
 
 /**
- * Build the `me mcp` command array with baked-in credentials.
+ * Build the `me mcp …` command array to embed in an MCP config.
  *
- * Api keys are global, so the space must be baked in explicitly (`--space`).
+ * Only `--server` is always baked. `--api-key` and `--space` are baked **only**
+ * when provided:
+ *   - **Default (no api key):** the MCP server resolves your login *session* from
+ *     the keychain/config at runtime (so it keeps working across `me login`), and
+ *     the space from `ME_SPACE`/active space at runtime — nothing secret or
+ *     stateful is written into the config.
+ *   - **Headless agent (`--api-key`):** the global key is baked in, along with a
+ *     pinned `--space` (keys aren't space-bound, so the space must be fixed).
+ *
  * Always uses bare `me` — the binary is expected to be on PATH whether installed
  * via the install script, Homebrew, or npm.
  */
-export function buildMeCommand(
-  apiKey: string,
-  serverUrl: string,
-  space: string,
-): string[] {
-  return [
-    "me",
-    "mcp",
-    "--api-key",
-    apiKey,
-    "--server",
-    serverUrl,
-    "--space",
-    space,
-  ];
+export function buildMeCommand(opts: {
+  server: string;
+  apiKey?: string;
+  space?: string;
+}): string[] {
+  const cmd = ["me", "mcp", "--server", opts.server];
+  if (opts.apiKey) cmd.push("--api-key", opts.apiKey);
+  if (opts.space) cmd.push("--space", opts.space);
+  return cmd;
 }
 
 // =============================================================================

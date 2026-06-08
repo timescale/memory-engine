@@ -54,11 +54,14 @@ function parseClaudeScope(value: string): ClaudeScope {
 function createClaudeInstallCommand(): Command {
   return new Command("install")
     .description("register me as an MCP server with Claude Code")
-    .option("--api-key <key>", "API key to embed in MCP config")
+    .option(
+      "--api-key <key>",
+      "API key for a headless agent (default: use your login session at runtime)",
+    )
     .option("--server <url>", "server URL to embed in MCP config")
     .option(
       "--space <slug>",
-      "space to embed in MCP config (else ME_SPACE / active space)",
+      "pin a space (default: resolve ME_SPACE / active space at runtime)",
     )
     .option(
       "-s, --scope <scope>",
