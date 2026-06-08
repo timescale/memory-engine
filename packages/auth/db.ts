@@ -22,7 +22,11 @@ import type {
   ValidatedSession,
 } from "./types";
 
-const SESSION_EXPIRY_DAYS = 30;
+// Initial session lifetime at login. Sessions are rolling: validate_session
+// slides expiry forward to now + this window on use (throttled to ~once/day),
+// with no absolute cap — better-auth's model (expiresIn=7d, updateAge=1d). Keep
+// this in sync with the window in auth migrate 002_session.sql validate_session.
+const SESSION_EXPIRY_DAYS = 7;
 
 /**
  * The auth control-plane data layer.

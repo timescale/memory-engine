@@ -70,6 +70,23 @@ test("createSession returns a token that validateSession accepts", async () => {
   expect(await db.validateSession(token)).toBeNull();
 });
 
+test("validateSession rolls a near-expiry session forward, then throttles", async () => {
+  const id = await db.createUser(email(), "Rolling");
+  // Start with a 1-day session so it's inside the refresh threshold (<6d left).
+  const { token } = await db.createSession(id, { expiresInDays: 1 });
+
+  // First use slides the expiry forward to ~7 days out (the window).
+  const before = await db.validateSession(token);
+  expect(before).not.toBeNull();
+  const sixDaysOut = Date.now() + 6 * 24 * 60 * 60 * 1000;
+  expect(before?.expiresAt.getTime()).toBeGreaterThan(sixDaysOut);
+
+  // A full-window session is NOT bumped again on the next use (≤ once/day
+  // throttle): the stored expiry is unchanged, not sliding on every call.
+  const after = await db.validateSession(token);
+  expect(after?.expiresAt.getTime()).toBe(before?.expiresAt.getTime());
+});
+
 test("deleteSessionsByUser revokes all of a user's sessions", async () => {
   const id = await db.createUser(email(), "Carol");
   const a = await db.createSession(id);

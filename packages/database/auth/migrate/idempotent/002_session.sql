@@ -21,6 +21,13 @@ set search_path to pg_catalog, {{schema}}, public, pg_temp
 -- validate_session
 -- Looks up an unexpired session by token hash and returns the session + its
 -- user. No rows if missing or expired.
+--
+-- Rolling session (better-auth model): on a valid lookup the expiry slides
+-- forward to now + 7 days, but at most once per day — only when the remaining
+-- lifetime has dropped below (window - updateAge) = 6 days. So an actively-used
+-- session never expires, an idle one lapses 7 days after last use, and the hot
+-- path writes at most ~once/day/session (the function is therefore volatile).
+-- No absolute cap, matching better-auth's defaults (expiresIn=7d, updateAge=1d).
 -------------------------------------------------------------------------------
 create or replace function {{schema}}.validate_session(_token_hash bytea)
 returns table
@@ -31,12 +38,28 @@ returns table
 , expires_at timestamptz
 )
 as $func$
-  select s.id, u.id, u.email::text, u.name, s.expires_at
-  from {{schema}}.sessions s
-  inner join {{schema}}.users u on (u.id = s.user_id)
-  where s.token_hash = _token_hash
-    and s.expires_at > now()
-$func$ language sql stable security invoker
+  with valid as
+  (
+    select s.id, s.user_id, s.expires_at
+    from {{schema}}.sessions s
+    where s.token_hash = _token_hash
+      and s.expires_at > now()
+  )
+  , bumped as
+  (
+    update {{schema}}.sessions s
+       set expires_at = now() + interval '7 days'  -- window (expiresIn)
+      from valid v
+     where s.id = v.id
+       and v.expires_at < now() + interval '6 days' -- throttle: window - updateAge (1d)
+    returning s.id, s.expires_at
+  )
+  select v.id, u.id, u.email::text, u.name
+       , coalesce(b.expires_at, v.expires_at) as expires_at
+  from valid v
+  inner join {{schema}}.users u on (u.id = v.user_id)
+  left join bumped b on (b.id = v.id)
+$func$ language sql volatile security invoker
 set search_path to pg_catalog, {{schema}}, public, pg_temp
 ;
 

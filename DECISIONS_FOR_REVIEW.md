@@ -124,6 +124,41 @@ making them mintable for users widens that surface.
 
 ---
 
+## Rolling sessions (7d, refreshed daily, no absolute cap) — copied from better-auth
+
+**Date:** 2026-06-08 · **Area:** auth / session lifetime
+
+Sessions were a **fixed** 30-day expiry with no renewal — an actively-used login
+died 30 days after `me login` regardless of activity. That became user-visible
+once `me <tool> install` started defaulting to the login session (a logged-in
+editor's MCP integration would silently break monthly). Changed to **rolling**
+sessions matching better-auth's defaults: `validate_session` slides `expires_at`
+to `now + 7d` on use, **throttled to ~once/day** (only when <6d remains, i.e.
+window − updateAge), with **no absolute cap**. The function is now `volatile`
+(was `stable`) and does at most ~one write/session/day on the hot path.
+
+**Decision:** adopt better-auth's model verbatim (expiresIn=7d, updateAge=1d, no
+cap). Initial window also dropped 30d → 7d (`SESSION_EXPIRY_DAYS`).
+
+**The open tradeoff — no absolute cap:** OWASP recommends pairing an idle timeout
+(which we now have: 7d) with an **absolute timeout** (a hard ceiling regardless of
+activity) so a leaked-but-actively-used session can't roll forever. better-auth
+omits this by default and we followed suit, prioritizing "never log out an active
+user." A continuously-used (or exfiltrated-and-used) session never expires;
+mitigations remain `me logout` / `deleteSessionsByUser` (revoke-all).
+
+**How to add a cap later:** store `absolute_expires_at = created_at + <max>` (or
+compute from the existing `sessions.created_at`) and `least(now()+7d,
+absolute_expires_at)` in the `validate_session` bump; force re-login past it.
+Window/throttle live in `packages/database/auth/migrate/idempotent/002_session.sql`
+(`validate_session`) and `SESSION_EXPIRY_DAYS` in `packages/auth/db.ts` — keep the
+two windows in sync.
+
+**Status:** decided (copy better-auth); revisit the absolute cap if the
+long-lived-bearer surface becomes a concern.
+
+---
+
 ## Should an agent get `share` access on join by default, or no grants (as now)?
 
 **Date:** 2026-06-08 · **Area:** membership (`me agent add` / `principal.add`)
