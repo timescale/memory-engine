@@ -30,8 +30,8 @@
     "release:server": "./bun scripts/release-server.ts",
     "server": "./bun run packages/server/index.ts",
     "setup": "./bun scripts/setup.ts",
-    "test": "./bun test packages",
-    "test:db": "./bun run test:db:clean && find packages/database -name '*.integration.test.ts' -print0 | xargs -0 -P 2 -n 1 ./bun test --timeout 30000",
+    "test": "TEST_DATABASE_URL=\"${TEST_DATABASE_URL:-$(ghost connect testing_me)}\" ./bun test packages --timeout 30000 --parallel=2",
+    "test:db": "./bun run test:db:clean && find packages -name '*.integration.test.ts' -print0 | xargs -0 ./bun test --parallel=2 --timeout 30000",
     "test:db:clean": "./bun scripts/clean-test-schemas.ts",
     "test:db:clean:all": "./bun scripts/clean-test-schemas.ts --all",
     "typecheck": "tsc --noEmit"

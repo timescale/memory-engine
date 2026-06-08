@@ -82,17 +82,22 @@ Always use the `./bun` wrapper script (auto-installs the pinned Bun version):
 # Linting and formatting (auto-fix)
 ./bun run lint --write
 
-# Run unit tests
-./bun test
-
-# Run a single test file
+# Run a test file directly (uses TEST_DATABASE_URL; default local 127.0.0.1) —
+# fast, for iterating on one file:
 ./bun test packages/cli/mcp/install.test.ts
 
-# Shorthand for all checks (typecheck + lint + test)
+# Full suite (unit + integration). `test` and `check` default TEST_DATABASE_URL
+# to the ghost instance and run files in parallel (--parallel=2) with a 30s
+# timeout; set TEST_DATABASE_URL (e.g. a local Postgres) to override.
+./bun run test
+
+# Shorthand for all checks (typecheck + lint + test → ghost)
 ./bun run check
 ```
 
-**Important**: After making code changes, always run `./bun run check`.
+**Important**: After making code changes, always run `./bun run check` (it runs
+the full suite against ghost, ~4 min; for a faster inner loop set
+`TEST_DATABASE_URL` to a local Postgres).
 
 > `packages/web` and `packages/docs-site` are excluded from the root typecheck
 > (they have their own); `./bun run check` does not cover them.
@@ -101,7 +106,12 @@ Always use the `./bun` wrapper script (auto-installs the pinned Bun version):
 
 `*.integration.test.ts` files run against a real PostgreSQL 18 with the
 required extensions (citext, ltree, pgvector, pg_textsearch), provisioned with
-ghost. Point `TEST_DATABASE_URL` at a ghost database and run:
+ghost. `./bun run test` and `check` already target ghost by default (the full
+suite, `--parallel=2`, 30s timeout — see above). `test:db` is the focused
+variant: it first reclaims orphaned test schemas, then runs **every**
+`*.integration.test.ts` under `packages/` (the auth/core/space migration suites
+plus the engine/server/worker suites), `--parallel=2`, 30s timeout. Point
+`TEST_DATABASE_URL` at a ghost database and run:
 
 ```bash
 TEST_DATABASE_URL="$(ghost connect testing_me)" ./bun run test:db
@@ -121,19 +131,24 @@ TEST_DATABASE_URL="$(ghost connect testing_me)" \
 
 Isolation is **schema-level** (ghost forbids `create database`): each test
 provisions its own throwaway schema(s) — `core_test_<rand>` for core,
-`auth_test_<rand>` for auth, `metest_<slug>` for spaces — so the suites are
-fully concurrent and parallel-safe across files. All migrations are templated,
-so production uses `core` / `auth` / `me_<slug>` while tests target throwaway
-schemas and never touch real data. Test spaces deliberately use the `metest_`
-prefix (not the production `me_`) so leftovers are distinguishable from real
-spaces by name alone.
+`auth_test_<rand>` for auth, `metest_<slug>` for the space *migration* tests — so
+the suites are fully concurrent and parallel-safe across files. All migrations are
+templated, so production uses `core` / `auth` / `me_<slug>` while these tests
+target throwaway schemas and never touch real data. The space migration tests
+deliberately use the `metest_` prefix (not production `me_`) so leftovers are
+distinguishable by name alone. The **server** integration tests are the exception:
+they exercise the real `provisionUser` / `provisionSpace`, so they create genuine
+`me_<slug>` schemas and drop them in `afterAll` (only a hard-interrupted server
+test leaks one — see below).
 
 `test:db` first runs `test:db:clean` (`scripts/clean-test-schemas.ts`) to
 reclaim orphaned `core_test_*` / `auth_test_*` / `metest_*` schemas left by
 hard-interrupted runs. It is age-gated (only drops schemas older than 60 min, so
 a concurrent `test:db` sharing the database is safe) and a no-op against a
-production database — no pattern can match a real schema. Use `test:db:clean:all`
-for a deliberate full reset when nothing else is using the database.
+production database — no pattern can match a real schema, **including `me_<slug>`**:
+a server test's leaked `me_<slug>` is therefore *not* auto-reclaimed, so drop it
+by hand if a run is killed mid-test. Use `test:db:clean:all` for a deliberate full
+reset when nothing else is using the database.
 
 ## Style Guides
 
