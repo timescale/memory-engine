@@ -18,7 +18,7 @@ import {
   type ParsedMemory,
   parseContent,
 } from "../parsers/index.ts";
-import { buildMemoryClient, requireSession, requireSpace } from "../util.ts";
+import { buildMemoryClient, requireMemoryAuth, requireSpace } from "../util.ts";
 
 /**
  * Collect files from a path. If directory, requires --recursive.
@@ -101,7 +101,7 @@ export function createMemoryImportCommand(): Command {
       const globalOpts = cmd.optsWithGlobals();
       const creds = resolveCredentials(globalOpts.server);
       const fmt = getOutputFormat(globalOpts);
-      requireSession(creds, fmt);
+      requireMemoryAuth(creds, fmt);
       requireSpace(creds, fmt);
 
       // Validate format option

@@ -12,6 +12,16 @@
         "typescript": "^6.0.2",
       },
     },
+    "e2e": {
+      "name": "@memory.build/e2e",
+      "version": "0.2.5",
+      "dependencies": {
+        "@memory.build/auth": "workspace:*",
+        "@memory.build/database": "workspace:*",
+        "@memory.build/embedding": "workspace:*",
+        "postgres": "^3.4.9",
+      },
+    },
     "packages/auth": {
       "name": "@memory.build/auth",
       "version": "0.0.0",
@@ -388,6 +398,8 @@
     "@memory.build/database": ["@memory.build/database@workspace:packages/database"],
 
     "@memory.build/docs-site": ["@memory.build/docs-site@workspace:packages/docs-site"],
+
+    "@memory.build/e2e": ["@memory.build/e2e@workspace:e2e"],
 
     "@memory.build/embedding": ["@memory.build/embedding@workspace:packages/embedding"],
 

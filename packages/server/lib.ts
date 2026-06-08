@@ -4,3 +4,9 @@
 export type { ServerContext } from "./context";
 export { extractBearerToken } from "./middleware";
 export { createRouter, type Router } from "./router";
+export {
+  buildEmbeddingConfig,
+  type RunningServer,
+  type StartServerOptions,
+  startServer,
+} from "./start";

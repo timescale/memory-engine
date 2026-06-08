@@ -26,18 +26,29 @@ export const timestampSchema = z.iso.datetime({ offset: true });
 // =============================================================================
 
 /**
- * ltree path pattern (alphanumeric and underscores, dot-separated).
+ * User-facing tree-path input pattern. This is the *lenient* wire form, not the
+ * canonical ltree: separators may be `.` or `/`, a leading `~` is the home
+ * shortcut, and labels are ltree labels (`[A-Za-z0-9_-]`). The empty string is
+ * the root. Every handler that accepts this normalizes it server-side via
+ * `normalizeTreePath` (see packages/database/space/path.ts), which is the
+ * authoritative validator — it rejects malformed labels and a misplaced `~`
+ * with a TreePathError mapped to a validation error. This regex is only a cheap
+ * shape gate so obviously-bad characters (spaces, etc.) fail fast.
+ *
+ * Keeping this lenient (rather than the strict canonical ltree) is required so
+ * the documented `~`/`share` conventions and slash separators actually work
+ * over the wire on create/update/move/tree/grant — all of which normalize.
  */
-const ltreePattern = /^([A-Za-z0-9_]+(\.[A-Za-z0-9_]+)*)?$/;
+const treePathInputPattern = /^[A-Za-z0-9_~./-]*$/;
 
 /**
- * Tree path schema (ltree format, allows empty string for root).
+ * Tree path schema (lenient user-facing input; allows empty string for root).
  */
 export const treePathSchema = z
   .string()
   .regex(
-    ltreePattern,
-    "must be a valid ltree path (alphanumeric/underscore, dot-separated)",
+    treePathInputPattern,
+    "must be a tree path (labels [A-Za-z0-9_-], '.' or '/' separated, optional leading '~')",
   );
 
 /**

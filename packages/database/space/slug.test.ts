@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 import { randomSlug } from "./migrate/test-utils";
 import {
   isValidSlug,
@@ -56,6 +56,32 @@ describe("slugToSchema / schemaToSlug", () => {
     const slug = "0a1b2c3d4e5f";
     expect(schemaToSlug(slugToSchema(slug))).toBe(slug);
     expect(isValidSpaceSchema(slugToSchema(slug))).toBe(true);
+  });
+});
+
+describe("SPACE_SCHEMA_PREFIX override", () => {
+  const ORIGINAL = process.env.SPACE_SCHEMA_PREFIX;
+  afterEach(() => {
+    if (ORIGINAL === undefined) delete process.env.SPACE_SCHEMA_PREFIX;
+    else process.env.SPACE_SCHEMA_PREFIX = ORIGINAL;
+  });
+
+  test("slugToSchema / schemaToSlug honor a non-default prefix", () => {
+    process.env.SPACE_SCHEMA_PREFIX = "metest_";
+    expect(slugToSchema("abcdef012345")).toBe("metest_abcdef012345");
+    expect(schemaToSlug("metest_abcdef012345")).toBe("abcdef012345");
+    expect(schemaToSlug(slugToSchema("0a1b2c3d4e5f"))).toBe("0a1b2c3d4e5f");
+  });
+
+  test("isValidSpaceSchema matches the configured prefix, not me_", () => {
+    process.env.SPACE_SCHEMA_PREFIX = "metest_";
+    expect(isValidSpaceSchema("metest_abcdef012345")).toBe(true);
+    expect(isValidSpaceSchema("me_abcdef012345")).toBe(false);
+  });
+
+  test("rejects an invalid prefix", () => {
+    process.env.SPACE_SCHEMA_PREFIX = "9bad";
+    expect(() => slugToSchema("abcdef012345")).toThrow();
   });
 });
 

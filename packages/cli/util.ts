@@ -19,6 +19,10 @@ const UUIDV7_RE =
 
 /**
  * Ensure the user has a session token. Exits with an error if not.
+ *
+ * Use this for the user endpoint (/api/v1/user/rpc), which is session-only — an
+ * api key never authenticates there (agents can't manage agents). For the memory
+ * endpoint, which accepts either bearer, use {@link requireMemoryAuth}.
  */
 export function requireSession(
   creds: ResolvedCredentials,
@@ -29,6 +33,29 @@ export function requireSession(
       clack.log.error("Not logged in. Run 'me login' first.");
     } else {
       output({ error: "Not logged in" }, fmt, () => {});
+    }
+    process.exit(1);
+  }
+}
+
+/**
+ * Ensure the caller can authenticate to the memory endpoint
+ * (/api/v1/memory/rpc), which accepts either bearer: an agent api key
+ * (ME_API_KEY) or a human session token. Exits with an error if neither is
+ * present. Pair with {@link requireSpace}; then {@link buildMemoryClient} picks
+ * the bearer (api key first, mirroring `me mcp`).
+ */
+export function requireMemoryAuth(
+  creds: ResolvedCredentials,
+  fmt: OutputFormat,
+): void {
+  if (!creds.apiKey && !creds.sessionToken) {
+    const msg =
+      "Not authenticated. Run 'me login', or set ME_API_KEY for an agent.";
+    if (fmt === "text") {
+      clack.log.error(msg);
+    } else {
+      output({ error: msg }, fmt, () => {});
     }
     process.exit(1);
   }
@@ -65,15 +92,17 @@ export function buildUserClient(
 }
 
 /**
- * Build a memory client (session + active space, /api/v1/memory/rpc). Call
- * requireSession and requireSpace first so both are present.
+ * Build a memory client (bearer + active space, /api/v1/memory/rpc). Call
+ * requireMemoryAuth and requireSpace first so a bearer and a space are present.
+ * The bearer is the agent api key when set (ME_API_KEY), else the session token
+ * — the memory endpoint accepts either, and this mirrors `me mcp`'s precedence.
  */
 export function buildMemoryClient(
-  creds: ResolvedCredentials & { sessionToken: string; activeSpace: string },
+  creds: ResolvedCredentials & { activeSpace: string },
 ): MemoryClient {
   return createMemoryClient({
     url: creds.server,
-    token: creds.sessionToken,
+    token: creds.apiKey ?? creds.sessionToken,
     space: creds.activeSpace,
   });
 }

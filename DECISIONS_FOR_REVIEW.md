@@ -124,6 +124,45 @@ making them mintable for users widens that surface.
 
 ---
 
+## Should an agent get `share` access on join by default, or no grants (as now)?
+
+**Date:** 2026-06-08 · **Area:** membership (`me agent add` / `principal.add`)
+
+Surfaced by the e2e suite: `me agent add` puts the agent on the roster but
+grants it **nothing**, so a freshly-added agent (with a minted key) gets
+`No access to this space` on its first `me search` — the auth gate is a
+non-empty `build_tree_access`, and an agent joins with zero grants (see the
+"Home grant at join is for users only" entry: agents get no auto home because
+the `agent_tree_access` clamp would make it inert). To make the agent usable the
+owner must run an explicit `me access grant <agent> share r` (or similar) after
+adding it. The e2e api-key scenario does exactly that.
+
+**The decision:** when an agent is added to a space, should it automatically
+receive a default grant — most naturally **read on `share`**, the shared root —
+so it's immediately usable, or should it keep getting **no grants** (today),
+requiring the owner to grant access explicitly?
+
+**Why it's a real decision:** weigh ergonomics (an added agent that can do
+nothing until a second, easily-forgotten grant command is surprising) against
+least-privilege (an agent should see only what its owner deliberately shares).
+Note the clamp: an agent's effective access is bounded by its owner's, so a
+default `read@share` would only take effect when the owner themselves can read
+`share` (the space creator owns it; an invited member may or may not). A default
+also raises "which level/path" (read vs write, `share` vs space-root) and whether
+it should apply to all join paths (`principal.add`, invite redemption) or only
+self-service `me agent add`.
+
+**How to change it (add a default):** in `add_principal_to_space`
+(`packages/database/core/migrate/idempotent/006_membership.sql`) add an
+agent-branch that writes a `read @ share` grant (mirroring the user home-grant
+branch gated on `p.kind = 'u'`), or do it at the RPC layer in `principal.add`
+(`packages/server/rpc/memory/principal.ts`). Keeping it in the SQL chokepoint
+makes it uniform across every join path.
+
+**Status:** needs decision.
+
+---
+
 ## No cross-schema FK between `core.principal` and `auth.users`
 
 **Date:** 2026-06-06 · **Area:** auth / core schema boundary

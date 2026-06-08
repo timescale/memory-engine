@@ -37,7 +37,7 @@ import { getOutputFormat, output } from "../output.ts";
 import {
   buildMemoryClient,
   handleError,
-  requireSession,
+  requireMemoryAuth,
   requireSpace,
 } from "../util.ts";
 
@@ -164,7 +164,7 @@ async function runAndRender(
     typeof globalOpts.server === "string" ? globalOpts.server : undefined,
   );
   const fmt = getOutputFormat(globalOpts);
-  requireSession(creds, fmt);
+  requireMemoryAuth(creds, fmt);
   requireSpace(creds, fmt);
 
   let config: ReturnType<typeof buildOptions>;
