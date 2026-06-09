@@ -2,8 +2,10 @@
  * Project slug derivation for agent conversation imports.
  *
  * A "slug" is an ltree-safe label derived from the session's cwd:
- * - Prefer the git repo root directory name if the cwd is inside a repo.
- * - Fall back to `basename(cwd)`.
+ * - Prefer the git `origin` remote's repo name (stable across clone locations,
+ *   and shared with the Claude Code capture hook via `resolveProjectSlug`, so
+ *   live + imported sessions for the same repo share one project label).
+ * - Else the git repo root directory name, else `basename(cwd)`.
  * - Normalize to `[a-z0-9_]+`.
  *
  * Slug collisions (different cwds that normalize to the same label) are
@@ -52,6 +54,14 @@ export function normalizeSlug(raw: string): string {
   // Purely numeric is legal for ltree, but not useful as a label.
   if (/^\d+$/.test(collapsed)) return `p_${collapsed}`;
   return collapsed;
+}
+
+/**
+ * Extract the repo name (last path segment, sans `.git`) from a git remote URL.
+ * Handles `https://github.com/org/repo.git` and `git@github.com:org/repo.git`.
+ */
+export function repoNameFromRemote(url: string): string | undefined {
+  return url.trim().match(/[/:]([^/:]+?)(?:\.git)?$/)?.[1];
 }
 
 /**
@@ -127,6 +137,34 @@ function shortHash(input: string): string {
 }
 
 /**
+ * Derive the base (pre-collision) project slug for a cwd: the git `origin`
+ * remote's repo name if available, else the git repo root dir name, else
+ * `basename(cwd)` — normalized to an ltree label. Returns the git info too so
+ * callers can use it for collision disambiguation.
+ */
+async function deriveBaseSlug(
+  cwd: string,
+): Promise<{ baseSlug: string; gitRoot?: string; gitRemote?: string }> {
+  const { gitRoot, gitRemote } = await getGitInfo(cwd);
+  const rawName =
+    (gitRemote ? repoNameFromRemote(gitRemote) : undefined) ??
+    basename(gitRoot ?? cwd);
+  return { baseSlug: normalizeSlug(rawName), gitRoot, gitRemote };
+}
+
+/**
+ * Single-shot project slug for one cwd (no cross-run collision registry) —
+ * used by the Claude Code capture hook so live captures nest under the same
+ * project label the import tool uses. Returns the `unknown` slug for an
+ * empty/missing cwd.
+ */
+export async function resolveProjectSlug(cwd?: string): Promise<string> {
+  if (!cwd || cwd.trim().length === 0) return UNKNOWN_SLUG;
+  const { baseSlug } = await deriveBaseSlug(cwd);
+  return baseSlug;
+}
+
+/**
  * Registry used to track slug assignments across a single import run so
  * colliding base slugs from different projects get distinct suffixes.
  */
@@ -149,9 +187,7 @@ export class SlugRegistry {
       return { slug: UNKNOWN_SLUG, baseSlug: UNKNOWN_SLUG, cwd: "" };
     }
 
-    const { gitRoot, gitRemote } = await getGitInfo(cwd);
-    const source = gitRoot ?? cwd;
-    const baseSlug = normalizeSlug(basename(source));
+    const { baseSlug, gitRoot, gitRemote } = await deriveBaseSlug(cwd);
 
     const bucket = this.assignments.get(baseSlug) ?? [];
 

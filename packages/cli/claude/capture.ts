@@ -1,13 +1,16 @@
 /**
  * Claude Code hook event parsing and memory capture.
  *
- * Pure functions for event parsing, project derivation, and metadata
- * construction are testable in isolation. The `captureHookEvent` entry
- * point handles memory creation via the memory client.
+ * Pure functions for event parsing and metadata construction are testable in
+ * isolation. The `captureHookEvent` entry point handles memory creation via the
+ * memory client. The project label is derived by the shared `resolveProjectSlug`
+ * (the same logic the import tool uses) so live + imported sessions for a repo
+ * share one project node.
  */
 
 import { CLIENT_VERSION } from "../../../version";
 import { createMemoryClient, type MemoryClient } from "../client.ts";
+import { resolveProjectSlug } from "../importers/slug.ts";
 
 // =============================================================================
 // Hook config (derived at runtime from CLAUDE_PLUGIN_OPTION_* env vars)
@@ -97,46 +100,6 @@ export function metaTypeForEvent(eventName: HookEventName): string {
     case "stop":
       return "agent_response";
   }
-}
-
-/**
- * Normalize a raw string into a single ltree label.
- * Letters, digits, and underscores only; lowercased.
- */
-function sanitizeLtreeLabel(raw: string): string {
-  const cleaned = raw.replace(/[^a-zA-Z0-9]/g, "_").toLowerCase();
-  return cleaned.length > 0 ? cleaned : "unknown";
-}
-
-/**
- * Derive a project label from a cwd.
- *
- * Tries `git remote get-url origin` first; falls back to the basename of
- * the cwd. The result is a single ltree label (sanitized).
- */
-export function deriveProject(cwd: string): string {
-  try {
-    const proc = Bun.spawnSync(["git", "remote", "get-url", "origin"], {
-      cwd,
-      stdout: "pipe",
-      stderr: "ignore",
-    });
-    if (proc.exitCode === 0) {
-      const url = new TextDecoder().decode(proc.stdout).trim();
-      // Extract the last path segment, stripping .git
-      // Matches https://github.com/org/repo.git and git@github.com:org/repo.git
-      const match = url.match(/[/:]([^/:]+?)(?:\.git)?$/);
-      if (match?.[1]) {
-        return sanitizeLtreeLabel(match[1]);
-      }
-    }
-  } catch {
-    // Fall through to cwd basename
-  }
-
-  const parts = cwd.split("/").filter(Boolean);
-  const basename = parts[parts.length - 1] ?? "unknown";
-  return sanitizeLtreeLabel(basename);
 }
 
 /** Build the metadata object for a captured memory. */
@@ -261,7 +224,7 @@ export async function captureHookEvent(
     return { status: "skipped", reason: "empty content" };
   }
 
-  const project = deriveProject(event.cwd);
+  const project = await resolveProjectSlug(event.cwd);
   const meta = buildMeta(event, eventName, project);
   const now = (opts.now ?? (() => new Date()))();
 

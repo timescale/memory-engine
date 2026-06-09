@@ -6,7 +6,6 @@ import type { MemoryClient } from "@memory.build/client";
 import {
   buildMeta,
   captureHookEvent,
-  deriveProject,
   extractContent,
   type HookConfig,
   type HookEvent,
@@ -94,30 +93,8 @@ describe("metaTypeForEvent", () => {
   });
 });
 
-// =============================================================================
-// deriveProject
-// =============================================================================
-
-describe("deriveProject", () => {
-  test("falls back to cwd basename when git is unavailable", () => {
-    // /tmp/__nonexistent-dir-for-test__ has no git remote
-    const project = deriveProject("/tmp/myproject");
-    // Can't assert exact value — may hit a git repo if /tmp is one.
-    // But the result should be a lowercase, sanitized single label.
-    expect(project).toMatch(/^[a-z0-9_]+$/);
-  });
-
-  test("handles empty cwd with 'unknown' fallback", () => {
-    const project = deriveProject("");
-    expect(project).toMatch(/^[a-z0-9_]+$/);
-  });
-
-  test("sanitizes special characters in basename", () => {
-    const project = deriveProject("/tmp/my-proj.foo");
-    // Result should only contain letters/digits/underscores
-    expect(project).toMatch(/^[a-z0-9_]+$/);
-  });
-});
+// (Project-slug derivation lives in importers/slug.ts — resolveProjectSlug —
+// and is covered by slug.test.ts; the hook just consumes it.)
 
 // =============================================================================
 // buildMeta
