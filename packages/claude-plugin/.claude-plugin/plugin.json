@@ -33,8 +33,8 @@
     "tree_prefix": {
       "type": "string",
       "title": "Tree prefix",
-      "description": "Ltree path prefix where captured prompts/responses are stored (e.g. `claude_code.sessions`).",
-      "default": "claude_code.sessions",
+      "description": "Ltree path prefix where captured prompts/responses are stored. Defaults under `share` so your login session can write there; use a `~`-prefixed path to keep captures in your private home instead.",
+      "default": "share.claude_code.session",
       "required": true
     }
   }

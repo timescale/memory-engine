@@ -5,7 +5,7 @@ describe("buildOptions", () => {
   test("defaults imported session node name to agent_sessions", () => {
     const config = buildOptions({});
 
-    expect(config.write.treeRoot).toBe("projects");
+    expect(config.write.treeRoot).toBe("share.projects");
     expect(config.write.sessionsNodeName).toBe("agent_sessions");
   });
 

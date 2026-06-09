@@ -156,7 +156,9 @@ export function buildMeta(
 // =============================================================================
 
 export const DEFAULT_SERVER = "https://api.memory.build";
-export const DEFAULT_TREE_PREFIX = "claude_code.sessions";
+// Under `share` so a session-authenticated user (who holds owner@share, not
+// access to arbitrary top-level paths) can actually write captures here.
+export const DEFAULT_TREE_PREFIX = "share.claude_code.session";
 
 /** Credentials the hook falls back to when the plugin's api_key is unset. */
 export interface HookFallbackCreds {

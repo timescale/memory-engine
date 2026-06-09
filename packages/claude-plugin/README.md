@@ -39,7 +39,7 @@ me agent create claude-code-agent
 # 2. Add it to the space and grant just the access it needs — e.g. read+write on
 #    the capture subtree (grants cover all descendant paths via ltree)
 me agent add claude-code-agent
-me access grant claude-code-agent claude_code.sessions w
+me access grant claude-code-agent share.claude_code.session w
 
 # 3. Mint an API key for that agent
 me apikey create claude-code-agent plugin-key
@@ -73,7 +73,7 @@ claude                               # start a session
 # → space       (OPTIONAL — blank = your active space; pin for project/shared installs)
 # → api_key     (OPTIONAL, sensitive — blank = use your `me login` session)
 # → server      (default https://api.memory.build)
-# → tree_prefix (default claude_code.sessions)
+# → tree_prefix (default share.claude_code.session)
 # → values take effect immediately; no restart required
 ```
 
@@ -84,12 +84,12 @@ Leave `api_key` blank to use your `me login` session (captures attributed to you
 After configuring, send a prompt in Claude Code, then check that capture happened:
 
 ```bash
-me memory search --tree "claude_code.*" --limit 5
+me memory search --tree "share.claude_code.*" --limit 5
 ```
 
 You should see your recent prompts (and, after the agent finishes, its response). What gets stored:
 
-- **Tree**: whatever you set in `tree_prefix` (default: `claude_code.sessions`)
+- **Tree**: whatever you set in `tree_prefix` (default: `share.claude_code.session`)
 - **Metadata**:
   - `type`: `user_prompt` or `agent_response`
   - `session_id`: Claude Code's session UUID

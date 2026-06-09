@@ -41,7 +41,10 @@ import {
   requireSpace,
 } from "../util.ts";
 
-const DEFAULT_TREE_ROOT = "projects";
+// Under `share` so a session-authenticated user can write the import (they hold
+// owner@share, not access to arbitrary top-level paths). Override with
+// --tree-root for a different destination you have write access to.
+const DEFAULT_TREE_ROOT = "share.projects";
 const DEFAULT_SESSIONS_NODE_NAME = "agent_sessions";
 const VALID_TREE_ROOT_RE = /^[a-z0-9_]+(\.[a-z0-9_]+)*$/;
 const VALID_TREE_LABEL_RE = /^[a-z0-9_]+$/;

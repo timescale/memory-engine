@@ -25,7 +25,7 @@ const CONFIG: HookConfig = {
   server: "https://api.example.com",
   token: "me.lookupid12345678.secret",
   space: "eng123",
-  treePrefix: "claude_code.sessions",
+  treePrefix: "share.claude_code.session",
 };
 
 // =============================================================================
@@ -196,7 +196,7 @@ describe("captureHookEvent", () => {
     expect(calls).toHaveLength(1);
     const [call] = calls as [Record<string, unknown>];
     expect(call.content).toBe("hello");
-    expect(call.tree).toBe("claude_code.sessions");
+    expect(call.tree).toBe("share.claude_code.session");
     expect(call.temporal).toEqual({ start: "2026-04-23T10:00:00.000Z" });
     const meta = call.meta as Record<string, string>;
     expect(meta.type).toBe("user_prompt");
@@ -277,7 +277,7 @@ describe("resolveHookConfigFromEnv", () => {
       token: "me.lookupid12345678.secret",
       space: "eng123def456",
       server: "https://api.memory.build",
-      treePrefix: "claude_code.sessions",
+      treePrefix: "share.claude_code.session",
     });
   });
 
@@ -290,7 +290,7 @@ describe("resolveHookConfigFromEnv", () => {
       token: "sess-token",
       space: "eng123def456",
       server: "https://api.example.com",
-      treePrefix: "claude_code.sessions",
+      treePrefix: "share.claude_code.session",
     });
   });
 
@@ -332,6 +332,6 @@ describe("resolveHookConfigFromEnv", () => {
       CLAUDE_PLUGIN_OPTION_TREE_PREFIX: "",
     });
     expect(cfg?.server).toBe("https://api.memory.build");
-    expect(cfg?.treePrefix).toBe("claude_code.sessions");
+    expect(cfg?.treePrefix).toBe("share.claude_code.session");
   });
 });
