@@ -64,20 +64,20 @@ claude plugin install memory-engine@memory-engine --scope local     # this repo,
 
 ## Configure
 
-The only required value is `space`. Claude Code does not prompt at install time — you configure from inside a session.
+Every value is optional if you're logged in with an active space — the plugin falls back to your `me login` session and `me space use` space. Claude Code does not prompt at install time; configure from inside a session.
 
 ```text
 claude                               # start a session
 /plugin                              # open the plugin manager
 # → Installed → memory-engine → Configure
-# → space       (the space slug — REQUIRED)
+# → space       (OPTIONAL — blank = your active space; pin for project/shared installs)
 # → api_key     (OPTIONAL, sensitive — blank = use your `me login` session)
 # → server      (default https://api.memory.build)
 # → tree_prefix (default claude_code.sessions)
 # → values take effect immediately; no restart required
 ```
 
-Leave `api_key` blank to use your `me login` session (captures attributed to you); set it to use a dedicated agent key (see above). Sensitive values (the api_key) go to your system keychain; non-sensitive values go to the `settings.json` for the scope you installed in.
+Leave `api_key` blank to use your `me login` session (captures attributed to you); set it to use a dedicated agent key (see above). Leave `space` blank to capture into your active space; pin it for unattended or project-scope installs (a blank space with no active space set means captures are silently skipped). Sensitive values (the api_key) go to your system keychain; non-sensitive values go to the `settings.json` for the scope you installed in.
 
 ## Verify
 
@@ -138,8 +138,8 @@ Claude Code handles the cleanup. Your captured memories and API keys are preserv
 **`[memory-engine] no credentials` in stderr**
 The hook ran but found neither a `me login` session nor a configured api_key. Run `me login` (and `me space use <space>`), or open `/plugin → memory-engine → Configure` and set the api_key + space.
 
-**`Plugin option "X" isn't set` in Claude Code's error panel**
-A required userConfig value is missing — `space` is required (api_key is optional). Configure it via `/plugin → memory-engine → Configure`.
+**Hook fires but no memories appear, no error**
+With everything optional, a hook silently skips when it can't resolve a space — no `space` configured *and* no active space set (`me space use`). Either pin `space` in `/plugin → Configure` or run `me space use <space>`.
 
 **Hook fires but no memories appear**
 - Confirm the api_key is valid:

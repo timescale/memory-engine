@@ -57,10 +57,10 @@ This command is not run directly -- the Claude Code plugin calls it. The plugin 
 claude plugin marketplace add timescale/memory-engine
 claude plugin install memory-engine@memory-engine [--scope user|project|local]
 # then, in a Claude Code session:
-/plugin  # select memory-engine, Configure, set space (api_key optional)
+/plugin  # select memory-engine, Configure (all values optional if logged in)
 ```
 
-`api_key` is optional: leave it blank and the plugin's hooks and MCP server use your `me login` session; set it to attribute captures to a dedicated agent instead.
+Both `api_key` and `space` are optional: blank `api_key` uses your `me login` session (set it to attribute captures to a dedicated agent), and blank `space` uses your active space (`me space use`; pin it for project/shared installs).
 
 If you only want the MCP tools (no hooks, no slash commands), use [me claude install](#me-claude-install) instead.
 

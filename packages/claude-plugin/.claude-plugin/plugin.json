@@ -26,9 +26,9 @@
     },
     "space": {
       "type": "string",
-      "title": "Space",
-      "description": "Space slug to store memories in (the X-Me-Space). Required — the active space isn't read from your CLI config here.",
-      "required": true
+      "title": "Space (optional)",
+      "description": "Space slug to capture into (the X-Me-Space). Leave blank to use your active space (`me space use` / ME_SPACE). Pin it for unattended or project-scope installs so captures always land in the same space; if blank and no active space is set, captures are skipped.",
+      "required": false
     },
     "tree_prefix": {
       "type": "string",
