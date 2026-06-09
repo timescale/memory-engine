@@ -23,7 +23,7 @@ export const memoryCreateParams = z.object({
   id: uuidv7Schema.optional().nullable(),
   content: z.string().min(1, "content is required"),
   meta: metaSchema.optional().nullable(),
-  tree: treePathSchema.optional().nullable(),
+  tree: treePathSchema.min(1, "tree path is required"),
   temporal: temporalSchema.optional().nullable(),
 });
 
@@ -39,7 +39,7 @@ export const memoryBatchCreateParams = z.object({
         id: uuidv7Schema.optional().nullable(),
         content: z.string().min(1, "content is required"),
         meta: metaSchema.optional().nullable(),
-        tree: treePathSchema.optional().nullable(),
+        tree: treePathSchema.min(1, "tree path is required"),
         temporal: temporalSchema.optional().nullable(),
       }),
     )

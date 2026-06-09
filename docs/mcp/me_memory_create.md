@@ -9,7 +9,7 @@ Store a new memory.
 | `id` | `string \| null` | no | UUIDv7 for idempotent creates. Omit or pass `null` to auto-generate. |
 | `content` | `string` | yes | The content of the memory. Must be non-empty. |
 | `meta` | `object \| null` | no | Key-value metadata pairs. Omit or pass `null` to skip. |
-| `tree` | `string \| null` | no | Hierarchical path using dot-separated labels (e.g., `work.projects.me`). Omit or pass `null` to store at the root. |
+| `tree` | `string` | yes | Hierarchical path where the memory is stored, using dot-separated labels (e.g., `share.work.projects`). Choose deliberately: most memories should go under `share` so the rest of the space can see them; use `~` (your private home, e.g. `~.notes`) only for memories that must stay private to you. |
 | `temporal` | `object \| null` | no | Time range for the memory. Omit or pass `null` to skip. |
 
 ### temporal

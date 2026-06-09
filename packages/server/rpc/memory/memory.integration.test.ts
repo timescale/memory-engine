@@ -170,13 +170,14 @@ test("~ home + lenient separators normalize on input, reverse-map on output", as
   );
 });
 
-test("create without a tree defaults to the shared root (`share`)", async () => {
-  // the default creator owns `share` (no root grant in beforeEach), so a bare
-  // create lands there and succeeds.
-  const created = await call<{ tree: string }>("memory.create", {
-    content: "shared by default",
-  });
-  expect(created.tree).toBe("share");
+test("create without a tree is a validation error (tree is required)", async () => {
+  // `tree` is required on the wire — callers must choose `share` vs `~`
+  // explicitly. The file importers default to `share`, but a bare RPC create
+  // does not.
+  await expectAppError(
+    call("memory.create", { content: "no tree given" }),
+    "VALIDATION_ERROR",
+  );
 });
 
 test("create → get round-trips content/tree/meta and createdBy is null", async () => {

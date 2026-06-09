@@ -9,6 +9,7 @@ import { existsSync, statSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import * as clack from "@clack/prompts";
+import { SHARE_NAMESPACE } from "@memory.build/protocol";
 import { Command } from "commander";
 import { batchCreateChunked } from "../chunk.ts";
 import { resolveCredentials } from "../credentials.ts";
@@ -270,9 +271,10 @@ export function createMemoryImportCommand(): Command {
 
       const createParams = allMemories.map(({ memory: mem }) => ({
         content: mem.content,
+        // tree is required on the wire; records without one default to `share`.
+        tree: mem.tree ?? SHARE_NAMESPACE,
         ...(mem.id ? { id: mem.id } : {}),
         ...(mem.meta ? { meta: mem.meta } : {}),
-        ...(mem.tree ? { tree: mem.tree } : {}),
         ...(mem.temporal ? { temporal: mem.temporal } : {}),
       }));
 

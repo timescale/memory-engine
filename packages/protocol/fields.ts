@@ -52,6 +52,16 @@ export const treePathSchema = z
   );
 
 /**
+ * The reserved shared-tree root. This is the single source of truth for the
+ * `"share"` literal across the codebase (the database boundary re-exports it).
+ * It is the conventional default for memories that should be visible to the
+ * whole space — `memory.create`/`batchCreate` now require an explicit `tree`,
+ * so callers that previously relied on a server-side default (the file
+ * importers) default to this.
+ */
+export const SHARE_NAMESPACE = "share";
+
+/**
  * Tree filter schema (ltree, lquery, or ltxtquery).
  * More permissive than treePathSchema since it allows query operators.
  */

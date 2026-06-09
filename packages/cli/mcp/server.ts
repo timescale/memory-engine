@@ -8,6 +8,7 @@
 import { existsSync, mkdirSync, statSync, writeFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
+import { SHARE_NAMESPACE } from "@memory.build/protocol";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { stringify as yamlStringify } from "yaml";
@@ -72,10 +73,8 @@ Docs: ${docUrl("me_memory_create")}`,
           .describe("Key-value metadata pairs"),
         tree: z
           .string()
-          .optional()
-          .nullable()
           .describe(
-            "Hierarchical path (e.g., share.work.projects; ~.* for your private home). Omit or null to store under the shared root (`share`).",
+            "Hierarchical path where the memory is stored (required — choose deliberately). Most memories should go under `share` (e.g. `share.work.projects`) so the rest of the space can see them. Use `~` — your private home (e.g. `~.notes`) — only for memories that must stay private to you.",
           ),
         temporal: z
           .object({
@@ -104,7 +103,7 @@ Docs: ${docUrl("me_memory_create")}`,
         id: args.id ?? undefined,
         content: args.content,
         meta: args.meta ?? undefined,
-        tree: args.tree ?? undefined,
+        tree: args.tree,
         temporal: args.temporal
           ? {
               start: args.temporal.start,
@@ -584,9 +583,9 @@ Docs: ${docUrl("me_memory_import")}`,
       const format = (args.format as ImportFormat) ?? undefined;
       const allMemories: Array<{
         content: string;
+        tree: string;
         id?: string;
         meta?: Record<string, unknown>;
-        tree?: string;
         temporal?: { start: string; end?: string };
       }> = [];
 
@@ -627,9 +626,10 @@ Docs: ${docUrl("me_memory_import")}`,
             for (const mem of memories) {
               allMemories.push({
                 content: mem.content,
+                // tree is required on the wire; default bare records to `share`.
+                tree: mem.tree ?? SHARE_NAMESPACE,
                 ...(mem.id ? { id: mem.id } : {}),
                 ...(mem.meta ? { meta: mem.meta } : {}),
-                ...(mem.tree ? { tree: mem.tree } : {}),
                 ...(mem.temporal ? { temporal: mem.temporal } : {}),
               });
             }
@@ -645,9 +645,10 @@ Docs: ${docUrl("me_memory_import")}`,
           for (const mem of memories) {
             allMemories.push({
               content: mem.content,
+              // tree is required on the wire; default bare records to `share`.
+              tree: mem.tree ?? SHARE_NAMESPACE,
               ...(mem.id ? { id: mem.id } : {}),
               ...(mem.meta ? { meta: mem.meta } : {}),
-              ...(mem.tree ? { tree: mem.tree } : {}),
               ...(mem.temporal ? { temporal: mem.temporal } : {}),
             });
           }
@@ -657,9 +658,10 @@ Docs: ${docUrl("me_memory_import")}`,
         for (const mem of memories) {
           allMemories.push({
             content: mem.content,
+            // tree is required on the wire; default bare records to `share`.
+            tree: mem.tree ?? SHARE_NAMESPACE,
             ...(mem.id ? { id: mem.id } : {}),
             ...(mem.meta ? { meta: mem.meta } : {}),
-            ...(mem.tree ? { tree: mem.tree } : {}),
             ...(mem.temporal ? { temporal: mem.temporal } : {}),
           });
         }

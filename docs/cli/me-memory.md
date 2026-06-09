@@ -34,11 +34,11 @@ me memory create [content] [options]
 | Option | Description |
 |--------|-------------|
 | `--content <text>` | Memory content (alternative to positional argument). |
-| `--tree <path>` | Tree path (e.g., `work.projects.me`). |
+| `--tree <path>` | **Required.** Tree path where the memory is stored (e.g., `share.work.projects`). Use `share` for memories the rest of the space should see, or `~` (your private home, e.g. `~.notes`) for memories that must stay private to you. |
 | `--meta <json>` | Metadata as a JSON string. |
 | `--temporal <range>` | Temporal range as `start[,end]` (ISO 8601). |
 
-Content can come from the positional argument, the `--content` flag, or piped via stdin.
+Content can come from the positional argument, the `--content` flag, or piped via stdin. A `--tree` path is required.
 
 ---
 

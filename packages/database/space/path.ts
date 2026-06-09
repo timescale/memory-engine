@@ -34,8 +34,11 @@ export const HOME_NAMESPACE = "home";
  * `share/x` normalizes like any other path. It exists as a named constant
  * because membership/invitations grant a configurable level (read/write/owner)
  * at this root; see core `redeem_space_invitations`.
+ *
+ * Canonically defined in `@memory.build/protocol` (the wire contract) and
+ * re-exported here so the database/server side keeps a single source of truth.
  */
-export const SHARE_NAMESPACE = "share";
+export { SHARE_NAMESPACE } from "@memory.build/protocol";
 
 /** A legal ltree label (PostgreSQL 16+): letters, digits, underscore, hyphen. */
 const LTREE_LABEL = /^[A-Za-z0-9_-]+$/;

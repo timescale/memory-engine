@@ -100,7 +100,10 @@ function createMemoryCreateCommand(): Command {
     .description("create a memory")
     .argument("[content]", "memory content")
     .option("--content <text>", "memory content (alternative to positional)")
-    .option("--tree <path>", "tree path")
+    .option(
+      "--tree <path>",
+      "tree path ('share' for shared, '~' for private home)",
+    )
     .option("--meta <json>", "metadata as JSON")
     .option("--temporal <range>", "temporal range (start[,end])")
     .action(async (positionalContent: string | undefined, opts, cmd) => {
@@ -131,11 +134,22 @@ function createMemoryCreateCommand(): Command {
         process.exit(1);
       }
 
+      if (!opts.tree) {
+        if (fmt === "text") {
+          clack.log.error(
+            "No tree path provided. Pass --tree <path> ('share' for shared memories, '~' for your private home).",
+          );
+        } else {
+          output({ error: "No tree path provided" }, fmt, () => {});
+        }
+        process.exit(1);
+      }
+
       const client = buildMemoryClient(creds);
 
       try {
         const params: Record<string, unknown> = { content };
-        if (opts.tree) params.tree = opts.tree;
+        params.tree = opts.tree;
         if (opts.meta) params.meta = parseMeta(opts.meta);
         if (opts.temporal) params.temporal = parseTemporal(opts.temporal);
 

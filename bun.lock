@@ -64,6 +64,7 @@
       "name": "@memory.build/database",
       "version": "0.2.5",
       "dependencies": {
+        "@memory.build/protocol": "workspace:*",
         "@pydantic/logfire-node": "^0.13.1",
         "postgres": "^3.4.9",
       },

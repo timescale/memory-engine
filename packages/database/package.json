@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "dependencies": {
+    "@memory.build/protocol": "workspace:*",
     "@pydantic/logfire-node": "^0.13.1",
     "postgres": "^3.4.9"
   }

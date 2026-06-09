@@ -9,7 +9,6 @@
  * by id, desc (default, newest first) or asc; ranked/hybrid search ignores it
  * (score-desc).
  */
-import { SHARE_NAMESPACE } from "@memory.build/database";
 import { generateEmbedding } from "@memory.build/embedding";
 import { ACCESS } from "@memory.build/engine/core";
 import type {
@@ -183,7 +182,7 @@ async function memoryCreate(
       id: params.id ?? undefined,
       content: params.content,
       meta: params.meta ?? undefined,
-      tree: inputTreePath(ctx, params.tree ?? SHARE_NAMESPACE),
+      tree: inputTreePath(ctx, params.tree),
       temporal: formatTemporal(params.temporal),
     }),
   );
@@ -212,7 +211,7 @@ async function memoryBatchCreate(
             id: m.id ?? undefined,
             content: m.content,
             meta: m.meta ?? undefined,
-            tree: inputTreePath(ctx, m.tree ?? SHARE_NAMESPACE),
+            tree: inputTreePath(ctx, m.tree),
             temporal: formatTemporal(m.temporal),
           }),
         );
