@@ -12,17 +12,17 @@ When an AI tool launches `me mcp`, it spawns a child process that communicates o
 └──────────────┘                      └──────────┘           └────────────────┘
 ```
 
-Authentication is baked into the command via `--api-key` and `--server` flags. The AI agent never sees or handles credentials — it just calls MCP tools and gets results back.
+The AI agent never sees or handles credentials — it just calls MCP tools and gets results back.
 
-Each `me mcp` instance is locked to a single engine via its API key. The MCP server does **not** read the credentials file — the API key must be provided via `--api-key` or the `ME_API_KEY` environment variable. The server URL defaults to `https://api.memory.build` (the hosted engine) but can be overridden with `--server` or `ME_SERVER`.
+Each `me mcp` instance is locked to a single **space**, carried as the `X-Me-Space` header. The space is resolved from `--space` > `ME_SPACE` > your stored active space. Authentication is **either** an agent API key (`--api-key` or `ME_API_KEY`) **or**, if no key is given, your stored `me login` session token — so a developer install needs no key at all. The server URL defaults to `https://api.memory.build` but can be overridden with `--server` or `ME_SERVER`.
 
 ## Setup
 
 ### Prerequisites
 
-You need an API key. Run `me whoami` to see your active engine, or create an API key with `me apikey create`.
+Log in with `me login` and select a space — `me whoami` shows your active space and identity. That session is enough to run the MCP server locally. For an unattended or dedicated-agent install, mint an API key with `me apikey create <agent>` and pass it with `--api-key`.
 
-The server defaults to `https://api.memory.build`. Pass `--server <url>` only if you're running a self-hosted engine.
+The server defaults to `https://api.memory.build`. Pass `--server <url>` only if you're running a self-hosted server.
 
 ### Agent-specific installers
 
@@ -32,7 +32,7 @@ me codex install
 me gemini install
 ```
 
-These commands register Memory Engine with the named tool. They read your API key and server URL from the credentials file and bake them into the tool's MCP configuration, so the `me mcp` process can authenticate without the credentials file.
+These commands register Memory Engine with the named tool, writing a `me mcp` invocation into the tool's MCP configuration. By default they embed no key — the server uses your `me login` session at runtime. Pass `--api-key` to pin a dedicated agent key instead, `--space <slug>` to pin a space, and `--server <url>` to pin a non-default server.
 
 See the agent-specific command references for details: [`me opencode install`](cli/me-opencode.md#me-opencode-install), [`me codex install`](cli/me-codex.md#me-codex-install), and [`me gemini install`](cli/me-gemini.md#me-gemini-install).
 
@@ -61,7 +61,7 @@ me gemini install
 To configure manually:
 
 ```bash
-gemini mcp add --scope user me me mcp --api-key <key> --server <url>
+gemini mcp add --scope user me me mcp --api-key <key> --space <slug> --server <url>
 ```
 
 ### Codex CLI
@@ -73,7 +73,7 @@ me codex install
 To configure manually:
 
 ```bash
-codex mcp add me -- me mcp --api-key <key> --server <url>
+codex mcp add me -- me mcp --api-key <key> --space <slug> --server <url>
 ```
 
 ### OpenCode
@@ -85,7 +85,7 @@ codex mcp add me -- me mcp --api-key <key> --server <url>
   "mcp": {
     "me": {
       "type": "local",
-      "command": ["me", "mcp", "--api-key", "<key>", "--server", "<url>"]
+      "command": ["me", "mcp", "--api-key", "<key>", "--space", "<slug>", "--server", "<url>"]
     }
   }
 }
@@ -100,7 +100,7 @@ Add a `.vscode/mcp.json` file to your workspace:
   "servers": {
     "me": {
       "command": "me",
-      "args": ["mcp", "--api-key", "<key>", "--server", "<url>"]
+      "args": ["mcp", "--api-key", "<key>", "--space", "<slug>", "--server", "<url>"]
     }
   }
 }
@@ -119,7 +119,7 @@ Open your Zed settings (`Zed > Settings > Open Settings` or `~/.config/zed/setti
   "context_servers": {
     "me": {
       "command": "me",
-      "args": ["mcp", "--api-key", "<key>", "--server", "<url>"]
+      "args": ["mcp", "--api-key", "<key>", "--space", "<slug>", "--server", "<url>"]
     }
   }
 }
@@ -132,7 +132,7 @@ After saving, check the Agent Panel settings — the indicator next to "me" shou
 Any tool that supports the MCP stdio transport can use Memory Engine. The server command is:
 
 ```bash
-me mcp --api-key <key> --server <url>
+me mcp --api-key <key> --space <slug> --server <url>
 ```
 
 Point your client at this command with `stdio` as the transport type.
@@ -176,9 +176,9 @@ This project uses Memory Engine for persistent knowledge.
 
 ## Memory Map
 
-- `design.*` -- architecture decisions and design docs
-- `research.*` -- research findings and comparisons
-- `bugs.*` -- known issues and workarounds
+- `share.design.*` -- architecture decisions and design docs
+- `share.research.*` -- research findings and comparisons
+- `share.bugs.*` -- known issues and workarounds
 
 ## How to Search
 
@@ -199,7 +199,7 @@ me_memory_search({semantic: "how does authentication work"})
 me_memory_search({fulltext: "OAuth JWT"})
 
 # Browse a section
-me_memory_search({tree: "design.*"})
+me_memory_search({tree: "share.design.*"})
 ```
 
 ## Troubleshooting
@@ -207,11 +207,11 @@ me_memory_search({tree: "design.*"})
 ### MCP server shows "failed" or "disabled"
 
 1. Verify the `me` binary is on your PATH: `which me`
-2. Test the server directly: `echo '{}' | me mcp --api-key <key> --server <url>`
+2. Test the server directly: `echo '{}' | me mcp --api-key <key> --space <slug> --server <url>`
 3. Re-install with the agent-specific command, for example `me opencode install`, `me codex install`, or `me gemini install`. For Claude Code, open `/plugin` and reconfigure `memory-engine`.
 
 ### Agent can't find memories
 
-1. Check that the correct engine is active: `me whoami`
+1. Check that the correct space is active: `me whoami`
 2. Verify memories exist: `me memory search --fulltext "<keyword>"`
 3. Check that embeddings have been computed: `me memory get <id>` (look for `hasEmbedding: true`)

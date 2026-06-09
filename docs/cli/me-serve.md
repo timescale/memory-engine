@@ -13,13 +13,13 @@ me serve [--port <port>] [--host <host>] [--no-open]
 Starts a local HTTP server that:
 
 - Serves a React-based UI for browsing, searching, viewing, editing, and deleting memories.
-- Proxies JSON-RPC calls from the browser to the configured engine, injecting your stored API key so the key never leaves the machine.
+- Proxies JSON-RPC calls from the browser to the server, injecting your stored session token so it never leaves the machine.
 
 By default the server binds to `127.0.0.1:3000`; if 3000 is busy it tries 3001, 3002, … up to 3019 before giving up. Passing `--port` explicitly is strict — it does not auto-increment.
 
 The browser opens automatically on startup unless `--no-open` is passed. Press `Ctrl+C` to stop.
 
-The UI talks to whichever engine is active for the current server — same resolution as every other `me` command (`--server` flag > `ME_SERVER` env > stored `default_server`; within the server, the active engine is picked via `me engine use`). Run `me whoami` to confirm.
+The UI talks to whichever space is active for the current server — same resolution as every other `me` command (`--server` flag > `ME_SERVER` env > stored default server; within the server, the active space is picked via `me space use`). Run `me whoami` to confirm.
 
 ## Options
 
@@ -60,7 +60,7 @@ The UI talks to whichever engine is active for the current server — same resol
 
 ## Security notes
 
-- The server binds to `127.0.0.1` only — no LAN exposure. The browser never sees your API key or session token; `me serve` injects them into RPC calls on the way out.
+- The server binds to `127.0.0.1` only — no LAN exposure. The browser never sees your session token; `me serve` injects it into RPC calls on the way out.
 - No authentication is required on the local server. Do not `--host 0.0.0.0` or tunnel the port unless you understand the implications.
 
 ## Examples
@@ -72,11 +72,11 @@ me serve
 # Use a specific port and skip auto-open (handy when iterating in dev).
 me serve --port 8080 --no-open
 
-# Point at a specific engine server.
+# Point at a specific server.
 me serve --server https://api.memory.build
 ```
 
 ## See also
 
-- [`me engine use`](me-engine.md) — pick the active engine that `me serve` will connect to.
+- [`me space use`](me-space.md#me-space-use) — pick the active space that `me serve` will connect to.
 - [`me memory search`](me-memory.md#me-memory-search) — the CLI equivalent of the UI's search bar.

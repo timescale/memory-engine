@@ -235,11 +235,11 @@ Supports Markdown (with YAML frontmatter), YAML, JSON, and NDJSON. Format is aut
 
 ### Skipped memories
 
-Memories with an explicit `id` that already exists in the engine are silently skipped server-side (via `ON CONFLICT DO NOTHING`) rather than failing the whole batch. The command surfaces these as `skipped` so re-imports of unchanged data and id collisions with unrelated memories are observable. Memories without an `id` get a server-generated UUIDv7 and never collide.
+Memories with an explicit `id` that already exists in the space are silently skipped server-side (via `ON CONFLICT DO NOTHING`) rather than failing the whole batch. The command surfaces these as `skipped` so re-imports of unchanged data and id collisions with unrelated memories are observable. Memories without an `id` get a server-generated UUIDv7 and never collide.
 
 JSON output adds `skipped` (count) and `skippedIds` (array of conflicting ids). Text output appends `(K skipped — id already exists)` to the summary, or prints `Imported 0 memories (N already exist, no changes)` when everything was a re-import. Run with `--verbose` to see each skipped id inline.
 
-Skipped memories do not contribute to the exit code; only parse and engine errors do.
+Skipped memories do not contribute to the exit code; only parse and server errors do.
 
 `--dry-run` validates parsing only; it does not predict id collisions with already-imported memories. Run with `--verbose` after a real import to see the skipped ids.
 

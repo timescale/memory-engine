@@ -1,142 +1,116 @@
 # Access Control
 
-Memory Engine uses tree-grant RBAC (Role-Based Access Control) enforced at the database level with PostgreSQL Row-Level Security.
+Memory Engine organizes knowledge into **spaces**. Access within a space is granted on **tree paths**, not by role. There is no Row-Level Security — the server computes a caller's effective access and passes it into every database call.
 
-## Users
+## Principals
 
-A user is a principal within an engine. Users can:
+A **principal** is anything that can be granted access. There are three kinds:
 
-- Own memories
-- Receive grants to access tree paths
-- Authenticate via API keys
-- Belong to roles
+| Kind | What it is |
+|------|------------|
+| **user** (`u`) | A human, authenticated by a session token (OAuth via GitHub or Google). |
+| **agent** (`a`) | A service account owned by a user, authenticated by an API key. |
+| **group** (`g`) | A named bundle of users and agents. |
 
-Create a user:
+A **member** is the user/agent sense only — the things that can be put into a group or hold an API key. Group membership is transitive: a member of a group gains the group's space membership, its admin (if the group is an admin), and all of its tree-access grants.
 
-```bash
-me user create alice
-```
+## Spaces
 
-Users with the `--superuser` flag bypass all access checks. Users with `--createrole` can create other users and roles.
+A **space** is an isolated collection of memories with its own roster, groups, and access grants. Each space has:
 
-Users created with `--no-login` are roles -- they cannot authenticate directly but can be granted access that members inherit.
+- An immutable 12-character **slug** — also the `X-Me-Space` header value and the `me_<slug>` database schema name.
+- A renamable display **name** (`me space rename` changes only this).
 
-## Roles
+A user can belong to many spaces; each memory lives in exactly one space. There are no organization, engine, or shard concepts above a space.
 
-Roles group users together. When a grant is given to a role, all members of that role inherit the access.
+## Two axes of authority
 
-```bash
-# Create a role
-me role create engineering
+Access splits into two independent axes:
 
-# Add members
-me role add-member engineering alice
-me role add-member engineering bob
+- **Structural authority** — `me space invite`, the roster (`me agent add`, `me group ...`), and invitations. This is the space **admin** flag. Admin transfers transitively through an admin group. Agents are never admins.
+- **Data authority** — who can read/write/own memories at a given tree path. This is a **tree-access grant**.
 
-# Grant access to the role (all members inherit it)
-me grant create engineering work.projects read create update
-```
+A space must always keep at least one *effective* admin (a user who is a direct admin or a member of an admin group). The last-admin safeguard rejects any removal or demotion that would drop it (error code `LAST_ADMIN`).
 
-Roles are implemented as users with `canLogin: false`. This means grants work the same way for users and roles.
+## Tree-access grants
 
-## Grants
+A grant attaches an access **level** to a principal at a **tree path**. Levels are additive:
 
-Grants control what actions a user (or role) can perform on a tree path. A grant specifies:
+| Level | Name | Capabilities |
+|-------|------|--------------|
+| 1 | **read** | Search and retrieve memories at or below the path. |
+| 2 | **write** | Read + create, update, move, and delete memories. |
+| 3 | **owner** | Write + manage access (grant/revoke) within the subtree. |
 
-- **user** -- who receives the access
-- **path** -- which tree path (and all descendants)
-- **actions** -- what they can do: `read`, `create`, `update`, `delete`
+Grants are **hierarchical**: a grant at `share.work` also covers `share.work.projects`, `share.work.projects.api`, and so on. An `owner` grant at a path delegates access-management for that whole subtree; `owner@root` (the empty path) owns the entire space.
 
 ```bash
-# Grant read and create access to a tree branch
-me grant create alice work.projects read create
+# Grant read access to a subtree
+me access grant alice@example.com share.work r
 
-# Grant full access
-me grant create bob work read create update delete
+# Grant write access
+me access grant bob@example.com share.work.backend w
 
-# Check access
-me grant check alice work.projects.api read
+# Grant ownership of a subtree (lets the grantee manage access below it)
+me access grant team-leads share.work o
+
+# List grants in the active space (optionally scope to one principal or path)
+me access list
+me access list alice@example.com
+me access list --path share.work
+
+# Remove a grant
+me access rm-grant bob@example.com share.work.backend
 ```
 
-Grants are hierarchical -- a grant on `work` covers `work.projects`, `work.projects.api`, etc.
+The level argument accepts `r` (read), `w` (write), or `o` (owner).
 
-### Actions
+## Reserved tree roots
 
-| Action | Description |
-|--------|-------------|
-| `read` | Search and retrieve memories |
-| `create` | Create new memories |
-| `update` | Update existing memories |
-| `delete` | Delete memories |
+Every space has two conventional roots:
 
-Grant management and ownership are controlled separately: grants with `--with-grant-option` let a grantee re-grant their access, and ownership (`me owner set`) gives a user full admin access to a tree path. Superuser bootstrap is handled via the `superuser` flag on the user row, not via a grant action.
+- **`share`** — the shared root. Memories everyone in the space should see go here. This is where the file importers default a tree-less record, and where `me memory create` / `me_memory_create` callers usually place memories.
+- **`home.<member_id>`** — a per-member private root. The input shortcut **`~`** expands to your own home, so `~.notes` means `home.<your-id>.notes` and displays back as `~.notes`.
 
-### Grant option
+`.` is the canonical path separator (`/` is also accepted on input and normalized). Labels must match `[A-Za-z0-9_-]`.
 
-When creating a grant with `--with-grant-option`, the grantee can re-grant that same access to others:
+### Default grants
 
-```bash
-me grant create alice work.projects read create --with-grant-option
-```
+- A space **creator** gets `admin` + `owner@home` + `owner@share` — **not** `owner@root`. So the creator sees `share` and their own `~`, but not other members' homes. Because they're an admin, they can self-grant `owner@root` if they need the whole space.
+- A **user** who joins a space is granted `owner@home` (their own private root). An admin then grants whatever shared access is appropriate (often via `me space invite --share`).
 
-Alice can now grant `read` and `create` on `work.projects` to other users.
+## How it's enforced
 
-## Ownership
+There is no Row-Level Security. For each request, the server calls `build_tree_access(principalId, spaceId)`, which collapses the principal's own grants and any inherited via group membership into a single set of `(tree_path, access)` rows. That set is passed as an argument into the space's SQL functions (`search_memory`, `get_memory`, …), which filter to the paths the caller may see.
 
-Each tree path can have at most one owner. The owner has implicit admin access to that path and all descendants.
+The authorization gate to use a space at all is holding **at least one** grant — every member has one (`owner@home` at minimum).
 
-```bash
-# Set owner
-me owner set work.projects.api alice
-
-# Check owner
-me owner get work.projects.api
-
-# List all ownership records
-me owner list
-```
-
-Ownership is distinct from grants:
-
-- **Grants** are explicit, cumulative, and can be given to multiple users.
-- **Ownership** is unique per path and provides automatic admin access.
-
-## How it works
-
-Access control is enforced by PostgreSQL Row-Level Security (RLS) policies on the `me.memory` table. When a user authenticates with an API key, the database session is configured with their identity. Every query automatically checks whether the user has the required grant for the memory's tree path.
-
-This means access control cannot be bypassed by application bugs -- it's enforced by the database itself.
-
-:::warning[The invisible wall]
-When RLS denies access, you get **empty results, not errors**. A search returns fewer results silently. A `memory.get` returns "not found" even if the memory exists. This is by design (PostgreSQL RLS behavior), but it can be confusing when debugging.
-
-If you're seeing missing results:
-
-1. Check the user's access with `me grant check <user> <path> read`
-2. Verify the memory exists by checking as a superuser
-3. Check that the user has grants covering the memory's tree path
-4. Remember that grants are hierarchical -- a grant on `work` covers `work.projects.*`
+:::warning[Quiet filtering]
+Access filtering happens inside the query. If you lack `read` on a memory's tree path, a search simply returns fewer rows and `me memory get` reports "not found" — you get no error distinguishing "doesn't exist" from "not visible to you." If you're missing results you expect, check your grants with `me access list <your-principal>`.
 :::
 
 ## Example: team setup
 
 ```bash
-# Create users
-me user create alice
-me user create bob
-me user create carol
+# Create and enter a space (you become admin + owner@home + owner@share)
+me space create "Acme Engineering"
 
-# Create a shared role
-me role create team
-me role add-member team alice
-me role add-member team bob
-me role add-member team carol
+# Invite teammates by email; --share sets their access to the shared root
+me space invite alice@example.com --share write
+me space invite bob@example.com --share read
+me space invite lead@example.com --admin --share owner
 
-# Grant the team read access to everything
-me grant create team "" read
+# Group people for shared grants
+me group create backend
+me group add backend alice@example.com
+me group add backend bob@example.com
 
-# Grant write access to specific branches
-me grant create alice work.frontend read create update
-me grant create bob work.backend read create update
-me grant create carol work.infra read create update delete
+# Grant the group write access to a subtree (members inherit it)
+me access grant backend share.work.backend w
+
+# Add one of your agents to the space and give it write access to share
+me agent add ci-bot
+me access grant ci-bot share w
 ```
+
+See [`me access`](cli/me-access.md), [`me space`](cli/me-space.md), [`me group`](cli/me-group.md), and [`me agent`](cli/me-agent.md) for full command references.

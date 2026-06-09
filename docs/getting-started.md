@@ -16,7 +16,16 @@ This installs the `me` binary to `~/.local/bin`. Make sure it's on your PATH.
 me login
 ```
 
-This starts an OAuth flow via GitHub -- authorize in your browser and the CLI stores your session.
+This starts an OAuth device flow via GitHub or Google -- authorize in your browser and the CLI stores your session token (rolling 7-day, refreshed as you use it). On a host with a system keychain the token is stored there; otherwise it falls back to `~/.config/me/credentials.yaml` (mode 0600).
+
+If you belong to more than one space, pick the active one (it's carried as the `X-Me-Space` on every request):
+
+```bash
+me space list
+me space use <slug-or-name>
+```
+
+`me login <space>` selects it in one step, and `me whoami` shows your identity and active space.
 
 If your CLI is older than the server (or vice versa), `me login` will tell you and bail out before sending you to the browser. You can run the same check explicitly:
 
@@ -29,9 +38,11 @@ me version
 
 ```bash
 me memory create "PostgreSQL 18 supports native UUIDv7 generation." \
-  --tree notes.postgres \
+  --tree share.notes.postgres \
   --meta '{"topic": "database"}'
 ```
+
+A `--tree` is required. Put memories the rest of your space should see under `share.*`, and personal ones under `~.*` (your private home). See [Core Concepts](concepts.md#reserved-roots).
 
 ## Search
 
@@ -79,7 +90,7 @@ claude plugin marketplace add timescale/memory-engine
 claude plugin install memory-engine@memory-engine
 ```
 
-Then start Claude Code, run `/plugin`, select `memory-engine`, and configure `space` (and optionally `api_key`, `server`, `tree_root`).
+Then start Claude Code, run `/plugin`, select `memory-engine`, and configure the options. All are optional except `server`: leave `api_key` blank to use your `me login` session, leave `space` blank to use your active space, and `tree_root` defaults to `share.projects`.
 
 After installation, your AI agent has access to memory tools -- create, search, get, update, delete, and more.
 
@@ -88,7 +99,7 @@ See [MCP Integration](mcp-integration.md) for details.
 ## What's next
 
 - [Core Concepts](concepts.md) -- understand memories, tree paths, metadata, search modes
-- [Access Control](access-control.md) -- users, roles, grants, and ownership
+- [Access Control](access-control.md) -- spaces, principals, and tree-access grants
 - [Memory Packs](memory-packs.md) -- install pre-built knowledge collections
 - [MCP Integration](mcp-integration.md) -- how AI agents use Memory Engine
 - [CLI Reference](cli/me-memory.md) -- full command reference

@@ -1,6 +1,6 @@
 # me whoami
 
-Show current identity and active engine.
+Show current identity and active space.
 
 ## Usage
 
@@ -10,9 +10,9 @@ me whoami
 
 ## Description
 
-Fetches your current identity from the accounts API and displays your name, email, user ID, server URL, and active engine.
+Calls the user endpoint (`whoami`) and displays your name, email, principal ID, server URL, and active space.
 
-Returns an error if you are not logged in.
+Returns an error if you are not logged in. Set or change the active space with [`me space use`](me-space.md#me-space-use).
 
 ## Global Options
 

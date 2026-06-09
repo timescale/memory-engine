@@ -20,9 +20,16 @@ me mcp [options]
 
 | Option | Description |
 |--------|-------------|
-| `--api-key <key>` | API key for engine authentication. Can also be set via `ME_API_KEY` env var. |
+| `--api-key <key>` | Agent API key. If omitted, the server uses your stored `me login` session. |
+| `--space <slug>` | Space to operate in (the `X-Me-Space`). |
 
-The server URL is resolved from `--server` (global option) > `ME_SERVER` env > `https://api.memory.build`.
+Resolution order:
+
+- **Auth token**: `--api-key` > `ME_API_KEY` > stored session token.
+- **Space**: `--space` > `ME_SPACE` > stored active space.
+- **Server URL**: `--server` (global option) > `ME_SERVER` > `https://api.memory.build`.
+
+A logged-in developer needs no key or space — the active session and active space are used automatically. For an unattended/headless agent, pass `--api-key` and `--space` (or set `ME_API_KEY` / `ME_SPACE`).
 
 This command is typically not run directly -- it is invoked by AI tools based on their MCP configuration.
 
@@ -46,4 +53,4 @@ claude plugin marketplace add timescale/memory-engine
 claude plugin install memory-engine@memory-engine [--scope user|project|local]
 ```
 
-Then start Claude Code, run `/plugin`, select `memory-engine`, and configure `space` (and optionally `api_key`, `server`, `tree_root`).
+Then start Claude Code, run `/plugin`, select `memory-engine`, and configure the options (all optional except `server`): leave `api_key` blank to use your `me login` session, leave `space` blank to use your active space, and `tree_root` defaults to `share.projects`.

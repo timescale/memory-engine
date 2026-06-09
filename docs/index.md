@@ -4,7 +4,7 @@ Permanent memory for AI agents. Store, search, and organize knowledge across con
 
 - [Getting Started](getting-started.md) -- install, login, first memory
 - [Core Concepts](concepts.md) -- memories, tree paths, metadata, search modes
-- [Access Control](access-control.md) -- users, roles, grants, ownership
+- [Access Control](access-control.md) -- spaces, principals, tree-access grants
 - [Memory Packs](memory-packs.md) -- pre-built knowledge collections
 - [MCP Integration](mcp-integration.md) -- connecting AI agents
 - [TypeScript Client](typescript-client.md) -- programmatic access from TypeScript/JavaScript

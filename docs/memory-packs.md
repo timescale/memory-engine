@@ -8,7 +8,7 @@ Memory packs are YAML files containing pre-built collections of memories. They s
 # Validate first (offline, no server needed)
 me pack validate packs/typescript-best-practices.yaml
 
-# Install into the active engine
+# Install into the active space
 me pack install packs/typescript-best-practices.yaml
 ```
 

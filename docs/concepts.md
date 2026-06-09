@@ -9,7 +9,7 @@ A memory is a single piece of knowledge. Every memory has:
 - **meta** -- key-value metadata for filtering (e.g., `{"type": "decision", "confidence": "high"}`).
 - **temporal** -- a time association, either a point-in-time or a date range.
 
-Memories are stored in a single PostgreSQL table. There are no separate tables for different "types" of memory -- the type is a convention in `meta`, not a schema distinction. This keeps queries simple and the data model flexible.
+Each space stores its memories in a single PostgreSQL table (the `me_<slug>` schema). There are no separate tables for different "types" of memory -- the type is a convention in `meta`, not a schema distinction. This keeps queries simple and the data model flexible.
 
 ### Best practices
 
@@ -52,9 +52,18 @@ personal.reading
 personal.reading.books
 ```
 
-Tree paths use PostgreSQL's `ltree` extension. Labels must be **lowercase alphanumeric with underscores** (no spaces, hyphens, or uppercase).
+Tree paths use PostgreSQL's `ltree` extension. Labels match `[A-Za-z0-9_-]` (letters, digits, underscores, and hyphens); use `.` as the separator (`/` is also accepted on input and normalized).
 
-Keep paths **2-4 levels deep**. Deeper nesting rarely helps findability. When unsure about the right tree path, omit it -- you can always add one later, and content is still findable via search.
+Keep paths **2-4 levels deep**. Deeper nesting rarely helps findability.
+
+### Reserved roots
+
+Every space has two conventional roots:
+
+- **`share`** -- the shared root. Memories the rest of the space should see go here (`share.work.projects`, etc.). The file importers default a tree-less record to `share`.
+- **`home.<member_id>`** -- your private per-member root. The input shortcut **`~`** expands to your own home, so `~.notes` is stored as `home.<your-id>.notes` and displays back as `~.notes`.
+
+`me memory create` (and the `me_memory_create` MCP tool) **require** an explicit tree -- choose `share` for shared memories or `~` for private ones. See [Access Control](access-control.md) for how grants attach to these paths.
 
 ### Tree filter syntax
 
@@ -89,13 +98,13 @@ When filtering by tree (in search, export, or browse), the system auto-detects w
 
 ### Conventions
 
-Tree paths are user-defined. There is no mandated hierarchy. Common patterns:
+Below the two reserved roots, tree paths are user-defined. There is no mandated hierarchy. Common patterns:
 
 ```
-work.projects.<name>        # per-project knowledge
-me.design.<subsystem>       # design decisions
-pack.<pack-name>            # installed memory packs
-notes.<topic>               # general notes
+share.work.projects.<name>   # shared per-project knowledge
+share.design.<subsystem>     # shared design decisions
+pack.<pack-name>             # installed memory packs (their own root)
+~.notes.<topic>              # private notes
 ```
 
 ## Metadata
@@ -211,13 +220,14 @@ Filters can also be used alone (without semantic or fulltext) to browse memories
 
 Search results include a `score` between 0 and 1, where 1 is the best match. For hybrid search, scores are computed via RRF fusion. For filter-only queries, results are sorted by creation time (configurable with `order_by`).
 
-## Engines
+## Spaces
 
-An engine is an isolated memory database. Each engine has its own:
+A **space** is an isolated collection of memories with its own roster, groups, and access grants. Each space has:
 
-- Memories
-- Users, roles, and grants
-- API keys
-- Tree hierarchy
+- Its own memories (the `me_<slug>` table) and tree hierarchy.
+- A roster of **principals** -- users, agents, and groups.
+- Tree-access grants that control who can read/write/own which paths.
 
-Engines belong to organizations. A user can have access to multiple engines across multiple organizations, but each memory lives in exactly one engine.
+A space is identified by an immutable 12-character **slug** (also the `X-Me-Space` header value) and a renamable display **name**. A user can belong to many spaces; each memory lives in exactly one space. There are no organization, engine, or shard concepts above a space.
+
+Manage spaces with [`me space`](cli/me-space.md), and see [Access Control](access-control.md) for principals and grants.

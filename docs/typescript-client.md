@@ -8,20 +8,30 @@ The `@memory.build/client` package provides programmatic access to Memory Engine
 npm install @memory.build/client
 ```
 
+## Two clients
+
+The package exposes two clients, matching the two API endpoints:
+
+- **`createMemoryClient`** — the space data plane plus space management. Talks to `POST /api/v1/memory/rpc`, carrying the active space in the `X-Me-Space` header. Authenticates with **either** a session token **or** an agent API key. Namespaces: `memory`, `principal`, `group`, `grant`, `invite`.
+- **`createUserClient`** — session-only, user-scoped operations. Talks to `POST /api/v1/user/rpc`. Authenticates with a **session token only** (an API key can't manage agents). Methods: `whoami`, plus the `agent`, `apiKey`, and `space` namespaces.
+
+There is also `createAuthClient` for the OAuth device-flow login that produces a session token.
+
 ## Quick start
 
 ```typescript
-import { createClient } from "@memory.build/client";
+import { createMemoryClient } from "@memory.build/client";
 
-const me = createClient({
-  url: "https://api.memory.build",
-  apiKey: "me.xxx.yyy",
+const me = createMemoryClient({
+  url: "https://api.memory.build",  // default
+  token: sessionTokenOrApiKey,      // session token or "me.<lookupId>.<secret>"
+  space: "abc123def456",            // the X-Me-Space slug
 });
 
-// Create a memory
+// Create a memory (tree is required — choose share.* or ~.* deliberately)
 await me.memory.create({
   content: "TypeScript was released in 2012",
-  tree: "knowledge.programming",
+  tree: "share.knowledge.programming",
 });
 
 // Search
@@ -33,24 +43,32 @@ const { results } = await me.memory.search({
 ## Configuration
 
 ```typescript
-const me = createClient({
+const me = createMemoryClient({
   url: "https://api.memory.build",  // default
-  apiKey: "me.xxx.yyy",         // format: "me.<lookupId>.<secret>"
-  timeout: 30000,               // request timeout in ms (default: 30000)
-  retries: 3,                   // automatic retries (default: 3)
+  token: "me.xxx.yyy",              // session token or api key (format: "me.<lookupId>.<secret>")
+  space: "abc123def456",            // active space slug (sent as X-Me-Space)
+  timeout: 30000,                   // request timeout in ms (default: 30000)
+  retries: 3,                       // automatic retries (default: 3)
 });
 ```
 
-The client retries on `429`, `500`, `502`, `503`, and `504` responses with exponential backoff and jitter. It respects the `Retry-After` header.
+The client retries on `429`, `500`, `502`, `503`, and `504` responses with exponential backoff and jitter, and respects the `Retry-After` header. The token and space can be swapped at runtime:
+
+```typescript
+me.setToken("me.newkey.newsecret");
+me.setSpace("otherslug1234");
+```
 
 ## Memory operations
 
 ### create
 
+`tree` is required. Use `share.*` for memories the rest of the space should see, or `~.*` for your private home.
+
 ```typescript
 const memory = await me.memory.create({
   content: "The fact to remember",
-  tree: "work.projects.acme",          // optional hierarchical path
+  tree: "share.work.projects.acme",    // required
   meta: { source: "meeting-notes" },   // optional JSON metadata
   temporal: {                          // optional time range
     start: "2025-01-01T00:00:00Z",
@@ -62,13 +80,13 @@ const memory = await me.memory.create({
 
 ### batchCreate
 
-Create up to 1,000 memories in a single call.
+Create up to 1,000 memories in a single call. Each memory requires a `tree`.
 
 ```typescript
 const { ids } = await me.memory.batchCreate({
   memories: [
-    { content: "First memory", tree: "notes" },
-    { content: "Second memory", tree: "notes" },
+    { content: "First memory", tree: "share.notes" },
+    { content: "Second memory", tree: "share.notes" },
   ],
 });
 ```
@@ -102,11 +120,8 @@ const { deleted } = await me.memory.delete({ id: "019..." });
 Delete all memories under a tree prefix.
 
 ```typescript
-// Preview what would be deleted
-const { count } = await me.memory.deleteTree({ tree: "old.project", dryRun: true });
-
-// Actually delete
-const { count: deleted } = await me.memory.deleteTree({ tree: "old.project" });
+const { count } = await me.memory.deleteTree({ tree: "share.old.project", dryRun: true });
+const { count: deleted } = await me.memory.deleteTree({ tree: "share.old.project" });
 ```
 
 ### move
@@ -115,8 +130,8 @@ Move memories from one tree prefix to another, preserving subtree structure.
 
 ```typescript
 const { count } = await me.memory.move({
-  source: "drafts.api",
-  destination: "published.api",
+  source: "share.drafts.api",
+  destination: "share.published.api",
 });
 ```
 
@@ -126,10 +141,9 @@ View the hierarchical tree structure with counts at each node.
 
 ```typescript
 const { nodes } = await me.memory.tree();
-// [{ path: "work", count: 5 }, { path: "work.projects", count: 3 }, ...]
+// [{ path: "share", count: 5 }, { path: "share.work", count: 3 }, ...]
 
-// Scoped to a subtree
-const { nodes } = await me.memory.tree({ tree: "work", levels: 2 });
+const { nodes } = await me.memory.tree({ tree: "share.work", levels: 2 });
 ```
 
 ## Search
@@ -137,14 +151,14 @@ const { nodes } = await me.memory.tree({ tree: "work", levels: 2 });
 The `search` method supports keyword, semantic, and hybrid search with multiple filter types.
 
 ```typescript
-const { results, total } = await me.memory.search({
+const { results } = await me.memory.search({
   // Search modes (use one or both for hybrid)
   semantic: "natural language meaning query",
   fulltext: "exact keyword BM25 match",
 
   // Filters (all optional, combined with AND)
   grep: "regex.*pattern",              // POSIX regex on content
-  tree: "work.projects.*",             // ltree/lquery filter
+  tree: "share.work.projects.*",       // ltree/lquery filter
   meta: { source: "meeting-notes" },   // JSONB containment
   temporal: {                          // time-based filter
     contains: "2025-06-15T00:00:00Z",  // point-in-time
@@ -165,19 +179,102 @@ for (const { memory, score } of results) {
 }
 ```
 
+## Space management
+
+The memory client also exposes the in-space management namespaces. These require the appropriate authority (admin for roster/groups/invites; `owner@path` for grants). See [Access Control](access-control.md).
+
+### principal — the roster
+
+```typescript
+const { principals } = await me.principal.list();            // admin only
+await me.principal.add({ principalId: "019..." });
+await me.principal.remove({ principalId: "019..." });
+const { principals } = await me.principal.resolve({ name: "alice@example.com" });    // any member
+const { principals } = await me.principal.lookup({ ids: ["019..."] });               // any member
+```
+
+### group
+
+```typescript
+const group = await me.group.create({ name: "backend" });
+const { groups } = await me.group.list();
+await me.group.rename({ groupId: group.id, name: "backend-team" });
+await me.group.delete({ groupId: group.id });
+await me.group.addMember({ groupId: group.id, memberId: "019...", admin: false });
+await me.group.removeMember({ groupId: group.id, memberId: "019..." });
+const { members } = await me.group.listMembers({ groupId: group.id });
+const { groups } = await me.group.listForMember({ memberId: "019..." });
+```
+
+### grant — tree access
+
+Levels are `1` (read), `2` (write), `3` (owner).
+
+```typescript
+await me.grant.set({ principalId: "019...", treePath: "share.work", access: 2 });
+await me.grant.remove({ principalId: "019...", treePath: "share.work" });
+const { grants } = await me.grant.list();                         // optionally { principalId } / { treePath }
+```
+
+### invite
+
+```typescript
+// shareAccess is a level number (1=read, 2=write, 3=owner) at the shared root; null/omit = none
+const invite = await me.invite.create({ email: "alice@example.com", admin: false, shareAccess: 1 });
+const { invitations } = await me.invite.list();
+await me.invite.revoke({ email: "alice@example.com" });
+```
+
+## User-scoped operations
+
+Use `createUserClient` (session token only) for identity, agents, API keys, and space discovery.
+
+```typescript
+import { createUserClient } from "@memory.build/client";
+
+const user = createUserClient({ token: sessionToken });
+
+// Identity
+const me = await user.whoami();
+
+// Spaces — discover and manage the spaces you belong to
+const { spaces } = await user.space.list();
+const space = await user.space.create({ name: "My Space" });   // → { id, slug }
+await user.space.rename({ slug: space.slug, name: "Renamed" });
+await user.space.delete({ slug: space.slug });
+
+// Agents — your global service accounts
+const agent = await user.agent.create({ name: "ci-bot" });     // → { id }
+const { agents } = await user.agent.list();
+await user.agent.rename({ id: agent.id, name: "ci-runner" });
+await user.agent.delete({ id: agent.id });
+
+// API keys — global per-agent credentials
+const { id, key } = await user.apiKey.create({
+  agentId: agent.id,
+  name: "ci-pipeline",
+  expiresAt: "2026-01-01T00:00:00Z",  // optional
+});
+console.log(key);  // "me.xxx.yyy" — full key returned once; only its hash is stored
+const { apiKeys } = await user.apiKey.list({ memberId: agent.id });
+const apiKeyMeta = await user.apiKey.get({ id });
+await user.apiKey.delete({ id });
+```
+
+API keys are **global** per-agent credentials, not bound to a space: the same key works in any space the agent has been admitted to (the space comes from `X-Me-Space`).
+
 ## Error handling
 
 The client throws `RpcError` for application errors. Each error has a numeric `code` and an optional string `appCode` for programmatic matching.
 
 ```typescript
-import { createClient, RpcError } from "@memory.build/client";
+import { createMemoryClient, RpcError } from "@memory.build/client";
 
 try {
   await me.memory.get({ id: "nonexistent" });
 } catch (error) {
   if (error instanceof RpcError) {
     console.error(error.message);  // human-readable message
-
     if (error.is("NOT_FOUND")) {
       // handle missing memory
     }
@@ -189,95 +286,17 @@ try {
 
 | `appCode` | Meaning |
 |-----------|---------|
-| `NOT_FOUND` | Resource doesn't exist |
-| `UNAUTHORIZED` | Missing or invalid API key |
+| `NOT_FOUND` | Resource doesn't exist (or not visible to you) |
+| `UNAUTHORIZED` | Missing or invalid session token / API key |
 | `FORBIDDEN` | Insufficient permissions |
 | `CONFLICT` | Duplicate or conflicting operation |
+| `LAST_ADMIN` | Operation would leave the space with no effective admin |
 | `RATE_LIMITED` | Too many requests |
 | `VALIDATION_ERROR` | Invalid input |
 | `EMBEDDING_NOT_CONFIGURED` | Semantic search without embedding provider |
 | `EMBEDDING_FAILED` | Embedding generation failed |
 | `INTERNAL_ERROR` | Server error |
 
-## Access control
-
-The client exposes namespaces for managing users, grants, roles, and owners. These mirror the [Access Control](access-control.md) system.
-
-### Users
-
-```typescript
-const user = await me.user.create({ name: "alice" });
-const user = await me.user.get({ id: "019..." });
-const user = await me.user.getByName({ name: "alice" });
-const { users } = await me.user.list();
-await me.user.rename({ id: "019...", name: "bob" });
-await me.user.delete({ id: "019..." });
-```
-
-### Grants
-
-```typescript
-await me.grant.create({
-  userId: "019...",
-  treePath: "team.shared",
-  actions: ["read", "create"],
-  withGrantOption: false,
-});
-const { grants } = await me.grant.list({ userId: "019..." });
-const { allowed } = await me.grant.check({
-  userId: "019...",
-  treePath: "team.shared",
-  action: "create",
-});
-await me.grant.revoke({ userId: "019...", treePath: "team.shared" });
-```
-
-### Roles
-
-```typescript
-const role = await me.role.create({ name: "editors" });
-await me.role.addMember({ roleId: role.id, memberId: userId });
-await me.role.removeMember({ roleId: role.id, memberId: userId });
-const { members } = await me.role.listMembers({ roleId: role.id });
-const { roles } = await me.role.listForUser({ userId });
-```
-
-### Owners
-
-```typescript
-await me.owner.set({ userId: "019...", treePath: "team.shared" });
-const owner = await me.owner.get({ treePath: "team.shared" });
-const { owners } = await me.owner.list();
-await me.owner.remove({ treePath: "team.shared" });
-```
-
-### API keys
-
-```typescript
-const { apiKey, rawKey } = await me.apiKey.create({
-  userId: "019...",
-  name: "ci-pipeline",
-  expiresAt: "2026-01-01T00:00:00Z",  // optional
-});
-console.log(rawKey);  // "me.xxx.yyy" — only shown once
-
-const { apiKeys } = await me.apiKey.list({ userId: "019..." });
-await me.apiKey.revoke({ id: apiKey.id });
-await me.apiKey.delete({ id: apiKey.id });
-```
-
 ## Protocol
 
-The client communicates over JSON-RPC 2.0 via a single HTTP endpoint (`POST /api/v1/engine/rpc`). Authentication is via `Authorization: Bearer <apiKey>` header.
-
-You can make raw RPC calls using the `call` method:
-
-```typescript
-const result = await me.call("memory.search", { semantic: "hello" });
-```
-
-The API key can be swapped at runtime:
-
-```typescript
-me.setApiKey("me.newkey.newsecret");
-```
+Both clients speak JSON-RPC 2.0 over HTTP. The memory client uses `POST /api/v1/memory/rpc` with `Authorization: Bearer <token>` and a required `X-Me-Space: <slug>` header; the user client uses `POST /api/v1/user/rpc` with a session-token bearer. See the [Access Control](access-control.md) guide for the authority model behind the management namespaces.

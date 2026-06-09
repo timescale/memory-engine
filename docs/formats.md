@@ -11,7 +11,7 @@ Every memory has one required field (`content`) and four optional fields:
 | `id` | `string` | no | UUIDv7. Enables idempotent imports -- re-importing the same ID won't create a duplicate. Must match `^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`. |
 | `content` | `string` | **yes** | The memory text. Must be non-empty. |
 | `meta` | `object` | no | Arbitrary key-value metadata. Any valid JSON object. |
-| `tree` | `string` | no | Hierarchical path using dot-separated labels (e.g. `work.projects.api`). Labels must be alphanumeric or underscore. Must match `^([A-Za-z0-9_]+(\.[A-Za-z0-9_]+)*)?$`. |
+| `tree` | `string` | no | Hierarchical path using dot-separated labels (e.g. `share.work.projects.api`). Labels match `[A-Za-z0-9_-]`; `/` is also accepted as a separator and a leading `~` expands to your private home. When omitted, the file importers (`me memory import`, `me_memory_import`) default the record to the shared root `share`. |
 | `temporal` | varies | no | Time range for the memory. Accepted shapes depend on format -- see below. |
 
 ### Temporal input shapes

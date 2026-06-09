@@ -2,12 +2,12 @@
 
 Manage memory packs.
 
-Memory packs are YAML files containing pre-built collections of memories. They provide structured knowledge that can be installed into any engine -- things like framework documentation, best practices, or domain-specific reference material.
+Memory packs are YAML files containing pre-built collections of memories. They provide structured knowledge that can be installed into any space -- things like framework documentation, best practices, or domain-specific reference material.
 
 ## Commands
 
 - [me pack validate](#me-pack-validate) -- validate a pack file
-- [me pack install](#me-pack-install) -- install a pack into the active engine
+- [me pack install](#me-pack-install) -- install a pack into the active space
 - [me pack list](#me-pack-list) -- list installed packs
 
 ---
@@ -30,7 +30,7 @@ Parses the YAML file and runs pack-specific constraint validation. Reports wheth
 
 ## me pack install
 
-Install a memory pack into the active engine.
+Install a memory pack into the active space.
 
 ```
 me pack install <file> [options]
@@ -48,7 +48,7 @@ me pack install <file> [options]
 The install process:
 
 1. Validates the pack file.
-2. Connects to the active engine.
+2. Connects to the active space.
 3. Finds existing memories from the same pack (by metadata).
 4. Deletes stale memories from previous versions (with confirmation).
 5. Creates all memories from the pack with `pack.*` tree prefixes and pack metadata.
@@ -114,7 +114,7 @@ Dry-run output includes `wouldSkipIdempotent` (predicted from rows already at th
 
 ## me pack list
 
-List installed packs in the active engine.
+List installed packs in the active space.
 
 ```
 me pack list

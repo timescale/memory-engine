@@ -7,17 +7,17 @@
 1. **Check embedding status** -- semantic search requires embeddings. New memories take ~10-30 seconds to get embeddings. Use `me memory get <id>` and check `hasEmbedding`.
 2. **Try fulltext instead** -- fulltext search works immediately after creation. Use `--fulltext` to search by keywords.
 3. **Broaden the search** -- remove filters (tree, meta, temporal) to see if results appear without them.
-4. **Check access** -- RLS silently filters results. If you're missing memories you know exist, check grants with `me grant check <user> <path> read`. See [Access Control](access-control.md) for details.
-5. **Check as superuser** -- superusers bypass all access checks. If results appear for a superuser but not a regular user, the issue is grants.
+4. **Check the active space** -- results come only from your active space. Run `me whoami` to confirm it, and `me space use <slug>` to switch.
+5. **Check access** -- the server filters results to the tree paths you can read; a missing grant looks like missing results, not an error. List your grants with `me access list <your-principal>` (or `me access list --path <path>`). See [Access Control](access-control.md) for details.
 
 ### "Memory not found" on get or update
 
 This can mean either:
 
-- The memory genuinely doesn't exist (wrong ID)
-- The memory exists but the current user doesn't have `read` access to its tree path (RLS returns "not found")
+- The memory genuinely doesn't exist (wrong ID), or it's in a different space than your active one
+- The memory exists but you don't have `read` access to its tree path (access filtering reports it as "not found")
 
-Check access with `me grant check <user> <path> read` or retry as a superuser.
+Confirm your active space with `me whoami` and check your grants with `me access list <your-principal>`.
 
 ### Embeddings stuck
 
@@ -50,5 +50,6 @@ These all use code `-32000` but are distinguished by `data.code`:
 | `FORBIDDEN` | Valid credentials, insufficient permissions | Check grants for the required action |
 | `NOT_FOUND` | Resource doesn't exist (or no access) | Verify the ID and check grants |
 | `CONFLICT` | Resource already exists (e.g., duplicate slug) | Use a different identifier |
+| `LAST_ADMIN` | Operation would leave the space with no effective admin | Promote another user/admin group first |
 | `RATE_LIMITED` | Too many requests | Back off and retry after the `Retry-After` header |
 | `VALIDATION_ERROR` | Business logic validation failed | Check the error message for details |
