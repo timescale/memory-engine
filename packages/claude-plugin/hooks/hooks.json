@@ -1,18 +1,6 @@
 {
   "description": "Memory Engine capture hooks",
   "hooks": {
-    "UserPromptSubmit": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "me claude hook --event user-prompt-submit",
-            "async": true,
-            "timeout": 30
-          }
-        ]
-      }
-    ],
     "Stop": [
       {
         "hooks": [
@@ -20,7 +8,19 @@
             "type": "command",
             "command": "me claude hook --event stop",
             "async": true,
-            "timeout": 30
+            "timeout": 60
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "me claude hook --event session-end",
+            "async": true,
+            "timeout": 60
           }
         ]
       }

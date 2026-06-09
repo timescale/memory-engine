@@ -3,8 +3,9 @@
  *
  * A "slug" is an ltree-safe label derived from the session's cwd:
  * - Prefer the git `origin` remote's repo name (stable across clone locations,
- *   and shared with the Claude Code capture hook via `resolveProjectSlug`, so
- *   live + imported sessions for the same repo share one project label).
+ *   and shared with the Claude Code capture hook via the import path
+ *   (`importTranscriptFile`), so live + imported sessions for the same repo
+ *   share one project label).
  * - Else the git repo root directory name, else `basename(cwd)`.
  * - Normalize to `[a-z0-9_]+`.
  *
@@ -150,20 +151,6 @@ async function deriveBaseSlug(
     (gitRemote ? repoNameFromRemote(gitRemote) : undefined) ??
     basename(gitRoot ?? cwd);
   return { baseSlug: normalizeSlug(rawName), gitRoot, gitRemote };
-}
-
-/**
- * Single-shot project context for one cwd (no cross-run collision registry) —
- * used by the Claude Code capture hook so live captures nest under the same
- * project label the import tool uses, and can record the git remote. Returns the
- * `unknown` slug (and no remote) for an empty/missing cwd.
- */
-export async function resolveProjectSlug(
-  cwd?: string,
-): Promise<{ slug: string; gitRemote?: string }> {
-  if (!cwd || cwd.trim().length === 0) return { slug: UNKNOWN_SLUG };
-  const { baseSlug, gitRemote } = await deriveBaseSlug(cwd);
-  return { slug: baseSlug, gitRemote };
 }
 
 /**

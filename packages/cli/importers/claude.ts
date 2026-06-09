@@ -77,6 +77,8 @@ export const claudeImporter: Importer = {
   tool: "claude",
   defaultSource: DEFAULT_SOURCE,
   discoverSessions,
+  // Single-file parse for the live capture hook (importTranscriptFile).
+  parseFile: parseSessionFile,
 };
 
 async function* discoverSessions(

@@ -27,6 +27,8 @@ import { Command } from "commander";
 import { resolveCredentials } from "../credentials.ts";
 import {
   createProgressReporter,
+  DEFAULT_SESSIONS_NODE_NAME,
+  DEFAULT_TREE_ROOT,
   type Importer,
   type ImportResult,
   runImport,
@@ -41,11 +43,8 @@ import {
   requireSpace,
 } from "../util.ts";
 
-// Under `share` so a session-authenticated user can write the import (they hold
-// owner@share, not access to arbitrary top-level paths). Override with
-// --tree-root for a different destination you have write access to.
-const DEFAULT_TREE_ROOT = "share.projects";
-const DEFAULT_SESSIONS_NODE_NAME = "agent_sessions";
+// Default capture layout (share.projects.<slug>.agent_sessions) lives in the
+// importers module so `me import` and the Claude Code hook share one source.
 // Lenient user-facing tree-path input (matches the protocol's treePathSchema):
 // labels [A-Za-z0-9_-], `.` or `/` separators, optional leading `~` (home). The
 // server normalizes + authoritatively validates; this is a fast pre-check so a

@@ -36,6 +36,13 @@
       "description": "Ltree root under which captures are nested as `<root>.<project>.agent_sessions` (the same layout `me ... import` uses, so live and imported sessions share a node per project). Defaults under `share` so your login session can write there; use a `~`-prefixed root to keep captures in your private home instead.",
       "default": "share.projects",
       "required": true
+    },
+    "content_mode": {
+      "type": "string",
+      "title": "Content mode",
+      "description": "What to capture per message. `default` stores the user + assistant text (recommended). `full_transcript` also stores reasoning and tool calls/results as their own memories — more complete but much larger/noisier (and may include sensitive tool output).",
+      "default": "default",
+      "required": false
     }
   }
 }

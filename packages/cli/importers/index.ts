@@ -46,6 +46,16 @@ export const IMPORTER_VERSION = "1";
  */
 const SEARCH_PAGE_LIMIT = 1000;
 
+/**
+ * Default capture layout, shared by `me import` and the Claude Code capture
+ * hook so live + imported sessions land in the same place:
+ * `<DEFAULT_TREE_ROOT>.<project_slug>.<DEFAULT_SESSIONS_NODE_NAME>`. Under
+ * `share` so a session-authenticated user (owner@share, not arbitrary top-level
+ * paths) can write there.
+ */
+export const DEFAULT_TREE_ROOT = "share.projects";
+export const DEFAULT_SESSIONS_NODE_NAME = "agent_sessions";
+
 /** An importer's discovery interface — yields normalized sessions. */
 export interface Importer {
   tool: ImportedSession["tool"];
@@ -55,6 +65,12 @@ export interface Importer {
     stats: ImporterStats,
     progress?: ProgressReporter,
   ): AsyncIterable<ImportedSession>;
+  /**
+   * Parse a single transcript file into one session (or null if empty / no
+   * messages). Used by the live capture hook (`importTranscriptFile`); only the
+   * Claude importer implements it for now.
+   */
+  parseFile?(path: string): Promise<ImportedSession | null>;
 }
 
 /** Result of the orchestration pass. */
@@ -163,6 +179,122 @@ export async function runImport(
 }
 
 /**
+ * Import a single transcript file — the live-capture path used by the Claude
+ * Code hook. Reuses the same parse + render + write as `me import`, so live
+ * captures and bulk imports produce identical memories (tree, ids, `source_*`
+ * metadata).
+ *
+ * Incremental + stateless: it asks the server for the session's high-water
+ * message (`searchSessionHighWater` — one `limit 1`, newest-first search) and
+ * writes only the messages after it. Falls back to the full reconcile
+ * (`writeSession`) for a new session, an `importer_version` bump, a lost anchor
+ * (compaction/reorder), or any fast-path write error — so correctness never
+ * depends on the optimization. Returns null when the file has no session.
+ */
+export async function importTranscriptFile(
+  engine: MemoryClient,
+  importer: Importer,
+  filePath: string,
+  options: WriteOptions,
+): Promise<SessionOutcome | null> {
+  if (!importer.parseFile) {
+    throw new Error(
+      `importer '${importer.tool}' does not support single-file parsing`,
+    );
+  }
+  const session = await importer.parseFile(filePath);
+  if (!session) return null;
+
+  const { slug, gitRoot, gitRemote } = await new SlugRegistry().resolve(
+    session.cwd,
+  );
+  const tree = `${options.treeRoot}.${slug}.${options.sessionsNodeName}`;
+  const title = synthesizeTitle(session);
+
+  const hw = await searchSessionHighWater(
+    engine,
+    tree,
+    session.tool,
+    session.sessionId,
+  );
+  if (hw && hw.importerVersion === IMPORTER_VERSION) {
+    const plan = planSession(session, tree, slug, gitRoot, gitRemote, options);
+    const idx = plan.planned.findIndex(
+      (p) => p.message.messageId === hw.messageId,
+    );
+    if (idx !== -1) {
+      const delta = plan.planned.slice(idx + 1);
+      const outcome: SessionOutcome = {
+        sessionId: session.sessionId,
+        title,
+        tree,
+        sourceFile: session.sourceFile,
+        inserted: 0,
+        updated: 0,
+        skipped: plan.skipped,
+        failed: plan.failed,
+        errors: [...plan.errors],
+      };
+      if (delta.length === 0) return outcome;
+      if (options.dryRun) {
+        outcome.inserted += delta.length;
+        return outcome;
+      }
+      try {
+        const { insertedIds, errors } = await batchCreateChunked(
+          engine,
+          delta.map((d) => d.payload),
+        );
+        if (errors.length === 0) {
+          outcome.inserted += insertedIds.length;
+          return outcome;
+        }
+        // Partial failure (e.g. an already-present id from a non-monotonic
+        // transcript) → fall through to the full reconcile for correctness.
+      } catch {
+        // Unexpected write error → reconcile.
+      }
+    }
+  }
+
+  return writeSession(
+    engine,
+    session,
+    title,
+    tree,
+    slug,
+    gitRoot,
+    gitRemote,
+    options,
+  );
+}
+
+/**
+ * The session's high-water message: the latest already-imported message for
+ * (tool, sessionId) under `tree`. One `memory.search` with `limit: 1` — unranked
+ * search defaults to newest-first (by id, which encodes the message timestamp),
+ * so results[0] is the most recent. Null when nothing is imported yet.
+ */
+async function searchSessionHighWater(
+  engine: MemoryClient,
+  tree: string,
+  tool: ImportedSession["tool"],
+  sessionId: string,
+): Promise<{ messageId: string; importerVersion?: string } | null> {
+  const res = await engine.memory.search({
+    tree,
+    meta: { source_tool: tool, source_session_id: sessionId },
+    limit: 1,
+  });
+  const top = res.results[0];
+  if (!top) return null;
+  const messageId = top.meta.source_message_id;
+  if (typeof messageId !== "string") return null;
+  const v = top.meta.importer_version;
+  return { messageId, importerVersion: typeof v === "string" ? v : undefined };
+}
+
+/**
  * Write all messages for one session.
  *
  * Strategy:
@@ -175,49 +307,52 @@ export async function runImport(
  *   3. Issue one `memory.batchCreate` (in chunks of 1000) for inserts;
  *      updates are issued one at a time (rare path).
  */
-async function writeSession(
-  engine: MemoryClient,
+/** One planned message write (post-render, pre-dedup/diff). */
+interface PlannedMessage {
+  message: ConversationMessage;
+  memoryId: string;
+  payload: MemoryCreateParams;
+}
+
+/** Result of planning a session's writes (rendered, deduped). */
+interface PlanResult {
+  planned: PlannedMessage[];
+  skipped: number;
+  failed: number;
+  errors: Array<{ messageId: string; error: string }>;
+}
+
+/**
+ * Render + dedup a session's messages into write payloads (no RPCs). Skips
+ * messages that render empty under the chosen mode, records bad timestamps as
+ * failures, and collapses events sharing a deterministic id (resume/replay
+ * artefacts) so the batch can't trip the unique constraint server-side.
+ */
+function planSession(
   session: ImportedSession,
-  title: string,
   tree: string,
   projectSlug: string,
   gitRoot: string | undefined,
   gitRemote: string | undefined,
   options: WriteOptions,
-): Promise<SessionOutcome> {
-  const outcome: SessionOutcome = {
-    sessionId: session.sessionId,
-    title,
-    tree,
-    sourceFile: session.sourceFile,
-    inserted: 0,
-    updated: 0,
-    skipped: 0,
-    failed: 0,
-    errors: [],
-  };
-
-  // Build the per-message write payloads up front so we can plan the
-  // batch in one pass and skip any messages that render to empty
-  // content under the chosen mode.
-  const planned: Array<{
-    message: ConversationMessage;
-    memoryId: string;
-    payload: MemoryCreateParams;
-  }> = [];
+): PlanResult {
+  const planned: PlannedMessage[] = [];
+  let skipped = 0;
+  let failed = 0;
+  const errors: Array<{ messageId: string; error: string }> = [];
 
   for (const message of session.messages) {
     const content = renderMessageContent(message, {
       fullTranscript: options.fullTranscript,
     });
     if (content === null) {
-      outcome.skipped++;
+      skipped++;
       continue;
     }
     const timestampMs = Number(Date.parse(message.timestamp));
     if (Number.isNaN(timestampMs)) {
-      outcome.failed++;
-      outcome.errors.push({
+      failed++;
+      errors.push({
         messageId: message.messageId,
         error: `invalid message timestamp: ${message.timestamp}`,
       });
@@ -241,24 +376,53 @@ async function writeSession(
     planned.push({
       message,
       memoryId,
-      payload: {
-        id: memoryId,
-        content,
-        meta,
-        tree,
-        temporal,
-      },
+      payload: { id: memoryId, content, meta, tree, temporal },
     });
   }
 
-  // A session JSONL can contain two events that share the same `event.uuid`
-  // (resume artefacts, sidechain merges, replay wrappers). The deterministic
-  // UUIDv7 is keyed on (tool, sessionId, messageId), so duplicates collapse
-  // to the same id and would otherwise hit the unique constraint server-side
-  // — taking the whole batch's transaction down with them. Drop them here.
   const dedup = dedupByMemoryId(planned);
-  outcome.skipped += dedup.duplicates;
-  const deduped = dedup.unique;
+  return {
+    planned: dedup.unique,
+    skipped: skipped + dedup.duplicates,
+    failed,
+    errors,
+  };
+}
+
+async function writeSession(
+  engine: MemoryClient,
+  session: ImportedSession,
+  title: string,
+  tree: string,
+  projectSlug: string,
+  gitRoot: string | undefined,
+  gitRemote: string | undefined,
+  options: WriteOptions,
+): Promise<SessionOutcome> {
+  const outcome: SessionOutcome = {
+    sessionId: session.sessionId,
+    title,
+    tree,
+    sourceFile: session.sourceFile,
+    inserted: 0,
+    updated: 0,
+    skipped: 0,
+    failed: 0,
+    errors: [],
+  };
+
+  const plan = planSession(
+    session,
+    tree,
+    projectSlug,
+    gitRoot,
+    gitRemote,
+    options,
+  );
+  outcome.skipped += plan.skipped;
+  outcome.failed += plan.failed;
+  outcome.errors.push(...plan.errors);
+  const deduped = plan.planned;
 
   if (deduped.length === 0) return outcome;
 

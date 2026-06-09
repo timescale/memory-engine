@@ -5,9 +5,12 @@ Captures your Claude Code conversations to [Memory Engine](https://memory.build)
 ## Components
 
 - **MCP server** (`me mcp`) — memory tools (search, create, get, update, delete, tree, import, export, etc.) available to the agent during sessions.
-- **Hooks**:
-  - `UserPromptSubmit` captures your prompt as a memory.
-  - `Stop` captures the agent's final response as a memory.
+- **Hooks** — capture the session transcript as memories, one per message:
+  - `Stop` fires after each turn and imports the session-so-far.
+  - `SessionEnd` does a final import when the session closes.
+  - This is the **same parse + write as `me … import`** (incremental: each fire
+    only writes messages new since the last), so live captures and bulk imports
+    land in the same place with the same metadata.
 - **Async, best-effort**. Hooks never block your session; failures log to stderr and exit 0.
 
 ## Prerequisites
@@ -72,35 +75,28 @@ claude                               # start a session
 # → Installed → memory-engine → Configure
 # → space       (OPTIONAL — blank = your active space; pin for project/shared installs)
 # → api_key     (OPTIONAL, sensitive — blank = use your `me login` session)
-# → server      (default https://api.memory.build)
-# → tree_root   (default share.projects; captures nest at <root>.<project>.agent_sessions)
+# → server       (default https://api.memory.build)
+# → tree_root    (default share.projects; captures nest at <root>.<project>.agent_sessions)
+# → content_mode (default | full_transcript — see below)
 # → values take effect immediately; no restart required
 ```
 
-Leave `api_key` blank to use your `me login` session (captures attributed to you); set it to use a dedicated agent key (see above). Leave `space` blank to capture into your active space; pin it for unattended or project-scope installs (a blank space with no active space set means captures are silently skipped). Sensitive values (the api_key) go to your system keychain; non-sensitive values go to the `settings.json` for the scope you installed in.
+Leave `api_key` blank to use your `me login` session (captures attributed to you); set it to use a dedicated agent key (see above). Leave `space` blank to capture into your active space; pin it for unattended or project-scope installs (a blank space with no active space set means captures are silently skipped). `content_mode` is `default` (user + assistant text — recommended) or `full_transcript` (also stores reasoning and tool calls/results as their own memories — more complete, but larger/noisier and may include sensitive tool output). Sensitive values (the api_key) go to your system keychain; non-sensitive values go to the `settings.json` for the scope you installed in.
 
 ## Verify
 
-After configuring, send a prompt in Claude Code, then check that capture happened:
+After a session (each turn's `Stop`, or `SessionEnd`), check that capture happened:
 
 ```bash
 me memory search --tree "share.projects.*" --limit 5
 ```
 
-You should see your recent prompts (and, after the agent finishes, its response). What gets stored:
+Capture is the **same path as `me … import`** — one memory per message, with the
+identical layout and metadata, so live and imported sessions interleave cleanly:
 
-- **Tree**: `<tree_root>.<project>.agent_sessions` (default root `share.projects`) — same layout as `me … import`, so live + imported sessions share a node per project
-- **Metadata** (the same `source_*` schema `me … import` writes, so live + imported sessions are queryable together):
-  - `type`: `agent_session`
-  - `source_tool`: `"claude-code"`
-  - `source_session_id`: Claude Code's session UUID
-  - `source_message_role`: `user` or `assistant`
-  - `source_project_slug`: derived from the git `origin` remote (falls back to the cwd basename)
-  - `source_cwd`: working directory when the hook fired
-  - `source_git_repo`: the git remote URL (when the cwd is in a repo)
-  - `content_mode`: `default`
-  - `me_version`: the `me` CLI version that created the memory
-- **Temporal**: ISO timestamp of hook invocation
+- **Tree**: `<tree_root>.<project>.agent_sessions` (default root `share.projects`) — one node per project.
+- **Metadata**: the importer's `source_*` schema — `type: agent_session`, `source_tool: "claude"`, `source_session_id`, `source_message_id`, `source_message_role` (`user`/`assistant`), `source_project_slug` (from the git `origin` remote, else cwd basename), `content_mode`, `importer_version`, and (when available) `source_cwd` / `source_git_repo` / `source_model` / … See the full table in [agent session imports](https://docs.memory.build/cli/agent-session-imports).
+- **Temporal**: each memory's `start` is the **message** timestamp.
 
 ## Multi-scope / multi-engine
 

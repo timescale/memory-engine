@@ -6,12 +6,7 @@
  * `undefined` and the fallback to `basename(cwd)` is exercised.
  */
 import { describe, expect, test } from "bun:test";
-import {
-  normalizeSlug,
-  repoNameFromRemote,
-  resolveProjectSlug,
-  SlugRegistry,
-} from "./slug.ts";
+import { normalizeSlug, repoNameFromRemote, SlugRegistry } from "./slug.ts";
 
 describe("repoNameFromRemote", () => {
   test("extracts the repo name from https and ssh remotes (sans .git)", () => {
@@ -22,22 +17,6 @@ describe("repoNameFromRemote", () => {
       "memory-engine",
     );
     expect(repoNameFromRemote("https://example.com/a/b/repo")).toBe("repo");
-  });
-});
-
-describe("resolveProjectSlug", () => {
-  test("returns 'unknown' (no remote) for an empty/missing cwd", async () => {
-    expect(await resolveProjectSlug(undefined)).toEqual({ slug: "unknown" });
-    expect(await resolveProjectSlug("")).toEqual({ slug: "unknown" });
-  });
-
-  test("falls back to a normalized cwd basename when not in a git repo", async () => {
-    // /tmp/nonexistent-... isn't a git repo → no remote/root → basename.
-    const { slug, gitRemote } = await resolveProjectSlug(
-      "/tmp/nonexistent-path-xyz/memory-engine",
-    );
-    expect(slug).toBe("memory_engine");
-    expect(gitRemote).toBeUndefined();
   });
 });
 

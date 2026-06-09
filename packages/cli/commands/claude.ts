@@ -21,14 +21,16 @@
  */
 import { Command, InvalidArgumentError } from "commander";
 import {
-  captureHookEvent,
   HOOK_EVENT_NAMES,
   type HookEvent,
   type HookEventName,
   resolveHookConfigFromEnv,
+  SESSIONS_NODE,
 } from "../claude/capture.ts";
+import { createMemoryClient } from "../client.ts";
 import { resolveCredentials } from "../credentials.ts";
 import { claudeImporter } from "../importers/claude.ts";
+import { importTranscriptFile } from "../importers/index.ts";
 import {
   type AgentInstallOptions,
   runAgentMcpInstall,
@@ -89,12 +91,14 @@ function createClaudeInstallCommand(): Command {
 }
 
 /**
- * me claude hook — invoked by the Claude Code plugin to capture events as
- * memories.
+ * me claude hook — invoked by the Claude Code plugin on Stop / SessionEnd to
+ * capture the session.
  *
- * Reads the event JSON from stdin, resolves config from the CLAUDE_PLUGIN_OPTION_*
- * env vars Claude Code exports for the plugin (falling back to the `me login`
- * session when no api_key is configured), and creates a memory.
+ * Reads the event JSON from stdin for the `transcript_path`, resolves config
+ * from the CLAUDE_PLUGIN_OPTION_* env vars (falling back to the `me login`
+ * session when no api_key is configured), and runs the transcript through
+ * `importTranscriptFile` — the same parse + write as `me import`, incremental so
+ * each call only writes messages new since the last.
  *
  * Best-effort: logs failures to stderr but always exits 0 so that a hook
  * failure never blocks a Claude Code session.
@@ -129,35 +133,39 @@ function createClaudeHookCommand(): Command {
         process.exit(0);
       }
 
-      // Read stdin
-      let input: string;
-      try {
-        input = await Bun.stdin.text();
-      } catch (error) {
-        console.error(
-          `[memory-engine] failed to read stdin: ${error instanceof Error ? error.message : String(error)}`,
-        );
-        process.exit(0);
-      }
-
-      // Parse JSON
+      // Read + parse the event JSON from stdin for the transcript path.
       let event: HookEvent;
       try {
-        event = JSON.parse(input) as HookEvent;
+        event = JSON.parse(await Bun.stdin.text()) as HookEvent;
       } catch (error) {
         console.error(
-          `[memory-engine] failed to parse event JSON: ${error instanceof Error ? error.message : String(error)}`,
+          `[memory-engine] failed to read/parse event JSON: ${error instanceof Error ? error.message : String(error)}`,
         );
         process.exit(0);
       }
 
-      // Capture
+      const transcriptPath = event.transcript_path;
+      if (!transcriptPath) {
+        console.error(
+          `[memory-engine] ${eventName}: no transcript_path in event payload`,
+        );
+        process.exit(0);
+      }
+
+      // Import the transcript (incremental; same path as `me import`).
       try {
-        const result = await captureHookEvent(event, eventName, config);
-        if (result.status === "skipped") {
-          // Silent skip — no stderr output for empty content
-          process.exit(0);
-        }
+        const client = createMemoryClient({
+          url: config.server,
+          token: config.token,
+          space: config.space,
+        });
+        await importTranscriptFile(client, claudeImporter, transcriptPath, {
+          treeRoot: config.treeRoot,
+          sessionsNodeName: SESSIONS_NODE,
+          fullTranscript: config.fullTranscript,
+          dryRun: false,
+          verbose: false,
+        });
       } catch (error) {
         console.error(
           `[memory-engine] ${eventName} capture failed: ${error instanceof Error ? error.message : String(error)}`,

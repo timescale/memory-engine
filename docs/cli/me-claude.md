@@ -41,7 +41,7 @@ For manual MCP client configuration, see [MCP Integration](../mcp-integration.md
 
 ## me claude hook
 
-Invoked by the Claude Code plugin. Reads the event JSON from stdin, resolves config from `CLAUDE_PLUGIN_OPTION_*` env vars, and captures the event as a memory.
+Invoked by the Claude Code plugin on `Stop` (each turn) and `SessionEnd`. Reads the `transcript_path` from the event JSON on stdin, resolves config from `CLAUDE_PLUGIN_OPTION_*` env vars (falling back to your `me login` session), and imports the session transcript — the same parse + write as [`me … import`](agent-session-imports.md), incremental so each call only writes messages new since the last.
 
 ```
 me claude hook --event <name>
