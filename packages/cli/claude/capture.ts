@@ -24,8 +24,12 @@ export interface HookConfig {
   token: string;
   /** Active space slug (X-Me-Space). */
   space: string;
-  /** Tree path prefix for captured memories (ltree). */
-  treePrefix: string;
+  /**
+   * Tree root under which captures are nested as
+   * `<treeRoot>.<project>.<sessions-node>` — the same shape the import tool
+   * writes, so live captures and imported sessions share one node per project.
+   */
+  treeRoot: string;
 }
 
 // =============================================================================
@@ -156,9 +160,15 @@ export function buildMeta(
 // =============================================================================
 
 export const DEFAULT_SERVER = "https://api.memory.build";
-// Under `share` so a session-authenticated user (who holds owner@share, not
-// access to arbitrary top-level paths) can actually write captures here.
-export const DEFAULT_TREE_PREFIX = "share.claude_code.session";
+// Captures nest as `<treeRoot>.<project>.<SESSIONS_NODE>`, identical to the
+// import tool's default layout (see DEFAULT_TREE_ROOT / DEFAULT_SESSIONS_NODE_NAME
+// in packages/cli/commands/import.ts), so live + imported sessions for a project
+// land in the same node (distinguished by meta.source). Under `share` so a
+// session-authenticated user (owner@share, not arbitrary top-level paths) can
+// write here.
+export const DEFAULT_TREE_ROOT = "share.projects";
+// Fixed per-project leaf, matching the import tool's --sessions-node-name default.
+const SESSIONS_NODE = "agent_sessions";
 
 /** Credentials the hook falls back to when the plugin's api_key is unset. */
 export interface HookFallbackCreds {
@@ -213,7 +223,7 @@ export function resolveHookConfigFromEnv(
     token,
     space,
     server,
-    treePrefix: env.CLAUDE_PLUGIN_OPTION_TREE_PREFIX || DEFAULT_TREE_PREFIX,
+    treeRoot: env.CLAUDE_PLUGIN_OPTION_TREE_ROOT || DEFAULT_TREE_ROOT,
   };
 }
 
@@ -237,8 +247,8 @@ export interface CaptureOptions {
 /**
  * Capture a hook event as a memory.
  *
- * Returns immediately if there's no content to capture. Otherwise creates
- * a memory in the engine under `config.treePrefix` with metadata.
+ * Returns immediately if there's no content to capture. Otherwise creates a
+ * memory under `<config.treeRoot>.<project>.agent_sessions` with metadata.
  */
 export async function captureHookEvent(
   event: HookEvent,
@@ -263,9 +273,11 @@ export async function captureHookEvent(
       space: config.space,
     });
 
+  // Nest by project under the configured root, with a fixed sessions leaf —
+  // `<treeRoot>.<project>.<SESSIONS_NODE>` — matching the import tool's layout.
   const result = await client.memory.create({
     content,
-    tree: config.treePrefix,
+    tree: `${config.treeRoot}.${project}.${SESSIONS_NODE}`,
     meta,
     temporal: { start: now.toISOString() },
   });

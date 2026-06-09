@@ -46,4 +46,4 @@ claude plugin marketplace add timescale/memory-engine
 claude plugin install memory-engine@memory-engine [--scope user|project|local]
 ```
 
-Then start Claude Code, run `/plugin`, select `memory-engine`, and configure `api_key`, `server`, and `tree_prefix`.
+Then start Claude Code, run `/plugin`, select `memory-engine`, and configure `space` (and optionally `api_key`, `server`, `tree_root`).

@@ -50,7 +50,7 @@ claude plugin marketplace add timescale/memory-engine
 claude plugin install memory-engine@memory-engine [--scope user|project|local]
 ```
 
-Claude Code uses the Memory Engine plugin. After installing it, start a Claude Code session, run `/plugin`, select `memory-engine`, and configure `api_key`, `server`, and `tree_prefix`. The plugin provides the MCP server and captures Claude Code session events as memories.
+Claude Code uses the Memory Engine plugin. After installing it, start a Claude Code session, run `/plugin`, select `memory-engine`, and configure `space` (and optionally `api_key`, `server`, `tree_root`). The plugin provides the MCP server and captures Claude Code session events as memories.
 
 ### Gemini CLI
 

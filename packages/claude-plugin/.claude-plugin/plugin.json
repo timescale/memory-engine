@@ -30,11 +30,11 @@
       "description": "Space slug to capture into (the X-Me-Space). Leave blank to use your active space (`me space use` / ME_SPACE). Pin it for unattended or project-scope installs so captures always land in the same space; if blank and no active space is set, captures are skipped.",
       "required": false
     },
-    "tree_prefix": {
+    "tree_root": {
       "type": "string",
-      "title": "Tree prefix",
-      "description": "Ltree path prefix where captured prompts/responses are stored. Defaults under `share` so your login session can write there; use a `~`-prefixed path to keep captures in your private home instead.",
-      "default": "share.claude_code.session",
+      "title": "Tree root",
+      "description": "Ltree root under which captures are nested as `<root>.<project>.agent_sessions` (the same layout `me ... import` uses, so live and imported sessions share a node per project). Defaults under `share` so your login session can write there; use a `~`-prefixed root to keep captures in your private home instead.",
+      "default": "share.projects",
       "required": true
     }
   }

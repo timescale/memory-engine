@@ -79,7 +79,7 @@ claude plugin marketplace add timescale/memory-engine
 claude plugin install memory-engine@memory-engine
 ```
 
-Then start Claude Code, run `/plugin`, select `memory-engine`, and configure `api_key`, `server`, and `tree_prefix`.
+Then start Claude Code, run `/plugin`, select `memory-engine`, and configure `space` (and optionally `api_key`, `server`, `tree_root`).
 
 After installation, your AI agent has access to memory tools -- create, search, get, update, delete, and more.
 
