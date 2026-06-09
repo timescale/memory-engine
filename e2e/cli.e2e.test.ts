@@ -19,7 +19,7 @@
 process.env.SPACE_SCHEMA_PREFIX = "metest_";
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { authStore } from "@memory.build/auth";
@@ -176,6 +176,37 @@ describe.skipIf(!OPENAI_KEY || !process.env.TEST_DATABASE_URL)(
       return { stdout, stderr, code };
     }
 
+    // Like `me`, but pipes `input` to the process's stdin (for `me claude hook`,
+    // which reads the event JSON from stdin).
+    async function meStdin(
+      args: string[],
+      input: string,
+      extraEnv?: Record<string, string>,
+    ): Promise<{ stdout: string; stderr: string; code: number }> {
+      const proc = Bun.spawn([process.execPath, CLI, ...args], {
+        env: cliEnv(extraEnv),
+        stdin: new TextEncoder().encode(input),
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+      const [stdout, stderr] = await Promise.all([
+        new Response(proc.stdout).text(),
+        new Response(proc.stderr).text(),
+      ]);
+      const code = await proc.exited;
+      return { stdout, stderr, code };
+    }
+
+    // Count memories under a tree in this run's space schema.
+    async function countUnder(treePrefix: string): Promise<number> {
+      const [row] = await sql.unsafe(
+        `select count(*)::int as n from metest_${spaceSlug}.memory
+         where tree <@ $1::ltree`,
+        [treePrefix],
+      );
+      return (row?.n as number) ?? 0;
+    }
+
     // Parse the --json stdout of a `me` invocation, asserting success.
     async function meJson<T = unknown>(
       args: string[],
@@ -320,6 +351,67 @@ describe.skipIf(!OPENAI_KEY || !process.env.TEST_DATABASE_URL)(
         { ME_API_KEY: key.key, ME_SESSION_TOKEN: "" },
       );
       expect(res.total).toBeGreaterThan(0);
+    });
+
+    test("9. claude capture hook ↔ `me claude import` are cross-idempotent", async () => {
+      // A minimal Claude Code session transcript on disk. The importer scans
+      // <source>/<project-dir>/*.jsonl; the hook reads the file directly.
+      const sessionId = `xact-${rand()}`;
+      const root = await mkdtemp(join(tmpdir(), "me-e2e-transcript-"));
+      const projDir = join(root, "proj");
+      await mkdir(projDir, { recursive: true });
+      const transcript = join(projDir, `${sessionId}.jsonl`);
+      // Two user turns so the importer doesn't skip it as a trivial session
+      // (the hook captures regardless; this makes both paths process all four).
+      const mkMsg = (i: number, type: "user" | "assistant", text: string) => ({
+        type,
+        uuid: `${sessionId}-${type}-${i}`,
+        timestamp: `2026-02-01T00:00:0${i}.000Z`,
+        sessionId,
+        cwd: "/work/idempotent-proj",
+        message:
+          type === "user"
+            ? { content: text }
+            : { content: [{ type: "text", text }], model: "claude-x" },
+      });
+      const lines = [
+        mkMsg(0, "user", "first question"),
+        mkMsg(1, "assistant", "first answer"),
+        mkMsg(2, "user", "second question"),
+        mkMsg(3, "assistant", "second answer"),
+      ];
+      await writeFile(
+        transcript,
+        lines.map((l) => JSON.stringify(l)).join("\n"),
+      );
+
+      // cwd "/work/idempotent-proj" → no git repo on disk → slug = basename.
+      const tree = "share.projects.idempotent_proj.agent_sessions";
+
+      // 1. Live capture via the real hook (reads transcript_path from stdin,
+      //    auths with the session, writes via importTranscriptFile).
+      const hook = await meStdin(
+        ["claude", "hook", "--event", "stop"],
+        JSON.stringify({ transcript_path: transcript, session_id: sessionId }),
+      );
+      expect(hook.code, hook.stderr).toBe(0);
+      expect(await countUnder(tree)).toBe(4);
+
+      // 2. `me claude import` over the SAME transcript → no new rows (same tree +
+      //    deterministic ids ⇒ the importer dedupes against the hook's writes).
+      const imp = await me(["claude", "import", "--source", root]);
+      expect(imp.code, imp.stderr).toBe(0);
+      expect(await countUnder(tree)).toBe(4);
+
+      // 3. Re-run the hook → still idempotent.
+      const hook2 = await meStdin(
+        ["claude", "hook", "--event", "stop"],
+        JSON.stringify({ transcript_path: transcript, session_id: sessionId }),
+      );
+      expect(hook2.code, hook2.stderr).toBe(0);
+      expect(await countUnder(tree)).toBe(4);
+
+      await rm(root, { recursive: true, force: true });
     });
 
     test("10. failure modes: bad space and missing auth exit non-zero", async () => {
