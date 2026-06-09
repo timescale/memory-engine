@@ -230,7 +230,10 @@ function createMemorySearchCommand(): Command {
     .option("--temporal-within <range>", "memory must be within (start,end)")
     .option("--weight-semantic <w>", "semantic weight (0-1)")
     .option("--weight-fulltext <w>", "fulltext weight (0-1)")
-    .option("--order-by <dir>", "sort direction (asc|desc)")
+    .option(
+      "--order-by <dir>",
+      "filter-only search: order by recency, desc (default, newest first) | asc",
+    )
     .action(async (query: string | undefined, opts, cmd) => {
       const globalOpts = cmd.optsWithGlobals();
       const creds = resolveCredentials(globalOpts.server);

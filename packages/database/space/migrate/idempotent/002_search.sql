@@ -16,6 +16,7 @@ create or replace function {{schema}}.search_memory
 , _temporal_after timestamptz default null
 , _regexp text default null
 , _limit bigint default 10
+, _order text default 'desc'  -- unranked (filter-only) result order by id: 'desc' (newest first) | 'asc'
 )
 returns table
 ( id uuid
@@ -79,7 +80,14 @@ begin
   else
     -- no ranking arm: constant score, typed float8 to match the return column
     _score = $sql$, (-1)::float8 as score$sql$;
-    _order_by = $sql$order by m.id$sql$;
+    -- Order by id — a uuidv7, so creation-time-ordered (and message-time-ordered
+    -- for the importer's deterministic ids), i.e. a chronological browse. Default
+    -- desc (newest first). `_order` is whitelisted to asc|desc to keep this
+    -- interpolation injection-safe.
+    _order_by = format
+    ( $sql$order by m.id %s$sql$
+    , case when lower(coalesce(_order, 'desc')) = 'asc' then 'asc' else 'desc' end
+    );
   end case;
 
   -- ltree

@@ -104,6 +104,38 @@ test("bm25 search ranks by full-text relevance", async () => {
   expect(results[0]?.content).toContain("fox");
 });
 
+test("unranked (filter-only) search orders by id, newest-first by default", async () => {
+  // Explicit, strictly-increasing uuidv7 ids under a dedicated subtree.
+  const ids = [
+    "01900000-0000-7000-8000-000000000001",
+    "01900000-0000-7000-8000-000000000002",
+    "01900000-0000-7000-8000-000000000003",
+  ];
+  for (const id of ids) {
+    await db.createMemory(FULL, { id, tree: "work.ord", content: `c-${id}` });
+  }
+
+  // Default → newest id first (desc); results[0] is the high-water entry.
+  const def = await db.search(FULL, { ltree: "work.ord", limit: 10 });
+  expect(def.map((r) => r.id)).toEqual([...ids].reverse());
+
+  // Explicit asc → oldest first.
+  const asc = await db.search(FULL, {
+    ltree: "work.ord",
+    order: "asc",
+    limit: 10,
+  });
+  expect(asc.map((r) => r.id)).toEqual(ids);
+
+  // Explicit desc matches the default.
+  const desc = await db.search(FULL, {
+    ltree: "work.ord",
+    order: "desc",
+    limit: 10,
+  });
+  expect(desc.map((r) => r.id)).toEqual([...ids].reverse());
+});
+
 test("vector search ranks by embedding similarity", async () => {
   const near = await db.createMemory(FULL, {
     tree: "work.v1",

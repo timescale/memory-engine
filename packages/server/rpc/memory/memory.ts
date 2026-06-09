@@ -4,8 +4,10 @@
  * Adapts the stable memory.* wire protocol onto the space data-plane store
  * (spaceStore). The wire is unchanged from the legacy engine RPC; the mapping
  * is handler-local. Lossy by design (see Phase 4C): `createdBy` is always null
- * (the space model has no per-memory creator), search `total` is the returned
- * row count, and `orderBy` is ignored (ranked search is score-desc only).
+ * (the space model has no per-memory creator) and search `total` is the returned
+ * row count. `orderBy` applies to unranked (filter-only) search — chronological
+ * by id, desc (default, newest first) or asc; ranked/hybrid search ignores it
+ * (score-desc).
  */
 import { SHARE_NAMESPACE } from "@memory.build/database";
 import { generateEmbedding } from "@memory.build/embedding";
@@ -373,7 +375,14 @@ async function memorySearch(
     );
   } else {
     items = await guard(() =>
-      store.search(treeAccess, { bm25, vec, maxVecDist, limit, ...filters }),
+      store.search(treeAccess, {
+        bm25,
+        vec,
+        maxVecDist,
+        limit,
+        order: params.orderBy ?? undefined,
+        ...filters,
+      }),
     );
   }
 

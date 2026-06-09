@@ -69,6 +69,12 @@ export interface SearchOptions extends MemoryFilters {
   /** Max cosine distance (only with `vec`). */
   maxVecDist?: number;
   limit?: number;
+  /**
+   * Result order for the **unranked** (filter-only) path: by id (chronological),
+   * `"desc"` (default, newest first) or `"asc"` (oldest first). Ignored when a
+   * `bm25`/`vec` query is present — those are ordered by relevance score.
+   */
+  order?: "asc" | "desc";
 }
 
 export interface HybridSearchOptions extends MemoryFilters {

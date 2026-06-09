@@ -214,7 +214,8 @@ export function spaceStore(sql: Sql, schema: string): SpaceStore {
           ${o.temporalBefore ?? null}::timestamptz,
           ${o.temporalAfter ?? null}::timestamptz,
           ${o.regexp ?? null},
-          ${o.limit ?? 10}
+          ${o.limit ?? 10},
+          ${o.order ?? "desc"}
         )`;
       return rows.map(mapSearchItem);
     },
