@@ -224,3 +224,27 @@ but unproven at runtime.
       typecheck errors, and add an end-to-end check that the `me serve` `/rpc`
       proxy reaches the memory endpoint. Decide whether `packages/web` should be
       in CI / the root typecheck.
+
+## Test coverage: every search mode + parameter actually takes effect
+
+`memory.search`'s `orderBy` was silently ignored for ~the whole pre-release — the
+param and the `me search --order-by` flag parsed fine but never reached the SQL
+(fixed in `e9a6eec`). Nothing caught it because the search tests only assert
+"ranked search returns a match," not "each parameter changes the result." Other
+params could be quietly broken the same way.
+
+- [ ] Add behavior tests (space-store integration level, where the SQL actually
+      runs) asserting each search **parameter changes the output**, not just that a
+      query returns rows. Cover the matrix:
+      - **modes**: bm25-only, vector-only, hybrid (RRF), unranked filter-only.
+      - **params**: `orderBy` asc/desc (incl. the default), `limit`,
+        `candidateLimit`, `semanticThreshold`/`maxVecDist`, `weights`
+        (fulltext/semantic), `tree` (ltree/lquery/ltxtquery), `meta` contains,
+        `grep`, temporal filters (within/overlaps/contains → before/after).
+        Each test should construct inputs where the param demonstrably
+        reorders/filters results (desc vs asc returns the reverse; a tighter
+        threshold drops a known row; etc.).
+- [ ] Add a thin handler/wire-level check (`call("memory.search", …)`) that the
+      protocol params map onto the store options — so the wire→handler→store
+      plumbing can't silently drop a field again (the exact gap that hid the
+      `orderBy` bug: the handler discarded the param before the store ever saw it).
