@@ -92,30 +92,38 @@ export function extractContent(
   return null;
 }
 
-/** Map an event name to the `type` metadata value. */
-export function metaTypeForEvent(eventName: HookEventName): string {
-  switch (eventName) {
-    case "user-prompt-submit":
-      return "user_prompt";
-    case "stop":
-      return "agent_response";
-  }
+/** Map an event name to the message role (`source_message_role`). */
+export function messageRoleForEvent(
+  eventName: HookEventName,
+): "user" | "assistant" {
+  return eventName === "user-prompt-submit" ? "user" : "assistant";
 }
 
-/** Build the metadata object for a captured memory. */
+/**
+ * Build the metadata for a captured memory. Uses the same `source_*` schema as
+ * the import tool (see buildMeta in packages/cli/importers/index.ts) so live
+ * captures and imported sessions co-located in a project node are uniformly
+ * queryable. `type` is the constant `agent_session`; the prompt/response
+ * distinction lives in `source_message_role`.
+ */
 export function buildMeta(
   event: HookEvent,
   eventName: HookEventName,
   project: string,
+  gitRepo?: string,
 ): Record<string, string> {
-  return {
-    type: metaTypeForEvent(eventName),
-    session_id: event.session_id,
-    project,
-    cwd: event.cwd,
-    source: "claude-code",
+  const meta: Record<string, string> = {
+    type: "agent_session",
+    source_tool: "claude-code",
+    source_session_id: event.session_id,
+    source_message_role: messageRoleForEvent(eventName),
+    source_project_slug: project,
+    source_cwd: event.cwd,
+    content_mode: "default",
     me_version: CLIENT_VERSION,
   };
+  if (gitRepo) meta.source_git_repo = gitRepo;
+  return meta;
 }
 
 // =============================================================================
@@ -224,8 +232,8 @@ export async function captureHookEvent(
     return { status: "skipped", reason: "empty content" };
   }
 
-  const project = await resolveProjectSlug(event.cwd);
-  const meta = buildMeta(event, eventName, project);
+  const { slug: project, gitRemote } = await resolveProjectSlug(event.cwd);
+  const meta = buildMeta(event, eventName, project, gitRemote);
   const now = (opts.now ?? (() => new Date()))();
 
   const client =

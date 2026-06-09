@@ -26,16 +26,18 @@ describe("repoNameFromRemote", () => {
 });
 
 describe("resolveProjectSlug", () => {
-  test("returns 'unknown' for an empty/missing cwd", async () => {
-    expect(await resolveProjectSlug(undefined)).toBe("unknown");
-    expect(await resolveProjectSlug("")).toBe("unknown");
+  test("returns 'unknown' (no remote) for an empty/missing cwd", async () => {
+    expect(await resolveProjectSlug(undefined)).toEqual({ slug: "unknown" });
+    expect(await resolveProjectSlug("")).toEqual({ slug: "unknown" });
   });
 
   test("falls back to a normalized cwd basename when not in a git repo", async () => {
     // /tmp/nonexistent-... isn't a git repo → no remote/root → basename.
-    expect(
-      await resolveProjectSlug("/tmp/nonexistent-path-xyz/memory-engine"),
-    ).toBe("memory_engine");
+    const { slug, gitRemote } = await resolveProjectSlug(
+      "/tmp/nonexistent-path-xyz/memory-engine",
+    );
+    expect(slug).toBe("memory_engine");
+    expect(gitRemote).toBeUndefined();
   });
 });
 

@@ -90,12 +90,15 @@ me memory search --tree "share.projects.*" --limit 5
 You should see your recent prompts (and, after the agent finishes, its response). What gets stored:
 
 - **Tree**: `<tree_root>.<project>.agent_sessions` (default root `share.projects`) — same layout as `me … import`, so live + imported sessions share a node per project
-- **Metadata**:
-  - `type`: `user_prompt` or `agent_response`
-  - `session_id`: Claude Code's session UUID
-  - `project`: derived from `git remote get-url origin` in the session cwd (falls back to cwd basename)
-  - `cwd`: working directory when the hook fired
-  - `source`: `"claude-code"`
+- **Metadata** (the same `source_*` schema `me … import` writes, so live + imported sessions are queryable together):
+  - `type`: `agent_session`
+  - `source_tool`: `"claude-code"`
+  - `source_session_id`: Claude Code's session UUID
+  - `source_message_role`: `user` or `assistant`
+  - `source_project_slug`: derived from the git `origin` remote (falls back to the cwd basename)
+  - `source_cwd`: working directory when the hook fired
+  - `source_git_repo`: the git remote URL (when the cwd is in a repo)
+  - `content_mode`: `default`
   - `me_version`: the `me` CLI version that created the memory
 - **Temporal**: ISO timestamp of hook invocation
 

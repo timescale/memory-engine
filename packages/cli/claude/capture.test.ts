@@ -9,7 +9,7 @@ import {
   extractContent,
   type HookConfig,
   type HookEvent,
-  metaTypeForEvent,
+  messageRoleForEvent,
   resolveHookConfigFromEnv,
 } from "./capture.ts";
 
@@ -80,16 +80,16 @@ describe("extractContent", () => {
 });
 
 // =============================================================================
-// metaTypeForEvent
+// messageRoleForEvent
 // =============================================================================
 
-describe("metaTypeForEvent", () => {
-  test("maps user-prompt-submit to user_prompt", () => {
-    expect(metaTypeForEvent("user-prompt-submit")).toBe("user_prompt");
+describe("messageRoleForEvent", () => {
+  test("maps user-prompt-submit to user", () => {
+    expect(messageRoleForEvent("user-prompt-submit")).toBe("user");
   });
 
-  test("maps stop to agent_response", () => {
-    expect(metaTypeForEvent("stop")).toBe("agent_response");
+  test("maps stop to assistant", () => {
+    expect(messageRoleForEvent("stop")).toBe("assistant");
   });
 });
 
@@ -97,30 +97,42 @@ describe("metaTypeForEvent", () => {
 // and is covered by slug.test.ts; the hook just consumes it.)
 
 // =============================================================================
-// buildMeta
+// buildMeta — aligned with the import tool's source_* schema
 // =============================================================================
 
 describe("buildMeta", () => {
-  test("builds metadata with required fields", () => {
+  test("builds the source_* metadata for a user prompt", () => {
     const event: HookEvent = { ...BASE_EVENT, prompt: "hi" };
     const meta = buildMeta(event, "user-prompt-submit", "myproject");
 
-    expect(meta.type).toBe("user_prompt");
-    expect(meta.session_id).toBe("sess-abc");
-    expect(meta.cwd).toBe("/tmp/myproj");
-    expect(meta.project).toBe("myproject");
-    expect(meta.source).toBe("claude-code");
-    expect(meta.me_version).toBeDefined();
+    expect(meta.type).toBe("agent_session");
+    expect(meta.source_tool).toBe("claude-code");
+    expect(meta.source_session_id).toBe("sess-abc");
+    expect(meta.source_message_role).toBe("user");
+    expect(meta.source_project_slug).toBe("myproject");
+    expect(meta.source_cwd).toBe("/tmp/myproj");
+    expect(meta.content_mode).toBe("default");
     expect(typeof meta.me_version).toBe("string");
+    // No git remote passed → no source_git_repo.
+    expect(meta.source_git_repo).toBeUndefined();
   });
 
-  test("uses agent_response type for stop event", () => {
-    const event: HookEvent = {
-      ...BASE_EVENT,
-      last_assistant_message: "done",
-    };
+  test("uses the assistant role for a stop event", () => {
+    const event: HookEvent = { ...BASE_EVENT, last_assistant_message: "done" };
     const meta = buildMeta(event, "stop", "proj");
-    expect(meta.type).toBe("agent_response");
+    expect(meta.type).toBe("agent_session");
+    expect(meta.source_message_role).toBe("assistant");
+  });
+
+  test("includes source_git_repo when a remote is provided", () => {
+    const event: HookEvent = { ...BASE_EVENT, prompt: "hi" };
+    const meta = buildMeta(
+      event,
+      "user-prompt-submit",
+      "proj",
+      "git@github.com:org/repo.git",
+    );
+    expect(meta.source_git_repo).toBe("git@github.com:org/repo.git");
   });
 });
 
@@ -176,13 +188,16 @@ describe("captureHookEvent", () => {
     expect(call.temporal).toEqual({ start: "2026-04-23T10:00:00.000Z" });
     const meta = call.meta as Record<string, string>;
     // Nested as <treeRoot>.<project>.agent_sessions (project derived from cwd).
-    expect(call.tree).toBe(`share.projects.${meta.project}.agent_sessions`);
-    expect(meta.type).toBe("user_prompt");
-    expect(meta.session_id).toBe("sess-abc");
-    expect(meta.source).toBe("claude-code");
+    expect(call.tree).toBe(
+      `share.projects.${meta.source_project_slug}.agent_sessions`,
+    );
+    expect(meta.type).toBe("agent_session");
+    expect(meta.source_message_role).toBe("user");
+    expect(meta.source_session_id).toBe("sess-abc");
+    expect(meta.source_tool).toBe("claude-code");
   });
 
-  test("captures stop event with agent_response type", async () => {
+  test("captures stop event with the assistant role", async () => {
     const { client, calls } = mockClient();
     const event: HookEvent = {
       ...BASE_EVENT,
@@ -196,7 +211,8 @@ describe("captureHookEvent", () => {
     const [call] = calls as [Record<string, unknown>];
     expect(call.content).toBe("goodbye");
     const meta = call.meta as Record<string, string>;
-    expect(meta.type).toBe("agent_response");
+    expect(meta.type).toBe("agent_session");
+    expect(meta.source_message_role).toBe("assistant");
   });
 
   test("nests under a custom treeRoot from config", async () => {
@@ -211,7 +227,7 @@ describe("captureHookEvent", () => {
 
     const [call] = calls as [Record<string, unknown>];
     const meta = call.meta as Record<string, string>;
-    expect(call.tree).toBe(`~.work.${meta.project}.agent_sessions`);
+    expect(call.tree).toBe(`~.work.${meta.source_project_slug}.agent_sessions`);
   });
 });
 

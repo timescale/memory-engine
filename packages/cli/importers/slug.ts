@@ -153,15 +153,17 @@ async function deriveBaseSlug(
 }
 
 /**
- * Single-shot project slug for one cwd (no cross-run collision registry) —
+ * Single-shot project context for one cwd (no cross-run collision registry) —
  * used by the Claude Code capture hook so live captures nest under the same
- * project label the import tool uses. Returns the `unknown` slug for an
- * empty/missing cwd.
+ * project label the import tool uses, and can record the git remote. Returns the
+ * `unknown` slug (and no remote) for an empty/missing cwd.
  */
-export async function resolveProjectSlug(cwd?: string): Promise<string> {
-  if (!cwd || cwd.trim().length === 0) return UNKNOWN_SLUG;
-  const { baseSlug } = await deriveBaseSlug(cwd);
-  return baseSlug;
+export async function resolveProjectSlug(
+  cwd?: string,
+): Promise<{ slug: string; gitRemote?: string }> {
+  if (!cwd || cwd.trim().length === 0) return { slug: UNKNOWN_SLUG };
+  const { baseSlug, gitRemote } = await deriveBaseSlug(cwd);
+  return { slug: baseSlug, gitRemote };
 }
 
 /**
