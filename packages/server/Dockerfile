@@ -9,9 +9,10 @@ EXPOSE 3000
 # workspace declared in bun.lock is missing from the build context, so any
 # new workspace added under packages/* must be copied here too.
 COPY package.json bun.lock ./
-COPY packages/accounts/package.json packages/accounts/
+COPY packages/auth/package.json packages/auth/
 COPY packages/cli/package.json packages/cli/
 COPY packages/client/package.json packages/client/
+COPY packages/database/package.json packages/database/
 COPY packages/docs-site/package.json packages/docs-site/
 COPY packages/embedding/package.json packages/embedding/
 COPY packages/engine/package.json packages/engine/
@@ -20,6 +21,7 @@ COPY packages/server/package.json packages/server/
 COPY packages/web/package.json packages/web/
 COPY packages/worker/package.json packages/worker/
 COPY scripts/package.json scripts/
+COPY e2e/package.json e2e/
 
 # --filter limits installation to the server and its transitive workspace deps,
 # avoiding pulling in docs-site's heavy runtime deps (next/react/tailwind/...).
@@ -32,8 +34,8 @@ COPY version.ts ./
 
 # Copy server source + all workspace dependencies
 COPY packages/server/ packages/server/
-COPY packages/accounts/ packages/accounts/
-COPY packages/client/ packages/client/
+COPY packages/auth/ packages/auth/
+COPY packages/database/ packages/database/
 COPY packages/engine/ packages/engine/
 COPY packages/embedding/ packages/embedding/
 COPY packages/protocol/ packages/protocol/
