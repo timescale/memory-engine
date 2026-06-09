@@ -245,3 +245,55 @@ cheap interim guard: a test asserting every `core.principal` `kind='u'` has a
 matching `auth.users` and vice versa.
 
 **Status:** decided (defer); revisit with user-deletion / standalone users.
+
+---
+
+## Claude Code plugin captures via the import path (Stop/SessionEnd transcript), not per-event
+
+**Date:** 2026-06-09 · **Area:** claude-plugin / capture hook (`dd28e26`)
+
+The plugin previously registered **`UserPromptSubmit`** (store your prompt) and
+**`Stop`** (store the assistant's *final* message via `last_assistant_message`),
+producing two memories per turn with a **bespoke metadata schema**. It now
+registers **`Stop`** (after each turn) and **`SessionEnd`** (final flush), and
+each fire reads `transcript_path` and runs the session through
+`importTranscriptFile` — the *same* parse + write as `me … import`. So live
+captures and bulk imports are **identical by construction**: same tree
+(`share.projects.<project>.agent_sessions`), deterministic ids, and `source_*`
+metadata, one memory per message.
+
+**Why:** the two capture paths had drifted (different metadata vocab — even a
+conflicting `type` value — and the hook only caught the prompt + final message,
+missing intermediate messages / tool calls / reasoning). Reusing the importer
+gives parity, completeness, idempotency (deterministic message ids), and one
+code path. Incremental + stateless: each fire does one `limit 1` newest-first
+search for the session's high-water message (relies on the `orderBy`-desc default
+fixed in `e9a6eec`) and writes only the delta; it falls back to the full
+reconcile for a new session / `importer_version` bump / lost anchor / write error.
+
+**Maintainer decisions baked in:**
+
+- **Lost prompt-on-submit durability.** Dropping `UserPromptSubmit` means a turn
+  that never reaches `Stop`/`SessionEnd` (interrupt-and-quit, kill, API error)
+  isn't captured. Narrow: `Stop` fires per turn and re-imports the
+  session-so-far, so only the *last in-flight* turn is at risk. Keeping a
+  lightweight `UserPromptSubmit` safety-net was rejected — it reintroduces dual
+  paths and double-captures the prompt (the live copy has no message id to dedupe
+  against the transcript copy).
+- **`SessionEnd` in addition to `Stop`** (vs `Stop`-only): a cheap final flush;
+  no local state to clean up since the watermark is server-derived.
+- **`content_mode` default `"default"`** (user + assistant text). `full_transcript`
+  (reasoning + tool calls/results) is an opt-in plugin userConfig — off by default
+  because it's much larger/noisier and may capture sensitive tool output.
+
+**How to change it:** the hook command is `me claude hook --event stop|session-end`
+([packages/cli/commands/claude.ts]) → `importTranscriptFile`
+([packages/cli/importers/index.ts]); registered events live in
+[packages/claude-plugin/hooks/hooks.json]. To restore prompt-on-submit capture,
+re-add a `UserPromptSubmit` hook (and a dedupe story). To make `full_transcript`
+the default, flip the `content_mode` userConfig default in
+[packages/claude-plugin/.claude-plugin/plugin.json] (and the hook's
+`resolveHookConfigFromEnv`).
+
+**Status:** decided (per request); document the capture model when the docs are
+refreshed.
