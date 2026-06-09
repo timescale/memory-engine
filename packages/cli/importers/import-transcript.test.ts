@@ -11,9 +11,14 @@ import type { MemoryClient } from "../client.ts";
 import {
   type Importer,
   importTranscriptFile,
+  runImport,
   type WriteOptions,
 } from "./index.ts";
-import type { ConversationMessage, ImportedSession } from "./types.ts";
+import type {
+  ConversationMessage,
+  ImportedSession,
+  ImporterOptions,
+} from "./types.ts";
 
 const WRITE: WriteOptions = {
   treeRoot: "share.projects",
@@ -63,6 +68,18 @@ function importerFor(session: ImportedSession | null): Importer {
     defaultSource: "",
     // biome-ignore lint/correctness/useYield: empty stub generator
     discoverSessions: async function* () {},
+    parseFile: async () => session,
+  };
+}
+
+/** An importer whose discoverSessions yields one fixed session (the `me import` path). */
+function discoverImporter(session: ImportedSession): Importer {
+  return {
+    tool: "claude",
+    defaultSource: "",
+    discoverSessions: async function* () {
+      yield session;
+    },
     parseFile: async () => session,
   };
 }
@@ -139,5 +156,50 @@ describe("importTranscriptFile", () => {
     );
     expect(out?.inserted).toBe(1); // just "d"
     expect(store.size).toBe(4);
+  });
+
+  // The hook (importTranscriptFile) and `me import` (runImport) must be
+  // idempotent w.r.t. each other: both derive the same tree + deterministic ids
+  // from the same parse, so importing a session via one path and then the other
+  // inserts nothing the second time. Guards the shared-derivation assumption.
+  test("hook capture then `me import` over the same session is a no-op", async () => {
+    const { client, store } = mockEngine();
+    const s = session(["a", "b", "c"]);
+
+    await importTranscriptFile(client, importerFor(s), "/x.jsonl", WRITE);
+    expect(store.size).toBe(3);
+
+    const res = await runImport(
+      client,
+      discoverImporter(s),
+      {} as ImporterOptions,
+      WRITE,
+    );
+    expect(res.inserted).toBe(0);
+    expect(res.skipped).toBe(3);
+    expect(store.size).toBe(3);
+  });
+
+  test("`me import` then hook capture over the same session is a no-op", async () => {
+    const { client, store } = mockEngine();
+    const s = session(["a", "b", "c"]);
+
+    const res = await runImport(
+      client,
+      discoverImporter(s),
+      {} as ImporterOptions,
+      WRITE,
+    );
+    expect(res.inserted).toBe(3);
+    expect(store.size).toBe(3);
+
+    const out = await importTranscriptFile(
+      client,
+      importerFor(s),
+      "/x.jsonl",
+      WRITE,
+    );
+    expect(out?.inserted).toBe(0);
+    expect(store.size).toBe(3);
   });
 });
