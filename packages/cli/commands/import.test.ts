@@ -20,4 +20,19 @@ describe("buildOptions", () => {
       "Invalid --sessions-node-name: 'agent-sessions'. Must match [a-z0-9_]+",
     );
   });
+
+  test("accepts a ~ (home) tree root and other lenient forms", () => {
+    expect(buildOptions({ treeRoot: "~" }).write.treeRoot).toBe("~");
+    expect(buildOptions({ treeRoot: "~.work" }).write.treeRoot).toBe("~.work");
+    expect(buildOptions({ treeRoot: "~/work" }).write.treeRoot).toBe("~/work");
+    expect(buildOptions({ treeRoot: "share.projects" }).write.treeRoot).toBe(
+      "share.projects",
+    );
+  });
+
+  test("rejects a tree root with illegal characters", () => {
+    expect(() => buildOptions({ treeRoot: "bad space" })).toThrow(
+      "Invalid --tree-root",
+    );
+  });
 });

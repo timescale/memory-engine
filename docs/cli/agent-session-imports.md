@@ -18,7 +18,7 @@ All three subcommands accept the same flags (with one extra flag on `me claude i
 | `--project <cwd>` | Only import sessions whose cwd equals or is below this path. |
 | `--since <iso>` | Only import sessions started at or after this ISO 8601 timestamp. |
 | `--until <iso>` | Only import sessions started at or before this ISO 8601 timestamp. |
-| `--tree-root <path>` | Tree root under which `<slug>.<sessions-node-name>` nodes are placed. Default: `share.projects`. Must match `[a-z0-9_]+(\.[a-z0-9_]+)*`. |
+| `--tree-root <path>` | Tree root under which `<slug>.<sessions-node-name>` nodes are placed. Default: `share.projects`. Accepts ltree labels (`[A-Za-z0-9_-]`) separated by `.` or `/`, with an optional leading `~` for your home (e.g. `~.projects`). |
 | `--sessions-node-name <name>` | Per-project node name for imported agent sessions. Default: `agent_sessions`. Must match `[a-z0-9_]+`. |
 | `--full-transcript` | Also store reasoning, tool calls, and tool results as their own message memories (default: user + assistant text only). |
 | `--include-temp-cwd` | Include sessions whose cwd is a system temp directory (`/tmp`, `/private/var/folders/...`). Off by default. |

@@ -46,7 +46,11 @@ import {
 // --tree-root for a different destination you have write access to.
 const DEFAULT_TREE_ROOT = "share.projects";
 const DEFAULT_SESSIONS_NODE_NAME = "agent_sessions";
-const VALID_TREE_ROOT_RE = /^[a-z0-9_]+(\.[a-z0-9_]+)*$/;
+// Lenient user-facing tree-path input (matches the protocol's treePathSchema):
+// labels [A-Za-z0-9_-], `.` or `/` separators, optional leading `~` (home). The
+// server normalizes + authoritatively validates; this is a fast pre-check so a
+// `--tree-root ~/work` or `~` lands in the caller's home instead of being rejected.
+const VALID_TREE_ROOT_RE = /^[A-Za-z0-9_~./-]+$/;
 const VALID_TREE_LABEL_RE = /^[a-z0-9_]+$/;
 
 /** Build a Commander option set shared by every subcommand. */
@@ -118,7 +122,7 @@ export function buildOptions(opts: Record<string, unknown>): {
       : DEFAULT_SESSIONS_NODE_NAME;
   if (!VALID_TREE_ROOT_RE.test(treeRoot)) {
     throw new Error(
-      `Invalid --tree-root: '${treeRoot}'. Must match [a-z0-9_]+(\\.[a-z0-9_]+)*`,
+      `Invalid --tree-root: '${treeRoot}'. Use ltree labels ([A-Za-z0-9_-]) separated by '.' or '/', with an optional leading '~' for your home.`,
     );
   }
   if (!VALID_TREE_LABEL_RE.test(sessionsNodeName)) {
