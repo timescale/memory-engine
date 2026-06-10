@@ -550,11 +550,59 @@ interface InitStep {
   skipDescription: string;
   /** Multiselect row label. */
   label: string;
+  /**
+   * Optional availability gate: a step that resolves false is omitted
+   * entirely — no multiselect row and not part of the non-interactive
+   * baseline. Absent means always available.
+   */
+  available?: () => Promise<boolean>;
   /** Perform the step. */
   run: (ctx: InitStepContext) => Promise<void>;
 }
 
+/**
+ * Parse `claude plugin list --json` output and report whether the Memory
+ * Engine plugin is installed. Exported for tests. Unparseable output counts
+ * as not-installed — the wrong guess costs an idempotent re-install offer,
+ * never a missed install.
+ */
+export function pluginListShowsInstalled(stdout: string): boolean {
+  try {
+    const plugins = JSON.parse(stdout);
+    if (!Array.isArray(plugins)) return false;
+    return plugins.some((p) => (p as { id?: unknown }).id === PLUGIN_REF);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Availability of the plugin-install init step: offered only when the
+ * `claude` binary exists and the plugin is not already installed.
+ */
+async function pluginInstallAvailable(): Promise<boolean> {
+  if (Bun.which("claude") === null) return false;
+  const { exitCode, stdout } = await runCommand([
+    "claude",
+    "plugin",
+    "list",
+    "--json",
+  ]);
+  if (exitCode !== 0) return true; // can't tell → offer the install
+  return !pluginListShowsInstalled(stdout);
+}
+
 const INIT_STEPS: InitStep[] = [
+  {
+    id: "plugin-install",
+    optionKey: "skipPluginInstall",
+    skipFlag: "--skip-plugin-install",
+    skipDescription: "do not install the Claude Code plugin",
+    label: "Install the Claude Code plugin (hooks + slash commands + MCP)",
+    // Hidden when Claude Code is absent or the plugin is already installed.
+    available: pluginInstallAvailable,
+    run: ({ server }) => runClaudePluginInstall({ server, scope: "user" }),
+  },
   {
     id: "transcript-import",
     optionKey: "skipTranscriptImport",
@@ -609,9 +657,6 @@ function createClaudeInitCommand(): Command {
       typeof globalOpts.server === "string" ? globalOpts.server : undefined;
     const fmt = getOutputFormat(globalOpts);
 
-    // Baseline = every step not explicitly turned off via its --skip-* flag.
-    const baseline = INIT_STEPS.filter((s) => opts[s.optionKey] !== true);
-
     // Interactive (a TTY with text output): present a multiselect pre-checked
     // with the baseline so the user can deselect steps. Otherwise run the
     // baseline as-is.
@@ -620,11 +665,25 @@ function createClaudeInitCommand(): Command {
       Boolean(process.stdin.isTTY) &&
       Boolean(process.stdout.isTTY);
 
+    // Steps available in this environment (e.g. plugin-install hides itself
+    // when Claude Code is absent or the plugin is already installed). The
+    // probe is skipped for steps already opted out non-interactively, so a
+    // `--skip-<step>` run never pays for that step's availability check.
+    const candidates: InitStep[] = [];
+    for (const step of INIT_STEPS) {
+      if (!interactive && opts[step.optionKey] === true) continue;
+      if (step.available && !(await step.available())) continue;
+      candidates.push(step);
+    }
+
+    // Baseline = every available step not turned off via its --skip-* flag.
+    const baseline = candidates.filter((s) => opts[s.optionKey] !== true);
+
     let selectedIds: string[];
     if (interactive) {
       const picked = await clack.multiselect<string>({
         message: `Setup steps to run ${DIM}(all selected by default — ↑/↓ move, space to toggle off/on, enter to confirm)${DIM_OFF}`,
-        options: INIT_STEPS.map((s) => ({
+        options: candidates.map((s) => ({
           value: s.id,
           label: s.label,
         })),
@@ -640,7 +699,7 @@ function createClaudeInitCommand(): Command {
       selectedIds = baseline.map((s) => s.id);
     }
 
-    const selected = INIT_STEPS.filter((s) => selectedIds.includes(s.id));
+    const selected = candidates.filter((s) => selectedIds.includes(s.id));
     if (selected.length === 0) {
       clack.log.info("No setup steps selected — nothing to do.");
       return;

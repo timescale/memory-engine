@@ -38,6 +38,7 @@ import {
 } from "@memory.build/database";
 import type { EmbeddingConfig } from "@memory.build/embedding";
 import type { Sql } from "postgres";
+import { encodeProjectDir } from "../packages/cli/importers/claude.ts";
 import {
   connect,
   resolveTestDatabaseUrl,
@@ -468,9 +469,6 @@ describe.skipIf(!OPENAI_KEY || !process.env.TEST_DATABASE_URL)(
       //   2. record the project's memory location in the project's CLAUDE.md
       //      (the project = init's cwd; not a git repo here → CLAUDE.md lands in
       //      that dir, slug = its basename).
-      const transcriptDir = join(tmpHome, ".claude", "projects", "init-proj");
-      await mkdir(transcriptDir, { recursive: true });
-
       // The project we run `init` in — a non-git temp dir with a known basename
       // so the derived slug is predictable. CLAUDE.md will be written here, and
       // the transcript's session records this dir as its cwd, so the session
@@ -478,6 +476,10 @@ describe.skipIf(!OPENAI_KEY || !process.env.TEST_DATABASE_URL)(
       const projectRoot = await mkdtemp(join(tmpdir(), "me-e2e-initcwd-"));
       const projectDir = join(projectRoot, "initcwd");
       await mkdir(projectDir, { recursive: true });
+      // The recorded session cwd must be the REAL path (as Claude Code would
+      // record it): macOS tmpdir is a symlink (/var/folders → /private/var),
+      // and init filters against the resolved process.cwd().
+      const projectCwd = await realpath(projectDir);
 
       const sessionId = `init-${rand()}`;
       const foreignId = `foreign-${rand()}`;
@@ -499,9 +501,18 @@ describe.skipIf(!OPENAI_KEY || !process.env.TEST_DATABASE_URL)(
             ? { content: text }
             : { content: [{ type: "text", text }], model: "claude-x" },
       });
-      const writeTranscript = (sid: string, cwd: string, prefix: string) =>
-        writeFile(
-          join(transcriptDir, `${sid}.jsonl`),
+      // Mirror Claude Code's on-disk layout: each transcript lives in a
+      // directory named after the session cwd (encoded) — the scoped import
+      // prunes by that name, so a literal fixture dir would never be scanned.
+      const writeTranscript = async (
+        sid: string,
+        cwd: string,
+        prefix: string,
+      ) => {
+        const dir = join(tmpHome, ".claude", "projects", encodeProjectDir(cwd));
+        await mkdir(dir, { recursive: true });
+        await writeFile(
+          join(dir, `${sid}.jsonl`),
           [
             mkMsg(sid, cwd, 0, "user", `${prefix} first question`),
             mkMsg(sid, cwd, 1, "assistant", `${prefix} first answer`),
@@ -511,10 +522,8 @@ describe.skipIf(!OPENAI_KEY || !process.env.TEST_DATABASE_URL)(
             .map((l) => JSON.stringify(l))
             .join("\n"),
         );
-      // The recorded session cwd must be the REAL path (as Claude Code would
-      // record it): macOS tmpdir is a symlink (/var/folders → /private/var),
-      // and init filters against the resolved process.cwd().
-      await writeTranscript(sessionId, await realpath(projectDir), "init");
+      };
+      await writeTranscript(sessionId, projectCwd, "init");
       // A session from a DIFFERENT project must not be swept up by init.
       await writeTranscript(foreignId, "/work/other-proj", "foreign");
 
@@ -522,7 +531,11 @@ describe.skipIf(!OPENAI_KEY || !process.env.TEST_DATABASE_URL)(
       expect(await countBySession(sessionId)).toBe(0);
 
       // Run `init` FROM the project dir so its cwd → slug → CLAUDE.md location.
-      const init = await me(["claude", "init"], undefined, projectDir);
+      const init = await me(
+        ["claude", "init", "--skip-plugin-install"],
+        undefined,
+        projectDir,
+      );
       expect(init.code, init.stderr).toBe(0);
 
       // Step 1: this project's session was backfilled; the foreign one wasn't.
@@ -538,12 +551,21 @@ describe.skipIf(!OPENAI_KEY || !process.env.TEST_DATABASE_URL)(
       expect(claudeMd).toContain("share.projects.initcwd.git_history");
 
       // Re-running is idempotent: still exactly one managed block.
-      const init2 = await me(["claude", "init"], undefined, projectDir);
+      const init2 = await me(
+        ["claude", "init", "--skip-plugin-install"],
+        undefined,
+        projectDir,
+      );
       expect(init2.code, init2.stderr).toBe(0);
       const claudeMd2 = await readFile(join(projectDir, "CLAUDE.md"), "utf8");
       expect(claudeMd2.split("memory-engine:start").length - 1).toBe(1);
 
-      await rm(transcriptDir, { recursive: true, force: true });
+      for (const cwd of [projectCwd, "/work/other-proj"]) {
+        await rm(join(tmpHome, ".claude", "projects", encodeProjectDir(cwd)), {
+          recursive: true,
+          force: true,
+        });
+      }
       await rm(projectRoot, { recursive: true, force: true });
     });
 
@@ -551,10 +573,9 @@ describe.skipIf(!OPENAI_KEY || !process.env.TEST_DATABASE_URL)(
       // Non-interactive (piped) init runs every step except those turned off by
       // a --skip-<step> flag. Verify each flag suppresses exactly its step.
       // Each case gets its own project dir + a transcript recorded IN that dir
-      // (init's import is scoped to the project it runs in).
-      const transcriptDir = join(tmpHome, ".claude", "projects", "skip-proj");
-      await mkdir(transcriptDir, { recursive: true });
-
+      // (init's import is scoped to the project it runs in), stored under the
+      // Claude Code encoded-cwd directory layout the scoped import prunes by.
+      const transcriptDirs: string[] = [];
       const mkProject = async (name: string) => {
         const root = await mkdtemp(join(tmpdir(), "me-e2e-skip-"));
         const dir = join(root, name);
@@ -576,8 +597,11 @@ describe.skipIf(!OPENAI_KEY || !process.env.TEST_DATABASE_URL)(
                   model: "claude-x",
                 },
         });
+        const dir = join(tmpHome, ".claude", "projects", encodeProjectDir(cwd));
+        transcriptDirs.push(dir);
+        await mkdir(dir, { recursive: true });
         await writeFile(
-          join(transcriptDir, `${sid}.jsonl`),
+          join(dir, `${sid}.jsonl`),
           [
             mkMsg(0, "user"),
             mkMsg(1, "assistant"),
@@ -595,7 +619,7 @@ describe.skipIf(!OPENAI_KEY || !process.env.TEST_DATABASE_URL)(
       const sessionA = `skipa-${rand()}`;
       await writeTranscript(sessionA, await realpath(a.dir));
       const r1 = await me(
-        ["claude", "init", "--skip-transcript-import"],
+        ["claude", "init", "--skip-transcript-import", "--skip-plugin-install"],
         undefined,
         a.dir,
       );
@@ -608,7 +632,7 @@ describe.skipIf(!OPENAI_KEY || !process.env.TEST_DATABASE_URL)(
       const sessionB = `skipb-${rand()}`;
       await writeTranscript(sessionB, await realpath(b.dir));
       const r2 = await me(
-        ["claude", "init", "--skip-claude-md"],
+        ["claude", "init", "--skip-claude-md", "--skip-plugin-install"],
         undefined,
         b.dir,
       );
@@ -616,7 +640,9 @@ describe.skipIf(!OPENAI_KEY || !process.env.TEST_DATABASE_URL)(
       expect(await countBySession(sessionB)).toBe(4);
       expect(existsSync(join(b.dir, "CLAUDE.md"))).toBe(false);
 
-      await rm(transcriptDir, { recursive: true, force: true });
+      for (const dir of transcriptDirs) {
+        await rm(dir, { recursive: true, force: true });
+      }
       await rm(a.root, { recursive: true, force: true });
       await rm(b.root, { recursive: true, force: true });
     });
@@ -771,7 +797,7 @@ describe.skipIf(!OPENAI_KEY || !process.env.TEST_DATABASE_URL)(
 
       // --skip-git-import: no commit memories.
       const skipped = await me(
-        ["claude", "init", "--skip-git-import"],
+        ["claude", "init", "--skip-git-import", "--skip-plugin-install"],
         undefined,
         repo,
       );
@@ -780,7 +806,11 @@ describe.skipIf(!OPENAI_KEY || !process.env.TEST_DATABASE_URL)(
 
       // Plain init (non-interactive baseline) imports the repo's history and
       // the CLAUDE.md pointer names the git_history node.
-      const init = await me(["claude", "init"], undefined, repo);
+      const init = await me(
+        ["claude", "init", "--skip-plugin-install"],
+        undefined,
+        repo,
+      );
       expect(init.code, init.stderr).toBe(0);
       expect(await countUnder(tree)).toBe(1);
       const claudeMd = await readFile(join(repo, "CLAUDE.md"), "utf8");
