@@ -46,13 +46,11 @@ Project slugs come from the git repo root directory name when the cwd is inside 
 
 ## Idempotency
 
-Each imported message gets a deterministic UUIDv7 derived from `(tool, session_id, message_id, timestamp)`. On re-import:
+Each imported message gets a deterministic UUIDv7 derived from `(tool, session_id, message_id, timestamp)`. Re-imports reconcile **server-side**: every planned message is submitted through the engine's conditional upsert, which inserts new ids, rewrites in place any row whose stored `meta.importer_version` differs from the current importer's (so a version bump re-renders previously-imported messages in the same batched pass), and skips rows that are already current. There is no per-session lookup and no session-size limit — a session with tens of thousands of imported messages reconciles exactly like a small one.
 
-1. The importer looks up each message by that id.
-2. If the memory already exists and `meta.importer_version` matches, it is skipped.
-3. Otherwise the memory is (re)written.
+Source files are append-only for all three tools, so re-importing an in-progress session simply inserts its newly-appended messages on the next run. The live-capture hook additionally narrows each submission to the messages after the newest already-imported one (a single `limit 1` search) — purely a bandwidth optimization; correctness never depends on it.
 
-Source files are append-only for all three tools, so re-importing an in-progress session simply inserts its newly-appended messages on the next run.
+`--dry-run` reports every parsed message as a would-be insert: without submitting, there is no server classification into inserted/updated/skipped.
 
 ## Content shape
 

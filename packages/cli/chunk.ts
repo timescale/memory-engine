@@ -115,14 +115,28 @@ export interface BatchCreateClient {
   memory: {
     batchCreate: (params: {
       memories: MemoryCreateParams[];
-    }) => Promise<{ ids: string[] }>;
+      replaceIfMetaDiffers?: string;
+    }) => Promise<{ ids: string[]; updatedIds: string[] }>;
   };
+}
+
+/** Options applied to every chunk of a `batchCreateChunked` run. */
+export interface BatchCreateChunkedOptions {
+  /**
+   * Meta key for the server's conditional replace: a memory whose explicit
+   * id already exists is rewritten in place when the stored row's value for
+   * this key differs (importers pass "importer_version" so version bumps
+   * re-render existing rows), else skipped. Unset: duplicates are skipped.
+   */
+  replaceIfMetaDiffers?: string;
 }
 
 /** Result of a chunked `batchCreate` run. */
 export interface BatchCreateChunkedResult {
   /** Ids the server confirmed inserted (across all successful chunks). */
   insertedIds: string[];
+  /** Existing rows rewritten in place via `replaceIfMetaDiffers`. */
+  updatedIds: string[];
   /**
    * Explicit ids submitted in chunks that errored, flattened across all
    * failed chunks for callers that just need a set of "ids to exclude
@@ -151,26 +165,36 @@ export interface BatchCreateChunkedResult {
  *
  * Chunks are sent sequentially. A failed chunk is recorded once in
  * `errors` and its explicit ids are added to `failedIds`; it does not
- * abort siblings. Successful chunks contribute to `insertedIds`.
+ * abort siblings. Successful chunks contribute to `insertedIds` and
+ * `updatedIds`.
  *
- * Note: the returned `insertedIds` may be shorter than the number of
- * inputs in successful chunks because the server uses
- * `ON CONFLICT (id) DO NOTHING`. Use `computeSkippedIds` (or, for packs,
- * `classifySkips` with `failedIds`) to classify the missing ids.
+ * A submitted explicit id in neither array (and not in a failed chunk) was
+ * skipped server-side — it already exists, at a matching meta-key value
+ * when `replaceIfMetaDiffers` is set. Use `computeSkippedIds` (or, for
+ * packs, `classifySkips` with `failedIds`) to classify the missing ids.
  */
 export async function batchCreateChunked(
   client: BatchCreateClient,
   memories: MemoryCreateParams[],
+  options: BatchCreateChunkedOptions = {},
 ): Promise<BatchCreateChunkedResult> {
   const insertedIds: string[] = [];
+  const updatedIds: string[] = [];
   const failedIds: string[] = [];
   const errors: BatchCreateChunkedResult["errors"] = [];
   let chunkIndex = 0;
 
   for (const chunk of chunkMemoriesForBatchCreate(memories)) {
     try {
-      const { ids } = await client.memory.batchCreate({ memories: chunk });
-      insertedIds.push(...ids);
+      const res = await client.memory.batchCreate({
+        memories: chunk,
+        ...(options.replaceIfMetaDiffers !== undefined
+          ? { replaceIfMetaDiffers: options.replaceIfMetaDiffers }
+          : {}),
+      });
+      insertedIds.push(...res.ids);
+      // A pre-upsert server doesn't return updatedIds; treat as none updated.
+      updatedIds.push(...(res.updatedIds ?? []));
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);
       const ids = chunk
@@ -187,5 +211,5 @@ export async function batchCreateChunked(
     chunkIndex++;
   }
 
-  return { insertedIds, failedIds, errors };
+  return { insertedIds, updatedIds, failedIds, errors };
 }

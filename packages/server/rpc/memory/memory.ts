@@ -177,7 +177,7 @@ async function memoryCreate(
   const ctx = context as SpaceRpcContext;
   const { store, treeAccess } = ctx;
 
-  const id = await guard(() =>
+  const created = await guard(() =>
     store.createMemory(treeAccess, {
       id: params.id ?? undefined,
       content: params.content,
@@ -186,12 +186,12 @@ async function memoryCreate(
       temporal: formatTemporal(params.temporal),
     }),
   );
-  if (id === null) {
-    // The store skips an explicit id that already exists (on conflict do
-    // nothing). For a single create that's a caller error, not a skip.
+  if (created === null) {
+    // The store skips an explicit id that already exists (no replace key is
+    // passed here). For a single create that's a caller error, not a skip.
     throw new AppError("CONFLICT", `Memory already exists: ${params.id}`);
   }
-  const memory = await store.getMemory(treeAccess, id);
+  const memory = await store.getMemory(treeAccess, created.id);
   if (!memory) {
     throw new AppError("INTERNAL_ERROR", "Created memory could not be read");
   }
@@ -201,10 +201,11 @@ async function memoryCreate(
 /**
  * memory.batchCreate — atomic across the batch.
  *
- * Returns the inserted ids only: a memory whose explicit id already exists
- * is silently skipped (`on conflict do nothing` in create_memory), so
- * deterministic-id importers can re-submit and classify the missing ids as
- * already imported (see `computeSkippedIds` in the CLI).
+ * `ids` carries the inserted memories; `updatedIds` the existing rows
+ * rewritten via `replaceIfMetaDiffers` (conditional upsert in
+ * create_memory). A submitted explicit id in neither array was skipped —
+ * deterministic-id importers re-submit freely and classify the missing ids
+ * as already imported.
  */
 async function memoryBatchCreate(
   params: MemoryBatchCreateParams,
@@ -214,23 +215,25 @@ async function memoryBatchCreate(
   const ctx = context as SpaceRpcContext;
   const { store, treeAccess } = ctx;
 
-  const ids = await guard(() =>
+  return await guard(() =>
     store.withTransaction(async (tx) => {
-      const out: string[] = [];
+      const ids: string[] = [];
+      const updatedIds: string[] = [];
       for (const m of params.memories) {
-        const id = await tx.createMemory(treeAccess, {
+        const created = await tx.createMemory(treeAccess, {
           id: m.id ?? undefined,
           content: m.content,
           meta: m.meta ?? undefined,
           tree: inputTreePath(ctx, m.tree),
           temporal: formatTemporal(m.temporal),
+          replaceIfMetaDiffers: params.replaceIfMetaDiffers ?? undefined,
         });
-        if (id !== null) out.push(id);
+        if (created === null) continue;
+        (created.inserted ? ids : updatedIds).push(created.id);
       }
-      return out;
+      return { ids, updatedIds };
     }),
   );
-  return { ids };
 }
 
 /** memory.get */

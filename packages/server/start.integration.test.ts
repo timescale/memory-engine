@@ -158,5 +158,5 @@ test("re-migrates existing space schemas on boot", async () => {
   expect(tamperedDef).not.toContain("on conflict");
   // …and boot's space sweep re-applied the idempotent SQL over it.
   expect(bootedDef).not.toContain("stale stand-in");
-  expect(bootedDef).toContain("on conflict (id) do nothing");
+  expect(bootedDef).toContain("on conflict (id) do update");
 });

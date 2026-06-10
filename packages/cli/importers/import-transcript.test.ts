@@ -2,9 +2,9 @@
  * Unit tests for importTranscriptFile — the live-capture (Claude hook) path.
  *
  * Uses a fake importer (parseFile returns a synthetic session) + an in-memory
- * mock client that round-trips meta through the real buildMeta, so the
- * watermark / incremental-delta / reconcile-fallback logic is exercised without
- * a database.
+ * mock client that round-trips meta through the real buildMeta and simulates
+ * the server's conditional upsert, so the watermark / incremental-delta /
+ * version-bump re-render logic is exercised without a database.
  */
 import { describe, expect, test } from "bun:test";
 import type { MemoryClient } from "../client.ts";
@@ -28,11 +28,11 @@ const WRITE: WriteOptions = {
   verbose: false,
 };
 
-/** A mock engine backed by an in-memory id→meta store, mimicking the server. */
+/** A mock engine backed by an in-memory id→row store, mimicking the server. */
 function mockEngine() {
   const store = new Map<
     string,
-    { id: string; meta: Record<string, unknown> }
+    { id: string; meta: Record<string, unknown>; content: string }
   >();
   const client = {
     memory: {
@@ -45,16 +45,33 @@ function mockEngine() {
         const limit = p.limit ?? 10;
         return { results: all.slice(0, limit), total: all.length, limit };
       },
+      // The server's conditional upsert: insert new ids; replace an existing
+      // row when its meta value for `replaceIfMetaDiffers` differs; else skip.
       batchCreate: async (p: {
-        memories: Array<{ id: string; meta: Record<string, unknown> }>;
+        memories: Array<{
+          id: string;
+          meta: Record<string, unknown>;
+          content: string;
+        }>;
+        replaceIfMetaDiffers?: string;
       }) => {
         const ids: string[] = [];
+        const updatedIds: string[] = [];
         for (const m of p.memories) {
-          if (store.has(m.id)) throw new Error(`duplicate id ${m.id}`);
-          store.set(m.id, { id: m.id, meta: m.meta });
-          ids.push(m.id);
+          const existing = store.get(m.id);
+          if (!existing) {
+            store.set(m.id, { id: m.id, meta: m.meta, content: m.content });
+            ids.push(m.id);
+          } else if (
+            p.replaceIfMetaDiffers !== undefined &&
+            existing.meta[p.replaceIfMetaDiffers] !==
+              m.meta[p.replaceIfMetaDiffers]
+          ) {
+            store.set(m.id, { id: m.id, meta: m.meta, content: m.content });
+            updatedIds.push(m.id);
+          }
         }
-        return { ids };
+        return { ids, updatedIds };
       },
     },
   } as unknown as MemoryClient;
@@ -201,5 +218,34 @@ describe("importTranscriptFile", () => {
     );
     expect(out?.inserted).toBe(0);
     expect(store.size).toBe(3);
+  });
+
+  test("a stale importer_version is re-rendered in place (server-side upsert)", async () => {
+    const { client, store } = mockEngine();
+    const s = session(["a", "b", "c"]);
+    await importTranscriptFile(client, importerFor(s), "/x.jsonl", WRITE);
+    expect(store.size).toBe(3);
+
+    // Simulate rows written by an older importer build.
+    for (const row of store.values()) {
+      row.meta = { ...row.meta, importer_version: "0" };
+      row.content = "stale render";
+    }
+
+    // The high-water row is stale → no narrowing; the full plan is submitted
+    // and the server's upsert rewrites every stale row in one pass.
+    const out = await importTranscriptFile(
+      client,
+      importerFor(s),
+      "/x.jsonl",
+      WRITE,
+    );
+    expect(out?.updated).toBe(3);
+    expect(out?.inserted).toBe(0);
+    expect(out?.skipped).toBe(0);
+    for (const row of store.values()) {
+      expect(row.meta.importer_version).toBe("1");
+      expect(row.content).not.toBe("stale render");
+    }
   });
 });

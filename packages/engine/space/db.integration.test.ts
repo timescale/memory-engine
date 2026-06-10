@@ -51,14 +51,15 @@ async function setEmbedding(id: string, vec: number[]): Promise<void> {
   );
 }
 
-/** createMemory asserting the insert happened (no duplicate-id skip). */
+/** createMemory asserting a fresh insert happened (no skip/replace). */
 async function mustCreate(
   access: TreeAccess,
   params: Parameters<SpaceStore["createMemory"]>[1],
 ): Promise<string> {
-  const id = await db.createMemory(access, params);
-  if (id === null) throw new Error("unexpected duplicate-id skip");
-  return id;
+  const created = await db.createMemory(access, params);
+  if (created === null) throw new Error("unexpected duplicate-id skip");
+  if (!created.inserted) throw new Error("unexpected replace");
+  return created.id;
 }
 
 test("createMemory + getMemory round-trips", async () => {
@@ -82,7 +83,7 @@ test("createMemory returns null for a duplicate explicit id", async () => {
     tree: "work.dup",
     content: "original",
   });
-  expect(first).toBe(id);
+  expect(first).toEqual({ id, inserted: true });
 
   // Re-submitting the same id is a no-op skip, not an error.
   const second = await db.createMemory(FULL, {
@@ -92,6 +93,40 @@ test("createMemory returns null for a duplicate explicit id", async () => {
   });
   expect(second).toBeNull();
   expect((await db.getMemory(FULL, id))?.content).toBe("original");
+});
+
+test("createMemory with replaceIfMetaDiffers rewrites stale rows in place", async () => {
+  const id = "01900000-0000-7000-8000-0000000000d1";
+  await db.createMemory(FULL, {
+    id,
+    tree: "work.upsert",
+    content: "render v1",
+    meta: { importer_version: "1" },
+  });
+
+  // Same version → skip.
+  const same = await db.createMemory(FULL, {
+    id,
+    tree: "work.upsert",
+    content: "render v1 again",
+    meta: { importer_version: "1" },
+    replaceIfMetaDiffers: "importer_version",
+  });
+  expect(same).toBeNull();
+  expect((await db.getMemory(FULL, id))?.content).toBe("render v1");
+
+  // Bumped version → replaced, reported as an update (inserted: false).
+  const bumped = await db.createMemory(FULL, {
+    id,
+    tree: "work.upsert",
+    content: "render v2",
+    meta: { importer_version: "2" },
+    replaceIfMetaDiffers: "importer_version",
+  });
+  expect(bumped).toEqual({ id, inserted: false });
+  const after = await db.getMemory(FULL, id);
+  expect(after?.content).toBe("render v2");
+  expect(after?.meta).toEqual({ importer_version: "2" });
 });
 
 test("access is enforced by the tree_access argument", async () => {

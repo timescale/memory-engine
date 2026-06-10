@@ -20,14 +20,17 @@ import type {
  */
 export interface SpaceStore {
   /**
-   * Insert one memory, returning its id — or null when an explicit
-   * `params.id` already exists (`on conflict do nothing`), so deterministic-id
-   * importers can re-submit idempotently.
+   * Insert one memory. When an explicit `params.id` already exists the
+   * outcome depends on `params.replaceIfMetaDiffers`: unset → skip (null);
+   * set to a meta key → the existing row is replaced when its value for that
+   * key differs from the new record's (`inserted: false`), else skipped.
+   * Deterministic-id importers use this to re-submit idempotently and push
+   * version-bump re-renders in the same call.
    */
   createMemory(
     treeAccess: TreeAccess,
     params: CreateMemoryParams,
-  ): Promise<string | null>;
+  ): Promise<{ id: string; inserted: boolean } | null>;
   getMemory(treeAccess: TreeAccess, id: string): Promise<Memory | null>;
   patchMemory(
     treeAccess: TreeAccess,
@@ -118,17 +121,19 @@ export function spaceStore(sql: Sql, schema: string): SpaceStore {
   return {
     async createMemory(treeAccess, p) {
       const [row] = await sql`
-        select ${sch}.create_memory(
+        select id, inserted from ${sch}.create_memory(
           ${jb(treeAccess)},
           ${p.tree}::ltree,
           ${p.content},
           ${p.id ?? null},
           ${jb(p.meta)},
-          ${p.temporal ?? null}::tstzrange
-        ) as id`;
-      if (!row) throw new Error("create_memory returned no row");
-      // Null id = the explicit id already exists (on conflict do nothing).
-      return (row.id as string | null) ?? null;
+          ${p.temporal ?? null}::tstzrange,
+          ${p.replaceIfMetaDiffers ?? null}
+        )`;
+      // Zero rows = the explicit id already exists and was skipped (version
+      // match, no replace key, or no write access on the existing row's tree).
+      if (!row) return null;
+      return { id: row.id as string, inserted: Boolean(row.inserted) };
     },
 
     async getMemory(treeAccess, id) {

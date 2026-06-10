@@ -248,18 +248,82 @@ test("get / delete unknown id → NOT_FOUND", async () => {
 });
 
 test("batchCreate inserts all and is retrievable", async () => {
-  const res = await call<{ ids: string[] }>("memory.batchCreate", {
-    memories: [
-      { content: "one", tree: "share.batch" },
-      { content: "two", tree: "share.batch" },
-      { content: "three", tree: "share.batch.sub" },
-    ],
-  });
+  const res = await call<{ ids: string[]; updatedIds: string[] }>(
+    "memory.batchCreate",
+    {
+      memories: [
+        { content: "one", tree: "share.batch" },
+        { content: "two", tree: "share.batch" },
+        { content: "three", tree: "share.batch.sub" },
+      ],
+    },
+  );
   expect(res.ids).toHaveLength(3);
+  expect(res.updatedIds).toHaveLength(0);
   const count = await call<{ count: number }>("memory.countTree", {
     tree: "share.batch",
   });
   expect(count.count).toBe(3);
+});
+
+test("create with a duplicate explicit id → CONFLICT", async () => {
+  const id = "01941000-0000-7000-8000-00000000c0f1";
+  await call("memory.create", { id, content: "first", tree: "share.dup" });
+  await expectAppError(
+    call("memory.create", { id, content: "second", tree: "share.dup" }),
+    "CONFLICT",
+  );
+});
+
+test("batchCreate without replaceIfMetaDiffers skips duplicates", async () => {
+  const id = "01941000-0000-7000-8000-00000000c0f2";
+  await call("memory.batchCreate", {
+    memories: [{ id, content: "original", tree: "share.skip" }],
+  });
+  const res = await call<{ ids: string[]; updatedIds: string[] }>(
+    "memory.batchCreate",
+    { memories: [{ id, content: "replacement", tree: "share.skip" }] },
+  );
+  expect(res.ids).toHaveLength(0);
+  expect(res.updatedIds).toHaveLength(0);
+  const got = await call<{ content: string }>("memory.get", { id });
+  expect(got.content).toBe("original");
+});
+
+test("batchCreate with replaceIfMetaDiffers splits insert/update/skip", async () => {
+  const stale = "01941000-0000-7000-8000-00000000c0f3";
+  const fresh = "01941000-0000-7000-8000-00000000c0f4";
+  const brandNew = "01941000-0000-7000-8000-00000000c0f5";
+  await call("memory.batchCreate", {
+    memories: [
+      { id: stale, content: "old render", tree: "share.up", meta: { v: "1" } },
+      { id: fresh, content: "current", tree: "share.up", meta: { v: "2" } },
+    ],
+  });
+
+  const res = await call<{ ids: string[]; updatedIds: string[] }>(
+    "memory.batchCreate",
+    {
+      memories: [
+        {
+          id: stale,
+          content: "new render",
+          tree: "share.up",
+          meta: { v: "2" },
+        },
+        { id: fresh, content: "untouched", tree: "share.up", meta: { v: "2" } },
+        { id: brandNew, content: "added", tree: "share.up", meta: { v: "2" } },
+      ],
+      replaceIfMetaDiffers: "v",
+    },
+  );
+  expect(res.ids).toEqual([brandNew]);
+  expect(res.updatedIds).toEqual([stale]);
+
+  const updated = await call<{ content: string }>("memory.get", { id: stale });
+  expect(updated.content).toBe("new render");
+  const skipped = await call<{ content: string }>("memory.get", { id: fresh });
+  expect(skipped.content).toBe("current");
 });
 
 test("tree returns descendant node counts under a path", async () => {

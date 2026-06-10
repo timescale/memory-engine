@@ -100,10 +100,27 @@ set search_path to pg_catalog, {{schema}}, public, pg_temp
 -------------------------------------------------------------------------------
 -- create memory
 --
--- Returns the new memory's id, or null when an explicit _id already exists
--- (on conflict do nothing). The null lets importers with deterministic ids
--- re-submit safely — the caller classifies a missing id as "skipped".
+-- Insert one memory. On a duplicate explicit _id the outcome depends on
+-- _replace_if_meta_differs:
+--   - null (default): skip — the existing row is left untouched.
+--   - a meta key name: the existing row is REPLACED (tree/meta/temporal/
+--     content) when its meta->>key value differs from the new record's, and
+--     skipped when it matches. Deterministic-id importers use this to push
+--     re-renders by bumping a version value in meta (importer_version).
+--     The replace arm additionally requires write access on the EXISTING
+--     row's tree; without it the row is silently skipped (not raised, unlike
+--     patch_memory) so one inaccessible row can't fail a whole batch.
+--
+-- Returns zero rows on a skip, else one row (id, inserted) where inserted
+-- distinguishes a fresh insert (true) from a replace (false; detected via
+-- xmax = 0). Embedding columns are never set here: the update triggers
+-- invalidate and re-enqueue the embedding only when content actually changed,
+-- so a meta-only replace does not re-embed.
+--
+-- The drop covers the pre-upsert 6-arg signature — without it, create would
+-- add an ambiguous overload (and the return type changed). No-op on re-runs.
 -------------------------------------------------------------------------------
+drop function if exists {{schema}}.create_memory(jsonb, ltree, text, uuid, jsonb, tstzrange);
 create or replace function {{schema}}.create_memory
 ( _tree_access jsonb
 , _tree ltree
@@ -111,16 +128,21 @@ create or replace function {{schema}}.create_memory
 , _id uuid default null
 , _meta jsonb default '{}'
 , _temporal tstzrange default null
+, _replace_if_meta_differs text default null
 )
-returns uuid
+returns table (id uuid, inserted boolean)
 as $func$
+-- The out columns (id, inserted) shadow table columns inside the body; the
+-- body never reads them as variables, so resolve ambiguity to the columns.
+#variable_conflict use_column
 begin
   if not {{schema}}.has_tree_access(_tree_access, _tree, 2) then
     raise exception 'insufficient tree access'
       using errcode = 'insufficient_privilege';
   end if;
 
-  insert into {{schema}}.memory
+  return query
+  insert into {{schema}}.memory as m
   ( id
   , tree
   , meta
@@ -134,10 +156,17 @@ begin
   , _temporal
   , _content
   )
-  on conflict (id) do nothing
-  returning id into _id
+  on conflict (id) do update set
+    tree = excluded.tree
+  , meta = excluded.meta
+  , temporal = excluded.temporal
+  , content = excluded.content
+  where _replace_if_meta_differs is not null
+  and m.meta->>_replace_if_meta_differs
+      is distinct from excluded.meta->>_replace_if_meta_differs
+  and {{schema}}.has_tree_access(_tree_access, m.tree, 2)
+  returning m.id, (m.xmax = 0)
   ;
-  return _id;
 end;
 $func$ language plpgsql volatile security invoker
 set search_path to pg_catalog, {{schema}}, public, pg_temp

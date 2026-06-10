@@ -286,27 +286,133 @@ describe("provisioned schema is functional", () => {
     expect(updated?.updated_at).not.toBeNull();
   });
 
-  test("create_memory skips a duplicate explicit id (returns null)", async () => {
-    // Deterministic-id importers re-submit existing ids; the second create
-    // must be a no-op that returns null, leaving the original row intact.
-    const owner = `'[{"tree_path": "", "access": 3}]'::jsonb`;
+  // create_memory's conditional upsert: (treeAccess, tree, content, id, meta,
+  // temporal, replaceIfMetaDiffers) → zero rows (skip) or (id, inserted).
+  const OWNER = `'[{"tree_path": "", "access": 3}]'::jsonb`;
+  const createMemory = (args: string) =>
+    sql.unsafe(`select * from ${canonical.schema}.create_memory(${args})`);
+
+  test("create_memory skips a duplicate explicit id by default", async () => {
+    // Deterministic-id importers re-submit existing ids; with no replace key
+    // the second create must be a zero-row no-op leaving the row intact.
     const id = "01941000-0000-7000-8000-000000000001";
-    const [first] = await sql.unsafe(
-      `select ${canonical.schema}.create_memory(
-         ${owner}, 'a.dup'::ltree, 'original', '${id}'::uuid) as id`,
+    const [first] = await createMemory(
+      `${OWNER}, 'a.dup'::ltree, 'original', '${id}'::uuid`,
     );
     expect(first?.id).toBe(id);
+    expect(first?.inserted).toBe(true);
 
-    const [second] = await sql.unsafe(
-      `select ${canonical.schema}.create_memory(
-         ${owner}, 'a.dup'::ltree, 'replacement', '${id}'::uuid) as id`,
+    const second = await createMemory(
+      `${OWNER}, 'a.dup'::ltree, 'replacement', '${id}'::uuid`,
     );
-    expect(second?.id).toBeNull();
+    expect(second.length).toBe(0);
 
     const [row] = await sql.unsafe(
       `select content from ${canonical.schema}.memory where id = '${id}'`,
     );
     expect(row?.content).toBe("original");
+  });
+
+  test("create_memory replaces a duplicate when the meta key differs, skips when it matches", async () => {
+    const id = "01941000-0000-7000-8000-000000000002";
+    await createMemory(
+      `${OWNER}, 'a.ver'::ltree, 'render v1', '${id}'::uuid, '{"v": "1"}'::jsonb`,
+    );
+
+    // Same version → skip, content untouched.
+    const same = await createMemory(
+      `${OWNER}, 'a.ver'::ltree, 'render v1 again', '${id}'::uuid, '{"v": "1"}'::jsonb, null, 'v'`,
+    );
+    expect(same.length).toBe(0);
+
+    // Bumped version → replaced in place, inserted = false.
+    const [bumped] = await createMemory(
+      `${OWNER}, 'a.ver'::ltree, 'render v2', '${id}'::uuid, '{"v": "2"}'::jsonb, null, 'v'`,
+    );
+    expect(bumped?.id).toBe(id);
+    expect(bumped?.inserted).toBe(false);
+
+    const [row] = await sql.unsafe(
+      `select content, meta->>'v' as v, updated_at
+       from ${canonical.schema}.memory where id = '${id}'`,
+    );
+    expect(row?.content).toBe("render v2");
+    expect(row?.v).toBe("2");
+    expect(row?.updated_at).not.toBeNull();
+
+    // A key absent on the stored row but present on the new record counts as
+    // "differs" (legacy rows written before the version key existed).
+    const [legacy] = await createMemory(
+      `${OWNER}, 'a.ver'::ltree, 'render v3', '${id}'::uuid, '{"v": "2", "legacy_v": "1"}'::jsonb, null, 'legacy_v'`,
+    );
+    expect(legacy?.inserted).toBe(false);
+    const [afterLegacy] = await sql.unsafe(
+      `select content from ${canonical.schema}.memory where id = '${id}'`,
+    );
+    expect(afterLegacy?.content).toBe("render v3");
+  });
+
+  test("create_memory replace requires write access on the existing row's tree", async () => {
+    // Row lives under a.secret; the caller's grant covers only a.open — the
+    // insert-arm check passes (target a.open) but the replace arm must skip.
+    const id = "01941000-0000-7000-8000-000000000003";
+    await createMemory(
+      `${OWNER}, 'a.secret'::ltree, 'guarded', '${id}'::uuid, '{"v": "1"}'::jsonb`,
+    );
+
+    const limited = `'[{"tree_path": "a.open", "access": 3}]'::jsonb`;
+    const res = await createMemory(
+      `${limited}, 'a.open'::ltree, 'hijack', '${id}'::uuid, '{"v": "2"}'::jsonb, null, 'v'`,
+    );
+    expect(res.length).toBe(0);
+
+    const [row] = await sql.unsafe(
+      `select content, tree::text as tree from ${canonical.schema}.memory where id = '${id}'`,
+    );
+    expect(row?.content).toBe("guarded");
+    expect(row?.tree).toBe("a.secret");
+  });
+
+  test("create_memory replace re-embeds only when content changed", async () => {
+    const id = "01941000-0000-7000-8000-000000000004";
+    await createMemory(
+      `${OWNER}, 'a.emb'::ltree, 'stable content', '${id}'::uuid, '{"v": "1"}'::jsonb`,
+    );
+    // Simulate the worker: embedding present (default 1536 dims), queue drained.
+    await sql.unsafe(
+      `update ${canonical.schema}.memory
+       set embedding = ('[' || repeat('0,', 1535) || '0]')::halfvec
+       where id = '${id}'`,
+    );
+    await sql.unsafe(
+      `delete from ${canonical.schema}.embedding_queue where memory_id = '${id}'`,
+    );
+
+    // Meta-only replace (identical content): embedding survives, no re-enqueue.
+    await createMemory(
+      `${OWNER}, 'a.emb'::ltree, 'stable content', '${id}'::uuid, '{"v": "2"}'::jsonb, null, 'v'`,
+    );
+    const [afterMeta] = await sql.unsafe(
+      `select (embedding is not null) as has_embedding,
+              (select count(*)::int from ${canonical.schema}.embedding_queue
+               where memory_id = '${id}' and outcome is null) as queued
+       from ${canonical.schema}.memory where id = '${id}'`,
+    );
+    expect(afterMeta?.has_embedding).toBe(true);
+    expect(afterMeta?.queued).toBe(0);
+
+    // Content replace: embedding invalidated and re-enqueued.
+    await createMemory(
+      `${OWNER}, 'a.emb'::ltree, 'new content', '${id}'::uuid, '{"v": "3"}'::jsonb, null, 'v'`,
+    );
+    const [afterContent] = await sql.unsafe(
+      `select (embedding is null) as embedding_cleared,
+              (select count(*)::int from ${canonical.schema}.embedding_queue
+               where memory_id = '${id}' and outcome is null) as queued
+       from ${canonical.schema}.memory where id = '${id}'`,
+    );
+    expect(afterContent?.embedding_cleared).toBe(true);
+    expect(afterContent?.queued).toBe(1);
   });
 
   test("enforces the meta-is-object constraint", async () => {

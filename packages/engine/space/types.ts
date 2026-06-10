@@ -34,6 +34,12 @@ export interface CreateMemoryParams {
   id?: string;
   meta?: Record<string, unknown>;
   temporal?: TemporalRange;
+  /**
+   * Meta key for conditional replace: when an explicit `id` already exists,
+   * replace the row iff its meta value for this key differs from the new
+   * record (e.g. importer_version). Default: duplicates are skipped.
+   */
+  replaceIfMetaDiffers?: string;
 }
 
 export interface MemoryPatch {

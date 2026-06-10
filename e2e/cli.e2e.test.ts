@@ -815,7 +815,81 @@ describe.skipIf(!OPENAI_KEY || !process.env.TEST_DATABASE_URL)(
       await rm(root, { recursive: true, force: true });
     });
 
-    test("9b. `me import` group: no bare default, memories ≡ memory import", async () => {
+    test("9b. a stale importer_version is re-rendered in place on re-import", async () => {
+      // The server's conditional upsert: re-importing a session rewrites any
+      // row whose stored meta.importer_version differs from the current
+      // importer's, and skips the rest — no client-side existing-state read.
+      const sessionId = `stale-${rand()}`;
+      const root = await mkdtemp(join(tmpdir(), "me-e2e-stale-"));
+      const projDir = join(root, "proj");
+      await mkdir(projDir, { recursive: true });
+      const mkMsg = (i: number, type: "user" | "assistant", text: string) => ({
+        type,
+        uuid: `${sessionId}-${type}-${i}`,
+        timestamp: `2026-05-01T00:00:0${i}.000Z`,
+        sessionId,
+        cwd: "/work/stale-proj",
+        message:
+          type === "user"
+            ? { content: text }
+            : { content: [{ type: "text", text }], model: "claude-x" },
+      });
+      await writeFile(
+        join(projDir, `${sessionId}.jsonl`),
+        [
+          mkMsg(0, "user", "stale first question"),
+          mkMsg(1, "assistant", "stale first answer"),
+          mkMsg(2, "user", "stale second question"),
+          mkMsg(3, "assistant", "stale second answer"),
+        ]
+          .map((l) => JSON.stringify(l))
+          .join("\n"),
+      );
+
+      const first = await meJson<{ inserted: number }>([
+        "import",
+        "claude",
+        "--source",
+        root,
+      ]);
+      expect(first.inserted).toBe(4);
+
+      // Rewind one row to look like an older importer build wrote it.
+      const [stale] = await sql.unsafe(
+        `update metest_${spaceSlug}.memory
+         set content = 'STALE RENDER',
+             meta = jsonb_set(meta, '{importer_version}', '"0"')
+         where meta->>'source_session_id' = $1
+           and meta->>'source_message_id' = $2
+         returning id`,
+        [sessionId, `${sessionId}-user-0`],
+      );
+      expect(stale?.id).toBeDefined();
+
+      // Re-import: exactly the stale row is rewritten, the rest skip.
+      const second = await meJson<{
+        inserted: number;
+        updated: number;
+        skipped: number;
+        failed: number;
+      }>(["import", "claude", "--source", root]);
+      expect(second.inserted).toBe(0);
+      expect(second.updated).toBe(1);
+      expect(second.skipped).toBe(3);
+      expect(second.failed).toBe(0);
+
+      const [row] = await sql.unsafe(
+        `select content, meta->>'importer_version' as v
+         from metest_${spaceSlug}.memory where id = $1`,
+        [stale?.id as string],
+      );
+      expect(row?.content).toBe("stale first question");
+      expect(row?.v).toBe("1");
+
+      await rm(root, { recursive: true, force: true });
+    });
+
+    test("9c. `me import` group: no bare default, memories ≡ memory import", async () => {
       // Bare `me import` is a group, not the old file-import alias: it prints
       // the subcommand list and exits non-zero.
       const bare = await me(["import"]);

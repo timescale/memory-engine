@@ -31,6 +31,12 @@ export type MemoryCreateParams = z.infer<typeof memoryCreateParams>;
 
 /**
  * memory.batchCreate params.
+ *
+ * `replaceIfMetaDiffers` names a meta key for conditional replace: a memory
+ * whose explicit id already exists is rewritten in place when the stored
+ * row's value for that key differs from the submitted one (deterministic-id
+ * importers pass e.g. "importer_version" so version bumps re-render existing
+ * rows), and skipped when it matches. Without it, duplicates are skipped.
  */
 export const memoryBatchCreateParams = z.object({
   memories: z
@@ -45,6 +51,7 @@ export const memoryBatchCreateParams = z.object({
     )
     .min(1, "at least one memory required")
     .max(1000, "maximum 1000 memories per batch"),
+  replaceIfMetaDiffers: z.string().min(1).optional().nullable(),
 });
 
 export type MemoryBatchCreateParams = z.infer<typeof memoryBatchCreateParams>;
@@ -176,9 +183,15 @@ export type MemoryWithScoreResponse = z.infer<typeof memoryWithScoreResponse>;
 
 /**
  * memory.batchCreate result.
+ *
+ * `ids` are the freshly inserted memories; `updatedIds` are existing rows
+ * rewritten in place via `replaceIfMetaDiffers`. A submitted explicit id in
+ * neither array (and not in a failed request) was skipped — it already
+ * existed at the same meta-key value.
  */
 export const memoryBatchCreateResult = z.object({
   ids: z.array(z.string()),
+  updatedIds: z.array(z.string()),
 });
 
 export type MemoryBatchCreateResult = z.infer<typeof memoryBatchCreateResult>;
