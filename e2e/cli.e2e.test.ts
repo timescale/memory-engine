@@ -448,6 +448,53 @@ describe.skipIf(!OPENAI_KEY || !process.env.TEST_DATABASE_URL)(
       await rm(root, { recursive: true, force: true });
     });
 
+    test("8b. `me claude init` backfills existing sessions from the default source", async () => {
+      // `me claude init` is the one-shot setup command; for now its only step is
+      // an import with default options (no --source), so it reads the default
+      // ~/.claude/projects — which, under this run's HOME=tmpHome, resolves to
+      // tmpHome/.claude/projects. Drop a transcript there and confirm `init`
+      // backfills it.
+      const projDir = join(tmpHome, ".claude", "projects", "init-proj");
+      await mkdir(projDir, { recursive: true });
+
+      const sessionId = `init-${rand()}`;
+      // cwd "/work/init-proj" → no git repo on disk → slug = basename.
+      const cwd = "/work/init-proj";
+      const tree = "share.projects.init_proj.agent_sessions";
+      const mkMsg = (i: number, type: "user" | "assistant", text: string) => ({
+        type,
+        uuid: `${sessionId}-${type}-${i}`,
+        timestamp: `2026-03-01T00:00:0${i}.000Z`,
+        sessionId,
+        cwd,
+        message:
+          type === "user"
+            ? { content: text }
+            : { content: [{ type: "text", text }], model: "claude-x" },
+      });
+      const lines = [
+        mkMsg(0, "user", "init first question"),
+        mkMsg(1, "assistant", "init first answer"),
+        mkMsg(2, "user", "init second question"),
+        mkMsg(3, "assistant", "init second answer"),
+      ];
+      await writeFile(
+        join(projDir, `${sessionId}.jsonl`),
+        lines.map((l) => JSON.stringify(l)).join("\n"),
+      );
+
+      // Pre-init: nothing captured for this session yet.
+      expect(await countBySession(sessionId)).toBe(0);
+
+      // `me claude init` (no flags) backfills the existing session.
+      const init = await me(["claude", "init"]);
+      expect(init.code, init.stderr).toBe(0);
+      expect(await countBySession(sessionId)).toBe(4);
+      expect(await countUnder(tree)).toBe(4);
+
+      await rm(projDir, { recursive: true, force: true });
+    });
+
     test("9. claude capture hook ↔ `me claude import` are cross-idempotent", async () => {
       // A minimal Claude Code session transcript on disk. The importer scans
       // <source>/<project-dir>/*.jsonl; the hook reads the file directly.

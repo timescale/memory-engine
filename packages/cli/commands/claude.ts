@@ -45,7 +45,7 @@ import {
   type AgentInstallOptions,
   runAgentMcpInstall,
 } from "../mcp/agent-install.ts";
-import { buildAgentImportSubcommand } from "./import.ts";
+import { buildAgentImportSubcommand, runAgentImport } from "./import.ts";
 
 /** GitHub source for `claude plugin marketplace add`. */
 const PLUGIN_MARKETPLACE_SOURCE = "timescale/memory-engine";
@@ -426,9 +426,31 @@ function createClaudeHookCommand(): Command {
     });
 }
 
+/**
+ * me claude init — one-shot setup of Claude Code memory integration.
+ *
+ * For now this just backfills your existing Claude Code sessions (the same
+ * work as `me claude import`). It's a deliberate seam for additional setup
+ * steps (e.g. installing the plugin, seeding config) to be added here later —
+ * keep import first so the command stays useful while it grows.
+ */
+function createClaudeInitCommand(): Command {
+  return new Command("init")
+    .description(
+      "set up Claude Code memory integration (currently: import existing sessions)",
+    )
+    .action(async (_opts, cmd: Command) => {
+      const globalOpts = cmd.optsWithGlobals();
+      // Step 1: backfill existing Claude Code sessions. Run with default import
+      // options (no flags) — `me claude import` remains the knob-laden variant.
+      await runAgentImport(claudeImporter, {}, globalOpts);
+    });
+}
+
 export function createClaudeCommand(): Command {
   const claude = new Command("claude").description("Claude Code integration");
   claude.addCommand(createClaudeInstallCommand());
+  claude.addCommand(createClaudeInitCommand());
   claude.addCommand(createClaudeHookCommand());
   claude.addCommand(
     buildAgentImportSubcommand(

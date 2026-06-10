@@ -160,8 +160,13 @@ export function buildOptions(opts: Record<string, unknown>): {
 
 /**
  * Run one importer end-to-end and render the outcome in the selected format.
+ *
+ * Exported so higher-level commands (e.g. `me claude init`) can run an import
+ * as one step among several, reusing the exact same auth/option/render path as
+ * the standalone `import` subcommand. `opts` is the parsed import-flag set (pass
+ * `{}` for defaults); `globalOpts` carries `--server` / output format.
  */
-async function runAndRender(
+export async function runAgentImport(
   importer: Importer,
   opts: Record<string, unknown>,
   globalOpts: Record<string, unknown>,
@@ -320,7 +325,7 @@ export function buildAgentImportSubcommand(
   addCommonOptions(cmd, includeSidechainsFlag);
   cmd.action(async (opts, cmdRef) => {
     const globalOpts = cmdRef.optsWithGlobals();
-    await runAndRender(importer, opts, globalOpts);
+    await runAgentImport(importer, opts, globalOpts);
   });
   return cmd;
 }
