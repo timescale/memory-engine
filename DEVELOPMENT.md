@@ -381,16 +381,21 @@ Implications:
 
 ### Adding a migration
 
-Database migrations run at server startup using `SERVER_VERSION` as the
-`serverVersion` passed to the runners. When you add a new migration file under
-`packages/engine/migrate/migrations/` or `packages/accounts/migrate/migrations/`:
+Migrations live under `packages/database/{auth,core,space}/migrate/` in two
+flavors: `incremental/` (versioned DDL, applied exactly once per schema,
+tracked by name) and `idempotent/` (function/index definitions, re-applied on
+every migrate run via `create or replace`).
 
-- Cut a **server** release afterwards (`./bun run release:server`) to advance
-  `SERVER_VERSION` and propagate the migration to prod.
-- The migration's `applied_at_version` column and the schema's `version`
-  row will reflect the new `SERVER_VERSION`.
-- Rolling back to an older server image will then trip the downgrade guard
-  in the migration runners — by design.
+Migrations run at server startup (`startServer`, unless `migrate: false`):
+the `auth` and `core` schemas are migrated, then **every existing space
+schema is re-migrated** (enumerated from `core.space`) so changes to the
+idempotent space SQL reach already-provisioned spaces on the next deploy —
+spaces are otherwise only migrated once, when provisioned. A failed space
+re-migration aborts boot; concurrent replica boots are serialized by a
+per-schema advisory lock.
+
+Rolling back to an older server image trips the downgrade guard in the
+migration runners (stamped schema version newer than the app's) — by design.
 
 ## Troubleshooting
 

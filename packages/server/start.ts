@@ -12,17 +12,18 @@ import {
   bootstrapSpaceDatabase,
   migrateAuth,
   migrateCore,
+  migrateSpace,
   slugToSchema as spaceSlugToSchema,
 } from "@memory.build/database";
 import type { EmbeddingConfig } from "@memory.build/embedding";
-import { coreStore } from "@memory.build/engine/core";
+import { type CoreStore, coreStore } from "@memory.build/engine/core";
 import {
   DEFAULT_WORKER_TIMEOUTS,
   WorkerPool,
   type WorkerTimeouts,
 } from "@memory.build/worker";
 import { info, reportError, span } from "@pydantic/logfire-node";
-import postgres from "postgres";
+import postgres, { type Sql } from "postgres";
 import { MIN_CLIENT_VERSION, SERVER_VERSION } from "../../version";
 import { embeddingConstants } from "./config";
 import type { ServerContext } from "./context";
@@ -127,6 +128,43 @@ export interface RunningServer {
   context: ServerContext;
   /** Tear down: workerPool.stop → cron.stop → server.stop → pools.end. */
   stop(): Promise<void>;
+}
+
+/**
+ * Re-migrate every existing space schema at boot.
+ *
+ * Spaces are otherwise migrated only once, at provision time — so a deploy
+ * that changes the idempotent space SQL (the function bodies in
+ * space/migrate/idempotent/*.sql) would never reach existing spaces without
+ * this sweep. Re-running is cheap: incremental migrations are version-tracked
+ * no-ops, idempotent files are re-applied (create or replace). Options mirror
+ * provisionSpace (all defaults), and migrateSpace's per-schema advisory lock
+ * serializes concurrent replica boots.
+ *
+ * Every space is attempted (so one broken space doesn't hide the rest from
+ * the logs), then any failure aborts boot — the server must not serve spaces
+ * whose schema may be stale.
+ */
+async function remigrateSpaces(db: Sql, core: CoreStore): Promise<void> {
+  const spaces = await core.listSpaces();
+  const failed: string[] = [];
+  for (const space of spaces) {
+    try {
+      await migrateSpace(db, { slug: space.slug });
+    } catch (error) {
+      failed.push(space.slug);
+      reportError(
+        `Space ${space.slug} re-migration failed`,
+        error instanceof Error ? error : new Error(String(error)),
+      );
+    }
+  }
+  if (failed.length > 0) {
+    throw new Error(
+      `space re-migration failed for ${failed.length} of ${spaces.length} space(s): ${failed.join(", ")}`,
+    );
+  }
+  info(`${spaces.length} space schema(s) re-migrated`);
 }
 
 /**
@@ -290,6 +328,7 @@ export async function startServer(
     await migrateCore(db, { schema: coreSchema });
     await migrateAuth(db, { schema: authSchema });
     info("Core + auth schemas migrated");
+    await remigrateSpaces(db, core);
   }
 
   // ---------------------------------------------------------------------------
