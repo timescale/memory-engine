@@ -98,10 +98,12 @@ set search_path to pg_catalog, {{schema}}, public, pg_temp
 ;
 
 -------------------------------------------------------------------------------
--- create memory
+-- batch create memory
 --
--- Insert one memory. On a duplicate explicit _id the outcome depends on
--- _replace_if_meta_differs:
+-- The canonical memory insert: one set-based statement for a whole batch
+-- (create_memory below is a one-row wrapper). Parallel arrays, aligned by
+-- position, carry the rows. Per-row, on a duplicate explicit id the outcome
+-- depends on _replace_if_meta_differs:
 --   - null (default): skip — the existing row is left untouched.
 --   - a meta key name: the existing row is REPLACED (tree/meta/temporal/
 --     content) when its meta->>key value differs from the new record's, and
@@ -111,11 +113,107 @@ set search_path to pg_catalog, {{schema}}, public, pg_temp
 --     row's tree; without it the row is silently skipped (not raised, unlike
 --     patch_memory) so one inaccessible row can't fail a whole batch.
 --
--- Returns zero rows on a skip, else one row (id, inserted) where inserted
--- distinguishes a fresh insert (true) from a replace (false; detected via
--- xmax = 0). Embedding columns are never set here: the update triggers
--- invalidate and re-enqueue the embedding only when content actually changed,
--- so a meta-only replace does not re-embed.
+-- Returns one row (id, inserted) per insert/replace — inserted distinguishes
+-- a fresh insert (true, xmax = 0) from a replace (false); skipped rows are
+-- absent. The target-tree access check is all-or-nothing up front (one bad
+-- row raises before anything is written), and an explicit id repeated WITHIN
+-- the batch collapses to its first occurrence (a single INSERT cannot touch
+-- the same row twice); later occurrences are skipped.
+--
+-- Embedding columns are never set here: the update triggers invalidate and
+-- re-enqueue the embedding only when content actually changed, so a
+-- meta-only replace does not re-embed.
+-------------------------------------------------------------------------------
+create or replace function {{schema}}.batch_create_memory
+( _tree_access jsonb
+, _ids uuid[]                 -- null elements get a generated uuidv7
+, _trees ltree[]
+, _contents text[]
+, _metas jsonb                -- json ARRAY of meta objects; null elements default to '{}'
+, _temporals tstzrange[]
+, _replace_if_meta_differs text default null
+)
+returns table (id uuid, inserted boolean)
+as $func$
+-- The out columns (id, inserted) shadow table columns inside the body; the
+-- body never reads them as variables, so resolve ambiguity to the columns.
+#variable_conflict use_column
+begin
+  -- _metas is one jsonb array (not jsonb[]): drivers pass json values
+  -- reliably (sql.json), where a jsonb[] parameter invites double-encoded
+  -- string scalars. Elements align with the arrays by position.
+  if jsonb_typeof(_metas) is distinct from 'array'
+     or cardinality(_ids) is distinct from cardinality(_trees)
+     or cardinality(_ids) is distinct from cardinality(_contents)
+     or cardinality(_ids) is distinct from jsonb_array_length(_metas)
+     or cardinality(_ids) is distinct from cardinality(_temporals)
+  then
+    raise exception 'batch arrays must have equal lengths'
+      using errcode = 'invalid_parameter_value';
+  end if;
+
+  if exists
+  (
+    select 1
+    from unnest(_trees) t(tree)
+    where not {{schema}}.has_tree_access(_tree_access, t.tree, 2)
+  ) then
+    raise exception 'insufficient tree access'
+      using errcode = 'insufficient_privilege';
+  end if;
+
+  return query
+  with r as
+  (
+    select
+      coalesce(u.id, uuidv7()) as id
+    , u.tree
+    , coalesce(nullif(e.meta, 'null'::jsonb), '{}'::jsonb) as meta
+    , u.temporal
+    , u.content
+    , u.ord
+    from unnest(_ids, _trees, _contents, _temporals)
+         with ordinality u(id, tree, content, temporal, ord)
+    join jsonb_array_elements(_metas) with ordinality e(meta, ord)
+      on e.ord = u.ord
+  )
+  , d as
+  (
+    -- First occurrence wins when a batch repeats an explicit id.
+    select distinct on (r.id) r.*
+    from r
+    order by r.id, r.ord
+  )
+  insert into {{schema}}.memory as m
+  ( id
+  , tree
+  , meta
+  , temporal
+  , content
+  )
+  select d.id, d.tree, d.meta, d.temporal, d.content
+  from d
+  on conflict (id) do update set
+    tree = excluded.tree
+  , meta = excluded.meta
+  , temporal = excluded.temporal
+  , content = excluded.content
+  where _replace_if_meta_differs is not null
+  and m.meta->>_replace_if_meta_differs
+      is distinct from excluded.meta->>_replace_if_meta_differs
+  and {{schema}}.has_tree_access(_tree_access, m.tree, 2)
+  returning m.id, (m.xmax = 0)
+  ;
+end;
+$func$ language plpgsql volatile security invoker
+set search_path to pg_catalog, {{schema}}, public, pg_temp
+;
+
+-------------------------------------------------------------------------------
+-- create memory
+--
+-- One-row wrapper over batch_create_memory — see there for the conflict
+-- semantics (insert / replace-if-meta-differs / skip) and the return shape.
 --
 -- The drop covers the pre-upsert 6-arg signature — without it, create would
 -- add an ambiguous overload (and the return type changed). No-op on re-runs.
@@ -132,43 +230,17 @@ create or replace function {{schema}}.create_memory
 )
 returns table (id uuid, inserted boolean)
 as $func$
--- The out columns (id, inserted) shadow table columns inside the body; the
--- body never reads them as variables, so resolve ambiguity to the columns.
-#variable_conflict use_column
-begin
-  if not {{schema}}.has_tree_access(_tree_access, _tree, 2) then
-    raise exception 'insufficient tree access'
-      using errcode = 'insufficient_privilege';
-  end if;
-
-  return query
-  insert into {{schema}}.memory as m
-  ( id
-  , tree
-  , meta
-  , temporal
-  , content
-  )
-  values
-  ( coalesce(_id, uuidv7())
-  , _tree
-  , coalesce(_meta, '{}'::jsonb)
-  , _temporal
-  , _content
-  )
-  on conflict (id) do update set
-    tree = excluded.tree
-  , meta = excluded.meta
-  , temporal = excluded.temporal
-  , content = excluded.content
-  where _replace_if_meta_differs is not null
-  and m.meta->>_replace_if_meta_differs
-      is distinct from excluded.meta->>_replace_if_meta_differs
-  and {{schema}}.has_tree_access(_tree_access, m.tree, 2)
-  returning m.id, (m.xmax = 0)
-  ;
-end;
-$func$ language plpgsql volatile security invoker
+  select b.id, b.inserted
+  from {{schema}}.batch_create_memory(
+    _tree_access,
+    array[_id]::uuid[],
+    array[_tree],
+    array[_content],
+    jsonb_build_array(coalesce(_meta, '{}'::jsonb)),
+    array[_temporal],
+    _replace_if_meta_differs
+  ) b;
+$func$ language sql volatile security invoker
 set search_path to pg_catalog, {{schema}}, public, pg_temp
 ;
 

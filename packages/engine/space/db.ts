@@ -31,6 +31,17 @@ export interface SpaceStore {
     treeAccess: TreeAccess,
     params: CreateMemoryParams,
   ): Promise<{ id: string; inserted: boolean } | null>;
+  /**
+   * Set-based createMemory for a whole batch: one statement, one round
+   * trip, same per-row conflict semantics. Returns one row per
+   * insert/replace — skipped rows are absent — and an explicit id repeated
+   * within the batch collapses to its first occurrence. Atomic.
+   */
+  batchCreateMemories(
+    treeAccess: TreeAccess,
+    memories: CreateMemoryParams[],
+    replaceIfMetaDiffers?: string,
+  ): Promise<Array<{ id: string; inserted: boolean }>>;
   getMemory(treeAccess: TreeAccess, id: string): Promise<Memory | null>;
   patchMemory(
     treeAccess: TreeAccess,
@@ -134,6 +145,27 @@ export function spaceStore(sql: Sql, schema: string): SpaceStore {
       // match, no replace key, or no write access on the existing row's tree).
       if (!row) return null;
       return { id: row.id as string, inserted: Boolean(row.inserted) };
+    },
+
+    async batchCreateMemories(treeAccess, memories, replaceIfMetaDiffers) {
+      if (memories.length === 0) return [];
+      // Parallel arrays aligned by position. Metas travel as ONE jsonb array
+      // via sql.json — a jsonb[] parameter would double-encode each element
+      // into a string scalar (see the jb() note above).
+      const rows = await sql`
+        select id, inserted from ${sch}.batch_create_memory(
+          ${jb(treeAccess)},
+          ${memories.map((m) => m.id ?? null)}::uuid[],
+          ${memories.map((m) => m.tree)}::ltree[],
+          ${memories.map((m) => m.content)}::text[],
+          ${jb(memories.map((m) => m.meta ?? {}))},
+          ${memories.map((m) => m.temporal ?? null)}::tstzrange[],
+          ${replaceIfMetaDiffers ?? null}
+        )`;
+      return rows.map((r) => ({
+        id: r.id as string,
+        inserted: Boolean(r.inserted),
+      }));
     },
 
     async getMemory(treeAccess, id) {

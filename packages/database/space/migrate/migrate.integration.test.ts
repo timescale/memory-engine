@@ -40,6 +40,7 @@ const EXPECTED_TABLES = ["embedding_queue", "memory", "migration", "version"];
 const EXPECTED_MIGRATIONS = ["001_memory", "002_embedding_queue"];
 
 const EXPECTED_MEMORY_FUNCTIONS = [
+  "batch_create_memory",
   "copy_tree",
   "count_tree",
   "create_memory",
@@ -371,6 +372,99 @@ describe("provisioned schema is functional", () => {
     );
     expect(row?.content).toBe("guarded");
     expect(row?.tree).toBe("a.secret");
+  });
+
+  test("batch_create_memory upserts a whole batch in one statement", async () => {
+    const stale = "01941000-0000-7000-8000-00000000b001";
+    const fresh = "01941000-0000-7000-8000-00000000b002";
+    await createMemory(
+      `${OWNER}, 'a.batch'::ltree, 'old render', '${stale}'::uuid, '{"v": "1"}'::jsonb`,
+    );
+    await createMemory(
+      `${OWNER}, 'a.batch'::ltree, 'current', '${fresh}'::uuid, '{"v": "2"}'::jsonb`,
+    );
+
+    // One call carrying: a stale row (update), a current row (skip), a brand
+    // new row (insert), and a no-id row (insert with generated id).
+    const rows = await sql.unsafe(
+      `select * from ${canonical.schema}.batch_create_memory(
+         ${OWNER},
+         array['${stale}', '${fresh}', '01941000-0000-7000-8000-00000000b003', null]::uuid[],
+         array['a.batch', 'a.batch', 'a.batch', 'a.batch']::ltree[],
+         array['new render', 'untouched', 'added', 'generated']::text[],
+         '[{"v": "2"}, {"v": "2"}, {"v": "2"}, {"v": "2"}]'::jsonb,
+         array[null, null, null, null]::tstzrange[],
+         'v'
+       )`,
+    );
+    const byId = new Map(rows.map((r) => [r.id as string, r.inserted]));
+    expect(byId.get(stale)).toBe(false); // replaced
+    expect(byId.has(fresh)).toBe(false); // skipped → absent
+    expect(byId.get("01941000-0000-7000-8000-00000000b003")).toBe(true);
+    expect(rows).toHaveLength(3); // 2 inserts + 1 update
+
+    const [updated] = await sql.unsafe(
+      `select content from ${canonical.schema}.memory where id = '${stale}'`,
+    );
+    expect(updated?.content).toBe("new render");
+    const [skipped] = await sql.unsafe(
+      `select content from ${canonical.schema}.memory where id = '${fresh}'`,
+    );
+    expect(skipped?.content).toBe("current");
+  });
+
+  test("batch_create_memory collapses an id repeated within the batch (first wins)", async () => {
+    const id = "01941000-0000-7000-8000-00000000b010";
+    const rows = await sql.unsafe(
+      `select * from ${canonical.schema}.batch_create_memory(
+         ${OWNER},
+         array['${id}', '${id}']::uuid[],
+         array['a.batchdup', 'a.batchdup']::ltree[],
+         array['first', 'second']::text[],
+         '[{}, {}]'::jsonb,
+         array[null, null]::tstzrange[]
+       )`,
+    );
+    expect(rows).toHaveLength(1);
+    const [row] = await sql.unsafe(
+      `select content from ${canonical.schema}.memory where id = '${id}'`,
+    );
+    expect(row?.content).toBe("first");
+  });
+
+  test("batch_create_memory rejects misaligned arrays and bad target access", async () => {
+    await expectReject(() =>
+      sql.unsafe(
+        `select * from ${canonical.schema}.batch_create_memory(
+           ${OWNER},
+           array[null]::uuid[],
+           array['a.x', 'a.y']::ltree[],
+           array['one']::text[],
+           '[{}]'::jsonb,
+           array[null]::tstzrange[]
+         )`,
+      ),
+    );
+
+    // One row outside the grant fails the whole batch before any write.
+    const limited = `'[{"tree_path": "a.open", "access": 3}]'::jsonb`;
+    await expectReject(() =>
+      sql.unsafe(
+        `select * from ${canonical.schema}.batch_create_memory(
+           ${limited},
+           array[null, null]::uuid[],
+           array['a.open', 'a.secret']::ltree[],
+           array['ok', 'denied']::text[],
+           '[{}, {}]'::jsonb,
+           array[null, null]::tstzrange[]
+         )`,
+      ),
+    );
+    const [count] = await sql.unsafe(
+      `select count(*)::int as n from ${canonical.schema}.memory
+       where content in ('ok', 'denied')`,
+    );
+    expect(count?.n).toBe(0);
   });
 
   test("create_memory replace re-embeds only when content changed", async () => {

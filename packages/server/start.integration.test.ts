@@ -156,7 +156,8 @@ test("re-migrates existing space schemas on boot", async () => {
   // The tampered function was in place just before boot…
   expect(tamperedDef).toContain("stale stand-in");
   expect(tamperedDef).not.toContain("on conflict");
-  // …and boot's space sweep re-applied the idempotent SQL over it.
+  // …and boot's space sweep re-applied the idempotent SQL over it
+  // (create_memory is the one-row wrapper delegating to batch_create_memory).
   expect(bootedDef).not.toContain("stale stand-in");
-  expect(bootedDef).toContain("on conflict (id) do update");
+  expect(bootedDef).toContain("batch_create_memory");
 });

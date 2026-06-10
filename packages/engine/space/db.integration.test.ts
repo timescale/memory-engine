@@ -129,6 +129,35 @@ test("createMemory with replaceIfMetaDiffers rewrites stale rows in place", asyn
   expect(after?.meta).toEqual({ importer_version: "2" });
 });
 
+test("batchCreateMemories upserts a batch in one call", async () => {
+  const stale = "01900000-0000-7000-8000-0000000000b1";
+  const fresh = "01900000-0000-7000-8000-0000000000b2";
+  await db.batchCreateMemories(FULL, [
+    { id: stale, tree: "work.batch", content: "old", meta: { v: "1" } },
+    { id: fresh, tree: "work.batch", content: "current", meta: { v: "2" } },
+  ]);
+
+  const rows = await db.batchCreateMemories(
+    FULL,
+    [
+      { id: stale, tree: "work.batch", content: "new", meta: { v: "2" } },
+      { id: fresh, tree: "work.batch", content: "untouched", meta: { v: "2" } },
+      { tree: "work.batch", content: "generated id" },
+    ],
+    "v",
+  );
+  const byId = new Map(rows.map((r) => [r.id, r.inserted]));
+  expect(rows).toHaveLength(2); // fresh skipped → absent
+  expect(byId.get(stale)).toBe(false);
+  expect((await db.getMemory(FULL, stale))?.content).toBe("new");
+  expect((await db.getMemory(FULL, fresh))?.content).toBe("current");
+  const generated = rows.find((r) => r.id !== stale);
+  expect(generated?.inserted).toBe(true);
+  expect((await db.getMemory(FULL, generated?.id as string))?.content).toBe(
+    "generated id",
+  );
+});
+
 test("access is enforced by the tree_access argument", async () => {
   // create requires write (>=2): read-only access is rejected
   await expect(

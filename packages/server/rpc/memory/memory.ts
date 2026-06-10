@@ -199,13 +199,14 @@ async function memoryCreate(
 }
 
 /**
- * memory.batchCreate — atomic across the batch.
+ * memory.batchCreate — atomic across the batch (one set-based statement,
+ * `batch_create_memory`).
  *
  * `ids` carries the inserted memories; `updatedIds` the existing rows
- * rewritten via `replaceIfMetaDiffers` (conditional upsert in
- * create_memory). A submitted explicit id in neither array was skipped —
- * deterministic-id importers re-submit freely and classify the missing ids
- * as already imported.
+ * rewritten via `replaceIfMetaDiffers` (conditional upsert). A submitted
+ * explicit id in neither array was skipped — deterministic-id importers
+ * re-submit freely and classify the missing ids as already imported. An id
+ * repeated within one batch collapses to its first occurrence.
  */
 async function memoryBatchCreate(
   params: MemoryBatchCreateParams,
@@ -215,25 +216,25 @@ async function memoryBatchCreate(
   const ctx = context as SpaceRpcContext;
   const { store, treeAccess } = ctx;
 
-  return await guard(() =>
-    store.withTransaction(async (tx) => {
-      const ids: string[] = [];
-      const updatedIds: string[] = [];
-      for (const m of params.memories) {
-        const created = await tx.createMemory(treeAccess, {
-          id: m.id ?? undefined,
-          content: m.content,
-          meta: m.meta ?? undefined,
-          tree: inputTreePath(ctx, m.tree),
-          temporal: formatTemporal(m.temporal),
-          replaceIfMetaDiffers: params.replaceIfMetaDiffers ?? undefined,
-        });
-        if (created === null) continue;
-        (created.inserted ? ids : updatedIds).push(created.id);
-      }
-      return { ids, updatedIds };
-    }),
+  const rows = await guard(() =>
+    store.batchCreateMemories(
+      treeAccess,
+      params.memories.map((m) => ({
+        id: m.id ?? undefined,
+        content: m.content,
+        meta: m.meta ?? undefined,
+        tree: inputTreePath(ctx, m.tree),
+        temporal: formatTemporal(m.temporal),
+      })),
+      params.replaceIfMetaDiffers ?? undefined,
+    ),
   );
+  const ids: string[] = [];
+  const updatedIds: string[] = [];
+  for (const r of rows) {
+    (r.inserted ? ids : updatedIds).push(r.id);
+  }
+  return { ids, updatedIds };
 }
 
 /** memory.get */
