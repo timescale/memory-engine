@@ -254,10 +254,12 @@ describe.skipIf(!OPENAI_KEY || !process.env.TEST_DATABASE_URL)(
       expect(r.stdout).toContain("e2e@example.test");
     });
 
-    test("2. create + tree round-trip (default share namespace)", async () => {
+    test("2. create + tree round-trip (share namespace)", async () => {
       const created = await meJson<{ id: string; tree?: string }>([
         "create",
         "the quick brown fox jumps over the lazy dog",
+        "--tree",
+        "share",
       ]);
       expect(created.id).toBeTruthy();
 
@@ -279,9 +281,11 @@ describe.skipIf(!OPENAI_KEY || !process.env.TEST_DATABASE_URL)(
 
     test("4. semantic search ranks a paraphrase near the top", async () => {
       // Seed a few more memories to make ranking meaningful.
-      await meJson(["create", "a dog chased a cat across the yard"]);
-      await meJson(["create", "the stock market fell sharply on Tuesday"]);
-      await meJson(["create", "photosynthesis converts sunlight into energy"]);
+      const seed = (text: string) =>
+        meJson(["create", text, "--tree", "share"]);
+      await seed("a dog chased a cat across the yard");
+      await seed("the stock market fell sharply on Tuesday");
+      await seed("photosynthesis converts sunlight into energy");
 
       // 4 created so far in `share` (1 from scenario 2 + 3 here). Wait for the
       // worker to embed them.
@@ -312,6 +316,8 @@ describe.skipIf(!OPENAI_KEY || !process.env.TEST_DATABASE_URL)(
       const created = await meJson<{ id: string }>([
         "create",
         "ephemeral memory to edit",
+        "--tree",
+        "share",
       ]);
       const updated = await meJson<{ id: string; content: string }>([
         "memory",
