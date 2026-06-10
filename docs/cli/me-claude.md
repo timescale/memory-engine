@@ -65,7 +65,7 @@ Setup is a list of independent steps. In an interactive terminal `init` presents
 
 | Step | Skip flag | What it does |
 |------|-----------|--------------|
-| Import existing Claude Code sessions | `--skip-transcript-import` | Backfills sessions from `~/.claude/projects` — the same import as [`me import claude`](me-import.md#me-import-claude--codex--opencode). |
+| Import this project's Claude Code sessions | `--skip-transcript-import` | Backfills sessions recorded in this project (cwd at/under the repo root, temp-dir projects included) from `~/.claude/projects`. For a machine-wide backfill across all projects, run [`me import claude`](me-import.md#me-import-claude--codex--opencode). |
 | Import git commit history | `--skip-git-import` | Imports the repo's full commit history — the same import as [`me import git`](me-import.md#me-import-git). Skipped automatically when the current directory is not inside a git repo. |
 | Add a memory pointer to CLAUDE.md | `--skip-claude-md` | Upserts a managed block into the project's CLAUDE.md naming the project tree (`share.projects.<slug>`), its `agent_sessions` and `git_history` nodes, and how to search them. Idempotent — re-runs replace the block in place. |
 

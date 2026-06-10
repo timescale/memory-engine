@@ -559,9 +559,22 @@ const INIT_STEPS: InitStep[] = [
     id: "transcript-import",
     optionKey: "skipTranscriptImport",
     skipFlag: "--skip-transcript-import",
-    skipDescription: "do not import existing Claude Code sessions",
-    label: "Import existing Claude Code sessions",
-    run: ({ globalOpts }) => runAgentImport(claudeImporter, {}, globalOpts),
+    skipDescription: "do not import this project's Claude Code sessions",
+    label: "Import this project's Claude Code sessions",
+    // Init is per-project setup, so scope the backfill to sessions recorded
+    // in this repo (cwd at or under the repo root) — `me import claude`
+    // remains the machine-wide sweep. The temp-cwd filter exists to keep
+    // throwaway sessions out of bulk sweeps; with the scope pinned to the
+    // project the user is standing in, it would only veto projects that
+    // happen to live under a temp dir, so include them.
+    run: async ({ globalOpts }) => {
+      const { gitRoot } = await new SlugRegistry().resolve(process.cwd());
+      await runAgentImport(
+        claudeImporter,
+        { project: gitRoot ?? process.cwd(), includeTempCwd: true },
+        globalOpts,
+      );
+    },
   },
   {
     id: "git-import",
