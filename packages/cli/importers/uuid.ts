@@ -1,35 +1,32 @@
 /**
  * Deterministic UUIDv7 derivation for idempotent imports.
  *
- * We need stable UUIDs so that re-importing the same message collides
+ * We need stable UUIDs so that re-importing the same record collides
  * with the existing row in the database and becomes a no-op. Regular
  * UUIDv7 is random, so we derive a deterministic variant:
  *
- * - 48 bits: Unix ms timestamp (message timestamp) — keeps chronological sort
+ * - 48 bits: Unix ms timestamp (record timestamp) — keeps chronological sort
  * - 4 bits:  version = 7
- * - 12 bits: rand_a ← SHA-256(tool + ':' + sessionId + ':' + messageId), bits 0..11
+ * - 12 bits: rand_a ← SHA-256(key), bits 0..11
  * - 2 bits:  variant = 10
- * - 62 bits: rand_b ← SHA-256(tool + ':' + sessionId + ':' + messageId), bits 12..73
+ * - 62 bits: rand_b ← SHA-256(key), bits 12..73
  *
  * The result passes the `uuid_extract_version(id) = 7` check in the engine's
- * memory schema, sorts by message time, and is stable across re-imports of
+ * memory schema, sorts by record time, and is stable across re-imports of
  * the same source data.
  */
 import { createHash } from "node:crypto";
 import type { SourceTool } from "./types.ts";
 
 /**
- * Compute a deterministic UUIDv7 from `(tool, sessionId, messageId, timestampMs)`.
+ * Compute a deterministic UUIDv7 from an identity `key` and a timestamp.
  *
  * Same inputs always return the same UUID; different inputs produce
- * different UUIDs (cryptographically, with SHA-256).
+ * different UUIDs (cryptographically, with SHA-256). Each importer owns
+ * its key format (messages: `tool:sessionId:messageId`; git commits:
+ * `git:<tree>:<sha>`) — keys must be namespaced so importers can't collide.
  */
-export function deterministicMessageUuidV7(
-  tool: SourceTool,
-  sessionId: string,
-  messageId: string,
-  timestampMs: number,
-): string {
+export function deterministicUuidV7(key: string, timestampMs: number): string {
   // 16 bytes = 128 bits.
   const bytes = new Uint8Array(16);
 
@@ -42,11 +39,9 @@ export function deterministicMessageUuidV7(
   bytes[4] = Math.floor(ts / 2 ** 8) & 0xff;
   bytes[5] = ts & 0xff;
 
-  // SHA-256 over "tool:sessionId:messageId" gives 32 bytes of deterministic
-  // pseudo-random. We only need 74 bits (12 + 62) so 10 bytes is plenty.
-  const digest = createHash("sha256")
-    .update(`${tool}:${sessionId}:${messageId}`, "utf8")
-    .digest();
+  // SHA-256 over the key gives 32 bytes of deterministic pseudo-random.
+  // We only need 74 bits (12 + 62) so 10 bytes is plenty.
+  const digest = createHash("sha256").update(key, "utf8").digest();
 
   // Bytes 6..7: version (4 bits = 0x7) + rand_a (12 bits).
   const randA = ((digest[0] ?? 0) << 8) | (digest[1] ?? 0);
@@ -61,6 +56,19 @@ export function deterministicMessageUuidV7(
   }
 
   return bytesToUuid(bytes);
+}
+
+/**
+ * Compute a deterministic UUIDv7 from `(tool, sessionId, messageId, timestampMs)`.
+ * The message-import key format; see `deterministicUuidV7`.
+ */
+export function deterministicMessageUuidV7(
+  tool: SourceTool,
+  sessionId: string,
+  messageId: string,
+  timestampMs: number,
+): string {
+  return deterministicUuidV7(`${tool}:${sessionId}:${messageId}`, timestampMs);
 }
 
 /** Format 16 bytes as a canonical UUID string. */

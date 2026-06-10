@@ -921,7 +921,12 @@ export function createMemoryCommand(): Command {
 /**
  * The memory subcommands as top-level aliases (`me search`, `me create`, …) so
  * the `memory` word is optional for the common data-plane operations.
+ *
+ * `import` is excluded: the top-level `import` name belongs to the
+ * `me import` source group (see commands/import-group.ts), where the file
+ * importer lives as `me import memories`. `me memory import` remains its
+ * alias.
  */
 export function createMemoryAliasCommands(): Command[] {
-  return memorySubcommands();
+  return memorySubcommands().filter((c) => c.name() !== "import");
 }

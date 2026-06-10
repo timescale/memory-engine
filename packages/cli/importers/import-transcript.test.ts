@@ -72,7 +72,7 @@ function importerFor(session: ImportedSession | null): Importer {
   };
 }
 
-/** An importer whose discoverSessions yields one fixed session (the `me import` path). */
+/** An importer whose discoverSessions yields one fixed session (the `me import claude` path). */
 function discoverImporter(session: ImportedSession): Importer {
   return {
     tool: "claude",
@@ -158,11 +158,11 @@ describe("importTranscriptFile", () => {
     expect(store.size).toBe(4);
   });
 
-  // The hook (importTranscriptFile) and `me import` (runImport) must be
+  // The hook (importTranscriptFile) and `me import claude` (runImport) must be
   // idempotent w.r.t. each other: both derive the same tree + deterministic ids
   // from the same parse, so importing a session via one path and then the other
   // inserts nothing the second time. Guards the shared-derivation assumption.
-  test("hook capture then `me import` over the same session is a no-op", async () => {
+  test("hook capture then `me import claude` over the same session is a no-op", async () => {
     const { client, store } = mockEngine();
     const s = session(["a", "b", "c"]);
 
@@ -180,7 +180,7 @@ describe("importTranscriptFile", () => {
     expect(store.size).toBe(3);
   });
 
-  test("`me import` then hook capture over the same session is a no-op", async () => {
+  test("`me import claude` then hook capture over the same session is a no-op", async () => {
     const { client, store } = mockEngine();
     const s = session(["a", "b", "c"]);
 

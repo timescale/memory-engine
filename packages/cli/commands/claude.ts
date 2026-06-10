@@ -41,6 +41,7 @@ import {
 import { createMemoryClient } from "../client.ts";
 import { resolveCredentials } from "../credentials.ts";
 import { claudeImporter } from "../importers/claude.ts";
+import { GIT_HISTORY_NODE_NAME } from "../importers/git.ts";
 import {
   DEFAULT_SESSIONS_NODE_NAME,
   DEFAULT_TREE_ROOT,
@@ -52,7 +53,8 @@ import {
   runAgentMcpInstall,
 } from "../mcp/agent-install.ts";
 import { getOutputFormat } from "../output.ts";
-import { buildAgentImportSubcommand, runAgentImport } from "./import.ts";
+import { createClaudeImportCommand, runAgentImport } from "./import.ts";
+import { runGitImport } from "./import-git.ts";
 
 /** GitHub source for `claude plugin marketplace add`. */
 const PLUGIN_MARKETPLACE_SOURCE = "timescale/memory-engine";
@@ -354,7 +356,7 @@ async function runClaudePluginInstall(
  * Reads the event JSON from stdin for the `transcript_path`, resolves config
  * from the CLAUDE_PLUGIN_OPTION_* env vars (falling back to the `me login`
  * session when no api_key is configured), and runs the transcript through
- * `importTranscriptFile` — the same parse + write as `me import`, incremental so
+ * `importTranscriptFile` — the same parse + write as `me import claude`, incremental so
  * each call only writes messages new since the last.
  *
  * Best-effort: logs failures to stderr but always exits 0 so that a hook
@@ -409,7 +411,7 @@ function createClaudeHookCommand(): Command {
         process.exit(0);
       }
 
-      // Import the transcript (incremental; same path as `me import`).
+      // Import the transcript (incremental; same path as `me import claude`).
       try {
         const client = createMemoryClient({
           url: config.server,
@@ -451,6 +453,7 @@ const DIM_OFF = "\x1b[22m";
  */
 function buildClaudeMdSection(projectTree: string, space?: string): string {
   const sessions = `${projectTree}.${DEFAULT_SESSIONS_NODE_NAME}`;
+  const gitHistory = `${projectTree}.${GIT_HISTORY_NODE_NAME}`;
   const where = space ? `Memory Engine (space \`${space}\`)` : "Memory Engine";
   return [
     CLAUDE_MD_START,
@@ -462,6 +465,7 @@ function buildClaudeMdSection(projectTree: string, space?: string): string {
     `    ${projectTree}`,
     "",
     `- Captured & imported agent sessions: \`${sessions}\``,
+    `- Imported git commit history: \`${gitHistory}\``,
     `- Search them with the \`me_memory_search\` MCP tool (set \`tree\` to`,
     `  \`${projectTree}\`), or from a shell: \`me search "<query>" --tree ${projectTree}\`.`,
     "",
@@ -560,6 +564,14 @@ const INIT_STEPS: InitStep[] = [
     run: ({ globalOpts }) => runAgentImport(claudeImporter, {}, globalOpts),
   },
   {
+    id: "git-import",
+    optionKey: "skipGitImport",
+    skipFlag: "--skip-git-import",
+    skipDescription: "do not import the repo's git commit history",
+    label: "Import git commit history",
+    run: ({ globalOpts }) => runGitImport({ skipIfNotRepo: true }, globalOpts),
+  },
+  {
     id: "claude-md",
     optionKey: "skipClaudeMd",
     skipFlag: "--skip-claude-md",
@@ -633,12 +645,6 @@ export function createClaudeCommand(): Command {
   claude.addCommand(createClaudeInstallCommand());
   claude.addCommand(createClaudeInitCommand());
   claude.addCommand(createClaudeHookCommand());
-  claude.addCommand(
-    buildAgentImportSubcommand(
-      "import Claude Code sessions from ~/.claude/projects",
-      claudeImporter,
-      true,
-    ),
-  );
+  claude.addCommand(createClaudeImportCommand());
   return claude;
 }

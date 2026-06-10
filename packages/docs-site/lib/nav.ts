@@ -34,6 +34,7 @@ export const NAV: NavSection[] = [
       { label: "me whoami", slug: "cli/me-whoami" },
       { label: "me space", slug: "cli/me-space" },
       { label: "me memory", slug: "cli/me-memory" },
+      { label: "me import", slug: "cli/me-import" },
       { label: "me mcp", slug: "cli/me-mcp" },
       { label: "me claude", slug: "cli/me-claude" },
       { label: "me codex", slug: "cli/me-codex" },

@@ -16,6 +16,7 @@ import { createClaudeCommand } from "./commands/claude.ts";
 import { createCodexCommand } from "./commands/codex.ts";
 import { createGeminiCommand } from "./commands/gemini.ts";
 import { createGroupCommand } from "./commands/group.ts";
+import { createImportCommand } from "./commands/import-group.ts";
 import { createLoginCommand } from "./commands/login.ts";
 import { createLogoutCommand } from "./commands/logout.ts";
 import { createMcpCommand } from "./commands/mcp.ts";
@@ -74,6 +75,9 @@ program.addCommand(createApiKeyCommand());
 // Memory commands — both as `me memory <cmd>` and top-level aliases (`me search`)
 program.addCommand(createMemoryCommand());
 for (const c of createMemoryAliasCommands()) program.addCommand(c);
+
+// Import group — one subcommand per source (`me import memories|claude|codex|opencode|git`)
+program.addCommand(createImportCommand());
 
 // MCP server
 program.addCommand(createMcpCommand());

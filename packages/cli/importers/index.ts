@@ -47,7 +47,7 @@ export const IMPORTER_VERSION = "1";
 const SEARCH_PAGE_LIMIT = 1000;
 
 /**
- * Default capture layout, shared by `me import` and the Claude Code capture
+ * Default capture layout, shared by `me import claude` and the Claude Code capture
  * hook so live + imported sessions land in the same place:
  * `<DEFAULT_TREE_ROOT>.<project_slug>.<DEFAULT_SESSIONS_NODE_NAME>`. Under
  * `share` so a session-authenticated user (owner@share, not arbitrary top-level
@@ -180,7 +180,7 @@ export async function runImport(
 
 /**
  * Import a single transcript file — the live-capture path used by the Claude
- * Code hook. Reuses the same parse + render + write as `me import`, so live
+ * Code hook. Reuses the same parse + render + write as `me import claude`, so live
  * captures and bulk imports produce identical memories (tree, ids, `source_*`
  * metadata).
  *
@@ -246,11 +246,12 @@ export async function importTranscriptFile(
           delta.map((d) => d.payload),
         );
         if (errors.length === 0) {
+          // An already-present id (non-monotonic transcript) is silently
+          // skipped server-side, so inserted may be < delta.length.
           outcome.inserted += insertedIds.length;
           return outcome;
         }
-        // Partial failure (e.g. an already-present id from a non-monotonic
-        // transcript) → fall through to the full reconcile for correctness.
+        // A failed chunk → fall through to the full reconcile for correctness.
       } catch {
         // Unexpected write error → reconcile.
       }

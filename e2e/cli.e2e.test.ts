@@ -438,8 +438,9 @@ describe.skipIf(!OPENAI_KEY || !process.env.TEST_DATABASE_URL)(
       expect(await countBySession(newSession)).toBe(4);
       expect(await countBySession(oldSession)).toBe(0);
 
-      // 3. Run `me claude import`.
-      const imp = await me(["claude", "import", "--source", root]);
+      // 3. Run the import (canonical spelling; test 9 covers the
+      //    `me claude import` alias).
+      const imp = await me(["import", "claude", "--source", root]);
       expect(imp.code, imp.stderr).toBe(0);
 
       // 4. The pre-install work is now backfilled, and the hook's live capture
@@ -510,6 +511,7 @@ describe.skipIf(!OPENAI_KEY || !process.env.TEST_DATABASE_URL)(
       expect(claudeMd).toContain("memory-engine:start");
       expect(claudeMd).toContain("share.projects.initcwd");
       expect(claudeMd).toContain("share.projects.initcwd.agent_sessions");
+      expect(claudeMd).toContain("share.projects.initcwd.git_history");
 
       // Re-running is idempotent: still exactly one managed block.
       const init2 = await me(["claude", "init"], undefined, projectDir);
@@ -584,6 +586,174 @@ describe.skipIf(!OPENAI_KEY || !process.env.TEST_DATABASE_URL)(
       await rm(b.root, { recursive: true, force: true });
     });
 
+    // Run git in `dir`, isolated from the developer's git config (gpg
+    // signing, hooks, templates), with deterministic commit dates.
+    async function git(
+      dir: string,
+      args: string[],
+      dateIso?: string,
+    ): Promise<void> {
+      const proc = Bun.spawn(
+        [
+          "git",
+          "-C",
+          dir,
+          "-c",
+          "user.name=E2E",
+          "-c",
+          "user.email=e2e@example.test",
+          "-c",
+          "commit.gpgsign=false",
+          ...args,
+        ],
+        {
+          env: {
+            ...process.env,
+            GIT_CONFIG_GLOBAL: "/dev/null",
+            GIT_CONFIG_SYSTEM: "/dev/null",
+            ...(dateIso
+              ? { GIT_AUTHOR_DATE: dateIso, GIT_COMMITTER_DATE: dateIso }
+              : {}),
+          },
+          stdout: "pipe",
+          stderr: "pipe",
+        },
+      );
+      const code = await proc.exited;
+      if (code !== 0) {
+        const stderr = await new Response(proc.stderr).text();
+        throw new Error(`git ${args.join(" ")} failed: ${stderr}`);
+      }
+    }
+
+    test("8d. `me import git` imports commit history, idempotently and incrementally", async () => {
+      // A real repo with a known-basename root so the slug (no remote →
+      // basename) and therefore the tree are predictable.
+      const root = await mkdtemp(join(tmpdir(), "me-e2e-git-"));
+      const name = `gitproj${rand()}`;
+      const repo = join(root, name);
+      await mkdir(repo, { recursive: true });
+      const tree = `share.projects.${name}.git_history`;
+
+      await git(repo, ["init", "-q", "-b", "main"]);
+      const commitFile = async (file: string, msg: string, dateIso: string) => {
+        await writeFile(join(repo, file), `${msg}\n`);
+        await git(repo, ["add", "."], dateIso);
+        await git(repo, ["commit", "-q", "-m", msg], dateIso);
+      };
+      await commitFile("a.txt", "feat: add a", "2026-05-01T10:00:00Z");
+      await commitFile("b.txt", "fix: adjust b", "2026-05-02T10:00:00Z");
+      await commitFile("c.txt", "docs: describe c", "2026-05-03T10:00:00Z");
+
+      // 1. First import: all three commits land under the project tree.
+      const first = await meJson<{
+        inserted: number;
+        commitsWalked: number;
+        tree: string;
+      }>(["import", "git", repo]);
+      expect(first.tree).toBe(tree);
+      expect(first.commitsWalked).toBe(3);
+      expect(first.inserted).toBe(3);
+      expect(await countUnder(tree)).toBe(3);
+
+      // Spot-check one record's shape: type/sha meta + commit-date temporal +
+      // file list in the content.
+      const [row] = await sql.unsafe(
+        `select content, meta from metest_${spaceSlug}.memory
+         where tree = $1::ltree and content like 'fix: adjust b%'`,
+        [tree],
+      );
+      expect(row?.meta?.type).toBe("git_commit");
+      expect(row?.meta?.sha).toMatch(/^[0-9a-f]{40}$/);
+      expect(row?.meta?.author_email).toBe("e2e@example.test");
+      expect(row?.content).toContain("Files:");
+      expect(row?.content).toContain("b.txt (+1 -0)");
+
+      // 2. Plain re-run: the high-water commit is HEAD → incremental walk of
+      //    an empty range; nothing re-sent, nothing duplicated.
+      const rerun = await meJson<{ inserted: number; commitsWalked: number }>([
+        "import",
+        "git",
+        repo,
+      ]);
+      expect(rerun.commitsWalked).toBe(0);
+      expect(rerun.inserted).toBe(0);
+      expect(await countUnder(tree)).toBe(3);
+
+      // 3. --full re-run: walks everything; deterministic ids make the server
+      //    skip every row (`ON CONFLICT DO NOTHING`).
+      const full = await meJson<{
+        inserted: number;
+        skipped: number;
+        commitsWalked: number;
+      }>(["import", "git", "--full", repo]);
+      expect(full.commitsWalked).toBe(3);
+      expect(full.inserted).toBe(0);
+      expect(full.skipped).toBe(3);
+      expect(await countUnder(tree)).toBe(3);
+
+      // 4. New work: one regular commit + one body-less merge. The next plain
+      //    run walks only the new range, imports the commit, and drops the
+      //    boilerplate merge.
+      await git(repo, ["checkout", "-q", "-b", "feat"], undefined);
+      await commitFile("d.txt", "feat: add d", "2026-05-04T10:00:00Z");
+      await git(repo, ["checkout", "-q", "main"]);
+      await git(
+        repo,
+        ["merge", "-q", "--no-ff", "feat", "-m", "Merge branch 'feat'"],
+        "2026-05-05T10:00:00Z",
+      );
+      const incr = await meJson<{
+        inserted: number;
+        commitsWalked: number;
+        skippedMerges: number;
+        range?: string;
+      }>(["import", "git", repo]);
+      expect(incr.range).toMatch(/^[0-9a-f]{40}\.\.HEAD$/);
+      expect(incr.commitsWalked).toBe(2);
+      expect(incr.inserted).toBe(1);
+      expect(incr.skippedMerges).toBe(1);
+      expect(await countUnder(tree)).toBe(4);
+
+      await rm(root, { recursive: true, force: true });
+    });
+
+    test("8e. `me claude init` runs the git step; --skip-git-import suppresses it", async () => {
+      const root = await mkdtemp(join(tmpdir(), "me-e2e-gitinit-"));
+      const name = `gitinit${rand()}`;
+      const repo = join(root, name);
+      await mkdir(repo, { recursive: true });
+      const tree = `share.projects.${name}.git_history`;
+
+      await git(repo, ["init", "-q", "-b", "main"]);
+      await writeFile(join(repo, "x.txt"), "x\n");
+      await git(repo, ["add", "."], "2026-05-01T10:00:00Z");
+      await git(
+        repo,
+        ["commit", "-q", "-m", "feat: initial"],
+        "2026-05-01T10:00:00Z",
+      );
+
+      // --skip-git-import: no commit memories.
+      const skipped = await me(
+        ["claude", "init", "--skip-git-import"],
+        undefined,
+        repo,
+      );
+      expect(skipped.code, skipped.stderr).toBe(0);
+      expect(await countUnder(tree)).toBe(0);
+
+      // Plain init (non-interactive baseline) imports the repo's history and
+      // the CLAUDE.md pointer names the git_history node.
+      const init = await me(["claude", "init"], undefined, repo);
+      expect(init.code, init.stderr).toBe(0);
+      expect(await countUnder(tree)).toBe(1);
+      const claudeMd = await readFile(join(repo, "CLAUDE.md"), "utf8");
+      expect(claudeMd).toContain(`${tree}\``);
+
+      await rm(root, { recursive: true, force: true });
+    });
+
     test("9. claude capture hook ↔ `me claude import` are cross-idempotent", async () => {
       // A minimal Claude Code session transcript on disk. The importer scans
       // <source>/<project-dir>/*.jsonl; the hook reads the file directly.
@@ -643,6 +813,32 @@ describe.skipIf(!OPENAI_KEY || !process.env.TEST_DATABASE_URL)(
       expect(await countUnder(tree)).toBe(4);
 
       await rm(root, { recursive: true, force: true });
+    });
+
+    test("9b. `me import` group: no bare default, memories ≡ memory import", async () => {
+      // Bare `me import` is a group, not the old file-import alias: it prints
+      // the subcommand list and exits non-zero.
+      const bare = await me(["import"]);
+      expect(bare.code).not.toBe(0);
+      expect(bare.stdout + bare.stderr).toContain("memories");
+
+      // Old muscle memory `me import <file>` no longer parses.
+      const fileArg = await me(["import", "nosuch.md"]);
+      expect(fileArg.code).not.toBe(0);
+      expect(fileArg.stderr).toContain("unknown command");
+
+      // The file importer lives at `me import memories`, with
+      // `me memory import` as its alias — both write the same records.
+      const record = (i: number) =>
+        JSON.stringify({
+          content: `import group probe ${i}`,
+          tree: "share.importgroup",
+        });
+      const viaGroup = await meStdin(["import", "memories", "-"], record(1));
+      expect(viaGroup.code, viaGroup.stderr).toBe(0);
+      const viaAlias = await meStdin(["memory", "import", "-"], record(2));
+      expect(viaAlias.code, viaAlias.stderr).toBe(0);
+      expect(await countUnder("share.importgroup")).toBe(2);
     });
 
     test("10. failure modes: bad space and missing auth exit non-zero", async () => {

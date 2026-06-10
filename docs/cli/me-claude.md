@@ -5,6 +5,7 @@ Claude Code integration commands.
 ## Commands
 
 - [me claude install](#me-claude-install) -- install the Memory Engine plugin for Claude Code (full plugin by default, `--mcp-only` for just the MCP server)
+- [me claude init](#me-claude-init) -- one-shot setup: backfill sessions, import git history, record the project's memory location in CLAUDE.md
 - [me claude hook](#me-claude-hook) -- invoked by the Claude Code plugin to capture events as memories
 - [me claude import](#me-claude-import) -- import Claude Code sessions from `~/.claude/projects`
 
@@ -52,6 +53,26 @@ For manual MCP client configuration, see [MCP Integration](../mcp-integration.md
 
 ---
 
+## me claude init
+
+One-shot setup of Claude Code memory integration for the current project.
+
+```
+me claude init [options]
+```
+
+Setup is a list of independent steps. In an interactive terminal `init` presents a multiselect of all steps (each pre-checked) so you can deselect any; non-interactively it runs every step except those turned off by a `--skip-<step>` flag.
+
+| Step | Skip flag | What it does |
+|------|-----------|--------------|
+| Import existing Claude Code sessions | `--skip-transcript-import` | Backfills sessions from `~/.claude/projects` — the same import as [`me import claude`](me-import.md#me-import-claude--codex--opencode). |
+| Import git commit history | `--skip-git-import` | Imports the repo's full commit history — the same import as [`me import git`](me-import.md#me-import-git). Skipped automatically when the current directory is not inside a git repo. |
+| Add a memory pointer to CLAUDE.md | `--skip-claude-md` | Upserts a managed block into the project's CLAUDE.md naming the project tree (`share.projects.<slug>`), its `agent_sessions` and `git_history` nodes, and how to search them. Idempotent — re-runs replace the block in place. |
+
+Re-running `init` is safe: both imports are incremental/idempotent and the CLAUDE.md block is replaced, not duplicated.
+
+---
+
 ## me claude hook
 
 Invoked by the Claude Code plugin on `Stop` (each turn) and `SessionEnd`. Reads the `transcript_path` from the event JSON on stdin, resolves config from `CLAUDE_PLUGIN_OPTION_*` env vars (falling back to your `me login` session), and imports the session transcript — the same parse + write as [`me … import`](agent-session-imports.md), incremental so each call only writes messages new since the last.
@@ -83,7 +104,7 @@ Best-effort: logs failures to stderr but always exits 0 so that a hook failure n
 
 ## me claude import
 
-Import Claude Code sessions from `~/.claude/projects/<encoded-cwd>/<session>.jsonl`.
+Import Claude Code sessions from `~/.claude/projects/<encoded-cwd>/<session>.jsonl`. This is an alias of [`me import claude`](me-import.md#me-import-claude--codex--opencode).
 
 ```
 me claude import [options]

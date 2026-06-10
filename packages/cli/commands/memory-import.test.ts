@@ -1,5 +1,5 @@
 /**
- * Tests for `me memory import` helpers.
+ * Tests for `me import memories` (alias `me memory import`) helpers.
  *
  * The skip-detection helper exists because `engine.memory.batchCreate`
  * silently drops conflicting ids (post-#64). Memory import — unlike pack

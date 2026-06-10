@@ -3,7 +3,7 @@
  *
  * Capture itself is the import path: the hook reads the session transcript and
  * runs it through `importTranscriptFile` (packages/cli/importers), so live
- * captures and `me import` produce identical memories (tree, ids, `source_*`
+ * captures and `me import claude` produce identical memories (tree, ids, `source_*`
  * metadata). This module only resolves the runtime config (bearer + space +
  * tree root + content mode) and types the slice of the hook event payload we
  * read. The orchestration lives in `commands/claude.ts` (`me claude hook`).
@@ -15,7 +15,7 @@ import {
 
 export const DEFAULT_SERVER = "https://api.memory.build";
 
-/** Per-project sessions leaf, shared with `me import`. */
+/** Per-project sessions leaf, shared with `me import claude`. */
 export const SESSIONS_NODE = DEFAULT_SESSIONS_NODE_NAME;
 
 /**

@@ -89,8 +89,8 @@ export function computeSkippedIds(
   return explicitIds.filter((id) => !inserted.has(id));
 }
 
-export function createMemoryImportCommand(): Command {
-  return new Command("import")
+export function createMemoryImportCommand(name = "import"): Command {
+  return new Command(name)
     .description("import memories from files or stdin")
     .argument("[files...]", "files to import (use - for stdin)")
     .option("--format <format>", "override format detection (md|yaml|json)")

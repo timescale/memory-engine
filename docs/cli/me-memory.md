@@ -213,7 +213,7 @@ Moves all memories under the source prefix to the destination, preserving subtre
 
 ## me memory import
 
-Import memories from files or stdin.
+Import memories from files or stdin. This is an alias of [`me import memories`](me-import.md#me-import-memories) (unlike the other memory subcommands, `import` has no bare top-level alias — the top-level `me import` is the [import group](me-import.md)).
 
 ```
 me memory import [files...] [options]

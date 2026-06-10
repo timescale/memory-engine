@@ -1,8 +1,8 @@
 /**
- * Tests for deterministic per-message UUIDv7 derivation.
+ * Tests for deterministic UUIDv7 derivation.
  */
 import { describe, expect, test } from "bun:test";
-import { deterministicMessageUuidV7 } from "./uuid.ts";
+import { deterministicMessageUuidV7, deterministicUuidV7 } from "./uuid.ts";
 
 const UUIDV7_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -102,5 +102,24 @@ describe("deterministicMessageUuidV7", () => {
     expect(id.charAt(14)).toBe("7");
     // Position 19 = variant high nibble; top 2 bits must be 10 → hex 8/9/a/b.
     expect(["8", "9", "a", "b"]).toContain(id.charAt(19));
+  });
+
+  test("equals deterministicUuidV7 over the tool:session:message key", () => {
+    // The message variant is a thin wrapper; the key format is load-bearing
+    // for ids already written to engines, so lock it down.
+    const ts = 1_700_000_000_000;
+    expect(deterministicMessageUuidV7("claude", "abc", "m1", ts)).toBe(
+      deterministicUuidV7("claude:abc:m1", ts),
+    );
+  });
+});
+
+describe("deterministicUuidV7", () => {
+  test("namespaced keys produce distinct ids at the same timestamp", () => {
+    const ts = 1_700_000_000_000;
+    const a = deterministicUuidV7("git:share.projects.x.git_history:abc", ts);
+    const b = deterministicUuidV7("git:share.projects.y.git_history:abc", ts);
+    expect(a).toMatch(UUIDV7_RE);
+    expect(a).not.toBe(b);
   });
 });

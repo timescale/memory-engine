@@ -31,7 +31,7 @@ For manual MCP client configuration, see [MCP Integration](../mcp-integration.md
 
 ## me codex import
 
-Import Codex sessions from `~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl` and `~/.codex/archived_sessions/*.jsonl`.
+Import Codex sessions from `~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl` and `~/.codex/archived_sessions/*.jsonl`. This is an alias of [`me import codex`](me-import.md#me-import-claude--codex--opencode).
 
 ```
 me codex import [options]

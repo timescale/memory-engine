@@ -1053,6 +1053,18 @@ async function phase5_memory(): Promise<void> {
     expectEq(json.failed, 0, "failed count");
   });
 
+  // Canonical spelling of the same command (`me memory import` is its alias).
+  await step("me import memories (--dry-run)", async () => {
+    const { json } = await runJson<{ wouldImport: number; dryRun: boolean }>([
+      "import",
+      "memories",
+      join(fixturesDir, "sample.md"),
+      "--dry-run",
+    ]);
+    expectEq(json.dryRun, true, "dryRun");
+    expectEq(json.wouldImport, 1, "wouldImport");
+  });
+
   await step("me memory import (recursive --dry-run)", async () => {
     // exclude the pack yaml from the picture by importing only the
     // sample files via the directory recursion.

@@ -1,16 +1,16 @@
 # Agent session imports
 
-Shared reference for the per-agent `import` subcommands:
+Shared reference for the agent-session import subcommands:
 
-- [`me claude import`](me-claude.md#me-claude-import)
-- [`me codex import`](me-codex.md#me-codex-import)
-- [`me opencode import`](me-opencode.md#me-opencode-import)
+- `me import claude` ([`me claude import`](me-claude.md#me-claude-import) is its alias)
+- `me import codex` ([`me codex import`](me-codex.md#me-codex-import) is its alias)
+- `me import opencode` ([`me opencode import`](me-opencode.md#me-opencode-import) is its alias)
 
 Each source-native message becomes one memory. Re-running the same command only inserts newly-seen messages (deterministic UUIDs make re-imports idempotent).
 
 ## Shared options
 
-All three subcommands accept the same flags (with one extra flag on `me claude import`).
+All three subcommands accept the same flags (with one extra flag on the Claude importer).
 
 | Option | Description |
 |--------|-------------|

@@ -1,12 +1,13 @@
 /**
- * Shared helpers for the per-agent `import` subcommands.
+ * Shared helpers for the agent-session import subcommands.
  *
- * Each agent command group (`me claude`, `me codex`, `me opencode`) adds its
- * own `import` subcommand via `buildAgentImportSubcommand`. Each source-native
- * message becomes one memory, stored under
- * `<tree-root>.<project_slug>.<sessions-node-name>`.
+ * Each agent importer is exposed twice: canonically under the import group
+ * (`me import claude|codex|opencode`) and as an alias under its agent command
+ * group (`me claude import`, …) — both built from the same per-tool factory
+ * (`createClaudeImportCommand`, …). Each source-native message becomes one
+ * memory, stored under `<tree-root>.<project_slug>.<sessions-node-name>`.
  *
- * Shared flags across every `import` subcommand:
+ * Shared flags across every agent import subcommand:
  *   --source <dir>           override default source directory
  *   --project <cwd>          only import sessions with this cwd (or a child)
  *   --since <iso>            only sessions started at/after this timestamp
@@ -25,6 +26,8 @@
 import * as clack from "@clack/prompts";
 import { Command } from "commander";
 import { resolveCredentials } from "../credentials.ts";
+import { claudeImporter } from "../importers/claude.ts";
+import { codexImporter } from "../importers/codex.ts";
 import {
   createProgressReporter,
   DEFAULT_SESSIONS_NODE_NAME,
@@ -34,6 +37,7 @@ import {
   runImport,
   type WriteOptions,
 } from "../importers/index.ts";
+import { opencodeImporter } from "../importers/opencode.ts";
 import type { ImporterOptions } from "../importers/types.ts";
 import { getOutputFormat, output } from "../output.ts";
 import {
@@ -44,12 +48,12 @@ import {
 } from "../util.ts";
 
 // Default capture layout (share.projects.<slug>.agent_sessions) lives in the
-// importers module so `me import` and the Claude Code hook share one source.
+// importers module so `me import <tool>` and the Claude Code hook share one source.
 // Lenient user-facing tree-path input (matches the protocol's treePathSchema):
 // labels [A-Za-z0-9_-], `.` or `/` separators, optional leading `~` (home). The
 // server normalizes + authoritatively validates; this is a fast pre-check so a
 // `--tree-root ~/work` or `~` lands in the caller's home instead of being rejected.
-const VALID_TREE_ROOT_RE = /^[A-Za-z0-9_~./-]+$/;
+export const VALID_TREE_ROOT_RE = /^[A-Za-z0-9_~./-]+$/;
 const VALID_TREE_LABEL_RE = /^[a-z0-9_]+$/;
 
 /** Build a Commander option set shared by every subcommand. */
@@ -312,20 +316,54 @@ function renderResult(
 }
 
 /**
- * Build an `import` subcommand bound to a specific importer. Each agent
- * command group (`me claude`, `me codex`, `me opencode`) calls this to add
- * its own `import` subcommand.
+ * Build a subcommand bound to a specific importer. Each importer is
+ * registered twice: under the `me import` group as `me import <tool>` (its
+ * canonical spelling) and under the agent's command group as the
+ * `me <tool> import` alias — hence the `name` parameter.
  */
-export function buildAgentImportSubcommand(
+function buildAgentImportSubcommand(
   description: string,
   importer: Importer,
   includeSidechainsFlag = false,
+  name = "import",
 ): Command {
-  const cmd = new Command("import").description(description);
+  const cmd = new Command(name).description(description);
   addCommonOptions(cmd, includeSidechainsFlag);
   cmd.action(async (opts, cmdRef) => {
     const globalOpts = cmdRef.optsWithGlobals();
     await runAgentImport(importer, opts, globalOpts);
   });
   return cmd;
+}
+
+/**
+ * Per-tool import subcommand factories. Each owns its importer wiring +
+ * description in one place so both registrations (`me import <tool>` and the
+ * `me <tool> import` alias) stay identical.
+ */
+export function createClaudeImportCommand(name = "import"): Command {
+  return buildAgentImportSubcommand(
+    "import Claude Code sessions from ~/.claude/projects",
+    claudeImporter,
+    true,
+    name,
+  );
+}
+
+export function createCodexImportCommand(name = "import"): Command {
+  return buildAgentImportSubcommand(
+    "import Codex sessions from ~/.codex/sessions and archived_sessions",
+    codexImporter,
+    false,
+    name,
+  );
+}
+
+export function createOpenCodeImportCommand(name = "import"): Command {
+  return buildAgentImportSubcommand(
+    "import OpenCode sessions from ~/.local/share/opencode/storage",
+    opencodeImporter,
+    false,
+    name,
+  );
 }

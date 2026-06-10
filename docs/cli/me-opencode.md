@@ -31,7 +31,7 @@ For manual MCP client configuration, see [MCP Integration](../mcp-integration.md
 
 ## me opencode import
 
-Import OpenCode sessions from `~/.local/share/opencode/storage/`.
+Import OpenCode sessions from `~/.local/share/opencode/storage/`. This is an alias of [`me import opencode`](me-import.md#me-import-claude--codex--opencode).
 
 ```
 me opencode import [options]
