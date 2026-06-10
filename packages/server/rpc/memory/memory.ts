@@ -348,10 +348,14 @@ async function memorySearch(
       ? 1 - params.semanticThreshold
       : undefined;
 
+  // Classify the tree filter so a wildcard (`foo.*`) binds to lquery and a
+  // boolean label search (`a & b`) to ltxtquery, rather than all casting to
+  // ltree (which throws on query syntax).
+  const treeFilter = params.tree ? inputTreeFilter(ctx, params.tree) : null;
   const filters = {
-    ltree: params.tree
-      ? inputTreeFilter(ctx, params.tree) || undefined
-      : undefined,
+    ltree: treeFilter?.kind === "ltree" ? treeFilter.value : undefined,
+    lquery: treeFilter?.kind === "lquery" ? treeFilter.value : undefined,
+    ltxtquery: treeFilter?.kind === "ltxtquery" ? treeFilter.value : undefined,
     metaContains: params.meta ?? undefined,
     regexp: params.grep ?? undefined,
     ...mapTemporalFilter(params.temporal),

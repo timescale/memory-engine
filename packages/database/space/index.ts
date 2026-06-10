@@ -5,12 +5,14 @@ export {
   provisionSpace,
 } from "./migrate/migrate";
 export {
+  classifyTreeFilter,
   denormalizeTreePath,
   HOME_NAMESPACE,
   homePrefix,
   normalizeTreeFilter,
   normalizeTreePath,
   SHARE_NAMESPACE,
+  type TreeFilter,
   TreePathError,
   type TreePathOptions,
 } from "./path";

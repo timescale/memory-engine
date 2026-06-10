@@ -137,6 +137,43 @@ export function normalizeTreeFilter(
   return s;
 }
 
+/** A bare ltree path: dot-separated `[A-Za-z0-9_-]` labels, no query operators. */
+const LTREE_PATH = /^[A-Za-z0-9_-]+(\.[A-Za-z0-9_-]+)*$/;
+
+/**
+ * A classified, normalized search tree filter, tagged by which ltree
+ * pattern type it is so the caller can bind it to the matching SQL parameter
+ * (`ltree` → `@>` containment, `lquery` → `~`, `ltxtquery` → `@`).
+ */
+export type TreeFilter =
+  | { kind: "ltree"; value: string }
+  | { kind: "lquery"; value: string }
+  | { kind: "ltxtquery"; value: string };
+
+/**
+ * Normalize a search tree filter (via `normalizeTreeFilter`) and classify it as
+ * an exact ltree path, an `lquery` pattern, or an `ltxtquery` label search.
+ * `normalizeTreeFilter` only expands `~`/slashes — it does not pick a type — so
+ * without this the caller can't know which SQL parameter to bind, and casting a
+ * wildcard like `foo.*` to `::ltree` throws. Returns `null` for empty input (no
+ * filter).
+ *
+ * Classification (the input has already had `~`/slashes normalized):
+ *   - bare ltree path (only `[A-Za-z0-9_-]` labels + `.`) → `ltree` (containment)
+ *   - contains `&` (ltxtquery's boolean AND — never valid in lquery) → `ltxtquery`
+ *   - anything else (wildcards `*`, `|`, `!`, `{n}`, …)     → `lquery`
+ */
+export function classifyTreeFilter(
+  input: string,
+  opts: TreePathOptions = {},
+): TreeFilter | null {
+  const s = normalizeTreeFilter(input, opts);
+  if (s === "") return null;
+  if (LTREE_PATH.test(s)) return { kind: "ltree", value: s };
+  if (s.includes("&")) return { kind: "ltxtquery", value: s };
+  return { kind: "lquery", value: s };
+}
+
 /**
  * Reverse of the home expansion, for display. A path under the given
  * principal's home is shown with a leading `~`, keeping the canonical dot

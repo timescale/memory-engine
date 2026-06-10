@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  classifyTreeFilter,
   denormalizeTreePath,
   homePrefix,
   normalizeTreeFilter,
@@ -74,6 +75,63 @@ describe("normalizeTreeFilter", () => {
       `${HOME}.proj.*`,
     );
     expect(normalizeTreeFilter("~.*", { home: ID })).toBe(`${HOME}.*`);
+  });
+});
+
+describe("classifyTreeFilter", () => {
+  test("empty input is no filter", () => {
+    expect(classifyTreeFilter("")).toBeNull();
+    expect(classifyTreeFilter("/")).toBeNull();
+    expect(classifyTreeFilter("  ")).toBeNull();
+  });
+
+  test("a bare path classifies as ltree (containment)", () => {
+    expect(classifyTreeFilter("share")).toEqual({
+      kind: "ltree",
+      value: "share",
+    });
+    expect(classifyTreeFilter("/share/projects/")).toEqual({
+      kind: "ltree",
+      value: "share.projects",
+    });
+    expect(classifyTreeFilter("my-proj.notes_2")).toEqual({
+      kind: "ltree",
+      value: "my-proj.notes_2",
+    });
+  });
+
+  test("a wildcard classifies as lquery", () => {
+    expect(classifyTreeFilter("share.projects.*")).toEqual({
+      kind: "lquery",
+      value: "share.projects.*",
+    });
+    expect(classifyTreeFilter("*.api.*")).toEqual({
+      kind: "lquery",
+      value: "*.api.*",
+    });
+    // `|` and `!` are lquery label operators, not ltxtquery here.
+    expect(classifyTreeFilter("foo|bar.baz")).toEqual({
+      kind: "lquery",
+      value: "foo|bar.baz",
+    });
+  });
+
+  test("an `&` boolean classifies as ltxtquery", () => {
+    expect(classifyTreeFilter("api & v2")).toEqual({
+      kind: "ltxtquery",
+      value: "api & v2",
+    });
+  });
+
+  test("a leading ~ expands before classification", () => {
+    expect(classifyTreeFilter("~.*", { home: ID })).toEqual({
+      kind: "lquery",
+      value: `${HOME}.*`,
+    });
+    expect(classifyTreeFilter("~/notes", { home: ID })).toEqual({
+      kind: "ltree",
+      value: `${HOME}.notes`,
+    });
   });
 });
 

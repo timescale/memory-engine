@@ -5,9 +5,10 @@
  */
 
 import {
+  classifyTreeFilter,
   denormalizeTreePath,
-  normalizeTreeFilter,
   normalizeTreePath,
+  type TreeFilter,
   TreePathError,
 } from "@memory.build/database";
 import type {
@@ -49,10 +50,18 @@ export function inputTreePath(ctx: SpaceRpcContext, raw: string): string {
   }
 }
 
-/** Like `inputTreePath` but for a search filter (lquery/ltxtquery passes through). */
-export function inputTreeFilter(ctx: SpaceRpcContext, raw: string): string {
+/**
+ * Like `inputTreePath` but for a search filter: normalizes `~`/slashes and
+ * classifies the result as an ltree path, an `lquery` pattern, or an
+ * `ltxtquery` label search, so the handler can bind the right SQL parameter.
+ * Returns `null` when there is no filter.
+ */
+export function inputTreeFilter(
+  ctx: SpaceRpcContext,
+  raw: string,
+): TreeFilter | null {
   try {
-    return normalizeTreeFilter(raw, { home: ctx.principalId });
+    return classifyTreeFilter(raw, { home: ctx.principalId });
   } catch (e) {
     throw asValidationError(e);
   }

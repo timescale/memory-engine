@@ -380,6 +380,40 @@ test("search: tree filter only (no ranking) returns matches", async () => {
   expect(res.results[0]?.tree).toBe("share.scope.a");
 });
 
+test("search: tree lquery wildcard matches descendants", async () => {
+  await call("memory.batchCreate", {
+    memories: [
+      { content: "direct child", tree: "share.proj.a" },
+      { content: "deep descendant", tree: "share.proj.a.deep" },
+      { content: "sibling root", tree: "share.proj" },
+      { content: "elsewhere", tree: "share.other" },
+    ],
+  });
+  // `share.proj.*` is lquery (not a literal ltree) — it must bind to the
+  // lquery param, not cast to ::ltree (which would throw). lquery `*` matches
+  // zero-or-more labels, so it matches share.proj and everything under it, but
+  // not share.other.
+  const res = await call<{ results: { tree: string }[] }>("memory.search", {
+    tree: "share.proj.*",
+  });
+  const trees = res.results.map((r) => r.tree).sort();
+  expect(trees).toEqual(["share.proj", "share.proj.a", "share.proj.a.deep"]);
+});
+
+test("search: tree ltxtquery (label boolean) matches by label", async () => {
+  await call("memory.batchCreate", {
+    memories: [
+      { content: "both labels", tree: "share.alpha.beta" },
+      { content: "one label", tree: "share.alpha" },
+    ],
+  });
+  // `alpha & beta` is ltxtquery — must bind to the ltxtquery param.
+  const res = await call<{ results: { tree: string }[] }>("memory.search", {
+    tree: "alpha & beta",
+  });
+  expect(res.results.map((r) => r.tree)).toEqual(["share.alpha.beta"]);
+});
+
 test("search: grep alone is rejected", async () => {
   await expectAppError(
     call("memory.search", { grep: "anything" }),
