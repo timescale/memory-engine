@@ -438,6 +438,11 @@ const CLAUDE_MD_START =
   "<!-- memory-engine:start (managed by `me claude init`) -->";
 const CLAUDE_MD_END = "<!-- memory-engine:end -->";
 
+/** Dim (secondary text) ANSI, for de-emphasizing hint copy. `\x1b[22m` resets
+ * only the dim attribute so surrounding clack styling is left intact. */
+const DIM = "\x1b[2m";
+const DIM_OFF = "\x1b[22m";
+
 /**
  * Build the managed CLAUDE.md block that tells an agent where this project's
  * memories live in Memory Engine and how to search them. `projectTree` is the
@@ -541,8 +546,6 @@ interface InitStep {
   skipDescription: string;
   /** Multiselect row label. */
   label: string;
-  /** Multiselect row hint. */
-  hint: string;
   /** Perform the step. */
   run: (ctx: InitStepContext) => Promise<void>;
 }
@@ -554,7 +557,6 @@ const INIT_STEPS: InitStep[] = [
     skipFlag: "--skip-transcript-import",
     skipDescription: "do not import existing Claude Code sessions",
     label: "Import existing Claude Code sessions",
-    hint: "backfill ~/.claude/projects transcripts into Memory Engine",
     run: ({ globalOpts }) => runAgentImport(claudeImporter, {}, globalOpts),
   },
   {
@@ -564,7 +566,6 @@ const INIT_STEPS: InitStep[] = [
     skipDescription:
       "do not write the memory pointer into the project's CLAUDE.md",
     label: "Add a memory pointer to CLAUDE.md",
-    hint: "tell the agent where this project's memories live",
     run: ({ server }) => writeProjectMemoryPointer(server),
   },
 ];
@@ -596,12 +597,10 @@ function createClaudeInitCommand(): Command {
     let selectedIds: string[];
     if (interactive) {
       const picked = await clack.multiselect<string>({
-        message:
-          "Setup steps to run (all selected by default) — ↑/↓ move, space to toggle a step off/on, enter to confirm:",
+        message: `Setup steps to run ${DIM}(all selected by default — ↑/↓ move, space to toggle off/on, enter to confirm)${DIM_OFF}`,
         options: INIT_STEPS.map((s) => ({
           value: s.id,
           label: s.label,
-          hint: s.hint,
         })),
         initialValues: baseline.map((s) => s.id),
         required: false,
