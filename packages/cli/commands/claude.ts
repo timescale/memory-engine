@@ -1,24 +1,34 @@
 /**
  * me claude — Claude Code integration commands.
  *
- * Two integration paths:
+ * `me claude install` has two modes:
  *
- *   1. Full plugin (hooks + slash commands + MCP) via Claude Code's native
- *      plugin marketplace:
+ *   1. Full plugin (default) — installs the Memory Engine plugin (hooks +
+ *      slash commands + MCP) via Claude Code's native plugin marketplace,
+ *      driving the same commands you'd otherwise run by hand:
  *
  *        claude plugin marketplace add timescale/memory-engine
- *        claude plugin install memory-engine@memory-engine [--scope user|project|local]
- *        # then, in a Claude Code session:
- *        /plugin  # select memory-engine, Configure, fill space (+ optional api_key)
+ *        claude plugin install memory-engine@memory-engine \
+ *          --config server=… [--config space=…] [--config api_key=…]
  *
  *      Claude Code delivers the configured values to our hook (`me claude
  *      hook --event <name>`) via CLAUDE_PLUGIN_OPTION_* env vars. api_key is
  *      optional: left blank, the hook (and the plugin's MCP server) use your
  *      `me login` session.
  *
- *   2. MCP-only via `me claude install`. Registers `me` as an MCP server
- *      with Claude Code (no hooks, no slash commands — just the tools).
+ *      Pass --dev (run from inside the repo) to install the plugin from your
+ *      local checkout — the repo's .claude-plugin/marketplace.json — instead of
+ *      the published marketplace. The two share the marketplace name
+ *      "memory-engine", so --dev re-points it at your working tree and
+ *      reinstalls fresh (plugin files are copied into the cache, so a new build
+ *      needs a reinstall).
+ *
+ *   2. MCP-only (`--mcp-only`) — registers `me` as an MCP server with Claude
+ *      Code (no hooks, no slash commands — just the tools).
  */
+import { existsSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
+import * as clack from "@clack/prompts";
 import { Command, InvalidArgumentError } from "commander";
 import {
   HOOK_EVENT_NAMES,
@@ -37,6 +47,13 @@ import {
 } from "../mcp/agent-install.ts";
 import { buildAgentImportSubcommand } from "./import.ts";
 
+/** GitHub source for `claude plugin marketplace add`. */
+const PLUGIN_MARKETPLACE_SOURCE = "timescale/memory-engine";
+/** The marketplace `name` (from .claude-plugin/marketplace.json). */
+const PLUGIN_MARKETPLACE_NAME = "memory-engine";
+/** `<plugin>@<marketplace>` ref for `claude plugin install`. */
+const PLUGIN_REF = `memory-engine@${PLUGIN_MARKETPLACE_NAME}`;
+
 const CLAUDE_SCOPES = ["local", "user", "project"] as const;
 type ClaudeScope = (typeof CLAUDE_SCOPES)[number];
 
@@ -50,20 +67,26 @@ function parseClaudeScope(value: string): ClaudeScope {
 }
 
 /**
- * me claude install — register me as an MCP server with Claude Code.
+ * me claude install — install the Memory Engine plugin for Claude Code.
  *
- * MCP-only: leaves the full Claude Code plugin install flow alone. Use this
- * if you want the `me` MCP tools available in Claude Code but don't want the
- * plugin's hooks or slash commands.
+ * Default: the full plugin (hooks + slash commands + MCP), installed via
+ * Claude Code's native plugin marketplace. `--mcp-only` falls back to
+ * registering just the `me` MCP server (no hooks, no slash commands).
  */
 function createClaudeInstallCommand(): Command {
   return new Command("install")
-    .description("register me as an MCP server with Claude Code")
+    .description(
+      "install the Memory Engine plugin for Claude Code (hooks + slash commands + MCP)",
+    )
+    .option(
+      "--mcp-only",
+      "register only the me MCP server (no hooks or slash commands)",
+    )
     .option(
       "--api-key <key>",
       "API key for a headless agent (default: use your login session at runtime)",
     )
-    .option("--server <url>", "server URL to embed in MCP config")
+    .option("--server <url>", "server URL to embed in the config")
     .option(
       "--space <slug>",
       "pin a space (default: resolve ME_SPACE / active space at runtime)",
@@ -74,20 +97,247 @@ function createClaudeInstallCommand(): Command {
       parseClaudeScope,
       "user",
     )
+    .option(
+      "--dev",
+      "install the plugin from the local checkout instead of the published marketplace (run from inside the repo)",
+    )
     .action(
       async (
-        opts: AgentInstallOptions & { scope: ClaudeScope },
+        opts: AgentInstallOptions & {
+          scope: ClaudeScope;
+          mcpOnly?: boolean;
+          dev?: boolean;
+        },
         cmd: Command,
       ) => {
         const globalOpts = cmd.optsWithGlobals();
-        await runAgentMcpInstall("claude", {
+        const server = globalOpts.server ?? opts.server;
+        if (opts.mcpOnly) {
+          if (opts.dev) {
+            clack.log.warn(
+              "--dev has no effect with --mcp-only: the MCP server already runs your local `me` binary on PATH.",
+            );
+          }
+          await runAgentMcpInstall("claude", {
+            apiKey: opts.apiKey,
+            server,
+            space: opts.space,
+            scope: opts.scope,
+          });
+          return;
+        }
+        await runClaudePluginInstall({
           apiKey: opts.apiKey,
-          server: globalOpts.server ?? opts.server,
+          server,
           space: opts.space,
           scope: opts.scope,
+          dev: opts.dev,
         });
       },
     );
+}
+
+/** Run a command, capturing its exit code, stdout, and stderr. */
+async function runCommand(
+  cmd: string[],
+): Promise<{ exitCode: number; stdout: string; stderr: string }> {
+  const proc = Bun.spawn(cmd, { stdout: "pipe", stderr: "pipe" });
+  const [stdout, stderr] = await Promise.all([
+    new Response(proc.stdout).text(),
+    new Response(proc.stderr).text(),
+  ]);
+  const exitCode = await proc.exited;
+  return { exitCode, stdout, stderr };
+}
+
+/**
+ * Walk up from `startDir` to the repo's marketplace manifest
+ * (`.claude-plugin/marketplace.json`), returning the directory that contains it
+ * — the marketplace root passed to `claude plugin marketplace add`. Used by
+ * `--dev` to install the plugin from the local checkout. Returns undefined when
+ * not run from inside the repo.
+ */
+function findRepoMarketplaceRoot(startDir: string): string | undefined {
+  let dir = resolve(startDir);
+  for (;;) {
+    if (existsSync(join(dir, ".claude-plugin", "marketplace.json"))) return dir;
+    const parent = dirname(dir);
+    if (parent === dir) return undefined; // reached filesystem root
+    dir = parent;
+  }
+}
+
+/**
+ * Install the full Memory Engine plugin for Claude Code.
+ *
+ * Drives Claude Code's plugin CLI: registers the marketplace (idempotent — a
+ * no-op if it's already configured) and installs the plugin, passing the
+ * resolved server/space/api_key through `--config` (the same path as the
+ * interactive `/plugin` configure flow). Credential handling mirrors the
+ * MCP-only path: an api key requires a pinned space; otherwise the plugin
+ * falls back to your `me login` session at runtime.
+ */
+async function runClaudePluginInstall(
+  opts: AgentInstallOptions & { scope: ClaudeScope; dev?: boolean },
+): Promise<void> {
+  if (Bun.which("claude") === null) {
+    clack.log.error(
+      "Claude Code (claude) not found on PATH. Install it first.",
+    );
+    process.exit(1);
+  }
+
+  // Resolve credentials: flags > env (ME_API_KEY / ME_SERVER / ME_SPACE) >
+  // stored config.
+  const creds = resolveCredentials(opts.server);
+  const apiKey = opts.apiKey ?? creds.apiKey;
+  const server = opts.server ?? creds.server;
+  if (!server) {
+    clack.log.error("No server URL available. Pass --server or set ME_SERVER.");
+    process.exit(1);
+  }
+  const space = opts.space ?? creds.activeSpace;
+
+  if (apiKey) {
+    // A global key isn't space-bound, so the space must be fixed.
+    if (!space) {
+      clack.log.error(
+        "No space for the API key. Pass --space, set ME_SPACE, or run 'me space use <space>' (keys are global, so the space must be fixed).",
+      );
+      process.exit(1);
+    }
+  } else if (!creds.sessionToken) {
+    clack.log.error(
+      "Not logged in. Run 'me login' (the plugin will use your session), or pass --api-key / set ME_API_KEY for a headless agent.",
+    );
+    process.exit(1);
+  } else if (!space) {
+    clack.log.warn(
+      "No active space set — captures are skipped until you run 'me space use <space>' (or set ME_SPACE). Re-run with --space to pin one.",
+    );
+  }
+
+  // Resolve the marketplace source: the published GitHub repo, or — with --dev
+  // — the local checkout, so captures exercise the plugin files from your
+  // working tree (.mcp.json, hooks, slash commands) rather than the published
+  // version.
+  let marketplaceSource = PLUGIN_MARKETPLACE_SOURCE;
+  if (opts.dev) {
+    const root = findRepoMarketplaceRoot(process.cwd());
+    if (!root) {
+      clack.log.error(
+        "--dev must be run from inside the memory-engine repo (no .claude-plugin/marketplace.json found at or above the current directory).",
+      );
+      process.exit(1);
+    }
+    marketplaceSource = root;
+  }
+
+  const spin = clack.spinner();
+
+  // 1. Register the marketplace.
+  if (opts.dev) {
+    // The local and published marketplaces share the name "memory-engine", so
+    // they can't coexist and `marketplace add` won't re-point an existing name;
+    // plugin install also copies files into the cache, so a fresh build needs a
+    // reinstall. Tear both down first (ignoring "not found" — these may be a
+    // no-op on a clean machine), then re-add from the local checkout so the
+    // install below picks up your working tree.
+    spin.start(
+      "Pointing the Memory Engine marketplace at your local checkout...",
+    );
+    await runCommand([
+      "claude",
+      "plugin",
+      "uninstall",
+      "-y",
+      "-s",
+      opts.scope,
+      PLUGIN_REF,
+    ]);
+    await runCommand([
+      "claude",
+      "plugin",
+      "marketplace",
+      "remove",
+      PLUGIN_MARKETPLACE_NAME,
+    ]);
+    const add = await runCommand([
+      "claude",
+      "plugin",
+      "marketplace",
+      "add",
+      "--scope",
+      opts.scope,
+      marketplaceSource,
+    ]);
+    if (add.exitCode !== 0 && !/already/i.test(add.stderr + add.stdout)) {
+      spin.stop("Failed to add the local marketplace");
+      clack.log.error(
+        `claude plugin marketplace add exited with ${add.exitCode}${add.stderr ? ` — ${add.stderr.trim()}` : ""}`,
+      );
+      process.exit(1);
+    }
+  } else {
+    // Idempotent: skip if already there.
+    spin.start("Adding the Memory Engine marketplace...");
+    const list = await runCommand(["claude", "plugin", "marketplace", "list"]);
+    const alreadyAdded =
+      list.exitCode === 0 && list.stdout.includes(marketplaceSource);
+    if (!alreadyAdded) {
+      const add = await runCommand([
+        "claude",
+        "plugin",
+        "marketplace",
+        "add",
+        "--scope",
+        opts.scope,
+        marketplaceSource,
+      ]);
+      if (add.exitCode !== 0 && !/already/i.test(add.stderr + add.stdout)) {
+        spin.stop("Failed to add the marketplace");
+        clack.log.error(
+          `claude plugin marketplace add exited with ${add.exitCode}${add.stderr ? ` — ${add.stderr.trim()}` : ""}`,
+        );
+        process.exit(1);
+      }
+    }
+  }
+
+  // 2. Install the plugin, baking the resolved config so captures land in the
+  //    right space. Leave tree_root / content_mode at the plugin defaults
+  //    (reconfigure them later via `/plugin` if needed).
+  spin.message("Installing the memory-engine plugin...");
+  const install = ["claude", "plugin", "install", "--scope", opts.scope];
+  install.push("--config", `server=${server}`);
+  if (space) install.push("--config", `space=${space}`);
+  if (apiKey) install.push("--config", `api_key=${apiKey}`);
+  install.push(PLUGIN_REF);
+
+  const result = await runCommand(install);
+  if (result.exitCode !== 0) {
+    if (/already/i.test(result.stderr + result.stdout)) {
+      spin.stop("Memory Engine plugin already installed");
+      clack.log.info(
+        "Run '/plugin' in Claude Code to reconfigure (or '--mcp-only' for the MCP server alone).",
+      );
+      return;
+    }
+    spin.stop("Failed to install the plugin");
+    clack.log.error(
+      `claude plugin install exited with ${result.exitCode}${result.stderr ? ` — ${result.stderr.trim()}` : ""}`,
+    );
+    process.exit(1);
+  }
+
+  spin.stop(
+    opts.dev
+      ? "Installed the Memory Engine plugin from your local checkout"
+      : "Installed the Memory Engine plugin for Claude Code",
+  );
+  clack.log.info(
+    "Restart Claude Code (or run '/plugin') to load the hooks + slash commands.",
+  );
 }
 
 /**

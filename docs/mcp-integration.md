@@ -41,16 +41,23 @@ See the agent-specific command references for details: [`me opencode install`](c
 | OpenCode | `me opencode install` |
 | Codex CLI | `me codex install` |
 | Gemini CLI | `me gemini install` |
-| Claude Code | Claude Code plugin, described below |
+| Claude Code | `me claude install` (full plugin) / `me claude install --mcp-only` |
 
 ### Claude Code
+
+```bash
+me claude install            # full plugin: hooks + slash commands + MCP
+me claude install --mcp-only # or just the MCP server
+```
+
+By default `me claude install` installs the Memory Engine plugin, driving Claude Code's native plugin flow for you (`claude plugin marketplace add` + `claude plugin install`) and passing your resolved `server` / `space` / `api_key` through `--config`. The plugin provides the MCP server and captures Claude Code session events as memories. After installing, restart Claude Code (or run `/plugin`) to load the hooks and slash commands; re-run `/plugin` → `memory-engine` → Configure to adjust options. To run the underlying flow by hand instead:
 
 ```bash
 claude plugin marketplace add timescale/memory-engine
 claude plugin install memory-engine@memory-engine [--scope user|project|local]
 ```
 
-Claude Code uses the Memory Engine plugin. After installing it, start a Claude Code session, run `/plugin`, select `memory-engine`, and configure `space` (and optionally `api_key`, `server`, `tree_root`). The plugin provides the MCP server and captures Claude Code session events as memories.
+See [`me claude install`](cli/me-claude.md#me-claude-install) for the full option reference.
 
 ### Gemini CLI
 

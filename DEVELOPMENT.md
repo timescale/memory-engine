@@ -5,6 +5,14 @@
 - [Bun](https://bun.sh) (latest)
 - [Docker](https://www.docker.com/) (for PostgreSQL)
 
+## Quick Start against dev 
+
+```bash
+./ bun install:local
+me --server  https://me.dev-us-east-1.ops.dev.timescale.com login
+me claude install
+``` 
+
 ## Quick Start
 
 ```bash

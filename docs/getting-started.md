@@ -83,14 +83,14 @@ me codex install
 me gemini install
 ```
 
-For Claude Code, install the Memory Engine plugin instead:
+For Claude Code, `me claude install` installs the full Memory Engine plugin (hooks + slash commands + MCP):
 
 ```bash
-claude plugin marketplace add timescale/memory-engine
-claude plugin install memory-engine@memory-engine
+me claude install            # full plugin
+me claude install --mcp-only # or just the MCP server
 ```
 
-Then start Claude Code, run `/plugin`, select `memory-engine`, and configure the options. All are optional except `server`: leave `api_key` blank to use your `me login` session, leave `space` blank to use your active space, and `tree_root` defaults to `share.projects`.
+This drives Claude Code's native plugin flow for you (`claude plugin marketplace add` + `claude plugin install`), passing your resolved server/space/api_key through `--config`. Afterwards, restart Claude Code (or run `/plugin`) to load the hooks and slash commands; you can re-run `/plugin` → `memory-engine` → Configure to adjust options. All are optional except `server`: leave `api_key` blank to use your `me login` session, leave `space` blank to use your active space, and `tree_root` defaults to `share.projects`.
 
 After installation, your AI agent has access to memory tools -- create, search, get, update, delete, and more.
 
