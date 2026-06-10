@@ -159,6 +159,10 @@ export function createLoginCommand(): Command {
           clack.log.info(`Server: ${server}`);
           if (active) {
             clack.log.info(`Space:  ${active.name} (${active.slug})`);
+            clack.note(
+              "Run 'me claude init' at the root of a software development\nproject to set up Claude Code memory for it.",
+              "Next step",
+            );
           } else if (spaces.length === 0) {
             clack.log.info("No spaces yet. Run 'me space create <name>'.");
           } else {
