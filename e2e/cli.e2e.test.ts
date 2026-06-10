@@ -507,8 +507,8 @@ describe.skipIf(!OPENAI_KEY || !process.env.TEST_DATABASE_URL)(
       // Step 2: CLAUDE.md now points at this project's memories.
       const claudeMd = await readFile(join(projectDir, "CLAUDE.md"), "utf8");
       expect(claudeMd).toContain("memory-engine:start");
-      expect(claudeMd).toContain("share/projects/initcwd");
-      expect(claudeMd).toContain("share/projects/initcwd/agent_sessions");
+      expect(claudeMd).toContain("share.projects.initcwd");
+      expect(claudeMd).toContain("share.projects.initcwd.agent_sessions");
 
       // Re-running is idempotent: still exactly one managed block.
       const init2 = await me(["claude", "init"], undefined, projectDir);

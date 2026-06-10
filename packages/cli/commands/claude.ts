@@ -437,20 +437,14 @@ const CLAUDE_MD_START =
   "<!-- memory-engine:start (managed by `me claude init`) -->";
 const CLAUDE_MD_END = "<!-- memory-engine:end -->";
 
-/** Render an ltree path (dot-separated) as the slash form users type into `me search --tree`. */
-function ltreeToSlash(path: string): string {
-  return path.replaceAll(".", "/");
-}
-
 /**
  * Build the managed CLAUDE.md block that tells an agent where this project's
  * memories live in Memory Engine and how to search them. `projectTree` is the
- * ltree path (e.g. `share.projects.foo`); `space` is the active space slug, if
- * known.
+ * canonical (dot-separated) ltree path (e.g. `share.projects.foo`); `space` is
+ * the active space slug, if known.
  */
 function buildClaudeMdSection(projectTree: string, space?: string): string {
-  const tree = ltreeToSlash(projectTree);
-  const sessions = `${tree}/${DEFAULT_SESSIONS_NODE_NAME}`;
+  const sessions = `${projectTree}.${DEFAULT_SESSIONS_NODE_NAME}`;
   const where = space ? `Memory Engine (space \`${space}\`)` : "Memory Engine";
   return [
     CLAUDE_MD_START,
@@ -459,13 +453,15 @@ function buildClaudeMdSection(projectTree: string, space?: string): string {
     `Prior context for this project — including captured/imported Claude Code`,
     `sessions — is stored in ${where} under the tree:`,
     "",
-    `    ${tree}`,
+    `    ${projectTree}`,
     "",
     `- Captured & imported agent sessions: \`${sessions}\``,
     `- Search them with the \`me_memory_search\` MCP tool (set \`tree\` to`,
-    `  \`${tree}\`), or from a shell: \`me search "<query>" --tree ${tree}\`.`,
+    `  \`${projectTree}\`), or from a shell: \`me search "<query>" --tree ${projectTree}\`.`,
     "",
-    "Check these before starting work to recall earlier decisions and context.",
+    "Always consult these memories when exploring the codebase or starting a",
+    "task: search them FIRST to recall earlier decisions and context before",
+    "digging into the code.",
     CLAUDE_MD_END,
     "",
   ].join("\n");
