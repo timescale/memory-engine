@@ -607,6 +607,7 @@ function createClaudeInitCommand(): Command {
     const globalOpts = cmdRef.optsWithGlobals();
     const server =
       typeof globalOpts.server === "string" ? globalOpts.server : undefined;
+    const fmt = getOutputFormat(globalOpts);
 
     // Baseline = every step not explicitly turned off via its --skip-* flag.
     const baseline = INIT_STEPS.filter((s) => opts[s.optionKey] !== true);
@@ -615,7 +616,7 @@ function createClaudeInitCommand(): Command {
     // with the baseline so the user can deselect steps. Otherwise run the
     // baseline as-is.
     const interactive =
-      getOutputFormat(globalOpts) === "text" &&
+      fmt === "text" &&
       Boolean(process.stdin.isTTY) &&
       Boolean(process.stdout.isTTY);
 
@@ -647,6 +648,10 @@ function createClaudeInitCommand(): Command {
 
     const ctx: InitStepContext = { globalOpts, server };
     for (const step of selected) {
+      // Announce the step before its own output (progress spinners etc.)
+      // appears, so the counters have context. Structured output modes stay
+      // clean for parsing.
+      if (fmt === "text") clack.log.step(step.label);
       await step.run(ctx);
     }
   });
