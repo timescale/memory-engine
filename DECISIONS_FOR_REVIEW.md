@@ -297,3 +297,57 @@ the default, flip the `content_mode` userConfig default in
 
 **Status:** decided (per request); document the capture model when the docs are
 refreshed.
+
+---
+
+## Imports reorganized under one `me import <source>` group; bare `me import <file>` removed
+
+**Date:** 2026-06-10 · **Area:** CLI command surface (`fc02772`)
+
+All imports now live under a single top-level umbrella group — `me import
+memories | claude | codex | opencode | git` — one subcommand per **source**.
+The pre-existing spellings remain registered as aliases built from the same
+factories: `me memory import` ⇒ `me import memories`, and `me claude|codex|
+opencode import` ⇒ `me import <tool>`. Two breaking consequences, both
+deliberate:
+
+- **Bare `me import <file>` no longer parses.** `import` was previously the
+  auto-generated top-level alias of `me memory import`; the group now owns the
+  name, has **no default subcommand**, and its help text redirects old muscle
+  memory to `me import memories <file>`. (Verified at the time: nothing in the
+  repo — tests, hooks, packs, docs — used the bare spelling.)
+- `import` is excluded from the memory group's top-level auto-aliases
+  (`createMemoryAliasCommands`); every other memory subcommand (`me search`,
+  `me create`, …) still gets one.
+
+**Alternatives considered:**
+
+- *Per-source top-level groups* (`me git import`, matching `me claude import`):
+  rejected — every new source (gemini sessions, GitHub issues, Slack, …) would
+  cost a top-level command group, most containing only `import`. With the
+  umbrella, a new source is one subcommand; the integration groups (`me claude`
+  etc.) keep only genuine setup verbs (install/init/hook).
+- *`files` as the umbrella's default subcommand* so bare `me import <file>`
+  keeps working (Commander `isDefault`): rejected — backward compatibility for
+  the bare spelling wasn't wanted, and a default reintroduces the ambiguity the
+  group exists to remove (`me import git` = the git source or a file named
+  `git`?).
+- *Dropping the old spellings entirely*: rejected — `me memory import` is kept
+  for symmetry with `me memory export` (the data-plane inverse), and the
+  per-agent `import` aliases are kept since those groups exist anyway.
+- Subcommand name `memories` over `files` — records are memories, not generic
+  files.
+
+**How to change it:** the group is assembled in
+`packages/cli/commands/import-group.ts` (`createImportCommand`), from factories
+that take a name parameter (`createMemoryImportCommand(name)` in
+`commands/memory-import.ts`; `createClaudeImportCommand` etc. in
+`commands/import.ts`); the alias exclusion is the `c.name() !== "import"`
+filter in `commands/memory.ts:createMemoryAliasCommands`. To restore a bare
+default, register the memories subcommand with Commander's `isDefault`; to drop
+the legacy aliases, remove the `addCommand` calls in `memory.ts` /
+`claude.ts` / `codex.ts` / `opencode.ts`. Docs: `docs/cli/me-import.md` is the
+group page; the per-group pages note their alias status.
+
+**Status:** decided (user-directed, pre-release); recorded for rationale —
+already reflected in `CLAUDE.md` and `docs/cli/`.
