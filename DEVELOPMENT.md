@@ -7,11 +7,36 @@
 
 ## Quick Start against dev
 
+### 1. Clone the repo
+
 ```bash
+git clone git@github.com:timescale/memory-engine.git
+cd memory-engine
+```
+
+### 2. Install
+
+```bash
+./bun install
 ./bun run install:local
+```
+
+### 3. Log in and install the Claude Code plugin
+
+```bash
 me --server https://me.dev-us-east-1.ops.dev.timescale.com login
 me claude install --dev
-``` 
+```
+
+Login must come first: `me claude install` needs your session and the
+stored server URL. `--dev` installs the Claude Code plugin from your local
+checkout (run it from inside the repo) instead of the published
+marketplace — with it installed, `me claude init` won't offer to install
+the published plugin over it.
+
+After that follow the instructions from login. The next step will probably
+be `me claude init` in whatever project you are working in. Don't test on
+memory-engine itself as that can be confusing for the model.
 
 ## Quick Start
 
