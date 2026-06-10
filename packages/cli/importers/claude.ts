@@ -14,7 +14,7 @@
  */
 import { promises as fs } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { filterBySessionShape, recordSkip } from "./filters.ts";
 import type { Importer } from "./index.ts";
 import type { ProgressReporter } from "./progress.ts";
@@ -95,6 +95,18 @@ async function* discoverSessions(
     return;
   }
 
+  // With a --project filter, skip other projects' directories outright: the
+  // directory name encodes the session cwd, so most of the machine's
+  // transcripts never need to be opened. The encoding is lossy, so this only
+  // prunes — kept files still pass the exact per-session cwd filter below.
+  if (options.projectFilter) {
+    const encoded = encodeProjectDir(options.projectFilter);
+    projectDirs = projectDirs.filter((dir) => {
+      const name = basename(dir);
+      return name === encoded || name.startsWith(`${encoded}-`);
+    });
+  }
+
   for (const projectDir of projectDirs) {
     const files = await listJsonlFiles(projectDir);
     for (const file of files) {
@@ -147,6 +159,16 @@ function countUserMessages(messages: ConversationMessage[]): number {
 }
 
 /** List immediate subdirectories of `path`. */
+/**
+ * Encode a cwd the way Claude Code names its per-project transcript
+ * directories: every non-alphanumeric character becomes `-` (e.g.
+ * /Users/x/my.app → -Users-x-my-app). Lossy (a literal `-` and a `/` encode
+ * identically), so matches are candidates, never authoritative.
+ */
+export function encodeProjectDir(cwd: string): string {
+  return cwd.replace(/\/+$/, "").replace(/[^a-zA-Z0-9]/g, "-");
+}
+
 async function listSubdirs(path: string): Promise<string[]> {
   const entries = await fs.readdir(path, { withFileTypes: true });
   return entries

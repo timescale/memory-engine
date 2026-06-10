@@ -9,6 +9,7 @@ import { describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import {
   claudeImporter,
+  encodeProjectDir,
   sanitizeUserText,
   unwrapSdkReplayBundle,
 } from "./claude.ts";
@@ -58,6 +59,50 @@ function userTextsOf(messages: ConversationMessage[]): string[] {
       m.blocks.filter((b) => b.kind === "text").map((b) => b.text),
     );
 }
+
+describe("encodeProjectDir", () => {
+  test("encodes a cwd the way Claude Code names project dirs", () => {
+    expect(encodeProjectDir("/Users/test/project")).toBe("-Users-test-project");
+    // Trailing slashes are ignored; all non-alphanumerics become dashes.
+    expect(encodeProjectDir("/Users/x/my.app/")).toBe("-Users-x-my-app");
+    expect(encodeProjectDir("/Users/x/my_app")).toBe("-Users-x-my-app");
+  });
+});
+
+describe("claude importer project-dir pruning", () => {
+  test("a matching --project keeps the project's directory", async () => {
+    const { sessions, stats } = await collect(
+      baseOptions({ projectFilter: "/Users/test/project" }),
+    );
+    expect(stats.totalFiles).toBeGreaterThan(0);
+    expect(sessions.length).toBeGreaterThan(0);
+  });
+
+  test("an ancestor --project keeps descendant project directories", async () => {
+    const { sessions } = await collect(
+      baseOptions({ projectFilter: "/Users/test" }),
+    );
+    expect(sessions.length).toBeGreaterThan(0);
+  });
+
+  test("a foreign --project never scans other projects' files", async () => {
+    const { sessions, stats } = await collect(
+      baseOptions({ projectFilter: "/Users/other/project" }),
+    );
+    // Pruned at the directory level: zero files scanned, not scanned-then-skipped.
+    expect(stats.totalFiles).toBe(0);
+    expect(sessions).toEqual([]);
+  });
+
+  test("an encoded-prefix collision that is not a path ancestor is pruned", async () => {
+    // "/Users/test/proj" is a string prefix of the project but not an
+    // ancestor directory — the `${encoded}-` boundary must reject it.
+    const { stats } = await collect(
+      baseOptions({ projectFilter: "/Users/test/proj" }),
+    );
+    expect(stats.totalFiles).toBe(0);
+  });
+});
 
 describe("claude importer", () => {
   test("skips sidechains by default", async () => {
