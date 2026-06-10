@@ -7,10 +7,6 @@
 //   TEST_DATABASE_URL="$(ghost connect testing_me)" \
 //     bun test --timeout 30000 packages/server/start.integration.test.ts
 
-// Space schemas created by this test land under metest_<slug> (not production
-// me_<slug>) so leftovers are reclaimable by name. Set before anything reads it.
-process.env.SPACE_SCHEMA_PREFIX = "metest_";
-
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import {
   bootstrapSpaceDatabase,
@@ -49,6 +45,7 @@ let coreSchema: string;
 let spaceSchema: string;
 let tamperedDef: string;
 let bootedDef: string;
+let prevSchemaPrefix: string | undefined;
 
 /** Current definition of a space schema's create_memory function. */
 async function createMemoryDef(schema: string): Promise<string> {
@@ -61,6 +58,14 @@ async function createMemoryDef(schema: string): Promise<string> {
 }
 
 beforeAll(async () => {
+  // Space schemas created by this suite land under metest_<slug> (not
+  // production me_<slug>) so leftovers are reclaimable by name. Scoped to
+  // this suite and restored in afterAll: CI runs every integration file in
+  // ONE bun process (`find … | xargs bun test`), so a module-scope
+  // assignment would leak the prefix into suites that expect me_<slug>.
+  prevSchemaPrefix = process.env.SPACE_SCHEMA_PREFIX;
+  process.env.SPACE_SCHEMA_PREFIX = "metest_";
+
   authSchema = `auth_test_${rand()}`;
   coreSchema = `core_test_${rand()}`;
   sql = postgres(URL, { onnotice: () => {} });
@@ -125,6 +130,11 @@ afterAll(async () => {
   await sql.unsafe(`drop schema if exists ${authSchema} cascade`);
   await sql.unsafe(`drop schema if exists ${coreSchema} cascade`);
   await sql.end();
+  if (prevSchemaPrefix === undefined) {
+    delete process.env.SPACE_SCHEMA_PREFIX;
+  } else {
+    process.env.SPACE_SCHEMA_PREFIX = prevSchemaPrefix;
+  }
 });
 
 test("boots on a random port and serves /health", async () => {
