@@ -51,6 +51,7 @@ import {
   type AgentInstallOptions,
   runAgentMcpInstall,
 } from "../mcp/agent-install.ts";
+import { getOutputFormat } from "../output.ts";
 import { buildAgentImportSubcommand, runAgentImport } from "./import.ts";
 
 /** GitHub source for `claude plugin marketplace add`. */
@@ -515,26 +516,116 @@ async function writeProjectMemoryPointer(server?: string): Promise<void> {
 /**
  * me claude init — one-shot setup of Claude Code memory integration.
  *
- * Steps (each a deliberate seam for more setup to be added later):
- *   1. Backfill existing Claude Code sessions (default-option import — `me
- *      claude import` remains the knob-laden variant).
- *   2. Record where this project's memories live in Memory Engine into the
- *      project's CLAUDE.md, so the agent knows to consult them.
+ * Setup is a list of independent steps (see INIT_STEPS). In an interactive
+ * terminal `init` presents a multiselect of all steps (each pre-checked) so the
+ * user can deselect any; non-interactively it runs every step except those
+ * turned off by a `--skip-<step>` flag. To add a step, append one entry to
+ * INIT_STEPS — it picks up both a `--skip-*` flag and a multiselect row
+ * automatically.
  */
+interface InitStepContext {
+  /** Global CLI opts (carries --server, output format) for the step to use. */
+  globalOpts: Record<string, unknown>;
+  /** Resolved server URL, if any. */
+  server?: string;
+}
+
+interface InitStep {
+  /** Stable id — the multiselect value and the basis of the --skip flag. */
+  id: string;
+  /** Commander-parsed key for this step's skip flag (e.g. skipClaudeMd). */
+  optionKey: string;
+  /** The skip flag (e.g. "--skip-claude-md"). */
+  skipFlag: string;
+  /** Help text for the skip flag. */
+  skipDescription: string;
+  /** Multiselect row label. */
+  label: string;
+  /** Multiselect row hint. */
+  hint: string;
+  /** Perform the step. */
+  run: (ctx: InitStepContext) => Promise<void>;
+}
+
+const INIT_STEPS: InitStep[] = [
+  {
+    id: "transcript-import",
+    optionKey: "skipTranscriptImport",
+    skipFlag: "--skip-transcript-import",
+    skipDescription: "do not import existing Claude Code sessions",
+    label: "Import existing Claude Code sessions",
+    hint: "backfill ~/.claude/projects transcripts into Memory Engine",
+    run: ({ globalOpts }) => runAgentImport(claudeImporter, {}, globalOpts),
+  },
+  {
+    id: "claude-md",
+    optionKey: "skipClaudeMd",
+    skipFlag: "--skip-claude-md",
+    skipDescription:
+      "do not write the memory pointer into the project's CLAUDE.md",
+    label: "Add a memory pointer to CLAUDE.md",
+    hint: "tell the agent where this project's memories live",
+    run: ({ server }) => writeProjectMemoryPointer(server),
+  },
+];
+
 function createClaudeInitCommand(): Command {
-  return new Command("init")
-    .description(
-      "set up Claude Code memory integration (import existing sessions + note memory location in CLAUDE.md)",
-    )
-    .action(async (_opts, cmd: Command) => {
-      const globalOpts = cmd.optsWithGlobals();
-      const server =
-        typeof globalOpts.server === "string" ? globalOpts.server : undefined;
-      // Step 1: backfill existing Claude Code sessions.
-      await runAgentImport(claudeImporter, {}, globalOpts);
-      // Step 2: point CLAUDE.md at this project's memories.
-      await writeProjectMemoryPointer(server);
-    });
+  const cmd = new Command("init").description(
+    "set up Claude Code memory integration (interactive step picker; otherwise runs all steps)",
+  );
+  // One --skip-<step> flag per step, so non-interactive runs can opt out.
+  for (const step of INIT_STEPS) {
+    cmd.option(step.skipFlag, step.skipDescription);
+  }
+  cmd.action(async (opts: Record<string, unknown>, cmdRef: Command) => {
+    const globalOpts = cmdRef.optsWithGlobals();
+    const server =
+      typeof globalOpts.server === "string" ? globalOpts.server : undefined;
+
+    // Baseline = every step not explicitly turned off via its --skip-* flag.
+    const baseline = INIT_STEPS.filter((s) => opts[s.optionKey] !== true);
+
+    // Interactive (a TTY with text output): present a multiselect pre-checked
+    // with the baseline so the user can deselect steps. Otherwise run the
+    // baseline as-is.
+    const interactive =
+      getOutputFormat(globalOpts) === "text" &&
+      Boolean(process.stdin.isTTY) &&
+      Boolean(process.stdout.isTTY);
+
+    let selectedIds: string[];
+    if (interactive) {
+      const picked = await clack.multiselect<string>({
+        message: "Select setup steps to run",
+        options: INIT_STEPS.map((s) => ({
+          value: s.id,
+          label: s.label,
+          hint: s.hint,
+        })),
+        initialValues: baseline.map((s) => s.id),
+        required: false,
+      });
+      if (clack.isCancel(picked)) {
+        clack.cancel("Cancelled.");
+        process.exit(0);
+      }
+      selectedIds = picked;
+    } else {
+      selectedIds = baseline.map((s) => s.id);
+    }
+
+    const selected = INIT_STEPS.filter((s) => selectedIds.includes(s.id));
+    if (selected.length === 0) {
+      clack.log.info("No setup steps selected — nothing to do.");
+      return;
+    }
+
+    const ctx: InitStepContext = { globalOpts, server };
+    for (const step of selected) {
+      await step.run(ctx);
+    }
+  });
+  return cmd;
 }
 
 export function createClaudeCommand(): Command {

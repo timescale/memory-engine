@@ -19,6 +19,7 @@
 process.env.SPACE_SCHEMA_PREFIX = "metest_";
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -518,6 +519,69 @@ describe.skipIf(!OPENAI_KEY || !process.env.TEST_DATABASE_URL)(
 
       await rm(transcriptDir, { recursive: true, force: true });
       await rm(projectRoot, { recursive: true, force: true });
+    });
+
+    test("8c. `me claude init` honors --skip-transcript-import / --skip-claude-md", async () => {
+      // Non-interactive (piped) init runs every step except those turned off by
+      // a --skip-<step> flag. Verify each flag suppresses exactly its step.
+      const transcriptDir = join(tmpHome, ".claude", "projects", "skip-proj");
+      await mkdir(transcriptDir, { recursive: true });
+      const sessionId = `skip-${rand()}`;
+      const mkMsg = (i: number, type: "user" | "assistant", text: string) => ({
+        type,
+        uuid: `${sessionId}-${type}-${i}`,
+        timestamp: `2026-04-01T00:00:0${i}.000Z`,
+        sessionId,
+        cwd: "/work/skip-proj",
+        message:
+          type === "user"
+            ? { content: text }
+            : { content: [{ type: "text", text }], model: "claude-x" },
+      });
+      await writeFile(
+        join(transcriptDir, `${sessionId}.jsonl`),
+        [
+          mkMsg(0, "user", "skip first question"),
+          mkMsg(1, "assistant", "skip first answer"),
+          mkMsg(2, "user", "skip second question"),
+          mkMsg(3, "assistant", "skip second answer"),
+        ]
+          .map((l) => JSON.stringify(l))
+          .join("\n"),
+      );
+
+      const mkProject = async (name: string) => {
+        const root = await mkdtemp(join(tmpdir(), "me-e2e-skip-"));
+        const dir = join(root, name);
+        await mkdir(dir, { recursive: true });
+        return { root, dir };
+      };
+
+      // --skip-transcript-import: CLAUDE.md is written, but nothing is imported.
+      const a = await mkProject("skipimport");
+      const r1 = await me(
+        ["claude", "init", "--skip-transcript-import"],
+        undefined,
+        a.dir,
+      );
+      expect(r1.code, r1.stderr).toBe(0);
+      expect(await countBySession(sessionId)).toBe(0);
+      expect(existsSync(join(a.dir, "CLAUDE.md"))).toBe(true);
+
+      // --skip-claude-md: the session imports, but no CLAUDE.md is written.
+      const b = await mkProject("skipclaudemd");
+      const r2 = await me(
+        ["claude", "init", "--skip-claude-md"],
+        undefined,
+        b.dir,
+      );
+      expect(r2.code, r2.stderr).toBe(0);
+      expect(await countBySession(sessionId)).toBe(4);
+      expect(existsSync(join(b.dir, "CLAUDE.md"))).toBe(false);
+
+      await rm(transcriptDir, { recursive: true, force: true });
+      await rm(a.root, { recursive: true, force: true });
+      await rm(b.root, { recursive: true, force: true });
     });
 
     test("9. claude capture hook ↔ `me claude import` are cross-idempotent", async () => {
