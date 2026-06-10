@@ -596,7 +596,8 @@ function createClaudeInitCommand(): Command {
     let selectedIds: string[];
     if (interactive) {
       const picked = await clack.multiselect<string>({
-        message: "Select setup steps to run",
+        message:
+          "Setup steps to run (all selected by default) — ↑/↓ move, space to toggle a step off/on, enter to confirm:",
         options: INIT_STEPS.map((s) => ({
           value: s.id,
           label: s.label,
