@@ -139,9 +139,18 @@ export async function startServer(
   const port =
     opts.port ?? (process.env.PORT ? Number(process.env.PORT) : 3000);
 
-  const databaseUrl = opts.databaseUrl ?? process.env.DATABASE_URL;
+  // TEMPORARY: fall back to the legacy ENGINE_DATABASE_URL so the multiplayer
+  // branch can deploy to dev before the tiger-agents-deploy helm values are
+  // migrated to the single-DB env contract. Remove once the deploy config sets
+  // DATABASE_URL directly.
+  const databaseUrl =
+    opts.databaseUrl ??
+    process.env.DATABASE_URL ??
+    process.env.ENGINE_DATABASE_URL;
   if (!databaseUrl) {
-    throw new Error("DATABASE_URL environment variable is required");
+    throw new Error(
+      "DATABASE_URL (or legacy ENGINE_DATABASE_URL) environment variable is required",
+    );
   }
 
   const apiBaseUrl = opts.apiBaseUrl ?? process.env.API_BASE_URL;
