@@ -286,6 +286,29 @@ describe("provisioned schema is functional", () => {
     expect(updated?.updated_at).not.toBeNull();
   });
 
+  test("create_memory skips a duplicate explicit id (returns null)", async () => {
+    // Deterministic-id importers re-submit existing ids; the second create
+    // must be a no-op that returns null, leaving the original row intact.
+    const owner = `'[{"tree_path": "", "access": 3}]'::jsonb`;
+    const id = "01941000-0000-7000-8000-000000000001";
+    const [first] = await sql.unsafe(
+      `select ${canonical.schema}.create_memory(
+         ${owner}, 'a.dup'::ltree, 'original', '${id}'::uuid) as id`,
+    );
+    expect(first?.id).toBe(id);
+
+    const [second] = await sql.unsafe(
+      `select ${canonical.schema}.create_memory(
+         ${owner}, 'a.dup'::ltree, 'replacement', '${id}'::uuid) as id`,
+    );
+    expect(second?.id).toBeNull();
+
+    const [row] = await sql.unsafe(
+      `select content from ${canonical.schema}.memory where id = '${id}'`,
+    );
+    expect(row?.content).toBe("original");
+  });
+
   test("enforces the meta-is-object constraint", async () => {
     await expectReject(() =>
       sql.unsafe(

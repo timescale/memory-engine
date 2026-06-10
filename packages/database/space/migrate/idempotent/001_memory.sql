@@ -99,6 +99,10 @@ set search_path to pg_catalog, {{schema}}, public, pg_temp
 
 -------------------------------------------------------------------------------
 -- create memory
+--
+-- Returns the new memory's id, or null when an explicit _id already exists
+-- (on conflict do nothing). The null lets importers with deterministic ids
+-- re-submit safely — the caller classifies a missing id as "skipped".
 -------------------------------------------------------------------------------
 create or replace function {{schema}}.create_memory
 ( _tree_access jsonb
@@ -130,7 +134,8 @@ begin
   , _temporal
   , _content
   )
-  returning id into strict _id
+  on conflict (id) do nothing
+  returning id into _id
   ;
   return _id;
 end;

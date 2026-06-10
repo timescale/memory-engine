@@ -51,8 +51,18 @@ async function setEmbedding(id: string, vec: number[]): Promise<void> {
   );
 }
 
+/** createMemory asserting the insert happened (no duplicate-id skip). */
+async function mustCreate(
+  access: TreeAccess,
+  params: Parameters<SpaceStore["createMemory"]>[1],
+): Promise<string> {
+  const id = await db.createMemory(access, params);
+  if (id === null) throw new Error("unexpected duplicate-id skip");
+  return id;
+}
+
 test("createMemory + getMemory round-trips", async () => {
-  const id = await db.createMemory(FULL, {
+  const id = await mustCreate(FULL, {
     tree: "work.note",
     content: "hello world",
     meta: { kind: "note" },
@@ -65,6 +75,25 @@ test("createMemory + getMemory round-trips", async () => {
   expect(m?.hasEmbedding).toBe(false);
 });
 
+test("createMemory returns null for a duplicate explicit id", async () => {
+  const id = "01900000-0000-7000-8000-0000000000d0";
+  const first = await db.createMemory(FULL, {
+    id,
+    tree: "work.dup",
+    content: "original",
+  });
+  expect(first).toBe(id);
+
+  // Re-submitting the same id is a no-op skip, not an error.
+  const second = await db.createMemory(FULL, {
+    id,
+    tree: "work.dup",
+    content: "replacement",
+  });
+  expect(second).toBeNull();
+  expect((await db.getMemory(FULL, id))?.content).toBe("original");
+});
+
 test("access is enforced by the tree_access argument", async () => {
   // create requires write (>=2): read-only access is rejected
   await expect(
@@ -72,7 +101,7 @@ test("access is enforced by the tree_access argument", async () => {
   ).rejects.toThrow();
 
   // a memory is invisible to a tree_access set that doesn't cover its path
-  const id = await db.createMemory(FULL, {
+  const id = await mustCreate(FULL, {
     tree: "work.secret",
     content: "shh",
   });
@@ -81,7 +110,7 @@ test("access is enforced by the tree_access argument", async () => {
 });
 
 test("patchMemory updates fields; deleteMemory removes", async () => {
-  const id = await db.createMemory(FULL, {
+  const id = await mustCreate(FULL, {
     tree: "work.p",
     content: "before",
   });
@@ -137,11 +166,11 @@ test("unranked (filter-only) search orders by id, newest-first by default", asyn
 });
 
 test("vector search ranks by embedding similarity", async () => {
-  const near = await db.createMemory(FULL, {
+  const near = await mustCreate(FULL, {
     tree: "work.v1",
     content: "near",
   });
-  const far = await db.createMemory(FULL, { tree: "work.v2", content: "far" });
+  const far = await mustCreate(FULL, { tree: "work.v2", content: "far" });
   await setEmbedding(near, [1, 0, 0, 0]);
   await setEmbedding(far, [0, 1, 0, 0]);
 
@@ -150,7 +179,7 @@ test("vector search ranks by embedding similarity", async () => {
 });
 
 test("hybridSearch fuses bm25 + vector", async () => {
-  const id = await db.createMemory(FULL, {
+  const id = await mustCreate(FULL, {
     tree: "work.h",
     content: "hybrid pineapple",
   });

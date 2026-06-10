@@ -19,10 +19,15 @@ import type {
  * No table queries in TS; no RLS (access is the jsonb argument).
  */
 export interface SpaceStore {
+  /**
+   * Insert one memory, returning its id — or null when an explicit
+   * `params.id` already exists (`on conflict do nothing`), so deterministic-id
+   * importers can re-submit idempotently.
+   */
   createMemory(
     treeAccess: TreeAccess,
     params: CreateMemoryParams,
-  ): Promise<string>;
+  ): Promise<string | null>;
   getMemory(treeAccess: TreeAccess, id: string): Promise<Memory | null>;
   patchMemory(
     treeAccess: TreeAccess,
@@ -122,7 +127,8 @@ export function spaceStore(sql: Sql, schema: string): SpaceStore {
           ${p.temporal ?? null}::tstzrange
         ) as id`;
       if (!row) throw new Error("create_memory returned no row");
-      return row.id as string;
+      // Null id = the explicit id already exists (on conflict do nothing).
+      return (row.id as string | null) ?? null;
     },
 
     async getMemory(treeAccess, id) {

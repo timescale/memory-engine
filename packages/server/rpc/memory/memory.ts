@@ -186,6 +186,11 @@ async function memoryCreate(
       temporal: formatTemporal(params.temporal),
     }),
   );
+  if (id === null) {
+    // The store skips an explicit id that already exists (on conflict do
+    // nothing). For a single create that's a caller error, not a skip.
+    throw new AppError("CONFLICT", `Memory already exists: ${params.id}`);
+  }
   const memory = await store.getMemory(treeAccess, id);
   if (!memory) {
     throw new AppError("INTERNAL_ERROR", "Created memory could not be read");
@@ -193,7 +198,14 @@ async function memoryCreate(
   return toMemoryResponse(memory, ctx);
 }
 
-/** memory.batchCreate — atomic across the batch. */
+/**
+ * memory.batchCreate — atomic across the batch.
+ *
+ * Returns the inserted ids only: a memory whose explicit id already exists
+ * is silently skipped (`on conflict do nothing` in create_memory), so
+ * deterministic-id importers can re-submit and classify the missing ids as
+ * already imported (see `computeSkippedIds` in the CLI).
+ */
 async function memoryBatchCreate(
   params: MemoryBatchCreateParams,
   context: HandlerContext,
@@ -206,15 +218,14 @@ async function memoryBatchCreate(
     store.withTransaction(async (tx) => {
       const out: string[] = [];
       for (const m of params.memories) {
-        out.push(
-          await tx.createMemory(treeAccess, {
-            id: m.id ?? undefined,
-            content: m.content,
-            meta: m.meta ?? undefined,
-            tree: inputTreePath(ctx, m.tree),
-            temporal: formatTemporal(m.temporal),
-          }),
-        );
+        const id = await tx.createMemory(treeAccess, {
+          id: m.id ?? undefined,
+          content: m.content,
+          meta: m.meta ?? undefined,
+          tree: inputTreePath(ctx, m.tree),
+          temporal: formatTemporal(m.temporal),
+        });
+        if (id !== null) out.push(id);
       }
       return out;
     }),
