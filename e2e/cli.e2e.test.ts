@@ -207,6 +207,16 @@ describe.skipIf(!OPENAI_KEY || !process.env.TEST_DATABASE_URL)(
       return (row?.n as number) ?? 0;
     }
 
+    // Count memories captured from a given source session id.
+    async function countBySession(sessionId: string): Promise<number> {
+      const [row] = await sql.unsafe(
+        `select count(*)::int as n from metest_${spaceSlug}.memory
+         where meta->>'source_session_id' = $1`,
+        [sessionId],
+      );
+      return (row?.n as number) ?? 0;
+    }
+
     // Parse the --json stdout of a `me` invocation, asserting success.
     async function meJson<T = unknown>(
       args: string[],
@@ -351,6 +361,85 @@ describe.skipIf(!OPENAI_KEY || !process.env.TEST_DATABASE_URL)(
         { ME_API_KEY: key.key, ME_SESSION_TOKEN: "" },
       );
       expect(res.total).toBeGreaterThan(0);
+    });
+
+    test("8. `me claude import` backfills work that predates the hook", async () => {
+      // The scenario: a user does a bunch of Claude Code work BEFORE installing
+      // the capture hook (no hook fires for it), then installs the hook (which
+      // begins capturing new sessions live), then runs `me claude import`. The
+      // pre-install work must be backfilled — the importer has no lower time
+      // bound tied to hook install; it sweeps every transcript and dedupes by
+      // deterministic message id.
+      const root = await mkdtemp(join(tmpdir(), "me-e2e-backfill-"));
+      const projDir = join(root, "proj");
+      await mkdir(projDir, { recursive: true });
+
+      // cwd "/work/backfill-proj" → no git repo on disk → slug = basename, so
+      // both sessions land under the same tree.
+      const cwd = "/work/backfill-proj";
+      const tree = "share.projects.backfill_proj.agent_sessions";
+
+      const mkMsg =
+        (sessionId: string) =>
+        (i: number, type: "user" | "assistant", text: string) => ({
+          type,
+          uuid: `${sessionId}-${type}-${i}`,
+          timestamp: `2026-02-01T00:00:0${i}.000Z`,
+          sessionId,
+          cwd,
+          message:
+            type === "user"
+              ? { content: text }
+              : { content: [{ type: "text", text }], model: "claude-x" },
+        });
+
+      const writeTranscript = async (sessionId: string, prefix: string) => {
+        const m = mkMsg(sessionId);
+        const lines = [
+          m(0, "user", `${prefix} first question`),
+          m(1, "assistant", `${prefix} first answer`),
+          m(2, "user", `${prefix} second question`),
+          m(3, "assistant", `${prefix} second answer`),
+        ];
+        const path = join(projDir, `${sessionId}.jsonl`);
+        await writeFile(path, lines.map((l) => JSON.stringify(l)).join("\n"));
+        return path;
+      };
+
+      // 1. Pre-install work: a transcript sits on disk; NO hook ever fires for
+      //    it. It must not be in the engine yet.
+      const oldSession = `pre-install-${rand()}`;
+      await writeTranscript(oldSession, "old");
+      expect(await countBySession(oldSession)).toBe(0);
+
+      // 2. Install the hook (it now captures live) and let it import a NEW
+      //    session — the real `me claude hook` path, reading from stdin.
+      const newSession = `post-install-${rand()}`;
+      const newTranscript = await writeTranscript(newSession, "new");
+      const hook = await meStdin(
+        ["claude", "hook", "--event", "stop"],
+        JSON.stringify({
+          transcript_path: newTranscript,
+          session_id: newSession,
+        }),
+      );
+      expect(hook.code, hook.stderr).toBe(0);
+      // The hook captured only the post-install session — the old one is still
+      // absent (this is exactly the gap `me claude import` must close).
+      expect(await countBySession(newSession)).toBe(4);
+      expect(await countBySession(oldSession)).toBe(0);
+
+      // 3. Run `me claude import`.
+      const imp = await me(["claude", "import", "--source", root]);
+      expect(imp.code, imp.stderr).toBe(0);
+
+      // 4. The pre-install work is now backfilled, and the hook's live capture
+      //    was not duplicated.
+      expect(await countBySession(oldSession)).toBe(4);
+      expect(await countBySession(newSession)).toBe(4);
+      expect(await countUnder(tree)).toBe(8);
+
+      await rm(root, { recursive: true, force: true });
     });
 
     test("9. claude capture hook ↔ `me claude import` are cross-idempotent", async () => {
