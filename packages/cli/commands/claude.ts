@@ -27,6 +27,7 @@
  *      Code (no hooks, no slash commands — just the tools).
  */
 import { existsSync } from "node:fs";
+import { readFile, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import * as clack from "@clack/prompts";
 import { Command, InvalidArgumentError } from "commander";
@@ -40,7 +41,12 @@ import {
 import { createMemoryClient } from "../client.ts";
 import { resolveCredentials } from "../credentials.ts";
 import { claudeImporter } from "../importers/claude.ts";
-import { importTranscriptFile } from "../importers/index.ts";
+import {
+  DEFAULT_SESSIONS_NODE_NAME,
+  DEFAULT_TREE_ROOT,
+  importTranscriptFile,
+} from "../importers/index.ts";
+import { SlugRegistry } from "../importers/slug.ts";
 import {
   type AgentInstallOptions,
   runAgentMcpInstall,
@@ -426,24 +432,112 @@ function createClaudeHookCommand(): Command {
     });
 }
 
+/** Markers delimiting the section `me claude init` manages in a CLAUDE.md. */
+const CLAUDE_MD_START =
+  "<!-- memory-engine:start (managed by `me claude init`) -->";
+const CLAUDE_MD_END = "<!-- memory-engine:end -->";
+
+/** Render an ltree path (dot-separated) as the slash form users type into `me search --tree`. */
+function ltreeToSlash(path: string): string {
+  return path.replaceAll(".", "/");
+}
+
+/**
+ * Build the managed CLAUDE.md block that tells an agent where this project's
+ * memories live in Memory Engine and how to search them. `projectTree` is the
+ * ltree path (e.g. `share.projects.foo`); `space` is the active space slug, if
+ * known.
+ */
+function buildClaudeMdSection(projectTree: string, space?: string): string {
+  const tree = ltreeToSlash(projectTree);
+  const sessions = `${tree}/${DEFAULT_SESSIONS_NODE_NAME}`;
+  const where = space ? `Memory Engine (space \`${space}\`)` : "Memory Engine";
+  return [
+    CLAUDE_MD_START,
+    "## Project memories (Memory Engine)",
+    "",
+    `Prior context for this project — including captured/imported Claude Code`,
+    `sessions — is stored in ${where} under the tree:`,
+    "",
+    `    ${tree}`,
+    "",
+    `- Captured & imported agent sessions: \`${sessions}\``,
+    `- Search them with the \`me_memory_search\` MCP tool (set \`tree\` to`,
+    `  \`${tree}\`), or from a shell: \`me search "<query>" --tree ${tree}\`.`,
+    "",
+    "Check these before starting work to recall earlier decisions and context.",
+    CLAUDE_MD_END,
+    "",
+  ].join("\n");
+}
+
+/**
+ * Upsert the managed Memory Engine section into the project's CLAUDE.md.
+ *
+ * Idempotent: if the marker block already exists it is replaced in place;
+ * otherwise the block is appended (creating the file if absent). Writes to the
+ * git repo root's CLAUDE.md when in a repo, else the current directory's.
+ */
+async function writeProjectMemoryPointer(server?: string): Promise<void> {
+  const cwd = process.cwd();
+  const { slug, gitRoot } = await new SlugRegistry().resolve(cwd);
+  const projectTree = `${DEFAULT_TREE_ROOT}.${slug}`;
+  const space = resolveCredentials(server).activeSpace;
+  const section = buildClaudeMdSection(projectTree, space);
+
+  const claudeMdPath = join(gitRoot ?? cwd, "CLAUDE.md");
+  let existing = "";
+  try {
+    existing = await readFile(claudeMdPath, "utf8");
+  } catch {
+    existing = ""; // no file yet → create it
+  }
+
+  let next: string;
+  const start = existing.indexOf(CLAUDE_MD_START);
+  if (start !== -1) {
+    // Replace the existing managed block in place.
+    const endMarker = existing.indexOf(CLAUDE_MD_END, start);
+    const end =
+      endMarker === -1 ? existing.length : endMarker + CLAUDE_MD_END.length;
+    // Swallow a single trailing newline after the old block so we don't grow
+    // blank lines on every re-run.
+    const tail = existing[end] === "\n" ? end + 1 : end;
+    next = existing.slice(0, start) + section + existing.slice(tail);
+  } else if (existing.trim().length === 0) {
+    next = section;
+  } else {
+    // Append after the existing content with one blank line of separation.
+    const sep = existing.endsWith("\n") ? "\n" : "\n\n";
+    next = existing + sep + section;
+  }
+
+  await writeFile(claudeMdPath, next);
+  clack.log.success(`Recorded project memory location in ${claudeMdPath}`);
+}
+
 /**
  * me claude init — one-shot setup of Claude Code memory integration.
  *
- * For now this just backfills your existing Claude Code sessions (the same
- * work as `me claude import`). It's a deliberate seam for additional setup
- * steps (e.g. installing the plugin, seeding config) to be added here later —
- * keep import first so the command stays useful while it grows.
+ * Steps (each a deliberate seam for more setup to be added later):
+ *   1. Backfill existing Claude Code sessions (default-option import — `me
+ *      claude import` remains the knob-laden variant).
+ *   2. Record where this project's memories live in Memory Engine into the
+ *      project's CLAUDE.md, so the agent knows to consult them.
  */
 function createClaudeInitCommand(): Command {
   return new Command("init")
     .description(
-      "set up Claude Code memory integration (currently: import existing sessions)",
+      "set up Claude Code memory integration (import existing sessions + note memory location in CLAUDE.md)",
     )
     .action(async (_opts, cmd: Command) => {
       const globalOpts = cmd.optsWithGlobals();
-      // Step 1: backfill existing Claude Code sessions. Run with default import
-      // options (no flags) — `me claude import` remains the knob-laden variant.
+      const server =
+        typeof globalOpts.server === "string" ? globalOpts.server : undefined;
+      // Step 1: backfill existing Claude Code sessions.
       await runAgentImport(claudeImporter, {}, globalOpts);
+      // Step 2: point CLAUDE.md at this project's memories.
+      await writeProjectMemoryPointer(server);
     });
 }
 

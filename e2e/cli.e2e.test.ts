@@ -19,7 +19,7 @@
 process.env.SPACE_SCHEMA_PREFIX = "metest_";
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { authStore } from "@memory.build/auth";
@@ -162,11 +162,13 @@ describe.skipIf(!OPENAI_KEY || !process.env.TEST_DATABASE_URL)(
     async function me(
       args: string[],
       extraEnv?: Record<string, string>,
+      cwd?: string,
     ): Promise<{ stdout: string; stderr: string; code: number }> {
       const proc = Bun.spawn([process.execPath, CLI, ...args], {
         env: cliEnv(extraEnv),
         stdout: "pipe",
         stderr: "pipe",
+        ...(cwd ? { cwd } : {}),
       });
       const [stdout, stderr] = await Promise.all([
         new Response(proc.stdout).text(),
@@ -448,25 +450,27 @@ describe.skipIf(!OPENAI_KEY || !process.env.TEST_DATABASE_URL)(
       await rm(root, { recursive: true, force: true });
     });
 
-    test("8b. `me claude init` backfills existing sessions from the default source", async () => {
-      // `me claude init` is the one-shot setup command; for now its only step is
-      // an import with default options (no --source), so it reads the default
-      // ~/.claude/projects — which, under this run's HOME=tmpHome, resolves to
-      // tmpHome/.claude/projects. Drop a transcript there and confirm `init`
-      // backfills it.
-      const projDir = join(tmpHome, ".claude", "projects", "init-proj");
-      await mkdir(projDir, { recursive: true });
+    test("8b. `me claude init` backfills sessions and writes a CLAUDE.md pointer", async () => {
+      // `me claude init` is the one-shot setup command. Two steps:
+      //   1. import existing sessions (default --source ~/.claude/projects,
+      //      which under this run's HOME=tmpHome is tmpHome/.claude/projects);
+      //   2. record the project's memory location in the project's CLAUDE.md
+      //      (the project = init's cwd; not a git repo here → CLAUDE.md lands in
+      //      that dir, slug = its basename).
+      const transcriptDir = join(tmpHome, ".claude", "projects", "init-proj");
+      await mkdir(transcriptDir, { recursive: true });
 
       const sessionId = `init-${rand()}`;
-      // cwd "/work/init-proj" → no git repo on disk → slug = basename.
-      const cwd = "/work/init-proj";
+      // The transcript's own cwd "/work/init-proj" decides the session tree
+      // (independent of where `init` is invoked from).
+      const sessionCwd = "/work/init-proj";
       const tree = "share.projects.init_proj.agent_sessions";
       const mkMsg = (i: number, type: "user" | "assistant", text: string) => ({
         type,
         uuid: `${sessionId}-${type}-${i}`,
         timestamp: `2026-03-01T00:00:0${i}.000Z`,
         sessionId,
-        cwd,
+        cwd: sessionCwd,
         message:
           type === "user"
             ? { content: text }
@@ -479,20 +483,41 @@ describe.skipIf(!OPENAI_KEY || !process.env.TEST_DATABASE_URL)(
         mkMsg(3, "assistant", "init second answer"),
       ];
       await writeFile(
-        join(projDir, `${sessionId}.jsonl`),
+        join(transcriptDir, `${sessionId}.jsonl`),
         lines.map((l) => JSON.stringify(l)).join("\n"),
       );
 
-      // Pre-init: nothing captured for this session yet.
+      // The project we run `init` in — a non-git temp dir with a known basename
+      // so the derived slug is predictable. CLAUDE.md will be written here.
+      const projectRoot = await mkdtemp(join(tmpdir(), "me-e2e-initcwd-"));
+      const projectDir = join(projectRoot, "initcwd");
+      await mkdir(projectDir, { recursive: true });
+
+      // Pre-init: nothing captured, no CLAUDE.md.
       expect(await countBySession(sessionId)).toBe(0);
 
-      // `me claude init` (no flags) backfills the existing session.
-      const init = await me(["claude", "init"]);
+      // Run `init` FROM the project dir so its cwd → slug → CLAUDE.md location.
+      const init = await me(["claude", "init"], undefined, projectDir);
       expect(init.code, init.stderr).toBe(0);
+
+      // Step 1: the existing session was backfilled.
       expect(await countBySession(sessionId)).toBe(4);
       expect(await countUnder(tree)).toBe(4);
 
-      await rm(projDir, { recursive: true, force: true });
+      // Step 2: CLAUDE.md now points at this project's memories.
+      const claudeMd = await readFile(join(projectDir, "CLAUDE.md"), "utf8");
+      expect(claudeMd).toContain("memory-engine:start");
+      expect(claudeMd).toContain("share/projects/initcwd");
+      expect(claudeMd).toContain("share/projects/initcwd/agent_sessions");
+
+      // Re-running is idempotent: still exactly one managed block.
+      const init2 = await me(["claude", "init"], undefined, projectDir);
+      expect(init2.code, init2.stderr).toBe(0);
+      const claudeMd2 = await readFile(join(projectDir, "CLAUDE.md"), "utf8");
+      expect(claudeMd2.split("memory-engine:start").length - 1).toBe(1);
+
+      await rm(transcriptDir, { recursive: true, force: true });
+      await rm(projectRoot, { recursive: true, force: true });
     });
 
     test("9. claude capture hook ↔ `me claude import` are cross-idempotent", async () => {
