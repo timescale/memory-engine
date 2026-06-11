@@ -33,11 +33,11 @@ import {
   WIKIPEDIA_DUMP_FORMAT,
   type WikipediaContentMode,
 } from "../wikipedia.ts";
+import { VALID_TREE_ROOT_RE } from "./import.ts";
 
-const DEFAULT_TREE_ROOT = "wikipedia";
+const DEFAULT_TREE_ROOT = "share.wikipedia";
 const DEFAULT_BATCH_SIZE = 500;
 const OPENAI_TEXT_EMBEDDING_3_SMALL_USD_PER_MILLION_TOKENS = 0.02;
-const VALID_TREE_ROOT_RE = /^[a-z0-9_]+(\.[a-z0-9_]+)*$/;
 const VALID_WIKI_SLUG_RE = /^[a-z0-9_]+wiki$/i;
 
 interface ResolvedWikipediaSource {
@@ -238,7 +238,7 @@ function parseWikipediaImportOptions(
   const treeRoot = String(opts.treeRoot ?? DEFAULT_TREE_ROOT);
   if (!VALID_TREE_ROOT_RE.test(treeRoot)) {
     throw new Error(
-      `Invalid --tree-root: '${treeRoot}'. Must match [a-z0-9_]+(\\.[a-z0-9_]+)*`,
+      `Invalid --tree-root: '${treeRoot}'. Use ltree labels ([A-Za-z0-9_-]) separated by '.' or '/', with an optional leading '~' for your home.`,
     );
   }
 

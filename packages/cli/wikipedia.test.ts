@@ -137,7 +137,7 @@ describe("Wikipedia dump helpers", () => {
 
     const built = buildWikipediaMemory(page!, {
       wikiSlug: "enwiki",
-      treeRoot: "wikipedia",
+      treeRoot: "share.wikipedia",
       contentMode: "plain",
       sourceDumpPath: "/tmp/enwiki-latest-pages-articles-multistream.xml.bz2",
       sourceDumpUrl:
@@ -149,7 +149,7 @@ describe("Wikipedia dump helpers", () => {
 
     expect(built).not.toBeNull();
     expect(built!.memory.id).toMatch(UUIDV7_RE);
-    expect(built!.memory.tree).toBe("wikipedia.relational_databases");
+    expect(built!.memory.tree).toBe("share.wikipedia.relational_databases");
     expect(built!.memory.content).toContain(
       "# PostgreSQL\n\nPostgreSQL is an open-source database.",
     );

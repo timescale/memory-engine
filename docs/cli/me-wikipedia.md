@@ -28,7 +28,7 @@ me wikipedia import [source] [options]
 | `--cache-dir <dir>` | Directory for downloaded dump archives. |
 | `--force-download` | Redownload even when the cache file exists. |
 | `--download-only` | Download the dump archive and exit. |
-| `--tree-root <path>` | Tree root for imported memories (default: `wikipedia`). |
+| `--tree-root <path>` | Tree root for imported memories (default: `share.wikipedia`). Accepts `.`/`/`-separated ltree labels with an optional leading `~` for your home root. |
 | `--namespace <n>` | MediaWiki namespace number to import (default: `0`, articles). |
 | `--include-redirects` | Import redirect pages. Redirects are skipped by default. |
 | `--content-mode <mode>` | Content to store: `plain` or `wikitext` (default: `plain`). |
@@ -63,7 +63,7 @@ me wikipedia import enwiki --download-only
 Each imported article becomes one memory:
 
 - `content`: `# Title` followed by either cleaned plain text or raw wikitext.
-- `tree`: `<tree-root>.<primary_category_slug>`, where `primary_category_slug` is the first category in `meta.categories` normalized for ltree, for example `wikipedia.relational_databases`. Articles without categories use `wikipedia.uncategorized`.
+- `tree`: `<tree-root>.<primary_category_slug>`, where `primary_category_slug` is the first category in `meta.categories` normalized for ltree, for example `share.wikipedia.relational_databases`. Articles without categories use `share.wikipedia.uncategorized`. The default tree root is `share.wikipedia` so imports land in the shared root every space member can read (members get `owner@share` by default but not `owner@root`).
 - `temporal`: current revision timestamp from the dump.
 - `meta`: source metadata including `source_wiki`, `source_page_id`, `source_revision_id`, `source_title`, `source_url`, `categories`, `primary_category`, `primary_category_slug`, `source_format`, `content_format`, and importer version.
 
