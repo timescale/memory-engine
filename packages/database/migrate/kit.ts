@@ -102,6 +102,18 @@ export async function ensureExtension(
   name: string,
   minVersion: string,
 ): Promise<void> {
+  // Extensions are database-global, but each migrator (auth, core, the
+  // space bootstrap) serializes only against its own advisory key — two
+  // DIFFERENT migrators racing on a fresh database both pass the existence
+  // check below and the loser's `create extension` dies with a
+  // unique_violation (seen with parallel integration suites on a fresh CI
+  // container). One database-wide lock serializes every extension ensure;
+  // transaction-scoped, so a loser proceeds only after the winner's commit
+  // made the extension visible. Re-acquiring within the same transaction
+  // (one lock per extension in a migrator's loop) is immediate.
+  const [key1, key2] = advisoryLockKey("memory:extensions");
+  await tx`select pg_advisory_xact_lock(${key1}, ${key2})`;
+
   const [installed] = await tx`
     select x.extversion, n.nspname
     from pg_extension x
