@@ -36,6 +36,7 @@
     "test:db:clean": "./bun scripts/clean-test-schemas.ts",
     "test:db:clean:all": "./bun scripts/clean-test-schemas.ts --all",
     "test:e2e": "./bun run test:db:clean && ./bun test --timeout 60000 ./e2e",
+    "test:unit": "find packages -name '*.test.ts' ! -name '*.integration.test.ts' -print0 | xargs -0 ./bun test --parallel=2",
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {

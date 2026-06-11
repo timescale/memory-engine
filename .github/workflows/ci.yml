@@ -25,7 +25,9 @@ jobs:
       - name: Typecheck
         run: ./bun run typecheck
       - name: Test (unit)
-        run: find packages -name '*.test.ts' ! -name '*.integration.test.ts' -print0 | xargs -0 ./bun test
+        # Same script (and process model — --parallel) as local runs, so CI
+        # can't diverge from what developers verify against.
+        run: ./bun run test:unit
 
   integration:
     runs-on: ubuntu-latest
@@ -51,6 +53,10 @@ jobs:
             sleep 1
           done
       - name: Test (integration)
-        run: find packages -name '*.integration.test.ts' -print0 | xargs -0 ./bun test
+        # Same script (and process model — --parallel) as local runs; the
+        # suites default to postgresql://postgres@127.0.0.1:5432/postgres,
+        # which is the container above. The schema cleaner that test:db runs
+        # first is a no-op against the fresh container.
+        run: ./bun run test:db
       - name: Stop Postgres
         run: docker stop me-postgres
