@@ -704,6 +704,7 @@ function createClaudeInitCommand(): Command {
     // steps already opted out non-interactively, so a `--skip-<step>` run
     // never pays for that step's availability check.
     const candidates: InitStep[] = [];
+    const doneLabels: string[] = [];
     for (const step of INIT_STEPS) {
       if (!interactive && opts[step.optionKey] === true) continue;
       const availability = step.available
@@ -711,12 +712,17 @@ function createClaudeInitCommand(): Command {
         : "available";
       if (availability === "hidden") continue;
       if (availability === "done") {
-        if (fmt === "text") {
-          clack.log.message(step.doneLabel ?? step.label, { symbol: CHECK });
-        }
+        doneLabels.push(step.doneLabel ?? step.label);
         continue;
       }
       candidates.push(step);
+    }
+    if (fmt === "text") {
+      // One block: spacing 0 keeps consecutive ✓ lines adjacent (clack's
+      // default spacing of 1 would put a bare guide line between them).
+      doneLabels.forEach((label, i) => {
+        clack.log.message(label, { symbol: CHECK, spacing: i === 0 ? 1 : 0 });
+      });
     }
 
     // Baseline = every available step not turned off via its --skip-* flag.
