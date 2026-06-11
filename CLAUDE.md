@@ -86,27 +86,25 @@ Always use the `./bun` wrapper script (auto-installs the pinned Bun version):
 # fast, for iterating on one file:
 ./bun test packages/cli/mcp/install.test.ts
 
-# Full suite (unit + integration) against the LOCAL Postgres container
-# (--parallel=2, 30s timeout). Without TEST_DATABASE_URL the scripts fall
-# back to the remote ghost instance — minutes instead of seconds.
-TEST_DATABASE_URL=postgresql://postgres@127.0.0.1:5432/postgres ./bun run test
+# Full suite (unit + integration) — defaults to the LOCAL Postgres container
+# at 127.0.0.1:5432 (--parallel=2, 30s timeout); TEST_DATABASE_URL overrides.
+./bun run test
 
 # Fast inner loop (typecheck + lint + unit tests; no database, ~15s)
 ./bun run check
 
 # Everything: check + full suite + the e2e suite (~30s against local Postgres)
-TEST_DATABASE_URL=postgresql://postgres@127.0.0.1:5432/postgres ./bun run check:full
+./bun run check:full
 ```
 
 **Important — verification runs against the local Postgres**: after making
 code changes, run `./bun run check` (fast, no DB). Before committing, run
-`check:full` with `TEST_DATABASE_URL=postgresql://postgres@127.0.0.1:5432/postgres`
-(the `me-postgres` Docker container; if it isn't running:
-`docker start me-postgres || ./bun run pg`). Only run against ghost when
-explicitly asked to test against ghost. CI is the strict gate: it runs every
-suite with `TEST_CI=1`, which disables conditional skips — any new
-`describe.skipIf` gate **must** include `!process.env.TEST_CI` in its
-condition (pattern: `packages/embedding/generate.test.ts`,
+`./bun run check:full` — it defaults to the `me-postgres` Docker container
+(if it isn't running: `docker start me-postgres || ./bun run pg`). Only run
+against ghost when explicitly asked to test against ghost. CI is the strict
+gate: it runs every suite with `TEST_CI=1`, which disables conditional skips
+— any new `describe.skipIf` gate **must** include `!process.env.TEST_CI` in
+its condition (pattern: `packages/embedding/generate.test.ts`,
 `e2e/cli.e2e.test.ts`) so CI never silently skips it.
 
 > `packages/web` and `packages/docs-site` are excluded from the root typecheck
@@ -115,30 +113,29 @@ condition (pattern: `packages/embedding/generate.test.ts`,
 ### Database integration tests
 
 `*.integration.test.ts` files run against a real PostgreSQL 18 with the
-required extensions (citext, ltree, pgvector, pg_textsearch). For verification
-use the **local `me-postgres` Docker container** (same image CI builds;
-`./bun run pg` creates it). `test:db` is the focused variant: it first
-reclaims orphaned test schemas, then runs **every** `*.integration.test.ts`
-under `packages/` (the auth/core/space migration suites plus the
-engine/server/worker suites), `--parallel=2`, 30s timeout:
+required extensions (citext, ltree, pgvector, pg_textsearch). Everything
+defaults to the **local `me-postgres` Docker container** at 127.0.0.1:5432
+(same image CI builds; `./bun run pg` creates it). `test:db` is the focused
+variant: it first reclaims orphaned test schemas, then runs **every**
+`*.integration.test.ts` under `packages/` (the auth/core/space migration
+suites plus the engine/server/worker suites), `--parallel=2`, 30s timeout:
 
 ```bash
-TEST_DATABASE_URL=postgresql://postgres@127.0.0.1:5432/postgres ./bun run test:db
+./bun run test:db
 ```
 
 A single integration file runs in seconds locally:
 
 ```bash
-TEST_DATABASE_URL=postgresql://postgres@127.0.0.1:5432/postgres \
-  ./bun test --timeout 30000 packages/database/core/migrate/migrate.integration.test.ts
+./bun test --timeout 30000 packages/database/core/migrate/migrate.integration.test.ts
 ```
 
 **Ghost (only when explicitly asked to test against ghost)**: `testing_me` is
-the dedicated ghost database; without `TEST_DATABASE_URL` the `test`/`test:db`
-scripts fall back to it. Expect minutes instead of seconds (every statement
-pays WAN latency), and always pass `--timeout 30000` for single files — bun's
-default 5s isn't enough over the remote connection (a migrating `beforeAll`
-overruns it, surfacing as a misleading "beforeEach/afterEach hook timed out"):
+the dedicated ghost database — point `TEST_DATABASE_URL` at it explicitly.
+Expect minutes instead of seconds (every statement pays WAN latency), and
+always pass `--timeout 30000` for single files — bun's default 5s isn't
+enough over the remote connection (a migrating `beforeAll` overruns it,
+surfacing as a misleading "beforeEach/afterEach hook timed out"):
 
 ```bash
 TEST_DATABASE_URL="$(ghost connect testing_me)" ./bun run test:db
