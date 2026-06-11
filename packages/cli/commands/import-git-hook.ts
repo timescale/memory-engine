@@ -121,20 +121,22 @@ async function git(repo: string, args: string[]): Promise<string | null> {
   }
 }
 
-/**
- * Whether the git-hook init step should be offered for `cwd`: inside a git
- * repo, no committed hooks manager, and the managed block not yet installed.
- */
-export async function isGitHookInstallable(cwd: string): Promise<boolean> {
+/** Status of the git hook for `cwd`, driving the `me claude init` step. */
+export type GitHookStatus =
+  | "installable" // in a repo, no hooks manager, block not yet present
+  | "not-applicable" // not a git repo, or core.hooksPath owns the hook path
+  | "installed"; // the managed block is already there
+
+export async function gitHookStatus(cwd: string): Promise<GitHookStatus> {
   const root = await git(cwd, ["rev-parse", "--show-toplevel"]);
-  if (!root) return false;
-  if (await git(root, ["config", "core.hooksPath"])) return false;
+  if (!root) return "not-applicable";
+  if (await git(root, ["config", "core.hooksPath"])) return "not-applicable";
   const hooksFile = await resolveHooksFile(root);
   try {
     const existing = await readFile(hooksFile, "utf8");
-    return !existing.includes(HOOK_START);
+    return existing.includes(HOOK_START) ? "installed" : "installable";
   } catch {
-    return true; // no hook file yet
+    return "installable"; // no hook file yet
   }
 }
 

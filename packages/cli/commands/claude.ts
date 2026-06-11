@@ -55,7 +55,7 @@ import {
 import { getOutputFormat } from "../output.ts";
 import { createClaudeImportCommand, runAgentImport } from "./import.ts";
 import { runGitImport } from "./import-git.ts";
-import { isGitHookInstallable, runGitHookInstall } from "./import-git-hook.ts";
+import { gitHookStatus, runGitHookInstall } from "./import-git-hook.ts";
 
 /** GitHub source for `claude plugin marketplace add`. */
 const PLUGIN_MARKETPLACE_SOURCE = "timescale/memory-engine";
@@ -446,6 +446,10 @@ const CLAUDE_MD_END = "<!-- memory-engine:end -->";
 const DIM = "\x1b[2m";
 const DIM_OFF = "\x1b[22m";
 
+/** Green checkmark (resets only the foreground color) for already-done init
+ * steps, matching clack's green log symbols. */
+const CHECK = "\x1b[32m✓\x1b[39m";
+
 /**
  * Build the managed CLAUDE.md block that tells an agent where this project's
  * memories live in Memory Engine and how to search them. `projectTree` is the
@@ -540,6 +544,14 @@ interface InitStepContext {
   server?: string;
 }
 
+/**
+ * Availability of an init step in this environment: offer it, hide it
+ * entirely (not applicable here), or report it as already done — no
+ * multiselect row, but a ✓ line above the prompt so the user knows it's
+ * covered.
+ */
+type StepAvailability = "available" | "hidden" | "done";
+
 interface InitStep {
   /** Stable id — the multiselect value and the basis of the --skip flag. */
   id: string;
@@ -552,11 +564,13 @@ interface InitStep {
   /** Multiselect row label. */
   label: string;
   /**
-   * Optional availability gate: a step that resolves false is omitted
-   * entirely — no multiselect row and not part of the non-interactive
-   * baseline. Absent means always available.
+   * Optional availability gate: "hidden" omits the step entirely; "done"
+   * omits it but prints `doneLabel` with a checkmark. Absent means always
+   * available.
    */
-  available?: () => Promise<boolean>;
+  available?: () => Promise<StepAvailability>;
+  /** The ✓ line printed when `available` resolves "done". */
+  doneLabel?: string;
   /** Perform the step. */
   run: (ctx: InitStepContext) => Promise<void>;
 }
@@ -578,19 +592,19 @@ export function pluginListShowsInstalled(stdout: string): boolean {
 }
 
 /**
- * Availability of the plugin-install init step: offered only when the
- * `claude` binary exists and the plugin is not already installed.
+ * Availability of the plugin-install init step: hidden when the `claude`
+ * binary is absent, "done" when the plugin is already installed.
  */
-async function pluginInstallAvailable(): Promise<boolean> {
-  if (Bun.which("claude") === null) return false;
+async function pluginInstallAvailable(): Promise<StepAvailability> {
+  if (Bun.which("claude") === null) return "hidden";
   const { exitCode, stdout } = await runCommand([
     "claude",
     "plugin",
     "list",
     "--json",
   ]);
-  if (exitCode !== 0) return true; // can't tell → offer the install
-  return !pluginListShowsInstalled(stdout);
+  if (exitCode !== 0) return "available"; // can't tell → offer the install
+  return pluginListShowsInstalled(stdout) ? "done" : "available";
 }
 
 const INIT_STEPS: InitStep[] = [
@@ -600,8 +614,9 @@ const INIT_STEPS: InitStep[] = [
     skipFlag: "--skip-plugin-install",
     skipDescription: "do not install the Claude Code plugin",
     label: "Install the Claude Code plugin (hooks + slash commands + MCP)",
-    // Hidden when Claude Code is absent or the plugin is already installed.
+    // Hidden when Claude Code is absent; ✓ when the plugin is already there.
     available: pluginInstallAvailable,
+    doneLabel: "Claude Code plugin already installed",
     run: ({ server }) => runClaudePluginInstall({ server, scope: "user" }),
   },
   {
@@ -639,9 +654,14 @@ const INIT_STEPS: InitStep[] = [
     skipFlag: "--skip-git-hook",
     skipDescription: "do not install the git post-commit capture hook",
     label: "Install a git post-commit hook (keeps git history current)",
-    // Hidden outside a git repo, when a committed hooks manager owns the
-    // hook path, or when the managed block is already installed.
-    available: () => isGitHookInstallable(process.cwd()),
+    // Hidden outside a git repo or when a committed hooks manager owns the
+    // hook path; ✓ when the managed block is already installed.
+    available: async () => {
+      const status = await gitHookStatus(process.cwd());
+      if (status === "installed") return "done";
+      return status === "installable" ? "available" : "hidden";
+    },
+    doneLabel: "Git post-commit hook already installed",
     run: ({ globalOpts }) =>
       runGitHookInstall({ skipIfNotRepo: true }, globalOpts),
   },
@@ -679,13 +699,23 @@ function createClaudeInitCommand(): Command {
       Boolean(process.stdout.isTTY);
 
     // Steps available in this environment (e.g. plugin-install hides itself
-    // when Claude Code is absent or the plugin is already installed). The
-    // probe is skipped for steps already opted out non-interactively, so a
-    // `--skip-<step>` run never pays for that step's availability check.
+    // when Claude Code is absent). Already-done steps get a ✓ line instead
+    // of a row, so the user knows they're covered. The probe is skipped for
+    // steps already opted out non-interactively, so a `--skip-<step>` run
+    // never pays for that step's availability check.
     const candidates: InitStep[] = [];
     for (const step of INIT_STEPS) {
       if (!interactive && opts[step.optionKey] === true) continue;
-      if (step.available && !(await step.available())) continue;
+      const availability = step.available
+        ? await step.available()
+        : "available";
+      if (availability === "hidden") continue;
+      if (availability === "done") {
+        if (fmt === "text") {
+          clack.log.message(step.doneLabel ?? step.label, { symbol: CHECK });
+        }
+        continue;
+      }
       candidates.push(step);
     }
 

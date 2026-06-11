@@ -65,10 +65,10 @@ Setup is a list of independent steps. In an interactive terminal `init` presents
 
 | Step | Skip flag | What it does |
 |------|-----------|--------------|
-| Install the Claude Code plugin | `--skip-plugin-install` | Runs the same install as [`me claude install`](#me-claude-install) (full plugin, `user` scope, login-session auth). Only offered when the `claude` binary is on PATH and `claude plugin list` doesn't already show the plugin — otherwise the step is hidden entirely. |
+| Install the Claude Code plugin | `--skip-plugin-install` | Runs the same install as [`me claude install`](#me-claude-install) (full plugin, `user` scope, login-session auth). Hidden when the `claude` binary isn't on PATH; when `claude plugin list` already shows the plugin, the step is replaced by a ✓ "already installed" line above the picker. |
 | Import this project's Claude Code sessions | `--skip-transcript-import` | Backfills sessions recorded in this project (cwd at/under the repo root, temp-dir projects included) from `~/.claude/projects`. For a machine-wide backfill across all projects, run [`me import claude`](me-import.md#me-import-claude--codex--opencode). |
 | Import git commit history | `--skip-git-import` | Imports the repo's full commit history — the same import as [`me import git`](me-import.md#me-import-git). Skipped automatically when the current directory is not inside a git repo. |
-| Install a git post-commit hook | `--skip-git-hook` | Installs the managed hook from [`me import git-hook`](me-import.md#me-import-git-hook) so each commit triggers a background incremental import. Only offered inside a git repo without a `core.hooksPath` manager and when the hook isn't already installed — otherwise the step is hidden entirely. |
+| Install a git post-commit hook | `--skip-git-hook` | Installs the managed hook from [`me import git-hook`](me-import.md#me-import-git-hook) so each commit triggers a background incremental import. Hidden outside a git repo or when a `core.hooksPath` manager owns the hook path; when the hook is already installed, the step is replaced by a ✓ "already installed" line above the picker. |
 | Add a memory pointer to CLAUDE.md | `--skip-claude-md` | Upserts a managed block into the project's CLAUDE.md naming the project tree (`share.projects.<slug>`), its `agent_sessions` and `git_history` nodes, and how to search them. Idempotent — re-runs replace the block in place. |
 
 Re-running `init` is safe: both imports are incremental/idempotent and the CLAUDE.md block is replaced, not duplicated.
