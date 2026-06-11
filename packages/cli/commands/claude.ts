@@ -779,9 +779,9 @@ function printInitOutro(): void {
       "and consults them when exploring the code for new features.",
       "",
       "You can also point Claude at them explicitly, e.g.:",
-      `${DIM}"Search memory: why did we structure the database this way?"${DIM_OFF}`,
-      `${DIM}"Check memory for past work on this area before we start"${DIM_OFF}`,
-      `${DIM}"What do my memories say about how deploys work here?"${DIM_OFF}`,
+      `${DIM}"Search memory engine: why did we structure the database this way?"${DIM_OFF}`,
+      `${DIM}"Check me memories for past work on this area before we start"${DIM_OFF}`,
+      `${DIM}"What do my me memories say about how deploys work here?"${DIM_OFF}`,
     ].join("\n"),
     "Your project now has memory",
   );
