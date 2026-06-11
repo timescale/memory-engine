@@ -762,8 +762,29 @@ function createClaudeInitCommand(): Command {
       if (fmt === "text") clack.log.step(step.label);
       await step.run(ctx);
     }
+    if (fmt === "text") printInitOutro();
   });
   return cmd;
+}
+
+/**
+ * Closing guidance after init: what having project memories wired up
+ * actually buys the user, and how to invoke them deliberately.
+ */
+function printInitOutro(): void {
+  clack.note(
+    [
+      "Ask Claude about this project's history or architecture — it now",
+      "draws on your memories (past sessions, git history) automatically,",
+      "and consults them when exploring the code for new features.",
+      "",
+      "You can also point Claude at them explicitly, e.g.:",
+      `${DIM}"Search memory: why did we structure the database this way?"${DIM_OFF}`,
+      `${DIM}"Check memory for past work on this area before we start"${DIM_OFF}`,
+      `${DIM}"What do my memories say about how deploys work here?"${DIM_OFF}`,
+    ].join("\n"),
+    "Your project now has memory",
+  );
 }
 
 export function createClaudeCommand(): Command {
