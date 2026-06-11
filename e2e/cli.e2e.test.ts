@@ -26,6 +26,7 @@ import {
   readFile,
   realpath,
   rm,
+  stat,
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -650,6 +651,7 @@ describe.skipIf(
     dir: string,
     args: string[],
     dateIso?: string,
+    extraEnv?: Record<string, string>,
   ): Promise<void> {
     const proc = Bun.spawn(
       [
@@ -672,6 +674,9 @@ describe.skipIf(
           ...(dateIso
             ? { GIT_AUTHOR_DATE: dateIso, GIT_COMMITTER_DATE: dateIso }
             : {}),
+          // Spawned hooks inherit this env — the git-hook test merges
+          // cliEnv() here so the hook's `me import git` can reach the server.
+          ...(extraEnv ?? {}),
         },
         stdout: "pipe",
         stderr: "pipe",
@@ -812,6 +817,65 @@ describe.skipIf(
     expect(await countUnder(tree)).toBe(1);
     const claudeMd = await readFile(join(repo, "CLAUDE.md"), "utf8");
     expect(claudeMd).toContain(`${tree}\``);
+
+    await rm(root, { recursive: true, force: true });
+  });
+
+  test("8f. `me import git-hook` captures new commits via post-commit", async () => {
+    const root = await mkdtemp(join(tmpdir(), "me-e2e-githook-"));
+    const name = `githook${rand()}`;
+    const repo = join(root, name);
+    await mkdir(repo, { recursive: true });
+    const tree = `share.projects.${name}.git_history`;
+
+    await git(repo, ["init", "-q", "-b", "main"]);
+    await writeFile(join(repo, "a.txt"), "a\n");
+    await git(repo, ["add", "."], "2026-05-01T10:00:00Z");
+    await git(
+      repo,
+      ["commit", "-q", "-m", "feat: first"],
+      "2026-05-01T10:00:00Z",
+    );
+
+    // Install: managed block written, executable, embeds the source invocation.
+    const install = await me(["import", "git-hook", repo]);
+    expect(install.code, install.stderr).toBe(0);
+    const hookFile = join(repo, ".git", "hooks", "post-commit");
+    const hook = await readFile(hookFile, "utf8");
+    expect(hook).toContain(">>> memory-engine");
+    expect(hook).toContain("import git");
+    expect(hook).toContain(process.execPath); // bun + index.ts invocation
+    const { mode } = await stat(hookFile);
+    expect(mode & 0o111).not.toBe(0);
+
+    // Re-install is idempotent: still exactly one managed block.
+    const again = await me(["import", "git-hook", repo]);
+    expect(again.code, again.stderr).toBe(0);
+    const hook2 = await readFile(hookFile, "utf8");
+    expect(hook2.split(">>> memory-engine").length - 1).toBe(1);
+
+    // A commit fires the hook; its background incremental import catches up
+    // the whole history (both commits). The hook child inherits the commit's
+    // env, so merge cliEnv() in.
+    await writeFile(join(repo, "b.txt"), "b\n");
+    await git(repo, ["add", "."], "2026-05-02T10:00:00Z", cliEnv());
+    await git(
+      repo,
+      ["commit", "-q", "-m", "feat: second"],
+      "2026-05-02T10:00:00Z",
+      cliEnv(),
+    );
+    const deadline = Date.now() + 30000;
+    while ((await countUnder(tree)) < 2 && Date.now() < deadline) {
+      await Bun.sleep(250);
+    }
+    expect(await countUnder(tree)).toBe(2);
+
+    // --remove deletes the managed block (and here the whole file, since the
+    // block was its only content).
+    const removed = await me(["import", "git-hook", "--remove", repo]);
+    expect(removed.code, removed.stderr).toBe(0);
+    expect(existsSync(hookFile)).toBe(false);
 
     await rm(root, { recursive: true, force: true });
   });

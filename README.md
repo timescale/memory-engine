@@ -54,6 +54,7 @@ me memory search "how does authentication work"
 me import memories notes.md      # md / yaml / json / ndjson records
 me import claude                 # all Claude Code sessions on this machine
 me import git                    # a repo's commit history
+me import git-hook               # keep it current via a post-commit hook
 
 # Connect other AI tools (Claude Code is covered by `me claude init`)
 me opencode install

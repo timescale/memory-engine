@@ -9,6 +9,7 @@ Get data into Memory Engine — one subcommand per source.
 - [me import codex](#me-import-claude--codex--opencode) -- import Codex sessions
 - [me import opencode](#me-import-claude--codex--opencode) -- import OpenCode sessions
 - [me import git](#me-import-git) -- import a repo's git commit history
+- [me import git-hook](#me-import-git-hook) -- install a post-commit hook that keeps git history memories current
 
 There is no bare default: `me import <file>` does not parse — use `me import memories <file>`.
 
@@ -113,3 +114,51 @@ me import git --dry-run -v   # preview
 me import git                # full backfill (first run)
 me import git                # later: walks only commits since the last import
 ```
+
+---
+
+## me import git-hook
+
+Install a managed git `post-commit` hook that re-runs [`me import git`](#me-import-git) in the background after every commit, keeping the repo's git history memories current without manual re-runs.
+
+```
+me import git-hook [repo]
+me import git-hook --remove
+```
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `repo` | no | Path inside the repo. Default: the current directory. |
+
+| Option | Description |
+|--------|-------------|
+| `--remove` | Remove the managed block (and the hook file, if nothing else remains). |
+
+### What gets installed
+
+A marker-delimited managed block in the repo's effective `post-commit` hook (worktree-aware, resolved via `git rev-parse --git-path hooks`):
+
+```sh
+# >>> memory-engine (managed by `me import git-hook`) >>>
+# Best-effort and asynchronous: never blocks or fails the commit.
+("/path/to/me" import git >/dev/null 2>&1 &)
+# <<< memory-engine <<<
+```
+
+The embedded `me` path is absolute, so commits from GUI git clients (no shell PATH) still trigger the import. If a `post-commit` hook already exists, the block is appended once and the existing script is preserved; re-running `git-hook` replaces the block in place (idempotent, refreshes the embedded path). A foreign hook that exits early never reaches the appended block — move the block up manually in that case.
+
+Because [`me import git`](#me-import-git) is high-water incremental, **any** hook fire catches up the entire backlog — including commits that arrived via pull, merge, or rebase since the last fire. A single `post-commit` hook therefore suffices; there is no post-merge/post-rewrite matrix to install.
+
+### Hooks managers (core.hooksPath)
+
+When the repo routes hooks through `core.hooksPath` (husky, lefthook, and similar committed hooks managers), `git-hook` refuses rather than write into committed files. Add this line to the manager's `post-commit` hook instead:
+
+```sh
+me import git >/dev/null 2>&1 &
+```
+
+### Scope and failure mode
+
+The hook lives in `.git/hooks` — per clone, never committed, never pushed. CI checkouts and teammates' clones are unaffected; each clone opts in by running `me import git-hook` itself ([`me claude init`](me-claude.md#me-claude-init) offers it as a setup step).
+
+The import is deliberately silent and best-effort: it never blocks or fails a commit, which also means auth or connectivity problems won't surface at commit time. If history seems stale, run `me import git` manually to see the error — the next successful fire catches everything up.

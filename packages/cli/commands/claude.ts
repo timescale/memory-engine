@@ -55,6 +55,7 @@ import {
 import { getOutputFormat } from "../output.ts";
 import { createClaudeImportCommand, runAgentImport } from "./import.ts";
 import { runGitImport } from "./import-git.ts";
+import { isGitHookInstallable, runGitHookInstall } from "./import-git-hook.ts";
 
 /** GitHub source for `claude plugin marketplace add`. */
 const PLUGIN_MARKETPLACE_SOURCE = "timescale/memory-engine";
@@ -631,6 +632,18 @@ const INIT_STEPS: InitStep[] = [
     skipDescription: "do not import the repo's git commit history",
     label: "Import git commit history",
     run: ({ globalOpts }) => runGitImport({ skipIfNotRepo: true }, globalOpts),
+  },
+  {
+    id: "git-hook",
+    optionKey: "skipGitHook",
+    skipFlag: "--skip-git-hook",
+    skipDescription: "do not install the git post-commit capture hook",
+    label: "Install a git post-commit hook (keeps git history current)",
+    // Hidden outside a git repo, when a committed hooks manager owns the
+    // hook path, or when the managed block is already installed.
+    available: () => isGitHookInstallable(process.cwd()),
+    run: ({ globalOpts }) =>
+      runGitHookInstall({ skipIfNotRepo: true }, globalOpts),
   },
   {
     id: "claude-md",

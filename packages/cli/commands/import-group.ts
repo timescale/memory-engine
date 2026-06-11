@@ -22,6 +22,7 @@ import {
   createOpenCodeImportCommand,
 } from "./import.ts";
 import { createGitImportCommand } from "./import-git.ts";
+import { createGitHookCommand } from "./import-git-hook.ts";
 import { createMemoryImportCommand } from "./memory-import.ts";
 
 export function createImportCommand(): Command {
@@ -33,6 +34,7 @@ export function createImportCommand(): Command {
   imp.addCommand(createCodexImportCommand("codex"));
   imp.addCommand(createOpenCodeImportCommand("opencode"));
   imp.addCommand(createGitImportCommand());
+  imp.addCommand(createGitHookCommand());
   imp.addHelpText(
     "after",
     "\nTo import memory files (the old `me import <file>`), use: me import memories <file>",

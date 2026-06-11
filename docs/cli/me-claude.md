@@ -5,7 +5,7 @@ Claude Code integration commands.
 ## Commands
 
 - [me claude install](#me-claude-install) -- install the Memory Engine plugin for Claude Code (full plugin by default, `--mcp-only` for just the MCP server)
-- [me claude init](#me-claude-init) -- one-shot setup: backfill sessions, import git history, record the project's memory location in CLAUDE.md
+- [me claude init](#me-claude-init) -- one-shot setup: backfill sessions, import git history, install the post-commit hook, record the project's memory location in CLAUDE.md
 - [me claude hook](#me-claude-hook) -- invoked by the Claude Code plugin to capture events as memories
 - [me claude import](#me-claude-import) -- import Claude Code sessions from `~/.claude/projects`
 
@@ -68,6 +68,7 @@ Setup is a list of independent steps. In an interactive terminal `init` presents
 | Install the Claude Code plugin | `--skip-plugin-install` | Runs the same install as [`me claude install`](#me-claude-install) (full plugin, `user` scope, login-session auth). Only offered when the `claude` binary is on PATH and `claude plugin list` doesn't already show the plugin — otherwise the step is hidden entirely. |
 | Import this project's Claude Code sessions | `--skip-transcript-import` | Backfills sessions recorded in this project (cwd at/under the repo root, temp-dir projects included) from `~/.claude/projects`. For a machine-wide backfill across all projects, run [`me import claude`](me-import.md#me-import-claude--codex--opencode). |
 | Import git commit history | `--skip-git-import` | Imports the repo's full commit history — the same import as [`me import git`](me-import.md#me-import-git). Skipped automatically when the current directory is not inside a git repo. |
+| Install a git post-commit hook | `--skip-git-hook` | Installs the managed hook from [`me import git-hook`](me-import.md#me-import-git-hook) so each commit triggers a background incremental import. Only offered inside a git repo without a `core.hooksPath` manager and when the hook isn't already installed — otherwise the step is hidden entirely. |
 | Add a memory pointer to CLAUDE.md | `--skip-claude-md` | Upserts a managed block into the project's CLAUDE.md naming the project tree (`share.projects.<slug>`), its `agent_sessions` and `git_history` nodes, and how to search them. Idempotent — re-runs replace the block in place. |
 
 Re-running `init` is safe: both imports are incremental/idempotent and the CLAUDE.md block is replaced, not duplicated.
