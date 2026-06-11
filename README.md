@@ -30,17 +30,35 @@ npm i -g @memory.build/cli
 # Authenticate
 me login
 
+# Set up Claude Code memory for a project — run at the project root
+cd ~/code/your-project
+me claude init
+```
+
+`me claude init` does the whole setup in one shot: installs the Claude Code
+plugin (hooks + slash commands + MCP) if it isn't already, backfills the
+project's past Claude Code sessions and git commit history as searchable
+memories, and records the project's memory location in `CLAUDE.md` so agents
+consult it. From then on, new sessions are captured automatically.
+
+## Usage
+
+```bash
 # Store a memory
-me memory create "Auth uses bcrypt with cost 12" --tree design.auth
+me memory create "Auth uses bcrypt with cost 12" --tree share.design.auth
 
 # Search by meaning + keywords
 me memory search "how does authentication work"
 
-# Connect to your AI tools
+# Import memories, agent sessions, and git history
+me import memories notes.md      # md / yaml / json / ndjson records
+me import claude                 # all Claude Code sessions on this machine
+me import git                    # a repo's commit history
+
+# Connect other AI tools (Claude Code is covered by `me claude init`)
 me opencode install
 me codex install
 me gemini install
-me claude install            # full plugin: hooks + slash commands + MCP
 ```
 
 ## How it works
@@ -52,7 +70,7 @@ Memory Engine runs as an MCP server that AI agents connect to over stdio. Each a
 - **ltree** for hierarchical tree paths
 - **JSONB + GIN** for metadata filtering
 - **tstzrange** for temporal queries
-- **Row-Level Security** for access control
+- **Tree-scoped access grants** evaluated in the search SQL (no RLS)
 
 ## Documentation
 
