@@ -209,8 +209,9 @@ After login, the server URL is stored as the default in `~/.config/me/credential
 | `./bun run pg` | Build and start PostgreSQL in Docker |
 | `./bun run pg:rm` | Stop and remove the PostgreSQL container |
 | `./bun run psql` | Connect to PostgreSQL with psql |
-| `./bun run test` | Run tests |
-| `./bun run check` | Format + lint + typecheck |
+| `./bun run test` | Run all package tests (unit + integration, vs ghost by default) |
+| `./bun run check` | Fast inner loop: typecheck + lint + unit tests (no database) |
+| `./bun run check:full` | Everything: check + full suite vs ghost + e2e |
 | `./bun run build` | Compile CLI binary (current platform) |
 | `./bun run build:all` | Cross-compile CLI for all platforms |
 | `./bun run install:local` | Build and install local CLI binary to your PATH |

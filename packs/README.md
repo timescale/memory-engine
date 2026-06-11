@@ -124,7 +124,7 @@ Old-version memories are automatically cleaned up. Memories that exist in both v
 3. Generate deterministic memory IDs with `./bun run scripts/pack-uuids.ts <prefix>`
 4. Validate with `me pack validate packs/your-pack.yaml`
 5. Run the cross-pack check: `./bun run scripts/validate-packs.ts`
-6. Run the full repo check: `./bun run check`
+6. Run the full repo check: `./bun run check:full`
 7. Open a pull request
 
 All packs must:

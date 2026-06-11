@@ -86,21 +86,28 @@ Always use the `./bun` wrapper script (auto-installs the pinned Bun version):
 # fast, for iterating on one file:
 ./bun test packages/cli/mcp/install.test.ts
 
-# Full suite (unit + integration). `test` and `check` default TEST_DATABASE_URL
-# to the ghost instance and run files in parallel (--parallel=2) with a 30s
-# timeout; set TEST_DATABASE_URL (e.g. a local Postgres) to override.
+# Full suite (unit + integration). `test` defaults TEST_DATABASE_URL to the
+# ghost instance and runs files in parallel (--parallel=2) with a 30s timeout;
+# set TEST_DATABASE_URL (e.g. a local Postgres) to override.
 ./bun run test
 
-# Shorthand for all checks (typecheck + lint + test → ghost)
+# Fast inner loop (typecheck + lint + unit tests; no database, ~15s)
 ./bun run check
+
+# Everything: check + full suite vs ghost + the e2e suite (~5 min)
+./bun run check:full
 ```
 
-**Important**: After making code changes, always run `./bun run check` (it runs
-the full suite against ghost, ~4 min; for a faster inner loop set
-`TEST_DATABASE_URL` to a local Postgres).
+**Important**: After making code changes, run `./bun run check` (fast, no DB).
+Before committing, run `./bun run check:full` — the full suite against ghost
+plus the e2e suite. CI is the strict gate: it runs every suite with `TEST_CI=1`,
+which disables conditional skips — any new `describe.skipIf` gate **must**
+include `!process.env.TEST_CI` in its condition (pattern:
+`packages/embedding/generate.test.ts`, `e2e/cli.e2e.test.ts`) so CI never
+silently skips it.
 
 > `packages/web` and `packages/docs-site` are excluded from the root typecheck
-> (they have their own); `./bun run check` does not cover them.
+> (they have their own); `check`/`check:full` do not cover them.
 
 ### Database integration tests
 

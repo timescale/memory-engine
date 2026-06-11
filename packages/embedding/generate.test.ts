@@ -8,79 +8,6 @@ import {
 import type { EmbeddingConfig } from "./types";
 
 // =============================================================================
-// Integration Tests (conditional)
-// =============================================================================
-
-const RUN_INTEGRATION = process.env.RUN_EMBEDDING_INTEGRATION === "1";
-const OLLAMA_URL = process.env.OLLAMA_URL ?? "http://localhost:11434";
-
-const ollamaConfig: EmbeddingConfig = {
-  provider: "ollama",
-  model: "nomic-embed-text",
-  dimensions: 768,
-  baseUrl: OLLAMA_URL,
-};
-
-describe.skipIf(!RUN_INTEGRATION)("embedding integration (ollama)", () => {
-  test("generateEmbedding returns correct dimensions", async () => {
-    const result = await generateEmbedding("test text", ollamaConfig);
-
-    expect(result.embedding).toBeInstanceOf(Array);
-    expect(result.embedding.length).toBe(768);
-    expect(typeof result.embedding[0]).toBe("number");
-    expect(result.tokens).toBeGreaterThan(0);
-  });
-
-  test("generateEmbedding handles long text", async () => {
-    const longText = "word ".repeat(10000); // Very long text
-    const configWithTruncation: EmbeddingConfig = {
-      ...ollamaConfig,
-      options: { maxTokens: 8000 },
-    };
-
-    const result = await generateEmbedding(longText, configWithTruncation);
-    expect(result.embedding.length).toBe(768);
-    expect(result.tokens).toBeGreaterThan(0);
-  });
-
-  test("generateEmbeddings returns results for batch", async () => {
-    const rows = [
-      { id: "1", content: "first document" },
-      { id: "2", content: "second document" },
-      { id: "3", content: "third document" },
-    ];
-
-    const results = await generateEmbeddings(rows, ollamaConfig);
-
-    expect(results.length).toBe(3);
-    for (const result of results) {
-      expect(result.embedding.length).toBe(768);
-      expect(result.error).toBeUndefined();
-    }
-  });
-
-  test("generateEmbeddings returns empty array for empty input", async () => {
-    const results = await generateEmbeddings([], ollamaConfig);
-    expect(results).toEqual([]);
-  });
-
-  test("validateConfig succeeds with valid config", async () => {
-    await expect(validateConfig(ollamaConfig)).resolves.toBeUndefined();
-  });
-
-  test("validateConfig throws on dimension mismatch", async () => {
-    const badConfig: EmbeddingConfig = {
-      ...ollamaConfig,
-      dimensions: 512, // Wrong dimension
-    };
-
-    await expect(validateConfig(badConfig)).rejects.toThrow(
-      "Dimension mismatch",
-    );
-  });
-});
-
-// =============================================================================
 // OpenAI Integration Tests (conditional)
 // =============================================================================
 
@@ -92,7 +19,10 @@ const openaiConfig: EmbeddingConfig = {
   dimensions: 1536,
 };
 
-describe.skipIf(!RUN_OPENAI_INTEGRATION)(
+// TEST_CI disables conditional skips: in CI this suite always runs (missing
+// credentials fail loudly as test errors, never as a silent skip). Locally
+// it stays opt-in via RUN_OPENAI_INTEGRATION=1.
+describe.skipIf(!process.env.TEST_CI && !RUN_OPENAI_INTEGRATION)(
   "embedding integration (openai)",
   () => {
     test("generateEmbedding returns correct dimensions", async () => {

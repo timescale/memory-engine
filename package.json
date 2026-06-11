@@ -12,7 +12,8 @@
   "scripts": {
     "build": "./bun run --filter '@memory.build/cli' build",
     "build:all": "./bun scripts/build-all.ts",
-    "check": "./bun i --silent && ./bun scripts/bundle-web-assets.ts && ./bun run typecheck && ./bun run lint --write && ./bun run test --only-failures && ./bun run test:e2e",
+    "check": "./bun i --silent && ./bun scripts/bundle-web-assets.ts && ./bun run typecheck && ./bun run lint --write && ./bun run test:unit",
+    "check:full": "./bun run check && ./bun run test --only-failures && TEST_DATABASE_URL=\"${TEST_DATABASE_URL:-$(ghost connect testing_me)}\" ./bun run test:e2e",
     "clean": "rm -rf packages/cli/dist dist",
     "docs": "./bun --filter @memory.build/docs-site dev",
     "docs:build": "./bun --filter @memory.build/docs-site build",

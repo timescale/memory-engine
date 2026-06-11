@@ -67,927 +67,920 @@ let spaceSlug: string;
 let token: string;
 let tmpHome: string;
 
-describe.skipIf(!OPENAI_KEY || !process.env.TEST_DATABASE_URL)(
-  "cli e2e",
-  () => {
-    beforeAll(async () => {
-      sql = connect();
-      authSchema = `auth_test_${rand()}`;
-      coreSchema = `core_test_${rand()}`;
-      await bootstrapSpaceDatabase(sql);
-      await migrateAuth(sql, { schema: authSchema });
-      await migrateCore(sql, { schema: coreSchema });
+// TEST_CI disables the conditional skip: in CI this suite always runs
+// (missing env fails loudly as test errors, never as a silent skip).
+describe.skipIf(
+  !process.env.TEST_CI && (!OPENAI_KEY || !process.env.TEST_DATABASE_URL),
+)("cli e2e", () => {
+  beforeAll(async () => {
+    sql = connect();
+    authSchema = `auth_test_${rand()}`;
+    coreSchema = `core_test_${rand()}`;
+    await bootstrapSpaceDatabase(sql);
+    await migrateAuth(sql, { schema: authSchema });
+    await migrateCore(sql, { schema: coreSchema });
 
-      // Provision the user (and its default space) BEFORE booting the server, so
-      // the worker discovers the space at startup — no rediscovery lag for the
-      // initial space.
-      const provisioned = await provisionUser(
-        sql,
-        { auth: authSchema, core: coreSchema },
-        {
-          email: "e2e@example.test",
-          name: "E2E",
-          provider: "github",
-          accountId: `e2e-${rand()}`,
-          emailVerified: true,
-        },
-      );
-      spaceSlug = provisioned.spaceSlug;
-      ({ token } = await authStore(sql, authSchema).createSession(
-        provisioned.userId,
-      ));
+    // Provision the user (and its default space) BEFORE booting the server, so
+    // the worker discovers the space at startup — no rediscovery lag for the
+    // initial space.
+    const provisioned = await provisionUser(
+      sql,
+      { auth: authSchema, core: coreSchema },
+      {
+        email: "e2e@example.test",
+        name: "E2E",
+        provider: "github",
+        accountId: `e2e-${rand()}`,
+        emailVerified: true,
+      },
+    );
+    spaceSlug = provisioned.spaceSlug;
+    ({ token } = await authStore(sql, authSchema).createSession(
+      provisioned.userId,
+    ));
 
-      const embeddingConfig: EmbeddingConfig = {
-        provider: "openai",
-        model: "text-embedding-3-small",
-        dimensions: 1536,
-        // OPENAI_KEY is non-null here (describe.skipIf guards it).
-        apiKey: OPENAI_KEY as string,
-        options: {},
-      };
+    const embeddingConfig: EmbeddingConfig = {
+      provider: "openai",
+      model: "text-embedding-3-small",
+      dimensions: 1536,
+      // OPENAI_KEY is non-null here (describe.skipIf guards it).
+      apiKey: OPENAI_KEY as string,
+      options: {},
+    };
 
-      srv = await startServer({
-        port: 0,
-        databaseUrl: resolveTestDatabaseUrl(),
-        apiBaseUrl: "http://localhost", // OAuth callbacks unused (token injection)
-        authSchema,
-        coreSchema,
-        migrate: false, // harness already migrated
-        enableCleanupCron: false,
-        workerCount: 1,
-        workerIdleDelayMs: 250, // poll the embed queue fast
-        workerRefreshIntervalMs: 500, // discover new spaces fast
-        embeddingConfig,
-      });
-
-      tmpHome = await mkdtemp(join(tmpdir(), "me-e2e-"));
+    srv = await startServer({
+      port: 0,
+      databaseUrl: resolveTestDatabaseUrl(),
+      apiBaseUrl: "http://localhost", // OAuth callbacks unused (token injection)
+      authSchema,
+      coreSchema,
+      migrate: false, // harness already migrated
+      enableCleanupCron: false,
+      workerCount: 1,
+      workerIdleDelayMs: 250, // poll the embed queue fast
+      workerRefreshIntervalMs: 500, // discover new spaces fast
+      embeddingConfig,
     });
 
-    afterAll(async () => {
-      await srv?.stop();
-      // Drop the space schemas this run created (enumerating core.space covers
-      // CLI-created spaces too), then the auth/core test schemas.
-      if (sql && coreSchema) {
-        const spaces = await sql.unsafe(`select slug from ${coreSchema}.space`);
-        for (const row of spaces) {
-          await sql.unsafe(`drop schema if exists metest_${row.slug} cascade`);
-        }
-        await sql.unsafe(`drop schema if exists ${authSchema} cascade`);
-        await sql.unsafe(`drop schema if exists ${coreSchema} cascade`);
-        await sql.end();
+    tmpHome = await mkdtemp(join(tmpdir(), "me-e2e-"));
+  });
+
+  afterAll(async () => {
+    await srv?.stop();
+    // Drop the space schemas this run created (enumerating core.space covers
+    // CLI-created spaces too), then the auth/core test schemas.
+    if (sql && coreSchema) {
+      const spaces = await sql.unsafe(`select slug from ${coreSchema}.space`);
+      for (const row of spaces) {
+        await sql.unsafe(`drop schema if exists metest_${row.slug} cascade`);
       }
-      if (tmpHome) await rm(tmpHome, { recursive: true, force: true });
+      await sql.unsafe(`drop schema if exists ${authSchema} cascade`);
+      await sql.unsafe(`drop schema if exists ${coreSchema} cascade`);
+      await sql.end();
+    }
+    if (tmpHome) await rm(tmpHome, { recursive: true, force: true });
+  });
+
+  // -------------------------------------------------------------------------
+  // CLI subprocess helpers
+  // -------------------------------------------------------------------------
+
+  function cliEnv(extra: Record<string, string> = {}): Record<string, string> {
+    const env = { ...process.env } as Record<string, string>;
+    // Curate: drop any ambient ME_* so the dev's shell can't leak in.
+    for (const k of [
+      "ME_API_KEY",
+      "ME_SERVER",
+      "ME_SPACE",
+      "ME_SESSION_TOKEN",
+    ]) {
+      delete env[k];
+    }
+    return {
+      ...env,
+      HOME: tmpHome,
+      XDG_CONFIG_HOME: join(tmpHome, ".config"),
+      ME_NO_KEYCHAIN: "1",
+      ME_SERVER: srv.url,
+      ME_SESSION_TOKEN: token,
+      ME_SPACE: spaceSlug,
+      ...extra,
+    };
+  }
+
+  async function me(
+    args: string[],
+    extraEnv?: Record<string, string>,
+    cwd?: string,
+  ): Promise<{ stdout: string; stderr: string; code: number }> {
+    const proc = Bun.spawn([process.execPath, CLI, ...args], {
+      env: cliEnv(extraEnv),
+      stdout: "pipe",
+      stderr: "pipe",
+      ...(cwd ? { cwd } : {}),
     });
+    const [stdout, stderr] = await Promise.all([
+      new Response(proc.stdout).text(),
+      new Response(proc.stderr).text(),
+    ]);
+    const code = await proc.exited;
+    return { stdout, stderr, code };
+  }
 
-    // -------------------------------------------------------------------------
-    // CLI subprocess helpers
-    // -------------------------------------------------------------------------
+  // Like `me`, but pipes `input` to the process's stdin (for `me claude hook`,
+  // which reads the event JSON from stdin).
+  async function meStdin(
+    args: string[],
+    input: string,
+    extraEnv?: Record<string, string>,
+  ): Promise<{ stdout: string; stderr: string; code: number }> {
+    const proc = Bun.spawn([process.execPath, CLI, ...args], {
+      env: cliEnv(extraEnv),
+      stdin: new TextEncoder().encode(input),
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const [stdout, stderr] = await Promise.all([
+      new Response(proc.stdout).text(),
+      new Response(proc.stderr).text(),
+    ]);
+    const code = await proc.exited;
+    return { stdout, stderr, code };
+  }
 
-    function cliEnv(
-      extra: Record<string, string> = {},
-    ): Record<string, string> {
-      const env = { ...process.env } as Record<string, string>;
-      // Curate: drop any ambient ME_* so the dev's shell can't leak in.
-      for (const k of [
-        "ME_API_KEY",
-        "ME_SERVER",
-        "ME_SPACE",
-        "ME_SESSION_TOKEN",
-      ]) {
-        delete env[k];
-      }
-      return {
-        ...env,
-        HOME: tmpHome,
-        XDG_CONFIG_HOME: join(tmpHome, ".config"),
-        ME_NO_KEYCHAIN: "1",
-        ME_SERVER: srv.url,
-        ME_SESSION_TOKEN: token,
-        ME_SPACE: spaceSlug,
-        ...extra,
-      };
-    }
-
-    async function me(
-      args: string[],
-      extraEnv?: Record<string, string>,
-      cwd?: string,
-    ): Promise<{ stdout: string; stderr: string; code: number }> {
-      const proc = Bun.spawn([process.execPath, CLI, ...args], {
-        env: cliEnv(extraEnv),
-        stdout: "pipe",
-        stderr: "pipe",
-        ...(cwd ? { cwd } : {}),
-      });
-      const [stdout, stderr] = await Promise.all([
-        new Response(proc.stdout).text(),
-        new Response(proc.stderr).text(),
-      ]);
-      const code = await proc.exited;
-      return { stdout, stderr, code };
-    }
-
-    // Like `me`, but pipes `input` to the process's stdin (for `me claude hook`,
-    // which reads the event JSON from stdin).
-    async function meStdin(
-      args: string[],
-      input: string,
-      extraEnv?: Record<string, string>,
-    ): Promise<{ stdout: string; stderr: string; code: number }> {
-      const proc = Bun.spawn([process.execPath, CLI, ...args], {
-        env: cliEnv(extraEnv),
-        stdin: new TextEncoder().encode(input),
-        stdout: "pipe",
-        stderr: "pipe",
-      });
-      const [stdout, stderr] = await Promise.all([
-        new Response(proc.stdout).text(),
-        new Response(proc.stderr).text(),
-      ]);
-      const code = await proc.exited;
-      return { stdout, stderr, code };
-    }
-
-    // Count memories under a tree in this run's space schema.
-    async function countUnder(treePrefix: string): Promise<number> {
-      const [row] = await sql.unsafe(
-        `select count(*)::int as n from metest_${spaceSlug}.memory
+  // Count memories under a tree in this run's space schema.
+  async function countUnder(treePrefix: string): Promise<number> {
+    const [row] = await sql.unsafe(
+      `select count(*)::int as n from metest_${spaceSlug}.memory
          where tree <@ $1::ltree`,
-        [treePrefix],
-      );
-      return (row?.n as number) ?? 0;
-    }
+      [treePrefix],
+    );
+    return (row?.n as number) ?? 0;
+  }
 
-    // Count memories captured from a given source session id.
-    async function countBySession(sessionId: string): Promise<number> {
-      const [row] = await sql.unsafe(
-        `select count(*)::int as n from metest_${spaceSlug}.memory
+  // Count memories captured from a given source session id.
+  async function countBySession(sessionId: string): Promise<number> {
+    const [row] = await sql.unsafe(
+      `select count(*)::int as n from metest_${spaceSlug}.memory
          where meta->>'source_session_id' = $1`,
-        [sessionId],
+      [sessionId],
+    );
+    return (row?.n as number) ?? 0;
+  }
+
+  // Parse the --json stdout of a `me` invocation, asserting success.
+  async function meJson<T = unknown>(
+    args: string[],
+    extraEnv?: Record<string, string>,
+  ): Promise<T> {
+    const r = await me([...args, "--json"], extraEnv);
+    expect(
+      r.code,
+      `expected exit 0 for \`me ${args.join(" ")}\`\nstdout: ${r.stdout}\nstderr: ${r.stderr}`,
+    ).toBe(0);
+    return JSON.parse(r.stdout) as T;
+  }
+
+  // Poll the space schema until N memories have a non-null embedding.
+  async function waitForEmbeddings(count: number, timeoutMs = 30000) {
+    const schema = `metest_${spaceSlug}`;
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      const [row] = await sql.unsafe(
+        `select count(*)::int as n from ${schema}.memory where embedding is not null`,
       );
-      return (row?.n as number) ?? 0;
+      if ((row?.n ?? 0) >= count) return;
+      await Bun.sleep(250);
     }
+    throw new Error(`timed out waiting for ${count} embeddings`);
+  }
 
-    // Parse the --json stdout of a `me` invocation, asserting success.
-    async function meJson<T = unknown>(
-      args: string[],
-      extraEnv?: Record<string, string>,
-    ): Promise<T> {
-      const r = await me([...args, "--json"], extraEnv);
-      expect(
-        r.code,
-        `expected exit 0 for \`me ${args.join(" ")}\`\nstdout: ${r.stdout}\nstderr: ${r.stderr}`,
-      ).toBe(0);
-      return JSON.parse(r.stdout) as T;
-    }
+  // -------------------------------------------------------------------------
+  // Core scenarios
+  // -------------------------------------------------------------------------
 
-    // Poll the space schema until N memories have a non-null embedding.
-    async function waitForEmbeddings(count: number, timeoutMs = 30000) {
-      const schema = `metest_${spaceSlug}`;
-      const deadline = Date.now() + timeoutMs;
-      while (Date.now() < deadline) {
-        const [row] = await sql.unsafe(
-          `select count(*)::int as n from ${schema}.memory where embedding is not null`,
-        );
-        if ((row?.n ?? 0) >= count) return;
-        await Bun.sleep(250);
-      }
-      throw new Error(`timed out waiting for ${count} embeddings`);
-    }
+  test("1. whoami reports the provisioned identity", async () => {
+    const r = await me(["whoami"]);
+    expect(r.code).toBe(0);
+    expect(r.stdout).toContain("e2e@example.test");
+  });
 
-    // -------------------------------------------------------------------------
-    // Core scenarios
-    // -------------------------------------------------------------------------
+  test("2. create + tree round-trip (share namespace)", async () => {
+    const created = await meJson<{ id: string; tree?: string }>([
+      "create",
+      "the quick brown fox jumps over the lazy dog",
+      "--tree",
+      "share",
+    ]);
+    expect(created.id).toBeTruthy();
 
-    test("1. whoami reports the provisioned identity", async () => {
-      const r = await me(["whoami"]);
-      expect(r.code).toBe(0);
-      expect(r.stdout).toContain("e2e@example.test");
-    });
+    const r = await me(["memory", "tree"]);
+    expect(r.code).toBe(0);
+    expect(r.stdout.toLowerCase()).toContain("share");
+  });
 
-    test("2. create + tree round-trip (share namespace)", async () => {
-      const created = await meJson<{ id: string; tree?: string }>([
-        "create",
-        "the quick brown fox jumps over the lazy dog",
-        "--tree",
-        "share",
-      ]);
-      expect(created.id).toBeTruthy();
+  test("3. fulltext (BM25) search finds the memory", async () => {
+    const res = await meJson<{
+      total: number;
+      results: { id: string; content: string }[];
+    }>(["search", "--fulltext", "fox"]);
+    expect(res.total).toBeGreaterThan(0);
+    expect(res.results.some((m) => m.content.includes("quick brown fox"))).toBe(
+      true,
+    );
+  });
 
-      const r = await me(["memory", "tree"]);
-      expect(r.code).toBe(0);
-      expect(r.stdout.toLowerCase()).toContain("share");
-    });
+  test("4. semantic search ranks a paraphrase near the top", async () => {
+    // Seed a few more memories to make ranking meaningful.
+    const seed = (text: string) => meJson(["create", text, "--tree", "share"]);
+    await seed("a dog chased a cat across the yard");
+    await seed("the stock market fell sharply on Tuesday");
+    await seed("photosynthesis converts sunlight into energy");
 
-    test("3. fulltext (BM25) search finds the memory", async () => {
-      const res = await meJson<{
-        total: number;
-        results: { id: string; content: string }[];
-      }>(["search", "--fulltext", "fox"]);
-      expect(res.total).toBeGreaterThan(0);
-      expect(
-        res.results.some((m) => m.content.includes("quick brown fox")),
-      ).toBe(true);
-    });
+    // 4 created so far in `share` (1 from scenario 2 + 3 here). Wait for the
+    // worker to embed them.
+    await waitForEmbeddings(4);
 
-    test("4. semantic search ranks a paraphrase near the top", async () => {
-      // Seed a few more memories to make ranking meaningful.
-      const seed = (text: string) =>
-        meJson(["create", text, "--tree", "share"]);
-      await seed("a dog chased a cat across the yard");
-      await seed("the stock market fell sharply on Tuesday");
-      await seed("photosynthesis converts sunlight into energy");
+    const res = await meJson<{
+      results: { id: string; content: string }[];
+    }>(["search", "--semantic", "wild canine leaps over a sleepy hound"]);
+    // Recall-based: the fox/dog memories should surface near the top, not the
+    // stock-market or photosynthesis ones. Assert a relevant item is in top-3.
+    const top3 = res.results.slice(0, 3).map((m) => m.content);
+    expect(top3.some((c) => c.includes("fox") || c.includes("dog"))).toBe(true);
+  });
 
-      // 4 created so far in `share` (1 from scenario 2 + 3 here). Wait for the
-      // worker to embed them.
-      await waitForEmbeddings(4);
+  test("5. tree paths reflect ~ (home) and share conventions", async () => {
+    await meJson(["create", "personal note", "--tree", "~/notes"]);
+    await meJson(["create", "team note", "--tree", "share/team"]);
 
-      const res = await meJson<{
-        results: { id: string; content: string }[];
-      }>(["search", "--semantic", "wild canine leaps over a sleepy hound"]);
-      // Recall-based: the fox/dog memories should surface near the top, not the
-      // stock-market or photosynthesis ones. Assert a relevant item is in top-3.
-      const top3 = res.results.slice(0, 3).map((m) => m.content);
-      expect(top3.some((c) => c.includes("fox") || c.includes("dog"))).toBe(
-        true,
-      );
-    });
+    const r = await me(["memory", "tree"]);
+    expect(r.code).toBe(0);
+    expect(r.stdout).toContain("notes");
+    expect(r.stdout).toContain("team");
+  });
 
-    test("5. tree paths reflect ~ (home) and share conventions", async () => {
-      await meJson(["create", "personal note", "--tree", "~/notes"]);
-      await meJson(["create", "team note", "--tree", "share/team"]);
+  test("6. update + delete round-trip", async () => {
+    const created = await meJson<{ id: string }>([
+      "create",
+      "ephemeral memory to edit",
+      "--tree",
+      "share",
+    ]);
+    const updated = await meJson<{ id: string; content: string }>([
+      "memory",
+      "update",
+      created.id,
+      "--content",
+      "edited content",
+    ]);
+    expect(updated.content).toBe("edited content");
 
-      const r = await me(["memory", "tree"]);
-      expect(r.code).toBe(0);
-      expect(r.stdout).toContain("notes");
-      expect(r.stdout).toContain("team");
-    });
+    const del = await me(["memory", "delete", created.id, "--yes"]);
+    expect(del.code).toBe(0);
 
-    test("6. update + delete round-trip", async () => {
-      const created = await meJson<{ id: string }>([
-        "create",
-        "ephemeral memory to edit",
-        "--tree",
-        "share",
-      ]);
-      const updated = await meJson<{ id: string; content: string }>([
-        "memory",
-        "update",
-        created.id,
-        "--content",
-        "edited content",
-      ]);
-      expect(updated.content).toBe("edited content");
+    // Getting it now fails with a non-zero exit.
+    const get = await me(["memory", "get", created.id]);
+    expect(get.code).not.toBe(0);
+  });
 
-      const del = await me(["memory", "delete", created.id, "--yes"]);
-      expect(del.code).toBe(0);
+  // -------------------------------------------------------------------------
+  // Extended scenarios
+  // -------------------------------------------------------------------------
 
-      // Getting it now fails with a non-zero exit.
-      const get = await me(["memory", "get", created.id]);
-      expect(get.code).not.toBe(0);
-    });
+  test("7. api-key auth works end-to-end (no session token)", async () => {
+    // Mint the key through the real CLI: create the agent, add it to the
+    // space, then mint a key for it.
+    const agent = await meJson<{ id: string }>([
+      "agent",
+      "create",
+      `bot-${rand()}`,
+    ]);
+    await me(["agent", "add", agent.id]); // bring the agent into the space
+    // Agents join with no grant (their access is clamped to the owner's), so
+    // grant read on `share` — where the fox memory lives — to make it readable.
+    await meJson(["access", "grant", agent.id, "share", "r"]);
+    const key = await meJson<{ id: string; key: string }>([
+      "apikey",
+      "create",
+      agent.id,
+    ]);
+    expect(key.key).toMatch(/^me\./);
 
-    // -------------------------------------------------------------------------
-    // Extended scenarios
-    // -------------------------------------------------------------------------
+    // Search with ONLY the api key — no session token. The agent's global key
+    // plus X-Me-Space (ME_SPACE) selects the space; this exercises the CLI's
+    // api-key auth path against the real server end-to-end.
+    const res = await meJson<{ total: number }>(
+      ["search", "--fulltext", "fox"],
+      { ME_API_KEY: key.key, ME_SESSION_TOKEN: "" },
+    );
+    expect(res.total).toBeGreaterThan(0);
+  });
 
-    test("7. api-key auth works end-to-end (no session token)", async () => {
-      // Mint the key through the real CLI: create the agent, add it to the
-      // space, then mint a key for it.
-      const agent = await meJson<{ id: string }>([
-        "agent",
-        "create",
-        `bot-${rand()}`,
-      ]);
-      await me(["agent", "add", agent.id]); // bring the agent into the space
-      // Agents join with no grant (their access is clamped to the owner's), so
-      // grant read on `share` — where the fox memory lives — to make it readable.
-      await meJson(["access", "grant", agent.id, "share", "r"]);
-      const key = await meJson<{ id: string; key: string }>([
-        "apikey",
-        "create",
-        agent.id,
-      ]);
-      expect(key.key).toMatch(/^me\./);
+  test("8. `me claude import` backfills work that predates the hook", async () => {
+    // The scenario: a user does a bunch of Claude Code work BEFORE installing
+    // the capture hook (no hook fires for it), then installs the hook (which
+    // begins capturing new sessions live), then runs `me claude import`. The
+    // pre-install work must be backfilled — the importer has no lower time
+    // bound tied to hook install; it sweeps every transcript and dedupes by
+    // deterministic message id.
+    const root = await mkdtemp(join(tmpdir(), "me-e2e-backfill-"));
+    const projDir = join(root, "proj");
+    await mkdir(projDir, { recursive: true });
 
-      // Search with ONLY the api key — no session token. The agent's global key
-      // plus X-Me-Space (ME_SPACE) selects the space; this exercises the CLI's
-      // api-key auth path against the real server end-to-end.
-      const res = await meJson<{ total: number }>(
-        ["search", "--fulltext", "fox"],
-        { ME_API_KEY: key.key, ME_SESSION_TOKEN: "" },
-      );
-      expect(res.total).toBeGreaterThan(0);
-    });
+    // cwd "/work/backfill-proj" → no git repo on disk → slug = basename, so
+    // both sessions land under the same tree.
+    const cwd = "/work/backfill-proj";
+    const tree = "share.projects.backfill_proj.agent_sessions";
 
-    test("8. `me claude import` backfills work that predates the hook", async () => {
-      // The scenario: a user does a bunch of Claude Code work BEFORE installing
-      // the capture hook (no hook fires for it), then installs the hook (which
-      // begins capturing new sessions live), then runs `me claude import`. The
-      // pre-install work must be backfilled — the importer has no lower time
-      // bound tied to hook install; it sweeps every transcript and dedupes by
-      // deterministic message id.
-      const root = await mkdtemp(join(tmpdir(), "me-e2e-backfill-"));
-      const projDir = join(root, "proj");
-      await mkdir(projDir, { recursive: true });
-
-      // cwd "/work/backfill-proj" → no git repo on disk → slug = basename, so
-      // both sessions land under the same tree.
-      const cwd = "/work/backfill-proj";
-      const tree = "share.projects.backfill_proj.agent_sessions";
-
-      const mkMsg =
-        (sessionId: string) =>
-        (i: number, type: "user" | "assistant", text: string) => ({
-          type,
-          uuid: `${sessionId}-${type}-${i}`,
-          timestamp: `2026-02-01T00:00:0${i}.000Z`,
-          sessionId,
-          cwd,
-          message:
-            type === "user"
-              ? { content: text }
-              : { content: [{ type: "text", text }], model: "claude-x" },
-        });
-
-      const writeTranscript = async (sessionId: string, prefix: string) => {
-        const m = mkMsg(sessionId);
-        const lines = [
-          m(0, "user", `${prefix} first question`),
-          m(1, "assistant", `${prefix} first answer`),
-          m(2, "user", `${prefix} second question`),
-          m(3, "assistant", `${prefix} second answer`),
-        ];
-        const path = join(projDir, `${sessionId}.jsonl`);
-        await writeFile(path, lines.map((l) => JSON.stringify(l)).join("\n"));
-        return path;
-      };
-
-      // 1. Pre-install work: a transcript sits on disk; NO hook ever fires for
-      //    it. It must not be in the engine yet.
-      const oldSession = `pre-install-${rand()}`;
-      await writeTranscript(oldSession, "old");
-      expect(await countBySession(oldSession)).toBe(0);
-
-      // 2. Install the hook (it now captures live) and let it import a NEW
-      //    session — the real `me claude hook` path, reading from stdin.
-      const newSession = `post-install-${rand()}`;
-      const newTranscript = await writeTranscript(newSession, "new");
-      const hook = await meStdin(
-        ["claude", "hook", "--event", "stop"],
-        JSON.stringify({
-          transcript_path: newTranscript,
-          session_id: newSession,
-        }),
-      );
-      expect(hook.code, hook.stderr).toBe(0);
-      // The hook captured only the post-install session — the old one is still
-      // absent (this is exactly the gap `me claude import` must close).
-      expect(await countBySession(newSession)).toBe(4);
-      expect(await countBySession(oldSession)).toBe(0);
-
-      // 3. Run the import (canonical spelling; test 9 covers the
-      //    `me claude import` alias).
-      const imp = await me(["import", "claude", "--source", root]);
-      expect(imp.code, imp.stderr).toBe(0);
-
-      // 4. The pre-install work is now backfilled, and the hook's live capture
-      //    was not duplicated.
-      expect(await countBySession(oldSession)).toBe(4);
-      expect(await countBySession(newSession)).toBe(4);
-      expect(await countUnder(tree)).toBe(8);
-
-      await rm(root, { recursive: true, force: true });
-    });
-
-    test("8b. `me claude init` backfills sessions and writes a CLAUDE.md pointer", async () => {
-      // `me claude init` is the one-shot setup command. Two steps exercised
-      // here:
-      //   1. import THIS project's existing sessions (sessions whose recorded
-      //      cwd is at/under init's cwd — init is per-project setup; the
-      //      machine-wide sweep is `me import claude`);
-      //   2. record the project's memory location in the project's CLAUDE.md
-      //      (the project = init's cwd; not a git repo here → CLAUDE.md lands in
-      //      that dir, slug = its basename).
-      // The project we run `init` in — a non-git temp dir with a known basename
-      // so the derived slug is predictable. CLAUDE.md will be written here, and
-      // the transcript's session records this dir as its cwd, so the session
-      // tree and the CLAUDE.md pointer name the same project.
-      const projectRoot = await mkdtemp(join(tmpdir(), "me-e2e-initcwd-"));
-      const projectDir = join(projectRoot, "initcwd");
-      await mkdir(projectDir, { recursive: true });
-      // The recorded session cwd must be the REAL path (as Claude Code would
-      // record it): macOS tmpdir is a symlink (/var/folders → /private/var),
-      // and init filters against the resolved process.cwd().
-      const projectCwd = await realpath(projectDir);
-
-      const sessionId = `init-${rand()}`;
-      const foreignId = `foreign-${rand()}`;
-      const tree = "share.projects.initcwd.agent_sessions";
-      const mkMsg = (
-        sid: string,
-        cwd: string,
-        i: number,
-        type: "user" | "assistant",
-        text: string,
-      ) => ({
+    const mkMsg =
+      (sessionId: string) =>
+      (i: number, type: "user" | "assistant", text: string) => ({
         type,
-        uuid: `${sid}-${type}-${i}`,
-        timestamp: `2026-03-01T00:00:0${i}.000Z`,
-        sessionId: sid,
+        uuid: `${sessionId}-${type}-${i}`,
+        timestamp: `2026-02-01T00:00:0${i}.000Z`,
+        sessionId,
         cwd,
         message:
           type === "user"
             ? { content: text }
             : { content: [{ type: "text", text }], model: "claude-x" },
       });
-      // Mirror Claude Code's on-disk layout: each transcript lives in a
-      // directory named after the session cwd (encoded) — the scoped import
-      // prunes by that name, so a literal fixture dir would never be scanned.
-      const writeTranscript = async (
-        sid: string,
-        cwd: string,
-        prefix: string,
-      ) => {
-        const dir = join(tmpHome, ".claude", "projects", encodeProjectDir(cwd));
-        await mkdir(dir, { recursive: true });
-        await writeFile(
-          join(dir, `${sid}.jsonl`),
-          [
-            mkMsg(sid, cwd, 0, "user", `${prefix} first question`),
-            mkMsg(sid, cwd, 1, "assistant", `${prefix} first answer`),
-            mkMsg(sid, cwd, 2, "user", `${prefix} second question`),
-            mkMsg(sid, cwd, 3, "assistant", `${prefix} second answer`),
-          ]
-            .map((l) => JSON.stringify(l))
-            .join("\n"),
-        );
-      };
-      await writeTranscript(sessionId, projectCwd, "init");
-      // A session from a DIFFERENT project must not be swept up by init.
-      await writeTranscript(foreignId, "/work/other-proj", "foreign");
 
-      // Pre-init: nothing captured, no CLAUDE.md.
-      expect(await countBySession(sessionId)).toBe(0);
-
-      // Run `init` FROM the project dir so its cwd → slug → CLAUDE.md location.
-      const init = await me(
-        ["claude", "init", "--skip-plugin-install"],
-        undefined,
-        projectDir,
-      );
-      expect(init.code, init.stderr).toBe(0);
-
-      // Step 1: this project's session was backfilled; the foreign one wasn't.
-      expect(await countBySession(sessionId)).toBe(4);
-      expect(await countUnder(tree)).toBe(4);
-      expect(await countBySession(foreignId)).toBe(0);
-
-      // Step 2: CLAUDE.md now points at this project's memories.
-      const claudeMd = await readFile(join(projectDir, "CLAUDE.md"), "utf8");
-      expect(claudeMd).toContain("memory-engine:start");
-      expect(claudeMd).toContain("share.projects.initcwd");
-      expect(claudeMd).toContain("share.projects.initcwd.agent_sessions");
-      expect(claudeMd).toContain("share.projects.initcwd.git_history");
-
-      // Re-running is idempotent: still exactly one managed block.
-      const init2 = await me(
-        ["claude", "init", "--skip-plugin-install"],
-        undefined,
-        projectDir,
-      );
-      expect(init2.code, init2.stderr).toBe(0);
-      const claudeMd2 = await readFile(join(projectDir, "CLAUDE.md"), "utf8");
-      expect(claudeMd2.split("memory-engine:start").length - 1).toBe(1);
-
-      for (const cwd of [projectCwd, "/work/other-proj"]) {
-        await rm(join(tmpHome, ".claude", "projects", encodeProjectDir(cwd)), {
-          recursive: true,
-          force: true,
-        });
-      }
-      await rm(projectRoot, { recursive: true, force: true });
-    });
-
-    test("8c. `me claude init` honors --skip-transcript-import / --skip-claude-md", async () => {
-      // Non-interactive (piped) init runs every step except those turned off by
-      // a --skip-<step> flag. Verify each flag suppresses exactly its step.
-      // Each case gets its own project dir + a transcript recorded IN that dir
-      // (init's import is scoped to the project it runs in), stored under the
-      // Claude Code encoded-cwd directory layout the scoped import prunes by.
-      const transcriptDirs: string[] = [];
-      const mkProject = async (name: string) => {
-        const root = await mkdtemp(join(tmpdir(), "me-e2e-skip-"));
-        const dir = join(root, name);
-        await mkdir(dir, { recursive: true });
-        return { root, dir };
-      };
-      const writeTranscript = async (sid: string, cwd: string) => {
-        const mkMsg = (i: number, type: "user" | "assistant") => ({
-          type,
-          uuid: `${sid}-${type}-${i}`,
-          timestamp: `2026-04-01T00:00:0${i}.000Z`,
-          sessionId: sid,
-          cwd,
-          message:
-            type === "user"
-              ? { content: `q${i}` }
-              : {
-                  content: [{ type: "text", text: `a${i}` }],
-                  model: "claude-x",
-                },
-        });
-        const dir = join(tmpHome, ".claude", "projects", encodeProjectDir(cwd));
-        transcriptDirs.push(dir);
-        await mkdir(dir, { recursive: true });
-        await writeFile(
-          join(dir, `${sid}.jsonl`),
-          [
-            mkMsg(0, "user"),
-            mkMsg(1, "assistant"),
-            mkMsg(2, "user"),
-            mkMsg(3, "assistant"),
-          ]
-            .map((l) => JSON.stringify(l))
-            .join("\n"),
-        );
-      };
-
-      // --skip-transcript-import: CLAUDE.md is written, but this project's
-      // session is NOT imported (it would have been without the flag).
-      const a = await mkProject("skipimport");
-      const sessionA = `skipa-${rand()}`;
-      await writeTranscript(sessionA, await realpath(a.dir));
-      const r1 = await me(
-        ["claude", "init", "--skip-transcript-import", "--skip-plugin-install"],
-        undefined,
-        a.dir,
-      );
-      expect(r1.code, r1.stderr).toBe(0);
-      expect(await countBySession(sessionA)).toBe(0);
-      expect(existsSync(join(a.dir, "CLAUDE.md"))).toBe(true);
-
-      // --skip-claude-md: the project's session imports, but no CLAUDE.md.
-      const b = await mkProject("skipclaudemd");
-      const sessionB = `skipb-${rand()}`;
-      await writeTranscript(sessionB, await realpath(b.dir));
-      const r2 = await me(
-        ["claude", "init", "--skip-claude-md", "--skip-plugin-install"],
-        undefined,
-        b.dir,
-      );
-      expect(r2.code, r2.stderr).toBe(0);
-      expect(await countBySession(sessionB)).toBe(4);
-      expect(existsSync(join(b.dir, "CLAUDE.md"))).toBe(false);
-
-      for (const dir of transcriptDirs) {
-        await rm(dir, { recursive: true, force: true });
-      }
-      await rm(a.root, { recursive: true, force: true });
-      await rm(b.root, { recursive: true, force: true });
-    });
-
-    // Run git in `dir`, isolated from the developer's git config (gpg
-    // signing, hooks, templates), with deterministic commit dates.
-    async function git(
-      dir: string,
-      args: string[],
-      dateIso?: string,
-    ): Promise<void> {
-      const proc = Bun.spawn(
-        [
-          "git",
-          "-C",
-          dir,
-          "-c",
-          "user.name=E2E",
-          "-c",
-          "user.email=e2e@example.test",
-          "-c",
-          "commit.gpgsign=false",
-          ...args,
-        ],
-        {
-          env: {
-            ...process.env,
-            GIT_CONFIG_GLOBAL: "/dev/null",
-            GIT_CONFIG_SYSTEM: "/dev/null",
-            ...(dateIso
-              ? { GIT_AUTHOR_DATE: dateIso, GIT_COMMITTER_DATE: dateIso }
-              : {}),
-          },
-          stdout: "pipe",
-          stderr: "pipe",
-        },
-      );
-      const code = await proc.exited;
-      if (code !== 0) {
-        const stderr = await new Response(proc.stderr).text();
-        throw new Error(`git ${args.join(" ")} failed: ${stderr}`);
-      }
-    }
-
-    test("8d. `me import git` imports commit history, idempotently and incrementally", async () => {
-      // A real repo with a known-basename root so the slug (no remote →
-      // basename) and therefore the tree are predictable.
-      const root = await mkdtemp(join(tmpdir(), "me-e2e-git-"));
-      const name = `gitproj${rand()}`;
-      const repo = join(root, name);
-      await mkdir(repo, { recursive: true });
-      const tree = `share.projects.${name}.git_history`;
-
-      await git(repo, ["init", "-q", "-b", "main"]);
-      const commitFile = async (file: string, msg: string, dateIso: string) => {
-        await writeFile(join(repo, file), `${msg}\n`);
-        await git(repo, ["add", "."], dateIso);
-        await git(repo, ["commit", "-q", "-m", msg], dateIso);
-      };
-      await commitFile("a.txt", "feat: add a", "2026-05-01T10:00:00Z");
-      await commitFile("b.txt", "fix: adjust b", "2026-05-02T10:00:00Z");
-      await commitFile("c.txt", "docs: describe c", "2026-05-03T10:00:00Z");
-
-      // 1. First import: all three commits land under the project tree.
-      const first = await meJson<{
-        inserted: number;
-        commitsWalked: number;
-        tree: string;
-      }>(["import", "git", repo]);
-      expect(first.tree).toBe(tree);
-      expect(first.commitsWalked).toBe(3);
-      expect(first.inserted).toBe(3);
-      expect(await countUnder(tree)).toBe(3);
-
-      // Spot-check one record's shape: type/sha meta + commit-date temporal +
-      // file list in the content.
-      const [row] = await sql.unsafe(
-        `select content, meta from metest_${spaceSlug}.memory
-         where tree = $1::ltree and content like 'fix: adjust b%'`,
-        [tree],
-      );
-      expect(row?.meta?.type).toBe("git_commit");
-      expect(row?.meta?.sha).toMatch(/^[0-9a-f]{40}$/);
-      expect(row?.meta?.author_email).toBe("e2e@example.test");
-      expect(row?.content).toContain("Files:");
-      expect(row?.content).toContain("b.txt (+1 -0)");
-
-      // 2. Plain re-run: the high-water commit is HEAD → incremental walk of
-      //    an empty range; nothing re-sent, nothing duplicated.
-      const rerun = await meJson<{ inserted: number; commitsWalked: number }>([
-        "import",
-        "git",
-        repo,
-      ]);
-      expect(rerun.commitsWalked).toBe(0);
-      expect(rerun.inserted).toBe(0);
-      expect(await countUnder(tree)).toBe(3);
-
-      // 3. --full re-run: walks everything; deterministic ids make the server
-      //    skip every row (`ON CONFLICT DO NOTHING`).
-      const full = await meJson<{
-        inserted: number;
-        skipped: number;
-        commitsWalked: number;
-      }>(["import", "git", "--full", repo]);
-      expect(full.commitsWalked).toBe(3);
-      expect(full.inserted).toBe(0);
-      expect(full.skipped).toBe(3);
-      expect(await countUnder(tree)).toBe(3);
-
-      // 4. New work: one regular commit + one body-less merge. The next plain
-      //    run walks only the new range, imports the commit, and drops the
-      //    boilerplate merge.
-      await git(repo, ["checkout", "-q", "-b", "feat"], undefined);
-      await commitFile("d.txt", "feat: add d", "2026-05-04T10:00:00Z");
-      await git(repo, ["checkout", "-q", "main"]);
-      await git(
-        repo,
-        ["merge", "-q", "--no-ff", "feat", "-m", "Merge branch 'feat'"],
-        "2026-05-05T10:00:00Z",
-      );
-      const incr = await meJson<{
-        inserted: number;
-        commitsWalked: number;
-        skippedMerges: number;
-        range?: string;
-      }>(["import", "git", repo]);
-      expect(incr.range).toMatch(/^[0-9a-f]{40}\.\.HEAD$/);
-      expect(incr.commitsWalked).toBe(2);
-      expect(incr.inserted).toBe(1);
-      expect(incr.skippedMerges).toBe(1);
-      expect(await countUnder(tree)).toBe(4);
-
-      await rm(root, { recursive: true, force: true });
-    });
-
-    test("8e. `me claude init` runs the git step; --skip-git-import suppresses it", async () => {
-      const root = await mkdtemp(join(tmpdir(), "me-e2e-gitinit-"));
-      const name = `gitinit${rand()}`;
-      const repo = join(root, name);
-      await mkdir(repo, { recursive: true });
-      const tree = `share.projects.${name}.git_history`;
-
-      await git(repo, ["init", "-q", "-b", "main"]);
-      await writeFile(join(repo, "x.txt"), "x\n");
-      await git(repo, ["add", "."], "2026-05-01T10:00:00Z");
-      await git(
-        repo,
-        ["commit", "-q", "-m", "feat: initial"],
-        "2026-05-01T10:00:00Z",
-      );
-
-      // --skip-git-import: no commit memories.
-      const skipped = await me(
-        ["claude", "init", "--skip-git-import", "--skip-plugin-install"],
-        undefined,
-        repo,
-      );
-      expect(skipped.code, skipped.stderr).toBe(0);
-      expect(await countUnder(tree)).toBe(0);
-
-      // Plain init (non-interactive baseline) imports the repo's history and
-      // the CLAUDE.md pointer names the git_history node.
-      const init = await me(
-        ["claude", "init", "--skip-plugin-install"],
-        undefined,
-        repo,
-      );
-      expect(init.code, init.stderr).toBe(0);
-      expect(await countUnder(tree)).toBe(1);
-      const claudeMd = await readFile(join(repo, "CLAUDE.md"), "utf8");
-      expect(claudeMd).toContain(`${tree}\``);
-
-      await rm(root, { recursive: true, force: true });
-    });
-
-    test("9. claude capture hook ↔ `me claude import` are cross-idempotent", async () => {
-      // A minimal Claude Code session transcript on disk. The importer scans
-      // <source>/<project-dir>/*.jsonl; the hook reads the file directly.
-      const sessionId = `xact-${rand()}`;
-      const root = await mkdtemp(join(tmpdir(), "me-e2e-transcript-"));
-      const projDir = join(root, "proj");
-      await mkdir(projDir, { recursive: true });
-      const transcript = join(projDir, `${sessionId}.jsonl`);
-      // Two user turns so the importer doesn't skip it as a trivial session
-      // (the hook captures regardless; this makes both paths process all four).
-      const mkMsg = (i: number, type: "user" | "assistant", text: string) => ({
-        type,
-        uuid: `${sessionId}-${type}-${i}`,
-        timestamp: `2026-02-01T00:00:0${i}.000Z`,
-        sessionId,
-        cwd: "/work/idempotent-proj",
-        message:
-          type === "user"
-            ? { content: text }
-            : { content: [{ type: "text", text }], model: "claude-x" },
-      });
+    const writeTranscript = async (sessionId: string, prefix: string) => {
+      const m = mkMsg(sessionId);
       const lines = [
-        mkMsg(0, "user", "first question"),
-        mkMsg(1, "assistant", "first answer"),
-        mkMsg(2, "user", "second question"),
-        mkMsg(3, "assistant", "second answer"),
+        m(0, "user", `${prefix} first question`),
+        m(1, "assistant", `${prefix} first answer`),
+        m(2, "user", `${prefix} second question`),
+        m(3, "assistant", `${prefix} second answer`),
       ];
-      await writeFile(
-        transcript,
-        lines.map((l) => JSON.stringify(l)).join("\n"),
-      );
+      const path = join(projDir, `${sessionId}.jsonl`);
+      await writeFile(path, lines.map((l) => JSON.stringify(l)).join("\n"));
+      return path;
+    };
 
-      // cwd "/work/idempotent-proj" → no git repo on disk → slug = basename.
-      const tree = "share.projects.idempotent_proj.agent_sessions";
+    // 1. Pre-install work: a transcript sits on disk; NO hook ever fires for
+    //    it. It must not be in the engine yet.
+    const oldSession = `pre-install-${rand()}`;
+    await writeTranscript(oldSession, "old");
+    expect(await countBySession(oldSession)).toBe(0);
 
-      // 1. Live capture via the real hook (reads transcript_path from stdin,
-      //    auths with the session, writes via importTranscriptFile).
-      const hook = await meStdin(
-        ["claude", "hook", "--event", "stop"],
-        JSON.stringify({ transcript_path: transcript, session_id: sessionId }),
-      );
-      expect(hook.code, hook.stderr).toBe(0);
-      expect(await countUnder(tree)).toBe(4);
+    // 2. Install the hook (it now captures live) and let it import a NEW
+    //    session — the real `me claude hook` path, reading from stdin.
+    const newSession = `post-install-${rand()}`;
+    const newTranscript = await writeTranscript(newSession, "new");
+    const hook = await meStdin(
+      ["claude", "hook", "--event", "stop"],
+      JSON.stringify({
+        transcript_path: newTranscript,
+        session_id: newSession,
+      }),
+    );
+    expect(hook.code, hook.stderr).toBe(0);
+    // The hook captured only the post-install session — the old one is still
+    // absent (this is exactly the gap `me claude import` must close).
+    expect(await countBySession(newSession)).toBe(4);
+    expect(await countBySession(oldSession)).toBe(0);
 
-      // 2. `me claude import` over the SAME transcript → no new rows (same tree +
-      //    deterministic ids ⇒ the importer dedupes against the hook's writes).
-      const imp = await me(["claude", "import", "--source", root]);
-      expect(imp.code, imp.stderr).toBe(0);
-      expect(await countUnder(tree)).toBe(4);
+    // 3. Run the import (canonical spelling; test 9 covers the
+    //    `me claude import` alias).
+    const imp = await me(["import", "claude", "--source", root]);
+    expect(imp.code, imp.stderr).toBe(0);
 
-      // 3. Re-run the hook → still idempotent.
-      const hook2 = await meStdin(
-        ["claude", "hook", "--event", "stop"],
-        JSON.stringify({ transcript_path: transcript, session_id: sessionId }),
-      );
-      expect(hook2.code, hook2.stderr).toBe(0);
-      expect(await countUnder(tree)).toBe(4);
+    // 4. The pre-install work is now backfilled, and the hook's live capture
+    //    was not duplicated.
+    expect(await countBySession(oldSession)).toBe(4);
+    expect(await countBySession(newSession)).toBe(4);
+    expect(await countUnder(tree)).toBe(8);
 
-      await rm(root, { recursive: true, force: true });
+    await rm(root, { recursive: true, force: true });
+  });
+
+  test("8b. `me claude init` backfills sessions and writes a CLAUDE.md pointer", async () => {
+    // `me claude init` is the one-shot setup command. Two steps exercised
+    // here:
+    //   1. import THIS project's existing sessions (sessions whose recorded
+    //      cwd is at/under init's cwd — init is per-project setup; the
+    //      machine-wide sweep is `me import claude`);
+    //   2. record the project's memory location in the project's CLAUDE.md
+    //      (the project = init's cwd; not a git repo here → CLAUDE.md lands in
+    //      that dir, slug = its basename).
+    // The project we run `init` in — a non-git temp dir with a known basename
+    // so the derived slug is predictable. CLAUDE.md will be written here, and
+    // the transcript's session records this dir as its cwd, so the session
+    // tree and the CLAUDE.md pointer name the same project.
+    const projectRoot = await mkdtemp(join(tmpdir(), "me-e2e-initcwd-"));
+    const projectDir = join(projectRoot, "initcwd");
+    await mkdir(projectDir, { recursive: true });
+    // The recorded session cwd must be the REAL path (as Claude Code would
+    // record it): macOS tmpdir is a symlink (/var/folders → /private/var),
+    // and init filters against the resolved process.cwd().
+    const projectCwd = await realpath(projectDir);
+
+    const sessionId = `init-${rand()}`;
+    const foreignId = `foreign-${rand()}`;
+    const tree = "share.projects.initcwd.agent_sessions";
+    const mkMsg = (
+      sid: string,
+      cwd: string,
+      i: number,
+      type: "user" | "assistant",
+      text: string,
+    ) => ({
+      type,
+      uuid: `${sid}-${type}-${i}`,
+      timestamp: `2026-03-01T00:00:0${i}.000Z`,
+      sessionId: sid,
+      cwd,
+      message:
+        type === "user"
+          ? { content: text }
+          : { content: [{ type: "text", text }], model: "claude-x" },
     });
-
-    test("9b. a stale importer_version is re-rendered in place on re-import", async () => {
-      // The server's conditional upsert: re-importing a session rewrites any
-      // row whose stored meta.importer_version differs from the current
-      // importer's, and skips the rest — no client-side existing-state read.
-      const sessionId = `stale-${rand()}`;
-      const root = await mkdtemp(join(tmpdir(), "me-e2e-stale-"));
-      const projDir = join(root, "proj");
-      await mkdir(projDir, { recursive: true });
-      const mkMsg = (i: number, type: "user" | "assistant", text: string) => ({
-        type,
-        uuid: `${sessionId}-${type}-${i}`,
-        timestamp: `2026-05-01T00:00:0${i}.000Z`,
-        sessionId,
-        cwd: "/work/stale-proj",
-        message:
-          type === "user"
-            ? { content: text }
-            : { content: [{ type: "text", text }], model: "claude-x" },
-      });
+    // Mirror Claude Code's on-disk layout: each transcript lives in a
+    // directory named after the session cwd (encoded) — the scoped import
+    // prunes by that name, so a literal fixture dir would never be scanned.
+    const writeTranscript = async (
+      sid: string,
+      cwd: string,
+      prefix: string,
+    ) => {
+      const dir = join(tmpHome, ".claude", "projects", encodeProjectDir(cwd));
+      await mkdir(dir, { recursive: true });
       await writeFile(
-        join(projDir, `${sessionId}.jsonl`),
+        join(dir, `${sid}.jsonl`),
         [
-          mkMsg(0, "user", "stale first question"),
-          mkMsg(1, "assistant", "stale first answer"),
-          mkMsg(2, "user", "stale second question"),
-          mkMsg(3, "assistant", "stale second answer"),
+          mkMsg(sid, cwd, 0, "user", `${prefix} first question`),
+          mkMsg(sid, cwd, 1, "assistant", `${prefix} first answer`),
+          mkMsg(sid, cwd, 2, "user", `${prefix} second question`),
+          mkMsg(sid, cwd, 3, "assistant", `${prefix} second answer`),
         ]
           .map((l) => JSON.stringify(l))
           .join("\n"),
       );
+    };
+    await writeTranscript(sessionId, projectCwd, "init");
+    // A session from a DIFFERENT project must not be swept up by init.
+    await writeTranscript(foreignId, "/work/other-proj", "foreign");
 
-      const first = await meJson<{ inserted: number }>([
-        "import",
-        "claude",
-        "--source",
-        root,
-      ]);
-      expect(first.inserted).toBe(4);
+    // Pre-init: nothing captured, no CLAUDE.md.
+    expect(await countBySession(sessionId)).toBe(0);
 
-      // Rewind one row to look like an older importer build wrote it.
-      const [stale] = await sql.unsafe(
-        `update metest_${spaceSlug}.memory
+    // Run `init` FROM the project dir so its cwd → slug → CLAUDE.md location.
+    const init = await me(
+      ["claude", "init", "--skip-plugin-install"],
+      undefined,
+      projectDir,
+    );
+    expect(init.code, init.stderr).toBe(0);
+
+    // Step 1: this project's session was backfilled; the foreign one wasn't.
+    expect(await countBySession(sessionId)).toBe(4);
+    expect(await countUnder(tree)).toBe(4);
+    expect(await countBySession(foreignId)).toBe(0);
+
+    // Step 2: CLAUDE.md now points at this project's memories.
+    const claudeMd = await readFile(join(projectDir, "CLAUDE.md"), "utf8");
+    expect(claudeMd).toContain("memory-engine:start");
+    expect(claudeMd).toContain("share.projects.initcwd");
+    expect(claudeMd).toContain("share.projects.initcwd.agent_sessions");
+    expect(claudeMd).toContain("share.projects.initcwd.git_history");
+
+    // Re-running is idempotent: still exactly one managed block.
+    const init2 = await me(
+      ["claude", "init", "--skip-plugin-install"],
+      undefined,
+      projectDir,
+    );
+    expect(init2.code, init2.stderr).toBe(0);
+    const claudeMd2 = await readFile(join(projectDir, "CLAUDE.md"), "utf8");
+    expect(claudeMd2.split("memory-engine:start").length - 1).toBe(1);
+
+    for (const cwd of [projectCwd, "/work/other-proj"]) {
+      await rm(join(tmpHome, ".claude", "projects", encodeProjectDir(cwd)), {
+        recursive: true,
+        force: true,
+      });
+    }
+    await rm(projectRoot, { recursive: true, force: true });
+  });
+
+  test("8c. `me claude init` honors --skip-transcript-import / --skip-claude-md", async () => {
+    // Non-interactive (piped) init runs every step except those turned off by
+    // a --skip-<step> flag. Verify each flag suppresses exactly its step.
+    // Each case gets its own project dir + a transcript recorded IN that dir
+    // (init's import is scoped to the project it runs in), stored under the
+    // Claude Code encoded-cwd directory layout the scoped import prunes by.
+    const transcriptDirs: string[] = [];
+    const mkProject = async (name: string) => {
+      const root = await mkdtemp(join(tmpdir(), "me-e2e-skip-"));
+      const dir = join(root, name);
+      await mkdir(dir, { recursive: true });
+      return { root, dir };
+    };
+    const writeTranscript = async (sid: string, cwd: string) => {
+      const mkMsg = (i: number, type: "user" | "assistant") => ({
+        type,
+        uuid: `${sid}-${type}-${i}`,
+        timestamp: `2026-04-01T00:00:0${i}.000Z`,
+        sessionId: sid,
+        cwd,
+        message:
+          type === "user"
+            ? { content: `q${i}` }
+            : {
+                content: [{ type: "text", text: `a${i}` }],
+                model: "claude-x",
+              },
+      });
+      const dir = join(tmpHome, ".claude", "projects", encodeProjectDir(cwd));
+      transcriptDirs.push(dir);
+      await mkdir(dir, { recursive: true });
+      await writeFile(
+        join(dir, `${sid}.jsonl`),
+        [
+          mkMsg(0, "user"),
+          mkMsg(1, "assistant"),
+          mkMsg(2, "user"),
+          mkMsg(3, "assistant"),
+        ]
+          .map((l) => JSON.stringify(l))
+          .join("\n"),
+      );
+    };
+
+    // --skip-transcript-import: CLAUDE.md is written, but this project's
+    // session is NOT imported (it would have been without the flag).
+    const a = await mkProject("skipimport");
+    const sessionA = `skipa-${rand()}`;
+    await writeTranscript(sessionA, await realpath(a.dir));
+    const r1 = await me(
+      ["claude", "init", "--skip-transcript-import", "--skip-plugin-install"],
+      undefined,
+      a.dir,
+    );
+    expect(r1.code, r1.stderr).toBe(0);
+    expect(await countBySession(sessionA)).toBe(0);
+    expect(existsSync(join(a.dir, "CLAUDE.md"))).toBe(true);
+
+    // --skip-claude-md: the project's session imports, but no CLAUDE.md.
+    const b = await mkProject("skipclaudemd");
+    const sessionB = `skipb-${rand()}`;
+    await writeTranscript(sessionB, await realpath(b.dir));
+    const r2 = await me(
+      ["claude", "init", "--skip-claude-md", "--skip-plugin-install"],
+      undefined,
+      b.dir,
+    );
+    expect(r2.code, r2.stderr).toBe(0);
+    expect(await countBySession(sessionB)).toBe(4);
+    expect(existsSync(join(b.dir, "CLAUDE.md"))).toBe(false);
+
+    for (const dir of transcriptDirs) {
+      await rm(dir, { recursive: true, force: true });
+    }
+    await rm(a.root, { recursive: true, force: true });
+    await rm(b.root, { recursive: true, force: true });
+  });
+
+  // Run git in `dir`, isolated from the developer's git config (gpg
+  // signing, hooks, templates), with deterministic commit dates.
+  async function git(
+    dir: string,
+    args: string[],
+    dateIso?: string,
+  ): Promise<void> {
+    const proc = Bun.spawn(
+      [
+        "git",
+        "-C",
+        dir,
+        "-c",
+        "user.name=E2E",
+        "-c",
+        "user.email=e2e@example.test",
+        "-c",
+        "commit.gpgsign=false",
+        ...args,
+      ],
+      {
+        env: {
+          ...process.env,
+          GIT_CONFIG_GLOBAL: "/dev/null",
+          GIT_CONFIG_SYSTEM: "/dev/null",
+          ...(dateIso
+            ? { GIT_AUTHOR_DATE: dateIso, GIT_COMMITTER_DATE: dateIso }
+            : {}),
+        },
+        stdout: "pipe",
+        stderr: "pipe",
+      },
+    );
+    const code = await proc.exited;
+    if (code !== 0) {
+      const stderr = await new Response(proc.stderr).text();
+      throw new Error(`git ${args.join(" ")} failed: ${stderr}`);
+    }
+  }
+
+  test("8d. `me import git` imports commit history, idempotently and incrementally", async () => {
+    // A real repo with a known-basename root so the slug (no remote →
+    // basename) and therefore the tree are predictable.
+    const root = await mkdtemp(join(tmpdir(), "me-e2e-git-"));
+    const name = `gitproj${rand()}`;
+    const repo = join(root, name);
+    await mkdir(repo, { recursive: true });
+    const tree = `share.projects.${name}.git_history`;
+
+    await git(repo, ["init", "-q", "-b", "main"]);
+    const commitFile = async (file: string, msg: string, dateIso: string) => {
+      await writeFile(join(repo, file), `${msg}\n`);
+      await git(repo, ["add", "."], dateIso);
+      await git(repo, ["commit", "-q", "-m", msg], dateIso);
+    };
+    await commitFile("a.txt", "feat: add a", "2026-05-01T10:00:00Z");
+    await commitFile("b.txt", "fix: adjust b", "2026-05-02T10:00:00Z");
+    await commitFile("c.txt", "docs: describe c", "2026-05-03T10:00:00Z");
+
+    // 1. First import: all three commits land under the project tree.
+    const first = await meJson<{
+      inserted: number;
+      commitsWalked: number;
+      tree: string;
+    }>(["import", "git", repo]);
+    expect(first.tree).toBe(tree);
+    expect(first.commitsWalked).toBe(3);
+    expect(first.inserted).toBe(3);
+    expect(await countUnder(tree)).toBe(3);
+
+    // Spot-check one record's shape: type/sha meta + commit-date temporal +
+    // file list in the content.
+    const [row] = await sql.unsafe(
+      `select content, meta from metest_${spaceSlug}.memory
+         where tree = $1::ltree and content like 'fix: adjust b%'`,
+      [tree],
+    );
+    expect(row?.meta?.type).toBe("git_commit");
+    expect(row?.meta?.sha).toMatch(/^[0-9a-f]{40}$/);
+    expect(row?.meta?.author_email).toBe("e2e@example.test");
+    expect(row?.content).toContain("Files:");
+    expect(row?.content).toContain("b.txt (+1 -0)");
+
+    // 2. Plain re-run: the high-water commit is HEAD → incremental walk of
+    //    an empty range; nothing re-sent, nothing duplicated.
+    const rerun = await meJson<{ inserted: number; commitsWalked: number }>([
+      "import",
+      "git",
+      repo,
+    ]);
+    expect(rerun.commitsWalked).toBe(0);
+    expect(rerun.inserted).toBe(0);
+    expect(await countUnder(tree)).toBe(3);
+
+    // 3. --full re-run: walks everything; deterministic ids make the server
+    //    skip every row (`ON CONFLICT DO NOTHING`).
+    const full = await meJson<{
+      inserted: number;
+      skipped: number;
+      commitsWalked: number;
+    }>(["import", "git", "--full", repo]);
+    expect(full.commitsWalked).toBe(3);
+    expect(full.inserted).toBe(0);
+    expect(full.skipped).toBe(3);
+    expect(await countUnder(tree)).toBe(3);
+
+    // 4. New work: one regular commit + one body-less merge. The next plain
+    //    run walks only the new range, imports the commit, and drops the
+    //    boilerplate merge.
+    await git(repo, ["checkout", "-q", "-b", "feat"], undefined);
+    await commitFile("d.txt", "feat: add d", "2026-05-04T10:00:00Z");
+    await git(repo, ["checkout", "-q", "main"]);
+    await git(
+      repo,
+      ["merge", "-q", "--no-ff", "feat", "-m", "Merge branch 'feat'"],
+      "2026-05-05T10:00:00Z",
+    );
+    const incr = await meJson<{
+      inserted: number;
+      commitsWalked: number;
+      skippedMerges: number;
+      range?: string;
+    }>(["import", "git", repo]);
+    expect(incr.range).toMatch(/^[0-9a-f]{40}\.\.HEAD$/);
+    expect(incr.commitsWalked).toBe(2);
+    expect(incr.inserted).toBe(1);
+    expect(incr.skippedMerges).toBe(1);
+    expect(await countUnder(tree)).toBe(4);
+
+    await rm(root, { recursive: true, force: true });
+  });
+
+  test("8e. `me claude init` runs the git step; --skip-git-import suppresses it", async () => {
+    const root = await mkdtemp(join(tmpdir(), "me-e2e-gitinit-"));
+    const name = `gitinit${rand()}`;
+    const repo = join(root, name);
+    await mkdir(repo, { recursive: true });
+    const tree = `share.projects.${name}.git_history`;
+
+    await git(repo, ["init", "-q", "-b", "main"]);
+    await writeFile(join(repo, "x.txt"), "x\n");
+    await git(repo, ["add", "."], "2026-05-01T10:00:00Z");
+    await git(
+      repo,
+      ["commit", "-q", "-m", "feat: initial"],
+      "2026-05-01T10:00:00Z",
+    );
+
+    // --skip-git-import: no commit memories.
+    const skipped = await me(
+      ["claude", "init", "--skip-git-import", "--skip-plugin-install"],
+      undefined,
+      repo,
+    );
+    expect(skipped.code, skipped.stderr).toBe(0);
+    expect(await countUnder(tree)).toBe(0);
+
+    // Plain init (non-interactive baseline) imports the repo's history and
+    // the CLAUDE.md pointer names the git_history node.
+    const init = await me(
+      ["claude", "init", "--skip-plugin-install"],
+      undefined,
+      repo,
+    );
+    expect(init.code, init.stderr).toBe(0);
+    expect(await countUnder(tree)).toBe(1);
+    const claudeMd = await readFile(join(repo, "CLAUDE.md"), "utf8");
+    expect(claudeMd).toContain(`${tree}\``);
+
+    await rm(root, { recursive: true, force: true });
+  });
+
+  test("9. claude capture hook ↔ `me claude import` are cross-idempotent", async () => {
+    // A minimal Claude Code session transcript on disk. The importer scans
+    // <source>/<project-dir>/*.jsonl; the hook reads the file directly.
+    const sessionId = `xact-${rand()}`;
+    const root = await mkdtemp(join(tmpdir(), "me-e2e-transcript-"));
+    const projDir = join(root, "proj");
+    await mkdir(projDir, { recursive: true });
+    const transcript = join(projDir, `${sessionId}.jsonl`);
+    // Two user turns so the importer doesn't skip it as a trivial session
+    // (the hook captures regardless; this makes both paths process all four).
+    const mkMsg = (i: number, type: "user" | "assistant", text: string) => ({
+      type,
+      uuid: `${sessionId}-${type}-${i}`,
+      timestamp: `2026-02-01T00:00:0${i}.000Z`,
+      sessionId,
+      cwd: "/work/idempotent-proj",
+      message:
+        type === "user"
+          ? { content: text }
+          : { content: [{ type: "text", text }], model: "claude-x" },
+    });
+    const lines = [
+      mkMsg(0, "user", "first question"),
+      mkMsg(1, "assistant", "first answer"),
+      mkMsg(2, "user", "second question"),
+      mkMsg(3, "assistant", "second answer"),
+    ];
+    await writeFile(transcript, lines.map((l) => JSON.stringify(l)).join("\n"));
+
+    // cwd "/work/idempotent-proj" → no git repo on disk → slug = basename.
+    const tree = "share.projects.idempotent_proj.agent_sessions";
+
+    // 1. Live capture via the real hook (reads transcript_path from stdin,
+    //    auths with the session, writes via importTranscriptFile).
+    const hook = await meStdin(
+      ["claude", "hook", "--event", "stop"],
+      JSON.stringify({ transcript_path: transcript, session_id: sessionId }),
+    );
+    expect(hook.code, hook.stderr).toBe(0);
+    expect(await countUnder(tree)).toBe(4);
+
+    // 2. `me claude import` over the SAME transcript → no new rows (same tree +
+    //    deterministic ids ⇒ the importer dedupes against the hook's writes).
+    const imp = await me(["claude", "import", "--source", root]);
+    expect(imp.code, imp.stderr).toBe(0);
+    expect(await countUnder(tree)).toBe(4);
+
+    // 3. Re-run the hook → still idempotent.
+    const hook2 = await meStdin(
+      ["claude", "hook", "--event", "stop"],
+      JSON.stringify({ transcript_path: transcript, session_id: sessionId }),
+    );
+    expect(hook2.code, hook2.stderr).toBe(0);
+    expect(await countUnder(tree)).toBe(4);
+
+    await rm(root, { recursive: true, force: true });
+  });
+
+  test("9b. a stale importer_version is re-rendered in place on re-import", async () => {
+    // The server's conditional upsert: re-importing a session rewrites any
+    // row whose stored meta.importer_version differs from the current
+    // importer's, and skips the rest — no client-side existing-state read.
+    const sessionId = `stale-${rand()}`;
+    const root = await mkdtemp(join(tmpdir(), "me-e2e-stale-"));
+    const projDir = join(root, "proj");
+    await mkdir(projDir, { recursive: true });
+    const mkMsg = (i: number, type: "user" | "assistant", text: string) => ({
+      type,
+      uuid: `${sessionId}-${type}-${i}`,
+      timestamp: `2026-05-01T00:00:0${i}.000Z`,
+      sessionId,
+      cwd: "/work/stale-proj",
+      message:
+        type === "user"
+          ? { content: text }
+          : { content: [{ type: "text", text }], model: "claude-x" },
+    });
+    await writeFile(
+      join(projDir, `${sessionId}.jsonl`),
+      [
+        mkMsg(0, "user", "stale first question"),
+        mkMsg(1, "assistant", "stale first answer"),
+        mkMsg(2, "user", "stale second question"),
+        mkMsg(3, "assistant", "stale second answer"),
+      ]
+        .map((l) => JSON.stringify(l))
+        .join("\n"),
+    );
+
+    const first = await meJson<{ inserted: number }>([
+      "import",
+      "claude",
+      "--source",
+      root,
+    ]);
+    expect(first.inserted).toBe(4);
+
+    // Rewind one row to look like an older importer build wrote it.
+    const [stale] = await sql.unsafe(
+      `update metest_${spaceSlug}.memory
          set content = 'STALE RENDER',
              meta = jsonb_set(meta, '{importer_version}', '"0"')
          where meta->>'source_session_id' = $1
            and meta->>'source_message_id' = $2
          returning id`,
-        [sessionId, `${sessionId}-user-0`],
-      );
-      expect(stale?.id).toBeDefined();
+      [sessionId, `${sessionId}-user-0`],
+    );
+    expect(stale?.id).toBeDefined();
 
-      // Re-import: exactly the stale row is rewritten, the rest skip.
-      const second = await meJson<{
-        inserted: number;
-        updated: number;
-        skipped: number;
-        failed: number;
-      }>(["import", "claude", "--source", root]);
-      expect(second.inserted).toBe(0);
-      expect(second.updated).toBe(1);
-      expect(second.skipped).toBe(3);
-      expect(second.failed).toBe(0);
+    // Re-import: exactly the stale row is rewritten, the rest skip.
+    const second = await meJson<{
+      inserted: number;
+      updated: number;
+      skipped: number;
+      failed: number;
+    }>(["import", "claude", "--source", root]);
+    expect(second.inserted).toBe(0);
+    expect(second.updated).toBe(1);
+    expect(second.skipped).toBe(3);
+    expect(second.failed).toBe(0);
 
-      const [row] = await sql.unsafe(
-        `select content, meta->>'importer_version' as v
+    const [row] = await sql.unsafe(
+      `select content, meta->>'importer_version' as v
          from metest_${spaceSlug}.memory where id = $1`,
-        [stale?.id as string],
-      );
-      expect(row?.content).toBe("stale first question");
-      expect(row?.v).toBe("1");
+      [stale?.id as string],
+    );
+    expect(row?.content).toBe("stale first question");
+    expect(row?.v).toBe("1");
 
-      await rm(root, { recursive: true, force: true });
-    });
+    await rm(root, { recursive: true, force: true });
+  });
 
-    test("9c. `me import` group: no bare default, memories ≡ memory import", async () => {
-      // Bare `me import` is a group, not the old file-import alias: it prints
-      // the subcommand list and exits non-zero.
-      const bare = await me(["import"]);
-      expect(bare.code).not.toBe(0);
-      expect(bare.stdout + bare.stderr).toContain("memories");
+  test("9c. `me import` group: no bare default, memories ≡ memory import", async () => {
+    // Bare `me import` is a group, not the old file-import alias: it prints
+    // the subcommand list and exits non-zero.
+    const bare = await me(["import"]);
+    expect(bare.code).not.toBe(0);
+    expect(bare.stdout + bare.stderr).toContain("memories");
 
-      // Old muscle memory `me import <file>` no longer parses.
-      const fileArg = await me(["import", "nosuch.md"]);
-      expect(fileArg.code).not.toBe(0);
-      expect(fileArg.stderr).toContain("unknown command");
+    // Old muscle memory `me import <file>` no longer parses.
+    const fileArg = await me(["import", "nosuch.md"]);
+    expect(fileArg.code).not.toBe(0);
+    expect(fileArg.stderr).toContain("unknown command");
 
-      // The file importer lives at `me import memories`, with
-      // `me memory import` as its alias — both write the same records.
-      const record = (i: number) =>
-        JSON.stringify({
-          content: `import group probe ${i}`,
-          tree: "share.importgroup",
-        });
-      const viaGroup = await meStdin(["import", "memories", "-"], record(1));
-      expect(viaGroup.code, viaGroup.stderr).toBe(0);
-      const viaAlias = await meStdin(["memory", "import", "-"], record(2));
-      expect(viaAlias.code, viaAlias.stderr).toBe(0);
-      expect(await countUnder("share.importgroup")).toBe(2);
-    });
-
-    test("10. failure modes: bad space and missing auth exit non-zero", async () => {
-      const badSpace = await me(["search", "--fulltext", "fox"], {
-        ME_SPACE: "doesnotexist1",
+    // The file importer lives at `me import memories`, with
+    // `me memory import` as its alias — both write the same records.
+    const record = (i: number) =>
+      JSON.stringify({
+        content: `import group probe ${i}`,
+        tree: "share.importgroup",
       });
-      expect(badSpace.code).not.toBe(0);
+    const viaGroup = await meStdin(["import", "memories", "-"], record(1));
+    expect(viaGroup.code, viaGroup.stderr).toBe(0);
+    const viaAlias = await meStdin(["memory", "import", "-"], record(2));
+    expect(viaAlias.code, viaAlias.stderr).toBe(0);
+    expect(await countUnder("share.importgroup")).toBe(2);
+  });
 
-      const noAuth = await me(["whoami"], { ME_SESSION_TOKEN: "" });
-      expect(noAuth.code).not.toBe(0);
+  test("10. failure modes: bad space and missing auth exit non-zero", async () => {
+    const badSpace = await me(["search", "--fulltext", "fox"], {
+      ME_SPACE: "doesnotexist1",
     });
-  },
-);
+    expect(badSpace.code).not.toBe(0);
+
+    const noAuth = await me(["whoami"], { ME_SESSION_TOKEN: "" });
+    expect(noAuth.code).not.toBe(0);
+  });
+});
