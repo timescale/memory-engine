@@ -96,17 +96,17 @@ function createWikipediaImportCommand(): Command {
     )
     .option(
       "--wiki <wiki>",
-      `wiki database name when source is omitted or a local file (default: ${DEFAULT_WIKIPEDIA_WIKI})`,
+      "wiki database name when source is omitted or a local file",
       DEFAULT_WIKIPEDIA_WIKI,
     )
     .option(
       "--date <date>",
-      `dump date for Wikimedia URLs (default: ${DEFAULT_WIKIPEDIA_DUMP_DATE})`,
+      "dump date for Wikimedia URLs",
       DEFAULT_WIKIPEDIA_DUMP_DATE,
     )
     .option(
       "--dump-kind <kind>",
-      `Wikimedia dump kind (default: ${DEFAULT_WIKIPEDIA_DUMP_KIND})`,
+      "Wikimedia dump kind",
       DEFAULT_WIKIPEDIA_DUMP_KIND,
     )
     .option(
@@ -118,7 +118,7 @@ function createWikipediaImportCommand(): Command {
     .option("--download-only", "download the dump archive and exit")
     .option(
       "--tree-root <path>",
-      `tree root for imported memories (default: ${DEFAULT_TREE_ROOT})`,
+      "tree root for imported memories",
       DEFAULT_TREE_ROOT,
     )
     .option(
@@ -139,7 +139,7 @@ function createWikipediaImportCommand(): Command {
     .option("--limit <n>", "maximum article memories to process after filters")
     .option(
       "--batch-size <n>",
-      `memories to buffer before each batchCreate (default: ${DEFAULT_BATCH_SIZE})`,
+      "memories to buffer before each batchCreate",
       String(DEFAULT_BATCH_SIZE),
     )
     .option("--dry-run", "parse and estimate without writing memories")
