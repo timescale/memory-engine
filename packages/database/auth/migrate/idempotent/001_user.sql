@@ -34,7 +34,7 @@ as $func$
   select u.id, u.email::text, u.name, u.email_verified, u.image, u.created_at, u.updated_at
   from {{schema}}.users u
   where u.id = _id
-$func$ language sql stable security invoker
+$func$ language sql stable strict rows 1 security invoker
 set search_path to pg_catalog, {{schema}}, public, pg_temp
 ;
 
@@ -55,6 +55,6 @@ as $func$
   select u.id, u.email::text, u.name, u.email_verified, u.image, u.created_at, u.updated_at
   from {{schema}}.users u
   where u.email = _email::citext -- compare as citext (case-insensitive); a text param would force text=text
-$func$ language sql stable security invoker
+$func$ language sql stable strict rows 1 security invoker
 set search_path to pg_catalog, {{schema}}, public, pg_temp
 ;

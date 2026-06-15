@@ -41,7 +41,7 @@ as $func$
   from {{schema}}.accounts a
   where a.provider_id = _provider_id
     and a.account_id = _account_id
-$func$ language sql stable security invoker
+$func$ language sql stable strict rows 1 security invoker
 set search_path to pg_catalog, {{schema}}, public, pg_temp
 ;
 
@@ -60,7 +60,7 @@ as $func$
   from {{schema}}.accounts a
   where a.user_id = _user_id
   order by a.created_at
-$func$ language sql stable security invoker
+$func$ language sql stable strict security invoker
 set search_path to pg_catalog, {{schema}}, public, pg_temp
 ;
 

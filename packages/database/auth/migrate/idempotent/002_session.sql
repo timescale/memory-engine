@@ -59,7 +59,7 @@ as $func$
   from valid v
   inner join {{schema}}.users u on (u.id = v.user_id)
   left join bumped b on (b.id = v.id)
-$func$ language sql volatile security invoker
+$func$ language sql volatile strict rows 1 security invoker
 set search_path to pg_catalog, {{schema}}, public, pg_temp
 ;
 

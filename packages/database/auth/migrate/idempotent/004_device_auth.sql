@@ -38,7 +38,7 @@ as $func$
          d.last_poll, d.user_id, d.status, d.created_at
   from {{schema}}.device_authorization d
   where d.user_code = _user_code and d.expires_at > now()
-$func$ language sql stable security invoker
+$func$ language sql stable strict rows 1 security invoker
 set search_path to pg_catalog, {{schema}}, public, pg_temp
 ;
 
@@ -62,7 +62,7 @@ as $func$
          d.last_poll, d.user_id, d.status, d.created_at
   from {{schema}}.device_authorization d
   where d.oauth_state = _oauth_state and d.expires_at > now()
-$func$ language sql stable security invoker
+$func$ language sql stable strict security invoker
 set search_path to pg_catalog, {{schema}}, public, pg_temp
 ;
 
