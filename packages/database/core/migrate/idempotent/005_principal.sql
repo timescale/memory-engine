@@ -71,7 +71,7 @@ as $func$
   select p.id, p.kind, p.name::text, p.owner_id, p.space_id, p.created_at, p.updated_at
   from {{schema}}.principal p
   where p.id = _id
-$func$ language sql stable security invoker
+$func$ language sql stable strict rows 1 security invoker
 set search_path to pg_catalog, {{schema}}, public, pg_temp
 ;
 
@@ -97,7 +97,7 @@ as $func$
   from {{schema}}.principal p
   where p.kind = 'u'
   and p.name = _name::citext
-$func$ language sql stable security invoker
+$func$ language sql stable strict rows 1 security invoker
 set search_path to pg_catalog, {{schema}}, public, pg_temp
 ;
 
@@ -123,7 +123,7 @@ as $func$
   where p.kind = 'a'
   and p.owner_id = _owner_id
   order by p.name
-$func$ language sql stable security invoker
+$func$ language sql stable strict security invoker
 set search_path to pg_catalog, {{schema}}, public, pg_temp
 ;
 
@@ -146,7 +146,7 @@ as $func$
   where p.kind = 'g'
   and p.space_id = _space_id
   order by p.name
-$func$ language sql stable security invoker
+$func$ language sql stable strict security invoker
 set search_path to pg_catalog, {{schema}}, public, pg_temp
 ;
 

@@ -38,7 +38,7 @@ as $func$
   where k.lookup_id = _lookup_id
   and k.secret = _secret
   and (k.expires_at is null or k.expires_at > now())
-$func$ language sql stable security invoker
+$func$ language sql stable strict rows 1 security invoker
 set search_path to pg_catalog, {{schema}}, public, pg_temp
 ;
 
@@ -61,7 +61,7 @@ as $func$
   select k.id, k.member_id, k.lookup_id, k.name, k.created_at, k.expires_at
   from {{schema}}.api_key k
   where k.id = _id
-$func$ language sql stable security invoker
+$func$ language sql stable strict rows 1 security invoker
 set search_path to pg_catalog, {{schema}}, public, pg_temp
 ;
 
@@ -85,7 +85,7 @@ as $func$
   from {{schema}}.api_key k
   where k.member_id = _member_id
   order by k.created_at desc
-$func$ language sql stable security invoker
+$func$ language sql stable strict security invoker
 set search_path to pg_catalog, {{schema}}, public, pg_temp
 ;
 

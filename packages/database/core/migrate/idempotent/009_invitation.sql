@@ -48,7 +48,7 @@ as $func$
   where i.space_id = _space_id
   and i.accepted_at is null
   order by i.created_at
-$func$ language sql stable security invoker
+$func$ language sql stable strict security invoker
 set search_path to pg_catalog, {{schema}}, public, pg_temp
 ;
 

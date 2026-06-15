@@ -68,7 +68,7 @@ $func$ language sql immutable strict security invoker
 -------------------------------------------------------------------------------
 create or replace function {{schema}}.get_memory
 ( _tree_access jsonb
-, _id uuid default null
+, _id uuid
 )
 returns table
 ( id uuid
@@ -93,7 +93,7 @@ as $func$
   from {{schema}}.memory m
   where m.id = _id
   and {{schema}}.has_tree_access(_tree_access, m.tree, 1)
-$func$ language sql stable security invoker
+$func$ language sql stable strict rows 1 security invoker
 set search_path to pg_catalog, {{schema}}, public, pg_temp
 ;
 

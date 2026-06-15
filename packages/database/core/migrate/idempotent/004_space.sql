@@ -71,7 +71,7 @@ as $func$
   select s.id, s.slug, s.name::text, s.language, s.created_at, s.updated_at
   from {{schema}}.space s
   where s.slug = _slug
-$func$ language sql stable security invoker
+$func$ language sql stable strict rows 1 security invoker
 set search_path to pg_catalog, {{schema}}, public, pg_temp
 ;
 
@@ -141,6 +141,6 @@ as $func$
   from {{schema}}.space s
   inner join space_ids si on si.space_id = s.id
   order by s.created_at desc
-$func$ language sql stable security invoker
+$func$ language sql stable strict security invoker
 set search_path to pg_catalog, {{schema}}, public, pg_temp
 ;
