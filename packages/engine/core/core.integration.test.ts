@@ -141,6 +141,15 @@ test("space admin transfers through an admin group", async () => {
   await core.addGroupMember(spaceId, groupId, member);
   expect(await core.isSpaceAdmin(member, spaceId)).toBe(true);
 
+  // listSpacePrincipals reports the same effective admin status: the member is
+  // an admin via the group (direct=false, admin=true) — not treated as a
+  // non-admin just because the admin comes through a group.
+  const listedMember = (await core.listSpacePrincipals(spaceId, "u")).find(
+    (p) => p.id === member,
+  );
+  expect(listedMember?.direct).toBe(false);
+  expect(listedMember?.admin).toBe(true);
+
   // a non-member is not an admin
   const stranger = await v7();
   await core.createUser(stranger, `s_${rand(8)}@example.com`);

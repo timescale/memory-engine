@@ -122,9 +122,11 @@ set search_path to pg_catalog, {{schema}}, public, pg_temp
 -- Principals that belong to a space, deduplicated: either added directly
 -- (principal_space) or reached through a group in the space (group_member) —
 -- group membership confers space access, so both count. `direct` is true when
--- the principal has a direct membership row; `admin` is its direct-membership
--- admin flag (false for group-only members). Optional kind filter
--- ('u' | 'a' | 'g'); null returns all.
+-- the principal has a direct membership row; `admin` is its EFFECTIVE space-admin
+-- status, via is_principal_space_admin (a direct admin row OR membership of an
+-- admin group, never an agent) — so a user who is admin only through an admin
+-- group is reported admin=true, matching is_principal_space_admin. Optional kind
+-- filter ('u' | 'a' | 'g'); null returns all.
 -------------------------------------------------------------------------------
 create or replace function {{schema}}.list_space_principals
 ( _space_id uuid
@@ -144,22 +146,25 @@ as $func$
   with mem as
   (
     -- directly added to the space
-    select ps.principal_id as id, true as direct, ps.admin as admin
+    select ps.principal_id as id, true as direct
     from {{schema}}.principal_space ps
     where ps.space_id = _space_id
     union all
     -- reached through a group belonging to the space
-    select gm.member_id as id, false as direct, false as admin
+    select gm.member_id as id, false as direct
     from {{schema}}.group_member gm
     where gm.space_id = _space_id
   )
   , agg as
   (
-    select id, bool_or(direct) as direct, bool_or(admin) as admin
+    select id, bool_or(direct) as direct
     from mem
     group by id
   )
-  select p.id, p.kind, p.name::text, p.owner_id, agg.direct, agg.admin, p.created_at, p.updated_at
+  select p.id, p.kind, p.name::text, p.owner_id
+       , agg.direct
+       , {{schema}}.is_principal_space_admin(p.id, _space_id) as admin
+       , p.created_at, p.updated_at
   from agg
   join {{schema}}.principal p on p.id = agg.id
   where (_kind is null or p.kind = _kind)
