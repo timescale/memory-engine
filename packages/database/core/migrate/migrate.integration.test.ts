@@ -387,6 +387,54 @@ describe("control-plane functions", () => {
     });
   });
 
+  test("add_principal_to_space rejects adding a group to a foreign space", async () => {
+    await withTestCore(sql, {}, async (core) => {
+      const s = core.schema;
+      const [home] = await sql.unsafe(
+        `select ${s}.create_space($1, $2) as id`,
+        [randomSlug(), "Home"],
+      );
+      const homeSpace = home?.id as string;
+      const [other] = await sql.unsafe(
+        `select ${s}.create_space($1, $2) as id`,
+        [randomSlug(), "Other"],
+      );
+      const otherSpace = other?.id as string;
+      const [grp] = await sql.unsafe(`select ${s}.create_group($1, $2) as id`, [
+        homeSpace,
+        `grp_${randomSlug()}`,
+      ]);
+      const groupId = grp?.id as string;
+
+      // adding the group to a space other than the one it was created in is
+      // rejected with a check-violation SQLSTATE (mapped to VALIDATION_ERROR)
+      let code: string | undefined;
+      try {
+        await sql.unsafe(`select ${s}.add_principal_to_space($1, $2, $3)`, [
+          otherSpace,
+          groupId,
+          false,
+        ]);
+        throw new Error("expected add to a foreign space to reject");
+      } catch (e) {
+        code = (e as { code?: string }).code;
+      }
+      expect(code).toBe("23514");
+
+      // adding it to its own space still works
+      await sql.unsafe(`select ${s}.add_principal_to_space($1, $2, $3)`, [
+        homeSpace,
+        groupId,
+        true,
+      ]);
+      const [row] = await sql.unsafe(
+        `select admin from ${s}.principal_space where space_id = $1 and principal_id = $2`,
+        [homeSpace, groupId],
+      );
+      expect(row?.admin).toBe(true);
+    });
+  });
+
   test("build_tree_access includes access granted via a group", async () => {
     await withTestCore(sql, {}, async (core) => {
       const s = core.schema;

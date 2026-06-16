@@ -3,7 +3,8 @@
 -- Adds (or updates the admin flag of) a principal's membership in a space, and
 -- grants a joining user owner over its home directory. The single chokepoint
 -- every join path goes through (provisioning, invite redemption, direct add),
--- so a user's membership always implies home ownership.
+-- so a user's membership always implies home ownership — and the one place that
+-- enforces a group can only be rostered into its own space.
 -------------------------------------------------------------------------------
 create or replace function {{schema}}.add_principal_to_space
 ( _space_id uuid
@@ -12,6 +13,25 @@ create or replace function {{schema}}.add_principal_to_space
 )
 returns void
 as $func$
+begin
+  -- A group belongs to exactly one space (principal.space_id, fixed at creation
+  -- and non-null for groups), so it can only be a member of that space; reject
+  -- adding it to a different one. Users and agents are global (space_id null),
+  -- so this constrains groups only.
+  if exists
+  (
+    select 1
+    from {{schema}}.principal p
+    where p.id = _principal_id
+    and p.kind = 'g'
+    and p.space_id is distinct from _space_id
+  ) then
+    raise exception
+      'group % cannot be added to space %: it belongs to a different space', _principal_id, _space_id
+      using errcode = '23514'
+      , hint = 'a group can only be a member of the space it was created in';
+  end if;
+
   insert into {{schema}}.principal_space (space_id, principal_id, admin)
   values (_space_id, _principal_id, _admin)
   on conflict (principal_id, space_id) do update set
@@ -30,8 +50,9 @@ as $func$
   from {{schema}}.principal p
   where p.id = _principal_id
   and p.kind = 'u'
-  on conflict (space_id, principal_id, tree_path) do nothing
-$func$ language sql volatile security invoker
+  on conflict (space_id, principal_id, tree_path) do nothing;
+end;
+$func$ language plpgsql volatile security invoker
 set search_path to pg_catalog, {{schema}}, public, pg_temp
 ;
 
