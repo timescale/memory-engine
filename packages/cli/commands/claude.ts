@@ -483,20 +483,46 @@ function buildClaudeMdSection(projectTree: string, space?: string): string {
 }
 
 /**
- * Upsert the managed Memory Engine section into the project's CLAUDE.md.
- *
- * Idempotent: if the marker block already exists it is replaced in place;
- * otherwise the block is appended (creating the file if absent). Writes to the
- * git repo root's CLAUDE.md when in a repo, else the current directory's.
+ * Resolve the CLAUDE.md the project memory pointer lives in (the git repo
+ * root's when in a repo, else the current directory's) and the managed
+ * section `init` would write there.
  */
-async function writeProjectMemoryPointer(server?: string): Promise<void> {
+async function resolveProjectMemoryPointer(
+  server?: string,
+): Promise<{ claudeMdPath: string; section: string }> {
   const cwd = process.cwd();
   const { slug, gitRoot } = await new SlugRegistry().resolve(cwd);
   const projectTree = `${DEFAULT_TREE_ROOT}.${slug}`;
   const space = resolveCredentials(server).activeSpace;
   const section = buildClaudeMdSection(projectTree, space);
-
   const claudeMdPath = join(gitRoot ?? cwd, "CLAUDE.md");
+  return { claudeMdPath, section };
+}
+
+/**
+ * Whether the project's CLAUDE.md already carries the exact managed section
+ * this run would write — i.e. re-running the step would be a no-op. A
+ * present-but-stale block (template change, different active space) does NOT
+ * count, so the step stays offered and a re-run refreshes it.
+ */
+async function projectMemoryPointerUpToDate(server?: string): Promise<boolean> {
+  const { claudeMdPath, section } = await resolveProjectMemoryPointer(server);
+  try {
+    const existing = await readFile(claudeMdPath, "utf8");
+    return existing.includes(section);
+  } catch {
+    return false; // no CLAUDE.md yet
+  }
+}
+
+/**
+ * Upsert the managed Memory Engine section into the project's CLAUDE.md.
+ *
+ * Idempotent: if the marker block already exists it is replaced in place;
+ * otherwise the block is appended (creating the file if absent).
+ */
+async function writeProjectMemoryPointer(server?: string): Promise<void> {
+  const { claudeMdPath, section } = await resolveProjectMemoryPointer(server);
   let existing = "";
   try {
     existing = await readFile(claudeMdPath, "utf8");
@@ -530,11 +556,13 @@ async function writeProjectMemoryPointer(server?: string): Promise<void> {
 /**
  * me claude init — one-shot setup of Claude Code memory integration.
  *
- * Setup is a list of independent steps (see INIT_STEPS). In an interactive
- * terminal `init` presents a multiselect of all steps (each pre-checked) so the
- * user can deselect any; non-interactively it runs every step except those
- * turned off by a `--skip-<step>` flag. To add a step, append one entry to
- * INIT_STEPS — it picks up both a `--skip-*` flag and a multiselect row
+ * Setup is a list of independent steps (see INIT_STEPS), grouped by source —
+ * each source pairs a one-time backfill of existing data with ongoing capture
+ * going forward. In an interactive terminal `init` presents a grouped
+ * multiselect of all steps (each pre-checked) so the user can deselect any;
+ * non-interactively it runs every step except those turned off by a
+ * `--skip-<step>` flag. To add a step, append one entry to INIT_STEPS — it
+ * picks up a `--skip-*` flag and a picker row (under its `group` heading)
  * automatically.
  */
 interface InitStepContext {
@@ -546,15 +574,23 @@ interface InitStepContext {
 
 /**
  * Availability of an init step in this environment: offer it, hide it
- * entirely (not applicable here), or report it as already done — no
- * multiselect row, but a ✓ line above the prompt so the user knows it's
- * covered.
+ * entirely (not applicable here), or report it as already done — shown in
+ * the picker as an unchecked re-run row in its group section, or (when
+ * non-interactive) as a ✓ line so the user knows it's covered.
  */
 type StepAvailability = "available" | "hidden" | "done";
 
 interface InitStep {
   /** Stable id — the multiselect value and the basis of the --skip flag. */
   id: string;
+  /** Picker group heading — steps sharing a group render under one header. */
+  group: string;
+  /**
+   * What the step contributes: a one-time "backfill" of historical data,
+   * "ongoing" capture of new activity (hooks), or plain "config". Drives the
+   * outro's recap of what init covered.
+   */
+  kind: "backfill" | "ongoing" | "config";
   /** Commander-parsed key for this step's skip flag (e.g. skipClaudeMd). */
   optionKey: string;
   /** The skip flag (e.g. "--skip-claude-md"). */
@@ -565,12 +601,15 @@ interface InitStep {
   label: string;
   /**
    * Optional availability gate: "hidden" omits the step entirely; "done"
-   * omits it but prints `doneLabel` with a checkmark. Absent means always
-   * available.
+   * keeps it out of non-interactive runs (reported as a ✓ `doneLabel` line)
+   * and offers it unchecked in the picker. Absent means always available.
    */
-  available?: () => Promise<StepAvailability>;
+  available?: (ctx: InitStepContext) => Promise<StepAvailability>;
   /** The ✓ line printed when `available` resolves "done". */
   doneLabel?: string;
+  /** Picker row label when the step is already done — offered unchecked as
+   * an idempotent re-run. Falls back to `label`. */
+  rerunLabel?: string;
   /** Perform the step. */
   run: (ctx: InitStepContext) => Promise<void>;
 }
@@ -609,22 +648,14 @@ async function pluginInstallAvailable(): Promise<StepAvailability> {
 
 const INIT_STEPS: InitStep[] = [
   {
-    id: "plugin-install",
-    optionKey: "skipPluginInstall",
-    skipFlag: "--skip-plugin-install",
-    skipDescription: "do not install the Claude Code plugin",
-    label: "Install the Claude Code plugin (hooks + slash commands + MCP)",
-    // Hidden when Claude Code is absent; ✓ when the plugin is already there.
-    available: pluginInstallAvailable,
-    doneLabel: "Claude Code plugin already installed",
-    run: ({ server }) => runClaudePluginInstall({ server, scope: "user" }),
-  },
-  {
     id: "transcript-import",
+    group: "Claude Code sessions",
+    kind: "backfill",
     optionKey: "skipTranscriptImport",
     skipFlag: "--skip-transcript-import",
     skipDescription: "do not import this project's Claude Code sessions",
-    label: "Import this project's Claude Code sessions",
+    label:
+      "Import this project's existing Claude Code sessions (one-time backfill)",
     // Init is per-project setup, so scope the backfill to sessions recorded
     // in this repo (cwd at or under the repo root) — `me import claude`
     // remains the machine-wide sweep. The temp-cwd filter exists to keep
@@ -641,19 +672,40 @@ const INIT_STEPS: InitStep[] = [
     },
   },
   {
+    id: "plugin-install",
+    group: "Claude Code sessions",
+    kind: "ongoing",
+    optionKey: "skipPluginInstall",
+    skipFlag: "--skip-plugin-install",
+    skipDescription: "do not install the Claude Code plugin",
+    label:
+      "Install the Claude Code plugin — captures new sessions going forward (+ slash commands, MCP)",
+    // Hidden when Claude Code is absent; ✓ when the plugin is already there.
+    available: pluginInstallAvailable,
+    doneLabel: "Claude Code plugin already installed",
+    rerunLabel:
+      "Reinstall the Claude Code plugin — captures new sessions going forward (already installed)",
+    run: ({ server }) => runClaudePluginInstall({ server, scope: "user" }),
+  },
+  {
     id: "git-import",
+    group: "Git history",
+    kind: "backfill",
     optionKey: "skipGitImport",
     skipFlag: "--skip-git-import",
     skipDescription: "do not import the repo's git commit history",
-    label: "Import git commit history",
+    label: "Import existing git commit history (one-time backfill)",
     run: ({ globalOpts }) => runGitImport({ skipIfNotRepo: true }, globalOpts),
   },
   {
     id: "git-hook",
+    group: "Git history",
+    kind: "ongoing",
     optionKey: "skipGitHook",
     skipFlag: "--skip-git-hook",
     skipDescription: "do not install the git post-commit capture hook",
-    label: "Install a git post-commit hook (keeps git history current)",
+    label:
+      "Install a git post-commit hook — captures new commits going forward",
     // Hidden outside a git repo or when a committed hooks manager owns the
     // hook path; ✓ when the managed block is already installed.
     available: async () => {
@@ -662,16 +714,27 @@ const INIT_STEPS: InitStep[] = [
       return status === "installable" ? "available" : "hidden";
     },
     doneLabel: "Git post-commit hook already installed",
+    rerunLabel:
+      "Reinstall the git post-commit hook — captures new commits going forward (already installed)",
     run: ({ globalOpts }) =>
       runGitHookInstall({ skipIfNotRepo: true }, globalOpts),
   },
   {
     id: "claude-md",
+    group: "Project config",
+    kind: "config",
     optionKey: "skipClaudeMd",
     skipFlag: "--skip-claude-md",
     skipDescription:
       "do not write the memory pointer into the project's CLAUDE.md",
     label: "Add a memory pointer to CLAUDE.md",
+    // ✓ when CLAUDE.md already carries the exact block this run would write;
+    // a stale block (template or active-space change) keeps the step offered
+    // so the re-run refreshes it.
+    available: async ({ server }) =>
+      (await projectMemoryPointerUpToDate(server)) ? "done" : "available",
+    doneLabel: "Memory pointer already in CLAUDE.md",
+    rerunLabel: "Rewrite the memory pointer in CLAUDE.md (already present)",
     run: ({ server }) => writeProjectMemoryPointer(server),
   },
 ];
@@ -703,41 +766,64 @@ function createClaudeInitCommand(): Command {
     // of a row, so the user knows they're covered. The probe is skipped for
     // steps already opted out non-interactively, so a `--skip-<step>` run
     // never pays for that step's availability check.
+    const ctx: InitStepContext = { globalOpts, server };
     const candidates: InitStep[] = [];
-    const doneLabels: string[] = [];
+    const doneSteps: InitStep[] = [];
     for (const step of INIT_STEPS) {
       if (!interactive && opts[step.optionKey] === true) continue;
       const availability = step.available
-        ? await step.available()
+        ? await step.available(ctx)
         : "available";
       if (availability === "hidden") continue;
       if (availability === "done") {
-        doneLabels.push(step.doneLabel ?? step.label);
+        doneSteps.push(step);
         continue;
       }
       candidates.push(step);
     }
-    if (fmt === "text") {
-      // One block: spacing 0 keeps consecutive ✓ lines adjacent (clack's
-      // default spacing of 1 would put a bare guide line between them).
-      doneLabels.forEach((label, i) => {
-        clack.log.message(label, { symbol: CHECK, spacing: i === 0 ? 1 : 0 });
+    if (fmt === "text" && !interactive) {
+      // Non-interactive runs report already-done steps as ✓ lines (the
+      // picker shows them as unchecked re-run rows in their section
+      // instead). One block: spacing 0 keeps consecutive ✓ lines adjacent
+      // (clack's default spacing of 1 would put a bare guide line between
+      // them).
+      doneSteps.forEach((step, i) => {
+        clack.log.message(step.doneLabel ?? step.label, {
+          symbol: CHECK,
+          spacing: i === 0 ? 1 : 0,
+        });
       });
     }
 
     // Baseline = every available step not turned off via its --skip-* flag.
     const baseline = candidates.filter((s) => opts[s.optionKey] !== true);
 
+    const doneIds = new Set(doneSteps.map((s) => s.id));
+    // Picker rows: runnable steps plus already-done ones (offered unchecked,
+    // as idempotent re-runs), in INIT_STEPS order so each row sits in its
+    // group section.
+    const rows = INIT_STEPS.filter(
+      (s) => candidates.includes(s) || doneIds.has(s.id),
+    );
+    const rowLabel = (step: InitStep): string =>
+      doneIds.has(step.id) ? (step.rerunLabel ?? step.label) : step.label;
+
     let selectedIds: string[];
     if (interactive) {
-      const picked = await clack.multiselect<string>({
+      // Group the picker by source (Claude Code sessions / git history) so
+      // each one-time backfill sits next to its ongoing-capture counterpart.
+      const grouped: Record<string, clack.Option<string>[]> = {};
+      for (const step of rows) {
+        const groupRows = grouped[step.group] ?? [];
+        groupRows.push({ value: step.id, label: rowLabel(step) });
+        grouped[step.group] = groupRows;
+      }
+      const picked = await clack.groupMultiselect<string>({
         message: `Setup steps to run ${DIM}(all selected by default — ↑/↓ move, space to toggle off/on, enter to confirm)${DIM_OFF}`,
-        options: candidates.map((s) => ({
-          value: s.id,
-          label: s.label,
-        })),
+        options: grouped,
         initialValues: baseline.map((s) => s.id),
         required: false,
+        selectableGroups: false,
       });
       if (clack.isCancel(picked)) {
         clack.cancel("Cancelled.");
@@ -748,35 +834,72 @@ function createClaudeInitCommand(): Command {
       selectedIds = baseline.map((s) => s.id);
     }
 
-    const selected = candidates.filter((s) => selectedIds.includes(s.id));
+    const selected = rows.filter((s) => selectedIds.includes(s.id));
     if (selected.length === 0) {
       clack.log.info("No setup steps selected — nothing to do.");
       return;
     }
 
-    const ctx: InitStepContext = { globalOpts, server };
     for (const step of selected) {
       // Announce the step before its own output (progress spinners etc.)
       // appears, so the counters have context. Structured output modes stay
       // clean for parsing.
-      if (fmt === "text") clack.log.step(step.label);
+      if (fmt === "text") clack.log.step(rowLabel(step));
       await step.run(ctx);
     }
-    if (fmt === "text") printInitOutro();
+    // The recap covers what just ran plus what was already in place (an
+    // already-installed plugin still captures going forward even though no
+    // step ran for it).
+    if (fmt === "text") printInitOutro([...selected, ...doneSteps]);
   });
   return cmd;
 }
 
 /**
- * Closing guidance after init: what having project memories wired up
- * actually buys the user, and how to invoke them deliberately.
+ * The outro's lead recap: whether init performed a one-time import of
+ * historical data, set up ongoing capture, or both. Empty when neither
+ * applies (e.g. only the CLAUDE.md pointer ran). Exported for tests.
  */
-function printInitOutro(): void {
+export function initOutroLead(steps: Pick<InitStep, "kind">[]): string[] {
+  const backfill = steps.some((s) => s.kind === "backfill");
+  const ongoing = steps.some((s) => s.kind === "ongoing");
+  if (backfill && ongoing) {
+    return [
+      "Imported this project's historical data (past sessions, git",
+      "history), and set up hooks that keep it updated going forward —",
+      "new sessions and commits are captured automatically.",
+      "",
+    ];
+  }
+  if (backfill) {
+    return [
+      "Imported this project's historical data (past sessions, git",
+      "history) — a one-time backfill.",
+      "",
+    ];
+  }
+  if (ongoing) {
+    return [
+      "Set up hooks that capture new sessions and commits going forward.",
+      "",
+    ];
+  }
+  return [];
+}
+
+/**
+ * Closing guidance after init: a recap of what setup covered (historical
+ * backfill, ongoing capture), what having project memories wired up actually
+ * buys the user, and how to invoke them deliberately. `steps` is everything
+ * covered — the steps that just ran plus any reported already done.
+ */
+function printInitOutro(steps: InitStep[]): void {
   clack.note(
     [
+      ...initOutroLead(steps),
       "Ask Claude about this project's history or architecture — it now",
-      "draws on your memories (past sessions, git history) automatically,",
-      "and consults them when exploring the code for new features.",
+      "draws on the project's memories automatically, and consults them",
+      "when exploring the code for new features.",
       "",
       "You can also point Claude at them explicitly, e.g.:",
       `${DIM}"Search memory engine: why did we structure the database this way?"${DIM_OFF}`,
