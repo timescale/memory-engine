@@ -2,7 +2,7 @@
 
 Manage groups in the active space.
 
-A **group** is a named bundle of members (users and agents). Membership is **transitive**: a group member inherits the group's space membership, its admin flag (if the group is an admin), and all of its tree-access grants. Grant access to a group once and every member gets it.
+A **group** is a named bundle of members (users and agents). Grant access to a group once and every member who is also a space member gets it. Group membership does **not** by itself make someone a space member: a group's grants (and its admin flag, if it's an admin group) apply to a member only once they've **also** joined the space directly — so you can add someone to a group before they join, and the access stays dormant until they do.
 
 These commands authenticate with your **session** and operate on the active space.
 
@@ -131,4 +131,4 @@ me group members <group>
 ## See also
 
 - [`me access`](me-access.md) -- grant a group access to a tree path.
-- [Access Control](../access-control.md) -- transitive membership and the authority model.
+- [Access Control](../access-control.md) -- group grants, membership, and the authority model.

@@ -18,17 +18,16 @@ export const principalKindSchema = z.enum(["u", "g", "a"]);
 export type PrincipalKind = z.infer<typeof principalKindSchema>;
 
 /**
- * A principal that belongs to a space — directly or via a group.
- * `direct` is true for a direct membership; `admin` is the effective space-admin
- * status (a direct admin row OR membership of an admin group, never an agent),
- * so a user who is admin only via an admin group is reported admin=true.
+ * A principal that is a member of a space — i.e. has a direct membership row
+ * (group membership alone does not make you a space member). `admin` is the
+ * effective space-admin status (a direct admin row OR a direct member who
+ * belongs to an admin group, never an agent).
  */
 export const spacePrincipalResponse = z.object({
   id: z.string(),
   kind: principalKindSchema,
   name: z.string(),
   ownerId: z.string().nullable(),
-  direct: z.boolean(),
   admin: z.boolean(),
   createdAt: z.string(),
   updatedAt: z.string().nullable(),

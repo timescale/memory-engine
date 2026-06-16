@@ -12,7 +12,7 @@ A **principal** is anything that can be granted access. There are three kinds:
 | **agent** (`a`) | A service account owned by a user, authenticated by an API key. |
 | **group** (`g`) | A named bundle of users and agents. |
 
-A **member** is the user/agent sense only — the things that can be put into a group or hold an API key. Group membership is transitive: a member of a group gains the group's space membership, its admin (if the group is an admin), and all of its tree-access grants.
+A **member** is the user/agent sense only — the things that can be put into a group or hold an API key. Group membership does **not** by itself confer space membership: a group's grants (and its admin, if it's an admin group) apply to you only once you have **also** joined the space directly. So an admin can add you to a group before you join — the group's access stays dormant until you do.
 
 ## Spaces
 
@@ -27,10 +27,10 @@ A user can belong to many spaces; each memory lives in exactly one space. There 
 
 Access splits into two independent axes:
 
-- **Structural authority** — `me space invite`, the roster (`me agent add`, `me group ...`), and invitations. This is the space **admin** flag. Admin transfers transitively through an admin group. Agents are never admins.
+- **Structural authority** — `me space invite`, the roster (`me agent add`, `me group ...`), and invitations. This is the space **admin** flag. Admin transfers through an admin group to its members who are also direct space members. Agents are never admins.
 - **Data authority** — who can read/write/own memories at a given tree path. This is a **tree-access grant**.
 
-A space must always keep at least one *effective* admin (a user who is a direct admin or a member of an admin group). The last-admin safeguard rejects any removal or demotion that would drop it (error code `LAST_ADMIN`).
+A space must always keep at least one *effective* admin (a user who is a direct admin or a direct member of an admin group). The last-admin safeguard rejects any removal or demotion that would drop it (error code `LAST_ADMIN`).
 
 ## Tree-access grants
 
@@ -81,9 +81,9 @@ Every space has two conventional roots:
 
 ## How it's enforced
 
-There is no Row-Level Security. For each request, the server calls `build_tree_access(principalId, spaceId)`, which collapses the principal's own grants and any inherited via group membership into a single set of `(tree_path, access)` rows. That set is passed as an argument into the space's SQL functions (`search_memory`, `get_memory`, …), which filter to the paths the caller may see.
+There is no Row-Level Security. For each request, the server calls `build_tree_access(principalId, spaceId)`, which collapses the principal's own grants and those from any groups it belongs to — but **only if the principal is a direct space member** — into a single set of `(tree_path, access)` rows. That set is passed as an argument into the space's SQL functions (`search_memory`, `get_memory`, …), which filter to the paths the caller may see.
 
-The authorization gate to use a space at all is holding **at least one** grant — every member has one (`owner@home` at minimum).
+The authorization gate to use a space at all is holding **at least one** grant. A direct member always has one (`owner@home` at minimum); someone who is only in a group (never joined the space) resolves to an empty set and is denied.
 
 :::warning[Quiet filtering]
 Access filtering happens inside the query. If you lack `read` on a memory's tree path, a search simply returns fewer rows and `me memory get` reports "not found" — you get no error distinguishing "doesn't exist" from "not visible to you." If you're missing results you expect, check your grants with `me access list <your-principal>`.

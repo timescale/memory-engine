@@ -99,9 +99,12 @@ set search_path to pg_catalog, {{schema}}, public, pg_temp
 
 -------------------------------------------------------------------------------
 -- list_spaces_for_member
--- Spaces a member (user/agent) belongs to — directly (principal_space) or
--- through a group (Model 2). `admin` is the direct-membership admin flag.
--- Used by the user endpoint so a logged-in human can pick their space.
+-- Spaces a member (user/agent) belongs to — i.e. has a direct principal_space
+-- row. Group membership alone does NOT make you a space member, so a space
+-- reached only through a group is not listed. `admin` is the effective
+-- space-admin status (a direct admin row OR a direct member who belongs to an
+-- admin group). Used by the user endpoint so a logged-in human can pick their
+-- space.
 -------------------------------------------------------------------------------
 create or replace function {{schema}}.list_spaces_for_member
 ( _member_id uuid
@@ -116,30 +119,20 @@ returns table
 , updated_at timestamptz
 )
 as $func$
-  -- Drive from the membership tables (indexed by the member) and PK-join to
-  -- space, rather than scanning every space and probing membership per row.
-  with space_ids as
-  (
-    select ps.space_id
-    from {{schema}}.principal_space ps
-    where ps.principal_id = _member_id
-    union
-    select gm.space_id
-    from {{schema}}.group_member gm
-    where gm.member_id = _member_id
-  )
+  -- Drive from principal_space (indexed by the member) and PK-join to space.
   select
     s.id
   , s.slug
   , s.name::text
   , s.language
   -- derived from is_principal_space_admin so it matches the authority gate
-  -- (includes admin inherited via an admin group)
+  -- (a direct member who belongs to an admin group shows admin=true)
   , {{schema}}.is_principal_space_admin(_member_id, s.id) as admin
   , s.created_at
   , s.updated_at
-  from {{schema}}.space s
-  inner join space_ids si on si.space_id = s.id
+  from {{schema}}.principal_space ps
+  inner join {{schema}}.space s on s.id = ps.space_id
+  where ps.principal_id = _member_id
   order by s.created_at desc
 $func$ language sql stable strict security invoker
 set search_path to pg_catalog, {{schema}}, public, pg_temp

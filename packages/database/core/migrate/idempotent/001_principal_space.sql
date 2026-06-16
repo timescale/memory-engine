@@ -20,9 +20,10 @@ $func$ language sql stable security invoker
 -------------------------------------------------------------------------------
 -- is_principal_space_admin
 -- A principal is a space admin if it has a direct admin membership, OR it is a
--- member of a group whose own space-membership is admin (admin transfers
--- transitively through groups, like access does — Model 2). Agents are never
--- space admins.
+-- direct member of the space (a principal_space row) who also belongs to a group
+-- whose own space-membership is admin. Admin via a group requires direct
+-- membership — group membership alone never confers space access. Agents are
+-- never space admins.
 -------------------------------------------------------------------------------
 create or replace function {{schema}}.is_principal_space_admin
 ( _principal_id uuid
@@ -47,13 +48,17 @@ as $func$
         and ps.space_id = _space_id
         and ps.admin
       )
-      -- admin inherited from an admin group the principal belongs to
+      -- admin inherited from an admin group the principal belongs to — but only
+      -- if the principal is ALSO a direct member of the space (a principal_space
+      -- row); group membership alone never confers space access
       or exists
       (
         select 1
         from {{schema}}.group_member gm
         inner join {{schema}}.principal_space gps
           on (gps.principal_id = gm.group_id and gps.space_id = _space_id and gps.admin)
+        inner join {{schema}}.principal_space mps
+          on (mps.principal_id = gm.member_id and mps.space_id = _space_id)
         where gm.member_id = p.id
         and gm.space_id = _space_id
       )
@@ -65,11 +70,12 @@ $func$ language sql stable security invoker
 -------------------------------------------------------------------------------
 -- enforce_last_admin (trigger fn on principal_space + group_member)
 -- Invariant: a live space must always have at least one *effective* admin — a
--- user who is a direct admin (principal_space.admin) OR a member of an
--- admin-flagged group. Agents are never admins, and an admin-flagged group with
--- no user members does NOT count. Checking the effective set (not just the
--- principal_space.admin flag) closes the brick where a space's sole admin is an
--- empty admin group, leaving it unrecoverable.
+-- user who is a direct admin (principal_space.admin) OR a direct member who
+-- belongs to an admin-flagged group (admin via a group requires direct
+-- membership). Agents are never admins, and an admin-flagged group whose user
+-- members aren't direct space members does NOT count. Checking the effective set
+-- (not just the principal_space.admin flag) closes the brick where a space's
+-- sole admin is an empty/non-member admin group, leaving it unrecoverable.
 --
 -- Guards every path that could drop the effective set, uniformly:
 --   * principal_space remove/demote — incl. a group losing its admin flag, and
@@ -119,13 +125,16 @@ begin
       and ps.admin
       and p.kind = 'u'
     )
-    -- or a user member of an admin-flagged group
+    -- or a user who is a direct member AND belongs to an admin-flagged group
+    -- (admin via a group requires direct membership)
     or exists
     (
       select 1
       from {{schema}}.group_member gm
       join {{schema}}.principal_space gps
         on gps.principal_id = gm.group_id and gps.space_id = gm.space_id and gps.admin
+      join {{schema}}.principal_space mps
+        on mps.principal_id = gm.member_id and mps.space_id = gm.space_id
       join {{schema}}.principal mp on mp.id = gm.member_id and mp.kind = 'u'
       where gm.space_id = old.space_id
     )

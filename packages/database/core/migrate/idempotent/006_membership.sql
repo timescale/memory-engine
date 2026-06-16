@@ -148,15 +148,31 @@ set search_path to pg_catalog, {{schema}}, public, pg_temp
 
 -------------------------------------------------------------------------------
 -- list_space_principals
--- Principals that belong to a space, deduplicated: either added directly
--- (principal_space) or reached through a group in the space (group_member) —
--- group membership confers space access, so both count. `direct` is true when
--- the principal has a direct membership row; `admin` is its EFFECTIVE space-admin
--- status, via is_principal_space_admin (a direct admin row OR membership of an
--- admin group, never an agent) — so a user who is admin only through an admin
--- group is reported admin=true, matching is_principal_space_admin. Optional kind
--- filter ('u' | 'a' | 'g'); null returns all.
+-- The space roster: principals with a direct membership row (principal_space).
+-- Group membership alone does NOT make you a space member, so group-only
+-- principals are not listed. `admin` is the EFFECTIVE space-admin status via
+-- is_principal_space_admin (a direct admin row OR a direct member who belongs to
+-- an admin group, never an agent). Optional kind filter ('u' | 'a' | 'g'); null
+-- returns all.
 -------------------------------------------------------------------------------
+-- Removing the `direct` column changed the returns-table signature, which
+-- create-or-replace cannot do. Drop the old definition only when it's still
+-- present with that stale signature (its `direct` output column); when the
+-- function is already current — or absent — skip the drop so it isn't churned
+-- every migration run. The create-or-replace below then (re)creates it.
+do $$ begin
+  if exists
+  (
+    select 1
+    from pg_proc p
+    join pg_namespace n on n.oid = p.pronamespace
+    where n.nspname = '{{schema}}'
+    and p.proname = 'list_space_principals'
+    and 'direct' = any (p.proargnames)
+  ) then
+    drop function {{schema}}.list_space_principals(uuid, text);
+  end if;
+end $$;
 create or replace function {{schema}}.list_space_principals
 ( _space_id uuid
 , _kind text default null
@@ -166,37 +182,18 @@ returns table
 , kind text
 , name text
 , owner_id uuid
-, direct bool
 , admin bool
 , created_at timestamptz
 , updated_at timestamptz
 )
 as $func$
-  with mem as
-  (
-    -- directly added to the space
-    select ps.principal_id as id, true as direct
-    from {{schema}}.principal_space ps
-    where ps.space_id = _space_id
-    union all
-    -- reached through a group belonging to the space
-    select gm.member_id as id, false as direct
-    from {{schema}}.group_member gm
-    where gm.space_id = _space_id
-  )
-  , agg as
-  (
-    select id, bool_or(direct) as direct
-    from mem
-    group by id
-  )
   select p.id, p.kind, p.name::text, p.owner_id
-       , agg.direct
        , {{schema}}.is_principal_space_admin(p.id, _space_id) as admin
        , p.created_at, p.updated_at
-  from agg
-  join {{schema}}.principal p on p.id = agg.id
-  where (_kind is null or p.kind = _kind)
+  from {{schema}}.principal_space ps
+  join {{schema}}.principal p on p.id = ps.principal_id
+  where ps.space_id = _space_id
+  and (_kind is null or p.kind = _kind)
   order by p.kind, p.name
 $func$ language sql stable security invoker
 set search_path to pg_catalog, {{schema}}, public, pg_temp

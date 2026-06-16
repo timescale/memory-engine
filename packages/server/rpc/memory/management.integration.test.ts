@@ -469,8 +469,9 @@ test("group member management allows a group admin (not a space admin)", async (
     name: "team",
   });
   const lead = await makeUser();
-  // lead is only a group admin (not added to principal_space) — group
-  // membership is transitive, so this is enough authority over the group
+  // lead is only a group admin (not a space admin) — group-admin authority over
+  // a group is independent of the space-admin flag, so it is enough to manage
+  // the group's membership
   await call("group.addMember", { groupId, memberId: lead, admin: true });
   const as = { principalId: lead, treeAccess: [] as TreeAccess, admin: false };
 

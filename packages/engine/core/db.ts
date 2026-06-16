@@ -32,7 +32,7 @@ export interface CoreStore {
   getSpace(slug: string): Promise<Space | null>;
   /** All spaces (e.g. for the embedding worker to discover me_<slug> schemas). */
   listSpaces(): Promise<Space[]>;
-  /** Spaces a member belongs to (directly or via a group), with admin flag. */
+  /** Spaces a member is a direct member of (principal_space), with admin flag. */
   listSpacesForMember(memberId: string): Promise<MemberSpace[]>;
   /** Rename a space (by slug). Returns true if it existed. */
   renameSpace(slug: string, name: string): Promise<boolean>;
@@ -52,7 +52,7 @@ export interface CoreStore {
   renamePrincipal(id: string, name: string): Promise<boolean>;
   deletePrincipal(id: string): Promise<boolean>;
 
-  /** Principals in a space — directly or via a group (each flagged `direct`). */
+  /** The space roster: principals with a direct (principal_space) membership. */
   listSpacePrincipals(
     spaceId: string,
     kind?: PrincipalKind,
@@ -200,7 +200,6 @@ function mapSpacePrincipal(row: Record<string, unknown>): SpacePrincipal {
     kind: row.kind as PrincipalKind,
     name: row.name as string,
     ownerId: (row.owner_id as string | null) ?? null,
-    direct: Boolean(row.direct),
     admin: Boolean(row.admin),
     createdAt: row.created_at as Date,
     updatedAt: (row.updated_at as Date | null) ?? null,

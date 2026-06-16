@@ -11,10 +11,12 @@ returns table
 , admin bool
 )
 as $func$
-  -- Group membership is space-scoped by group_member.space_id and confers
-  -- space access transitively — a member need NOT have a direct principal_space
-  -- row to inherit a group's grants (Model 2). The FKs already constrain
-  -- group_id to a group and member_id to a user/agent.
+  -- Group membership is space-scoped by group_member.space_id. It does NOT by
+  -- itself confer space access: a member's group grants are effective only if
+  -- the member is also a direct space member (gated in member_tree_access), so a
+  -- member can be pre-staged into a group before joining the space. This just
+  -- lists the member's groups; the FKs constrain group_id to a group and
+  -- member_id to a user/agent.
   select
     gm.group_id
   , gm.admin and (not m.kind = 'a') -- agents cannot be group admins

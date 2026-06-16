@@ -35,7 +35,7 @@ export interface Space {
   updatedAt: Date | null;
 }
 
-/** A space a principal belongs to, with the principal's direct-membership admin flag. */
+/** A space a principal is a direct member of, with the principal's effective admin flag. */
 export interface MemberSpace extends Space {
   admin: boolean;
 }
@@ -77,18 +77,16 @@ export interface ValidatedApiKey {
 }
 
 /**
- * A principal that belongs to a space — directly or through a group.
- * `direct` is true for a direct (principal_space) membership; `admin` is the
- * effective space-admin status (a direct admin row OR membership of an admin
- * group, never an agent), so a user who is admin only via an admin group is
- * reported admin=true.
+ * A principal that is a member of a space — i.e. has a direct principal_space
+ * row (group membership alone does not make you a space member). `admin` is the
+ * effective space-admin status (a direct admin row OR a direct member who
+ * belongs to an admin group, never an agent).
  */
 export interface SpacePrincipal {
   id: string;
   kind: PrincipalKind;
   name: string;
   ownerId: string | null;
-  direct: boolean;
   admin: boolean;
   createdAt: Date;
   updatedAt: Date | null;

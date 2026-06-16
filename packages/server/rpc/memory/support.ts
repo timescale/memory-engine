@@ -204,7 +204,6 @@ export function toSpacePrincipalResponse(
     kind: m.kind,
     name: m.name,
     ownerId: m.ownerId,
-    direct: m.direct,
     admin: m.admin,
     createdAt: m.createdAt.toISOString(),
     updatedAt: m.updatedAt?.toISOString() ?? null,

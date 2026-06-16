@@ -72,28 +72,24 @@ test("listSpacePrincipals lists direct principals with admin flag and kind filte
   const all = await core.listSpacePrincipals(spaceId);
   expect(all).toHaveLength(1);
   expect(all[0]?.id).toBe(userId);
-  expect(all[0]?.direct).toBe(true);
   expect(all[0]?.admin).toBe(true);
 
   expect(await core.listSpacePrincipals(spaceId, "u")).toHaveLength(1);
   expect(await core.listSpacePrincipals(spaceId, "g")).toHaveLength(0);
 });
 
-test("listSpacePrincipals includes group-only principals (flagged direct=false)", async () => {
+test("listSpacePrincipals excludes group-only principals (not space members)", async () => {
   // a second user who is NOT added to the space directly, only via a group
   const groupOnlyId = await v7();
   await core.createUser(groupOnlyId, `grouponly_${rand(8)}@example.com`);
   const groupId = await core.createGroup(spaceId, "team");
   await core.addGroupMember(spaceId, groupId, groupOnlyId);
 
-  const members = await core.listSpacePrincipals(spaceId, "u");
-  const byId = Object.fromEntries(members.map((m) => [m.id, m]));
-  // owner is a direct member
-  expect(byId[userId]?.direct).toBe(true);
-  // the group-only user shows up as a member, flagged direct=false
-  expect(byId[groupOnlyId]).toBeDefined();
-  expect(byId[groupOnlyId]?.direct).toBe(false);
-  expect(byId[groupOnlyId]?.admin).toBe(false);
+  const ids = (await core.listSpacePrincipals(spaceId, "u")).map((m) => m.id);
+  // the owner is a direct member; the group-only user is not a space member
+  // (group membership alone does not make you one), so it is not listed
+  expect(ids).toContain(userId);
+  expect(ids).not.toContain(groupOnlyId);
 });
 
 test("agents appear as space members of kind 'a'", async () => {
@@ -130,25 +126,30 @@ test("groups: create, list, rename, members, delete", async () => {
   expect(await core.listSpaceGroups(spaceId)).toHaveLength(0);
 });
 
-test("space admin transfers through an admin group", async () => {
+test("space admin transfers through an admin group (only for direct members)", async () => {
   const groupId = await core.createGroup(spaceId, `admins_${rand(6)}`);
   // designate the group itself as an admin member of the space
   await core.addPrincipalToSpace(spaceId, groupId, true);
 
-  // a user added only to that group inherits space-admin transitively
+  // a user who is ONLY in the admin group (no direct membership) is NOT an
+  // admin and is not a space member — group membership alone confers nothing
+  const groupOnly = await v7();
+  await core.createUser(groupOnly, `go_${rand(8)}@example.com`);
+  await core.addGroupMember(spaceId, groupId, groupOnly);
+  expect(await core.isSpaceAdmin(groupOnly, spaceId)).toBe(false);
+
+  // once the user is also a direct member, admin transfers through the group
   const member = await v7();
   await core.createUser(member, `m_${rand(8)}@example.com`);
+  await core.addPrincipalToSpace(spaceId, member); // direct, non-admin
   await core.addGroupMember(spaceId, groupId, member);
   expect(await core.isSpaceAdmin(member, spaceId)).toBe(true);
 
-  // listSpacePrincipals reports the same effective admin status: the member is
-  // an admin via the group (direct=false, admin=true) — not treated as a
-  // non-admin just because the admin comes through a group.
-  const listedMember = (await core.listSpacePrincipals(spaceId, "u")).find(
-    (p) => p.id === member,
-  );
-  expect(listedMember?.direct).toBe(false);
-  expect(listedMember?.admin).toBe(true);
+  // listSpacePrincipals reports the same effective admin status (admin=true)
+  // for the direct member, and omits the group-only user entirely
+  const listed = await core.listSpacePrincipals(spaceId, "u");
+  expect(listed.find((p) => p.id === member)?.admin).toBe(true);
+  expect(listed.map((p) => p.id)).not.toContain(groupOnly);
 
   // a non-member is not an admin
   const stranger = await v7();
@@ -156,16 +157,24 @@ test("space admin transfers through an admin group", async () => {
   expect(await core.isSpaceAdmin(stranger, spaceId)).toBe(false);
 });
 
-test("group grants are inherited transitively (Model 2)", async () => {
-  // a user who is ONLY a group member (no direct principal_space row, no direct
-  // grant) inherits the group's grant via build_tree_access.
-  const groupOnly = await v7();
-  await core.createUser(groupOnly, `go_${rand(8)}@example.com`);
+test("group grants apply only to direct space members (no transitive membership)", async () => {
   const groupId = await core.createGroup(spaceId, `grp_${rand(6)}`);
-  await core.addGroupMember(spaceId, groupId, groupOnly);
   await core.grantTreeAccess(spaceId, groupId, "shared", ACCESS.write);
 
-  const ta = await core.buildTreeAccess(groupOnly, spaceId);
+  // a user who is ONLY a group member (no principal_space row) gets nothing —
+  // group membership alone does not confer space access, so build_tree_access
+  // is empty (and the server auth gate would deny it).
+  const groupOnly = await v7();
+  await core.createUser(groupOnly, `go_${rand(8)}@example.com`);
+  await core.addGroupMember(spaceId, groupId, groupOnly);
+  expect(await core.buildTreeAccess(groupOnly, spaceId)).toEqual([]);
+
+  // once the user is also a direct space member, the group grant applies
+  const member = await v7();
+  await core.createUser(member, `gm_${rand(8)}@example.com`);
+  await core.addPrincipalToSpace(spaceId, member); // direct membership
+  await core.addGroupMember(spaceId, groupId, member);
+  const ta = await core.buildTreeAccess(member, spaceId);
   expect(ta).toContainEqual({ tree_path: "shared", access: ACCESS.write });
 });
 
@@ -299,12 +308,14 @@ test("removing a non-last admin succeeds (another admin remains)", async () => {
 });
 
 test("deleting a group that is the space's only admin is rejected (ME001)", async () => {
-  // a fresh space whose sole effective admin is a user via an admin group
+  // a fresh space whose sole effective admin is a direct member who belongs to
+  // an admin group (admin via a group requires direct membership)
   const sid = await core.createSpace(rand(12), "Group-admin Space");
   const groupId = await core.createGroup(sid, `admins_${rand(6)}`);
   await core.addPrincipalToSpace(sid, groupId, true);
   const member = await v7();
   await core.createUser(member, `gm_${rand(8)}@example.com`);
+  await core.addPrincipalToSpace(sid, member); // direct member (non-admin)
   await core.addGroupMember(sid, groupId, member); // effective admin via the group
 
   await expectLastAdmin(core.deletePrincipal(groupId));
@@ -319,6 +330,7 @@ test("removing the last member of the sole admin group is rejected (ME001)", asy
   await core.addPrincipalToSpace(sid, groupId, true); // group holds space-admin
   const member = await v7();
   await core.createUser(member, `gm_${rand(8)}@example.com`);
+  await core.addPrincipalToSpace(sid, member); // direct member (non-admin)
   await core.addGroupMember(sid, groupId, member); // sole effective admin
 
   // emptying the admin group leaves no effective admin
@@ -332,6 +344,24 @@ test("removing the last member of the sole admin group is rejected (ME001)", asy
   await core.createUser(direct, `direct_${rand(8)}@example.com`);
   await core.addPrincipalToSpace(sid, direct, true);
   expect(await core.removeGroupMember(sid, groupId, member)).toBe(true);
+});
+
+test("removing a via-group admin's direct membership is rejected (ME001)", async () => {
+  // new-model case: the sole effective admin is a direct member who belongs to
+  // an admin group. Removing their *direct* membership (which also scrubs their
+  // group_member rows) drops the last effective admin — caught at commit.
+  const sid = await core.createSpace(rand(12), "Group-admin Space");
+  const groupId = await core.createGroup(sid, `admins_${rand(6)}`);
+  await core.addPrincipalToSpace(sid, groupId, true); // group holds space-admin
+  const member = await v7();
+  await core.createUser(member, `gm_${rand(8)}@example.com`);
+  await core.addPrincipalToSpace(sid, member); // direct member (non-admin)
+  await core.addGroupMember(sid, groupId, member); // sole effective admin
+  expect(await core.isSpaceAdmin(member, sid)).toBe(true);
+
+  await expectLastAdmin(core.removePrincipalFromSpace(sid, member));
+  // rolled back — still an effective admin
+  expect(await core.isSpaceAdmin(member, sid)).toBe(true);
 });
 
 test("an empty admin group is not an effective admin (the brick is closed)", async () => {

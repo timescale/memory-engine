@@ -10,12 +10,20 @@ returns table
 , access int
 )
 as $func$
-  -- member's grants via groups
+  -- A member's grants via groups apply only if the member is ALSO a direct
+  -- member of the space (a principal_space row). Group membership alone never
+  -- confers space access — joining the space is the single membership path — so
+  -- a group_member row for a non-member yields nothing here (the group's grants
+  -- stay dormant until the member joins). The user/agent callers already require
+  -- a principal_space row for their direct grants, so gating the group branch
+  -- here makes ALL access — and thus the build_tree_access auth gate — require
+  -- direct membership.
   select
     ta.tree_path
   , ta.access
   from {{schema}}.member_groups(_member_id, _space_id) mg
   inner join {{schema}}.tree_access ta on (mg.group_id = ta.principal_id and ta.space_id = _space_id)
+  where {{schema}}.is_principal_in_space(_member_id, _space_id)
 $func$ language sql stable security invoker
 ;
 

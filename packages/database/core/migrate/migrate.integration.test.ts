@@ -1023,6 +1023,49 @@ describe("migration behavior", () => {
     });
   });
 
+  // list_space_principals dropped its `direct` output column, a returns-table
+  // signature change create-or-replace can't do. The migration guards the drop
+  // so a current (or absent) definition is never churned — only a stale one is
+  // dropped + recreated.
+  test("list_space_principals signature guard: no churn when current, upgrades a stale definition", async () => {
+    await withTestCore(sql, {}, async (core) => {
+      const s = core.schema;
+      const fn = async () => {
+        const [row] = await sql.unsafe(
+          `select p.oid::text as oid, p.proargnames
+           from pg_proc p
+           join pg_namespace n on n.oid = p.pronamespace
+           where n.nspname = $1 and p.proname = 'list_space_principals'`,
+          [s],
+        );
+        return row as { oid: string; proargnames: string[] } | undefined;
+      };
+
+      // fresh provision: current signature (no `direct` output column)
+      const fresh = await fn();
+      expect(fresh?.proargnames).not.toContain("direct");
+
+      // re-migrate: already current, so the guard must NOT drop it — the oid is
+      // stable (create-or-replace refreshes the body in place).
+      await migrateCore(sql, { schema: s });
+      expect((await fn())?.oid).toBe(fresh?.oid);
+
+      // simulate a legacy DB: replace it with the OLD signature (with `direct`)
+      await sql.unsafe(`drop function ${s}.list_space_principals(uuid, text)`);
+      await sql.unsafe(
+        `create function ${s}.list_space_principals(_space_id uuid, _kind text default null)
+         returns table(id uuid, kind text, name text, owner_id uuid, direct bool, admin bool, created_at timestamptz, updated_at timestamptz)
+         as $fn$ select null::uuid, null::text, null::text, null::uuid, true, true, null::timestamptz, null::timestamptz where false $fn$
+         language sql stable`,
+      );
+      expect((await fn())?.proargnames).toContain("direct");
+
+      // re-migrate: the guard sees the stale signature and drops + recreates it
+      await migrateCore(sql, { schema: s });
+      expect((await fn())?.proargnames).not.toContain("direct");
+    });
+  });
+
   test("rejects a downgrade (db version newer than app)", async () => {
     await withTestCore(sql, {}, async (core) => {
       await sql.unsafe(`update ${core.schema}.version set version = '99.0.0'`);
