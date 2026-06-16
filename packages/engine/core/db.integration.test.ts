@@ -121,6 +121,7 @@ test("createApiKey + validateApiKey (good / wrong secret)", async () => {
   const valid = await db.validateApiKey(key.lookupId, key.secret);
   expect(valid?.memberId).toBe(userId);
   expect(valid?.apiKeyId).toBe(key.id);
+  expect(valid?.ownerId).toBeNull(); // a user key has no owner
 
   expect(await db.validateApiKey(key.lookupId, "wrong-secret")).toBeNull();
 });

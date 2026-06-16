@@ -61,7 +61,7 @@ Keep paths **2-4 levels deep**. Deeper nesting rarely helps findability.
 Every space has two conventional roots:
 
 - **`share`** -- the shared root. Memories the rest of the space should see go here (`share.work.projects`, etc.). The file importers default a tree-less record to `share`.
-- **`home.<member_id>`** -- your private per-member root. The input shortcut **`~`** expands to your own home, so `~.notes` is stored as `home.<your-id>.notes` and displays back as `~.notes`.
+- **`home.<member_id>`** -- your private per-member root. The input shortcut **`~`** expands to your own home, so `~.notes` is stored as `home.<your-id>.notes` and displays back as `~.notes`. An **agent**'s home nests under its owner's (`home.<owner-id>.<agent-id>`), so the agent's `~` is visible to its owner.
 
 `me memory create` (and the `me_memory_create` MCP tool) **require** an explicit tree -- choose `share` for shared memories or `~` for private ones. See [Access Control](access-control.md) for how grants attach to these paths.
 

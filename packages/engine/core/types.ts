@@ -72,6 +72,8 @@ export interface ValidatedApiKey {
   memberId: string;
   /** The api_key row id. */
   apiKeyId: string;
+  /** The member's owner — non-null when the key-holder is an agent, null for a user. */
+  ownerId: string | null;
 }
 
 /**

@@ -1,10 +1,10 @@
 -------------------------------------------------------------------------------
 -- add_principal_to_space
 -- Adds (or updates the admin flag of) a principal's membership in a space, and
--- grants a joining user owner over its home directory. The single chokepoint
--- every join path goes through (provisioning, invite redemption, direct add),
--- so a user's membership always implies home ownership — and the one place that
--- enforces a group can only be rostered into its own space.
+-- grants a joining user/agent owner over its home directory. The single
+-- chokepoint every join path goes through (provisioning, invite redemption,
+-- direct add), so a member's membership always implies home ownership — and the
+-- one place that enforces a group can only be rostered into its own space.
 -------------------------------------------------------------------------------
 create or replace function {{schema}}.add_principal_to_space
 ( _space_id uuid
@@ -37,19 +37,27 @@ begin
   on conflict (principal_id, space_id) do update set
     admin = excluded.admin; -- updated_at maintained by the before-update trigger
 
-  -- A user owns its home directory (home.<user_id>, hyphens stripped); see
-  -- packages/database/space/path.ts homePrefix() for the matching client form.
-  -- Users only: an agent's effective grants are clamped to its owner's by
-  -- agent_tree_access, so an auto home grant would be inert (the owner has no
-  -- access over the agent's home); groups have no home either. Idempotent and
-  -- non-clobbering: an existing home grant is left untouched.
+  -- A joining member owns its home directory; the path differs by kind (hyphens
+  -- stripped to valid ltree labels; see packages/database/space/path.ts
+  -- homePrefix() for the matching client form):
+  --   user  -> home.<user_id>
+  --   agent -> home.<owner_id>.<agent_id>   (nested under the owner's home)
+  -- The agent's home nests under its owner's home so the owner's
+  -- owner@home.<owner_id> grant covers it and agent_tree_access keeps the grant
+  -- effective (a bare home.<agent_id> would be clamped to nothing — the owner
+  -- holds no access there). Groups have no home. Idempotent and non-clobbering:
+  -- an existing home grant is left untouched.
   insert into {{schema}}.tree_access (space_id, principal_id, tree_path, access)
   select _space_id, _principal_id
-       , ('home.' || replace(_principal_id::text, '-', ''))::ltree
+       , case
+           when p.kind = 'a'
+             then ('home.' || replace(p.owner_id::text, '-', '') || '.' || replace(p.id::text, '-', ''))::ltree
+           else ('home.' || replace(p.id::text, '-', ''))::ltree
+         end
        , 3 -- owner
   from {{schema}}.principal p
   where p.id = _principal_id
-  and p.kind = 'u'
+  and p.kind in ('u', 'a')
   on conflict (space_id, principal_id, tree_path) do nothing;
 end;
 $func$ language plpgsql volatile security invoker

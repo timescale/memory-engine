@@ -10,10 +10,11 @@
  *   - **Separators**: `/` and `.` are interchangeable; runs collapse; leading and
  *     trailing separators are dropped. `/a/b`, `a/b`, `a.b` → `a.b`.
  *   - **Root**: ``, `/`, `.` → `` (the empty ltree path).
- *   - **Home**: a leading `~` segment expands to `home.<member>`, where
- *     `<member>` is the caller's principal id with hyphens stripped (a valid
- *     ltree label). `~` → `home.<member>`, `~/bar` → `home.<member>.bar`.
- *     `~` is only meaningful as the first segment.
+ *   - **Home**: a leading `~` segment expands to the caller's home prefix —
+ *     `home.<member>` for a user, or `home.<owner>.<member>` for an agent (whose
+ *     home nests under its owner's home; see `homePrefix`). Ids have hyphens
+ *     stripped to valid ltree labels. `~` → the prefix, `~/bar` →
+ *     `<prefix>.bar`. `~` is only meaningful as the first segment.
  *   - **Labels** (concrete paths): each segment must be a legal ltree label
  *     (`[A-Za-z0-9_-]+`, PG16+); anything else throws `TreePathError`.
  *
@@ -57,17 +58,38 @@ export interface TreePathOptions {
    * omitting it makes a `~` segment an error.
    */
   home?: string;
+  /**
+   * When set, the home nests under this owner's home: `~` →
+   * `home.<homeOwner>.<home>`. Set it for agents (whose home lives under their
+   * owner's home so the owner's grant covers it); omit for users.
+   */
+  homeOwner?: string;
 }
 
-/** The canonical ltree prefix for a principal's home: `home.<id-without-hyphens>`. */
-export function homePrefix(principalId: string): string {
+/**
+ * The canonical ltree prefix for a principal's home (ids hyphen-stripped to
+ * valid ltree labels):
+ *   - user  (no owner):    `home.<userId>`
+ *   - agent (owner given): `home.<ownerId>.<agentId>` — nested under the owner's
+ *     home so the owner's `owner@home.<ownerId>` grant covers it and
+ *     `agent_tree_access` keeps the agent's home grant (a bare `home.<agentId>`
+ *     would be clamped to nothing). Mirrors core `add_principal_to_space`.
+ */
+export function homePrefix(principalId: string, ownerId?: string): string {
+  const self = homeLabel(principalId);
+  if (ownerId === undefined) return `${HOME_NAMESPACE}.${self}`;
+  return `${HOME_NAMESPACE}.${homeLabel(ownerId)}.${self}`;
+}
+
+/** A principal id as a valid ltree label (hyphens stripped). */
+function homeLabel(principalId: string): string {
   const id = principalId.replace(/-/g, "");
   if (!LTREE_LABEL.test(id)) {
     throw new TreePathError(
       `invalid home principal id: ${JSON.stringify(principalId)}`,
     );
   }
-  return `${HOME_NAMESPACE}.${id}`;
+  return id;
 }
 
 /** Split on runs of `/` or `.`, dropping empty segments. */
@@ -96,7 +118,7 @@ export function normalizeTreePath(
       if (opts.home === undefined) {
         throw new TreePathError("'~' (home) is not available here");
       }
-      out.push(homePrefix(opts.home)); // already a valid `home.<id>` ltree
+      out.push(homePrefix(opts.home, opts.homeOwner)); // valid `home.<…>` ltree
       continue;
     }
     if (!LTREE_LABEL.test(seg)) {
@@ -126,7 +148,7 @@ export function normalizeTreeFilter(
     if (opts.home === undefined) {
       throw new TreePathError("'~' (home) is not available here");
     }
-    s = homePrefix(opts.home) + s.slice(1); // "~/foo" → "home.<id>/foo"
+    s = homePrefix(opts.home, opts.homeOwner) + s.slice(1); // "~/foo" → "<prefix>/foo"
   }
 
   // Slash → dot, collapse separator runs, trim ends.
@@ -186,7 +208,7 @@ export function denormalizeTreePath(
   opts: TreePathOptions = {},
 ): string {
   if (opts.home === undefined) return path;
-  const prefix = homePrefix(opts.home);
+  const prefix = homePrefix(opts.home, opts.homeOwner);
   if (path === prefix) return "~";
   if (path.startsWith(`${prefix}.`)) {
     return `~${path.slice(prefix.length)}`; // home.<id>.a.b → ~.a.b

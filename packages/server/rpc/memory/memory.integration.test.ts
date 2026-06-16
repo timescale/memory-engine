@@ -59,6 +59,7 @@ function call<T = unknown>(
     core: engineCore.coreStore(sql, coreSchema),
     space,
     principalId,
+    ownerId: null, // user/session caller
     apiKeyId: null,
     treeAccess: ta,
   } as unknown as HandlerContext;

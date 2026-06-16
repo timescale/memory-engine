@@ -70,14 +70,14 @@ The level argument accepts `r` (read), `w` (write), or `o` (owner).
 Every space has two conventional roots:
 
 - **`share`** — the shared root. Memories everyone in the space should see go here. This is where the file importers default a tree-less record, and where `me memory create` / `me_memory_create` callers usually place memories.
-- **`home.<member_id>`** — a per-member private root. The input shortcut **`~`** expands to your own home, so `~.notes` means `home.<your-id>.notes` and displays back as `~.notes`.
+- **`home.<member_id>`** — a per-member private root. The input shortcut **`~`** expands to your own home, so `~.notes` means `home.<your-id>.notes` and displays back as `~.notes`. An **agent**'s home nests under its owner's — `home.<owner-id>.<agent-id>` — so its owner can see what the agent stores under `~` (an agent's access is capped at its owner's regardless).
 
 `.` is the canonical path separator (`/` is also accepted on input and normalized). Labels must match `[A-Za-z0-9_-]`.
 
 ### Default grants
 
 - A space **creator** gets `admin` + `owner@home` + `owner@share` — **not** `owner@root`. So the creator sees `share` and their own `~`, but not other members' homes. Because they're an admin, they can self-grant `owner@root` if they need the whole space.
-- A **user** who joins a space is granted `owner@home` (their own private root). An admin then grants whatever shared access is appropriate (often via `me space invite --share`).
+- A **user** who joins a space is granted `owner@home` (their own private root). An **agent** who joins is likewise granted owner over its home — nested under its owner's (`home.<owner-id>.<agent-id>`) — so it's usable immediately and the grant isn't clamped away. An admin then grants whatever shared access is appropriate (often via `me space invite --share`).
 
 ## How it's enforced
 

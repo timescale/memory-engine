@@ -45,6 +45,12 @@ export interface SpaceAuthContext {
   space: Space;
   /** Authenticated principal id (user id for sessions, agent id for api keys). */
   principalId: string;
+  /**
+   * The authenticated principal's owner — non-null when it is an agent, null for
+   * a user/session. Drives `~` home nesting (an agent's home lives under its
+   * owner's home).
+   */
+  ownerId: string | null;
   /** Api key id when authenticated by api key; null for sessions. */
   apiKeyId: string | null;
   /** The principal's effective grants in this space — the access gate. */
@@ -116,6 +122,8 @@ async function authenticateSpaceInner(
   const parsed = parseApiKey(token);
   let principalId: string;
   let apiKeyId: string | null;
+  // The principal's owner — set only for an agent key; drives `~` home nesting.
+  let ownerId: string | null = null;
 
   if (parsed) {
     // Api keys are global; the space comes solely from the header. A key whose
@@ -128,6 +136,7 @@ async function authenticateSpaceInner(
     }
     principalId = validated.memberId;
     apiKeyId = validated.apiKeyId;
+    ownerId = validated.ownerId;
   } else if (isLegacyApiKey(token)) {
     // A pre-global 4-part key (me.<slug>.<lookup>.<secret>). These no longer
     // authenticate; tell the operator to recreate the key rather than failing
@@ -177,6 +186,7 @@ async function authenticateSpaceInner(
       core,
       space,
       principalId,
+      ownerId,
       apiKeyId,
       treeAccess,
       admin,

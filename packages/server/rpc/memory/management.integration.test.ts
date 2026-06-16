@@ -56,6 +56,7 @@ function call<T = unknown>(
     core: engineCore.coreStore(sql, coreSchema),
     space,
     principalId: as.principalId ?? ownerId,
+    ownerId: null, // user/session caller
     apiKeyId: null,
     treeAccess: as.treeAccess ?? ownerTreeAccess,
     // the provisioned owner is also a space admin; non-owner callers default false

@@ -19,6 +19,11 @@ export interface SpaceRpcContext extends HandlerContext {
   space: Space;
   /** Authenticated principal id (user id for sessions, agent id for api keys). */
   principalId: string;
+  /**
+   * The principal's owner — non-null when it is an agent, null for a user. Drives
+   * `~` home nesting (an agent's home lives under its owner's home).
+   */
+  ownerId: string | null;
   /** Api key id when authenticated by api key; null for sessions. */
   apiKeyId: string | null;
   /** The principal's effective grants in this space — the access gate. */

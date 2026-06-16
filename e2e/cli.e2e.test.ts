@@ -358,8 +358,9 @@ describe.skipIf(
       `bot-${rand()}`,
     ]);
     await me(["agent", "add", agent.id]); // bring the agent into the space
-    // Agents join with no grant (their access is clamped to the owner's), so
-    // grant read on `share` — where the fox memory lives — to make it readable.
+    // An agent joins with owner over its own (nested) home, but the fox memory
+    // lives under `share`; grant read there so the agent can see it (its access
+    // is still clamped to the owner's, which here includes share).
     await meJson(["access", "grant", agent.id, "share", "r"]);
     const key = await meJson<{ id: string; key: string }>([
       "apikey",

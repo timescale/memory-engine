@@ -165,6 +165,7 @@ export function createRouter(ctx: ServerContext): Router {
       core: spaceContext.core,
       space: spaceContext.space,
       principalId: spaceContext.principalId,
+      ownerId: spaceContext.ownerId,
       apiKeyId: spaceContext.apiKeyId,
       treeAccess: spaceContext.treeAccess,
       admin: spaceContext.admin,

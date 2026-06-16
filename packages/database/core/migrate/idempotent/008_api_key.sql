@@ -22,7 +22,9 @@ set search_path to pg_catalog, {{schema}}, public, pg_temp
 -------------------------------------------------------------------------------
 -- validate_api_key
 -- Looks a key up by lookup_id, compares the hashed secret, and enforces expiry.
--- Returns the member_id + api_key id when valid; no rows otherwise.
+-- Returns the member_id + api_key id + the member's owner_id (non-null when the
+-- key-holder is an agent, null for a user) when valid; no rows otherwise. The
+-- owner_id drives `~` home nesting for agents at the RPC boundary.
 -------------------------------------------------------------------------------
 create or replace function {{schema}}.validate_api_key
 ( _lookup_id text
@@ -31,10 +33,12 @@ create or replace function {{schema}}.validate_api_key
 returns table
 ( member_id uuid
 , api_key_id uuid
+, owner_id uuid
 )
 as $func$
-  select k.member_id, k.id
+  select k.member_id, k.id, p.owner_id
   from {{schema}}.api_key k
+  inner join {{schema}}.principal p on p.id = k.member_id
   where k.lookup_id = _lookup_id
   and k.secret = _secret
   and (k.expires_at is null or k.expires_at > now())

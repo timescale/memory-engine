@@ -10,6 +10,7 @@ import {
   normalizeTreePath,
   type TreeFilter,
   TreePathError,
+  type TreePathOptions,
 } from "@memory.build/database";
 import type {
   Group,
@@ -39,12 +40,20 @@ export { guardCore };
 // =============================================================================
 
 /**
+ * The caller's `~` home expansion: `home.<userId>` for a user, or
+ * `home.<ownerId>.<agentId>` for an agent (nested under its owner's home).
+ */
+function homeOpts(ctx: SpaceRpcContext): TreePathOptions {
+  return { home: ctx.principalId, homeOwner: ctx.ownerId ?? undefined };
+}
+
+/**
  * Normalize a concrete tree path from the wire to canonical ltree, expanding a
  * leading `~` to the caller's home. Maps malformed input to a validation error.
  */
 export function inputTreePath(ctx: SpaceRpcContext, raw: string): string {
   try {
-    return normalizeTreePath(raw, { home: ctx.principalId });
+    return normalizeTreePath(raw, homeOpts(ctx));
   } catch (e) {
     throw asValidationError(e);
   }
@@ -61,7 +70,7 @@ export function inputTreeFilter(
   raw: string,
 ): TreeFilter | null {
   try {
-    return classifyTreeFilter(raw, { home: ctx.principalId });
+    return classifyTreeFilter(raw, homeOpts(ctx));
   } catch (e) {
     throw asValidationError(e);
   }
@@ -69,7 +78,7 @@ export function inputTreeFilter(
 
 /** Reverse the home expansion for display: the caller's home shows as `~/…`. */
 export function displayTreePath(ctx: SpaceRpcContext, stored: string): string {
-  return denormalizeTreePath(stored, { home: ctx.principalId });
+  return denormalizeTreePath(stored, homeOpts(ctx));
 }
 
 function asValidationError(e: unknown): AppError {

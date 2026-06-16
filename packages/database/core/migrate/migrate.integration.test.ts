@@ -290,6 +290,9 @@ describe("control-plane functions", () => {
 
   /** A principal's canonical home path (mirrors space/path.ts homePrefix). */
   const homePath = (id: string) => `home.${id.replace(/-/g, "")}`;
+  /** An agent's home nests under its owner: home.<owner>.<agent>. */
+  const agentHomePath = (ownerId: string, agentId: string) =>
+    `${homePath(ownerId)}.${agentId.replace(/-/g, "")}`;
 
   type Grant = { tree_path: string; access: number };
 
@@ -332,7 +335,7 @@ describe("control-plane functions", () => {
     });
   });
 
-  test("add_principal_to_space grants owner@home to users, idempotently; not agents/groups", async () => {
+  test("add_principal_to_space grants owner@home to users and agents (nested), idempotently; not groups", async () => {
     await withTestCore(sql, {}, async (core) => {
       const s = core.schema;
       const [sp] = await sql.unsafe(`select ${s}.create_space($1, $2) as id`, [
@@ -381,9 +384,22 @@ describe("control-plane functions", () => {
       expect(await grants(userId)).toEqual([
         { tree_path: homePath(userId), access: 3 },
       ]);
-      // agents are excluded (would be clamped to the owner) and groups have no home
-      expect(await grants(agentId)).toEqual([]);
+      // the agent gets owner@home nested under its owner (covered by the owner's
+      // home grant, so agent_tree_access keeps it); groups have no home
+      expect(await grants(agentId)).toEqual([
+        { tree_path: agentHomePath(userId, agentId), access: 3 },
+      ]);
       expect(await grants(groupId)).toEqual([]);
+
+      // the agent's nested home is EFFECTIVE (not clamped to nothing): the
+      // owner holds owner@home.<owner>, which covers home.<owner>.<agent>.
+      const [agentTa] = await sql.unsafe(
+        `select ${s}.build_tree_access($1, $2) as ta`,
+        [agentId, spaceId],
+      );
+      expect(agentTa?.ta as Grant[]).toEqual([
+        { tree_path: agentHomePath(userId, agentId), access: 3 },
+      ]);
     });
   });
 
@@ -781,11 +797,34 @@ describe("control-plane functions", () => {
       ]);
 
       const valid = await sql.unsafe(
-        `select member_id from ${s}.validate_api_key($1, $2)`,
+        `select member_id, owner_id from ${s}.validate_api_key($1, $2)`,
         [lookup, "hashed-secret"],
       );
       expect(valid.length).toBe(1);
       expect(valid[0]?.member_id).toBe(userId);
+      // a user key has no owner
+      expect(valid[0]?.owner_id).toBeNull();
+
+      // an agent key reports the agent's owner (drives `~` home nesting)
+      const agentId = await v7();
+      await sql.unsafe(`select ${s}.create_agent($1, $2, $3)`, [
+        userId, // owner
+        `agent_${randomSlug()}`,
+        agentId,
+      ]);
+      const agentLookup = "AGENTlookup12345";
+      await sql.unsafe(`select ${s}.create_api_key($1, $2, $3, $4)`, [
+        agentId,
+        agentLookup,
+        "agent-secret",
+        "agent-key",
+      ]);
+      const agentValid = await sql.unsafe(
+        `select member_id, owner_id from ${s}.validate_api_key($1, $2)`,
+        [agentLookup, "agent-secret"],
+      );
+      expect(agentValid[0]?.member_id).toBe(agentId);
+      expect(agentValid[0]?.owner_id).toBe(userId);
 
       const wrong = await sql.unsafe(
         `select member_id from ${s}.validate_api_key($1, $2)`,
