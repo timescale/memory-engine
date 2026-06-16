@@ -142,20 +142,70 @@ $func$ language plpgsql
 set search_path to pg_catalog, {{schema}}, public, pg_temp
 ;
 
+-- These are DEFERRABLE INITIALLY DEFERRED constraint triggers: the invariant is
+-- judged once at the end of the transaction, against its final state — not per
+-- statement. So a single txn that swaps admins (or otherwise churns the roster
+-- before settling) is never tripped mid-flight by an intermediate state.
+--
+-- Constraint triggers support neither CREATE OR REPLACE nor IF NOT EXISTS, and a
+-- bare drop+create would take an ACCESS EXCLUSIVE lock on these tables on every
+-- migration run. So each is wrapped in a guard that drops+recreates only when the
+-- live trigger isn't already the wanted shape (constraint + deferrable +
+-- initially deferred): it upgrades a pre-existing plain trigger on first run,
+-- then is a lock-free no-op on every run after. (The guard keys on shape, not the
+-- full definition — changing a trigger's events or WHEN clause later needs a
+-- one-time manual drop to force the recreate.)
+--
 -- principal_space: fire only when an admin row is removed or demoted (NEW can't
 -- be referenced in a DELETE trigger's WHEN, hence two). group_member: fire on any
 -- removal; the fn early-outs unless the group is an admin group.
-create or replace trigger principal_space_keep_admin_del
-after delete on {{schema}}.principal_space
-for each row when (old.admin)
-execute function {{schema}}.enforce_last_admin();
+do $$ begin
+  if not exists
+  (
+    select 1 from pg_trigger
+    where tgrelid = '{{schema}}.principal_space'::regclass
+    and tgname = 'principal_space_keep_admin_del'
+    and tgconstraint <> 0 and tgdeferrable and tginitdeferred
+  ) then
+    drop trigger if exists principal_space_keep_admin_del on {{schema}}.principal_space;
+    create constraint trigger principal_space_keep_admin_del
+    after delete on {{schema}}.principal_space
+    deferrable initially deferred
+    for each row when (old.admin)
+    execute function {{schema}}.enforce_last_admin();
+  end if;
+end $$;
 
-create or replace trigger principal_space_keep_admin_upd
-after update on {{schema}}.principal_space
-for each row when (old.admin and not new.admin)
-execute function {{schema}}.enforce_last_admin();
+do $$ begin
+  if not exists
+  (
+    select 1 from pg_trigger
+    where tgrelid = '{{schema}}.principal_space'::regclass
+    and tgname = 'principal_space_keep_admin_upd'
+    and tgconstraint <> 0 and tgdeferrable and tginitdeferred
+  ) then
+    drop trigger if exists principal_space_keep_admin_upd on {{schema}}.principal_space;
+    create constraint trigger principal_space_keep_admin_upd
+    after update on {{schema}}.principal_space
+    deferrable initially deferred
+    for each row when (old.admin and not new.admin)
+    execute function {{schema}}.enforce_last_admin();
+  end if;
+end $$;
 
-create or replace trigger group_member_keep_admin_del
-after delete on {{schema}}.group_member
-for each row
-execute function {{schema}}.enforce_last_admin();
+do $$ begin
+  if not exists
+  (
+    select 1 from pg_trigger
+    where tgrelid = '{{schema}}.group_member'::regclass
+    and tgname = 'group_member_keep_admin_del'
+    and tgconstraint <> 0 and tgdeferrable and tginitdeferred
+  ) then
+    drop trigger if exists group_member_keep_admin_del on {{schema}}.group_member;
+    create constraint trigger group_member_keep_admin_del
+    after delete on {{schema}}.group_member
+    deferrable initially deferred
+    for each row
+    execute function {{schema}}.enforce_last_admin();
+  end if;
+end $$;

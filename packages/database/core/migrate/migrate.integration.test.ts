@@ -758,6 +758,99 @@ describe("control-plane functions", () => {
       expect(expired.length).toBe(0);
     });
   });
+
+  // The enforce_last_admin triggers are DEFERRABLE INITIALLY DEFERRED, so the
+  // invariant is judged once at commit against the transaction's final state —
+  // not per statement. A single txn can therefore pass through an intermediate
+  // "zero admins" state (e.g. demote the incumbent, then promote a replacement)
+  // that an immediate trigger would have rejected mid-flight.
+  test("deferred last-admin check tolerates an admin swap within one transaction", async () => {
+    await withTestCore(sql, {}, async (core) => {
+      const s = core.schema;
+      const [sp] = await sql.unsafe(`select ${s}.create_space($1, $2) as id`, [
+        randomSlug(),
+        "Swap",
+      ]);
+      const spaceId = sp?.id as string;
+      const u1 = await v7();
+      const u2 = await v7();
+      await sql.unsafe(`select ${s}.create_user($1, $2)`, [u1, "frank"]);
+      await sql.unsafe(`select ${s}.create_user($1, $2)`, [u2, "grace"]);
+      // u1 is the sole admin; u2 is a non-admin member
+      await sql.unsafe(`select ${s}.add_principal_to_space($1, $2, $3)`, [
+        spaceId,
+        u1,
+        true,
+      ]);
+      await sql.unsafe(`select ${s}.add_principal_to_space($1, $2, $3)`, [
+        spaceId,
+        u2,
+        false,
+      ]);
+
+      // Demote the sole admin FIRST, then promote the replacement — the
+      // intermediate zero-admin state would trip an immediate trigger.
+      await sql.begin(async (tx) => {
+        await tx.unsafe(`select ${s}.add_principal_to_space($1, $2, $3)`, [
+          spaceId,
+          u1,
+          false,
+        ]);
+        await tx.unsafe(`select ${s}.add_principal_to_space($1, $2, $3)`, [
+          spaceId,
+          u2,
+          true,
+        ]);
+      });
+
+      const admins = await sql.unsafe(
+        `select principal_id from ${s}.principal_space where space_id = $1 and admin order by principal_id`,
+        [spaceId],
+      );
+      expect(admins.map((r) => r.principal_id)).toEqual([u2]);
+    });
+  });
+
+  test("deferred last-admin check still rejects dropping to zero admins (ME001 at commit)", async () => {
+    await withTestCore(sql, {}, async (core) => {
+      const s = core.schema;
+      const [sp] = await sql.unsafe(`select ${s}.create_space($1, $2) as id`, [
+        randomSlug(),
+        "Zero",
+      ]);
+      const spaceId = sp?.id as string;
+      const u1 = await v7();
+      await sql.unsafe(`select ${s}.create_user($1, $2)`, [u1, "heidi"]);
+      await sql.unsafe(`select ${s}.add_principal_to_space($1, $2, $3)`, [
+        spaceId,
+        u1,
+        true,
+      ]);
+
+      // Removing the sole admin: deferred to commit, where the trigger fires and
+      // rolls the whole transaction back with the last-admin SQLSTATE (ME001).
+      let code: string | undefined;
+      try {
+        await sql.begin(async (tx) => {
+          await tx.unsafe(`select ${s}.remove_principal_from_space($1, $2)`, [
+            spaceId,
+            u1,
+          ]);
+        });
+        throw new Error("expected a last-admin (ME001) rejection at commit");
+      } catch (e) {
+        code = (e as { code?: string }).code;
+      }
+      expect(code).toBe("ME001");
+
+      // rolled back: u1 is still an admin member
+      const [row] = await sql.unsafe(
+        `select admin from ${s}.principal_space where space_id = $1 and principal_id = $2`,
+        [spaceId, u1],
+      );
+      expect(row?.admin).toBe(true);
+    });
+  });
 });
 
 describe("migration behavior", () => {
@@ -769,6 +862,77 @@ describe("migration behavior", () => {
       expect(await getSchemaVersion(sql, core.schema)).toBe(
         CORE_SCHEMA_VERSION,
       );
+    });
+  });
+
+  // The enforce_last_admin triggers can't use CREATE OR REPLACE / IF NOT EXISTS
+  // (constraint triggers support neither), so the idempotent script guards each:
+  // (re)create only when the live trigger isn't already a deferred constraint
+  // trigger. Exercise both guard branches against real migration output.
+  test("guarded constraint triggers: deferred shape, upgrade-from-plain, then skip without churn", async () => {
+    await withTestCore(sql, {}, async (core) => {
+      const s = core.schema;
+      const shape = async (table: string, name: string) =>
+        (
+          await sql.unsafe(
+            `select t.oid::text as oid
+                  , t.tgconstraint <> 0 as is_constraint
+                  , t.tgdeferrable
+                  , t.tginitdeferred
+             from pg_trigger t
+             where t.tgrelid = '${s}.${table}'::regclass
+             and t.tgname = $1
+             and not t.tgisinternal`,
+            [name],
+          )
+        )[0];
+      const triggers: [string, string][] = [
+        ["principal_space", "principal_space_keep_admin_del"],
+        ["principal_space", "principal_space_keep_admin_upd"],
+        ["group_member", "group_member_keep_admin_del"],
+      ];
+
+      // fresh provision: all three are constraint + deferrable + initially deferred
+      for (const [table, name] of triggers) {
+        const sh = await shape(table, name);
+        expect(sh?.is_constraint).toBe(true);
+        expect(sh?.tgdeferrable).toBe(true);
+        expect(sh?.tginitdeferred).toBe(true);
+      }
+
+      // simulate a legacy database: replace one with a PLAIN (non-constraint) trigger
+      await sql.unsafe(
+        `drop trigger principal_space_keep_admin_del on ${s}.principal_space`,
+      );
+      await sql.unsafe(
+        `create trigger principal_space_keep_admin_del
+         after delete on ${s}.principal_space
+         for each row when (old.admin)
+         execute function ${s}.enforce_last_admin()`,
+      );
+      expect(
+        (await shape("principal_space", "principal_space_keep_admin_del"))
+          ?.is_constraint,
+      ).toBe(false);
+
+      // re-migrate: the guard sees the wrong shape and upgrades it back
+      await migrateCore(sql, { schema: s });
+      const upgraded = await shape(
+        "principal_space",
+        "principal_space_keep_admin_del",
+      );
+      expect(upgraded?.is_constraint).toBe(true);
+      expect(upgraded?.tgdeferrable).toBe(true);
+      expect(upgraded?.tginitdeferred).toBe(true);
+
+      // re-migrate again: already the wanted shape, so the guard skips — the
+      // trigger is NOT dropped/recreated (its oid is stable across the run).
+      await migrateCore(sql, { schema: s });
+      const after = await shape(
+        "principal_space",
+        "principal_space_keep_admin_del",
+      );
+      expect(after?.oid).toBe(upgraded?.oid);
     });
   });
 
