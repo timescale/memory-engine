@@ -1,6 +1,7 @@
 import { span } from "@pydantic/logfire-node";
 import type { ZodError } from "zod";
 import { json } from "../util/response";
+import { mapDbTimeoutError } from "./db-errors";
 import {
   applicationError,
   internalError,
@@ -55,6 +56,20 @@ function validateEnvelope(
       id: req.id,
     },
   };
+}
+
+function appErrorResponse(error: unknown, requestId: string | number | null) {
+  const appErr = mapDbTimeoutError(error) ?? (isAppError(error) ? error : null);
+  if (!appErr) return null;
+
+  return json(
+    applicationError(
+      requestId,
+      appErr.code,
+      appErr.message,
+      appErr.details as Record<string, unknown> | undefined,
+    ),
+  );
 }
 
 /**
@@ -166,22 +181,8 @@ export async function handleRpcRequest(
 
     return json(createSuccessResponse(result, requestId ?? 0));
   } catch (error: unknown) {
-    // Handle application errors (thrown by handlers)
-    if (isAppError(error)) {
-      const appErr = error as {
-        code: string;
-        message: string;
-        details?: unknown;
-      };
-      return json(
-        applicationError(
-          requestId ?? 0,
-          appErr.code,
-          appErr.message,
-          appErr.details as Record<string, unknown> | undefined,
-        ),
-      );
-    }
+    const response = appErrorResponse(error, requestId ?? 0);
+    if (response) return response;
 
     // Error already recorded on rpc.* span by the span helper
     return json(internalError(requestId));
@@ -206,14 +207,20 @@ export function createRpcHandler(
     | Promise<Partial<HandlerContext> | Response>,
 ): (request: Request) => Promise<Response> {
   return async (request: Request) => {
-    if (contextProvider) {
-      const result = await contextProvider(request);
-      // If contextProvider returns a Response, return it directly (auth failure)
-      if (result instanceof Response) {
-        return result;
+    try {
+      if (contextProvider) {
+        const result = await contextProvider(request);
+        // If contextProvider returns a Response, return it directly (auth failure)
+        if (result instanceof Response) {
+          return result;
+        }
+        return handleRpcRequest(request, registry, result);
       }
-      return handleRpcRequest(request, registry, result);
+      return handleRpcRequest(request, registry, {});
+    } catch (error) {
+      const response = appErrorResponse(error, null);
+      if (response) return response;
+      return json(internalError(null));
     }
-    return handleRpcRequest(request, registry, {});
   };
 }
