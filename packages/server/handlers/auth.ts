@@ -19,6 +19,7 @@ import { type CoreStore, coreStore } from "@memory.build/engine/core";
 import { info, reportError } from "@pydantic/logfire-node";
 import type { Sql } from "postgres";
 import { buildAuthUrl, exchangeCode, fetchUserInfo } from "../auth/providers";
+import { passesCsrfCheck } from "../middleware/authenticate";
 import { provisionUser } from "../provision";
 import type { RouteParams } from "../router";
 import {
@@ -29,7 +30,7 @@ import {
   serializeLoginNonceCookie,
   serializeSessionCookie,
 } from "../util/cookie";
-import { error, html, json, redirect } from "../util/response";
+import { error, forbidden, html, json, redirect } from "../util/response";
 
 /** Browser-login OAuth `state` lifetime (matches the device-flow TTL). */
 const BROWSER_LOGIN_STATE_TTL_SECONDS = 15 * 60;
@@ -66,6 +67,8 @@ export interface AuthHandlerContext {
   authSchema: string;
   coreSchema: string;
   baseUrl: string;
+  /** Origins allowed for cookie-authenticated state changes (logout CSRF gate). */
+  allowedOrigins: string[];
 }
 
 function isProvider(p: string | undefined): p is OAuthProvider {
@@ -294,6 +297,12 @@ export async function logoutHandler(
   request: Request,
   ctx: AuthHandlerContext,
 ): Promise<Response> {
+  // CSRF: logout is a state change driven by the ambient session cookie, so it
+  // gets the same Origin gate as the cookie-authenticated RPCs — otherwise a
+  // same-site cross-origin page could force-log-out users.
+  if (!passesCsrfCheck(request, ctx.allowedOrigins)) {
+    return forbidden("Cross-origin request rejected");
+  }
   const secure = isSecureBaseUrl(ctx.baseUrl);
   const token = readSessionCookie(request, secure);
   if (token) {

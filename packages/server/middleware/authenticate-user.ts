@@ -35,7 +35,9 @@ export async function authenticateUser(
         debug("user auth failed: missing credential");
         return {
           ok: false,
-          error: unauthorized("Missing or invalid Authorization header"),
+          error: unauthorized(
+            "Authentication required (Authorization header or session cookie)",
+          ),
         };
       }
       // CSRF: ambient cookie credentials must come from an allowed origin.

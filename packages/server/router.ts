@@ -142,6 +142,7 @@ export function createRouter(ctx: ServerContext): Router {
     authSchema,
     coreSchema,
     baseUrl: apiBaseUrl,
+    allowedOrigins: webAllowedOrigins,
   };
 
   // Static web UI (served at root). The bootstrap marks the build as running in

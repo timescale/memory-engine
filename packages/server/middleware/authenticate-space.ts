@@ -102,7 +102,9 @@ async function authenticateSpaceInner(
     debug("space auth failed: missing credential");
     return {
       ok: false,
-      error: unauthorized("Missing or invalid Authorization header"),
+      error: unauthorized(
+        "Authentication required (Authorization header or session cookie)",
+      ),
     };
   }
   // CSRF: an ambient cookie credential must come from an allowed origin. Header
