@@ -22,8 +22,11 @@ import { buildAuthUrl, exchangeCode, fetchUserInfo } from "../auth/providers";
 import { provisionUser } from "../provision";
 import type { RouteParams } from "../router";
 import {
+  readLoginNonceCookie,
   readSessionCookie,
-  serializeClearedSessionCookie,
+  serializeClearedLoginNonceCookie,
+  serializeClearedSessionCookies,
+  serializeLoginNonceCookie,
   serializeSessionCookie,
 } from "../util/cookie";
 import { error, html, json, redirect } from "../util/response";
@@ -260,19 +263,27 @@ export async function loginInitiateHandler(
   const provider = params.provider;
   const url = new URL(request.url);
   const redirectTo = sanitizeRedirect(url.searchParams.get("redirect"));
+  const secure = isSecureBaseUrl(ctx.baseUrl);
 
+  // `state` is the server-side handle (looked up in the callback); `nonce` binds
+  // the callback to *this* browser via the me_login cookie, so a leaked callback
+  // URL can't mint a session in another browser. We also store `provider` to
+  // verify it matches the callback path.
   const state = generateOAuthState();
+  const nonce = generateOAuthState();
   const expiresAt = new Date(
     Date.now() + BROWSER_LOGIN_STATE_TTL_SECONDS * 1000,
   );
   await ctx.auth.createVerification(
     state,
-    JSON.stringify({ provider, redirectTo }),
+    JSON.stringify({ provider, redirectTo, nonce }),
     expiresAt,
   );
 
   const redirectUri = `${ctx.baseUrl}/api/v1/auth/callback/${provider}`;
-  return redirect(buildAuthUrl(provider, state, redirectUri));
+  return redirect(buildAuthUrl(provider, state, redirectUri), {
+    setCookie: serializeLoginNonceCookie(nonce, secure),
+  });
 }
 
 /**
@@ -283,7 +294,8 @@ export async function logoutHandler(
   request: Request,
   ctx: AuthHandlerContext,
 ): Promise<Response> {
-  const token = readSessionCookie(request);
+  const secure = isSecureBaseUrl(ctx.baseUrl);
+  const token = readSessionCookie(request, secure);
   if (token) {
     try {
       await ctx.auth.deleteSessionByToken(token);
@@ -291,13 +303,11 @@ export async function logoutHandler(
       reportError("Logout session delete failed", err as Error);
     }
   }
-  return new Response(JSON.stringify({ ok: true }), {
-    status: 200,
-    headers: {
-      "Content-Type": "application/json",
-      "Set-Cookie": serializeClearedSessionCookie(isSecureBaseUrl(ctx.baseUrl)),
-    },
-  });
+  const headers = new Headers({ "Content-Type": "application/json" });
+  for (const cookie of serializeClearedSessionCookies(secure)) {
+    headers.append("Set-Cookie", cookie);
+  }
+  return new Response(JSON.stringify({ ok: true }), { status: 200, headers });
 }
 
 /** The resolved user for a verified OAuth callback, or an unverified-email stop. */
@@ -390,6 +400,7 @@ export async function oauthCallbackHandler(
   }
   const provider = params.provider;
 
+  const secure = isSecureBaseUrl(ctx.baseUrl);
   const url = new URL(request.url);
   const code = url.searchParams.get("code");
   const oauthState = url.searchParams.get("state");
@@ -405,12 +416,27 @@ export async function oauthCallbackHandler(
   // flow (whose state lives in `device_authorization`).
   const verification = await ctx.auth.consumeVerification(oauthState);
   if (verification) {
-    const redirectTo = parseRedirectTo(verification);
+    const login = parseBrowserLogin(verification);
     if (errorParam) {
       return html(errorPage(`OAuth error: ${errorDesc}`), 400);
     }
     if (!code) {
       return html(errorPage("Missing code parameter"), 400);
+    }
+    // Bind the callback to the browser that started the login: the stored nonce
+    // must match the me_login cookie, and the stored provider must match the
+    // callback path. Stops a leaked callback URL from minting a session
+    // elsewhere (login CSRF / fixation).
+    const nonceCookie = readLoginNonceCookie(request, secure);
+    if (
+      login.provider !== provider ||
+      !login.nonce ||
+      nonceCookie !== login.nonce
+    ) {
+      return html(
+        errorPage("Invalid or expired sign-in. Please restart the sign-in."),
+        400,
+      );
     }
     try {
       const result = await completeOAuth(provider, code, ctx);
@@ -423,11 +449,11 @@ export async function oauthCallbackHandler(
         );
       }
       const session = await ctx.auth.createSession(result.userId);
-      return redirect(redirectTo, {
-        setCookie: serializeSessionCookie(
-          session.token,
-          isSecureBaseUrl(ctx.baseUrl),
-        ),
+      return redirect(login.redirectTo, {
+        setCookie: [
+          serializeSessionCookie(session.token, secure),
+          serializeClearedLoginNonceCookie(secure),
+        ],
       });
     } catch (err) {
       reportError("Browser OAuth callback error", err as Error);
@@ -477,15 +503,31 @@ export async function oauthCallbackHandler(
   }
 }
 
-/** Extract the same-origin redirect target stored in a browser-login verification. */
-function parseRedirectTo(verificationValue: string): string {
+interface BrowserLoginState {
+  /** The provider stored at login start; must match the callback path. */
+  provider: string | null;
+  /** Same-origin post-login redirect target. */
+  redirectTo: string;
+  /** Browser-binding nonce; must match the me_login cookie. */
+  nonce: string | null;
+}
+
+/** Parse the browser-login state stored in a `verifications` row. */
+function parseBrowserLogin(verificationValue: string): BrowserLoginState {
   try {
-    const parsed = JSON.parse(verificationValue) as { redirectTo?: unknown };
-    return typeof parsed.redirectTo === "string"
-      ? sanitizeRedirect(parsed.redirectTo)
-      : "/";
+    const p = JSON.parse(verificationValue) as {
+      provider?: unknown;
+      redirectTo?: unknown;
+      nonce?: unknown;
+    };
+    return {
+      provider: typeof p.provider === "string" ? p.provider : null,
+      redirectTo:
+        typeof p.redirectTo === "string" ? sanitizeRedirect(p.redirectTo) : "/",
+      nonce: typeof p.nonce === "string" ? p.nonce : null,
+    };
   } catch {
-    return "/";
+    return { provider: null, redirectTo: "/", nonce: null };
   }
 }
 

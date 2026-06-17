@@ -49,14 +49,18 @@ export interface SessionCredential {
  * (header — a session token or an api key), else the `me_session` cookie (a
  * session token only). The `source` lets callers apply a CSRF gate to ambient
  * cookie credentials while exempting explicit header credentials.
+ *
+ * `secure` selects the cookie name (the mode-aware read): HTTPS deployments
+ * accept only `__Host-me_session`; local HTTP only `me_session`.
  */
 export function extractSessionCredential(
   request: Request,
+  secure: boolean,
 ): SessionCredential | null {
   const header = extractBearerToken(request);
   if (header) return { token: header, source: "header" };
 
-  const cookie = readSessionCookie(request);
+  const cookie = readSessionCookie(request, secure);
   if (cookie) return { token: cookie, source: "cookie" };
 
   return null;

@@ -46,7 +46,7 @@ function ctxWith(
 }
 
 describe("loginInitiateHandler", () => {
-  test("creates a verification and 302s to the provider with a matching state", async () => {
+  test("creates a verification (with a browser-binding nonce) and 302s to the provider", async () => {
     const calls: Array<{ id: string; value: string }> = [];
     const auth = {
       createVerification: mock(async (id: string, value: string) => {
@@ -68,10 +68,16 @@ describe("loginInitiateHandler", () => {
     expect(state).toBeTruthy();
     expect(calls).toHaveLength(1);
     expect(calls[0]?.id).toBe(state);
-    expect(JSON.parse(calls[0]?.value ?? "{}")).toEqual({
-      provider: "github",
-      redirectTo: "/memory/abc",
-    });
+    const stored = JSON.parse(calls[0]?.value ?? "{}");
+    expect(stored.provider).toBe("github");
+    expect(stored.redirectTo).toBe("/memory/abc");
+    expect(typeof stored.nonce).toBe("string");
+    expect(stored.nonce.length).toBeGreaterThan(0);
+
+    // The nonce is also set as a browser cookie (secure base URL → __Host-),
+    // and it matches the stored nonce so the callback can bind them.
+    const setCookie = res.headers.get("Set-Cookie") ?? "";
+    expect(setCookie).toContain(`__Host-me_login=${stored.nonce}`);
   });
 
   test("rejects an unknown provider with 400 and no verification", async () => {
@@ -115,9 +121,14 @@ describe("logoutHandler", () => {
     );
     expect(res.status).toBe(200);
     expect(auth.deleteSessionByToken).toHaveBeenCalledWith("tok");
-    const setCookie = res.headers.get("Set-Cookie") ?? "";
-    expect(setCookie).toContain("__Host-me_session=");
-    expect(setCookie).toContain("Max-Age=0");
+    const cookies = res.headers.getSetCookie();
+    // Secure mode clears both the __Host- and the plain fallback name.
+    expect(
+      cookies.some(
+        (c) => c.includes("__Host-me_session=") && c.includes("Max-Age=0"),
+      ),
+    ).toBe(true);
+    expect(cookies.some((c) => c.startsWith("me_session="))).toBe(true);
   });
 
   test("no cookie → still 200 + clears, without a delete call", async () => {
