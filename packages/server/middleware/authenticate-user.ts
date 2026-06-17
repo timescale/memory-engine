@@ -25,11 +25,12 @@ export async function authenticateUser(
   request: Request,
   auth: AuthStore,
   allowedOrigins: string[],
+  cookieSecure: boolean,
 ): Promise<UserAuthResult> {
   return span("auth.user", {
     attributes: { "auth.type": "user" },
     callback: async () => {
-      const credential = extractSessionCredential(request);
+      const credential = extractSessionCredential(request, cookieSecure);
       if (!credential) {
         debug("user auth failed: missing credential");
         return {

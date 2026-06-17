@@ -10,10 +10,24 @@
  * The session token never touches JS — login is a full-page redirect to the
  * server, which sets the cookie; logout POSTs to the server, which clears it.
  */
+
+import { isRpcError } from "@memory.build/client";
 import { type ReactNode, useCallback, useEffect, useState } from "react";
 import { memoryClient, userClient } from "../api/client.ts";
 
 const SPACE_STORAGE_KEY = "me.space";
+
+/**
+ * True only for an authentication failure (the user-RPC auth gate returns a 401
+ * with app code "UNAUTHORIZED"). Other failures — CSRF/403, 5xx, network — are
+ * not fixed by re-login, so they get an error/retry screen instead.
+ */
+function isAuthFailure(err: unknown): boolean {
+  if (!isRpcError(err)) return false;
+  return (
+    String(err.code) === "UNAUTHORIZED" || err.data?.code === "UNAUTHORIZED"
+  );
+}
 
 interface Identity {
   email: string;
@@ -28,6 +42,7 @@ interface Space {
 type GateState =
   | { status: "loading" }
   | { status: "anonymous" }
+  | { status: "error" }
   | { status: "needs-space"; identity: Identity; spaces: Space[] }
   | { status: "ready"; identity: Identity; spaces: Space[]; space: string };
 
@@ -62,9 +77,10 @@ export function AuthGate({ children }: { children: ReactNode }) {
       } else {
         setState({ status: "needs-space", identity, spaces });
       }
-    } catch {
-      // Any failure (incl. 401) means "not usable yet" → show the login screen.
-      setState({ status: "anonymous" });
+    } catch (err) {
+      // A 401 → not signed in (login screen); anything else (CSRF, 5xx, network)
+      // → an error/retry screen, since re-login wouldn't help.
+      setState({ status: isAuthFailure(err) ? "anonymous" : "error" });
     }
   }, []);
 
@@ -95,6 +111,10 @@ export function AuthGate({ children }: { children: ReactNode }) {
 
   if (state.status === "anonymous") {
     return <LoginScreen onRetry={load} />;
+  }
+
+  if (state.status === "error") {
+    return <ErrorScreen onRetry={load} />;
   }
 
   if (state.status === "needs-space") {
@@ -167,6 +187,27 @@ function LoginScreen({ onRetry }: { onRetry: () => void }) {
         className="mt-4 text-xs text-slate-400 hover:text-slate-600"
       >
         Try again
+      </button>
+    </Card>
+  );
+}
+
+function ErrorScreen({ onRetry }: { onRetry: () => void }) {
+  return (
+    <Card>
+      <h1 className="text-lg font-semibold text-slate-900">
+        Something went wrong
+      </h1>
+      <p className="mt-1 text-sm text-slate-500">
+        Couldn't reach Memory Engine. This isn't a sign-in problem — check your
+        connection and try again.
+      </p>
+      <button
+        type="button"
+        onClick={onRetry}
+        className="mt-6 rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700"
+      >
+        Retry
       </button>
     </Card>
   );

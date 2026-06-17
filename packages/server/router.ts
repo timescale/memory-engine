@@ -151,6 +151,10 @@ export function createRouter(ctx: ServerContext): Router {
     bootstrap: { mode: "hosted" },
   });
 
+  // HTTPS public origin → the secure (`__Host-`) cookie name; drives both
+  // cookie minting and the mode-aware cookie read in the auth middlewares.
+  const cookieSecure = new URL(apiBaseUrl).protocol === "https:";
+
   // Wrap an RPC handler with the X-Client-Version check, so requests from
   // too-old clients are rejected before authentication or method dispatch.
   function withClientVersionCheck(
@@ -172,6 +176,7 @@ export function createRouter(ctx: ServerContext): Router {
       auth,
       db,
       allowedOrigins: webAllowedOrigins,
+      cookieSecure,
     });
     if (!result.ok) {
       return result.error;
@@ -192,7 +197,12 @@ export function createRouter(ctx: ServerContext): Router {
 
   // User RPC (new model): session-only, user-scoped (agent lifecycle)
   const userRpcHandler = createRpcHandler(userMethods, async (request) => {
-    const result = await authenticateUser(request, auth, webAllowedOrigins);
+    const result = await authenticateUser(
+      request,
+      auth,
+      webAllowedOrigins,
+      cookieSecure,
+    );
     if (!result.ok) {
       return result.error;
     }

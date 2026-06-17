@@ -52,10 +52,15 @@ export function html(body: string, status = 200, csp = DEFAULT_CSP): Response {
  */
 export function redirect(
   location: string,
-  opts: { status?: number; setCookie?: string } = {},
+  opts: { status?: number; setCookie?: string | string[] } = {},
 ): Response {
-  const headers: Record<string, string> = { Location: location };
-  if (opts.setCookie) headers["Set-Cookie"] = opts.setCookie;
+  const headers = new Headers({ Location: location });
+  if (opts.setCookie) {
+    const cookies = Array.isArray(opts.setCookie)
+      ? opts.setCookie
+      : [opts.setCookie];
+    for (const cookie of cookies) headers.append("Set-Cookie", cookie);
+  }
   return new Response(null, { status: opts.status ?? 302, headers });
 }
 

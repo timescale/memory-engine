@@ -45,6 +45,7 @@ function deps() {
     auth: authStore(sql, authSchema),
     db: sql,
     allowedOrigins: ["https://test.example.com"],
+    cookieSecure: false,
   };
 }
 

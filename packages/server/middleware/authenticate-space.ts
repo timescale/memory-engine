@@ -72,6 +72,8 @@ export interface SpaceAuthDeps {
   db: Sql;
   /** Origins allowed for cookie-authenticated (browser) requests — CSRF gate. */
   allowedOrigins: string[];
+  /** Whether the public origin is HTTPS — selects the mode-aware cookie name. */
+  cookieSecure: boolean;
 }
 
 /**
@@ -95,7 +97,7 @@ async function authenticateSpaceInner(
 
   // 1. Credential: an Authorization Bearer (session token or api key), or the
   //    browser session cookie (session token only).
-  const credential = extractSessionCredential(request);
+  const credential = extractSessionCredential(request, deps.cookieSecure);
   if (!credential) {
     debug("space auth failed: missing credential");
     return {

@@ -48,35 +48,42 @@ describe("extractSessionCredential", () => {
         Cookie: "me_session=cookietoken",
       },
     });
-    expect(extractSessionCredential(request)).toEqual({
+    expect(extractSessionCredential(request, false)).toEqual({
       token: "headertoken",
       source: "header",
     });
   });
 
-  test("falls back to the session cookie (source=cookie)", () => {
+  test("falls back to the unprefixed cookie in non-secure mode (source=cookie)", () => {
     const request = new Request("http://localhost/test", {
       headers: { Cookie: "me_session=cookietoken" },
     });
-    expect(extractSessionCredential(request)).toEqual({
+    expect(extractSessionCredential(request, false)).toEqual({
       token: "cookietoken",
       source: "cookie",
     });
   });
 
-  test("reads the __Host- prefixed cookie name", () => {
+  test("reads the __Host- prefixed cookie in secure mode", () => {
     const request = new Request("http://localhost/test", {
       headers: { Cookie: "__Host-me_session=secure-token; other=x" },
     });
-    expect(extractSessionCredential(request)).toEqual({
+    expect(extractSessionCredential(request, true)).toEqual({
       token: "secure-token",
       source: "cookie",
     });
   });
 
+  test("secure mode ignores a plain me_session cookie (__Host- only)", () => {
+    const request = new Request("http://localhost/test", {
+      headers: { Cookie: "me_session=cookietoken" },
+    });
+    expect(extractSessionCredential(request, true)).toBeNull();
+  });
+
   test("returns null with no credential", () => {
     const request = new Request("http://localhost/test");
-    expect(extractSessionCredential(request)).toBeNull();
+    expect(extractSessionCredential(request, true)).toBeNull();
   });
 });
 
