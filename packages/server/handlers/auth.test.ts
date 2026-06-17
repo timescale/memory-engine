@@ -95,7 +95,16 @@ describe("loginInitiateHandler", () => {
     expect(auth.createVerification).not.toHaveBeenCalled();
   });
 
-  test("sanitizes an off-site redirect to /", async () => {
+  // Off-site redirect targets must collapse to "/". The backslash cases matter:
+  // browsers resolve a `Location:` with the WHATWG URL parser, which treats "\\"
+  // as "/" for HTTP(S), so "/\\evil.com" would otherwise become https://evil.com.
+  test.each([
+    "//evil.example.com",
+    "/\\evil.example.com",
+    "/\\/evil.example.com",
+    "\\/evil.example.com",
+    "https://evil.example.com",
+  ])("sanitizes an off-site redirect (%s) to /", async (redirect) => {
     const values: string[] = [];
     const auth = {
       createVerification: mock(async (_id: string, value: string) => {
@@ -104,12 +113,29 @@ describe("loginInitiateHandler", () => {
     };
     await loginInitiateHandler(
       new Request(
-        "http://x/api/v1/auth/login/github?redirect=//evil.example.com",
+        `http://x/api/v1/auth/login/github?redirect=${encodeURIComponent(redirect)}`,
       ),
       { provider: "github" },
       ctxWith(auth),
     );
     expect(JSON.parse(values[0] ?? "{}").redirectTo).toBe("/");
+  });
+
+  test("preserves a safe same-origin redirect", async () => {
+    const values: string[] = [];
+    const auth = {
+      createVerification: mock(async (_id: string, value: string) => {
+        values.push(value);
+      }),
+    };
+    await loginInitiateHandler(
+      new Request(
+        `http://x/api/v1/auth/login/github?redirect=${encodeURIComponent("/memory/abc?q=1")}`,
+      ),
+      { provider: "github" },
+      ctxWith(auth),
+    );
+    expect(JSON.parse(values[0] ?? "{}").redirectTo).toBe("/memory/abc?q=1");
   });
 });
 

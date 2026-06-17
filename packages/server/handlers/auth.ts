@@ -45,13 +45,19 @@ function isSecureBaseUrl(baseUrl: string): boolean {
 }
 
 /**
- * A post-login redirect target is only honored when it's a same-origin path
- * (leading "/", not protocol-relative "//"), so the callback can't be turned
- * into an open redirect. Anything else falls back to the app root.
+ * A post-login redirect target is only honored when it's a same-origin path, so
+ * the callback can't be turned into an open redirect. It must start with a
+ * single "/" — but NOT a second "/" or "\\": browsers resolve a `Location:` with
+ * the WHATWG URL parser, which treats backslashes as forward slashes for HTTP(S),
+ * so both "//evil.com" and "/\\evil.com" (or "/\\/evil.com") resolve to a foreign
+ * origin. Any backslash anywhere is rejected for good measure. Anything else
+ * falls back to the app root.
  */
 function sanitizeRedirect(raw: string | null): string {
-  if (raw?.startsWith("/") && !raw.startsWith("//")) return raw;
-  return "/";
+  if (!raw || raw[0] !== "/") return "/";
+  if (raw[1] === "/" || raw[1] === "\\") return "/";
+  if (raw.includes("\\")) return "/";
+  return raw;
 }
 
 /** Min CLI poll interval (seconds) — matches poll_device's default. */
