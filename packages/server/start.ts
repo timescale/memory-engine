@@ -31,6 +31,20 @@ import { checkSizeLimit } from "./middleware";
 import { createRouter } from "./router";
 import { internalError } from "./util/response";
 
+interface RpcDbTimeouts {
+  statementTimeout: number;
+  lockTimeout: number;
+  transactionTimeout: number;
+  idleInTransactionSessionTimeout: number;
+}
+
+const DEFAULT_RPC_DB_TIMEOUTS: RpcDbTimeouts = {
+  statementTimeout: 30_000,
+  lockTimeout: 5_000,
+  transactionTimeout: 35_000,
+  idleInTransactionSessionTimeout: 35_000,
+};
+
 /**
  * Parse an integer from an environment variable with NaN guard.
  */
@@ -119,6 +133,8 @@ export interface StartServerOptions {
   enableCleanupCron?: boolean;
   /** Run bootstrap + migrate on boot. Default true. */
   migrate?: boolean;
+  /** Session-level database timeouts for runtime request work, in milliseconds. */
+  rpcDbTimeouts?: RpcDbTimeouts;
 }
 
 export interface RunningServer {
@@ -265,6 +281,28 @@ export async function startServer(
       process.env.WORKER_DB_IDLE_IN_TRANSACTION_SESSION_TIMEOUT ??
       DEFAULT_WORKER_TIMEOUTS.idleInTransactionSessionTimeout,
   };
+  const rpcDbTimeouts: RpcDbTimeouts = opts.rpcDbTimeouts ?? {
+    statementTimeout: parseIntEnv(
+      "RPC_DB_STATEMENT_TIMEOUT",
+      process.env.RPC_DB_STATEMENT_TIMEOUT || "",
+      String(DEFAULT_RPC_DB_TIMEOUTS.statementTimeout),
+    ),
+    lockTimeout: parseIntEnv(
+      "RPC_DB_LOCK_TIMEOUT",
+      process.env.RPC_DB_LOCK_TIMEOUT || "",
+      String(DEFAULT_RPC_DB_TIMEOUTS.lockTimeout),
+    ),
+    transactionTimeout: parseIntEnv(
+      "RPC_DB_TRANSACTION_TIMEOUT",
+      process.env.RPC_DB_TRANSACTION_TIMEOUT || "",
+      String(DEFAULT_RPC_DB_TIMEOUTS.transactionTimeout),
+    ),
+    idleInTransactionSessionTimeout: parseIntEnv(
+      "RPC_DB_IDLE_IN_TRANSACTION_SESSION_TIMEOUT",
+      process.env.RPC_DB_IDLE_IN_TRANSACTION_SESSION_TIMEOUT || "",
+      String(DEFAULT_RPC_DB_TIMEOUTS.idleInTransactionSessionTimeout),
+    ),
+  };
 
   const embeddingConfig = opts.embeddingConfig ?? buildEmbeddingConfig();
 
@@ -286,57 +324,66 @@ export async function startServer(
   }
 
   // ---------------------------------------------------------------------------
-  // Database Pools
+  // Database Bootstrap & Migrations (blocking — server won't serve until current)
   // ---------------------------------------------------------------------------
 
-  // Dedicated worker pool (postgres.js) — the embedding worker processes the
-  // per-space me_<slug> schemas.
-  const workerDb = postgres(workerDatabaseUrl, {
-    max: workerDbPoolMax,
-    idle_timeout: workerDbPoolIdleReapSeconds,
-    max_lifetime: workerDbPoolMaxLifetime,
-    connect_timeout: workerDbPoolConnectionTimeout,
-    onnotice: () => {},
-  });
+  // Prepare the database for per-space schemas (extensions + roles, idempotent)
+  // and migrate the auth + core control-plane schemas on the migration pool.
+  // Pass the configured schemas to BOTH the migrations and the stores so an
+  // isolated (non-default) schema is migrated where the stores read it.
+  if (opts.migrate ?? true) {
+    // Startup migration pool. It is closed once migrations finish so any backend
+    // state/memory profile from migration work is not reused by request serving.
+    const migrationDb = postgres(databaseUrl, {
+      max: dbPoolMax,
+      idle_timeout: dbPoolIdleReapSeconds,
+      max_lifetime: dbPoolMaxLifetime,
+      connect_timeout: dbPoolConnectionTimeout,
+      onnotice: () => {},
+      connection: { application_name: "me-migration" },
+    });
+    try {
+      const migrationCore = coreStore(migrationDb, coreSchema);
+      await bootstrapSpaceDatabase(migrationDb);
+      await migrateCore(migrationDb, { schema: coreSchema });
+      await migrateAuth(migrationDb, { schema: authSchema });
+      info("Core + auth schemas migrated");
+      await remigrateSpaces(migrationDb, migrationCore);
+    } finally {
+      await migrationDb.end();
+    }
+  }
 
-  // The single application pool (postgres.js): the auth + core control plane and
-  // the per-space me_<slug> data schemas all live in one database, one pool.
-  const db = postgres(databaseUrl, {
+  // Runtime application pool. Session-level timeout GUCs protect request-path
+  // database work without assuming auth/core/space share a transaction.
+  const runtimeDb = postgres(databaseUrl, {
     max: dbPoolMax,
     idle_timeout: dbPoolIdleReapSeconds,
     max_lifetime: dbPoolMaxLifetime,
     connect_timeout: dbPoolConnectionTimeout,
     onnotice: () => {},
+    connection: {
+      application_name: "me-api",
+      statement_timeout: rpcDbTimeouts.statementTimeout,
+      lock_timeout: rpcDbTimeouts.lockTimeout,
+      transaction_timeout: rpcDbTimeouts.transactionTimeout,
+      idle_in_transaction_session_timeout:
+        rpcDbTimeouts.idleInTransactionSessionTimeout,
+    },
   });
 
-  // Auth store (auth schema) on the application pool.
-  const auth = authStore(db, authSchema);
+  // Auth store (auth schema) on the runtime application pool.
+  const auth = authStore(runtimeDb, authSchema);
 
-  // Core control-plane store (core schema) on the same pool.
-  const core = coreStore(db, coreSchema);
-
-  // ---------------------------------------------------------------------------
-  // Database Bootstrap & Migrations (blocking — server won't serve until current)
-  // ---------------------------------------------------------------------------
-
-  // Prepare the database for per-space schemas (extensions + roles, idempotent)
-  // and migrate the auth + core control-plane schemas on the application pool.
-  // Pass the configured schemas to BOTH the migrations and the stores so an
-  // isolated (non-default) schema is migrated where the stores read it.
-  if (opts.migrate ?? true) {
-    await bootstrapSpaceDatabase(db);
-    await migrateCore(db, { schema: coreSchema });
-    await migrateAuth(db, { schema: authSchema });
-    info("Core + auth schemas migrated");
-    await remigrateSpaces(db, core);
-  }
+  // Core control-plane store (core schema) on the runtime application pool.
+  const core = coreStore(runtimeDb, coreSchema);
 
   // ---------------------------------------------------------------------------
   // Router
   // ---------------------------------------------------------------------------
 
   const context: ServerContext = {
-    db,
+    db: runtimeDb,
     auth,
     core,
     authSchema,
@@ -352,6 +399,17 @@ export async function startServer(
   // ---------------------------------------------------------------------------
   // Embedding Worker Pool
   // ---------------------------------------------------------------------------
+
+  // Dedicated worker pool (postgres.js) — the embedding worker processes the
+  // per-space me_<slug> schemas.
+  const workerDb = postgres(workerDatabaseUrl, {
+    max: workerDbPoolMax,
+    idle_timeout: workerDbPoolIdleReapSeconds,
+    max_lifetime: workerDbPoolMaxLifetime,
+    connect_timeout: workerDbPoolConnectionTimeout,
+    onnotice: () => {},
+    connection: { application_name: "me-worker" },
+  });
 
   const workerPool = new WorkerPool(workerDb, {
     embedding: embeddingConfig,
@@ -483,7 +541,7 @@ export async function startServer(
     // Close database pools
     try {
       await workerDb.end();
-      await db.end();
+      await runtimeDb.end();
     } catch (error) {
       reportError("Error closing database connections", error as Error);
     }

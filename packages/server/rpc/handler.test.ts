@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { z } from "zod";
-import { RPC_ERROR_CODES } from "./errors";
+import { APP_ERROR_CODES, RPC_ERROR_CODES } from "./errors";
 import { createRpcHandler, handleRpcRequest } from "./handler";
 import { buildRegistry } from "./registry";
 
@@ -39,6 +39,11 @@ describe("handleRpcRequest", () => {
     })
     .register("test.throws", z.object({}), () => {
       throw new Error("Intentional error");
+    })
+    .register("test.dbTimeout", z.object({}), () => {
+      throw Object.assign(new Error("canceling statement due to timeout"), {
+        code: "57014",
+      });
     })
     .register("test.noParams", z.undefined(), () => ({
       result: "no params needed",
@@ -237,6 +242,22 @@ describe("handleRpcRequest", () => {
       expect(body.error.code).toBe(RPC_ERROR_CODES.INTERNAL_ERROR);
       expect(body.id).toBe(1);
     });
+
+    test("maps database statement timeouts to application errors", async () => {
+      const request = createRequest({
+        jsonrpc: "2.0",
+        method: "test.dbTimeout",
+        params: {},
+        id: 1,
+      });
+      const response = await handleRpcRequest(request, testRegistry);
+      const body = (await response.json()) as {
+        error: { code: number; data?: { code?: string } };
+      };
+
+      expect(body.error.code).toBe(RPC_ERROR_CODES.APPLICATION_ERROR);
+      expect(body.error.data?.code).toBe(APP_ERROR_CODES.QUERY_TIMEOUT);
+    });
   });
 
   describe("id handling", () => {
@@ -333,5 +354,41 @@ describe("createRpcHandler with contextProvider returning Response", () => {
 
     const body = (await response.json()) as { result: { userId: string } };
     expect(body.result.userId).toBe("user-123");
+  });
+
+  test("maps database timeouts thrown while building context", async () => {
+    const registry = buildRegistry()
+      .register("test.method", z.object({}), () => ({ success: true }))
+      .build();
+
+    const handler = createRpcHandler(registry, async () => {
+      throw Object.assign(
+        new Error("canceling statement due to lock timeout"),
+        {
+          code: "55P03",
+        },
+      );
+    });
+
+    const request = new Request("http://localhost/rpc", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        method: "test.method",
+        params: {},
+        id: 1,
+      }),
+    });
+
+    const response = await handler(request);
+    const body = (await response.json()) as {
+      error: { code: number; data?: { code?: string } };
+      id: null;
+    };
+
+    expect(body.error.code).toBe(RPC_ERROR_CODES.APPLICATION_ERROR);
+    expect(body.error.data?.code).toBe(APP_ERROR_CODES.LOCK_TIMEOUT);
+    expect(body.id).toBeNull();
   });
 });

@@ -45,6 +45,12 @@ export const APP_ERROR_CODES = {
   VALIDATION_ERROR: "VALIDATION_ERROR",
   EMBEDDING_NOT_CONFIGURED: "EMBEDDING_NOT_CONFIGURED",
   EMBEDDING_FAILED: "EMBEDDING_FAILED",
+  /** PostgreSQL statement_timeout cancelled a request database operation. */
+  QUERY_TIMEOUT: "QUERY_TIMEOUT",
+  /** PostgreSQL lock_timeout cancelled a request database operation. */
+  LOCK_TIMEOUT: "LOCK_TIMEOUT",
+  /** PostgreSQL transaction_timeout cancelled a request database operation. */
+  TRANSACTION_TIMEOUT: "TRANSACTION_TIMEOUT",
   INTERNAL_ERROR: "INTERNAL_ERROR",
   /** Client is older than the server's MIN_CLIENT_VERSION. User should upgrade their CLI. */
   CLIENT_VERSION_INCOMPATIBLE: "CLIENT_VERSION_INCOMPATIBLE",

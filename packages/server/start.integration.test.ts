@@ -118,6 +118,12 @@ beforeAll(async () => {
     workerIdleDelayMs: 250,
     workerRefreshIntervalMs: 500,
     enableCleanupCron: false,
+    rpcDbTimeouts: {
+      statementTimeout: 12_345,
+      lockTimeout: 5_432,
+      transactionTimeout: 23_456,
+      idleInTransactionSessionTimeout: 34_567,
+    },
     // migrate defaults to true — startServer migrates the isolated schemas
     // and re-migrates the pre-existing space.
   });
@@ -147,6 +153,23 @@ test("boots on a random port and serves /health", async () => {
 test("/ready reports the database is reachable", async () => {
   const res = await fetch(`${srv.url}/ready`);
   expect(res.status).toBe(200);
+});
+
+test("runtime pool sets application name and timeout GUCs", async () => {
+  const [row] = await srv.context.db`
+    select
+      current_setting('application_name') as application_name
+    , (extract(epoch from current_setting('statement_timeout')::interval) * 1000)::int as statement_timeout_ms
+    , (extract(epoch from current_setting('lock_timeout')::interval) * 1000)::int as lock_timeout_ms
+    , (extract(epoch from current_setting('transaction_timeout')::interval) * 1000)::int as transaction_timeout_ms
+    , (extract(epoch from current_setting('idle_in_transaction_session_timeout')::interval) * 1000)::int as idle_timeout_ms
+  `;
+
+  expect(row?.application_name).toBe("me-api");
+  expect(Number(row?.statement_timeout_ms)).toBe(12_345);
+  expect(Number(row?.lock_timeout_ms)).toBe(5_432);
+  expect(Number(row?.transaction_timeout_ms)).toBe(23_456);
+  expect(Number(row?.idle_timeout_ms)).toBe(34_567);
 });
 
 test("migrated the configured isolated schemas", async () => {

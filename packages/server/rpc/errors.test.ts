@@ -167,6 +167,12 @@ describe("errors", () => {
       expect(response.error.data?.code).toBe(APP_ERROR_CODES.RATE_LIMITED);
     });
 
+    test("timeout codes are exported", () => {
+      expect(APP_ERROR_CODES.QUERY_TIMEOUT).toBe("QUERY_TIMEOUT");
+      expect(APP_ERROR_CODES.LOCK_TIMEOUT).toBe("LOCK_TIMEOUT");
+      expect(APP_ERROR_CODES.TRANSACTION_TIMEOUT).toBe("TRANSACTION_TIMEOUT");
+    });
+
     test("validationError", () => {
       const response = appErrors.validationError(1, "Name too long");
       expect(response.error.data?.code).toBe(APP_ERROR_CODES.VALIDATION_ERROR);
