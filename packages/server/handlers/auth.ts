@@ -10,14 +10,45 @@
  * - POST /api/v1/auth/device/approve   - User approves/denies (consent)
  */
 
-import type { AuthStore, OAuthProvider } from "@memory.build/auth";
+import {
+  type AuthStore,
+  generateOAuthState,
+  type OAuthProvider,
+} from "@memory.build/auth";
 import { type CoreStore, coreStore } from "@memory.build/engine/core";
 import { info, reportError } from "@pydantic/logfire-node";
 import type { Sql } from "postgres";
 import { buildAuthUrl, exchangeCode, fetchUserInfo } from "../auth/providers";
 import { provisionUser } from "../provision";
 import type { RouteParams } from "../router";
-import { error, html, json } from "../util/response";
+import {
+  readSessionCookie,
+  serializeClearedSessionCookie,
+  serializeSessionCookie,
+} from "../util/cookie";
+import { error, html, json, redirect } from "../util/response";
+
+/** Browser-login OAuth `state` lifetime (matches the device-flow TTL). */
+const BROWSER_LOGIN_STATE_TTL_SECONDS = 15 * 60;
+
+/** Is the public origin HTTPS? Drives the Secure / `__Host-` cookie attributes. */
+function isSecureBaseUrl(baseUrl: string): boolean {
+  try {
+    return new URL(baseUrl).protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * A post-login redirect target is only honored when it's a same-origin path
+ * (leading "/", not protocol-relative "//"), so the callback can't be turned
+ * into an open redirect. Anything else falls back to the app root.
+ */
+function sanitizeRedirect(raw: string | null): string {
+  if (raw?.startsWith("/") && !raw.startsWith("//")) return raw;
+  return "/";
+}
 
 /** Min CLI poll interval (seconds) — matches poll_device's default. */
 const POLL_INTERVAL_SECONDS = 5;
@@ -210,12 +241,144 @@ export async function redeemInvitationsForVerifiedLogin(
 }
 
 /**
- * GET /api/v1/auth/callback/:provider — OAuth callback.
+ * GET /api/v1/auth/login/:provider — start a browser (hosted-UI) login.
  *
- * Resolves the user (account → verified email → provision), redeems pending
- * space invitations for the verified email, binds them to the device (status
- * stays 'pending'), and shows the consent page. Authorization only happens when
- * the human approves (POST /device/approve).
+ * Unlike the device flow (where a CLI shows a code), the browser is the client:
+ * we stash the OAuth `state` + the post-login redirect in the `verifications`
+ * table (the better-auth home for social-login state) and redirect to the
+ * provider. The callback recognizes the state, mints a session, and sets the
+ * httpOnly cookie. `?redirect=` is restricted to a same-origin path.
+ */
+export async function loginInitiateHandler(
+  request: Request,
+  params: RouteParams,
+  ctx: AuthHandlerContext,
+): Promise<Response> {
+  if (!isProvider(params.provider)) {
+    return html(errorPage("Unknown OAuth provider"), 400);
+  }
+  const provider = params.provider;
+  const url = new URL(request.url);
+  const redirectTo = sanitizeRedirect(url.searchParams.get("redirect"));
+
+  const state = generateOAuthState();
+  const expiresAt = new Date(
+    Date.now() + BROWSER_LOGIN_STATE_TTL_SECONDS * 1000,
+  );
+  await ctx.auth.createVerification(
+    state,
+    JSON.stringify({ provider, redirectTo }),
+    expiresAt,
+  );
+
+  const redirectUri = `${ctx.baseUrl}/api/v1/auth/callback/${provider}`;
+  return redirect(buildAuthUrl(provider, state, redirectUri));
+}
+
+/**
+ * POST /api/v1/auth/logout — clear the browser session cookie and revoke the
+ * session server-side. Idempotent (no cookie → just clears).
+ */
+export async function logoutHandler(
+  request: Request,
+  ctx: AuthHandlerContext,
+): Promise<Response> {
+  const token = readSessionCookie(request);
+  if (token) {
+    try {
+      await ctx.auth.deleteSessionByToken(token);
+    } catch (err) {
+      reportError("Logout session delete failed", err as Error);
+    }
+  }
+  return new Response(JSON.stringify({ ok: true }), {
+    status: 200,
+    headers: {
+      "Content-Type": "application/json",
+      "Set-Cookie": serializeClearedSessionCookie(isSecureBaseUrl(ctx.baseUrl)),
+    },
+  });
+}
+
+/** The resolved user for a verified OAuth callback, or an unverified-email stop. */
+type OAuthUserResult =
+  | { ok: true; userId: string; email: string }
+  | { ok: false; email: string };
+
+/**
+ * Shared callback core for both flows: exchange the code, reject unverified
+ * emails, resolve the user (existing account → verified email → provision), and
+ * redeem pending space invitations. Throws on exchange/network failure (the
+ * caller renders the error page).
+ */
+async function completeOAuth(
+  provider: OAuthProvider,
+  code: string,
+  ctx: AuthHandlerContext,
+): Promise<OAuthUserResult> {
+  const redirectUri = `${ctx.baseUrl}/api/v1/auth/callback/${provider}`;
+  const tokens = await exchangeCode(provider, code, redirectUri);
+  const userInfo = await fetchUserInfo(provider, tokens.accessToken);
+
+  // Reject unverified emails — the gate that prevents account-takeover via a
+  // provider asserting someone else's address.
+  if (!userInfo.emailVerified) {
+    return { ok: false, email: userInfo.email };
+  }
+
+  // Resolve the user: existing account → existing verified email → new user.
+  let userId: string;
+  const account = await ctx.auth.getAccountByProvider(
+    provider,
+    userInfo.providerAccountId,
+  );
+  if (account) {
+    userId = account.userId;
+  } else {
+    const byEmail = await ctx.auth.getUserByEmail(userInfo.email);
+    if (byEmail) {
+      // verified (gated above) → safe to link this provider to the user
+      userId = byEmail.id;
+      await ctx.auth.upsertAccount(
+        userId,
+        provider,
+        userInfo.providerAccountId,
+      );
+    } else {
+      const result = await provisionUser(
+        ctx.db,
+        { auth: ctx.authSchema, core: ctx.coreSchema },
+        {
+          email: userInfo.email,
+          name: userInfo.name,
+          provider,
+          accountId: userInfo.providerAccountId,
+          emailVerified: true,
+        },
+      );
+      userId = result.userId;
+      info("Provisioned new user", { email: userInfo.email });
+    }
+  }
+
+  // The email is verified (gated above) → proven owned, so redeem any pending
+  // space invitations sent to it (the user joins each invited space).
+  await redeemInvitationsForVerifiedLogin(
+    coreStore(ctx.db, ctx.coreSchema),
+    userId,
+    userInfo.email,
+  );
+
+  return { ok: true, userId, email: userInfo.email };
+}
+
+/**
+ * GET /api/v1/auth/callback/:provider — OAuth callback for BOTH flows.
+ *
+ * A browser-login `state` (consumed from `verifications`) takes precedence: mint
+ * a session, set the cookie, and redirect into the app. Otherwise it's a device
+ * flow: resolve the user, bind the device, and show the consent page (consent
+ * authorizes the device on POST /device/approve).
  */
 export async function oauthCallbackHandler(
   request: Request,
@@ -231,17 +394,55 @@ export async function oauthCallbackHandler(
   const code = url.searchParams.get("code");
   const oauthState = url.searchParams.get("state");
   const errorParam = url.searchParams.get("error");
+  const errorDesc = url.searchParams.get("error_description") || errorParam;
 
-  if (errorParam) {
-    const errorDesc = url.searchParams.get("error_description") || errorParam;
-    if (oauthState) {
-      const device = await ctx.auth.getDeviceByOAuthState(oauthState);
-      if (device) await ctx.auth.denyDevice(device.deviceCode);
+  if (!oauthState) {
+    return html(errorPage("Missing state parameter"), 400);
+  }
+
+  // Browser-login state lives in `verifications`; consume it up front (single
+  // use). A hit routes to the browser flow; a miss falls through to the device
+  // flow (whose state lives in `device_authorization`).
+  const verification = await ctx.auth.consumeVerification(oauthState);
+  if (verification) {
+    const redirectTo = parseRedirectTo(verification);
+    if (errorParam) {
+      return html(errorPage(`OAuth error: ${errorDesc}`), 400);
     }
+    if (!code) {
+      return html(errorPage("Missing code parameter"), 400);
+    }
+    try {
+      const result = await completeOAuth(provider, code, ctx);
+      if (!result.ok) {
+        return html(
+          errorPage(
+            `Your ${provider} email (${result.email}) is not verified. Verify it with ${provider} and try again.`,
+          ),
+          400,
+        );
+      }
+      const session = await ctx.auth.createSession(result.userId);
+      return redirect(redirectTo, {
+        setCookie: serializeSessionCookie(
+          session.token,
+          isSecureBaseUrl(ctx.baseUrl),
+        ),
+      });
+    } catch (err) {
+      reportError("Browser OAuth callback error", err as Error);
+      return html(errorPage("Authentication failed. Please try again."), 500);
+    }
+  }
+
+  // Device flow.
+  if (errorParam) {
+    const device = await ctx.auth.getDeviceByOAuthState(oauthState);
+    if (device) await ctx.auth.denyDevice(device.deviceCode);
     return html(errorPage(`OAuth error: ${errorDesc}`), 400);
   }
-  if (!code || !oauthState) {
-    return html(errorPage("Missing code or state parameter"), 400);
+  if (!code) {
+    return html(errorPage("Missing code parameter"), 400);
   }
 
   const device = await ctx.auth.getDeviceByOAuthState(oauthState);
@@ -252,76 +453,39 @@ export async function oauthCallbackHandler(
     );
   }
 
-  const redirectUri = `${ctx.baseUrl}/api/v1/auth/callback/${provider}`;
   try {
-    const tokens = await exchangeCode(provider, code, redirectUri);
-    const userInfo = await fetchUserInfo(provider, tokens.accessToken);
-
-    // Reject unverified emails — the gate that prevents account-takeover via a
-    // provider asserting someone else's address.
-    if (!userInfo.emailVerified) {
+    const result = await completeOAuth(provider, code, ctx);
+    if (!result.ok) {
       await ctx.auth.denyDevice(device.deviceCode);
       return html(
         errorPage(
-          `Your ${provider} email (${userInfo.email}) is not verified. Verify it with ${provider} and try again.`,
+          `Your ${provider} email (${result.email}) is not verified. Verify it with ${provider} and try again.`,
         ),
         400,
       );
     }
-
-    // Resolve the user: existing account → existing verified email → new user.
-    let userId: string;
-    const account = await ctx.auth.getAccountByProvider(
-      provider,
-      userInfo.providerAccountId,
-    );
-    if (account) {
-      userId = account.userId;
-    } else {
-      const byEmail = await ctx.auth.getUserByEmail(userInfo.email);
-      if (byEmail) {
-        // verified (gated above) → safe to link this provider to the user
-        userId = byEmail.id;
-        await ctx.auth.upsertAccount(
-          userId,
-          provider,
-          userInfo.providerAccountId,
-        );
-      } else {
-        const result = await provisionUser(
-          ctx.db,
-          { auth: ctx.authSchema, core: ctx.coreSchema },
-          {
-            email: userInfo.email,
-            name: userInfo.name,
-            provider,
-            accountId: userInfo.providerAccountId,
-            emailVerified: true,
-          },
-        );
-        userId = result.userId;
-        info("Provisioned new user", { email: userInfo.email });
-      }
-    }
-
-    // The email is verified (gated above) → proven owned, so redeem any pending
-    // space invitations sent to it (the user joins each invited space).
-    await redeemInvitationsForVerifiedLogin(
-      coreStore(ctx.db, ctx.coreSchema),
-      userId,
-      userInfo.email,
-    );
-
     // Bind the user; the device stays 'pending' until the human consents.
-    await ctx.auth.bindDeviceUser(device.deviceCode, userId);
+    await ctx.auth.bindDeviceUser(device.deviceCode, result.userId);
     return html(
-      consentPage(userInfo.email, device.userCode, provider, oauthState),
+      consentPage(result.email, device.userCode, provider, oauthState),
       200,
       CONSENT_CSP,
     );
   } catch (err) {
     reportError("OAuth callback error", err as Error);
     return html(errorPage("Authentication failed. Please try again."), 500);
+  }
+}
+
+/** Extract the same-origin redirect target stored in a browser-login verification. */
+function parseRedirectTo(verificationValue: string): string {
+  try {
+    const parsed = JSON.parse(verificationValue) as { redirectTo?: unknown };
+    return typeof parsed.redirectTo === "string"
+      ? sanitizeRedirect(parsed.redirectTo)
+      : "/";
+  } catch {
+    return "/";
   }
 }
 

@@ -287,3 +287,88 @@ group page; the per-group pages note their alias status.
 
 **Status:** decided (user-directed, pre-release); recorded for rationale —
 already reflected in `CLAUDE.md` and `docs/cli/`.
+
+---
+
+## Hosted web UI: server-served at root, httpOnly-cookie browser login
+
+**Date:** 2026-06-17 · **Area:** server / web / auth
+
+The web UI (`packages/web`) is now served by the hosted server in addition to
+running locally under `me serve`. The same build runs in two modes:
+
+- **local** (`me serve`): a local proxy injects the session token
+  (`Authorization`) + active space (`X-Me-Space`); the browser carries no
+  credentials. Unchanged.
+- **hosted** (the API server, same-origin): the browser authenticates with an
+  **httpOnly session cookie** and chooses its own space (sent as `X-Me-Space`).
+
+The migration runbook for moving the hosted UI to its own subdomain
+(`app.memory.build`) lives in `DEVELOPMENT.md` → "Hosted web UI".
+
+**Decisions:**
+
+1. **The server process serves the UI itself** (not a separate static
+   origin/CDN), mirroring how `me serve` already works. Served from **root `/`**
+   so the Vite `base` stays `"/"` and one build works in both modes; routing is
+   explicit (`router.ts`): unknown `/api/*` → JSON 404, any other GET/HEAD → the
+   static resolver (`packages/server/web/static.ts`, asset → file, else SPA
+   `index.html`). Built `dist` ships in the server image (multi-stage
+   `Dockerfile`); `WEB_DIST` points at it.
+
+2. **Same-origin for now (`api.memory.build`), no CORS.** The design avoids
+   baking in the origin: host-only cookie (no `Domain`), web client uses
+   `url: ""`, allowed origins + OAuth redirect URI come from config — so the
+   `app.memory.build` move is config + ingress only, no app code.
+
+3. **httpOnly cookie carries the existing opaque session token** (a new
+   transport, not a new credential). Read in `extractSessionCredential`
+   (`Authorization` header first — session *or* api key — else the `me_session`
+   cookie, session only). Cookie: `HttpOnly; SameSite=Lax; Path=/`, host-only,
+   `__Host-`-prefixed over HTTPS, unprefixed over local HTTP.
+
+4. **CSRF: an Origin allow-list for cookie-sourced requests only.** Ambient
+   cookie credentials must carry an allowed `Origin` (or `Sec-Fetch-Site:
+   same-origin`); header (Bearer / api-key) credentials are exempt — they can't
+   be forged cross-site. `SameSite=Lax` + this check is the defense; no CORS is
+   added (same-origin).
+
+5. **Mode detection keeps `me serve` untouched.** The hosted server injects
+   `window.__ME_BOOTSTRAP__ = { mode: "hosted" }` into `index.html`; the app
+   defaults to local when it's absent, so `me serve` and the Vite dev server
+   need no changes.
+
+6. **Browser-login OAuth state lives in the `verifications` table, not
+   `device_authorization`.** This is the better-auth home for social-login state
+   (`verifications` was already present, unused, kept for parity) and keeps the
+   RFC 8628 device table clean. The OAuth callback consumes the state up front:
+   a `verifications` hit → browser flow (mint session, set cookie, 302 to the
+   stashed same-origin redirect); a miss → the existing device-flow consent path,
+   unchanged. (No schema migration: the `verifications` table already existed, and
+   idempotent SQL functions are re-applied on every boot — see `runSchemaMigrations`,
+   whose version-skip is intentionally disabled — so the new functions ship
+   without an `AUTH_SCHEMA_VERSION` bump, which would only trip the downgrade guard
+   and block safe rollbacks.)
+
+**Deliberately NOT adopted (better-auth divergences, kept):** signed cookies +
+raw-token storage — we keep the documented hashed-session model
+(`003_sessions.sql`); a tampered high-entropy token simply fails the hash
+lookup. PKCE is absent from both the device and browser flows (the client is
+confidential — the server holds the secret); a worthwhile follow-up for both,
+out of scope here.
+
+**Alternatives considered:** (a) a separate static origin/CDN — deferred, it's a
+deploy change not a rewrite; (b) localStorage token + Bearer — rejected, puts the
+token in JS (XSS-exposed); (c) mounting the UI at `/ui/` — rejected, forces a
+per-mount Vite `base` and is the wrong default for the product's main surface.
+
+**How to change it:** server routes in `packages/server/router.ts`; static
+resolver in `packages/server/web/static.ts`; browser-login/logout handlers in
+`packages/server/handlers/auth.ts`; cookie + credential/CSRF helpers in
+`packages/server/util/cookie.ts` + `middleware/authenticate.ts`; web mode +
+clients + gate in `packages/web/src/api/{bootstrap,client}.ts` and
+`components/AuthGate.tsx`. Config: `WEB_DIST`, `WEB_ALLOWED_ORIGINS`, `API_BASE_URL`.
+
+**Status:** implemented (full suite + e2e green; live-smoke verified up to the
+GitHub redirect). The end-to-end OAuth round-trip with real provider credentials
+is the one thing to click through manually before shipping.

@@ -9,7 +9,9 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
+import { HOSTED } from "./api/bootstrap.ts";
 import { App } from "./app.tsx";
+import { AuthGate } from "./components/AuthGate.tsx";
 import "./styles.css";
 
 const queryClient = new QueryClient({
@@ -30,7 +32,13 @@ if (!rootElement) {
 createRoot(rootElement).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>
-      <App />
+      {HOSTED ? (
+        <AuthGate>
+          <App />
+        </AuthGate>
+      ) : (
+        <App />
+      )}
     </QueryClientProvider>
   </StrictMode>,
 );

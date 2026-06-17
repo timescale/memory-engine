@@ -22,6 +22,14 @@ export interface ServerContext {
   embeddingConfig: EmbeddingConfig;
   /** Base URL for API callbacks (e.g., "https://memory.build") */
   apiBaseUrl: string;
+  /** Directory of the built web UI to serve (static assets + SPA fallback). */
+  webDist: string;
+  /**
+   * Origins allowed to make cookie-authenticated requests (the CSRF gate for
+   * the browser-login session cookie). Always includes the public origin
+   * derived from `apiBaseUrl`.
+   */
+  webAllowedOrigins: string[];
   /** Application version for migration tracking */
   serverVersion: string;
   /** Oldest CLIENT_VERSION this server will accept. */

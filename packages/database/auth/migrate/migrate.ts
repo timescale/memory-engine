@@ -22,6 +22,9 @@ import idempotent003 from "./idempotent/003_account.sql" with { type: "text" };
 import idempotent004 from "./idempotent/004_device_auth.sql" with {
   type: "text",
 };
+import idempotent005 from "./idempotent/005_verification.sql" with {
+  type: "text",
+};
 import incremental001 from "./incremental/001_users.sql" with { type: "text" };
 import incremental002 from "./incremental/002_accounts.sql" with {
   type: "text",
@@ -87,6 +90,11 @@ const idempotents: Migration[] = [
     name: "004_device_auth",
     file: "idempotent/004_device_auth.sql",
     sql: idempotent004,
+  },
+  {
+    name: "005_verification",
+    file: "idempotent/005_verification.sql",
+    sql: idempotent005,
   },
 ];
 

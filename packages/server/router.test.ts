@@ -24,6 +24,8 @@ function createMockContext(): ServerContext {
       apiKey: "test-key",
     } as EmbeddingConfig,
     apiBaseUrl: "https://test.example.com",
+    webDist: "packages/web/dist",
+    webAllowedOrigins: ["https://test.example.com"],
     serverVersion: SERVER_VERSION,
     minClientVersion: MIN_CLIENT_VERSION,
   };
@@ -166,14 +168,40 @@ describe("matchRoute", () => {
 });
 
 describe("handleRequest", () => {
-  test("returns 404 for unmatched routes", async () => {
+  test("returns JSON 404 for unknown /api/* routes", async () => {
     const ctx = createMockContext();
     const router = createRouter(ctx);
 
-    const request = new Request("http://localhost/nonexistent");
+    const request = new Request("http://localhost/api/v1/nope");
     const response = await router.handleRequest(request);
 
     expect(response.status).toBe(404);
+    expect(response.headers.get("Content-Type")).toContain("application/json");
+  });
+
+  test("serves the SPA for a non-API GET (client-side route)", async () => {
+    const ctx = createMockContext();
+    const router = createRouter(ctx);
+
+    // No build is present in unit tests, so the static handler returns its
+    // placeholder index — the point is it's served (200 HTML), not a 404.
+    const request = new Request("http://localhost/some/app/route");
+    const response = await router.handleRequest(request);
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("Content-Type")).toContain("text/html");
+  });
+
+  test("returns 405 for a non-GET on a non-API path", async () => {
+    const ctx = createMockContext();
+    const router = createRouter(ctx);
+
+    const request = new Request("http://localhost/some/route", {
+      method: "DELETE",
+    });
+    const response = await router.handleRequest(request);
+
+    expect(response.status).toBe(405);
   });
 
   test("handles health check", async () => {

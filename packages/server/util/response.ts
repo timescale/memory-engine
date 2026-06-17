@@ -46,6 +46,20 @@ export function html(body: string, status = 200, csp = DEFAULT_CSP): Response {
 }
 
 /**
+ * Create a redirect (302 by default). Pass `setCookie` to attach a `Set-Cookie`
+ * header (used by the browser-login callback / logout to manage the session
+ * cookie on the redirect response).
+ */
+export function redirect(
+  location: string,
+  opts: { status?: number; setCookie?: string } = {},
+): Response {
+  const headers: Record<string, string> = { Location: location };
+  if (opts.setCookie) headers["Set-Cookie"] = opts.setCookie;
+  return new Response(null, { status: opts.status ?? 302, headers });
+}
+
+/**
  * Create an error response with JSON body.
  */
 export function error(

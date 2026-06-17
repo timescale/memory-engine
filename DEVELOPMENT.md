@@ -426,6 +426,67 @@ per-schema advisory lock.
 Rolling back to an older server image trips the downgrade guard in the
 migration runners (stamped schema version newer than the app's) — by design.
 
+## Hosted web UI
+
+The web UI (`packages/web`) runs in two modes from a **single build**:
+
+- **local** — served by `me serve`, which proxies a same-origin `/rpc` and
+  injects the session token + active space. The browser carries no credentials.
+- **hosted** — served by the API server itself (same-origin). The browser
+  authenticates with an **httpOnly session cookie** and picks its own space.
+
+The hosted server serves the built UI from **root `/`** (the server reads it from
+`WEB_DIST`, default `packages/web/dist`; the multi-stage `packages/server/Dockerfile`
+builds it and copies `dist` into the image). Routing is explicit: an unknown
+`/api/*` path returns a JSON 404; any other GET/HEAD is served by the static
+resolver (asset → file, else the SPA `index.html`). The server injects
+`window.__ME_BOOTSTRAP__ = { mode: "hosted" }` into `index.html` so the same
+build knows it's hosted — `me serve` and the Vite dev server inject nothing and
+stay local, so neither is affected.
+
+Browser auth reuses the existing opaque session token, carried in the cookie
+instead of an `Authorization` header. Login is a full-page redirect:
+`GET /api/v1/auth/login/:provider` → OAuth → the callback mints a session, sets
+the cookie, and 302s back into the app; `POST /api/v1/auth/logout` clears it.
+Cookie-authenticated requests must carry an allowed `Origin` (CSRF gate); header
+(Bearer / api-key) credentials are exempt.
+
+**Env:**
+
+- `WEB_DIST` — directory of the built UI (default `packages/web/dist`).
+- `WEB_ALLOWED_ORIGINS` — comma-separated extra origins allowed for
+  cookie-authenticated requests. The public origin (from `API_BASE_URL`) is
+  always allowed; use this to permit a second origin during a cutover.
+
+**Local hosted-mode smoke:** build the UI (`cd packages/web && ../../bun run build`),
+then run the server with `API_BASE_URL=http://localhost:3000` +
+`WEB_DIST=packages/web/dist` and open `http://localhost:3000`. (Over plain HTTP
+the cookie name is `me_session`; over HTTPS it's `__Host-me_session`.)
+
+### Moving the hosted UI to `app.memory.build`
+
+The design keeps this to **config + ingress — no application code changes** (the
+cookie is host-only, the web client uses a relative URL, and origins/redirects
+come from config). The two subdomains share the registrable domain
+`memory.build`, so they're the *same site*: `SameSite=Lax` cookies still flow and
+there's no CORS. Steps:
+
+1. **Ingress** (in the `tiger-agents-deploy` helm repo — separate repo): add the
+   `app.memory.build` host and route `/api/*` + `/health` + `/ready` → the
+   memory-engine server Service, and everything else → the server too (it serves
+   the UI). The browser sees a single origin, so it stays same-origin (no CORS).
+2. **Server config:** set `API_BASE_URL=https://app.memory.build` (this drives the
+   OAuth redirect URI and the default allowed origin). During a cutover where
+   both hosts must work, add the other origin via `WEB_ALLOWED_ORIGINS`.
+3. **OAuth providers:** register `https://app.memory.build/api/v1/auth/callback/{github,google}`
+   as authorized redirect URIs in the GitHub / Google app settings.
+
+The cookie is host-only (no `Domain`), so it automatically scopes to whichever
+host serves the page — nothing to change there. If you ever wanted a *different*
+registrable domain (not a `memory.build` subdomain), that's the expensive case
+(`SameSite=None; Secure`, CORS with credentials, third-party-cookie exposure) and
+would likely need a token scheme instead — out of scope for the subdomain move.
+
 ## Troubleshooting
 
 **CLI says "Failed to start device flow: HTTP 405"**
