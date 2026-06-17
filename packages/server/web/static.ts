@@ -64,9 +64,39 @@ export function createStaticHandler(opts: {
 }): StaticHandler {
   const distRoot = resolve(opts.webDist);
   // Escape `<` so a value can never break out of the injected <script> tag.
-  const bootstrapScript = `<script>window.__ME_BOOTSTRAP__ = ${JSON.stringify(
+  const bootstrapInline = `window.__ME_BOOTSTRAP__ = ${JSON.stringify(
     opts.bootstrap,
-  ).replace(/</g, "\\u003c")};</script>`;
+  ).replace(/</g, "\\u003c")};`;
+  const bootstrapScript = `<script>${bootstrapInline}</script>`;
+
+  // Security headers for every served response. The CSP is tuned to the Vite
+  // build + this app's dependencies:
+  // - Scripts: Vite emits only external (hashed) `/assets` scripts, covered by
+  //   `'self'`; the single inline script — our bootstrap — is allow-listed by
+  //   its exact sha256, so we never need `'unsafe-inline'` for scripts.
+  // - `style-src 'unsafe-inline'`: Monaco injects theme `<style>` blocks at
+  //   runtime, and the placeholder page uses markup `style=""` attributes.
+  // - `worker-src 'self' blob:`: Monaco spawns same-origin `/assets` workers,
+  //   with a blob-URL fallback for its cross-origin worker shim.
+  // - `img-src ... https:`: rendered memory markdown may embed remote images.
+  // - `frame-ancestors 'none'` + `X-Frame-Options: DENY` stop clickjacking of
+  //   the authenticated app.
+  const bootstrapHash = new Bun.CryptoHasher("sha256")
+    .update(bootstrapInline)
+    .digest("base64");
+  const CSP = [
+    "default-src 'self'",
+    `script-src 'self' 'sha256-${bootstrapHash}'`,
+    "style-src 'self' 'unsafe-inline'",
+    "img-src 'self' data: https:",
+    "font-src 'self' data:",
+    "connect-src 'self'",
+    "worker-src 'self' blob:",
+    "base-uri 'self'",
+    "object-src 'none'",
+    "form-action 'self'",
+    "frame-ancestors 'none'",
+  ].join("; ");
 
   /** Map a URL path to an absolute file path inside distRoot, or null if it escapes. */
   function fsPathFor(pathname: string): string | null {
@@ -95,6 +125,9 @@ export function createStaticHandler(opts: {
       "Content-Type": contentType,
       "Cache-Control": cacheControl,
       "X-Content-Type-Options": "nosniff",
+      "Content-Security-Policy": CSP,
+      "X-Frame-Options": "DENY",
+      "Referrer-Policy": "same-origin",
     };
     // HEAD: same headers, no body.
     if (request.method === "HEAD")

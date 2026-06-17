@@ -48,6 +48,37 @@ describe("createStaticHandler", () => {
     );
   });
 
+  test("sets clickjacking + CSP security headers, and the CSP hash matches the injected bootstrap", async () => {
+    const res = await get("/");
+    expect(res.headers.get("X-Frame-Options")).toBe("DENY");
+    expect(res.headers.get("Referrer-Policy")).toBe("same-origin");
+    const csp = res.headers.get("Content-Security-Policy") ?? "";
+    expect(csp).toContain("frame-ancestors 'none'");
+    expect(csp).toContain("object-src 'none'");
+    expect(csp).toContain("default-src 'self'");
+    // Monaco spawns same-origin workers with a blob-URL fallback.
+    expect(csp).toContain("worker-src 'self' blob:");
+    // The inline bootstrap must be allow-listed by its exact sha256 (no
+    // 'unsafe-inline' for scripts), so its hash must appear in script-src.
+    expect(csp).not.toContain("script-src 'self' 'unsafe-inline'");
+    const body = await res.text();
+    const inline =
+      body.slice(
+        body.indexOf("<script>") + "<script>".length,
+        body.indexOf("</script>"),
+      ) ?? "";
+    const hash = new Bun.CryptoHasher("sha256").update(inline).digest("base64");
+    expect(csp).toContain(`script-src 'self' 'sha256-${hash}'`);
+  });
+
+  test("security headers are also set on asset responses", async () => {
+    const res = await get("/assets/app-abc123.js");
+    expect(res.headers.get("X-Frame-Options")).toBe("DENY");
+    expect(res.headers.get("Content-Security-Policy")).toContain(
+      "frame-ancestors 'none'",
+    );
+  });
+
   test("serves a hashed asset with an immutable cache header", async () => {
     const res = await get("/assets/app-abc123.js");
     expect(res.status).toBe(200);
