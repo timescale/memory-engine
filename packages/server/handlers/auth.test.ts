@@ -42,8 +42,12 @@ function ctxWith(
     authSchema: "auth",
     coreSchema: "core",
     baseUrl,
+    allowedOrigins: ["https://app.example.com"],
   } as unknown as AuthHandlerContext;
 }
+
+/** Same-origin signal the SPA's fetch carries, so logout passes the CSRF gate. */
+const SAME_ORIGIN = { Origin: "https://app.example.com" };
 
 describe("loginInitiateHandler", () => {
   test("creates a verification (with a browser-binding nonce) and 302s to the provider", async () => {
@@ -115,7 +119,7 @@ describe("logoutHandler", () => {
     const res = await logoutHandler(
       new Request("http://x/api/v1/auth/logout", {
         method: "POST",
-        headers: { Cookie: "__Host-me_session=tok" },
+        headers: { ...SAME_ORIGIN, Cookie: "__Host-me_session=tok" },
       }),
       ctxWith(auth),
     );
@@ -134,11 +138,30 @@ describe("logoutHandler", () => {
   test("no cookie → still 200 + clears, without a delete call", async () => {
     const auth = { deleteSessionByToken: mock(async () => true) };
     const res = await logoutHandler(
-      new Request("http://x/api/v1/auth/logout", { method: "POST" }),
+      new Request("http://x/api/v1/auth/logout", {
+        method: "POST",
+        headers: SAME_ORIGIN,
+      }),
       ctxWith(auth),
     );
     expect(res.status).toBe(200);
     expect(auth.deleteSessionByToken).not.toHaveBeenCalled();
     expect(res.headers.get("Set-Cookie")).toContain("Max-Age=0");
+  });
+
+  test("rejects a cross-origin logout (CSRF gate) without touching the session", async () => {
+    const auth = { deleteSessionByToken: mock(async () => true) };
+    const res = await logoutHandler(
+      new Request("http://x/api/v1/auth/logout", {
+        method: "POST",
+        headers: {
+          Origin: "https://evil.example.com",
+          Cookie: "__Host-me_session=tok",
+        },
+      }),
+      ctxWith(auth),
+    );
+    expect(res.status).toBe(403);
+    expect(auth.deleteSessionByToken).not.toHaveBeenCalled();
   });
 });
