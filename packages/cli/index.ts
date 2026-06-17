@@ -31,7 +31,6 @@ import { createSpaceCommand } from "./commands/space.ts";
 import { createUpgradeCommand } from "./commands/upgrade.ts";
 import { createVersionCommand } from "./commands/version.ts";
 import { createWhoamiCommand } from "./commands/whoami.ts";
-import { createWikipediaCommand } from "./commands/wikipedia.ts";
 import { setExpanded } from "./output.ts";
 
 const SHELLS = ["zsh", "bash", "fish", "powershell"] as const;
@@ -91,9 +90,6 @@ program.addCommand(createCodexCommand());
 
 // Local web UI
 program.addCommand(createServeCommand());
-
-// Dataset imports
-program.addCommand(createWikipediaCommand());
 
 // Pack commands
 program.addCommand(createPackCommand());

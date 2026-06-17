@@ -1,5 +1,5 @@
 /**
- * me wikipedia — import Wikimedia article dumps as memories.
+ * me import wikipedia — import Wikimedia article dumps as memories.
  */
 
 import { existsSync } from "node:fs";
@@ -79,16 +79,8 @@ interface WikipediaImportStats {
   errors: Array<{ source: string; error: string; itemCount?: number }>;
 }
 
-export function createWikipediaCommand(): Command {
-  const wikipedia = new Command("wikipedia").description(
-    "import Wikipedia dumps",
-  );
-  wikipedia.addCommand(createWikipediaImportCommand());
-  return wikipedia;
-}
-
-function createWikipediaImportCommand(): Command {
-  return new Command("import")
+export function createWikipediaImportCommand(name = "wikipedia"): Command {
+  return new Command(name)
     .description("download and import a Wikipedia XML dump as memories")
     .argument(
       "[source]",

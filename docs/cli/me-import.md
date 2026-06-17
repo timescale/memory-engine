@@ -10,6 +10,7 @@ Get data into Memory Engine — one subcommand per source.
 - [me import opencode](#me-import-claude--codex--opencode) -- import OpenCode sessions
 - [me import git](#me-import-git) -- import a repo's git commit history
 - [me import git-hook](#me-import-git-hook) -- install a post-commit hook that keeps git history memories current
+- [me import wikipedia](#me-import-wikipedia) -- download and import a Wikimedia article dump
 
 There is no bare default: `me import <file>` does not parse — use `me import memories <file>`.
 
@@ -162,3 +163,66 @@ me import git >/dev/null 2>&1 &
 The hook lives in `.git/hooks` — per clone, never committed, never pushed. CI checkouts and teammates' clones are unaffected; each clone opts in by running `me import git-hook` itself ([`me claude init`](me-claude.md#me-claude-init) offers it as a setup step).
 
 The import is deliberately silent and best-effort: it never blocks or fails a commit, which also means auth or connectivity problems won't surface at commit time. If history seems stale, run `me import git` manually to see the error — the next successful fire catches everything up.
+
+---
+
+## me import wikipedia
+
+Download and import a Wikimedia article dump. Wikimedia article dumps use the **MediaWiki XML export format**, usually distributed as a **bzip2-compressed** `.xml.bz2` archive such as `enwiki-latest-pages-articles-multistream.xml.bz2`.
+
+```
+me import wikipedia [source] [options]
+```
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `source` | no | Wiki slug (`simplewiki`, `enwiki`), dump URL, or local `.xml` / `.xml.bz2` file. Defaults to `simplewiki`. |
+
+| Option | Description |
+|--------|-------------|
+| `--wiki <wiki>` | Wiki database name when `source` is omitted or a local file (default: `simplewiki`). |
+| `--date <date>` | Dump date for Wikimedia URLs (default: `latest`). |
+| `--dump-kind <kind>` | Wikimedia dump kind (default: `pages-articles-multistream`). |
+| `--cache-dir <dir>` | Directory for downloaded dump archives. |
+| `--force-download` | Redownload even when the cache file exists. |
+| `--download-only` | Download the dump archive and exit. |
+| `--tree-root <path>` | Tree root for imported memories (default: `share.wikipedia`). Accepts `.`/`/`-separated ltree labels with an optional leading `~` for your home root. |
+| `--namespace <n>` | MediaWiki namespace number to import (default: `0`, articles). |
+| `--include-redirects` | Import redirect pages. Redirects are skipped by default. |
+| `--content-mode <mode>` | Content to store: `plain` or `wikitext` (default: `plain`). |
+| `--max-content-bytes <n>` | Truncate each memory content to this many UTF-8 bytes (`0` disables truncation). |
+| `--limit <n>` | Maximum article memories to process after filters. Useful for samples. |
+| `--batch-size <n>` | Memories to buffer before each `memory.batchCreate` (default: `500`). |
+| `--dry-run` | Parse and estimate without writing memories. |
+| `--update-existing` | Update existing deterministic Wikipedia memories instead of skipping them. |
+| `-v, --verbose` | Show per-batch progress output. |
+
+### Examples
+
+```bash
+# Cheap validation run against Simple English Wikipedia
+me import wikipedia --dry-run --limit 1000
+
+# Import Simple English Wikipedia
+me import wikipedia simplewiki
+
+# Import full English Wikipedia
+me import wikipedia enwiki
+
+# Use an already-downloaded archive
+me import wikipedia ~/Downloads/enwiki-latest-pages-articles-multistream.xml.bz2 --wiki enwiki
+
+# Download only
+me import wikipedia enwiki --download-only
+```
+
+### Memory shape
+
+Each imported article becomes one memory:
+
+- `content`: `# Title` followed by either cleaned plain text or raw wikitext.
+- `tree`: `<tree-root>.<primary_category_slug>`, where `primary_category_slug` is the first category in `meta.categories` normalized for ltree, for example `share.wikipedia.relational_databases`. Articles without categories use `share.wikipedia.uncategorized`. The default tree root is `share.wikipedia` so imports land in the shared root every space member can read (members get `owner@share` by default but not `owner@root`).
+- `temporal`: current revision timestamp from the dump.
+- `meta`: source metadata including `source_wiki`, `source_page_id`, `source_revision_id`, `source_title`, `source_url`, `categories`, `primary_category`, `primary_category_slug`, `source_format`, `content_format`, and importer version.
+
+IDs are deterministic per `(wiki, page_id)`, so re-running the same import skips already-created articles instead of duplicating them.

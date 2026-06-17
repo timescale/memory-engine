@@ -8,6 +8,7 @@
  *   me import codex               Codex sessions
  *   me import opencode            OpenCode sessions
  *   me import git [repo]          git commit history
+ *   me import wikipedia [source]  Wikimedia article dumps
  *
  * There is deliberately no bare default: `me import <file>` does not parse.
  * The pre-group spellings stay registered as aliases built from the same
@@ -24,6 +25,7 @@ import {
 import { createGitImportCommand } from "./import-git.ts";
 import { createGitHookCommand } from "./import-git-hook.ts";
 import { createMemoryImportCommand } from "./memory-import.ts";
+import { createWikipediaImportCommand } from "./wikipedia.ts";
 
 export function createImportCommand(): Command {
   const imp = new Command("import").description(
@@ -35,6 +37,7 @@ export function createImportCommand(): Command {
   imp.addCommand(createOpenCodeImportCommand("opencode"));
   imp.addCommand(createGitImportCommand());
   imp.addCommand(createGitHookCommand());
+  imp.addCommand(createWikipediaImportCommand());
   imp.addHelpText(
     "after",
     "\nTo import memory files (the old `me import <file>`), use: me import memories <file>",
