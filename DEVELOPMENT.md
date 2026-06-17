@@ -164,6 +164,9 @@ GITHUB_CLIENT_SECRET=...
 # LOGFIRE_ENVIRONMENT=dev
 ```
 
+Optional runtime database timeout knobs are listed in `.env.sample`. They are
+specified in milliseconds, for example `RPC_DB_STATEMENT_TIMEOUT_MS=30000`.
+
 ### 4. Run setup
 
 ```bash

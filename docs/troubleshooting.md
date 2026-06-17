@@ -53,3 +53,6 @@ These all use code `-32000` but are distinguished by `data.code`:
 | `LAST_ADMIN` | Operation would leave the space with no effective admin | Promote another user/admin group first |
 | `RATE_LIMITED` | Too many requests | Back off and retry after the `Retry-After` header |
 | `VALIDATION_ERROR` | Business logic validation failed | Check the error message for details |
+| `QUERY_TIMEOUT` | A database statement exceeded the server runtime timeout | Retry later or narrow the request |
+| `LOCK_TIMEOUT` | A database statement waited too long for a lock | Retry later |
+| `TRANSACTION_TIMEOUT` | A database transaction exceeded the server runtime timeout | Retry later or report if it persists |
