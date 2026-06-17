@@ -83,7 +83,6 @@ function importerFor(session: ImportedSession | null): Importer {
   return {
     tool: "claude",
     defaultSource: "",
-    // biome-ignore lint/correctness/useYield: empty stub generator
     discoverSessions: async function* () {},
     parseFile: async () => session,
   };

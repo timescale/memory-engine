@@ -27,7 +27,7 @@ export interface TransportConfig {
   token?: string;
   /** Request timeout in milliseconds (default: 30000) */
   timeout: number;
-  /** Maximum retry attempts (default: 3) */
+  /** Default maximum retry attempts (default: 3). Can be overridden per call. */
   retries: number;
   /**
    * Caller's CLIENT_VERSION. When set, sent on every RPC as the
@@ -40,6 +40,11 @@ export interface TransportConfig {
    * the memory endpoint). Merged after the built-in headers.
    */
   headers?: Record<string, string>;
+}
+
+export interface RpcCallOptions {
+  /** Override the configured retry budget for this call. */
+  retries?: number;
 }
 
 // =============================================================================
@@ -79,7 +84,9 @@ export async function rpcCall<TResult>(
   config: TransportConfig,
   method: string,
   params: unknown,
+  options: RpcCallOptions = {},
 ): Promise<TResult> {
+  const retries = options.retries ?? config.retries;
   const id = nextId++;
   const body = JSON.stringify({
     jsonrpc: "2.0",
@@ -105,7 +112,7 @@ export async function rpcCall<TResult>(
 
   let lastError: Error | undefined;
 
-  for (let attempt = 0; attempt <= config.retries; attempt++) {
+  for (let attempt = 0; attempt <= retries; attempt++) {
     // Backoff before retries (not the first attempt)
     if (attempt > 0) {
       const delay = backoff(attempt, lastError);
@@ -126,7 +133,7 @@ export async function rpcCall<TResult>(
       clearTimeout(timeout);
 
       // Retryable HTTP status — retry if attempts remain
-      if (RETRYABLE_STATUSES.has(response.status) && attempt < config.retries) {
+      if (RETRYABLE_STATUSES.has(response.status) && attempt < retries) {
         lastError = new Error(`HTTP ${response.status} ${response.statusText}`);
         // Respect Retry-After header if present
         const retryAfter = parseRetryAfter(response.headers.get("Retry-After"));
@@ -188,7 +195,7 @@ export async function rpcCall<TResult>(
       // Retryable: timeouts and network failures
       lastError = error instanceof Error ? error : new Error(String(error));
 
-      if (attempt >= config.retries) {
+      if (attempt >= retries) {
         throw lastError;
       }
     }

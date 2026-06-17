@@ -88,7 +88,7 @@ export interface MemoryClientOptions {
   space?: string;
   /** Request timeout in milliseconds (default: 30000) */
   timeout?: number;
-  /** Maximum retry attempts for transient failures (default: 3) */
+  /** Maximum retry attempts for read-only calls. Mutating calls are not retried. */
   retries?: number;
   /** CLIENT_VERSION of the caller (sent as X-Client-Version). */
   clientVersion?: string;
@@ -177,49 +177,56 @@ export function createMemoryClient(
     headers: options.space ? { [SPACE_HEADER]: options.space } : undefined,
   };
 
-  function rpc<TResult>(method: string, params: unknown): Promise<TResult> {
+  function readRpc<TResult>(method: string, params: unknown): Promise<TResult> {
     return rpcCall<TResult>(config, method, params);
+  }
+
+  function writeRpc<TResult>(
+    method: string,
+    params: unknown,
+  ): Promise<TResult> {
+    return rpcCall<TResult>(config, method, params, { retries: 0 });
   }
 
   return {
     memory: {
-      create: (p) => rpc("memory.create", p),
-      batchCreate: (p) => rpc("memory.batchCreate", p),
-      get: (p) => rpc("memory.get", p),
-      update: (p) => rpc("memory.update", p),
-      delete: (p) => rpc("memory.delete", p),
-      search: (p) => rpc("memory.search", p),
-      tree: (p) => rpc("memory.tree", p ?? {}),
-      move: (p) => rpc("memory.move", p),
-      deleteTree: (p) => rpc("memory.deleteTree", p),
-      countTree: (p) => rpc("memory.countTree", p),
+      create: (p) => writeRpc("memory.create", p),
+      batchCreate: (p) => writeRpc("memory.batchCreate", p),
+      get: (p) => readRpc("memory.get", p),
+      update: (p) => writeRpc("memory.update", p),
+      delete: (p) => writeRpc("memory.delete", p),
+      search: (p) => readRpc("memory.search", p),
+      tree: (p) => readRpc("memory.tree", p ?? {}),
+      move: (p) => writeRpc("memory.move", p),
+      deleteTree: (p) => writeRpc("memory.deleteTree", p),
+      countTree: (p) => readRpc("memory.countTree", p),
     },
     principal: {
-      list: (p) => rpc("principal.list", p ?? {}),
-      add: (p) => rpc("principal.add", p),
-      remove: (p) => rpc("principal.remove", p),
-      resolve: (p) => rpc("principal.resolve", p),
-      lookup: (p) => rpc("principal.lookup", p),
+      list: (p) => readRpc("principal.list", p ?? {}),
+      add: (p) => writeRpc("principal.add", p),
+      remove: (p) => writeRpc("principal.remove", p),
+      resolve: (p) => readRpc("principal.resolve", p),
+      lookup: (p) => readRpc("principal.lookup", p),
     },
     group: {
-      create: (p) => rpc("group.create", p),
-      list: (p) => rpc("group.list", p ?? {}),
-      rename: (p) => rpc("group.rename", p),
-      delete: (p) => rpc("group.delete", p),
-      addMember: (p) => rpc("group.addMember", p),
-      removeMember: (p) => rpc("group.removeMember", p),
-      listMembers: (p) => rpc("group.listMembers", p),
-      listForMember: (p) => rpc("group.listForMember", p),
+      create: (p) => writeRpc("group.create", p),
+      list: (p) => readRpc("group.list", p ?? {}),
+      rename: (p) => writeRpc("group.rename", p),
+      delete: (p) => writeRpc("group.delete", p),
+      addMember: (p) => writeRpc("group.addMember", p),
+      removeMember: (p) => writeRpc("group.removeMember", p),
+      listMembers: (p) => readRpc("group.listMembers", p),
+      listForMember: (p) => readRpc("group.listForMember", p),
     },
     grant: {
-      set: (p) => rpc("grant.set", p),
-      remove: (p) => rpc("grant.remove", p),
-      list: (p) => rpc("grant.list", p ?? {}),
+      set: (p) => writeRpc("grant.set", p),
+      remove: (p) => writeRpc("grant.remove", p),
+      list: (p) => readRpc("grant.list", p ?? {}),
     },
     invite: {
-      create: (p) => rpc("invite.create", p),
-      list: (p) => rpc("invite.list", p ?? {}),
-      revoke: (p) => rpc("invite.revoke", p),
+      create: (p) => writeRpc("invite.create", p),
+      list: (p) => readRpc("invite.list", p ?? {}),
+      revoke: (p) => writeRpc("invite.revoke", p),
     },
     setToken(token: string) {
       config.token = token;
