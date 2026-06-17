@@ -293,6 +293,9 @@ try {
 | `LAST_ADMIN` | Operation would leave the space with no effective admin |
 | `RATE_LIMITED` | Too many requests |
 | `VALIDATION_ERROR` | Invalid input |
+| `QUERY_TIMEOUT` | Database statement timed out |
+| `LOCK_TIMEOUT` | Database lock wait timed out |
+| `TRANSACTION_TIMEOUT` | Database transaction timed out |
 | `EMBEDDING_NOT_CONFIGURED` | Semantic search without embedding provider |
 | `EMBEDDING_FAILED` | Embedding generation failed |
 | `INTERNAL_ERROR` | Server error |
