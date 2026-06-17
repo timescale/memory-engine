@@ -47,6 +47,8 @@ function createMockContext(overrides?: Partial<ServerContext>): ServerContext {
       apiKey: "test-key",
     } as EmbeddingConfig,
     apiBaseUrl: "https://test.example.com",
+    webDist: "packages/web/dist",
+    webAllowedOrigins: ["https://test.example.com"],
     serverVersion: SERVER_VERSION,
     minClientVersion: MIN_CLIENT_VERSION,
     ...overrides,

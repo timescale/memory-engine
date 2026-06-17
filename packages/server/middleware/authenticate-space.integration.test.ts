@@ -44,6 +44,7 @@ function deps() {
     core: engineCore.coreStore(sql, coreSchema),
     auth: authStore(sql, authSchema),
     db: sql,
+    allowedOrigins: ["https://test.example.com"],
   };
 }
 

@@ -6,6 +6,8 @@ import {
   deviceTokenHandler,
   deviceVerifyGetHandler,
   deviceVerifyPostHandler,
+  loginInitiateHandler,
+  logoutHandler,
   oauthCallbackHandler,
 } from "./handlers/auth";
 import { healthHandler, readyHandler } from "./handlers/health";
@@ -14,7 +16,8 @@ import { authenticateSpace } from "./middleware/authenticate-space";
 import { authenticateUser } from "./middleware/authenticate-user";
 import { checkClientVersion } from "./middleware/client-version";
 import { createRpcHandler, memoryMethods, userMethods } from "./rpc";
-import { notFound } from "./util/response";
+import { methodNotAllowed, notFound } from "./util/response";
+import { createStaticHandler } from "./web/static";
 
 /**
  * Route definition.
@@ -126,6 +129,8 @@ export function createRouter(ctx: ServerContext): Router {
     coreSchema,
     embeddingConfig,
     apiBaseUrl,
+    webDist,
+    webAllowedOrigins,
     serverVersion,
     minClientVersion,
   } = ctx;
@@ -138,6 +143,13 @@ export function createRouter(ctx: ServerContext): Router {
     coreSchema,
     baseUrl: apiBaseUrl,
   };
+
+  // Static web UI (served at root). The bootstrap marks the build as running in
+  // hosted mode — `me serve` injects nothing, so it stays in local mode.
+  const staticHandler = createStaticHandler({
+    webDist,
+    bootstrap: { mode: "hosted" },
+  });
 
   // Wrap an RPC handler with the X-Client-Version check, so requests from
   // too-old clients are rejected before authentication or method dispatch.
@@ -155,7 +167,12 @@ export function createRouter(ctx: ServerContext): Router {
 
   // Memory RPC (new model): authenticate principal + space, provide space context
   const memoryRpcHandler = createRpcHandler(memoryMethods, async (request) => {
-    const result = await authenticateSpace(request, { core, auth, db });
+    const result = await authenticateSpace(request, {
+      core,
+      auth,
+      db,
+      allowedOrigins: webAllowedOrigins,
+    });
     if (!result.ok) {
       return result.error;
     }
@@ -175,7 +192,7 @@ export function createRouter(ctx: ServerContext): Router {
 
   // User RPC (new model): session-only, user-scoped (agent lifecycle)
   const userRpcHandler = createRpcHandler(userMethods, async (request) => {
-    const result = await authenticateUser(request, auth);
+    const result = await authenticateUser(request, auth, webAllowedOrigins);
     if (!result.ok) {
       return result.error;
     }
@@ -247,6 +264,20 @@ export function createRouter(ctx: ServerContext): Router {
       handler: (req, params) => oauthCallbackHandler(req, params, authCtx),
     },
 
+    // Browser (hosted-UI) login - start OAuth, set a session cookie on callback
+    {
+      method: "GET",
+      pattern: "/api/v1/auth/login/:provider",
+      handler: (req, params) => loginInitiateHandler(req, params, authCtx),
+    },
+
+    // Browser (hosted-UI) logout - clear the session cookie
+    {
+      method: "POST",
+      pattern: "/api/v1/auth/logout",
+      handler: (req) => logoutHandler(req, authCtx),
+    },
+
     // Memory RPC (new model: space data-plane + management)
     {
       method: "POST",
@@ -287,17 +318,28 @@ export function createRouter(ctx: ServerContext): Router {
   /**
    * Handle a request by matching it to a route and executing the handler.
    *
-   * @returns Response from handler or 404 if no route matches
+   * When no API route matches, an unknown `/api/*` path returns a JSON 404
+   * (never the SPA), and any other GET/HEAD is served by the static web UI
+   * (asset, else `index.html` for client-side routing). Other methods on a
+   * non-API path are a 405.
    */
   async function handleRequest(request: Request): Promise<Response> {
     const url = new URL(request.url);
     const match = matchRoute(request.method, url.pathname);
 
-    if (!match) {
+    if (match) {
+      return match.route.handler(request, match.params);
+    }
+
+    if (url.pathname.startsWith("/api/")) {
       return notFound();
     }
 
-    return match.route.handler(request, match.params);
+    if (request.method === "GET" || request.method === "HEAD") {
+      return staticHandler.handle(request, url.pathname);
+    }
+
+    return methodNotAllowed(["GET", "HEAD"]);
   }
 
   return { handleRequest, matchRoute };

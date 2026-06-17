@@ -135,6 +135,8 @@ export interface StartServerOptions {
   migrate?: boolean;
   /** Session-level database timeouts for runtime request work, in milliseconds. */
   rpcDbTimeoutsMs?: RpcDbTimeoutsMs;
+  /** Directory of the built web UI to serve. Default WEB_DIST ?? "packages/web/dist". */
+  webDist?: string;
 }
 
 export interface RunningServer {
@@ -211,6 +213,19 @@ export async function startServer(
   if (!apiBaseUrl) {
     throw new Error("API_BASE_URL environment variable is required");
   }
+
+  // Static web UI: the directory to serve, and the origins allowed to make
+  // cookie-authenticated requests (CSRF gate). The public origin (derived from
+  // API_BASE_URL) is always allowed; WEB_ALLOWED_ORIGINS adds extras (e.g. to
+  // permit both api.* and app.* during a cutover).
+  const webDist = opts.webDist ?? process.env.WEB_DIST ?? "packages/web/dist";
+  const webAllowedOrigins = [
+    new URL(apiBaseUrl).origin,
+    ...(process.env.WEB_ALLOWED_ORIGINS ?? "")
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean),
+  ];
 
   const deviceFlowCleanupCron =
     process.env.DEVICE_FLOW_CLEANUP_CRON || "*/15 * * * *";
@@ -390,6 +405,8 @@ export async function startServer(
     coreSchema,
     embeddingConfig,
     apiBaseUrl,
+    webDist,
+    webAllowedOrigins,
     serverVersion: SERVER_VERSION,
     minClientVersion: MIN_CLIENT_VERSION,
   };
@@ -478,6 +495,19 @@ export async function startServer(
             }
           } catch (error) {
             reportError("Failed to cleanup expired sessions", error as Error);
+          }
+          try {
+            const verifications = await auth.cleanupExpiredVerifications();
+            if (verifications > 0) {
+              info("Cleaned up expired verifications", {
+                count: verifications,
+              });
+            }
+          } catch (error) {
+            reportError(
+              "Failed to cleanup expired verifications",
+              error as Error,
+            );
           }
         })
       : null;

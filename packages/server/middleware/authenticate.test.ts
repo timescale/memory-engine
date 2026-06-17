@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { extractBearerToken } from "./authenticate";
+import {
+  extractBearerToken,
+  extractSessionCredential,
+  passesCsrfCheck,
+} from "./authenticate";
 
 describe("extractBearerToken", () => {
   test("extracts token from valid Authorization header", () => {
@@ -26,5 +30,82 @@ describe("extractBearerToken", () => {
       headers: { Authorization: "Bearer" },
     });
     expect(extractBearerToken(request)).toBeNull();
+  });
+
+  test("ignores cookies (header-only)", () => {
+    const request = new Request("http://localhost/test", {
+      headers: { Cookie: "me_session=cookietoken" },
+    });
+    expect(extractBearerToken(request)).toBeNull();
+  });
+});
+
+describe("extractSessionCredential", () => {
+  test("prefers the Authorization header (source=header)", () => {
+    const request = new Request("http://localhost/test", {
+      headers: {
+        Authorization: "Bearer headertoken",
+        Cookie: "me_session=cookietoken",
+      },
+    });
+    expect(extractSessionCredential(request)).toEqual({
+      token: "headertoken",
+      source: "header",
+    });
+  });
+
+  test("falls back to the session cookie (source=cookie)", () => {
+    const request = new Request("http://localhost/test", {
+      headers: { Cookie: "me_session=cookietoken" },
+    });
+    expect(extractSessionCredential(request)).toEqual({
+      token: "cookietoken",
+      source: "cookie",
+    });
+  });
+
+  test("reads the __Host- prefixed cookie name", () => {
+    const request = new Request("http://localhost/test", {
+      headers: { Cookie: "__Host-me_session=secure-token; other=x" },
+    });
+    expect(extractSessionCredential(request)).toEqual({
+      token: "secure-token",
+      source: "cookie",
+    });
+  });
+
+  test("returns null with no credential", () => {
+    const request = new Request("http://localhost/test");
+    expect(extractSessionCredential(request)).toBeNull();
+  });
+});
+
+describe("passesCsrfCheck", () => {
+  const allowed = ["https://app.example.com"];
+
+  test("allows an allowed Origin", () => {
+    const request = new Request("http://localhost/test", {
+      headers: { Origin: "https://app.example.com" },
+    });
+    expect(passesCsrfCheck(request, allowed)).toBe(true);
+  });
+
+  test("rejects a foreign Origin", () => {
+    const request = new Request("http://localhost/test", {
+      headers: { Origin: "https://evil.example.com" },
+    });
+    expect(passesCsrfCheck(request, allowed)).toBe(false);
+  });
+
+  test("rejects a missing Origin without same-site signal", () => {
+    const request = new Request("http://localhost/test");
+    expect(passesCsrfCheck(request, allowed)).toBe(false);
+  });
+
+  test("allows a missing Origin when Sec-Fetch-Site is same-origin", () => {
+    const request = new Request("http://localhost/test", {
+      headers: { "Sec-Fetch-Site": "same-origin" },
+    });
+    expect(passesCsrfCheck(request, allowed)).toBe(true);
   });
 });

@@ -28,7 +28,7 @@ import { SPACE_HEADER } from "@memory.build/protocol/headers";
 import { debug, span } from "@pydantic/logfire-node";
 import type { Sql } from "postgres";
 import { error, forbidden, unauthorized } from "../util/response";
-import { extractBearerToken } from "./authenticate";
+import { extractSessionCredential, passesCsrfCheck } from "./authenticate";
 
 export { SPACE_HEADER };
 
@@ -70,6 +70,8 @@ export interface SpaceAuthDeps {
   auth: AuthStore;
   /** New-model pool — used to bind the per-space data-plane store. */
   db: Sql;
+  /** Origins allowed for cookie-authenticated (browser) requests — CSRF gate. */
+  allowedOrigins: string[];
 }
 
 /**
@@ -91,15 +93,26 @@ async function authenticateSpaceInner(
 ): Promise<SpaceAuthResult> {
   const { core, auth, db } = deps;
 
-  // 1. Bearer token (a session token or an api key).
-  const token = extractBearerToken(request);
-  if (!token) {
-    debug("space auth failed: missing Authorization header");
+  // 1. Credential: an Authorization Bearer (session token or api key), or the
+  //    browser session cookie (session token only).
+  const credential = extractSessionCredential(request);
+  if (!credential) {
+    debug("space auth failed: missing credential");
     return {
       ok: false,
       error: unauthorized("Missing or invalid Authorization header"),
     };
   }
+  // CSRF: an ambient cookie credential must come from an allowed origin. Header
+  // credentials are exempt (they can't be forged cross-site).
+  if (
+    credential.source === "cookie" &&
+    !passesCsrfCheck(request, deps.allowedOrigins)
+  ) {
+    debug("space auth failed: cookie request failed CSRF origin check");
+    return { ok: false, error: forbidden("Cross-origin request rejected") };
+  }
+  const token = credential.token;
 
   // 2. Space slug — always from the X-Me-Space header (uniform for both modes).
   const slug = request.headers.get(SPACE_HEADER);

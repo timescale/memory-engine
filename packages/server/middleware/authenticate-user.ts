@@ -8,8 +8,8 @@
  */
 import type { AuthStore } from "@memory.build/auth";
 import { debug, span } from "@pydantic/logfire-node";
-import { unauthorized } from "../util/response";
-import { extractBearerToken } from "./authenticate";
+import { forbidden, unauthorized } from "../util/response";
+import { extractSessionCredential, passesCsrfCheck } from "./authenticate";
 
 export interface UserAuthContext {
   type: "user";
@@ -24,19 +24,28 @@ export type UserAuthResult =
 export async function authenticateUser(
   request: Request,
   auth: AuthStore,
+  allowedOrigins: string[],
 ): Promise<UserAuthResult> {
   return span("auth.user", {
     attributes: { "auth.type": "user" },
     callback: async () => {
-      const token = extractBearerToken(request);
-      if (!token) {
-        debug("user auth failed: missing Authorization header");
+      const credential = extractSessionCredential(request);
+      if (!credential) {
+        debug("user auth failed: missing credential");
         return {
           ok: false,
           error: unauthorized("Missing or invalid Authorization header"),
         };
       }
-      const session = await auth.validateSession(token);
+      // CSRF: ambient cookie credentials must come from an allowed origin.
+      if (
+        credential.source === "cookie" &&
+        !passesCsrfCheck(request, allowedOrigins)
+      ) {
+        debug("user auth failed: cookie request failed CSRF origin check");
+        return { ok: false, error: forbidden("Cross-origin request rejected") };
+      }
+      const session = await auth.validateSession(credential.token);
       if (!session) {
         debug("user auth failed: invalid or expired session");
         return { ok: false, error: unauthorized("Invalid or expired session") };

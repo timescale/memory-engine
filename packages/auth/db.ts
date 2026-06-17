@@ -51,6 +51,8 @@ export interface AuthStore {
   ): Promise<CreatedSession>;
   validateSession(token: string): Promise<ValidatedSession | null>;
   deleteSession(id: string): Promise<boolean>;
+  /** Logout: delete a session by its raw token (hashed here), not its id. */
+  deleteSessionByToken(token: string): Promise<boolean>;
   deleteSessionsByUser(userId: string): Promise<number>;
   cleanupExpiredSessions(): Promise<number>;
 
@@ -83,6 +85,19 @@ export interface AuthStore {
   denyDevice(deviceCode: string): Promise<boolean>;
   deleteDevice(deviceCode: string): Promise<boolean>;
   deleteExpiredDevices(): Promise<number>;
+
+  /**
+   * Browser OAuth-login state (better-auth `verification`): store a short-lived
+   * identifier → value (the OAuth `state` → JSON payload), with an expiry.
+   */
+  createVerification(
+    identifier: string,
+    value: string,
+    expiresAt: Date,
+  ): Promise<void>;
+  /** Delete-on-read: the value for an unexpired identifier, or null. */
+  consumeVerification(identifier: string): Promise<string | null>;
+  cleanupExpiredVerifications(): Promise<number>;
 
   withTransaction<T>(fn: (db: AuthStore) => Promise<T>): Promise<T>;
 }
@@ -188,6 +203,13 @@ export function authStore(sql: Sql, schema: string = AUTH_SCHEMA): AuthStore {
       return Boolean(row?.ok);
     },
 
+    async deleteSessionByToken(token) {
+      const tokenHash = hashSessionToken(token);
+      const [row] = await sql`
+        select ${sch}.delete_session_by_hash(${tokenHash}) as ok`;
+      return Boolean(row?.ok);
+    },
+
     async deleteSessionsByUser(userId) {
       const [row] = await sql`
         select ${sch}.delete_sessions_by_user(${userId}) as n`;
@@ -287,6 +309,23 @@ export function authStore(sql: Sql, schema: string = AUTH_SCHEMA): AuthStore {
 
     async deleteExpiredDevices() {
       const [row] = await sql`select ${sch}.delete_expired_devices() as n`;
+      return Number(row?.n);
+    },
+
+    async createVerification(identifier, value, expiresAt) {
+      await sql`
+        select ${sch}.create_verification(${identifier}, ${value}, ${expiresAt})`;
+    },
+
+    async consumeVerification(identifier) {
+      const [row] = await sql`
+        select * from ${sch}.consume_verification(${identifier})`;
+      return (row?.value as string | undefined) ?? null;
+    },
+
+    async cleanupExpiredVerifications() {
+      const [row] = await sql`
+        select ${sch}.cleanup_expired_verifications() as n`;
       return Number(row?.n);
     },
 

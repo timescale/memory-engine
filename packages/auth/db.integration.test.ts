@@ -138,6 +138,37 @@ test("device flow: create → lookup (normalized code) → poll → authorize", 
   expect(poll.userId).toBe(id);
 });
 
+test("verifications: create → consume (delete-on-read), miss, and expiry", async () => {
+  const state = crypto.randomUUID();
+  const value = JSON.stringify({ provider: "github", redirectTo: "/" });
+  await db.createVerification(state, value, new Date(Date.now() + 60_000));
+
+  // First consume returns the value...
+  expect(await db.consumeVerification(state)).toBe(value);
+  // ...and deletes it (single use) — a replay is a miss.
+  expect(await db.consumeVerification(state)).toBeNull();
+
+  // Unknown identifier → null.
+  expect(await db.consumeVerification(crypto.randomUUID())).toBeNull();
+
+  // Expired rows are never returned, and are reclaimed by the cleanup sweep.
+  const expired = crypto.randomUUID();
+  await db.createVerification(expired, "v", new Date(Date.now() - 1000));
+  expect(await db.consumeVerification(expired)).toBeNull();
+  expect(await db.cleanupExpiredVerifications()).toBeGreaterThanOrEqual(1);
+});
+
+test("deleteSessionByToken invalidates a session by its raw token (logout)", async () => {
+  const id = await db.createUser(email(), "Logout");
+  const { token } = await db.createSession(id);
+  expect(await db.validateSession(token)).not.toBeNull();
+
+  expect(await db.deleteSessionByToken(token)).toBe(true);
+  expect(await db.validateSession(token)).toBeNull();
+  // Already gone → false (idempotent).
+  expect(await db.deleteSessionByToken(token)).toBe(false);
+});
+
 test("withTransaction rolls back on error", async () => {
   const e = email();
   await expect(

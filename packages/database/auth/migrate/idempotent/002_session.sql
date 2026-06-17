@@ -79,6 +79,22 @@ set search_path to pg_catalog, {{schema}}, public, pg_temp
 ;
 
 -------------------------------------------------------------------------------
+-- delete_session_by_hash (logout: the caller holds the raw token from the
+-- session cookie, not the session id, so delete by token hash)
+-------------------------------------------------------------------------------
+create or replace function {{schema}}.delete_session_by_hash(_token_hash bytea)
+returns bool
+as $func$
+  with d as
+  (
+    delete from {{schema}}.sessions where token_hash = _token_hash returning 1
+  )
+  select exists (select 1 from d)
+$func$ language sql volatile security invoker
+set search_path to pg_catalog, {{schema}}, public, pg_temp
+;
+
+-------------------------------------------------------------------------------
 -- delete_sessions_by_user (revoke all)
 -------------------------------------------------------------------------------
 create or replace function {{schema}}.delete_sessions_by_user(_user_id uuid)

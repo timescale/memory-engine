@@ -42,6 +42,8 @@ function createMockContext(): ServerContext {
       apiKey: "test-key",
     } as EmbeddingConfig,
     apiBaseUrl: "https://test.example.com",
+    webDist: "packages/web/dist",
+    webAllowedOrigins: ["https://test.example.com"],
     serverVersion: SERVER_VERSION,
     minClientVersion: MIN_CLIENT_VERSION,
   };
@@ -99,21 +101,24 @@ describe("server integration", () => {
     });
   });
 
-  describe("404 handling", () => {
-    test("unknown path returns 404", async () => {
-      const response = await fetch(`${baseUrl}/unknown`);
+  describe("static + 404 handling", () => {
+    test("unknown /api/* path returns a JSON 404", async () => {
+      const response = await fetch(`${baseUrl}/api/v1/unknown`);
       expect(response.status).toBe(404);
-    });
-
-    test("root path returns 404", async () => {
-      const response = await fetch(`${baseUrl}/`);
-      expect(response.status).toBe(404);
-    });
-
-    test("404 response has correct body", async () => {
-      const response = await fetch(`${baseUrl}/unknown`);
       const body = (await response.json()) as { error: { code: string } };
       expect(body.error.code).toBe("NOT_FOUND");
+    });
+
+    test("a non-API path serves the SPA (200 HTML)", async () => {
+      const response = await fetch(`${baseUrl}/some/app/route`);
+      expect(response.status).toBe(200);
+      expect(response.headers.get("Content-Type")).toContain("text/html");
+    });
+
+    test("root path serves the SPA (200 HTML)", async () => {
+      const response = await fetch(`${baseUrl}/`);
+      expect(response.status).toBe(200);
+      expect(response.headers.get("Content-Type")).toContain("text/html");
     });
   });
 
