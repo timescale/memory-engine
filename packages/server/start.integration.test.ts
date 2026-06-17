@@ -118,11 +118,11 @@ beforeAll(async () => {
     workerIdleDelayMs: 250,
     workerRefreshIntervalMs: 500,
     enableCleanupCron: false,
-    rpcDbTimeouts: {
-      statementTimeout: 12_345,
-      lockTimeout: 5_432,
-      transactionTimeout: 23_456,
-      idleInTransactionSessionTimeout: 34_567,
+    rpcDbTimeoutsMs: {
+      statementTimeoutMs: 12_345,
+      lockTimeoutMs: 5_432,
+      transactionTimeoutMs: 23_456,
+      idleInTransactionSessionTimeoutMs: 34_567,
     },
     // migrate defaults to true — startServer migrates the isolated schemas
     // and re-migrates the pre-existing space.

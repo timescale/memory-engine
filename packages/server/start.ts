@@ -31,18 +31,18 @@ import { checkSizeLimit } from "./middleware";
 import { createRouter } from "./router";
 import { internalError } from "./util/response";
 
-interface RpcDbTimeouts {
-  statementTimeout: number;
-  lockTimeout: number;
-  transactionTimeout: number;
-  idleInTransactionSessionTimeout: number;
+interface RpcDbTimeoutsMs {
+  statementTimeoutMs: number;
+  lockTimeoutMs: number;
+  transactionTimeoutMs: number;
+  idleInTransactionSessionTimeoutMs: number;
 }
 
-const DEFAULT_RPC_DB_TIMEOUTS: RpcDbTimeouts = {
-  statementTimeout: 30_000,
-  lockTimeout: 5_000,
-  transactionTimeout: 35_000,
-  idleInTransactionSessionTimeout: 35_000,
+const DEFAULT_RPC_DB_TIMEOUTS_MS: RpcDbTimeoutsMs = {
+  statementTimeoutMs: 30_000,
+  lockTimeoutMs: 5_000,
+  transactionTimeoutMs: 35_000,
+  idleInTransactionSessionTimeoutMs: 35_000,
 };
 
 /**
@@ -134,7 +134,7 @@ export interface StartServerOptions {
   /** Run bootstrap + migrate on boot. Default true. */
   migrate?: boolean;
   /** Session-level database timeouts for runtime request work, in milliseconds. */
-  rpcDbTimeouts?: RpcDbTimeouts;
+  rpcDbTimeoutsMs?: RpcDbTimeoutsMs;
 }
 
 export interface RunningServer {
@@ -281,26 +281,26 @@ export async function startServer(
       process.env.WORKER_DB_IDLE_IN_TRANSACTION_SESSION_TIMEOUT ??
       DEFAULT_WORKER_TIMEOUTS.idleInTransactionSessionTimeout,
   };
-  const rpcDbTimeouts: RpcDbTimeouts = opts.rpcDbTimeouts ?? {
-    statementTimeout: parseIntEnv(
-      "RPC_DB_STATEMENT_TIMEOUT",
-      process.env.RPC_DB_STATEMENT_TIMEOUT || "",
-      String(DEFAULT_RPC_DB_TIMEOUTS.statementTimeout),
+  const rpcDbTimeoutsMs: RpcDbTimeoutsMs = opts.rpcDbTimeoutsMs ?? {
+    statementTimeoutMs: parseIntEnv(
+      "RPC_DB_STATEMENT_TIMEOUT_MS",
+      process.env.RPC_DB_STATEMENT_TIMEOUT_MS || "",
+      String(DEFAULT_RPC_DB_TIMEOUTS_MS.statementTimeoutMs),
     ),
-    lockTimeout: parseIntEnv(
-      "RPC_DB_LOCK_TIMEOUT",
-      process.env.RPC_DB_LOCK_TIMEOUT || "",
-      String(DEFAULT_RPC_DB_TIMEOUTS.lockTimeout),
+    lockTimeoutMs: parseIntEnv(
+      "RPC_DB_LOCK_TIMEOUT_MS",
+      process.env.RPC_DB_LOCK_TIMEOUT_MS || "",
+      String(DEFAULT_RPC_DB_TIMEOUTS_MS.lockTimeoutMs),
     ),
-    transactionTimeout: parseIntEnv(
-      "RPC_DB_TRANSACTION_TIMEOUT",
-      process.env.RPC_DB_TRANSACTION_TIMEOUT || "",
-      String(DEFAULT_RPC_DB_TIMEOUTS.transactionTimeout),
+    transactionTimeoutMs: parseIntEnv(
+      "RPC_DB_TRANSACTION_TIMEOUT_MS",
+      process.env.RPC_DB_TRANSACTION_TIMEOUT_MS || "",
+      String(DEFAULT_RPC_DB_TIMEOUTS_MS.transactionTimeoutMs),
     ),
-    idleInTransactionSessionTimeout: parseIntEnv(
-      "RPC_DB_IDLE_IN_TRANSACTION_SESSION_TIMEOUT",
-      process.env.RPC_DB_IDLE_IN_TRANSACTION_SESSION_TIMEOUT || "",
-      String(DEFAULT_RPC_DB_TIMEOUTS.idleInTransactionSessionTimeout),
+    idleInTransactionSessionTimeoutMs: parseIntEnv(
+      "RPC_DB_IDLE_IN_TRANSACTION_SESSION_TIMEOUT_MS",
+      process.env.RPC_DB_IDLE_IN_TRANSACTION_SESSION_TIMEOUT_MS || "",
+      String(DEFAULT_RPC_DB_TIMEOUTS_MS.idleInTransactionSessionTimeoutMs),
     ),
   };
 
@@ -364,11 +364,11 @@ export async function startServer(
     onnotice: () => {},
     connection: {
       application_name: "me-api",
-      statement_timeout: rpcDbTimeouts.statementTimeout,
-      lock_timeout: rpcDbTimeouts.lockTimeout,
-      transaction_timeout: rpcDbTimeouts.transactionTimeout,
+      statement_timeout: rpcDbTimeoutsMs.statementTimeoutMs,
+      lock_timeout: rpcDbTimeoutsMs.lockTimeoutMs,
+      transaction_timeout: rpcDbTimeoutsMs.transactionTimeoutMs,
       idle_in_transaction_session_timeout:
-        rpcDbTimeouts.idleInTransactionSessionTimeout,
+        rpcDbTimeoutsMs.idleInTransactionSessionTimeoutMs,
     },
   });
 
