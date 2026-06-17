@@ -83,3 +83,9 @@ COPY packages/worker/ packages/worker/
 
 # The built web UI (served at WEB_DIST, default packages/web/dist).
 COPY --from=web-builder /app/packages/web/dist packages/web/dist
+
+# Drop privileges: run the server as the base image's non-root `bun` user. All
+# root-only build steps (install + COPY) are done above; the runtime only reads
+# these files and connects out to Postgres, so non-root suffices. Files copied
+# as root are world-readable, so `bun` can read them.
+USER bun
