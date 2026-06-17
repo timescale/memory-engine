@@ -22,6 +22,7 @@ import {
   columnType,
   connect,
   expectReject,
+  getIndexDef,
   getIndexReloptions,
   getSchemaVersion,
   listFunctions,
@@ -37,7 +38,11 @@ import {
 
 const EXPECTED_TABLES = ["embedding_queue", "memory", "migration", "version"];
 
-const EXPECTED_MIGRATIONS = ["001_memory", "002_embedding_queue"];
+const EXPECTED_MIGRATIONS = [
+  "001_memory",
+  "002_embedding_queue",
+  "003_embedding_fk_idx",
+];
 
 const EXPECTED_MEMORY_FUNCTIONS = [
   "batch_create_memory",
@@ -170,6 +175,18 @@ describe("provisioned space schema", () => {
     for (const idx of EXPECTED_MEMORY_INDEXES) {
       expect(indexes).toContain(idx);
     }
+  });
+
+  test("creates the embedding queue memory_id index", async () => {
+    const indexes = await listIndexes(sql, canonical.schema, "embedding_queue");
+    expect(indexes).toContain("embedding_queue_memory_id_idx");
+
+    const def = await getIndexDef(
+      sql,
+      canonical.schema,
+      "embedding_queue_memory_id_idx",
+    );
+    expect(def).toContain("(memory_id)");
   });
 
   test("memory.embedding defaults to halfvec(1536)", async () => {

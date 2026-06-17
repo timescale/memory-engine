@@ -23,6 +23,9 @@ import incremental001 from "./incremental/001_memory.sql" with { type: "text" };
 import incremental002 from "./incremental/002_embedding_queue.sql" with {
   type: "text",
 };
+import incremental003 from "./incremental/003_embedding_fk_idx.sql" with {
+  type: "text",
+};
 import provisionSql from "./provision.sql" with { type: "text" };
 
 const DIR = "packages/database/space/migrate";
@@ -37,6 +40,11 @@ const incrementals: Migration[] = [
     name: "002_embedding_queue",
     file: "incremental/002_embedding_queue.sql",
     sql: incremental002,
+  },
+  {
+    name: "003_embedding_fk_idx",
+    file: "incremental/003_embedding_fk_idx.sql",
+    sql: incremental003,
   },
 ];
 
