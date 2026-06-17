@@ -45,7 +45,7 @@ export interface UserClientOptions {
   token?: string;
   /** Request timeout in milliseconds (default: 30000) */
   timeout?: number;
-  /** Maximum retry attempts for transient failures (default: 3) */
+  /** Maximum retry attempts for read-only calls. Mutating calls are not retried. */
   retries?: number;
   /** CLIENT_VERSION of the caller (sent as X-Client-Version). */
   clientVersion?: string;
@@ -97,29 +97,36 @@ export function createUserClient(options: UserClientOptions = {}): UserClient {
     clientVersion: options.clientVersion,
   };
 
-  function rpc<TResult>(method: string, params: unknown): Promise<TResult> {
+  function readRpc<TResult>(method: string, params: unknown): Promise<TResult> {
     return rpcCall<TResult>(config, method, params);
   }
 
+  function writeRpc<TResult>(
+    method: string,
+    params: unknown,
+  ): Promise<TResult> {
+    return rpcCall<TResult>(config, method, params, { retries: 0 });
+  }
+
   return {
-    whoami: (p) => rpc("whoami", p ?? {}),
+    whoami: (p) => readRpc("whoami", p ?? {}),
     agent: {
-      create: (p) => rpc("agent.create", p),
-      list: (p) => rpc("agent.list", p ?? {}),
-      rename: (p) => rpc("agent.rename", p),
-      delete: (p) => rpc("agent.delete", p),
+      create: (p) => writeRpc("agent.create", p),
+      list: (p) => readRpc("agent.list", p ?? {}),
+      rename: (p) => writeRpc("agent.rename", p),
+      delete: (p) => writeRpc("agent.delete", p),
     },
     apiKey: {
-      create: (p) => rpc("apiKey.create", p),
-      list: (p) => rpc("apiKey.list", p),
-      get: (p) => rpc("apiKey.get", p),
-      delete: (p) => rpc("apiKey.delete", p),
+      create: (p) => writeRpc("apiKey.create", p),
+      list: (p) => readRpc("apiKey.list", p),
+      get: (p) => readRpc("apiKey.get", p),
+      delete: (p) => writeRpc("apiKey.delete", p),
     },
     space: {
-      list: (p) => rpc("space.list", p ?? {}),
-      create: (p) => rpc("space.create", p),
-      rename: (p) => rpc("space.rename", p),
-      delete: (p) => rpc("space.delete", p),
+      list: (p) => readRpc("space.list", p ?? {}),
+      create: (p) => writeRpc("space.create", p),
+      rename: (p) => writeRpc("space.rename", p),
+      delete: (p) => writeRpc("space.delete", p),
     },
     setToken(token: string) {
       config.token = token;

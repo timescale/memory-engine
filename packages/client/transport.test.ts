@@ -84,3 +84,34 @@ describe("rpcCall — X-Client-Version header", () => {
     expect(captured.headers.Authorization).toBe("Bearer secret");
   });
 });
+
+describe("rpcCall — retries", () => {
+  test("per-call retry override suppresses configured retries", async () => {
+    let calls = 0;
+    globalThis.fetch = (async (
+      _input: string | URL | Request,
+      _init?: RequestInit,
+    ) => {
+      calls++;
+      return new Response(
+        JSON.stringify({ jsonrpc: "2.0", id: 1, result: { ok: true } }),
+        { status: 500, headers: { "Content-Type": "application/json" } },
+      );
+    }) as typeof fetch;
+
+    let error: unknown;
+    try {
+      await rpcCall<{ ok: boolean }>(
+        { ...baseConfig, retries: 3 },
+        "memory.deleteTree",
+        {},
+        { retries: 0 },
+      );
+    } catch (caught) {
+      error = caught;
+    }
+
+    expect(error).toBeInstanceOf(Error);
+    expect(calls).toBe(1);
+  });
+});
