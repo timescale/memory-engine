@@ -497,6 +497,7 @@ async function memoryCountTree(
       treeAccess,
       { tree: inputTreePath(ctx, params.tree) },
       ACCESS.read,
+      params.maxCount,
     ),
   );
   return { count };
