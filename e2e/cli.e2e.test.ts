@@ -298,7 +298,50 @@ describe.skipIf(
     expect(capped.count).toBe(1);
   });
 
-  test("2c. memory move previews and relocates a subtree", async () => {
+  test("2c. memory copy previews and duplicates a subtree", async () => {
+    const base = `share.copyprobe${rand()}`;
+    const src = `${base}.src`;
+    const dst = `${base}.dst`;
+
+    const first = await meJson<{ id: string }>([
+      "create",
+      "copy probe one",
+      "--tree",
+      `${src}.one`,
+    ]);
+    await meJson(["create", "copy probe two", "--tree", `${src}.two`]);
+    await meJson(["create", "copy probe keep", "--tree", `${base}.keep`]);
+
+    const dry = await meJson<{ count: number; dryRun?: boolean }>([
+      "memory",
+      "copy",
+      src,
+      dst,
+      "--dry-run",
+    ]);
+    expect(dry.count).toBe(2);
+    expect(dry.dryRun).toBe(true);
+    expect(await countUnder(src)).toBe(2);
+    expect(await countUnder(dst)).toBe(0);
+    expect(await countUnder(`${base}.keep`)).toBe(1);
+
+    const copied = await meJson<{ count: number }>([
+      "memory",
+      "copy",
+      src,
+      dst,
+      "--yes",
+    ]);
+    expect(copied.count).toBe(2);
+    expect(await countUnder(src)).toBe(2);
+    expect(await countUnder(dst)).toBe(2);
+    expect(await countUnder(`${base}.keep`)).toBe(1);
+
+    const fetched = await meJson<{ tree: string }>(["memory", "get", first.id]);
+    expect(fetched.tree).toBe(`${src}.one`);
+  });
+
+  test("2d. memory move previews and relocates a subtree", async () => {
     const base = `share.moveprobe${rand()}`;
     const src = `${base}.src`;
     const dst = `${base}.dst`;
@@ -341,7 +384,7 @@ describe.skipIf(
     expect(fetched.tree).toBe(`${dst}.one`);
   });
 
-  test("2d. export alias writes matching memories as JSON", async () => {
+  test("2e. export alias writes matching memories as JSON", async () => {
     const branch = `share.exportprobe${rand()}`;
     await meJson(["create", "export probe one", "--tree", `${branch}.one`]);
     await meJson(["create", "export probe two", "--tree", `${branch}.two`]);

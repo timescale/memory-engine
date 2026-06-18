@@ -157,6 +157,7 @@ Once connected, the agent has access to:
 | `me_memory_delete` | Delete a memory |
 | `me_memory_delete_tree` | Bulk delete by tree prefix |
 | `me_memory_count` | Count memories matching a tree filter |
+| `me_memory_copy` | Copy memories between tree paths |
 | `me_memory_mv` | Move memories between tree paths |
 | `me_memory_tree` | View the tree structure |
 | `me_memory_import` | Bulk import from file or content |

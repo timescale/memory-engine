@@ -14,6 +14,7 @@ Memories are the core data type in Memory Engine. Each memory has content, optio
 - [me memory edit](#me-memory-edit) -- open a memory in your editor
 - [me memory count](#me-memory-count) -- count memories matching a tree filter
 - [me memory tree](#me-memory-tree) -- show tree structure
+- [me memory copy](#me-memory-copy) -- copy memories between tree paths
 - [me memory move](#me-memory-move) -- move memories between tree paths
 - [me memory import](#me-memory-import) -- import from files or stdin
 - [me memory export](#me-memory-export) -- export with filters
@@ -213,6 +214,35 @@ me memory tree [filter] [options]
 | `--levels <n>` | Max depth to display. |
 
 Renders the tree with box-drawing characters, showing memory counts at each node.
+
+---
+
+## me memory copy
+
+Copy memories between tree paths. Alias: `me memory cp`.
+
+```
+me memory copy <src> <dst> [options]
+```
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `src` | yes | Source tree path. |
+| `dst` | yes | Destination tree path. |
+
+| Option | Description |
+|--------|-------------|
+| `--dry-run` | Preview what would be copied without executing. |
+| `-y, --yes` | Skip the confirmation prompt. |
+
+Copies all memories under the source prefix to the destination, preserving subtree structure. The source memories are preserved and copied memories receive new IDs. Repeating a real copy creates additional copies. Always shows a preview count before confirming.
+
+Examples:
+
+```bash
+me memory copy share.old share.archive --dry-run
+me memory copy share.old share.archive --yes
+```
 
 ---
 

@@ -9,6 +9,7 @@
  * - me memory edit <id>: Open in $EDITOR
  * - me memory count <tree>: Count memories matching a tree filter
  * - me memory tree [filter]: Show tree structure
+ * - me memory copy <src> <dst>: Copy memories between tree paths
  * - me memory move <src> <dst>: Move memories between tree paths
  * - me memory import [files...]: Import from files/stdin
  * - me memory export [file]: Export with filters
@@ -682,6 +683,77 @@ function createMemoryMoveCommand(): Command {
     });
 }
 
+function createMemoryCopyCommand(): Command {
+  return new Command("copy")
+    .alias("cp")
+    .description("copy memories between tree paths")
+    .argument("<src>", "source tree path")
+    .argument("<dst>", "destination tree path")
+    .option("--dry-run", "preview what would be copied")
+    .option("-y, --yes", "skip confirmation")
+    .action(async (src: string, dst: string, opts, cmd) => {
+      const globalOpts = cmd.optsWithGlobals();
+      const creds = resolveCredentials(globalOpts.server);
+      const fmt = getOutputFormat(globalOpts);
+      requireMemoryAuth(creds, fmt);
+      requireSpace(creds, fmt);
+
+      const client = buildMemoryClient(creds);
+
+      try {
+        // Always dry-run first to show preview
+        const preview = await client.memory.copy({
+          source: src,
+          destination: dst,
+          dryRun: true,
+        });
+
+        if (preview.count === 0) {
+          output({ count: 0 }, fmt, () => {
+            clack.log.warn(`No memories found under '${src}'`);
+          });
+          return;
+        }
+
+        if (fmt === "text") {
+          console.log(
+            `  ${preview.count} ${preview.count === 1 ? "memory" : "memories"} will be copied from '${src}' to '${dst}'`,
+          );
+        }
+
+        if (opts.dryRun) {
+          output({ dryRun: true, count: preview.count }, fmt, () => {});
+          return;
+        }
+
+        // Confirm unless --yes
+        if (fmt === "text" && !opts.yes) {
+          const confirmed = await clack.confirm({
+            message: `Copy ${preview.count} ${preview.count === 1 ? "memory" : "memories"}?`,
+            initialValue: false,
+          });
+          if (clack.isCancel(confirmed) || !confirmed) {
+            clack.cancel("Cancelled.");
+            process.exit(0);
+          }
+        }
+
+        const result = await client.memory.copy({
+          source: src,
+          destination: dst,
+        });
+
+        output(result, fmt, () => {
+          clack.log.success(
+            `Copied ${result.count} ${result.count === 1 ? "memory" : "memories"} from '${src}' to '${dst}'`,
+          );
+        });
+      } catch (error) {
+        handleError(error, fmt);
+      }
+    });
+}
+
 /**
  * Strip a memory response to import-compatible fields only.
  */
@@ -955,6 +1027,7 @@ function memorySubcommands(): Command[] {
     createMemoryEditCommand(),
     createMemoryCountCommand(),
     createMemoryTreeCommand(),
+    createMemoryCopyCommand(),
     createMemoryMoveCommand(),
     createMemoryImportCommand(),
     createMemoryExportCommand(),
