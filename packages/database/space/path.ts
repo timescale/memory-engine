@@ -197,21 +197,27 @@ export function classifyTreeFilter(
 }
 
 /**
- * Reverse of the home expansion, for display. A path under the given
- * principal's home is shown with a leading `~`, keeping the canonical dot
- * separator (`home.<id>` → `~`, `home.<id>.a.b` → `~.a.b`); everything else
- * (including other principals' homes) is returned unchanged. Dot is the
- * canonical output separator throughout.
+ * Reverse of the home expansion, for display, in canonical **slash** form. The
+ * caller's home is shown with a leading `~` (`home.<id>` → `~`,
+ * `home.<id>.a.b` → `~/a/b`); every other path is rendered as an absolute,
+ * slash-separated path with a leading `/` (`share.auth` → `/share/auth`), and
+ * the root (empty path) is `/`. So `~` anchors home and `/` anchors the root,
+ * shell-style. ltree storage and the SQL layer stay dot-native, and
+ * `normalizeTreePath` strips a leading separator and accepts both `/` and `.`,
+ * so a displayed path fed back in round-trips.
  */
 export function denormalizeTreePath(
   path: string,
   opts: TreePathOptions = {},
 ): string {
-  if (opts.home === undefined) return path;
-  const prefix = homePrefix(opts.home, opts.homeOwner);
-  if (path === prefix) return "~";
-  if (path.startsWith(`${prefix}.`)) {
-    return `~${path.slice(prefix.length)}`; // home.<id>.a.b → ~.a.b
+  if (opts.home !== undefined) {
+    const prefix = homePrefix(opts.home, opts.homeOwner);
+    if (path === prefix) return "~";
+    if (path.startsWith(`${prefix}.`)) {
+      // home.<id>.a.b → ~/a/b — `~` is the anchor, so no leading slash
+      return `~${path.slice(prefix.length).replace(/\./g, "/")}`;
+    }
   }
-  return path;
+  // Absolute path: leading `/`, dots → slashes. Root ("") → "/".
+  return `/${path.replace(/\./g, "/")}`;
 }

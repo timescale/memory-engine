@@ -284,7 +284,7 @@ test("grant: set / list / remove", async () => {
     grants: { principalId: string; treePath: string; access: number }[];
   }>("grant.list", { principalId: other });
   expect(grants.grants).toHaveLength(1);
-  expect(grants.grants[0]?.treePath).toBe("docs");
+  expect(grants.grants[0]?.treePath).toBe("/docs");
   expect(grants.grants[0]?.access).toBe(1);
 
   expect(
@@ -616,7 +616,7 @@ test("grant authority is path-scoped: a subtree owner delegates within it", asyn
   const underProj = await call<{
     grants: { treePath: string }[];
   }>("grant.list", { treePath: "proj" }, as);
-  expect(underProj.grants.some((g) => g.treePath === "proj.sub")).toBe(true);
+  expect(underProj.grants.some((g) => g.treePath === "/proj/sub")).toBe(true);
   await expectAppError(call("grant.list", {}, as), "FORBIDDEN");
 });
 

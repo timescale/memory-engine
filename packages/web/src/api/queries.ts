@@ -19,6 +19,19 @@ import { memoryClient } from "./client.ts";
 
 const SEARCH_LIMIT = 1000;
 
+// The RPC wire speaks canonical slash paths (`/share/auth`, `~/a/b`, root `/`);
+// the navigation/tree logic in this app is ltree-dot-native (sentinels, lquery
+// building, path splitting), so we convert incoming paths to dots at the fetch
+// boundary: drop the leading `/` (the absolute anchor), then swap `/` → `.`.
+// `~/a/b` → `~.a.b`, `/share/auth` → `share.auth`, `/` → ``. Display rendering
+// of slashes is handled separately in the view layer.
+function wirePathToDot(path: string): string {
+  return path.replace(/^\//, "").replace(/\//g, ".");
+}
+function memoryToDot<T extends { tree: string }>(m: T): T {
+  return { ...m, tree: wirePathToDot(m.tree) };
+}
+
 /**
  * Convert an exact ltree path to an lquery pattern that matches only that
  * path (no descendants). The engine's tree filter auto-detects lquery vs
@@ -49,7 +62,10 @@ export function useMemories(params: MemorySearchParams, enabled = true) {
   return useQuery({
     enabled,
     queryKey: ["memories", normalized],
-    queryFn: () => memoryClient.memory.search(normalized),
+    queryFn: () =>
+      memoryClient.memory
+        .search(normalized)
+        .then((r) => ({ ...r, results: r.results.map(memoryToDot) })),
   });
 }
 
@@ -62,7 +78,11 @@ export function useMemories(params: MemorySearchParams, enabled = true) {
 export function useTree() {
   return useQuery({
     queryKey: ["memory-tree"],
-    queryFn: () => memoryClient.memory.tree(),
+    queryFn: () =>
+      memoryClient.memory.tree().then((r) => ({
+        ...r,
+        nodes: r.nodes.map((n) => ({ ...n, path: wirePathToDot(n.path) })),
+      })),
   });
 }
 
@@ -78,10 +98,12 @@ export function useMemoriesAtExactPath(path: string, enabled: boolean) {
     enabled,
     queryKey: ["memories-at-exact-path", path],
     queryFn: () =>
-      memoryClient.memory.search({
-        tree: exactTreeLquery(path),
-        limit: SEARCH_LIMIT,
-      }),
+      memoryClient.memory
+        .search({
+          tree: exactTreeLquery(path),
+          limit: SEARCH_LIMIT,
+        })
+        .then((r) => ({ ...r, results: r.results.map(memoryToDot) })),
   });
 }
 
@@ -94,7 +116,8 @@ export function useMemory(id: string | null) {
   return useQuery({
     enabled: id !== null,
     queryKey: ["memory", id],
-    queryFn: () => memoryClient.memory.get({ id: id as string }),
+    queryFn: () =>
+      memoryClient.memory.get({ id: id as string }).then(memoryToDot),
   });
 }
 
@@ -104,7 +127,7 @@ export function useMemory(id: string | null) {
 export function useUpdateMemory(queryClient: QueryClient) {
   return useMutation({
     mutationFn: (params: MemoryUpdateParams) =>
-      memoryClient.memory.update(params),
+      memoryClient.memory.update(params).then(memoryToDot),
     onSuccess: (memory) => {
       invalidateTreeQueries(queryClient);
       queryClient.setQueryData(["memory", memory.id], memory);

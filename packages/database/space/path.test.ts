@@ -156,32 +156,44 @@ describe("homePrefix", () => {
 });
 
 describe("denormalizeTreePath", () => {
-  test("reverse-maps the caller's home to ~ with the canonical dot separator", () => {
+  test("reverse-maps the caller's home to ~ (no leading slash; ~ is the anchor)", () => {
     expect(denormalizeTreePath(HOME, { home: ID })).toBe("~");
-    expect(denormalizeTreePath(`${HOME}.bar`, { home: ID })).toBe("~.bar");
-    expect(denormalizeTreePath(`${HOME}.a.b`, { home: ID })).toBe("~.a.b");
+    expect(denormalizeTreePath(`${HOME}.bar`, { home: ID })).toBe("~/bar");
+    expect(denormalizeTreePath(`${HOME}.a.b`, { home: ID })).toBe("~/a/b");
   });
 
-  test("leaves non-home paths (and other principals' homes) unchanged", () => {
+  test("renders non-home paths (and other principals' homes) as absolute /paths", () => {
     expect(denormalizeTreePath("work.projects", { home: ID })).toBe(
-      "work.projects",
+      "/work/projects",
     );
     expect(denormalizeTreePath("home.deadbeef.x", { home: ID })).toBe(
-      "home.deadbeef.x",
+      "/home/deadbeef/x",
     );
-    expect(denormalizeTreePath(`${HOME}.bar`)).toBe(`${HOME}.bar`); // no home opt
+    // no home opt → still an absolute slash path
+    expect(denormalizeTreePath(`${HOME}.bar`)).toBe(
+      `/${HOME.replace(/\./g, "/")}/bar`,
+    );
+  });
+
+  test("the empty root renders as /", () => {
+    expect(denormalizeTreePath("", { home: ID })).toBe("/");
+    expect(denormalizeTreePath("")).toBe("/");
   });
 
   test("round-trips with normalizeTreePath", () => {
-    const display = denormalizeTreePath(`${HOME}.a.b`, { home: ID }); // ~.a.b
-    expect(normalizeTreePath(display, { home: ID })).toBe(`${HOME}.a.b`);
+    const home = denormalizeTreePath(`${HOME}.a.b`, { home: ID }); // ~/a/b
+    expect(normalizeTreePath(home, { home: ID })).toBe(`${HOME}.a.b`);
+    const abs = denormalizeTreePath("work.projects"); // /work/projects
+    expect(normalizeTreePath(abs)).toBe("work.projects"); // leading slash stripped
   });
 
   test("reverse-maps an agent's nested home (homeOwner) to ~", () => {
     const opts = { home: AGENT, homeOwner: ID };
     expect(denormalizeTreePath(AGENT_HOME, opts)).toBe("~");
-    expect(denormalizeTreePath(`${AGENT_HOME}.a.b`, opts)).toBe("~.a.b");
+    expect(denormalizeTreePath(`${AGENT_HOME}.a.b`, opts)).toBe("~/a/b");
     // the owner's own home (one level up) is NOT the agent's ~
-    expect(denormalizeTreePath(HOME, opts)).toBe(HOME);
+    expect(denormalizeTreePath(HOME, opts)).toBe(
+      `/${HOME.replace(/\./g, "/")}`,
+    );
   });
 });

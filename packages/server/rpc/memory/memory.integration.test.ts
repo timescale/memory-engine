@@ -133,14 +133,14 @@ test("~ home + lenient separators normalize on input, reverse-map on output", as
   const home = `home.${principalId.replace(/-/g, "")}`;
 
   // `~/notes` (slash accepted on input) stores under the caller's home and
-  // reads back in canonical dot form as `~.notes`.
+  // reads back in canonical slash form as `~/notes`.
   const a = await call<{ id: string; tree: string }>("memory.create", {
     content: "home note",
     tree: "~/notes",
   });
-  expect(a.tree).toBe("~.notes");
+  expect(a.tree).toBe("~/notes");
   expect((await call<{ tree: string }>("memory.get", { id: a.id })).tree).toBe(
-    "~.notes",
+    "~/notes",
   );
 
   // The raw stored ltree is home.<id>.notes — proves real expansion, not just display.
@@ -155,14 +155,14 @@ test("~ home + lenient separators normalize on input, reverse-map on output", as
     content: "slashy",
     tree: "/work/projects/",
   });
-  expect(b.tree).toBe("work.projects");
+  expect(b.tree).toBe("/work/projects");
 
-  // memory.tree with a `~` base finds the home node, reverse-mapped to `~.notes`.
+  // memory.tree with a `~` base finds the home node, reverse-mapped to `~/notes`.
   const tree = await call<{ nodes: { path: string; count: number }[] }>(
     "memory.tree",
     { tree: "~" },
   );
-  expect(tree.nodes.some((n) => n.path === "~.notes")).toBe(true);
+  expect(tree.nodes.some((n) => n.path === "~/notes")).toBe(true);
 
   // An illegal label is a validation error.
   await expectAppError(
@@ -196,7 +196,7 @@ test("create → get round-trips content/tree/meta and createdBy is null", async
     hasEmbedding: boolean;
   }>("memory.get", { id: created.id });
   expect(got.content).toBe("hello world");
-  expect(got.tree).toBe("share.notes.work");
+  expect(got.tree).toBe("/share/notes/work");
   expect(got.meta).toEqual({ tag: "a" });
   expect(got.hasEmbedding).toBe(false);
 });
@@ -227,7 +227,7 @@ test("update patches fields", async () => {
     { id: created.id, content: "after", tree: "share.a.b" },
   );
   expect(updated.content).toBe("after");
-  expect(updated.tree).toBe("share.a.b");
+  expect(updated.tree).toBe("/share/a/b");
 });
 
 test("delete removes; get then NOT_FOUND", async () => {
@@ -367,11 +367,11 @@ test("tree returns descendant node counts under a path", async () => {
     { tree: "share.root" },
   );
   const byPath = Object.fromEntries(res.nodes.map((n) => [n.path, n.count]));
-  expect(byPath["share.root.a"]).toBe(2);
-  expect(byPath["share.root.a.deep"]).toBe(1);
-  expect(byPath["share.root.b"]).toBe(1);
+  expect(byPath["/share/root/a"]).toBe(2);
+  expect(byPath["/share/root/a/deep"]).toBe(1);
+  expect(byPath["/share/root/b"]).toBe(1);
   // the base path itself is excluded
-  expect(byPath["share.root"]).toBeUndefined();
+  expect(byPath["/share/root"]).toBeUndefined();
 });
 
 test("tree respects levels depth limit", async () => {
@@ -383,8 +383,8 @@ test("tree respects levels depth limit", async () => {
     levels: 1,
   });
   const paths = res.nodes.map((n) => n.path);
-  expect(paths).toContain("share.t.a");
-  expect(paths).not.toContain("share.t.a.b");
+  expect(paths).toContain("/share/t/a");
+  expect(paths).not.toContain("/share/t/a/b");
 });
 
 test("move relocates a subtree (dryRun counts without moving)", async () => {
@@ -519,7 +519,7 @@ test("search: tree filter only (no ranking) returns matches", async () => {
     tree: "share.scope",
   });
   expect(res.results.length).toBe(1);
-  expect(res.results[0]?.tree).toBe("share.scope.a");
+  expect(res.results[0]?.tree).toBe("/share/scope/a");
 });
 
 test("search: tree lquery wildcard matches descendants", async () => {
@@ -539,7 +539,7 @@ test("search: tree lquery wildcard matches descendants", async () => {
     tree: "share.proj.*",
   });
   const trees = res.results.map((r) => r.tree).sort();
-  expect(trees).toEqual(["share.proj", "share.proj.a", "share.proj.a.deep"]);
+  expect(trees).toEqual(["/share/proj", "/share/proj/a", "/share/proj/a/deep"]);
 });
 
 test("search: tree ltxtquery (label boolean) matches by label", async () => {
@@ -553,7 +553,7 @@ test("search: tree ltxtquery (label boolean) matches by label", async () => {
   const res = await call<{ results: { tree: string }[] }>("memory.search", {
     tree: "alpha & beta",
   });
-  expect(res.results.map((r) => r.tree)).toEqual(["share.alpha.beta"]);
+  expect(res.results.map((r) => r.tree)).toEqual(["/share/alpha/beta"]);
 });
 
 test("search: grep alone is rejected", async () => {
