@@ -421,6 +421,56 @@ test("move relocates a subtree (dryRun counts without moving)", async () => {
   ).toBe(2);
 });
 
+test("copy duplicates a subtree (dryRun counts without copying)", async () => {
+  await call("memory.batchCreate", {
+    memories: [
+      { content: "c1", tree: "share.copy_src.x" },
+      { content: "c2", tree: "share.copy_src.y" },
+    ],
+  });
+
+  const dry = await call<{ count: number }>("memory.copy", {
+    source: "share.copy_src",
+    destination: "share.copy_dst",
+    dryRun: true,
+  });
+  expect(dry.count).toBe(2);
+  expect(
+    (
+      await call<{ count: number }>("memory.countTree", {
+        tree: "share.copy_src",
+      })
+    ).count,
+  ).toBe(2);
+  expect(
+    (
+      await call<{ count: number }>("memory.countTree", {
+        tree: "share.copy_dst",
+      })
+    ).count,
+  ).toBe(0);
+
+  const copied = await call<{ count: number }>("memory.copy", {
+    source: "share.copy_src",
+    destination: "share.copy_dst",
+  });
+  expect(copied.count).toBe(2);
+  expect(
+    (
+      await call<{ count: number }>("memory.countTree", {
+        tree: "share.copy_src",
+      })
+    ).count,
+  ).toBe(2);
+  expect(
+    (
+      await call<{ count: number }>("memory.countTree", {
+        tree: "share.copy_dst",
+      })
+    ).count,
+  ).toBe(2);
+});
+
 test("deleteTree removes a subtree (dryRun counts without deleting)", async () => {
   await call("memory.batchCreate", {
     memories: [

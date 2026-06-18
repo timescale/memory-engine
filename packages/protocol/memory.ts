@@ -117,6 +117,17 @@ export const memoryTreeParams = z.object({
 export type MemoryTreeParams = z.infer<typeof memoryTreeParams>;
 
 /**
+ * memory.copy params.
+ */
+export const memoryCopyParams = z.object({
+  source: treePathSchema.min(1, "source path is required"),
+  destination: treePathSchema.min(1, "destination path is required"),
+  dryRun: z.boolean().optional(),
+});
+
+export type MemoryCopyParams = z.infer<typeof memoryCopyParams>;
+
+/**
  * memory.move params.
  */
 export const memoryMoveParams = z.object({
@@ -235,6 +246,15 @@ export const memoryTreeResult = z.object({
 });
 
 export type MemoryTreeResult = z.infer<typeof memoryTreeResult>;
+
+/**
+ * memory.copy result.
+ */
+export const memoryCopyResult = z.object({
+  count: z.number().int(),
+});
+
+export type MemoryCopyResult = z.infer<typeof memoryCopyResult>;
 
 /**
  * memory.move result.
