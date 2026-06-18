@@ -280,6 +280,24 @@ describe.skipIf(
     expect(r.stdout.toLowerCase()).toContain("share");
   });
 
+  test("2b. memory count supports exact and capped tree-filter counts", async () => {
+    const branch = `share.countprobe${rand()}`;
+    await meJson(["create", "count probe one", "--tree", `${branch}.one`]);
+    await meJson(["create", "count probe two", "--tree", `${branch}.two`]);
+
+    const exact = await meJson<{ count: number }>(["memory", "count", branch]);
+    expect(exact.count).toBe(2);
+
+    const capped = await meJson<{ count: number }>([
+      "memory",
+      "count",
+      `${branch}.*`,
+      "--max-count",
+      "1",
+    ]);
+    expect(capped.count).toBe(1);
+  });
+
   test("3. fulltext (BM25) search finds the memory", async () => {
     const res = await meJson<{
       total: number;

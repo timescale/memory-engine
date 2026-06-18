@@ -450,6 +450,53 @@ Docs: ${docUrl("me_memory_delete_tree")}`,
     },
   );
 
+  // me_memory_count
+  server.registerTool(
+    "me_memory_count",
+    {
+      title: "Count Memories",
+      description: `Count memories matching a tree filter.
+
+The tree input is required and accepts a path prefix (ltree), lquery pattern, or ltxtquery label search. If max_count is supplied and the returned count equals max_count, interpret the result as "at least max_count" rather than an exact total.
+
+Docs: ${docUrl("me_memory_count")}`,
+      inputSchema: {
+        tree: z
+          .string()
+          .min(1)
+          .describe(
+            "Tree filter: path prefix (work.projects), lquery pattern (*.api.*), or ltxtquery label search (api & v2)",
+          ),
+        max_count: z
+          .number()
+          .int()
+          .min(1)
+          .optional()
+          .nullable()
+          .describe(
+            "Stop counting after this many matches. If count equals max_count, treat it as at least this many.",
+          ),
+      },
+      annotations: {
+        title: "Count Memories",
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+      },
+    },
+    async (args) => {
+      const result = await client.memory.countTree({
+        tree: args.tree,
+        maxCount: args.max_count ?? undefined,
+      });
+      return {
+        content: [
+          { type: "text" as const, text: JSON.stringify(result, null, 2) },
+        ],
+      };
+    },
+  );
+
   // me_memory_mv
   server.registerTool(
     "me_memory_mv",

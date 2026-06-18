@@ -273,6 +273,27 @@ test("batchCreate inserts all and is retrievable", async () => {
   expect(capped.count).toBe(2);
 });
 
+test("countTree accepts lquery and ltxtquery tree filters", async () => {
+  await call("memory.batchCreate", {
+    memories: [
+      { content: "count direct child", tree: "share.countfilter.a" },
+      { content: "count deep descendant", tree: "share.countfilter.a.deep" },
+      { content: "count both labels", tree: "share.count_alpha.count_beta" },
+      { content: "count elsewhere", tree: "share.countfilter_other" },
+    ],
+  });
+
+  const lquery = await call<{ count: number }>("memory.countTree", {
+    tree: "share.countfilter.*",
+  });
+  expect(lquery.count).toBe(2);
+
+  const ltxtquery = await call<{ count: number }>("memory.countTree", {
+    tree: "count_alpha & count_beta",
+  });
+  expect(ltxtquery.count).toBe(1);
+});
+
 test("create with a duplicate explicit id → CONFLICT", async () => {
   const id = "01941000-0000-7000-8000-00000000c0f1";
   await call("memory.create", { id, content: "first", tree: "share.dup" });
