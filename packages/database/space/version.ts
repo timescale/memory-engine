@@ -1,1 +1,1 @@
-export const SPACE_SCHEMA_VERSION = "0.0.2";
+export const SPACE_SCHEMA_VERSION = "0.0.3";
