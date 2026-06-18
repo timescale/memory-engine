@@ -179,6 +179,25 @@ create table me.memory
 );
 ```
 
+**Migration footgun — `CREATE OR REPLACE FUNCTION` can't change a return type.**
+The `idempotent/*.sql` migrations re-run on every boot via `create or replace
+function`. Postgres refuses to *replace* a function whose **arg signature is
+unchanged** but whose **return type / `returns table(...)` OUT columns** differ
+— it raises `42P13` "cannot change return type of existing function". This is
+invisible in CI: tests migrate **fresh** schemas with no prior function, so the
+replace just creates it. It only bites the **boot-time migration against an
+existing DB** (dev/prod), where the old signature is already installed → the
+server crashes on startup → `helm --wait --atomic` crashloops 20 min then rolls
+back (the failed pods are deleted, so capture logs *before* rollback — `kubectl
+logs -p` needs a live pod). When you change an idempotent function's return
+type, precede the `create or replace` with a guarded `do $$ … drop function
+{{schema}}.fn(argtypes); … end $$;` block that drops the stale definition **only
+when detected** (key the `if exists` on a `pg_proc.proargnames` check so it
+doesn't churn every run). Examples: `core.list_space_principals`,
+`core.validate_api_key` in `core/migrate/idempotent`. (Changing only the *args*
+instead creates a second overload — no `42P13`, but the stale overload lingers,
+so drop it too.)
+
 ## Key Design Decisions
 
 - **One DB, one pool**: `auth` + `core` + every `me_<slug>` live in one Postgres database behind one postgres.js pool (plus a dedicated worker pool). Sharding / pgdog distribution is deferred; the per-slug schema model keeps a future re-split cheap.
