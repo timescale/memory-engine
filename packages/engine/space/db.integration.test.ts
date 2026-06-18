@@ -272,3 +272,18 @@ test("moveTree, countTree, listTree", async () => {
   const listed = await db.listTree(FULL, "work.dst.*");
   expect(listed.some((e) => e.tree === "work.dst")).toBe(true);
 });
+
+test("copyTree copies a subtree without removing the source", async () => {
+  await db.createMemory(FULL, { tree: "work.copy_src.one", content: "1" });
+  await db.createMemory(FULL, { tree: "work.copy_src.two", content: "2" });
+
+  const dry = await db.copyTree(FULL, "work.copy_src", "work.copy_dst", true);
+  expect(dry).toBe(2);
+  expect(await db.countTree(FULL, { tree: "work.copy_src" }, 1)).toBe(2);
+  expect(await db.countTree(FULL, { tree: "work.copy_dst" }, 1)).toBe(0);
+
+  const copied = await db.copyTree(FULL, "work.copy_src", "work.copy_dst");
+  expect(copied).toBe(2);
+  expect(await db.countTree(FULL, { tree: "work.copy_src" }, 1)).toBe(2);
+  expect(await db.countTree(FULL, { tree: "work.copy_dst" }, 1)).toBe(2);
+});

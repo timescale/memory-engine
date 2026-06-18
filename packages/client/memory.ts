@@ -18,6 +18,8 @@ import { SPACE_HEADER } from "@memory.build/protocol/headers";
 import type {
   MemoryBatchCreateParams,
   MemoryBatchCreateResult,
+  MemoryCopyParams,
+  MemoryCopyResult,
   MemoryCountTreeParams,
   MemoryCountTreeResult,
   MemoryCreateParams,
@@ -104,6 +106,7 @@ export interface MemoryNamespace {
   delete(params: MemoryDeleteParams): Promise<MemoryDeleteResult>;
   search(params: MemorySearchParams): Promise<MemorySearchResult>;
   tree(params?: MemoryTreeParams): Promise<MemoryTreeResult>;
+  copy(params: MemoryCopyParams): Promise<MemoryCopyResult>;
   move(params: MemoryMoveParams): Promise<MemoryMoveResult>;
   deleteTree(params: MemoryDeleteTreeParams): Promise<MemoryDeleteTreeResult>;
   countTree(params: MemoryCountTreeParams): Promise<MemoryCountTreeResult>;
@@ -197,6 +200,7 @@ export function createMemoryClient(
       delete: (p) => writeRpc("memory.delete", p),
       search: (p) => readRpc("memory.search", p),
       tree: (p) => readRpc("memory.tree", p ?? {}),
+      copy: (p) => writeRpc("memory.copy", p),
       move: (p) => writeRpc("memory.move", p),
       deleteTree: (p) => writeRpc("memory.deleteTree", p),
       countTree: (p) => readRpc("memory.countTree", p),

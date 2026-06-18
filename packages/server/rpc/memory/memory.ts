@@ -18,6 +18,8 @@ import type {
 import type {
   MemoryBatchCreateParams,
   MemoryBatchCreateResult,
+  MemoryCopyParams,
+  MemoryCopyResult,
   MemoryCountTreeParams,
   MemoryCountTreeResult,
   MemoryCreateParams,
@@ -37,6 +39,7 @@ import type {
 } from "@memory.build/protocol/memory";
 import {
   memoryBatchCreateParams,
+  memoryCopyParams,
   memoryCountTreeParams,
   memoryCreateParams,
   memoryDeleteParams,
@@ -444,6 +447,26 @@ async function memoryTree(
   return { nodes };
 }
 
+/** memory.copy */
+async function memoryCopy(
+  params: MemoryCopyParams,
+  context: HandlerContext,
+): Promise<MemoryCopyResult> {
+  assertSpaceRpcContext(context);
+  const ctx = context as SpaceRpcContext;
+  const { store, treeAccess } = ctx;
+
+  const count = await guard(() =>
+    store.copyTree(
+      treeAccess,
+      inputTreePath(ctx, params.source),
+      inputTreePath(ctx, params.destination),
+      params.dryRun ?? false,
+    ),
+  );
+  return { count };
+}
+
 /** memory.move */
 async function memoryMove(
   params: MemoryMoveParams,
@@ -525,6 +548,7 @@ export const memoryDataMethods = buildRegistry()
   .register("memory.delete", memoryDeleteParams, memoryDelete)
   .register("memory.search", memorySearchParams, memorySearch)
   .register("memory.tree", memoryTreeParams, memoryTree)
+  .register("memory.copy", memoryCopyParams, memoryCopy)
   .register("memory.move", memoryMoveParams, memoryMove)
   .register("memory.deleteTree", memoryDeleteTreeParams, memoryDeleteTree)
   .register("memory.countTree", memoryCountTreeParams, memoryCountTree)
