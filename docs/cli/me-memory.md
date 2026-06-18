@@ -12,6 +12,7 @@ Memories are the core data type in Memory Engine. Each memory has content, optio
 - [me memory update](#me-memory-update) -- update a memory
 - [me memory delete](#me-memory-delete) -- delete a memory or tree
 - [me memory edit](#me-memory-edit) -- open a memory in your editor
+- [me memory count](#me-memory-count) -- count memories matching a tree filter
 - [me memory tree](#me-memory-tree) -- show tree structure
 - [me memory move](#me-memory-move) -- move memories between tree paths
 - [me memory import](#me-memory-import) -- import from files or stdin
@@ -166,6 +167,32 @@ me memory edit <id>
 | `id` | yes | Memory ID (UUIDv7). |
 
 Fetches the memory, formats it as Markdown with YAML frontmatter, and opens it in `$VISUAL`, `$EDITOR`, or `vim`. On save, the CLI parses your changes and sends an update. If there are errors, the editor re-opens.
+
+---
+
+## me memory count
+
+Count memories matching a tree filter. Alias: `me count`.
+
+```
+me memory count <tree> [options]
+```
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `tree` | yes | Tree filter: path prefix, `lquery` pattern, or `ltxtquery` label search. |
+
+| Option | Description |
+|--------|-------------|
+| `--max-count <n>` | Stop counting after this many matches. If the returned count reaches this value, text output says `at least N memories`. |
+
+Examples:
+
+```bash
+me memory count share.projects
+me memory count 'share.projects.*' --max-count 100
+me memory count 'api & v2'
+```
 
 ---
 

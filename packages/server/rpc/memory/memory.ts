@@ -492,10 +492,20 @@ async function memoryCountTree(
   const ctx = context as SpaceRpcContext;
   const { store, treeAccess } = ctx;
 
+  const treeFilter = inputTreeFilter(ctx, params.tree);
+  if (!treeFilter) {
+    throw new AppError("VALIDATION_ERROR", "tree filter is required");
+  }
+
   const count = await guard(() =>
     store.countTree(
       treeAccess,
-      { tree: inputTreePath(ctx, params.tree) },
+      {
+        tree: treeFilter.kind === "ltree" ? treeFilter.value : undefined,
+        lquery: treeFilter.kind === "lquery" ? treeFilter.value : undefined,
+        ltxtquery:
+          treeFilter.kind === "ltxtquery" ? treeFilter.value : undefined,
+      },
       ACCESS.read,
       params.maxCount,
     ),

@@ -141,7 +141,7 @@ export type MemoryDeleteTreeParams = z.infer<typeof memoryDeleteTreeParams>;
  * memory.countTree params.
  */
 export const memoryCountTreeParams = z.object({
-  tree: treePathSchema.min(1, "tree path is required"),
+  tree: treeFilterSchema.min(1, "tree filter is required"),
   maxCount: z.number().int().min(1).optional(),
 });
 

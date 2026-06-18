@@ -7,6 +7,7 @@
  * - me memory update <id>: Update a memory
  * - me memory delete <id-or-tree>: Delete memory or tree
  * - me memory edit <id>: Open in $EDITOR
+ * - me memory count <tree>: Count memories matching a tree filter
  * - me memory tree [filter]: Show tree structure
  * - me memory move <src> <dst>: Move memories between tree paths
  * - me memory import [files...]: Import from files/stdin
@@ -67,6 +68,23 @@ function parseTemporal(value: string): { start: string; end?: string | null } {
   throw new Error(
     "Invalid --temporal: expected 'start' or 'start,end' (ISO 8601)",
   );
+}
+
+export function parseMaxCount(value: string | undefined): number | undefined {
+  if (value === undefined) return undefined;
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < 1) {
+    throw new Error("Invalid --max-count: expected a positive integer");
+  }
+  return parsed;
+}
+
+export function formatMemoryCount(count: number, maxCount?: number): string {
+  const noun = count === 1 ? "memory" : "memories";
+  if (maxCount !== undefined && count === maxCount) {
+    return `at least ${count} ${noun}`;
+  }
+  return `${count} ${noun}`;
 }
 
 /**
@@ -531,6 +549,36 @@ function createMemoryEditCommand(): Command {
     });
 }
 
+function createMemoryCountCommand(): Command {
+  return new Command("count")
+    .description("count memories matching a tree filter")
+    .argument(
+      "<tree>",
+      "tree filter: path prefix, lquery pattern, or ltxtquery label search",
+    )
+    .option("--max-count <n>", "stop counting after this many matches")
+    .action(async (tree: string, opts, cmd) => {
+      const globalOpts = cmd.optsWithGlobals();
+      const creds = resolveCredentials(globalOpts.server);
+      const fmt = getOutputFormat(globalOpts);
+      requireMemoryAuth(creds, fmt);
+      requireSpace(creds, fmt);
+
+      const client = buildMemoryClient(creds);
+
+      try {
+        const maxCount = parseMaxCount(opts.maxCount);
+        const result = await client.memory.countTree({ tree, maxCount });
+
+        await output(result, fmt, () => {
+          console.log(formatMemoryCount(result.count, maxCount));
+        });
+      } catch (error) {
+        handleError(error, fmt);
+      }
+    });
+}
+
 function createMemoryTreeCommand(): Command {
   return new Command("tree")
     .description("show memory tree structure")
@@ -905,6 +953,7 @@ function memorySubcommands(): Command[] {
     createMemoryUpdateCommand(),
     createMemoryDeleteCommand(),
     createMemoryEditCommand(),
+    createMemoryCountCommand(),
     createMemoryTreeCommand(),
     createMemoryMoveCommand(),
     createMemoryImportCommand(),
