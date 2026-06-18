@@ -42,6 +42,7 @@ const EXPECTED_MIGRATIONS = [
   "001_memory",
   "002_embedding_queue",
   "003_embedding_fk_idx",
+  "004_count_tree",
 ];
 
 const EXPECTED_MEMORY_FUNCTIONS = [
@@ -309,6 +310,22 @@ describe("provisioned schema is functional", () => {
   const OWNER = `'[{"tree_path": "", "access": 3}]'::jsonb`;
   const createMemory = (args: string) =>
     sql.unsafe(`select * from ${canonical.schema}.create_memory(${args})`);
+
+  test("count_tree can cap the counted rows", async () => {
+    await createMemory(`${OWNER}, 'a.count.one'::ltree, 'one'`);
+    await createMemory(`${OWNER}, 'a.count.two'::ltree, 'two'`);
+    await createMemory(`${OWNER}, 'a.count.three'::ltree, 'three'`);
+
+    const [full] = await sql.unsafe(
+      `select ${canonical.schema}.count_tree(${OWNER}, 'a.count'::ltree, 1) as n`,
+    );
+    expect(Number(full?.n)).toBe(3);
+
+    const [capped] = await sql.unsafe(
+      `select ${canonical.schema}.count_tree(${OWNER}, 'a.count'::ltree, 1, 2) as n`,
+    );
+    expect(Number(capped?.n)).toBe(2);
+  });
 
   test("create_memory skips a duplicate explicit id by default", async () => {
     // Deterministic-id importers re-submit existing ids; with no replace key

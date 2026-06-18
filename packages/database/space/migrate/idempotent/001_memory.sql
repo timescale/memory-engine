@@ -619,6 +619,7 @@ create or replace function {{schema}}.count_tree
 ( _tree_access jsonb
 , _tree ltree
 , _access int4
+, _max_count int8 default null
 )
 returns bigint
 as $func$
@@ -629,14 +630,19 @@ as $func$
     where a.access >= _access
   )
   select count(*)
-  from {{schema}}.memory m
-  where _tree @> m.tree
-  and exists
+  from
   (
     select 1
-    from x
-    where x.tree_path @> m.tree
-  )
+    from {{schema}}.memory m
+    where _tree @> m.tree
+    and exists
+    (
+      select 1
+      from x
+      where x.tree_path @> m.tree
+    )
+    limit _max_count
+  ) x
 $func$ language sql stable security invoker
 set search_path to pg_catalog, {{schema}}, public, pg_temp
 ;
@@ -648,6 +654,7 @@ create or replace function {{schema}}.count_tree
 ( _tree_access jsonb
 , _query lquery
 , _access int4
+, _max_count int8 default null
 )
 returns bigint
 as $func$
@@ -658,14 +665,19 @@ as $func$
     where a.access >= _access
   )
   select count(*)
-  from {{schema}}.memory m
-  where m.tree ~ _query
-  and exists
+  from
   (
     select 1
-    from x
-    where x.tree_path @> m.tree
-  )
+    from {{schema}}.memory m
+    where m.tree ~ _query
+    and exists
+    (
+      select 1
+      from x
+      where x.tree_path @> m.tree
+    )
+    limit _max_count
+  ) x
 $func$ language sql stable security invoker
 set search_path to pg_catalog, {{schema}}, public, pg_temp
 ;
@@ -677,6 +689,7 @@ create or replace function {{schema}}.count_tree
 ( _tree_access jsonb
 , _query ltxtquery
 , _access int4
+, _max_count int8 default null
 )
 returns bigint
 as $func$
@@ -687,14 +700,19 @@ as $func$
     where a.access >= _access
   )
   select count(*)
-  from {{schema}}.memory m
-  where m.tree @ _query
-  and exists
+  from
   (
     select 1
-    from x
-    where x.tree_path @> m.tree
-  )
+    from {{schema}}.memory m
+    where m.tree @ _query
+    and exists
+    (
+      select 1
+      from x
+      where x.tree_path @> m.tree
+    )
+    limit _max_count
+  ) x
 $func$ language sql stable security invoker
 set search_path to pg_catalog, {{schema}}, public, pg_temp
 ;
