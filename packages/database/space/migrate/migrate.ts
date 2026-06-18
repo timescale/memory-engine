@@ -29,6 +29,9 @@ import incremental003 from "./incremental/003_embedding_fk_idx.sql" with {
 import incremental004 from "./incremental/004_count_tree.sql" with {
   type: "text",
 };
+import incremental005 from "./incremental/005_memory_name.sql" with {
+  type: "text",
+};
 import provisionSql from "./provision.sql" with { type: "text" };
 
 const DIR = "packages/database/space/migrate";
@@ -53,6 +56,11 @@ const incrementals: Migration[] = [
     name: "004_count_tree",
     file: "incremental/004_count_tree.sql",
     sql: incremental004,
+  },
+  {
+    name: "005_memory_name",
+    file: "incremental/005_memory_name.sql",
+    sql: incremental005,
   },
 ];
 

@@ -43,6 +43,7 @@ const EXPECTED_MIGRATIONS = [
   "002_embedding_queue",
   "003_embedding_fk_idx",
   "004_count_tree",
+  "005_memory_name",
 ];
 
 const EXPECTED_MEMORY_FUNCTIONS = [
@@ -74,6 +75,7 @@ const EXPECTED_MEMORY_INDEXES = [
   "memory_meta_gin_idx",
   "memory_temporal_gist_idx",
   "memory_tree_gist_idx",
+  "memory_tree_name_uidx",
 ];
 
 let sql: SQL;
@@ -303,6 +305,49 @@ describe("provisioned schema is functional", () => {
        where id = '${row?.id}' returning updated_at`,
     );
     expect(updated?.updated_at).not.toBeNull();
+  });
+
+  test("name: (tree,name) unique, nulls coexist, format enforced", async () => {
+    const t = "namecol";
+    await sql.unsafe(
+      `insert into ${canonical.schema}.memory (content, tree, name)
+       values ('first', '${t}', 'doc')`,
+    );
+    // Same (tree, name) collides on the partial unique index.
+    await expectReject(() =>
+      sql.unsafe(
+        `insert into ${canonical.schema}.memory (content, tree, name)
+         values ('second', '${t}', 'doc')`,
+      ),
+    );
+    // The same name under a different tree is fine.
+    const [other] = await sql.unsafe(
+      `insert into ${canonical.schema}.memory (content, tree, name)
+       values ('elsewhere', '${t}.sub', 'doc') returning id`,
+    );
+    expect(other?.id).toBeDefined();
+    // Any number of unnamed (null) memories coexist under one tree.
+    await sql.unsafe(
+      `insert into ${canonical.schema}.memory (content, tree)
+       values ('a', '${t}'), ('b', '${t}')`,
+    );
+    // Filename-like names (dots allowed) pass; leading-dot / spaces rejected.
+    await sql.unsafe(
+      `insert into ${canonical.schema}.memory (content, tree, name)
+       values ('cfg', '${t}', 'config.yaml')`,
+    );
+    await expectReject(() =>
+      sql.unsafe(
+        `insert into ${canonical.schema}.memory (content, tree, name)
+         values ('bad', '${t}', '.hidden')`,
+      ),
+    );
+    await expectReject(() =>
+      sql.unsafe(
+        `insert into ${canonical.schema}.memory (content, tree, name)
+         values ('bad', '${t}', 'has space')`,
+      ),
+    );
   });
 
   // create_memory's conditional upsert: (treeAccess, tree, content, id, meta,
