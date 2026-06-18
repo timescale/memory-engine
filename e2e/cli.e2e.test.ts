@@ -341,6 +341,29 @@ describe.skipIf(
     expect(fetched.tree).toBe(`${dst}.one`);
   });
 
+  test("2d. export alias writes matching memories as JSON", async () => {
+    const branch = `share.exportprobe${rand()}`;
+    await meJson(["create", "export probe one", "--tree", `${branch}.one`]);
+    await meJson(["create", "export probe two", "--tree", `${branch}.two`]);
+
+    const exported = await meJson<{ content: string; tree: string }[]>([
+      "export",
+      "--tree",
+      `${branch}.*`,
+      "--format",
+      "json",
+    ]);
+
+    expect(exported.map((m) => m.content).sort()).toEqual([
+      "export probe one",
+      "export probe two",
+    ]);
+    expect(exported.map((m) => m.tree).sort()).toEqual([
+      `${branch}.one`,
+      `${branch}.two`,
+    ]);
+  });
+
   test("3. fulltext (BM25) search finds the memory", async () => {
     const res = await meJson<{
       total: number;
