@@ -71,6 +71,7 @@ export interface SpaceStore {
     treeAccess: TreeAccess,
     query: { tree?: string; lquery?: string; ltxtquery?: string },
     access: AccessLevel,
+    maxCount?: number,
   ): Promise<number>;
   listTree(treeAccess: TreeAccess, lquery: string): Promise<TreeListEntry[]>;
 
@@ -211,17 +212,17 @@ export function spaceStore(sql: Sql, schema: string): SpaceStore {
       return Number(row?.n);
     },
 
-    async countTree(treeAccess, query, access) {
+    async countTree(treeAccess, query, access, maxCount) {
       let row: { n?: unknown } | undefined;
       if (query.tree !== undefined) {
         [row] = await sql`
-          select ${sch}.count_tree(${jb(treeAccess)}, ${query.tree}::ltree, ${access}) as n`;
+          select ${sch}.count_tree(${jb(treeAccess)}, ${query.tree}::ltree, ${access}, ${maxCount ?? null}) as n`;
       } else if (query.lquery !== undefined) {
         [row] = await sql`
-          select ${sch}.count_tree(${jb(treeAccess)}, ${query.lquery}::lquery, ${access}) as n`;
+          select ${sch}.count_tree(${jb(treeAccess)}, ${query.lquery}::lquery, ${access}, ${maxCount ?? null}) as n`;
       } else if (query.ltxtquery !== undefined) {
         [row] = await sql`
-          select ${sch}.count_tree(${jb(treeAccess)}, ${query.ltxtquery}::ltxtquery, ${access}) as n`;
+          select ${sch}.count_tree(${jb(treeAccess)}, ${query.ltxtquery}::ltxtquery, ${access}, ${maxCount ?? null}) as n`;
       } else {
         throw new Error("countTree requires one of tree / lquery / ltxtquery");
       }

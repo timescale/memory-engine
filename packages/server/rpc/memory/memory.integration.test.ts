@@ -265,6 +265,12 @@ test("batchCreate inserts all and is retrievable", async () => {
     tree: "share.batch",
   });
   expect(count.count).toBe(3);
+
+  const capped = await call<{ count: number }>("memory.countTree", {
+    tree: "share.batch",
+    maxCount: 2,
+  });
+  expect(capped.count).toBe(2);
 });
 
 test("create with a duplicate explicit id → CONFLICT", async () => {

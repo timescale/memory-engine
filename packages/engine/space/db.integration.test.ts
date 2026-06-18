@@ -262,6 +262,7 @@ test("moveTree, countTree, listTree", async () => {
   await db.createMemory(FULL, { tree: "work.src.two", content: "2" });
 
   expect(await db.countTree(FULL, { tree: "work.src" }, 1)).toBe(2);
+  expect(await db.countTree(FULL, { tree: "work.src" }, 1, 1)).toBe(1);
 
   const moved = await db.moveTree(FULL, "work.src", "work.dst");
   expect(moved).toBe(2);
