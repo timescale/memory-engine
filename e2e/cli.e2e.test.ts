@@ -298,6 +298,49 @@ describe.skipIf(
     expect(capped.count).toBe(1);
   });
 
+  test("2c. memory move previews and relocates a subtree", async () => {
+    const base = `share.moveprobe${rand()}`;
+    const src = `${base}.src`;
+    const dst = `${base}.dst`;
+
+    const first = await meJson<{ id: string }>([
+      "create",
+      "move probe one",
+      "--tree",
+      `${src}.one`,
+    ]);
+    await meJson(["create", "move probe two", "--tree", `${src}.two`]);
+    await meJson(["create", "move probe keep", "--tree", `${base}.keep`]);
+
+    const dry = await meJson<{ count: number; dryRun?: boolean }>([
+      "memory",
+      "move",
+      src,
+      dst,
+      "--dry-run",
+    ]);
+    expect(dry.count).toBe(2);
+    expect(dry.dryRun).toBe(true);
+    expect(await countUnder(src)).toBe(2);
+    expect(await countUnder(dst)).toBe(0);
+    expect(await countUnder(`${base}.keep`)).toBe(1);
+
+    const moved = await meJson<{ count: number }>([
+      "memory",
+      "move",
+      src,
+      dst,
+      "--yes",
+    ]);
+    expect(moved.count).toBe(2);
+    expect(await countUnder(src)).toBe(0);
+    expect(await countUnder(dst)).toBe(2);
+    expect(await countUnder(`${base}.keep`)).toBe(1);
+
+    const fetched = await meJson<{ tree: string }>(["memory", "get", first.id]);
+    expect(fetched.tree).toBe(`${dst}.one`);
+  });
+
   test("3. fulltext (BM25) search finds the memory", async () => {
     const res = await meJson<{
       total: number;
