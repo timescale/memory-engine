@@ -497,6 +497,47 @@ Docs: ${docUrl("me_memory_count")}`,
     },
   );
 
+  // me_memory_copy
+  server.registerTool(
+    "me_memory_copy",
+    {
+      title: "Copy Memories",
+      description: `Copy memories from one tree prefix to another, preserving subtree structure.
+
+The source is preserved and copied memories receive new IDs. Like "cp" in a filesystem, all memories under the source prefix get copied under the destination prefix. Use dry_run to preview.
+
+Docs: ${docUrl("me_memory_copy")}`,
+      inputSchema: {
+        source: z.string().min(1).describe("Source tree prefix to copy from"),
+        destination: z
+          .string()
+          .min(1)
+          .describe("Destination tree prefix to copy to"),
+        dry_run: z
+          .boolean()
+          .describe("If true, return count without copying (false to execute)"),
+      },
+      annotations: {
+        title: "Copy Memories",
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+      },
+    },
+    async (args) => {
+      const result = await client.memory.copy({
+        source: args.source,
+        destination: args.destination,
+        dryRun: args.dry_run,
+      });
+      return {
+        content: [
+          { type: "text" as const, text: JSON.stringify(result, null, 2) },
+        ],
+      };
+    },
+  );
+
   // me_memory_mv
   server.registerTool(
     "me_memory_mv",
