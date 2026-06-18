@@ -111,6 +111,15 @@
         "postgres": "^3.4.9",
       },
     },
+    "packages/migrate-prod": {
+      "name": "@memory.build/migrate-prod",
+      "version": "0.2.5",
+      "dependencies": {
+        "@memory.build/database": "workspace:*",
+        "@memory.build/engine": "workspace:*",
+        "postgres": "^3.4.9",
+      },
+    },
     "packages/protocol": {
       "name": "@memory.build/protocol",
       "version": "0.2.6",
@@ -421,6 +430,8 @@
     "@memory.build/embedding": ["@memory.build/embedding@workspace:packages/embedding"],
 
     "@memory.build/engine": ["@memory.build/engine@workspace:packages/engine"],
+
+    "@memory.build/migrate-prod": ["@memory.build/migrate-prod@workspace:packages/migrate-prod"],
 
     "@memory.build/protocol": ["@memory.build/protocol@workspace:packages/protocol"],
 

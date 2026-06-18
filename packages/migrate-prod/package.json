@@ -1,0 +1,12 @@
+{
+  "name": "@memory.build/migrate-prod",
+  "version": "0.2.5",
+  "private": true,
+  "type": "module",
+  "main": "index.ts",
+  "dependencies": {
+    "@memory.build/database": "workspace:*",
+    "@memory.build/engine": "workspace:*",
+    "postgres": "^3.4.9"
+  }
+}
