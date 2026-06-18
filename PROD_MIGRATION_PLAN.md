@@ -14,6 +14,9 @@ This document is self-contained; the detailed source/target schema catalogs it
 was built from lived in `/tmp/me-prod-v025-OLD-SCHEMA.md` and `/tmp/me-new-SCHEMA.md`
 (ephemeral). The load-bearing facts are reproduced below.
 
+> **Runbook**: `PROD_MIGRATION_RUNBOOK.md` — the step-by-step cutover (pre-flight,
+> rollback, maintenance-window vs per-engine modes, teardown, verification SQL).
+>
 > **Implementation**: `packages/migrate-prod` — `migrateProdToMultiplayer(sql)`
 > runs the whole ETL (Phases A+B); `migrateControlPlane`/`migrateEngine` are the
 > per-phase functions for a zero-downtime cutover; `dropLegacy`/`dropAccounts`
