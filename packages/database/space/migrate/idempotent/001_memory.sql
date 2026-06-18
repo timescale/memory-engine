@@ -66,6 +66,24 @@ $func$ language sql immutable strict security invoker
 -------------------------------------------------------------------------------
 -- get memory
 -------------------------------------------------------------------------------
+-- Removing the `default null` from `_id` changes the parameter defaults, which
+-- create-or-replace cannot do ("cannot remove parameter defaults from existing
+-- function"). Drop the old definition only when it still carries a default
+-- (pronargdefaults > 0); when already current — or absent — skip the drop so it
+-- isn't churned every migration run. The create-or-replace below then recreates it.
+do $$ begin
+  if exists
+  (
+    select 1
+    from pg_proc p
+    join pg_namespace n on n.oid = p.pronamespace
+    where n.nspname = '{{schema}}'
+    and p.proname = 'get_memory'
+    and p.pronargdefaults > 0
+  ) then
+    drop function {{schema}}.get_memory(jsonb, uuid);
+  end if;
+end $$;
 create or replace function {{schema}}.get_memory
 ( _tree_access jsonb
 , _id uuid
