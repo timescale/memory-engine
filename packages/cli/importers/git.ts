@@ -22,7 +22,7 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import type { MemoryCreateParams } from "@memory.build/protocol/memory";
-import { deterministicUuidV7 } from "./uuid.ts";
+import { uuidv7At } from "./uuid.ts";
 
 const execFileAsync = promisify(execFile);
 
@@ -301,7 +301,9 @@ export function buildCommitMemory(
     return { error: `invalid commit date: ${commit.commitDate}` };
   }
 
-  const id = deterministicUuidV7(`git:${ctx.tree}:${commit.sha}`, commitMs);
+  // Idempotency is keyed on (tree, name) where name is the commit sha; the id
+  // is a timestamp-prefixed v7 (random tail) so commits sort by date on the id.
+  const id = uuidv7At(commitMs);
 
   let content = commit.subject;
   const body = truncateUtf8(commit.body, BODY_BYTES_CAP);
@@ -347,6 +349,7 @@ export function buildCommitMemory(
 
   return {
     id,
+    name: commit.sha,
     content,
     meta,
     tree: ctx.tree,

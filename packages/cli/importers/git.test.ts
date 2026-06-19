@@ -177,13 +177,15 @@ function ctx(
 }
 
 describe("buildCommitMemory", () => {
-  test("builds content, meta, temporal, and a deterministic id", () => {
+  test("builds content, meta, temporal, name, and a timestamp-prefixed id", () => {
     const built = buildCommitMemory(commit(), ctx());
     if ("error" in built) throw new Error(built.error);
     expect(built.content).toBe(
       "fix: a thing\n\ndetails here\n\nFiles:\n  src/a.ts (+10 -2)",
     );
     expect(built.tree).toBe("share.projects.demo.git_history");
+    // The sha is the leaf name — the (tree, name) idempotency key.
+    expect(built.name).toBe(SHA_A);
     // Commit date, normalized to UTC.
     expect(built.temporal).toEqual({ start: "2026-01-02T01:04:06.000Z" });
     expect(built.meta).toEqual({
@@ -201,13 +203,20 @@ describe("buildCommitMemory", () => {
       importer_version: "1",
     });
 
-    // Deterministic: same inputs → same id; different tree → different id.
+    // The id is a v7 whose 48-bit prefix is the commit time (random tail), so
+    // commits sort by date on the id; identity/idempotency comes from the sha.
+    const id = built.id as string;
+    expect(id).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
+    );
+    const tsHex = id.replace(/-/g, "").slice(0, 12);
+    expect(Number.parseInt(tsHex, 16)).toBe(Date.parse(commit().commitDate));
+
+    // Random tail → two builds of the same commit differ in id, same name.
     const again = buildCommitMemory(commit(), ctx());
     if ("error" in again) throw new Error(again.error);
-    expect(again.id).toBe(built.id);
-    const moved = buildCommitMemory(commit(), ctx({ tree: "share.other" }));
-    if ("error" in moved) throw new Error(moved.error);
-    expect(moved.id).not.toBe(built.id);
+    expect(again.id).not.toBe(built.id);
+    expect(again.name).toBe(SHA_A);
   });
 
   test("omits remote and merge marker when absent, sets them when present", () => {

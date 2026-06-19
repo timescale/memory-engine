@@ -4,8 +4,10 @@
  * Each per-tool importer (claude, codex, opencode) exposes a
  * `discoverSessions` async generator that yields `ImportedSession`
  * objects. `runImport` then walks each session's `messages[]` and
- * writes one memory per message, using deterministic UUIDv7s keyed
- * by `(tool, sessionId, messageId)` so re-imports are idempotent.
+ * writes one memory per message, named `msg_<messageId>` under a per-session
+ * tree node — so `(tree, name)` is the idempotency key and re-imports collapse
+ * onto the same rows. The id is a timestamp-prefixed UUIDv7 (random tail) so
+ * memories still sort chronologically by id.
  *
  * Reconciliation happens server-side: every planned message is submitted
  * through `memory.batchCreate` with `onConflict: "replace"` — new ids insert,
@@ -23,7 +25,7 @@ import type { MemoryCreateParams } from "@memory.build/protocol/memory";
 import { batchCreateChunked } from "../chunk.ts";
 import type { MemoryClient } from "../client.ts";
 import type { ProgressReporter } from "./progress.ts";
-import { SlugRegistry } from "./slug.ts";
+import { normalizeSlug, SlugRegistry } from "./slug.ts";
 import { renderMessageContent, synthesizeTitle } from "./transcript.ts";
 import type {
   ConversationMessage,
@@ -31,7 +33,7 @@ import type {
   ImporterOptions,
   ImporterStats,
 } from "./types.ts";
-import { deterministicMessageUuidV7 } from "./uuid.ts";
+import { uuidv7At } from "./uuid.ts";
 
 /**
  * Version tag stored in `meta.importer_version`. Bumping this forces a
@@ -47,6 +49,28 @@ export const IMPORTER_VERSION = "1";
 
 /** Meta key carrying the importer version (provenance; a bump re-renders via the meta diff). */
 const IMPORTER_VERSION_KEY = "importer_version";
+
+/**
+ * The ltree node for one session: `<root>.<slug>.<sessionsNode>.<sessionId>`.
+ * The session id is normalized to a valid ltree label. Each session is its own
+ * node so its messages are browsable as named leaves under it.
+ */
+function sessionTree(
+  options: WriteOptions,
+  slug: string,
+  sessionId: string,
+): string {
+  return `${options.treeRoot}.${slug}.${options.sessionsNodeName}.${normalizeSlug(sessionId)}`;
+}
+
+/**
+ * A message's leaf name within its session node: `msg_<messageId>`, with any
+ * character outside the name charset replaced. `(tree, name)` is the idempotency
+ * key, so the same message always lands in the same slot across re-imports.
+ */
+function messageName(messageId: string): string {
+  return `msg_${messageId.replace(/[^A-Za-z0-9._-]/g, "_")}`;
+}
 
 /**
  * Default capture layout, shared by `me import claude` and the Claude Code capture
@@ -146,7 +170,7 @@ export async function runImport(
     sessionsProcessed++;
 
     const { slug, gitRoot, gitRemote } = await slugs.resolve(session.cwd);
-    const tree = `${writeOptions.treeRoot}.${slug}.${writeOptions.sessionsNodeName}`;
+    const tree = sessionTree(writeOptions, slug, session.sessionId);
 
     const outcome = await writeSession(
       engine,
@@ -211,7 +235,7 @@ export async function importTranscriptFile(
   const { slug, gitRoot, gitRemote } = await new SlugRegistry().resolve(
     session.cwd,
   );
-  const tree = `${options.treeRoot}.${slug}.${options.sessionsNodeName}`;
+  const tree = sessionTree(options, slug, session.sessionId);
 
   const plan = planSession(session, tree, slug, gitRoot, gitRemote, options);
   const outcome: SessionOutcome = {
@@ -290,7 +314,7 @@ interface PlanResult {
 /**
  * Render + dedup a session's messages into write payloads (no RPCs). Skips
  * messages that render empty under the chosen mode, records bad timestamps as
- * failures, and collapses events sharing a deterministic id (resume/replay
+ * failures, and collapses events sharing a (tree, name) (resume/replay
  * artefacts) so the batch can't trip the unique constraint server-side.
  */
 function planSession(
@@ -323,12 +347,6 @@ function planSession(
       });
       continue;
     }
-    const memoryId = deterministicMessageUuidV7(
-      session.tool,
-      session.sessionId,
-      message.messageId,
-      timestampMs,
-    );
     const meta = buildMeta(
       session,
       message,
@@ -338,14 +356,19 @@ function planSession(
       options,
     );
     const temporal = { start: new Date(timestampMs).toISOString() };
+    const name = messageName(message.messageId);
+    const id = uuidv7At(timestampMs);
     planned.push({
       message,
-      memoryId,
-      payload: { id: memoryId, content, meta, tree, temporal },
+      memoryId: id,
+      payload: { id, name, content, meta, tree, temporal },
     });
   }
 
-  const dedup = dedupByMemoryId(planned);
+  // Dedup on (tree, name) — the idempotency key — so resume/replay artefacts
+  // (the same messageId twice in one file) collapse before submit. tree is
+  // constant within a session, so the name alone distinguishes them.
+  const dedup = dedupBy(planned, (p) => p.payload.name ?? "");
   return {
     planned: dedup.unique,
     skipped: skipped + dedup.duplicates,
@@ -511,24 +534,27 @@ function logOutcome(
 }
 
 /**
- * Drop items whose `memoryId` has already been seen, preserving order.
- * Exported so the dedup behavior can be unit-tested without standing up
- * a fake MemoryClient. Used by `writeSession` to absorb sessions whose
- * JSONL has duplicate `event.uuid` entries (which would otherwise produce
- * two planned memories with the same deterministic UUIDv7).
+ * Drop items whose `key` has already been seen, preserving order. Callers key
+ * on the idempotency slot: the transcript planner passes the `(tree, name)`
+ * key, the git importer the commit sha — so resume/replay artefacts (the same
+ * record twice in one batch) collapse before submit and don't trip the unique
+ * constraint server-side. Exported so the dedup behavior can be unit-tested
+ * without standing up a fake MemoryClient.
  */
-export function dedupByMemoryId<T extends { memoryId: string }>(
+export function dedupBy<T>(
   items: T[],
+  key: (item: T) => string,
 ): { unique: T[]; duplicates: number } {
   const seen = new Set<string>();
   const unique: T[] = [];
   let duplicates = 0;
   for (const item of items) {
-    if (seen.has(item.memoryId)) {
+    const k = key(item);
+    if (seen.has(k)) {
       duplicates++;
       continue;
     }
-    seen.add(item.memoryId);
+    seen.add(k);
     unique.push(item);
   }
   return { unique, duplicates };
@@ -538,4 +564,4 @@ export type { ProgressReporter } from "./progress.ts";
 export { createProgressReporter } from "./progress.ts";
 export { SlugRegistry } from "./slug.ts";
 export { synthesizeTitle } from "./transcript.ts";
-export { deterministicMessageUuidV7 } from "./uuid.ts";
+export { uuidv7At } from "./uuid.ts";

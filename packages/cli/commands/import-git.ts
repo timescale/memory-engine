@@ -2,15 +2,16 @@
  * `me import git` — import a repo's commit history as memories.
  *
  * One memory per commit (message + capped changed-file list) under
- * `<tree-root>.<project_slug>.git_history`, with the commit date as the
- * memory's temporal and a deterministic id keyed by `(tree, sha)` — so
- * re-runs are idempotent (existing commits become server-side skips).
+ * `<tree-root>.<project_slug>.git_history`, named with the commit `<sha>` and
+ * with the commit date as the memory's temporal. Idempotency is keyed on
+ * `(tree, sha)`, so re-runs become server-side skips; the id is a
+ * timestamp-prefixed UUIDv7 (random tail) so commits sort by date on the id.
  *
  * Re-runs are also incremental: the newest already-imported commit is looked
  * up server-side (one search) and, when it is an ancestor of the target rev,
  * only `<sha>..<rev>` is walked. Any doubt (force-push, other branch,
- * explicit bounds) falls back to the full walk, which deterministic ids make
- * safe. `--full` forces the full walk.
+ * explicit bounds) falls back to the full walk, which the (tree, sha) key
+ * makes safe. `--full` forces the full walk.
  */
 import { resolve } from "node:path";
 import * as clack from "@clack/prompts";
@@ -29,7 +30,7 @@ import {
 import {
   createProgressReporter,
   DEFAULT_TREE_ROOT,
-  dedupByMemoryId,
+  dedupBy,
 } from "../importers/index.ts";
 import { SlugRegistry } from "../importers/slug.ts";
 import { getOutputFormat, output } from "../output.ts";
@@ -248,7 +249,8 @@ export async function runGitImport(
     handleError(error, fmt);
   }
 
-  const { unique } = dedupByMemoryId(planned);
+  // Dedup on the commit sha (the (tree, name) key), not the random id.
+  const { unique } = dedupBy(planned, (p) => p.payload.name ?? p.memoryId);
 
   let inserted = 0;
   let skipped = 0;
@@ -258,7 +260,7 @@ export async function runGitImport(
     const submitted = unique.map((p) => p.memoryId);
     // Re-import is idempotent via content-aware replace: an unchanged commit is
     // a no-op; a version bump changes meta and re-renders in place. Without a
-    // directive a re-submitted commit would be a hard (id) conflict.
+    // directive a re-submitted commit would be a hard (tree, name) conflict.
     const result = await batchCreateChunked(
       engine,
       unique.map((p) => p.payload),
