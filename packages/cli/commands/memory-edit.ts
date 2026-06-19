@@ -16,6 +16,7 @@ import { parseMarkdown } from "../parsers/markdown.ts";
 interface ParsedMemory {
   id?: string;
   content: string;
+  name?: string;
   meta?: Record<string, unknown>;
   tree?: string;
   temporal?: { start: string; end?: string };
@@ -40,8 +41,10 @@ function openInEditor(filePath: string): boolean {
 
 /**
  * Format a memory as Markdown with YAML frontmatter for editing.
+ *
+ * Exported for unit testing.
  */
-function formatForEdit(memory: Record<string, unknown>): string {
+export function formatForEdit(memory: Record<string, unknown>): string {
   const frontmatter: Record<string, unknown> = { id: memory.id };
   if (memory.createdAt) frontmatter.created_at = memory.createdAt;
   if (
@@ -51,6 +54,7 @@ function formatForEdit(memory: Record<string, unknown>): string {
   ) {
     frontmatter.meta = memory.meta;
   }
+  if (memory.name) frontmatter.name = memory.name;
   if (memory.tree) frontmatter.tree = memory.tree;
   if (memory.temporal) frontmatter.temporal = memory.temporal;
 
@@ -83,8 +87,10 @@ function stripErrorComments(content: string): string {
 
 /**
  * Check if a memory has changed.
+ *
+ * Exported for unit testing.
  */
-function hasChanges(
+export function hasChanges(
   original: Record<string, unknown>,
   parsed: ParsedMemory,
 ): boolean {
@@ -97,6 +103,10 @@ function hasChanges(
   const origTree = (original.tree as string) || null;
   const parsedTree = parsed.tree || null;
   if (origTree !== parsedTree) return true;
+
+  const origName = (original.name as string) || null;
+  const parsedName = parsed.name || null;
+  if (origName !== parsedName) return true;
 
   const origTemporal = original.temporal as {
     start: string;
@@ -171,6 +181,11 @@ export async function editMemory(
       if (parsed.tree !== undefined) updateParams.tree = parsed.tree;
       if (parsed.temporal !== undefined)
         updateParams.temporal = parsed.temporal;
+      // name: a value sets/renames; removing the line from a previously-named
+      // memory clears it (null). Only sent when it actually changed.
+      const origName = ((original as { name?: string }).name as string) || null;
+      const parsedName = parsed.name || null;
+      if (parsedName !== origName) updateParams.name = parsedName;
 
       try {
         await engine.memory.update(
