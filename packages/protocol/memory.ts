@@ -3,7 +3,9 @@
  */
 import { z } from "zod";
 import {
+  memoryNameSchema,
   metaSchema,
+  onConflictSchema,
   searchWeightsSchema,
   temporalFilterSchema,
   temporalSchema,
@@ -18,13 +20,20 @@ import {
 
 /**
  * memory.create params.
+ *
+ * `id` is optional — supply it to preserve identity (import/export, deterministic
+ * importers); omit it for a server-generated uuidv7. `name` is the optional leaf
+ * slug. `onConflict` governs a clash on the idempotency key (the id when given,
+ * else the (tree, name) slot): default `error`.
  */
 export const memoryCreateParams = z.object({
   id: uuidv7Schema.optional().nullable(),
   content: z.string().min(1, "content is required"),
   meta: metaSchema.optional().nullable(),
   tree: treePathSchema.min(1, "tree path is required"),
+  name: memoryNameSchema.optional().nullable(),
   temporal: temporalSchema.optional().nullable(),
+  onConflict: onConflictSchema.optional().nullable(),
 });
 
 export type MemoryCreateParams = z.infer<typeof memoryCreateParams>;
@@ -32,11 +41,13 @@ export type MemoryCreateParams = z.infer<typeof memoryCreateParams>;
 /**
  * memory.batchCreate params.
  *
- * `replaceIfMetaDiffers` names a meta key for conditional replace: a memory
- * whose explicit id already exists is rewritten in place when the stored
- * row's value for that key differs from the submitted one (deterministic-id
- * importers pass e.g. "importer_version" so version bumps re-render existing
- * rows), and skipped when it matches. Without it, duplicates are skipped.
+ * `onConflict` governs a clash on each row's idempotency key (its id when given,
+ * else its (tree, name) slot): `error` raises, `replace` overwrites in place
+ * (a no-op when nothing changed), `ignore` skips. `replaceIfMetaDiffers` is a
+ * transitional override naming a meta key for conditional replace: a row is
+ * rewritten when the stored row's value for that key differs from the submitted
+ * one (deterministic-id importers pass e.g. "importer_version" so version bumps
+ * re-render), and skipped when it matches. When set it takes precedence.
  */
 export const memoryBatchCreateParams = z.object({
   memories: z
@@ -46,11 +57,13 @@ export const memoryBatchCreateParams = z.object({
         content: z.string().min(1, "content is required"),
         meta: metaSchema.optional().nullable(),
         tree: treePathSchema.min(1, "tree path is required"),
+        name: memoryNameSchema.optional().nullable(),
         temporal: temporalSchema.optional().nullable(),
       }),
     )
     .min(1, "at least one memory required")
     .max(1000, "maximum 1000 memories per batch"),
+  onConflict: onConflictSchema.optional().nullable(),
   replaceIfMetaDiffers: z.string().min(1).optional().nullable(),
 });
 
@@ -73,6 +86,8 @@ export const memoryUpdateParams = z.object({
   content: z.string().min(1).optional().nullable(),
   meta: metaSchema.optional().nullable(),
   tree: treePathSchema.optional().nullable(),
+  // null clears the name; a string sets/renames; omitted leaves it unchanged.
+  name: memoryNameSchema.optional().nullable(),
   temporal: temporalSchema.optional().nullable(),
 });
 
