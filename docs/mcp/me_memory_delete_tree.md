@@ -29,7 +29,7 @@ Use `dry_run: true` to preview how many memories would be deleted without actual
 
 ```json
 {
-  "tree": "pack.datasync",
+  "tree": "/pack/datasync",
   "dry_run": true
 }
 ```
@@ -38,14 +38,14 @@ Use `dry_run: true` to preview how many memories would be deleted without actual
 
 ```json
 {
-  "tree": "pack.datasync",
+  "tree": "/pack/datasync",
   "dry_run": false
 }
 ```
 
 ## Notes
 
-- This deletes memories at the exact path **and** all descendants. `tree: "work"` deletes `work`, `work.projects`, `work.projects.me`, etc.
+- This deletes memories at the exact path **and** all descendants. `tree: "/work"` deletes `/work`, `/work/projects`, `/work/projects/me`, etc.
 - The deletion is **atomic** -- all memories are deleted together or none are.
 - Always preview with `dry_run: true` first to avoid surprises.
 - This operation is irreversible. Consider using [me_memory_mv](me_memory_mv.md) to archive instead of deleting.

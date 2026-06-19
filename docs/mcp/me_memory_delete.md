@@ -2,7 +2,7 @@
 
 Permanently remove a memory by ID.
 
-This is irreversible. Consider archiving (via a meta update) or moving (via `me_memory_mv`) instead.
+This is irreversible. Consider archiving (via a meta update) or moving (via `me_memory_mv`) instead. To delete a named memory by its `folder/name` path use [me_memory_delete_by_path](me_memory_delete_by_path.md); to remove a whole subtree use [me_memory_delete_tree](me_memory_delete_tree.md).
 
 ## Parameters
 

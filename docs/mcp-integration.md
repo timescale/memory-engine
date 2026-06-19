@@ -153,8 +153,10 @@ Once connected, the agent has access to:
 | `me_memory_create` | Store a new memory |
 | `me_memory_search` | Search by meaning, keywords, or filters |
 | `me_memory_get` | Retrieve a memory by ID |
+| `me_memory_get_by_path` | Retrieve a named memory by its `folder/name` path |
 | `me_memory_update` | Modify an existing memory |
-| `me_memory_delete` | Delete a memory |
+| `me_memory_delete` | Delete a memory by ID |
+| `me_memory_delete_by_path` | Delete a named memory by its `folder/name` path |
 | `me_memory_delete_tree` | Bulk delete by tree prefix |
 | `me_memory_count` | Count memories matching a tree filter |
 | `me_memory_copy` | Copy memories between tree paths |
@@ -185,9 +187,9 @@ This project uses Memory Engine for persistent knowledge.
 
 ## Memory Map
 
-- `share.design.*` -- architecture decisions and design docs
-- `share.research.*` -- research findings and comparisons
-- `share.bugs.*` -- known issues and workarounds
+- `/share/design/*` -- architecture decisions and design docs
+- `/share/research/*` -- research findings and comparisons
+- `/share/bugs/*` -- known issues and workarounds
 
 ## How to Search
 
@@ -208,7 +210,7 @@ me_memory_search({semantic: "how does authentication work"})
 me_memory_search({fulltext: "OAuth JWT"})
 
 # Browse a section
-me_memory_search({tree: "share.design.*"})
+me_memory_search({tree: "/share/design/*"})
 ```
 
 ## Troubleshooting

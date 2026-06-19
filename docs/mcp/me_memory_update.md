@@ -10,6 +10,7 @@ Provide the ID and any fields to change. Omitted fields remain unchanged.
 |------|------|----------|-------------|
 | `id` | `string` | yes | The UUID of the memory to update. |
 | `content` | `string \| null` | no | New content. Omit or pass `null` to keep existing. |
+| `name` | `string \| null` | no | Set or rename the leaf name. Pass an empty string (`""`) to clear it; omit or pass `null` to keep existing. Same slug rules as `me_memory_create`. |
 | `meta` | `object \| null` | no | New metadata. Omit or pass `null` to keep existing. |
 | `tree` | `string \| null` | no | New tree path. Omit or pass `null` to keep existing. |
 | `temporal` | `object \| null` | no | New time range. Omit or pass `null` to keep existing. |
@@ -30,7 +31,8 @@ The full updated memory object:
   "id": "0194a000-0001-7000-8000-000000000001",
   "content": "Updated content here.",
   "meta": { "topic": "database", "reviewed": true },
-  "tree": "notes.postgres",
+  "tree": "/notes/postgres",
+  "name": "uuidv7",
   "temporal": null,
   "hasEmbedding": true,
   "createdAt": "2025-04-15T12:00:00Z",

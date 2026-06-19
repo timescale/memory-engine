@@ -18,7 +18,9 @@ One of `path` or `content` must be provided.
 
 JSON (array or single object), NDJSON, YAML (array or single object), and Markdown (YAML frontmatter + body, one memory per file).
 
-Each memory object supports fields: `id`, `content` (required), `meta`, `tree`, `temporal`. Unlike `me_memory_create` (which requires an explicit `tree`), a record with no `tree` is imported into the shared root `share`.
+Each memory object supports fields: `id`, `content` (required), `name`, `meta`, `tree`, `temporal`. Unlike `me_memory_create` (which requires an explicit `tree`), a record with no `tree` is imported into the shared root `share`.
+
+Import submits with `onConflict: 'ignore'`, so a record whose idempotency key -- its `id`, or its `(tree, name)` slot -- already exists is skipped rather than erroring. Re-importing the same data is a no-op.
 
 See [File Formats](../formats.md) for full schema documentation, examples, and format detection rules.
 
@@ -49,7 +51,7 @@ See [File Formats](../formats.md) for full schema documentation, examples, and f
 | `skippedIds` | `string[]` | The explicit ids that were skipped because they already existed. Always present (may be empty). Inspect any of these with `me_memory_get` to see what's there. |
 | `errors` | `Array<{ chunkIndex, itemCount, ids, error }>` | One entry per failed chunk. Always present (may be empty). |
 
-The tool is idempotent for memories with explicit ids: re-calling with the same arguments leaves the space in the same state, with all previously-imported ids appearing in `skippedIds` instead of `ids`. Memories submitted without an explicit `id` get a server-generated UUIDv7 and never collide.
+The tool is idempotent: re-calling with the same arguments leaves the space in the same state, with previously-imported explicit ids appearing in `skippedIds` instead of `ids`. A record with neither an `id` nor a `name` gets a server-generated UUIDv7 and never collides; a named record is keyed on its `(tree, name)` slot (such skips aren't listed by id in `skippedIds`).
 
 ### Chunking and partial failures
 

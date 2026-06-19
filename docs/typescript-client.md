@@ -28,10 +28,10 @@ const me = createMemoryClient({
   space: "abc123def456",            // the X-Me-Space slug
 });
 
-// Create a memory (tree is required — choose share.* or ~.* deliberately)
+// Create a memory (tree is required — choose /share/* or ~/* deliberately)
 await me.memory.create({
   content: "TypeScript was released in 2012",
-  tree: "share.knowledge.programming",
+  tree: "/share/knowledge/programming",
 });
 
 // Search
@@ -63,56 +63,64 @@ me.setSpace("otherslug1234");
 
 ### create
 
-`tree` is required. Use `share.*` for memories the rest of the space should see, or `~.*` for your private home.
+`tree` is required. Use `/share/*` for memories the rest of the space should see, or `~/*` for your private home. An optional `name` (a filename-like slug, unique within the tree) lets you address the memory by path. `onConflict` governs a clash on the idempotency key (the `id` if given, else the `(tree, name)` slot): `"error"` (default), `"replace"` (content-aware), or `"ignore"`.
 
 ```typescript
 const memory = await me.memory.create({
   content: "The fact to remember",
-  tree: "share.work.projects.acme",    // required
+  tree: "/share/work/projects/acme",   // required (leading slash optional on input)
+  name: "kickoff",                     // optional, unique within the tree
   meta: { source: "meeting-notes" },   // optional JSON metadata
   temporal: {                          // optional time range
     start: "2025-01-01T00:00:00Z",
     end: "2025-01-31T23:59:59Z",
   },
+  onConflict: "replace",               // optional; default "error"
 });
-// memory.id, memory.content, memory.tree, memory.meta, ...
+// memory.id, memory.content, memory.tree, memory.name, memory.meta, ...
 ```
 
 ### batchCreate
 
-Create up to 1,000 memories in a single call. Each memory requires a `tree`.
+Create up to 1,000 memories in a single call. Each memory requires a `tree`. A batch-level `onConflict` applies to every row (importers pass `"replace"` or `"ignore"`).
 
 ```typescript
-const { ids } = await me.memory.batchCreate({
+const { ids, updatedIds } = await me.memory.batchCreate({
   memories: [
-    { content: "First memory", tree: "share.notes" },
-    { content: "Second memory", tree: "share.notes" },
+    { content: "First memory", tree: "/share/notes" },
+    { content: "Second memory", tree: "/share/notes", name: "second" },
   ],
+  onConflict: "ignore", // optional; default "error"
 });
 ```
 
-### get
+### get / getByPath
 
 ```typescript
 const memory = await me.memory.get({ id: "019..." });
+// Or address a named memory by its folder/name path:
+const byPath = await me.memory.getByPath({ path: "/share/auth/jwt-rotation" });
 ```
 
 ### update
 
-Only provided fields are changed. Pass `null` to clear optional fields.
+Only provided fields are changed. Pass `null` to clear optional fields (e.g. `name: null` clears the name). Update is id-addressed.
 
 ```typescript
 const updated = await me.memory.update({
   id: "019...",
   content: "Updated content",
+  name: "jwt-rotation",   // set/rename; null clears
   meta: { reviewed: true },
 });
 ```
 
-### delete
+### delete / deleteByPath
 
 ```typescript
 const { deleted } = await me.memory.delete({ id: "019..." });
+// Or delete a named memory by its folder/name path:
+await me.memory.deleteByPath({ path: "/share/auth/jwt-rotation" });
 ```
 
 ### deleteTree
@@ -120,8 +128,8 @@ const { deleted } = await me.memory.delete({ id: "019..." });
 Delete all memories under a tree prefix.
 
 ```typescript
-const { count } = await me.memory.deleteTree({ tree: "share.old.project", dryRun: true });
-const { count: deleted } = await me.memory.deleteTree({ tree: "share.old.project" });
+const { count } = await me.memory.deleteTree({ tree: "/share/old/project", dryRun: true });
+const { count: deleted } = await me.memory.deleteTree({ tree: "/share/old/project" });
 ```
 
 ### move
@@ -130,8 +138,8 @@ Move memories from one tree prefix to another, preserving subtree structure.
 
 ```typescript
 const { count } = await me.memory.move({
-  source: "share.drafts.api",
-  destination: "share.published.api",
+  source: "/share/drafts/api",
+  destination: "/share/published/api",
 });
 ```
 
@@ -141,9 +149,9 @@ View the hierarchical tree structure with counts at each node.
 
 ```typescript
 const { nodes } = await me.memory.tree();
-// [{ path: "share", count: 5 }, { path: "share.work", count: 3 }, ...]
+// [{ path: "/share", count: 5 }, { path: "/share/work", count: 3 }, ...]
 
-const { nodes } = await me.memory.tree({ tree: "share.work", levels: 2 });
+const { nodes } = await me.memory.tree({ tree: "/share/work", levels: 2 });
 ```
 
 ## Search
@@ -158,7 +166,7 @@ const { results } = await me.memory.search({
 
   // Filters (all optional, combined with AND)
   grep: "regex.*pattern",              // POSIX regex on content
-  tree: "share.work.projects.*",       // ltree/lquery filter
+  tree: "/share/work/projects/*",       // ltree/lquery filter
   meta: { source: "meeting-notes" },   // JSONB containment
   temporal: {                          // time-based filter
     contains: "2025-06-15T00:00:00Z",  // point-in-time
@@ -211,8 +219,8 @@ const { groups } = await me.group.listForMember({ memberId: "019..." });
 Levels are `1` (read), `2` (write), `3` (owner).
 
 ```typescript
-await me.grant.set({ principalId: "019...", treePath: "share.work", access: 2 });
-await me.grant.remove({ principalId: "019...", treePath: "share.work" });
+await me.grant.set({ principalId: "019...", treePath: "/share/work", access: 2 });
+await me.grant.remove({ principalId: "019...", treePath: "/share/work" });
 const { grants } = await me.grant.list();                         // optionally { principalId } / { treePath }
 ```
 

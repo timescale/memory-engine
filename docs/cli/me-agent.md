@@ -72,7 +72,7 @@ me agent delete <agent>
 
 ## me agent add
 
-Add one of your agents to the active space's roster. It joins with owner over its own home — nested under yours (`home.<your-id>.<agent-id>`), so you can see what it stores under `~`. Grant it shared access (e.g. on `share`) with [`me access`](me-access.md).
+Add one of your agents to the active space's roster. It joins with owner over its own home — nested under yours (`/home/<your-id>/<agent-id>`), so you can see what it stores under `~`. Grant it shared access (e.g. on `share`) with [`me access`](me-access.md).
 
 ```
 me agent add <agent>

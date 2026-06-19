@@ -42,25 +42,25 @@ A grant attaches an access **level** to a principal at a **tree path**. Levels a
 | 2 | **write** | Read + create, update, move, and delete memories. |
 | 3 | **owner** | Write + manage access (grant/revoke) within the subtree. |
 
-Grants are **hierarchical**: a grant at `share.work` also covers `share.work.projects`, `share.work.projects.api`, and so on. An `owner` grant at a path delegates access-management for that whole subtree; `owner@root` (the empty path) owns the entire space.
+Grants are **hierarchical**: a grant at `/share/work` also covers `/share/work/projects`, `/share/work/projects/api`, and so on. An `owner` grant at a path delegates access-management for that whole subtree; ownership at the root `/` (the empty path) owns the entire space.
 
 ```bash
 # Grant read access to a subtree
-me access grant alice@example.com share.work r
+me access grant alice@example.com /share/work r
 
 # Grant write access
-me access grant bob@example.com share.work.backend w
+me access grant bob@example.com /share/work/backend w
 
 # Grant ownership of a subtree (lets the grantee manage access below it)
-me access grant team-leads share.work o
+me access grant team-leads /share/work o
 
 # List grants in the active space (optionally scope to one principal or path)
 me access list
 me access list alice@example.com
-me access list --path share.work
+me access list --path /share/work
 
 # Remove a grant
-me access rm-grant bob@example.com share.work.backend
+me access rm-grant bob@example.com /share/work/backend
 ```
 
 The level argument accepts `r` (read), `w` (write), or `o` (owner).
@@ -69,15 +69,15 @@ The level argument accepts `r` (read), `w` (write), or `o` (owner).
 
 Every space has two conventional roots:
 
-- **`share`** — the shared root. Memories everyone in the space should see go here. This is where the file importers default a tree-less record, and where `me memory create` / `me_memory_create` callers usually place memories.
-- **`home.<member_id>`** — a per-member private root. The input shortcut **`~`** expands to your own home, so `~.notes` means `home.<your-id>.notes` and displays back as `~.notes`. An **agent**'s home nests under its owner's — `home.<owner-id>.<agent-id>` — so its owner can see what the agent stores under `~` (an agent's access is capped at its owner's regardless).
+- **`/share`** — the shared root. Memories everyone in the space should see go here. This is where the file importers default a tree-less record, and where `me memory create` / `me_memory_create` callers usually place memories.
+- **`/home/<member_id>`** — a per-member private root. The input shortcut **`~`** expands to your own home, so `~/notes` means `/home/<your-id>/notes` and displays back as `~/notes`. An **agent**'s home nests under its owner's — `/home/<owner-id>/<agent-id>` — so its owner can see what the agent stores under `~` (an agent's access is capped at its owner's regardless).
 
-`.` is the canonical path separator (`/` is also accepted on input and normalized). Labels must match `[A-Za-z0-9_-]`.
+`/` is the canonical path separator (the leading slash is optional on input). Labels must match `[A-Za-z0-9_-]`.
 
 ### Default grants
 
 - A space **creator** gets `admin` + `owner@home` + `owner@share` — **not** `owner@root`. So the creator sees `share` and their own `~`, but not other members' homes. Because they're an admin, they can self-grant `owner@root` if they need the whole space.
-- A **user** who joins a space is granted `owner@home` (their own private root). An **agent** who joins is likewise granted owner over its home — nested under its owner's (`home.<owner-id>.<agent-id>`) — so it's usable immediately and the grant isn't clamped away. An admin then grants whatever shared access is appropriate (often via `me space invite --share`).
+- A **user** who joins a space is granted `owner@home` (their own private root). An **agent** who joins is likewise granted owner over its home — nested under its owner's (`/home/<owner-id>/<agent-id>`) — so it's usable immediately and the grant isn't clamped away. An admin then grants whatever shared access is appropriate (often via `me space invite --share`).
 
 ## How it's enforced
 
@@ -106,11 +106,11 @@ me group add backend alice@example.com
 me group add backend bob@example.com
 
 # Grant the group write access to a subtree (members inherit it)
-me access grant backend share.work.backend w
+me access grant backend /share/work/backend w
 
 # Add one of your agents to the space and give it write access to share
 me agent add ci-bot
-me access grant ci-bot share w
+me access grant ci-bot /share w
 ```
 
 See [`me access`](cli/me-access.md), [`me space`](cli/me-space.md), [`me group`](cli/me-group.md), and [`me agent`](cli/me-agent.md) for full command references.

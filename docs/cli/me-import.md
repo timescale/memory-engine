@@ -62,7 +62,7 @@ me import git [repo] [options]
 | `--full` | Walk the full history (skip the incremental high-water lookup). |
 | `--no-merges` | Drop all merge commits. |
 | `--no-file-list` | Omit the changed-file list from commit memories. |
-| `--tree-root <path>` | Tree root under which `<slug>.git_history` is placed. Default: `share.projects`. |
+| `--tree-root <path>` | Tree root under which `<slug>/git_history` is placed. Default: `/share/projects`. |
 | `--dry-run` | Parse and report what would be imported without writing. |
 | `-v, --verbose` | Per-commit progress output. |
 
@@ -71,10 +71,10 @@ me import git [repo] [options]
 Commits are stored under:
 
 ```
-<tree-root>.<project_slug>.git_history
+<tree-root>/<project_slug>/git_history
 ```
 
-The project slug is derived exactly as for [agent session imports](agent-session-imports.md#tree-layout) (git remote repo name, else repo root directory name), so a project's commit history sits next to its `agent_sessions` node — e.g. `share.projects.memory_engine.git_history`.
+The project slug is derived exactly as for [agent session imports](agent-session-imports.md#tree-layout) (git remote repo name, else repo root directory name), so a project's commit history sits next to its `agent_sessions` node — e.g. `/share/projects/memory_engine/git_history`.
 
 ### Content shape
 

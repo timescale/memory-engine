@@ -8,7 +8,7 @@ Shows how memories are organized and how many exist at each level. Use this to u
 
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
-| `tree` | `string \| null` | no | Root path to display from (e.g., `work.projects`). Omit or pass `null` for the full tree. |
+| `tree` | `string \| null` | no | Root path to display from (e.g., `/work/projects`). Omit or pass `null` for the full tree. |
 | `levels` | `integer \| null` | no | Maximum depth to display. Omit or pass `null` for unlimited. |
 
 ## Returns
@@ -16,11 +16,11 @@ Shows how memories are organized and how many exist at each level. Use this to u
 ```json
 {
   "nodes": [
-    { "path": "me", "count": 45 },
-    { "path": "me.design", "count": 30 },
-    { "path": "me.design.auth", "count": 8 },
-    { "path": "me.strategy", "count": 15 },
-    { "path": "pack", "count": 120 }
+    { "path": "/me", "count": 45 },
+    { "path": "/me/design", "count": 30 },
+    { "path": "/me/design/auth", "count": 8 },
+    { "path": "/me/strategy", "count": 15 },
+    { "path": "/pack", "count": 120 }
   ]
 }
 ```
@@ -45,7 +45,7 @@ Shows how memories are organized and how many exist at each level. Use this to u
 
 ```json
 {
-  "tree": "me.design"
+  "tree": "/me/design"
 }
 ```
 

@@ -2,7 +2,7 @@
 
 Retrieve a single memory by its ID.
 
-Returns the full memory including content, tree, meta, temporal, and embedding status. Use after search to get full details, or before update to see current state.
+Returns the full memory including content, tree, name, meta, temporal, and embedding status. Use after search to get full details, or before update to see current state. To fetch a named memory by its `folder/name` path instead, use [me_memory_get_by_path](me_memory_get_by_path.md).
 
 ## Parameters
 
@@ -19,7 +19,8 @@ The full memory object:
   "id": "0194a000-0001-7000-8000-000000000001",
   "content": "PostgreSQL 18 supports native UUID v7 generation.",
   "meta": { "topic": "database" },
-  "tree": "notes.postgres",
+  "tree": "/notes/postgres",
+  "name": "uuidv7",
   "temporal": null,
   "hasEmbedding": true,
   "createdAt": "2025-04-15T12:00:00Z",
@@ -33,7 +34,8 @@ The full memory object:
 | `id` | `string` | UUIDv7 identifier. |
 | `content` | `string` | The memory content. |
 | `meta` | `object` | Metadata key-value pairs (empty `{}` if none). |
-| `tree` | `string` | Tree path (empty string if root). |
+| `tree` | `string` | Tree path (canonical `/`-form; `/` if root). |
+| `name` | `string \| null` | The leaf name, or `null` if unnamed. |
 | `temporal` | `object \| null` | Time range with `start` and `end`, or `null`. |
 | `hasEmbedding` | `boolean` | Whether a vector embedding has been computed. |
 | `createdAt` | `string` | ISO 8601 creation timestamp. |

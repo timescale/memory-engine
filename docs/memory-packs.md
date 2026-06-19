@@ -40,7 +40,7 @@ A pack is a YAML array of memory objects with a header comment:
 # ID prefix: 019b0300
 
 - id: "019b0300-0001-7000-8000-000000000001"
-  tree: "pack.typescript.naming"
+  tree: "/pack/typescript/naming"
   meta:
     pack:
       name: "my-pack"
@@ -51,7 +51,7 @@ A pack is a YAML array of memory objects with a header comment:
     PascalCase for types and classes.
 
 - id: "019b0300-0002-7000-8000-000000000002"
-  tree: "pack.typescript.error_handling"
+  tree: "/pack/typescript/error_handling"
   meta:
     pack:
       name: "my-pack"
