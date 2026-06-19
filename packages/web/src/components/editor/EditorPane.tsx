@@ -91,10 +91,12 @@ export function EditorPane({ memory, onRequestDelete }: Props) {
     if (!parsed.ok) return;
     const fm = parsed.value;
     try {
-      // Send the diff: server accepts null to clear a field.
+      // Send the diff: server accepts null to clear a field. Omitting `name`
+      // from the frontmatter clears it (parsed as null); a slug sets/renames.
       await update.mutateAsync({
         id: memory.id,
         content: fm.body,
+        name: fm.name,
         tree: fm.tree,
         meta: fm.meta,
         temporal: fm.temporal,

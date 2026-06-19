@@ -25,7 +25,7 @@ export function SearchResultRow({
     openContextMenu({
       x: event.clientX,
       y: event.clientY,
-      target: { kind: "memory", id: memory.id, title: fragment },
+      target: { kind: "memory", id: memory.id, title: memory.name ?? fragment },
     });
   };
 
@@ -49,6 +49,14 @@ export function SearchResultRow({
           >
             {memory.tree || "(root)"}
           </span>
+          {memory.name && (
+            <span
+              className="min-w-0 shrink truncate font-mono font-medium text-slate-700"
+              title={memory.name}
+            >
+              {memory.name}
+            </span>
+          )}
           <span className="shrink-0 rounded bg-white/70 px-1.5 py-0.5 font-mono text-slate-600 ring-1 ring-slate-200">
             {formatScore(memory.score)}
           </span>

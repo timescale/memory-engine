@@ -193,7 +193,9 @@ export function memoryToLeaf(
   return {
     kind: "memory",
     id: memory.id,
-    title: titleForMemory(memory.content, memory.id),
+    // A named memory shows its name (the filename-like leaf); otherwise fall
+    // back to the first content line, then the id tail.
+    title: memory.name ?? titleForMemory(memory.content, memory.id),
     tree: memory.tree,
     temporalStart: memory.temporal?.start ?? null,
     depth,

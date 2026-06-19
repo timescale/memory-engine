@@ -4,6 +4,8 @@
  * Mirrors the Markdown import schema in `docs/formats.md`, scoped to the
  * fields the editor allows the user to change:
  *
+ *   - `name`    — optional filename-like leaf slug (unique within the tree);
+ *                 omit it to clear the name
  *   - `tree`    — ltree path string
  *   - `meta`    — arbitrary JSON object
  *   - `temporal`— `{ start, end? }` object (same shape the server returns)
@@ -15,8 +17,13 @@
 import type { MemoryResponse, Temporal } from "@memory.build/client";
 import yaml from "js-yaml";
 
+// Mirrors `memoryNameSchema` in @memory.build/protocol: a filename-like leaf
+// slug, 1–128 chars, no slashes. Server-validated too; this is fast feedback.
+const NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+
 export interface ParsedFrontmatter {
-  /** Editable fields extracted from frontmatter. Missing → null. */
+  /** Editable fields extracted from frontmatter. Missing → null/"". */
+  name: string | null;
   tree: string;
   meta: Record<string, unknown>;
   temporal: Temporal | null;
@@ -29,6 +36,7 @@ export interface ParsedFrontmatter {
  *
  * ```
  * ---
+ * name: my-note
  * tree: work.projects.me
  * meta:
  *   priority: high
@@ -43,6 +51,7 @@ export interface ParsedFrontmatter {
  */
 export function memoryToEditorText(memory: MemoryResponse): string {
   const frontmatter: Record<string, unknown> = {};
+  if (memory.name) frontmatter.name = memory.name;
   if (memory.tree) frontmatter.tree = memory.tree;
   if (memory.meta && Object.keys(memory.meta).length > 0) {
     frontmatter.meta = memory.meta;
@@ -68,6 +77,7 @@ export function parseEditorText(source: string): ParsedFrontmatter {
   if (!match) {
     // No frontmatter — everything is body.
     return {
+      name: null,
       tree: "",
       meta: {},
       temporal: null,
@@ -88,7 +98,7 @@ export function parseEditorText(source: string): ParsedFrontmatter {
   }
 
   if (parsed === null || parsed === undefined) {
-    return { tree: "", meta: {}, temporal: null, body };
+    return { name: null, tree: "", meta: {}, temporal: null, body };
   }
   if (typeof parsed !== "object" || Array.isArray(parsed)) {
     throw new Error("Frontmatter must be a YAML mapping");
@@ -96,11 +106,27 @@ export function parseEditorText(source: string): ParsedFrontmatter {
 
   const obj = parsed as Record<string, unknown>;
   return {
+    name: coerceName(obj.name),
     tree: coerceTree(obj.tree),
     meta: coerceMeta(obj.meta),
     temporal: coerceTemporal(obj.temporal),
     body,
   };
+}
+
+// Absent/empty → null (clears the name on save); a string must be a valid
+// filename-like slug. Throwing here keeps the Save button disabled until fixed.
+function coerceName(value: unknown): string | null {
+  if (value === undefined || value === null || value === "") return null;
+  if (typeof value !== "string") {
+    throw new Error("`name` must be a string");
+  }
+  if (value.length > 128 || !NAME_RE.test(value)) {
+    throw new Error(
+      "`name` must be a filename-like slug (letters, digits, '.', '-', '_'; no leading '.'/'-'), ≤128 chars",
+    );
+  }
+  return value;
 }
 
 function coerceTree(value: unknown): string {
