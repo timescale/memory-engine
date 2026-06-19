@@ -695,6 +695,38 @@ describe("provisioned schema is functional", () => {
     );
   });
 
+  test("a named row dedups on (tree, name) even with an explicit id (name wins)", async () => {
+    // First insert carries an explicit id — used as the row's identity.
+    const id1 = "01941000-0000-7000-8000-00000000d101";
+    const [first] = await createMemory(
+      `${OWNER}, 'n.idname'::ltree, 'v1', '${id1}'::uuid, '{}'::jsonb, null, 'doc'`,
+    );
+    expect(first?.id).toBe(id1);
+    expect(first?.inserted).toBe(true);
+
+    // Re-submit the SAME (tree, name) with a DIFFERENT explicit id + 'replace'.
+    // Dedup is on (tree, name), so it replaces in place and KEEPS id1 — the new
+    // id is ignored (name wins over id).
+    const id2 = "01941000-0000-7000-8000-00000000d102";
+    const [second] = await createMemory(
+      `${OWNER}, 'n.idname'::ltree, 'v2', '${id2}'::uuid, '{}'::jsonb, null, 'doc', 'replace'`,
+    );
+    expect(second?.id).toBe(id1); // not id2
+    expect(second?.inserted).toBe(false);
+
+    const [row] = await sql.unsafe(
+      `select id, content from ${canonical.schema}.memory
+       where tree = 'n.idname' and name = 'doc'`,
+    );
+    expect(row?.id).toBe(id1);
+    expect(row?.content).toBe("v2");
+    // id2 was never inserted.
+    const [ghost] = await sql.unsafe(
+      `select count(*)::int as n from ${canonical.schema}.memory where id = '${id2}'`,
+    );
+    expect(ghost?.n).toBe(0);
+  });
+
   test("get_memory and resolve_memory_id surface the name", async () => {
     const [m] = await createMemory(
       `${OWNER}, 'n.resolve'::ltree, 'body', null, '{}'::jsonb, null, 'doc'`,
