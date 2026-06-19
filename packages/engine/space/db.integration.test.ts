@@ -74,6 +74,33 @@ test("createMemory + getMemory round-trips", async () => {
   expect(m?.content).toBe("hello world");
   expect(m?.meta).toEqual({ kind: "note" });
   expect(m?.hasEmbedding).toBe(false);
+  expect(m?.name).toBeNull();
+});
+
+test("name: create / getMemory / resolveMemoryId; onConflict ignore skips", async () => {
+  const id = await mustCreate(FULL, {
+    tree: "work.named",
+    content: "body",
+    name: "doc.md",
+  });
+  expect((await db.getMemory(FULL, id))?.name).toBe("doc.md");
+  expect(await db.resolveMemoryId(FULL, "work.named", "doc.md")).toBe(id);
+  expect(await db.resolveMemoryId(FULL, "work.named", "missing")).toBeNull();
+  // resolve is read-gated (level 1), so readonly access still resolves.
+  expect(await db.resolveMemoryId(READONLY, "work.named", "doc.md")).toBe(id);
+
+  // A bare (tree, name) collision raises; onConflict 'ignore' skips it.
+  await expect(
+    db.createMemory(FULL, { tree: "work.named", content: "x", name: "doc.md" }),
+  ).rejects.toThrow();
+  const skipped = await db.createMemory(FULL, {
+    tree: "work.named",
+    content: "x",
+    name: "doc.md",
+    onConflict: "ignore",
+  });
+  expect(skipped).toBeNull();
+  expect((await db.getMemory(FULL, id))?.content).toBe("body"); // untouched
 });
 
 test("createMemory raises on a bare duplicate explicit id", async () => {

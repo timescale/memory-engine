@@ -5,6 +5,7 @@ import type {
   HybridSearchOptions,
   Memory,
   MemoryPatch,
+  OnConflict,
   SearchOptions,
   SearchResultItem,
   TreeAccess,
@@ -41,8 +42,15 @@ export interface SpaceStore {
     treeAccess: TreeAccess,
     memories: CreateMemoryParams[],
     replaceIfMetaDiffers?: string,
+    onConflict?: OnConflict,
   ): Promise<Array<{ id: string; inserted: boolean }>>;
   getMemory(treeAccess: TreeAccess, id: string): Promise<Memory | null>;
+  /** Resolve a (tree, name) reference to its memory id (read-gated), or null. */
+  resolveMemoryId(
+    treeAccess: TreeAccess,
+    tree: string,
+    name: string,
+  ): Promise<string | null>;
   patchMemory(
     treeAccess: TreeAccess,
     id: string,
@@ -92,6 +100,7 @@ function mapMemory(row: Record<string, unknown>): Memory {
   return {
     id: row.id as string,
     tree: row.tree as string,
+    name: (row.name as string | null) ?? null,
     meta: (row.meta as Record<string, unknown>) ?? {},
     temporal: (row.temporal as string | null) ?? null,
     content: row.content as string,
@@ -140,15 +149,22 @@ export function spaceStore(sql: Sql, schema: string): SpaceStore {
           ${p.id ?? null},
           ${jb(p.meta)},
           ${p.temporal ?? null}::tstzrange,
-          ${p.replaceIfMetaDiffers ?? null}
+          ${p.replaceIfMetaDiffers ?? null},
+          ${p.name ?? null},
+          ${p.onConflict ?? "error"}
         )`;
-      // Zero rows = the explicit id already exists and was skipped (version
-      // match, no replace key, or no write access on the existing row's tree).
+      // Zero rows = the conflict was skipped: onConflict 'ignore', a 'replace'
+      // no-op, or a replaceIfMetaDiffers/version match. ('error' raises.)
       if (!row) return null;
       return { id: row.id as string, inserted: Boolean(row.inserted) };
     },
 
-    async batchCreateMemories(treeAccess, memories, replaceIfMetaDiffers) {
+    async batchCreateMemories(
+      treeAccess,
+      memories,
+      replaceIfMetaDiffers,
+      onConflict,
+    ) {
       if (memories.length === 0) return [];
       // Parallel arrays aligned by position. Metas travel as ONE jsonb array
       // via sql.json — a jsonb[] parameter would double-encode each element
@@ -161,7 +177,9 @@ export function spaceStore(sql: Sql, schema: string): SpaceStore {
           ${memories.map((m) => m.content)}::text[],
           ${jb(memories.map((m) => m.meta ?? {}))},
           ${memories.map((m) => m.temporal ?? null)}::tstzrange[],
-          ${replaceIfMetaDiffers ?? null}
+          ${replaceIfMetaDiffers ?? null},
+          ${memories.map((m) => m.name ?? null)}::text[],
+          ${onConflict ?? "error"}
         )`;
       return rows.map((r) => ({
         id: r.id as string,
@@ -171,15 +189,22 @@ export function spaceStore(sql: Sql, schema: string): SpaceStore {
 
     async getMemory(treeAccess, id) {
       const [row] = await sql`
-        select id, tree::text as tree, meta, temporal::text as temporal,
+        select id, tree::text as tree, name, meta, temporal::text as temporal,
                content, has_embedding, created_at, updated_at
         from ${sch}.get_memory(${jb(treeAccess)}, ${id})`;
       return row ? mapMemory(row) : null;
     },
 
+    async resolveMemoryId(treeAccess, tree, name) {
+      const [row] = await sql`
+        select ${sch}.resolve_memory_id(${jb(treeAccess)}, ${tree}::ltree, ${name}) as id`;
+      return (row?.id as string | null) ?? null;
+    },
+
     async patchMemory(treeAccess, id, patch) {
       const obj: Record<string, unknown> = {};
       if (patch.tree !== undefined) obj.tree = patch.tree;
+      if (patch.name !== undefined) obj.name = patch.name; // null clears it
       if (patch.meta !== undefined) obj.meta = patch.meta;
       if (patch.temporal !== undefined) obj.temporal = patch.temporal;
       if (patch.content !== undefined) obj.content = patch.content;
@@ -243,7 +268,7 @@ export function spaceStore(sql: Sql, schema: string): SpaceStore {
       const o = options;
       const rows = await sql`
         select id, meta, tree::text as tree, temporal::text as temporal,
-               content, has_embedding, created_at, updated_at, score
+               content, name, has_embedding, created_at, updated_at, score
         from ${sch}.search_memory(
           ${jb(treeAccess)},
           ${bm25(o.bm25)},
@@ -268,7 +293,7 @@ export function spaceStore(sql: Sql, schema: string): SpaceStore {
       const o = options;
       const rows = await sql`
         select id, meta, tree::text as tree, temporal::text as temporal,
-               content, has_embedding, created_at, updated_at, score
+               content, name, has_embedding, created_at, updated_at, score
         from ${sch}.hybrid_search_memory(
           ${jb(treeAccess)},
           ${bm25(o.bm25)},
