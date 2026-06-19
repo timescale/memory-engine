@@ -237,6 +237,40 @@ describe("batchCreateChunked", () => {
     ]);
   });
 
+  test("passes onConflict through to every chunk", async () => {
+    const seen: Array<string | undefined> = [];
+    const client: BatchCreateClient = {
+      memory: {
+        batchCreate: async ({ memories, onConflict }) => {
+          seen.push(onConflict);
+          return { ids: memories.map((m) => m.id ?? "auto"), updatedIds: [] };
+        },
+      },
+    };
+    const result = await batchCreateChunked(
+      client,
+      [mem("a", 700_000), mem("b", 700_000)],
+      { onConflict: "ignore" },
+    );
+    expect(seen.length).toBeGreaterThan(1); // multiple chunks
+    expect(new Set(seen)).toEqual(new Set(["ignore"]));
+    expect(result.insertedIds.sort()).toEqual(["a", "b"]);
+  });
+
+  test("leaves onConflict unset when no option is given", async () => {
+    let seen: string | undefined = "sentinel";
+    const client: BatchCreateClient = {
+      memory: {
+        batchCreate: async ({ memories, onConflict }) => {
+          seen = onConflict;
+          return { ids: memories.map((m) => m.id ?? "auto"), updatedIds: [] };
+        },
+      },
+    };
+    await batchCreateChunked(client, [mem("a")]);
+    expect(seen).toBeUndefined();
+  });
+
   test("tolerates a pre-upsert server omitting updatedIds", async () => {
     const client = stubClient(async (memories) => ({
       ids: memories.map((m) => m.id ?? "auto"),

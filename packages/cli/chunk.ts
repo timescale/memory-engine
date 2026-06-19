@@ -115,6 +115,7 @@ export interface BatchCreateClient {
   memory: {
     batchCreate: (params: {
       memories: MemoryCreateParams[];
+      onConflict?: "error" | "replace" | "ignore";
       replaceIfMetaDiffers?: string;
     }) => Promise<{ ids: string[]; updatedIds: string[] }>;
   };
@@ -122,6 +123,14 @@ export interface BatchCreateClient {
 
 /** Options applied to every chunk of a `batchCreateChunked` run. */
 export interface BatchCreateChunkedOptions {
+  /**
+   * Conflict policy for every chunk's idempotency key (each row's id when
+   * given, else its (tree, name) slot). The server defaults to "error"
+   * (raise); file importers pass "ignore" so a re-import is a no-op rather
+   * than failing, and "replace" overwrites in place (a no-op when nothing
+   * differs). When `replaceIfMetaDiffers` is set it takes precedence server-side.
+   */
+  onConflict?: "error" | "replace" | "ignore";
   /**
    * Meta key for the server's conditional replace: a memory whose explicit
    * id already exists is rewritten in place when the stored row's value for
@@ -188,6 +197,9 @@ export async function batchCreateChunked(
     try {
       const res = await client.memory.batchCreate({
         memories: chunk,
+        ...(options.onConflict !== undefined
+          ? { onConflict: options.onConflict }
+          : {}),
         ...(options.replaceIfMetaDiffers !== undefined
           ? { replaceIfMetaDiffers: options.replaceIfMetaDiffers }
           : {}),
