@@ -62,6 +62,28 @@ export const treePathSchema = z
 export const SHARE_NAMESPACE = "share";
 
 /**
+ * Memory name (leaf) — an optional, mutable, filename-like slug, unique within
+ * its tree path. Must start alphanumeric, then `[A-Za-z0-9._-]` (no slashes or
+ * spaces; dots are fine because a name is never an ltree label). Mirrors the
+ * `memory.name` CHECK in the space schema.
+ */
+export const memoryNameSchema = z
+  .string()
+  .max(128, "name must be at most 128 characters")
+  .regex(
+    /^[A-Za-z0-9][A-Za-z0-9._-]*$/,
+    "name must be a filename-like slug: start alphanumeric, then [A-Za-z0-9._-]",
+  );
+
+/**
+ * What a create/batchCreate row does when it conflicts with the existing memory
+ * on its idempotency key (the explicit id when given, else the (tree, name)
+ * slot): `error` (default) raises CONFLICT; `replace` overwrites in place but is
+ * a no-op when nothing changed; `ignore` skips, leaving the existing row.
+ */
+export const onConflictSchema = z.enum(["error", "replace", "ignore"]);
+
+/**
  * Tree filter schema (ltree, lquery, or ltxtquery).
  * More permissive than treePathSchema since it allows query operators.
  */
