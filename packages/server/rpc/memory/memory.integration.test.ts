@@ -217,6 +217,85 @@ test("create with temporal round-trips as {start,end}", async () => {
   });
 });
 
+test("name: getByPath / deleteByPath address a named memory; response carries name", async () => {
+  const created = await call<{ id: string; name: string | null }>(
+    "memory.create",
+    { content: "rotation notes", tree: "share/auth", name: "jwt-rotation" },
+  );
+  expect(created.name).toBe("jwt-rotation");
+
+  // getByPath splits the final segment as the name and resolves it.
+  const got = await call<{ id: string; tree: string; name: string | null }>(
+    "memory.getByPath",
+    { path: "share/auth/jwt-rotation" },
+  );
+  expect(got.id).toBe(created.id);
+  expect(got.tree).toBe("/share/auth");
+  expect(got.name).toBe("jwt-rotation");
+
+  // a path that doesn't resolve is NOT_FOUND
+  await expectAppError(
+    call("memory.getByPath", { path: "share/auth/missing" }),
+    "NOT_FOUND",
+  );
+
+  const del = await call<{ deleted: boolean }>("memory.deleteByPath", {
+    path: "share/auth/jwt-rotation",
+  });
+  expect(del.deleted).toBe(true);
+  await expectAppError(call("memory.get", { id: created.id }), "NOT_FOUND");
+});
+
+test("name: create onConflict error (default) / ignore / replace", async () => {
+  const first = await call<{ id: string }>("memory.create", {
+    content: "v1",
+    tree: "share/conf",
+    name: "doc",
+  });
+
+  // default → CONFLICT
+  await expectAppError(
+    call("memory.create", { content: "v2", tree: "share/conf", name: "doc" }),
+    "CONFLICT",
+  );
+
+  // ignore → returns the existing memory (idempotent), unchanged
+  const ignored = await call<{ id: string; content: string }>("memory.create", {
+    content: "v2",
+    tree: "share/conf",
+    name: "doc",
+    onConflict: "ignore",
+  });
+  expect(ignored.id).toBe(first.id);
+  expect(ignored.content).toBe("v1");
+
+  // replace → overwrites in place, same id
+  const replaced = await call<{ id: string; content: string }>(
+    "memory.create",
+    { content: "v2", tree: "share/conf", name: "doc", onConflict: "replace" },
+  );
+  expect(replaced.id).toBe(first.id);
+  expect(replaced.content).toBe("v2");
+});
+
+test("update can rename and clear a name", async () => {
+  const created = await call<{ id: string }>("memory.create", {
+    content: "body",
+    tree: "share/ren",
+    name: "old",
+  });
+  const renamed = await call<{ name: string | null }>("memory.update", {
+    id: created.id,
+    name: "new",
+  });
+  expect(renamed.name).toBe("new");
+  const cleared = await call<{ name: string | null }>("memory.update", {
+    id: created.id,
+    name: null,
+  });
+  expect(cleared.name).toBeNull();
+});
+
 test("update patches fields", async () => {
   const created = await call<{ id: string }>("memory.create", {
     content: "before",

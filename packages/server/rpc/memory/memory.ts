@@ -23,10 +23,12 @@ import type {
   MemoryCountTreeParams,
   MemoryCountTreeResult,
   MemoryCreateParams,
+  MemoryDeleteByPathParams,
   MemoryDeleteParams,
   MemoryDeleteResult,
   MemoryDeleteTreeParams,
   MemoryDeleteTreeResult,
+  MemoryGetByPathParams,
   MemoryGetParams,
   MemoryMoveParams,
   MemoryMoveResult,
@@ -42,8 +44,10 @@ import {
   memoryCopyParams,
   memoryCountTreeParams,
   memoryCreateParams,
+  memoryDeleteByPathParams,
   memoryDeleteParams,
   memoryDeleteTreeParams,
+  memoryGetByPathParams,
   memoryGetParams,
   memoryMoveParams,
   memorySearchParams,
@@ -143,6 +147,7 @@ function toMemoryResponse(
     content: m.content,
     meta: m.meta,
     tree: displayTreePath(ctx, m.tree),
+    name: m.name,
     temporal: parseTemporal(m.temporal),
     hasEmbedding: m.hasEmbedding,
     createdAt: m.createdAt.toISOString(),
@@ -179,6 +184,38 @@ function mapTemporalFilter(tf: MemorySearchParams["temporal"]): {
 // Method Handlers
 // =============================================================================
 
+/**
+ * Split a `folder/name` path at its final `/`: the last segment is the name,
+ * the rest is the tree. A path with no `/` is a root-level name.
+ */
+function splitPath(path: string): { tree: string; name: string } {
+  const i = path.lastIndexOf("/");
+  return i === -1
+    ? { tree: "", name: path }
+    : { tree: path.slice(0, i), name: path.slice(i + 1) };
+}
+
+/**
+ * Resolve a `folder/name` path to a memory id, expanding `~` and normalizing
+ * the tree. NOT_FOUND when no such named memory exists (or it's unreadable).
+ */
+async function resolvePath(
+  ctx: SpaceRpcContext,
+  path: string,
+): Promise<string> {
+  const { tree, name } = splitPath(path);
+  if (name === "") {
+    throw new AppError("VALIDATION_ERROR", "path must end in a name");
+  }
+  const id = await guard(() =>
+    ctx.store.resolveMemoryId(ctx.treeAccess, inputTreePath(ctx, tree), name),
+  );
+  if (id == null) {
+    throw new AppError("NOT_FOUND", `Memory not found: ${path}`);
+  }
+  return id;
+}
+
 /** memory.create */
 async function memoryCreate(
   params: MemoryCreateParams,
@@ -188,21 +225,30 @@ async function memoryCreate(
   const ctx = context as SpaceRpcContext;
   const { store, treeAccess } = ctx;
 
+  const tree = inputTreePath(ctx, params.tree);
   const created = await guard(() =>
     store.createMemory(treeAccess, {
       id: params.id ?? undefined,
       content: params.content,
       meta: params.meta ?? undefined,
-      tree: inputTreePath(ctx, params.tree),
+      tree,
+      name: params.name ?? undefined,
       temporal: formatTemporal(params.temporal),
+      onConflict: params.onConflict ?? undefined,
     }),
   );
-  if (created === null) {
-    // The store skips an explicit id that already exists (no replace key is
-    // passed here). For a single create that's a caller error, not a skip.
-    throw new AppError("CONFLICT", `Memory already exists: ${params.id}`);
-  }
-  const memory = await store.getMemory(treeAccess, created.id);
+  // A bare conflict (default onConflict 'error') raises 23505 → CONFLICT via
+  // guard. A null result is an intentional skip — onConflict 'ignore', or a
+  // 'replace' no-op — so resolve the existing row and return it (idempotent).
+  const id =
+    created?.id ??
+    params.id ??
+    (params.name != null
+      ? await guard(() =>
+          store.resolveMemoryId(treeAccess, tree, params.name as string),
+        )
+      : null);
+  const memory = id ? await store.getMemory(treeAccess, id) : null;
   if (!memory) {
     throw new AppError("INTERNAL_ERROR", "Created memory could not be read");
   }
@@ -235,9 +281,11 @@ async function memoryBatchCreate(
         content: m.content,
         meta: m.meta ?? undefined,
         tree: inputTreePath(ctx, m.tree),
+        name: m.name ?? undefined,
         temporal: formatTemporal(m.temporal),
       })),
       params.replaceIfMetaDiffers ?? undefined,
+      params.onConflict ?? undefined,
     ),
   );
   const ids: string[] = [];
@@ -264,6 +312,23 @@ async function memoryGet(
   return toMemoryResponse(memory, ctx);
 }
 
+/** memory.getByPath — address a named memory by its folder/name path. */
+async function memoryGetByPath(
+  params: MemoryGetByPathParams,
+  context: HandlerContext,
+): Promise<MemoryResponse> {
+  assertSpaceRpcContext(context);
+  const ctx = context as SpaceRpcContext;
+  const { store, treeAccess } = ctx;
+
+  const id = await resolvePath(ctx, params.path);
+  const memory = await guard(() => store.getMemory(treeAccess, id));
+  if (!memory) {
+    throw new AppError("NOT_FOUND", `Memory not found: ${params.path}`);
+  }
+  return toMemoryResponse(memory, ctx);
+}
+
 /** memory.update */
 async function memoryUpdate(
   params: MemoryUpdateParams,
@@ -277,6 +342,7 @@ async function memoryUpdate(
     content?: string;
     meta?: Record<string, unknown>;
     tree?: string;
+    name?: string | null;
     temporal?: string | null;
   } = {};
   if (params.content !== undefined && params.content !== null) {
@@ -287,6 +353,10 @@ async function memoryUpdate(
   }
   if (params.tree !== undefined && params.tree !== null) {
     patch.tree = inputTreePath(ctx, params.tree);
+  }
+  // null clears the name; a string sets/renames; undefined leaves it unchanged.
+  if (params.name !== undefined) {
+    patch.name = params.name;
   }
   if (params.temporal !== undefined) {
     patch.temporal =
@@ -317,6 +387,23 @@ async function memoryDelete(
   const deleted = await guard(() => store.deleteMemory(treeAccess, params.id));
   if (!deleted) {
     throw new AppError("NOT_FOUND", `Memory not found: ${params.id}`);
+  }
+  return { deleted };
+}
+
+/** memory.deleteByPath — delete one named memory by its folder/name path. */
+async function memoryDeleteByPath(
+  params: MemoryDeleteByPathParams,
+  context: HandlerContext,
+): Promise<MemoryDeleteResult> {
+  assertSpaceRpcContext(context);
+  const ctx = context as SpaceRpcContext;
+  const { store, treeAccess } = ctx;
+
+  const id = await resolvePath(ctx, params.path);
+  const deleted = await guard(() => store.deleteMemory(treeAccess, id));
+  if (!deleted) {
+    throw new AppError("NOT_FOUND", `Memory not found: ${params.path}`);
   }
   return { deleted };
 }
@@ -552,8 +639,10 @@ export const memoryDataMethods = buildRegistry()
   .register("memory.create", memoryCreateParams, memoryCreate)
   .register("memory.batchCreate", memoryBatchCreateParams, memoryBatchCreate)
   .register("memory.get", memoryGetParams, memoryGet)
+  .register("memory.getByPath", memoryGetByPathParams, memoryGetByPath)
   .register("memory.update", memoryUpdateParams, memoryUpdate)
   .register("memory.delete", memoryDeleteParams, memoryDelete)
+  .register("memory.deleteByPath", memoryDeleteByPathParams, memoryDeleteByPath)
   .register("memory.search", memorySearchParams, memorySearch)
   .register("memory.tree", memoryTreeParams, memoryTree)
   .register("memory.copy", memoryCopyParams, memoryCopy)
