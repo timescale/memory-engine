@@ -74,7 +74,14 @@ Docs: ${docUrl("me_memory_create")}`,
         tree: z
           .string()
           .describe(
-            "Hierarchical path where the memory is stored (required — choose deliberately). Most memories should go under `share` (e.g. `share.work.projects`) so the rest of the space can see them. Use `~` — your private home (e.g. `~.notes`) — only for memories that must stay private to you.",
+            "Hierarchical path where the memory is stored (required — choose deliberately). Most memories should go under `share` (e.g. `/share/work/projects`) so the rest of the space can see them. Use `~` — your private home (e.g. `~/notes`) — only for memories that must stay private to you.",
+          ),
+        name: z
+          .string()
+          .optional()
+          .nullable()
+          .describe(
+            'Optional filename-like leaf name, unique within the tree (e.g. "jwt-rotation", "config.yaml"). Lets you address the memory later as `tree/name` and dedupe re-tells.',
           ),
         temporal: z
           .object({
@@ -90,6 +97,13 @@ Docs: ${docUrl("me_memory_create")}`,
           .optional()
           .nullable()
           .describe("Time range for the memory"),
+        on_conflict: z
+          .enum(["error", "replace", "ignore"])
+          .optional()
+          .nullable()
+          .describe(
+            "On a conflict with an existing memory (same id, or same tree+name): 'error' (default) fails, 'replace' overwrites it in place, 'ignore' keeps the existing one.",
+          ),
       },
       annotations: {
         title: "Create Memory",
@@ -104,12 +118,14 @@ Docs: ${docUrl("me_memory_create")}`,
         content: args.content,
         meta: args.meta ?? undefined,
         tree: args.tree,
+        name: args.name ?? undefined,
         temporal: args.temporal
           ? {
               start: args.temporal.start,
               end: args.temporal.end ?? undefined,
             }
           : undefined,
+        onConflict: args.on_conflict ?? undefined,
       });
       return {
         content: [
@@ -309,6 +325,41 @@ Docs: ${docUrl("me_memory_get")}`,
     },
   );
 
+  // me_memory_get_by_path
+  server.registerTool(
+    "me_memory_get_by_path",
+    {
+      title: "Get Memory by Path",
+      description: `Retrieve a single named memory by its folder/name path.
+
+The last path segment is the name; the rest is the tree — e.g. "/share/auth/jwt-rotation" is the memory named "jwt-rotation" under "/share/auth". NOT_FOUND if no such named memory exists. Use me_memory_get when you have the UUID.
+
+Docs: ${docUrl("me_memory_get_by_path")}`,
+      inputSchema: {
+        path: z
+          .string()
+          .min(1)
+          .describe(
+            'folder/name path, e.g. "/share/auth/jwt-rotation" or "~/notes/todo"',
+          ),
+      },
+      annotations: {
+        title: "Get Memory by Path",
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+      },
+    },
+    async (args) => {
+      const result = await client.memory.getByPath({ path: args.path });
+      return {
+        content: [
+          { type: "text" as const, text: JSON.stringify(result, null, 2) },
+        ],
+      };
+    },
+  );
+
   // me_memory_update
   server.registerTool(
     "me_memory_update",
@@ -336,6 +387,13 @@ Docs: ${docUrl("me_memory_update")}`,
           .optional()
           .nullable()
           .describe("New tree path (omit or null to keep existing)"),
+        name: z
+          .string()
+          .optional()
+          .nullable()
+          .describe(
+            'New leaf name — renames the memory; pass an empty string "" to clear the name (omit or null to keep existing).',
+          ),
         temporal: z
           .object({
             start: z.string().describe("ISO timestamp for start of time range"),
@@ -364,6 +422,8 @@ Docs: ${docUrl("me_memory_update")}`,
         content: args.content ?? undefined,
         meta: args.meta ?? undefined,
         tree: args.tree ?? undefined,
+        // "" clears the name; a non-empty value renames; null/omit keeps it.
+        name: args.name === "" ? null : (args.name ?? undefined),
         temporal: args.temporal
           ? {
               start: args.temporal.start,
@@ -401,6 +461,39 @@ Docs: ${docUrl("me_memory_delete")}`,
     },
     async (args) => {
       const result = await client.memory.delete({ id: args.id });
+      return {
+        content: [
+          { type: "text" as const, text: JSON.stringify(result, null, 2) },
+        ],
+      };
+    },
+  );
+
+  // me_memory_delete_by_path
+  server.registerTool(
+    "me_memory_delete_by_path",
+    {
+      title: "Delete Memory by Path",
+      description: `Permanently remove a single named memory by its folder/name path (e.g. "/share/auth/jwt-rotation").
+
+Irreversible. Deletes only that one named memory — use me_memory_delete_tree to remove a whole subtree.
+
+Docs: ${docUrl("me_memory_delete_by_path")}`,
+      inputSchema: {
+        path: z
+          .string()
+          .min(1)
+          .describe('folder/name path, e.g. "/share/auth/jwt-rotation"'),
+      },
+      annotations: {
+        title: "Delete Memory by Path",
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: true,
+      },
+    },
+    async (args) => {
+      const result = await client.memory.deleteByPath({ path: args.path });
       return {
         content: [
           { type: "text" as const, text: JSON.stringify(result, null, 2) },
@@ -911,6 +1004,7 @@ Docs: ${docUrl("me_memory_export")}`,
           ? { meta: r.meta }
           : {}),
         ...(r.tree ? { tree: r.tree } : {}),
+        ...(r.name ? { name: r.name } : {}),
         ...(r.temporal ? { temporal: r.temporal } : {}),
       }));
 
@@ -924,10 +1018,22 @@ Docs: ${docUrl("me_memory_export")}`,
         }
         const stat = statSync(resolved);
         if (stat.isDirectory()) {
+          // Mirror the memory tree: <dir>/<tree as folders>/<name or id>.md.
           for (const mem of memories) {
-            const filename = `${mem.id}.md`;
-            const filepath = join(resolved, filename);
-            writeFileSync(filepath, formatMemoryAsMarkdown(mem), "utf-8");
+            const treeDir =
+              typeof mem.tree === "string" ? mem.tree.replace(/^\//, "") : "";
+            const base =
+              typeof mem.name === "string" && mem.name
+                ? mem.name
+                : String(mem.id);
+            const fname = base.endsWith(".md") ? base : `${base}.md`;
+            const dir = treeDir ? join(resolved, treeDir) : resolved;
+            mkdirSync(dir, { recursive: true });
+            writeFileSync(
+              join(dir, fname),
+              formatMemoryAsMarkdown(mem),
+              "utf-8",
+            );
           }
           return {
             content: [
