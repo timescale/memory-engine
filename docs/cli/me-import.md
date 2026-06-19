@@ -68,13 +68,13 @@ me import git [repo] [options]
 
 ### Tree layout
 
-Commits are stored under:
+Each commit is a named leaf (the commit `<sha>`) under the project's `git_history` node:
 
 ```
-<tree-root>/<project_slug>/git_history
+<tree-root>/<project_slug>/git_history/<sha>
 ```
 
-The project slug is derived exactly as for [agent session imports](agent-session-imports.md#tree-layout) (git remote repo name, else repo root directory name), so a project's commit history sits next to its `agent_sessions` node — e.g. `/share/projects/memory_engine/git_history`.
+The project slug is derived exactly as for [agent session imports](agent-session-imports.md#tree-layout) (git remote repo name, else repo root directory name), so a project's commit history sits next to its `agent_sessions` node — e.g. a commit lands at `/share/projects/memory_engine/git_history/<sha>` and is addressable by that path.
 
 ### Content shape
 
@@ -84,9 +84,9 @@ Merge commits with no message body (`Merge branch 'x'` boilerplate) are skipped 
 
 ### Idempotency and incremental re-runs
 
-Each commit gets a deterministic UUIDv7 keyed by `(tree, sha)` with the commit date as its timestamp half. Re-imports are server-side no-ops: an already-imported commit is skipped, never duplicated.
+Idempotency is keyed on `(tree, sha)` — each commit is named by its sha. The id is a timestamp-prefixed UUIDv7 (commit date in the prefix, random tail), so commits sort by date on the id. Re-imports are server-side no-ops: an already-imported commit is skipped, never duplicated.
 
-Re-runs are also incremental: the newest already-imported commit is looked up server-side, and when it is an ancestor of the target rev only `<sha>..<rev>` is walked. After a force-push (or when importing a different branch) the walk falls back to the full log — still safe, because the deterministic ids dedupe the overlap. Explicit bounds (`--since`, `--until`, `--max-count`, `--full`) always walk exactly what they say.
+Re-runs are also incremental: the newest already-imported commit is looked up server-side, and when it is an ancestor of the target rev only `<sha>..<rev>` is walked. After a force-push (or when importing a different branch) the walk falls back to the full log — still safe, because the `(tree, sha)` key dedupes the overlap. Explicit bounds (`--since`, `--until`, `--max-count`, `--full`) always walk exactly what they say.
 
 ### Metadata
 
@@ -100,7 +100,6 @@ Re-runs are also incremental: the newest already-imported commit is looked up se
 | `author_date` / `commit_date` | ISO 8601 author and committer dates. |
 | `files_changed` / `insertions` / `deletions` | Change stats (binary files excluded from line counts). |
 | `is_merge` | `true` on merge commits (absent otherwise). |
-| `imported_at` | ISO 8601 timestamp of this import run. |
 | `importer_version` | Version tag of the importer schema. |
 
 Temporal is a point-in-time at the commit date.

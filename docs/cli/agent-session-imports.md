@@ -6,7 +6,7 @@ Shared reference for the agent-session import subcommands:
 - `me import codex` ([`me codex import`](me-codex.md#me-codex-import) is its alias)
 - `me import opencode` ([`me opencode import`](me-opencode.md#me-opencode-import) is its alias)
 
-Each source-native message becomes one memory. Re-running the same command only inserts newly-seen messages (deterministic UUIDs make re-imports idempotent).
+Each source-native message becomes one memory, named `msg_<message_id>` under a per-session tree node. Re-running the same command only inserts newly-seen messages — the `(tree, name)` slot makes re-imports idempotent.
 
 ## Shared options
 
@@ -34,19 +34,19 @@ All three subcommands accept the same flags (with one extra flag on the Claude i
 
 ## Tree layout
 
-Each imported message is stored under:
+Each session is its own tree node, and each message is a named leaf under it:
 
 ```
-<tree-root>/<project_slug>/<sessions-node-name>
+<tree-root>/<project_slug>/<sessions-node-name>/<session_id>/msg_<message_id>
 ```
 
-For example, a Claude message from a session run in `/Users/me/dev/memory-engine` ends up under `/share/projects/memory_engine/agent_sessions` by default. Every message from every session in a project shares that same tree node; individual sessions are distinguished by `meta.source_session_id`.
+For example, a Claude message from a session run in `/Users/me/dev/memory-engine` ends up at `/share/projects/memory_engine/agent_sessions/<session_id>/msg_<message_id>` by default. Each session is browsable as a folder, and an individual message is addressable by its path (`me get /share/projects/memory_engine/agent_sessions/<session_id>/msg_<message_id>`). The session id is normalized to an ltree label for the node; the raw id is also kept in `meta.source_session_id`.
 
 Project slugs come from the git repo root directory name when the cwd is inside a repo, or from `basename(cwd)` otherwise. Slug collisions (two different cwds that normalize to the same label) are resolved automatically by appending a 4-char hash suffix -- the first cwd seen gets the plain slug, subsequent ones get `slug_<hash>`. The full cwd is always preserved in `meta.source_cwd`.
 
 ## Idempotency
 
-Each imported message gets a deterministic UUIDv7 derived from `(tool, session_id, message_id, timestamp)`. Re-imports reconcile **server-side**: every planned message is submitted through the engine's conditional upsert, which inserts new ids, rewrites in place any row whose stored `meta.importer_version` differs from the current importer's (so a version bump re-renders previously-imported messages in the same batched pass), and skips rows that are already current. There is no per-session lookup and no session-size limit — a session with tens of thousands of imported messages reconciles exactly like a small one.
+Idempotency is keyed on `(tree, name)` — the per-session node plus the `msg_<message_id>` leaf. (The id is a timestamp-prefixed UUIDv7 with a random tail, so messages still sort chronologically by id; the same message gets a fresh id each run, but the `(tree, name)` slot keeps it on the existing row.) Re-imports reconcile **server-side**: every planned message is submitted with `onConflict: 'replace'`, which inserts new slots and rewrites an existing one only when content/meta/temporal differ. Since `meta.importer_version` is part of meta, an importer-version bump makes meta differ and re-renders previously-imported messages in the same batched pass, while an unchanged re-import is a no-op. There is no per-session lookup and no session-size limit — a session with tens of thousands of imported messages reconciles exactly like a small one.
 
 Source files are append-only for all three tools, so re-importing an in-progress session simply inserts its newly-appended messages on the next run. The live-capture hook additionally narrows each submission to the messages after the newest already-imported one (a single `limit 1` search) — purely a bandwidth optimization; correctness never depends on it.
 
@@ -85,7 +85,6 @@ Each imported memory carries:
 | `source_tool_name` | Tool name for `tool_call` / `tool_result` messages. |
 | `source_file` | Absolute path of the session file on disk. |
 | `content_mode` | `"default"` or `"full_transcript"`. |
-| `imported_at` | ISO 8601 timestamp of this import run. |
 | `importer_version` | Version tag of the importer schema. |
 
 Temporal is a point-in-time at the message's timestamp.
