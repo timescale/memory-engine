@@ -66,11 +66,11 @@ $func$ language sql immutable strict security invoker
 -------------------------------------------------------------------------------
 -- get memory
 -------------------------------------------------------------------------------
--- Removing the `default null` from `_id` changes the parameter defaults, which
--- create-or-replace cannot do ("cannot remove parameter defaults from existing
--- function"). Drop the old definition only when it still carries a default
--- (pronargdefaults > 0); when already current — or absent — skip the drop so it
--- isn't churned every migration run. The create-or-replace below then recreates it.
+-- get_memory gained a `name` return column (a return-type change, which
+-- create-or-replace cannot make → 42P13 "cannot change return type"). Drop a
+-- prior definition only when it lacks `name` among its columns — this also
+-- covers the historical `_id default null` variant — a no-op on fresh schemas
+-- and once current. The create-or-replace below then recreates it.
 do $$ begin
   if exists
   (
@@ -79,7 +79,7 @@ do $$ begin
     join pg_namespace n on n.oid = p.pronamespace
     where n.nspname = '{{schema}}'
     and p.proname = 'get_memory'
-    and p.pronargdefaults > 0
+    and not ('name' = any(coalesce(p.proargnames, array[]::text[])))
   ) then
     drop function {{schema}}.get_memory(jsonb, uuid);
   end if;
@@ -94,6 +94,7 @@ returns table
 , meta jsonb
 , temporal tstzrange
 , content text
+, name text
 , created_at timestamptz
 , updated_at timestamptz
 , has_embedding bool
@@ -105,6 +106,7 @@ as $func$
   , m.meta
   , m.temporal
   , m.content
+  , m.name
   , m.created_at
   , m.updated_at
   , m.embedding is not null
@@ -116,32 +118,89 @@ set search_path to pg_catalog, {{schema}}, public, pg_temp
 ;
 
 -------------------------------------------------------------------------------
+-- resolve memory id
+--
+-- Translate a `(tree, name)` reference to the memory's id, gated on read access
+-- (level 1) so a non-reader can't probe existence. Returns null when there is
+-- no such named memory or the caller can't read it. The RPC layer resolves a
+-- `folder/name` address to an id with this, then calls get/patch/delete by id.
+-------------------------------------------------------------------------------
+create or replace function {{schema}}.resolve_memory_id
+( _tree_access jsonb
+, _tree ltree
+, _name text
+)
+returns uuid
+as $func$
+  select m.id
+  from {{schema}}.memory m
+  where m.tree = _tree
+  and m.name = _name
+  and {{schema}}.has_tree_access(_tree_access, m.tree, 1)
+$func$ language sql stable strict security invoker
+set search_path to pg_catalog, {{schema}}, public, pg_temp
+;
+
+-------------------------------------------------------------------------------
+-- raise_conflict
+--
+-- Raises a unique_violation (23505 → CONFLICT at the RPC boundary). Called from
+-- the create path's ON CONFLICT ... WHERE so that a conflict on the idempotency
+-- key (the explicit id, or the (tree, name) slot) with no conflict-handling
+-- directive (no _upsert, no _replace_if_meta_differs) is a hard error rather
+-- than a silent skip. Returns boolean only so it can sit in a WHERE expression;
+-- it never actually returns.
+-------------------------------------------------------------------------------
+drop function if exists {{schema}}.raise_conflict(ltree, text);
+create or replace function {{schema}}.raise_conflict()
+returns boolean
+as $func$
+begin
+  raise exception 'memory already exists (id or tree/name conflict)'
+    using errcode = 'unique_violation';
+end;
+$func$ language plpgsql volatile
+set search_path to pg_catalog, {{schema}}, public, pg_temp
+;
+
+-------------------------------------------------------------------------------
 -- batch create memory
 --
--- The canonical memory insert: one set-based statement for a whole batch
+-- The canonical memory insert: one set-based call for a whole batch
 -- (create_memory below is a one-row wrapper). Parallel arrays, aligned by
--- position, carry the rows. Per-row, on a duplicate explicit id the outcome
--- depends on _replace_if_meta_differs:
---   - null (default): skip — the existing row is left untouched.
---   - a meta key name: the existing row is REPLACED (tree/meta/temporal/
---     content) when its meta->>key value differs from the new record's, and
---     skipped when it matches. Deterministic-id importers use this to push
---     re-renders by bumping a version value in meta (importer_version).
---     The replace arm additionally requires write access on the EXISTING
---     row's tree; without it the row is silently skipped (not raised, unlike
---     patch_memory) so one inaccessible row can't fail a whole batch.
+-- position, carry the rows; _names is optional. The idempotency key is the
+-- explicit id WHEN PROVIDED, otherwise the (tree, name) slot:
+--   - EXPLICIT id (with or without a name) → dedup on the id, so import/export
+--     and deterministic importers preserve identity. The row keeps its id; a
+--     set name that collides with a DIFFERENT row still trips the (tree, name)
+--     unique index and raises.
+--   - NO id but NAMED → dedup on (tree, name).
+--   - NO id, NO name → anonymous; always inserts.
+-- On a conflict against that key the action is _on_conflict:
+--   - 'replace' → replace in place, but only when content/meta/temporal differ
+--                 (a no-op when identical, so a re-import is idempotent and an
+--                 importer-version bump — version lives in meta — re-renders)
+--   - 'ignore'  → skip, leaving the existing row (insert-if-absent)
+--   - 'error'   (default) → RAISE unique_violation (→ CONFLICT)
+-- _replace_if_meta_differs is a transitional override: when set, replace iff
+-- that meta key differs, else skip. (An id-keyed replace also requires write
+-- access on the EXISTING row's tree, else the row is skipped so one
+-- inaccessible row can't fail the batch.) The (tree, name) unique index is
+-- enforced on every path, so names stay unique regardless of the dedup key.
 --
--- Returns one row (id, inserted) per insert/replace — inserted distinguishes
--- a fresh insert (true, xmax = 0) from a replace (false); skipped rows are
--- absent. The target-tree access check is all-or-nothing up front (one bad
--- row raises before anything is written), and an explicit id repeated WITHIN
--- the batch collapses to its first occurrence (a single INSERT cannot touch
--- the same row twice); later occurrences are skipped.
+-- Returns one row (id, inserted) per insert/replace — inserted distinguishes a
+-- fresh insert (true, xmax = 0) from a replace (false); skipped rows are absent.
+-- Target-tree write access is all-or-nothing up front. Within the batch, a
+-- repeated id — or (tree, name) — collapses to its first occurrence (a single
+-- INSERT cannot touch the same row twice). Embedding columns are never set
+-- here; the update trigger re-embeds only on content change, so a meta-only
+-- replace does not re-embed.
 --
--- Embedding columns are never set here: the update triggers invalidate and
--- re-enqueue the embedding only when content actually changed, so a
--- meta-only replace does not re-embed.
+-- The drop covers the pre-name 7-arg signature: the trailing _names /
+-- _on_conflict params (both defaulted) otherwise leave an overload that makes a
+-- 6/7-arg call ambiguous. No-op on fresh schemas.
 -------------------------------------------------------------------------------
+drop function if exists {{schema}}.batch_create_memory(jsonb, uuid[], ltree[], text[], jsonb, tstzrange[], text);
 create or replace function {{schema}}.batch_create_memory
 ( _tree_access jsonb
 , _ids uuid[]                 -- null elements get a generated uuidv7
@@ -149,7 +208,9 @@ create or replace function {{schema}}.batch_create_memory
 , _contents text[]
 , _metas jsonb                -- json ARRAY of meta objects; null elements default to '{}'
 , _temporals tstzrange[]
-, _replace_if_meta_differs text default null
+, _replace_if_meta_differs text default null  -- transitional; overrides _on_conflict when set
+, _names text[] default null                  -- per-row leaf name; null = unnamed
+, _on_conflict text default 'error'           -- 'error' | 'replace' | 'ignore'
 )
 returns table (id uuid, inserted boolean)
 as $func$
@@ -165,8 +226,14 @@ begin
      or cardinality(_ids) is distinct from cardinality(_contents)
      or cardinality(_ids) is distinct from jsonb_array_length(_metas)
      or cardinality(_ids) is distinct from cardinality(_temporals)
+     or (_names is not null and cardinality(_ids) is distinct from cardinality(_names))
   then
     raise exception 'batch arrays must have equal lengths'
+      using errcode = 'invalid_parameter_value';
+  end if;
+
+  if _on_conflict is null or _on_conflict not in ('error', 'replace', 'ignore') then
+    raise exception 'invalid _on_conflict: %', _on_conflict
       using errcode = 'invalid_parameter_value';
   end if;
 
@@ -184,43 +251,115 @@ begin
   with r as
   (
     select
-      coalesce(u.id, uuidv7()) as id
+      u.id as explicit_id                  -- null = no client-supplied id
+    , coalesce(u.id, uuidv7()) as id        -- the row's identity (generated if absent)
     , u.tree
     , coalesce(nullif(e.meta, 'null'::jsonb), '{}'::jsonb) as meta
     , u.temporal
     , u.content
+    , u.name
     , u.ord
-    from unnest(_ids, _trees, _contents, _temporals)
-         with ordinality u(id, tree, content, temporal, ord)
+    from unnest
+         ( _ids
+         , _trees
+         , _contents
+         , _temporals
+         , coalesce(_names, array_fill(null::text, array[cardinality(_ids)]))
+         )
+         with ordinality u(id, tree, content, temporal, name, ord)
     join jsonb_array_elements(_metas) with ordinality e(meta, ord)
       on e.ord = u.ord
   )
-  , d as
+  -- Explicit id → keyed on the id; first occurrence within the batch wins.
+  , with_id as
   (
-    -- First occurrence wins when a batch repeats an explicit id.
-    select distinct on (r.id) r.*
-    from r
-    order by r.id, r.ord
+    select distinct on (r.explicit_id) r.*
+    from r where r.explicit_id is not null
+    order by r.explicit_id, r.ord
   )
-  insert into {{schema}}.memory as m
-  ( id
-  , tree
-  , meta
-  , temporal
-  , content
+  -- No id but named → keyed on (tree, name); first occurrence wins.
+  , named as
+  (
+    select distinct on (r.tree, r.name) r.*
+    from r where r.explicit_id is null and r.name is not null
+    order by r.tree, r.name, r.ord
   )
-  select d.id, d.tree, d.meta, d.temporal, d.content
-  from d
-  on conflict (id) do update set
-    tree = excluded.tree
-  , meta = excluded.meta
-  , temporal = excluded.temporal
-  , content = excluded.content
-  where _replace_if_meta_differs is not null
-  and m.meta->>_replace_if_meta_differs
-      is distinct from excluded.meta->>_replace_if_meta_differs
-  and {{schema}}.has_tree_access(_tree_access, m.tree, 2)
-  returning m.id, (m.xmax = 0)
+  -- No id, no name → anonymous; nothing to dedup.
+  , anon as
+  (
+    select r.* from r where r.explicit_id is null and r.name is null
+  )
+  -- Explicit-id rows dedup on the id, so the row keeps it (import/export
+  -- identity). A set name that collides with a DIFFERENT row still trips the
+  -- (tree, name) unique index → raises. A replace needs write access on the
+  -- existing row's tree (else skipped, so one inaccessible row can't fail it).
+  , ins_id as
+  (
+    insert into {{schema}}.memory as m
+    ( id, tree, meta, temporal, content, name )
+    select w.id, w.tree, w.meta, w.temporal, w.content, w.name
+    from with_id w
+    on conflict (id) do update set
+      tree = excluded.tree
+    , meta = excluded.meta
+    , temporal = excluded.temporal
+    , content = excluded.content
+    , name = excluded.name
+    where case
+      when not {{schema}}.has_tree_access(_tree_access, m.tree, 2) then false
+      when _replace_if_meta_differs is not null
+        then m.meta->>_replace_if_meta_differs
+             is distinct from excluded.meta->>_replace_if_meta_differs
+      when _on_conflict = 'replace'
+        -- an id-keyed replace can move/rename, so compare every updated field
+        then m.tree is distinct from excluded.tree
+             or m.name is distinct from excluded.name
+             or m.content is distinct from excluded.content
+             or m.meta is distinct from excluded.meta
+             or m.temporal is distinct from excluded.temporal
+      when _on_conflict = 'ignore' then false
+      else {{schema}}.raise_conflict()
+    end
+    returning m.id as id, (m.xmax = 0) as inserted
+  )
+  -- Named (no id) rows dedup on (tree, name); the row keeps its generated id.
+  , ins_named as
+  (
+    insert into {{schema}}.memory as m
+    ( id, tree, meta, temporal, content, name )
+    select n.id, n.tree, n.meta, n.temporal, n.content, n.name
+    from named n
+    on conflict (tree, name) where name is not null do update set
+      meta = excluded.meta
+    , temporal = excluded.temporal
+    , content = excluded.content
+    where case
+      when _replace_if_meta_differs is not null
+        then m.meta->>_replace_if_meta_differs
+             is distinct from excluded.meta->>_replace_if_meta_differs
+      when _on_conflict = 'replace'
+        then m.content is distinct from excluded.content
+             or m.meta is distinct from excluded.meta
+             or m.temporal is distinct from excluded.temporal
+      when _on_conflict = 'ignore' then false
+      else {{schema}}.raise_conflict()
+    end
+    returning m.id as id, (m.xmax = 0) as inserted
+  )
+  -- Anonymous rows always insert (their generated id is unique).
+  , ins_anon as
+  (
+    insert into {{schema}}.memory as m
+    ( id, tree, meta, temporal, content, name )
+    select a.id, a.tree, a.meta, a.temporal, a.content, a.name
+    from anon a
+    returning m.id as id, true as inserted
+  )
+  select id, inserted from ins_id
+  union all
+  select id, inserted from ins_named
+  union all
+  select id, inserted from ins_anon
   ;
 end;
 $func$ language plpgsql volatile security invoker
@@ -233,10 +372,11 @@ set search_path to pg_catalog, {{schema}}, public, pg_temp
 -- One-row wrapper over batch_create_memory — see there for the conflict
 -- semantics (insert / replace-if-meta-differs / skip) and the return shape.
 --
--- The drop covers the pre-upsert 6-arg signature — without it, create would
--- add an ambiguous overload (and the return type changed). No-op on re-runs.
+-- The drops cover the pre-upsert 6-arg and pre-name 7-arg signatures — without
+-- them, create would add an ambiguous overload. No-op on re-runs.
 -------------------------------------------------------------------------------
 drop function if exists {{schema}}.create_memory(jsonb, ltree, text, uuid, jsonb, tstzrange);
+drop function if exists {{schema}}.create_memory(jsonb, ltree, text, uuid, jsonb, tstzrange, text);
 create or replace function {{schema}}.create_memory
 ( _tree_access jsonb
 , _tree ltree
@@ -245,6 +385,8 @@ create or replace function {{schema}}.create_memory
 , _meta jsonb default '{}'
 , _temporal tstzrange default null
 , _replace_if_meta_differs text default null
+, _name text default null
+, _on_conflict text default 'error'
 )
 returns table (id uuid, inserted boolean)
 as $func$
@@ -256,7 +398,9 @@ as $func$
     array[_content],
     jsonb_build_array(coalesce(_meta, '{}'::jsonb)),
     array[_temporal],
-    _replace_if_meta_differs
+    _replace_if_meta_differs,
+    array[_name]::text[],
+    _on_conflict
   ) b;
 $func$ language sql volatile security invoker
 set search_path to pg_catalog, {{schema}}, public, pg_temp
@@ -278,7 +422,7 @@ declare
   _ok bool;
 begin
   -- at least one valid field must be present
-  select count(*) filter (where k in ('meta', 'tree', 'temporal', 'content')) > 0
+  select count(*) filter (where k in ('meta', 'tree', 'temporal', 'content', 'name')) > 0
   into strict _ok
   from jsonb_each(_patch) o(k, v)
   ;
@@ -340,11 +484,15 @@ begin
       using errcode = 'insufficient_privilege';
   end if;
 
+  -- A rename or a move into a tree that already has this name violates the
+  -- (tree, name) unique index; that 23505 propagates and is mapped to CONFLICT
+  -- at the RPC boundary. Setting name to JSON null clears it.
   update {{schema}}.memory m set
     tree = case when _patch ? 'tree' then (_patch->>'tree')::ltree else m.tree end
   , meta = case when _patch ? 'meta' then _patch->'meta' else m.meta end
   , temporal = case when _patch ? 'temporal' then (_patch->>'temporal')::tstzrange else m.temporal end
   , content = case when _patch ? 'content' then _patch->>'content' else m.content end
+  , name = case when _patch ? 'name' then (_patch->>'name') else m.name end
   where id = _id
   returning id into _id
   ;

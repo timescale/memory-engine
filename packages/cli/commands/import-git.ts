@@ -258,9 +258,13 @@ export async function runGitImport(
     inserted = unique.length;
   } else if (unique.length > 0) {
     const submitted = unique.map((p) => p.memoryId);
+    // Re-import is idempotent via the conditional upsert: an unchanged commit
+    // (same importer_version) skips; a version bump re-renders in place. Without
+    // a directive a re-submitted commit would be a hard (tree/id) conflict.
     const result = await batchCreateChunked(
       engine,
       unique.map((p) => p.payload),
+      { replaceIfMetaDiffers: "importer_version" },
     );
     inserted = result.insertedIds.length;
     const failedSet = new Set(result.failedIds);

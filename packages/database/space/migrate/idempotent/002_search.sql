@@ -1,6 +1,20 @@
 -------------------------------------------------------------------------------
 -- search_memory
 -------------------------------------------------------------------------------
+-- search_memory gained a `name` return column (a return-type change, which
+-- create-or-replace cannot make → 42P13 on an existing function). Drop a prior
+-- definition only when it lacks `name` among its columns; a no-op on fresh
+-- schemas and once current.
+do $$ begin
+  if exists (
+    select 1 from pg_proc p
+    join pg_namespace n on n.oid = p.pronamespace
+    where n.nspname = '{{schema}}' and p.proname = 'search_memory'
+    and not ('name' = any(coalesce(p.proargnames, array[]::text[])))
+  ) then
+    drop function {{schema}}.search_memory(jsonb, bm25query, halfvec, float8, ltree, lquery, ltxtquery, jsonb, tstzrange, tstzrange, timestamptz, timestamptz, text, bigint, text);
+  end if;
+end $$;
 create or replace function {{schema}}.search_memory
 ( _tree_access jsonb
 , _bm25 bm25query default null
@@ -24,6 +38,7 @@ returns table
 , tree ltree
 , temporal tstzrange
 , content text
+, name text
 , has_embedding bool
 , created_at timestamptz
 , updated_at timestamptz
@@ -189,6 +204,7 @@ begin
   , m.tree
   , m.temporal
   , m.content
+  , m.name
   , m.embedding is not null
   , m.created_at
   , m.updated_at
@@ -225,6 +241,17 @@ set search_path to pg_catalog, {{schema}}, public, pg_temp
 -------------------------------------------------------------------------------
 -- hybrid_search_memory
 -------------------------------------------------------------------------------
+-- Same `name` return-column addition as search_memory; same guarded drop.
+do $$ begin
+  if exists (
+    select 1 from pg_proc p
+    join pg_namespace n on n.oid = p.pronamespace
+    where n.nspname = '{{schema}}' and p.proname = 'hybrid_search_memory'
+    and not ('name' = any(coalesce(p.proargnames, array[]::text[])))
+  ) then
+    drop function {{schema}}.hybrid_search_memory(jsonb, bm25query, halfvec, float8, ltree, lquery, ltxtquery, jsonb, tstzrange, tstzrange, timestamptz, timestamptz, text, float8, bigint, float8, float8, bigint);
+  end if;
+end $$;
 create or replace function {{schema}}.hybrid_search_memory
 ( _tree_access jsonb
 , _bm25 bm25query
@@ -251,6 +278,7 @@ returns table
 , tree ltree
 , temporal tstzrange
 , content text
+, name text
 , has_embedding bool
 , created_at timestamptz
 , updated_at timestamptz
@@ -286,6 +314,7 @@ begin
   , coalesce(x1.tree, x2.tree) as tree
   , coalesce(x1.temporal, x2.temporal) as temporal
   , coalesce(x1.content, x2.content) as content
+  , coalesce(x1.name, x2.name) as name
   , coalesce(x1.has_embedding, x2.has_embedding) as has_embedding
   , coalesce(x1.created_at, x2.created_at) as created_at
   , coalesce(x1.updated_at, x2.updated_at) as updated_at

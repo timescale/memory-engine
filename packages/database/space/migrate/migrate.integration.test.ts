@@ -59,6 +59,7 @@ const EXPECTED_MEMORY_FUNCTIONS = [
   "list_tree",
   "move_tree",
   "patch_memory",
+  "resolve_memory_id",
   "search_memory",
   "tree_access",
 ];
@@ -372,9 +373,9 @@ describe("provisioned schema is functional", () => {
     expect(Number(capped?.n)).toBe(2);
   });
 
-  test("create_memory skips a duplicate explicit id by default", async () => {
-    // Deterministic-id importers re-submit existing ids; with no replace key
-    // the second create must be a zero-row no-op leaving the row intact.
+  test("create_memory raises on a bare duplicate explicit id", async () => {
+    // A conflict on the id key with no upsert / replace key is a hard error;
+    // importers re-submit with replaceIfMetaDiffers (next test) to stay idempotent.
     const id = "01941000-0000-7000-8000-000000000001";
     const [first] = await createMemory(
       `${OWNER}, 'a.dup'::ltree, 'original', '${id}'::uuid`,
@@ -382,15 +383,14 @@ describe("provisioned schema is functional", () => {
     expect(first?.id).toBe(id);
     expect(first?.inserted).toBe(true);
 
-    const second = await createMemory(
-      `${OWNER}, 'a.dup'::ltree, 'replacement', '${id}'::uuid`,
+    await expectReject(() =>
+      createMemory(`${OWNER}, 'a.dup'::ltree, 'replacement', '${id}'::uuid`),
     );
-    expect(second.length).toBe(0);
 
     const [row] = await sql.unsafe(
       `select content from ${canonical.schema}.memory where id = '${id}'`,
     );
-    expect(row?.content).toBe("original");
+    expect(row?.content).toBe("original"); // untouched
   });
 
   test("create_memory replaces a duplicate when the meta key differs, skips when it matches", async () => {
@@ -606,6 +606,124 @@ describe("provisioned schema is functional", () => {
          values ('x', '[2024-01-01, 2024-01-02]'::tstzrange)`,
       ),
     );
+  });
+
+  // create_memory args: (treeAccess, tree, content, id, meta, temporal,
+  // replaceIfMetaDiffers, name, upsert).
+  // onConflict: a bare named conflict errors; 'ignore' skips; 'replace' is
+  // content-aware (no-op when identical, replaces when something differs).
+  test("create_memory onConflict: error | ignore | replace(content-aware)", async () => {
+    const [first] = await createMemory(
+      `${OWNER}, 'n.dir'::ltree, 'v1', null, '{}'::jsonb, null, null, 'note'`,
+    );
+    expect(first?.inserted).toBe(true);
+    const id = first?.id;
+
+    // default 'error' → a hard conflict (raise).
+    await expectReject(() =>
+      createMemory(
+        `${OWNER}, 'n.dir'::ltree, 'v2', null, '{}'::jsonb, null, null, 'note'`,
+      ),
+    );
+
+    // 'ignore' → skip, existing row untouched.
+    const ignored = await createMemory(
+      `${OWNER}, 'n.dir'::ltree, 'v2', null, '{}'::jsonb, null, null, 'note', 'ignore'`,
+    );
+    expect(ignored.length).toBe(0);
+    expect(
+      (
+        await sql.unsafe(
+          `select content from ${canonical.schema}.memory where id = '${id}'`,
+        )
+      )[0]?.content,
+    ).toBe("v1");
+
+    // 'replace' with differing content → replaced in place, same id.
+    const [up] = await createMemory(
+      `${OWNER}, 'n.dir'::ltree, 'v2', null, '{}'::jsonb, null, null, 'note', 'replace'`,
+    );
+    expect(up?.id).toBe(id);
+    expect(up?.inserted).toBe(false);
+
+    // 'replace' with identical content/meta → no-op (content-aware), zero rows.
+    const noop = await createMemory(
+      `${OWNER}, 'n.dir'::ltree, 'v2', null, '{}'::jsonb, null, null, 'note', 'replace'`,
+    );
+    expect(noop.length).toBe(0);
+
+    const [row] = await sql.unsafe(
+      `select content, name from ${canonical.schema}.memory where id = '${id}'`,
+    );
+    expect(row?.content).toBe("v2");
+    expect(row?.name).toBe("note");
+  });
+
+  test("create_memory: id-keyed replace applies a tree-only move (not a no-op)", async () => {
+    const id = "01941000-0000-7000-8000-0000000000a0";
+    await createMemory(`${OWNER}, 'mv.from'::ltree, 'body', '${id}'::uuid`);
+    // Same id + content, new tree → content-aware replace must still move it.
+    const [moved] = await createMemory(
+      `${OWNER}, 'mv.to'::ltree, 'body', '${id}'::uuid, '{}'::jsonb, null, null, null, 'replace'`,
+    );
+    expect(moved?.id).toBe(id);
+    expect(moved?.inserted).toBe(false);
+    const [row] = await sql.unsafe(
+      `select tree::text as tree from ${canonical.schema}.memory where id = '${id}'`,
+    );
+    expect(row?.tree).toBe("mv.to");
+  });
+
+  test("named create: replaceIfMetaDiffers skips/replaces (no raise); batch raises on a bare collision", async () => {
+    await createMemory(
+      `${OWNER}, 'n.imp'::ltree, 'r1', null, '{"v":"1"}'::jsonb, null, null, 'doc'`,
+    );
+    // Matching version key → idempotent skip (no raise, zero rows).
+    const same = await createMemory(
+      `${OWNER}, 'n.imp'::ltree, 'r1 again', null, '{"v":"1"}'::jsonb, null, 'v', 'doc'`,
+    );
+    expect(same.length).toBe(0);
+    // Differing version key → replace in place (no raise).
+    const [diff] = await createMemory(
+      `${OWNER}, 'n.imp'::ltree, 'r2', null, '{"v":"2"}'::jsonb, null, 'v', 'doc'`,
+    );
+    expect(diff?.inserted).toBe(false);
+    // A batch with a bare (no-directive) named collision raises, aborting it.
+    await expectReject(() =>
+      sql.unsafe(
+        `select * from ${canonical.schema}.batch_create_memory(
+           ${OWNER},
+           array[null]::uuid[],
+           array['n.imp']::ltree[],
+           array['dupe']::text[],
+           '[{}]'::jsonb,
+           array[null]::tstzrange[],
+           null,
+           array['doc']::text[]
+         )`,
+      ),
+    );
+  });
+
+  test("get_memory and resolve_memory_id surface the name", async () => {
+    const [m] = await createMemory(
+      `${OWNER}, 'n.resolve'::ltree, 'body', null, '{}'::jsonb, null, null, 'doc'`,
+    );
+    const [got] = await sql.unsafe(
+      `select name from ${canonical.schema}.get_memory(${OWNER}, '${m?.id}'::uuid)`,
+    );
+    expect(got?.name).toBe("doc");
+
+    const [resolved] = await sql.unsafe(
+      `select ${canonical.schema}.resolve_memory_id(${OWNER}, 'n.resolve'::ltree, 'doc') as id`,
+    );
+    expect(resolved?.id).toBe(m?.id);
+
+    // No read access → null, so a non-reader can't probe existence.
+    const [denied] = await sql.unsafe(
+      `select ${canonical.schema}.resolve_memory_id('[]'::jsonb, 'n.resolve'::ltree, 'doc') as id`,
+    );
+    expect(denied?.id).toBeNull();
   });
 });
 
