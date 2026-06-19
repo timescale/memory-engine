@@ -209,6 +209,12 @@ describe.skipIf(
     return { stdout, stderr, code };
   }
 
+  // The canonical (leading-slash) display form of a dotted ltree path — what
+  // the API/CLI return. Used to assert returned `tree` values against the
+  // dotted paths the tests build for input / ltree queries.
+  const toSlashPath = (dotted: string): string =>
+    `/${dotted.replace(/\./g, "/")}`;
+
   // Count memories under a tree in this run's space schema.
   async function countUnder(treePrefix: string): Promise<number> {
     const [row] = await sql.unsafe(
@@ -338,7 +344,7 @@ describe.skipIf(
     expect(await countUnder(`${base}.keep`)).toBe(1);
 
     const fetched = await meJson<{ tree: string }>(["memory", "get", first.id]);
-    expect(fetched.tree).toBe(`${src}.one`);
+    expect(fetched.tree).toBe(toSlashPath(`${src}.one`));
   });
 
   test("2d. memory move previews and relocates a subtree", async () => {
@@ -381,7 +387,7 @@ describe.skipIf(
     expect(await countUnder(`${base}.keep`)).toBe(1);
 
     const fetched = await meJson<{ tree: string }>(["memory", "get", first.id]);
-    expect(fetched.tree).toBe(`${dst}.one`);
+    expect(fetched.tree).toBe(toSlashPath(`${dst}.one`));
   });
 
   test("2e. export alias writes matching memories as JSON", async () => {
@@ -402,8 +408,8 @@ describe.skipIf(
       "export probe two",
     ]);
     expect(exported.map((m) => m.tree).sort()).toEqual([
-      `${branch}.one`,
-      `${branch}.two`,
+      toSlashPath(`${branch}.one`),
+      toSlashPath(`${branch}.two`),
     ]);
   });
 
