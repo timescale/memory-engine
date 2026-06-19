@@ -1,34 +1,27 @@
 /**
- * Deterministic UUIDv7 derivation for idempotent imports.
+ * UUIDv7 minting for importers.
  *
- * We need stable UUIDs so that re-importing the same record collides
- * with the existing row in the database and becomes a no-op. Regular
- * UUIDv7 is random, so we derive a deterministic variant:
+ * Importers key idempotency on `(tree, name)` (a source-coordinate name like
+ * `msg_<messageId>` or a commit `<sha>`), not the id — so the id no longer
+ * needs to be derived from the source. It only needs to:
  *
- * - 48 bits: Unix ms timestamp (record timestamp) — keeps chronological sort
- * - 4 bits:  version = 7
- * - 12 bits: rand_a ← SHA-256(key), bits 0..11
- * - 2 bits:  variant = 10
- * - 62 bits: rand_b ← SHA-256(key), bits 12..73
+ * - pass the engine's `uuid_extract_version(id) = 7` check, and
+ * - carry the record's timestamp in the 48-bit prefix so memories sort
+ *   chronologically by id (the import watermark orders newest-first by id).
  *
- * The result passes the `uuid_extract_version(id) = 7` check in the engine's
- * memory schema, sorts by record time, and is stable across re-imports of
- * the same source data.
+ * So we mint a v7 with the record timestamp in the prefix and a random tail.
+ * A re-import mints a *different* id for the same record, but the server dedups
+ * on `(tree, name)` and keeps the existing row's id, so identity stays stable.
  */
-import { createHash } from "node:crypto";
-import type { SourceTool } from "./types.ts";
 
 /**
- * Compute a deterministic UUIDv7 from an identity `key` and a timestamp.
- *
- * Same inputs always return the same UUID; different inputs produce
- * different UUIDs (cryptographically, with SHA-256). Each importer owns
- * its key format (messages: `tool:sessionId:messageId`; git commits:
- * `git:<tree>:<sha>`) — keys must be namespaced so importers can't collide.
+ * Mint a UUIDv7 whose 48-bit timestamp prefix is `timestampMs` and whose low
+ * bits are random. Two calls with the same timestamp return different ids that
+ * share a prefix (so they sort together, by time).
  */
-export function deterministicUuidV7(key: string, timestampMs: number): string {
-  // 16 bytes = 128 bits.
-  const bytes = new Uint8Array(16);
+export function uuidv7At(timestampMs: number): string {
+  // 16 random bytes; we overwrite the timestamp prefix and the version/variant.
+  const bytes = crypto.getRandomValues(new Uint8Array(16));
 
   // Bytes 0..5 (48 bits): timestamp in ms, big-endian.
   const ts = Math.max(0, Math.floor(timestampMs));
@@ -39,36 +32,12 @@ export function deterministicUuidV7(key: string, timestampMs: number): string {
   bytes[4] = Math.floor(ts / 2 ** 8) & 0xff;
   bytes[5] = ts & 0xff;
 
-  // SHA-256 over the key gives 32 bytes of deterministic pseudo-random.
-  // We only need 74 bits (12 + 62) so 10 bytes is plenty.
-  const digest = createHash("sha256").update(key, "utf8").digest();
-
-  // Bytes 6..7: version (4 bits = 0x7) + rand_a (12 bits).
-  const randA = ((digest[0] ?? 0) << 8) | (digest[1] ?? 0);
-  bytes[6] = 0x70 | ((randA >> 8) & 0x0f);
-  bytes[7] = randA & 0xff;
-
-  // Byte 8: variant (2 bits = 0b10) + top 6 bits of rand_b.
-  // Bytes 9..15: remaining 56 bits of rand_b (from digest[3..10]).
-  bytes[8] = 0x80 | ((digest[2] ?? 0) & 0x3f);
-  for (let i = 0; i < 7; i++) {
-    bytes[9 + i] = digest[3 + i] ?? 0;
-  }
+  // Byte 6: version (4 bits = 0x7) over the random nibble.
+  bytes[6] = 0x70 | ((bytes[6] ?? 0) & 0x0f);
+  // Byte 8: variant (2 bits = 0b10) over the random bits.
+  bytes[8] = 0x80 | ((bytes[8] ?? 0) & 0x3f);
 
   return bytesToUuid(bytes);
-}
-
-/**
- * Compute a deterministic UUIDv7 from `(tool, sessionId, messageId, timestampMs)`.
- * The message-import key format; see `deterministicUuidV7`.
- */
-export function deterministicMessageUuidV7(
-  tool: SourceTool,
-  sessionId: string,
-  messageId: string,
-  timestampMs: number,
-): string {
-  return deterministicUuidV7(`${tool}:${sessionId}:${messageId}`, timestampMs);
 }
 
 /** Format 16 bytes as a canonical UUID string. */
