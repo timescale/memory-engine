@@ -387,8 +387,8 @@ test("batchCreate with a bare duplicate id raises CONFLICT", async () => {
   await call("memory.batchCreate", {
     memories: [{ id, content: "original", tree: "share.skip" }],
   });
-  // No upsert / replaceIfMetaDiffers → the duplicate id is a hard conflict that
-  // aborts the batch (importers pass replaceIfMetaDiffers to stay idempotent).
+  // Default onConflict ('error') → the duplicate id is a hard conflict that
+  // aborts the batch (importers pass onConflict 'replace' to stay idempotent).
   await expectAppError(
     call("memory.batchCreate", {
       memories: [{ id, content: "replacement", tree: "share.skip" }],
@@ -399,7 +399,7 @@ test("batchCreate with a bare duplicate id raises CONFLICT", async () => {
   expect(got.content).toBe("original");
 });
 
-test("batchCreate with replaceIfMetaDiffers splits insert/update/skip", async () => {
+test("batchCreate onConflict 'replace' splits insert/update/skip", async () => {
   const stale = "01941000-0000-7000-8000-00000000c0f3";
   const fresh = "01941000-0000-7000-8000-00000000c0f4";
   const brandNew = "01941000-0000-7000-8000-00000000c0f5";
@@ -414,16 +414,18 @@ test("batchCreate with replaceIfMetaDiffers splits insert/update/skip", async ()
     "memory.batchCreate",
     {
       memories: [
+        // changed content → replaced
         {
           id: stale,
           content: "new render",
           tree: "share.up",
           meta: { v: "2" },
         },
-        { id: fresh, content: "untouched", tree: "share.up", meta: { v: "2" } },
+        // identical content+meta → content-aware replace no-op (skipped)
+        { id: fresh, content: "current", tree: "share.up", meta: { v: "2" } },
         { id: brandNew, content: "added", tree: "share.up", meta: { v: "2" } },
       ],
-      replaceIfMetaDiffers: "v",
+      onConflict: "replace",
     },
   );
   expect(res.ids).toEqual([brandNew]);

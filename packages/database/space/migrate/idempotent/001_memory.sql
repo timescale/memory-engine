@@ -146,9 +146,10 @@ set search_path to pg_catalog, {{schema}}, public, pg_temp
 --
 -- Raises a unique_violation (23505 → CONFLICT at the RPC boundary). Called from
 -- the create path's ON CONFLICT ... WHERE so that a conflict on the idempotency
--- key (the explicit id, or the (tree, name) slot) with no conflict-handling
--- directive (no _upsert, no _replace_if_meta_differs) is a hard error rather
--- than a silent skip. Returns boolean only so it can sit in a WHERE expression;
+-- key (the explicit id, or the (tree, name) slot) under the default
+-- _on_conflict ('error') is a hard error rather than a silent skip (the
+-- 'replace'/'ignore' arms short-circuit before reaching here). Returns boolean
+-- only so it can sit in a WHERE expression;
 -- it never actually returns.
 -------------------------------------------------------------------------------
 drop function if exists {{schema}}.raise_conflict(ltree, text);
@@ -178,15 +179,16 @@ set search_path to pg_catalog, {{schema}}, public, pg_temp
 --   - NO id, NO name → anonymous; always inserts.
 -- On a conflict against that key the action is _on_conflict:
 --   - 'replace' → replace in place, but only when content/meta/temporal differ
---                 (a no-op when identical, so a re-import is idempotent and an
---                 importer-version bump — version lives in meta — re-renders)
+--                 (a no-op when identical, so a re-import is idempotent; an
+--                 importer-version bump re-renders because the version lives in
+--                 meta, so meta differs — this subsumes the old
+--                 replaceIfMetaDiffers override)
 --   - 'ignore'  → skip, leaving the existing row (insert-if-absent)
 --   - 'error'   (default) → RAISE unique_violation (→ CONFLICT)
--- _replace_if_meta_differs is a transitional override: when set, replace iff
--- that meta key differs, else skip. (An id-keyed replace also requires write
--- access on the EXISTING row's tree, else the row is skipped so one
--- inaccessible row can't fail the batch.) The (tree, name) unique index is
--- enforced on every path, so names stay unique regardless of the dedup key.
+-- (An id-keyed replace also requires write access on the EXISTING row's tree,
+-- else the row is skipped so one inaccessible row can't fail the batch.) The
+-- (tree, name) unique index is enforced on every path, so names stay unique
+-- regardless of the dedup key.
 --
 -- Returns one row (id, inserted) per insert/replace — inserted distinguishes a
 -- fresh insert (true, xmax = 0) from a replace (false); skipped rows are absent.
@@ -196,11 +198,13 @@ set search_path to pg_catalog, {{schema}}, public, pg_temp
 -- here; the update trigger re-embeds only on content change, so a meta-only
 -- replace does not re-embed.
 --
--- The drop covers the pre-name 7-arg signature: the trailing _names /
--- _on_conflict params (both defaulted) otherwise leave an overload that makes a
--- 6/7-arg call ambiguous. No-op on fresh schemas.
+-- These drops cover prior signatures whose tail no longer matches: the
+-- pre-name 7-arg, and the _replace_if_meta_differs variant (removed in favor of
+-- content-aware 'replace'). Without them the defaulted-tail overloads make an
+-- 8-arg call ambiguous. No-op on fresh schemas.
 -------------------------------------------------------------------------------
 drop function if exists {{schema}}.batch_create_memory(jsonb, uuid[], ltree[], text[], jsonb, tstzrange[], text);
+drop function if exists {{schema}}.batch_create_memory(jsonb, uuid[], ltree[], text[], jsonb, tstzrange[], text, text[], text);
 create or replace function {{schema}}.batch_create_memory
 ( _tree_access jsonb
 , _ids uuid[]                 -- null elements get a generated uuidv7
@@ -208,7 +212,6 @@ create or replace function {{schema}}.batch_create_memory
 , _contents text[]
 , _metas jsonb                -- json ARRAY of meta objects; null elements default to '{}'
 , _temporals tstzrange[]
-, _replace_if_meta_differs text default null  -- transitional; overrides _on_conflict when set
 , _names text[] default null                  -- per-row leaf name; null = unnamed
 , _on_conflict text default 'error'           -- 'error' | 'replace' | 'ignore'
 )
@@ -307,9 +310,6 @@ begin
     , name = excluded.name
     where case
       when not {{schema}}.has_tree_access(_tree_access, m.tree, 2) then false
-      when _replace_if_meta_differs is not null
-        then m.meta->>_replace_if_meta_differs
-             is distinct from excluded.meta->>_replace_if_meta_differs
       when _on_conflict = 'replace'
         -- an id-keyed replace can move/rename, so compare every updated field
         then m.tree is distinct from excluded.tree
@@ -334,9 +334,6 @@ begin
     , temporal = excluded.temporal
     , content = excluded.content
     where case
-      when _replace_if_meta_differs is not null
-        then m.meta->>_replace_if_meta_differs
-             is distinct from excluded.meta->>_replace_if_meta_differs
       when _on_conflict = 'replace'
         then m.content is distinct from excluded.content
              or m.meta is distinct from excluded.meta
@@ -370,13 +367,15 @@ set search_path to pg_catalog, {{schema}}, public, pg_temp
 -- create memory
 --
 -- One-row wrapper over batch_create_memory — see there for the conflict
--- semantics (insert / replace-if-meta-differs / skip) and the return shape.
+-- semantics (insert / content-aware replace / skip) and the return shape.
 --
--- The drops cover the pre-upsert 6-arg and pre-name 7-arg signatures — without
--- them, create would add an ambiguous overload. No-op on re-runs.
+-- The drops cover prior signatures: the pre-upsert 6-arg, the pre-name 7-arg,
+-- and the _replace_if_meta_differs 9-arg variant — without them, create would
+-- add an ambiguous overload. No-op on re-runs.
 -------------------------------------------------------------------------------
 drop function if exists {{schema}}.create_memory(jsonb, ltree, text, uuid, jsonb, tstzrange);
 drop function if exists {{schema}}.create_memory(jsonb, ltree, text, uuid, jsonb, tstzrange, text);
+drop function if exists {{schema}}.create_memory(jsonb, ltree, text, uuid, jsonb, tstzrange, text, text, text);
 create or replace function {{schema}}.create_memory
 ( _tree_access jsonb
 , _tree ltree
@@ -384,7 +383,6 @@ create or replace function {{schema}}.create_memory
 , _id uuid default null
 , _meta jsonb default '{}'
 , _temporal tstzrange default null
-, _replace_if_meta_differs text default null
 , _name text default null
 , _on_conflict text default 'error'
 )
@@ -398,7 +396,6 @@ as $func$
     array[_content],
     jsonb_build_array(coalesce(_meta, '{}'::jsonb)),
     array[_temporal],
-    _replace_if_meta_differs,
     array[_name]::text[],
     _on_conflict
   ) b;

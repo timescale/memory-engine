@@ -204,7 +204,6 @@ export async function runGitImport(
     fmt === "text" ? createProgressReporter(process.stderr) : undefined;
   progress?.start();
 
-  const importedAt = new Date().toISOString();
   const planned: Array<{ memoryId: string; payload: MemoryCreateParams }> = [];
   let commitsWalked = 0;
   let skippedMerges = 0;
@@ -231,7 +230,6 @@ export async function runGitImport(
         projectSlug: slug,
         gitRemote,
         fileList: opts.fileList !== false,
-        importedAt,
       });
       if ("error" in built) {
         failed++;
@@ -258,13 +256,13 @@ export async function runGitImport(
     inserted = unique.length;
   } else if (unique.length > 0) {
     const submitted = unique.map((p) => p.memoryId);
-    // Re-import is idempotent via the conditional upsert: an unchanged commit
-    // (same importer_version) skips; a version bump re-renders in place. Without
-    // a directive a re-submitted commit would be a hard (tree/id) conflict.
+    // Re-import is idempotent via content-aware replace: an unchanged commit is
+    // a no-op; a version bump changes meta and re-renders in place. Without a
+    // directive a re-submitted commit would be a hard (id) conflict.
     const result = await batchCreateChunked(
       engine,
       unique.map((p) => p.payload),
-      { replaceIfMetaDiffers: "importer_version" },
+      { onConflict: "replace" },
     );
     inserted = result.insertedIds.length;
     const failedSet = new Set(result.failedIds);

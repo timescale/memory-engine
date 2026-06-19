@@ -113,12 +113,12 @@ describe("batchCreateChunked", () => {
   const stubClient = (
     handler: (
       memories: MemoryCreateParams[],
-      replaceIfMetaDiffers?: string,
+      onConflict?: "error" | "replace" | "ignore",
     ) => Promise<{ ids: string[]; updatedIds?: string[] }>,
   ): BatchCreateClient => ({
     memory: {
-      batchCreate: async ({ memories, replaceIfMetaDiffers }) => {
-        const res = await handler(memories, replaceIfMetaDiffers);
+      batchCreate: async ({ memories, onConflict }) => {
+        const res = await handler(memories, onConflict);
         // Old servers omit updatedIds; the helper must tolerate that, so the
         // stub passes whatever the handler chose to return.
         return res as { ids: string[]; updatedIds: string[] };
@@ -212,49 +212,29 @@ describe("batchCreateChunked", () => {
     expect(result.errors).toEqual([]);
   });
 
-  test("passes replaceIfMetaDiffers through and accumulates updatedIds", async () => {
+  test("passes onConflict through every chunk and accumulates updatedIds", async () => {
     // Two chunks (big payloads); the server reports the first id of each
     // chunk as updated and the rest as inserted.
-    const seenKeys: Array<string | undefined> = [];
-    const client = stubClient(async (memories, replaceIfMetaDiffers) => {
-      seenKeys.push(replaceIfMetaDiffers);
+    const seen: Array<string | undefined> = [];
+    const client = stubClient(async (memories, onConflict) => {
+      seen.push(onConflict);
       const ids = memories.map((m) => m.id ?? "auto");
       return { ids: ids.slice(1), updatedIds: ids.slice(0, 1) };
     });
     const result = await batchCreateChunked(
       client,
       [mem("a", 700_000), mem("b", 10), mem("c", 700_000), mem("d", 10)],
-      { replaceIfMetaDiffers: "importer_version" },
+      { onConflict: "replace" },
     );
-    expect(seenKeys.length).toBeGreaterThan(1); // multiple chunks
-    expect(new Set(seenKeys)).toEqual(new Set(["importer_version"]));
-    expect(result.updatedIds.length).toBe(seenKeys.length);
+    expect(seen.length).toBeGreaterThan(1); // multiple chunks
+    expect(new Set(seen)).toEqual(new Set(["replace"]));
+    expect(result.updatedIds.length).toBe(seen.length);
     expect([...result.insertedIds, ...result.updatedIds].sort()).toEqual([
       "a",
       "b",
       "c",
       "d",
     ]);
-  });
-
-  test("passes onConflict through to every chunk", async () => {
-    const seen: Array<string | undefined> = [];
-    const client: BatchCreateClient = {
-      memory: {
-        batchCreate: async ({ memories, onConflict }) => {
-          seen.push(onConflict);
-          return { ids: memories.map((m) => m.id ?? "auto"), updatedIds: [] };
-        },
-      },
-    };
-    const result = await batchCreateChunked(
-      client,
-      [mem("a", 700_000), mem("b", 700_000)],
-      { onConflict: "ignore" },
-    );
-    expect(seen.length).toBeGreaterThan(1); // multiple chunks
-    expect(new Set(seen)).toEqual(new Set(["ignore"]));
-    expect(result.insertedIds.sort()).toEqual(["a", "b"]);
   });
 
   test("leaves onConflict unset when no option is given", async () => {

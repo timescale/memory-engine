@@ -45,15 +45,17 @@ function mockEngine() {
         const limit = p.limit ?? 10;
         return { results: all.slice(0, limit), total: all.length, limit };
       },
-      // The server's conditional upsert: insert new ids; replace an existing
-      // row when its meta value for `replaceIfMetaDiffers` differs; else skip.
+      // The server's content-aware replace: insert new ids; for an existing
+      // row under onConflict 'replace', rewrite it when content or meta differ,
+      // else skip (a no-op). The deterministic importer meta carries
+      // importer_version, so a version bump makes meta differ and re-renders.
       batchCreate: async (p: {
         memories: Array<{
           id: string;
           meta: Record<string, unknown>;
           content: string;
         }>;
-        replaceIfMetaDiffers?: string;
+        onConflict?: "error" | "replace" | "ignore";
       }) => {
         const ids: string[] = [];
         const updatedIds: string[] = [];
@@ -63,9 +65,9 @@ function mockEngine() {
             store.set(m.id, { id: m.id, meta: m.meta, content: m.content });
             ids.push(m.id);
           } else if (
-            p.replaceIfMetaDiffers !== undefined &&
-            existing.meta[p.replaceIfMetaDiffers] !==
-              m.meta[p.replaceIfMetaDiffers]
+            p.onConflict === "replace" &&
+            (existing.content !== m.content ||
+              JSON.stringify(existing.meta) !== JSON.stringify(m.meta))
           ) {
             store.set(m.id, { id: m.id, meta: m.meta, content: m.content });
             updatedIds.push(m.id);

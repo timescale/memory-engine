@@ -42,12 +42,11 @@ export type MemoryCreateParams = z.infer<typeof memoryCreateParams>;
  * memory.batchCreate params.
  *
  * `onConflict` governs a clash on each row's idempotency key (its id when given,
- * else its (tree, name) slot): `error` raises, `replace` overwrites in place
- * (a no-op when nothing changed), `ignore` skips. `replaceIfMetaDiffers` is a
- * transitional override naming a meta key for conditional replace: a row is
- * rewritten when the stored row's value for that key differs from the submitted
- * one (deterministic-id importers pass e.g. "importer_version" so version bumps
- * re-render), and skipped when it matches. When set it takes precedence.
+ * else its (tree, name) slot): `error` (default) raises, `replace` overwrites
+ * in place when content/meta/temporal differ (a no-op when identical), `ignore`
+ * skips. Deterministic-id importers pass `replace` and stamp
+ * `meta.importer_version`, so an unchanged re-import is a no-op while a version
+ * bump makes meta differ and re-renders.
  */
 export const memoryBatchCreateParams = z.object({
   memories: z
@@ -64,7 +63,6 @@ export const memoryBatchCreateParams = z.object({
     .min(1, "at least one memory required")
     .max(1000, "maximum 1000 memories per batch"),
   onConflict: onConflictSchema.optional().nullable(),
-  replaceIfMetaDiffers: z.string().min(1).optional().nullable(),
 });
 
 export type MemoryBatchCreateParams = z.infer<typeof memoryBatchCreateParams>;
@@ -237,9 +235,9 @@ export type MemoryWithScoreResponse = z.infer<typeof memoryWithScoreResponse>;
  * memory.batchCreate result.
  *
  * `ids` are the freshly inserted memories; `updatedIds` are existing rows
- * rewritten in place via `replaceIfMetaDiffers`. A submitted explicit id in
- * neither array (and not in a failed request) was skipped — it already
- * existed at the same meta-key value.
+ * rewritten in place by `onConflict: 'replace'`. A submitted explicit id in
+ * neither array (and not in a failed request) was skipped — it already existed
+ * and nothing differed (a replace no-op), or `onConflict` was `ignore`.
  */
 export const memoryBatchCreateResult = z.object({
   ids: z.array(z.string()),

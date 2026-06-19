@@ -259,11 +259,11 @@ async function memoryCreate(
  * memory.batchCreate — atomic across the batch (one set-based statement,
  * `batch_create_memory`).
  *
- * `ids` carries the inserted memories; `updatedIds` the existing rows
- * rewritten via `replaceIfMetaDiffers` (conditional upsert). A submitted
- * explicit id in neither array was skipped — deterministic-id importers
- * re-submit freely and classify the missing ids as already imported. An id
- * repeated within one batch collapses to its first occurrence.
+ * `ids` carries the inserted memories; `updatedIds` the existing rows rewritten
+ * by `onConflict: 'replace'`. A submitted explicit id in neither array was
+ * skipped — deterministic-id importers re-submit freely and classify the
+ * missing ids as already imported. An id repeated within one batch collapses
+ * to its first occurrence.
  */
 async function memoryBatchCreate(
   params: MemoryBatchCreateParams,
@@ -284,7 +284,6 @@ async function memoryBatchCreate(
         name: m.name ?? undefined,
         temporal: formatTemporal(m.temporal),
       })),
-      params.replaceIfMetaDiffers ?? undefined,
       params.onConflict ?? undefined,
     ),
   );
