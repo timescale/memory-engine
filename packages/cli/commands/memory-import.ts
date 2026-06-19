@@ -73,11 +73,12 @@ interface ImportResult {
 /**
  * Compute which explicit ids were skipped by the server.
  *
- * `engine.memory.batchCreate` uses `ON CONFLICT (id) DO NOTHING` server-side
- * (post-#64), so the returned `ids` array can be shorter than the request
- * when conflicts occur. Memories submitted without an explicit `id` get a
- * server-generated UUIDv7 that statistically can't collide, so only
- * explicit-id requests can be skipped.
+ * Import passes `onConflict: 'ignore'`, so a memory whose idempotency key
+ * already exists is skipped rather than erroring — the returned `ids` array
+ * can be shorter than the request. Memories submitted without an explicit
+ * `id` get a server-generated UUIDv7 that statistically can't collide, so
+ * only explicit-id requests are tracked here (a named-but-id-less row skipped
+ * on its (tree, name) slot isn't counted).
  *
  * Pure function exported for unit testing.
  */
@@ -274,6 +275,7 @@ export function createMemoryImportCommand(name = "import"): Command {
         // tree is required on the wire; records without one default to `share`.
         tree: mem.tree ?? SHARE_NAMESPACE,
         ...(mem.id ? { id: mem.id } : {}),
+        ...(mem.name ? { name: mem.name } : {}),
         ...(mem.meta ? { meta: mem.meta } : {}),
         ...(mem.temporal ? { temporal: mem.temporal } : {}),
       }));
@@ -289,7 +291,11 @@ export function createMemoryImportCommand(name = "import"): Command {
         insertedIds,
         failedIds,
         errors: chunkErrors,
-      } = await batchCreateChunked(engine, createParams);
+      } = await batchCreateChunked(engine, createParams, {
+        // Re-importing the same file is a no-op: skip rows whose idempotency
+        // key (id, or (tree, name)) already exists rather than erroring.
+        onConflict: "ignore",
+      });
 
       result.imported = insertedIds.length;
       result.ids = insertedIds;
@@ -334,7 +340,7 @@ export function createMemoryImportCommand(name = "import"): Command {
               );
             }
             for (const id of skippedIds) {
-              console.log(`  ⊝ ${id} (id already exists)`);
+              console.log(`  ⊝ ${id} (already exists)`);
             }
             for (const { source, error } of result.errors) {
               console.log(`  ✗ ${source}: ${error}`);
@@ -358,7 +364,7 @@ export function createMemoryImportCommand(name = "import"): Command {
             );
           } else if (skipped > 0) {
             console.log(
-              `Imported ${result.imported} ${result.imported === 1 ? "memory" : "memories"} (${skipped} skipped — id already exists)`,
+              `Imported ${result.imported} ${result.imported === 1 ? "memory" : "memories"} (${skipped} skipped — already exist)`,
             );
           } else {
             console.log(

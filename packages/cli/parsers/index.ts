@@ -14,6 +14,8 @@ import { parseYaml } from "./yaml.ts";
 export interface ParsedMemory {
   id?: string;
   content: string;
+  /** Optional filename-like leaf slug, unique within its tree. */
+  name?: string;
   meta?: Record<string, unknown>;
   tree?: string;
   temporal?: { start: string; end?: string };

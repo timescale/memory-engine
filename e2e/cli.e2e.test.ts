@@ -1243,6 +1243,51 @@ describe.skipIf(
     expect(await countUnder("share.importgroup")).toBe(2);
   });
 
+  test("9d. `me import memories` is idempotent — re-import skips, never errors", async () => {
+    // Named record (no id): the (tree, name) slot is the idempotency key.
+    const named = JSON.stringify({
+      content: "idempotent named probe",
+      tree: "share/idem",
+      name: "probe",
+    });
+    const first = await meStdin(["import", "memories", "-", "--json"], named);
+    expect(first.code, first.stderr).toBe(0);
+    expect(JSON.parse(first.stdout).imported).toBe(1);
+
+    // Re-import identical content: skipped server-side, exit 0 (the
+    // raise-by-default introduced in the SQL conflict model would otherwise
+    // error here), and no duplicate row materializes.
+    const again = await meStdin(["import", "memories", "-", "--json"], named);
+    expect(again.code, again.stderr).toBe(0);
+    expect(JSON.parse(again.stdout).imported).toBe(0);
+    expect(await countUnder("share.idem")).toBe(1);
+
+    // Explicit-id record: the id is the idempotency key, and a skipped id is
+    // reported back in `skippedIds`.
+    const id = Bun.randomUUIDv7();
+    const withId = JSON.stringify({
+      content: "idempotent id probe",
+      tree: "share/idem",
+      id,
+    });
+    const idFirst = await meStdin(
+      ["import", "memories", "-", "--json"],
+      withId,
+    );
+    expect(idFirst.code, idFirst.stderr).toBe(0);
+    expect(JSON.parse(idFirst.stdout).ids).toContain(id);
+
+    const idAgain = await meStdin(
+      ["import", "memories", "-", "--json"],
+      withId,
+    );
+    expect(idAgain.code, idAgain.stderr).toBe(0);
+    const r = JSON.parse(idAgain.stdout);
+    expect(r.imported).toBe(0);
+    expect(r.skippedIds).toContain(id);
+    expect(await countUnder("share.idem")).toBe(2);
+  });
+
   test("10. failure modes: bad space and missing auth exit non-zero", async () => {
     const badSpace = await me(["search", "--fulltext", "fox"], {
       ME_SPACE: "doesnotexist1",

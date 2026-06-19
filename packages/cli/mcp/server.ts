@@ -751,12 +751,12 @@ Docs: ${docUrl("me_memory_import")}`,
         title: "Import Memories",
         readOnlyHint: false,
         destructiveHint: false,
-        // Server-side `ON CONFLICT (id) DO NOTHING` makes repeat calls with
-        // the same explicit ids land the engine in the same state. With
-        // chunking, a partial-failure call can be retried safely: ids
-        // already inserted are skipped, ids in failed chunks are
-        // re-attempted, and the final state converges to "all submitted
-        // ids present" once at least one call gets each chunk through.
+        // Import passes `onConflict: 'ignore'`, so repeat calls with the same
+        // ids (or (tree, name) slots) land the engine in the same state. With
+        // chunking, a partial-failure call can be retried safely: rows already
+        // present are skipped, ids in failed chunks are re-attempted, and the
+        // final state converges to "all submitted rows present" once at least
+        // one call gets each chunk through.
         idempotentHint: true,
       },
     },
@@ -766,6 +766,7 @@ Docs: ${docUrl("me_memory_import")}`,
         content: string;
         tree: string;
         id?: string;
+        name?: string;
         meta?: Record<string, unknown>;
         temporal?: { start: string; end?: string };
       }> = [];
@@ -810,6 +811,7 @@ Docs: ${docUrl("me_memory_import")}`,
                 // tree is required on the wire; default bare records to `share`.
                 tree: mem.tree ?? SHARE_NAMESPACE,
                 ...(mem.id ? { id: mem.id } : {}),
+                ...(mem.name ? { name: mem.name } : {}),
                 ...(mem.meta ? { meta: mem.meta } : {}),
                 ...(mem.temporal ? { temporal: mem.temporal } : {}),
               });
@@ -829,6 +831,7 @@ Docs: ${docUrl("me_memory_import")}`,
               // tree is required on the wire; default bare records to `share`.
               tree: mem.tree ?? SHARE_NAMESPACE,
               ...(mem.id ? { id: mem.id } : {}),
+              ...(mem.name ? { name: mem.name } : {}),
               ...(mem.meta ? { meta: mem.meta } : {}),
               ...(mem.temporal ? { temporal: mem.temporal } : {}),
             });
@@ -842,6 +845,7 @@ Docs: ${docUrl("me_memory_import")}`,
             // tree is required on the wire; default bare records to `share`.
             tree: mem.tree ?? SHARE_NAMESPACE,
             ...(mem.id ? { id: mem.id } : {}),
+            ...(mem.name ? { name: mem.name } : {}),
             ...(mem.meta ? { meta: mem.meta } : {}),
             ...(mem.temporal ? { temporal: mem.temporal } : {}),
           });
@@ -860,6 +864,9 @@ Docs: ${docUrl("me_memory_import")}`,
       const { insertedIds, failedIds, errors } = await batchCreateChunked(
         client,
         allMemories,
+        // Re-importing the same content is a no-op: skip rows whose
+        // idempotency key (id, or (tree, name)) already exists.
+        { onConflict: "ignore" },
       );
 
       // Throw only on total failure — the agent should see partial-success
@@ -872,10 +879,10 @@ Docs: ${docUrl("me_memory_import")}`,
         );
       }
 
-      // Server-side `ON CONFLICT (id) DO NOTHING` may silently drop
-      // duplicate ids; surface those so the caller can investigate.
-      // Failed-chunk ids never reached the server, so they're not
-      // skipped — they're reported separately under `failed`/`errors`.
+      // With `onConflict: 'ignore'` the server skips rows whose idempotency
+      // key already exists; surface those explicit ids so the caller can
+      // investigate. Failed-chunk ids never reached the server, so they're
+      // not skipped — they're reported separately under `failed`/`errors`.
       const insertedSet = new Set(insertedIds);
       const failedSet = new Set(failedIds);
       const skippedIds = explicitIds.filter(

@@ -8,6 +8,10 @@ import type { ImportFormat, ParsedMemory } from "./index.ts";
 const UUIDV7_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
+// Mirrors `memoryNameSchema` in @memory.build/protocol (kept literal here so the
+// parsers stay Zod-free): a filename-like leaf slug, 1–128 chars, no slashes.
+const MEMORY_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+
 /**
  * Validate a memory object from parsed input.
  */
@@ -44,6 +48,20 @@ export function validateMemoryObject(
     }
   }
 
+  // Validate name if present
+  if (record.name !== undefined && record.name !== null) {
+    if (
+      typeof record.name !== "string" ||
+      record.name.length === 0 ||
+      record.name.length > 128 ||
+      !MEMORY_NAME_RE.test(record.name)
+    ) {
+      throw new Error(
+        `Invalid name: must be a filename-like slug (letters, digits, '.', '-', '_'; no leading '.'/'-'), 1–128 chars${inLoc}`,
+      );
+    }
+  }
+
   // Validate meta if present
   if (record.meta !== undefined) {
     if (
@@ -65,6 +83,9 @@ export function validateMemoryObject(
   return {
     content: record.content,
     ...(record.id !== undefined ? { id: record.id as string } : {}),
+    ...(record.name !== undefined && record.name !== null
+      ? { name: record.name as string }
+      : {}),
     ...(record.meta !== undefined
       ? { meta: record.meta as Record<string, unknown> }
       : {}),

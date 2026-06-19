@@ -248,12 +248,16 @@ function createPackInstallCommand(): Command {
           insertedIds,
           failedIds,
           errors: chunkErrors,
-        } = await batchCreateChunked(client, createParams);
+        } = await batchCreateChunked(client, createParams, {
+          // Packs carry deterministic ids; re-installing skips rows that
+          // already exist rather than erroring on the raise-by-default server.
+          onConflict: "ignore",
+        });
 
         spin?.stop("Done");
 
-        // Post-#64 `batchCreate` returns only ids it actually inserted —
-        // conflicting ids are silently skipped. Classify the skips so the
+        // With `onConflict: 'ignore'` the server returns only ids it actually
+        // inserted — conflicting ids are skipped. Classify the skips so the
         // user sees benign re-installs vs real id collisions, excluding
         // failed-chunk ids (those never reached the server).
         const requestedIds = createParams
@@ -421,11 +425,11 @@ function createPackListCommand(): Command {
 }
 
 // =============================================================================
-// Skip classification (post-#64 batchCreate semantics)
+// Skip classification (onConflict: 'ignore' batchCreate semantics)
 // =============================================================================
 
 /**
- * `client.memory.batchCreate` uses `ON CONFLICT (id) DO NOTHING` server-side,
+ * Pack install calls `client.memory.batchCreate` with `onConflict: 'ignore'`,
  * so the returned `ids` array can be shorter than the request when conflicts
  * occur. For pack install, ids that didn't land fall into three buckets:
  *
