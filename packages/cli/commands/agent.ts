@@ -11,6 +11,7 @@
  * - me agent rename <agent> <name>:   rename an agent
  * - me agent delete <agent>:          delete an agent
  * - me agent add <agent>:             add the agent to the active space
+ * - me agent spaces <agent>:          list the agent's spaces
  * - me agent groups <agent>:          list the agent's groups in the active space
  *
  * <agent> is an agent id or name (names are unique per user).
@@ -158,6 +159,46 @@ function createAgentAddCommand(): Command {
     });
 }
 
+function createAgentSpacesCommand(): Command {
+  return new Command("spaces")
+    .description("list the spaces an agent belongs to")
+    .argument("<agent>", "agent id or name")
+    .action(async (agent: string, _opts, cmd) => {
+      const globalOpts = cmd.optsWithGlobals();
+      const creds = resolveCredentials(globalOpts.server);
+      const fmt = getOutputFormat(globalOpts);
+      requireSession(creds, fmt);
+
+      const user = buildUserClient(creds);
+      try {
+        const id = await resolveAgentId(user, agent, fmt);
+        const { spaces } = await user.agent.spaces({ id });
+        const withActive = spaces.map((s) => ({
+          ...s,
+          active: s.slug === creds.activeSpace,
+        }));
+        output({ agentId: id, spaces: withActive }, fmt, () => {
+          if (spaces.length === 0) {
+            console.log(
+              "  No spaces. Add the agent to a space with 'me agent add <agent>'.",
+            );
+            return;
+          }
+          table(
+            ["name", "slug", "active"],
+            spaces.map((s) => [
+              s.name,
+              s.slug,
+              s.slug === creds.activeSpace ? "active" : "",
+            ]),
+          );
+        });
+      } catch (error) {
+        handleError(error, fmt, { sessionServer: creds.server });
+      }
+    });
+}
+
 function createAgentGroupsCommand(): Command {
   return new Command("groups")
     .description("list an agent's groups in the active space")
@@ -197,6 +238,7 @@ export function createAgentCommand(): Command {
   agent.addCommand(createAgentRenameCommand());
   agent.addCommand(createAgentDeleteCommand());
   agent.addCommand(createAgentAddCommand());
+  agent.addCommand(createAgentSpacesCommand());
   agent.addCommand(createAgentGroupsCommand());
   return agent;
 }

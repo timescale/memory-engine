@@ -17,17 +17,21 @@ import type {
   AgentRenameParams,
   AgentRenameResult,
   AgentResponse,
+  AgentSpacesParams,
+  AgentSpacesResult,
 } from "@memory.build/protocol/user";
 import {
   agentCreateParams,
   agentDeleteParams,
   agentListParams,
   agentRenameParams,
+  agentSpacesParams,
 } from "@memory.build/protocol/user";
 import { guardCore } from "../core-error";
 import { AppError } from "../errors";
 import { buildRegistry } from "../registry";
 import type { HandlerContext } from "../types";
+import { toMemberSpaceResponse } from "./space";
 import { assertUserRpcContext, type UserRpcContext } from "./types";
 
 function toAgentResponse(p: Principal): AgentResponse {
@@ -75,6 +79,17 @@ async function agentList(
   return { agents: agents.map(toAgentResponse) };
 }
 
+async function agentSpaces(
+  params: AgentSpacesParams,
+  context: HandlerContext,
+): Promise<AgentSpacesResult> {
+  assertUserRpcContext(context);
+  const ctx = context as UserRpcContext;
+  await requireOwnAgent(ctx, params.id);
+  const spaces = await ctx.core.listSpacesForMember(params.id);
+  return { spaces: spaces.map(toMemberSpaceResponse) };
+}
+
 async function agentRename(
   params: AgentRenameParams,
   context: HandlerContext,
@@ -102,6 +117,7 @@ async function agentDelete(
 export const agentMethods = buildRegistry()
   .register("agent.create", agentCreateParams, agentCreate)
   .register("agent.list", agentListParams, agentList)
+  .register("agent.spaces", agentSpacesParams, agentSpaces)
   .register("agent.rename", agentRenameParams, agentRename)
   .register("agent.delete", agentDeleteParams, agentDelete)
   .build();

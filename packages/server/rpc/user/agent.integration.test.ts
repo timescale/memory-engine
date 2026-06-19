@@ -142,6 +142,43 @@ test("agent.list is scoped to the caller", async () => {
   expect(otherList.agents).toHaveLength(0);
 });
 
+test("agent.spaces lists spaces for an owned agent", async () => {
+  const { id: agentId } = await call<{ id: string }>("agent.create", {
+    name: "bot",
+  });
+  const core = coreStore(sql, coreSchema);
+  const agentSpaceId = await core.createSpace(rand(12), "Agent Space");
+  const userSpaceId = await core.createSpace(rand(12), "User Space");
+  await core.addPrincipalToSpace(agentSpaceId, agentId);
+  await core.addPrincipalToSpace(userSpaceId, userId, true);
+
+  const res = await call<{
+    spaces: { id: string; name: string; admin: boolean }[];
+  }>("agent.spaces", { id: agentId });
+
+  const agentSpace = res.spaces.find((s) => s.id === agentSpaceId);
+  expect(agentSpace).toBeDefined();
+  expect(agentSpace?.name).toBe("Agent Space");
+  expect(agentSpace?.admin).toBe(false);
+  expect(res.spaces.some((s) => s.id === userSpaceId)).toBe(false);
+});
+
+test("agent.spaces requires owning the agent", async () => {
+  const { id } = await call<{ id: string }>("agent.create", { name: "mine" });
+  const intruder = await makeUser();
+  await expectAppError(call("agent.spaces", { id }, intruder), "FORBIDDEN");
+});
+
+test("agent.spaces rejects non-agent and missing principals", async () => {
+  await expectAppError(call("agent.spaces", { id: userId }), "NOT_FOUND");
+
+  const [row] = await sql`select uuidv7() as id`;
+  await expectAppError(
+    call("agent.spaces", { id: row?.id as string }),
+    "NOT_FOUND",
+  );
+});
+
 test("cannot rename/delete another user's agent", async () => {
   const { id } = await call<{ id: string }>("agent.create", { name: "mine" });
   const intruder = await makeUser();

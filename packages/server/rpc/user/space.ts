@@ -53,7 +53,7 @@ async function requireSpaceAdminFor(
   return space;
 }
 
-function toMemberSpaceResponse(s: MemberSpace): MemberSpaceResponse {
+export function toMemberSpaceResponse(s: MemberSpace): MemberSpaceResponse {
   return {
     id: s.id,
     slug: s.slug,

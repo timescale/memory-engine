@@ -15,6 +15,8 @@ import type {
   AgentListResult,
   AgentRenameParams,
   AgentRenameResult,
+  AgentSpacesParams,
+  AgentSpacesResult,
   ApiKeyCreateParams,
   ApiKeyCreateResult,
   ApiKeyDeleteParams,
@@ -54,6 +56,7 @@ export interface UserClientOptions {
 export interface AgentNamespace {
   create(params: AgentCreateParams): Promise<AgentCreateResult>;
   list(params?: AgentListParams): Promise<AgentListResult>;
+  spaces(params: AgentSpacesParams): Promise<AgentSpacesResult>;
   rename(params: AgentRenameParams): Promise<AgentRenameResult>;
   delete(params: AgentDeleteParams): Promise<AgentDeleteResult>;
 }
@@ -113,6 +116,7 @@ export function createUserClient(options: UserClientOptions = {}): UserClient {
     agent: {
       create: (p) => writeRpc("agent.create", p),
       list: (p) => readRpc("agent.list", p ?? {}),
+      spaces: (p) => readRpc("agent.spaces", p),
       rename: (p) => writeRpc("agent.rename", p),
       delete: (p) => writeRpc("agent.delete", p),
     },

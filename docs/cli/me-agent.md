@@ -4,7 +4,7 @@ Manage agents.
 
 An **agent** is a service account you own — a non-human principal that authenticates with an API key. Agents are **global** (owned by you, names unique per user), independent of any space. Create an agent, add it to the spaces it should work in, then mint it an API key with [`me apikey`](me-apikey.md).
 
-These commands authenticate with your **session** (`me login`). Lifecycle commands (`create`/`list`/`rename`/`delete`) are global; `add` and `groups` operate on the active space.
+These commands authenticate with your **session** (`me login`). Lifecycle commands (`create`/`list`/`rename`/`delete`) are global; `spaces` lists one of your agent's space memberships; `add` and `groups` operate on the active space.
 
 ## Commands
 
@@ -12,6 +12,7 @@ These commands authenticate with your **session** (`me login`). Lifecycle comman
 - [me agent create](#me-agent-create) -- create an agent
 - [me agent rename](#me-agent-rename) -- rename an agent
 - [me agent delete](#me-agent-delete) -- delete an agent
+- [me agent spaces](#me-agent-spaces) -- list the spaces an agent belongs to
 - [me agent add](#me-agent-add) -- add an agent to the active space
 - [me agent groups](#me-agent-groups) -- list an agent's groups in the space
 
@@ -76,6 +77,20 @@ Add one of your agents to the active space's roster. It joins with owner over it
 
 ```
 me agent add <agent>
+```
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `agent` | yes | Agent id or name. |
+
+---
+
+## me agent spaces
+
+List the spaces one of your agents belongs to. This uses your logged-in session to verify ownership of the agent; it does not authenticate with the agent's `ME_API_KEY`.
+
+```
+me agent spaces <agent>
 ```
 
 | Argument | Required | Description |
