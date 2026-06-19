@@ -12,6 +12,7 @@ function mkMemory(partial: Partial<MemoryResponse>): MemoryResponse {
     content: partial.content ?? "body",
     meta: partial.meta ?? {},
     tree: partial.tree ?? "",
+    name: partial.name ?? null,
     temporal: partial.temporal ?? null,
     hasEmbedding: partial.hasEmbedding ?? false,
     createdAt: partial.createdAt ?? "2026-01-01T00:00:00Z",
@@ -26,10 +27,11 @@ describe("memoryToEditorText", () => {
     expect(text).toBe("hello");
   });
 
-  test("emits tree, meta, and temporal when present", () => {
+  test("emits name, tree, meta, and temporal when present", () => {
     const text = memoryToEditorText(
       mkMemory({
         content: "body text",
+        name: "jwt-rotation",
         tree: "work.projects",
         meta: { priority: "high" },
         temporal: {
@@ -38,16 +40,25 @@ describe("memoryToEditorText", () => {
         },
       }),
     );
+    expect(text).toContain("name: jwt-rotation");
     expect(text).toContain("tree: work.projects");
     expect(text).toContain("priority: high");
     expect(text).toContain("start: '2026-01-01T00:00:00Z'");
     expect(text.trimEnd().endsWith("body text")).toBe(true);
+  });
+
+  test("omits name when the memory is unnamed", () => {
+    const text = memoryToEditorText(
+      mkMemory({ content: "body", tree: "work" }),
+    );
+    expect(text).not.toContain("name:");
   });
 });
 
 describe("parseEditorText", () => {
   test("body-only input parses as empty frontmatter", () => {
     const parsed = parseEditorText("no frontmatter here");
+    expect(parsed.name).toBeNull();
     expect(parsed.tree).toBe("");
     expect(parsed.meta).toEqual({});
     expect(parsed.temporal).toBeNull();
@@ -57,6 +68,7 @@ describe("parseEditorText", () => {
   test("standard object-form frontmatter round-trips", () => {
     const original = mkMemory({
       content: "hello world",
+      name: "jwt-rotation",
       tree: "work.projects",
       meta: { a: 1, b: "two" },
       temporal: {
@@ -66,10 +78,22 @@ describe("parseEditorText", () => {
     });
     const text = memoryToEditorText(original);
     const parsed = parseEditorText(text);
+    expect(parsed.name).toBe("jwt-rotation");
     expect(parsed.tree).toBe("work.projects");
     expect(parsed.meta).toEqual({ a: 1, b: "two" });
     expect(parsed.temporal).toEqual(original.temporal);
     expect(parsed.body).toBe("hello world");
+  });
+
+  test("omitting name parses as null (clears the name on save)", () => {
+    const parsed = parseEditorText("---\ntree: work\n---\nbody");
+    expect(parsed.name).toBeNull();
+  });
+
+  test("invalid name (slash) throws", () => {
+    expect(() => parseEditorText("---\nname: a/b\n---\nbody")).toThrow(
+      /name.*slug/,
+    );
   });
 
   test("accepts array-form temporal", () => {

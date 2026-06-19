@@ -1,13 +1,13 @@
 /**
  * Collapsible frontmatter display for view mode.
  *
- * Renders tree / meta / temporal as a compact inspector panel. Metadata rows
- * include a small filter button that merges the value into the current
+ * Renders name / tree / meta / temporal as a compact inspector panel. Metadata
+ * rows include a small filter button that merges the value into the current
  * advanced meta JSON filter, then switches search into advanced mode so the
  * filter takes effect immediately.
  *
- * Returns `null` when there is nothing to show (no tree, empty meta, no
- * temporal) so the view-mode pane stays uncluttered for bare memories.
+ * Returns `null` when there is nothing to show (no name, no tree, empty meta,
+ * no temporal) so the view-mode pane stays uncluttered for bare memories.
  */
 
 import type { ReactNode } from "react";
@@ -20,7 +20,10 @@ import { useFilter } from "../../store/filter.ts";
 import { useLayout } from "../../store/layout.ts";
 import { pushToast } from "../toast/Toast.tsx";
 
-type Frontmatter = Pick<ParsedFrontmatter, "tree" | "meta" | "temporal">;
+type Frontmatter = Pick<
+  ParsedFrontmatter,
+  "name" | "tree" | "meta" | "temporal"
+>;
 
 interface Props {
   frontmatter: Frontmatter;
@@ -33,7 +36,13 @@ export function FrontmatterBlock({ frontmatter }: Props) {
   const setSearchCollapsed = useLayout((s) => s.setSearchCollapsed);
 
   const hasMeta = Object.keys(frontmatter.meta).length > 0;
-  if (!frontmatter.tree && !hasMeta && !frontmatter.temporal) return null;
+  if (
+    !frontmatter.name &&
+    !frontmatter.tree &&
+    !hasMeta &&
+    !frontmatter.temporal
+  )
+    return null;
 
   function handleApplyMetaFilter(path: string[], value: unknown) {
     applyMetaJsonFilter(buildMetaFilter(path, value));
@@ -64,6 +73,14 @@ export function FrontmatterBlock({ frontmatter }: Props) {
       </summary>
       <div className="border-t border-slate-200 px-3 py-3 text-sm">
         <div className="space-y-3">
+          {frontmatter.name && (
+            <FrontmatterField label="name">
+              <code className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-xs text-slate-700">
+                {frontmatter.name}
+              </code>
+            </FrontmatterField>
+          )}
+
           {frontmatter.tree && (
             <FrontmatterField label="tree">
               <code className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-xs text-slate-700">

@@ -30,6 +30,7 @@ function mkMemory(
     content: partial.content ?? "placeholder content",
     meta: partial.meta ?? {},
     tree: partial.tree ?? "",
+    name: partial.name ?? null,
     temporal: partial.temporal ?? null,
     hasEmbedding: partial.hasEmbedding ?? false,
     createdAt: partial.createdAt ?? new Date().toISOString(),
@@ -257,6 +258,14 @@ describe("memoryToLeaf + sortLeaves + titleForMemory", () => {
     expect(leaf.title).toBe("Hello World");
     expect(leaf.temporalStart).toBe("2025-01-01T00:00:00Z");
     expect(leaf.depth).toBe(2);
+  });
+
+  test("memoryToLeaf prefers the name as the leaf title when present", () => {
+    const leaf = memoryToLeaf(
+      mkMemory({ name: "jwt-rotation", content: "# Hello World\n\nbody" }),
+      0,
+    );
+    expect(leaf.title).toBe("jwt-rotation");
   });
 
   test("sortLeaves: newest temporal first, nulls last, title tiebreak", () => {
