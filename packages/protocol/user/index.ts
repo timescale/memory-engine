@@ -15,6 +15,8 @@ import {
   agentListResult,
   agentRenameParams,
   agentRenameResult,
+  agentSpacesParams,
+  agentSpacesResult,
 } from "./agent.ts";
 import {
   apiKeyCreateParams,
@@ -59,6 +61,7 @@ export const userMethods = {
 
   "agent.create": method(agentCreateParams, agentCreateResult),
   "agent.list": method(agentListParams, agentListResult),
+  "agent.spaces": method(agentSpacesParams, agentSpacesResult),
   "agent.rename": method(agentRenameParams, agentRenameResult),
   "agent.delete": method(agentDeleteParams, agentDeleteResult),
 

@@ -8,6 +8,7 @@
  */
 import { z } from "zod";
 import { nameSchema, uuidv7Schema } from "../fields.ts";
+import { memberSpaceResponse } from "./space.ts";
 
 export const agentResponse = z.object({
   id: z.string(),
@@ -30,6 +31,15 @@ export type AgentListParams = z.infer<typeof agentListParams>;
 
 export const agentListResult = z.object({ agents: z.array(agentResponse) });
 export type AgentListResult = z.infer<typeof agentListResult>;
+
+// agent.spaces — spaces an owned agent belongs to
+export const agentSpacesParams = z.object({ id: uuidv7Schema });
+export type AgentSpacesParams = z.infer<typeof agentSpacesParams>;
+
+export const agentSpacesResult = z.object({
+  spaces: z.array(memberSpaceResponse),
+});
+export type AgentSpacesResult = z.infer<typeof agentSpacesResult>;
 
 // agent.rename
 export const agentRenameParams = z.object({

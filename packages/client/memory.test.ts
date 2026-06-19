@@ -9,12 +9,17 @@ afterEach(() => {
 });
 
 function captureFetch() {
-  const captured = { headers: {} as Record<string, string>, url: "" };
+  const captured = {
+    body: undefined as unknown,
+    headers: {} as Record<string, string>,
+    url: "",
+  };
   globalThis.fetch = (async (
     input: string | URL | Request,
     init?: RequestInit,
   ) => {
     captured.url = typeof input === "string" ? input : input.toString();
+    captured.body = init?.body ? JSON.parse(init.body as string) : undefined;
     const headers = init?.headers as Record<string, string> | undefined;
     if (headers) Object.assign(captured.headers, headers);
     return new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, result: {} }), {
@@ -95,6 +100,22 @@ test("user client targets the user endpoint with no X-Me-Space", async () => {
   expect(captured.url).toBe("https://api.example.com/api/v1/user/rpc");
   expect(captured.headers["X-Me-Space"]).toBeUndefined();
   expect(captured.headers.Authorization).toBe("Bearer sess-tok");
+});
+
+test("user client exposes agent.spaces", async () => {
+  const captured = captureFetch();
+  const client = createUserClient({
+    url: "https://api.example.com",
+    token: "sess-tok",
+    retries: 0,
+  });
+
+  await client.agent.spaces({ id: "018f1138-7f07-7c48-8bd1-c9a6b1095978" });
+
+  expect(captured.body).toMatchObject({
+    method: "agent.spaces",
+    params: { id: "018f1138-7f07-7c48-8bd1-c9a6b1095978" },
+  });
 });
 
 test("memory client does not retry mutating calls", async () => {
