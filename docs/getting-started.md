@@ -38,11 +38,12 @@ me version
 
 ```bash
 me memory create "PostgreSQL 18 supports native UUIDv7 generation." \
-  --tree share.notes.postgres \
+  --tree share/notes/postgres \
+  --name uuidv7 \
   --meta '{"topic": "database"}'
 ```
 
-A `--tree` is required. Put memories the rest of your space should see under `share.*`, and personal ones under `~.*` (your private home). See [Core Concepts](concepts.md#reserved-roots).
+A `--tree` is required. Put memories the rest of your space should see under `share/*`, and personal ones under `~/*` (your private home). The optional `--name` gives the memory a filename-like slug (unique within its tree) so you can later address it by path -- `me get share/notes/postgres/uuidv7`. See [Core Concepts](concepts.md#reserved-roots).
 
 ## Search
 
@@ -90,7 +91,7 @@ me claude install            # full plugin
 me claude install --mcp-only # or just the MCP server
 ```
 
-This drives Claude Code's native plugin flow for you (`claude plugin marketplace add` + `claude plugin install`), passing your resolved server/space/api_key through `--config`. Afterwards, restart Claude Code (or run `/plugin`) to load the hooks and slash commands; you can re-run `/plugin` → `memory-engine` → Configure to adjust options. All are optional except `server`: leave `api_key` blank to use your `me login` session, leave `space` blank to use your active space, and `tree_root` defaults to `share.projects`.
+This drives Claude Code's native plugin flow for you (`claude plugin marketplace add` + `claude plugin install`), passing your resolved server/space/api_key through `--config`. Afterwards, restart Claude Code (or run `/plugin`) to load the hooks and slash commands; you can re-run `/plugin` → `memory-engine` → Configure to adjust options. All are optional except `server`: leave `api_key` blank to use your `me login` session, leave `space` blank to use your active space, and `tree_root` defaults to `/share/projects`.
 
 After installation, your AI agent has access to memory tools -- create, search, get, update, delete, and more.
 

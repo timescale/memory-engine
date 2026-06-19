@@ -69,7 +69,7 @@ For `md` format with a directory path:
 
 ```json
 {
-  "tree": "me.design.*",
+  "tree": "/me/design/*",
   "format": "yaml",
   "path": "/Users/me/memories/design-export.yaml"
 }
@@ -79,13 +79,13 @@ For `md` format with a directory path:
 
 ```json
 {
-  "tree": "me.design.*",
+  "tree": "/me/design/*",
   "format": "md",
   "path": "/Users/me/memories/design-export"
 }
 ```
 
-Each memory is written as `{id}.md` with YAML frontmatter. The directory is created if it does not exist.
+The directory mirrors the tree: each memory is written to `<tree-as-directories>/<name-or-id>.md` with YAML frontmatter (including `name` when set). A named memory uses its name as the filename; an unnamed one falls back to `{id}.md`. The directory is created if it does not exist.
 
 ### Export inline for inspection
 
@@ -101,7 +101,7 @@ Each memory is written as `{id}.md` with YAML frontmatter. The directory is crea
 
 - **Prefer `path` for large exports** to avoid returning large payloads through the conversation. Omit `path` only for small result sets or when you need to inspect the content.
 - The exported content is directly compatible with [me_memory_import](me_memory_import.md). Exported files and directories can be re-imported directly.
-- **Markdown format**: use a directory path for multi-memory export. Each memory is written as `{id}.md`. Inline Markdown export (omitting `path`) is only supported for single-memory results.
+- **Markdown format**: use a directory path for multi-memory export. The directory mirrors the tree -- each memory is written to `<tree-as-directories>/<name-or-id>.md`. Inline Markdown export (omitting `path`) is only supported for single-memory results.
 - Results are sorted in ascending order by creation time.
-- The `tree` filter supports exact match, wildcards, negation, and label search. See [Tree filter syntax](../concepts.md#tree-filter-syntax) for the full reference. Use `me.!archived.*{0,}` to export everything under `me` except archived content.
+- The `tree` filter supports exact match, wildcards, negation, and label search. See [Tree filter syntax](../concepts.md#tree-filter-syntax) for the full reference. Use `/me/!archived/*{0,}` to export everything under `/me` except archived content.
 - See [File Formats](../formats.md) for full schema documentation and format details.

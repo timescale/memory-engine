@@ -5,9 +5,12 @@
 A memory is a single piece of knowledge. Every memory has:
 
 - **content** (required) -- the text of the memory. Be specific and self-contained.
-- **tree** -- a hierarchical dot-path for organizing and browsing (e.g., `work.projects.api`).
+- **tree** -- a hierarchical path for organizing and browsing (e.g., `/share/auth` or `/work/projects/api`).
+- **name** (optional) -- a human-chosen, filename-like slug, unique within its tree (e.g., `jwt-rotation`). Lets you address the memory as a path like `/share/auth/jwt-rotation` instead of by UUID, and serves as the upsert key for re-runs. Mutable. Matches `^[A-Za-z0-9][A-Za-z0-9._-]*$`, ≤128 chars -- dots are allowed, slashes are not. Distinct from, and in addition to, the memory's immutable UUID.
 - **meta** -- key-value metadata for filtering (e.g., `{"type": "decision", "confidence": "high"}`).
 - **temporal** -- a time association, either a point-in-time or a date range.
+
+Every memory also has an immutable **id** (a UUIDv7) -- the stable identity that survives renames and moves. The server mints it; callers may supply one only to preserve identity across import/export.
 
 Each space stores its memories in a single PostgreSQL table (the `me_<slug>` schema). There are no separate tables for different "types" of memory -- the type is a convention in `meta`, not a schema distinction. This keeps queries simple and the data model flexible.
 
@@ -41,18 +44,20 @@ Each space stores its memories in a single PostgreSQL table (the `me_<slug>` sch
 
 ## Tree Paths
 
-Tree paths organize memories into a browsable hierarchy using dot-separated labels:
+Tree paths organize memories into a browsable hierarchy of labels:
 
 ```
-work
-work.projects
-work.projects.api
-work.projects.api.auth
-personal.reading
-personal.reading.books
+/work
+/work/projects
+/work/projects/api
+/work/projects/api/auth
+/personal/reading
+/personal/reading/books
 ```
 
-Tree paths use PostgreSQL's `ltree` extension. Labels match `[A-Za-z0-9_-]` (letters, digits, underscores, and hyphens); use `.` as the separator (`/` is also accepted on input and normalized).
+Tree paths use PostgreSQL's `ltree` extension under the hood. Each label matches `[A-Za-z0-9_-]` (letters, digits, underscores, and hyphens). The **canonical form uses `/` with a leading slash**: the root is `/`, an absolute path is `/share/auth`, and your home is `~/notes`. This is what the API and CLI display, and what you should write (the leading slash is optional when you type a path).
+
+> The tree-filter patterns below use lquery / ltxtquery operators (`*`, `{}`, `|`, `!`, `&`) layered on top of these paths.
 
 Keep paths **2-4 levels deep**. Deeper nesting rarely helps findability.
 
@@ -60,8 +65,8 @@ Keep paths **2-4 levels deep**. Deeper nesting rarely helps findability.
 
 Every space has two conventional roots:
 
-- **`share`** -- the shared root. Memories the rest of the space should see go here (`share.work.projects`, etc.). The file importers default a tree-less record to `share`.
-- **`home.<member_id>`** -- your private per-member root. The input shortcut **`~`** expands to your own home, so `~.notes` is stored as `home.<your-id>.notes` and displays back as `~.notes`. An **agent**'s home nests under its owner's (`home.<owner-id>.<agent-id>`), so the agent's `~` is visible to its owner.
+- **`/share`** -- the shared root. Memories the rest of the space should see go here (`/share/work/projects`, etc.). The file importers default a tree-less record to `share`.
+- **`/home/<member_id>`** -- your private per-member root. The input shortcut **`~`** expands to your own home, so `~/notes` resolves to `/home/<your-id>/notes` and displays back as `~/notes`. An **agent**'s home nests under its owner's (`/home/<owner-id>/<agent-id>`), so the agent's `~` is visible to its owner.
 
 `me memory create` (and the `me_memory_create` MCP tool) **require** an explicit tree -- choose `share` for shared memories or `~` for private ones. See [Access Control](access-control.md) for how grants attach to these paths.
 
@@ -69,24 +74,24 @@ Every space has two conventional roots:
 
 When filtering by tree (in search, export, or browse), the system auto-detects which syntax you're using:
 
-**Exact match (ltree)** -- plain dot-separated path. Matches that node and all descendants.
+**Exact match** -- a plain path. Matches that node and all descendants.
 
 | Pattern | Matches |
 |---------|---------|
-| `work.projects` | `work.projects`, `work.projects.api`, `work.projects.api.auth`, etc. |
+| `/work/projects` | `/work/projects`, `/work/projects/api`, `/work/projects/api/auth`, etc. |
 
 **Pattern matching (lquery)** -- triggered when the pattern contains `*`, `!`, `{`, `}`, `|`, `@`, or `%`. Uses wildcards and quantifiers.
 
 | Pattern | Meaning |
 |---------|---------|
-| `work.projects.*` | All descendants of `work.projects` (any depth) |
-| `work.*{1}` | Direct children of `work` only (exactly 1 level) |
-| `work.*{2,4}` | Descendants 2-4 levels below `work` |
-| `work.*{0,}` | `work` itself plus all descendants (equivalent to ltree `work`) |
-| `*.api.*` | Any path containing the label `api` at any position |
-| `*.!draft.*` | Any path that does NOT contain the label `draft` |
-| `work|personal.*` | Paths starting with `work` or `personal`, then anything |
-| `me.!archived.*{0,}` | Everything under `me` except the `me.archived` subtree |
+| `/work/projects/*` | All descendants of `/work/projects` (any depth) |
+| `/work/*{1}` | Direct children of `/work` only (exactly 1 level) |
+| `/work/*{2,4}` | Descendants 2-4 levels below `/work` |
+| `/work/*{0,}` | `/work` itself plus all descendants (equivalent to `/work`) |
+| `*/api/*` | Any path containing the label `api` at any position |
+| `*/!draft/*` | Any path that does NOT contain the label `draft` |
+| `/work\|personal/*` | Paths starting with `work` or `personal`, then anything |
+| `/me/!archived/*{0,}` | Everything under `/me` except the `/me/archived` subtree |
 
 **Label search (ltxtquery)** -- triggered when the pattern contains `&`. Boolean search over path labels.
 
@@ -101,11 +106,30 @@ When filtering by tree (in search, export, or browse), the system auto-detects w
 Below the two reserved roots, tree paths are user-defined. There is no mandated hierarchy. Common patterns:
 
 ```
-share.work.projects.<name>   # shared per-project knowledge
-share.design.<subsystem>     # shared design decisions
-pack.<pack-name>             # installed memory packs (their own root)
-~.notes.<topic>              # private notes
+/share/work/projects/<name>   # shared per-project knowledge
+/share/design/<subsystem>     # shared design decisions
+/pack/<pack-name>             # installed memory packs (their own root)
+~/notes/<topic>               # private notes
 ```
+
+## Addressing & Conflicts
+
+A memory can be addressed two ways:
+
+- **By id** -- the immutable UUID (`memory.get`, `memory.delete`; `me get <uuid>`). Stable across renames and moves.
+- **By path** -- a named memory's `folder/name`, split at the final `/` (`memory.getByPath`, `memory.deleteByPath`; `me get /share/auth/jwt-rotation`). The last segment is the name; the rest is the tree. A name may contain dots (`config.yaml`) but never a slash.
+
+The CLI's `me get` / `me delete` auto-detect: a UUID is treated as an id, anything else as a path. `me update` is id-addressed (it resolves a path to an id first). Deleting a whole subtree is `me delete --tree <path>` / `memory.deleteTree`.
+
+### Conflict handling
+
+Create and batch-create take an `onConflict` policy, applied against the memory's **idempotency key** -- the explicit id when one is supplied, otherwise the `(tree, name)` slot:
+
+- **`error`** (default) -- a clash raises `CONFLICT`.
+- **`replace`** -- overwrite in place, but only when something actually differs (content, meta, or temporal); an identical re-submit is a no-op. The id is preserved, and the embedding is recomputed only when content changes.
+- **`ignore`** -- skip the conflicting row, leaving the existing one untouched.
+
+This makes re-runs idempotent. The transcript and git importers submit with `replace` and stamp `meta.importer_version`, so an unchanged re-import does nothing while a parser-version bump re-renders. The file importers (`me import memories`, the `me_memory_import` tool, `me pack install`) submit with `ignore`, so re-importing or re-installing is a no-op. (There is no separate "upsert" flag -- content-aware `replace` covers it.)
 
 ## Metadata
 

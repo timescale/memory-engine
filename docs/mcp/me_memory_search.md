@@ -24,11 +24,11 @@ Supports three search modes: **semantic** (meaning-based), **fulltext** (keyword
 
 The system auto-detects the syntax from the pattern. Quick reference:
 
-- Bare path (`work.projects`) -- matches that node and all descendants.
-- Wildcard (`work.projects.*`) -- all descendants at any depth.
-- Depth-limited (`work.*{2}`) -- descendants up to 2 levels deep.
-- Negation (`*.!draft.*`) -- paths that do NOT contain `draft`.
-- Pattern (`*.api.*`) -- any path containing `api`.
+- Bare path (`/work/projects`) -- matches that node and all descendants.
+- Wildcard (`/work/projects/*`) -- all descendants at any depth.
+- Depth-limited (`/work/*{2}`) -- descendants up to 2 levels deep.
+- Negation (`*/!draft/*`) -- paths that do NOT contain `draft`.
+- Pattern (`*/api/*`) -- any path containing `api`.
 - Label search (`api & v2`) -- boolean search over path labels.
 
 See [Tree filter syntax](../concepts.md#tree-filter-syntax) for the full reference with examples.
@@ -57,7 +57,7 @@ See [Tree filter syntax](../concepts.md#tree-filter-syntax) for the full referen
       "id": "0194a000-0001-7000-8000-000000000001",
       "content": "Use ltree for hierarchical path queries.",
       "meta": { "source": "docs" },
-      "tree": "research.postgres",
+      "tree": "/research/postgres",
       "temporal": null,
       "hasEmbedding": true,
       "createdAt": "2025-04-15T12:00:00Z",
@@ -104,7 +104,7 @@ See [Tree filter syntax](../concepts.md#tree-filter-syntax) for the full referen
 {
   "semantic": "embedding performance",
   "fulltext": "nomic ollama",
-  "tree": "me.design.*",
+  "tree": "/me/design/*",
   "limit": 5
 }
 ```
@@ -114,7 +114,7 @@ See [Tree filter syntax](../concepts.md#tree-filter-syntax) for the full referen
 ```json
 {
   "meta": { "type": "decision" },
-  "tree": "me.strategy.*",
+  "tree": "/me/strategy/*",
   "limit": 20,
   "order_by": "desc"
 }

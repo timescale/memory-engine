@@ -53,7 +53,7 @@ The install process:
 4. Deletes stale memories from previous versions (with confirmation).
 5. Creates all memories from the pack with `pack.*` tree prefixes and pack metadata.
 
-Inserts use server-side `ON CONFLICT DO NOTHING`, so existing rows with the same id are left untouched. The command classifies and reports any skips:
+Inserts submit with `onConflict: 'ignore'`, so existing rows with the same id are left untouched. The command classifies and reports any skips:
 
 - **Already present** -- id is already tagged with this pack name and version. A benign no-op (e.g. re-running install on an unchanged pack).
 - **Conflict** -- id is held by something else (a different pack, a different version, or a non-pack memory). Surfaced as a warning and listed by id so a real collision isn't silently masked. Exit code remains `0`.
@@ -84,7 +84,7 @@ JSON mode (`--format json`) returns:
 | `version` | Pack version. |
 | `installed` | Memories actually inserted on this run. |
 | `staleRemoved` | Previous-version memories deleted before insert. |
-| `skipped` | Total memories skipped by `ON CONFLICT DO NOTHING`. |
+| `skipped` | Total memories skipped via `onConflict: 'ignore'`. |
 | `skippedIdempotent` | Skipped because already present at this version. |
 | `skippedConflict` | Skipped because the id is held by something not from this pack/version. |
 | `skippedConflictIds` | Array of conflicting ids (only present when `skippedConflict > 0`). |

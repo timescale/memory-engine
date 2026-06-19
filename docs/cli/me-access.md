@@ -2,7 +2,7 @@
 
 Manage tree-access grants in the active space.
 
-A grant attaches an access **level** to a principal (user, agent, or group) at a **tree path**. Levels are additive and hierarchical — a grant at `share.work` also covers everything below it:
+A grant attaches an access **level** to a principal (user, agent, or group) at a **tree path**. Levels are additive and hierarchical — a grant at `/share/work` also covers everything below it:
 
 | Level | Flag | Capabilities |
 |-------|------|--------------|
@@ -37,8 +37,8 @@ me access grant <principal> <path> <level>
 | `level` | yes | Access level: `r` (read), `w` (write), or `o` (owner). |
 
 ```bash
-me access grant alice@example.com share.work r
-me access grant backend share.work.api w
+me access grant alice@example.com /share/work r
+me access grant backend /share/work/api w
 me access grant lead@example.com "" o          # owner@root — whole space
 ```
 

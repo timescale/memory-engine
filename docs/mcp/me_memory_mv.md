@@ -30,23 +30,23 @@ Works like `mv` in a filesystem -- all memories under the source prefix get thei
 
 ```json
 {
-  "source": "work.old_project",
-  "destination": "work.new_project",
+  "source": "/work/old_project",
+  "destination": "/work/new_project",
   "dry_run": false
 }
 ```
 
 This moves:
-- `work.old_project` -> `work.new_project`
-- `work.old_project.api` -> `work.new_project.api`
-- `work.old_project.api.auth` -> `work.new_project.api.auth`
+- `/work/old_project` -> `/work/new_project`
+- `/work/old_project/api` -> `/work/new_project/api`
+- `/work/old_project/api/auth` -> `/work/new_project/api/auth`
 
 ### Preview a move
 
 ```json
 {
-  "source": "scratch",
-  "destination": "archive.scratch",
+  "source": "/scratch",
+  "destination": "/archive/scratch",
   "dry_run": true
 }
 ```

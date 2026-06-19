@@ -4,14 +4,15 @@ Import and export use the same memory structure across all formats. This page is
 
 ## Memory fields
 
-Every memory has one required field (`content`) and four optional fields:
+Every memory has one required field (`content`) and several optional fields:
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `id` | `string` | no | UUIDv7. Enables idempotent imports -- re-importing the same ID won't create a duplicate. Must match `^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`. |
+| `id` | `string` | no | UUIDv7. Preserves identity across import/export and makes re-import idempotent -- a record whose id (or `(tree, name)` slot) already exists is skipped. Must match `^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`. |
 | `content` | `string` | **yes** | The memory text. Must be non-empty. |
+| `name` | `string` | no | Optional filename-like leaf slug, unique within its tree (e.g. `jwt-rotation`). Matches `^[A-Za-z0-9][A-Za-z0-9._-]*$`, ≤128 chars -- dots allowed, no slashes. Lets the memory be addressed as `tree/name`. |
 | `meta` | `object` | no | Arbitrary key-value metadata. Any valid JSON object. |
-| `tree` | `string` | no | Hierarchical path using dot-separated labels (e.g. `share.work.projects.api`). Labels match `[A-Za-z0-9_-]`; `/` is also accepted as a separator and a leading `~` expands to your private home. When omitted, the file importers (`me import memories`, `me_memory_import`) default the record to the shared root `share`. |
+| `tree` | `string` | no | Hierarchical path, `/`-separated with a leading slash (e.g. `/share/work/projects/api`); a leading `~` expands to your private home. The leading slash is optional on input. Each label matches `[A-Za-z0-9_-]`. When omitted, the file importers (`me import memories`, `me_memory_import`) default the record to the shared root `/share`. |
 | `temporal` | varies | no | Time range for the memory. Accepted shapes depend on format -- see below. |
 
 ### Temporal input shapes
@@ -47,13 +48,14 @@ A JSON array of memory objects. This is the default export format.
   {
     "id": "0194a000-0001-7000-8000-000000000001",
     "content": "Project started with three engineers",
-    "tree": "work.projects.api",
+    "tree": "/work/projects/api",
+    "name": "kickoff",
     "meta": { "source": "import", "author": "jane" },
     "temporal": { "start": "2024-01-15T00:00:00Z" }
   },
   {
     "content": "Switched to PostgreSQL for the queue",
-    "tree": "work.projects.api",
+    "tree": "/work/projects/api",
     "meta": { "type": "decision" }
   }
 ]
@@ -64,7 +66,7 @@ A single object (not wrapped in an array) is also accepted:
 ```json
 {
   "content": "Single memory import",
-  "tree": "notes"
+  "tree": "/notes"
 }
 ```
 
@@ -77,9 +79,9 @@ A single object (not wrapped in an array) is also accepted:
 Newline-delimited JSON -- one JSON object per line. Useful for streaming or large datasets.
 
 ```
-{"content": "First memory", "tree": "notes"}
-{"content": "Second memory", "tree": "notes", "meta": {"priority": "high"}}
-{"content": "Third memory", "tree": "notes"}
+{"content": "First memory", "tree": "/notes"}
+{"content": "Second memory", "tree": "/notes", "name": "second", "meta": {"priority": "high"}}
+{"content": "Third memory", "tree": "/notes"}
 ```
 
 NDJSON is auto-detected when the content contains multiple lines that each start with `{`. It is parsed using the JSON parser internally.
@@ -97,7 +99,8 @@ A YAML array of memory objects.
 ```yaml
 - id: "0194a000-0001-7000-8000-000000000001"
   content: Project started with three engineers
-  tree: work.projects.api
+  tree: /work/projects/api
+  name: kickoff
   meta:
     source: import
     author: jane
@@ -106,7 +109,7 @@ A YAML array of memory objects.
     end: "2024-12-31T23:59:59Z"
 
 - content: Switched to PostgreSQL for the queue
-  tree: work.projects.api
+  tree: /work/projects/api
   meta:
     type: decision
 ```
@@ -115,7 +118,7 @@ A single object (not wrapped in an array) is also accepted:
 
 ```yaml
 content: Single memory import
-tree: notes
+tree: /notes
 ```
 
 **File extensions**: `.yaml`, `.yml`
@@ -129,7 +132,8 @@ A Markdown file with optional YAML frontmatter. The frontmatter carries the meta
 ```markdown
 ---
 id: 0194a000-0001-7000-8000-000000000001
-tree: work.projects.api
+tree: /work/projects/api
+name: queue-backend
 meta:
   source: import
   type: decision
@@ -155,10 +159,10 @@ No metadata, tree, or temporal information.
 
 ### Markdown export
 
-When exporting to Markdown, each memory is written as an individual `{id}.md` file in a directory. Frontmatter includes `created_at` (CLI only) in addition to the standard fields. The `created_at` field is informational and is ignored on re-import.
+When exporting to Markdown, the directory mirrors the tree: each memory is written to `<dir>/<tree-as-directories>/<name-or-id>.md`. A named memory uses its name as the filename (`.../share/auth/jwt-rotation.md`); an unnamed one falls back to its `{id}.md`. Frontmatter includes `name` (when set) and `created_at` (CLI only) in addition to the standard fields. The `created_at` field is informational and is ignored on re-import.
 
 - **CLI**: requires a directory path when exporting multiple memories. Single-memory export to stdout is allowed.
-- **MCP**: when `path` is provided, creates or uses it as a directory of `.md` files. When `path` is null (inline), only single-memory export is allowed -- multiple memories will return an error asking for a directory path.
+- **MCP**: when `path` is provided, creates or uses it as a directory tree of `.md` files. When `path` is null (inline), only single-memory export is allowed -- multiple memories will return an error asking for a directory path.
 
 ---
 
@@ -205,8 +209,8 @@ When importing from a file path, the file is read server-side and the 1 MB reque
 
 ## Round-trip compatibility
 
-Exported files can be re-imported directly. The export output uses the same field names and structure as the import schema.
+Exported files can be re-imported directly. The export output uses the same field names and structure as the import schema; `tree` is written in the canonical `/`-prefixed form, which re-imports cleanly (input is lenient).
 
-The `id` field is preserved in exports, so re-importing an export is idempotent -- existing memories with the same ID are not duplicated.
+The `id` and `name` fields are preserved in exports, so re-importing is idempotent: the file importers submit with `onConflict: 'ignore'`, and a record whose id -- or `(tree, name)` slot -- already exists is skipped rather than duplicated.
 
 Fields that appear in exports but are not part of the import schema (like `created_at` in Markdown frontmatter) are silently ignored on re-import.
