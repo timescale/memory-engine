@@ -69,6 +69,7 @@ export const SHARE_NAMESPACE = "share";
  */
 export const memoryNameSchema = z
   .string()
+  .min(1, "name must not be empty")
   .max(128, "name must be at most 128 characters")
   .regex(
     /^[A-Za-z0-9][A-Za-z0-9._-]*$/,

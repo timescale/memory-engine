@@ -17,6 +17,7 @@ describe("memoryNameSchema", () => {
 
   test("rejects slashes, spaces, leading dot/hyphen, and > 128 chars", () => {
     for (const bad of [
+      "",
       "a/b",
       "has space",
       ".hidden",

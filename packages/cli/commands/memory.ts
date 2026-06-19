@@ -25,6 +25,7 @@ import { getOutputFormat, output, table } from "../output.ts";
 import {
   buildMemoryClient,
   handleError,
+  isAppErrorCode,
   requireMemoryAuth,
   requireSpace,
 } from "../util.ts";
@@ -104,6 +105,7 @@ export function formatMemoryAsMarkdown(
     frontmatter.meta = memory.meta;
   }
   if (memory.tree) frontmatter.tree = memory.tree;
+  if (memory.name) frontmatter.name = memory.name;
   if (memory.temporal) frontmatter.temporal = memory.temporal;
 
   const yaml = yamlStringify(frontmatter, { lineWidth: 0 }).trimEnd();
@@ -123,8 +125,11 @@ function createMemoryCreateCommand(): Command {
       "--tree <path>",
       "tree path ('share' for shared, '~' for private home)",
     )
+    .option("--name <slug>", "filename-like leaf name, unique within the tree")
     .option("--meta <json>", "metadata as JSON")
     .option("--temporal <range>", "temporal range (start[,end])")
+    .option("--replace", "on conflict, replace the existing memory in place")
+    .option("--ignore", "on conflict, skip and keep the existing memory")
     .action(async (positionalContent: string | undefined, opts, cmd) => {
       const globalOpts = cmd.optsWithGlobals();
       const creds = resolveCredentials(globalOpts.server);
@@ -169,8 +174,11 @@ function createMemoryCreateCommand(): Command {
       try {
         const params: Record<string, unknown> = { content };
         params.tree = opts.tree;
+        if (opts.name) params.name = opts.name;
         if (opts.meta) params.meta = parseMeta(opts.meta);
         if (opts.temporal) params.temporal = parseTemporal(opts.temporal);
+        if (opts.replace) params.onConflict = "replace";
+        else if (opts.ignore) params.onConflict = "ignore";
 
         const memory = await client.memory.create(
           params as Parameters<typeof client.memory.create>[0],
@@ -179,6 +187,7 @@ function createMemoryCreateCommand(): Command {
         output(memory, fmt, () => {
           clack.log.success(`Created memory ${memory.id}`);
           if (memory.tree) console.log(`  Tree: ${memory.tree}`);
+          if (memory.name) console.log(`  Name: ${memory.name}`);
         });
       } catch (error) {
         handleError(error, fmt);
@@ -188,10 +197,10 @@ function createMemoryCreateCommand(): Command {
 
 function createMemoryGetCommand(): Command {
   return new Command("get")
-    .description("get a memory by ID")
-    .argument("<id>", "memory ID")
+    .description("get a memory by ID or by its folder/name path")
+    .argument("<id-or-path>", "memory ID (UUIDv7) or folder/name path")
     .option("--raw", "output raw Markdown with YAML frontmatter (no ANSI)")
-    .action(async (id: string, opts, cmd) => {
+    .action(async (ref: string, opts, cmd) => {
       const globalOpts = cmd.optsWithGlobals();
       const creds = resolveCredentials(globalOpts.server);
       const fmt = getOutputFormat(globalOpts);
@@ -201,7 +210,9 @@ function createMemoryGetCommand(): Command {
       const client = buildMemoryClient(creds);
 
       try {
-        const memory = await client.memory.get({ id });
+        const memory = UUIDV7_RE.test(ref)
+          ? await client.memory.get({ id: ref })
+          : await client.memory.getByPath({ path: ref });
 
         // --json / --yaml: structured output
         if (fmt !== "text") {
@@ -222,6 +233,7 @@ function createMemoryGetCommand(): Command {
         // TTY: ANSI-rendered markdown with dimmed frontmatter
         const frontmatter: Record<string, unknown> = { id: memory.id };
         if (memory.tree) frontmatter.tree = memory.tree;
+        if (memory.name) frontmatter.name = memory.name;
         if (
           memory.meta &&
           typeof memory.meta === "object" &&
@@ -397,13 +409,17 @@ function createMemorySearchCommand(): Command {
 
 function createMemoryUpdateCommand(): Command {
   return new Command("update")
-    .description("update a memory")
-    .argument("<id>", "memory ID")
+    .description("update a memory (by ID or folder/name path)")
+    .argument("<id-or-path>", "memory ID (UUIDv7) or folder/name path")
     .option("--content <text>", "new content (use - for stdin)")
-    .option("--tree <path>", "new tree path")
+    .option("--tree <path>", "new tree path (moves the memory)")
+    .option(
+      "--name <slug>",
+      "new leaf name (renames; pass an empty string to clear it)",
+    )
     .option("--meta <json>", "new metadata (replaces existing)")
     .option("--temporal <range>", "new temporal range (start[,end])")
-    .action(async (id: string, opts, cmd) => {
+    .action(async (ref: string, opts, cmd) => {
       const globalOpts = cmd.optsWithGlobals();
       const creds = resolveCredentials(globalOpts.server);
       const fmt = getOutputFormat(globalOpts);
@@ -416,9 +432,15 @@ function createMemoryUpdateCommand(): Command {
         content = (await Bun.stdin.text()).trimEnd();
       }
 
-      if (!content && !opts.tree && !opts.meta && !opts.temporal) {
+      if (
+        !content &&
+        !opts.tree &&
+        opts.name === undefined &&
+        !opts.meta &&
+        !opts.temporal
+      ) {
         const msg =
-          "At least one update field required (--content, --tree, --meta, or --temporal).";
+          "At least one update field required (--content, --tree, --name, --meta, or --temporal).";
         if (fmt === "text") {
           clack.log.error(msg);
         } else {
@@ -430,9 +452,18 @@ function createMemoryUpdateCommand(): Command {
       const client = buildMemoryClient(creds);
 
       try {
+        // update is id-addressed; resolve a folder/name ref to its id first.
+        const id = UUIDV7_RE.test(ref)
+          ? ref
+          : (await client.memory.getByPath({ path: ref })).id;
         const params: Record<string, unknown> = { id };
         if (content) params.content = content;
         if (opts.tree) params.tree = opts.tree;
+        // --name "" clears the name (empty is never a valid name); a non-empty
+        // value renames.
+        if (opts.name !== undefined) {
+          params.name = opts.name === "" ? null : opts.name;
+        }
         if (opts.meta) params.meta = parseMeta(opts.meta);
         if (opts.temporal) params.temporal = parseTemporal(opts.temporal);
 
@@ -452,8 +483,12 @@ function createMemoryUpdateCommand(): Command {
 function createMemoryDeleteCommand(): Command {
   return new Command("delete")
     .alias("rm")
-    .description("delete a memory by ID, or all memories under a tree path")
-    .argument("<id-or-tree>", "memory ID (UUIDv7) or tree path")
+    .description(
+      "delete a memory by ID, a named memory by its folder/name path, or all memories under a tree path",
+    )
+    .argument("<id-or-path>", "memory ID, a folder/name path, or a tree path")
+    .option("--name", "treat the argument as a named-memory path (folder/name)")
+    .option("--tree", "treat the argument as a tree path (delete the subtree)")
     .option("--dry-run", "preview what would be deleted (tree mode)")
     .option("-y, --yes", "skip confirmation (tree mode)")
     .action(async (idOrTree: string, opts, cmd) => {
@@ -465,64 +500,100 @@ function createMemoryDeleteCommand(): Command {
 
       const client = buildMemoryClient(creds);
 
+      const deleteNamed = async () => {
+        const result = await client.memory.deleteByPath({ path: idOrTree });
+        output(result, fmt, () => {
+          if (result.deleted) clack.log.success(`Deleted memory ${idOrTree}`);
+          else clack.log.warn("Memory not found.");
+        });
+      };
+
+      // Subtree delete — dry-run preview, confirm (unless --yes), then delete.
+      const deleteSubtree = async (count: number) => {
+        if (fmt === "text") {
+          console.log(
+            `  ${count} ${count === 1 ? "memory" : "memories"} will be deleted under '${idOrTree}'`,
+          );
+        }
+        if (opts.dryRun) {
+          output({ dryRun: true, count }, fmt, () => {});
+          return;
+        }
+        if (fmt === "text" && !opts.yes) {
+          const confirmed = await clack.confirm({
+            message: `Delete ${count} ${count === 1 ? "memory" : "memories"}?`,
+            initialValue: false,
+          });
+          if (clack.isCancel(confirmed) || !confirmed) {
+            clack.cancel("Cancelled.");
+            process.exit(0);
+          }
+        }
+        const result = await client.memory.deleteTree({
+          tree: idOrTree,
+          dryRun: false,
+        });
+        output(result, fmt, () => {
+          clack.log.success(
+            `Deleted ${result.count} ${result.count === 1 ? "memory" : "memories"}`,
+          );
+        });
+      };
+
       try {
         if (UUIDV7_RE.test(idOrTree)) {
-          // Single memory delete
           const result = await client.memory.delete({ id: idOrTree });
           output(result, fmt, () => {
-            if (result.deleted) {
-              clack.log.success(`Deleted memory ${idOrTree}`);
-            } else {
-              clack.log.warn("Memory not found.");
-            }
+            if (result.deleted) clack.log.success(`Deleted memory ${idOrTree}`);
+            else clack.log.warn("Memory not found.");
           });
-        } else {
-          // Tree delete — always dry-run first
+          return;
+        }
+
+        // Forced by a flag.
+        if (opts.name) return await deleteNamed();
+        if (opts.tree) {
           const preview = await client.memory.deleteTree({
             tree: idOrTree,
             dryRun: true,
           });
-
           if (preview.count === 0) {
             output({ count: 0 }, fmt, () => {
               clack.log.warn(`No memories found under '${idOrTree}'`);
             });
             return;
           }
-
-          if (fmt === "text") {
-            console.log(
-              `  ${preview.count} ${preview.count === 1 ? "memory" : "memories"} will be deleted under '${idOrTree}'`,
-            );
-          }
-
-          if (opts.dryRun) {
-            output({ dryRun: true, count: preview.count }, fmt, () => {});
-            return;
-          }
-
-          // Confirm unless --yes
-          if (fmt === "text" && !opts.yes) {
-            const confirmed = await clack.confirm({
-              message: `Delete ${preview.count} ${preview.count === 1 ? "memory" : "memories"}?`,
-              initialValue: false,
-            });
-            if (clack.isCancel(confirmed) || !confirmed) {
-              clack.cancel("Cancelled.");
-              process.exit(0);
-            }
-          }
-
-          const result = await client.memory.deleteTree({
-            tree: idOrTree,
-            dryRun: false,
-          });
-          output(result, fmt, () => {
-            clack.log.success(
-              `Deleted ${result.count} ${result.count === 1 ? "memory" : "memories"}`,
-            );
-          });
+          return await deleteSubtree(preview.count);
         }
+
+        // Auto-detect: the arg may be a named memory and/or a non-empty
+        // subtree. If both, refuse and require --name / --tree.
+        let named = false;
+        try {
+          await client.memory.getByPath({ path: idOrTree });
+          named = true;
+        } catch (e) {
+          if (!isAppErrorCode(e, "NOT_FOUND")) throw e;
+        }
+        const preview = await client.memory.deleteTree({
+          tree: idOrTree,
+          dryRun: true,
+        });
+
+        if (named && preview.count > 0) {
+          handleError(
+            new Error(
+              `'${idOrTree}' is both a named memory and a non-empty tree path. Pass --name to delete the named memory, or --tree to delete the subtree.`,
+            ),
+            fmt,
+          );
+          return;
+        }
+        if (named) return await deleteNamed();
+        if (preview.count > 0) return await deleteSubtree(preview.count);
+        output({ count: 0 }, fmt, () => {
+          clack.log.warn(`Nothing to delete at '${idOrTree}'`);
+        });
       } catch (error) {
         handleError(error, fmt);
       }
@@ -772,6 +843,7 @@ function toExportable(
     result.meta = memory.meta;
   }
   if (memory.tree) result.tree = memory.tree;
+  if (memory.name) result.name = memory.name;
   if (memory.temporal) result.temporal = memory.temporal;
   return result;
 }
@@ -869,14 +941,31 @@ function createMemoryExportCommand(): Command {
               );
             }
           } else {
-            // Write directory
+            // Write a directory tree mirroring the memory tree:
+            //   <dir>/<tree as folders>/<name or id>.md
+            // Named files get a legible filename (`.md` appended unless already
+            // present); unnamed ones fall back to the uuid. Names are unique
+            // within a tree, so files never collide.
             if (!existsSync(file)) {
               mkdirSync(file, { recursive: true });
             }
             for (const mem of memories) {
-              const filename = `${mem.id}.md`;
-              const filepath = join(file, filename);
-              writeFileSync(filepath, formatMemoryAsMarkdown(mem), "utf-8");
+              const treeDir =
+                typeof mem.tree === "string"
+                  ? mem.tree.replace(/^\//, "") // drop the absolute leading slash
+                  : "";
+              const base =
+                typeof mem.name === "string" && mem.name
+                  ? mem.name
+                  : String(mem.id);
+              const filename = base.endsWith(".md") ? base : `${base}.md`;
+              const dir = treeDir ? join(file, treeDir) : file;
+              mkdirSync(dir, { recursive: true });
+              writeFileSync(
+                join(dir, filename),
+                formatMemoryAsMarkdown(mem),
+                "utf-8",
+              );
             }
             output({ count: memories.length, directory: file }, fmt, () => {
               clack.log.success(
