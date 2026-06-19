@@ -23,10 +23,12 @@ import type {
   MemoryCountTreeParams,
   MemoryCountTreeResult,
   MemoryCreateParams,
+  MemoryDeleteByPathParams,
   MemoryDeleteParams,
   MemoryDeleteResult,
   MemoryDeleteTreeParams,
   MemoryDeleteTreeResult,
+  MemoryGetByPathParams,
   MemoryGetParams,
   MemoryMoveParams,
   MemoryMoveResult,
@@ -102,8 +104,10 @@ export interface MemoryNamespace {
     params: MemoryBatchCreateParams,
   ): Promise<MemoryBatchCreateResult>;
   get(params: MemoryGetParams): Promise<MemoryResponse>;
+  getByPath(params: MemoryGetByPathParams): Promise<MemoryResponse>;
   update(params: MemoryUpdateParams): Promise<MemoryResponse>;
   delete(params: MemoryDeleteParams): Promise<MemoryDeleteResult>;
+  deleteByPath(params: MemoryDeleteByPathParams): Promise<MemoryDeleteResult>;
   search(params: MemorySearchParams): Promise<MemorySearchResult>;
   tree(params?: MemoryTreeParams): Promise<MemoryTreeResult>;
   copy(params: MemoryCopyParams): Promise<MemoryCopyResult>;
@@ -196,8 +200,10 @@ export function createMemoryClient(
       create: (p) => writeRpc("memory.create", p),
       batchCreate: (p) => writeRpc("memory.batchCreate", p),
       get: (p) => readRpc("memory.get", p),
+      getByPath: (p) => readRpc("memory.getByPath", p),
       update: (p) => writeRpc("memory.update", p),
       delete: (p) => writeRpc("memory.delete", p),
+      deleteByPath: (p) => writeRpc("memory.deleteByPath", p),
       search: (p) => readRpc("memory.search", p),
       tree: (p) => readRpc("memory.tree", p ?? {}),
       copy: (p) => writeRpc("memory.copy", p),

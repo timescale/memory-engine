@@ -70,13 +70,26 @@ export const memoryBatchCreateParams = z.object({
 export type MemoryBatchCreateParams = z.infer<typeof memoryBatchCreateParams>;
 
 /**
- * memory.get params.
+ * memory.get params — by id. To address by the `folder/name` form use
+ * memory.getByPath.
  */
 export const memoryGetParams = z.object({
   id: uuidv7Schema,
 });
 
 export type MemoryGetParams = z.infer<typeof memoryGetParams>;
+
+/**
+ * memory.getByPath params — address a named memory by its `folder/name` path
+ * (e.g. "share/auth/jwt-rotation"). The server splits at the final `/`: the
+ * last segment is the name, the rest is the tree (with `~`/separators
+ * normalized). NOT_FOUND when no such named memory exists.
+ */
+export const memoryGetByPathParams = z.object({
+  path: treePathSchema.min(1, "path is required"),
+});
+
+export type MemoryGetByPathParams = z.infer<typeof memoryGetByPathParams>;
 
 /**
  * memory.update params.
@@ -94,13 +107,24 @@ export const memoryUpdateParams = z.object({
 export type MemoryUpdateParams = z.infer<typeof memoryUpdateParams>;
 
 /**
- * memory.delete params.
+ * memory.delete params — delete one memory by id. (Address a named memory by
+ * its path with memory.deleteByPath; delete a whole subtree with deleteTree.)
  */
 export const memoryDeleteParams = z.object({
   id: uuidv7Schema,
 });
 
 export type MemoryDeleteParams = z.infer<typeof memoryDeleteParams>;
+
+/**
+ * memory.deleteByPath params — delete one named memory by its `folder/name`
+ * path (split like memory.getByPath). NOT_FOUND when it doesn't resolve.
+ */
+export const memoryDeleteByPathParams = z.object({
+  path: treePathSchema.min(1, "path is required"),
+});
+
+export type MemoryDeleteByPathParams = z.infer<typeof memoryDeleteByPathParams>;
 
 /**
  * memory.search params.
@@ -185,6 +209,7 @@ export const memoryResponse = z.object({
   content: z.string(),
   meta: z.record(z.string(), z.unknown()),
   tree: z.string(),
+  name: z.string().nullable(),
   temporal: z
     .object({
       start: z.string(),
