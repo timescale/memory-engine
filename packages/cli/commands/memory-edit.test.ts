@@ -42,6 +42,15 @@ describe("hasChanges (name)", () => {
     expect(hasChanges(base, { content: "body" })).toBe(true);
   });
 
+  test("detects adding a name where there was none", () => {
+    expect(
+      hasChanges(
+        { content: "body", tree: "share.auth" },
+        { content: "body", tree: "share.auth", name: "jwt-rotation" },
+      ),
+    ).toBe(true);
+  });
+
   test("no change when the name is untouched", () => {
     expect(
       hasChanges(base, {

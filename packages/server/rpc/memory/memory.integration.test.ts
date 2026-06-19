@@ -296,6 +296,24 @@ test("update can rename and clear a name", async () => {
   expect(cleared.name).toBeNull();
 });
 
+test("update adds a name to a previously-unnamed memory", async () => {
+  const created = await call<{ id: string; name: string | null }>(
+    "memory.create",
+    { content: "body", tree: "share/addname" },
+  );
+  expect(created.name).toBeNull();
+  const named = await call<{ name: string | null }>("memory.update", {
+    id: created.id,
+    name: "added",
+  });
+  expect(named.name).toBe("added");
+  // The new name is now resolvable as a path.
+  const byPath = await call<{ id: string }>("memory.getByPath", {
+    path: "share/addname/added",
+  });
+  expect(byPath.id).toBe(created.id);
+});
+
 test("update patches fields", async () => {
   const created = await call<{ id: string }>("memory.create", {
     content: "before",
