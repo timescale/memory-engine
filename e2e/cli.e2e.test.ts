@@ -472,6 +472,83 @@ describe.skipIf(
     expect(get.code).not.toBe(0);
   });
 
+  test("6b. name: create --name, get by path, conflict modes, rename, delete --name", async () => {
+    const created = await meJson<{ id: string; name: string | null }>([
+      "create",
+      "rotation runbook",
+      "--tree",
+      "share/auth",
+      "--name",
+      "jwt-rotation",
+    ]);
+    expect(created.name).toBe("jwt-rotation");
+
+    // get by the folder/name path resolves to the same memory.
+    const got = await meJson<{ id: string; name: string | null }>([
+      "get",
+      "share/auth/jwt-rotation",
+    ]);
+    expect(got.id).toBe(created.id);
+    expect(got.name).toBe("jwt-rotation");
+
+    // a bare name conflict errors; --replace overwrites in place (same id).
+    const dup = await me([
+      "create",
+      "v2",
+      "--tree",
+      "share/auth",
+      "--name",
+      "jwt-rotation",
+    ]);
+    expect(dup.code).not.toBe(0);
+    const replaced = await meJson<{ id: string; content: string }>([
+      "create",
+      "v2",
+      "--tree",
+      "share/auth",
+      "--name",
+      "jwt-rotation",
+      "--replace",
+    ]);
+    expect(replaced.id).toBe(created.id);
+    expect(replaced.content).toBe("v2");
+
+    // rename via update addressed by path.
+    const renamed = await meJson<{ name: string | null }>([
+      "update",
+      "share/auth/jwt-rotation",
+      "--name",
+      "rotation",
+    ]);
+    expect(renamed.name).toBe("rotation");
+
+    // delete the named memory by its path.
+    const del = await meJson<{ deleted: boolean }>([
+      "delete",
+      "share/auth/rotation",
+      "--name",
+    ]);
+    expect(del.deleted).toBe(true);
+  });
+
+  test("6c. update --name '' clears the name", async () => {
+    const created = await meJson<{ id: string }>([
+      "create",
+      "clearable",
+      "--tree",
+      "share",
+      "--name",
+      "tmp",
+    ]);
+    const cleared = await meJson<{ name: string | null }>([
+      "update",
+      created.id,
+      "--name",
+      "",
+    ]);
+    expect(cleared.name).toBeNull();
+  });
+
   // -------------------------------------------------------------------------
   // Extended scenarios
   // -------------------------------------------------------------------------
