@@ -44,16 +44,12 @@ export interface CreateMemoryParams {
   temporal?: TemporalRange;
   /**
    * Action when the idempotency key conflicts: 'error' (default) raises,
-   * 'replace' overwrites in place (a no-op unless a field differs), 'ignore'
-   * skips. Returns null when the row is skipped (ignore, or replace no-op).
+   * 'replace' overwrites in place (a no-op unless content/meta/temporal differ),
+   * 'ignore' skips. Returns null when the row is skipped (ignore, or replace
+   * no-op). Deterministic-id importers pass 'replace' and stamp
+   * meta.importer_version, so a version bump makes meta differ and re-renders.
    */
   onConflict?: OnConflict;
-  /**
-   * Transitional meta-key override: replace iff the stored meta value for this
-   * key differs from the new record (e.g. importer_version); else skip. Takes
-   * precedence over onConflict when set.
-   */
-  replaceIfMetaDiffers?: string;
 }
 
 export interface MemoryPatch {

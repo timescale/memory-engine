@@ -8,14 +8,15 @@
  * by `(tool, sessionId, messageId)` so re-imports are idempotent.
  *
  * Reconciliation happens server-side: every planned message is submitted
- * through the conditional upsert (`memory.batchCreate` with
- * `replaceIfMetaDiffers: "importer_version"`) — new ids insert, rows whose
- * stored `importer_version` differs are rewritten in place, and
- * already-current rows are skipped, all classified from the batch
- * response. No existing-state pre-fetch, so sessions of any size (including
- * past the 1000-row search page) reconcile exactly. Per session that is
- * ceil(n/chunk) `memory.batchCreate` calls; the live-capture hook adds one
- * `memory.search` to narrow the submission to the new suffix.
+ * through `memory.batchCreate` with `onConflict: "replace"` — new ids insert,
+ * and an existing row is rewritten in place only when content/meta/temporal
+ * differ. The deterministic meta carries `importer_version`, so a parser change
+ * (version bump) makes meta differ and re-renders, while an unchanged re-import
+ * is a no-op; all outcomes are classified from the batch response. No
+ * existing-state pre-fetch, so sessions of any size (including past the
+ * 1000-row search page) reconcile exactly. Per session that is ceil(n/chunk)
+ * `memory.batchCreate` calls; the live-capture hook adds one `memory.search`
+ * to narrow the submission to the new suffix.
  */
 
 import type { MemoryCreateParams } from "@memory.build/protocol/memory";
@@ -34,17 +35,17 @@ import { deterministicMessageUuidV7 } from "./uuid.ts";
 
 /**
  * Version tag stored in `meta.importer_version`. Bumping this forces a
- * re-render of every previously-imported message on the next run: the
- * server's conditional upsert replaces any row whose stored value for
- * `IMPORTER_VERSION_KEY` differs from the submitted one, so parser changes
- * propagate without manual intervention.
+ * re-render of every previously-imported message on the next run: the new
+ * value changes meta, so the server's content-aware `onConflict: "replace"`
+ * rewrites every previously-imported row, propagating parser changes without
+ * manual intervention.
  *
  * Locked at "1" during pre-release iteration — bump only after the first
  * real release so early adopters get parser fixes without a manual wipe.
  */
 export const IMPORTER_VERSION = "1";
 
-/** The meta key the server compares for the conditional replace. */
+/** Meta key carrying the importer version (provenance; a bump re-renders via the meta diff). */
 const IMPORTER_VERSION_KEY = "importer_version";
 
 /**
@@ -397,12 +398,11 @@ async function writeSession(
 }
 
 /**
- * Submit planned messages through the conditional upsert and fold the
- * outcome into `outcome`: new ids insert, rows whose stored
- * `importer_version` differs are rewritten in place (the version-bump
- * re-render), and already-current rows are skipped — all classified from
- * the batch response, independent of how many messages the session already
- * has server-side.
+ * Submit planned messages through `onConflict: "replace"` and fold the outcome
+ * into `outcome`: new ids insert, rows whose content/meta/temporal differ are
+ * rewritten in place (a version bump changes meta → the re-render), and
+ * unchanged rows are skipped — all classified from the batch response,
+ * independent of how many messages the session already has server-side.
  *
  * Chunks are cut by byte budget OR count cap (see batchCreateChunked) so
  * each request body stays under the server's size limit; a failed chunk
@@ -426,7 +426,7 @@ async function submitPlanned(
   const { insertedIds, updatedIds, errors } = await batchCreateChunked(
     engine,
     planned.map((p) => p.payload),
-    { replaceIfMetaDiffers: IMPORTER_VERSION_KEY },
+    { onConflict: "replace" },
   );
   outcome.inserted += insertedIds.length;
   outcome.updated += updatedIds.length;
@@ -438,8 +438,8 @@ async function submitPlanned(
       outcome.errors.push({ messageId: id, error: e.error });
     }
   }
-  // Whatever the server neither inserted, updated, nor failed already
-  // exists at the current importer_version.
+  // Whatever the server neither inserted, updated, nor failed was unchanged
+  // (a content-aware replace no-op).
   outcome.skipped +=
     planned.length - insertedIds.length - updatedIds.length - failedCount;
 }
@@ -463,7 +463,8 @@ function buildMeta(
     source_project_slug: projectSlug,
     source_file: session.sourceFile,
     content_mode: options.fullTranscript ? "full_transcript" : "default",
-    imported_at: new Date().toISOString(),
+    // No per-run timestamp here: meta must be deterministic so a re-import is a
+    // content-aware-replace no-op (the row's created_at/updated_at carry timing).
     [IMPORTER_VERSION_KEY]: IMPORTER_VERSION,
   };
 

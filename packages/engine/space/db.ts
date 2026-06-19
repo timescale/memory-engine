@@ -21,12 +21,10 @@ import type {
  */
 export interface SpaceStore {
   /**
-   * Insert one memory. When an explicit `params.id` already exists the
-   * outcome depends on `params.replaceIfMetaDiffers`: unset → skip (null);
-   * set to a meta key → the existing row is replaced when its value for that
-   * key differs from the new record's (`inserted: false`), else skipped.
-   * Deterministic-id importers use this to re-submit idempotently and push
-   * version-bump re-renders in the same call.
+   * Insert one memory. When the idempotency key (explicit `params.id`, else the
+   * (tree, name) slot) already exists the outcome depends on `params.onConflict`:
+   * 'error' (default) raises, 'replace' overwrites in place when a field differs
+   * (`inserted: false`; a no-op returns null), 'ignore' skips (null).
    */
   createMemory(
     treeAccess: TreeAccess,
@@ -41,7 +39,6 @@ export interface SpaceStore {
   batchCreateMemories(
     treeAccess: TreeAccess,
     memories: CreateMemoryParams[],
-    replaceIfMetaDiffers?: string,
     onConflict?: OnConflict,
   ): Promise<Array<{ id: string; inserted: boolean }>>;
   getMemory(treeAccess: TreeAccess, id: string): Promise<Memory | null>;
@@ -149,22 +146,16 @@ export function spaceStore(sql: Sql, schema: string): SpaceStore {
           ${p.id ?? null},
           ${jb(p.meta)},
           ${p.temporal ?? null}::tstzrange,
-          ${p.replaceIfMetaDiffers ?? null},
           ${p.name ?? null},
           ${p.onConflict ?? "error"}
         )`;
-      // Zero rows = the conflict was skipped: onConflict 'ignore', a 'replace'
-      // no-op, or a replaceIfMetaDiffers/version match. ('error' raises.)
+      // Zero rows = the conflict was skipped: onConflict 'ignore' or a 'replace'
+      // no-op (every field matched). ('error' raises.)
       if (!row) return null;
       return { id: row.id as string, inserted: Boolean(row.inserted) };
     },
 
-    async batchCreateMemories(
-      treeAccess,
-      memories,
-      replaceIfMetaDiffers,
-      onConflict,
-    ) {
+    async batchCreateMemories(treeAccess, memories, onConflict) {
       if (memories.length === 0) return [];
       // Parallel arrays aligned by position. Metas travel as ONE jsonb array
       // via sql.json — a jsonb[] parameter would double-encode each element
@@ -177,7 +168,6 @@ export function spaceStore(sql: Sql, schema: string): SpaceStore {
           ${memories.map((m) => m.content)}::text[],
           ${jb(memories.map((m) => m.meta ?? {}))},
           ${memories.map((m) => m.temporal ?? null)}::tstzrange[],
-          ${replaceIfMetaDiffers ?? null},
           ${memories.map((m) => m.name ?? null)}::text[],
           ${onConflict ?? "error"}
         )`;

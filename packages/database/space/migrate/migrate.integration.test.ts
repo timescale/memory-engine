@@ -351,8 +351,8 @@ describe("provisioned schema is functional", () => {
     );
   });
 
-  // create_memory's conditional upsert: (treeAccess, tree, content, id, meta,
-  // temporal, replaceIfMetaDiffers) → zero rows (skip) or (id, inserted).
+  // create_memory: (treeAccess, tree, content, id, meta, temporal, name,
+  // onConflict) → zero rows (skip) or (id, inserted).
   const OWNER = `'[{"tree_path": "", "access": 3}]'::jsonb`;
   const createMemory = (args: string) =>
     sql.unsafe(`select * from ${canonical.schema}.create_memory(${args})`);
@@ -374,8 +374,8 @@ describe("provisioned schema is functional", () => {
   });
 
   test("create_memory raises on a bare duplicate explicit id", async () => {
-    // A conflict on the id key with no upsert / replace key is a hard error;
-    // importers re-submit with replaceIfMetaDiffers (next test) to stay idempotent.
+    // A conflict on the id key under the default onConflict ('error') is a hard
+    // error; importers pass onConflict 'replace' (next test) to stay idempotent.
     const id = "01941000-0000-7000-8000-000000000001";
     const [first] = await createMemory(
       `${OWNER}, 'a.dup'::ltree, 'original', '${id}'::uuid`,
@@ -393,43 +393,32 @@ describe("provisioned schema is functional", () => {
     expect(row?.content).toBe("original"); // untouched
   });
 
-  test("create_memory replaces a duplicate when the meta key differs, skips when it matches", async () => {
+  test("create_memory id-keyed 'replace' is content-aware: replaces when a field differs, no-op when identical", async () => {
     const id = "01941000-0000-7000-8000-000000000002";
     await createMemory(
       `${OWNER}, 'a.ver'::ltree, 'render v1', '${id}'::uuid, '{"v": "1"}'::jsonb`,
     );
 
-    // Same version → skip, content untouched.
+    // Identical content+meta → content-aware replace is a no-op (zero rows).
     const same = await createMemory(
-      `${OWNER}, 'a.ver'::ltree, 'render v1 again', '${id}'::uuid, '{"v": "1"}'::jsonb, null, 'v'`,
+      `${OWNER}, 'a.ver'::ltree, 'render v1', '${id}'::uuid, '{"v": "1"}'::jsonb, null, null, 'replace'`,
     );
     expect(same.length).toBe(0);
 
-    // Bumped version → replaced in place, inserted = false.
+    // Meta differs (same content) → replaced in place, inserted = false. This
+    // is how an importer_version bump propagates: the version lives in meta.
     const [bumped] = await createMemory(
-      `${OWNER}, 'a.ver'::ltree, 'render v2', '${id}'::uuid, '{"v": "2"}'::jsonb, null, 'v'`,
+      `${OWNER}, 'a.ver'::ltree, 'render v1', '${id}'::uuid, '{"v": "2"}'::jsonb, null, null, 'replace'`,
     );
     expect(bumped?.id).toBe(id);
     expect(bumped?.inserted).toBe(false);
 
     const [row] = await sql.unsafe(
-      `select content, meta->>'v' as v, updated_at
+      `select meta->>'v' as v, updated_at
        from ${canonical.schema}.memory where id = '${id}'`,
     );
-    expect(row?.content).toBe("render v2");
     expect(row?.v).toBe("2");
     expect(row?.updated_at).not.toBeNull();
-
-    // A key absent on the stored row but present on the new record counts as
-    // "differs" (legacy rows written before the version key existed).
-    const [legacy] = await createMemory(
-      `${OWNER}, 'a.ver'::ltree, 'render v3', '${id}'::uuid, '{"v": "2", "legacy_v": "1"}'::jsonb, null, 'legacy_v'`,
-    );
-    expect(legacy?.inserted).toBe(false);
-    const [afterLegacy] = await sql.unsafe(
-      `select content from ${canonical.schema}.memory where id = '${id}'`,
-    );
-    expect(afterLegacy?.content).toBe("render v3");
   });
 
   test("create_memory replace requires write access on the existing row's tree", async () => {
@@ -442,7 +431,7 @@ describe("provisioned schema is functional", () => {
 
     const limited = `'[{"tree_path": "a.open", "access": 3}]'::jsonb`;
     const res = await createMemory(
-      `${limited}, 'a.open'::ltree, 'hijack', '${id}'::uuid, '{"v": "2"}'::jsonb, null, 'v'`,
+      `${limited}, 'a.open'::ltree, 'hijack', '${id}'::uuid, '{"v": "2"}'::jsonb, null, null, 'replace'`,
     );
     expect(res.length).toBe(0);
 
@@ -463,17 +452,19 @@ describe("provisioned schema is functional", () => {
       `${OWNER}, 'a.batch'::ltree, 'current', '${fresh}'::uuid, '{"v": "2"}'::jsonb`,
     );
 
-    // One call carrying: a stale row (update), a current row (skip), a brand
-    // new row (insert), and a no-id row (insert with generated id).
+    // One call carrying: a stale row (changed content → update), a current row
+    // (identical content+meta → skip), a brand new row (insert), and a no-id
+    // row (insert with generated id) — all under content-aware 'replace'.
     const rows = await sql.unsafe(
       `select * from ${canonical.schema}.batch_create_memory(
          ${OWNER},
          array['${stale}', '${fresh}', '01941000-0000-7000-8000-00000000b003', null]::uuid[],
          array['a.batch', 'a.batch', 'a.batch', 'a.batch']::ltree[],
-         array['new render', 'untouched', 'added', 'generated']::text[],
+         array['new render', 'current', 'added', 'generated']::text[],
          '[{"v": "2"}, {"v": "2"}, {"v": "2"}, {"v": "2"}]'::jsonb,
          array[null, null, null, null]::tstzrange[],
-         'v'
+         null,
+         'replace'
        )`,
     );
     const byId = new Map(rows.map((r) => [r.id as string, r.inserted]));
@@ -563,7 +554,7 @@ describe("provisioned schema is functional", () => {
 
     // Meta-only replace (identical content): embedding survives, no re-enqueue.
     await createMemory(
-      `${OWNER}, 'a.emb'::ltree, 'stable content', '${id}'::uuid, '{"v": "2"}'::jsonb, null, 'v'`,
+      `${OWNER}, 'a.emb'::ltree, 'stable content', '${id}'::uuid, '{"v": "2"}'::jsonb, null, null, 'replace'`,
     );
     const [afterMeta] = await sql.unsafe(
       `select (embedding is not null) as has_embedding,
@@ -576,7 +567,7 @@ describe("provisioned schema is functional", () => {
 
     // Content replace: embedding invalidated and re-enqueued.
     await createMemory(
-      `${OWNER}, 'a.emb'::ltree, 'new content', '${id}'::uuid, '{"v": "3"}'::jsonb, null, 'v'`,
+      `${OWNER}, 'a.emb'::ltree, 'new content', '${id}'::uuid, '{"v": "3"}'::jsonb, null, null, 'replace'`,
     );
     const [afterContent] = await sql.unsafe(
       `select (embedding is null) as embedding_cleared,
@@ -608,13 +599,13 @@ describe("provisioned schema is functional", () => {
     );
   });
 
-  // create_memory args: (treeAccess, tree, content, id, meta, temporal,
-  // replaceIfMetaDiffers, name, upsert).
+  // create_memory args: (treeAccess, tree, content, id, meta, temporal, name,
+  // onConflict).
   // onConflict: a bare named conflict errors; 'ignore' skips; 'replace' is
   // content-aware (no-op when identical, replaces when something differs).
   test("create_memory onConflict: error | ignore | replace(content-aware)", async () => {
     const [first] = await createMemory(
-      `${OWNER}, 'n.dir'::ltree, 'v1', null, '{}'::jsonb, null, null, 'note'`,
+      `${OWNER}, 'n.dir'::ltree, 'v1', null, '{}'::jsonb, null, 'note'`,
     );
     expect(first?.inserted).toBe(true);
     const id = first?.id;
@@ -622,13 +613,13 @@ describe("provisioned schema is functional", () => {
     // default 'error' → a hard conflict (raise).
     await expectReject(() =>
       createMemory(
-        `${OWNER}, 'n.dir'::ltree, 'v2', null, '{}'::jsonb, null, null, 'note'`,
+        `${OWNER}, 'n.dir'::ltree, 'v2', null, '{}'::jsonb, null, 'note'`,
       ),
     );
 
     // 'ignore' → skip, existing row untouched.
     const ignored = await createMemory(
-      `${OWNER}, 'n.dir'::ltree, 'v2', null, '{}'::jsonb, null, null, 'note', 'ignore'`,
+      `${OWNER}, 'n.dir'::ltree, 'v2', null, '{}'::jsonb, null, 'note', 'ignore'`,
     );
     expect(ignored.length).toBe(0);
     expect(
@@ -641,14 +632,14 @@ describe("provisioned schema is functional", () => {
 
     // 'replace' with differing content → replaced in place, same id.
     const [up] = await createMemory(
-      `${OWNER}, 'n.dir'::ltree, 'v2', null, '{}'::jsonb, null, null, 'note', 'replace'`,
+      `${OWNER}, 'n.dir'::ltree, 'v2', null, '{}'::jsonb, null, 'note', 'replace'`,
     );
     expect(up?.id).toBe(id);
     expect(up?.inserted).toBe(false);
 
     // 'replace' with identical content/meta → no-op (content-aware), zero rows.
     const noop = await createMemory(
-      `${OWNER}, 'n.dir'::ltree, 'v2', null, '{}'::jsonb, null, null, 'note', 'replace'`,
+      `${OWNER}, 'n.dir'::ltree, 'v2', null, '{}'::jsonb, null, 'note', 'replace'`,
     );
     expect(noop.length).toBe(0);
 
@@ -664,7 +655,7 @@ describe("provisioned schema is functional", () => {
     await createMemory(`${OWNER}, 'mv.from'::ltree, 'body', '${id}'::uuid`);
     // Same id + content, new tree → content-aware replace must still move it.
     const [moved] = await createMemory(
-      `${OWNER}, 'mv.to'::ltree, 'body', '${id}'::uuid, '{}'::jsonb, null, null, null, 'replace'`,
+      `${OWNER}, 'mv.to'::ltree, 'body', '${id}'::uuid, '{}'::jsonb, null, null, 'replace'`,
     );
     expect(moved?.id).toBe(id);
     expect(moved?.inserted).toBe(false);
@@ -674,21 +665,21 @@ describe("provisioned schema is functional", () => {
     expect(row?.tree).toBe("mv.to");
   });
 
-  test("named create: replaceIfMetaDiffers skips/replaces (no raise); batch raises on a bare collision", async () => {
+  test("named create 'replace' is content-aware; a bare batch named collision raises", async () => {
     await createMemory(
-      `${OWNER}, 'n.imp'::ltree, 'r1', null, '{"v":"1"}'::jsonb, null, null, 'doc'`,
+      `${OWNER}, 'n.imp'::ltree, 'r1', null, '{"v":"1"}'::jsonb, null, 'doc'`,
     );
-    // Matching version key → idempotent skip (no raise, zero rows).
+    // Identical content+meta → idempotent no-op (no raise, zero rows).
     const same = await createMemory(
-      `${OWNER}, 'n.imp'::ltree, 'r1 again', null, '{"v":"1"}'::jsonb, null, 'v', 'doc'`,
+      `${OWNER}, 'n.imp'::ltree, 'r1', null, '{"v":"1"}'::jsonb, null, 'doc', 'replace'`,
     );
     expect(same.length).toBe(0);
-    // Differing version key → replace in place (no raise).
+    // Meta differs (importer-version bump) → replace in place (no raise).
     const [diff] = await createMemory(
-      `${OWNER}, 'n.imp'::ltree, 'r2', null, '{"v":"2"}'::jsonb, null, 'v', 'doc'`,
+      `${OWNER}, 'n.imp'::ltree, 'r1', null, '{"v":"2"}'::jsonb, null, 'doc', 'replace'`,
     );
     expect(diff?.inserted).toBe(false);
-    // A batch with a bare (no-directive) named collision raises, aborting it.
+    // A batch with a bare (default-error) named collision raises, aborting it.
     await expectReject(() =>
       sql.unsafe(
         `select * from ${canonical.schema}.batch_create_memory(
@@ -698,7 +689,6 @@ describe("provisioned schema is functional", () => {
            array['dupe']::text[],
            '[{}]'::jsonb,
            array[null]::tstzrange[],
-           null,
            array['doc']::text[]
          )`,
       ),
@@ -707,7 +697,7 @@ describe("provisioned schema is functional", () => {
 
   test("get_memory and resolve_memory_id surface the name", async () => {
     const [m] = await createMemory(
-      `${OWNER}, 'n.resolve'::ltree, 'body', null, '{}'::jsonb, null, null, 'doc'`,
+      `${OWNER}, 'n.resolve'::ltree, 'body', null, '{}'::jsonb, null, 'doc'`,
     );
     const [got] = await sql.unsafe(
       `select name from ${canonical.schema}.get_memory(${OWNER}, '${m?.id}'::uuid)`,

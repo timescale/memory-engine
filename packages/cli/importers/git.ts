@@ -285,8 +285,6 @@ export interface CommitMemoryContext {
   gitRemote?: string;
   /** Render the changed-file list into the content. */
   fileList: boolean;
-  /** `meta.imported_at` for this run. */
-  importedAt: string;
 }
 
 /**
@@ -342,7 +340,6 @@ export function buildCommitMemory(
     files_changed: commit.files.length,
     insertions,
     deletions,
-    imported_at: ctx.importedAt,
     importer_version: GIT_IMPORTER_VERSION,
   };
   if (ctx.gitRemote) meta.source_git_repo = ctx.gitRemote;

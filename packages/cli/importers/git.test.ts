@@ -172,7 +172,6 @@ function ctx(
     projectSlug: "demo",
     gitRemote: "git@github.com:org/demo.git",
     fileList: true,
-    importedAt: "2026-06-10T00:00:00.000Z",
     ...overrides,
   };
 }
@@ -199,7 +198,6 @@ describe("buildCommitMemory", () => {
       files_changed: 1,
       insertions: 10,
       deletions: 2,
-      imported_at: "2026-06-10T00:00:00.000Z",
       importer_version: "1",
     });
 

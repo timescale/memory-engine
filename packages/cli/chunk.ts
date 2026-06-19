@@ -116,7 +116,6 @@ export interface BatchCreateClient {
     batchCreate: (params: {
       memories: MemoryCreateParams[];
       onConflict?: "error" | "replace" | "ignore";
-      replaceIfMetaDiffers?: string;
     }) => Promise<{ ids: string[]; updatedIds: string[] }>;
   };
 }
@@ -127,24 +126,18 @@ export interface BatchCreateChunkedOptions {
    * Conflict policy for every chunk's idempotency key (each row's id when
    * given, else its (tree, name) slot). The server defaults to "error"
    * (raise); file importers pass "ignore" so a re-import is a no-op rather
-   * than failing, and "replace" overwrites in place (a no-op when nothing
-   * differs). When `replaceIfMetaDiffers` is set it takes precedence server-side.
+   * than failing, and "replace" overwrites in place when content/meta/temporal
+   * differ — deterministic-id importers pass "replace" and stamp
+   * meta.importer_version, so a version bump makes meta differ and re-renders.
    */
   onConflict?: "error" | "replace" | "ignore";
-  /**
-   * Meta key for the server's conditional replace: a memory whose explicit
-   * id already exists is rewritten in place when the stored row's value for
-   * this key differs (importers pass "importer_version" so version bumps
-   * re-render existing rows), else skipped. Unset: duplicates are skipped.
-   */
-  replaceIfMetaDiffers?: string;
 }
 
 /** Result of a chunked `batchCreate` run. */
 export interface BatchCreateChunkedResult {
   /** Ids the server confirmed inserted (across all successful chunks). */
   insertedIds: string[];
-  /** Existing rows rewritten in place via `replaceIfMetaDiffers`. */
+  /** Existing rows rewritten in place by `onConflict: 'replace'`. */
   updatedIds: string[];
   /**
    * Explicit ids submitted in chunks that errored, flattened across all
@@ -178,8 +171,8 @@ export interface BatchCreateChunkedResult {
  * `updatedIds`.
  *
  * A submitted explicit id in neither array (and not in a failed chunk) was
- * skipped server-side — it already exists, at a matching meta-key value
- * when `replaceIfMetaDiffers` is set. Use `computeSkippedIds` (or, for
+ * skipped server-side — it already exists and nothing differed (a 'replace'
+ * no-op) or `onConflict` was 'ignore'. Use `computeSkippedIds` (or, for
  * packs, `classifySkips` with `failedIds`) to classify the missing ids.
  */
 export async function batchCreateChunked(
@@ -199,9 +192,6 @@ export async function batchCreateChunked(
         memories: chunk,
         ...(options.onConflict !== undefined
           ? { onConflict: options.onConflict }
-          : {}),
-        ...(options.replaceIfMetaDiffers !== undefined
-          ? { replaceIfMetaDiffers: options.replaceIfMetaDiffers }
           : {}),
       });
       insertedIds.push(...res.ids);

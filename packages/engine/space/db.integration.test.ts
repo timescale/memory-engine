@@ -123,7 +123,7 @@ test("createMemory raises on a bare duplicate explicit id", async () => {
   expect((await db.getMemory(FULL, id))?.content).toBe("original");
 });
 
-test("createMemory with replaceIfMetaDiffers rewrites stale rows in place", async () => {
+test("createMemory onConflict 'replace' rewrites only when a field differs", async () => {
   const id = "01900000-0000-7000-8000-0000000000d1";
   await db.createMemory(FULL, {
     id,
@@ -132,24 +132,25 @@ test("createMemory with replaceIfMetaDiffers rewrites stale rows in place", asyn
     meta: { importer_version: "1" },
   });
 
-  // Same version → skip.
+  // Identical re-submit → content-aware replace is a no-op (skipped).
   const same = await db.createMemory(FULL, {
     id,
     tree: "work.upsert",
-    content: "render v1 again",
+    content: "render v1",
     meta: { importer_version: "1" },
-    replaceIfMetaDiffers: "importer_version",
+    onConflict: "replace",
   });
   expect(same).toBeNull();
   expect((await db.getMemory(FULL, id))?.content).toBe("render v1");
 
-  // Bumped version → replaced, reported as an update (inserted: false).
+  // Bumped version re-render → meta + content differ → replaced, reported as an
+  // update (inserted: false). The importer_version stamp drives this via meta.
   const bumped = await db.createMemory(FULL, {
     id,
     tree: "work.upsert",
     content: "render v2",
     meta: { importer_version: "2" },
-    replaceIfMetaDiffers: "importer_version",
+    onConflict: "replace",
   });
   expect(bumped).toEqual({ id, inserted: false });
   const after = await db.getMemory(FULL, id);
@@ -168,11 +169,13 @@ test("batchCreateMemories upserts a batch in one call", async () => {
   const rows = await db.batchCreateMemories(
     FULL,
     [
+      // changed content → replaced
       { id: stale, tree: "work.batch", content: "new", meta: { v: "2" } },
-      { id: fresh, tree: "work.batch", content: "untouched", meta: { v: "2" } },
+      // identical content+meta → content-aware replace no-op (skipped)
+      { id: fresh, tree: "work.batch", content: "current", meta: { v: "2" } },
       { tree: "work.batch", content: "generated id" },
     ],
-    "v",
+    "replace",
   );
   const byId = new Map(rows.map((r) => [r.id, r.inserted]));
   expect(rows).toHaveLength(2); // fresh skipped → absent
