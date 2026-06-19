@@ -169,14 +169,14 @@ set search_path to pg_catalog, {{schema}}, public, pg_temp
 --
 -- The canonical memory insert: one set-based call for a whole batch
 -- (create_memory below is a one-row wrapper). Parallel arrays, aligned by
--- position, carry the rows; _names is optional. The idempotency key is the
--- explicit id WHEN PROVIDED, otherwise the (tree, name) slot:
---   - EXPLICIT id (with or without a name) → dedup on the id, so import/export
---     and deterministic importers preserve identity. The row keeps its id; a
---     set name that collides with a DIFFERENT row still trips the (tree, name)
---     unique index and raises.
---   - NO id but NAMED → dedup on (tree, name).
---   - NO id, NO name → anonymous; always inserts.
+-- position, carry the rows; _names is optional. The idempotency key — name
+-- takes precedence over id:
+--   - NAMED (name present, with OR without an explicit id) → dedup on
+--     (tree, name). A supplied id is used only as the row's identity on INSERT
+--     (importers mint a timestamp-prefixed v7 for chronological sort); on a
+--     (tree, name) conflict the existing row — and its id — is kept.
+--   - UNNAMED with an explicit id → dedup on the id (import/export identity).
+--   - UNNAMED, no id → anonymous; always inserts.
 -- On a conflict against that key the action is _on_conflict:
 --   - 'replace' → replace in place, but only when content/meta/temporal differ
 --                 (a no-op when identical, so a re-import is idempotent; an
@@ -186,9 +186,11 @@ set search_path to pg_catalog, {{schema}}, public, pg_temp
 --   - 'ignore'  → skip, leaving the existing row (insert-if-absent)
 --   - 'error'   (default) → RAISE unique_violation (→ CONFLICT)
 -- (An id-keyed replace also requires write access on the EXISTING row's tree,
--- else the row is skipped so one inaccessible row can't fail the batch.) The
--- (tree, name) unique index is enforced on every path, so names stay unique
--- regardless of the dedup key.
+-- since an id can move the row across trees; a (tree, name) replace stays in
+-- the same tree, covered by the up-front check.) The (tree, name) unique index
+-- is enforced on every path. A NAMED row whose explicit id happens to collide
+-- with a DIFFERENT row's id raises a pk unique_violation (the id is taken) —
+-- importers mint random-tailed ids, so this never bites them.
 --
 -- Returns one row (id, inserted) per insert/replace — inserted distinguishes a
 -- fresh insert (true, xmax = 0) from a replace (false); skipped rows are absent.
@@ -273,18 +275,19 @@ begin
     join jsonb_array_elements(_metas) with ordinality e(meta, ord)
       on e.ord = u.ord
   )
-  -- Explicit id → keyed on the id; first occurrence within the batch wins.
+  -- Unnamed + explicit id → keyed on the id; first occurrence within the batch wins.
   , with_id as
   (
     select distinct on (r.explicit_id) r.*
-    from r where r.explicit_id is not null
+    from r where r.explicit_id is not null and r.name is null
     order by r.explicit_id, r.ord
   )
-  -- No id but named → keyed on (tree, name); first occurrence wins.
+  -- Named (with OR without an id) → keyed on (tree, name); first occurrence wins.
+  -- A name takes precedence over the id as the dedup key.
   , named as
   (
     select distinct on (r.tree, r.name) r.*
-    from r where r.explicit_id is null and r.name is not null
+    from r where r.name is not null
     order by r.tree, r.name, r.ord
   )
   -- No id, no name → anonymous; nothing to dedup.
@@ -292,10 +295,9 @@ begin
   (
     select r.* from r where r.explicit_id is null and r.name is null
   )
-  -- Explicit-id rows dedup on the id, so the row keeps it (import/export
-  -- identity). A set name that collides with a DIFFERENT row still trips the
-  -- (tree, name) unique index → raises. A replace needs write access on the
-  -- existing row's tree (else skipped, so one inaccessible row can't fail it).
+  -- Unnamed explicit-id rows dedup on the id, so the row keeps it (import/export
+  -- identity). A replace needs write access on the existing row's tree (else
+  -- skipped, so one inaccessible row can't fail it).
   , ins_id as
   (
     insert into {{schema}}.memory as m
@@ -322,7 +324,10 @@ begin
     end
     returning m.id as id, (m.xmax = 0) as inserted
   )
-  -- Named (no id) rows dedup on (tree, name); the row keeps its generated id.
+  -- Named rows (with OR without an explicit id) dedup on (tree, name). On a
+  -- fresh insert the row uses its explicit id when given (e.g. an importer's
+  -- timestamp-prefixed v7), else a generated one; on a (tree, name) conflict the
+  -- existing row's id is kept. A stray pk collision on a given id raises.
   , ins_named as
   (
     insert into {{schema}}.memory as m
