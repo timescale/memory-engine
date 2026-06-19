@@ -13,9 +13,14 @@ export type { TreeAccess };
 /** tstzrange rendered as its text form, e.g. "[2024-01-01,2024-01-02)". */
 export type TemporalRange = string;
 
+/** Conflict action on the idempotency key (id when given, else (tree, name)). */
+export type OnConflict = "error" | "replace" | "ignore";
+
 export interface Memory {
   id: string;
   tree: string;
+  /** Optional, mutable leaf name; null for unnamed memories. */
+  name: string | null;
   meta: Record<string, unknown>;
   temporal: TemporalRange | null;
   content: string;
@@ -31,19 +36,30 @@ export interface SearchResultItem extends Memory {
 export interface CreateMemoryParams {
   tree: string;
   content: string;
+  /** Optional explicit id (preserves identity for import/export). */
   id?: string;
+  /** Optional leaf name; the (tree, name) idempotency key when no id is given. */
+  name?: string;
   meta?: Record<string, unknown>;
   temporal?: TemporalRange;
   /**
-   * Meta key for conditional replace: when an explicit `id` already exists,
-   * replace the row iff its meta value for this key differs from the new
-   * record (e.g. importer_version). Default: duplicates are skipped.
+   * Action when the idempotency key conflicts: 'error' (default) raises,
+   * 'replace' overwrites in place (a no-op unless a field differs), 'ignore'
+   * skips. Returns null when the row is skipped (ignore, or replace no-op).
+   */
+  onConflict?: OnConflict;
+  /**
+   * Transitional meta-key override: replace iff the stored meta value for this
+   * key differs from the new record (e.g. importer_version); else skip. Takes
+   * precedence over onConflict when set.
    */
   replaceIfMetaDiffers?: string;
 }
 
 export interface MemoryPatch {
   tree?: string;
+  /** null clears the name; a string sets/renames; undefined leaves it. */
+  name?: string | null;
   meta?: Record<string, unknown>;
   temporal?: TemporalRange | null;
   content?: string;
