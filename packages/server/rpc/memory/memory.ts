@@ -77,6 +77,14 @@ function mapSpaceError(e: unknown): never {
       e instanceof Error ? e.message : "Invalid parameter",
     );
   }
+  // unique_violation — a duplicate id, or a (tree, name) clash (create with no
+  // upsert/replace directive, or a rename/move into a taken name).
+  if (code === "23505") {
+    throw new AppError(
+      "CONFLICT",
+      "Memory already exists (id or tree/name conflict)",
+    );
+  }
   throw e instanceof Error ? e : new Error(String(e));
 }
 

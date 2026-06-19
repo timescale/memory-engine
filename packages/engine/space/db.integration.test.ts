@@ -76,7 +76,7 @@ test("createMemory + getMemory round-trips", async () => {
   expect(m?.hasEmbedding).toBe(false);
 });
 
-test("createMemory returns null for a duplicate explicit id", async () => {
+test("createMemory raises on a bare duplicate explicit id", async () => {
   const id = "01900000-0000-7000-8000-0000000000d0";
   const first = await db.createMemory(FULL, {
     id,
@@ -85,13 +85,14 @@ test("createMemory returns null for a duplicate explicit id", async () => {
   });
   expect(first).toEqual({ id, inserted: true });
 
-  // Re-submitting the same id is a no-op skip, not an error.
-  const second = await db.createMemory(FULL, {
-    id,
-    tree: "work.dup",
-    content: "replacement",
-  });
-  expect(second).toBeNull();
+  // Re-submitting the same id with no upsert / replace key is a hard conflict.
+  await expect(
+    db.createMemory(FULL, {
+      id,
+      tree: "work.dup",
+      content: "replacement",
+    }),
+  ).rejects.toThrow();
   expect((await db.getMemory(FULL, id))?.content).toBe("original");
 });
 

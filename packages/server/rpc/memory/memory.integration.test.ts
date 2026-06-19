@@ -303,17 +303,19 @@ test("create with a duplicate explicit id → CONFLICT", async () => {
   );
 });
 
-test("batchCreate without replaceIfMetaDiffers skips duplicates", async () => {
+test("batchCreate with a bare duplicate id raises CONFLICT", async () => {
   const id = "01941000-0000-7000-8000-00000000c0f2";
   await call("memory.batchCreate", {
     memories: [{ id, content: "original", tree: "share.skip" }],
   });
-  const res = await call<{ ids: string[]; updatedIds: string[] }>(
-    "memory.batchCreate",
-    { memories: [{ id, content: "replacement", tree: "share.skip" }] },
+  // No upsert / replaceIfMetaDiffers → the duplicate id is a hard conflict that
+  // aborts the batch (importers pass replaceIfMetaDiffers to stay idempotent).
+  await expectAppError(
+    call("memory.batchCreate", {
+      memories: [{ id, content: "replacement", tree: "share.skip" }],
+    }),
+    "CONFLICT",
   );
-  expect(res.ids).toHaveLength(0);
-  expect(res.updatedIds).toHaveLength(0);
   const got = await call<{ content: string }>("memory.get", { id });
   expect(got.content).toBe("original");
 });
