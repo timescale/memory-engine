@@ -330,7 +330,7 @@ Docs: ${docUrl("me_memory_get")}`,
     "me_memory_get_by_path",
     {
       title: "Get Memory by Path",
-      description: `Retrieve a single named memory by its folder/name path.
+      description: `Retrieve a single named memory by its tree/name path.
 
 The last path segment is the name; the rest is the tree — e.g. "/share/auth/jwt-rotation" is the memory named "jwt-rotation" under "/share/auth". NOT_FOUND if no such named memory exists. Use me_memory_get when you have the UUID.
 
@@ -340,7 +340,7 @@ Docs: ${docUrl("me_memory_get_by_path")}`,
           .string()
           .min(1)
           .describe(
-            'folder/name path, e.g. "/share/auth/jwt-rotation" or "~/notes/todo"',
+            'tree/name path, e.g. "/share/auth/jwt-rotation" or "~/notes/todo"',
           ),
       },
       annotations: {
@@ -474,7 +474,7 @@ Docs: ${docUrl("me_memory_delete")}`,
     "me_memory_delete_by_path",
     {
       title: "Delete Memory by Path",
-      description: `Permanently remove a single named memory by its folder/name path (e.g. "/share/auth/jwt-rotation").
+      description: `Permanently remove a single named memory by its tree/name path (e.g. "/share/auth/jwt-rotation").
 
 Irreversible. Deletes only that one named memory — use me_memory_delete_tree to remove a whole subtree.
 
@@ -483,7 +483,7 @@ Docs: ${docUrl("me_memory_delete_by_path")}`,
         path: z
           .string()
           .min(1)
-          .describe('folder/name path, e.g. "/share/auth/jwt-rotation"'),
+          .describe('tree/name path, e.g. "/share/auth/jwt-rotation"'),
       },
       annotations: {
         title: "Delete Memory by Path",

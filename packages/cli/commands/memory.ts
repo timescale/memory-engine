@@ -5,7 +5,8 @@
  * - me memory get <id>: Get a memory by ID (ANSI-rendered in TTY, raw markdown when piped)
  * - me memory search [query]: Hybrid search
  * - me memory update <id>: Update a memory
- * - me memory delete <id-or-tree>: Delete memory or tree
+ * - me memory delete <id-or-path>: Delete a single memory (by ID or tree/name path)
+ * - me memory deltree <tree>: Delete every memory under a tree path
  * - me memory edit <id>: Open in $EDITOR
  * - me memory count <tree>: Count memories matching a tree filter
  * - me memory tree [filter]: Show tree structure
@@ -197,8 +198,8 @@ function createMemoryCreateCommand(): Command {
 
 function createMemoryGetCommand(): Command {
   return new Command("get")
-    .description("get a memory by ID or by its folder/name path")
-    .argument("<id-or-path>", "memory ID (UUIDv7) or folder/name path")
+    .description("get a memory by ID or by its tree/name path")
+    .argument("<id-or-path>", "memory ID (UUIDv7) or tree/name path")
     .option("--raw", "output raw Markdown with YAML frontmatter (no ANSI)")
     .action(async (ref: string, opts, cmd) => {
       const globalOpts = cmd.optsWithGlobals();
@@ -409,8 +410,8 @@ function createMemorySearchCommand(): Command {
 
 function createMemoryUpdateCommand(): Command {
   return new Command("update")
-    .description("update a memory (by ID or folder/name path)")
-    .argument("<id-or-path>", "memory ID (UUIDv7) or folder/name path")
+    .description("update a memory (by ID or tree/name path)")
+    .argument("<id-or-path>", "memory ID (UUIDv7) or tree/name path")
     .option("--content <text>", "new content (use - for stdin)")
     .option("--tree <path>", "new tree path (moves the memory)")
     .option(
@@ -452,7 +453,7 @@ function createMemoryUpdateCommand(): Command {
       const client = buildMemoryClient(creds);
 
       try {
-        // update is id-addressed; resolve a folder/name ref to its id first.
+        // update is id-addressed; resolve a tree/name ref to its id first.
         const id = UUIDV7_RE.test(ref)
           ? ref
           : (await client.memory.getByPath({ path: ref })).id;
@@ -483,15 +484,9 @@ function createMemoryUpdateCommand(): Command {
 function createMemoryDeleteCommand(): Command {
   return new Command("delete")
     .alias("rm")
-    .description(
-      "delete a memory by ID, a named memory by its folder/name path, or all memories under a tree path",
-    )
-    .argument("<id-or-path>", "memory ID, a folder/name path, or a tree path")
-    .option("--name", "treat the argument as a named-memory path (folder/name)")
-    .option("--tree", "treat the argument as a tree path (delete the subtree)")
-    .option("--dry-run", "preview what would be deleted (tree mode)")
-    .option("-y, --yes", "skip confirmation (tree mode)")
-    .action(async (idOrTree: string, opts, cmd) => {
+    .description("delete a single memory by ID or by its tree/name path")
+    .argument("<id-or-path>", "memory ID (UUIDv7) or tree/name path")
+    .action(async (ref: string, _opts, cmd) => {
       const globalOpts = cmd.optsWithGlobals();
       const creds = resolveCredentials(globalOpts.server);
       const fmt = getOutputFormat(globalOpts);
@@ -500,28 +495,83 @@ function createMemoryDeleteCommand(): Command {
 
       const client = buildMemoryClient(creds);
 
-      const deleteNamed = async () => {
-        const result = await client.memory.deleteByPath({ path: idOrTree });
+      try {
+        // A UUID deletes by id; anything else is a tree/name path (the segment
+        // after the final '/') and deletes at most that one named memory. To
+        // delete a whole subtree, use `deltree`. A ref that matches nothing —
+        // id or path — raises NOT_FOUND (caught below), so reaching `output`
+        // means it was deleted.
+        const result = UUIDV7_RE.test(ref)
+          ? await client.memory.delete({ id: ref })
+          : await client.memory.deleteByPath({ path: ref });
         output(result, fmt, () => {
-          if (result.deleted) clack.log.success(`Deleted memory ${idOrTree}`);
-          else clack.log.warn("Memory not found.");
+          clack.log.success(`Deleted memory ${ref}`);
         });
-      };
+      } catch (error) {
+        // A non-UUID ref that matched no single memory but has memories beneath
+        // it was almost certainly meant as a subtree delete — point at deltree.
+        if (!UUIDV7_RE.test(ref) && isAppErrorCode(error, "NOT_FOUND")) {
+          try {
+            const { count } = await client.memory.countTree({ tree: ref });
+            if (count > 0) {
+              const noun = count === 1 ? "memory" : "memories";
+              handleError(
+                new Error(
+                  `No memory at '${ref}'. ${count} ${noun} exist under that tree — to delete the whole subtree run: me memory deltree ${ref}`,
+                ),
+                fmt,
+              );
+              return;
+            }
+          } catch {
+            // Couldn't probe the subtree — fall through to the original error.
+          }
+        }
+        handleError(error, fmt);
+      }
+    });
+}
 
-      // Subtree delete — dry-run preview, confirm (unless --yes), then delete.
-      const deleteSubtree = async (count: number) => {
+function createMemoryDeltreeCommand(): Command {
+  return new Command("deltree")
+    .alias("rmtree")
+    .description("delete every memory at or under a tree path (a subtree)")
+    .argument("<tree>", "tree path; all memories at or under it are deleted")
+    .option("--dry-run", "preview what would be deleted without deleting")
+    .option("-y, --yes", "skip the confirmation prompt")
+    .action(async (tree: string, opts, cmd) => {
+      const globalOpts = cmd.optsWithGlobals();
+      const creds = resolveCredentials(globalOpts.server);
+      const fmt = getOutputFormat(globalOpts);
+      requireMemoryAuth(creds, fmt);
+      requireSpace(creds, fmt);
+
+      const client = buildMemoryClient(creds);
+
+      try {
+        // Always preview first so --dry-run can NEVER delete, and so the
+        // confirmation prompt shows an accurate count.
+        const preview = await client.memory.deleteTree({ tree, dryRun: true });
+        if (preview.count === 0) {
+          output({ count: 0 }, fmt, () => {
+            clack.log.warn(`No memories found under '${tree}'`);
+          });
+          return;
+        }
+
+        const noun = preview.count === 1 ? "memory" : "memories";
         if (fmt === "text") {
           console.log(
-            `  ${count} ${count === 1 ? "memory" : "memories"} will be deleted under '${idOrTree}'`,
+            `  ${preview.count} ${noun} will be deleted under '${tree}'`,
           );
         }
         if (opts.dryRun) {
-          output({ dryRun: true, count }, fmt, () => {});
+          output({ dryRun: true, count: preview.count }, fmt, () => {});
           return;
         }
         if (fmt === "text" && !opts.yes) {
           const confirmed = await clack.confirm({
-            message: `Delete ${count} ${count === 1 ? "memory" : "memories"}?`,
+            message: `Delete ${preview.count} ${noun}?`,
             initialValue: false,
           });
           if (clack.isCancel(confirmed) || !confirmed) {
@@ -529,70 +579,11 @@ function createMemoryDeleteCommand(): Command {
             process.exit(0);
           }
         }
-        const result = await client.memory.deleteTree({
-          tree: idOrTree,
-          dryRun: false,
-        });
+        const result = await client.memory.deleteTree({ tree, dryRun: false });
         output(result, fmt, () => {
           clack.log.success(
             `Deleted ${result.count} ${result.count === 1 ? "memory" : "memories"}`,
           );
-        });
-      };
-
-      try {
-        if (UUIDV7_RE.test(idOrTree)) {
-          const result = await client.memory.delete({ id: idOrTree });
-          output(result, fmt, () => {
-            if (result.deleted) clack.log.success(`Deleted memory ${idOrTree}`);
-            else clack.log.warn("Memory not found.");
-          });
-          return;
-        }
-
-        // Forced by a flag.
-        if (opts.name) return await deleteNamed();
-        if (opts.tree) {
-          const preview = await client.memory.deleteTree({
-            tree: idOrTree,
-            dryRun: true,
-          });
-          if (preview.count === 0) {
-            output({ count: 0 }, fmt, () => {
-              clack.log.warn(`No memories found under '${idOrTree}'`);
-            });
-            return;
-          }
-          return await deleteSubtree(preview.count);
-        }
-
-        // Auto-detect: the arg may be a named memory and/or a non-empty
-        // subtree. If both, refuse and require --name / --tree.
-        let named = false;
-        try {
-          await client.memory.getByPath({ path: idOrTree });
-          named = true;
-        } catch (e) {
-          if (!isAppErrorCode(e, "NOT_FOUND")) throw e;
-        }
-        const preview = await client.memory.deleteTree({
-          tree: idOrTree,
-          dryRun: true,
-        });
-
-        if (named && preview.count > 0) {
-          handleError(
-            new Error(
-              `'${idOrTree}' is both a named memory and a non-empty tree path. Pass --name to delete the named memory, or --tree to delete the subtree.`,
-            ),
-            fmt,
-          );
-          return;
-        }
-        if (named) return await deleteNamed();
-        if (preview.count > 0) return await deleteSubtree(preview.count);
-        output({ count: 0 }, fmt, () => {
-          clack.log.warn(`Nothing to delete at '${idOrTree}'`);
         });
       } catch (error) {
         handleError(error, fmt);
@@ -1113,6 +1104,7 @@ function memorySubcommands(): Command[] {
     createMemorySearchCommand(),
     createMemoryUpdateCommand(),
     createMemoryDeleteCommand(),
+    createMemoryDeltreeCommand(),
     createMemoryEditCommand(),
     createMemoryCountCommand(),
     createMemoryTreeCommand(),

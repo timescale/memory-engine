@@ -153,10 +153,10 @@ Once connected, the agent has access to:
 | `me_memory_create` | Store a new memory |
 | `me_memory_search` | Search by meaning, keywords, or filters |
 | `me_memory_get` | Retrieve a memory by ID |
-| `me_memory_get_by_path` | Retrieve a named memory by its `folder/name` path |
+| `me_memory_get_by_path` | Retrieve a named memory by its `tree/name` path |
 | `me_memory_update` | Modify an existing memory |
 | `me_memory_delete` | Delete a memory by ID |
-| `me_memory_delete_by_path` | Delete a named memory by its `folder/name` path |
+| `me_memory_delete_by_path` | Delete a named memory by its `tree/name` path |
 | `me_memory_delete_tree` | Bulk delete by tree prefix |
 | `me_memory_count` | Count memories matching a tree filter |
 | `me_memory_copy` | Copy memories between tree paths |

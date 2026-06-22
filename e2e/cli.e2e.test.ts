@@ -470,7 +470,7 @@ describe.skipIf(
     ]);
     expect(updated.content).toBe("edited content");
 
-    const del = await me(["memory", "delete", created.id, "--yes"]);
+    const del = await me(["memory", "delete", created.id]);
     expect(del.code).toBe(0);
 
     // Getting it now fails with a non-zero exit.
@@ -528,11 +528,11 @@ describe.skipIf(
     ]);
     expect(renamed.name).toBe("rotation");
 
-    // delete the named memory by its path.
+    // delete the named memory by its path (no flag needed — a non-UUID arg is
+    // always a tree/name path that deletes at most one memory).
     const del = await meJson<{ deleted: boolean }>([
       "delete",
       "share/auth/rotation",
-      "--name",
     ]);
     expect(del.deleted).toBe(true);
   });
@@ -553,6 +553,46 @@ describe.skipIf(
       "",
     ]);
     expect(cleared.name).toBeNull();
+  });
+
+  test("6d. deltree: --dry-run previews without deleting; --yes deletes the subtree", async () => {
+    await meJson(["create", "a", "--tree", "share/deltree_demo"]);
+    await meJson(["create", "b", "--tree", "share/deltree_demo/sub"]);
+
+    // delete <path> only ever targets a single named memory — with no memory
+    // named 'deltree_demo' at share/, it errors and never touches the subtree
+    // beneath it, and the error points at deltree.
+    const single = await me(["delete", "share/deltree_demo"]);
+    expect(single.code).not.toBe(0);
+    expect(`${single.stdout}${single.stderr}`).toContain(
+      "deltree share/deltree_demo",
+    );
+    expect(
+      (await meJson<{ count: number }>(["count", "share/deltree_demo"])).count,
+    ).toBe(2);
+
+    // deltree --dry-run reports the count but deletes nothing.
+    const dry = await meJson<{ dryRun: boolean; count: number }>([
+      "deltree",
+      "share/deltree_demo",
+      "--dry-run",
+    ]);
+    expect(dry.dryRun).toBe(true);
+    expect(dry.count).toBe(2);
+    expect(
+      (await meJson<{ count: number }>(["count", "share/deltree_demo"])).count,
+    ).toBe(2);
+
+    // deltree --yes deletes the whole subtree.
+    const del = await meJson<{ count: number }>([
+      "deltree",
+      "share/deltree_demo",
+      "--yes",
+    ]);
+    expect(del.count).toBe(2);
+    expect(
+      (await meJson<{ count: number }>(["count", "share/deltree_demo"])).count,
+    ).toBe(0);
   });
 
   // -------------------------------------------------------------------------

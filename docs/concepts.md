@@ -117,7 +117,7 @@ Below the two reserved roots, tree paths are user-defined. There is no mandated 
 A memory can be addressed two ways:
 
 - **By id** -- the immutable UUID (`memory.get`, `memory.delete`; `me get <uuid>`). Stable across renames and moves.
-- **By path** -- a named memory's `folder/name`, split at the final `/` (`memory.getByPath`, `memory.deleteByPath`; `me get /share/auth/jwt-rotation`). The last segment is the name; the rest is the tree. A name may contain dots (`config.yaml`) but never a slash.
+- **By path** -- a named memory's `tree/name`, split at the final `/` (`memory.getByPath`, `memory.deleteByPath`; `me get /share/auth/jwt-rotation`). The last segment is the name; the rest is the tree. A name may contain dots (`config.yaml`) but never a slash.
 
 The CLI's `me get` / `me delete` auto-detect: a UUID is treated as an id, anything else as a path. `me update` is id-addressed (it resolves a path to an id first). Deleting a whole subtree is `me delete --tree <path>` / `memory.deleteTree`.
 
