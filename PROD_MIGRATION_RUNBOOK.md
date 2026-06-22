@@ -56,8 +56,10 @@ sources (read-only) writing to a **throwaway target** — no window, no risk.
    bun packages/migrate-prod/run.ts
    ```
    This copies all ~62k memories (batched inserts, ~500/statement) from prod
-   (read-only) — typically a few minutes, putting read load on the source shard.
-   It validates timing and full correctness end-to-end.
+   (read-only), putting read load on the source shard. A measured remote-host
+   rehearsal took **~15 min** — it's I/O-bound (≈1.8 GB of halfvec data over the
+   WAN + HNSW index builds, ~3% CPU), so running **in-region** is materially
+   faster. It validates timing and full correctness end-to-end.
 4. **Verify** the target with the §5 queries (counts, ≥1 admin per space, access
    spot-check). Confirm the report has `skippedEngines: []` and `warnings: []`.
 5. **To re-run**, reset the target first — the ETL is not idempotent on a dirty
@@ -141,8 +143,9 @@ app failing its boot health check.
    bun packages/migrate-prod/run.ts
    ```
    The memory copy is batched (~62k rows, ~500/insert; the largest engine ~20.9k
-   in one transaction) — typically a few minutes. It prints a JSON report — check
-   against the §9 survey: `engines` ≈ 34, `skippedEngines` = 0, `warnings` = 0
+   in one transaction). A remote rehearsal measured **~15 min** (I/O-bound, ≈1.8 GB
+   over the WAN) — **run in-region to cut that down**. It prints a JSON report —
+   check against the §9 survey: `engines` ≈ 34, `skippedEngines` = 0, `warnings` = 0
    (no dangling users / nested roles in prod). Investigate any surprise before
    proceeding.
 5. **Verify** with the §5 reconciliation queries. **Gate:** counts match and every
