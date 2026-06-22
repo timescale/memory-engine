@@ -152,7 +152,6 @@ set search_path to pg_catalog, {{schema}}, public, pg_temp
 -- only so it can sit in a WHERE expression;
 -- it never actually returns.
 -------------------------------------------------------------------------------
-drop function if exists {{schema}}.raise_conflict(ltree, text);
 create or replace function {{schema}}.raise_conflict()
 returns boolean
 as $func$

@@ -119,15 +119,17 @@ A memory can be addressed two ways:
 - **By id** -- the immutable UUID (`memory.get`, `memory.delete`; `me get <uuid>`). Stable across renames and moves.
 - **By path** -- a named memory's `tree/name`, split at the final `/` (`memory.getByPath`, `memory.deleteByPath`; `me get /share/auth/jwt-rotation`). The last segment is the name; the rest is the tree. A name may contain dots (`config.yaml`) but never a slash.
 
-The CLI's `me get` / `me delete` auto-detect: a UUID is treated as an id, anything else as a path. `me update` is id-addressed (it resolves a path to an id first). Deleting a whole subtree is `me delete --tree <path>` / `memory.deleteTree`.
+The CLI's `me get` / `me delete` auto-detect: a UUID is treated as an id, anything else as a `tree/name` path -- and `me delete` only ever removes that single memory. `me update` is id-addressed (it resolves a path to an id first). Deleting a whole subtree is `me deltree <path>` / `memory.deleteTree`.
 
 ### Conflict handling
 
-Create and batch-create take an `onConflict` policy, applied against the memory's **idempotency key** -- the explicit id when one is supplied, otherwise the `(tree, name)` slot:
+Create and batch-create take an `onConflict` policy, applied against the memory's **idempotency key** -- a named memory's `(tree, name)` slot (the name takes precedence over any explicit id), or the explicit id for an unnamed one:
 
 - **`error`** (default) -- a clash raises `CONFLICT`.
 - **`replace`** -- overwrite in place, but only when something actually differs (content, meta, or temporal); an identical re-submit is a no-op. The id is preserved, and the embedding is recomputed only when content changes.
 - **`ignore`** -- skip the conflicting row, leaving the existing one untouched.
+
+`onConflict` governs a clash on that idempotency key only. A *named* memory whose explicit id happens to collide with a **different** existing row still raises a primary-key violation regardless of `ignore`/`replace` -- so `ignore` means "ignore an idempotency-key conflict", not "ignore any conflict". (Importers mint random ids, so this doesn't arise in practice.)
 
 This makes re-runs idempotent. The transcript and git importers submit with `replace` and stamp `meta.importer_version`, so an unchanged re-import does nothing while a parser-version bump re-renders. The file importers (`me import memories`, the `me_memory_import` tool, `me pack install`) submit with `ignore`, so re-importing or re-installing is a no-op. (There is no separate "upsert" flag -- content-aware `replace` covers it.)
 

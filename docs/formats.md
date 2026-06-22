@@ -211,6 +211,6 @@ When importing from a file path, the file is read server-side and the 1 MB reque
 
 Exported files can be re-imported directly. The export output uses the same field names and structure as the import schema; `tree` is written in the canonical `/`-prefixed form, which re-imports cleanly (input is lenient).
 
-The `id` and `name` fields are preserved in exports, so re-importing is idempotent: the file importers submit with `onConflict: 'ignore'`, and a record whose id -- or `(tree, name)` slot -- already exists is skipped rather than duplicated.
+The `id` and `name` fields are preserved in exports, so re-importing is idempotent: the file importers submit with `onConflict: 'ignore'`, and a record whose idempotency key -- a named record's `(tree, name)` slot (name takes precedence), else its `id` -- already exists is skipped rather than duplicated.
 
 Fields that appear in exports but are not part of the import schema (like `created_at` in Markdown frontmatter) are silently ignored on re-import.

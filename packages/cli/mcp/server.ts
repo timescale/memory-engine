@@ -105,7 +105,7 @@ Docs: ${docUrl("me_memory_create")}`,
           .optional()
           .nullable()
           .describe(
-            "On a conflict with an existing memory (same id, or same tree+name): 'error' (default) fails, 'replace' overwrites it in place, 'ignore' keeps the existing one.",
+            "On a conflict on the idempotency key (a named memory's tree+name, which takes precedence over id; else the id): 'error' (default) fails, 'replace' overwrites it in place, 'ignore' keeps the existing one.",
           ),
       },
       annotations: {

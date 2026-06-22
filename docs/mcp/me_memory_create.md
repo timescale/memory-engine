@@ -12,7 +12,7 @@ Store a new memory.
 | `meta` | `object \| null` | no | Key-value metadata pairs. Omit or pass `null` to skip. |
 | `tree` | `string` | yes | Hierarchical path where the memory is stored (e.g., `/share/work/projects`). The canonical form is `/`-separated with a leading slash (the leading slash is optional on input). Choose deliberately: most memories should go under `/share` so the rest of the space can see them; use `~` (your private home, e.g. `~/notes`) only for memories that must stay private to you. |
 | `temporal` | `object \| null` | no | Time range for the memory. Omit or pass `null` to skip. |
-| `on_conflict` | `string \| null` | no | What to do when the idempotency key (the `id` if given, else the `(tree, name)` slot) already exists: `"error"` (default -- raise CONFLICT), `"replace"` (overwrite in place when content/meta/temporal differ; a no-op when identical), or `"ignore"` (skip and return the existing memory). |
+| `on_conflict` | `string \| null` | no | What to do when the idempotency key (a named memory's `(tree, name)` slot, which takes precedence over any `id`; else the explicit `id`) already exists: `"error"` (default -- raise CONFLICT), `"replace"` (overwrite in place when content/meta/temporal differ; a no-op when identical), or `"ignore"` (skip and return the existing memory). |
 
 ### temporal
 
@@ -71,6 +71,6 @@ The full memory object as created:
 
 - **One idea per memory.** Three decisions = three memories. Search first to avoid duplicates.
 - Tree labels match `[A-Za-z0-9_-]` (letters, digits, `_`, `-`) and are `/`-separated. A memory's `name` is a separate leaf that additionally allows dots.
-- By default a conflict on the idempotency key (the `id` if given, else the `(tree, name)` slot) raises `CONFLICT`. Pass `on_conflict: "ignore"` to make the call idempotent (returns the existing memory) or `"replace"` to overwrite in place when something differs.
+- By default a conflict on the idempotency key (a named memory's `(tree, name)` slot, which takes precedence over any `id`; else the explicit `id`) raises `CONFLICT`. Pass `on_conflict: "ignore"` to make the call idempotent (returns the existing memory) or `"replace"` to overwrite in place when something differs. This governs the idempotency-key conflict only — a named memory whose `id` collides with a *different* existing row still raises regardless of `on_conflict`.
 - `meta` is fully replaced, not merged. Store the complete metadata object each time. Values support any JSON type (strings, numbers, arrays, nested objects).
 - Embeddings are computed asynchronously after creation. `hasEmbedding` will be `false` initially. Fulltext search works immediately; semantic search is available after ~10-30 seconds.
