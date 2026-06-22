@@ -1,15 +1,18 @@
 # Prod cutover runbook — old → multiplayer
 
 Operational steps to cut production from the old org/engine/role model
-(`server/v0.2.5`) to the new auth/core/space model. The **why** and the full
-mapping live in `PROD_MIGRATION_PLAN.md`; the ETL is `packages/migrate-prod`.
-This doc is the **how-to-operate**.
+(`server/v0.2.5`) to the new auth/core/space model, via a **maintenance window**:
+stop the old app, run the ETL once into a new database, repoint + deploy the new
+app, verify, re-issue agent keys. The **why** and the full mapping live in
+`PROD_MIGRATION_PLAN.md`; the ETL is `packages/migrate-prod`. This doc is the
+**how-to-operate**.
 
 > ⚠️ **One hard, user-visible break: API keys do not migrate.** Old keys are
-> argon2-hashed and engine-scoped; every agent must be re-issued a key
-> (`apiKey.create`) and have `ME_API_KEY` updated after cutover. Plan the comms
-> and the re-issue list **before** starting. Sessions DO migrate (users stay
-> logged in); see plan §2.3.
+> argon2-hashed and engine-scoped. **Humans keep working** (sessions migrate —
+> plan §2.3). Only **agents** need a re-issued key (`apiKey.create` → update
+> `ME_API_KEY` where the agent runs). The agents are the old "service users"; run
+> `survey.ts` for the current list (at the last §9 survey: 6 agents across 3
+> owners). Plan the comms before starting.
 
 The migration reads **two source databases** — `DB_ACCOUNTS` (identity) and
 `DB_SHARD` (memories) — and writes a **third, new database**. The sources are
@@ -25,88 +28,68 @@ Grounded facts this runbook relies on (verified in code):
 - The new server connects via `DATABASE_URL` (falling back to the legacy
   `ENGINE_DATABASE_URL`, `start.ts:202`). The target is a **new** database, so the
   chart's database secret **must be repointed** at it (the old `ENGINE_DATABASE_URL`
-  points at `DB_SHARD`). This is a required chart change, unlike a same-DB cutover.
+  points at `DB_SHARD`).
 - Prod is a k8s Deployment `memory-engine` in namespace `memory-engine`, deployed
   by pushing a `server/v*` tag (→ `timescale/tiger-agents-deploy`). The new app
   image must be built from a commit that includes PR #71 (the multiplayer model).
 
 ---
 
-## 0. Modes
-
-- **Mode A — maintenance window (recommended).** Stop the old app, run the ETL
-  once (all engines) into the new DB, repoint + deploy the new app, verify,
-  re-issue keys. Simplest, lowest risk. Right default unless prod is large enough
-  that a window is unacceptable.
-- **Mode B — per-engine, zero-downtime.** Provision the control plane in the new
-  DB while the old app serves, then cut over engines one at a time. More moving
-  parts (the old app keeps reading the old DBs; the new app reads the new DB), so
-  it needs per-engine traffic routing. Only worth it at scale.
-
-Pick A unless the §9 survey shows a data volume / availability requirement that
-forbids a short window.
-
----
-
 ## 1. Pre-flight (all must pass before you start)
 
-- [ ] **§9 verification done** (PROD_MIGRATION_PLAN.md): live DDL matches
-      `server/v0.2.5`; data survey complete (org sizes, RBAC roles, non-trivial
-      grants, orphans). The survey tells you whether the complex paths are even
-      exercised.
+- [ ] **Data verified (§9).** The DDL/data survey is done (plan §9.1). **Re-run
+      `survey.ts` at cutover** for fresh numbers — expect roughly: ~32 users, 34
+      active engines, ~62k memories, 0 orphans, every org with an owner.
 - [ ] **New target database provisioned** — an empty database with the required
       extensions available (`citext`, `ltree`, `vector`/pgvector, `pg_textsearch`
       in `public`). The ETL creates `auth`/`core`/`me_<slug>` in it.
 - [ ] **Connections + privileges.** The ETL opens three connections:
       `DB_ACCOUNTS` (read `accounts.*`), `DB_SHARD` (read `me_<slug>.*`), and the
       target (create + own `auth`/`core`/`me_<slug>`). Confirm each role has the
-      access it needs (the target role must own its schemas; see the Appendix
-      privilege query).
-- [ ] **ETL is runnable against prod.** It is a separate workspace package
-      (`@memory.build/migrate-prod`), not in the server image. Choose one:
-      (a) a one-off in-cluster Job/pod whose image includes `migrate-prod`, with
-      `DB_ACCOUNTS`/`DB_SHARD`/`DATABASE_URL` from secrets; or (b) a maintenance
-      host with the repo + bun and network access to all three databases. Stage
-      this ahead of time.
-- [ ] **Snapshots** of both source databases taken (belt-and-suspenders; the ETL
-      doesn't modify them, but snapshot before any prod operation).
+      access it needs (see the Appendix privilege query).
+- [ ] **ETL runnable against prod.** It's a separate workspace package
+      (`@memory.build/migrate-prod`), not in the server image. Either run it from a
+      maintenance host with the repo + bun and network access to all three
+      databases, or as a one-off in-cluster Job whose image includes it, with
+      `DB_ACCOUNTS`/`DB_SHARD`/`DATABASE_URL` from secrets.
+- [ ] **Snapshots** of both source databases taken (the ETL doesn't modify them,
+      but snapshot before any prod operation).
 - [ ] **New app image built** from a post-PR#71 commit (a `server/v*` tag), ready
-      to deploy, but **not yet rolled out**; the chart's DB secret update (→ new
-      DB) prepared.
-- [ ] **API-key re-issue plan**: list of agents + where each reads `ME_API_KEY`,
-      and the comms to send.
+      to deploy but **not yet rolled out**; the chart DB-secret repoint (→ new DB)
+      prepared.
+- [ ] **Agent re-issue plan** ready: the list of agents (former service users,
+      from `survey.ts`) and where each reads `ME_API_KEY`, plus the comms.
 
 ---
 
-## 2. Rollback plan (know this before you start)
+## 2. Rollback
 
-Because the sources are read-only throughout, rollback is trivial **at any point
-before you decommission them**:
+The sources are read-only throughout, so rollback is trivial **until you
+decommission them (§4)**:
 
-1. Repoint the chart's DB secret back to `DB_SHARD` (and `DB_ACCOUNTS`) and
-   redeploy the old `server/v0.2.5` image (or scale the new app to 0 and the old
-   app back up). The old app sees its original, untouched databases.
-2. The new target database can simply be dropped/abandoned.
+1. Repoint the chart's DB secret back to `DB_SHARD`/`DB_ACCOUNTS` and redeploy the
+   old `server/v0.2.5` image (or scale the new app to 0 and the old app back up).
+   The old app sees its original, untouched databases.
+2. Drop/abandon the new target database.
 
 **Hard fallback:** restore a source snapshot (only needed if something external
-mutated a source — the ETL never does). Once the old databases are decommissioned
-(§5), rollback = restore their snapshots.
+mutated a source — the ETL never does). After §4, rollback = restore snapshots.
 
-Abort criteria during the run: any ETL error that isn't a clearly-understood,
-single-engine data anomaly; reconciliation counts that don't match (Appendix); the
-new app failing its boot health check.
+**Abort criteria during the run:** any ETL error that isn't a clearly-understood,
+single-engine data anomaly; reconciliation counts that don't match (§5); the new
+app failing its boot health check.
 
 ---
 
-## 3. Mode A — maintenance window
+## 3. Cutover
 
-1. **Announce** the window; freeze writes from agents/CLIs.
+1. **Announce** the window; freeze agent/CLI writes.
 2. **Stop the old app** (halts writes to the sources):
    ```
    kubectl -n memory-engine scale deploy/memory-engine --replicas=0
    kubectl -n memory-engine rollout status deploy/memory-engine --timeout=120s
    ```
-3. **Snapshot** the source databases (final, post-quiesce).
+3. **Final snapshot** of the source databases (post-quiesce).
 4. **Run the ETL** (three connections; target = the new DB):
    ```
    DB_ACCOUNTS="postgresql://…"  \
@@ -114,12 +97,13 @@ new app failing its boot health check.
    DATABASE_URL="postgresql://…" \   # the NEW target database
    bun packages/migrate-prod/run.ts
    ```
-   It prints a JSON report. Check: `identities`, `engines` (one per active
-   engine), `skippedEngines` (expect only orphaned/inactive), and `warnings`
-   (each is a dropped grant / dangling user / unsupported nesting — review every
-   one; none should be surprising given the §9 survey).
-5. **Verify** with the Appendix reconciliation queries. **Gate:** counts match and
-   every space has ≥1 admin. If not → abort + rollback (§2).
+   The memory copy is row-by-row (~62k rows; the largest engine ~20.9k in one
+   transaction), so expect it to run for a bit. It prints a JSON report — check
+   against the §9 survey: `engines` ≈ 34, `skippedEngines` = 0, `warnings` = 0
+   (no dangling users / nested roles in prod). Investigate any surprise before
+   proceeding.
+5. **Verify** with the §5 reconciliation queries. **Gate:** counts match and every
+   space has ≥1 admin. If not → abort + rollback (§2).
 6. **Repoint + deploy the new app.** Update the chart DB secret to the new
    database, then push the new `server/v*` tag (→ tiger-agents-deploy). On boot it
    runs the idempotent `migrateCore`/`migrateAuth`/`remigrateSpaces` (no-ops over
@@ -127,60 +111,33 @@ new app failing its boot health check.
    ```
    kubectl -n memory-engine rollout status deploy/memory-engine --timeout=300s
    ```
-   If boot crashloops on migration, the ETL/DB state is wrong — abort, capture
-   `kubectl logs` **before** Helm rolls back, rollback (§2).
-7. **Smoke test:** a known user logs in (session should still be valid — sessions
-   migrated); lists spaces; reads a memory; runs a search (BM25 + semantic). The
-   worker should drain `embedding_queue` for any null-embedding memories.
-8. **Re-issue API keys** for every agent; update each `ME_API_KEY`. Old keys are
-   dead.
-9. **Open the window.** Monitor logs/metrics + the embedding backfill for a soak
-   period.
-10. **Decommission the old databases** — only after the soak (§5).
+   If boot crashloops on migration, the DB state is wrong — capture `kubectl logs`
+   **before** Helm rolls back, then rollback (§2).
+7. **Smoke test:** a known user logs in (session should still be valid); lists
+   spaces; reads a memory; runs a search (BM25 + semantic). The worker should
+   drain `embedding_queue` for the few null-embedding memories.
+8. **Re-issue agent API keys** and update each `ME_API_KEY`. Old keys are dead.
+9. **Open the window.** Monitor logs/metrics + the embedding backfill for a soak.
+10. **Decommission the old databases** — only after the soak (§4).
 
 ---
 
-## 4. Mode B — per-engine, zero-downtime (alternative)
-
-Provision the control plane in the new DB while the old app serves, then cut
-engines over one at a time. Use the exported phase functions, not `run.ts`.
-
-1. **Phase A while live:** `migrateControlPlane(conns, DEFAULT_CONFIG, {})` —
-   provisions `auth`+`core` in the new DB and migrates identities/oauth/sessions
-   from `DB_ACCOUNTS`. The old app is unaffected (different databases).
-2. **Per engine** (repeat; each is one atomic target transaction):
-   - Quiesce writes to that engine (app-level: the old app keeps serving others).
-   - `migrateEngine(conns, cfg, engine, orgMembers, invitations, identityIds, opts)`
-     — create + provision the space in the new DB, build roster/grants, stream-copy
-     memories from `DB_SHARD`. On failure it rolls back (sources untouched).
-   - Verify that space (Appendix, scoped to the slug); route that engine's traffic
-     to the new app.
-3. When all engines are cut over, make the new app the sole server (its boot
-   `remigrateSpaces` is idempotent), then **decommission** the old DBs (§5).
-
-> Mode B needs per-engine traffic routing between the old app (reading
-> `DB_ACCOUNTS`/`DB_SHARD`) and the new app (reading the new DB) during the
-> transition. If you don't have that routing, prefer Mode A.
-
----
-
-## 5. Decommission the old databases (after the soak)
+## 4. Decommission the old databases (after the soak)
 
 There is no teardown SQL — the migration never modified the sources. Once cutover
 is confirmed and the rollback window has closed, decommission `DB_ACCOUNTS` and
-`DB_SHARD` per your infra (final snapshot, then drop/retire the instances). Until
-then, keep them intact so rollback (§2) stays a simple repoint.
+`DB_SHARD` per your infra (final snapshot, then drop/retire the instances). Keep
+them intact until then so rollback (§2) stays a simple repoint.
 
-Optionally follow up with the chart cleanup: remove the now-unused
-`ACCOUNTS_DATABASE_URL`/`ACCOUNTS_MASTER_KEY` and the pool-split values, leaving a
-single `DATABASE_URL`.
+Optional chart cleanup afterward: remove the now-unused `ACCOUNTS_DATABASE_URL`/
+`ACCOUNTS_MASTER_KEY` and the pool-split values, leaving a single `DATABASE_URL`.
 
 ---
 
-## 6. Appendix — verification queries
+## 5. Appendix — verification queries
 
 Run after the ETL (step 5). These span databases — run each `select` against the
-connection named in its comment. Replace schema names if you ran under a prefix.
+connection named in its comment.
 
 **Privilege pre-flight** (run as the **target** role, before starting):
 ```sql
@@ -196,7 +153,7 @@ select count(*) from accounts.identity;                  -- DB_ACCOUNTS
 select count(*) from auth.users;                         -- target
 select count(*) from core.principal where kind = 'u';    -- target
 
--- active engines (DB_ACCOUNTS) vs spaces (target) — equal minus skipped orphans
+-- active engines (DB_ACCOUNTS) vs spaces (target) — equal (0 orphans in prod)
 select count(*) from accounts.engine where status = 'active';  -- DB_ACCOUNTS
 select count(*) from core.space;                               -- target
 
@@ -214,5 +171,5 @@ group by s.slug having count(*) filter (where ps.admin) = 0;
 **Spot-check access parity** (sample a few members): the new
 `core.build_tree_access(member_id, space_id)` reachable set (target) should cover
 what the old `me_<slug>.tree_access(user_id, action)` allowed (DB_SHARD). Pick a
-known owner/admin (expect `owner@root`) and a plain member (expect only their
-granted subtrees + `home`).
+known owner (expect `owner@root`) and the one collaborator in the multi-member
+space (expect only their granted subtrees + `home`).

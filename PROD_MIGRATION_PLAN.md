@@ -15,7 +15,7 @@ was built from lived in `/tmp/me-prod-v025-OLD-SCHEMA.md` and `/tmp/me-new-SCHEM
 (ephemeral). The load-bearing facts are reproduced below.
 
 > **Runbook**: `PROD_MIGRATION_RUNBOOK.md` — the step-by-step cutover (pre-flight,
-> rollback, maintenance-window vs per-engine modes, teardown, verification SQL).
+> rollback, the maintenance-window cutover, decommission, verification SQL).
 >
 > **Implementation**: `packages/migrate-prod` — `migrateProdToMultiplayer(conns)`
 > runs the whole ETL (Phases A+B) over three connections
@@ -346,7 +346,7 @@ provisioning + `core` functions rather than re-implementing SQL.
 6. **Invitations** (§6.2): optional pending-invite rows for this space.
 
 **Phase C — cutover & teardown:**
-7. Point the app's `DATABASE_URL` at the target DB; verify (§6 of the runbook).
+7. Point the app's `DATABASE_URL` at the target DB; verify (runbook §5).
 8. **Decommission the old databases** out of band, after the cutover is confirmed.
    There is no teardown SQL — the sources were never modified.
 
