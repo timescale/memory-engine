@@ -91,6 +91,46 @@ export function formatMemoryCount(count: number, maxCount?: number): string {
 }
 
 /**
+ * Resolve a collision-free `.md` export filename for `base` (a memory name, or
+ * its id when unnamed) within `dir`, recording the choice in `used`.
+ *
+ * Memory names are unique in the database, but distinct names can still map to
+ * the same file on disk: `foo` and `foo.md` both want `foo.md`, and a
+ * case-insensitive filesystem also conflates `Foo` and `foo`. `used` maps each
+ * directory to the set of filenames already claimed there (compared
+ * lowercased). On a clash the memory's unique id is inserted before the `.md`
+ * extension so nothing is silently overwritten; the common no-collision case is
+ * unchanged (`<name>.md`).
+ */
+export function uniqueExportFilename(
+  dir: string,
+  base: string,
+  id: string,
+  used: Map<string, Set<string>>,
+): string {
+  let claimed = used.get(dir);
+  if (!claimed) {
+    claimed = new Set<string>();
+    used.set(dir, claimed);
+  }
+  const stem = base.endsWith(".md") ? base.slice(0, -3) : base;
+  let candidate = `${stem}.md`;
+  if (claimed.has(candidate.toLowerCase())) {
+    // Disambiguate with the unique id. This can only itself clash if another
+    // memory is literally *named* `${stem}.${id}` — astronomically unlikely,
+    // so surface it as an error rather than silently guessing another name.
+    candidate = `${stem}.${id}.md`;
+    if (claimed.has(candidate.toLowerCase())) {
+      throw new Error(
+        `Cannot pick a unique export filename in '${dir}': '${candidate}' is already taken (a memory named like another's id?).`,
+      );
+    }
+  }
+  claimed.add(candidate.toLowerCase());
+  return candidate;
+}
+
+/**
  * Format a memory for Markdown output (frontmatter + content).
  */
 export function formatMemoryAsMarkdown(
@@ -951,11 +991,13 @@ function createMemoryExportCommand(): Command {
             // Write a directory tree mirroring the memory tree:
             //   <dir>/<tree as folders>/<name or id>.md
             // Named files get a legible filename (`.md` appended unless already
-            // present); unnamed ones fall back to the uuid. Names are unique
-            // within a tree, so files never collide.
+            // present); unnamed ones fall back to the uuid. Distinct names can
+            // still map to one file on disk (`foo` vs `foo.md`, or case-insensitive
+            // filesystems), so `uniqueExportFilename` disambiguates by id.
             if (!existsSync(file)) {
               mkdirSync(file, { recursive: true });
             }
+            const usedByDir = new Map<string, Set<string>>();
             for (const mem of memories) {
               const treeDir =
                 typeof mem.tree === "string"
@@ -965,9 +1007,14 @@ function createMemoryExportCommand(): Command {
                 typeof mem.name === "string" && mem.name
                   ? mem.name
                   : String(mem.id);
-              const filename = base.endsWith(".md") ? base : `${base}.md`;
               const dir = treeDir ? join(file, treeDir) : file;
               mkdirSync(dir, { recursive: true });
+              const filename = uniqueExportFilename(
+                dir,
+                base,
+                String(mem.id),
+                usedByDir,
+              );
               writeFileSync(
                 join(dir, filename),
                 formatMemoryAsMarkdown(mem),
