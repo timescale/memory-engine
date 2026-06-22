@@ -85,13 +85,18 @@ const memory = await me.memory.create({
 Create up to 1,000 memories in a single call. Each memory requires a `tree`. A batch-level `onConflict` applies to every row (importers pass `"replace"` or `"ignore"`).
 
 ```typescript
-const { ids, updatedIds } = await me.memory.batchCreate({
+const { results } = await me.memory.batchCreate({
   memories: [
     { content: "First memory", tree: "/share/notes" },
     { content: "Second memory", tree: "/share/notes", name: "second" },
   ],
   onConflict: "ignore", // optional; default "error"
 });
+// `results` has one { id, status } per input, in order — status is
+// "inserted" | "updated" | "skipped". Filter by status for counts/ids:
+const insertedIds = results
+  .filter((r) => r.status === "inserted")
+  .map((r) => r.id);
 ```
 
 ### get / getByPath

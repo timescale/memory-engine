@@ -25,8 +25,9 @@ import {
  *
  * `id` is optional — supply it to preserve identity (import/export, deterministic
  * importers); omit it for a server-generated uuidv7. `name` is the optional leaf
- * slug. `onConflict` governs a clash on the idempotency key (the id when given,
- * else the (tree, name) slot): default `error`.
+ * slug. `onConflict` governs a clash on the idempotency key (a named row's
+ * (tree, name) slot, which takes precedence over id; else the explicit id):
+ * default `error`.
  */
 export const memoryCreateParams = z.object({
   id: uuidv7Schema.optional().nullable(),
@@ -43,10 +44,11 @@ export type MemoryCreateParams = z.infer<typeof memoryCreateParams>;
 /**
  * memory.batchCreate params.
  *
- * `onConflict` governs a clash on each row's idempotency key (its id when given,
- * else its (tree, name) slot): `error` (default) raises, `replace` overwrites
- * in place when content/meta/temporal differ (a no-op when identical), `ignore`
- * skips. Deterministic-id importers pass `replace` and stamp
+ * `onConflict` governs a clash on each row's idempotency key (a named row's
+ * (tree, name) slot, which takes precedence over id; else its explicit id):
+ * `error` (default) raises, `replace` overwrites in place when
+ * content/meta/temporal differ (a no-op when identical), `ignore` skips.
+ * Deterministic-id importers pass `replace` and stamp
  * `meta.importer_version`, so an unchanged re-import is a no-op while a version
  * bump makes meta differ and re-renders.
  */
