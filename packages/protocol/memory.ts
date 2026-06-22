@@ -12,6 +12,7 @@ import {
   treeFilterSchema,
   treePathSchema,
   uuidv7Schema,
+  writeStatusSchema,
 } from "./fields.ts";
 
 // =============================================================================
@@ -232,16 +233,29 @@ export const memoryWithScoreResponse = memoryResponse.extend({
 export type MemoryWithScoreResponse = z.infer<typeof memoryWithScoreResponse>;
 
 /**
+ * One row's outcome from create/batchCreate: its stored `id` (the kept existing
+ * id on a (tree, name) update/skip — readable even when skipped) and `status`
+ * ('inserted' | 'updated' | 'skipped').
+ */
+export const memoryWriteResult = z.object({
+  id: z.string(),
+  status: writeStatusSchema,
+});
+
+export type MemoryWriteResult = z.infer<typeof memoryWriteResult>;
+
+/**
  * memory.batchCreate result.
  *
- * `ids` are the freshly inserted memories; `updatedIds` are existing rows
- * rewritten in place by `onConflict: 'replace'`. A submitted explicit id in
- * neither array (and not in a failed request) was skipped — it already existed
- * and nothing differed (a replace no-op), or `onConflict` was `ignore`.
+ * `results` carries one entry per submitted memory, in request order (so
+ * `results[i]` is the outcome of `memories[i]`). Each is `{ id, status }`:
+ * `inserted` (new row), `updated` (existing row rewritten by `onConflict:
+ * 'replace'`), or `skipped` (already existed and nothing differed, or
+ * `onConflict: 'ignore'`). Derive inserted/updated/skipped sets by filtering on
+ * `status`.
  */
 export const memoryBatchCreateResult = z.object({
-  ids: z.array(z.string()),
-  updatedIds: z.array(z.string()),
+  results: z.array(memoryWriteResult),
 });
 
 export type MemoryBatchCreateResult = z.infer<typeof memoryBatchCreateResult>;

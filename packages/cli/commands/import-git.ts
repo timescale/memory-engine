@@ -41,7 +41,6 @@ import {
   requireSpace,
 } from "../util.ts";
 import { VALID_TREE_ROOT_RE } from "./import.ts";
-import { computeSkippedIds } from "./memory-import.ts";
 
 /** Parsed options for one git import run. */
 export interface GitImportOptions {
@@ -257,20 +256,21 @@ export async function runGitImport(
   if (opts.dryRun) {
     inserted = unique.length;
   } else if (unique.length > 0) {
-    const submitted = unique.map((p) => p.memoryId);
     // Re-import is idempotent via content-aware replace: an unchanged commit is
-    // a no-op; a version bump changes meta and re-renders in place. Without a
-    // directive a re-submitted commit would be a hard (tree, name) conflict.
+    // a no-op (status 'skipped'); a version bump changes meta and re-renders in
+    // place ('updated'). Without a directive a re-submitted commit would be a
+    // hard (tree, name) conflict.
     const result = await batchCreateChunked(
       engine,
       unique.map((p) => p.payload),
       { onConflict: "replace" },
     );
-    inserted = result.insertedIds.length;
-    const failedSet = new Set(result.failedIds);
-    skipped = computeSkippedIds(submitted, result.insertedIds).filter(
-      (id) => !failedSet.has(id),
+    // A commit "imported" if it was inserted or re-rendered; skipped =
+    // unchanged. 'error' rows are tallied via errors[] (failed) below.
+    inserted = result.results.filter(
+      (r) => r.status === "inserted" || r.status === "updated",
     ).length;
+    skipped = result.results.filter((r) => r.status === "skipped").length;
     for (const e of result.errors) {
       failed += e.itemCount;
       errors.push({ sha: `chunk ${e.chunkIndex}`, error: e.error });

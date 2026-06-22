@@ -244,39 +244,38 @@ function createPackInstallCommand(): Command {
         // Chunked batch create — large packs are sliced under the
         // server's request-body limit, and a single failed chunk doesn't
         // take down its siblings (re-running install will self-heal).
-        const {
-          insertedIds,
-          failedIds,
-          errors: chunkErrors,
-        } = await batchCreateChunked(client, createParams, {
-          // Packs carry deterministic ids; re-installing skips rows that
-          // already exist rather than erroring on the raise-by-default server.
-          onConflict: "ignore",
-        });
+        const { results: writeResults, errors: chunkErrors } =
+          await batchCreateChunked(client, createParams, {
+            // Packs carry deterministic ids; re-installing skips rows that
+            // already exist rather than erroring on the raise-by-default server.
+            onConflict: "ignore",
+          });
 
         spin?.stop("Done");
 
-        // With `onConflict: 'ignore'` the server returns only ids it actually
-        // inserted — conflicting ids are skipped. Classify the skips so the
-        // user sees benign re-installs vs real id collisions, excluding
-        // failed-chunk ids (those never reached the server).
-        const requestedIds = createParams
-          .map((p) => p.id)
-          .filter((x): x is string => typeof x === "string");
+        // 'ignore' never updates, so a row is inserted, skipped, or error.
+        // Classify the skipped ids so the user sees benign re-installs vs real
+        // id collisions; 'error' rows are a failed chunk (a different bucket),
+        // so they can't be mis-classified as conflicts. Pack ids are always
+        // explicit, so inserted/skipped ids are never null.
+        const installed = writeResults.filter(
+          (r) => r.status === "inserted",
+        ).length;
+        const skippedIds = writeResults.flatMap((r) =>
+          r.status === "skipped" && r.id !== null ? [r.id] : [],
+        );
         const { idempotent, conflict } = classifySkips({
-          requestedIds,
-          insertedIds,
-          failedIds,
+          skippedIds,
           existing: existing.results,
           packName,
           packVersion,
         });
 
-        const installed = insertedIds.length;
         const skippedIdempotent = idempotent.length;
         const skippedConflict = conflict.length;
         const skipped = skippedIdempotent + skippedConflict;
-        const failed = failedIds.length;
+        const failed = writeResults.filter((r) => r.status === "error").length;
+        const failedIds = chunkErrors.flatMap((e) => e.ids);
 
         const jsonOut: Record<string, unknown> = {
           pack: packName,
@@ -430,44 +429,33 @@ function createPackListCommand(): Command {
 
 /**
  * Pack install calls `client.memory.batchCreate` with `onConflict: 'ignore'`,
- * so the returned `ids` array can be shorter than the request when conflicts
- * occur. For pack install, ids that didn't land fall into three buckets:
+ * which reports each row's `status`. The rows that came back `skipped` (their
+ * deterministic id already existed) fall into two buckets:
  *
  * - **idempotent**: the row is already present and tagged with this pack
  *   name + version (a benign re-install of the same version)
  * - **conflict**:   the id is held by something else — a different pack,
  *   a different version, or a non-pack memory the user wrote themselves.
  *   Surfaced as a warning so a real id collision isn't silently masked.
- * - **failed (excluded here)**: the id was in a chunk that errored before
- *   reaching the server. Callers pass these via `failedIds` so they don't
- *   get mis-classified as conflicts; they're tracked separately under
- *   the `failed` bucket in the install output.
+ *
+ * Failed-chunk ids never reached the server, so they aren't in `skippedIds`
+ * and are tracked separately under the install output's `failed` bucket.
  *
  * Pure function exported for unit testing.
  */
 export function classifySkips(args: {
-  requestedIds: string[];
-  insertedIds: string[];
-  /**
-   * Ids that were submitted but never reached the server because their
-   * containing chunk errored. Optional — if omitted, treated as empty.
-   */
-  failedIds?: string[];
+  skippedIds: string[];
   existing: ReadonlyArray<{ id: string; meta?: unknown }>;
   packName: string;
   packVersion: string;
 }): { idempotent: string[]; conflict: string[] } {
-  const inserted = new Set(args.insertedIds);
-  const failed = new Set(args.failedIds ?? []);
   const existingById = new Map<string, unknown>(
     args.existing.map((m) => [m.id, m.meta]),
   );
   const idempotent: string[] = [];
   const conflict: string[] = [];
 
-  for (const id of args.requestedIds) {
-    if (inserted.has(id) || failed.has(id)) continue;
-
+  for (const id of args.skippedIds) {
     const meta = existingById.get(id);
     const packMeta =
       meta && typeof meta === "object"

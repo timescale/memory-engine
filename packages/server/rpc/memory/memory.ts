@@ -252,12 +252,11 @@ async function memoryCreate(
  * memory.batchCreate — atomic across the batch (one set-based statement,
  * `batch_create_memory`).
  *
- * `ids` carries the inserted memories; `updatedIds` the existing rows rewritten
- * by `onConflict: 'replace'`. A submitted explicit id in neither array was
- * skipped — deterministic-id importers re-submit freely and classify the
- * missing ids as already imported. A duplicate idempotency key within one batch
- * raises. (The store now reports a per-row status; this still projects it down
- * to {ids, updatedIds} for the wire — R2 surfaces the full status.)
+ * Returns one `{ id, status }` per submitted memory, in request order, so the
+ * caller can map each result back to its input and see whether it was inserted,
+ * updated (rewritten by `onConflict: 'replace'`), or skipped (already current,
+ * or `onConflict: 'ignore'`). A duplicate idempotency key within one batch
+ * raises.
  */
 async function memoryBatchCreate(
   params: MemoryBatchCreateParams,
@@ -281,14 +280,7 @@ async function memoryBatchCreate(
       params.onConflict ?? undefined,
     ),
   );
-  const ids: string[] = [];
-  const updatedIds: string[] = [];
-  for (const r of rows) {
-    if (r.status === "inserted") ids.push(r.id);
-    else if (r.status === "updated") updatedIds.push(r.id);
-    // 'skipped' rows contribute to neither (existing row left as-is).
-  }
-  return { ids, updatedIds };
+  return { results: rows.map((r) => ({ id: r.id, status: r.status })) };
 }
 
 /** memory.get */

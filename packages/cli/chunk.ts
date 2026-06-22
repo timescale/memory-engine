@@ -14,7 +14,10 @@
  * that callers should reach for unless they need a custom budget.
  */
 
-import type { MemoryCreateParams } from "@memory.build/protocol/memory";
+import type {
+  MemoryCreateParams,
+  MemoryWriteResult,
+} from "@memory.build/protocol/memory";
 
 /**
  * Hard cap on memories per `memory.batchCreate` call. Matches the protocol
@@ -116,7 +119,7 @@ export interface BatchCreateClient {
     batchCreate: (params: {
       memories: MemoryCreateParams[];
       onConflict?: "error" | "replace" | "ignore";
-    }) => Promise<{ ids: string[]; updatedIds: string[] }>;
+    }) => Promise<{ results: MemoryWriteResult[] }>;
   };
 }
 
@@ -133,23 +136,34 @@ export interface BatchCreateChunkedOptions {
   onConflict?: "error" | "replace" | "ignore";
 }
 
+/**
+ * One submitted memory's outcome from a chunked run. A superset of the wire
+ * `MemoryWriteResult`: successful chunks yield the server's `{ id, status }`
+ * (status 'inserted' | 'updated' | 'skipped', `id` always present); a failed
+ * chunk yields `status: 'error'` for each of its rows, with `id` the row's
+ * explicit id when it had one (echoed back) or `null` when it was submitted
+ * without an id. The failure *message* lives once per chunk in `errors[]`.
+ */
+export interface ChunkWriteResult {
+  id: string | null;
+  status: MemoryWriteResult["status"] | "error";
+}
+
 /** Result of a chunked `batchCreate` run. */
 export interface BatchCreateChunkedResult {
-  /** Ids the server confirmed inserted (across all successful chunks). */
-  insertedIds: string[];
-  /** Existing rows rewritten in place by `onConflict: 'replace'`. */
-  updatedIds: string[];
   /**
-   * Explicit ids submitted in chunks that errored, flattened across all
-   * failed chunks for callers that just need a set of "ids to exclude
-   * from skip classification." For per-chunk error attribution use
-   * `errors[].ids` instead.
-   *
-   * These were never processed by the server, so they are neither
-   * inserted nor skipped.
+   * One row per submitted memory, in submission order — so `results[i]` is the
+   * outcome of the i-th input (the same contract as the wire `batchCreate`,
+   * extended with an 'error' status for inputs whose chunk failed). Filter by
+   * status for inserted/updated/skipped/error counts and ids.
    */
-  failedIds: string[];
-  /** One entry per failed chunk. */
+  results: ChunkWriteResult[];
+  /**
+   * One entry per failed chunk, carrying the shared error message. Every row in
+   * a failed chunk also appears in `results` as an 'error' row; this view groups
+   * those failures with their message (and reports the full item count, which
+   * includes rows submitted without an explicit id).
+   */
   errors: Array<{
     /** 0-based index of the failed chunk in submission order. */
     chunkIndex: number;
@@ -165,24 +179,18 @@ export interface BatchCreateChunkedResult {
  * Run `client.memory.batchCreate` over `memories`, automatically slicing
  * the input into chunks that fit under the server's request-body limit.
  *
- * Chunks are sent sequentially. A failed chunk is recorded once in
- * `errors` and its explicit ids are added to `failedIds`; it does not
- * abort siblings. Successful chunks contribute to `insertedIds` and
- * `updatedIds`.
- *
- * A submitted explicit id in neither array (and not in a failed chunk) was
- * skipped server-side — it already exists and nothing differed (a 'replace'
- * no-op) or `onConflict` was 'ignore'. Use `computeSkippedIds` (or, for
- * packs, `classifySkips` with `failedIds`) to classify the missing ids.
+ * Chunks are sent sequentially and a failed chunk does not abort its siblings.
+ * Every input gets one `results` row in submission order: successful chunks
+ * contribute the server's `{ id, status }`, and a failed chunk contributes an
+ * 'error' row per input (its explicit id, else `null`). The failure message is
+ * recorded once per chunk in `errors`.
  */
 export async function batchCreateChunked(
   client: BatchCreateClient,
   memories: MemoryCreateParams[],
   options: BatchCreateChunkedOptions = {},
 ): Promise<BatchCreateChunkedResult> {
-  const insertedIds: string[] = [];
-  const updatedIds: string[] = [];
-  const failedIds: string[] = [];
+  const results: ChunkWriteResult[] = [];
   const errors: BatchCreateChunkedResult["errors"] = [];
   let chunkIndex = 0;
 
@@ -194,15 +202,17 @@ export async function batchCreateChunked(
           ? { onConflict: options.onConflict }
           : {}),
       });
-      insertedIds.push(...res.ids);
-      // A pre-upsert server doesn't return updatedIds; treat as none updated.
-      updatedIds.push(...(res.updatedIds ?? []));
+      results.push(...res.results);
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);
+      // Every row in the failed chunk gets an 'error' result (its explicit id,
+      // else null), preserving the one-row-per-input contract.
+      for (const p of chunk) {
+        results.push({ id: p.id ?? null, status: "error" });
+      }
       const ids = chunk
         .map((p) => p.id)
         .filter((x): x is string => typeof x === "string");
-      failedIds.push(...ids);
       errors.push({
         chunkIndex,
         itemCount: chunk.length,
@@ -213,5 +223,5 @@ export async function batchCreateChunked(
     chunkIndex++;
   }
 
-  return { insertedIds, updatedIds, failedIds, errors };
+  return { results, errors };
 }
