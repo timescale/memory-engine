@@ -11,6 +11,10 @@
  * writes the new model to the target database, and prints the report. The
  * sources are never modified — rollback is repointing the app at them.
  *
+ * Smoke test / rehearsal: point DATABASE_URL at a throwaway target and set
+ * `MIGRATE_ENGINES=slug1,slug2` to migrate only those engines (Phase A still
+ * migrates all identities). Omit it to migrate every active engine.
+ *
  * Run this BEFORE deploying the new app, then point the app's DATABASE_URL at the
  * same target database (its idempotent boot migration then re-runs as a no-op).
  * See PROD_MIGRATION_RUNBOOK.md.
@@ -39,14 +43,21 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
+  const engineSlugs = process.env.MIGRATE_ENGINES?.split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+
   const accounts = postgres(accountsUrl, { max: 2, onnotice: () => {} });
   const shard = postgres(shardUrl, { max: 4, onnotice: () => {} });
   const target = postgres(targetUrl, { max: 4, onnotice: () => {} });
   try {
-    console.error("[migrate-prod] starting: DB_ACCOUNTS + DB_SHARD → target…");
+    console.error(
+      `[migrate-prod] starting: DB_ACCOUNTS + DB_SHARD → target${engineSlugs ? ` (engines: ${engineSlugs.join(", ")})` : ""}…`,
+    );
     const report = await migrateProdToMultiplayer(
       { accounts, shard, target },
       DEFAULT_CONFIG,
+      engineSlugs ? { engineSlugs } : {},
     );
     console.log(JSON.stringify(report, null, 2));
     console.error(

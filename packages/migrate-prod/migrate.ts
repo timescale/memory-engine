@@ -167,6 +167,12 @@ export interface MigrateOptions {
   migrateSessions?: boolean;
   /** Copy pending org invitations as per-space invitations (default true). */
   migrateInvitations?: boolean;
+  /**
+   * Restrict Phase B to these engine slugs (Phase A still migrates ALL
+   * identities). For a rehearsal / smoke test — omit to migrate every active
+   * engine.
+   */
+  engineSlugs?: string[];
 }
 
 // ---------------------------------------------------------------------------
@@ -516,12 +522,16 @@ export async function migrateProdToMultiplayer(
     opts,
   );
 
-  const engines = await conns.accounts<OldEngine[]>`
+  const allEngines = await conns.accounts<OldEngine[]>`
     select id, org_id, slug, name, language
     from ${conns.accounts(cfg.accountsSchema)}.engine
     where status = 'active'
     order by created_at
   `;
+  // Optional engine allow-list (e.g. for a rehearsal / smoke test).
+  const engines = opts.engineSlugs
+    ? allEngines.filter((e) => opts.engineSlugs?.includes(e.slug))
+    : allEngines;
   const orgMembers = await conns.accounts<OldOrgMember[]>`
     select org_id, identity_id, role from ${conns.accounts(cfg.accountsSchema)}.org_member
   `;
@@ -549,6 +559,14 @@ export async function migrateProdToMultiplayer(
 
   const engineReports: EngineReport[] = [];
   const skipped: { slug: string; reason: string }[] = [];
+  // Flag any requested slug that isn't an active engine.
+  if (opts.engineSlugs) {
+    const active = new Set(allEngines.map((e) => e.slug));
+    for (const slug of opts.engineSlugs) {
+      if (!active.has(slug))
+        skipped.push({ slug, reason: "not an active engine" });
+    }
+  }
   for (const engine of engines) {
     if (
       !(await schemaExists(conns.shard, sourceSpaceSchema(cfg, engine.slug)))

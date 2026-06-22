@@ -35,6 +35,44 @@ Grounded facts this runbook relies on (verified in code):
 
 ---
 
+## 0. Rehearsal / smoke test (do this first, against a throwaway target)
+
+The ETL never writes the sources, so you can rehearse it against the **real** prod
+sources (read-only) writing to a **throwaway target** — no window, no risk.
+
+1. Provision an empty test target (extensions creatable — see §1) and put its URL
+   in `.env.local` as `DATABASE_URL` (alongside `DB_ACCOUNTS`/`DB_SHARD`; Bun
+   auto-loads `.env.local`).
+2. **Fast first pass — a few engines.** `MIGRATE_ENGINES` limits Phase B to a
+   subset (Phase A still migrates all identities). Include the multi-member engine
+   to exercise the role→group + member-roster path:
+   ```
+   MIGRATE_ENGINES=5ld4wito9c8o,<a-small-slug> bun packages/migrate-prod/run.ts
+   ```
+   Validates connectivity to all three DBs, target extensions/privileges, the
+   control plane, and the complex path — in seconds.
+3. **Full rehearsal.** Drop the `MIGRATE_ENGINES` var and run the whole thing:
+   ```
+   bun packages/migrate-prod/run.ts
+   ```
+   This copies all ~62k memories row-by-row from prod (read-only) — expect it to
+   take a while and to put read load on the source shard. It validates timing and
+   full correctness end-to-end.
+4. **Verify** the target with the §5 queries (counts, ≥1 admin per space, access
+   spot-check). Confirm the report has `skippedEngines: []` and `warnings: []`.
+5. **To re-run**, reset the target first — the ETL is not idempotent on a dirty
+   target (duplicate ids/slugs). Against the **test target only**:
+   ```sql
+   do $$ declare s text; begin
+     for s in
+       select nspname from pg_namespace
+       where nspname in ('auth','core') or nspname ~ '^me_[a-z0-9]{12}$'
+     loop execute format('drop schema if exists %I cascade', s); end loop;
+   end $$;
+   ```
+
+---
+
 ## 1. Pre-flight (all must pass before you start)
 
 - [ ] **Data verified (§9).** The DDL/data survey is done (plan §9.1). **Re-run

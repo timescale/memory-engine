@@ -279,3 +279,58 @@ describe("engine selection", () => {
     ).toBe(2);
   });
 });
+
+describe("engineSlugs filter (smoke test / rehearsal)", () => {
+  let sql2: Sql;
+  let cfg2: MigrationConfig;
+  let scn2: SeededScenario;
+  let rep2: MigrationReport;
+
+  beforeAll(async () => {
+    sql2 = postgres(TEST_URL, { max: 6, onnotice: () => {} });
+    cfg2 = prefixed(`mpflt_${Math.random().toString(36).slice(2, 8)}_`);
+    await createOldAccountsSchema(sql2, cfg2);
+    scn2 = await seedScenario(sql2, cfg2, EMB);
+    rep2 = await migrateProdToMultiplayer(
+      { accounts: sql2, shard: sql2, target: sql2 },
+      cfg2,
+      {
+        embeddingDimensions: EMB,
+        engineSlugs: [scn2.teamSlug, "nonexistent1"],
+      },
+    );
+  });
+
+  afterAll(async () => {
+    if (!sql2) return;
+    for (const slug of [scn2?.personalSlug, scn2?.teamSlug]) {
+      if (!slug) continue;
+      await sql2`drop schema if exists ${sql2(sourceSpaceSchema(cfg2, slug))} cascade`;
+      await sql2`drop schema if exists ${sql2(targetSpaceSchema(cfg2, slug))} cascade`;
+    }
+    for (const name of [
+      cfg2?.accountsSchema,
+      cfg2?.authSchema,
+      cfg2?.coreSchema,
+    ]) {
+      if (name) await sql2`drop schema if exists ${sql2(name)} cascade`;
+    }
+    await sql2.end();
+  });
+
+  test("migrates only the listed engine; Phase A still migrates all identities", async () => {
+    expect(rep2.engines.map((e) => e.slug)).toEqual([scn2.teamSlug]);
+    expect(rep2.identities).toBe(4); // identities are global — all migrate
+    // the un-listed engine's space schema is never created in the target
+    const [row] = await sql2`
+      select exists (
+        select 1 from pg_namespace where nspname = ${targetSpaceSchema(cfg2, scn2.personalSlug)}
+      ) as present
+    `;
+    expect(row?.present).toBe(false);
+  });
+
+  test("a requested slug that isn't an active engine is reported skipped", () => {
+    expect(rep2.skippedEngines.map((s) => s.slug)).toContain("nonexistent1");
+  });
+});
