@@ -233,6 +233,7 @@ function createPackInstallCommand(): Command {
         const createParams = memories.map((mem) => ({
           id: mem.id,
           content: mem.content,
+          ...(mem.name ? { name: mem.name } : {}),
           meta: {
             ...(mem.meta ?? {}),
             pack: { name: packName, version: packVersion },

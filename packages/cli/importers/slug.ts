@@ -133,8 +133,31 @@ function getGitInfo(
 /**
  * Short hex hash (4 chars) of an arbitrary disambiguation string.
  */
-function shortHash(input: string): string {
-  return createHash("sha256").update(input).digest("hex").slice(0, 4);
+function shortHash(input: string, chars = 4): string {
+  return createHash("sha256").update(input).digest("hex").slice(0, chars);
+}
+
+/**
+ * Map an arbitrary id to a deterministic, length-bounded, collision-free label.
+ *
+ * `normalize` slugifies the id to the target charset — a lossy step, so distinct
+ * ids can collapse (`a/b`, `a:b`, and `a_b` all normalize to `a_b`; for an ltree
+ * label the dashes in a UUID likewise merge to `_`). To keep distinct ids
+ * distinct, a hash of the FULL original id is appended whenever normalization
+ * changed the id (lossy) or the result would exceed `maxLen`; an id that
+ * normalizes to itself and already fits is returned unchanged. Pure and stable,
+ * so the result is safe as part of a `(tree, name)` idempotency key.
+ */
+export function boundedUniqueLabel(
+  id: string,
+  normalize: (s: string) => string,
+  maxLen: number,
+): string {
+  const normalized = normalize(id);
+  if (normalized === id && normalized.length <= maxLen) return normalized;
+  const suffix = `_${shortHash(id, 8)}`;
+  const head = normalized.slice(0, Math.max(0, maxLen - suffix.length));
+  return `${head}${suffix}`;
 }
 
 /**
