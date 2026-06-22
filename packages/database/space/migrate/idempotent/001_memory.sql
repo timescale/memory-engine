@@ -306,6 +306,18 @@ begin
       using errcode = 'invalid_parameter_value';
   end if;
 
+  -- Check access to write targets before probing existing rows, so callers
+  -- can't learn whether ids or (tree, name) slots exist outside their grant.
+  if exists
+  (
+    select 1
+    from unnest(_trees) t(tree)
+    where not {{schema}}.has_tree_access(_tree_access, t.tree, 2)
+  ) then
+    raise exception 'insufficient tree access'
+      using errcode = 'insufficient_privilege';
+  end if;
+
   -- The keys above are distinct, but two inputs with DIFFERENT keys can still
   -- resolve to the same EXISTING row: an unnamed {id: X} and a {tree, name}
   -- whose slot already holds id X. Status is attributed by stored id, so that
@@ -338,16 +350,6 @@ begin
   ) then
     raise exception 'batch inputs target the same existing memory via different keys (explicit id and (tree, name))'
       using errcode = 'invalid_parameter_value';
-  end if;
-
-  if exists
-  (
-    select 1
-    from unnest(_trees) t(tree)
-    where not {{schema}}.has_tree_access(_tree_access, t.tree, 2)
-  ) then
-    raise exception 'insufficient tree access'
-      using errcode = 'insufficient_privilege';
   end if;
 
   return query
