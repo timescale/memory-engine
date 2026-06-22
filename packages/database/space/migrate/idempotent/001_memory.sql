@@ -164,6 +164,27 @@ set search_path to pg_catalog, {{schema}}, public, pg_temp
 ;
 
 -------------------------------------------------------------------------------
+-- raise_no_write_access
+--
+-- Raises insufficient_privilege (→ FORBIDDEN at the RPC boundary). Sits in the
+-- create path's ON CONFLICT ... WHERE for the case where an explicit-id row
+-- collides with an EXISTING row in a tree the caller can't write: under
+-- 'replace' that replace can't be performed, so it's a hard error rather than a
+-- silent no-op. Returns boolean only so it can sit in a WHERE expression; it
+-- never actually returns.
+-------------------------------------------------------------------------------
+create or replace function {{schema}}.raise_no_write_access()
+returns boolean
+as $func$
+begin
+  raise exception 'insufficient tree access'
+    using errcode = 'insufficient_privilege';
+end;
+$func$ language plpgsql volatile
+set search_path to pg_catalog, {{schema}}, public, pg_temp
+;
+
+-------------------------------------------------------------------------------
 -- batch create memory
 --
 -- The canonical memory insert: one set-based call for a whole batch
@@ -285,6 +306,40 @@ begin
       using errcode = 'invalid_parameter_value';
   end if;
 
+  -- The keys above are distinct, but two inputs with DIFFERENT keys can still
+  -- resolve to the same EXISTING row: an unnamed {id: X} and a {tree, name}
+  -- whose slot already holds id X. Status is attributed by stored id, so that
+  -- would mark both inputs from one write — breaking one-status-per-input (and
+  -- two CTEs would touch the same row). Reject it. The id arm is restricted to
+  -- UNNAMED explicit-id inputs (the id-keyed partition); a named row's explicit
+  -- id is not a key (name wins), so a single named input whose id equals its own
+  -- stored id is not a false positive.
+  --
+  -- The collision needs BOTH an explicit-id input and a named input, so skip
+  -- this two-join probe against `memory` entirely when either is absent (e.g. a
+  -- name-only or all-anonymous batch).
+  if _names is not null
+     and cardinality(array_remove(_ids, null)) > 0
+     and exists
+  (
+    select 1 from
+    (
+      select m.id
+      from unnest(_ids, _names) u(id, name)
+      join {{schema}}.memory m on m.id = u.id
+      where u.id is not null and u.name is null
+      union all
+      select m.id
+      from unnest(_trees, _names) u(tree, name)
+      join {{schema}}.memory m on m.tree = u.tree and m.name = u.name
+      where u.name is not null
+    ) x
+    group by x.id having count(*) > 1
+  ) then
+    raise exception 'batch inputs target the same existing memory via different keys (explicit id and (tree, name))'
+      using errcode = 'invalid_parameter_value';
+  end if;
+
   if exists
   (
     select 1
@@ -337,8 +392,11 @@ begin
     select r.* from r where r.explicit_id is null and r.name is null
   )
   -- Unnamed explicit-id rows dedup on the id, so the row keeps it (import/export
-  -- identity). A replace needs write access on the existing row's tree (else
-  -- skipped, so one inaccessible row can't fail it).
+  -- identity). An explicit id can collide with an existing row in a tree the
+  -- caller can't write (the up-front check only covers the INPUT trees), so the
+  -- conflict modes diverge there: 'error' always raises CONFLICT (so it never
+  -- silently skips → INTERNAL_ERROR on read-back); 'ignore' skips; 'replace'
+  -- raises (it can't perform the replace on an unwritable tree).
   , ins_id as
   (
     insert into {{schema}}.memory as m
@@ -352,16 +410,17 @@ begin
     , content = excluded.content
     , name = excluded.name
     where case
-      when not {{schema}}.has_tree_access(_tree_access, m.tree, 2) then false
-      when _on_conflict = 'replace'
-        -- an id-keyed replace can move/rename, so compare every updated field
-        then m.tree is distinct from excluded.tree
-             or m.name is distinct from excluded.name
-             or m.content is distinct from excluded.content
-             or m.meta is distinct from excluded.meta
-             or m.temporal is distinct from excluded.temporal
+      when _on_conflict = 'error' then {{schema}}.raise_conflict()
       when _on_conflict = 'ignore' then false
-      else {{schema}}.raise_conflict()
+      -- only 'replace' remains
+      when not {{schema}}.has_tree_access(_tree_access, m.tree, 2)
+        then {{schema}}.raise_no_write_access()
+      -- an id-keyed replace can move/rename, so compare every updated field
+      else m.tree is distinct from excluded.tree
+           or m.name is distinct from excluded.name
+           or m.content is distinct from excluded.content
+           or m.meta is distinct from excluded.meta
+           or m.temporal is distinct from excluded.temporal
     end
     returning m.id as id, (m.xmax = 0) as inserted
   )

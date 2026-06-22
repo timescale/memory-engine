@@ -422,20 +422,39 @@ describe("provisioned schema is functional", () => {
     expect(row?.updated_at).not.toBeNull();
   });
 
-  test("create_memory replace requires write access on the existing row's tree", async () => {
-    // Row lives under a.secret; the caller's grant covers only a.open — the
-    // insert-arm check passes (target a.open) but the replace arm must skip.
+  test("create_memory explicit-id collision with an unwritable tree: error raises, replace raises, ignore skips", async () => {
+    // The row lives under a.secret; the caller's grant covers only a.open, so
+    // the INPUT tree (a.open) passes the up-front check while the EXISTING row's
+    // tree (a.secret) is unwritable. 'error' raises CONFLICT and 'replace'
+    // raises insufficient_privilege (it can't perform the replace) — neither
+    // silently skips, which used to surface as INTERNAL_ERROR on read-back.
+    // 'ignore' skips, leaving the existing row alone.
     const id = "01941000-0000-7000-8000-000000000003";
     await createMemory(
       `${OWNER}, 'a.secret'::ltree, 'guarded', '${id}'::uuid, '{"v": "1"}'::jsonb`,
     );
-
     const limited = `'[{"tree_path": "a.open", "access": 3}]'::jsonb`;
-    const [res] = await createMemory(
-      `${limited}, 'a.open'::ltree, 'hijack', '${id}'::uuid, '{"v": "2"}'::jsonb, null, null, 'replace'`,
-    );
-    expect(res?.status).toBe("skipped");
 
+    // error (default) → raise.
+    await expectReject(() =>
+      createMemory(
+        `${limited}, 'a.open'::ltree, 'hijack', '${id}'::uuid, '{"v": "2"}'::jsonb`,
+      ),
+    );
+    // replace → raise (can't replace a row in an unwritable tree).
+    await expectReject(() =>
+      createMemory(
+        `${limited}, 'a.open'::ltree, 'hijack', '${id}'::uuid, '{"v": "2"}'::jsonb, null, null, 'replace'`,
+      ),
+    );
+    // ignore → skip, returning the existing stored id.
+    const [ignored] = await createMemory(
+      `${limited}, 'a.open'::ltree, 'hijack', '${id}'::uuid, '{"v": "2"}'::jsonb, null, null, 'ignore'`,
+    );
+    expect(ignored?.id).toBe(id);
+    expect(ignored?.status).toBe("skipped");
+
+    // The existing row is untouched in every case.
     const [row] = await sql.unsafe(
       `select content, tree::text as tree from ${canonical.schema}.memory where id = '${id}'`,
     );
@@ -548,6 +567,50 @@ describe("provisioned schema is functional", () => {
          )`,
       ),
     );
+  });
+
+  test("batch_create_memory rejects two inputs targeting the same existing row via different keys", async () => {
+    // Existing named row at (n.cross, doc) with id X.
+    const x = "01941000-0000-7000-8000-00000000e001";
+    await createMemory(
+      `${OWNER}, 'n.cross'::ltree, 'v1', '${x}'::uuid, '{}'::jsonb, null, 'doc'`,
+    );
+
+    // input1 {id: X} (unnamed, id-keyed) and input2 {n.cross, doc} (name-keyed)
+    // both resolve to the SAME stored row X — distinct keys, so the per-key dup
+    // checks miss it; the cross-key check must reject it (else one write would
+    // attribute a status to both inputs).
+    await expectReject(() =>
+      sql.unsafe(
+        `select * from ${canonical.schema}.batch_create_memory(
+           ${OWNER},
+           array['${x}', null]::uuid[],
+           array['n.cross', 'n.cross']::ltree[],
+           array['by-id', 'by-name']::text[],
+           '[{}, {}]'::jsonb,
+           array[null, null]::tstzrange[],
+           array[null, 'doc']::text[],
+           'replace'
+         )`,
+      ),
+    );
+
+    // A single NAMED input whose explicit id equals its own stored id is fine
+    // (name wins; not a cross-key collision) — identical content+meta → skip.
+    const [same] = await sql.unsafe(
+      `select ord, id, status from ${canonical.schema}.batch_create_memory(
+         ${OWNER},
+         array['${x}']::uuid[],
+         array['n.cross']::ltree[],
+         array['v1']::text[],
+         '[{}]'::jsonb,
+         array[null]::tstzrange[],
+         array['doc']::text[],
+         'replace'
+       )`,
+    );
+    expect(same?.id).toBe(x);
+    expect(same?.status).toBe("skipped");
   });
 
   test("batch_create_memory rejects misaligned arrays and bad target access", async () => {
