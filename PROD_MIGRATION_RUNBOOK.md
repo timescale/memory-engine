@@ -179,8 +179,11 @@ Optional chart cleanup afterward: remove the now-unused `ACCOUNTS_DATABASE_URL`/
 
 ## 5. Appendix — verification queries
 
-Run after the ETL (step 5). These span databases — run each `select` against the
-connection named in its comment.
+`verify.ts` runs all of the below automatically (read-only across the three DBs)
+and prints a ✓/✗ checklist — `bun packages/migrate-prod/verify.ts`. It's
+subset-aware (only checks spaces present in the target), so it works for a
+rehearsal too. The raw queries follow for ad-hoc checks; run each `select`
+against the connection named in its comment.
 
 **Privilege pre-flight** (run as the **target** role, before starting):
 ```sql
