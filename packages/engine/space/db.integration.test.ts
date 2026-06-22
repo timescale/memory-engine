@@ -320,3 +320,21 @@ test("copyTree copies a subtree without removing the source", async () => {
   expect(await db.countTree(FULL, { tree: "work.copy_src" }, 1)).toBe(2);
   expect(await db.countTree(FULL, { tree: "work.copy_dst" }, 1)).toBe(2);
 });
+
+test("copyTree preserves the name on copied memories", async () => {
+  await db.createMemory(FULL, {
+    tree: "work.cpname_src",
+    name: "doc.md",
+    content: "named",
+  });
+
+  await db.copyTree(FULL, "work.cpname_src", "work.cpname_dst");
+
+  // The copy lands at the new path under the SAME name (a fresh id), so it is
+  // addressable by (tree, name) there — not silently nulled out.
+  const srcId = await db.resolveMemoryId(FULL, "work.cpname_src", "doc.md");
+  const dstId = await db.resolveMemoryId(FULL, "work.cpname_dst", "doc.md");
+  expect(srcId).not.toBeNull();
+  expect(dstId).not.toBeNull();
+  expect(dstId).not.toBe(srcId); // distinct row, same name
+});

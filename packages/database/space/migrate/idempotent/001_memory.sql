@@ -742,6 +742,7 @@ begin
   (
     insert into {{schema}}.memory
     ( meta
+    , name                  -- preserved; a (dst, name) clash raises 23505 → CONFLICT
     , tree
     , temporal
     , content
@@ -750,6 +751,7 @@ begin
     )
     select
       m.meta
+    , m.name
     , case
         when nlevel(m.tree) = nlevel(_src) then _dst
         else _dst || subpath(m.tree, nlevel(_src), nlevel(m.tree) - nlevel(_src))
