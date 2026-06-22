@@ -319,11 +319,19 @@ export async function seedScenario(
     identity_id: "00000000-0000-7000-8000-000000000000",
     can_login: true,
   });
+  // A service user: a login user with NO identity (an agent) holding a grant.
+  // Migrates to a kind='a' agent owned by the org owner (i2), with this grant.
+  const teSvc = await insertId(sql, te, '"user"', {
+    name: "codex",
+    can_login: true,
+    superuser: false,
+  });
 
   // i4 owns a subtree; has a read grant; the role has a write-ish grant; i4 is in the role.
   await sql`insert into ${sql(te)}.tree_owner (tree_path, user_id) values (${"team.alpha"}::ltree, ${teU4})`;
   await sql`insert into ${sql(te)}.tree_grant (user_id, tree_path, actions) values (${teU4}, ${"docs"}::ltree, ${sql.array(["read"])})`;
   await sql`insert into ${sql(te)}.tree_grant (user_id, tree_path, actions) values (${teRole}, ${"team.beta"}::ltree, ${sql.array(["create", "update"])})`;
+  await sql`insert into ${sql(te)}.tree_grant (user_id, tree_path, actions) values (${teSvc}, ${"pb"}::ltree, ${sql.array(["read"])})`;
   await sql`insert into ${sql(te)}.role_membership (role_id, member_id) values (${teRole}, ${teU4})`;
 
   await sql.unsafe(

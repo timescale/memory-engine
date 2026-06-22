@@ -5,10 +5,10 @@ One-time ETL that moves production from the **old** org/engine/role + RLS model
 the **new** auth/core/space model on `main` (PR #71, "feat: add core and space
 migration packages").
 
-> Status: **drafted off code only.** Not yet verified against the live prod
-> databases — see §9 "Verify against prod" for the checklist to run once
-> read-only access is available. Treat every "expected to be rare/empty in prod"
-> note as an assumption to confirm there.
+> Status: **verified against live prod (read-only).** The §9 survey
+> (`packages/migrate-prod/survey.ts`) confirmed the DDL and surveyed the data
+> shape — results in §9.1. The mapping decisions below reflect what prod actually
+> contains, not just assumptions.
 
 This document is self-contained; the detailed source/target schema catalogs it
 was built from lived in `/tmp/me-prod-v025-OLD-SCHEMA.md` and `/tmp/me-new-SCHEMA.md`
@@ -200,7 +200,8 @@ Old per-engine access lived in `me_<slug>.{user, tree_owner, tree_grant, role_me
 |---|---|
 | `can_login=true`, `identity_id` set | the identity's **existing principal** (created in §2.1). Its grants attach to that principal in this space. |
 | `can_login=false` (an RBAC **role**) | a new **group** principal (`kind='g'`, `space_id` = this space, `name` = the user's `name`). |
-| `can_login=true`, `identity_id` NULL (service user, no identity) | **no clean target** (no identity → no auth.users; agents need an owning user). **Flag & decide per-row**; expected rare/absent in prod. |
+| `can_login=true`, `identity_id` NULL (service user — an agent with no identity) | a new **agent** (`kind='a'`) owned by the engine's **org owner**, joined to the space (owner@home.<owner>.<agent>); its `tree_owner`/`tree_grant` flow through like any principal, clamped under the owner's access. Confirmed in §9: every such user is the owner's own coding agent in a single-owner org. (The agent still needs a re-issued api key — §6.1.) |
+| `can_login=true`, `identity_id` set but **not migrated** (dangling) | **no target** — grants dropped with a warning. (None in prod — §9.) |
 | `superuser=true` | synthesize **owner@root** for the mapped principal (there is no `tree_owner` row recording superuser — it's a boolean). Org owner/admin already get owner@root via §3.1; this covers any other superuser. |
 
 A single identity may have **multiple** `"user"` rows in one engine
@@ -416,6 +417,30 @@ us which complex paths are even exercised:
 - [ ] Confirm the cutover sequencing for api-key re-issue (§6.1) with whoever
       operates the agents.
 
+### 9.1 Survey results (read-only, via `survey.ts`)
+
+- **Topology**: `DB_ACCOUNTS` and `DB_SHARD` are **two distinct physical clusters**
+  (different `system_identifier`s; both happen to be named `tsdb`). The cross-DB
+  ETL is required. ✓
+- **DDL**: every column the ETL reads is present in `accounts.*` and the sampled
+  `me_<slug>` schema — **no drift** from the hand-mirrored server/v0.2.5 fixture. ✓
+- **Scale**: 32 identities, 32 oauth accounts, 18 live sessions; 34 orgs,
+  35 engines (**34 active**, 1 `deleted`), **62,111 memories**; only **4** lack
+  embeddings; **0 pending invites**; all `english`.
+- **Mostly trivial**: **33 of 34 orgs are single-owner / single-engine** → the
+  simple owner→admin+owner@root path. Exactly **one** multi-member org (owner +
+  1 member) with one RBAC role (1 membership edge, 2 grants, 1 tree_owner) — fully
+  handled.
+- **Service users**: **6** login-users-without-identity across 3 engines, **3
+  holding 8 grants** — all confirmed to be each (sole org) owner's own coding
+  agents (`claude`, `codex`, `sidekick`, …). → mapped to owner-owned agents (§4.1).
+- **Grants**: 10 total, all "non-trivial"; the write-action ones widen to level-2
+  write (the documented over-permissive lossiness, §4.3). 2 non-root tree_owners.
+- **Anomalies**: **none** — every org has an owner; **0 orphans** (no
+  engine↔schema mismatch, no dangling `identity_id`).
+- **Sessions** (§2.3): hashing+lookup parity confirmed from code; 18 live sessions
+  migrate verbatim.
+
 ---
 
 ## 10. Open decisions (defaults chosen; flag to override)
@@ -429,4 +454,5 @@ us which complex paths are even exercised:
 | 5 | memory tree paths | **preserve verbatim** (incl. root) | §5 |
 | 6 | grant action→level mapping | **read→1, any write→2, grant-option→3** (lossy, over-permissive) | §4.3 |
 | 7 | pending invitations | **migrate (optional)** | §6.2 |
-| 8 | service users (`identity_id` NULL) & nested roles | **error/flag** (expected absent in prod) | §4.1, §4.4 |
+| 8 | service users (`identity_id` NULL) | **map to an agent owned by the engine's org owner** (confirmed: each is the owner's coding agent) | §4.1 |
+| 9 | nested roles | **error/flag** (absent in prod — only 1 flat role) | §4.4 |

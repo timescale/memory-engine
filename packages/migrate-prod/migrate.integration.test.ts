@@ -213,7 +213,37 @@ describe("complex case — multi-member org, RBAC role, explicit grants", () => 
   });
 
   test("dangling-identity engine user is dropped with a warning", () => {
-    expect(report.warnings.some((w) => /no migrated identity/.test(w))).toBe(
+    expect(report.warnings.some((w) => /non-migrated identity/.test(w))).toBe(
+      true,
+    );
+  });
+
+  test("service user (no identity) → agent owned by the org owner, with its grant", async () => {
+    const core = coreStore(sql, cfg.coreSchema);
+    const sid = spaceIdFor(scenario.teamSlug);
+    expect(
+      report.engines.find((e) => e.slug === scenario.teamSlug)?.agents,
+    ).toBe(1);
+    // a kind='a' agent named "codex" owned by the team owner (i2)
+    const [agent] = await sql.unsafe(
+      `select id from ${cfg.coreSchema}.principal where kind = 'a' and owner_id = $1 and name = 'codex'`,
+      [scenario.i2],
+    );
+    expect(agent?.id).toBeDefined();
+    const agentId = agent?.id as string;
+    // rostered in the space, and its old {read} grant on pb is preserved
+    const [rostered] = await sql.unsafe(
+      `select 1 as ok from ${cfg.coreSchema}.principal_space where space_id = $1 and principal_id = $2`,
+      [sid, agentId],
+    );
+    expect(rostered?.ok).toBe(1);
+    const [grant] = await sql.unsafe(
+      `select access from ${cfg.coreSchema}.tree_access where space_id = $1 and principal_id = $2 and tree_path = 'pb'`,
+      [sid, agentId],
+    );
+    expect(Number(grant?.access)).toBe(1);
+    // effective (clamped under the owner's owner@root) — the agent reaches pb
+    expect(hasAccess(await core.buildTreeAccess(agentId, sid), "pb", 1)).toBe(
       true,
     );
   });

@@ -14,8 +14,8 @@
  * The sources are never modified, so rollback is just "point the app back at the
  * old databases" and there is no teardown SQL (decommission the old DBs out of
  * band). Because source and target are different databases, memories are copied
- * by **streaming** (cursor read from the shard, batched insert into the target) —
- * not `insert…select`.
+ * by **streaming** (a cursor over the shard in batches, per-row insert into the
+ * target) — not `insert…select`.
  *
  * Phases:
  *   A  control plane  — `migrateControlPlane` — provision auth+core in the new DB,
@@ -146,6 +146,8 @@ export interface EngineReport {
   name: string;
   members: number;
   groups: number;
+  /** Agents created from old service users (login users with no identity). */
+  agents: number;
   memories: number;
   warnings: string[];
 }
@@ -297,11 +299,22 @@ export async function migrateEngine(
       bm25TextConfig: engine.language,
     });
 
-    // 2. Map each old engine-`user` id to a new principal (a migrated identity)
-    //    or a new group (an RBAC role: can_login = false).
+    // The org owner (a migrated user) — owns agents minted from service users,
+    // and its owner@root makes their clamped (agent_tree_access) grants effective.
+    const ownerId =
+      orgMembers.find(
+        (m) => m.role === "owner" && identityIds.has(m.identity_id),
+      )?.identity_id ??
+      orgMembers.find((m) => identityIds.has(m.identity_id))?.identity_id;
+
+    // 2. Map each old engine-`user` id to a new principal: a migrated identity,
+    //    a group (an RBAC role, can_login=false), or — for a service user (a
+    //    login user with no identity, i.e. an agent) — a NEW agent owned by the
+    //    org owner.
     type Target = { kind: "principal" | "group"; id: string };
     const userMap = new Map<string, Target>();
     let groups = 0;
+    let agents = 0;
     for (const u of users) {
       if (!u.can_login) {
         const groupId = await core.createGroup(spaceId, u.name);
@@ -309,9 +322,23 @@ export async function migrateEngine(
         groups++;
       } else if (u.identity_id && identityIds.has(u.identity_id)) {
         userMap.set(u.id, { kind: "principal", id: u.identity_id });
+      } else if (u.identity_id === null) {
+        // service user → an agent owned by the org owner, joined to the space
+        // (owner@home.<owner>.<agent>); its grants flow through like any principal.
+        if (!ownerId) {
+          warnings.push(
+            `service user ${u.id} (${u.name}): no migrated org owner to own it; grants dropped`,
+          );
+          continue;
+        }
+        const agentId = await core.createAgent(ownerId, u.name);
+        await core.addPrincipalToSpace(spaceId, agentId); // agent: admin forced false
+        userMap.set(u.id, { kind: "principal", id: agentId });
+        agents++;
       } else {
+        // can_login with an identity_id that wasn't migrated (dangling).
         warnings.push(
-          `engine user ${u.id} (${u.name}) has no migrated identity (identity_id=${u.identity_id ?? "null"}); its grants are dropped`,
+          `engine user ${u.id} (${u.name}) references a non-migrated identity ${u.identity_id}; its grants are dropped`,
         );
       }
     }
@@ -421,9 +448,10 @@ export async function migrateEngine(
       );
     }
 
-    // 9. Copy memories — cross-DB stream: cursor over the shard, batched insert
-    //    into the target. `meta` is re-sent via tx.json (a text param in a jsonb
-    //    slot double-encodes); the text-cast columns re-apply their `::` casts;
+    // 9. Copy memories — cross-DB stream: a cursor over the shard (fetched in
+    //    batches of MEMORY_COPY_BATCH) with a per-row insert into the target.
+    //    `meta` is re-sent via tx.json (a text param in a jsonb slot
+    //    double-encodes); the text-cast columns re-apply their `::` casts;
     //    `::halfvec` (dimensionless) carries embeddings (null stays null, so the
     //    enqueue trigger only fires for rows that were never embedded).
     let memories = 0;
@@ -466,6 +494,7 @@ export async function migrateEngine(
       name: engine.name,
       members,
       groups,
+      agents,
       memories,
       warnings,
     };
