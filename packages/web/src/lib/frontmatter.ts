@@ -22,7 +22,7 @@ import yaml from "js-yaml";
 const NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 
 export interface ParsedFrontmatter {
-  /** Editable fields extracted from frontmatter. Missing → null/"". */
+  /** Editable fields extracted from frontmatter. An absent or empty name → null. */
   name: string | null;
   tree: string;
   meta: Record<string, unknown>;
