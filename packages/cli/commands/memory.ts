@@ -170,11 +170,27 @@ function createMemoryCreateCommand(): Command {
         process.exit(1);
       }
 
+      // `--name ""` is an error, not "unnamed": omit --name for an unnamed
+      // memory. (Clearing an existing name is an update-only op: `update
+      // --name ""`.) Caught here so the user gets a clear message rather than a
+      // schema rejection round-trip.
+      if (opts.name === "") {
+        if (fmt === "text") {
+          clack.log.error(
+            "Empty --name. Omit --name for an unnamed memory, or pass a filename-like slug.",
+          );
+        } else {
+          output({ error: "Empty --name is not a valid name" }, fmt, () => {});
+        }
+        process.exit(1);
+      }
+
       const client = buildMemoryClient(creds);
 
       try {
         const params: Record<string, unknown> = { content };
         params.tree = opts.tree;
+        // Empty is rejected above; here name is either omitted or a real slug.
         if (opts.name) params.name = opts.name;
         if (opts.meta) params.meta = parseMeta(opts.meta);
         if (opts.temporal) params.temporal = parseTemporal(opts.temporal);

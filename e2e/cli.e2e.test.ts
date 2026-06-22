@@ -595,6 +595,32 @@ describe.skipIf(
     ).toBe(0);
   });
 
+  test("6e. name validation: create --name '' rejected; bad path fails validation not NOT_FOUND", async () => {
+    // create --name "" must fail fast (empty is never a valid name) rather than
+    // silently creating an unnamed memory.
+    const emptyName = await me([
+      "create",
+      "x",
+      "--tree",
+      "share",
+      "--name",
+      "",
+    ]);
+    expect(emptyName.code).not.toBe(0);
+    // and nothing was created at that tree under an empty name
+    expect(
+      `${emptyName.stdout}${emptyName.stderr}`.toLowerCase(),
+    ).not.toContain("created memory");
+
+    // A path with a trailing slash (empty leaf) is a validation error, not a
+    // NOT_FOUND — the leaf must be a valid memory name.
+    const badPath = await me(["get", "share/auth/"]);
+    expect(badPath.code).not.toBe(0);
+    expect(`${badPath.stdout}${badPath.stderr}`.toLowerCase()).not.toContain(
+      "not found",
+    );
+  });
+
   // -------------------------------------------------------------------------
   // Extended scenarios
   // -------------------------------------------------------------------------
