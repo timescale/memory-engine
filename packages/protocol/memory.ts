@@ -4,6 +4,7 @@
 import { z } from "zod";
 import {
   memoryNameSchema,
+  memoryPathSchema,
   metaSchema,
   onConflictSchema,
   searchWeightsSchema,
@@ -69,7 +70,7 @@ export const memoryBatchCreateParams = z.object({
 export type MemoryBatchCreateParams = z.infer<typeof memoryBatchCreateParams>;
 
 /**
- * memory.get params — by id. To address by the `folder/name` form use
+ * memory.get params — by id. To address by the `tree/name` form use
  * memory.getByPath.
  */
 export const memoryGetParams = z.object({
@@ -79,13 +80,14 @@ export const memoryGetParams = z.object({
 export type MemoryGetParams = z.infer<typeof memoryGetParams>;
 
 /**
- * memory.getByPath params — address a named memory by its `folder/name` path
+ * memory.getByPath params — address a named memory by its `tree/name` path
  * (e.g. "share/auth/jwt-rotation"). The server splits at the final `/`: the
  * last segment is the name, the rest is the tree (with `~`/separators
- * normalized). NOT_FOUND when no such named memory exists.
+ * normalized). The leaf must be a valid memory name (VALIDATION_ERROR
+ * otherwise); NOT_FOUND when no such named memory exists.
  */
 export const memoryGetByPathParams = z.object({
-  path: treePathSchema.min(1, "path is required"),
+  path: memoryPathSchema,
 });
 
 export type MemoryGetByPathParams = z.infer<typeof memoryGetByPathParams>;
@@ -116,11 +118,12 @@ export const memoryDeleteParams = z.object({
 export type MemoryDeleteParams = z.infer<typeof memoryDeleteParams>;
 
 /**
- * memory.deleteByPath params — delete one named memory by its `folder/name`
- * path (split like memory.getByPath). NOT_FOUND when it doesn't resolve.
+ * memory.deleteByPath params — delete one named memory by its `tree/name`
+ * path (split like memory.getByPath). The leaf must be a valid memory name
+ * (VALIDATION_ERROR otherwise); NOT_FOUND when it doesn't resolve.
  */
 export const memoryDeleteByPathParams = z.object({
-  path: treePathSchema.min(1, "path is required"),
+  path: memoryPathSchema,
 });
 
 export type MemoryDeleteByPathParams = z.infer<typeof memoryDeleteByPathParams>;

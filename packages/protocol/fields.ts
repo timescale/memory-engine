@@ -77,6 +77,20 @@ export const memoryNameSchema = z
   );
 
 /**
+ * A `tree/name` address (for getByPath/deleteByPath), split at the final `/`:
+ * the leaf is the name, the rest is the tree. The tree part is lenient (as
+ * elsewhere), but the leaf must be a valid memory name — so a trailing `/`
+ * (empty leaf) or a leaf with name-illegal chars (a leading `.`/`-`/`~`) fails
+ * fast as VALIDATION_ERROR rather than masquerading as NOT_FOUND.
+ */
+export const memoryPathSchema = treePathSchema
+  .min(1, "path is required")
+  .refine(
+    (p) => memoryNameSchema.safeParse(p.slice(p.lastIndexOf("/") + 1)).success,
+    "path must end in a valid memory name (filename-like slug; no trailing '/')",
+  );
+
+/**
  * What a create/batchCreate row does when it conflicts with the existing memory
  * on its idempotency key — a named row's `(tree, name)` slot (name takes
  * precedence), else the explicit id: `error` (default) raises CONFLICT;
