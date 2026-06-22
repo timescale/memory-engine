@@ -57,6 +57,9 @@ import incremental006 from "./incremental/006_api_key.sql" with {
 import incremental007 from "./incremental/007_space_invitation.sql" with {
   type: "text",
 };
+import incremental008 from "./incremental/008_principal_name.sql" with {
+  type: "text",
+};
 import provisionSql from "./provision.sql" with { type: "text" };
 
 const DIR = "packages/database/core/migrate";
@@ -92,6 +95,11 @@ const incrementals: Migration[] = [
     name: "007_space_invitation",
     file: "incremental/007_space_invitation.sql",
     sql: incremental007,
+  },
+  {
+    name: "008_principal_name",
+    file: "incremental/008_principal_name.sql",
+    sql: incremental008,
   },
 ];
 

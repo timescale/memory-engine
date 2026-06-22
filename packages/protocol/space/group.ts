@@ -6,7 +6,7 @@
  * member, flagged direct=false in principal.list).
  */
 import { z } from "zod";
-import { nameSchema, uuidv7Schema } from "../fields.ts";
+import { principalHandleNameSchema, uuidv7Schema } from "../fields.ts";
 import { principalKindSchema } from "./principal.ts";
 
 export const groupResponse = z.object({
@@ -35,7 +35,7 @@ export const groupMembershipResponse = z.object({
 export type GroupMembershipResponse = z.infer<typeof groupMembershipResponse>;
 
 // group.create
-export const groupCreateParams = z.object({ name: nameSchema });
+export const groupCreateParams = z.object({ name: principalHandleNameSchema });
 export type GroupCreateParams = z.infer<typeof groupCreateParams>;
 
 export const groupCreateResult = z.object({ id: z.string() });
@@ -51,7 +51,7 @@ export type GroupListResult = z.infer<typeof groupListResult>;
 // group.rename
 export const groupRenameParams = z.object({
   id: uuidv7Schema,
-  name: nameSchema,
+  name: principalHandleNameSchema,
 });
 export type GroupRenameParams = z.infer<typeof groupRenameParams>;
 

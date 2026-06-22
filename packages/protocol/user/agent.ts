@@ -7,7 +7,7 @@
  * minting its (space-bound) api key are space-endpoint operations.
  */
 import { z } from "zod";
-import { nameSchema, uuidv7Schema } from "../fields.ts";
+import { principalHandleNameSchema, uuidv7Schema } from "../fields.ts";
 import { memberSpaceResponse } from "./space.ts";
 
 export const agentResponse = z.object({
@@ -19,7 +19,7 @@ export const agentResponse = z.object({
 export type AgentResponse = z.infer<typeof agentResponse>;
 
 // agent.create — create an agent owned by the calling user
-export const agentCreateParams = z.object({ name: nameSchema });
+export const agentCreateParams = z.object({ name: principalHandleNameSchema });
 export type AgentCreateParams = z.infer<typeof agentCreateParams>;
 
 export const agentCreateResult = z.object({ id: z.string() });
@@ -44,7 +44,7 @@ export type AgentSpacesResult = z.infer<typeof agentSpacesResult>;
 // agent.rename
 export const agentRenameParams = z.object({
   id: uuidv7Schema,
-  name: nameSchema,
+  name: principalHandleNameSchema,
 });
 export type AgentRenameParams = z.infer<typeof agentRenameParams>;
 

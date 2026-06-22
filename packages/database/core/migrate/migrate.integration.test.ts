@@ -47,6 +47,7 @@ const EXPECTED_MIGRATIONS = [
   "005_tree_access",
   "006_api_key",
   "007_space_invitation",
+  "008_principal_name",
 ];
 
 const EXPECTED_FUNCTIONS = [
@@ -177,6 +178,46 @@ describe("schema constraints enforce", () => {
     } finally {
       await sql.unsafe(
         `delete from ${canonical.schema}.principal where name = '${name}'`,
+      );
+    }
+  });
+
+  test("agent and group names are restricted to handle-safe characters", async () => {
+    const s = canonical.schema;
+    const [owner] = await sql.unsafe(`select uuidv7() as id`);
+    const ownerId = owner?.id as string;
+    await sql.unsafe(`select ${s}.create_user($1, $2)`, [
+      ownerId,
+      `owner_${crypto.randomUUID().slice(0, 8)}+alias@example.com`,
+    ]);
+    const [space] = await sql.unsafe(`select ${s}.create_space($1, $2) as id`, [
+      randomSlug(),
+      "Name Checks",
+    ]);
+    const spaceId = space?.id as string;
+
+    for (const ok of ["agent", "agent-v2", "ci_agent", "bot.v2"]) {
+      await sql.unsafe(`select ${s}.create_agent($1, $2)`, [ownerId, ok]);
+    }
+
+    await sql.unsafe(`select ${s}.create_group($1, $2)`, [
+      spaceId,
+      "backend-team",
+    ]);
+
+    for (const bad of [
+      "alice@example.com",
+      "john+bot",
+      "team/backend",
+      "team admin",
+      "-prod",
+      ".group",
+    ]) {
+      await expectReject(() =>
+        sql.unsafe(`select ${s}.create_agent($1, $2)`, [ownerId, bad]),
+      );
+      await expectReject(() =>
+        sql.unsafe(`select ${s}.create_group($1, $2)`, [spaceId, bad]),
       );
     }
   });
