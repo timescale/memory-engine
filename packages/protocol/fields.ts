@@ -182,6 +182,19 @@ export const nameSchema = z
   .min(1, "name is required")
   .max(100, "name must be at most 100 characters");
 
+/**
+ * Agent/group principal names are CLI handles, not emails. User principal names
+ * remain emails and are validated at the auth boundary.
+ */
+export const principalHandleNameSchema = z
+  .string()
+  .min(1, "name is required")
+  .max(100, "name must be at most 100 characters")
+  .regex(
+    /^[A-Za-z0-9][A-Za-z0-9._-]*$/,
+    "name must start alphanumeric and contain only letters, numbers, '.', '_', or '-'",
+  );
+
 // =============================================================================
 // Inferred Types
 // =============================================================================
