@@ -40,9 +40,14 @@ Grounded facts this runbook relies on (verified in code):
 - [ ] **Data verified (§9).** The DDL/data survey is done (plan §9.1). **Re-run
       `survey.ts` at cutover** for fresh numbers — expect roughly: ~32 users, 34
       active engines, ~62k memories, 0 orphans, every org with an owner.
-- [ ] **New target database provisioned** — an empty database with the required
-      extensions available (`citext`, `ltree`, `vector`/pgvector, `pg_textsearch`
-      in `public`). The ETL creates `auth`/`core`/`me_<slug>` in it.
+- [ ] **Empty target database created** — just an empty database; the ETL
+      connects but never `CREATE DATABASE`. **Do not pre-migrate it:** the ETL runs
+      `migrateAuth`/`migrateCore` + per-engine `provisionSpace`, which create the
+      `auth`/`core`/`me_<slug>` schemas and `create extension if not exists`
+      (`citext`, `ltree`, `vector`/pgvector, `pg_textsearch` in `public`). So
+      ensure those 4 extensions are installed **or** the ETL's role may create
+      them (often superuser-only on managed Postgres), and that the role can
+      create schemas (it then owns them).
 - [ ] **Connections + privileges.** The ETL opens three connections:
       `DB_ACCOUNTS` (read `accounts.*`), `DB_SHARD` (read `me_<slug>.*`), and the
       target (create + own `auth`/`core`/`me_<slug>`). Confirm each role has the
