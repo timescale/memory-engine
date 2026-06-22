@@ -1,6 +1,6 @@
 # me_memory_get_by_path
 
-Retrieve a single named memory by its `folder/name` path.
+Retrieve a single named memory by its `tree/name` path.
 
 The last path segment is the name; the rest is the tree. For example,
 `/share/auth/jwt-rotation` is the memory named `jwt-rotation` under the tree
@@ -13,7 +13,7 @@ Use `me_memory_get` when you already have the UUID.
 
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
-| `path` | `string` | yes | The `folder/name` path, e.g. `/share/auth/jwt-rotation`. |
+| `path` | `string` | yes | The `tree/name` path, e.g. `/share/auth/jwt-rotation`. |
 
 ## Returns
 

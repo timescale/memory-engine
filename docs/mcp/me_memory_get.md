@@ -2,7 +2,7 @@
 
 Retrieve a single memory by its ID.
 
-Returns the full memory including content, tree, name, meta, temporal, and embedding status. Use after search to get full details, or before update to see current state. To fetch a named memory by its `folder/name` path instead, use [me_memory_get_by_path](me_memory_get_by_path.md).
+Returns the full memory including content, tree, name, meta, temporal, and embedding status. Use after search to get full details, or before update to see current state. To fetch a named memory by its `tree/name` path instead, use [me_memory_get_by_path](me_memory_get_by_path.md).
 
 ## Parameters
 

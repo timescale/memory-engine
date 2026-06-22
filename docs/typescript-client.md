@@ -98,7 +98,7 @@ const { ids, updatedIds } = await me.memory.batchCreate({
 
 ```typescript
 const memory = await me.memory.get({ id: "019..." });
-// Or address a named memory by its folder/name path:
+// Or address a named memory by its tree/name path:
 const byPath = await me.memory.getByPath({ path: "/share/auth/jwt-rotation" });
 ```
 
@@ -119,7 +119,7 @@ const updated = await me.memory.update({
 
 ```typescript
 const { deleted } = await me.memory.delete({ id: "019..." });
-// Or delete a named memory by its folder/name path:
+// Or delete a named memory by its tree/name path:
 await me.memory.deleteByPath({ path: "/share/auth/jwt-rotation" });
 ```
 

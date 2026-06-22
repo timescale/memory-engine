@@ -10,7 +10,8 @@ Memories are the core data type in Memory Engine. Each memory has content, an op
 - [me memory get](#me-memory-get) -- get a memory by ID or path
 - [me memory search](#me-memory-search) -- search memories
 - [me memory update](#me-memory-update) -- update a memory
-- [me memory delete](#me-memory-delete) -- delete a memory or tree
+- [me memory delete](#me-memory-delete) -- delete a single memory
+- [me memory deltree](#me-memory-deltree) -- delete a subtree
 - [me memory edit](#me-memory-edit) -- open a memory in your editor
 - [me memory count](#me-memory-count) -- count memories matching a tree filter
 - [me memory tree](#me-memory-tree) -- show tree structure
@@ -49,7 +50,7 @@ Content can come from the positional argument, the `--content` flag, or piped vi
 
 ## me memory get
 
-Get a memory by ID or by its `folder/name` path. In a TTY, renders the content as ANSI-formatted markdown with dimmed YAML frontmatter. When piped or redirected, outputs raw Markdown with YAML frontmatter (suitable for `> file.md`).
+Get a memory by ID or by its `tree/name` path. In a TTY, renders the content as ANSI-formatted markdown with dimmed YAML frontmatter. When piped or redirected, outputs raw Markdown with YAML frontmatter (suitable for `> file.md`).
 
 ```
 me memory get <id-or-path> [options]
@@ -57,7 +58,7 @@ me memory get <id-or-path> [options]
 
 | Argument | Required | Description |
 |----------|----------|-------------|
-| `id-or-path` | yes | A memory ID (UUIDv7), or a named memory's `folder/name` path (e.g. `/share/auth/jwt-rotation`, `~/notes/todo`). A UUID is fetched by id; anything else is resolved by path (split at the final `/`). |
+| `id-or-path` | yes | A memory ID (UUIDv7), or a named memory's `tree/name` path (e.g. `/share/auth/jwt-rotation`, `~/notes/todo`). A UUID is fetched by id; anything else is resolved by path (split at the final `/`). |
 
 | Option | Description |
 |--------|-------------|
@@ -139,30 +140,48 @@ me memory update <id> [options]
 | `--meta <json>` | New metadata as JSON (replaces existing). |
 | `--temporal <range>` | New temporal range as `start[,end]`. |
 
-At least one update option is required. Metadata is fully replaced, not merged. Update is id-addressed; you can pass a `folder/name` path as the `<id>` argument and the CLI resolves it to an id first.
+At least one update option is required. Metadata is fully replaced, not merged. Update is id-addressed; you can pass a `tree/name` path as the `<id>` argument and the CLI resolves it to an id first.
 
 ---
 
 ## me memory delete
 
-Delete a single memory (by ID or by `folder/name` path), or all memories under a tree path.
+Delete a **single** memory, by ID or by its `tree/name` path. To delete a whole subtree, use [`me memory deltree`](#me-memory-deltree).
 
 ```
-me memory delete <id-or-path> [options]
+me memory delete <id-or-path>
 ```
 
 | Argument | Required | Description |
 |----------|----------|-------------|
-| `id-or-path` | yes | A memory ID (UUIDv7), a named memory's `folder/name` path, or a tree path. |
+| `id-or-path` | yes | A memory ID (UUIDv7), or a memory's `tree/name` path (e.g. `/share/auth/jwt-rotation`). |
+
+A UUIDv7 deletes that one memory by id; anything else is a `tree/name` path (split at the final `/`) that deletes at most that one named memory. It never deletes a subtree — a path that names no existing memory reports "not found" rather than removing everything beneath it.
+
+Alias: `me memory rm`.
+
+---
+
+## me memory deltree
+
+Delete **every** memory at or under a tree path (a subtree).
+
+```
+me memory deltree <tree> [options]
+```
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `tree` | yes | A tree path; all memories at or under it are deleted (e.g. `/share/old-project`). |
 
 | Option | Description |
 |--------|-------------|
-| `--name` | Force the path to be read as a single named memory (`deleteByPath`). |
-| `--tree` | Force the path to be read as a subtree (delete everything under it). |
-| `--dry-run` | Preview what would be deleted (tree mode only). |
-| `-y, --yes` | Skip the confirmation prompt (tree mode only). |
+| `--dry-run` | Preview the count without deleting anything. |
+| `-y, --yes` | Skip the confirmation prompt. |
 
-A UUIDv7 deletes that one memory by id. Otherwise the argument is a path: if it matches **both** a named memory and a non-empty subtree, the command errors and asks you to disambiguate with `--name` or `--tree`; if it matches only one, that one is used. Subtree deletes show a count and confirm first.
+Always previews the count first, so `--dry-run` can never delete. Without `--yes`, an interactive run shows the count and asks to confirm before deleting.
+
+Alias: `me memory rmtree`.
 
 ---
 
