@@ -446,25 +446,24 @@ async function submitPlanned(
     return;
   }
 
-  const { insertedIds, updatedIds, errors } = await batchCreateChunked(
+  const { results, errors } = await batchCreateChunked(
     engine,
     planned.map((p) => p.payload),
     { onConflict: "replace" },
   );
-  outcome.inserted += insertedIds.length;
-  outcome.updated += updatedIds.length;
-  let failedCount = 0;
+  // Per-row status: inserted (new), updated (re-rendered), skipped (unchanged —
+  // a content-aware replace no-op). 'error' rows are tallied via errors[] below.
+  for (const r of results) {
+    if (r.status === "inserted") outcome.inserted += 1;
+    else if (r.status === "updated") outcome.updated += 1;
+    else if (r.status === "skipped") outcome.skipped += 1;
+  }
   for (const e of errors) {
-    failedCount += e.itemCount;
     outcome.failed += e.itemCount;
     for (const id of e.ids) {
       outcome.errors.push({ messageId: id, error: e.error });
     }
   }
-  // Whatever the server neither inserted, updated, nor failed was unchanged
-  // (a content-aware replace no-op).
-  outcome.skipped +=
-    planned.length - insertedIds.length - updatedIds.length - failedCount;
 }
 
 /** Build the full meta object for one message memory. */

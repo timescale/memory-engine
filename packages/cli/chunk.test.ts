@@ -2,7 +2,10 @@
  * Tests for the byte-aware chunker in `chunk.ts`.
  */
 import { describe, expect, test } from "bun:test";
-import type { MemoryCreateParams } from "@memory.build/protocol/memory";
+import type {
+  MemoryCreateParams,
+  MemoryWriteResult,
+} from "@memory.build/protocol/memory";
 import {
   approxMemoryBytes,
   type BatchCreateClient,
@@ -114,61 +117,61 @@ describe("batchCreateChunked", () => {
     handler: (
       memories: MemoryCreateParams[],
       onConflict?: "error" | "replace" | "ignore",
-    ) => Promise<{ ids: string[]; updatedIds?: string[] }>,
+    ) => Promise<{ results: MemoryWriteResult[] }>,
   ): BatchCreateClient => ({
     memory: {
-      batchCreate: async ({ memories, onConflict }) => {
-        const res = await handler(memories, onConflict);
-        // Old servers omit updatedIds; the helper must tolerate that, so the
-        // stub passes whatever the handler chose to return.
-        return res as { ids: string[]; updatedIds: string[] };
-      },
+      batchCreate: ({ memories, onConflict }) => handler(memories, onConflict),
     },
   });
+
+  /** Build inserted results for a chunk, keyed on each memory's id. */
+  const inserted = (memories: MemoryCreateParams[]): MemoryWriteResult[] =>
+    memories.map((m) => ({ id: m.id ?? "auto", status: "inserted" as const }));
 
   test("single chunk, all succeed", async () => {
     const calls: number[] = [];
     const client = stubClient(async (memories) => {
       calls.push(memories.length);
-      return { ids: memories.map((m) => m.id ?? "auto") };
+      return { results: inserted(memories) };
     });
     const result = await batchCreateChunked(client, [mem("a"), mem("b")]);
-    expect(result.insertedIds).toEqual(["a", "b"]);
-    expect(result.failedIds).toEqual([]);
+    expect(result.results).toEqual([
+      { id: "a", status: "inserted" },
+      { id: "b", status: "inserted" },
+    ]);
     expect(result.errors).toEqual([]);
     expect(calls).toEqual([2]); // single batchCreate call
   });
 
-  test("two chunks succeed, insertedIds accumulate across chunks", async () => {
-    // Force two chunks via a tight byte budget by using big content. We
-    // can't override the 768 KiB default through the public API, so use
-    // many small memories and rely on the count cap... actually easier:
-    // use one big enough that two would overflow.
+  test("two chunks succeed, results accumulate across chunks in order", async () => {
+    // Force two chunks via big content (the 768 KiB default isn't overridable
+    // through the public API). We assert results accumulate, not boundaries.
     const big = mem("big", 700_000);
     const small = mem("small", 10);
     const client = stubClient(async (memories) => ({
-      ids: memories.map((m) => m.id ?? "auto"),
+      results: inserted(memories),
     }));
     const result = await batchCreateChunked(client, [big, small]);
-    // Both items land; we don't assert chunk boundaries here, only that
-    // ids are accumulated correctly across however many chunks fired.
-    expect(result.insertedIds.sort()).toEqual(["big", "small"]);
-    expect(result.failedIds).toEqual([]);
+    expect(result.results.map((r) => r.id).sort()).toEqual(["big", "small"]);
+    expect(result.results.every((r) => r.status === "inserted")).toBe(true);
     expect(result.errors).toEqual([]);
   });
 
-  test("second chunk fails: insertedIds from first only, failedIds from second", async () => {
+  test("second chunk fails: first inserted, second is an 'error' row", async () => {
     const big1 = mem("a", 700_000);
     const big2 = mem("b", 700_000);
     let call = 0;
     const client = stubClient(async (memories) => {
       call++;
       if (call === 2) throw new Error("server boom");
-      return { ids: memories.map((m) => m.id ?? "auto") };
+      return { results: inserted(memories) };
     });
     const result = await batchCreateChunked(client, [big1, big2]);
-    expect(result.insertedIds).toEqual(["a"]);
-    expect(result.failedIds).toEqual(["b"]);
+    // One row per input, in order: a inserted, b's chunk failed → 'error'.
+    expect(result.results).toEqual([
+      { id: "a", status: "inserted" },
+      { id: "b", status: "error" },
+    ]);
     expect(result.errors).toHaveLength(1);
     expect(result.errors[0]).toMatchObject({
       chunkIndex: 1,
@@ -178,48 +181,67 @@ describe("batchCreateChunked", () => {
     });
   });
 
-  test("all chunks fail: insertedIds empty, failedIds covers all explicit ids", async () => {
+  test("all chunks fail: every input is an 'error' row", async () => {
     const big1 = mem("a", 700_000);
     const big2 = mem("b", 700_000);
     const client = stubClient(async () => {
       throw new Error("network down");
     });
     const result = await batchCreateChunked(client, [big1, big2]);
-    expect(result.insertedIds).toEqual([]);
-    expect(result.failedIds.sort()).toEqual(["a", "b"]);
+    expect(result.results).toEqual([
+      { id: "a", status: "error" },
+      { id: "b", status: "error" },
+    ]);
     expect(result.errors).toHaveLength(2);
     expect(result.errors[0]?.chunkIndex).toBe(0);
     expect(result.errors[1]?.chunkIndex).toBe(1);
   });
 
-  test("server returns shorter ids than requested (simulating ON CONFLICT)", async () => {
-    // Caller submits 3 memories, server inserts 2 (one was a duplicate id,
-    // skipped by the conditional upsert). The helper should faithfully
-    // report the 2 inserted; classifying the missing one as "skipped" is
-    // the caller's job.
+  test("a failed input with no explicit id gets a null id 'error' row", async () => {
+    const noId: MemoryCreateParams = { content: "x", tree: "t" };
+    const client = stubClient(async () => {
+      throw new Error("boom");
+    });
+    const result = await batchCreateChunked(client, [noId]);
+    expect(result.results).toEqual([{ id: null, status: "error" }]);
+    expect(result.errors[0]?.ids).toEqual([]); // no explicit id to report
+  });
+
+  test("carries per-row status (inserted/skipped) through unchanged", async () => {
+    // Caller submits 3 memories; the server skips one (its idempotency key
+    // already existed). The helper faithfully reports each row's status in
+    // submission order — classifying the skip is the caller's job.
     const client = stubClient(async (memories) => ({
-      ids: memories.map((m) => m.id ?? "auto").filter((id) => id !== "dup"), // server "drops" the dup id
-      updatedIds: [],
+      results: memories.map((m) => ({
+        id: m.id ?? "auto",
+        status: m.id === "dup" ? ("skipped" as const) : ("inserted" as const),
+      })),
     }));
     const result = await batchCreateChunked(client, [
       mem("a"),
       mem("dup"),
       mem("b"),
     ]);
-    expect(result.insertedIds).toEqual(["a", "b"]);
-    expect(result.updatedIds).toEqual([]);
-    expect(result.failedIds).toEqual([]); // no chunk failed
-    expect(result.errors).toEqual([]);
+    expect(result.results).toEqual([
+      { id: "a", status: "inserted" },
+      { id: "dup", status: "skipped" },
+      { id: "b", status: "inserted" },
+    ]);
+    expect(result.errors).toEqual([]); // no chunk failed
   });
 
-  test("passes onConflict through every chunk and accumulates updatedIds", async () => {
-    // Two chunks (big payloads); the server reports the first id of each
+  test("passes onConflict through every chunk and accumulates updated rows", async () => {
+    // Two chunks (big payloads); the server reports the first row of each
     // chunk as updated and the rest as inserted.
     const seen: Array<string | undefined> = [];
     const client = stubClient(async (memories, onConflict) => {
       seen.push(onConflict);
-      const ids = memories.map((m) => m.id ?? "auto");
-      return { ids: ids.slice(1), updatedIds: ids.slice(0, 1) };
+      return {
+        results: memories.map((m, i) => ({
+          id: m.id ?? "auto",
+          status: i === 0 ? ("updated" as const) : ("inserted" as const),
+        })),
+      };
     });
     const result = await batchCreateChunked(
       client,
@@ -228,8 +250,9 @@ describe("batchCreateChunked", () => {
     );
     expect(seen.length).toBeGreaterThan(1); // multiple chunks
     expect(new Set(seen)).toEqual(new Set(["replace"]));
-    expect(result.updatedIds.length).toBe(seen.length);
-    expect([...result.insertedIds, ...result.updatedIds].sort()).toEqual([
+    const updated = result.results.filter((r) => r.status === "updated");
+    expect(updated.length).toBe(seen.length); // one updated per chunk
+    expect(result.results.map((r) => r.id).sort()).toEqual([
       "a",
       "b",
       "c",
@@ -243,7 +266,7 @@ describe("batchCreateChunked", () => {
       memory: {
         batchCreate: async ({ memories, onConflict }) => {
           seen = onConflict;
-          return { ids: memories.map((m) => m.id ?? "auto"), updatedIds: [] };
+          return { results: inserted(memories) };
         },
       },
     };
@@ -251,26 +274,14 @@ describe("batchCreateChunked", () => {
     expect(seen).toBeUndefined();
   });
 
-  test("tolerates a pre-upsert server omitting updatedIds", async () => {
-    const client = stubClient(async (memories) => ({
-      ids: memories.map((m) => m.id ?? "auto"),
-      // no updatedIds field at all
-    }));
-    const result = await batchCreateChunked(client, [mem("a")]);
-    expect(result.insertedIds).toEqual(["a"]);
-    expect(result.updatedIds).toEqual([]);
-  });
-
   test("empty input never calls the server", async () => {
     let calls = 0;
     const client = stubClient(async () => {
       calls++;
-      return { ids: [], updatedIds: [] };
+      return { results: [] };
     });
     const result = await batchCreateChunked(client, []);
-    expect(result.insertedIds).toEqual([]);
-    expect(result.updatedIds).toEqual([]);
-    expect(result.failedIds).toEqual([]);
+    expect(result.results).toEqual([]);
     expect(result.errors).toEqual([]);
     expect(calls).toBe(0);
   });

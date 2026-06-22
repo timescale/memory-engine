@@ -78,11 +78,17 @@ export const memoryNameSchema = z
 
 /**
  * What a create/batchCreate row does when it conflicts with the existing memory
- * on its idempotency key (the explicit id when given, else the (tree, name)
- * slot): `error` (default) raises CONFLICT; `replace` overwrites in place but is
- * a no-op when nothing changed; `ignore` skips, leaving the existing row.
+ * on its idempotency key — a named row's `(tree, name)` slot (name takes
+ * precedence), else the explicit id: `error` (default) raises CONFLICT;
+ * `replace` overwrites in place but is a no-op when nothing changed; `ignore`
+ * skips, leaving the existing row. Note this governs the idempotency-key
+ * conflict only — a row whose explicit id collides with a *different* existing
+ * row still raises a pk violation regardless of `ignore`/`replace`.
  */
 export const onConflictSchema = z.enum(["error", "replace", "ignore"]);
+
+/** What a create/batchCreate did to one row. */
+export const writeStatusSchema = z.enum(["inserted", "updated", "skipped"]);
 
 /**
  * Tree filter schema (ltree, lquery, or ltxtquery).

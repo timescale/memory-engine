@@ -346,7 +346,7 @@ test("get / delete unknown id → NOT_FOUND", async () => {
 });
 
 test("batchCreate inserts all and is retrievable", async () => {
-  const res = await call<{ ids: string[]; updatedIds: string[] }>(
+  const res = await call<{ results: { id: string; status: string }[] }>(
     "memory.batchCreate",
     {
       memories: [
@@ -356,8 +356,8 @@ test("batchCreate inserts all and is retrievable", async () => {
       ],
     },
   );
-  expect(res.ids).toHaveLength(3);
-  expect(res.updatedIds).toHaveLength(0);
+  expect(res.results).toHaveLength(3);
+  expect(res.results.every((r) => r.status === "inserted")).toBe(true);
   const count = await call<{ count: number }>("memory.countTree", {
     tree: "share.batch",
   });
@@ -428,7 +428,7 @@ test("batchCreate onConflict 'replace' splits insert/update/skip", async () => {
     ],
   });
 
-  const res = await call<{ ids: string[]; updatedIds: string[] }>(
+  const res = await call<{ results: { id: string; status: string }[] }>(
     "memory.batchCreate",
     {
       memories: [
@@ -446,8 +446,12 @@ test("batchCreate onConflict 'replace' splits insert/update/skip", async () => {
       onConflict: "replace",
     },
   );
-  expect(res.ids).toEqual([brandNew]);
-  expect(res.updatedIds).toEqual([stale]);
+  // One row per input, in input order: replaced / skipped / inserted.
+  expect(res.results).toEqual([
+    { id: stale, status: "updated" },
+    { id: fresh, status: "skipped" },
+    { id: brandNew, status: "inserted" },
+  ]);
 
   const updated = await call<{ content: string }>("memory.get", { id: stale });
   expect(updated.content).toBe("new render");

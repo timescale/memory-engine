@@ -2,18 +2,20 @@
  * Tests for `me pack` helpers.
  *
  * The skip-classification helper exists because `engine.memory.batchCreate`
- * silently drops conflicting ids (post-#64) — pack install needs to tell
- * benign re-installs (already at this version) from suspicious id collisions
- * (some other pack or a non-pack memory holds the id).
+ * reports a row whose deterministic id already existed as `status: 'skipped'`
+ * — pack install needs to tell benign re-installs (already at this version)
+ * from suspicious id collisions (some other pack or a non-pack memory holds the
+ * id). The caller passes the already-known skipped ids (filtered from the
+ * per-row write results); a failed-chunk row never reaches `results`, so it
+ * can't be mis-classified here.
  */
 import { describe, expect, test } from "bun:test";
 import { classifySkips } from "./pack.ts";
 
 describe("classifySkips", () => {
-  test("returns empty buckets when every requested id was inserted", () => {
+  test("returns empty buckets when nothing was skipped", () => {
     const result = classifySkips({
-      requestedIds: ["a", "b", "c"],
-      insertedIds: ["a", "b", "c"],
+      skippedIds: [],
       existing: [],
       packName: "foo",
       packVersion: "1",
@@ -24,8 +26,7 @@ describe("classifySkips", () => {
 
   test("classifies a skipped id as idempotent when same pack+version is present", () => {
     const result = classifySkips({
-      requestedIds: ["a", "b"],
-      insertedIds: ["b"],
+      skippedIds: ["a"],
       existing: [{ id: "a", meta: { pack: { name: "foo", version: "1" } } }],
       packName: "foo",
       packVersion: "1",
@@ -38,8 +39,7 @@ describe("classifySkips", () => {
     // batchCreate skipped "a" but the step-3 search didn't find it tagged
     // with this pack — so something else (a non-pack memory) holds the id.
     const result = classifySkips({
-      requestedIds: ["a", "b"],
-      insertedIds: ["b"],
+      skippedIds: ["a"],
       existing: [],
       packName: "foo",
       packVersion: "1",
@@ -50,8 +50,7 @@ describe("classifySkips", () => {
 
   test("classifies as conflict when the existing row belongs to a different pack", () => {
     const result = classifySkips({
-      requestedIds: ["a"],
-      insertedIds: [],
+      skippedIds: ["a"],
       existing: [{ id: "a", meta: { pack: { name: "other", version: "1" } } }],
       packName: "foo",
       packVersion: "1",
@@ -62,8 +61,7 @@ describe("classifySkips", () => {
 
   test("classifies as conflict when version differs (caller bug — stale should have been deleted)", () => {
     const result = classifySkips({
-      requestedIds: ["a"],
-      insertedIds: [],
+      skippedIds: ["a"],
       existing: [{ id: "a", meta: { pack: { name: "foo", version: "0" } } }],
       packName: "foo",
       packVersion: "1",
@@ -72,10 +70,9 @@ describe("classifySkips", () => {
     expect(result.conflict).toEqual(["a"]);
   });
 
-  test("separates idempotent from conflict in a mixed batch", () => {
+  test("separates idempotent from conflict in a mixed skip set", () => {
     const result = classifySkips({
-      requestedIds: ["a", "b", "c", "d"],
-      insertedIds: ["b"],
+      skippedIds: ["a", "c", "d"],
       existing: [
         { id: "a", meta: { pack: { name: "foo", version: "1" } } }, // idempotent
         { id: "c", meta: { pack: { name: "other", version: "1" } } }, // conflict (other pack)
@@ -90,8 +87,7 @@ describe("classifySkips", () => {
 
   test("treats malformed meta defensively as a conflict", () => {
     const result = classifySkips({
-      requestedIds: ["a", "b", "c"],
-      insertedIds: [],
+      skippedIds: ["a", "b", "c"],
       existing: [
         { id: "a", meta: undefined },
         { id: "b", meta: { pack: "not-an-object" } },
@@ -104,10 +100,9 @@ describe("classifySkips", () => {
     expect(result.conflict).toEqual(["a", "b", "c"]);
   });
 
-  test("preserves request order in the classification arrays", () => {
+  test("preserves skip order in the classification arrays", () => {
     const result = classifySkips({
-      requestedIds: ["c", "a", "b"],
-      insertedIds: [],
+      skippedIds: ["c", "a", "b"],
       existing: [
         { id: "a", meta: { pack: { name: "foo", version: "1" } } },
         { id: "b", meta: { pack: { name: "foo", version: "1" } } },
@@ -120,13 +115,12 @@ describe("classifySkips", () => {
     expect(result.conflict).toEqual([]);
   });
 
-  test("ignores existing rows whose ids weren't requested", () => {
+  test("ignores existing rows whose ids weren't skipped", () => {
     // The step-3 search may return rows that aren't in the new pack
     // (e.g. memories removed in a version bump, before step-6 deletion
-    // runs). Those should not count toward classification.
+    // runs). With nothing skipped, those extra existing rows are ignored.
     const result = classifySkips({
-      requestedIds: ["a"],
-      insertedIds: ["a"],
+      skippedIds: [],
       existing: [
         { id: "a", meta: { pack: { name: "foo", version: "1" } } },
         { id: "removed", meta: { pack: { name: "foo", version: "1" } } },
@@ -136,39 +130,5 @@ describe("classifySkips", () => {
     });
     expect(result.idempotent).toEqual([]);
     expect(result.conflict).toEqual([]);
-  });
-
-  test("excludes failedIds from classification (failed != skipped)", () => {
-    // Chunk containing "b" errored — "b" never reached the server, so it
-    // must not be counted as either idempotent or conflict. Without the
-    // failedIds parameter it would have been mis-classified as conflict
-    // (no existing row → looks like a non-pack id collision).
-    const result = classifySkips({
-      requestedIds: ["a", "b", "c"],
-      insertedIds: ["a"],
-      failedIds: ["b"],
-      existing: [{ id: "c", meta: { pack: { name: "foo", version: "1" } } }],
-      packName: "foo",
-      packVersion: "1",
-    });
-    expect(result.idempotent).toEqual(["c"]);
-    expect(result.conflict).toEqual([]);
-    // "b" is in neither bucket — caller tracks it under `failed`.
-  });
-
-  test("handles all four categories in one classification", () => {
-    const result = classifySkips({
-      requestedIds: ["inserted", "idem", "conflict", "failed"],
-      insertedIds: ["inserted"],
-      failedIds: ["failed"],
-      existing: [
-        { id: "idem", meta: { pack: { name: "foo", version: "1" } } },
-        { id: "conflict", meta: { pack: { name: "other", version: "1" } } },
-      ],
-      packName: "foo",
-      packVersion: "1",
-    });
-    expect(result.idempotent).toEqual(["idem"]);
-    expect(result.conflict).toEqual(["conflict"]);
   });
 });

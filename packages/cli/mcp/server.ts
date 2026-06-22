@@ -854,19 +854,21 @@ Docs: ${docUrl("me_memory_import")}`,
         throw new Error("Either path or content is required.");
       }
 
-      const explicitIds = allMemories
-        .map((m) => m.id)
-        .filter((id): id is string => typeof id === "string");
-
       // Chunked batch create — large imports are sliced under the
       // server's request-body limit, and a single failed chunk doesn't
       // take down the rest of the import.
-      const { insertedIds, failedIds, errors } = await batchCreateChunked(
+      const { results: writeResults, errors } = await batchCreateChunked(
         client,
         allMemories,
         // Re-importing the same content is a no-op: skip rows whose
-        // idempotency key (id, or (tree, name)) already exists.
+        // idempotency key ((tree, name), else id) already exists.
         { onConflict: "ignore" },
+      );
+
+      // inserted/skipped rows come from a successful chunk, so their id is
+      // always present; flatMap drops the null only TS insists on.
+      const insertedIds = writeResults.flatMap((r) =>
+        r.status === "inserted" && r.id !== null ? [r.id] : [],
       );
 
       // Throw only on total failure — the agent should see partial-success
@@ -880,14 +882,14 @@ Docs: ${docUrl("me_memory_import")}`,
       }
 
       // With `onConflict: 'ignore'` the server skips rows whose idempotency
-      // key already exists; surface those explicit ids so the caller can
-      // investigate. Failed-chunk ids never reached the server, so they're
-      // not skipped — they're reported separately under `failed`/`errors`.
-      const insertedSet = new Set(insertedIds);
-      const failedSet = new Set(failedIds);
-      const skippedIds = explicitIds.filter(
-        (id) => !insertedSet.has(id) && !failedSet.has(id),
+      // key already exists; surface their stored ids so the caller can
+      // investigate. Per-row status counts named-but-id-less skips too. 'error'
+      // rows are a failed chunk that never reached the server — counted under
+      // `failed`, with messages in `errors`.
+      const skippedIds = writeResults.flatMap((r) =>
+        r.status === "skipped" && r.id !== null ? [r.id] : [],
       );
+      const failed = writeResults.filter((r) => r.status === "error").length;
 
       return {
         content: [
@@ -897,7 +899,7 @@ Docs: ${docUrl("me_memory_import")}`,
               {
                 imported: insertedIds.length,
                 skipped: skippedIds.length,
-                failed: failedIds.length,
+                failed,
                 ids: insertedIds,
                 skippedIds,
                 errors,

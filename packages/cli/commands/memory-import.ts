@@ -70,26 +70,6 @@ interface ImportResult {
   errors: Array<{ source: string; error: string }>;
 }
 
-/**
- * Compute which explicit ids were skipped by the server.
- *
- * Import passes `onConflict: 'ignore'`, so a memory whose idempotency key
- * already exists is skipped rather than erroring — the returned `ids` array
- * can be shorter than the request. Memories submitted without an explicit
- * `id` get a server-generated UUIDv7 that statistically can't collide, so
- * only explicit-id requests are tracked here (a named-but-id-less row skipped
- * on its (tree, name) slot isn't counted).
- *
- * Pure function exported for unit testing.
- */
-export function computeSkippedIds(
-  explicitIds: string[],
-  insertedIds: string[],
-): string[] {
-  const inserted = new Set(insertedIds);
-  return explicitIds.filter((id) => !inserted.has(id));
-}
-
 export function createMemoryImportCommand(name = "import"): Command {
   return new Command(name)
     .description("import memories from files or stdin")
@@ -280,26 +260,24 @@ export function createMemoryImportCommand(name = "import"): Command {
         ...(mem.temporal ? { temporal: mem.temporal } : {}),
       }));
 
-      const explicitIds = createParams
-        .map((p) => p.id)
-        .filter((id): id is string => typeof id === "string");
-
       // Chunked batch create — large imports are sliced under the
       // server's request-body limit, and a single failed chunk doesn't
       // take down the rest of the import.
-      const {
-        insertedIds,
-        failedIds,
-        errors: chunkErrors,
-      } = await batchCreateChunked(engine, createParams, {
-        // Re-importing the same file is a no-op: skip rows whose idempotency
-        // key (id, or (tree, name)) already exists rather than erroring.
-        onConflict: "ignore",
-      });
+      const { results: writeResults, errors: chunkErrors } =
+        await batchCreateChunked(engine, createParams, {
+          // Re-importing the same file is a no-op: skip rows whose idempotency
+          // key ((tree, name), else id) already exists rather than erroring.
+          onConflict: "ignore",
+        });
 
-      result.imported = insertedIds.length;
-      result.ids = insertedIds;
-      result.failed = failedIds.length;
+      // inserted/skipped rows come from a successful chunk, so their id is
+      // always present; flatMap drops the null only TS insists on.
+      result.ids = writeResults.flatMap((r) =>
+        r.status === "inserted" && r.id !== null ? [r.id] : [],
+      );
+      result.imported = result.ids.length;
+      // Failed = rows whose chunk threw (one 'error' row per input).
+      result.failed = writeResults.filter((r) => r.status === "error").length;
       for (const e of chunkErrors) {
         result.errors.push({
           source: `chunk ${e.chunkIndex} (${e.itemCount} items)`,
@@ -307,13 +285,12 @@ export function createMemoryImportCommand(name = "import"): Command {
         });
       }
 
-      // Skipped = explicit ids requested but neither inserted nor in a
-      // failed chunk. Failed-chunk ids never reached the server, so they
-      // are not "skipped due to id collision" — they're a separate class
-      // already accounted for in `result.failed`.
-      const failedSet = new Set(failedIds);
-      skippedIds = computeSkippedIds(explicitIds, insertedIds).filter(
-        (id) => !failedSet.has(id),
+      // Skipped = rows the server left as-is because their idempotency key
+      // already existed (onConflict 'ignore'). The per-row status counts a
+      // named-but-id-less skip too — a pre-status explicit-id-only tally
+      // missed those.
+      skippedIds = writeResults.flatMap((r) =>
+        r.status === "skipped" && r.id !== null ? [r.id] : [],
       );
 
       // Output results
