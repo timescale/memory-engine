@@ -25,7 +25,7 @@ import type { MemoryCreateParams } from "@memory.build/protocol/memory";
 import { batchCreateChunked } from "../chunk.ts";
 import type { MemoryClient } from "../client.ts";
 import type { ProgressReporter } from "./progress.ts";
-import { normalizeSlug, SlugRegistry } from "./slug.ts";
+import { boundedUniqueLabel, normalizeSlug, SlugRegistry } from "./slug.ts";
 import { renderMessageContent, synthesizeTitle } from "./transcript.ts";
 import type {
   ConversationMessage,
@@ -50,26 +50,42 @@ export const IMPORTER_VERSION = "1";
 /** Meta key carrying the importer version (provenance; a bump re-renders via the meta diff). */
 const IMPORTER_VERSION_KEY = "importer_version";
 
+/** Max length of one ltree label (well under Postgres' per-label limit). */
+const SESSION_LABEL_MAX = 200;
+/** Memory-name length cap (DB CHECK), minus the `msg_` prefix below. */
+const MESSAGE_NAME_BODY_MAX = 128 - "msg_".length;
+
 /**
- * The ltree node for one session: `<root>.<slug>.<sessionsNode>.<sessionId>`.
- * The session id is normalized to a valid ltree label. Each session is its own
- * node so its messages are browsable as named leaves under it.
+ * The ltree node for one session: `<root>.<slug>.<sessionsNode>.<sessionLabel>`.
+ * The session id is mapped to a valid, collision-free ltree label via
+ * `boundedUniqueLabel` — `normalizeSlug` alone is lossy (e.g. it merges a UUID's
+ * dashes), so distinct session ids could otherwise share one node. Each session
+ * is its own node so its messages are browsable as named leaves under it.
  */
 function sessionTree(
   options: WriteOptions,
   slug: string,
   sessionId: string,
 ): string {
-  return `${options.treeRoot}.${slug}.${options.sessionsNodeName}.${normalizeSlug(sessionId)}`;
+  const label = boundedUniqueLabel(sessionId, normalizeSlug, SESSION_LABEL_MAX);
+  return `${options.treeRoot}.${slug}.${options.sessionsNodeName}.${label}`;
 }
 
 /**
- * A message's leaf name within its session node: `msg_<messageId>`, with any
- * character outside the name charset replaced. `(tree, name)` is the idempotency
- * key, so the same message always lands in the same slot across re-imports.
+ * A message's leaf name within its session node: `msg_<messageId>`, mapped to
+ * the name charset and capped at 128 chars. `boundedUniqueLabel` appends a hash
+ * of the full id when the mapping is lossy or over-length, so distinct ids
+ * (`a/b`, `a:b`, `a_b`) don't collapse to one slot. `(tree, name)` is the
+ * idempotency key, so the same message always lands in the same slot across
+ * re-imports.
  */
 function messageName(messageId: string): string {
-  return `msg_${messageId.replace(/[^A-Za-z0-9._-]/g, "_")}`;
+  const body = boundedUniqueLabel(
+    messageId,
+    (s) => s.replace(/[^A-Za-z0-9._-]/g, "_"),
+    MESSAGE_NAME_BODY_MAX,
+  );
+  return `msg_${body}`;
 }
 
 /**
