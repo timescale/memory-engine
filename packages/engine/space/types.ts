@@ -13,8 +13,11 @@ export type { TreeAccess };
 /** tstzrange rendered as its text form, e.g. "[2024-01-01,2024-01-02)". */
 export type TemporalRange = string;
 
-/** Conflict action on the idempotency key (id when given, else (tree, name)). */
+/** Conflict action on the idempotency key (named rows: (tree, name); else id). */
 export type OnConflict = "error" | "replace" | "ignore";
+
+/** What a create/batchCreate did to one row. */
+export type WriteStatus = "inserted" | "updated" | "skipped";
 
 export interface Memory {
   id: string;

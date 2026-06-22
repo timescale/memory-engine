@@ -381,7 +381,7 @@ describe("provisioned schema is functional", () => {
       `${OWNER}, 'a.dup'::ltree, 'original', '${id}'::uuid`,
     );
     expect(first?.id).toBe(id);
-    expect(first?.inserted).toBe(true);
+    expect(first?.status).toBe("inserted");
 
     await expectReject(() =>
       createMemory(`${OWNER}, 'a.dup'::ltree, 'replacement', '${id}'::uuid`),
@@ -399,19 +399,20 @@ describe("provisioned schema is functional", () => {
       `${OWNER}, 'a.ver'::ltree, 'render v1', '${id}'::uuid, '{"v": "1"}'::jsonb`,
     );
 
-    // Identical content+meta → content-aware replace is a no-op (zero rows).
-    const same = await createMemory(
+    // Identical content+meta → content-aware replace is a no-op (skipped).
+    const [same] = await createMemory(
       `${OWNER}, 'a.ver'::ltree, 'render v1', '${id}'::uuid, '{"v": "1"}'::jsonb, null, null, 'replace'`,
     );
-    expect(same.length).toBe(0);
+    expect(same?.id).toBe(id);
+    expect(same?.status).toBe("skipped");
 
-    // Meta differs (same content) → replaced in place, inserted = false. This
-    // is how an importer_version bump propagates: the version lives in meta.
+    // Meta differs (same content) → replaced in place (updated). This is how an
+    // importer_version bump propagates: the version lives in meta.
     const [bumped] = await createMemory(
       `${OWNER}, 'a.ver'::ltree, 'render v1', '${id}'::uuid, '{"v": "2"}'::jsonb, null, null, 'replace'`,
     );
     expect(bumped?.id).toBe(id);
-    expect(bumped?.inserted).toBe(false);
+    expect(bumped?.status).toBe("updated");
 
     const [row] = await sql.unsafe(
       `select meta->>'v' as v, updated_at
@@ -430,10 +431,10 @@ describe("provisioned schema is functional", () => {
     );
 
     const limited = `'[{"tree_path": "a.open", "access": 3}]'::jsonb`;
-    const res = await createMemory(
+    const [res] = await createMemory(
       `${limited}, 'a.open'::ltree, 'hijack', '${id}'::uuid, '{"v": "2"}'::jsonb, null, null, 'replace'`,
     );
-    expect(res.length).toBe(0);
+    expect(res?.status).toBe("skipped");
 
     const [row] = await sql.unsafe(
       `select content, tree::text as tree from ${canonical.schema}.memory where id = '${id}'`,
@@ -456,7 +457,7 @@ describe("provisioned schema is functional", () => {
     // (identical content+meta → skip), a brand new row (insert), and a no-id
     // row (insert with generated id) — all under content-aware 'replace'.
     const rows = await sql.unsafe(
-      `select * from ${canonical.schema}.batch_create_memory(
+      `select ord, id, status from ${canonical.schema}.batch_create_memory(
          ${OWNER},
          array['${stale}', '${fresh}', '01941000-0000-7000-8000-00000000b003', null]::uuid[],
          array['a.batch', 'a.batch', 'a.batch', 'a.batch']::ltree[],
@@ -465,13 +466,22 @@ describe("provisioned schema is functional", () => {
          array[null, null, null, null]::tstzrange[],
          null,
          'replace'
-       )`,
+       ) order by ord`,
     );
-    const byId = new Map(rows.map((r) => [r.id as string, r.inserted]));
-    expect(byId.get(stale)).toBe(false); // replaced
-    expect(byId.has(fresh)).toBe(false); // skipped → absent
-    expect(byId.get("01941000-0000-7000-8000-00000000b003")).toBe(true);
-    expect(rows).toHaveLength(3); // 2 inserts + 1 update
+    // One row per input, in order, with a per-row status.
+    expect(rows.map((r) => Number(r.ord))).toEqual([1, 2, 3, 4]);
+    expect(rows.map((r) => r.status)).toEqual([
+      "updated", // stale: content changed
+      "skipped", // fresh: identical → content-aware no-op
+      "inserted", // b003: brand new
+      "inserted", // generated id
+    ]);
+    // Returned ids map back to the inputs (the explicit ones, and a fresh
+    // uuid for the no-id row).
+    expect(rows[0]?.id).toBe(stale);
+    expect(rows[1]?.id).toBe(fresh);
+    expect(rows[2]?.id).toBe("01941000-0000-7000-8000-00000000b003");
+    expect(rows[3]?.id).toMatch(/^[0-9a-f-]{36}$/);
 
     const [updated] = await sql.unsafe(
       `select content from ${canonical.schema}.memory where id = '${stale}'`,
@@ -483,23 +493,61 @@ describe("provisioned schema is functional", () => {
     expect(skipped?.content).toBe("current");
   });
 
-  test("batch_create_memory collapses an id repeated within the batch (first wins)", async () => {
+  test("batch_create_memory rejects a duplicate explicit id within the batch", async () => {
     const id = "01941000-0000-7000-8000-00000000b010";
-    const rows = await sql.unsafe(
-      `select * from ${canonical.schema}.batch_create_memory(
-         ${OWNER},
-         array['${id}', '${id}']::uuid[],
-         array['a.batchdup', 'a.batchdup']::ltree[],
-         array['first', 'second']::text[],
-         '[{}, {}]'::jsonb,
-         array[null, null]::tstzrange[]
-       )`,
+    await expectReject(() =>
+      sql.unsafe(
+        `select * from ${canonical.schema}.batch_create_memory(
+           ${OWNER},
+           array['${id}', '${id}']::uuid[],
+           array['a.batchdup', 'a.batchdup']::ltree[],
+           array['first', 'second']::text[],
+           '[{}, {}]'::jsonb,
+           array[null, null]::tstzrange[]
+         )`,
+      ),
     );
-    expect(rows).toHaveLength(1);
+    // Nothing was written — the whole batch is rejected up front.
     const [row] = await sql.unsafe(
-      `select content from ${canonical.schema}.memory where id = '${id}'`,
+      `select count(*)::int as n from ${canonical.schema}.memory where id = '${id}'`,
     );
-    expect(row?.content).toBe("first");
+    expect(row?.n).toBe(0);
+  });
+
+  test("batch_create_memory rejects a duplicate (tree, name) within the batch", async () => {
+    await expectReject(() =>
+      sql.unsafe(
+        `select * from ${canonical.schema}.batch_create_memory(
+           ${OWNER},
+           array[null, null]::uuid[],
+           array['a.bdupname', 'a.bdupname']::ltree[],
+           array['first', 'second']::text[],
+           '[{}, {}]'::jsonb,
+           array[null, null]::tstzrange[],
+           array['doc', 'doc']::text[]
+         )`,
+      ),
+    );
+  });
+
+  test("batch_create_memory catches an id shared across a named and an unnamed row", async () => {
+    // The two rows aren't (tree, name) duplicates and land in different
+    // partitions (one keyed on id, one on (tree, name)), but they DO collide on
+    // the explicit id — the duplicate-id check must catch it.
+    const id = "01941000-0000-7000-8000-00000000b011";
+    await expectReject(() =>
+      sql.unsafe(
+        `select * from ${canonical.schema}.batch_create_memory(
+           ${OWNER},
+           array['${id}', '${id}']::uuid[],
+           array['a.bmixed', 'a.bmixed']::ltree[],
+           array['by-id', 'by-name']::text[],
+           '[{}, {}]'::jsonb,
+           array[null, null]::tstzrange[],
+           array[null, 'doc']::text[]
+         )`,
+      ),
+    );
   });
 
   test("batch_create_memory rejects misaligned arrays and bad target access", async () => {
@@ -607,7 +655,7 @@ describe("provisioned schema is functional", () => {
     const [first] = await createMemory(
       `${OWNER}, 'n.dir'::ltree, 'v1', null, '{}'::jsonb, null, 'note'`,
     );
-    expect(first?.inserted).toBe(true);
+    expect(first?.status).toBe("inserted");
     const id = first?.id;
 
     // default 'error' → a hard conflict (raise).
@@ -617,11 +665,12 @@ describe("provisioned schema is functional", () => {
       ),
     );
 
-    // 'ignore' → skip, existing row untouched.
-    const ignored = await createMemory(
+    // 'ignore' → skip (status 'skipped', existing id), existing row untouched.
+    const [ignored] = await createMemory(
       `${OWNER}, 'n.dir'::ltree, 'v2', null, '{}'::jsonb, null, 'note', 'ignore'`,
     );
-    expect(ignored.length).toBe(0);
+    expect(ignored?.id).toBe(id);
+    expect(ignored?.status).toBe("skipped");
     expect(
       (
         await sql.unsafe(
@@ -635,13 +684,14 @@ describe("provisioned schema is functional", () => {
       `${OWNER}, 'n.dir'::ltree, 'v2', null, '{}'::jsonb, null, 'note', 'replace'`,
     );
     expect(up?.id).toBe(id);
-    expect(up?.inserted).toBe(false);
+    expect(up?.status).toBe("updated");
 
-    // 'replace' with identical content/meta → no-op (content-aware), zero rows.
-    const noop = await createMemory(
+    // 'replace' with identical content/meta → no-op (content-aware, skipped).
+    const [noop] = await createMemory(
       `${OWNER}, 'n.dir'::ltree, 'v2', null, '{}'::jsonb, null, 'note', 'replace'`,
     );
-    expect(noop.length).toBe(0);
+    expect(noop?.id).toBe(id);
+    expect(noop?.status).toBe("skipped");
 
     const [row] = await sql.unsafe(
       `select content, name from ${canonical.schema}.memory where id = '${id}'`,
@@ -658,7 +708,7 @@ describe("provisioned schema is functional", () => {
       `${OWNER}, 'mv.to'::ltree, 'body', '${id}'::uuid, '{}'::jsonb, null, null, 'replace'`,
     );
     expect(moved?.id).toBe(id);
-    expect(moved?.inserted).toBe(false);
+    expect(moved?.status).toBe("updated");
     const [row] = await sql.unsafe(
       `select tree::text as tree from ${canonical.schema}.memory where id = '${id}'`,
     );
@@ -669,16 +719,16 @@ describe("provisioned schema is functional", () => {
     await createMemory(
       `${OWNER}, 'n.imp'::ltree, 'r1', null, '{"v":"1"}'::jsonb, null, 'doc'`,
     );
-    // Identical content+meta → idempotent no-op (no raise, zero rows).
-    const same = await createMemory(
+    // Identical content+meta → idempotent no-op (no raise, status 'skipped').
+    const [same] = await createMemory(
       `${OWNER}, 'n.imp'::ltree, 'r1', null, '{"v":"1"}'::jsonb, null, 'doc', 'replace'`,
     );
-    expect(same.length).toBe(0);
+    expect(same?.status).toBe("skipped");
     // Meta differs (importer-version bump) → replace in place (no raise).
     const [diff] = await createMemory(
       `${OWNER}, 'n.imp'::ltree, 'r1', null, '{"v":"2"}'::jsonb, null, 'doc', 'replace'`,
     );
-    expect(diff?.inserted).toBe(false);
+    expect(diff?.status).toBe("updated");
     // A batch with a bare (default-error) named collision raises, aborting it.
     await expectReject(() =>
       sql.unsafe(
@@ -702,7 +752,7 @@ describe("provisioned schema is functional", () => {
       `${OWNER}, 'n.idname'::ltree, 'v1', '${id1}'::uuid, '{}'::jsonb, null, 'doc'`,
     );
     expect(first?.id).toBe(id1);
-    expect(first?.inserted).toBe(true);
+    expect(first?.status).toBe("inserted");
 
     // Re-submit the SAME (tree, name) with a DIFFERENT explicit id + 'replace'.
     // Dedup is on (tree, name), so it replaces in place and KEEPS id1 — the new
@@ -712,7 +762,7 @@ describe("provisioned schema is functional", () => {
       `${OWNER}, 'n.idname'::ltree, 'v2', '${id2}'::uuid, '{}'::jsonb, null, 'doc', 'replace'`,
     );
     expect(second?.id).toBe(id1); // not id2
-    expect(second?.inserted).toBe(false);
+    expect(second?.status).toBe("updated");
 
     const [row] = await sql.unsafe(
       `select id, content from ${canonical.schema}.memory

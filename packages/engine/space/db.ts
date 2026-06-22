@@ -10,7 +10,14 @@ import type {
   SearchResultItem,
   TreeAccess,
   TreeListEntry,
+  WriteStatus,
 } from "./types";
+
+/** One row's outcome: its stored id + what happened. */
+export interface WriteResult {
+  id: string;
+  status: WriteStatus;
+}
 
 /**
  * The space data-plane layer for one space schema (me_<slug>).
@@ -21,26 +28,27 @@ import type {
  */
 export interface SpaceStore {
   /**
-   * Insert one memory. When the idempotency key (explicit `params.id`, else the
-   * (tree, name) slot) already exists the outcome depends on `params.onConflict`:
-   * 'error' (default) raises, 'replace' overwrites in place when a field differs
-   * (`inserted: false`; a no-op returns null), 'ignore' skips (null).
+   * Insert one memory. When the idempotency key (a named row's (tree, name),
+   * else the explicit `params.id`) already exists the outcome depends on
+   * `params.onConflict`: 'error' (default) raises, 'replace' overwrites in place
+   * when a field differs, 'ignore' skips. Always returns the row's stored id
+   * (the kept existing id on an update/skip, readable even when skipped) plus
+   * its status.
    */
   createMemory(
     treeAccess: TreeAccess,
     params: CreateMemoryParams,
-  ): Promise<{ id: string; inserted: boolean } | null>;
+  ): Promise<WriteResult>;
   /**
-   * Set-based createMemory for a whole batch: one statement, one round
-   * trip, same per-row conflict semantics. Returns one row per
-   * insert/replace — skipped rows are absent — and an explicit id repeated
-   * within the batch collapses to its first occurrence. Atomic.
+   * Set-based createMemory for a whole batch: one statement, one round trip,
+   * same per-row conflict semantics. Returns one {id, status} per input in
+   * input order (atomic). A duplicate idempotency key within the batch raises.
    */
   batchCreateMemories(
     treeAccess: TreeAccess,
     memories: CreateMemoryParams[],
     onConflict?: OnConflict,
-  ): Promise<Array<{ id: string; inserted: boolean }>>;
+  ): Promise<WriteResult[]>;
   getMemory(treeAccess: TreeAccess, id: string): Promise<Memory | null>;
   /** Resolve a (tree, name) reference to its memory id (read-gated), or null. */
   resolveMemoryId(
@@ -138,8 +146,10 @@ export function spaceStore(sql: Sql, schema: string): SpaceStore {
 
   return {
     async createMemory(treeAccess, p) {
+      // create_memory returns exactly one (id, status) row — the stored id (the
+      // kept existing id on an update/skip) and what happened.
       const [row] = await sql`
-        select id, inserted from ${sch}.create_memory(
+        select id, status from ${sch}.create_memory(
           ${jb(treeAccess)},
           ${p.tree}::ltree,
           ${p.content},
@@ -149,19 +159,20 @@ export function spaceStore(sql: Sql, schema: string): SpaceStore {
           ${p.name ?? null},
           ${p.onConflict ?? "error"}
         )`;
-      // Zero rows = the conflict was skipped: onConflict 'ignore' or a 'replace'
-      // no-op (every field matched). ('error' raises.)
-      if (!row) return null;
-      return { id: row.id as string, inserted: Boolean(row.inserted) };
+      return {
+        id: (row as { id: string }).id,
+        status: (row as { status: WriteStatus }).status,
+      };
     },
 
     async batchCreateMemories(treeAccess, memories, onConflict) {
       if (memories.length === 0) return [];
       // Parallel arrays aligned by position. Metas travel as ONE jsonb array
       // via sql.json — a jsonb[] parameter would double-encode each element
-      // into a string scalar (see the jb() note above).
+      // into a string scalar (see the jb() note above). batch_create_memory
+      // returns one (ord, id, status) row per input in input order.
       const rows = await sql`
-        select id, inserted from ${sch}.batch_create_memory(
+        select id, status from ${sch}.batch_create_memory(
           ${jb(treeAccess)},
           ${memories.map((m) => m.id ?? null)}::uuid[],
           ${memories.map((m) => m.tree)}::ltree[],
@@ -170,10 +181,11 @@ export function spaceStore(sql: Sql, schema: string): SpaceStore {
           ${memories.map((m) => m.temporal ?? null)}::tstzrange[],
           ${memories.map((m) => m.name ?? null)}::text[],
           ${onConflict ?? "error"}
-        )`;
+        )
+        order by ord`;
       return rows.map((r) => ({
         id: r.id as string,
-        inserted: Boolean(r.inserted),
+        status: r.status as WriteStatus,
       }));
     },
 

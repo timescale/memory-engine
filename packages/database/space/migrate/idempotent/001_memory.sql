@@ -188,25 +188,48 @@ set search_path to pg_catalog, {{schema}}, public, pg_temp
 -- (An id-keyed replace also requires write access on the EXISTING row's tree,
 -- since an id can move the row across trees; a (tree, name) replace stays in
 -- the same tree, covered by the up-front check.) The (tree, name) unique index
--- is enforced on every path. A NAMED row whose explicit id happens to collide
--- with a DIFFERENT row's id raises a pk unique_violation (the id is taken) —
--- importers mint random-tailed ids, so this never bites them.
+-- is enforced on every path. `_on_conflict` governs the row's OWN idempotency
+-- key; a NAMED row whose explicit id happens to collide with a DIFFERENT row's
+-- id still raises a pk unique_violation regardless of 'ignore'/'replace' (the
+-- id is taken) — importers mint random-tailed ids, so this never bites them.
 --
--- Returns one row (id, inserted) per insert/replace — inserted distinguishes a
--- fresh insert (true, xmax = 0) from a replace (false); skipped rows are absent.
--- Target-tree write access is all-or-nothing up front. Within the batch, a
--- repeated id — or (tree, name) — collapses to its first occurrence (a single
--- INSERT cannot touch the same row twice). Embedding columns are never set
+-- Returns ONE row per input, in input order: (ord, id, status) where status is
+-- 'inserted' | 'updated' | 'skipped' and id is the row's stored id (for a
+-- skip/update on a (tree, name) key that is the EXISTING row's id, which may
+-- differ from a submitted id). So a caller can map every result back to its
+-- input by ord and see exactly what happened. Embedding columns are never set
 -- here; the update trigger re-embeds only on content change, so a meta-only
 -- replace does not re-embed.
 --
--- These drops cover prior signatures whose tail no longer matches: the
--- pre-name 7-arg, and the _replace_if_meta_differs variant (removed in favor of
--- content-aware 'replace'). Without them the defaulted-tail overloads make an
--- 8-arg call ambiguous. No-op on fresh schemas.
+-- A duplicate idempotency key WITHIN one batch is rejected up front
+-- (invalid_parameter_value): a repeated explicit id, or a repeated (tree, name).
+-- The caller can't express two outcomes for one key, and splitting the work
+-- into per-key partitions would otherwise miss an id shared across a named and
+-- an unnamed row. Target-tree write access is all-or-nothing up front.
+--
+-- The return type changed from (id, inserted) to (ord, id, status), which
+-- create-or-replace cannot make (42P13). The plain drops first remove older
+-- arg-signature overloads (pre-name 7-arg, _replace_if_meta_differs 9-arg), so
+-- the only batch_create_memory that can remain is the current 8-arg; the
+-- guarded do-block then drops THAT only when it still returns the old shape
+-- (lacks `status`), so it doesn't churn the live function every boot. No-op on
+-- fresh schemas and once current.
 -------------------------------------------------------------------------------
 drop function if exists {{schema}}.batch_create_memory(jsonb, uuid[], ltree[], text[], jsonb, tstzrange[], text);
 drop function if exists {{schema}}.batch_create_memory(jsonb, uuid[], ltree[], text[], jsonb, tstzrange[], text, text[], text);
+do $$ begin
+  if exists
+  (
+    select 1
+    from pg_proc p
+    join pg_namespace n on n.oid = p.pronamespace
+    where n.nspname = '{{schema}}'
+    and p.proname = 'batch_create_memory'
+    and not ('status' = any(coalesce(p.proargnames, array[]::text[])))
+  ) then
+    drop function {{schema}}.batch_create_memory(jsonb, uuid[], ltree[], text[], jsonb, tstzrange[], text[], text);
+  end if;
+end $$;
 create or replace function {{schema}}.batch_create_memory
 ( _tree_access jsonb
 , _ids uuid[]                 -- null elements get a generated uuidv7
@@ -217,10 +240,10 @@ create or replace function {{schema}}.batch_create_memory
 , _names text[] default null                  -- per-row leaf name; null = unnamed
 , _on_conflict text default 'error'           -- 'error' | 'replace' | 'ignore'
 )
-returns table (id uuid, inserted boolean)
+returns table (ord bigint, id uuid, status text)  -- status: inserted | updated | skipped
 as $func$
--- The out columns (id, inserted) shadow table columns inside the body; the
--- body never reads them as variables, so resolve ambiguity to the columns.
+-- The out columns (id, ...) shadow table columns inside the body; the body
+-- never reads them as variables, so resolve ambiguity to the columns.
 #variable_conflict use_column
 begin
   -- _metas is one jsonb array (not jsonb[]): drivers pass json values
@@ -239,6 +262,27 @@ begin
 
   if _on_conflict is null or _on_conflict not in ('error', 'replace', 'ignore') then
     raise exception 'invalid _on_conflict: %', _on_conflict
+      using errcode = 'invalid_parameter_value';
+  end if;
+
+  -- A duplicate idempotency key within the batch is ambiguous (two outcomes for
+  -- one key) and would otherwise slip past the per-key partitions below.
+  if exists
+  (
+    select 1 from unnest(_ids) u(id)
+    where u.id is not null
+    group by u.id having count(*) > 1
+  ) then
+    raise exception 'duplicate explicit id within batch'
+      using errcode = 'invalid_parameter_value';
+  end if;
+  if _names is not null and exists
+  (
+    select 1 from unnest(_trees, _names) u(tree, name)
+    where u.name is not null
+    group by u.tree, u.name having count(*) > 1
+  ) then
+    raise exception 'duplicate (tree, name) within batch'
       using errcode = 'invalid_parameter_value';
   end if;
 
@@ -275,20 +319,18 @@ begin
     join jsonb_array_elements(_metas) with ordinality e(meta, ord)
       on e.ord = u.ord
   )
-  -- Unnamed + explicit id → keyed on the id; first occurrence within the batch wins.
+  -- Unnamed + explicit id → keyed on the id. (Within-batch id dups already
+  -- raised, so no dedup is needed here.)
   , with_id as
   (
-    select distinct on (r.explicit_id) r.*
-    from r where r.explicit_id is not null and r.name is null
-    order by r.explicit_id, r.ord
+    select r.* from r where r.explicit_id is not null and r.name is null
   )
-  -- Named (with OR without an id) → keyed on (tree, name); first occurrence wins.
-  -- A name takes precedence over the id as the dedup key.
+  -- Named (with OR without an id) → keyed on (tree, name); a name takes
+  -- precedence over the id as the dedup key. (Within-batch (tree, name) dups
+  -- already raised.)
   , named as
   (
-    select distinct on (r.tree, r.name) r.*
-    from r where r.name is not null
-    order by r.tree, r.name, r.ord
+    select r.* from r where r.name is not null
   )
   -- No id, no name → anonymous; nothing to dedup.
   , anon as
@@ -357,11 +399,48 @@ begin
     from anon a
     returning m.id as id, true as inserted
   )
-  select id, inserted from ins_id
-  union all
-  select id, inserted from ins_named
-  union all
-  select id, inserted from ins_anon
+  -- Rows actually written this statement: (id, inserted=fresh-insert vs replace).
+  , acted as
+  (
+    select id, inserted from ins_id
+    union all
+    select id, inserted from ins_named
+    union all
+    select id, inserted from ins_anon
+  )
+  -- The stored id per input. For a named row it is resolved by (tree, name):
+  -- this subquery reads the PRE-statement snapshot (data-modifying CTEs aren't
+  -- visible here), so an EXISTING row (update/skip) yields its kept id, while a
+  -- fresh insert yields null → fall back to the row's own (minted) id. Unnamed
+  -- and anonymous rows always keep their own id.
+  , resolved as
+  (
+    select
+      r.ord
+    , case
+        when r.name is not null then coalesce
+        ( ( select mm.id
+            from {{schema}}.memory mm
+            where mm.tree = r.tree and mm.name = r.name )
+        , r.id
+        )
+        else r.id
+      end as id
+    from r
+  )
+  -- One row per input, in order: present in `acted` → inserted/updated; absent
+  -- → skipped (onConflict ignore, or a replace no-op).
+  select
+    res.ord
+  , res.id
+  , case
+      when a.id is null then 'skipped'
+      when a.inserted then 'inserted'
+      else 'updated'
+    end as status
+  from resolved res
+  left join acted a on a.id = res.id
+  order by res.ord
   ;
 end;
 $func$ language plpgsql volatile security invoker
@@ -372,15 +451,34 @@ set search_path to pg_catalog, {{schema}}, public, pg_temp
 -- create memory
 --
 -- One-row wrapper over batch_create_memory — see there for the conflict
--- semantics (insert / content-aware replace / skip) and the return shape.
+-- semantics (insert / content-aware replace / skip). Returns exactly one row,
+-- (id, status), mirroring the batch shape: id is the row's stored id (the kept
+-- existing id on a (tree, name) update/skip — so callers can read it back even
+-- on a skip), status is 'inserted' | 'updated' | 'skipped'.
 --
--- The drops cover prior signatures: the pre-upsert 6-arg, the pre-name 7-arg,
--- and the _replace_if_meta_differs 9-arg variant — without them, create would
--- add an ambiguous overload. No-op on re-runs.
+-- The return type changed from (id, inserted) to (id, status), which
+-- create-or-replace cannot make (42P13). Drop a prior definition only when it
+-- lacks `status` among its columns (guarded so it doesn't churn the live
+-- function every boot) — a no-op on fresh schemas and once current. The plain
+-- drops cover older arg-signature overloads (pre-upsert 6-arg, pre-name 7-arg,
+-- _replace_if_meta_differs 9-arg).
 -------------------------------------------------------------------------------
 drop function if exists {{schema}}.create_memory(jsonb, ltree, text, uuid, jsonb, tstzrange);
 drop function if exists {{schema}}.create_memory(jsonb, ltree, text, uuid, jsonb, tstzrange, text);
 drop function if exists {{schema}}.create_memory(jsonb, ltree, text, uuid, jsonb, tstzrange, text, text, text);
+do $$ begin
+  if exists
+  (
+    select 1
+    from pg_proc p
+    join pg_namespace n on n.oid = p.pronamespace
+    where n.nspname = '{{schema}}'
+    and p.proname = 'create_memory'
+    and not ('status' = any(coalesce(p.proargnames, array[]::text[])))
+  ) then
+    drop function {{schema}}.create_memory(jsonb, ltree, text, uuid, jsonb, tstzrange, text, text);
+  end if;
+end $$;
 create or replace function {{schema}}.create_memory
 ( _tree_access jsonb
 , _tree ltree
@@ -391,9 +489,9 @@ create or replace function {{schema}}.create_memory
 , _name text default null
 , _on_conflict text default 'error'
 )
-returns table (id uuid, inserted boolean)
+returns table (id uuid, status text)
 as $func$
-  select b.id, b.inserted
+  select b.id, b.status
   from {{schema}}.batch_create_memory(
     _tree_access,
     array[_id]::uuid[],
