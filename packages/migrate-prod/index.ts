@@ -1,14 +1,15 @@
 /**
  * One-time prod → multiplayer migration. See PROD_MIGRATION_PLAN.md.
  *
- * `migrateProdToMultiplayer(sql)` runs the whole ETL in one database (Phases A+B);
- * `dropLegacy`/`dropAccounts` are the explicit post-cutover teardown (Phase C).
+ * `migrateProdToMultiplayer(conns)` runs the whole ETL across the three
+ * databases (Phases A+B); `migrateControlPlane`/`migrateEngine` are the per-phase
+ * functions. The source databases are never modified, so there is no teardown
+ * SQL — rollback is repointing the app at the old databases.
  */
 
 export { mapActionsToLevel, type OldAction, orgRoleIsAdmin } from "./mapping";
 export {
-  dropAccounts,
-  dropLegacy,
+  type Connections,
   type EngineReport,
   type MigrateOptions,
   type MigrationReport,
@@ -17,9 +18,9 @@ export {
   migrateProdToMultiplayer,
 } from "./migrate";
 export {
-  DEFAULT_SCHEMAS,
-  legacySchema,
-  type MigrationSchemas,
+  DEFAULT_CONFIG,
+  type MigrationConfig,
   prefixed,
-  spaceSchema,
+  sourceSpaceSchema,
+  targetSpaceSchema,
 } from "./schemas";

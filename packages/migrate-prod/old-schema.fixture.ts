@@ -8,15 +8,15 @@
  * Hand-mirrored from /tmp/me-prod-v025 (`packages/accounts` + `packages/engine`).
  */
 import type { Sql } from "postgres";
-import { type MigrationSchemas, spaceSchema } from "./schemas";
+import { type MigrationConfig, sourceSpaceSchema } from "./schemas";
 
 /** Create the old `accounts` schema + the tables the ETL reads. */
 export async function createOldAccountsSchema(
   sql: Sql,
-  cfg: MigrationSchemas,
+  cfg: MigrationConfig,
 ): Promise<void> {
   await sql`create extension if not exists citext`;
-  const s = sql(cfg.accounts);
+  const s = sql(cfg.accountsSchema);
   await sql`create schema ${s}`;
   await sql`
     create table ${s}.identity
@@ -88,16 +88,16 @@ export async function createOldAccountsSchema(
 /** Create an old per-engine data schema `me_<slug>` (no RLS/indexes/functions). */
 export async function createOldEngineSchema(
   sql: Sql,
-  cfg: MigrationSchemas,
+  cfg: MigrationConfig,
   slug: string,
   embeddingDim: number,
 ): Promise<void> {
   await sql`create extension if not exists ltree`;
   await sql`create extension if not exists vector`;
-  const s = sql(spaceSchema(cfg, slug));
+  const s = sql(sourceSpaceSchema(cfg, slug));
   await sql`create schema ${s}`;
   await sql.unsafe(`
-    create table ${spaceSchema(cfg, slug)}.memory
+    create table ${sourceSpaceSchema(cfg, slug)}.memory
     ( id                   uuid primary key default uuidv7()
     , meta                 jsonb not null default '{}'
     , tree                 ltree not null default ''
@@ -203,10 +203,10 @@ async function insertId(
 /** Seed both scenarios; returns the ids/paths the assertions reference. */
 export async function seedScenario(
   sql: Sql,
-  cfg: MigrationSchemas,
+  cfg: MigrationConfig,
   embeddingDim: number,
 ): Promise<SeededScenario> {
-  const acc = cfg.accounts;
+  const acc = cfg.accountsSchema;
   const paths = {
     root: "",
     alpha: "projects.alpha",
@@ -262,7 +262,7 @@ export async function seedScenario(
   await sql`insert into ${sql(acc)}.engine (org_id, slug, name, language) values (${personalOrg}, ${PERSONAL_SLUG}, 'default', 'english')`;
 
   await createOldEngineSchema(sql, cfg, PERSONAL_SLUG, embeddingDim);
-  const pe = spaceSchema(cfg, PERSONAL_SLUG);
+  const pe = sourceSpaceSchema(cfg, PERSONAL_SLUG);
   // i1 is the org owner → superuser engine user (no tree_owner row; superuser flag).
   const peU1 = await insertId(sql, pe, '"user"', {
     name: "owner1@example.com",
@@ -288,7 +288,7 @@ export async function seedScenario(
   await sql`insert into ${sql(acc)}.engine (org_id, slug, name, language) values (${teamOrg}, ${TEAM_SLUG}, 'team space', 'english')`;
 
   await createOldEngineSchema(sql, cfg, TEAM_SLUG, embeddingDim);
-  const te = spaceSchema(cfg, TEAM_SLUG);
+  const te = sourceSpaceSchema(cfg, TEAM_SLUG);
   const teU2 = await insertId(sql, te, '"user"', {
     name: "teamowner@example.com",
     identity_id: i2,

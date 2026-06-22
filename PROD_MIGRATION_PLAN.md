@@ -17,71 +17,59 @@ was built from lived in `/tmp/me-prod-v025-OLD-SCHEMA.md` and `/tmp/me-new-SCHEM
 > **Runbook**: `PROD_MIGRATION_RUNBOOK.md` — the step-by-step cutover (pre-flight,
 > rollback, maintenance-window vs per-engine modes, teardown, verification SQL).
 >
-> **Implementation**: `packages/migrate-prod` — `migrateProdToMultiplayer(sql)`
-> runs the whole ETL (Phases A+B); `migrateControlPlane`/`migrateEngine` are the
-> per-phase functions for a zero-downtime cutover; `dropLegacy`/`dropAccounts`
-> are the explicit Phase-C teardown. `run.ts` is the maintenance-window runner.
+> **Implementation**: `packages/migrate-prod` — `migrateProdToMultiplayer(conns)`
+> runs the whole ETL (Phases A+B) over three connections
+> (`{accounts, shard, target}`); `migrateControlPlane`/`migrateEngine` are the
+> per-phase functions. `run.ts` is the runner (env: `DB_ACCOUNTS`, `DB_SHARD`,
+> `DATABASE_URL`=target). Sources are read-only, so there is no teardown SQL.
 > Tested end-to-end in `migrate.integration.test.ts` (simple + complex scenarios)
 > against a real Postgres; `mapping.test.ts` covers the grant-level mapping.
 
 ---
 
-## 1. Topology: one database, schema swap in place
+## 1. Topology: two source databases → one new database
 
-The old "two databases" (`accountsUrl` + `engineUrl`) are **one physical
-database**, two schema families. The new model installs **in-place** in that same
-database, side-by-side with the old schemas; data schemas are cut over per engine
-by renaming the old schema aside (see §1.1).
+Production runs **two separate databases**: `DB_ACCOUNTS` (identity — the
+`accounts` schema) and `DB_SHARD` (memories — one `me_<slug>` schema per engine).
+The ETL writes the new model to a **third, fresh database**, leaving both sources
+untouched. Three connections: `accounts` (read), `shard` (read), `target` (write).
 
-| | OLD (source) | NEW (target) |
+| | OLD (sources) | NEW (target) |
 |---|---|---|
-| physical database | **one** (two connection URLs both resolve to it) | **same one** (single `DATABASE_URL`) |
-| identity | `accounts` schema | `auth` schema |
+| physical database | **two** — `DB_ACCOUNTS` + `DB_SHARD` | **one new** — the app's `DATABASE_URL` |
+| identity | `accounts` schema (in DB_ACCOUNTS) | `auth` schema |
 | control plane | `accounts` (org/engine/member) | `core` schema |
-| data plane | one `me_<slug>` schema per **engine** | one `me_<slug>` schema per **space** |
-| access enforcement | Postgres **RLS** on `memory`, GUC `me.user_id`, roles `me_ro/me_rw/me_embed` | **no RLS, no roles** (verified); `core.build_tree_access(member, space)` → jsonb passed to space SQL fns |
-| cross links | soft UUID FKs, now cross-**schema**: `me_<slug>.user.identity_id` ↔ `accounts.identity.id`; `accounts.engine.slug` ↔ `me_<slug>` | real FKs within `auth`/`core` |
+| data plane | one `me_<slug>` schema per **engine** (in DB_SHARD) | one `me_<slug>` schema per **space** |
+| access enforcement | Postgres **RLS** on `memory`, GUC `me.user_id`, roles `me_ro/me_rw/me_embed` | **no RLS, no roles**; `core.build_tree_access(member, space)` → jsonb passed to space SQL fns |
+| cross links | soft UUID FKs across DBs: `DB_SHARD me_<slug>.user.identity_id` ↔ `DB_ACCOUNTS accounts.identity.id`; `accounts.engine.slug` ↔ `me_<slug>` | real FKs within `auth`/`core` |
 
-### 1.1 Decision: in-place, reuse slugs, rename old aside
+### 1.1 Decision: fresh target database
 
-The new model installs **in the same database** as the old one. Collision analysis
-(verified against code — `packages/database/space/migrate/migrate.ts:117`,
-`space/migrate/provision.sql`, and a repo-wide check that the new model creates no
-roles / RLS):
+Write the new model to a brand-new database; never modify the two sources.
 
-| object | old | new | coexist? |
-|---|---|---|---|
-| control-plane schema | `accounts` | `auth` + `core` | ✅ distinct names |
-| extensions (`public`) | citext/ltree/vector/pg_textsearch | same | ✅ shared, idempotent |
-| cluster roles | `me_ro`/`me_rw`/`me_embed` | **none** | ✅ old roles harmless |
-| RLS / policies | on `me_<slug>.memory` | **none** | ✅ |
-| data schema | `me_<slug>` (engine) | `me_<slug>` (space) | ⚠️ **only collision** — and only when the slug is reused |
-
-We **reuse each engine's slug as its space slug** (preserves `X-Me-Space` values
-and CLI active-space pointers). New `provisionSpace` skips `create schema` when the
-schema already exists, then fails applying `001_memory` over the old `memory`
-table — so a reused slug must be **vacated first**.
+- **No collisions** — sources and target are different databases, so each engine's
+  slug is reused verbatim as its space slug (preserves `X-Me-Space` values and CLI
+  active-space pointers) with nothing to vacate.
+- **Rollback is trivial** — the sources are read-only throughout, so reverting is
+  just pointing the app back at `DB_ACCOUNTS`/`DB_SHARD` (the old app). There is no
+  in-place DDL, no rename, and no teardown SQL; decommissioning the old databases
+  is a separate, out-of-band step after the cutover is confirmed.
+- **Memory copy is cross-database** — since the shard and target are different
+  databases, memories are copied by **streaming** (a cursor over `DB_SHARD`,
+  batched inserts into the target), not `insert … select`. See §5.
 
 Procedure:
-- Install `auth` + `core` **side-by-side** with the live `accounts` (zero
-  collision); migrate identities while the old app still serves.
-- Per engine, at its cutover (short window, that engine only):
-  1. `alter schema me_<slug> rename to legacy_<slug>`
-  2. `provisionSpace({slug})` recreates a fresh `me_<slug>` via the tested path
-  3. `insert into me_<slug>.memory select … from legacy_<slug>.memory` — **same-DB**,
-     fast, carries embeddings (no wire transfer of `halfvec(1536)` vectors)
-  4. build the space's roster + grants (§3–4)
-- After full cutover verification: `drop schema legacy_<slug> cascade` per engine,
-  `drop schema accounts cascade`, drop the unused `me_ro/me_rw/me_embed` roles.
+1. Provision `auth` + `core` in the empty target DB; migrate identities/oauth/
+   sessions from `DB_ACCOUNTS` (Phase A).
+2. Per active engine (Phase B, one target transaction): `create_space` (reusing
+   the slug) → `provisionSpace` a fresh `me_<slug>` in the target → build the
+   roster + grants from `DB_ACCOUNTS` + `DB_SHARD` → stream-copy memories from
+   `DB_SHARD`.
+3. Point the app's `DATABASE_URL` at the target DB; verify; decommission the old
+   databases later.
 
-**Rollback** (per space, until `legacy_<slug>` is dropped): `drop schema me_<slug>
-cascade; alter schema legacy_<slug> rename to me_<slug>` and repoint that space to
-the old app. Old data is untouched under `legacy_<slug>` until the explicit final
-drop. The control plane (`auth`/`core`) can be dropped wholesale to revert.
-
-The ETL uses **one connection** to the single database (the old code's two URLs
-both point at it). It still reads `accounts.*` and `legacy_<slug>.*` and writes
-`auth`/`core`/`me_<slug>` — all in that one database.
+The ETL opens **three** connections: `accounts` (read `DB_ACCOUNTS`), `shard`
+(read `DB_SHARD`), `target` (write the new DB).
 
 ---
 
@@ -262,10 +250,14 @@ admin = with_admin_option)`.
 ## 5. Memories → `me_<slug>.memory`
 
 Near-identical row shape (both `halfvec(1536)` cosine HNSW + BM25 + ltree +
-tstzrange + jsonb). After the fresh `me_<slug>` is provisioned and the old schema
-renamed to `legacy_<slug>` (§1.1), copy rows with a **same-DB** statement:
-`insert into me_<slug>.memory (…) select … from legacy_<slug>.memory` (no wire
-transfer). Column mapping:
+tstzrange + jsonb). Since the shard and target are **different databases**,
+memories are copied by **streaming** — a cursor over `DB_SHARD me_<slug>.memory`
+(batched) inserting into the freshly-provisioned target `me_<slug>.memory`. Each
+row's `meta` is re-sent via `sql.json` (a text param in a jsonb slot
+double-encodes — the postgres.js footgun in CLAUDE.md); `tree`/`temporal` are read
+as text and re-cast (`::ltree`/`::tstzrange`); `embedding` is read as text and
+re-cast `::halfvec` (dimensionless — the target column enforces 1536). Column
+mapping:
 
 | old `me_<slug>.memory` | new `me_<slug>.memory` |
 |---|---|
@@ -326,37 +318,36 @@ Expired ones are dead. Low value / transient — migrate only if convenient.
 
 ---
 
-## 7. Run procedure (in-place, single DB)
+## 7. Run procedure (two sources → new target)
 
-All writes happen in the one database, beside the live old schemas. Reuse the new
-code's own provisioning + `core` functions rather than re-implementing SQL
-(idiomatic, already-tested).
+The ETL opens three connections — `accounts` (read `DB_ACCOUNTS`), `shard` (read
+`DB_SHARD`), `target` (write the new DB) — and reuses the new code's own
+provisioning + `core` functions rather than re-implementing SQL.
 
-**Phase A — control plane, can run while the old app is live:**
-1. **Provision** `auth` + `core` (run `migrateAuth` + `migrateCore`) — installs
-   beside the old `accounts` schema, zero collision (§1.1).
-2. **Identities** (§2): for each `accounts.identity` → insert `auth.users` +
-   `core.create_user(id, email)`; then `auth.accounts` (§2.2) and `auth.sessions`
-   (§2.3).
+**Phase A — control plane (target DB):**
+1. **Provision** `auth` + `core` in the empty target DB (`migrateAuth` +
+   `migrateCore`).
+2. **Identities** (§2): for each `DB_ACCOUNTS accounts.identity` → insert
+   `auth.users` (preserving the id) + `core.create_user(id, email)`; then
+   `auth.accounts` (§2.2) and `auth.sessions` (§2.3, copied from `DB_ACCOUNTS`).
 
-**Phase B — per engine, in a short cutover window for that engine** (others stay live):
-3. Stop old-app traffic to this engine, then **rename it aside**:
-   `alter schema me_<slug> rename to legacy_<slug>`.
-4. `core.create_space(slug, name, language)` (reusing the old slug) →
-   `provisionSpace(tx, {slug})` recreates a fresh `me_<slug>`.
-5. **Roster + grants** (§3–4): `core.add_principal_to_space(space, principal, admin)`
-   (grants owner@home) → owner@root for org owner/admin and superusers
-   (`grant_tree_access(space, p, '', 3)`) → groups for `can_login=false` users
-   (`core.create_group`) + `group_member` + their grants → members'
-   `tree_owner`/`tree_grant` via `grant_tree_access` (max level per path, §4).
-6. **Memories** (§5): `insert into me_<slug>.memory select … from legacy_<slug>.memory`
-   (same-DB, with embeddings).
-7. **Invitations** (§6.2): optional pending-invite rows for this space.
-8. Point the new app at this space; verify; move to the next engine.
+**Phase B — per active engine, one target transaction each:**
+3. `core.create_space(slug, name, language)` (reusing the engine slug) →
+   `provisionSpace(tx, {slug})` provisions a fresh `me_<slug>` in the target.
+4. **Roster + grants** (§3–4), from `DB_ACCOUNTS` (org membership) + `DB_SHARD`
+   (`user`/`tree_owner`/`tree_grant`/`role_membership`):
+   `core.add_principal_to_space` (grants owner@home) → owner@root for org
+   owner/admin and superusers → groups for `can_login=false` users + `group_member`
+   + their grants → members' `tree_owner`/`tree_grant` via `grant_tree_access`
+   (max level per path, §4).
+5. **Memories** (§5): stream from `DB_SHARD me_<slug>.memory` → insert into the
+   target `me_<slug>.memory` (carrying embeddings).
+6. **Invitations** (§6.2): optional pending-invite rows for this space.
 
-**Phase C — teardown, after all engines are cut over and verified:**
-9. `drop schema legacy_<slug> cascade` (each), `drop schema accounts cascade`,
-   drop the unused `me_ro/me_rw/me_embed` roles.
+**Phase C — cutover & teardown:**
+7. Point the app's `DATABASE_URL` at the target DB; verify (§6 of the runbook).
+8. **Decommission the old databases** out of band, after the cutover is confirmed.
+   There is no teardown SQL — the sources were never modified.
 
 Ordering within the target respects FKs: `auth.users`/`core.space` →
 `core.principal` → `principal_space` → `group_member` → `tree_access` → `api_key`
@@ -364,39 +355,38 @@ Ordering within the target respects FKs: `auth.users`/`core.space` →
 INITIALLY DEFERRED, so build each space's roster fully within one transaction; the
 check runs at commit.
 
-> Phases A and B steps 4–7 are each idempotent-friendly to re-run on failure: a
-> half-built space can be dropped (`drop schema me_<slug> cascade` + delete its
-> `core.space`/roster rows) and rebuilt while `legacy_<slug>` still holds the
-> untouched source. Don't drop `legacy_<slug>`/`accounts` until Phase C.
+> Each engine's transaction is independent and atomic — a failure rolls back that
+> space's writes (the sources are untouched), so a half-built space simply isn't
+> committed and the run can be retried.
 
 ---
 
 ## 8. Test plan (no prod access needed)
 
-Build confidence entirely from synthetic data before touching prod:
+Build confidence entirely from synthetic data before touching prod. Implemented
+in `packages/migrate-prod` (`old-schema.fixture.ts` + `migrate.integration.test.ts`):
 
-1. **Stand up an OLD source** in a scratch local Postgres: run the old migrations
-   from the pinned worktree `/tmp/me-prod-v025` (`packages/accounts/migrate` +
-   `packages/engine/migrate`) to create an `accounts` schema and ≥2 `me_<slug>`
-   engine schemas.
+1. **Stand up the OLD sources** from the in-repo fixture (a hand-mirrored
+   server/v0.2.5 subset): an `accounts` schema and ≥2 `me_<slug>` engine schemas.
+   The test stands in **one physical database** for all three connections —
+   source per-engine schemas carry a distinct `shard_me_` prefix so they don't
+   collide with the target `me_` schemas (prod has three real databases instead).
 2. **Seed synthetic fixtures** covering: (a) the common case — a Personal org,
    single owner, one engine, memories at various tree paths incl. root, with and
    without embeddings; (b) the complex case — a multi-member org (owner + admin +
    member), explicit `tree_owner`/`tree_grant` (incl. read-only, write-ish, and
    with_grant_option), an RBAC role (`can_login=false` user + `role_membership`),
-   orphans (engine user with dangling `identity_id`; a `status!='active'` engine).
-3. **Run the ETL in-place in the same scratch DB**: install `auth`/`core` beside
-   `accounts`, then per engine rename `me_<slug>` → `legacy_<slug>`, provision
-   fresh, same-DB copy. (This exercises the real production path, including the
-   rename-aside and the coexistence of old + new schemas in one database.)
+   orphans (engine user with dangling `identity_id`; deleted + active-without-schema
+   engines).
+3. **Run the ETL** with the three connections into the (same-physical, distinct-
+   schema) target: provision `auth`/`core`, then per engine create+provision the
+   space and stream-copy memories.
 4. **Assert** against the new model: principal/space/roster/tree_access rows match
    the expected mapping; `enforce_last_admin` holds; memories copied with
-   embeddings (queue stays empty for embedded rows); `build_tree_access(member,
-   space)` reachability equals the old `tree_access(user, action)` reachability
-   for sampled (member, path, action) tuples.
-5. Wire it into the suite as `*.integration.test.ts` against the local
-   `me-postgres` container (schema-isolated, `!process.env.TEST_CI` guards where
-   needed — see CLAUDE.md). The ETL itself never runs in CI against real data.
+   embeddings (queue holds only the null-embedding row); `build_tree_access(member,
+   space)` reaches the group-derived grant; sources left untouched.
+5. Lives in the suite as `*.integration.test.ts` against the local `me-postgres`
+   container. The ETL itself never runs in CI against real data.
 
 ---
 
@@ -416,9 +406,10 @@ us which complex paths are even exercised:
   - any non-trivial `tree_grant` (non-`{read,create,update,delete}`-full,
     `{delete}`-only, `with_grant_option=true`);
   - any `tree_owner` not at root;
-  - orphans: engine users with dangling `identity_id`; `me_<slug>` schemas with no
-    `accounts.engine` row (and vice-versa); engines whose `status='active'` but
-    schema missing.
+  - orphans (cross-DB): `DB_SHARD me_<slug>.user` rows with an `identity_id` absent
+    from `DB_ACCOUNTS accounts.identity`; `DB_SHARD me_<slug>` schemas with no
+    `accounts.engine` row (and vice-versa); engines whose `status='active'` but the
+    shard schema is missing.
 - [ ] Session validation parity (§2.3) — confirm before relying on session migration.
 - [ ] Counts to reconcile post-ETL: identities, oauth_accounts, sessions, engines→spaces,
       memories per engine.
@@ -431,7 +422,7 @@ us which complex paths are even exercised:
 
 | # | decision | default | where it bites |
 |---|---|---|---|
-| 1 | in-place vs fresh DB | **in-place, reuse slugs, rename old aside** (single DB; only `me_<slug>` collides) | §1.1 |
+| 1 | target topology | **fresh target DB** — `DB_ACCOUNTS` + `DB_SHARD` → one new database; sources read-only | §1.1 |
 | 2 | roster = all org members vs only realized engine users | **all org members** | §3.1 — only observable for multi-member orgs |
 | 3 | migrate sessions vs force re-login | **migrate** (pending parity check) | §2.3 |
 | 4 | api keys | **not migrated; re-issue** (forced by argon2) | §6.1 |

@@ -1,24 +1,28 @@
 /**
  * Prod → multiplayer ETL.
  *
- * One-time, in-place migration of the old org/engine/role + RLS model
- * (`accounts` + per-engine `me_<slug>`) to the new auth/core/space model
- * (`auth` + `core` + per-space `me_<slug>`), all in one database. See
- * PROD_MIGRATION_PLAN.md for the full mapping, decisions, and run procedure.
+ * One-time migration of the old org/engine/role + RLS model to the new
+ * auth/core/space model, across THREE databases (see PROD_MIGRATION_PLAN.md):
+ *   - source `DB_ACCOUNTS` — identity (`accounts` schema)
+ *   - source `DB_SHARD`    — memories (per-engine `me_<slug>` schemas)
+ *   - target NEW database  — `auth` + `core` + per-space `me_<slug>`
  *
  * Reuses the new code's own provisioning (`migrateAuth`/`migrateCore`/
- * `provisionSpace`) and `core` SQL functions (via `coreStore`) rather than
- * re-implementing schema/DDL — only the *reads* of the old schema and the
- * old→new transform live here.
+ * `provisionSpace`) and `core` SQL functions (via `coreStore`) — only the reads
+ * of the old schema and the old→new transform live here.
+ *
+ * The sources are never modified, so rollback is just "point the app back at the
+ * old databases" and there is no teardown SQL (decommission the old DBs out of
+ * band). Because source and target are different databases, memories are copied
+ * by **streaming** (cursor read from the shard, batched insert into the target) —
+ * not `insert…select`.
  *
  * Phases:
- *   A  control plane  — `migrateControlPlane` — provision auth+core beside the
- *      live `accounts`, migrate identities/oauth/sessions. Safe while old serves.
- *   B  per engine     — `migrateEngine` — in one transaction: rename old
- *      `me_<slug>` aside, provision a fresh one, build the roster + grants,
- *      same-DB copy memories. Roll back on failure leaves the old schema intact.
- *   C  teardown       — `dropLegacy` / `dropAccounts` — explicit, operator-run
- *      AFTER cutover verification. Never called automatically.
+ *   A  control plane  — `migrateControlPlane` — provision auth+core in the new DB,
+ *      migrate identities/oauth/sessions from DB_ACCOUNTS.
+ *   B  per engine     — `migrateEngine` — one target transaction: create the
+ *      space, provision its schema, build the roster + grants from DB_ACCOUNTS +
+ *      DB_SHARD, stream-copy memories from DB_SHARD.
  */
 import {
   migrateAuth,
@@ -34,11 +38,23 @@ import {
 import type { Sql } from "postgres";
 import { mapActionsToLevel, orgRoleIsAdmin } from "./mapping";
 import {
-  DEFAULT_SCHEMAS,
-  legacySchema,
-  type MigrationSchemas,
-  spaceSchema,
+  type MigrationConfig,
+  sourceSpaceSchema,
+  targetSpaceSchema,
 } from "./schemas";
+
+/** The three database connections the ETL spans. */
+export interface Connections {
+  /** DB_ACCOUNTS — read identities/orgs/engines/invitations. */
+  accounts: Sql;
+  /** DB_SHARD — read per-engine memories + access tables. */
+  shard: Sql;
+  /** The new database — all writes (auth/core/me_<slug>). */
+  target: Sql;
+}
+
+/** Rows streamed from the shard are copied in batches of this size. */
+const MEMORY_COPY_BATCH = 500;
 
 // ---------------------------------------------------------------------------
 // Old-schema row shapes (only the columns the ETL reads)
@@ -103,6 +119,22 @@ interface OldRoleMembership {
   member_id: string;
   with_admin_option: boolean;
 }
+/**
+ * A memory row. `meta` comes back as a parsed object (re-sent via `sql.json` to
+ * avoid the double-encoding footgun); the other variable-text types are read as
+ * text so their `::` casts re-apply cleanly on insert.
+ */
+interface OldMemoryRow {
+  id: string;
+  meta: unknown;
+  tree: string;
+  temporal: string | null;
+  content: string;
+  embedding: string | null;
+  embedding_version: number;
+  created_at: Date;
+  updated_at: Date | null;
+}
 
 // ---------------------------------------------------------------------------
 // Report
@@ -147,46 +179,47 @@ async function schemaExists(sql: Sql, name: string): Promise<boolean> {
 }
 
 // ---------------------------------------------------------------------------
-// Phase A — control plane (auth + core + identities)
+// Phase A — control plane (auth + core + identities), all in the target DB
 // ---------------------------------------------------------------------------
 
 export async function migrateControlPlane(
-  sql: Sql,
-  cfg: MigrationSchemas,
+  conns: Connections,
+  cfg: MigrationConfig,
   opts: MigrateOptions,
 ): Promise<{
   identityIds: Set<string>;
   report: Pick<MigrationReport, "identities" | "oauthAccounts" | "sessions">;
 }> {
-  // Provision auth + core beside the (still live) `accounts` schema.
-  await migrateAuth(sql, { schema: cfg.auth });
-  await migrateCore(sql, { schema: cfg.core });
+  // Provision auth + core in the (empty) target database.
+  await migrateAuth(conns.target, { schema: cfg.authSchema });
+  await migrateCore(conns.target, { schema: cfg.coreSchema });
 
-  const identities = await sql<OldIdentity[]>`
-    select id, email::text as email, name, created_at from ${sql(cfg.accounts)}.identity
+  const identities = await conns.accounts<OldIdentity[]>`
+    select id, email::text as email, name, created_at
+    from ${conns.accounts(cfg.accountsSchema)}.identity
   `;
-  const oauth = await sql<OldOAuth[]>`
+  const oauth = await conns.accounts<OldOAuth[]>`
     select identity_id, provider, provider_account_id, created_at
-    from ${sql(cfg.accounts)}.oauth_account
+    from ${conns.accounts(cfg.accountsSchema)}.oauth_account
   `;
   const sessions =
     opts.migrateSessions === false
       ? []
-      : await sql<OldSession[]>`
+      : await conns.accounts<OldSession[]>`
           select identity_id, token_hash, expires_at, created_at
-          from ${sql(cfg.accounts)}.session
+          from ${conns.accounts(cfg.accountsSchema)}.session
           where expires_at > now()
         `;
 
-  await sql.begin(async (tx) => {
-    const core = coreStore(tx as unknown as Sql, cfg.core);
+  await conns.target.begin(async (tx) => {
+    const core = coreStore(tx as unknown as Sql, cfg.coreSchema);
 
     for (const id of identities) {
       // Direct insert (not authStore.createUser) so the principal/auth user
       // keep the OLD identity.id — the auth.users.id == core.principal.id
       // invariant, with no remapping of session/account references.
       await tx`
-        insert into ${tx(cfg.auth)}.users (id, name, email, email_verified, created_at)
+        insert into ${tx(cfg.authSchema)}.users (id, name, email, email_verified, created_at)
         values (${id.id}, ${id.name}, ${id.email}, true, ${id.created_at})
       `;
       await core.createUser(id.id, id.email);
@@ -194,7 +227,7 @@ export async function migrateControlPlane(
 
     for (const a of oauth) {
       await tx`
-        insert into ${tx(cfg.auth)}.accounts (user_id, provider_id, account_id, created_at)
+        insert into ${tx(cfg.authSchema)}.accounts (user_id, provider_id, account_id, created_at)
         values (${a.identity_id}, ${a.provider}, ${a.provider_account_id}, ${a.created_at})
       `;
     }
@@ -203,7 +236,7 @@ export async function migrateControlPlane(
     // by equality, so copying the hash verbatim keeps live sessions valid.
     for (const s of sessions) {
       await tx`
-        insert into ${tx(cfg.auth)}.sessions (user_id, token_hash, expires_at, created_at)
+        insert into ${tx(cfg.authSchema)}.sessions (user_id, token_hash, expires_at, created_at)
         values (${s.identity_id}, ${s.token_hash}, ${s.expires_at}, ${s.created_at})
       `;
     }
@@ -220,12 +253,12 @@ export async function migrateControlPlane(
 }
 
 // ---------------------------------------------------------------------------
-// Phase B — one engine → one space (rename-aside, roster, grants, memories)
+// Phase B — one engine → one space (provision in target, copy from sources)
 // ---------------------------------------------------------------------------
 
 export async function migrateEngine(
-  sql: Sql,
-  cfg: MigrationSchemas,
+  conns: Connections,
+  cfg: MigrationConfig,
   engine: OldEngine,
   orgMembers: OldOrgMember[],
   invitations: OldInvitation[],
@@ -233,41 +266,38 @@ export async function migrateEngine(
   opts: MigrateOptions,
 ): Promise<EngineReport> {
   const slug = engine.slug;
-  const newSchema = spaceSchema(cfg, slug); // me_<slug>, recreated fresh
-  const legacy = legacySchema(cfg, slug); // legacy_<slug>, the renamed old schema
+  const sourceSchema = sourceSpaceSchema(cfg, slug); // me_<slug> in DB_SHARD
+  const targetSchema = targetSpaceSchema(cfg, slug); // me_<slug> in the new DB
   const warnings: string[] = [];
 
-  return (await sql.begin(async (tx) => {
-    const core = coreStore(tx as unknown as Sql, cfg.core);
+  // Read the old engine-internal access from the shard (sources are read-only).
+  const users = await conns.shard<OldEngineUser[]>`
+    select id, name, identity_id, can_login, superuser from ${conns.shard(sourceSchema)}."user"
+  `;
+  const owners = await conns.shard<OldTreeOwner[]>`
+    select tree_path::text as tree_path, user_id from ${conns.shard(sourceSchema)}.tree_owner
+  `;
+  const treeGrants = await conns.shard<OldTreeGrant[]>`
+    select tree_path::text as tree_path, user_id, actions, with_grant_option
+    from ${conns.shard(sourceSchema)}.tree_grant
+  `;
+  const roleMemberships = await conns.shard<OldRoleMembership[]>`
+    select role_id, member_id, with_admin_option from ${conns.shard(sourceSchema)}.role_membership
+  `;
 
-    // 1. Vacate the slug: rename the old engine schema aside.
-    await tx`alter schema ${tx(newSchema)} rename to ${tx(legacy)}`;
+  return (await conns.target.begin(async (tx) => {
+    const core = coreStore(tx as unknown as Sql, cfg.coreSchema);
 
-    // 2. Create the space + a fresh me_<slug> data schema (same slug).
+    // 1. Create the space + its fresh me_<slug> data schema (reuse the slug).
     const spaceId = await core.createSpace(slug, engine.name, engine.language);
     await provisionSpace(tx, {
       slug,
-      schema: newSchema,
+      schema: targetSchema,
       embeddingDimensions: opts.embeddingDimensions ?? 1536,
       bm25TextConfig: engine.language,
     });
 
-    // 3. Read old engine-internal access from the renamed-aside schema.
-    const users = await tx<OldEngineUser[]>`
-      select id, name, identity_id, can_login, superuser from ${tx(legacy)}."user"
-    `;
-    const owners = await tx<OldTreeOwner[]>`
-      select tree_path::text as tree_path, user_id from ${tx(legacy)}.tree_owner
-    `;
-    const treeGrants = await tx<OldTreeGrant[]>`
-      select tree_path::text as tree_path, user_id, actions, with_grant_option
-      from ${tx(legacy)}.tree_grant
-    `;
-    const roleMemberships = await tx<OldRoleMembership[]>`
-      select role_id, member_id, with_admin_option from ${tx(legacy)}.role_membership
-    `;
-
-    // 4. Map each old engine-`user` id to a new principal (a migrated identity)
+    // 2. Map each old engine-`user` id to a new principal (a migrated identity)
     //    or a new group (an RBAC role: can_login = false).
     type Target = { kind: "principal" | "group"; id: string };
     const userMap = new Map<string, Target>();
@@ -286,8 +316,7 @@ export async function migrateEngine(
       }
     }
 
-    // 5. Accumulate tree-access grants, keeping the MAX level per (principal, path),
-    //    so multiple sources never downgrade an earlier grant.
+    // 3. Accumulate tree-access grants, keeping the MAX level per (principal, path).
     const grantAcc = new Map<string, Map<string, AccessLevel>>();
     const addGrant = (
       principalId: string,
@@ -303,7 +332,7 @@ export async function migrateEngine(
       if (cur === undefined || level > cur) m.set(path, level);
     };
 
-    // 6. Roster from org membership. add_principal_to_space grants owner@home;
+    // 4. Roster from org membership. add_principal_to_space grants owner@home;
     //    org owner/admin (old engine superusers) also get owner@root.
     let members = 0;
     let adminCount = 0;
@@ -327,7 +356,7 @@ export async function migrateEngine(
       );
     }
 
-    // 7. Engine superusers that somehow aren't org owner/admin → owner@root too.
+    // 5. Engine superusers that somehow aren't org owner/admin → owner@root too.
     for (const u of users) {
       if (
         u.can_login &&
@@ -339,7 +368,7 @@ export async function migrateEngine(
       }
     }
 
-    // 8. tree_owner → owner; tree_grant → mapped level.
+    // 6. tree_owner → owner; tree_grant → mapped level.
     for (const o of owners) {
       const t = userMap.get(o.user_id);
       if (t) addGrant(t.id, o.tree_path, ACCESS.owner);
@@ -354,15 +383,15 @@ export async function migrateEngine(
         );
     }
 
-    // 9. Apply the accumulated grants.
+    // 7. Apply the accumulated grants.
     for (const [principalId, paths] of grantAcc) {
       for (const [path, level] of paths) {
         await core.grantTreeAccess(spaceId, principalId, path, level);
       }
     }
 
-    // 10. role_membership → group_member. New groups cannot nest (member must be
-    //     u|a), so a role-in-role edge is dropped with a warning (see §4.4).
+    // 8. role_membership → group_member. New groups cannot nest (member must be
+    //    u|a), so a role-in-role edge is dropped with a warning (see §4.4).
     for (const rm of roleMemberships) {
       const group = userMap.get(rm.role_id);
       const member = userMap.get(rm.member_id);
@@ -392,20 +421,29 @@ export async function migrateEngine(
       );
     }
 
-    // 11. Copy memories — same-DB insert…select, carrying embeddings (so the
-    //     enqueue trigger only fires for rows that were never embedded).
-    const [copied] = await tx<{ n: bigint }[]>`
-      with ins as (
-        insert into ${tx(newSchema)}.memory
-          (id, meta, tree, temporal, content, embedding, embedding_version, created_at, updated_at)
-        select id, meta, tree, temporal, content, embedding, embedding_version, created_at, updated_at
-        from ${tx(legacy)}.memory
-        returning 1
-      )
-      select count(*) as n from ins
-    `;
+    // 9. Copy memories — cross-DB stream: cursor over the shard, batched insert
+    //    into the target. `meta` is re-sent via tx.json (a text param in a jsonb
+    //    slot double-encodes); the text-cast columns re-apply their `::` casts;
+    //    `::halfvec` (dimensionless) carries embeddings (null stays null, so the
+    //    enqueue trigger only fires for rows that were never embedded).
+    let memories = 0;
+    for await (const rows of conns.shard<OldMemoryRow[]>`
+      select id, meta, tree::text as tree, temporal::text as temporal,
+             content, embedding::text as embedding, embedding_version, created_at, updated_at
+      from ${conns.shard(sourceSchema)}.memory
+    `.cursor(MEMORY_COPY_BATCH)) {
+      for (const r of rows) {
+        await tx`
+          insert into ${tx(targetSchema)}.memory
+            (id, meta, tree, temporal, content, embedding, embedding_version, created_at, updated_at)
+          values (${r.id}, ${tx.json(r.meta as never)}, ${r.tree}::ltree, ${r.temporal}::tstzrange,
+                  ${r.content}, ${r.embedding}::halfvec, ${r.embedding_version}, ${r.created_at}, ${r.updated_at})
+        `;
+        memories++;
+      }
+    }
 
-    // 12. Optional: pending org invitations → per-space invitations (email-keyed).
+    // 10. Optional: pending org invitations → per-space invitations (email-keyed).
     if (opts.migrateInvitations !== false) {
       for (const inv of invitations) {
         if (!identityIds.has(inv.invited_by)) {
@@ -428,7 +466,7 @@ export async function migrateEngine(
       name: engine.name,
       members,
       groups,
-      memories: Number(copied?.n ?? 0),
+      memories,
       warnings,
     };
   })) as EngineReport;
@@ -439,28 +477,31 @@ export async function migrateEngine(
 // ---------------------------------------------------------------------------
 
 export async function migrateProdToMultiplayer(
-  sql: Sql,
-  cfg: MigrationSchemas = DEFAULT_SCHEMAS,
+  conns: Connections,
+  cfg: MigrationConfig,
   opts: MigrateOptions = {},
 ): Promise<MigrationReport> {
-  const { identityIds, report: a } = await migrateControlPlane(sql, cfg, opts);
+  const { identityIds, report: a } = await migrateControlPlane(
+    conns,
+    cfg,
+    opts,
+  );
 
-  // Group org members + pending invitations by org for per-engine lookup.
-  const engines = await sql<OldEngine[]>`
+  const engines = await conns.accounts<OldEngine[]>`
     select id, org_id, slug, name, language
-    from ${sql(cfg.accounts)}.engine
+    from ${conns.accounts(cfg.accountsSchema)}.engine
     where status = 'active'
     order by created_at
   `;
-  const orgMembers = await sql<OldOrgMember[]>`
-    select org_id, identity_id, role from ${sql(cfg.accounts)}.org_member
+  const orgMembers = await conns.accounts<OldOrgMember[]>`
+    select org_id, identity_id, role from ${conns.accounts(cfg.accountsSchema)}.org_member
   `;
   const invitations =
     opts.migrateInvitations === false
       ? []
-      : await sql<OldInvitation[]>`
+      : await conns.accounts<OldInvitation[]>`
           select org_id, email::text as email, role, invited_by, expires_at
-          from ${sql(cfg.accounts)}.invitation
+          from ${conns.accounts(cfg.accountsSchema)}.invitation
           where accepted_at is null and expires_at > now()
         `;
 
@@ -480,16 +521,18 @@ export async function migrateProdToMultiplayer(
   const engineReports: EngineReport[] = [];
   const skipped: { slug: string; reason: string }[] = [];
   for (const engine of engines) {
-    if (!(await schemaExists(sql, spaceSchema(cfg, engine.slug)))) {
+    if (
+      !(await schemaExists(conns.shard, sourceSpaceSchema(cfg, engine.slug)))
+    ) {
       skipped.push({
         slug: engine.slug,
-        reason: "data schema missing (orphaned engine row)",
+        reason: "shard schema missing (orphaned engine row)",
       });
       continue;
     }
     engineReports.push(
       await migrateEngine(
-        sql,
+        conns,
         cfg,
         engine,
         membersByOrg.get(engine.org_id) ?? [],
@@ -508,26 +551,4 @@ export async function migrateProdToMultiplayer(
       e.warnings.map((w) => `[${e.slug}] ${w}`),
     ),
   };
-}
-
-// ---------------------------------------------------------------------------
-// Phase C — teardown (explicit, post-cutover; never auto-run)
-// ---------------------------------------------------------------------------
-
-/** Drop a single space's renamed-aside old schema. Call after verifying cutover. */
-export async function dropLegacy(
-  sql: Sql,
-  cfg: MigrationSchemas,
-  slug: string,
-): Promise<void> {
-  const legacy = legacySchema(cfg, slug);
-  await sql`drop schema if exists ${sql(legacy)} cascade`;
-}
-
-/** Drop the old identity schema. Call after ALL engines are cut over + verified. */
-export async function dropAccounts(
-  sql: Sql,
-  cfg: MigrationSchemas,
-): Promise<void> {
-  await sql`drop schema if exists ${sql(cfg.accounts)} cascade`;
 }

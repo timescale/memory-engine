@@ -1,56 +1,61 @@
 /**
  * Schema-name configuration for the prod → multiplayer migration.
  *
- * The whole migration runs **in one database** (see PROD_MIGRATION_PLAN.md §1):
- * the old `accounts` + per-engine `me_<slug>` schemas, and the new `auth` +
- * `core` + per-space `me_<slug>` schemas, all coexist. The only collision is the
- * per-engine `me_<slug>` name, resolved by renaming the old one to
- * `legacy_<slug>` before provisioning the new one (rename-aside).
+ * The migration spans THREE databases (see PROD_MIGRATION_PLAN.md §1):
+ *   - source `DB_ACCOUNTS`  — identity: the `accounts` schema.
+ *   - source `DB_SHARD`     — memories: one `me_<slug>` schema per engine.
+ *   - target NEW database   — the new model: `auth` + `core` + per-space `me_<slug>`.
  *
- * Every name is parameterized via a `prefix` so the integration test can run in
- * throwaway, parallel-safe schemas (the project's standard isolation, which also
- * keeps the suite runnable on ghost where `create database` is forbidden).
- * Production uses an empty prefix → the real `accounts`/`auth`/`core`/`me_`.
+ * Because source and target live in different databases, the per-engine
+ * `me_<slug>` name is reused verbatim with no collision. Names are still
+ * parameterized so the integration test can stand in ONE physical database for
+ * all three connections — there the source and target per-engine schemas must
+ * differ, so the source carries a distinct prefix (see `prefixed`).
  */
-export interface MigrationSchemas {
-  /** Old identity schema (templated `accounts` in prod; confirm in §9). */
-  accounts: string;
-  /** New better-auth schema. */
-  auth: string;
-  /** New control-plane schema. */
-  core: string;
-  /** Prefix for the per-space data schema: `<spacePrefix><slug>`. */
-  spacePrefix: string;
-  /** Prefix the old `me_<slug>` engine schema is renamed to before re-provision. */
-  legacyPrefix: string;
+export interface MigrationConfig {
+  /** Source identity schema in DB_ACCOUNTS (templated `accounts`; confirm §9). */
+  accountsSchema: string;
+  /** Source per-engine schema prefix in DB_SHARD: `<sourceSpacePrefix><slug>`. */
+  sourceSpacePrefix: string;
+  /** Target better-auth schema in the new DB. */
+  authSchema: string;
+  /** Target control-plane schema in the new DB. */
+  coreSchema: string;
+  /** Target per-space schema prefix in the new DB: `<targetSpacePrefix><slug>`. */
+  targetSpacePrefix: string;
 }
 
-/** Production schema names (empty test prefix). */
-export const DEFAULT_SCHEMAS: MigrationSchemas = {
-  accounts: "accounts",
-  auth: "auth",
-  core: "core",
-  spacePrefix: "me_",
-  legacyPrefix: "legacy_",
+/** Production names: real `accounts`/`me_` sources, real `auth`/`core`/`me_` target. */
+export const DEFAULT_CONFIG: MigrationConfig = {
+  accountsSchema: "accounts",
+  sourceSpacePrefix: "me_",
+  authSchema: "auth",
+  coreSchema: "core",
+  targetSpacePrefix: "me_",
 };
 
-/** The new (and, before rename, the old) per-engine data schema: `me_<slug>`. */
-export function spaceSchema(cfg: MigrationSchemas, slug: string): string {
-  return `${cfg.spacePrefix}${slug}`;
+/** The OLD per-engine data schema in DB_SHARD: `me_<slug>`. */
+export function sourceSpaceSchema(cfg: MigrationConfig, slug: string): string {
+  return `${cfg.sourceSpacePrefix}${slug}`;
 }
 
-/** Where the old `me_<slug>` is renamed aside: `legacy_<slug>`. */
-export function legacySchema(cfg: MigrationSchemas, slug: string): string {
-  return `${cfg.legacyPrefix}${slug}`;
+/** The NEW per-space data schema in the target DB: `me_<slug>`. */
+export function targetSpaceSchema(cfg: MigrationConfig, slug: string): string {
+  return `${cfg.targetSpacePrefix}${slug}`;
 }
 
-/** Apply a test prefix to every schema name (prod uses `prefixed("")`). */
-export function prefixed(prefix: string): MigrationSchemas {
+/**
+ * Test config: one physical database stands in for all three connections, so the
+ * source and target per-engine schemas must NOT collide — give the source a
+ * `shard_me_` prefix and the target the usual `me_`. Production uses
+ * `DEFAULT_CONFIG` (the two `me_` prefixes are fine there: different databases).
+ */
+export function prefixed(prefix: string): MigrationConfig {
   return {
-    accounts: `${prefix}accounts`,
-    auth: `${prefix}auth`,
-    core: `${prefix}core`,
-    spacePrefix: `${prefix}me_`,
-    legacyPrefix: `${prefix}legacy_`,
+    accountsSchema: `${prefix}accounts`,
+    sourceSpacePrefix: `${prefix}shard_me_`,
+    authSchema: `${prefix}auth`,
+    coreSchema: `${prefix}core`,
+    targetSpacePrefix: `${prefix}me_`,
   };
 }

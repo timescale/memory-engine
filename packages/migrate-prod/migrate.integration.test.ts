@@ -1,24 +1,30 @@
-// In-place prod → multiplayer ETL, end-to-end against a real Postgres.
+// Prod → multiplayer ETL, end-to-end against a real Postgres.
 //
-// Stands up the OLD schema (hand-mirrored server/v0.2.5 subset) + a seeded
-// scenario in throwaway, prefixed schemas, runs the ETL in the same database
-// (auth/core beside accounts; per engine rename-aside + provision + copy), then
+// In prod the ETL spans three databases (DB_ACCOUNTS, DB_SHARD, new target).
+// The test stands in ONE physical database for all three connections — the
+// source per-engine schemas carry a distinct `shard_me_` prefix so they don't
+// collide with the target `me_` schemas (see schemas.ts `prefixed`). It seeds the
+// OLD schema (hand-mirrored server/v0.2.5 subset) + a scenario, runs the ETL, and
 // asserts the new-model rows. Defaults to the local me-postgres container; point
 // TEST_DATABASE_URL elsewhere (see CLAUDE.md → Database integration tests).
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { coreStore, type TreeAccess } from "@memory.build/engine/core";
 import postgres, { type Sql } from "postgres";
-import { type MigrationReport, migrateProdToMultiplayer } from "./migrate";
+import {
+  type Connections,
+  type MigrationReport,
+  migrateProdToMultiplayer,
+} from "./migrate";
 import {
   createOldAccountsSchema,
   type SeededScenario,
   seedScenario,
 } from "./old-schema.fixture";
 import {
-  legacySchema,
-  type MigrationSchemas,
+  type MigrationConfig,
   prefixed,
-  spaceSchema,
+  sourceSpaceSchema,
+  targetSpaceSchema,
 } from "./schemas";
 
 const EMB = 4; // small embedding dim keeps fixtures light
@@ -27,7 +33,8 @@ const TEST_URL =
   "postgresql://postgres@127.0.0.1:5432/postgres";
 
 let sql: Sql;
-let cfg: MigrationSchemas;
+let conns: Connections;
+let cfg: MigrationConfig;
 let scenario: SeededScenario;
 let report: MigrationReport;
 
@@ -50,11 +57,14 @@ async function countRows(schema: string, table: string): Promise<number> {
 }
 
 beforeAll(async () => {
-  sql = postgres(TEST_URL, { max: 4, onnotice: () => {} });
+  // One physical client stands in for all three connections; the source vs
+  // target schema prefixes keep them from colliding.
+  sql = postgres(TEST_URL, { max: 6, onnotice: () => {} });
+  conns = { accounts: sql, shard: sql, target: sql };
   cfg = prefixed(`mptest_${Math.random().toString(36).slice(2, 8)}_`);
   await createOldAccountsSchema(sql, cfg);
   scenario = await seedScenario(sql, cfg, EMB);
-  report = await migrateProdToMultiplayer(sql, cfg, {
+  report = await migrateProdToMultiplayer(conns, cfg, {
     embeddingDimensions: EMB,
   });
 });
@@ -63,10 +73,14 @@ afterAll(async () => {
   if (sql) {
     for (const slug of [scenario?.personalSlug, scenario?.teamSlug]) {
       if (!slug) continue;
-      await sql`drop schema if exists ${sql(spaceSchema(cfg, slug))} cascade`;
-      await sql`drop schema if exists ${sql(legacySchema(cfg, slug))} cascade`;
+      await sql`drop schema if exists ${sql(sourceSpaceSchema(cfg, slug))} cascade`;
+      await sql`drop schema if exists ${sql(targetSpaceSchema(cfg, slug))} cascade`;
     }
-    for (const name of [cfg?.accounts, cfg?.auth, cfg?.core]) {
+    for (const name of [
+      cfg?.accountsSchema,
+      cfg?.authSchema,
+      cfg?.coreSchema,
+    ]) {
       if (name) await sql`drop schema if exists ${sql(name)} cascade`;
     }
     await sql.end();
@@ -76,24 +90,24 @@ afterAll(async () => {
 describe("control plane (Phase A)", () => {
   test("migrates every identity → auth.users + core.principal (kind u), same id", async () => {
     expect(report.identities).toBe(4);
-    expect(await countRows(cfg.auth, "users")).toBe(4);
+    expect(await countRows(cfg.authSchema, "users")).toBe(4);
     const [p] = await sql.unsafe(
-      `select count(*)::int as n from ${cfg.core}.principal where kind = 'u'`,
+      `select count(*)::int as n from ${cfg.coreSchema}.principal where kind = 'u'`,
     );
     expect(Number(p?.n)).toBe(4);
     // the invariant: a user principal shares its auth.users id
     const [match] = await sql.unsafe(
-      `select count(*)::int as n from ${cfg.auth}.users u
-         join ${cfg.core}.principal pr on pr.id = u.id and pr.kind = 'u'`,
+      `select count(*)::int as n from ${cfg.authSchema}.users u
+         join ${cfg.coreSchema}.principal pr on pr.id = u.id and pr.kind = 'u'`,
     );
     expect(Number(match?.n)).toBe(4);
   });
 
   test("migrates oauth accounts and preserves the user email handle", async () => {
     expect(report.oauthAccounts).toBe(4);
-    expect(await countRows(cfg.auth, "accounts")).toBe(4);
+    expect(await countRows(cfg.authSchema, "accounts")).toBe(4);
     const [u] = await sql.unsafe(
-      `select name from ${cfg.core}.principal where id = $1`,
+      `select name from ${cfg.coreSchema}.principal where id = $1`,
       [scenario.i1],
     );
     expect(u?.name).toBe("owner1@example.com"); // principal name == email
@@ -101,9 +115,9 @@ describe("control plane (Phase A)", () => {
 
   test("migrates only the live session, hash copied verbatim", async () => {
     expect(report.sessions).toBe(1);
-    expect(await countRows(cfg.auth, "sessions")).toBe(1);
+    expect(await countRows(cfg.authSchema, "sessions")).toBe(1);
     const [s] = await sql`
-      select user_id, token_hash from ${sql(cfg.auth)}.sessions
+      select user_id, token_hash from ${sql(cfg.authSchema)}.sessions
       where token_hash = ${scenario.i1SessionHash}
     `;
     expect(s?.user_id).toBe(scenario.i1);
@@ -112,7 +126,7 @@ describe("control plane (Phase A)", () => {
 
 describe("simple case — Personal org / single owner / default engine", () => {
   test("engine became a space with the SAME slug; owner is admin", async () => {
-    const core = coreStore(sql, cfg.core);
+    const core = coreStore(sql, cfg.coreSchema);
     const space = await core.getSpace(scenario.personalSlug);
     expect(space).not.toBeNull();
     expect(
@@ -121,7 +135,7 @@ describe("simple case — Personal org / single owner / default engine", () => {
   });
 
   test("owner (old superuser) gets owner@root and owner@home", async () => {
-    const core = coreStore(sql, cfg.core);
+    const core = coreStore(sql, cfg.coreSchema);
     const ta = await core.buildTreeAccess(
       scenario.i1,
       spaceIdFor(scenario.personalSlug),
@@ -132,8 +146,8 @@ describe("simple case — Personal org / single owner / default engine", () => {
     ).toBe(true);
   });
 
-  test("memories copied verbatim with embeddings; only the null-embed row enqueues", async () => {
-    const schema = spaceSchema(cfg, scenario.personalSlug);
+  test("memories copied with embeddings; only the null-embed row enqueues", async () => {
+    const schema = targetSpaceSchema(cfg, scenario.personalSlug);
     expect(await countRows(schema, "memory")).toBe(3);
     expect(await countRows(schema, "embedding_queue")).toBe(1);
     // tree paths preserved, including root ''
@@ -150,7 +164,7 @@ describe("simple case — Personal org / single owner / default engine", () => {
 
 describe("complex case — multi-member org, RBAC role, explicit grants", () => {
   test("org owner/admin → space admins with owner@root; plain member is neither", async () => {
-    const core = coreStore(sql, cfg.core);
+    const core = coreStore(sql, cfg.coreSchema);
     const sid = spaceIdFor(scenario.teamSlug);
     expect(await core.isSpaceAdmin(scenario.i2, sid)).toBe(true);
     expect(await core.isSpaceAdmin(scenario.i3, sid)).toBe(true);
@@ -166,7 +180,7 @@ describe("complex case — multi-member org, RBAC role, explicit grants", () => 
   test("member keeps tree_owner→owner and tree_grant(read)→read, plus owner@home", async () => {
     const sid = spaceIdFor(scenario.teamSlug);
     const grants = await sql.unsafe(
-      `select tree_path::text as tree_path, access from ${cfg.core}.tree_access
+      `select tree_path::text as tree_path, access from ${cfg.coreSchema}.tree_access
          where space_id = $1 and principal_id = $2 order by tree_path`,
       [sid, scenario.i4],
     );
@@ -178,7 +192,7 @@ describe("complex case — multi-member org, RBAC role, explicit grants", () => 
   });
 
   test("RBAC role → group; member is in it; group's write grant resolves for the member", async () => {
-    const core = coreStore(sql, cfg.core);
+    const core = coreStore(sql, cfg.coreSchema);
     const sid = spaceIdFor(scenario.teamSlug);
     const groups = await core.listSpaceGroups(sid);
     expect(groups.map((g) => g.name)).toContain("reviewers");
@@ -188,7 +202,7 @@ describe("complex case — multi-member org, RBAC role, explicit grants", () => 
     expect(members.map((m) => m.name)).toContain("member@example.com");
     // group's grant: team.beta {create,update} → write(2)
     const [g] = await sql.unsafe(
-      `select access from ${cfg.core}.tree_access
+      `select access from ${cfg.coreSchema}.tree_access
          where space_id = $1 and principal_id = $2 and tree_path = 'team.beta'`,
       [sid, reviewers.id],
     );
@@ -205,7 +219,7 @@ describe("complex case — multi-member org, RBAC role, explicit grants", () => 
   });
 
   test("pending org invitation became a per-space (email-keyed) invitation", async () => {
-    const core = coreStore(sql, cfg.core);
+    const core = coreStore(sql, cfg.coreSchema);
     const invites = await core.listSpaceInvitations(
       spaceIdFor(scenario.teamSlug),
     );
@@ -228,10 +242,10 @@ describe("engine selection", () => {
     );
   });
 
-  test("old data preserved under legacy_<slug> until teardown", async () => {
-    // the rename-aside keeps the source intact for rollback
+  test("source databases left untouched (rollback = repoint at them)", async () => {
+    // the ETL only reads the sources; the old shard schema still holds memories
     expect(
-      await countRows(legacySchema(cfg, scenario.teamSlug), "memory"),
+      await countRows(sourceSpaceSchema(cfg, scenario.teamSlug), "memory"),
     ).toBe(2);
   });
 });
