@@ -17,7 +17,10 @@ import { CLIENT_VERSION } from "../../../version";
 import { batchCreateChunked } from "../chunk.ts";
 import type { MemoryClient } from "../client.ts";
 import { createMemoryClient } from "../client.ts";
-import { formatMemoryAsMarkdown } from "../commands/memory.ts";
+import {
+  formatMemoryAsMarkdown,
+  uniqueExportFilename,
+} from "../commands/memory.ts";
 import {
   detectFormatFromExtension,
   type ImportFormat,
@@ -1028,6 +1031,9 @@ Docs: ${docUrl("me_memory_export")}`,
         const stat = statSync(resolved);
         if (stat.isDirectory()) {
           // Mirror the memory tree: <dir>/<tree as folders>/<name or id>.md.
+          // Distinct names can map to one file on disk (`foo` vs `foo.md`, or a
+          // case-insensitive filesystem), so disambiguate by id on a clash.
+          const usedByDir = new Map<string, Set<string>>();
           for (const mem of memories) {
             const treeDir =
               typeof mem.tree === "string" ? mem.tree.replace(/^\//, "") : "";
@@ -1035,9 +1041,14 @@ Docs: ${docUrl("me_memory_export")}`,
               typeof mem.name === "string" && mem.name
                 ? mem.name
                 : String(mem.id);
-            const fname = base.endsWith(".md") ? base : `${base}.md`;
             const dir = treeDir ? join(resolved, treeDir) : resolved;
             mkdirSync(dir, { recursive: true });
+            const fname = uniqueExportFilename(
+              dir,
+              base,
+              String(mem.id),
+              usedByDir,
+            );
             writeFileSync(
               join(dir, fname),
               formatMemoryAsMarkdown(mem),
