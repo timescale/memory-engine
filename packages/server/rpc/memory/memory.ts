@@ -226,7 +226,11 @@ async function memoryCreate(
   const { store, treeAccess } = ctx;
 
   const tree = inputTreePath(ctx, params.tree);
-  const created = await guard(() =>
+  // createMemory returns the row's STORED id for every outcome — including a
+  // skip ('ignore'/'replace' no-op), where for a named row that's the existing
+  // row's id (which may differ from a submitted id; name wins over id). A bare
+  // conflict (default onConflict 'error') raises 23505 → CONFLICT via guard.
+  const { id } = await guard(() =>
     store.createMemory(treeAccess, {
       id: params.id ?? undefined,
       content: params.content,
@@ -237,18 +241,7 @@ async function memoryCreate(
       onConflict: params.onConflict ?? undefined,
     }),
   );
-  // A bare conflict (default onConflict 'error') raises 23505 → CONFLICT via
-  // guard. A null result is an intentional skip — onConflict 'ignore', or a
-  // 'replace' no-op — so resolve the existing row and return it (idempotent).
-  const id =
-    created?.id ??
-    params.id ??
-    (params.name != null
-      ? await guard(() =>
-          store.resolveMemoryId(treeAccess, tree, params.name as string),
-        )
-      : null);
-  const memory = id ? await store.getMemory(treeAccess, id) : null;
+  const memory = await store.getMemory(treeAccess, id);
   if (!memory) {
     throw new AppError("INTERNAL_ERROR", "Created memory could not be read");
   }
@@ -262,8 +255,9 @@ async function memoryCreate(
  * `ids` carries the inserted memories; `updatedIds` the existing rows rewritten
  * by `onConflict: 'replace'`. A submitted explicit id in neither array was
  * skipped — deterministic-id importers re-submit freely and classify the
- * missing ids as already imported. An id repeated within one batch collapses
- * to its first occurrence.
+ * missing ids as already imported. A duplicate idempotency key within one batch
+ * raises. (The store now reports a per-row status; this still projects it down
+ * to {ids, updatedIds} for the wire — R2 surfaces the full status.)
  */
 async function memoryBatchCreate(
   params: MemoryBatchCreateParams,
@@ -290,7 +284,9 @@ async function memoryBatchCreate(
   const ids: string[] = [];
   const updatedIds: string[] = [];
   for (const r of rows) {
-    (r.inserted ? ids : updatedIds).push(r.id);
+    if (r.status === "inserted") ids.push(r.id);
+    else if (r.status === "updated") updatedIds.push(r.id);
+    // 'skipped' rows contribute to neither (existing row left as-is).
   }
   return { ids, updatedIds };
 }

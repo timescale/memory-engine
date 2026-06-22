@@ -57,8 +57,9 @@ async function mustCreate(
   params: Parameters<SpaceStore["createMemory"]>[1],
 ): Promise<string> {
   const created = await db.createMemory(access, params);
-  if (created === null) throw new Error("unexpected duplicate-id skip");
-  if (!created.inserted) throw new Error("unexpected replace");
+  if (created.status !== "inserted") {
+    throw new Error(`unexpected status: ${created.status}`);
+  }
   return created.id;
 }
 
@@ -99,7 +100,8 @@ test("name: create / getMemory / resolveMemoryId; onConflict ignore skips", asyn
     name: "doc.md",
     onConflict: "ignore",
   });
-  expect(skipped).toBeNull();
+  // Skip still reports the existing row's id so the caller can read it back.
+  expect(skipped).toEqual({ id, status: "skipped" });
   expect((await db.getMemory(FULL, id))?.content).toBe("body"); // untouched
 });
 
@@ -110,7 +112,7 @@ test("createMemory raises on a bare duplicate explicit id", async () => {
     tree: "work.dup",
     content: "original",
   });
-  expect(first).toEqual({ id, inserted: true });
+  expect(first).toEqual({ id, status: "inserted" });
 
   // Re-submitting the same id with no upsert / replace key is a hard conflict.
   await expect(
@@ -140,11 +142,11 @@ test("createMemory onConflict 'replace' rewrites only when a field differs", asy
     meta: { importer_version: "1" },
     onConflict: "replace",
   });
-  expect(same).toBeNull();
+  expect(same).toEqual({ id, status: "skipped" });
   expect((await db.getMemory(FULL, id))?.content).toBe("render v1");
 
   // Bumped version re-render → meta + content differ → replaced, reported as an
-  // update (inserted: false). The importer_version stamp drives this via meta.
+  // update. The importer_version stamp drives this via meta.
   const bumped = await db.createMemory(FULL, {
     id,
     tree: "work.upsert",
@@ -152,7 +154,7 @@ test("createMemory onConflict 'replace' rewrites only when a field differs", asy
     meta: { importer_version: "2" },
     onConflict: "replace",
   });
-  expect(bumped).toEqual({ id, inserted: false });
+  expect(bumped).toEqual({ id, status: "updated" });
   const after = await db.getMemory(FULL, id);
   expect(after?.content).toBe("render v2");
   expect(after?.meta).toEqual({ importer_version: "2" });
@@ -177,13 +179,13 @@ test("batchCreateMemories upserts a batch in one call", async () => {
     ],
     "replace",
   );
-  const byId = new Map(rows.map((r) => [r.id, r.inserted]));
-  expect(rows).toHaveLength(2); // fresh skipped → absent
-  expect(byId.get(stale)).toBe(false);
+  // One row per input, in input order, each with a status.
+  expect(rows.map((r) => r.status)).toEqual(["updated", "skipped", "inserted"]);
+  expect(rows[0]?.id).toBe(stale);
+  expect(rows[1]?.id).toBe(fresh);
   expect((await db.getMemory(FULL, stale))?.content).toBe("new");
   expect((await db.getMemory(FULL, fresh))?.content).toBe("current");
-  const generated = rows.find((r) => r.id !== stale);
-  expect(generated?.inserted).toBe(true);
+  const generated = rows[2];
   expect((await db.getMemory(FULL, generated?.id as string))?.content).toBe(
     "generated id",
   );
