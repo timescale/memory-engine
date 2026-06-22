@@ -14,8 +14,8 @@
  * The sources are never modified, so rollback is just "point the app back at the
  * old databases" and there is no teardown SQL (decommission the old DBs out of
  * band). Because source and target are different databases, memories are copied
- * by **streaming** (a cursor over the shard in batches, per-row insert into the
- * target) — not `insert…select`.
+ * by **streaming** (a cursor over the shard in batches, one batched
+ * `unnest(...::text[])` insert per batch into the target) — not `insert…select`.
  *
  * Phases:
  *   A  control plane  — `migrateControlPlane` — provision auth+core in the new DB,
@@ -120,20 +120,21 @@ interface OldRoleMembership {
   with_admin_option: boolean;
 }
 /**
- * A memory row. `meta` comes back as a parsed object (re-sent via `sql.json` to
- * avoid the double-encoding footgun); the other variable-text types are read as
- * text so their `::` casts re-apply cleanly on insert.
+ * A memory row read entirely as text, so a single batched insert can re-cast
+ * each column scalar-wise inside an `unnest(...::text[])`. Reading as text
+ * sidesteps both the jsonb double-encoding footgun and postgres.js's lack of
+ * native parsers for ltree/tstzrange/halfvec.
  */
 interface OldMemoryRow {
   id: string;
-  meta: unknown;
+  meta: string;
   tree: string;
   temporal: string | null;
   content: string;
   embedding: string | null;
-  embedding_version: number;
-  created_at: Date;
-  updated_at: Date | null;
+  embedding_version: string;
+  created_at: string;
+  updated_at: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -455,26 +456,41 @@ export async function migrateEngine(
     }
 
     // 9. Copy memories — cross-DB stream: a cursor over the shard (fetched in
-    //    batches of MEMORY_COPY_BATCH) with a per-row insert into the target.
-    //    `meta` is re-sent via tx.json (a text param in a jsonb slot
-    //    double-encodes); the text-cast columns re-apply their `::` casts;
-    //    `::halfvec` (dimensionless) carries embeddings (null stays null, so the
-    //    enqueue trigger only fires for rows that were never embedded).
+    //    batches of MEMORY_COPY_BATCH), each batch inserted in ONE statement via
+    //    unnest(...::text[]) with scalar casts in the projection. Every column is
+    //    read as text so the casts re-apply cleanly (meta → jsonb without the
+    //    text-param double-encoding footgun); `::halfvec` carries embeddings with
+    //    null staying null, so the enqueue trigger only fires for never-embedded
+    //    rows. The row-level trigger still fires once per inserted row.
     let memories = 0;
     for await (const rows of conns.shard<OldMemoryRow[]>`
-      select id, meta, tree::text as tree, temporal::text as temporal,
-             content, embedding::text as embedding, embedding_version, created_at, updated_at
+      select id::text as id, meta::text as meta, tree::text as tree,
+             temporal::text as temporal, content, embedding::text as embedding,
+             embedding_version::text as embedding_version,
+             created_at::text as created_at, updated_at::text as updated_at
       from ${conns.shard(sourceSchema)}.memory
     `.cursor(MEMORY_COPY_BATCH)) {
-      for (const r of rows) {
-        await tx`
-          insert into ${tx(targetSchema)}.memory
-            (id, meta, tree, temporal, content, embedding, embedding_version, created_at, updated_at)
-          values (${r.id}, ${tx.json(r.meta as never)}, ${r.tree}::ltree, ${r.temporal}::tstzrange,
-                  ${r.content}, ${r.embedding}::halfvec, ${r.embedding_version}, ${r.created_at}, ${r.updated_at})
-        `;
-        memories++;
-      }
+      if (rows.length === 0) continue;
+      await tx.unsafe(
+        `insert into ${targetSchema}.memory
+           (id, meta, tree, temporal, content, embedding, embedding_version, created_at, updated_at)
+         select id::uuid, meta::jsonb, tree::ltree, temporal::tstzrange, content,
+                embedding::halfvec, embedding_version::int, created_at::timestamptz, updated_at::timestamptz
+         from unnest($1::text[],$2::text[],$3::text[],$4::text[],$5::text[],$6::text[],$7::text[],$8::text[],$9::text[])
+              as t(id, meta, tree, temporal, content, embedding, embedding_version, created_at, updated_at)`,
+        [
+          rows.map((r) => r.id),
+          rows.map((r) => r.meta),
+          rows.map((r) => r.tree),
+          rows.map((r) => r.temporal),
+          rows.map((r) => r.content),
+          rows.map((r) => r.embedding),
+          rows.map((r) => r.embedding_version),
+          rows.map((r) => r.created_at),
+          rows.map((r) => r.updated_at),
+        ],
+      );
+      memories += rows.length;
     }
 
     // 10. Optional: pending org invitations → per-space invitations (email-keyed).

@@ -55,9 +55,9 @@ sources (read-only) writing to a **throwaway target** — no window, no risk.
    ```
    bun packages/migrate-prod/run.ts
    ```
-   This copies all ~62k memories row-by-row from prod (read-only) — expect it to
-   take a while and to put read load on the source shard. It validates timing and
-   full correctness end-to-end.
+   This copies all ~62k memories (batched inserts, ~500/statement) from prod
+   (read-only) — typically a few minutes, putting read load on the source shard.
+   It validates timing and full correctness end-to-end.
 4. **Verify** the target with the §5 queries (counts, ≥1 admin per space, access
    spot-check). Confirm the report has `skippedEngines: []` and `warnings: []`.
 5. **To re-run**, reset the target first — the ETL is not idempotent on a dirty
@@ -140,8 +140,8 @@ app failing its boot health check.
    DATABASE_URL="postgresql://…" \   # the NEW target database
    bun packages/migrate-prod/run.ts
    ```
-   The memory copy is row-by-row (~62k rows; the largest engine ~20.9k in one
-   transaction), so expect it to run for a bit. It prints a JSON report — check
+   The memory copy is batched (~62k rows, ~500/insert; the largest engine ~20.9k
+   in one transaction) — typically a few minutes. It prints a JSON report — check
    against the §9 survey: `engines` ≈ 34, `skippedEngines` = 0, `warnings` = 0
    (no dangling users / nested roles in prod). Investigate any surprise before
    proceeding.

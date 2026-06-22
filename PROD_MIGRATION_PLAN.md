@@ -252,13 +252,13 @@ admin = with_admin_option)`.
 
 Near-identical row shape (both `halfvec(1536)` cosine HNSW + BM25 + ltree +
 tstzrange + jsonb). Since the shard and target are **different databases**,
-memories are copied by **streaming** — a cursor over `DB_SHARD me_<slug>.memory`
-(batched) inserting into the freshly-provisioned target `me_<slug>.memory`. Each
-row's `meta` is re-sent via `sql.json` (a text param in a jsonb slot
-double-encodes — the postgres.js footgun in CLAUDE.md); `tree`/`temporal` are read
-as text and re-cast (`::ltree`/`::tstzrange`); `embedding` is read as text and
-re-cast `::halfvec` (dimensionless — the target column enforces 1536). Column
-mapping:
+memories are copied by **streaming**: a cursor over `DB_SHARD me_<slug>.memory`
+(every column read as text, fetched `MEMORY_COPY_BATCH` rows at a time) and, per
+batch, **one** `insert … select … from unnest($1::text[], …)` into the target.
+The scalar casts live in the `select` (`meta::jsonb`, `tree::ltree`,
+`temporal::tstzrange`, `embedding::halfvec` — dimensionless, the target column
+enforces 1536), which sidesteps both the jsonb text-param double-encoding footgun
+and postgres.js's lack of native ltree/tstzrange/halfvec parsers. Column mapping:
 
 | old `me_<slug>.memory` | new `me_<slug>.memory` |
 |---|---|
