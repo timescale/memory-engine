@@ -17,6 +17,7 @@ import {
 } from "@memory.build/database";
 import * as engineCore from "@memory.build/engine/core";
 import postgres, { type Sql } from "postgres";
+import { createBetterAuth } from "../auth/betterauth";
 import { addSpaceCreator, provisionUser } from "../provision";
 import { authenticateSpace, SPACE_HEADER } from "./authenticate-space";
 
@@ -36,16 +37,16 @@ const email = () => `space_${crypto.randomUUID().slice(0, 8)}@example.com`;
 let sql: Sql;
 let authSchema: string;
 let coreSchema: string;
+let betterAuth: ReturnType<typeof createBetterAuth>;
 const createdSpaceSchemas: string[] = [];
 
 // The deps authenticateSpace needs; bound to the test schemas.
 function deps() {
   return {
     core: engineCore.coreStore(sql, coreSchema),
-    auth: authStore(sql, authSchema),
+    betterAuth: betterAuth.auth,
     db: sql,
     allowedOrigins: ["https://test.example.com"],
-    cookieSecure: false,
   };
 }
 
@@ -84,6 +85,13 @@ beforeAll(async () => {
   await bootstrapSpaceDatabase(sql);
   await migrateAuth(sql, { schema: authSchema });
   await migrateCore(sql, { schema: coreSchema });
+  betterAuth = createBetterAuth({
+    databaseUrl: URL,
+    authSchema,
+    baseURL: "http://localhost:3000",
+    secret: "test-secret-betterauth-0123456789",
+    trustedOrigins: ["https://test.example.com"],
+  });
 });
 
 afterAll(async () => {
@@ -92,6 +100,7 @@ afterAll(async () => {
   }
   await sql.unsafe(`drop schema if exists ${authSchema} cascade`);
   await sql.unsafe(`drop schema if exists ${coreSchema} cascade`);
+  await betterAuth.pool.end();
   await sql.end();
 });
 

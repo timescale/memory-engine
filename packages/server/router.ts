@@ -1,15 +1,4 @@
 import type { ServerContext } from "./context";
-import {
-  type AuthHandlerContext,
-  deviceApproveHandler,
-  deviceCodeHandler,
-  deviceTokenHandler,
-  deviceVerifyGetHandler,
-  deviceVerifyPostHandler,
-  loginInitiateHandler,
-  logoutHandler,
-  oauthCallbackHandler,
-} from "./handlers/auth";
 import { healthHandler, readyHandler } from "./handlers/health";
 import { versionHandler } from "./handlers/version";
 import { authenticateSpace } from "./middleware/authenticate-space";
@@ -123,27 +112,15 @@ export interface Router {
 export function createRouter(ctx: ServerContext): Router {
   const {
     db,
-    auth,
+    betterAuth,
     core,
-    authSchema,
     coreSchema,
     embeddingConfig,
-    apiBaseUrl,
     webDist,
     webAllowedOrigins,
     serverVersion,
     minClientVersion,
   } = ctx;
-
-  // Auth handler context for the device flow + OAuth endpoints
-  const authCtx: AuthHandlerContext = {
-    auth,
-    db,
-    authSchema,
-    coreSchema,
-    baseUrl: apiBaseUrl,
-    allowedOrigins: webAllowedOrigins,
-  };
 
   // Static web UI (served at root). The bootstrap marks the build as running in
   // hosted mode — `me serve` injects nothing, so it stays in local mode.
@@ -151,10 +128,6 @@ export function createRouter(ctx: ServerContext): Router {
     webDist,
     bootstrap: { mode: "hosted" },
   });
-
-  // HTTPS public origin → the secure (`__Host-`) cookie name; drives both
-  // cookie minting and the mode-aware cookie read in the auth middlewares.
-  const cookieSecure = new URL(apiBaseUrl).protocol === "https:";
 
   // Wrap an RPC handler with the X-Client-Version check, so requests from
   // too-old clients are rejected before authentication or method dispatch.
@@ -174,10 +147,9 @@ export function createRouter(ctx: ServerContext): Router {
   const memoryRpcHandler = createRpcHandler(memoryMethods, async (request) => {
     const result = await authenticateSpace(request, {
       core,
-      auth,
+      betterAuth,
       db,
       allowedOrigins: webAllowedOrigins,
-      cookieSecure,
     });
     if (!result.ok) {
       return result.error;
@@ -200,14 +172,14 @@ export function createRouter(ctx: ServerContext): Router {
   const userRpcHandler = createRpcHandler(userMethods, async (request) => {
     const result = await authenticateUser(
       request,
-      auth,
+      betterAuth,
       webAllowedOrigins,
-      cookieSecure,
     );
     if (!result.ok) {
       return result.error;
     }
-    return { core, auth, userId: result.context.userId, db, coreSchema };
+    const { userId, email, name } = result.context;
+    return { core, userId, email, name, db, coreSchema };
   });
 
   /**
@@ -235,58 +207,13 @@ export function createRouter(ctx: ServerContext): Router {
       handler: versionHandler(serverVersion, minClientVersion),
     },
 
-    // OAuth Device Flow - CLI initiates
+    // better-auth owns the entire auth surface under its basePath: social
+    // sign-in + OAuth callbacks, sessions/sign-out, and the device flow. Mounted
+    // as a method-agnostic catch-all so the library routes its own sub-paths.
     {
-      method: "POST",
-      pattern: "/api/v1/auth/device/code",
-      handler: (req) => deviceCodeHandler(req, authCtx),
-    },
-
-    // OAuth Device Flow - CLI polls for token
-    {
-      method: "POST",
-      pattern: "/api/v1/auth/device/token",
-      handler: (req) => deviceTokenHandler(req, authCtx),
-    },
-
-    // OAuth Device Flow - User enters code (GET = form, POST = submit)
-    {
-      method: "GET",
-      pattern: "/api/v1/auth/device/verify",
-      handler: (req) => deviceVerifyGetHandler(req, authCtx),
-    },
-    {
-      method: "POST",
-      pattern: "/api/v1/auth/device/verify",
-      handler: (req) => deviceVerifyPostHandler(req, authCtx),
-    },
-
-    // OAuth Device Flow - User approves/denies after OAuth (consent step)
-    {
-      method: "POST",
-      pattern: "/api/v1/auth/device/approve",
-      handler: (req) => deviceApproveHandler(req, authCtx),
-    },
-
-    // OAuth Callback - Provider redirects here after user authorizes
-    {
-      method: "GET",
-      pattern: "/api/v1/auth/callback/:provider",
-      handler: (req, params) => oauthCallbackHandler(req, params, authCtx),
-    },
-
-    // Browser (hosted-UI) login - start OAuth, set a session cookie on callback
-    {
-      method: "GET",
-      pattern: "/api/v1/auth/login/:provider",
-      handler: (req, params) => loginInitiateHandler(req, params, authCtx),
-    },
-
-    // Browser (hosted-UI) logout - clear the session cookie
-    {
-      method: "POST",
-      pattern: "/api/v1/auth/logout",
-      handler: (req) => logoutHandler(req, authCtx),
+      method: "*",
+      pattern: "/api/v1/auth/*",
+      handler: (req) => betterAuth.handler(req),
     },
 
     // Memory RPC (new model: space data-plane + management)
