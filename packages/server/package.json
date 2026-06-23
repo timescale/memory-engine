@@ -9,6 +9,8 @@
     "@memory.build/protocol": "workspace:*",
     "@memory.build/worker": "workspace:*",
     "@pydantic/logfire-node": "^0.13.1",
+    "better-auth": "^1.6.20",
+    "pg": "^8.22.0",
     "postgres": "^3.4.9",
     "zod": "^4.0.0"
   },
@@ -19,5 +21,8 @@
   "scripts": {
     "start": "../../bun run index.ts"
   },
-  "type": "module"
+  "type": "module",
+  "devDependencies": {
+    "@types/pg": "^8.20.0"
+  }
 }
