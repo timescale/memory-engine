@@ -44,6 +44,7 @@ const EXPECTED_MIGRATIONS = [
   "003_embedding_fk_idx",
   "004_count_tree",
   "005_memory_name",
+  "006_content_version",
 ];
 
 const EXPECTED_MEMORY_FUNCTIONS = [
@@ -199,6 +200,35 @@ describe("provisioned space schema", () => {
     );
   });
 
+  // The 006_content_version migration renamed embedding_version → content_version
+  // on both memory and embedding_queue. The old name must be gone (so any stale
+  // SQL referencing it fails loudly) and the new name must be present with the
+  // original type/default preserved.
+  test("memory and embedding_queue use content_version (the embedding_version rename)", async () => {
+    expect(
+      await columnType(sql, canonical.schema, "memory", "content_version"),
+    ).toBe("integer");
+    expect(
+      await columnType(sql, canonical.schema, "memory", "embedding_version"),
+    ).toBeNull();
+    expect(
+      await columnType(
+        sql,
+        canonical.schema,
+        "embedding_queue",
+        "content_version",
+      ),
+    ).toBe("integer");
+    expect(
+      await columnType(
+        sql,
+        canonical.schema,
+        "embedding_queue",
+        "embedding_version",
+      ),
+    ).toBeNull();
+  });
+
   test("installs the memory update trigger", async () => {
     const triggers = await listTriggers(sql, canonical.schema, "memory");
     expect(triggers).toContain("memory_before_update_trg");
@@ -293,19 +323,30 @@ describe("migration behavior", () => {
 describe("provisioned schema is functional", () => {
   // Shape assertions read the catalog, so sharing `canonical` with these write
   // smoke tests is safe — inserted rows don't affect schema introspection.
-  test("accepts a memory and fires the update trigger", async () => {
+  test("accepts a memory and fires the update trigger (content change bumps content_version)", async () => {
     const [row] = await sql.unsafe(
       `insert into ${canonical.schema}.memory (content, tree)
-       values ('hello world', 'a.b') returning id, updated_at`,
+       values ('hello world', 'a.b')
+       returning id, updated_at, content_version`,
     );
     expect(row?.id).toBeDefined();
     expect(row?.updated_at).toBeNull();
+    expect(row?.content_version).toBe(1);
 
-    const [updated] = await sql.unsafe(
+    // Content change → trigger bumps content_version and clears embedding so
+    // the worker re-embeds. A meta-only update must NOT bump the counter.
+    const [bumped] = await sql.unsafe(
       `update ${canonical.schema}.memory set content = 'changed'
-       where id = '${row?.id}' returning updated_at`,
+       where id = '${row?.id}' returning updated_at, content_version`,
     );
-    expect(updated?.updated_at).not.toBeNull();
+    expect(bumped?.updated_at).not.toBeNull();
+    expect(bumped?.content_version).toBe(2);
+
+    const [metaOnly] = await sql.unsafe(
+      `update ${canonical.schema}.memory set meta = '{"k": "v"}'::jsonb
+       where id = '${row?.id}' returning content_version`,
+    );
+    expect(metaOnly?.content_version).toBe(2);
   });
 
   test("name: (tree,name) unique, nulls coexist, format enforced", async () => {

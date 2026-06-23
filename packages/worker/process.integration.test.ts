@@ -136,7 +136,7 @@ describe("processBatch integration (space model)", () => {
     const staleId = await insertMemory("Stale version content");
     // Bump the memory's version so the queued row (v1) is stale.
     await sql.unsafe(
-      `UPDATE ${schema}.memory SET embedding_version = embedding_version + 1 WHERE id = $1`,
+      `UPDATE ${schema}.memory SET content_version = content_version + 1 WHERE id = $1`,
       [staleId],
     );
 
@@ -322,7 +322,7 @@ describe("processBatch integration (space model)", () => {
 
     await sql.unsafe(
       `INSERT INTO ${schema}.embedding_queue
-        (memory_id, embedding_version, outcome, created_at)
+        (memory_id, content_version, outcome, created_at)
        VALUES ($1, 1, 'completed', now() - interval '10 days'),
               ($1, 2, 'failed',    now() - interval '10 days'),
               ($1, 3, 'cancelled', now() - interval '10 days'),
@@ -335,13 +335,13 @@ describe("processBatch integration (space model)", () => {
     expect(pruned).toBe(3);
 
     const remaining = (await sql.unsafe(
-      `SELECT embedding_version, outcome FROM ${schema}.embedding_queue
-       WHERE memory_id = $1 ORDER BY embedding_version`,
+      `SELECT content_version, outcome FROM ${schema}.embedding_queue
+       WHERE memory_id = $1 ORDER BY content_version`,
       [memoryId],
-    )) as { embedding_version: number; outcome: string | null }[];
+    )) as { content_version: number; outcome: string | null }[];
     expect(remaining).toHaveLength(2);
-    expect(remaining[0]?.embedding_version).toBe(4);
-    expect(remaining[1]?.embedding_version).toBe(5);
+    expect(remaining[0]?.content_version).toBe(4);
+    expect(remaining[1]?.content_version).toBe(5);
     expect(remaining[1]?.outcome).toBeNull();
   });
 
@@ -371,7 +371,7 @@ describe("write-back SQL functions", () => {
     return {
       memoryId,
       queueId: q?.id as string,
-      version: Number(q?.embedding_version),
+      version: Number(q?.content_version),
     };
   }
 

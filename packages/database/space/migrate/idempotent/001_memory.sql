@@ -13,7 +13,7 @@ begin
      and old.embedding is not distinct from new.embedding
   then
     new.embedding = null;
-    new.embedding_version = old.embedding_version operator(pg_catalog.+) 1;
+    new.content_version = old.content_version operator(pg_catalog.+) 1;
   end if;
 
   return new;
@@ -807,7 +807,7 @@ begin
     , temporal
     , content
     , embedding
-    , embedding_version
+    , content_version
     )
     select
       m.meta
@@ -819,7 +819,7 @@ begin
     , m.temporal
     , m.content
     , m.embedding
-    , m.embedding_version
+    , m.content_version
     from m
     where not _dry_run
   )
