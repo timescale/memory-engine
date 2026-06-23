@@ -4,12 +4,7 @@
 //     bun test --timeout 30000 \
 //     packages/server/rpc/user/agent.integration.test.ts
 import { afterAll, beforeAll, beforeEach, expect, test } from "bun:test";
-import { authStore } from "@memory.build/auth";
-import {
-  bootstrapSpaceDatabase,
-  migrateAuth,
-  migrateCore,
-} from "@memory.build/database";
+import { bootstrapSpaceDatabase, migrateCore } from "@memory.build/database";
 import { ACCESS, coreStore, ROOT_PATH } from "@memory.build/engine/core";
 import { type AppErrorCode, isAppError } from "@memory.build/protocol/errors";
 import postgres, { type Sql } from "postgres";
@@ -30,7 +25,6 @@ const rand = (n: number) => {
 
 let sql: Sql;
 let coreSchema: string;
-let authSchema: string;
 let userId: string;
 const createdSpaceSchemas: string[] = [];
 
@@ -38,14 +32,18 @@ function call<T = unknown>(
   method: string,
   params: unknown,
   asUser: string = userId,
+  identity?: { email?: string; name?: string },
 ): Promise<T> {
   const registered = userMethods.get(method);
   if (!registered) throw new Error(`no handler for ${method}`);
   const context = {
     request: new Request("http://localhost/api/v1/user/rpc"),
     core: coreStore(sql, coreSchema),
-    auth: authStore(sql, authSchema),
     userId: asUser,
+    // Identity the middleware (authenticateUser) would have put on the context
+    // from the validated session; whoami echoes it.
+    email: identity?.email ?? `${asUser}@example.com`,
+    name: identity?.name ?? "Test User",
     db: sql,
     coreSchema,
   } as unknown as HandlerContext;
@@ -72,10 +70,8 @@ async function makeUser(): Promise<string> {
 beforeAll(async () => {
   sql = postgres(URL, { onnotice: () => {} });
   coreSchema = `core_test_${rand(8)}`;
-  authSchema = `auth_test_${rand(8)}`;
   await bootstrapSpaceDatabase(sql); // extensions for me_<slug> (space.create)
   await migrateCore(sql, { schema: coreSchema });
-  await migrateAuth(sql, { schema: authSchema });
 });
 
 afterAll(async () => {
@@ -83,7 +79,6 @@ afterAll(async () => {
     await sql.unsafe(`drop schema if exists ${s} cascade`);
   }
   await sql.unsafe(`drop schema if exists ${coreSchema} cascade`);
-  await sql.unsafe(`drop schema if exists ${authSchema} cascade`);
   await sql.end();
 });
 
@@ -91,22 +86,22 @@ beforeEach(async () => {
   userId = await makeUser();
 });
 
-test("whoami returns the session's identity", async () => {
-  // a user in the auth schema; whoami resolves it from ctx.auth by id
-  const email = `who_${rand(8)}@example.com`;
-  const id = await authStore(sql, authSchema).createUser(email, "Who Am I");
-
+test("whoami echoes the validated session identity", async () => {
+  // Under the new model whoami trusts the identity the middleware resolved from
+  // the validated session/token (ctx.email/ctx.name) — no store lookup. Token
+  // validity (e.g. a deleted user → 401) is the middleware's job, covered in the
+  // authenticate-space/user integration tests.
   const me = await call<{ id: string; email: string; name: string }>(
     "whoami",
     {},
-    id,
+    userId,
+    { email: "who@example.com", name: "Who Am I" },
   );
-  expect(me).toEqual({ id, email, name: "Who Am I" });
-});
-
-test("whoami is UNAUTHORIZED when the user row is gone", async () => {
-  const [row] = await sql`select uuidv7() as id`;
-  await expectAppError(call("whoami", {}, row?.id as string), "UNAUTHORIZED");
+  expect(me).toEqual({
+    id: userId,
+    email: "who@example.com",
+    name: "Who Am I",
+  });
 });
 
 test("create / list / rename / delete the caller's agents", async () => {

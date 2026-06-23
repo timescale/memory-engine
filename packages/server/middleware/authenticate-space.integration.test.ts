@@ -7,7 +7,7 @@
 //     bun test --timeout 30000 \
 //     packages/server/middleware/authenticate-space.integration.test.ts
 import { afterAll, beforeAll, expect, test } from "bun:test";
-import { authStore } from "@memory.build/auth";
+import { createHash } from "node:crypto";
 import {
   bootstrapSpaceDatabase,
   generateSlug,
@@ -62,7 +62,25 @@ function req(opts: { token?: string; space?: string }): Request {
   });
 }
 
-// Provision a user + space and return its slug, the user id, and a session token.
+/**
+ * Mint a real OAuth access token for `userId`: store sha256(raw) in
+ * oauth_access_token (exactly what verifyOAuthAccessToken hashes + looks up) and
+ * return the raw bearer. Bound to the seeded `me-cli` client; valid for 1h.
+ */
+async function mintAccessToken(userId: string): Promise<string> {
+  const raw = `me_at_${rand()}${rand()}`;
+  const hash = createHash("sha256").update(raw).digest("hex");
+  await sql.unsafe(
+    `insert into ${authSchema}.oauth_access_token
+       (token, client_id, user_id, scopes, expires_at)
+     values ($1, 'me-cli', $2, '["openid"]'::jsonb, now() + interval '1 hour')`,
+    [hash, userId],
+  );
+  return raw;
+}
+
+// Provision a user + space and return its slug, the user id, and a bearer (a
+// real OAuth access token — the human credential under the new model).
 async function provision() {
   const r = await provisionUser(
     sql,
@@ -75,7 +93,7 @@ async function provision() {
     },
   );
   createdSpaceSchemas.push(`me_${r.spaceSlug}`);
-  const { token } = await authStore(sql, authSchema).createSession(r.userId);
+  const token = await mintAccessToken(r.userId);
   return { ...r, token };
 }
 
