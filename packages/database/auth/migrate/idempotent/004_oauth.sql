@@ -10,11 +10,11 @@ returns bigint
 as $func$
   with a as
   (
-    delete from {{schema}}."oauthAccessToken" where "expiresAt" <= now() returning 1
+    delete from {{schema}}.oauth_access_token where expires_at <= now() returning 1
   )
   , r as
   (
-    delete from {{schema}}."oauthRefreshToken" where "expiresAt" <= now() returning 1
+    delete from {{schema}}.oauth_refresh_token where expires_at <= now() returning 1
   )
   select (select count(*) from a) + (select count(*) from r)
 $func$ language sql volatile security invoker
