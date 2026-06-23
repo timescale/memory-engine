@@ -8,6 +8,7 @@ Get data into Memory Engine — one subcommand per source.
 - [me import claude](#me-import-claude--codex--opencode) -- import Claude Code sessions
 - [me import codex](#me-import-claude--codex--opencode) -- import Codex sessions
 - [me import opencode](#me-import-claude--codex--opencode) -- import OpenCode sessions
+- [me import granola](#me-import-granola) -- import Granola meeting notes and transcripts
 - [me import git](#me-import-git) -- import a repo's git commit history
 - [me import git-hook](#me-import-git-hook) -- install a post-commit hook that keeps git history memories current
 
@@ -38,6 +39,83 @@ me import opencode [options]
 ```
 
 See [agent session imports](agent-session-imports.md) for the shared option reference, tree layout, idempotency rules, content shape, and metadata schema.
+
+---
+
+## me import granola
+
+Import meetings from [Granola](https://granola.ai) — one memory per meeting, holding the AI summary notes and (by default) the full transcript. Past meetings become searchable agent context ("what did we decide about X", "who was in the Y review").
+
+```
+me import granola [options]
+```
+
+| Option | Description |
+|--------|-------------|
+| `--tree-root <path>` | Tree root under which `<document_id>` leaves are placed. Default: `~/granola`. |
+| `--since <iso>` | Only import meetings started at or after this ISO 8601 timestamp. |
+| `--until <iso>` | Only import meetings started at or before this ISO 8601 timestamp. |
+| `--no-transcript` | Import notes only, skipping the full meeting transcript (and its per-meeting API call). |
+| `--include-invalid` | Include notes Granola did not flag as a valid meeting (ad-hoc notes, calendar stubs). |
+| `--granola-dir <dir>` | Override the Granola application-support directory (default: the standard macOS path). |
+| `--dry-run` | Fetch and report what would be imported without writing. |
+
+### Authentication (no separate login)
+
+The import reuses the **Granola desktop app's** existing session — there is no separate `me`-side Granola login. It reads Granola's locally-stored, `safeStorage`-encrypted WorkOS tokens (decrypting them via the macOS login keychain), refreshes the short-lived access token through Granola's API, then pulls your meetings. Requirements:
+
+- The Granola desktop app is **installed and signed in** on this machine.
+- **macOS only** for now (the credential read uses the login keychain). On other platforms the command exits with an actionable error.
+
+If the token refresh fails (e.g. Granola has been signed out), open the Granola app to refresh its session and re-run.
+
+### Tree layout
+
+Each meeting is a named leaf (its Granola `document_id`) under the tree root:
+
+```
+<tree-root>/<document_id>
+```
+
+The default root is your personal home (`~/granola`), so meetings are private to you. Pass `--tree-root /share/meetings` (or similar) to import into a shared space instead.
+
+### Content shape
+
+Each memory's content is a self-contained Markdown document: a title heading, a metadata line (date, attendees), the AI **summary notes**, and — unless `--no-transcript` — the full **transcript**. Notes are sourced, in order of preference, from the meeting's own `notes_markdown`, then an AI summary panel (its structured content, else its HTML). Transcript segments are grouped into speaker turns labelled `Me` (your microphone) and `Them` (everyone else); Granola does not attribute remote speakers by name.
+
+Meetings Granola flagged as not a valid meeting are skipped by default (`--include-invalid` keeps them), as are meetings with neither notes nor a transcript.
+
+### Idempotency and re-runs
+
+Idempotency is keyed on `(tree, document_id)` — each meeting is named by its Granola document id. The id is a timestamp-prefixed UUIDv7 (meeting start in the prefix, random tail), so meetings sort by date on the id. Re-imports reconcile in place via the server's content-aware upsert: an unchanged meeting is a no-op, a meeting whose notes/transcript changed (or an importer-version bump) is rewritten, and nothing is ever duplicated. Run it on a schedule to keep your meeting memory current.
+
+### Metadata
+
+| Key | Description |
+|-----|-------------|
+| `type` | Always `"granola_meeting"`. |
+| `source_tool` | Always `"granola"`. |
+| `source_document_id` | Granola document id (also the leaf name). |
+| `display_name` | Human label for the web tree (`"Title — YYYY-MM-DD"`); the leaf `name` stays the document id so re-imports stay idempotent. |
+| `source_workspace_id` | Granola workspace id (when present). |
+| `source_calendar_event_id` | Google Calendar event id (when the meeting has one). |
+| `attendees` | Calendar attendee emails (when present). |
+| `content_mode` | `"with_transcript"` or `"notes_only"`. |
+| `has_notes` / `has_transcript` | Whether each section was captured. |
+| `transcript_segment_count` | Number of transcript segments. |
+| `valid_meeting` | Granola's valid-meeting flag (when set). |
+| `importer_version` | Version tag of the importer schema. |
+
+Temporal spans the meeting: calendar start→end when known, else the meeting's created time and last transcript segment.
+
+### Example
+
+```bash
+me import granola --dry-run            # preview everything Granola has
+me import granola                      # full import (notes + transcripts) into ~/granola
+me import granola --no-transcript      # notes only (faster; fewer API calls)
+me import granola --since 2026-01-01   # just this year's meetings
+```
 
 ---
 

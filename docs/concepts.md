@@ -156,6 +156,9 @@ Metadata is indexed with a GIN index, making attribute-based filtering fast. You
 | `status` | Track lifecycle | `"active"`, `"implemented"`, `"superseded"`, `"archived"` |
 | `source` | Where it came from | `"slack"`, `"meeting"`, `"docs"`, `"code-review"` |
 | `confidence` | How certain you are | `"high"`, `"medium"`, `"low"` |
+| `display_name` | Human label for the web tree | `"Weekly Sync — 2026-06-23"` |
+
+`display_name` is a presentation hint: the web UI's tree view prefers it over the memory's `name` and content when labelling a leaf. Use it when the stable `name` is an opaque id (e.g. an importer keying idempotency on a source id) but you still want a readable label. It does not affect addressing or search.
 
 ### Meta vs. tree
 
