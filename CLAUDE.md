@@ -179,24 +179,24 @@ create table me.memory
 );
 ```
 
-**Migration footgun — `CREATE OR REPLACE FUNCTION` can't change a return type.**
-The `idempotent/*.sql` migrations re-run on every boot via `create or replace
-function`. Postgres refuses to *replace* a function whose **arg signature is
-unchanged** but whose **return type / `returns table(...)` OUT columns** differ
-— it raises `42P13` "cannot change return type of existing function". This is
-invisible in CI: tests migrate **fresh** schemas with no prior function, so the
-replace just creates it. It only bites the **boot-time migration against an
-existing DB** (dev/prod), where the old signature is already installed → the
-server crashes on startup → `helm --wait --atomic` crashloops 20 min then rolls
-back (the failed pods are deleted, so capture logs *before* rollback — `kubectl
-logs -p` needs a live pod). When you change an idempotent function's return
-type, precede the `create or replace` with a guarded `do $$ … drop function
-{{schema}}.fn(argtypes); … end $$;` block that drops the stale definition **only
-when detected** (key the `if exists` on a `pg_proc.proargnames` check so it
-doesn't churn every run). Examples: `core.list_space_principals`,
-`core.validate_api_key` in `core/migrate/idempotent`. (Changing only the *args*
-instead creates a second overload — no `42P13`, but the stale overload lingers,
-so drop it too.)
+**Migration footgun — `CREATE OR REPLACE FUNCTION` can't change a return type**
+(`42P13`), and changing the *args* silently leaves the old overload behind. Both
+are invisible in CI (fresh schemas) but crash a boot-time migration against an
+existing dev/prod DB. So when a function's signature changes, wrap its
+`create or replace` in a `{{fn …}}` block (`template()` in `migrate/kit.ts`,
+helpers in `migrate/function_signature.sql`) — it drops a stale-signatured
+definition before and asserts the result after, so a drift fails CI loudly
+instead of churning prod:
+
+```sql
+{{fn get_memory(jsonb, uuid) returns table(id uuid, name text)}}
+create or replace function {{schema}}.get_memory(_tree_access jsonb, _id uuid)
+returns table (id uuid, name text) as $func$ ... $func$ language sql;
+{{endfn}}
+```
+
+`argtypes` go in `DROP FUNCTION` form (types only, no typmods: `halfvec`, not
+`halfvec(1536)`); never wrap a deliberately overloaded name like `count_tree`.
 
 ## Key Design Decisions
 

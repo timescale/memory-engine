@@ -155,24 +155,10 @@ set search_path to pg_catalog, {{schema}}, public, pg_temp
 -- an admin group, never an agent). Optional kind filter ('u' | 'a' | 'g'); null
 -- returns all.
 -------------------------------------------------------------------------------
--- Removing the `direct` column changed the returns-table signature, which
--- create-or-replace cannot do. Drop the old definition only when it's still
--- present with that stale signature (its `direct` output column); when the
--- function is already current — or absent — skip the drop so it isn't churned
--- every migration run. The create-or-replace below then (re)creates it.
-do $$ begin
-  if exists
-  (
-    select 1
-    from pg_proc p
-    join pg_namespace n on n.oid = p.pronamespace
-    where n.nspname = '{{schema}}'
-    and p.proname = 'list_space_principals'
-    and 'direct' = any (p.proargnames)
-  ) then
-    drop function {{schema}}.list_space_principals(uuid, text);
-  end if;
-end $$;
+-- list_space_principals dropped its `direct` output column — a returns-table
+-- change create-or-replace cannot make. The fn block drops a stale-signatured
+-- definition before the create and asserts the result after.
+{{fn list_space_principals(uuid, text) returns table(id uuid, kind text, name text, owner_id uuid, admin bool, created_at timestamptz, updated_at timestamptz)}}
 create or replace function {{schema}}.list_space_principals
 ( _space_id uuid
 , _kind text default null
@@ -198,6 +184,7 @@ as $func$
 $func$ language sql stable security invoker
 set search_path to pg_catalog, {{schema}}, public, pg_temp
 ;
+{{endfn}}
 
 -------------------------------------------------------------------------------
 -- list_group_members

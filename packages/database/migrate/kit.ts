@@ -2,6 +2,9 @@ import { createHash } from "node:crypto";
 import { info, span } from "@pydantic/logfire-node";
 import { semver } from "bun";
 import type { ISql } from "postgres";
+import functionSignatureSql from "./function_signature.sql" with {
+  type: "text",
+};
 
 // ---------------------------------------------------------------------------
 // Shared migration machinery for the core (control plane) and space (data
@@ -201,9 +204,38 @@ export async function assertSchemaOwnership(
 // Templating
 // ---------------------------------------------------------------------------
 
-/** Substitute `{{name}}` placeholders; throws on an unknown placeholder. */
+/**
+ * Expand migration-SQL templating, in two passes:
+ *
+ * 1. `{{fn name(arg, ...) returns result}} … {{endfn}}` blocks. The wrapped
+ *    `create or replace function` is emitted verbatim, bracketed by generated
+ *    calls to `drop_function_if_signature_differs` (before — drops a definition
+ *    whose signature differs, so the create can't hit 42P13 and stale overloads
+ *    don't linger) and `assert_function_signature` (after — fails the migration,
+ *    including on the fresh schemas CI builds, if the live function doesn't match
+ *    the header). The signature is declared once in the header, so the two
+ *    generated guards can't drift from each other; the assert catches a
+ *    header-vs-definition drift. Write `args` in DROP FUNCTION form — types only,
+ *    no parameter names, no typmods (`halfvec`, not `halfvec(1536)`) — to match
+ *    `pg_get_function_identity_arguments`.
+ *
+ * 2. `{{name}}` substitution from `vars` (e.g. `schema`); throws on an unknown
+ *    placeholder. Runs after pass 1 so `{{schema}}` inside the generated calls
+ *    and the wrapped body is substituted too.
+ */
 export function template(sql: string, vars: Record<string, unknown>): string {
-  return sql.replace(/\{\{(\w+)\}\}/g, (_, key) => {
+  const expanded = sql.replace(
+    /\{\{fn\s+(\w+)\s*\(([^)]*)\)\s+returns\s+([^}]*?)\s*\}\}([\s\S]*?)\{\{endfn\}\}/g,
+    (_, name, args, result, body) => {
+      const sig = `'${name.trim()}', '${args.trim()}', '${result.trim()}'`;
+      return (
+        `select {{schema}}.drop_function_if_signature_differs(${sig});\n` +
+        `${body.trim()}\n` +
+        `select {{schema}}.assert_function_signature(${sig});`
+      );
+    },
+  );
+  return expanded.replace(/\{\{(\w+)\}\}/g, (_, key) => {
     if (!(key in vars)) {
       throw new Error(`Missing template variable: ${key}`);
     }
@@ -364,6 +396,20 @@ export async function runSchemaMigrations(
     return;
   }
   */
+
+  // Install the function-signature helper before any migration so incremental
+  // and idempotent SQL can call drop_function_if_signature_differs(...) ahead of
+  // a `create or replace function` whose signature changed — replacing the
+  // hand-written `drop function`/`do $$ ... $$` guards. Idempotent and cheap; see
+  // migrate/function_signature.sql.
+  await executeSqlFile(tx, template(functionSignatureSql, templateVars), {
+    logSqlFiles,
+    label,
+    schema,
+    type: "idempotent",
+    dir: "packages/database/migrate",
+    file: "function_signature.sql",
+  });
 
   const incrementals = [...cfg.incrementals].sort((a, b) =>
     a.name.localeCompare(b.name),
