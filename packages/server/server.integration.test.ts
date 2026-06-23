@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, mock, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import type { AuthStore } from "@memory.build/auth";
 import type { EmbeddingConfig } from "@memory.build/embedding";
 import type { CoreStore } from "@memory.build/engine/core";
@@ -16,23 +16,9 @@ let baseUrl: string;
 function createMockContext(): ServerContext {
   return {
     db: {} as Sql,
-    auth: {
-      // Session validation: no session → user RPC stays 401.
-      validateSession: mock(() => Promise.resolve(null)),
-      // Device flow operations exercised by the auth endpoint tests.
-      createDeviceAuth: mock((_provider: string) =>
-        Promise.resolve({
-          deviceCode: "test-device-code",
-          userCode: "WXYZ-2345",
-          oauthState: "test-oauth-state",
-          expiresIn: 900,
-        }),
-      ),
-      // Unknown device codes poll as expired.
-      pollDevice: mock(() =>
-        Promise.resolve({ status: "expired", userId: null }),
-      ),
-    } as unknown as AuthStore,
+    // The router no longer reads ctx.auth (better-auth owns /api/v1/auth/*); a
+    // bare stub satisfies the ServerContext shape.
+    auth: {} as unknown as AuthStore,
     betterAuth: {} as unknown as Auth,
     verifyOAuthToken: async () => null,
     core: {} as unknown as CoreStore,
@@ -204,81 +190,7 @@ describe("server integration", () => {
     });
   });
 
-  describe("auth endpoints", () => {
-    test("POST /api/v1/auth/device/code returns device code for valid provider", async () => {
-      const response = await fetch(`${baseUrl}/api/v1/auth/device/code`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ provider: "google" }),
-      });
-      expect(response.status).toBe(200);
-      const body = (await response.json()) as {
-        deviceCode: string;
-        userCode: string;
-        verificationUri: string;
-        expiresIn: number;
-        interval: number;
-      };
-      expect(body.deviceCode).toBeDefined();
-      expect(body.userCode).toMatch(/^[A-Z0-9]{4}-[A-Z0-9]{4}$/);
-      expect(body.verificationUri).toContain("/api/v1/auth/device/verify");
-      expect(body.expiresIn).toBe(900);
-      expect(body.interval).toBe(5);
-    });
-
-    test("POST /api/v1/auth/device/code rejects invalid provider", async () => {
-      const response = await fetch(`${baseUrl}/api/v1/auth/device/code`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ provider: "invalid" }),
-      });
-      expect(response.status).toBe(400);
-      const body = (await response.json()) as { error: { code: string } };
-      expect(body.error.code).toBe("INVALID_PROVIDER");
-    });
-
-    test("POST /api/v1/auth/device/code rejects invalid JSON", async () => {
-      const response = await fetch(`${baseUrl}/api/v1/auth/device/code`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: "not json",
-      });
-      expect(response.status).toBe(400);
-    });
-
-    test("GET /api/v1/auth/device/verify returns HTML form", async () => {
-      const response = await fetch(`${baseUrl}/api/v1/auth/device/verify`);
-      expect(response.status).toBe(200);
-      expect(response.headers.get("Content-Type")).toContain("text/html");
-      const html = await response.text();
-      expect(html).toContain("Sign in to Memory Engine");
-      expect(html).toContain("<form");
-    });
-
-    test("GET /api/v1/auth/callback/google returns 400 without code/state", async () => {
-      const response = await fetch(`${baseUrl}/api/v1/auth/callback/google`);
-      expect(response.status).toBe(400);
-      expect(response.headers.get("Content-Type")).toContain("text/html");
-    });
-
-    test("POST /api/v1/auth/device/token rejects missing deviceCode", async () => {
-      const response = await fetch(`${baseUrl}/api/v1/auth/device/token`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({}),
-      });
-      expect(response.status).toBe(400);
-    });
-
-    test("POST /api/v1/auth/device/token returns expired_token for unknown code", async () => {
-      const response = await fetch(`${baseUrl}/api/v1/auth/device/token`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ deviceCode: "nonexistent-code" }),
-      });
-      expect(response.status).toBe(400);
-      const body = (await response.json()) as { error: string };
-      expect(body.error).toBe("expired_token");
-    });
-  });
+  // The /api/v1/auth/* surface is owned end-to-end by better-auth (social
+  // sign-in, OAuth authorize/token, sessions) and exercised against a real
+  // instance in the auth + middleware integration suites, not this mock router.
 });

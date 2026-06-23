@@ -5,6 +5,7 @@ import {
   SHARE_NAMESPACE,
 } from "@memory.build/database";
 import * as engineCore from "@memory.build/engine/core";
+import { info, reportError } from "@pydantic/logfire-node";
 import type { Sql } from "postgres";
 
 /**
@@ -66,6 +67,34 @@ export async function addSpaceCreator(
   );
 }
 
+/**
+ * Redeem pending space invitations for a (provider-verified) login email: join
+ * the user to each invited space (owner@home + the per-invite share level).
+ * Idempotent and best-effort — a failure is logged and swallowed so it never
+ * breaks the request (the next call retries). Returns the number of spaces
+ * joined. The user must already be a core principal, and the email must be one
+ * the identity provider verified (invitations are email-keyed; redeeming for an
+ * unverified address would let a caller claim invites they don't control).
+ */
+export async function redeemInvitationsForVerifiedLogin(
+  core: engineCore.CoreStore,
+  userId: string,
+  email: string,
+): Promise<number> {
+  try {
+    const joined = await core.redeemSpaceInvitations(userId, email);
+    if (joined.length > 0) {
+      info("Redeemed space invitations", { email, spaces: joined.length });
+    }
+    return joined.length;
+  } catch (err) {
+    reportError("Invitation redemption failed (continuing)", err as Error, {
+      email,
+    });
+    return 0;
+  }
+}
+
 export interface EnsureProvisionedParams {
   /** The authenticated user id (== auth.users.id == core.principal.id). */
   userId: string;
@@ -96,31 +125,37 @@ export async function ensureUserProvisioned(
   schemas: { core: string },
   params: EnsureProvisionedParams,
 ): Promise<void> {
-  // Hot path: already provisioned — one indexed lookup, then done.
-  if (await core.getPrincipal(params.userId)) return;
-
-  const slug = generateSlug();
-  try {
-    await sql.begin(async (tx) => {
-      const txCore = engineCore.coreStore(tx as unknown as Sql, schemas.core);
-      // Re-check inside the transaction to narrow the provisioning race window.
-      if (await txCore.getPrincipal(params.userId)) return;
-      // Principal name is the email (its unique handle); display name lives on
-      // the better-auth user row.
-      await txCore.createUser(params.userId, params.email);
-      const spaceId = await txCore.createSpace(
-        slug,
-        params.spaceName ?? "default",
-      );
-      await provisionSpace(tx, { slug }); // creates the me_<slug> data schema
-      await addSpaceCreator(txCore, spaceId, params.userId);
-    });
-  } catch (error) {
-    // A concurrent first-request may have provisioned us first. If the principal
-    // now exists, the race resolved in our favor; otherwise surface the error.
-    if (await core.getPrincipal(params.userId)) return;
-    throw error;
+  // Provision the core side on first sight (idempotent); skip when already done.
+  if (!(await core.getPrincipal(params.userId))) {
+    const slug = generateSlug();
+    try {
+      await sql.begin(async (tx) => {
+        const txCore = engineCore.coreStore(tx as unknown as Sql, schemas.core);
+        // Re-check inside the transaction to narrow the provisioning race window.
+        if (await txCore.getPrincipal(params.userId)) return;
+        // Principal name is the email (its unique handle); display name lives on
+        // the better-auth user row.
+        await txCore.createUser(params.userId, params.email);
+        const spaceId = await txCore.createSpace(
+          slug,
+          params.spaceName ?? "default",
+        );
+        await provisionSpace(tx, { slug }); // creates the me_<slug> data schema
+        await addSpaceCreator(txCore, spaceId, params.userId);
+      });
+    } catch (error) {
+      // A concurrent first-request may have provisioned us first. If the
+      // principal now exists the race resolved in our favor; else re-throw.
+      if (!(await core.getPrincipal(params.userId))) throw error;
+    }
   }
+
+  // Join any spaces this email was invited to. better-auth gives us no
+  // dedicated "login" hook, so this rides every user RPC — it's idempotent and
+  // best-effort (a no-op once nothing is pending), and the email is one the
+  // identity provider verified. This is the new home of the redemption that the
+  // retired device-flow callback used to run on each sign-in.
+  await redeemInvitationsForVerifiedLogin(core, params.userId, params.email);
 }
 
 export function provisionUser(

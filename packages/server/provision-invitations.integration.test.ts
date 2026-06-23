@@ -1,17 +1,18 @@
-// Integration test for the OAuth callback's invitation-redemption hook (INV-3):
-// redeemInvitationsForVerifiedLogin joins a user to every space they were invited
-// to, and swallows failures so a redemption hiccup never breaks the sign-in. The
-// redeem SQL/store itself is covered in the engine + migrate suites; here we cover
-// the login-side glue against a real core schema. (Importing ./auth pulls in the
-// OAuth handler but triggers no provider network calls — those only fire inside
-// oauthCallbackHandler, which this test does not invoke.)
+// Integration test for invitation redemption on a verified login:
+// redeemInvitationsForVerifiedLogin joins a user to every space they were
+// invited to, and swallows failures so a redemption hiccup never breaks the
+// request. The redeem SQL/store itself is covered in the engine + migrate
+// suites; here we cover the provisioning-side glue against a real core schema.
+// (Moved from the retired device-flow handler; the function now lives in
+// provision.ts and is driven by ensureUserProvisioned.)
 //   TEST_DATABASE_URL="postgresql://postgres@127.0.0.1:5432/postgres" \
-//     bun test --timeout 30000 packages/server/handlers/auth.integration.test.ts
+//     bun test --timeout 30000 \
+//     packages/server/provision-invitations.integration.test.ts
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { migrateCore } from "@memory.build/database";
 import { ACCESS, type CoreStore, coreStore } from "@memory.build/engine/core";
 import postgres, { type Sql } from "postgres";
-import { redeemInvitationsForVerifiedLogin } from "./auth";
+import { redeemInvitationsForVerifiedLogin } from "./provision";
 
 const URL =
   process.env.TEST_DATABASE_URL ??
@@ -59,8 +60,8 @@ test("redeems pending invitations for a verified-login email", async () => {
     invitedBy: inviterId,
   });
 
-  // the user already exists in core (the OAuth callback resolves/provisions the
-  // user before reaching the redemption hook)
+  // the user already exists in core (ensureUserProvisioned stands up the
+  // principal before reaching the redemption step)
   const userId = await v7();
   await core.createUser(userId, email);
 
