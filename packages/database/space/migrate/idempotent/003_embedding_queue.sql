@@ -6,8 +6,8 @@ create or replace function {{schema}}.enqueue_embedding()
 returns trigger
 as $func$
 begin
-  insert into {{schema}}.embedding_queue (memory_id, embedding_version)
-  values (new.id, new.embedding_version);
+  insert into {{schema}}.embedding_queue (memory_id, content_version)
+  values (new.id, new.content_version);
   return new;
 end;
 $func$
@@ -43,7 +43,7 @@ create or replace function {{schema}}.claim_embedding_batch
 returns table
 ( queue_id bigint
 , memory_id uuid
-, embedding_version int
+, content_version int
 , content text
 )
 as $func$
@@ -62,7 +62,7 @@ begin
     select 1
     from {{schema}}.embedding_queue newer
     where newer.memory_id = eq.memory_id
-    and newer.embedding_version > eq.embedding_version
+    and newer.content_version > eq.content_version
     and newer.outcome is null
   );
 
@@ -82,7 +82,7 @@ begin
     select
       eq.id
     , eq.memory_id
-    , eq.embedding_version
+    , eq.content_version
     from {{schema}}.embedding_queue eq
     where eq.outcome is null
     and eq.vt <= now()
@@ -92,7 +92,7 @@ begin
   )
   loop
     -- check memory still exists + current version
-    select m.content, m.embedding_version
+    select m.content, m.content_version
     into _mem
     from {{schema}}.memory m
     where m.id = _rec.memory_id
@@ -106,7 +106,7 @@ begin
       continue;
     end if;
 
-    if _rec.embedding_version != _mem.embedding_version then
+    if _rec.content_version != _mem.content_version then
       -- stale version → cancel
       update {{schema}}.embedding_queue
       set outcome = 'cancelled'
@@ -122,7 +122,7 @@ begin
 
     queue_id = _rec.id;
     memory_id = _rec.memory_id;
-    embedding_version = _rec.embedding_version;
+    content_version = _rec.content_version;
     content = _mem.content;
     return next;
 
@@ -172,14 +172,14 @@ set search_path to pg_catalog, {{schema}}, pg_temp
 -------------------------------------------------------------------------------
 
 -- Version-guarded write-back. Writes the embedding to the memory only if its
--- embedding_version still matches the claimed version, then finalizes the queue
+-- content_version still matches the claimed version, then finalizes the queue
 -- row: 'completed' when written, 'cancelled' when the memory was superseded
 -- (content changed → newer version) or deleted in the meantime. Atomic; returns
 -- the outcome.
 create or replace function {{schema}}.complete_embedding
 ( _queue_id bigint
 , _memory_id uuid
-, _embedding_version int
+, _content_version int
 , _embedding halfvec
 )
 returns text
@@ -191,7 +191,7 @@ begin
   update {{schema}}.memory
   set embedding = _embedding
   where id = _memory_id
-  and embedding_version = _embedding_version
+  and content_version = _content_version
   ;
   get diagnostics _updated = row_count;
 

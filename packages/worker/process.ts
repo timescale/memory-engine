@@ -84,7 +84,7 @@ export async function pruneQueue(
 interface ClaimedRow {
   queue_id: string;
   memory_id: string;
-  embedding_version: number;
+  content_version: number;
   content: string;
 }
 
@@ -226,7 +226,7 @@ export async function processBatch(
                   [
                     row.queue_id,
                     row.memory_id,
-                    row.embedding_version,
+                    row.content_version,
                     vecLiteral,
                   ],
                 );
@@ -239,7 +239,7 @@ export async function processBatch(
                 "worker.schema": schema,
                 "queue.id": row.queue_id,
                 "memory.id": row.memory_id,
-                "memory.embedding_version": row.embedding_version,
+                "memory.content_version": row.content_version,
               });
 
               try {

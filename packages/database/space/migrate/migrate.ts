@@ -32,6 +32,9 @@ import incremental004 from "./incremental/004_count_tree.sql" with {
 import incremental005 from "./incremental/005_memory_name.sql" with {
   type: "text",
 };
+import incremental006 from "./incremental/006_content_version.sql" with {
+  type: "text",
+};
 import provisionSql from "./provision.sql" with { type: "text" };
 
 const DIR = "packages/database/space/migrate";
@@ -61,6 +64,11 @@ const incrementals: Migration[] = [
     name: "005_memory_name",
     file: "incremental/005_memory_name.sql",
     sql: incremental005,
+  },
+  {
+    name: "006_content_version",
+    file: "incremental/006_content_version.sql",
+    sql: incremental006,
   },
 ];
 

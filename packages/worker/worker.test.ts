@@ -181,7 +181,7 @@ describe("Worker", () => {
                 {
                   queue_id: "1",
                   memory_id: "mem-1",
-                  embedding_version: 1,
+                  content_version: 1,
                   content: "test",
                 },
               ];
@@ -339,7 +339,7 @@ describe("Worker", () => {
                   {
                     queue_id: "1",
                     memory_id: "mem-1",
-                    embedding_version: 1,
+                    content_version: 1,
                     content: "test",
                   },
                 ];
