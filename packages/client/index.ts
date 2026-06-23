@@ -10,8 +10,8 @@
  * - {@link createUserClient} — session-only, user-scoped.
  *   Talks to /api/v1/user/rpc: whoami, agent lifecycle, api keys, space discovery.
  *
- * - {@link createAuthClient} — auth client (no auth).
- *   OAuth device flow for CLI login. Returns a session token.
+ * CLI login is handled out-of-band by the `me` binary (OAuth auth-code + PKCE
+ * over a loopback redirect), not by this library.
  *
  * @example
  * ```ts
@@ -38,9 +38,6 @@ export type {
 } from "@memory.build/protocol/fields";
 export type * from "@memory.build/protocol/memory";
 
-export type { AuthClient, AuthClientOptions, PollOptions } from "./auth.ts";
-// Auth client
-export { createAuthClient, DeviceFlowError } from "./auth.ts";
 // Errors
 export { isRpcError, RpcError } from "./errors.ts";
 // Memory client (space data-plane + management)

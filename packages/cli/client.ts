@@ -7,9 +7,6 @@
  * import everything from one place.
  */
 import {
-  type AuthClient,
-  type AuthClientOptions,
-  createAuthClient as baseCreateAuthClient,
   createMemoryClient as baseCreateMemoryClient,
   createUserClient as baseCreateUserClient,
   type MemoryClient,
@@ -18,17 +15,6 @@ import {
   type UserClientOptions,
 } from "@memory.build/client";
 import { CLIENT_VERSION } from "../../version";
-
-/**
- * Auth client factory.
- *
- * The device-flow endpoints don't go through the JSON-RPC pipeline, so they
- * don't currently observe `X-Client-Version`. Re-exported here for symmetry
- * so command files have a single import point.
- */
-export function createAuthClient(options: AuthClientOptions = {}): AuthClient {
-  return baseCreateAuthClient(options);
-}
 
 /**
  * Memory client factory (space data-plane + management) with
@@ -52,11 +38,8 @@ export function createUserClient(options: UserClientOptions = {}): UserClient {
 // Re-export types and helpers used across the CLI. Pass-through so command
 // files don't need to dual-import from "@memory.build/client".
 export {
-  type AuthClient,
-  type AuthClientOptions,
   type CheckServerVersionOptions,
   checkServerVersion,
-  DeviceFlowError,
   isRpcError,
   type MemoryClient,
   type MemoryClientOptions,
