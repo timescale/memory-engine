@@ -53,6 +53,7 @@ import {
   runAgentMcpInstall,
 } from "../mcp/agent-install.ts";
 import { getOutputFormat } from "../output.ts";
+import { memoryBearer } from "../session.ts";
 import { createClaudeImportCommand, runAgentImport } from "./import.ts";
 import { runGitImport } from "./import-git.ts";
 import { gitHookStatus, runGitHookInstall } from "./import-git-hook.ts";
@@ -216,7 +217,7 @@ async function runClaudePluginInstall(
       );
       process.exit(1);
     }
-  } else if (!creds.sessionToken) {
+  } else if (!creds.loggedIn) {
     clack.log.error(
       "Not logged in. Run 'me login' (the plugin will use your session), or pass --api-key / set ME_API_KEY for a headless agent.",
     );
@@ -416,7 +417,7 @@ function createClaudeHookCommand(): Command {
       try {
         const client = createMemoryClient({
           url: config.server,
-          token: config.token,
+          ...memoryBearer(config.server, config.apiKey),
           space: config.space,
         });
         await importTranscriptFile(client, claudeImporter, transcriptPath, {

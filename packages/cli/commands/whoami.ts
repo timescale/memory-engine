@@ -2,10 +2,9 @@
  * me whoami — show the current identity, server, and active space.
  */
 import { Command } from "commander";
-import { createUserClient } from "../client.ts";
 import { resolveCredentials } from "../credentials.ts";
 import { getOutputFormat, output } from "../output.ts";
-import { handleError, requireSession } from "../util.ts";
+import { buildUserClient, handleError, requireSession } from "../util.ts";
 
 export function createWhoamiCommand(): Command {
   return new Command("whoami")
@@ -16,10 +15,7 @@ export function createWhoamiCommand(): Command {
       const fmt = getOutputFormat(globalOpts);
       requireSession(creds, fmt);
 
-      const user = createUserClient({
-        url: creds.server,
-        token: creds.sessionToken,
-      });
+      const user = buildUserClient(creds);
 
       try {
         const identity = await user.whoami();

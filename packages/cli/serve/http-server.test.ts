@@ -73,7 +73,10 @@ describe("startHttpServer", () => {
     const servePort = await findAvailablePort("127.0.0.1", 34200);
     running = startHttpServer({
       server: mock.url,
-      token: "sess-test-token",
+      bearer: {
+        getToken: async () => "sess-test-token",
+        onUnauthorized: async () => undefined,
+      },
       space: "abc123def456",
       host: "127.0.0.1",
       port: servePort,
@@ -192,6 +195,61 @@ describe("startHttpServer", () => {
     expect(json.jsonrpc).toBe("2.0");
     expect(json.error.code).toBe(-32000);
     expect(json.error.message).toContain("Proxy request");
+  });
+});
+
+describe("startHttpServer — 401 refresh", () => {
+  test("a 401 refreshes the bearer and replays the request once", async () => {
+    const upstreamPort = await findAvailablePort("127.0.0.1", 34400);
+    const seen: string[] = [];
+    const upstream = Bun.serve({
+      hostname: "127.0.0.1",
+      port: upstreamPort,
+      async fetch(req) {
+        const auth = req.headers.get("authorization") ?? "";
+        await req.text();
+        seen.push(auth);
+        // The stale token is rejected; the refreshed one succeeds.
+        if (auth === "Bearer stale") {
+          return Response.json(
+            { error: { code: "UNAUTHORIZED", message: "expired" } },
+            { status: 401 },
+          );
+        }
+        return Response.json({ jsonrpc: "2.0", id: 1, result: { ok: true } });
+      },
+    });
+
+    let refreshes = 0;
+    const servePort = await findAvailablePort("127.0.0.1", 34500);
+    const running = startHttpServer({
+      server: `http://127.0.0.1:${upstreamPort}`,
+      bearer: {
+        getToken: async () => "stale",
+        onUnauthorized: async () => {
+          refreshes++;
+          return "refreshed";
+        },
+      },
+      space: "abc123def456",
+      host: "127.0.0.1",
+      port: servePort,
+    });
+
+    try {
+      const res = await fetch(`${running.url}/rpc`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: "{}",
+      });
+      expect(res.status).toBe(200);
+      expect(await res.json()).toMatchObject({ result: { ok: true } });
+      expect(refreshes).toBe(1);
+      expect(seen).toEqual(["Bearer stale", "Bearer refreshed"]);
+    } finally {
+      running.server.stop(true);
+      upstream.stop(true);
+    }
   });
 });
 

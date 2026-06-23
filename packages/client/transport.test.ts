@@ -85,6 +85,135 @@ describe("rpcCall — X-Client-Version header", () => {
   });
 });
 
+describe("rpcCall — token provider", () => {
+  test("getToken supplies the bearer and overrides a static token", async () => {
+    const captured = captureFetch();
+
+    await rpcCall<{ ok: boolean }>(
+      {
+        ...baseConfig,
+        token: "static-ignored",
+        getToken: async () => "fresh-access-token",
+      },
+      "ping",
+      {},
+    );
+
+    expect(captured.headers.Authorization).toBe("Bearer fresh-access-token");
+  });
+
+  test("a 401 triggers onUnauthorized and retries once with the new token", async () => {
+    const authSeen: (string | null)[] = [];
+    let calls = 0;
+    globalThis.fetch = (async (
+      _input: string | URL | Request,
+      init?: RequestInit,
+    ) => {
+      calls++;
+      const headers = init?.headers as Record<string, string> | undefined;
+      authSeen.push(headers?.Authorization ?? null);
+      // First request is unauthorized; the post-refresh retry succeeds.
+      const status = calls === 1 ? 401 : 200;
+      return new Response(
+        JSON.stringify(
+          status === 401
+            ? { error: { code: "UNAUTHORIZED", message: "expired" } }
+            : { jsonrpc: "2.0", id: 1, result: { ok: true } },
+        ),
+        { status, headers: { "Content-Type": "application/json" } },
+      );
+    }) as typeof fetch;
+
+    let refreshes = 0;
+    const result = await rpcCall<{ ok: boolean }>(
+      {
+        ...baseConfig,
+        getToken: async () => "stale-token",
+        onUnauthorized: async () => {
+          refreshes++;
+          return "refreshed-token";
+        },
+      },
+      "ping",
+      {},
+    );
+
+    expect(result).toEqual({ ok: true });
+    expect(calls).toBe(2);
+    expect(refreshes).toBe(1);
+    expect(authSeen).toEqual(["Bearer stale-token", "Bearer refreshed-token"]);
+  });
+
+  test("refresh is attempted at most once; a second 401 surfaces as an error", async () => {
+    let calls = 0;
+    globalThis.fetch = (async (
+      _input: string | URL | Request,
+      _init?: RequestInit,
+    ) => {
+      calls++;
+      return new Response(
+        JSON.stringify({ error: { code: "UNAUTHORIZED", message: "nope" } }),
+        { status: 401, headers: { "Content-Type": "application/json" } },
+      );
+    }) as typeof fetch;
+
+    let refreshes = 0;
+    let error: unknown;
+    try {
+      await rpcCall<{ ok: boolean }>(
+        {
+          ...baseConfig,
+          getToken: async () => "stale-token",
+          onUnauthorized: async () => {
+            refreshes++;
+            return "still-bad-token";
+          },
+        },
+        "ping",
+        {},
+      );
+    } catch (caught) {
+      error = caught;
+    }
+
+    expect(error).toBeInstanceOf(Error);
+    expect(refreshes).toBe(1); // one shot only
+    expect(calls).toBe(2); // original + one refreshed retry
+  });
+
+  test("onUnauthorized returning undefined lets the 401 surface", async () => {
+    let calls = 0;
+    globalThis.fetch = (async (
+      _input: string | URL | Request,
+      _init?: RequestInit,
+    ) => {
+      calls++;
+      return new Response(
+        JSON.stringify({ error: { code: "UNAUTHORIZED", message: "nope" } }),
+        { status: 401, headers: { "Content-Type": "application/json" } },
+      );
+    }) as typeof fetch;
+
+    let error: unknown;
+    try {
+      await rpcCall<{ ok: boolean }>(
+        {
+          ...baseConfig,
+          getToken: async () => "stale-token",
+          onUnauthorized: async () => undefined,
+        },
+        "ping",
+        {},
+      );
+    } catch (caught) {
+      error = caught;
+    }
+
+    expect(error).toBeInstanceOf(Error);
+    expect(calls).toBe(1); // no retry when refresh yields nothing
+  });
+});
+
 describe("rpcCall — retries", () => {
   test("per-call retry override suppresses configured retries", async () => {
     let calls = 0;

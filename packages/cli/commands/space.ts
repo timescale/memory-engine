@@ -22,7 +22,6 @@ import {
 } from "@memory.build/protocol/space";
 import type { MemberSpaceResponse } from "@memory.build/protocol/user";
 import { Command } from "commander";
-import { createUserClient } from "../client.ts";
 import {
   clearActiveSpace,
   resolveCredentials,
@@ -36,6 +35,7 @@ import {
 } from "../output.ts";
 import {
   buildMemoryClient,
+  buildUserClient,
   handleError,
   requireSession,
   requireSpace,
@@ -115,10 +115,7 @@ function createSpaceListCommand(): Command {
       const fmt = getOutputFormat(globalOpts);
       requireSession(creds, fmt);
 
-      const user = createUserClient({
-        url: creds.server,
-        token: creds.sessionToken,
-      });
+      const user = buildUserClient(creds);
 
       try {
         const { spaces } = await user.space.list();
@@ -162,10 +159,7 @@ function createSpaceUseCommand(): Command {
       const fmt = getOutputFormat(globalOpts);
       requireSession(creds, fmt);
 
-      const user = createUserClient({
-        url: creds.server,
-        token: creds.sessionToken,
-      });
+      const user = buildUserClient(creds);
 
       try {
         const { spaces } = await user.space.list();
@@ -190,10 +184,7 @@ function createSpaceCreateCommand(): Command {
       const fmt = getOutputFormat(globalOpts);
       requireSession(creds, fmt);
 
-      const user = createUserClient({
-        url: creds.server,
-        token: creds.sessionToken,
-      });
+      const user = buildUserClient(creds);
 
       try {
         const created = await user.space.create({ name });
@@ -220,10 +211,7 @@ function createSpaceRenameCommand(): Command {
       const fmt = getOutputFormat(globalOpts);
       requireSession(creds, fmt);
 
-      const user = createUserClient({
-        url: creds.server,
-        token: creds.sessionToken,
-      });
+      const user = buildUserClient(creds);
 
       try {
         const { spaces } = await user.space.list();
@@ -256,10 +244,7 @@ function createSpaceDeleteCommand(): Command {
       const fmt = getOutputFormat(globalOpts);
       requireSession(creds, fmt);
 
-      const user = createUserClient({
-        url: creds.server,
-        token: creds.sessionToken,
-      });
+      const user = buildUserClient(creds);
 
       try {
         const { spaces } = await user.space.list();

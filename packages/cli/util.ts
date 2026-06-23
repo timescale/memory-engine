@@ -11,15 +11,16 @@ import { homedir } from "node:os";
 import * as clack from "@clack/prompts";
 import type { MemoryClient, UserClient } from "./client.ts";
 import { createMemoryClient, createUserClient, RpcError } from "./client.ts";
-import { clearSessionToken, type ResolvedCredentials } from "./credentials.ts";
+import { clearTokens, type ResolvedCredentials } from "./credentials.ts";
 import type { OutputFormat } from "./output.ts";
 import { output } from "./output.ts";
+import { memoryBearer, userBearer } from "./session.ts";
 
 const UUIDV7_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 /**
- * Ensure the user has a session token. Exits with an error if not.
+ * Ensure a human is logged in. Exits with an error if not.
  *
  * Use this for the user endpoint (/api/v1/user/rpc), which is session-only — an
  * api key never authenticates there (agents can't manage agents). For the memory
@@ -28,8 +29,8 @@ const UUIDV7_RE =
 export function requireSession(
   creds: ResolvedCredentials,
   fmt: OutputFormat,
-): asserts creds is ResolvedCredentials & { sessionToken: string } {
-  if (!creds.sessionToken) {
+): void {
+  if (!creds.loggedIn) {
     if (fmt === "text") {
       clack.log.error("Not logged in. Run 'me login' first.");
     } else {
@@ -42,15 +43,15 @@ export function requireSession(
 /**
  * Ensure the caller can authenticate to the memory endpoint
  * (/api/v1/memory/rpc), which accepts either bearer: an agent api key
- * (ME_API_KEY) or a human session token. Exits with an error if neither is
- * present. Pair with {@link requireSpace}; then {@link buildMemoryClient} picks
- * the bearer (api key first, mirroring `me mcp`).
+ * (ME_API_KEY) or a logged-in human. Exits with an error if neither is present.
+ * Pair with {@link requireSpace}; then {@link buildMemoryClient} picks the
+ * bearer (api key first, mirroring `me mcp`).
  */
 export function requireMemoryAuth(
   creds: ResolvedCredentials,
   fmt: OutputFormat,
 ): void {
-  if (!creds.apiKey && !creds.sessionToken) {
+  if (!creds.apiKey && !creds.loggedIn) {
     const msg =
       "Not authenticated. Run 'me login', or set ME_API_KEY for an agent.";
     if (fmt === "text") {
@@ -84,26 +85,26 @@ export function requireSpace(
 
 /**
  * Build a user client (session-only, /api/v1/user/rpc). Call requireSession
- * first so the token is present.
+ * first. The bearer is the human's OAuth access token, resolved (and refreshed)
+ * lazily per call via {@link userBearer}.
  */
-export function buildUserClient(
-  creds: ResolvedCredentials & { sessionToken: string },
-): UserClient {
-  return createUserClient({ url: creds.server, token: creds.sessionToken });
+export function buildUserClient(creds: ResolvedCredentials): UserClient {
+  return createUserClient({ url: creds.server, ...userBearer(creds.server) });
 }
 
 /**
  * Build a memory client (bearer + active space, /api/v1/memory/rpc). Call
  * requireMemoryAuth and requireSpace first so a bearer and a space are present.
- * The bearer is the agent api key when set (ME_API_KEY), else the session token
- * — the memory endpoint accepts either, and this mirrors `me mcp`'s precedence.
+ * The bearer is the agent api key when set (ME_API_KEY, static), else the
+ * human's OAuth access token (refreshed by {@link memoryBearer}) — the memory
+ * endpoint accepts either, and this mirrors `me mcp`'s precedence.
  */
 export function buildMemoryClient(
   creds: ResolvedCredentials & { activeSpace: string },
 ): MemoryClient {
   return createMemoryClient({
     url: creds.server,
-    token: creds.apiKey ?? creds.sessionToken,
+    ...memoryBearer(creds.server, creds.apiKey),
     space: creds.activeSpace,
     // Bulk imports send 1000-memory batchCreate chunks that the server
     // processes row-by-row; on a loaded server (or one far from its
@@ -268,7 +269,7 @@ export function handleError(
   let code: string | undefined;
 
   if (opts?.sessionServer && isUnauthorized(error)) {
-    clearSessionToken(opts.sessionServer);
+    clearTokens(opts.sessionServer);
     msg = "Session expired. Run 'me login' to sign in again.";
     code = "UNAUTHORIZED";
   }

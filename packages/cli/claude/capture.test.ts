@@ -30,7 +30,7 @@ describe("resolveHookConfigFromEnv", () => {
       CLAUDE_PLUGIN_OPTION_CONTENT_MODE: "full_transcript",
     });
     expect(cfg).toEqual({
-      token: "me.lookupid12345678.secret",
+      apiKey: "me.lookupid12345678.secret",
       space: "eng123def456",
       server: "https://api.example.com",
       treeRoot: "share.work",
@@ -44,7 +44,7 @@ describe("resolveHookConfigFromEnv", () => {
       CLAUDE_PLUGIN_OPTION_SPACE: "eng123def456",
     });
     expect(cfg).toEqual({
-      token: "me.lookupid12345678.secret",
+      apiKey: "me.lookupid12345678.secret",
       space: "eng123def456",
       server: "https://api.memory.build",
       treeRoot: "share.projects",
@@ -64,9 +64,11 @@ describe("resolveHookConfigFromEnv", () => {
   test("falls back to the login session when api_key is blank", () => {
     const cfg = resolveHookConfigFromEnv(
       { CLAUDE_PLUGIN_OPTION_SPACE: "eng123def456" },
-      { sessionToken: "sess-token", server: "https://api.example.com" },
+      { loggedIn: true, server: "https://api.example.com" },
     );
-    expect(cfg?.token).toBe("sess-token");
+    // Session path: no static api key — the bearer is resolved at send time.
+    expect(cfg).not.toBeNull();
+    expect(cfg?.apiKey).toBeUndefined();
     expect(cfg?.server).toBe("https://api.example.com");
   });
 
@@ -76,15 +78,16 @@ describe("resolveHookConfigFromEnv", () => {
         CLAUDE_PLUGIN_OPTION_API_KEY: "${user_config.api_key}",
         CLAUDE_PLUGIN_OPTION_SPACE: "eng123def456",
       },
-      { sessionToken: "sess-token" },
+      { loggedIn: true },
     );
-    expect(cfg?.token).toBe("sess-token");
+    expect(cfg).not.toBeNull();
+    expect(cfg?.apiKey).toBeUndefined();
   });
 
   test("uses the active space fallback when plugin space is unset", () => {
     const cfg = resolveHookConfigFromEnv(
       {},
-      { sessionToken: "sess-token", activeSpace: "act123def456" },
+      { loggedIn: true, activeSpace: "act123def456" },
     );
     expect(cfg?.space).toBe("act123def456");
   });
@@ -95,8 +98,8 @@ describe("resolveHookConfigFromEnv", () => {
         CLAUDE_PLUGIN_OPTION_API_KEY: "me.lookupid12345678.secret",
         CLAUDE_PLUGIN_OPTION_SPACE: "eng123def456",
       },
-      { sessionToken: "sess-token" },
+      { loggedIn: true },
     );
-    expect(cfg?.token).toBe("me.lookupid12345678.secret");
+    expect(cfg?.apiKey).toBe("me.lookupid12345678.secret");
   });
 });

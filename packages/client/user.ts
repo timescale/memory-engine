@@ -45,6 +45,13 @@ export interface UserClientOptions {
   rpcPath?: string;
   /** Session token (humans only). */
   token?: string;
+  /**
+   * Async bearer provider (overrides `token`); resolved per call, refreshing an
+   * OAuth access token by expiry. See {@link TransportConfig.getToken}.
+   */
+  getToken?: () => Promise<string | undefined>;
+  /** Reactive refresh hook fired on a 401. See {@link TransportConfig.onUnauthorized}. */
+  onUnauthorized?: () => Promise<string | undefined>;
   /** Request timeout in milliseconds (default: 30000) */
   timeout?: number;
   /** Maximum retry attempts for read-only calls. Mutating calls are not retried. */
@@ -95,6 +102,8 @@ export function createUserClient(options: UserClientOptions = {}): UserClient {
     url: (options.url ?? DEFAULT_URL).replace(/\/+$/, ""),
     path: options.rpcPath ?? USER_RPC_PATH,
     token: options.token,
+    getToken: options.getToken,
+    onUnauthorized: options.onUnauthorized,
     timeout: options.timeout ?? DEFAULT_TIMEOUT,
     retries: options.retries ?? DEFAULT_RETRIES,
     clientVersion: options.clientVersion,
