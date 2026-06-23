@@ -176,6 +176,11 @@ describe("Server-Database Wiring", () => {
             }),
           ),
         }),
+        // Already-provisioned: getPrincipal returns truthy so lazy provisioning
+        // short-circuits (no DB writes in this unit test).
+        core: {
+          getPrincipal: mock(() => Promise.resolve({ id: identity.id })),
+        } as unknown as CoreStore,
       });
       const router = createRouter(ctx);
 
