@@ -133,7 +133,7 @@ $func$ language sql immutable strict security invoker
 -- create-or-replace cannot do (42P13). The fn block drops a stale-signatured
 -- definition before the create and asserts the result after — see
 -- migrate/function_signature.sql.
-{{fn get_memory(jsonb, uuid) returns table(id uuid, tree ltree, meta jsonb, temporal tstzrange, content text, name text, version bigin, version_hash text, created_at timestamptz, updated_at timestamptz, has_embedding bool)}}
+{{fn get_memory(jsonb, uuid) returns table(id uuid, tree ltree, meta jsonb, temporal tstzrange, content text, name text, version bigint, version_hash text, created_at timestamptz, updated_at timestamptz, has_embedding bool)}}
 create or replace function {{schema}}.get_memory
 ( _tree_access jsonb
 , _id uuid
