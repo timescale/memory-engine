@@ -308,10 +308,11 @@ export function authStore(sql: Sql, schema: string = AUTH_SCHEMA): AuthStore {
     },
 
     async deleteExpiredDevices() {
-      // The device flow is now better-auth's deviceAuthorization plugin; the
-      // cron sweep runs against its `device_codes` table (incremental/006).
+      // The device flow is gone; the cron now sweeps expired OAuth access +
+      // refresh tokens (incremental/006). This AuthStore is retired once the
+      // server stops depending on it.
       const [row] =
-        await sql`select ${sch}.cleanup_expired_device_codes() as n`;
+        await sql`select ${sch}.cleanup_expired_oauth_tokens() as n`;
       return Number(row?.n);
     },
 
