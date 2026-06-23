@@ -88,6 +88,13 @@ export interface MemoryClientOptions {
   rpcPath?: string;
   /** Bearer token: a session token (human) or an api key (agent). */
   token?: string;
+  /**
+   * Async bearer provider (overrides `token`); resolved per call, refreshing an
+   * OAuth access token by expiry. See {@link TransportConfig.getToken}.
+   */
+  getToken?: () => Promise<string | undefined>;
+  /** Reactive refresh hook fired on a 401. See {@link TransportConfig.onUnauthorized}. */
+  onUnauthorized?: () => Promise<string | undefined>;
   /** The active space slug, sent as X-Me-Space. */
   space?: string;
   /** Request timeout in milliseconds (default: 30000) */
@@ -178,6 +185,8 @@ export function createMemoryClient(
     url: (options.url ?? DEFAULT_URL).replace(/\/+$/, ""),
     path: options.rpcPath ?? MEMORY_RPC_PATH,
     token: options.token,
+    getToken: options.getToken,
+    onUnauthorized: options.onUnauthorized,
     timeout: options.timeout ?? DEFAULT_TIMEOUT,
     retries: options.retries ?? DEFAULT_RETRIES,
     clientVersion: options.clientVersion,

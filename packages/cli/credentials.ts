@@ -4,13 +4,15 @@
  * Two files under $XDG_CONFIG_HOME/me (default ~/.config/me):
  *   - config.yaml      — non-secret: the default server + each server's active
  *                        space (the X-Me-Space).
- *   - credentials.yaml — 0600, secrets only: the session-token fallback, used
+ *   - credentials.yaml — 0600, secrets only: the OAuth token-set fallback, used
  *                        when no OS keychain is available (see ./keychain.ts);
  *                        empty / absent on hosts with a keychain.
  *
- * The session token (the one secret) prefers the OS keychain; the file is the
- * fallback. Api keys are never stored — agents get their key via `ME_API_KEY`
- * (or their MCP config); `apiKey.create` prints it once.
+ * The secret a human persists is the OAuth token set ({@link OAuthTokenSet} —
+ * access token + refresh token + expiry), obtained by `me login`. It prefers the
+ * OS keychain (stored as JSON under the server origin); the file is the fallback.
+ * Api keys are never stored — agents get their key via `ME_API_KEY` (or their MCP
+ * config); `apiKey.create` prints it once.
  *
  * config.yaml:
  * ```yaml
@@ -23,7 +25,10 @@
  * ```yaml
  * servers:
  *   https://api.memory.build:
- *     session_token: "..."   # only when there's no keychain
+ *     tokens:                  # only when there's no keychain
+ *       access_token: "..."
+ *       refresh_token: "..."
+ *       expires_at: 1750000000000
  * ```
  *
  * A pre-split credentials.yaml (which once held default_server + active_space
@@ -53,9 +58,25 @@ export interface ConfigFile {
   servers: Record<string, ServerConfig>;
 }
 
+/**
+ * The OAuth token set a human holds after `me login` — an auth-code+PKCE grant
+ * against the server's OAuth 2.1 authorization server. The access token is the
+ * bearer for RPC calls; the refresh token mints fresh ones (rotated on use).
+ */
+export interface OAuthTokenSet {
+  /** Short-lived bearer for the memory/user RPC endpoints. */
+  access_token: string;
+  /** Long-lived; exchanged for a new access token. Absent → no silent refresh. */
+  refresh_token?: string;
+  /** Absolute expiry of the access token (epoch ms), for proactive refresh. */
+  expires_at?: number;
+  /** Granted scope string, informational. */
+  scope?: string;
+}
+
 /** Per-server secrets — the keychain-free fallback. */
 export interface ServerSecrets {
-  session_token?: string;
+  tokens?: OAuthTokenSet;
 }
 
 /** credentials.yaml structure (secrets only). */
@@ -66,7 +87,12 @@ export interface CredentialsFile {
 /** Resolved credentials for a specific server. */
 export interface ResolvedCredentials {
   server: string;
-  sessionToken?: string;
+  /**
+   * Whether a human is logged in here — a stored token set exists (or
+   * ME_SESSION_TOKEN overrides). The actual (possibly refreshed) access token is
+   * resolved lazily by `session.ts`, never returned synchronously here.
+   */
+  loggedIn: boolean;
   /** Agent api key — ME_API_KEY only; never persisted. */
   apiKey?: string;
   /** Active space slug (the X-Me-Space) — ME_SPACE env > stored active_space. */
@@ -205,21 +231,21 @@ function migrateLegacyIfNeeded(): void {
         : DEFAULT_SERVER,
     servers: {},
   };
-  const secrets: CredentialsFile = { servers: {} };
   let sawLegacy = typeof legacy.default_server === "string";
   for (const [origin, entry] of Object.entries(legacy.servers ?? {})) {
     if (typeof entry?.active_space === "string") {
       config.servers[origin] = { active_space: entry.active_space };
       sawLegacy = true;
     }
-    if (typeof entry?.session_token === "string") {
-      secrets.servers[origin] = { session_token: entry.session_token };
-    }
   }
   if (!sawLegacy) return; // already secret-only — nothing to migrate
 
+  // Salvage only the non-secret config. Any legacy `session_token` was a
+  // device-flow session, retired by the OAuth cutover — drop it (writing an
+  // empty secrets file scrubs the dead token from disk); the user re-runs
+  // `me login` to mint an OAuth token set.
   writeConfig(config);
-  writeSecrets(secrets);
+  writeSecrets({ servers: {} });
 }
 
 // =============================================================================
@@ -231,32 +257,33 @@ export function getServerConfig(server: string): ServerConfig {
   return readConfig().servers[normalizeOrigin(server)] ?? {};
 }
 
-/** Secrets for a server (the keychain-free session-token fallback). */
+/** Secrets for a server (the keychain-free token-set fallback). */
 export function getServerSecrets(server: string): ServerSecrets {
   return readSecrets().servers[normalizeOrigin(server)] ?? {};
 }
 
 // =============================================================================
-// Session token
+// OAuth token set
 // =============================================================================
 
 /**
- * Store a session token for a server, and record it as the default server.
- * Prefers the OS keychain; only when that's unavailable does the token land in
- * the 0600 credentials file (and any stale file copy is dropped once the
- * keychain has it). The default server is non-secret config (config.yaml).
+ * Store an OAuth token set for a server, and record it as the default server.
+ * Prefers the OS keychain (the token set is serialized to JSON under the server
+ * origin); only when that's unavailable does it land in the 0600 credentials
+ * file (and any stale file copy is dropped once the keychain has it). The
+ * default server is non-secret config (config.yaml).
  */
-export function storeSessionToken(server: string, token: string): void {
+export function storeTokens(server: string, tokens: OAuthTokenSet): void {
   const origin = normalizeOrigin(server);
 
   const secrets = readSecrets();
-  if (keychainSet(origin, token)) {
+  if (keychainSet(origin, JSON.stringify(tokens))) {
     if (secrets.servers[origin]) {
       delete secrets.servers[origin]; // keychain is the source of truth
       writeSecrets(secrets);
     }
   } else {
-    secrets.servers[origin] = { session_token: token };
+    secrets.servers[origin] = { tokens };
     writeSecrets(secrets);
   }
 
@@ -266,11 +293,41 @@ export function storeSessionToken(server: string, token: string): void {
 }
 
 /**
- * Clear a server's session token from both the keychain and the file. Keeps
- * non-secret config (active space, default server). No-op for a token that came
- * from $ME_SESSION_TOKEN (we can't unset an env var the user controls).
+ * Read the stored OAuth token set for a server (keychain first, else the file
+ * fallback). Returns undefined when absent or unparseable (e.g. a pre-OAuth
+ * plaintext value in the keychain) — the caller then prompts a re-login.
  */
-export function clearSessionToken(server: string): void {
+export function getStoredTokens(server: string): OAuthTokenSet | undefined {
+  const origin = normalizeOrigin(server);
+
+  // File fallback (keychain-free hosts) is checked first: the token lives in
+  // exactly one of file/keychain, so this avoids a keychain lookup there.
+  const fromFile = getServerSecrets(server).tokens;
+  if (fromFile?.access_token) return fromFile;
+
+  const raw = keychainGet(origin);
+  if (!raw) return undefined;
+  try {
+    const parsed = JSON.parse(raw) as OAuthTokenSet;
+    return parsed && typeof parsed.access_token === "string"
+      ? parsed
+      : undefined;
+  } catch {
+    return undefined; // legacy plaintext token or corrupt entry → re-login
+  }
+}
+
+/** True iff a usable stored token set exists for the server. */
+export function hasStoredTokens(server: string): boolean {
+  return getStoredTokens(server) !== undefined;
+}
+
+/**
+ * Clear a server's token set from both the keychain and the file. Keeps
+ * non-secret config (active space, default server). No-op for tokens injected
+ * via $ME_SESSION_TOKEN (we can't unset an env var the user controls).
+ */
+export function clearTokens(server: string): void {
   const origin = normalizeOrigin(server);
   keychainDelete(origin);
 
@@ -282,12 +339,12 @@ export function clearSessionToken(server: string): void {
 }
 
 /**
- * Log out of a server: clear its session secret (keychain + file) but keep the
+ * Log out of a server: clear its token set (keychain + file) but keep the
  * non-secret config (active space, default server) so a re-login resumes where
  * you left off.
  */
 export function clearServerCredentials(server: string): void {
-  clearSessionToken(server);
+  clearTokens(server);
 }
 
 // =============================================================================
@@ -341,26 +398,19 @@ export function resolveServer(flagValue?: string): string {
 }
 
 /**
- * Resolve all credentials for the active server. The session token
- * (ME_SESSION_TOKEN env > file > keychain) authenticates humans; the active
- * space (ME_SPACE env > config) is the X-Me-Space. An agent api key is never
+ * Resolve all credentials for the active server. A human is "logged in" when a
+ * token set is stored (or ME_SESSION_TOKEN overrides) — the live access token
+ * is resolved lazily (with refresh) by `session.ts`, not here. The active space
+ * (ME_SPACE env > config) is the X-Me-Space. An agent api key is never
  * persisted — it only ever comes from ME_API_KEY.
  */
 export function resolveCredentials(serverFlag?: string): ResolvedCredentials {
   const server = resolveServer(serverFlag);
-  const origin = normalizeOrigin(server);
   const config = getServerConfig(server);
-  const secrets = getServerSecrets(server);
 
   return {
     server,
-    // env wins; then the file (keychain-free fallback); then the keychain. The
-    // token lives in exactly one of file/keychain, so checking the file first
-    // avoids a keychain lookup on hosts that use the file fallback.
-    sessionToken:
-      process.env.ME_SESSION_TOKEN ??
-      secrets.session_token ??
-      keychainGet(origin),
+    loggedIn: Boolean(process.env.ME_SESSION_TOKEN) || hasStoredTokens(server),
     apiKey: process.env.ME_API_KEY,
     activeSpace: process.env.ME_SPACE ?? config.active_space,
   };

@@ -41,9 +41,10 @@ export interface HookConfig {
   server: string;
   /**
    * Bearer for the memory endpoint: the plugin's api key (sensitive userConfig)
-   * when set, else the user's `me login` session token.
+   * when set, else undefined — meaning use the user's `me login` OAuth session,
+   * resolved + refreshed at runtime from the keychain/config by `memoryBearer`.
    */
-  token: string;
+  apiKey?: string;
   /** Active space slug (X-Me-Space). */
   space: string;
   /** Tree root; captures nest as `<treeRoot>.<project>.agent_sessions`. */
@@ -55,7 +56,8 @@ export interface HookConfig {
 /** Credentials the hook falls back to when the plugin's api_key is unset. */
 export interface HookFallbackCreds {
   apiKey?: string;
-  sessionToken?: string;
+  /** Whether the user has a `me login` session to fall back to. */
+  loggedIn?: boolean;
   activeSpace?: string;
   server?: string;
 }
@@ -83,9 +85,11 @@ export function resolveHookConfigFromEnv(
   const pluginKey = blank(env.CLAUDE_PLUGIN_OPTION_API_KEY)
     ? undefined
     : env.CLAUDE_PLUGIN_OPTION_API_KEY;
-  // Bearer precedence mirrors `me mcp`: plugin key > ME_API_KEY > login session.
-  const token = pluginKey ?? creds.apiKey ?? creds.sessionToken;
-  if (!token) return null;
+  // Bearer precedence mirrors `me mcp`: plugin key > ME_API_KEY, else the login
+  // session. An explicit api key is carried through; the session path leaves
+  // `apiKey` undefined and is resolved at send time by `memoryBearer`.
+  const apiKey = pluginKey ?? creds.apiKey;
+  if (!apiKey && !creds.loggedIn) return null;
 
   // Space: plugin config, else the active space. Required either way.
   const space = blank(env.CLAUDE_PLUGIN_OPTION_SPACE)
@@ -105,5 +109,5 @@ export function resolveHookConfigFromEnv(
     (env.CLAUDE_PLUGIN_OPTION_CONTENT_MODE ?? "").toLowerCase() ===
     "full_transcript";
 
-  return { server, token, space, treeRoot, fullTranscript };
+  return { server, apiKey, space, treeRoot, fullTranscript };
 }

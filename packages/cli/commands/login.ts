@@ -1,10 +1,11 @@
 /**
- * me login [space] — authenticate via OAuth device flow, then pick the active space.
+ * me login [space] — authenticate via OAuth 2.1 (auth-code + PKCE + loopback),
+ * then pick the active space.
  *
  * 1. Compatibility check (fail fast before the browser round-trip)
- * 2. Start device flow, show user code + URL, open browser
- * 3. Poll until the user authorizes → session token
- * 4. Store the session token for the server
+ * 2. Bind a 127.0.0.1 loopback redirect, open the browser to the authorize URL
+ * 3. The browser redirects back with an auth code; exchange it (PKCE) for tokens
+ * 4. Store the OAuth token set (access + refresh) for the server
  * 5. Fetch identity (whoami) and the caller's spaces
  * 6. Select the active space (the X-Me-Space the rest of the CLI is scoped to):
  *      - a [space] argument (slug or name) is honored if it matches
@@ -12,22 +13,19 @@
  *      - multiple → prompt (text) / report (json); zero → suggest `me space create`
  */
 import * as clack from "@clack/prompts";
-import type { OAuthProvider } from "@memory.build/protocol/auth/device-flow";
 import type { MemberSpaceResponse } from "@memory.build/protocol/user";
 import { Command } from "commander";
 import { CLIENT_VERSION, MIN_SERVER_VERSION } from "../../../version";
+import { checkServerVersion, createUserClient, RpcError } from "../client.ts";
+import { resolveServer, setActiveSpace, storeTokens } from "../credentials.ts";
 import {
-  checkServerVersion,
-  createAuthClient,
-  createUserClient,
-  DeviceFlowError,
-  RpcError,
-} from "../client.ts";
-import {
-  resolveServer,
-  setActiveSpace,
-  storeSessionToken,
-} from "../credentials.ts";
+  buildAuthorizeUrl,
+  exchangeCode,
+  generatePkce,
+  generateState,
+  OAuthError,
+} from "../oauth.ts";
+import { LoopbackError, runLoopbackAuth } from "../oauth-loopback.ts";
 import { getOutputFormat, type OutputFormat, output } from "../output.ts";
 
 /**
@@ -75,8 +73,6 @@ export function createLoginCommand(): Command {
       const server = resolveServer(globalOpts.server);
       const fmt = getOutputFormat(globalOpts);
 
-      const auth = createAuthClient({ url: server });
-
       if (fmt === "text") {
         clack.intro("me login");
       }
@@ -89,63 +85,57 @@ export function createLoginCommand(): Command {
           minServerVersion: MIN_SERVER_VERSION,
         });
       } catch (error) {
-        const msg = error instanceof Error ? error.message : String(error);
-        if (fmt === "text") {
-          clack.log.error(msg);
-          clack.outro("Login failed.");
-        } else {
-          output({ error: msg, server }, fmt, () => {});
-        }
-        process.exit(1);
+        fail(error, fmt, server);
       }
 
-      // TODO: Re-enable Google OAuth once we have approved ToS/privacy policy
-      const provider: OAuthProvider = "github";
-
-      // --- Start device flow ---
+      // --- Authorization-code + PKCE over a loopback redirect ---
+      const pkce = await generatePkce();
+      const state = generateState();
       const spin = fmt === "text" ? clack.spinner() : null;
-      spin?.start("Starting device flow...");
-
-      let flow: Awaited<ReturnType<typeof auth.startDeviceFlow>>;
-      try {
-        flow = await auth.startDeviceFlow(provider);
-      } catch (error) {
-        spin?.stop("Failed to start device flow.");
-        const msg = error instanceof Error ? error.message : String(error);
-        if (fmt === "text") {
-          clack.log.error(msg);
-          clack.outro("Login failed.");
-        } else {
-          output({ error: msg }, fmt, () => {});
-        }
-        process.exit(1);
-      }
-
-      spin?.stop("Device flow started.");
-
-      if (fmt === "text") {
-        clack.note(
-          `Code: ${flow.userCode}\nURL:  ${flow.verificationUri}`,
-          "Enter this code in your browser",
-        );
-      }
-      await openBrowser(flow.verificationUri);
-
-      // --- Poll for the session token ---
-      spin?.start("Waiting for authorization...");
 
       try {
-        const result = await auth.pollForToken(flow.deviceCode, {
-          interval: flow.interval,
-          expiresIn: flow.expiresIn,
+        const callbackUrl = await runLoopbackAuth({
+          authorizeUrl: (redirectUri) =>
+            buildAuthorizeUrl({
+              server,
+              redirectUri,
+              codeChallenge: pkce.challenge,
+              state,
+            }),
+          openBrowser,
+          onAuthorizeUrl: (url) => {
+            if (fmt === "text") {
+              clack.note(
+                url,
+                "Opening your browser to sign in. If it doesn't open, visit:",
+              );
+              spin?.start("Waiting for authorization...");
+            }
+          },
+        });
+
+        // Exchange the auth code for tokens (openid-client checks state + iss).
+        const tokens = await exchangeCode({
+          server,
+          callbackUrl,
+          codeVerifier: pkce.verifier,
+          expectedState: state,
         });
         spin?.stop("Authorized!");
 
-        storeSessionToken(server, result.sessionToken);
+        storeTokens(server, {
+          access_token: tokens.accessToken,
+          refresh_token: tokens.refreshToken,
+          expires_at:
+            tokens.expiresIn !== undefined
+              ? Date.now() + tokens.expiresIn * 1000
+              : undefined,
+          scope: tokens.scope,
+        });
 
         const user = createUserClient({
           url: server,
-          token: result.sessionToken,
+          token: tokens.accessToken,
         });
         const identity = await user.whoami();
         const { spaces } = await user.space.list();
@@ -172,21 +162,28 @@ export function createLoginCommand(): Command {
         });
       } catch (error) {
         spin?.stop("Authorization failed.");
-        const msg =
-          error instanceof DeviceFlowError || error instanceof RpcError
-            ? error.message
-            : error instanceof Error
-              ? error.message
-              : String(error);
-        if (fmt === "text") {
-          clack.log.error(msg);
-          clack.outro("Login failed.");
-        } else {
-          output({ error: msg }, fmt, () => {});
-        }
-        process.exit(1);
+        fail(error, fmt, server);
       }
     });
+}
+
+/** Print an error per output mode and exit. Never returns. */
+function fail(error: unknown, fmt: OutputFormat, server: string): never {
+  const msg =
+    error instanceof OAuthError ||
+    error instanceof LoopbackError ||
+    error instanceof RpcError
+      ? error.message
+      : error instanceof Error
+        ? error.message
+        : String(error);
+  if (fmt === "text") {
+    clack.log.error(msg);
+    clack.outro("Login failed.");
+  } else {
+    output({ error: msg, server }, fmt, () => {});
+  }
+  process.exit(1);
 }
 
 /**

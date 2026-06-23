@@ -12,13 +12,19 @@
  * RPC methods work without backend changes here.
  */
 import { SPACE_HEADER } from "@memory.build/protocol/headers";
+import type { BearerSource } from "../session.ts";
 import { resolveAssetResponse } from "./web-assets.ts";
 
 export interface ServeOptions {
   /** Remote server URL (e.g., https://api.memory.build). */
   server: string;
-  /** Session token. Forwarded as Authorization: Bearer. */
-  token: string;
+  /**
+   * Bearer source for proxied calls — the human's OAuth access token, resolved
+   * per request and refreshed by expiry (and once reactively on a 401), so a
+   * long-lived `me serve` survives token expiry. Forwarded as Authorization:
+   * Bearer.
+   */
+  bearer: BearerSource;
   /** Active space slug. Forwarded as X-Me-Space. */
   space: string;
   /** Hostname to bind (defaults to 127.0.0.1). */
@@ -106,9 +112,9 @@ export function startHttpServer(options: ServeOptions): RunningServer {
 /**
  * Forward a `/rpc` request to the configured engine's JSON-RPC endpoint.
  *
- * The request body is streamed through unchanged; we only add/override the
- * Authorization header. The engine's JSON-RPC response is streamed back to
- * the browser verbatim.
+ * The body is buffered (not streamed) so that a 401 — an expired access token —
+ * can be retried once with a freshly refreshed bearer. The engine's JSON-RPC
+ * response is streamed back to the browser verbatim.
  *
  * Errors talking to the remote engine surface as a JSON-RPC-shaped 502 so
  * the web UI can render them through the same error path as normal RPC
@@ -119,24 +125,33 @@ async function proxyRpc(
   options: ServeOptions,
 ): Promise<Response> {
   const targetUrl = new URL(MEMORY_RPC_PATH, options.server).toString();
+  const contentType = req.headers.get("Content-Type");
+  // Buffer the body so a 401 refresh can replay it (JSON-RPC bodies are small).
+  const body = await req.arrayBuffer();
 
   // Rebuild the outgoing headers: drop hop-by-hop / host headers, keep
   // Content-Type (the body needs it), and set our own Authorization + space.
-  const outHeaders = new Headers();
-  const contentType = req.headers.get("Content-Type");
-  if (contentType) outHeaders.set("Content-Type", contentType);
-  outHeaders.set("Authorization", `Bearer ${options.token}`);
-  outHeaders.set(SPACE_HEADER, options.space);
-  outHeaders.set("Accept", "application/json");
+  const send = (token: string | undefined): Promise<Response> => {
+    const outHeaders = new Headers();
+    if (contentType) outHeaders.set("Content-Type", contentType);
+    if (token) outHeaders.set("Authorization", `Bearer ${token}`);
+    outHeaders.set(SPACE_HEADER, options.space);
+    outHeaders.set("Accept", "application/json");
+    return fetch(targetUrl, { method: "POST", headers: outHeaders, body });
+  };
 
   try {
-    const upstream = await fetch(targetUrl, {
-      method: "POST",
-      headers: outHeaders,
-      body: req.body,
-      // Streaming request bodies require this hint per the Fetch spec.
-      duplex: "half",
-    });
+    let token = await options.bearer.getToken();
+    let upstream = await send(token);
+
+    // Reactive refresh: one shot at a fresh token if the access token expired.
+    if (upstream.status === 401) {
+      const fresh = await options.bearer.onUnauthorized();
+      if (fresh && fresh !== token) {
+        token = fresh;
+        upstream = await send(token);
+      }
+    }
 
     // Pass the upstream response through. We deliberately preserve the
     // upstream Content-Type and status so JSON-RPC error envelopes reach

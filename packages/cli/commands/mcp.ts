@@ -17,6 +17,7 @@
 import { Command } from "commander";
 import { resolveCredentials } from "../credentials.ts";
 import { runMcpServer } from "../mcp/server.ts";
+import { memoryBearer } from "../session.ts";
 
 /**
  * True if the token is a legacy 4-part api key (`me.<slug>.<lookup>.<secret>`),
@@ -52,9 +53,10 @@ function createMcpRunAction() {
     const opts = cmd.optsWithGlobals();
     const creds = resolveCredentials(opts.server as string | undefined);
 
-    // Token: --api-key > ME_API_KEY (creds.apiKey) > stored session token.
-    const token = blankFlag(opts.apiKey) ?? creds.apiKey ?? creds.sessionToken;
-    if (!token) {
+    // Bearer: --api-key > ME_API_KEY (creds.apiKey), else the logged-in human's
+    // OAuth session (resolved + refreshed at runtime by `memoryBearer`).
+    const apiKey = blankFlag(opts.apiKey) ?? creds.apiKey;
+    if (!apiKey && !creds.loggedIn) {
       console.error(
         "Error: no credentials. Run 'me login', or pass --api-key / set ME_API_KEY.",
       );
@@ -62,8 +64,9 @@ function createMcpRunAction() {
     }
 
     // Fail fast on a retired space-scoped key rather than starting the server and
-    // failing on the first tool call with a server-side error.
-    if (isLegacyApiKey(token)) {
+    // failing on the first tool call with a server-side error. (Only an api key
+    // can take this shape; a session token never does.)
+    if (apiKey && isLegacyApiKey(apiKey)) {
       console.error(
         "Error: this API key uses the old space-scoped format (me.<slug>.<id>.<secret>) and no longer works. Recreate it with 'me apikey create <agent>', then update ME_API_KEY or your MCP config.",
       );
@@ -79,7 +82,11 @@ function createMcpRunAction() {
       process.exit(1);
     }
 
-    await runMcpServer({ server: creds.server, token, space });
+    await runMcpServer({
+      server: creds.server,
+      bearer: memoryBearer(creds.server, apiKey),
+      space,
+    });
   };
 }
 

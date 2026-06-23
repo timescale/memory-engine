@@ -17,6 +17,7 @@ import { Command } from "commander";
 import { resolveCredentials } from "../credentials.ts";
 import { getOutputFormat, output } from "../output.ts";
 import { findAvailablePort, startHttpServer } from "../serve/http-server.ts";
+import { userBearer } from "../session.ts";
 import { requireSession, requireSpace } from "../util.ts";
 
 const DEFAULT_PORT = 3000;
@@ -76,7 +77,7 @@ export function createServeCommand(): Command {
       try {
         running = startHttpServer({
           server: creds.server,
-          token: creds.sessionToken,
+          bearer: userBearer(creds.server),
           space: creds.activeSpace,
           host,
           port,

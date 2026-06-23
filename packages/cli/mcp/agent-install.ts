@@ -64,7 +64,7 @@ export async function runAgentMcpInstall(
     }
     meCmd = buildMeCommand({ server, apiKey, space });
   } else {
-    if (!creds.sessionToken) {
+    if (!creds.loggedIn) {
       clack.log.error(
         "Not logged in. Run 'me login' (the MCP server will use your session), or pass --api-key / set ME_API_KEY for a headless agent.",
       );

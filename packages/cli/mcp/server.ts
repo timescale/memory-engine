@@ -26,6 +26,7 @@ import {
   type ImportFormat,
   parseContent,
 } from "../parsers/index.ts";
+import type { BearerSource } from "../session.ts";
 
 // Exported so docs-links.test.ts can resolve the `${DOCS_BASE}/...` template
 // literals embedded in tool descriptions back into concrete URLs.
@@ -1185,8 +1186,12 @@ function setupShutdownHandlers(mcpServer: McpServer): void {
 export interface McpServerOptions {
   /** Base server URL. */
   server: string;
-  /** Bearer token — a session token (human) or an agent api key. */
-  token: string;
+  /**
+   * Bearer source — a static agent api key, or the human's OAuth access token
+   * refreshed by expiry (and once reactively on a 401). The MCP server is
+   * long-lived, so the access token is resolved per call rather than baked in.
+   */
+  bearer: BearerSource;
   /** Active space slug (sent as X-Me-Space). */
   space: string;
 }
@@ -1197,7 +1202,8 @@ export interface McpServerOptions {
 export async function runMcpServer(options: McpServerOptions): Promise<void> {
   const client = createMemoryClient({
     url: options.server,
-    token: options.token,
+    getToken: options.bearer.getToken,
+    onUnauthorized: options.bearer.onUnauthorized,
     space: options.space,
   });
 

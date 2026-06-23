@@ -23,8 +23,21 @@ export interface TransportConfig {
   url: string;
   /** RPC endpoint path (appended to url) */
   path: string;
-  /** Bearer token for authentication */
+  /** Static bearer token for authentication. Ignored when `getToken` is set. */
   token?: string;
+  /**
+   * Async bearer provider, resolved once per `rpcCall` (before the first
+   * attempt). Overrides `token`. This is the proactive refresh seam: a provider
+   * returns a still-valid access token, refreshing it by expiry when stale.
+   */
+  getToken?: () => Promise<string | undefined>;
+  /**
+   * Reactive refresh seam: invoked once when a request comes back 401, to force
+   * a token refresh. Returns a fresh bearer to retry with, or undefined to give
+   * up (the 401 then surfaces as an error). Fires before the 401 is turned into
+   * an RpcError, and the retry does not consume the normal retry budget.
+   */
+  onUnauthorized?: () => Promise<string | undefined>;
   /** Request timeout in milliseconds (default: 30000) */
   timeout: number;
   /** Default maximum retry attempts (default: 3). Can be overridden per call. */
@@ -96,23 +109,27 @@ export async function rpcCall<TResult>(
   });
 
   const endpoint = `${config.url}${config.path}`;
-  const headers: Record<string, string> = {
+  const baseHeaders: Record<string, string> = {
     "Content-Type": "application/json",
     Accept: "application/json",
   };
-  if (config.token) {
-    headers.Authorization = `Bearer ${config.token}`;
-  }
   if (config.clientVersion) {
-    headers[CLIENT_VERSION_HEADER] = config.clientVersion;
+    baseHeaders[CLIENT_VERSION_HEADER] = config.clientVersion;
   }
   if (config.headers) {
-    Object.assign(headers, config.headers);
+    Object.assign(baseHeaders, config.headers);
   }
 
-  let lastError: Error | undefined;
+  // Proactive token resolution: a provider (when set) returns a still-valid
+  // access token, refreshing by expiry. Resolved once — 5xx/network retries
+  // reuse it; only a 401 triggers a re-resolve via onUnauthorized.
+  let bearer = config.getToken ? await config.getToken() : config.token;
+  let authRetried = false;
 
-  for (let attempt = 0; attempt <= retries; attempt++) {
+  let lastError: Error | undefined;
+  let attempt = 0;
+
+  while (true) {
     // Backoff before retries (not the first attempt)
     if (attempt > 0) {
       const delay = backoff(attempt, lastError);
@@ -123,6 +140,9 @@ export async function rpcCall<TResult>(
     const timeout = setTimeout(() => controller.abort(), config.timeout);
 
     try {
+      const headers = { ...baseHeaders };
+      if (bearer) headers.Authorization = `Bearer ${bearer}`;
+
       const response = await fetch(endpoint, {
         method: "POST",
         headers,
@@ -132,6 +152,18 @@ export async function rpcCall<TResult>(
 
       clearTimeout(timeout);
 
+      // Reactive refresh: a 401 gets one shot at a fresh token before it
+      // becomes an error. This retry is free — it doesn't advance `attempt`,
+      // so it neither consumes the retry budget nor incurs backoff.
+      if (response.status === 401 && config.onUnauthorized && !authRetried) {
+        authRetried = true;
+        const fresh = await config.onUnauthorized();
+        if (fresh && fresh !== bearer) {
+          bearer = fresh;
+          continue;
+        }
+      }
+
       // Retryable HTTP status — retry if attempts remain
       if (RETRYABLE_STATUSES.has(response.status) && attempt < retries) {
         lastError = new Error(`HTTP ${response.status} ${response.statusText}`);
@@ -140,6 +172,7 @@ export async function rpcCall<TResult>(
         if (retryAfter !== undefined) {
           await sleep(retryAfter);
         }
+        attempt++;
         continue;
       }
 
@@ -198,11 +231,9 @@ export async function rpcCall<TResult>(
       if (attempt >= retries) {
         throw lastError;
       }
+      attempt++;
     }
   }
-
-  // Should not reach here, but TypeScript needs it
-  throw lastError ?? new Error("Request failed");
 }
 
 // =============================================================================

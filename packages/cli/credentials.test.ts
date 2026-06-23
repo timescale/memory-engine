@@ -17,10 +17,16 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { OAuthTokenSet } from "./credentials.ts";
 import * as creds from "./credentials.ts";
 import { resetKeychainForTests } from "./keychain.ts";
 
 const SERVER = "https://api.example.com";
+const TOKENS: OAuthTokenSet = {
+  access_token: "tok-123",
+  refresh_token: "ref-456",
+  expires_at: 1_750_000_000_000,
+};
 const TOKEN_ENVS = ["ME_SESSION_TOKEN", "ME_SPACE", "ME_SERVER", "ME_API_KEY"];
 // Every env key these tests touch — snapshotted and restored so the ambient
 // environment (and other test files in the same process) is left untouched.
@@ -50,35 +56,37 @@ afterEach(() => {
   resetKeychainForTests();
 });
 
-test("store + resolve a session token (file fallback)", () => {
-  creds.storeSessionToken(SERVER, "tok-123");
+test("store + read an OAuth token set (file fallback)", () => {
+  creds.storeTokens(SERVER, TOKENS);
   const r = creds.resolveCredentials(SERVER);
   expect(r.server).toBe(SERVER);
-  expect(r.sessionToken).toBe("tok-123");
-  // fallback stores the token in the secrets file (no keychain)
-  expect(creds.getServerSecrets(SERVER).session_token).toBe("tok-123");
+  expect(r.loggedIn).toBe(true);
+  expect(creds.getStoredTokens(SERVER)).toEqual(TOKENS);
+  // fallback stores the set in the secrets file (no keychain)
+  expect(creds.getServerSecrets(SERVER).tokens?.access_token).toBe("tok-123");
 });
 
 test("the credentials file is written 0600", () => {
-  creds.storeSessionToken(SERVER, "tok");
+  creds.storeTokens(SERVER, TOKENS);
   const file = join(configDir, "me", "credentials.yaml");
   expect(existsSync(file)).toBe(true);
   // low 9 permission bits = rw------- (0o600)
   expect(statSync(file).mode & 0o777).toBe(0o600);
-  // sanity: the token is actually in the file in fallback mode
-  expect(readFileSync(file, "utf-8")).toContain("tok");
+  // sanity: the access token is actually in the file in fallback mode
+  expect(readFileSync(file, "utf-8")).toContain("tok-123");
 });
 
-test("clearSessionToken removes the token", () => {
-  creds.storeSessionToken(SERVER, "tok-123");
-  creds.clearSessionToken(SERVER);
-  expect(creds.resolveCredentials(SERVER).sessionToken).toBeUndefined();
+test("clearTokens removes the token set", () => {
+  creds.storeTokens(SERVER, TOKENS);
+  creds.clearTokens(SERVER);
+  expect(creds.resolveCredentials(SERVER).loggedIn).toBe(false);
+  expect(creds.getStoredTokens(SERVER)).toBeUndefined();
 });
 
-test("ME_SESSION_TOKEN env overrides the stored token", () => {
-  creds.storeSessionToken(SERVER, "stored");
+test("ME_SESSION_TOKEN env marks the server logged in (no stored set needed)", () => {
+  expect(creds.resolveCredentials(SERVER).loggedIn).toBe(false);
   process.env.ME_SESSION_TOKEN = "from-env";
-  expect(creds.resolveCredentials(SERVER).sessionToken).toBe("from-env");
+  expect(creds.resolveCredentials(SERVER).loggedIn).toBe(true);
 });
 
 test("active space: set / resolve / clear; ME_SPACE wins", () => {
@@ -94,16 +102,19 @@ test("active space: set / resolve / clear; ME_SPACE wins", () => {
 });
 
 test("logout clears the secret but keeps the active space", () => {
-  creds.storeSessionToken(SERVER, "tok");
+  creds.storeTokens(SERVER, TOKENS);
   creds.setActiveSpace(SERVER, "abc123def456");
   creds.clearServerCredentials(SERVER); // logout
   const r = creds.resolveCredentials(SERVER);
-  expect(r.sessionToken).toBeUndefined();
+  expect(r.loggedIn).toBe(false);
   expect(r.activeSpace).toBe("abc123def456"); // non-secret config survives logout
 });
 
 test("secrets and config live in separate files", () => {
-  creds.storeSessionToken(SERVER, "tok-sep");
+  creds.storeTokens(SERVER, {
+    access_token: "tok-sep",
+    refresh_token: "ref-sep",
+  });
   creds.setActiveSpace(SERVER, "abc123def456");
   const configFile = readFileSync(
     join(configDir, "me", "config.yaml"),
@@ -116,13 +127,14 @@ test("secrets and config live in separate files", () => {
   // config.yaml has the active space (non-secret), not the token
   expect(configFile).toContain("abc123def456");
   expect(configFile).not.toContain("tok-sep");
-  // credentials.yaml has the token (fallback), not the active space
+  // credentials.yaml has the token set (fallback), not the active space
   expect(credsFile).toContain("tok-sep");
   expect(credsFile).not.toContain("abc123def456");
 });
 
-test("migrates a legacy credentials.yaml (token + active_space + default)", () => {
-  // a pre-split credentials.yaml that bundled everything together
+test("migrates a legacy credentials.yaml: salvages config, scrubs the dead token", () => {
+  // a pre-split credentials.yaml that bundled a (now-retired) device-flow
+  // session_token together with the non-secret config
   const dir = join(configDir, "me");
   mkdirSync(dir, { recursive: true, mode: 0o700 });
   writeFileSync(
@@ -137,17 +149,16 @@ test("migrates a legacy credentials.yaml (token + active_space + default)", () =
     { mode: 0o600 },
   );
 
-  // reading resolves all three, migrating the non-secret bits out
+  // reading salvages the non-secret bits; the dead device token is dropped
   const r = creds.resolveCredentials();
   expect(r.server).toBe(SERVER);
-  expect(r.sessionToken).toBe("legacy-tok");
   expect(r.activeSpace).toBe("legacyspace1");
+  expect(r.loggedIn).toBe(false); // the retired session_token is not honored
 
-  // config.yaml now exists with the non-secret bits; credentials.yaml is
-  // secret-only (no active_space left behind)
+  // config.yaml now holds the non-secret bits; credentials.yaml is scrubbed
   const configFile = readFileSync(join(dir, "config.yaml"), "utf-8");
   expect(configFile).toContain("legacyspace1");
   const credsFile = readFileSync(join(dir, "credentials.yaml"), "utf-8");
-  expect(credsFile).toContain("legacy-tok");
+  expect(credsFile).not.toContain("legacy-tok"); // scrubbed from disk
   expect(credsFile).not.toContain("legacyspace1");
 });
