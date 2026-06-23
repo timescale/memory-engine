@@ -34,11 +34,21 @@ function createMockAuth(overrides?: {
   } as unknown as AuthStore;
 }
 
+function createMockBetterAuth(overrides?: {
+  getSession?: ReturnType<typeof mock>;
+}): Auth {
+  return {
+    api: {
+      getSession: overrides?.getSession ?? mock(() => Promise.resolve(null)),
+    },
+  } as unknown as Auth;
+}
+
 function createMockContext(overrides?: Partial<ServerContext>): ServerContext {
   return {
     db: {} as Sql,
     auth: createMockAuth(),
-    betterAuth: {} as unknown as Auth,
+    betterAuth: createMockBetterAuth(),
     core: {} as unknown as CoreStore,
     authSchema: "auth",
     coreSchema: "core",
@@ -151,24 +161,18 @@ describe("Server-Database Wiring", () => {
         name: "Test User",
       };
       const ctx = createMockContext({
-        auth: createMockAuth({
-          validateSession: mock(() =>
+        betterAuth: createMockBetterAuth({
+          getSession: mock(() =>
             Promise.resolve({
-              sessionId: "session-1",
-              userId: identity.id,
-              email: identity.email,
-              name: identity.name,
-              expiresAt: new Date("2026-12-31T00:00:00Z"),
-            }),
-          ),
-          getUser: mock(() =>
-            Promise.resolve({
-              id: identity.id,
-              email: identity.email,
-              name: identity.name,
-              emailVerified: true,
-              createdAt: new Date("2026-01-01T00:00:00Z"),
-              updatedAt: null,
+              session: { id: "session-1", userId: identity.id },
+              user: {
+                id: identity.id,
+                email: identity.email,
+                name: identity.name,
+                emailVerified: true,
+                createdAt: new Date("2026-01-01T00:00:00Z"),
+                updatedAt: null,
+              },
             }),
           ),
         }),

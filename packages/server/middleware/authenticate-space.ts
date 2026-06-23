@@ -14,7 +14,6 @@
  * empty set and is denied. Api keys are global, so a key whose principal isn't a
  * member of the requested space is denied here rather than at parse time.
  */
-import type { AuthStore } from "@memory.build/auth";
 import { slugToSchema } from "@memory.build/database";
 import {
   type CoreStore,
@@ -27,8 +26,9 @@ import { type SpaceStore, spaceStore } from "@memory.build/engine/space";
 import { SPACE_HEADER } from "@memory.build/protocol/headers";
 import { debug, span } from "@pydantic/logfire-node";
 import type { Sql } from "postgres";
+import type { Auth } from "../auth/betterauth";
 import { error, forbidden, unauthorized } from "../util/response";
-import { extractSessionCredential, passesCsrfCheck } from "./authenticate";
+import { extractBearerToken, passesCsrfCheck } from "./authenticate";
 
 export { SPACE_HEADER };
 
@@ -66,14 +66,12 @@ export type SpaceAuthResult =
 export interface SpaceAuthDeps {
   /** Core control-plane store (on the new-model pool). */
   core: CoreStore;
-  /** Auth store (auth schema) for session validation. */
-  auth: AuthStore;
+  /** better-auth instance — validates the human session credential. */
+  betterAuth: Auth;
   /** New-model pool — used to bind the per-space data-plane store. */
   db: Sql;
   /** Origins allowed for cookie-authenticated (browser) requests — CSRF gate. */
   allowedOrigins: string[];
-  /** Whether the public origin is HTTPS — selects the mode-aware cookie name. */
-  cookieSecure: boolean;
 }
 
 /**
@@ -93,12 +91,14 @@ async function authenticateSpaceInner(
   request: Request,
   deps: SpaceAuthDeps,
 ): Promise<SpaceAuthResult> {
-  const { core, auth, db } = deps;
+  const { core, betterAuth, db } = deps;
 
-  // 1. Credential: an Authorization Bearer (session token or api key), or the
-  //    browser session cookie (session token only).
-  const credential = extractSessionCredential(request, deps.cookieSecure);
-  if (!credential) {
+  // 1. A credential must be present: an Authorization Bearer (session token or
+  //    api key) or any cookie (better-auth reads its own session cookie). The
+  //    CSRF gate for the cookie case is applied in the session branch below.
+  const bearer = extractBearerToken(request);
+  const hasCookie = request.headers.get("cookie") !== null;
+  if (!bearer && !hasCookie) {
     debug("space auth failed: missing credential");
     return {
       ok: false,
@@ -107,16 +107,6 @@ async function authenticateSpaceInner(
       ),
     };
   }
-  // CSRF: an ambient cookie credential must come from an allowed origin. Header
-  // credentials are exempt (they can't be forged cross-site).
-  if (
-    credential.source === "cookie" &&
-    !passesCsrfCheck(request, deps.allowedOrigins)
-  ) {
-    debug("space auth failed: cookie request failed CSRF origin check");
-    return { ok: false, error: forbidden("Cross-origin request rejected") };
-  }
-  const token = credential.token;
 
   // 2. Space slug — always from the X-Me-Space header (uniform for both modes).
   const slug = request.headers.get(SPACE_HEADER);
@@ -135,8 +125,9 @@ async function authenticateSpaceInner(
     return { ok: false, error: unauthorized("Invalid credentials") };
   }
 
-  // 4. Resolve the principal — the only line that differs between modes.
-  const parsed = parseApiKey(token);
+  // 4. Resolve the principal — the only step that differs between modes. Api
+  //    keys arrive only via the Bearer header (never a cookie).
+  const parsed = bearer ? parseApiKey(bearer) : null;
   let principalId: string;
   let apiKeyId: string | null;
   // The principal's owner — set only for an agent key; drives `~` home nesting.
@@ -154,7 +145,7 @@ async function authenticateSpaceInner(
     principalId = validated.memberId;
     apiKeyId = validated.apiKeyId;
     ownerId = validated.ownerId;
-  } else if (isLegacyApiKey(token)) {
+  } else if (bearer && isLegacyApiKey(bearer)) {
     // A pre-global 4-part key (me.<slug>.<lookup>.<secret>). These no longer
     // authenticate; tell the operator to recreate the key rather than failing
     // with a confusing generic 401.
@@ -168,12 +159,21 @@ async function authenticateSpaceInner(
       ),
     };
   } else {
-    const session = await auth.validateSession(token);
+    // Human session: a signed Bearer token or the browser cookie. CSRF gates
+    // the ambient cookie case (no Bearer header); better-auth reads the
+    // credential from the request headers itself.
+    if (!bearer && !passesCsrfCheck(request, deps.allowedOrigins)) {
+      debug("space auth failed: cookie request failed CSRF origin check");
+      return { ok: false, error: forbidden("Cross-origin request rejected") };
+    }
+    const session = await betterAuth.api.getSession({
+      headers: request.headers,
+    });
     if (!session) {
       debug("space auth failed: invalid or expired session");
       return { ok: false, error: unauthorized("Invalid credentials") };
     }
-    principalId = session.userId;
+    principalId = session.user.id;
     apiKeyId = null;
   }
 

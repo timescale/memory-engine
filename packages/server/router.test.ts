@@ -65,47 +65,31 @@ describe("matchRoute", () => {
     });
   });
 
-  describe("auth endpoints", () => {
-    test("matches POST /api/v1/auth/device/code", () => {
-      const match = router.matchRoute("POST", "/api/v1/auth/device/code");
-      expect(match).not.toBeNull();
-      expect(match?.route.pattern).toBe("/api/v1/auth/device/code");
+  describe("auth endpoints (better-auth catch-all)", () => {
+    test("routes device-flow + session paths (any method) to the catch-all", () => {
+      const cases: Array<[string, string]> = [
+        ["POST", "/api/v1/auth/device/code"],
+        ["POST", "/api/v1/auth/device/token"],
+        ["GET", "/api/v1/auth/device"],
+        ["POST", "/api/v1/auth/sign-out"],
+      ];
+      for (const [method, path] of cases) {
+        const match = router.matchRoute(method, path);
+        expect(match?.route.pattern).toBe("/api/v1/auth/*");
+      }
     });
 
-    test("matches POST /api/v1/auth/device/token", () => {
-      const match = router.matchRoute("POST", "/api/v1/auth/device/token");
-      expect(match).not.toBeNull();
-      expect(match?.route.pattern).toBe("/api/v1/auth/device/token");
-    });
-
-    test("matches GET /api/v1/auth/device/verify", () => {
-      const match = router.matchRoute("GET", "/api/v1/auth/device/verify");
-      expect(match).not.toBeNull();
-      expect(match?.route.pattern).toBe("/api/v1/auth/device/verify");
-    });
-
-    test("matches POST /api/v1/auth/device/verify", () => {
-      const match = router.matchRoute("POST", "/api/v1/auth/device/verify");
-      expect(match).not.toBeNull();
-      expect(match?.route.pattern).toBe("/api/v1/auth/device/verify");
-    });
-
-    test("matches GET /api/v1/auth/callback/:provider with params", () => {
-      const match = router.matchRoute("GET", "/api/v1/auth/callback/google");
-      expect(match).not.toBeNull();
-      expect(match?.route.pattern).toBe("/api/v1/auth/callback/:provider");
-      expect(match?.params.provider).toBe("google");
-    });
-
-    test("matches GET /api/v1/auth/callback/github", () => {
+    test("routes OAuth callbacks to the catch-all (provider in the wildcard)", () => {
       const match = router.matchRoute("GET", "/api/v1/auth/callback/github");
-      expect(match).not.toBeNull();
-      expect(match?.params.provider).toBe("github");
+      expect(match?.route.pattern).toBe("/api/v1/auth/*");
+      expect(match?.params["*"]).toBe("callback/github");
     });
 
-    test("does not match unknown auth paths", () => {
+    test("better-auth owns the whole /api/v1/auth/* namespace", () => {
+      // Unknown sub-paths still match the catch-all; better-auth returns its
+      // own 404 rather than the router treating it as unmatched.
       const match = router.matchRoute("GET", "/api/v1/auth/unknown/path");
-      expect(match).toBeNull();
+      expect(match?.route.pattern).toBe("/api/v1/auth/*");
     });
   });
 
