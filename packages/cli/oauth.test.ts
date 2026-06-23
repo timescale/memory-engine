@@ -9,8 +9,8 @@ import {
 } from "./oauth";
 
 describe("PKCE", () => {
-  test("challenge is S256(verifier) in base64url", () => {
-    const { verifier, challenge } = generatePkce();
+  test("challenge is S256(verifier) in base64url", async () => {
+    const { verifier, challenge } = await generatePkce();
     expect(challenge).toBe(
       createHash("sha256").update(verifier).digest("base64url"),
     );
@@ -19,16 +19,16 @@ describe("PKCE", () => {
     expect(challenge).not.toMatch(/[+/=]/);
   });
 
-  test("pairs + state are unique per call", () => {
-    const a = generatePkce();
-    const b = generatePkce();
+  test("pairs + state are unique per call", async () => {
+    const a = await generatePkce();
+    const b = await generatePkce();
     expect(a.verifier).not.toBe(b.verifier);
     expect(generateState()).not.toBe(generateState());
   });
 });
 
 describe("buildAuthorizeUrl", () => {
-  test("includes the public-client auth-code + PKCE params", () => {
+  test("builds the public-client auth-code + PKCE authorize URL", () => {
     const url = new URL(
       buildAuthorizeUrl({
         server: "https://api.example.com/",
