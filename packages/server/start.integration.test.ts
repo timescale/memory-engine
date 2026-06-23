@@ -113,6 +113,9 @@ beforeAll(async () => {
     apiBaseUrl: "http://localhost",
     authSchema,
     coreSchema,
+    // better-auth requires a signing secret; the boot/sweep path under test
+    // doesn't exercise sign-in, so any stable test value works.
+    betterAuthSecret: "test-better-auth-secret-0123456789",
     embeddingConfig,
     workerCount: 1,
     workerIdleDelayMs: 250,
