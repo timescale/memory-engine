@@ -66,24 +66,11 @@ $func$ language sql immutable strict security invoker
 -------------------------------------------------------------------------------
 -- get memory
 -------------------------------------------------------------------------------
--- get_memory gained a `name` return column (a return-type change, which
--- create-or-replace cannot make → 42P13 "cannot change return type"). Drop a
--- prior definition only when it lacks `name` among its columns — this also
--- covers the historical `_id default null` variant — a no-op on fresh schemas
--- and once current. The create-or-replace below then recreates it.
-do $$ begin
-  if exists
-  (
-    select 1
-    from pg_proc p
-    join pg_namespace n on n.oid = p.pronamespace
-    where n.nspname = '{{schema}}'
-    and p.proname = 'get_memory'
-    and not ('name' = any(coalesce(p.proargnames, array[]::text[])))
-  ) then
-    drop function {{schema}}.get_memory(jsonb, uuid);
-  end if;
-end $$;
+-- get_memory's result has changed over time (it gained a `name` column), which
+-- create-or-replace cannot do (42P13). The fn block drops a stale-signatured
+-- definition before the create and asserts the result after — see
+-- migrate/function_signature.sql.
+{{fn get_memory(jsonb, uuid) returns table(id uuid, tree ltree, meta jsonb, temporal tstzrange, content text, name text, created_at timestamptz, updated_at timestamptz, has_embedding bool)}}
 create or replace function {{schema}}.get_memory
 ( _tree_access jsonb
 , _id uuid
@@ -116,6 +103,7 @@ as $func$
 $func$ language sql stable strict rows 1 security invoker
 set search_path to pg_catalog, {{schema}}, public, pg_temp
 ;
+{{endfn}}
 
 -------------------------------------------------------------------------------
 -- resolve memory id
@@ -228,28 +216,12 @@ set search_path to pg_catalog, {{schema}}, public, pg_temp
 -- an unnamed row. Target-tree write access is all-or-nothing up front.
 --
 -- The return type changed from (id, inserted) to (ord, id, status), which
--- create-or-replace cannot make (42P13). The plain drops first remove older
--- arg-signature overloads (pre-name 7-arg, _replace_if_meta_differs 9-arg), so
--- the only batch_create_memory that can remain is the current 8-arg; the
--- guarded do-block then drops THAT only when it still returns the old shape
--- (lacks `status`), so it doesn't churn the live function every boot. No-op on
--- fresh schemas and once current.
+-- create-or-replace cannot make (42P13); past argument changes also left stale
+-- overloads (pre-name 7-arg, _replace_if_meta_differs 9-arg). The fn block drops
+-- any same-named function whose signature differs before the create — sweeping
+-- both the old result and the stale overloads — and asserts the result after.
 -------------------------------------------------------------------------------
-drop function if exists {{schema}}.batch_create_memory(jsonb, uuid[], ltree[], text[], jsonb, tstzrange[], text);
-drop function if exists {{schema}}.batch_create_memory(jsonb, uuid[], ltree[], text[], jsonb, tstzrange[], text, text[], text);
-do $$ begin
-  if exists
-  (
-    select 1
-    from pg_proc p
-    join pg_namespace n on n.oid = p.pronamespace
-    where n.nspname = '{{schema}}'
-    and p.proname = 'batch_create_memory'
-    and not ('status' = any(coalesce(p.proargnames, array[]::text[])))
-  ) then
-    drop function {{schema}}.batch_create_memory(jsonb, uuid[], ltree[], text[], jsonb, tstzrange[], text[], text);
-  end if;
-end $$;
+{{fn batch_create_memory(jsonb, uuid[], ltree[], text[], jsonb, tstzrange[], text[], text) returns table(ord bigint, id uuid, status text)}}
 create or replace function {{schema}}.batch_create_memory
 ( _tree_access jsonb
 , _ids uuid[]                 -- null elements get a generated uuidv7
@@ -506,6 +478,7 @@ end;
 $func$ language plpgsql volatile security invoker
 set search_path to pg_catalog, {{schema}}, public, pg_temp
 ;
+{{endfn}}
 
 -------------------------------------------------------------------------------
 -- create memory
@@ -517,28 +490,13 @@ set search_path to pg_catalog, {{schema}}, public, pg_temp
 -- on a skip), status is 'inserted' | 'updated' | 'skipped'.
 --
 -- The return type changed from (id, inserted) to (id, status), which
--- create-or-replace cannot make (42P13). Drop a prior definition only when it
--- lacks `status` among its columns (guarded so it doesn't churn the live
--- function every boot) — a no-op on fresh schemas and once current. The plain
--- drops cover older arg-signature overloads (pre-upsert 6-arg, pre-name 7-arg,
--- _replace_if_meta_differs 9-arg).
+-- create-or-replace cannot make (42P13); past argument changes also left stale
+-- overloads (pre-upsert 6-arg, pre-name 7-arg, _replace_if_meta_differs 9-arg).
+-- The fn block drops any same-named function whose signature differs before the
+-- create — sweeping both the old result and the stale overloads — and asserts
+-- the result after.
 -------------------------------------------------------------------------------
-drop function if exists {{schema}}.create_memory(jsonb, ltree, text, uuid, jsonb, tstzrange);
-drop function if exists {{schema}}.create_memory(jsonb, ltree, text, uuid, jsonb, tstzrange, text);
-drop function if exists {{schema}}.create_memory(jsonb, ltree, text, uuid, jsonb, tstzrange, text, text, text);
-do $$ begin
-  if exists
-  (
-    select 1
-    from pg_proc p
-    join pg_namespace n on n.oid = p.pronamespace
-    where n.nspname = '{{schema}}'
-    and p.proname = 'create_memory'
-    and not ('status' = any(coalesce(p.proargnames, array[]::text[])))
-  ) then
-    drop function {{schema}}.create_memory(jsonb, ltree, text, uuid, jsonb, tstzrange, text, text);
-  end if;
-end $$;
+{{fn create_memory(jsonb, ltree, text, uuid, jsonb, tstzrange, text, text) returns table(id uuid, status text)}}
 create or replace function {{schema}}.create_memory
 ( _tree_access jsonb
 , _tree ltree
@@ -565,6 +523,7 @@ as $func$
 $func$ language sql volatile security invoker
 set search_path to pg_catalog, {{schema}}, public, pg_temp
 ;
+{{endfn}}
 
 -------------------------------------------------------------------------------
 -- patch memory
