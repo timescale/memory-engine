@@ -18,11 +18,11 @@
 //     tables via the connection `search_path`, so it gets its OWN small
 //     node-postgres pool pinned to `search_path=<authSchema>`. The main
 //     postgres.js app pool (core + me_<slug>) is untouched.
-//   * Schema mapping. The pre-existing user/session/account/verification tables
-//     are snake_case (mapped via `modelName`+`fields`). The OAuth-provider and
-//     jwt (jwks) tables are *new and library-owned* — we accept better-auth's
-//     native names rather than hand-map ~35 fields (we never query them
-//     directly); the migration creates them to match.
+//   * Schema mapping. Every table is snake_case (house style), mapped onto
+//     better-auth's camelCase models via `modelName`+`fields` — the pre-existing
+//     user/session/account/verification tables and the new OAuth-provider + jwks
+//     tables alike. Single-word fields keep their name. The migration creates
+//     matching DDL.
 //   * DB-generated ids. `advanced.database.generateId: false` lets `default
 //     uuidv7()` fire (PG18 built-in), read back via RETURNING — keeps
 //     `auth.users.id == core.principal.id`.
@@ -119,15 +119,90 @@ export function createBetterAuth(opts: BetterAuthOptions) {
     plugins: [
       // Signs OIDC id tokens + exposes JWKS; private keys stored encrypted with
       // `secret`. Opaque access tokens are validated by introspection, not JWKS.
-      jwt(),
+      // disableSettingJwtHeader: recommended alongside an OAuth provider (session
+      // payloads aren't signed into a header). jwks table mapped to snake_case.
+      jwt({
+        disableSettingJwtHeader: true,
+        schema: {
+          jwks: {
+            modelName: "jwks",
+            fields: {
+              publicKey: "public_key",
+              privateKey: "private_key",
+              createdAt: "created_at",
+              expiresAt: "expires_at",
+            },
+          },
+        },
+      }),
       // OAuth 2.1 authorization server. Access/refresh tokens default to
       // `storeTokens: "hashed"` (sha256 at rest, hash-on-lookup). The CLI is a
       // trusted public client; cachedTrustedClients makes it immutable via the
-      // CRUD/registration endpoints and lets it skip the consent screen.
+      // CRUD/registration endpoints and lets it skip the consent screen. The
+      // tables are mapped to snake_case (single-word fields keep their name).
       oauthProvider({
         loginPage: `${opts.baseURL}/login`,
         consentPage: `${opts.baseURL}/consent`,
         cachedTrustedClients: new Set([CLI_CLIENT_ID]),
+        schema: {
+          oauthClient: {
+            modelName: "oauth_client",
+            fields: {
+              clientId: "client_id",
+              clientSecret: "client_secret",
+              skipConsent: "skip_consent",
+              enableEndSession: "enable_end_session",
+              subjectType: "subject_type",
+              userId: "user_id",
+              createdAt: "created_at",
+              updatedAt: "updated_at",
+              softwareId: "software_id",
+              softwareVersion: "software_version",
+              softwareStatement: "software_statement",
+              redirectUris: "redirect_uris",
+              postLogoutRedirectUris: "post_logout_redirect_uris",
+              tokenEndpointAuthMethod: "token_endpoint_auth_method",
+              grantTypes: "grant_types",
+              responseTypes: "response_types",
+              requirePKCE: "require_pkce",
+              referenceId: "reference_id",
+            },
+          },
+          oauthAccessToken: {
+            modelName: "oauth_access_token",
+            fields: {
+              clientId: "client_id",
+              sessionId: "session_id",
+              userId: "user_id",
+              referenceId: "reference_id",
+              refreshId: "refresh_id",
+              expiresAt: "expires_at",
+              createdAt: "created_at",
+            },
+          },
+          oauthRefreshToken: {
+            modelName: "oauth_refresh_token",
+            fields: {
+              clientId: "client_id",
+              sessionId: "session_id",
+              userId: "user_id",
+              referenceId: "reference_id",
+              expiresAt: "expires_at",
+              createdAt: "created_at",
+              authTime: "auth_time",
+            },
+          },
+          oauthConsent: {
+            modelName: "oauth_consent",
+            fields: {
+              clientId: "client_id",
+              userId: "user_id",
+              referenceId: "reference_id",
+              createdAt: "created_at",
+              updatedAt: "updated_at",
+            },
+          },
+        },
       }),
     ],
     advanced: {

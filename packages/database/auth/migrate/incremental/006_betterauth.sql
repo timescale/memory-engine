@@ -12,15 +12,14 @@
 -- sweeps remain, idempotent/002 + 004). Explicit drops clear them from
 -- already-migrated dev databases; the idempotent files no longer recreate them.
 --
--- OAuth provider tables (oauthClient/oauthAccessToken/oauthRefreshToken/
--- oauthConsent) + the jwt plugin's `jwks` table are NEW and library-owned: we
--- never query them directly, so they use better-auth's native (camelCase) names
--- — quoted here — rather than the snake_case house style. Their DDL mirrors
--- `better-auth generate` (string[] -> jsonb), with two adaptations: ids are
--- DB-generated text (`uuidv7()::text`, since generateId:false omits them and
--- better-auth treats ids as opaque strings), and FK columns that reference our
--- uuid PKs (users.id, sessions.id) are `uuid`; access/refresh tokens are stored
--- HASHED at rest by the provider (storeTokens default).
+-- OAuth provider tables (oauth_client/oauth_access_token/oauth_refresh_token/
+-- oauth_consent) + the jwt plugin's `jwks` table are new. better-auth maps its
+-- camelCase models onto these snake_case names via `schema` overrides in
+-- betterauth.ts. The DDL mirrors `better-auth generate` (string[] -> jsonb),
+-- with two adaptations: ids are DB-generated text (`uuidv7()::text`, since
+-- generateId:false omits them and better-auth treats ids as opaque strings),
+-- and FK columns that reference our uuid PKs (users.id, sessions.id) are `uuid`.
+-- Access/refresh tokens are stored HASHED at rest by the provider.
 -------------------------------------------------------------------------------
 
 -- session functions that read token_hash / are now owned by the adapter
@@ -54,86 +53,86 @@ drop table if exists {{schema}}.device_authorization;
 drop table if exists {{schema}}.device_codes;
 
 -- jwt plugin: signing keyset (private key encrypted with BETTER_AUTH_SECRET).
-create table {{schema}}."jwks"
-( "id"         text        not null primary key default (uuidv7()::text)
-, "publicKey"  text        not null
-, "privateKey" text        not null
-, "createdAt"  timestamptz not null default now()
-, "expiresAt"  timestamptz
+create table {{schema}}.jwks
+( id          text        not null primary key default (uuidv7()::text)
+, public_key  text        not null
+, private_key text        not null
+, created_at  timestamptz not null default now()
+, expires_at  timestamptz
 );
 
--- OAuth client registry (clientId is the public, referenced client identifier).
-create table {{schema}}."oauthClient"
-( "id"                      text        not null primary key default (uuidv7()::text)
-, "clientId"                text        not null unique
-, "clientSecret"            text
-, "disabled"                boolean
-, "skipConsent"             boolean
-, "enableEndSession"        boolean
-, "subjectType"             text
-, "scopes"                  jsonb
-, "userId"                  uuid        references {{schema}}.users (id) on delete cascade
-, "createdAt"               timestamptz not null default now()
-, "updatedAt"               timestamptz not null default now()
-, "name"                    text
-, "uri"                     text
-, "icon"                    text
-, "contacts"                jsonb
-, "tos"                     text
-, "policy"                  text
-, "softwareId"              text
-, "softwareVersion"         text
-, "softwareStatement"       text
-, "redirectUris"            jsonb       not null
-, "postLogoutRedirectUris"  jsonb
-, "tokenEndpointAuthMethod"  text
-, "grantTypes"              jsonb
-, "responseTypes"           jsonb
-, "public"                  boolean
-, "type"                    text
-, "requirePKCE"             boolean
-, "referenceId"             text
-, "metadata"                jsonb
+-- OAuth client registry (client_id is the public, referenced client identifier).
+create table {{schema}}.oauth_client
+( id                         text        not null primary key default (uuidv7()::text)
+, client_id                  text        not null unique
+, client_secret              text
+, disabled                   boolean
+, skip_consent               boolean
+, enable_end_session         boolean
+, subject_type               text
+, scopes                     jsonb
+, user_id                    uuid        references {{schema}}.users (id) on delete cascade
+, created_at                 timestamptz not null default now()
+, updated_at                 timestamptz not null default now()
+, name                       text
+, uri                        text
+, icon                       text
+, contacts                   jsonb
+, tos                        text
+, policy                     text
+, software_id                text
+, software_version           text
+, software_statement         text
+, redirect_uris              jsonb       not null
+, post_logout_redirect_uris  jsonb
+, token_endpoint_auth_method text
+, grant_types                jsonb
+, response_types             jsonb
+, public                     boolean
+, type                       text
+, require_pkce               boolean
+, reference_id               text
+, metadata                   jsonb
 );
 
 -- Opaque refresh tokens (offline_access). Stored hashed (storeTokens default).
-create table {{schema}}."oauthRefreshToken"
-( "id"          text        not null primary key default (uuidv7()::text)
-, "token"       text        not null unique
-, "clientId"    text        not null references {{schema}}."oauthClient" ("clientId") on delete cascade
-, "sessionId"   uuid        references {{schema}}.sessions (id) on delete set null
-, "userId"      uuid        not null references {{schema}}.users (id) on delete cascade
-, "referenceId" text
-, "expiresAt"   timestamptz not null
-, "createdAt"   timestamptz not null default now()
-, "revoked"     timestamptz
-, "authTime"    timestamptz
-, "scopes"      jsonb       not null
+create table {{schema}}.oauth_refresh_token
+( id           text        not null primary key default (uuidv7()::text)
+, token        text        not null unique
+, client_id    text        not null references {{schema}}.oauth_client (client_id) on delete cascade
+, session_id   uuid        references {{schema}}.sessions (id) on delete set null
+, user_id      uuid        not null references {{schema}}.users (id) on delete cascade
+, reference_id text
+, expires_at   timestamptz not null
+, created_at   timestamptz not null default now()
+, revoked      timestamptz
+, auth_time    timestamptz
+, scopes       jsonb       not null
 );
-create index "oauthRefreshToken_expiresAt_idx" on {{schema}}."oauthRefreshToken" ("expiresAt");
+create index oauth_refresh_token_expires_at_idx on {{schema}}.oauth_refresh_token (expires_at);
 
 -- Opaque access tokens. Stored hashed (storeTokens default); validated by introspection.
-create table {{schema}}."oauthAccessToken"
-( "id"          text        not null primary key default (uuidv7()::text)
-, "token"       text        not null unique
-, "clientId"    text        not null references {{schema}}."oauthClient" ("clientId") on delete cascade
-, "sessionId"   uuid        references {{schema}}.sessions (id) on delete set null
-, "userId"      uuid        references {{schema}}.users (id) on delete cascade
-, "referenceId" text
-, "refreshId"   text        references {{schema}}."oauthRefreshToken" ("id") on delete cascade
-, "expiresAt"   timestamptz not null
-, "createdAt"   timestamptz not null default now()
-, "scopes"      jsonb       not null
+create table {{schema}}.oauth_access_token
+( id           text        not null primary key default (uuidv7()::text)
+, token        text        not null unique
+, client_id    text        not null references {{schema}}.oauth_client (client_id) on delete cascade
+, session_id   uuid        references {{schema}}.sessions (id) on delete set null
+, user_id      uuid        references {{schema}}.users (id) on delete cascade
+, reference_id text
+, refresh_id   text        references {{schema}}.oauth_refresh_token (id) on delete cascade
+, expires_at   timestamptz not null
+, created_at   timestamptz not null default now()
+, scopes       jsonb       not null
 );
-create index "oauthAccessToken_expiresAt_idx" on {{schema}}."oauthAccessToken" ("expiresAt");
+create index oauth_access_token_expires_at_idx on {{schema}}.oauth_access_token (expires_at);
 
 -- Per-(client,user) consent records.
-create table {{schema}}."oauthConsent"
-( "id"          text        not null primary key default (uuidv7()::text)
-, "clientId"    text        not null references {{schema}}."oauthClient" ("clientId") on delete cascade
-, "userId"      uuid        references {{schema}}.users (id) on delete cascade
-, "referenceId" text
-, "scopes"      jsonb       not null
-, "createdAt"   timestamptz not null default now()
-, "updatedAt"   timestamptz not null default now()
+create table {{schema}}.oauth_consent
+( id           text        not null primary key default (uuidv7()::text)
+, client_id    text        not null references {{schema}}.oauth_client (client_id) on delete cascade
+, user_id      uuid        references {{schema}}.users (id) on delete cascade
+, reference_id text
+, scopes       jsonb       not null
+, created_at   timestamptz not null default now()
+, updated_at   timestamptz not null default now()
 );
