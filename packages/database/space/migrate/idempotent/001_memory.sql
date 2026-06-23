@@ -1,5 +1,30 @@
+
 -------------------------------------------------------------------------------
--- memory triggers
+-- compute memory version hash
+-------------------------------------------------------------------------------
+create or replace function {{schema}}.compute_memory_version_hash
+( _memory {{schema}}.memory
+)
+returns text
+as $func$
+  select pg_catalog.md5
+  (
+    pg_catalog.jsonb_build_object
+    ( 'tree', _memory.tree::text
+    , 'name', _memory.name
+    , 'meta', _memory.meta
+    , 'temporal', _memory.temporal::text
+    , 'content', _memory.content
+    )::text
+  )
+$func$ language sql stable security invoker
+set search_path to pg_catalog, {{schema}}, public, pg_temp
+set timezone to 'UTC' -- ensure tstzrange renders to text deterministically
+set datestyle to 'ISO, YMD' -- ensure tstzrange renders to text deterministically
+;
+
+-------------------------------------------------------------------------------
+-- memory before update trigger
 -------------------------------------------------------------------------------
 create or replace function {{schema}}.memory_before_update()
 returns trigger
@@ -8,12 +33,30 @@ begin
   -- always update the timestamp
   new.updated_at = pg_catalog.now();
 
-  -- content changed -> new embedding needs to be generated
+  -- if the content changed and we didn't also update the embedding
+  -- increment the content version to signal that a new embedding needs to be generated
   if old.content is distinct from new.content
      and old.embedding is not distinct from new.embedding
   then
     new.embedding = null;
     new.content_version = old.content_version operator(pg_catalog.+) 1;
+  end if;
+
+  -- if the tree, temporal, name, meta, or content changed
+  -- increment the version number
+  -- and compute the new version hash
+  if old.tree is distinct from new.tree
+    or old.temporal is distinct from new.temporal
+    or old.name is distinct from new.name
+    or old.meta is distinct from new.meta
+    or old.content is distinct from new.content
+  then
+    new.version = old.version operator(pg_catalog.+) 1;
+    new.version_hash = {{schema}}.compute_memory_version_hash(new);
+  else
+    -- don't let someone explicitly change these
+    new.version = old.version;
+    new.version_hash = old.version_hash;
   end if;
 
   return new;
@@ -26,6 +69,26 @@ create or replace trigger memory_before_update_trg
 before update on {{schema}}.memory
 for each row
 execute function {{schema}}.memory_before_update();
+
+-------------------------------------------------------------------------------
+-- memory before insert trigger
+-------------------------------------------------------------------------------
+create or replace function {{schema}}.memory_before_insert()
+returns trigger
+as $func$
+begin
+  new.version = 1;
+  new.version_hash = {{schema}}.compute_memory_version_hash(new);
+  return new;
+end;
+$func$ language plpgsql volatile security invoker
+set search_path to pg_catalog, {{schema}}, public, pg_temp
+;
+
+create or replace trigger memory_before_insert_trg
+before insert on {{schema}}.memory
+for each row
+execute function {{schema}}.memory_before_insert();
 
 -------------------------------------------------------------------------------
 -- tree_access
@@ -66,11 +129,11 @@ $func$ language sql immutable strict security invoker
 -------------------------------------------------------------------------------
 -- get memory
 -------------------------------------------------------------------------------
--- get_memory's result has changed over time (it gained a `name` column), which
+-- get_memory's result has changed over time (it gained columns), which
 -- create-or-replace cannot do (42P13). The fn block drops a stale-signatured
 -- definition before the create and asserts the result after — see
 -- migrate/function_signature.sql.
-{{fn get_memory(jsonb, uuid) returns table(id uuid, tree ltree, meta jsonb, temporal tstzrange, content text, name text, created_at timestamptz, updated_at timestamptz, has_embedding bool)}}
+{{fn get_memory(jsonb, uuid) returns table(id uuid, tree ltree, meta jsonb, temporal tstzrange, content text, name text, version bigin, version_hash text, created_at timestamptz, updated_at timestamptz, has_embedding bool)}}
 create or replace function {{schema}}.get_memory
 ( _tree_access jsonb
 , _id uuid
@@ -82,6 +145,8 @@ returns table
 , temporal tstzrange
 , content text
 , name text
+, version bigint
+, version_hash text
 , created_at timestamptz
 , updated_at timestamptz
 , has_embedding bool
@@ -94,6 +159,8 @@ as $func$
   , m.temporal
   , m.content
   , m.name
+  , m.version
+  , m.version_hash
   , m.created_at
   , m.updated_at
   , m.embedding is not null
@@ -528,14 +595,17 @@ set search_path to pg_catalog, {{schema}}, public, pg_temp
 -------------------------------------------------------------------------------
 -- patch memory
 -------------------------------------------------------------------------------
+{{fn patch_memory(jsonb, uuid, text, jsonb) returns bool}}
 create or replace function {{schema}}.patch_memory
 ( _tree_access jsonb
 , _id uuid
+, _prior_version_hash text
 , _patch jsonb
 )
 returns bool
 as $func$
 declare
+  _version_hash text;
   _src ltree;
   _dst ltree;
   _ok bool;
@@ -559,8 +629,8 @@ begin
       using errcode = 'invalid_parameter_value';
   end if;
 
-  -- find the existing memory and get it's tree
-  select m.tree into _src
+  -- find the existing memory and get it's tree and _version_hash
+  select m.tree, m.version_hash into _src, _version_hash
   from {{schema}}.memory m
   where m.id = _id
   for update -- don't let anyone "move" the memory while we're working on it
@@ -603,6 +673,14 @@ begin
       using errcode = 'insufficient_privilege';
   end if;
 
+  -- check tree access before version check. don't leak info
+
+  -- make sure the memory hasn't changed since the patcher last read it
+  if _version_hash is distinct from _prior_version_hash then
+    raise exception 'stale version hash'
+      using errcode = 'ME002';
+  end if;
+
   -- A rename or a move into a tree that already has this name violates the
   -- (tree, name) unique index; that 23505 propagates and is mapped to CONFLICT
   -- at the RPC boundary. Setting name to JSON null clears it.
@@ -621,6 +699,7 @@ end;
 $func$ language plpgsql volatile security invoker
 set search_path to pg_catalog, {{schema}}, public, pg_temp
 ;
+{{endfn}}
 
 -------------------------------------------------------------------------------
 -- move tree

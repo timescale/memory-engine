@@ -4,7 +4,7 @@
 -- search_memory's result has changed (it gained a `name` column), which
 -- create-or-replace cannot do (42P13). The fn block drops a stale-signatured
 -- definition before the create and asserts the result after.
-{{fn search_memory(jsonb, bm25query, halfvec, float8, ltree, lquery, ltxtquery, jsonb, tstzrange, tstzrange, timestamptz, timestamptz, text, bigint, text) returns table(id uuid, meta jsonb, tree ltree, temporal tstzrange, content text, name text, has_embedding bool, created_at timestamptz, updated_at timestamptz, score float8)}}
+{{fn search_memory(jsonb, bm25query, halfve, float8, ltree, lquery, ltxtquery, jsonb, tstzrange, tstzrange, timestamptz, timestamptz, text, bigint, text) returns table (id uuid, meta jsonb, tree ltree, temporal tstzrange, content text, name text, version bigint, version_hash text, has_embedding bool, created_at timestamptz, updated_at timestamptz, score float8)}}
 create or replace function {{schema}}.search_memory
 ( _tree_access jsonb
 , _bm25 bm25query default null
@@ -29,6 +29,8 @@ returns table
 , temporal tstzrange
 , content text
 , name text
+, version bigint
+, version_hash text
 , has_embedding bool
 , created_at timestamptz
 , updated_at timestamptz
@@ -195,6 +197,8 @@ begin
   , m.temporal
   , m.content
   , m.name
+  , m.version
+  , m.version_hash
   , m.embedding is not null
   , m.created_at
   , m.updated_at
@@ -233,7 +237,7 @@ set search_path to pg_catalog, {{schema}}, public, pg_temp
 -- hybrid_search_memory
 -------------------------------------------------------------------------------
 -- Same `name` return-column addition as search_memory; same fn-block guard.
-{{fn hybrid_search_memory(jsonb, bm25query, halfvec, float8, ltree, lquery, ltxtquery, jsonb, tstzrange, tstzrange, timestamptz, timestamptz, text, float8, bigint, float8, float8, bigint) returns table(id uuid, meta jsonb, tree ltree, temporal tstzrange, content text, name text, has_embedding bool, created_at timestamptz, updated_at timestamptz, score float8)}}
+{{fn hybrid_search_memory(jsonb, bm25query, halfvec, float8, ltree, lquery, ltxtquery, jsonb, tstzrange, tstzrange, timestamptz, timestamptz, text, float8, bigint, float8, float8, bigint) returns table(id uuid, meta jsonb, tree ltree, temporal tstzrange, content text, name text, version bigint, version_hash text, has_embedding bool, created_at timestamptz, updated_at timestamptz, score float8)}}
 create or replace function {{schema}}.hybrid_search_memory
 ( _tree_access jsonb
 , _bm25 bm25query
@@ -261,6 +265,8 @@ returns table
 , temporal tstzrange
 , content text
 , name text
+, version bigint
+, version_hash text
 , has_embedding bool
 , created_at timestamptz
 , updated_at timestamptz
@@ -297,6 +303,8 @@ begin
   , coalesce(x1.temporal, x2.temporal) as temporal
   , coalesce(x1.content, x2.content) as content
   , coalesce(x1.name, x2.name) as name
+  , coalesce(x1.version, x2.version) as version
+  , coalesce(x1.version_hash, x2.version_hash) as version_hash
   , coalesce(x1.has_embedding, x2.has_embedding) as has_embedding
   , coalesce(x1.created_at, x2.created_at) as created_at
   , coalesce(x1.updated_at, x2.updated_at) as updated_at

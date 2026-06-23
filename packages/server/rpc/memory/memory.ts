@@ -89,6 +89,9 @@ function mapSpaceError(e: unknown): never {
       "Memory already exists (id or tree/name conflict)",
     );
   }
+  if (code === "ME002") {
+    throw new AppError("CONFLICT", "Memory was modified; refresh and retry");
+  }
   throw e instanceof Error ? e : new Error(String(e));
 }
 
@@ -149,6 +152,8 @@ function toMemoryResponse(
     tree: displayTreePath(ctx, m.tree),
     name: m.name,
     temporal: parseTemporal(m.temporal),
+    version: m.version,
+    versionHash: m.versionHash,
     hasEmbedding: m.hasEmbedding,
     createdAt: m.createdAt.toISOString(),
     // The space model does not track a per-memory creator (4C decision).
@@ -352,7 +357,9 @@ async function memoryUpdate(
         : (formatTemporal(params.temporal) ?? null);
   }
 
-  const ok = await guard(() => store.patchMemory(treeAccess, params.id, patch));
+  const ok = await guard(() =>
+    store.patchMemory(treeAccess, params.id, params.versionHash, patch),
+  );
   if (!ok) {
     throw new AppError("NOT_FOUND", `Memory not found: ${params.id}`);
   }

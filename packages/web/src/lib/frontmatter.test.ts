@@ -14,6 +14,8 @@ function mkMemory(partial: Partial<MemoryResponse>): MemoryResponse {
     tree: partial.tree ?? "",
     name: partial.name ?? null,
     temporal: partial.temporal ?? null,
+    version: partial.version ?? 1,
+    versionHash: partial.versionHash ?? "00000000000000000000000000000000",
     hasEmbedding: partial.hasEmbedding ?? false,
     createdAt: partial.createdAt ?? "2026-01-01T00:00:00Z",
     createdBy: partial.createdBy ?? null,

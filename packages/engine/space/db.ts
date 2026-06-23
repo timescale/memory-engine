@@ -59,6 +59,7 @@ export interface SpaceStore {
   patchMemory(
     treeAccess: TreeAccess,
     id: string,
+    versionHash: string,
     patch: MemoryPatch,
   ): Promise<boolean>;
   deleteMemory(treeAccess: TreeAccess, id: string): Promise<boolean>;
@@ -109,6 +110,8 @@ function mapMemory(row: Record<string, unknown>): Memory {
     meta: (row.meta as Record<string, unknown>) ?? {},
     temporal: (row.temporal as string | null) ?? null,
     content: row.content as string,
+    version: Number(row.version),
+    versionHash: row.version_hash as string,
     hasEmbedding: Boolean(row.has_embedding),
     createdAt: row.created_at as Date,
     updatedAt: (row.updated_at as Date | null) ?? null,
@@ -192,7 +195,7 @@ export function spaceStore(sql: Sql, schema: string): SpaceStore {
     async getMemory(treeAccess, id) {
       const [row] = await sql`
         select id, tree::text as tree, name, meta, temporal::text as temporal,
-               content, has_embedding, created_at, updated_at
+               content, version, version_hash, has_embedding, created_at, updated_at
         from ${sch}.get_memory(${jb(treeAccess)}, ${id})`;
       return row ? mapMemory(row) : null;
     },
@@ -203,7 +206,7 @@ export function spaceStore(sql: Sql, schema: string): SpaceStore {
       return (row?.id as string | null) ?? null;
     },
 
-    async patchMemory(treeAccess, id, patch) {
+    async patchMemory(treeAccess, id, versionHash, patch) {
       const obj: Record<string, unknown> = {};
       if (patch.tree !== undefined) obj.tree = patch.tree;
       if (patch.name !== undefined) obj.name = patch.name; // null clears it
@@ -211,7 +214,7 @@ export function spaceStore(sql: Sql, schema: string): SpaceStore {
       if (patch.temporal !== undefined) obj.temporal = patch.temporal;
       if (patch.content !== undefined) obj.content = patch.content;
       const [row] = await sql`
-        select ${sch}.patch_memory(${jb(treeAccess)}, ${id}, ${jb(obj)}) as ok`;
+        select ${sch}.patch_memory(${jb(treeAccess)}, ${id}, ${versionHash}, ${jb(obj)}) as ok`;
       return Boolean(row?.ok);
     },
 
@@ -270,7 +273,7 @@ export function spaceStore(sql: Sql, schema: string): SpaceStore {
       const o = options;
       const rows = await sql`
         select id, meta, tree::text as tree, temporal::text as temporal,
-               content, name, has_embedding, created_at, updated_at, score
+               content, name, version, version_hash, has_embedding, created_at, updated_at, score
         from ${sch}.search_memory(
           ${jb(treeAccess)},
           ${bm25(o.bm25)},
@@ -295,7 +298,7 @@ export function spaceStore(sql: Sql, schema: string): SpaceStore {
       const o = options;
       const rows = await sql`
         select id, meta, tree::text as tree, temporal::text as temporal,
-               content, name, has_embedding, created_at, updated_at, score
+               content, name, version, version_hash, has_embedding, created_at, updated_at, score
         from ${sch}.hybrid_search_memory(
           ${jb(treeAccess)},
           ${bm25(o.bm25)},

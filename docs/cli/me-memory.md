@@ -125,22 +125,23 @@ me memory search --meta '{"type": "decision"}' --limit 20
 Update a memory.
 
 ```
-me memory update <id> [options]
+me memory update <id-or-path> --version-hash <hash> [options]
 ```
 
 | Argument | Required | Description |
 |----------|----------|-------------|
-| `id` | yes | Memory ID (UUIDv7). |
+| `id-or-path` | yes | A memory ID (UUIDv7), or a memory's `tree/name` path (e.g. `/share/auth/jwt-rotation`). |
 
 | Option | Description |
 |--------|-------------|
+| `--version-hash <hash>` | **Required.** The current `versionHash` of the memory (32-char md5 hex). Get it from a recent `me memory get`/`search`/`create`/`update` response. The server rejects the update with `CONFLICT` if the hash is stale (another writer changed the memory in the meantime), leaving the memory unchanged. |
 | `--content <text>` | New content (use `-` for stdin). |
 | `--tree <path>` | New tree path. |
 | `--name <slug>` | Set or rename the memory's name. Pass an empty string (`--name ""`) to clear it. |
 | `--meta <json>` | New metadata as JSON (replaces existing). |
 | `--temporal <range>` | New temporal range as `start[,end]`. |
 
-At least one update option is required. Metadata is fully replaced, not merged. Update is id-addressed; you can pass a `tree/name` path as the `<id>` argument and the CLI resolves it to an id first.
+At least one update field is required. Metadata is fully replaced, not merged. Update is id-addressed; you can pass a `tree/name` path as the `<id-or-path>` argument and the CLI resolves it to an id first. `me memory edit` handles `--version-hash` automatically — it fetches the memory before opening the editor and submits the captured hash on save.
 
 ---
 
@@ -197,7 +198,7 @@ me memory edit <id>
 |----------|----------|-------------|
 | `id` | yes | Memory ID (UUIDv7). |
 
-Fetches the memory, formats it as Markdown with YAML frontmatter, and opens it in `$VISUAL`, `$EDITOR`, or `vim`. On save, the CLI parses your changes and sends an update. If there are errors, the editor re-opens.
+Fetches the memory, formats it as Markdown with YAML frontmatter, and opens it in `$VISUAL`, `$EDITOR`, or `vim`. On save, the CLI parses your changes and sends an update. The fetched memory's `versionHash` is submitted automatically, so concurrent edits by another writer surface as a `CONFLICT` (rerun `me memory edit` to pull the latest state). If there are errors, the editor re-opens.
 
 ---
 
