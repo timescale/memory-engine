@@ -278,17 +278,29 @@ export function createBetterAuth(opts: BetterAuthOptions) {
    * or null if unknown/expired. Access tokens are revoked by row deletion, so a
    * missing row == invalid — no extra revocation check needed.
    */
-  async function verifyOAuthAccessToken(
-    token: string,
-  ): Promise<{ userId: string; scopes: string[] } | null> {
+  async function verifyOAuthAccessToken(token: string): Promise<{
+    userId: string;
+    email: string;
+    name: string;
+    scopes: string[];
+  } | null> {
+    // Join the user so callers get identity (whoami / provisioning) in one hop.
+    // A user-less token (client_credentials) yields no row → treated as invalid;
+    // our API auth is user-bound (agents use core api keys, not OAuth).
     const { rows } = await pool.query(
-      "select user_id, scopes from oauth_access_token where token = $1 and expires_at > now() limit 1",
+      `select t.user_id, u.email, u.name, t.scopes
+         from oauth_access_token t
+         join users u on u.id = t.user_id
+        where t.token = $1 and t.expires_at > now()
+        limit 1`,
       [hashOAuthToken(token)],
     );
     const row = rows[0];
     if (!row?.user_id) return null;
     return {
       userId: row.user_id as string,
+      email: row.email as string,
+      name: row.name as string,
       scopes: Array.isArray(row.scopes) ? (row.scopes as string[]) : [],
     };
   }

@@ -26,7 +26,7 @@ import { type SpaceStore, spaceStore } from "@memory.build/engine/space";
 import { SPACE_HEADER } from "@memory.build/protocol/headers";
 import { debug, span } from "@pydantic/logfire-node";
 import type { Sql } from "postgres";
-import type { Auth } from "../auth/betterauth";
+import type { Auth, VerifyOAuthAccessToken } from "../auth/betterauth";
 import { error, forbidden, unauthorized } from "../util/response";
 import { extractBearerToken, passesCsrfCheck } from "./authenticate";
 
@@ -66,8 +66,10 @@ export type SpaceAuthResult =
 export interface SpaceAuthDeps {
   /** Core control-plane store (on the new-model pool). */
   core: CoreStore;
-  /** better-auth instance — validates the human session credential. */
+  /** better-auth instance — validates the web cookie session. */
   betterAuth: Auth;
+  /** Validates an OAuth access token (the CLI/MCP bearer). */
+  verifyOAuthToken: VerifyOAuthAccessToken;
   /** New-model pool — used to bind the per-space data-plane store. */
   db: Sql;
   /** Origins allowed for cookie-authenticated (browser) requests — CSRF gate. */
@@ -158,11 +160,19 @@ async function authenticateSpaceInner(
         "LEGACY_API_KEY",
       ),
     };
+  } else if (bearer) {
+    // OAuth access token (the CLI / MCP clients) — resource-server validation
+    // (hashed lookup in oauth_access_token).
+    const verified = await deps.verifyOAuthToken(bearer);
+    if (!verified) {
+      debug("space auth failed: invalid or expired OAuth access token");
+      return { ok: false, error: unauthorized("Invalid credentials") };
+    }
+    principalId = verified.userId;
+    apiKeyId = null;
   } else {
-    // Human session: a signed Bearer token or the browser cookie. CSRF gates
-    // the ambient cookie case (no Bearer header); better-auth reads the
-    // credential from the request headers itself.
-    if (!bearer && !passesCsrfCheck(request, deps.allowedOrigins)) {
+    // Browser cookie session. CSRF gates the ambient cookie credential.
+    if (!passesCsrfCheck(request, deps.allowedOrigins)) {
       debug("space auth failed: cookie request failed CSRF origin check");
       return { ok: false, error: forbidden("Cross-origin request rejected") };
     }

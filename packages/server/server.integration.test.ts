@@ -34,6 +34,7 @@ function createMockContext(): ServerContext {
       ),
     } as unknown as AuthStore,
     betterAuth: {} as unknown as Auth,
+    verifyOAuthToken: async () => null,
     core: {} as unknown as CoreStore,
     authSchema: "auth",
     coreSchema: "core",

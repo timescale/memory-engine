@@ -16,6 +16,7 @@ function createMockContext(): ServerContext {
       validateSession: mock(() => Promise.resolve(null)),
     } as unknown as AuthStore,
     betterAuth: {} as unknown as Auth,
+    verifyOAuthToken: async () => null,
     core: {} as unknown as CoreStore,
     authSchema: "auth",
     coreSchema: "core",

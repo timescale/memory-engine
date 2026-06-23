@@ -114,6 +114,7 @@ export function createRouter(ctx: ServerContext): Router {
   const {
     db,
     betterAuth,
+    verifyOAuthToken,
     core,
     coreSchema,
     embeddingConfig,
@@ -149,6 +150,7 @@ export function createRouter(ctx: ServerContext): Router {
     const result = await authenticateSpace(request, {
       core,
       betterAuth,
+      verifyOAuthToken,
       db,
       allowedOrigins: webAllowedOrigins,
     });
@@ -174,6 +176,7 @@ export function createRouter(ctx: ServerContext): Router {
     const result = await authenticateUser(
       request,
       betterAuth,
+      verifyOAuthToken,
       webAllowedOrigins,
     );
     if (!result.ok) {
