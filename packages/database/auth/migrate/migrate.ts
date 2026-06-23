@@ -38,6 +38,9 @@ import incremental004 from "./incremental/004_device_authorization.sql" with {
 import incremental005 from "./incremental/005_verifications.sql" with {
   type: "text",
 };
+import incremental006 from "./incremental/006_betterauth.sql" with {
+  type: "text",
+};
 import provisionSql from "./provision.sql" with { type: "text" };
 
 const DIR = "packages/database/auth/migrate";
@@ -70,6 +73,11 @@ const incrementals: Migration[] = [
     name: "005_verifications",
     file: "incremental/005_verifications.sql",
     sql: incremental005,
+  },
+  {
+    name: "006_betterauth",
+    file: "incremental/006_betterauth.sql",
+    sql: incremental006,
   },
 ];
 
