@@ -111,6 +111,21 @@ export function createBetterAuth(opts: BetterAuthOptions) {
       deviceAuthorization({
         expiresIn: DEVICE_CODE_EXPIRES_IN,
         interval: DEVICE_POLL_INTERVAL,
+        // Map the plugin's `deviceCode` model onto our snake_case table.
+        schema: {
+          deviceCode: {
+            modelName: "device_codes",
+            fields: {
+              deviceCode: "device_code",
+              userCode: "user_code",
+              userId: "user_id",
+              expiresAt: "expires_at",
+              lastPolledAt: "last_polled_at",
+              pollingInterval: "polling_interval",
+              clientId: "client_id",
+            },
+          },
+        },
       }),
     ],
     advanced: {
