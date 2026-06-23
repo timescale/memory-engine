@@ -15,6 +15,7 @@ import type { EmbeddingConfig } from "@memory.build/embedding";
 import type { CoreStore } from "@memory.build/engine/core";
 import type { Sql } from "postgres";
 import { MIN_CLIENT_VERSION, SERVER_VERSION } from "../../version";
+import type { Auth } from "./auth/betterauth";
 import type { ServerContext } from "./context";
 import { createRouter } from "./router";
 
@@ -37,6 +38,7 @@ function createMockContext(overrides?: Partial<ServerContext>): ServerContext {
   return {
     db: {} as Sql,
     auth: createMockAuth(),
+    betterAuth: {} as unknown as Auth,
     core: {} as unknown as CoreStore,
     authSchema: "auth",
     coreSchema: "core",

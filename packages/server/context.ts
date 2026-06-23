@@ -2,6 +2,7 @@ import type { AuthStore } from "@memory.build/auth";
 import type { EmbeddingConfig } from "@memory.build/embedding";
 import type { CoreStore } from "@memory.build/engine/core";
 import type { Sql } from "postgres";
+import type { Auth } from "./auth/betterauth";
 
 /**
  * Server-wide context containing database connections.
@@ -12,6 +13,11 @@ export interface ServerContext {
   db: Sql;
   /** Auth store (auth schema): me/session/identity/device + OAuth accounts */
   auth: AuthStore;
+  /**
+   * better-auth instance (auth schema): GitHub/Google OAuth, sessions, and the
+   * device flow. Owns human identity; the api-key path stays in `core`.
+   */
+  betterAuth: Auth;
   /** Core control-plane store (core schema): spaces/principals/grants/api-keys */
   core: CoreStore;
   /** The auth schema name */

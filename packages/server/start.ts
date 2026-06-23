@@ -25,6 +25,7 @@ import {
 import { info, reportError, span } from "@pydantic/logfire-node";
 import postgres, { type Sql } from "postgres";
 import { MIN_CLIENT_VERSION, SERVER_VERSION } from "../../version";
+import { createBetterAuth } from "./auth/betterauth";
 import { embeddingConstants } from "./config";
 import type { ServerContext } from "./context";
 import { checkSizeLimit } from "./middleware";
@@ -117,6 +118,8 @@ export interface StartServerOptions {
   workerDatabaseUrl?: string;
   /** Public URL for OAuth callbacks. Default API_BASE_URL. */
   apiBaseUrl?: string;
+  /** better-auth signing secret. Default BETTER_AUTH_SECRET. */
+  betterAuthSecret?: string;
   /** Auth schema name. Default AUTH_SCHEMA ?? "auth". */
   authSchema?: string;
   /** Core control-plane schema name. Default CORE_SCHEMA ?? "core". */
@@ -393,6 +396,36 @@ export async function startServer(
   // Core control-plane store (core schema) on the runtime application pool.
   const core = coreStore(runtimeDb, coreSchema);
 
+  // better-auth instance + its dedicated, schema-pinned pool. better-auth owns
+  // the human identity surface (OAuth, sessions, device flow); the api-key path
+  // stays in `core`. Its pool is separate from the runtime app pool.
+  const betterAuthSecret =
+    opts.betterAuthSecret ?? process.env.BETTER_AUTH_SECRET;
+  if (!betterAuthSecret) {
+    throw new Error("BETTER_AUTH_SECRET environment variable is required");
+  }
+  const { auth: betterAuth, pool: authDbPool } = createBetterAuth({
+    databaseUrl,
+    authSchema,
+    baseURL: apiBaseUrl,
+    secret: betterAuthSecret,
+    trustedOrigins: webAllowedOrigins,
+    github:
+      process.env.GITHUB_CLIENT_ID && process.env.GITHUB_CLIENT_SECRET
+        ? {
+            clientId: process.env.GITHUB_CLIENT_ID,
+            clientSecret: process.env.GITHUB_CLIENT_SECRET,
+          }
+        : undefined,
+    google:
+      process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET
+        ? {
+            clientId: process.env.GOOGLE_CLIENT_ID,
+            clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+          }
+        : undefined,
+  });
+
   // ---------------------------------------------------------------------------
   // Router
   // ---------------------------------------------------------------------------
@@ -400,6 +433,7 @@ export async function startServer(
   const context: ServerContext = {
     db: runtimeDb,
     auth,
+    betterAuth,
     core,
     authSchema,
     coreSchema,
@@ -572,6 +606,7 @@ export async function startServer(
     try {
       await workerDb.end();
       await runtimeDb.end();
+      await authDbPool.end();
     } catch (error) {
       reportError("Error closing database connections", error as Error);
     }
