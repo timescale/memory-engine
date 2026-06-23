@@ -9,8 +9,9 @@
 //   TEST_DATABASE_URL="$(ghost connect testing_me)" ./bun run test:e2e
 //
 // Boundaries (deliberate): authentication is token injection (provisionUser +
-// createSession → ME_SESSION_TOKEN), not `me login`; embeddings hit real OpenAI
-// directly (a key is required to run — the suite skips, not fails, without one).
+// a minted OAuth access token → ME_SESSION_TOKEN, the raw-bearer override), not
+// `me login`'s browser round-trip; embeddings hit real OpenAI directly (a key is
+// required to run — the suite skips, not fails, without one).
 
 // Set the space-schema prefix before anything reads it. slugToSchema reads
 // SPACE_SCHEMA_PREFIX lazily (per call), so this only needs to run before the
@@ -29,9 +30,9 @@ import {
   stat,
   writeFile,
 } from "node:fs/promises";
+import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { authStore } from "@memory.build/auth";
 import {
   bootstrapSpaceDatabase,
   migrateAuth,
@@ -96,9 +97,18 @@ describe.skipIf(
       },
     );
     spaceSlug = provisioned.spaceSlug;
-    ({ token } = await authStore(sql, authSchema).createSession(
-      provisioned.userId,
-    ));
+    // Inject a real OAuth access token as the bearer (ME_SESSION_TOKEN is the
+    // raw-bearer override): store sha256(raw) in oauth_access_token — exactly
+    // what the server hashes + looks up — and hand the CLI the raw token. Bound
+    // to the seeded `me-cli` client; long-lived so a slow ghost run won't expire.
+    const rawToken = `me_at_${rand()}${rand()}`;
+    await sql.unsafe(
+      `insert into ${authSchema}.oauth_access_token
+         (token, client_id, user_id, scopes, expires_at)
+       values ($1, 'me-cli', $2, '["openid"]'::jsonb, now() + interval '24 hours')`,
+      [createHash("sha256").update(rawToken).digest("hex"), provisioned.userId],
+    );
+    token = rawToken;
 
     const embeddingConfig: EmbeddingConfig = {
       provider: "openai",
