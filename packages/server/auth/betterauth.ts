@@ -27,6 +27,7 @@
 //     uuidv7()` fire (PG18 built-in), read back via RETURNING — keeps
 //     `auth.users.id == core.principal.id`.
 
+import { createHash } from "node:crypto";
 import { oauthProvider } from "@better-auth/oauth-provider";
 import { betterAuth } from "better-auth";
 import { jwt } from "better-auth/plugins";
@@ -46,6 +47,16 @@ export const CLI_CLIENT_ID = "me-cli";
 /** Rolling web-session window: 7-day lifetime, refreshed at most once/day. */
 const SESSION_EXPIRES_IN_SECONDS = 60 * 60 * 24 * 7;
 const SESSION_UPDATE_AGE_SECONDS = 60 * 60 * 24;
+
+/**
+ * Deterministic at-rest hash for OAuth access/refresh tokens. Used BOTH as the
+ * provider's `storeTokens` hasher (so tokens are stored hashed) AND by the
+ * resource-server lookup below (hash the presented token, find its row) — one
+ * source of truth. sha256 hex, matching the core api-key convention.
+ */
+function hashOAuthToken(token: string): string {
+  return createHash("sha256").update(token).digest("hex");
+}
 
 export interface OAuthProviderCredentials {
   clientId: string;
@@ -144,6 +155,8 @@ export function createBetterAuth(opts: BetterAuthOptions) {
         loginPage: `${opts.baseURL}/login`,
         consentPage: `${opts.baseURL}/consent`,
         cachedTrustedClients: new Set([CLI_CLIENT_ID]),
+        // Control the at-rest hash so verifyOAuthAccessToken can look tokens up.
+        storeTokens: { hash: (token) => hashOAuthToken(token) },
         schema: {
           oauthClient: {
             modelName: "oauth_client",
@@ -258,8 +271,35 @@ export function createBetterAuth(opts: BetterAuthOptions) {
     },
   });
 
-  return { auth, pool };
+  /**
+   * Resource-server validation for an OAuth access token (the CLI/MCP bearer).
+   * Hash it the same way it was stored and look it up in oauth_access_token on
+   * the auth pool (search_path=auth). Returns the bound user + granted scopes,
+   * or null if unknown/expired. Access tokens are revoked by row deletion, so a
+   * missing row == invalid — no extra revocation check needed.
+   */
+  async function verifyOAuthAccessToken(
+    token: string,
+  ): Promise<{ userId: string; scopes: string[] } | null> {
+    const { rows } = await pool.query(
+      "select user_id, scopes from oauth_access_token where token = $1 and expires_at > now() limit 1",
+      [hashOAuthToken(token)],
+    );
+    const row = rows[0];
+    if (!row?.user_id) return null;
+    return {
+      userId: row.user_id as string,
+      scopes: Array.isArray(row.scopes) ? (row.scopes as string[]) : [],
+    };
+  }
+
+  return { auth, pool, verifyOAuthAccessToken };
 }
 
 /** The better-auth instance type (inferred from our concrete config). */
 export type Auth = ReturnType<typeof createBetterAuth>["auth"];
+
+/** Resource-server OAuth access-token validator (from createBetterAuth). */
+export type VerifyOAuthAccessToken = ReturnType<
+  typeof createBetterAuth
+>["verifyOAuthAccessToken"];

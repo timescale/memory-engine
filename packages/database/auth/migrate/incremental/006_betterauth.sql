@@ -136,3 +136,19 @@ create table {{schema}}.oauth_consent
 , created_at   timestamptz not null default now()
 , updated_at   timestamptz not null default now()
 );
+
+-- Seed the first-party `me` CLI as a trusted public client: PKCE required,
+-- consent skipped, loopback redirect (RFC 8252 — for a loopback IP the AS
+-- ignores the port, so any http://127.0.0.1:<port>/callback matches). It is
+-- listed in cachedTrustedClients (betterauth.ts), so it is immutable via the
+-- CRUD endpoints; change it here. Idempotent.
+insert into {{schema}}.oauth_client
+  ( client_id, name, public, type, require_pkce, skip_consent
+  , redirect_uris, grant_types, response_types, scopes )
+values
+  ( 'me-cli', 'me CLI', true, 'native', true, true
+  , '["http://127.0.0.1/callback"]'::jsonb
+  , '["authorization_code", "refresh_token"]'::jsonb
+  , '["code"]'::jsonb
+  , '["openid", "profile", "email", "offline_access"]'::jsonb )
+on conflict (client_id) do nothing;
