@@ -19,7 +19,7 @@ import idempotent000 from "./idempotent/000_update.sql" with { type: "text" };
 import idempotent001 from "./idempotent/001_user.sql" with { type: "text" };
 import idempotent002 from "./idempotent/002_session.sql" with { type: "text" };
 import idempotent003 from "./idempotent/003_account.sql" with { type: "text" };
-import idempotent004 from "./idempotent/004_device_auth.sql" with {
+import idempotent004 from "./idempotent/004_oauth.sql" with {
   type: "text",
 };
 import idempotent005 from "./idempotent/005_verification.sql" with {
@@ -95,8 +95,8 @@ const idempotents: Migration[] = [
     sql: idempotent003,
   },
   {
-    name: "004_device_auth",
-    file: "idempotent/004_device_auth.sql",
+    name: "004_oauth",
+    file: "idempotent/004_oauth.sql",
     sql: idempotent004,
   },
   {
