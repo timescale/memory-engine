@@ -370,11 +370,17 @@ Docs: ${docUrl("me_memory_get_by_path")}`,
       title: "Update Memory",
       description: `Modify an existing memory.
 
-Provide the ID and any fields to change (content, tree, meta, temporal). Null fields remain unchanged. Caution: meta is fully replaced, not merged.
+Provide the ID, the current version_hash from a recent get/search/create/update response, and any fields to change (content, tree, meta, temporal). Null fields remain unchanged. Caution: meta is fully replaced, not merged.
 
 Docs: ${docUrl("me_memory_update")}`,
       inputSchema: {
         id: z.string().describe("The UUID of the memory to update"),
+        version_hash: z
+          .string()
+          .length(32)
+          .describe(
+            "Current version_hash for optimistic concurrency control. Get the latest value before updating.",
+          ),
         content: z
           .string()
           .optional()
@@ -422,6 +428,7 @@ Docs: ${docUrl("me_memory_update")}`,
     async (args) => {
       const result = await client.memory.update({
         id: args.id,
+        versionHash: args.version_hash,
         content: args.content ?? undefined,
         meta: args.meta ?? undefined,
         tree: args.tree ?? undefined,

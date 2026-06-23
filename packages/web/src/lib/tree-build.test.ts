@@ -32,6 +32,8 @@ function mkMemory(
     tree: partial.tree ?? "",
     name: partial.name ?? null,
     temporal: partial.temporal ?? null,
+    version: partial.version ?? 1,
+    versionHash: partial.versionHash ?? "00000000000000000000000000000000",
     hasEmbedding: partial.hasEmbedding ?? false,
     createdAt: partial.createdAt ?? new Date().toISOString(),
     createdBy: partial.createdBy ?? null,

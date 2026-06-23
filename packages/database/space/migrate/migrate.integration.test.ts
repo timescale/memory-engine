@@ -45,6 +45,7 @@ const EXPECTED_MIGRATIONS = [
   "004_count_tree",
   "005_memory_name",
   "006_content_version",
+  "007_memory_version",
 ];
 
 const EXPECTED_MEMORY_FUNCTIONS = [
@@ -63,6 +64,7 @@ const EXPECTED_MEMORY_FUNCTIONS = [
   "resolve_memory_id",
   "search_memory",
   "tree_access",
+  "compute_memory_version_hash",
 ];
 
 const EXPECTED_QUEUE_FUNCTIONS = [
@@ -229,8 +231,25 @@ describe("provisioned space schema", () => {
     ).toBeNull();
   });
 
-  test("installs the memory update trigger", async () => {
+  test("memory versioning columns are present and backfilled", async () => {
+    expect(await columnType(sql, canonical.schema, "memory", "version")).toBe(
+      "bigint",
+    );
+    expect(
+      await columnType(sql, canonical.schema, "memory", "version_hash"),
+    ).toBe("text");
+
+    const [row] = await sql.unsafe(
+      `select count(*)::int as missing
+       from ${canonical.schema}.memory
+       where version is null or version_hash is null`,
+    );
+    expect(row?.missing).toBe(0);
+  });
+
+  test("installs the memory versioning triggers", async () => {
     const triggers = await listTriggers(sql, canonical.schema, "memory");
+    expect(triggers).toContain("memory_before_insert_trg");
     expect(triggers).toContain("memory_before_update_trg");
   });
 });
@@ -347,6 +366,56 @@ describe("provisioned schema is functional", () => {
        where id = '${row?.id}' returning content_version`,
     );
     expect(metaOnly?.content_version).toBe(2);
+  });
+
+  test("memory versioning trigger manages version and version_hash", async () => {
+    const [row] = await sql.unsafe(
+      `insert into ${canonical.schema}.memory (content, tree, name, meta, temporal)
+       values ('versioned body', 'v.hash', 'doc', '{"a": 1}'::jsonb, '[2024-01-01,2024-01-02)'::tstzrange)
+       returning id, version, version_hash`,
+    );
+    expect(row?.id).toBeDefined();
+    expect(Number(row?.version)).toBe(1);
+    expect(row?.version_hash).toMatch(/^[0-9a-f]{32}$/);
+
+    const originalHash = row?.version_hash;
+    const [logical] = await sql.unsafe(
+      `update ${canonical.schema}.memory set meta = '{"a": 2}'::jsonb
+       where id = '${row?.id}'
+       returning version, version_hash`,
+    );
+    expect(Number(logical?.version)).toBe(2);
+    expect(logical?.version_hash).toMatch(/^[0-9a-f]{32}$/);
+    expect(logical?.version_hash).not.toBe(originalHash);
+
+    const [manual] = await sql.unsafe(
+      `update ${canonical.schema}.memory
+       set version = 99, version_hash = 'bad'
+       where id = '${row?.id}'
+       returning version, version_hash`,
+    );
+    expect(Number(manual?.version)).toBe(2);
+    expect(manual?.version_hash).toBe(logical?.version_hash);
+  });
+
+  test("compute_memory_version_hash is stable across datetime rendering settings", async () => {
+    const [row] = await sql.unsafe(
+      `insert into ${canonical.schema}.memory (content, tree, temporal)
+       values ('temporal hash', 'v.temporal', '[2024-01-01 00:00:00+00,2024-01-02 00:00:00+00)'::tstzrange)
+       returning id, version_hash`,
+    );
+
+    const [otherSettings] = await sql.begin(async (tx) => {
+      await tx`set local timezone to 'America/Los_Angeles'`;
+      await tx`set local datestyle to 'SQL, DMY'`;
+      return tx.unsafe(
+        `select ${canonical.schema}.compute_memory_version_hash(m) as hash
+         from ${canonical.schema}.memory m
+         where m.id = '${row?.id}'`,
+      );
+    });
+
+    expect(otherSettings?.hash).toBe(row?.version_hash);
   });
 
   test("name: (tree,name) unique, nulls coexist, format enforced", async () => {
@@ -879,6 +948,132 @@ describe("provisioned schema is functional", () => {
       `select count(*)::int as n from ${canonical.schema}.memory where id = '${id2}'`,
     );
     expect(ghost?.n).toBe(0);
+  });
+
+  test("patch_memory requires the current version_hash and advances version", async () => {
+    const [m] = await createMemory(
+      `${OWNER}, 'v.patch'::ltree, 'before', null, '{"v": 1}'::jsonb, null, 'doc'`,
+    );
+    const [before] = await sql.unsafe(
+      `select content, version, version_hash
+       from ${canonical.schema}.memory
+       where id = '${m?.id}'`,
+    );
+    expect(Number(before?.version)).toBe(1);
+    expect(before?.version_hash).toMatch(/^[0-9a-f]{32}$/);
+
+    const [patched] = await sql.unsafe(
+      `select ${canonical.schema}.patch_memory(
+         ${OWNER},
+         '${m?.id}'::uuid,
+         '${before?.version_hash}',
+         '{"content": "after"}'::jsonb
+       ) as ok`,
+    );
+    expect(patched?.ok).toBe(true);
+
+    const [after] = await sql.unsafe(
+      `select content, version, version_hash
+       from ${canonical.schema}.memory
+       where id = '${m?.id}'`,
+    );
+    expect(after?.content).toBe("after");
+    expect(Number(after?.version)).toBe(2);
+    expect(after?.version_hash).toMatch(/^[0-9a-f]{32}$/);
+    expect(after?.version_hash).not.toBe(before?.version_hash);
+
+    let code: string | undefined;
+    try {
+      await sql.unsafe(
+        `select ${canonical.schema}.patch_memory(
+           ${OWNER},
+           '${m?.id}'::uuid,
+           '${before?.version_hash}',
+           '{"content": "stale overwrite"}'::jsonb
+         )`,
+      );
+    } catch (error) {
+      code = (error as { code?: string }).code;
+    }
+    expect(code).toBe("ME002");
+
+    const [unchanged] = await sql.unsafe(
+      `select content, version, version_hash
+       from ${canonical.schema}.memory
+       where id = '${m?.id}'`,
+    );
+    expect(unchanged?.content).toBe("after");
+    expect(Number(unchanged?.version)).toBe(2);
+    expect(unchanged?.version_hash).toBe(after?.version_hash);
+  });
+
+  test("get_memory, search_memory, and hybrid_search_memory surface version fields", async () => {
+    const [m] = await createMemory(
+      `${OWNER}, 'v.returned'::ltree, 'returned fields body', null, '{}'::jsonb, null, 'doc'`,
+    );
+    await sql.unsafe(
+      `update ${canonical.schema}.memory
+       set embedding = ('[' || repeat('0,', 1535) || '0]')::halfvec
+       where id = '${m?.id}'`,
+    );
+
+    const [got] = await sql.unsafe(
+      `select version, version_hash
+       from ${canonical.schema}.get_memory(${OWNER}, '${m?.id}'::uuid)`,
+    );
+    expect(Number(got?.version)).toBe(1);
+    expect(got?.version_hash).toMatch(/^[0-9a-f]{32}$/);
+
+    const [searched] = await sql.unsafe(
+      `select version, version_hash
+       from ${canonical.schema}.search_memory(
+         ${OWNER},
+         null::bm25query,
+         null::halfvec,
+         null,
+         'v.returned'::ltree,
+         null,
+         null,
+         null,
+         null,
+         null,
+         null,
+         null,
+         null,
+         10,
+         'desc'
+       )
+       where id = '${m?.id}'`,
+    );
+    expect(Number(searched?.version)).toBe(1);
+    expect(searched?.version_hash).toBe(got?.version_hash);
+
+    const [hybrid] = await sql.unsafe(
+      `select version, version_hash
+       from ${canonical.schema}.hybrid_search_memory(
+         ${OWNER},
+         to_bm25query('returned', '${canonical.schema}.memory_content_bm25_idx'),
+         ('[' || repeat('0,', 1535) || '0]')::halfvec,
+         null,
+         'v.returned'::ltree,
+         null,
+         null,
+         null,
+         null,
+         null,
+         null,
+         null,
+         null,
+         60.0,
+         10,
+         1.0,
+         1.0,
+         10
+       )
+       where id = '${m?.id}'`,
+    );
+    expect(Number(hybrid?.version)).toBe(1);
+    expect(hybrid?.version_hash).toBe(got?.version_hash);
   });
 
   test("get_memory and resolve_memory_id surface the name", async () => {

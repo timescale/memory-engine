@@ -279,31 +279,41 @@ test("name: create onConflict error (default) / ignore / replace", async () => {
 });
 
 test("update can rename and clear a name", async () => {
-  const created = await call<{ id: string }>("memory.create", {
-    content: "body",
-    tree: "share/ren",
-    name: "old",
-  });
-  const renamed = await call<{ name: string | null }>("memory.update", {
-    id: created.id,
-    name: "new",
-  });
+  const created = await call<{ id: string; versionHash: string }>(
+    "memory.create",
+    {
+      content: "body",
+      tree: "share/ren",
+      name: "old",
+    },
+  );
+  const renamed = await call<{ name: string | null; versionHash: string }>(
+    "memory.update",
+    {
+      id: created.id,
+      versionHash: created.versionHash,
+      name: "new",
+    },
+  );
   expect(renamed.name).toBe("new");
   const cleared = await call<{ name: string | null }>("memory.update", {
     id: created.id,
+    versionHash: renamed.versionHash,
     name: null,
   });
   expect(cleared.name).toBeNull();
 });
 
 test("update adds a name to a previously-unnamed memory", async () => {
-  const created = await call<{ id: string; name: string | null }>(
-    "memory.create",
-    { content: "body", tree: "share/addname" },
-  );
+  const created = await call<{
+    id: string;
+    name: string | null;
+    versionHash: string;
+  }>("memory.create", { content: "body", tree: "share/addname" });
   expect(created.name).toBeNull();
   const named = await call<{ name: string | null }>("memory.update", {
     id: created.id,
+    versionHash: created.versionHash,
     name: "added",
   });
   expect(named.name).toBe("added");
@@ -315,16 +325,41 @@ test("update adds a name to a previously-unnamed memory", async () => {
 });
 
 test("update patches fields", async () => {
-  const created = await call<{ id: string }>("memory.create", {
+  const created = await call<{
+    id: string;
+    version: number;
+    versionHash: string;
+  }>("memory.create", {
     content: "before",
     tree: "share.a",
   });
-  const updated = await call<{ content: string; tree: string }>(
-    "memory.update",
-    { id: created.id, content: "after", tree: "share.a.b" },
-  );
+  expect(created.version).toBe(1);
+  expect(created.versionHash).toMatch(/^[0-9a-f]{32}$/);
+
+  const updated = await call<{
+    content: string;
+    tree: string;
+    version: number;
+    versionHash: string;
+  }>("memory.update", {
+    id: created.id,
+    versionHash: created.versionHash,
+    content: "after",
+    tree: "share.a.b",
+  });
   expect(updated.content).toBe("after");
   expect(updated.tree).toBe("/share/a/b");
+  expect(updated.version).toBe(2);
+  expect(updated.versionHash).not.toBe(created.versionHash);
+
+  await expectAppError(
+    call("memory.update", {
+      id: created.id,
+      versionHash: created.versionHash,
+      content: "stale",
+    }),
+    "CONFLICT",
+  );
 });
 
 test("delete removes; get then NOT_FOUND", async () => {

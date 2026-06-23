@@ -95,6 +95,7 @@ export function EditorPane({ memory, onRequestDelete }: Props) {
       // from the frontmatter clears it (parsed as null); a slug sets/renames.
       await update.mutateAsync({
         id: memory.id,
+        versionHash: memory.versionHash,
         content: fm.body,
         name: fm.name,
         tree: fm.tree,

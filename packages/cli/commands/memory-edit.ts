@@ -175,7 +175,10 @@ export async function editMemory(
       }
 
       // Build update params and call API
-      const updateParams: Record<string, unknown> = { id };
+      const updateParams: Record<string, unknown> = {
+        id,
+        versionHash: original.versionHash,
+      };
       updateParams.content = parsed.content;
       if (parsed.meta !== undefined) updateParams.meta = parsed.meta;
       if (parsed.tree !== undefined) updateParams.tree = parsed.tree;

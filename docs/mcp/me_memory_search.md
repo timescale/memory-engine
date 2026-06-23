@@ -58,7 +58,10 @@ See [Tree filter syntax](../concepts.md#tree-filter-syntax) for the full referen
       "content": "Use ltree for hierarchical path queries.",
       "meta": { "source": "docs" },
       "tree": "/research/postgres",
+      "name": null,
       "temporal": null,
+      "version": 1,
+      "versionHash": "5f3e9c2a8b1d4f7e0c3a6b9d2e5f8c1a",
       "hasEmbedding": true,
       "createdAt": "2025-04-15T12:00:00Z",
       "createdBy": "user_abc",
@@ -73,7 +76,7 @@ See [Tree filter syntax](../concepts.md#tree-filter-syntax) for the full referen
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `results` | `array` | Array of memory objects, each with an additional `score` field (0-1). |
+| `results` | `array` | Array of memory objects (same shape as `me_memory_get`, including `version` and `versionHash`), each with an additional `score` field (0-1). |
 | `total` | `number` | Total number of matching memories. |
 | `limit` | `number` | The limit that was applied. |
 

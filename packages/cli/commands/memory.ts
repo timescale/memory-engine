@@ -468,6 +468,10 @@ function createMemoryUpdateCommand(): Command {
   return new Command("update")
     .description("update a memory (by ID or tree/name path)")
     .argument("<id-or-path>", "memory ID (UUIDv7) or tree/name path")
+    .requiredOption(
+      "--version-hash <hash>",
+      "current versionHash from a recent get/search/create/update response",
+    )
     .option("--content <text>", "new content (use - for stdin)")
     .option("--tree <path>", "new tree path (moves the memory)")
     .option(
@@ -513,7 +517,10 @@ function createMemoryUpdateCommand(): Command {
         const id = UUIDV7_RE.test(ref)
           ? ref
           : (await client.memory.getByPath({ path: ref })).id;
-        const params: Record<string, unknown> = { id };
+        const params: Record<string, unknown> = {
+          id,
+          versionHash: opts.versionHash,
+        };
         if (content) params.content = content;
         if (opts.tree) params.tree = opts.tree;
         // --name "" clears the name (empty is never a valid name); a non-empty

@@ -211,8 +211,19 @@ test("patchMemory updates fields; deleteMemory removes", async () => {
     tree: "work.p",
     content: "before",
   });
-  expect(await db.patchMemory(FULL, id, { content: "after" })).toBe(true);
-  expect((await db.getMemory(FULL, id))?.content).toBe("after");
+  const before = await db.getMemory(FULL, id);
+  expect(before?.version).toBe(1);
+  expect(before?.versionHash).toMatch(/^[0-9a-f]{32}$/);
+
+  expect(
+    await db.patchMemory(FULL, id, before?.versionHash as string, {
+      content: "after",
+    }),
+  ).toBe(true);
+  const after = await db.getMemory(FULL, id);
+  expect(after?.content).toBe("after");
+  expect(after?.version).toBe(2);
+  expect(after?.versionHash).not.toBe(before?.versionHash);
 
   expect(await db.deleteMemory(FULL, id)).toBe(true);
   expect(await db.getMemory(FULL, id)).toBeNull();

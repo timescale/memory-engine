@@ -99,6 +99,7 @@ export type MemoryGetByPathParams = z.infer<typeof memoryGetByPathParams>;
  */
 export const memoryUpdateParams = z.object({
   id: uuidv7Schema,
+  versionHash: z.string().length(32, "versionHash must be an md5 hex string"),
   content: z.string().min(1).optional().nullable(),
   meta: metaSchema.optional().nullable(),
   tree: treePathSchema.optional().nullable(),
@@ -220,6 +221,8 @@ export const memoryResponse = z.object({
       end: z.string(),
     })
     .nullable(),
+  version: z.number().int().positive(),
+  versionHash: z.string().length(32),
   hasEmbedding: z.boolean(),
   createdAt: z.string(),
   createdBy: z.string().nullable(),

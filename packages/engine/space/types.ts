@@ -27,6 +27,8 @@ export interface Memory {
   meta: Record<string, unknown>;
   temporal: TemporalRange | null;
   content: string;
+  version: number;
+  versionHash: string;
   hasEmbedding: boolean;
   createdAt: Date;
   updatedAt: Date | null;
