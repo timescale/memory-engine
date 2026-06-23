@@ -4,7 +4,7 @@
 -- search_memory's result has changed (it gained a `name` column), which
 -- create-or-replace cannot do (42P13). The fn block drops a stale-signatured
 -- definition before the create and asserts the result after.
-{{fn search_memory(jsonb, bm25query, halfve, float8, ltree, lquery, ltxtquery, jsonb, tstzrange, tstzrange, timestamptz, timestamptz, text, bigint, text) returns table (id uuid, meta jsonb, tree ltree, temporal tstzrange, content text, name text, version bigint, version_hash text, has_embedding bool, created_at timestamptz, updated_at timestamptz, score float8)}}
+{{fn search_memory(jsonb, bm25query, halfvec, float8, ltree, lquery, ltxtquery, jsonb, tstzrange, tstzrange, timestamptz, timestamptz, text, bigint, text) returns table (id uuid, meta jsonb, tree ltree, temporal tstzrange, content text, name text, version bigint, version_hash text, has_embedding bool, created_at timestamptz, updated_at timestamptz, score float8)}}
 create or replace function {{schema}}.search_memory
 ( _tree_access jsonb
 , _bm25 bm25query default null
