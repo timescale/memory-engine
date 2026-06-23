@@ -1,18 +1,22 @@
 -------------------------------------------------------------------------------
--- cleanup_expired_device_codes (cron)
--- The OAuth 2.0 device flow is owned by the better-auth deviceAuthorization
--- plugin (the `device_codes` table). Only the periodic expired-row sweep remains
--- here. (The bespoke device-flow functions + the `device_authorization` table
--- were dropped in incremental/006.)
+-- cleanup_expired_oauth_tokens (cron)
+-- The OAuth 2.1 authorization server (@better-auth/oauth-provider) owns its
+-- token tables; better-auth does not purge expired rows on its own, so this
+-- periodic sweep reclaims expired access + refresh tokens. (The bespoke device
+-- flow + its tables/functions were dropped in incremental/006.)
 -------------------------------------------------------------------------------
-create or replace function {{schema}}.cleanup_expired_device_codes()
+create or replace function {{schema}}.cleanup_expired_oauth_tokens()
 returns bigint
 as $func$
-  with d as
+  with a as
   (
-    delete from {{schema}}.device_codes where expires_at <= now() returning 1
+    delete from {{schema}}."oauthAccessToken" where "expiresAt" <= now() returning 1
   )
-  select count(*) from d
+  , r as
+  (
+    delete from {{schema}}."oauthRefreshToken" where "expiresAt" <= now() returning 1
+  )
+  select (select count(*) from a) + (select count(*) from r)
 $func$ language sql volatile security invoker
 set search_path to pg_catalog, {{schema}}, public, pg_temp
 ;
