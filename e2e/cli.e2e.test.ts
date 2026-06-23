@@ -455,7 +455,7 @@ describe.skipIf(
   });
 
   test("6. update + delete round-trip", async () => {
-    const created = await meJson<{ id: string }>([
+    const created = await meJson<{ id: string; versionHash: string }>([
       "create",
       "ephemeral memory to edit",
       "--tree",
@@ -465,6 +465,8 @@ describe.skipIf(
       "memory",
       "update",
       created.id,
+      "--version-hash",
+      created.versionHash,
       "--content",
       "edited content",
     ]);
@@ -507,7 +509,11 @@ describe.skipIf(
       "jwt-rotation",
     ]);
     expect(dup.code).not.toBe(0);
-    const replaced = await meJson<{ id: string; content: string }>([
+    const replaced = await meJson<{
+      id: string;
+      content: string;
+      versionHash: string;
+    }>([
       "create",
       "v2",
       "--tree",
@@ -523,6 +529,8 @@ describe.skipIf(
     const renamed = await meJson<{ name: string | null }>([
       "update",
       "share/auth/jwt-rotation",
+      "--version-hash",
+      replaced.versionHash,
       "--name",
       "rotation",
     ]);
@@ -538,7 +546,7 @@ describe.skipIf(
   });
 
   test("6c. update --name '' clears the name", async () => {
-    const created = await meJson<{ id: string }>([
+    const created = await meJson<{ id: string; versionHash: string }>([
       "create",
       "clearable",
       "--tree",
@@ -549,6 +557,8 @@ describe.skipIf(
     const cleared = await meJson<{ name: string | null }>([
       "update",
       created.id,
+      "--version-hash",
+      created.versionHash,
       "--name",
       "",
     ]);
