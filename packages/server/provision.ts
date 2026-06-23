@@ -66,6 +66,63 @@ export async function addSpaceCreator(
   );
 }
 
+export interface EnsureProvisionedParams {
+  /** The authenticated user id (== auth.users.id == core.principal.id). */
+  userId: string;
+  /** The user's email — the globally-unique core principal name. */
+  email: string;
+  /** Name for the personal space (default "default"). */
+  spaceName?: string;
+}
+
+/**
+ * Lazy, idempotent core-side provisioning for a better-auth user.
+ *
+ * better-auth owns the `auth.users` + `accounts` rows; this stands up the core
+ * side the first time an authenticated user is seen on the user RPC: the
+ * `core.principal` (sharing the auth user id), a default space + its me_<slug>
+ * schema, and the creator grants — the same shape `provisionUser` used to build
+ * in one transaction at signup.
+ *
+ * Idempotent (a no-op once the principal exists), so it can run on every
+ * authenticated request. Concurrent first-requests race safely: the loser either
+ * sees the principal already present or hits a unique violation, re-checks, and
+ * returns. Runs on the app pool — the auth user was already committed by
+ * better-auth (a different pool, same DB) so it is visible here.
+ */
+export async function ensureUserProvisioned(
+  sql: Sql,
+  core: engineCore.CoreStore,
+  schemas: { core: string },
+  params: EnsureProvisionedParams,
+): Promise<void> {
+  // Hot path: already provisioned — one indexed lookup, then done.
+  if (await core.getPrincipal(params.userId)) return;
+
+  const slug = generateSlug();
+  try {
+    await sql.begin(async (tx) => {
+      const txCore = engineCore.coreStore(tx as unknown as Sql, schemas.core);
+      // Re-check inside the transaction to narrow the provisioning race window.
+      if (await txCore.getPrincipal(params.userId)) return;
+      // Principal name is the email (its unique handle); display name lives on
+      // the better-auth user row.
+      await txCore.createUser(params.userId, params.email);
+      const spaceId = await txCore.createSpace(
+        slug,
+        params.spaceName ?? "default",
+      );
+      await provisionSpace(tx, { slug }); // creates the me_<slug> data schema
+      await addSpaceCreator(txCore, spaceId, params.userId);
+    });
+  } catch (error) {
+    // A concurrent first-request may have provisioned us first. If the principal
+    // now exists, the race resolved in our favor; otherwise surface the error.
+    if (await core.getPrincipal(params.userId)) return;
+    throw error;
+  }
+}
+
 export function provisionUser(
   sql: Sql,
   schemas: { auth: string; core: string },

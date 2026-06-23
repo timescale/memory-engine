@@ -4,6 +4,7 @@ import { versionHandler } from "./handlers/version";
 import { authenticateSpace } from "./middleware/authenticate-space";
 import { authenticateUser } from "./middleware/authenticate-user";
 import { checkClientVersion } from "./middleware/client-version";
+import { ensureUserProvisioned } from "./provision";
 import { createRpcHandler, memoryMethods, userMethods } from "./rpc";
 import { methodNotAllowed, notFound } from "./util/response";
 import { createStaticHandler } from "./web/static";
@@ -179,6 +180,16 @@ export function createRouter(ctx: ServerContext): Router {
       return result.error;
     }
     const { userId, email, name } = result.context;
+    // Lazy first-login provisioning: stand up the core principal + default space
+    // the first time a better-auth user reaches the user RPC (idempotent no-op
+    // thereafter). The CLI hits whoami/space.list right after login, so this is
+    // the natural first touchpoint.
+    await ensureUserProvisioned(
+      db,
+      core,
+      { core: coreSchema },
+      { userId, email },
+    );
     return { core, userId, email, name, db, coreSchema };
   });
 
