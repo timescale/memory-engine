@@ -1,38 +1,51 @@
 // packages/server/auth/betterauth.ts
 //
-// The better-auth instance. better-auth owns the human identity surface:
-// GitHub/Google OAuth, the `users`/`accounts`/`sessions`/`verifications` tables,
-// the OAuth 2.0 device flow (CLI login), and session validation. It does NOT
-// touch the api-key path (agents) — that stays in `core` (core.validate_api_key).
+// The better-auth instance. It plays two roles:
+//
+//   1. Web identity: GitHub/Google social login → cookie sessions for the web UI
+//      (the `users`/`accounts`/`sessions`/`verifications` tables). This is also
+//      the login step the OAuth authorize endpoint relies on.
+//   2. OAuth 2.1 authorization server (`oauthProvider`): issues access/refresh
+//      tokens to OAuth clients — the first being the first-party `me` CLI (a
+//      public client doing auth-code + PKCE + loopback), and later hosted-MCP
+//      clients. Tokens are opaque and HASHED at rest by default (storeTokens),
+//      validated by introspection. The CLI no longer uses session tokens.
+//
+// The api-key path (agents) stays entirely in `core` (core.validate_api_key).
 //
 // Design notes (see the migration discussion / CLAUDE.md):
-//   * Dedicated pool. better-auth's built-in adapter is Kysely and resolves the
-//     auth tables via the connection `search_path`, so it gets its OWN small
+//   * Dedicated pool. better-auth's adapter is Kysely and resolves the auth
+//     tables via the connection `search_path`, so it gets its OWN small
 //     node-postgres pool pinned to `search_path=<authSchema>`. The main
 //     postgres.js app pool (core + me_<slug>) is untouched.
-//   * Schema mapping, no renames. We map better-auth's camelCase logical fields
-//     onto the existing snake_case / plural tables via `modelName` + `fields`.
-//   * DB-generated ids. `advanced.database.generateId: false` lets the column
-//     `default uuidv7()` fire (PG18 built-in); the adapter reads it back with
-//     `INSERT ... RETURNING`. This keeps `auth.users.id == core.principal.id`.
-//   * Session tokens are stored plaintext (better-auth round-trips the token
-//     through the row), so the CLI/bearer path is hardened with
-//     `bearer({ requireSignature: true })`: a raw DB token is not replayable;
-//     a valid bearer credential is the signed `token.signature` value.
+//   * Schema mapping. The pre-existing user/session/account/verification tables
+//     are snake_case (mapped via `modelName`+`fields`). The OAuth-provider and
+//     jwt (jwks) tables are *new and library-owned* — we accept better-auth's
+//     native names rather than hand-map ~35 fields (we never query them
+//     directly); the migration creates them to match.
+//   * DB-generated ids. `advanced.database.generateId: false` lets `default
+//     uuidv7()` fire (PG18 built-in), read back via RETURNING — keeps
+//     `auth.users.id == core.principal.id`.
+
+import { oauthProvider } from "@better-auth/oauth-provider";
 import { betterAuth } from "better-auth";
-import { bearer, deviceAuthorization } from "better-auth/plugins";
+import { jwt } from "better-auth/plugins";
 import { Pool } from "pg";
 
 /** Path prefix better-auth mounts its routes under (preserves our current URLs). */
 export const AUTH_BASE_PATH = "/api/v1/auth";
 
-/** Rolling session window: 7-day lifetime, refreshed at most once/day. */
+/**
+ * client_id of the first-party `me` CLI — a trusted public OAuth client
+ * (PKCE + loopback redirect, consent skipped). Registered as a row in the
+ * oauth client table by the migration; listed here so the provider treats it as
+ * an immutable trusted client and so the CLI can reference it.
+ */
+export const CLI_CLIENT_ID = "me-cli";
+
+/** Rolling web-session window: 7-day lifetime, refreshed at most once/day. */
 const SESSION_EXPIRES_IN_SECONDS = 60 * 60 * 24 * 7;
 const SESSION_UPDATE_AGE_SECONDS = 60 * 60 * 24;
-
-/** Device flow: short-lived user/device codes, RFC 8628 default poll interval. */
-const DEVICE_CODE_EXPIRES_IN = "15m";
-const DEVICE_POLL_INTERVAL = "5s";
 
 export interface OAuthProviderCredentials {
   clientId: string;
@@ -46,7 +59,7 @@ export interface BetterAuthOptions {
   authSchema: string;
   /** Public base URL (API_BASE_URL); used for baseURL + OAuth callbacks. */
   baseURL: string;
-  /** Signing secret (BETTER_AUTH_SECRET) for cookie signatures + bearer tokens. */
+  /** Signing secret (BETTER_AUTH_SECRET): cookie signatures + jwks key encryption. */
   secret: string;
   /** Origins allowed to drive the browser flow (CSRF). */
   trustedOrigins: string[];
@@ -104,28 +117,17 @@ export function createBetterAuth(opts: BetterAuthOptions) {
         : {}),
     },
     plugins: [
-      // CLI/agent transport. requireSignature closes the at-rest replay gap:
-      // a raw token read from the DB cannot be replayed; the client must hold
-      // the signed `token.signature` value (the `set-auth-token` header value).
-      bearer({ requireSignature: true }),
-      deviceAuthorization({
-        expiresIn: DEVICE_CODE_EXPIRES_IN,
-        interval: DEVICE_POLL_INTERVAL,
-        // Map the plugin's `deviceCode` model onto our snake_case table.
-        schema: {
-          deviceCode: {
-            modelName: "device_codes",
-            fields: {
-              deviceCode: "device_code",
-              userCode: "user_code",
-              userId: "user_id",
-              expiresAt: "expires_at",
-              lastPolledAt: "last_polled_at",
-              pollingInterval: "polling_interval",
-              clientId: "client_id",
-            },
-          },
-        },
+      // Signs OIDC id tokens + exposes JWKS; private keys stored encrypted with
+      // `secret`. Opaque access tokens are validated by introspection, not JWKS.
+      jwt(),
+      // OAuth 2.1 authorization server. Access/refresh tokens default to
+      // `storeTokens: "hashed"` (sha256 at rest, hash-on-lookup). The CLI is a
+      // trusted public client; cachedTrustedClients makes it immutable via the
+      // CRUD/registration endpoints and lets it skip the consent screen.
+      oauthProvider({
+        loginPage: `${opts.baseURL}/login`,
+        consentPage: `${opts.baseURL}/consent`,
+        cachedTrustedClients: new Set([CLI_CLIENT_ID]),
       }),
     ],
     advanced: {
