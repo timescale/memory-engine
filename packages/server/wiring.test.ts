@@ -49,6 +49,7 @@ function createMockContext(overrides?: Partial<ServerContext>): ServerContext {
     db: {} as Sql,
     auth: createMockAuth(),
     betterAuth: createMockBetterAuth(),
+    verifyOAuthToken: async () => null,
     core: {} as unknown as CoreStore,
     authSchema: "auth",
     coreSchema: "core",
@@ -161,20 +162,12 @@ describe("Server-Database Wiring", () => {
         name: "Test User",
       };
       const ctx = createMockContext({
-        betterAuth: createMockBetterAuth({
-          getSession: mock(() =>
-            Promise.resolve({
-              session: { id: "session-1", userId: identity.id },
-              user: {
-                id: identity.id,
-                email: identity.email,
-                name: identity.name,
-                emailVerified: true,
-                createdAt: new Date("2026-01-01T00:00:00Z"),
-                updatedAt: null,
-              },
-            }),
-          ),
+        // Bearer → OAuth access-token path: return the identity directly.
+        verifyOAuthToken: async () => ({
+          userId: identity.id,
+          email: identity.email,
+          name: identity.name,
+          scopes: [],
         }),
         // Already-provisioned: getPrincipal returns truthy so lazy provisioning
         // short-circuits (no DB writes in this unit test).

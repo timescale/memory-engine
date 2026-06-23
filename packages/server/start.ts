@@ -404,7 +404,11 @@ export async function startServer(
   if (!betterAuthSecret) {
     throw new Error("BETTER_AUTH_SECRET environment variable is required");
   }
-  const { auth: betterAuth, pool: authDbPool } = createBetterAuth({
+  const {
+    auth: betterAuth,
+    pool: authDbPool,
+    verifyOAuthAccessToken,
+  } = createBetterAuth({
     databaseUrl,
     authSchema,
     baseURL: apiBaseUrl,
@@ -434,6 +438,7 @@ export async function startServer(
     db: runtimeDb,
     auth,
     betterAuth,
+    verifyOAuthToken: verifyOAuthAccessToken,
     core,
     authSchema,
     coreSchema,

@@ -45,6 +45,7 @@ function deps() {
   return {
     core: engineCore.coreStore(sql, coreSchema),
     betterAuth: betterAuth.auth,
+    verifyOAuthToken: betterAuth.verifyOAuthAccessToken,
     db: sql,
     allowedOrigins: ["https://test.example.com"],
   };
