@@ -121,6 +121,9 @@ describe.skipIf(
       apiBaseUrl: "http://localhost", // OAuth callbacks unused (token injection)
       authSchema,
       coreSchema,
+      // better-auth requires a signing secret to boot; the e2e authenticates by
+      // token injection (no sign-in), so any stable test value works.
+      betterAuthSecret: "test-better-auth-secret-0123456789",
       migrate: false, // harness already migrated
       enableCleanupCron: false,
       workerCount: 1,
