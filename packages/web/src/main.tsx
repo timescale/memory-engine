@@ -12,7 +12,13 @@ import { createRoot } from "react-dom/client";
 import { HOSTED } from "./api/bootstrap.ts";
 import { App } from "./app.tsx";
 import { AuthGate } from "./components/AuthGate.tsx";
+import { LoginPage } from "./components/LoginPage.tsx";
 import "./styles.css";
+
+// The OAuth-provider login page (`me login`'s authorize flow redirects here).
+// It's served by the API server at /login alongside the SPA, so handle the path
+// before the hosted/local app split.
+const isLoginPage = window.location.pathname === "/login";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -32,7 +38,9 @@ if (!rootElement) {
 createRoot(rootElement).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>
-      {HOSTED ? (
+      {isLoginPage ? (
+        <LoginPage />
+      ) : HOSTED ? (
         <AuthGate>
           <App />
         </AuthGate>
