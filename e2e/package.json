@@ -4,7 +4,6 @@
   "private": true,
   "type": "module",
   "dependencies": {
-    "@memory.build/auth": "workspace:*",
     "@memory.build/database": "workspace:*",
     "@memory.build/embedding": "workspace:*",
     "postgres": "^3.4.9"

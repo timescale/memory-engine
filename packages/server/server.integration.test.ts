@@ -1,5 +1,4 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import type { AuthStore } from "@memory.build/auth";
 import type { EmbeddingConfig } from "@memory.build/embedding";
 import type { CoreStore } from "@memory.build/engine/core";
 import type { Sql } from "postgres";
@@ -16,9 +15,6 @@ let baseUrl: string;
 function createMockContext(): ServerContext {
   return {
     db: {} as Sql,
-    // The router no longer reads ctx.auth (better-auth owns /api/v1/auth/*); a
-    // bare stub satisfies the ServerContext shape.
-    auth: {} as unknown as AuthStore,
     betterAuth: {} as unknown as Auth,
     verifyOAuthToken: async () => null,
     core: {} as unknown as CoreStore,

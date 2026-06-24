@@ -1,5 +1,4 @@
-import { describe, expect, mock, test } from "bun:test";
-import type { AuthStore } from "@memory.build/auth";
+import { describe, expect, test } from "bun:test";
 import type { EmbeddingConfig } from "@memory.build/embedding";
 import type { CoreStore } from "@memory.build/engine/core";
 import type { Sql } from "postgres";
@@ -12,9 +11,6 @@ import { createRouter } from "./router";
 function createMockContext(): ServerContext {
   return {
     db: {} as Sql,
-    auth: {
-      validateSession: mock(() => Promise.resolve(null)),
-    } as unknown as AuthStore,
     betterAuth: {} as unknown as Auth,
     verifyOAuthToken: async () => null,
     core: {} as unknown as CoreStore,
