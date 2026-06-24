@@ -7,6 +7,7 @@
  * - Principal / agent resolution
  * - Error handling
  */
+import { homedir } from "node:os";
 import * as clack from "@clack/prompts";
 import type { MemoryClient, UserClient } from "./client.ts";
 import { createMemoryClient, createUserClient, RpcError } from "./client.ts";
@@ -192,6 +193,50 @@ export async function resolveAgentId(
 export function isAppErrorCode(error: unknown, code: string): boolean {
   if (!(error instanceof RpcError)) return false;
   return error.appCode === code || (error.code as unknown) === code;
+}
+
+/** POSIX-quote a single argv token unless it is already a shell-safe bareword. */
+function shellQuoteArg(token: string): string {
+  if (/^[A-Za-z0-9_,.:/=@%+-]+$/.test(token)) return token;
+  return `'${token.replace(/'/g, `'\\''`)}'`;
+}
+
+/**
+ * Diagnose a tree filter/path that the shell mangled before it reached us.
+ *
+ * The user-facing home shortcut is a leading `~` (`~/notes` → the caller's
+ * memory home). But an *unquoted* `~` is expanded by the shell, not us: zsh/bash
+ * turn `~/notes` into `$HOME/notes` and `~notes` into a lookup of user `notes`'s
+ * home. So `me search --tree ~/notes` arrives here as `--tree /Users/me/notes`,
+ * which normalizes to the ltree filter `Users.me.notes` and silently matches
+ * nothing — exactly when the caller meant their home and should have quoted it.
+ *
+ * Given a tree value *as it arrived in argv*, return a one-line hint nudging the
+ * caller to quote `~`, but only when the value is the caller's filesystem home
+ * or a child of it (the tell-tale of `~` expansion). A real memory tree path is
+ * never an absolute filesystem path, so this never fires on a legitimate filter.
+ * Returns null otherwise. Call it only on a zero-result path: a non-null return
+ * then means "no matches AND the filter looks shell-expanded".
+ *
+ * The suggestion is the *full command* as typed, with the shell-expanded home
+ * token swapped for the quoted `~` form (and any other arg quoted as needed) so
+ * it's copy-pasteable. `argv` (post-expansion, defaulting to `process.argv` —
+ * user args at index 2, matching the rest of this CLI) and `home` are injectable
+ * for testing.
+ */
+export function shellTildeExpansionHint(
+  rawTree: string | undefined,
+  argv: readonly string[] = process.argv,
+  home: string = homedir(),
+): string | null {
+  if (!rawTree || !home || home === "/") return null;
+  if (rawTree !== home && !rawTree.startsWith(`${home}/`)) return null;
+  const suggestion = `~${rawTree.slice(home.length)}`; // "~" or "~/notes"
+  const command = argv
+    .slice(2)
+    .map((arg) => (arg === rawTree ? `'${suggestion}'` : shellQuoteArg(arg)))
+    .join(" ");
+  return `Hint: your shell may have expanded '~'. Try: me ${command}`;
 }
 
 /**
