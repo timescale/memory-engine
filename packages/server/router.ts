@@ -177,12 +177,13 @@ export function createRouter(ctx: ServerContext): Router {
       request,
       betterAuth,
       verifyOAuthToken,
+      core,
       webAllowedOrigins,
     );
     if (!result.ok) {
       return result.error;
     }
-    const { userId, email, name, emailVerified } = result.context;
+    const { userId, email, name, emailVerified, viaApiKey } = result.context;
     // Lazy first-login provisioning: stand up the core principal + default space
     // the first time a better-auth user reaches the user RPC (idempotent no-op
     // thereafter). The CLI hits whoami/space.list right after login, so this is
@@ -194,7 +195,7 @@ export function createRouter(ctx: ServerContext): Router {
       { core: coreSchema },
       { userId, email, emailVerified },
     );
-    return { core, userId, email, name, db, coreSchema };
+    return { core, userId, email, name, db, coreSchema, viaApiKey };
   });
 
   /**

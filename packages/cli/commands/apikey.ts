@@ -1,11 +1,13 @@
 /**
- * me apikey — manage your agents' API keys.
+ * me apikey — manage API keys (for your agents, or yourself via --self).
  *
- * Keys are agent-only (humans authenticate with a session) and global: a key
- * works in any space the agent has been admitted to. The plaintext key is shown
- * exactly once, by `create`. There is no revoke state — delete is the removal.
+ * Keys are global: a key works in any space its principal has been admitted to.
+ * The plaintext key is shown exactly once, by `create`. No revoke state — delete
+ * is the removal. A `--self` key is a personal access token (full access as you,
+ * headless); minting/revoking always requires a `me login` session.
  *
- * - me apikey create <agent> [name] [--expires <ts>]: mint a key (shown once)
+ * - me apikey create <agent> [name] [--expires <ts>]: mint an agent key
+ * - me apikey create --self [name]:                   mint a personal access token
  * - me apikey list <agent>:                           list an agent's keys
  * - me apikey get <id>:                               key metadata
  * - me apikey delete <id>:                            delete (revoke) a key
@@ -26,40 +28,71 @@ import {
 function createApiKeyCreateCommand(): Command {
   return new Command("create")
     .description("mint an API key for one of your agents")
-    .argument("<agent>", "agent id or name")
+    .argument("[agent]", "agent id or name")
     .argument("[name]", "key name (auto-generated if omitted)")
     .option("--expires <timestamp>", "expiration timestamp (ISO 8601)")
-    .action(async (agent: string, name: string | undefined, opts, cmd) => {
-      const globalOpts = cmd.optsWithGlobals();
-      const creds = resolveCredentials(globalOpts.server);
-      const fmt = getOutputFormat(globalOpts);
-      requireSession(creds, fmt);
+    .option(
+      "--self",
+      "mint a personal access token for YOURSELF (headless/CLI use) — full access as you; can't manage keys",
+    )
+    .action(
+      async (
+        agent: string | undefined,
+        name: string | undefined,
+        opts,
+        cmd,
+      ) => {
+        const globalOpts = cmd.optsWithGlobals();
+        const creds = resolveCredentials(globalOpts.server);
+        const fmt = getOutputFormat(globalOpts);
+        requireSession(creds, fmt);
 
-      const user = buildUserClient(creds);
-      const keyName = name ?? `cli-${new Date().toISOString().slice(0, 10)}`;
+        // Minting a PAT must be explicit (`--self`) — it's a full-access
+        // credential, so it never happens implicitly. Require exactly one target.
+        if (opts.self && agent) {
+          handleError(new Error("Pass an agent or --self, not both."), fmt);
+        }
+        if (!opts.self && !agent) {
+          handleError(
+            new Error(
+              "Specify an agent (e.g. `me apikey create <agent>`), or --self to mint a personal access token for yourself.",
+            ),
+            fmt,
+          );
+        }
 
-      try {
-        const agentId = await resolveAgentId(user, agent, fmt);
-        const result = await user.apiKey.create({
-          agentId,
-          name: keyName,
-          expiresAt: opts.expires ?? null,
-        });
-        output(result, fmt, () => {
-          clack.log.success(`Created API key '${keyName}'`);
-          console.log(`  ID: ${result.id}`);
-          clack.note(
-            result.key,
-            "API key — save it now; it won't be shown again",
-          );
-          clack.log.info(
-            "Give it to the agent via ME_API_KEY or its MCP config. It works in any space the agent is a member of.",
-          );
-        });
-      } catch (error) {
-        handleError(error, fmt, { sessionServer: creds.server });
-      }
-    });
+        const user = buildUserClient(creds);
+        const keyName = name ?? `cli-${new Date().toISOString().slice(0, 10)}`;
+
+        try {
+          // --self → the caller's own user principal (resolved via whoami);
+          // else the named agent.
+          const memberId = opts.self
+            ? (await user.whoami()).id
+            : await resolveAgentId(user, agent as string, fmt);
+          const result = await user.apiKey.create({
+            memberId,
+            name: keyName,
+            expiresAt: opts.expires ?? null,
+          });
+          output(result, fmt, () => {
+            clack.log.success(`Created API key '${keyName}'`);
+            console.log(`  ID: ${result.id}`);
+            clack.note(
+              result.key,
+              "API key — save it now; it won't be shown again",
+            );
+            clack.log.info(
+              opts.self
+                ? "Personal access token — use it as ME_API_KEY for headless/CLI access as you (e.g. in a VM or over SSH). Managing keys (create/revoke) still requires `me login`."
+                : "Give it to the agent via ME_API_KEY or its MCP config. It works in any space the agent is a member of.",
+            );
+          });
+        } catch (error) {
+          handleError(error, fmt, { sessionServer: creds.server });
+        }
+      },
+    );
 }
 
 function createApiKeyListCommand(): Command {
@@ -113,7 +146,7 @@ function createApiKeyGetCommand(): Command {
           }
           console.log(`  ID:      ${apiKey.id}`);
           console.log(`  Name:    ${apiKey.name}`);
-          console.log(`  Agent:   ${apiKey.memberId}`);
+          console.log(`  Member:  ${apiKey.memberId}`);
           console.log(`  Created: ${apiKey.createdAt}`);
           console.log(`  Expires: ${apiKey.expiresAt ?? "(never)"}`);
         });
@@ -161,7 +194,7 @@ function createApiKeyDeleteCommand(): Command {
 
 export function createApiKeyCommand(): Command {
   const apikey = new Command("apikey").description(
-    "manage your agents' API keys",
+    "manage API keys (for your agents, or yourself via --self)",
   );
   apikey.addCommand(createApiKeyCreateCommand());
   apikey.addCommand(createApiKeyListCommand());

@@ -57,6 +57,18 @@ export async function requireOwnAgent(
   }
 }
 
+/**
+ * Assert the caller may manage api keys for this member — either their own user
+ * principal (a personal access token) or an agent they own.
+ */
+export async function requireOwnMember(
+  ctx: UserRpcContext,
+  memberId: string,
+): Promise<void> {
+  if (memberId === ctx.userId) return; // the caller's own user principal (PAT)
+  await requireOwnAgent(ctx, memberId); // else must be an agent they own
+}
+
 async function agentCreate(
   params: AgentCreateParams,
   context: HandlerContext,
