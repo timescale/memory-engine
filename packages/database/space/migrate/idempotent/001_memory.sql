@@ -133,7 +133,7 @@ $func$ language sql immutable strict security invoker
 -- create-or-replace cannot do (42P13). The fn block drops a stale-signatured
 -- definition before the create and asserts the result after — see
 -- migrate/function_signature.sql.
-{{fn get_memory(jsonb, uuid) returns table(id uuid, tree ltree, meta jsonb, temporal tstzrange, content text, name text, version bigint, version_hash text, created_at timestamptz, updated_at timestamptz, has_embedding bool)}}
+{{fn get_memory(_tree_access jsonb, _id uuid) returns table(id uuid, tree ltree, meta jsonb, temporal tstzrange, content text, name text, version bigint, version_hash text, created_at timestamptz, updated_at timestamptz, has_embedding bool)}}
 create or replace function {{schema}}.get_memory
 ( _tree_access jsonb
 , _id uuid
@@ -288,7 +288,7 @@ set search_path to pg_catalog, {{schema}}, public, pg_temp
 -- any same-named function whose signature differs before the create — sweeping
 -- both the old result and the stale overloads — and asserts the result after.
 -------------------------------------------------------------------------------
-{{fn batch_create_memory(jsonb, uuid[], ltree[], text[], jsonb, tstzrange[], text[], text) returns table(ord bigint, id uuid, status text)}}
+{{fn batch_create_memory(_tree_access jsonb, _ids uuid[], _trees ltree[], _contents text[], _metas jsonb, _temporals tstzrange[], _names text[], _on_conflict text) returns table(ord bigint, id uuid, status text)}}
 create or replace function {{schema}}.batch_create_memory
 ( _tree_access jsonb
 , _ids uuid[]                 -- null elements get a generated uuidv7
@@ -563,7 +563,7 @@ set search_path to pg_catalog, {{schema}}, public, pg_temp
 -- create — sweeping both the old result and the stale overloads — and asserts
 -- the result after.
 -------------------------------------------------------------------------------
-{{fn create_memory(jsonb, ltree, text, uuid, jsonb, tstzrange, text, text) returns table(id uuid, status text)}}
+{{fn create_memory(_tree_access jsonb, _tree ltree, _content text, _id uuid, _meta jsonb, _temporal tstzrange, _name text, _on_conflict text) returns table(id uuid, status text)}}
 create or replace function {{schema}}.create_memory
 ( _tree_access jsonb
 , _tree ltree
@@ -595,7 +595,7 @@ set search_path to pg_catalog, {{schema}}, public, pg_temp
 -------------------------------------------------------------------------------
 -- patch memory
 -------------------------------------------------------------------------------
-{{fn patch_memory(jsonb, uuid, text, jsonb) returns bool}}
+{{fn patch_memory(_tree_access jsonb, _id uuid, _prior_version_hash text, _patch jsonb) returns bool}}
 create or replace function {{schema}}.patch_memory
 ( _tree_access jsonb
 , _id uuid

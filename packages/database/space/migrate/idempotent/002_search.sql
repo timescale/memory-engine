@@ -4,7 +4,7 @@
 -- search_memory's result has changed (it gained a `name` column), which
 -- create-or-replace cannot do (42P13). The fn block drops a stale-signatured
 -- definition before the create and asserts the result after.
-{{fn search_memory(jsonb, bm25query, halfvec, float8, ltree, lquery, ltxtquery, jsonb, tstzrange, tstzrange, timestamptz, timestamptz, text, bigint, text) returns table (id uuid, meta jsonb, tree ltree, temporal tstzrange, content text, name text, version bigint, version_hash text, has_embedding bool, created_at timestamptz, updated_at timestamptz, score float8)}}
+{{fn search_memory(_tree_access jsonb, _bm25 bm25query, _vec halfvec, _max_vec_dist float8, _ltree ltree, _lquery lquery, _ltxtquery ltxtquery, _meta_contains jsonb, _temporal_within tstzrange, _temporal_overlaps tstzrange, _temporal_before timestamptz, _temporal_after timestamptz, _regexp text, _limit bigint, _order text) returns table (id uuid, meta jsonb, tree ltree, temporal tstzrange, content text, name text, version bigint, version_hash text, has_embedding bool, created_at timestamptz, updated_at timestamptz, score float8)}}
 create or replace function {{schema}}.search_memory
 ( _tree_access jsonb
 , _bm25 bm25query default null
@@ -237,7 +237,7 @@ set search_path to pg_catalog, {{schema}}, public, pg_temp
 -- hybrid_search_memory
 -------------------------------------------------------------------------------
 -- Same `name` return-column addition as search_memory; same fn-block guard.
-{{fn hybrid_search_memory(jsonb, bm25query, halfvec, float8, ltree, lquery, ltxtquery, jsonb, tstzrange, tstzrange, timestamptz, timestamptz, text, float8, bigint, float8, float8, bigint) returns table(id uuid, meta jsonb, tree ltree, temporal tstzrange, content text, name text, version bigint, version_hash text, has_embedding bool, created_at timestamptz, updated_at timestamptz, score float8)}}
+{{fn hybrid_search_memory(_tree_access jsonb, _bm25 bm25query, _vec halfvec, _max_vec_dist float8, _ltree ltree, _lquery lquery, _ltxtquery ltxtquery, _meta_contains jsonb, _temporal_within tstzrange, _temporal_overlaps tstzrange, _temporal_before timestamptz, _temporal_after timestamptz, _regexp text, _k float8, _candidate_limit bigint, _fulltext_weight float8, _semantic_weight float8, _limit bigint) returns table(id uuid, meta jsonb, tree ltree, temporal tstzrange, content text, name text, version bigint, version_hash text, has_embedding bool, created_at timestamptz, updated_at timestamptz, score float8)}}
 create or replace function {{schema}}.hybrid_search_memory
 ( _tree_access jsonb
 , _bm25 bm25query

@@ -158,7 +158,7 @@ set search_path to pg_catalog, {{schema}}, public, pg_temp
 -- list_space_principals dropped its `direct` output column — a returns-table
 -- change create-or-replace cannot make. The fn block drops a stale-signatured
 -- definition before the create and asserts the result after.
-{{fn list_space_principals(uuid, text) returns table(id uuid, kind text, name text, owner_id uuid, admin bool, created_at timestamptz, updated_at timestamptz)}}
+{{fn list_space_principals(_space_id uuid, _kind text) returns table(id uuid, kind text, name text, owner_id uuid, admin bool, created_at timestamptz, updated_at timestamptz)}}
 create or replace function {{schema}}.list_space_principals
 ( _space_id uuid
 , _kind text default null
