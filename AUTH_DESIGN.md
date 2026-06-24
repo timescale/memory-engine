@@ -297,6 +297,84 @@ override), `ME_NO_KEYCHAIN`.
 - **Authorization** — the `tree_access` model (read/write/owner grants, the
   `build_tree_access` gate) is unchanged and orthogonal to this document.
 
+## Future: the hosted MCP connector
+
+Not built yet — but the OAuth 2.1 AS above was chosen with this in mind, so this
+records the intended path.
+
+Today MCP is **local-only**: `me mcp` runs over stdio and reuses the CLI's
+credential (OAuth token or api key). A **hosted** connector would let
+third-party AI clients (Claude, ChatGPT, custom agents) connect to a Memory
+Engine MCP endpoint over HTTP and authenticate with the standard "Authorize"
+UX. Most of the machinery already exists; the delta is small and well-defined.
+
+### Reused unchanged
+
+- The OAuth 2.1 AS: `/oauth2/authorize` + `/oauth2/token`, PKCE, access/refresh
+  tokens hashed at rest, the `oauth_client` / `oauth_access_token` /
+  `oauth_refresh_token` / `oauth_consent` tables, jwks.
+- **Resource-server validation** — `verifyOAuthAccessToken`. An MCP request's
+  Bearer token resolves to a user exactly like the CLI's.
+- **Authorization** — user → `core.principal` → `tree_access`. Identical: an MCP
+  caller is just a user, gated by the same grants. No new authz model (this is
+  why "MCP needs scope design" was a non-issue for the basic case).
+- **The `/login` page** — the authorize flow's sign-in step is the same.
+
+### The delta from the CLI
+
+`me-cli` is a single, first-party, **trusted + static + public** client with
+consent skipped. Hosted MCP clients are **third-party and unknown ahead of
+time**, which flips three of those:
+
+1. **Dynamic Client Registration (RFC 7591).** MCP clients register themselves
+   at runtime — we can't pre-seed each one like `me-cli`. Enable DCR in the
+   `oauthProvider` config; registrations land as `oauth_client` rows (not
+   trusted → consent required). This is the DCR we deliberately skipped for the
+   CLI — here it earns its keep.
+2. **The consent screen.** Untrusted clients must show the user what they're
+   granting. `consentPage` is already configured (`${baseURL}/consent`) but the
+   page doesn't exist yet — build it like `/login` (a SPA route that reads the
+   signed authorize params, renders "<client> wants access to your memories,"
+   and approves/denies via the provider's consent endpoint, writing an
+   `oauth_consent` row). `me-cli` keeps `skip_consent`; DCR clients don't.
+3. **The hosted MCP transport + discovery.** Mount an HTTP/SSE MCP endpoint
+   (e.g. `/api/v1/mcp`) using better-auth's MCP support (its `mcp` plugin / MCP
+   handler over the OAuth provider). Per the MCP authorization spec, also serve:
+   - **Protected Resource Metadata** (RFC 9728) at
+     `/.well-known/oauth-protected-resource` — tells clients which AS to use; a
+     401 from the MCP endpoint returns `WWW-Authenticate` pointing here.
+   - **AS Metadata** (RFC 8414) at `/.well-known/oauth-authorization-server` —
+     the better-auth boot warning we already see (`Please ensure
+     '/.well-known/oauth-authorization-server/api/v1/auth' exists`) is exactly
+     this; surface it so clients can discover authorize/token/registration.
+   - **Resource Indicators** (RFC 8707) so an MCP-issued token is audience-bound
+     to the connector and can't be replayed against another resource.
+
+### Scopes
+
+The CLI requests coarse access (the user authorizing their own full access — no
+scope design needed). Hosted MCP can start the same way (one coarse "full
+access" scope) and add granular scopes (read-only, or per-space) when there's a
+product reason to let a user grant a third-party client *limited* access. The
+MCP spec doesn't mandate fine scopes; design them when the product does.
+
+### Unchanged
+
+- **Agent api keys** (core) — a separate credential for headless agents.
+- **Local `me mcp`** (stdio, reusing the CLI credential) stays; the hosted
+  connector is additive.
+- **`tree_access`** authz.
+
+### Rough build order
+
+1. Build `/consent` (SPA route, mirrors `/login`).
+2. Enable DCR in `oauthProvider`; verify a third-party client can
+   register → authorize → consent → token.
+3. Mount the MCP handler at `/api/v1/mcp` + serve the two `.well-known` metadata
+   docs + resource-indicator audience binding.
+4. Decide scope granularity (start coarse).
+5. e2e: a real MCP client connects, authorizes, and calls a tool.
+
 ## Alternatives considered and rejected
 
 The design above was the endpoint of a fairly long debate. The roads not taken,
