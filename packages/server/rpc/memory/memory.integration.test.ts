@@ -8,18 +8,14 @@
 //     bun test --timeout 30000 \
 //     packages/server/rpc/memory/memory.integration.test.ts
 import { afterAll, beforeAll, beforeEach, expect, test } from "bun:test";
-import {
-  bootstrapSpaceDatabase,
-  migrateAuth,
-  migrateCore,
-} from "@memory.build/database";
+import { bootstrapSpaceDatabase, migrateCore } from "@memory.build/database";
 import type { TreeAccess } from "@memory.build/engine/core";
 import * as engineCore from "@memory.build/engine/core";
 import type { SpaceStore } from "@memory.build/engine/space";
 import * as engineSpace from "@memory.build/engine/space";
 import { type AppErrorCode, isAppError } from "@memory.build/protocol/errors";
 import postgres, { type Sql } from "postgres";
-import { provisionUser } from "../../provision";
+import { seedUserSpace } from "../../test-support";
 import type { HandlerContext } from "../types";
 import { memoryDataMethods } from "./memory";
 
@@ -36,7 +32,6 @@ const rand = () => {
 };
 
 let sql: Sql;
-let authSchema: string;
 let coreSchema: string;
 const createdSpaceSchemas: string[] = [];
 
@@ -79,10 +74,8 @@ async function expectAppError(p: Promise<unknown>, code: AppErrorCode) {
 
 beforeAll(async () => {
   sql = postgres(URL, { onnotice: () => {} });
-  authSchema = `auth_test_${rand()}`;
   coreSchema = `core_test_${rand()}`;
   await bootstrapSpaceDatabase(sql);
-  await migrateAuth(sql, { schema: authSchema });
   await migrateCore(sql, { schema: coreSchema });
 });
 
@@ -90,7 +83,6 @@ afterAll(async () => {
   for (const s of createdSpaceSchemas) {
     await sql.unsafe(`drop schema if exists ${s} cascade`);
   }
-  await sql.unsafe(`drop schema if exists ${authSchema} cascade`);
   await sql.unsafe(`drop schema if exists ${coreSchema} cascade`);
   await sql.end();
 });
@@ -98,14 +90,12 @@ afterAll(async () => {
 // Fresh space per test so trees don't bleed across cases.
 beforeEach(async () => {
   const core = engineCore.coreStore(sql, coreSchema);
-  const r = await provisionUser(
+  const r = await seedUserSpace(
     sql,
-    { auth: authSchema, core: coreSchema },
+    { core: coreSchema },
     {
       email: `mem_${crypto.randomUUID().slice(0, 8)}@example.com`,
       name: "Owner",
-      provider: "github",
-      accountId: crypto.randomUUID(),
     },
   );
   createdSpaceSchemas.push(`me_${r.spaceSlug}`);

@@ -1,20 +1,14 @@
-// Integration test for first-login provisioning (provisionUser).
-//
-// Stands up auth + core schemas and bootstraps the space DB in one database,
-// then provisions users through a single connection (the one-pool model the
-// server consolidates to in Phase 4).
+// Integration test for first-login provisioning (ensureUserProvisioned) — the
+// real runtime path: better-auth owns the auth.users row, and this stands up the
+// core side (principal + default space + creator grants) on the first user RPC.
+// Core-only: no auth schema involved.
 //   TEST_DATABASE_URL="postgresql://postgres@127.0.0.1:5432/postgres" \
 //     bun test --timeout 30000 packages/server/provision.integration.test.ts
 import { afterAll, beforeAll, expect, test } from "bun:test";
-import { authStore } from "@memory.build/auth";
-import {
-  bootstrapSpaceDatabase,
-  migrateAuth,
-  migrateCore,
-} from "@memory.build/database";
+import { bootstrapSpaceDatabase, migrateCore } from "@memory.build/database";
 import * as engineCore from "@memory.build/engine/core";
 import postgres, { type Sql } from "postgres";
-import { provisionUser } from "./provision";
+import { ensureUserProvisioned } from "./provision";
 
 const URL =
   process.env.TEST_DATABASE_URL ??
@@ -30,9 +24,13 @@ const rand = () => {
 const email = () => `prov_${crypto.randomUUID().slice(0, 8)}@example.com`;
 
 let sql: Sql;
-let authSchema: string;
 let coreSchema: string;
 const createdSpaceSchemas: string[] = [];
+
+async function newUserId(): Promise<string> {
+  const [r] = await sql`select uuidv7() as id`;
+  return r?.id as string;
+}
 
 async function schemaExists(name: string): Promise<boolean> {
   const [r] = await sql`
@@ -44,10 +42,8 @@ async function schemaExists(name: string): Promise<boolean> {
 
 beforeAll(async () => {
   sql = postgres(URL, { onnotice: () => {} });
-  authSchema = `auth_test_${rand()}`;
   coreSchema = `core_test_${rand()}`;
   await bootstrapSpaceDatabase(sql); // extensions for me_<slug>
-  await migrateAuth(sql, { schema: authSchema });
   await migrateCore(sql, { schema: coreSchema });
 });
 
@@ -55,57 +51,47 @@ afterAll(async () => {
   for (const s of createdSpaceSchemas) {
     await sql.unsafe(`drop schema if exists ${s} cascade`);
   }
-  await sql.unsafe(`drop schema if exists ${authSchema} cascade`);
   await sql.unsafe(`drop schema if exists ${coreSchema} cascade`);
   await sql.end();
 });
 
-test("provisions a new user: identity + principal + space + owner grant", async () => {
+test("provisions the core side for a new user: principal + space + creator grants", async () => {
+  const userId = await newUserId();
   const e = email();
-  const accountId = crypto.randomUUID();
-  const r = await provisionUser(
+  const core = engineCore.coreStore(sql, coreSchema);
+
+  await ensureUserProvisioned(
     sql,
-    { auth: authSchema, core: coreSchema },
-    { email: e, name: "Alice", provider: "github", accountId },
+    core,
+    { core: coreSchema },
+    {
+      userId,
+      email: e,
+    },
   );
-  createdSpaceSchemas.push(`me_${r.spaceSlug}`);
 
-  // auth.users
-  const user = await authStore(sql, authSchema).getUser(r.userId);
-  expect(user?.email).toBe(e);
-
-  // oauth account link resolves back to the user
-  const acct = await authStore(sql, authSchema).getAccountByProvider(
-    "github",
-    accountId,
-  );
-  expect(acct?.userId).toBe(r.userId);
-
-  // core principal shares the same id
-  const principal = await engineCore
-    .coreStore(sql, coreSchema)
-    .getPrincipal(r.userId);
+  // core principal shares the auth user id; its name is the email
+  const principal = await core.getPrincipal(userId);
   expect(principal?.kind).toBe("u");
-  expect(principal?.id).toBe(r.userId);
+  expect(principal?.id).toBe(userId);
 
-  // space registered in core + its data schema exists
-  const space = await engineCore
-    .coreStore(sql, coreSchema)
-    .getSpace(r.spaceSlug);
-  expect(space?.id).toBe(r.spaceId);
-  expect(await schemaExists(`me_${r.spaceSlug}`)).toBe(true);
+  // exactly one space, registered in core + its data schema exists
+  const spaces = await core.listSpacesForMember(userId);
+  expect(spaces).toHaveLength(1);
+  const space = spaces[0];
+  if (!space) throw new Error("expected a provisioned space");
+  createdSpaceSchemas.push(`me_${space.slug}`);
+  expect(await schemaExists(`me_${space.slug}`)).toBe(true);
 
   // the creator's default grants: owner of its home + the shared root (`share`),
   // but NOT owner@root
-  const ta = await engineCore
-    .coreStore(sql, coreSchema)
-    .buildTreeAccess(r.userId, r.spaceId);
+  const ta = await core.buildTreeAccess(userId, space.id);
   expect(ta).toContainEqual({
     tree_path: "share",
     access: engineCore.ACCESS.owner,
   });
   expect(ta).toContainEqual({
-    tree_path: `home.${r.userId.replace(/-/g, "")}`,
+    tree_path: `home.${userId.replace(/-/g, "")}`,
     access: engineCore.ACCESS.owner,
   });
   expect(ta).not.toContainEqual({
@@ -114,29 +100,36 @@ test("provisions a new user: identity + principal + space + owner grant", async 
   });
 });
 
-test("is atomic: a failure rolls everything back", async () => {
+test("is idempotent: a second call is a no-op (no duplicate principal/space)", async () => {
+  const userId = await newUserId();
   const e = email();
-  const a1 = crypto.randomUUID();
-  const r1 = await provisionUser(
+  const core = engineCore.coreStore(sql, coreSchema);
+
+  await ensureUserProvisioned(
     sql,
-    { auth: authSchema, core: coreSchema },
-    { email: e, name: "Bob", provider: "github", accountId: a1 },
+    core,
+    { core: coreSchema },
+    {
+      userId,
+      email: e,
+    },
   );
-  createdSpaceSchemas.push(`me_${r1.spaceSlug}`);
+  const after1 = await core.listSpacesForMember(userId);
+  expect(after1).toHaveLength(1);
+  const first = after1[0];
+  if (first) createdSpaceSchemas.push(`me_${first.slug}`);
 
-  // re-provisioning the same email fails (users.email is unique) — the whole
-  // transaction must roll back, leaving no trace of the second attempt.
-  const a2 = crypto.randomUUID();
-  await expect(
-    provisionUser(
-      sql,
-      { auth: authSchema, core: coreSchema },
-      { email: e, name: "Bob2", provider: "github", accountId: a2 },
-    ),
-  ).rejects.toThrow();
-
-  // the second account link was rolled back
-  expect(
-    await authStore(sql, authSchema).getAccountByProvider("github", a2),
-  ).toBeNull();
+  // Re-running must not throw, mint a second space, or duplicate the principal.
+  await ensureUserProvisioned(
+    sql,
+    core,
+    { core: coreSchema },
+    {
+      userId,
+      email: e,
+    },
+  );
+  const after2 = await core.listSpacesForMember(userId);
+  expect(after2).toHaveLength(1);
+  expect(after2[0]?.slug).toBe(first?.slug);
 });
