@@ -32,7 +32,7 @@
     "release:server": "./bun scripts/release-server.ts",
     "server": "./bun run packages/server/index.ts",
     "server:build": "docker build -t me-server -f packages/server/Dockerfile .",
-    "server:docker": "./bun run server:build && docker run -d --name me-server --add-host=host.docker.internal:host-gateway -p 127.0.0.1:3000:3000 --env-file .env -e DATABASE_URL=postgres://postgres@host.docker.internal:5432/postgres me-server",
+    "server:docker": "./bun run server:build && docker run --rm -t --name me-server --add-host=host.docker.internal:host-gateway -p 127.0.0.1:3000:3000 --env-file .env -e DATABASE_URL=postgres://postgres@host.docker.internal:5432/postgres me-server",
     "server:rm": "docker rm -f me-server",
     "setup": "./bun scripts/setup.ts",
     "test": "TEST_DATABASE_URL=\"${TEST_DATABASE_URL:-postgresql://postgres@127.0.0.1:5432/postgres}\" ./bun test packages --timeout 30000 --parallel=2",

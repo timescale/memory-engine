@@ -193,13 +193,15 @@ To exercise the actual production image locally — the multi-stage
 scripts (the Docker counterparts to `pg:*`):
 
 ```bash
-./bun run server:docker   # build the image + run the container (me-server)
-./bun run server:rm       # stop and remove the container
+./bun run server:docker   # build the image + run in the foreground (me-server)
 ./bun run server:build    # build the image only
+./bun run server:rm       # force-remove the container (only needed if it leaks)
 ```
 
-`server:docker` publishes the server on `127.0.0.1:3000` and wires it to the
-`me-postgres` container. Prerequisites:
+`server:docker` runs the container in the **foreground** (`--rm -t`): logs
+scroll in the terminal, `Ctrl+C` triggers the server's graceful shutdown, and
+the container is removed on exit. It publishes the server on `127.0.0.1:3000`
+and wires it to the `me-postgres` container. Prerequisites:
 
 - Postgres running (`./bun run pg:docker`).
 - A populated `.env` (the container is started with `--env-file .env`, so it
