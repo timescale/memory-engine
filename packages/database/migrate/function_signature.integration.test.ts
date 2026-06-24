@@ -79,22 +79,48 @@ describe("drop_function_if_signature_differs", () => {
   test("no-op (returns 0) when the live signature already matches the target", async () => {
     await mkfn("fs_match(_a jsonb, _b uuid) returns table(id uuid, n text)");
     expect(
-      await dropIfDiffers("fs_match", "jsonb, uuid", "table(id uuid, n text)"),
+      await dropIfDiffers(
+        "fs_match",
+        "_a jsonb, _b uuid",
+        "table(id uuid, n text)",
+      ),
     ).toBe(0);
     expect(await identityArgs("fs_match")).toEqual(["_a jsonb, _b uuid"]);
   });
 
   test("matches canonically — bool/boolean, int/integer don't count as a difference", async () => {
     await mkfn("fs_canon(_a int4) returns boolean");
-    // target spelled with the aliases `int` and `bool`
-    expect(await dropIfDiffers("fs_canon", "int", "bool")).toBe(0);
+    // target type spelled with the aliases `int` and `bool`
+    expect(await dropIfDiffers("fs_canon", "_a int", "bool")).toBe(0);
     expect(await identityArgs("fs_canon")).toHaveLength(1);
+  });
+
+  test("matches canonically across a multi-word type spelling", async () => {
+    await mkfn("fs_multiword(_a timestamp with time zone) returns int");
+    // target type spelled as the alias `timestamptz`
+    expect(await dropIfDiffers("fs_multiword", "_a timestamptz", "int")).toBe(
+      0,
+    );
+    expect(await identityArgs("fs_multiword")).toEqual([
+      "_a timestamp with time zone",
+    ]);
   });
 
   test("drops a definition whose RESULT differs (the 42P13 case)", async () => {
     await mkfn("fs_result(_a jsonb) returns table(id uuid, n text)");
-    expect(await dropIfDiffers("fs_result", "jsonb", "table(id uuid)")).toBe(1);
+    expect(await dropIfDiffers("fs_result", "_a jsonb", "table(id uuid)")).toBe(
+      1,
+    );
     expect(await identityArgs("fs_result")).toEqual([]);
+  });
+
+  test("drops a definition whose IN-parameter NAME differs (the rename 42P13 case)", async () => {
+    // same arg type + result, only the parameter name changes (j -> k) — a
+    // create-or-replace would raise 42P13 "cannot change name of input
+    // parameter", so the guard must drop first.
+    await mkfn("fs_rename(j jsonb) returns int");
+    expect(await dropIfDiffers("fs_rename", "k jsonb", "int")).toBe(1);
+    expect(await identityArgs("fs_rename")).toEqual([]);
   });
 
   test("sweeps a stale arg-overload while keeping the matching definition", async () => {
@@ -102,8 +128,26 @@ describe("drop_function_if_signature_differs", () => {
     await mkfn("fs_over(_a jsonb) returns int"); // stale overload, different args
     expect(await identityArgs("fs_over")).toHaveLength(2);
 
-    expect(await dropIfDiffers("fs_over", "jsonb, uuid", "int")).toBe(1);
+    expect(await dropIfDiffers("fs_over", "_a jsonb, _b uuid", "int")).toBe(1);
     expect(await identityArgs("fs_over")).toEqual(["_a jsonb, _b uuid"]);
+  });
+
+  test("no-op for a 0-arg function whose result matches (empty arg list)", async () => {
+    await mkfn("fs_noargs() returns int");
+    expect(await dropIfDiffers("fs_noargs", "", "int")).toBe(0);
+    expect(await identityArgs("fs_noargs")).toEqual([""]);
+  });
+
+  test("drops when the target gains args (0-arg live -> N-arg target)", async () => {
+    await mkfn("fs_gain() returns int");
+    expect(await dropIfDiffers("fs_gain", "_a jsonb", "int")).toBe(1);
+    expect(await identityArgs("fs_gain")).toEqual([]);
+  });
+
+  test("drops when the target loses all args (N-arg live -> 0-arg target)", async () => {
+    await mkfn("fs_lose(_a jsonb) returns int");
+    expect(await dropIfDiffers("fs_lose", "", "int")).toBe(1);
+    expect(await identityArgs("fs_lose")).toEqual([]);
   });
 });
 
@@ -111,22 +155,37 @@ describe("assert_function_signature", () => {
   test("passes when exactly one definition matches the target", async () => {
     await mkfn("as_ok(_a jsonb, _b uuid) returns table(id uuid, n text)");
     // resolves without throwing
-    await assertSig("as_ok", "jsonb, uuid", "table(id uuid, n text)");
+    await assertSig("as_ok", "_a jsonb, _b uuid", "table(id uuid, n text)");
   });
 
   test("raises on a result drift", async () => {
     await mkfn("as_res(_a jsonb) returns table(id uuid, n text)");
-    await expectReject(() => assertSig("as_res", "jsonb", "table(id uuid)"));
+    await expectReject(() => assertSig("as_res", "_a jsonb", "table(id uuid)"));
   });
 
-  test("raises on an argument drift", async () => {
+  test("raises on an argument-type drift", async () => {
     await mkfn("as_arg(_a jsonb, _b uuid) returns int");
-    await expectReject(() => assertSig("as_arg", "jsonb, text", "int"));
+    await expectReject(() => assertSig("as_arg", "_a jsonb, _b text", "int"));
+  });
+
+  test("raises on an IN-parameter-name drift", async () => {
+    await mkfn("as_name(j jsonb) returns int");
+    await expectReject(() => assertSig("as_name", "k jsonb", "int"));
   });
 
   test("raises when a stale overload remains (more than one definition)", async () => {
     await mkfn("as_dup(_a jsonb) returns int");
     await mkfn("as_dup(_a uuid) returns int");
-    await expectReject(() => assertSig("as_dup", "jsonb", "int"));
+    await expectReject(() => assertSig("as_dup", "_a jsonb", "int"));
+  });
+
+  test("passes for a 0-arg function (empty arg list)", async () => {
+    await mkfn("as_noargs() returns int");
+    await assertSig("as_noargs", "", "int");
+  });
+
+  test("raises when a 0-arg target does not match an N-arg definition", async () => {
+    await mkfn("as_zero_drift(_a jsonb) returns int");
+    await expectReject(() => assertSig("as_zero_drift", "", "int"));
   });
 });

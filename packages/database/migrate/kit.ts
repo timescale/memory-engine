@@ -215,9 +215,10 @@ export async function assertSchemaOwnership(
  *    including on the fresh schemas CI builds, if the live function doesn't match
  *    the header). The signature is declared once in the header, so the two
  *    generated guards can't drift from each other; the assert catches a
- *    header-vs-definition drift. Write `args` in DROP FUNCTION form — types only,
- *    no parameter names, no typmods (`halfvec`, not `halfvec(1536)`) — to match
- *    `pg_get_function_identity_arguments`.
+ *    header-vs-definition drift. Write each `arg` as `name type` — the parameter
+ *    name matters (a rename is a 42P13 just like a type change), and the type
+ *    WITHOUT a typmod (`halfvec`, not `halfvec(1536)`; it is canonicalized via
+ *    regtype). OUT/TABLE columns and defaults are not part of the header args.
  *
  * 2. `{{name}}` substitution from `vars` (e.g. `schema`); throws on an unknown
  *    placeholder. Runs after pass 1 so `{{schema}}` inside the generated calls

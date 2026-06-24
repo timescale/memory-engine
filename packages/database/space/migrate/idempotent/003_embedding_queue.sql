@@ -35,7 +35,7 @@ execute function {{schema}}.enqueue_embedding()
 -------------------------------------------------------------------------------
 -- claim_embedding_batch
 -------------------------------------------------------------------------------
-{{fn claim_embedding_batch(int, interval, int) returns table (queue_id bigint, memory_id uuid, content_version int, content text)}}
+{{fn claim_embedding_batch(_batch_size int, _lock_duration interval, _max_attempts int) returns table (queue_id bigint, memory_id uuid, content_version int, content text)}}
 create or replace function {{schema}}.claim_embedding_batch
 ( _batch_size int default 10
 , _lock_duration interval default '5 minutes'
@@ -183,7 +183,7 @@ set search_path to pg_catalog, {{schema}}, pg_temp
 -- The {fn} block compares input types + result, not input names, so it won't drop on
 -- a parameter rename. Drop the prior definition explicitly so the create below can run.
 drop function if exists {{schema}}.complete_embedding(bigint, uuid, int, halfvec);
-{{fn complete_embedding(bigint, uuid, int, halfvec) returns text}}
+{{fn complete_embedding(_queue_id bigint, _memory_id uuid, _content_version int, _embedding halfvec) returns text}}
 create or replace function {{schema}}.complete_embedding
 ( _queue_id bigint
 , _memory_id uuid

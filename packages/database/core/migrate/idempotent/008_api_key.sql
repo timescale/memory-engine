@@ -29,7 +29,7 @@ set search_path to pg_catalog, {{schema}}, public, pg_temp
 -- validate_api_key gained an `owner_id` output column — a returns-table change
 -- create-or-replace cannot make. The fn block drops a stale-signatured definition
 -- before the create and asserts the result after.
-{{fn validate_api_key(text, text) returns table(member_id uuid, api_key_id uuid, owner_id uuid)}}
+{{fn validate_api_key(_lookup_id text, _secret text) returns table(member_id uuid, api_key_id uuid, owner_id uuid)}}
 create or replace function {{schema}}.validate_api_key
 ( _lookup_id text
 , _secret text -- hashed
