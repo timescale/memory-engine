@@ -35,6 +35,7 @@ execute function {{schema}}.enqueue_embedding()
 -------------------------------------------------------------------------------
 -- claim_embedding_batch
 -------------------------------------------------------------------------------
+{{fn claim_embedding_batch(int, interval, int) returns table (queue_id bigint, memory_id uuid, content_version int, content text)}}
 create or replace function {{schema}}.claim_embedding_batch
 ( _batch_size int default 10
 , _lock_duration interval default '5 minutes'
@@ -134,6 +135,7 @@ $func$
 language plpgsql volatile security invoker
 set search_path to pg_catalog, {{schema}}, pg_temp
 ;
+{{endfn}}
 
 -------------------------------------------------------------------------------
 -- prune embedding queue
@@ -176,6 +178,12 @@ set search_path to pg_catalog, {{schema}}, pg_temp
 -- row: 'completed' when written, 'cancelled' when the memory was superseded
 -- (content changed → newer version) or deleted in the meantime. Atomic; returns
 -- the outcome.
+-- workaround until the fn/endfn guard supports input parameter names (see TNT-136):
+-- `complete_embedding` had `_embedding_version int` renamed to `_content_version int`.
+-- The {fn} block compares input types + result, not input names, so it won't drop on
+-- a parameter rename. Drop the prior definition explicitly so the create below can run.
+drop function if exists {{schema}}.complete_embedding(bigint, uuid, int, halfvec);
+{{fn complete_embedding(bigint, uuid, int, halfvec) returns text}}
 create or replace function {{schema}}.complete_embedding
 ( _queue_id bigint
 , _memory_id uuid
@@ -207,6 +215,7 @@ $func$
 language plpgsql volatile security invoker
 set search_path to pg_catalog, {{schema}}, pg_temp
 ;
+{{endfn}}
 
 -- Record a transient embedding error without finalizing: leaves outcome NULL so
 -- the row retries (the claim sweep fails it once attempts are exhausted). No-op
