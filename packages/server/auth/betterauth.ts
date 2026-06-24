@@ -222,6 +222,14 @@ export function createBetterAuth(opts: BetterAuthOptions) {
       // Let the DB generate ids (`default uuidv7()`), read back via RETURNING.
       database: { generateId: false },
       cookiePrefix: "me",
+      // On HTTPS, better-auth names cookies `__Secure-me.*`. It has no `__Host-`
+      // option (its cookie namer only emits `__Secure-` or none, and the
+      // standalone `getSessionCookie` reader looks only for `__Secure-`/bare), so
+      // we can't get the browser-enforced `__Host-` assertion without overriding
+      // the name — which the reader wouldn't find. The cookies already have the
+      // `__Host-` *properties* (Secure, Path=/, no Domain — we don't enable
+      // crossSubDomainCookies); combined with SameSite=Lax + the Origin CSRF gate
+      // this is sufficient. Revisit if better-auth adds `__Host-` support.
       useSecureCookies: secure,
     },
     // Map better-auth's logical models onto the existing snake_case tables.

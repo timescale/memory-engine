@@ -1,14 +1,13 @@
 /**
- * Shared credential extraction for the RPC auth middlewares.
+ * Shared credential helpers for the RPC auth middlewares.
  *
- * The per-endpoint authenticators live in `authenticate-space.ts` (memory RPC:
- * session or api key + X-Me-Space) and `authenticate-user.ts` (user RPC:
- * session only). Both resolve the credential via `extractSessionCredential`,
- * which tries the `Authorization: Bearer` header first (a session token *or* an
- * api key, for the CLI / agents) and falls back to the browser session cookie.
+ * The per-endpoint authenticators (`authenticate-space.ts` — memory RPC: api key
+ * or OAuth token or cookie + X-Me-Space; `authenticate-user.ts` — user RPC: OAuth
+ * token or cookie) resolve the credential themselves: an `Authorization: Bearer`
+ * token (OAuth access token or api key) via `extractBearerToken`, else the
+ * browser cookie session via `betterAuth.api.getSession`. `passesCsrfCheck` gates
+ * the ambient (cookie) credential.
  */
-
-import { readSessionCookie } from "../util/cookie";
 
 /**
  * Extract Bearer token from Authorization header.
@@ -34,36 +33,6 @@ export function extractBearerToken(request: Request): string | null {
   }
 
   return token;
-}
-
-/** Where a resolved credential came from — drives the cookie-only CSRF gate. */
-export type CredentialSource = "header" | "cookie";
-
-export interface SessionCredential {
-  token: string;
-  source: CredentialSource;
-}
-
-/**
- * Resolve the request credential: the `Authorization: Bearer` token if present
- * (header — a session token or an api key), else the `me_session` cookie (a
- * session token only). The `source` lets callers apply a CSRF gate to ambient
- * cookie credentials while exempting explicit header credentials.
- *
- * `secure` selects the cookie name (the mode-aware read): HTTPS deployments
- * accept only `__Host-me_session`; local HTTP only `me_session`.
- */
-export function extractSessionCredential(
-  request: Request,
-  secure: boolean,
-): SessionCredential | null {
-  const header = extractBearerToken(request);
-  if (header) return { token: header, source: "header" };
-
-  const cookie = readSessionCookie(request, secure);
-  if (cookie) return { token: cookie, source: "cookie" };
-
-  return null;
 }
 
 /**

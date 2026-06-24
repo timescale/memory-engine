@@ -12,8 +12,6 @@
  *     discovery (./user).
  */
 
-// Device flow auth schemas
-export * from "./auth/device-flow.ts";
 // Error codes and AppError
 export * from "./errors.ts";
 // Shared field validators

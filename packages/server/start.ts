@@ -132,7 +132,7 @@ export interface StartServerOptions {
   workerIdleDelayMs?: number;
   /** Worker space-rediscovery interval in ms. Default WORKER_REFRESH_INTERVAL_MS ?? 60000. */
   workerRefreshIntervalMs?: number;
-  /** Run the device-flow/session cleanup cron. Default true; harness sets false. */
+  /** Run the expired-auth-rows cleanup cron. Default true; harness sets false. */
   enableCleanupCron?: boolean;
   /** Run bootstrap + migrate on boot. Default true. */
   migrate?: boolean;
@@ -230,8 +230,10 @@ export async function startServer(
       .filter(Boolean),
   ];
 
-  const deviceFlowCleanupCron =
-    process.env.DEVICE_FLOW_CLEANUP_CRON || "*/15 * * * *";
+  const authCleanupCron =
+    process.env.AUTH_CLEANUP_CRON ||
+    process.env.DEVICE_FLOW_CLEANUP_CRON || // legacy name, still honored
+    "*/15 * * * *";
 
   // Schema names (single DB, postgres.js pool): auth + core control plane.
   const authSchema = opts.authSchema ?? process.env.AUTH_SCHEMA ?? "auth";
@@ -394,7 +396,7 @@ export async function startServer(
   const core = coreStore(runtimeDb, coreSchema);
 
   // better-auth instance + its dedicated, schema-pinned pool. better-auth owns
-  // the human identity surface (OAuth, sessions, device flow); the api-key path
+  // the human identity surface (social login, sessions, OAuth tokens); the api-key path
   // stays in `core`. Its pool is separate from the runtime app pool.
   const betterAuthSecret =
     opts.betterAuthSecret ?? process.env.BETTER_AUTH_SECRET;
@@ -509,7 +511,7 @@ export async function startServer(
   // purge expired rows on their own, so this reclaims them.
   const cleanupCron =
     (opts.enableCleanupCron ?? true)
-      ? Bun.cron(deviceFlowCleanupCron, async () => {
+      ? Bun.cron(authCleanupCron, async () => {
           try {
             const { sessions, verifications, oauthTokens } =
               await cleanupExpiredAuth(runtimeDb, authSchema);
