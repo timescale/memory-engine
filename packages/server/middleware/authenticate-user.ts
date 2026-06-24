@@ -19,6 +19,12 @@ export interface UserAuthContext {
   email: string;
   /** The user's display name. */
   name: string;
+  /**
+   * Whether the identity provider verified the email. Gates email-keyed
+   * provisioning steps (invitation redemption) — invitations are addressed by
+   * email, so an unverified address must not auto-join its invited spaces.
+   */
+  emailVerified: boolean;
 }
 
 export type UserAuthResult =
@@ -53,6 +59,7 @@ export async function authenticateUser(
             userId: verified.userId,
             email: verified.email,
             name: verified.name,
+            emailVerified: verified.emailVerified,
           },
         };
       }
@@ -87,6 +94,7 @@ export async function authenticateUser(
           userId: user.id,
           email: user.email,
           name: user.name,
+          emailVerified: user.emailVerified,
         },
       };
     },

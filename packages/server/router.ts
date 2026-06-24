@@ -182,16 +182,17 @@ export function createRouter(ctx: ServerContext): Router {
     if (!result.ok) {
       return result.error;
     }
-    const { userId, email, name } = result.context;
+    const { userId, email, name, emailVerified } = result.context;
     // Lazy first-login provisioning: stand up the core principal + default space
     // the first time a better-auth user reaches the user RPC (idempotent no-op
     // thereafter). The CLI hits whoami/space.list right after login, so this is
-    // the natural first touchpoint.
+    // the natural first touchpoint. `emailVerified` gates the email-keyed
+    // invitation-redemption step.
     await ensureUserProvisioned(
       db,
       core,
       { core: coreSchema },
-      { userId, email },
+      { userId, email, emailVerified },
     );
     return { core, userId, email, name, db, coreSchema };
   });

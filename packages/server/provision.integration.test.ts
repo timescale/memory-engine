@@ -5,7 +5,11 @@
 //   TEST_DATABASE_URL="postgresql://postgres@127.0.0.1:5432/postgres" \
 //     bun test --timeout 30000 packages/server/provision.integration.test.ts
 import { afterAll, beforeAll, expect, test } from "bun:test";
-import { bootstrapSpaceDatabase, migrateCore } from "@memory.build/database";
+import {
+  bootstrapSpaceDatabase,
+  generateSlug,
+  migrateCore,
+} from "@memory.build/database";
 import * as engineCore from "@memory.build/engine/core";
 import postgres, { type Sql } from "postgres";
 import { ensureUserProvisioned } from "./provision";
@@ -132,4 +136,68 @@ test("is idempotent: a second call is a no-op (no duplicate principal/space)", a
   const after2 = await core.listSpacesForMember(userId);
   expect(after2).toHaveLength(1);
   expect(after2[0]?.slug).toBe(first?.slug);
+});
+
+test("redeems email-keyed invitations only when the email is verified", async () => {
+  const core = engineCore.coreStore(sql, coreSchema);
+  const inviterId = await newUserId();
+  await core.createUser(inviterId, email());
+  const invitedSpaceId = await core.createSpace(generateSlug(), "Invited");
+
+  const track = async (userId: string) => {
+    for (const s of await core.listSpacesForMember(userId)) {
+      createdSpaceSchemas.push(`me_${s.slug}`);
+    }
+  };
+
+  // Unverified email → provisions its own space but does NOT redeem the invite.
+  const unverified = email();
+  await core.createSpaceInvitation(invitedSpaceId, unverified, {
+    admin: false,
+    shareAccess: engineCore.ACCESS.read,
+    invitedBy: inviterId,
+  });
+  const uId = await newUserId();
+  await ensureUserProvisioned(
+    sql,
+    core,
+    { core: coreSchema },
+    {
+      userId: uId,
+      email: unverified,
+      emailVerified: false,
+    },
+  );
+  await track(uId);
+  const uSpaces = await core.listSpacesForMember(uId);
+  expect(uSpaces).toHaveLength(1); // only its own default space
+  expect(uSpaces.some((s) => s.id === invitedSpaceId)).toBe(false);
+  // The invitation is untouched (still pending).
+  expect(await core.listSpaceInvitations(invitedSpaceId)).toHaveLength(1);
+
+  // Verified email → redeems: joins the invited space.
+  const verified = email();
+  await core.createSpaceInvitation(invitedSpaceId, verified, {
+    admin: false,
+    shareAccess: engineCore.ACCESS.read,
+    invitedBy: inviterId,
+  });
+  const vId = await newUserId();
+  await ensureUserProvisioned(
+    sql,
+    core,
+    { core: coreSchema },
+    {
+      userId: vId,
+      email: verified,
+      emailVerified: true,
+    },
+  );
+  await track(vId);
+  const vSpaces = await core.listSpacesForMember(vId);
+  expect(vSpaces.some((s) => s.id === invitedSpaceId)).toBe(true);
+  // Only the verified invite was consumed; the unverified one still pends.
+  const pending = await core.listSpaceInvitations(invitedSpaceId);
+  expect(pending).toHaveLength(1);
+  expect(pending[0]?.email).toBe(unverified);
 });
