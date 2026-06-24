@@ -617,9 +617,7 @@ function createMemoryDeltreeCommand(): Command {
           output({ count: 0 }, fmt, () => {
             const hint = shellTildeExpansionHint(tree);
             clack.log.warn(
-              hint
-                ? `No memories found under '${tree}'\n${hint}`
-                : `No memories found under '${tree}'`,
+              `No memories found under '${tree}'${hint ? `\n${hint}` : ""}`,
             );
           });
           return;
@@ -777,9 +775,7 @@ function createMemoryMoveCommand(): Command {
           output({ count: 0 }, fmt, () => {
             const hint = shellTildeExpansionHint(src);
             clack.log.warn(
-              hint
-                ? `No memories found under '${src}'\n${hint}`
-                : `No memories found under '${src}'`,
+              `No memories found under '${src}'${hint ? `\n${hint}` : ""}`,
             );
           });
           return;
@@ -853,9 +849,7 @@ function createMemoryCopyCommand(): Command {
           output({ count: 0 }, fmt, () => {
             const hint = shellTildeExpansionHint(src);
             clack.log.warn(
-              hint
-                ? `No memories found under '${src}'\n${hint}`
-                : `No memories found under '${src}'`,
+              `No memories found under '${src}'${hint ? `\n${hint}` : ""}`,
             );
           });
           return;
@@ -997,9 +991,7 @@ function createMemoryExportCommand(): Command {
           output({ count: 0 }, fmt, () => {
             const hint = shellTildeExpansionHint(opts.tree);
             clack.log.warn(
-              hint
-                ? `No memories found matching filters.\n${hint}`
-                : "No memories found matching filters.",
+              `No memories found matching filters.${hint ? `\n${hint}` : ""}`,
             );
           });
           return;
