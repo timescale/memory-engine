@@ -8,7 +8,8 @@ import type { MemoryClient, UserClient } from "@memory.build/client";
 
 // Dynamic import to avoid pulling in @clack/prompts at top level (it touches
 // process.stdin).
-const { resolveSpacePrincipalId, resolveAgentId } = await import("./util.ts");
+const { resolveSpacePrincipalId, resolveAgentId, shellTildeExpansionHint } =
+  await import("./util.ts");
 
 const UUID = "019d694f-79f6-7595-8faf-b70b01c11f98";
 
@@ -69,5 +70,89 @@ describe("resolveAgentId", () => {
 
     expect(await resolveAgentId(user, "bot", "text")).toBe(UUID);
     expect(user.agent.list).toHaveBeenCalled();
+  });
+});
+
+// =============================================================================
+// shellTildeExpansionHint
+// =============================================================================
+
+const HOME = "/Users/me";
+// argv is [exec, script, ...userArgs]; the helper reads user args from index 2.
+const argv = (...userArgs: string[]) => ["bun", "me", ...userArgs];
+
+describe("shellTildeExpansionHint", () => {
+  test("rebuilds the full command, quoting the shell-expanded ~ token", () => {
+    // `me export --tree ~/granola ~/Downloads/granola.bak` — the shell expands
+    // both `~`s; only the tree token is the mistake, so only it gets requoted.
+    expect(
+      shellTildeExpansionHint(
+        `${HOME}/granola`,
+        argv(
+          "export",
+          "--tree",
+          `${HOME}/granola`,
+          `${HOME}/Downloads/granola.bak`,
+        ),
+        HOME,
+      ),
+    ).toBe(
+      "Hint: your shell may have expanded '~'. Try: me export --tree '~/granola' /Users/me/Downloads/granola.bak",
+    );
+  });
+
+  test("bare ~ (home itself) suggests '~'", () => {
+    expect(shellTildeExpansionHint(HOME, argv("count", HOME), HOME)).toBe(
+      "Hint: your shell may have expanded '~'. Try: me count '~'",
+    );
+  });
+
+  test("quotes other args that need it (e.g. a query with spaces)", () => {
+    expect(
+      shellTildeExpansionHint(
+        `${HOME}/notes`,
+        argv("search", "foo bar", "--tree", `${HOME}/notes`),
+        HOME,
+      ),
+    ).toBe(
+      "Hint: your shell may have expanded '~'. Try: me search 'foo bar' --tree '~/notes'",
+    );
+  });
+
+  test("returns null for a real tree filter", () => {
+    expect(
+      shellTildeExpansionHint(
+        "share/notes",
+        argv("search", "--tree", "share/notes"),
+        HOME,
+      ),
+    ).toBeNull();
+    // An already-quoted `~/granola` reaches us literally — not a home path.
+    expect(
+      shellTildeExpansionHint(
+        "~/granola",
+        argv("search", "--tree", "~/granola"),
+        HOME,
+      ),
+    ).toBeNull();
+  });
+
+  test("does not match a sibling that merely shares the home prefix", () => {
+    // `/Users/menagerie` is not under `/Users/me`.
+    expect(
+      shellTildeExpansionHint(
+        "/Users/menagerie",
+        argv("tree", "/Users/menagerie"),
+        HOME,
+      ),
+    ).toBeNull();
+  });
+
+  test("returns null for empty input or a pathological '/' home", () => {
+    expect(shellTildeExpansionHint(undefined, argv("tree"), HOME)).toBeNull();
+    expect(shellTildeExpansionHint("", argv("tree", ""), HOME)).toBeNull();
+    expect(
+      shellTildeExpansionHint("/anything", argv("tree", "/anything"), "/"),
+    ).toBeNull();
   });
 });

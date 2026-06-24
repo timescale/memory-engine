@@ -29,6 +29,7 @@ import {
   isAppErrorCode,
   requireMemoryAuth,
   requireSpace,
+  shellTildeExpansionHint,
 } from "../util.ts";
 import { editMemory } from "./memory-edit.ts";
 import { createMemoryImportCommand } from "./memory-import.ts";
@@ -440,7 +441,11 @@ function createMemorySearchCommand(): Command {
           console.log(
             `Found ${result.total} results (showing ${result.results.length})`,
           );
-          if (result.results.length === 0) return;
+          if (result.results.length === 0) {
+            const hint = shellTildeExpansionHint(tree ?? undefined);
+            if (hint) clack.log.warn(hint);
+            return;
+          }
           console.log();
           table(
             ["id", "content", "tree", "score"],
@@ -617,7 +622,10 @@ function createMemoryDeltreeCommand(): Command {
         const preview = await client.memory.deleteTree({ tree, dryRun: true });
         if (preview.count === 0) {
           output({ count: 0 }, fmt, () => {
-            clack.log.warn(`No memories found under '${tree}'`);
+            const hint = shellTildeExpansionHint(tree);
+            clack.log.warn(
+              `No memories found under '${tree}'${hint ? `\n${hint}` : ""}`,
+            );
           });
           return;
         }
@@ -698,6 +706,10 @@ function createMemoryCountCommand(): Command {
 
         await output(result, fmt, () => {
           console.log(formatMemoryCount(result.count, maxCount));
+          if (result.count === 0) {
+            const hint = shellTildeExpansionHint(tree);
+            if (hint) clack.log.warn(hint);
+          }
         });
       } catch (error) {
         handleError(error, fmt);
@@ -730,6 +742,10 @@ function createMemoryTreeCommand(): Command {
 
         output(result, fmt, () => {
           console.log(renderTree(result.nodes, filter));
+          if (result.nodes.length === 0) {
+            const hint = shellTildeExpansionHint(filter);
+            if (hint) clack.log.warn(hint);
+          }
         });
       } catch (error) {
         handleError(error, fmt);
@@ -764,7 +780,10 @@ function createMemoryMoveCommand(): Command {
 
         if (preview.count === 0) {
           output({ count: 0 }, fmt, () => {
-            clack.log.warn(`No memories found under '${src}'`);
+            const hint = shellTildeExpansionHint(src);
+            clack.log.warn(
+              `No memories found under '${src}'${hint ? `\n${hint}` : ""}`,
+            );
           });
           return;
         }
@@ -835,7 +854,10 @@ function createMemoryCopyCommand(): Command {
 
         if (preview.count === 0) {
           output({ count: 0 }, fmt, () => {
-            clack.log.warn(`No memories found under '${src}'`);
+            const hint = shellTildeExpansionHint(src);
+            clack.log.warn(
+              `No memories found under '${src}'${hint ? `\n${hint}` : ""}`,
+            );
           });
           return;
         }
@@ -974,7 +996,10 @@ function createMemoryExportCommand(): Command {
 
         if (memories.length === 0) {
           output({ count: 0 }, fmt, () => {
-            clack.log.warn("No memories found matching filters.");
+            const hint = shellTildeExpansionHint(opts.tree);
+            clack.log.warn(
+              `No memories found matching filters.${hint ? `\n${hint}` : ""}`,
+            );
           });
           return;
         }
