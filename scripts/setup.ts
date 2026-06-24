@@ -10,7 +10,7 @@
  * which the server doesn't do.
  *
  * Prerequisites:
- *   1. Postgres running (`./bun run pg`)
+ *   1. Postgres running (`./bun run pg:docker`)
  *   2. .env filled in (DATABASE_URL)
  *
  * Usage:

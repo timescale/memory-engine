@@ -99,7 +99,7 @@ Always use the `./bun` wrapper script (auto-installs the pinned Bun version):
 **Important — verification runs against the local Postgres**: after making
 code changes, run `./bun run check` (fast, no DB). Before committing, run
 `./bun run check:full` — it defaults to the `me-postgres` Docker container
-(if it isn't running: `docker start me-postgres || ./bun run pg`). Only run
+(if it isn't running: `docker start me-postgres || ./bun run pg:docker`). Only run
 against ghost when explicitly asked to test against ghost. CI is the strict
 gate: it runs every suite with `TEST_CI=1`, which disables conditional skips
 — any new `describe.skipIf` gate **must** include `!process.env.TEST_CI` in
@@ -114,7 +114,7 @@ its condition (pattern: `packages/embedding/generate.test.ts`,
 `*.integration.test.ts` files run against a real PostgreSQL 18 with the
 required extensions (citext, ltree, pgvector, pg_textsearch). Everything
 defaults to the **local `me-postgres` Docker container** at 127.0.0.1:5432
-(same image CI builds; `./bun run pg` creates it). `test:db` is the focused
+(same image CI builds; `./bun run pg:docker` creates it). `test:db` is the focused
 variant: it first reclaims orphaned test schemas, then runs **every**
 `*.integration.test.ts` under `packages/` (the auth/core/space migration
 suites plus the engine/server/worker suites), `--parallel=2`, 30s timeout:
