@@ -1,0 +1,55 @@
+# Evaluate / self-host stack: PostgreSQL + the Memory Engine server.
+#
+# Usage:
+#   cp .env.sample .env   # set EMBEDDING_API_KEY, POSTGRES_PASSWORD, an OAuth provider
+#   docker compose up --build
+#
+# Server: http://localhost:3000
+#
+# This stack is the backend only. To use it you also need a client — the `me`
+# CLI (or another MCP client) — pointed at http://localhost:3000. See
+# SELF_HOST.md for the full walkthrough (including building the CLI).
+services:
+  postgres:
+    build:
+      context: ./docker
+      dockerfile: Dockerfile.postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_DB: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    restart: unless-stopped
+    # The DB is reachable only on the internal compose network. To use psql from
+    # the host, uncomment below (conflicts with `./bun run pg:docker`, which
+    # already binds 5432):
+    # ports:
+    #   - "127.0.0.1:5432:5432"
+
+  server:
+    build:
+      context: .
+      dockerfile: packages/server/Dockerfile
+    env_file: .env
+    # Override both DB URLs from .env (host-oriented localhost) so the server
+    # reaches the postgres service over the compose network. `environment`
+    # takes precedence over `env_file`.
+    environment:
+      DATABASE_URL: postgres://postgres:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/postgres
+      WORKER_DATABASE_URL: postgres://postgres:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/postgres
+    ports:
+      - "3000:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  pgdata:
