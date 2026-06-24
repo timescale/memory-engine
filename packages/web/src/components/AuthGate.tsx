@@ -13,7 +13,9 @@
 
 import { isRpcError } from "@memory.build/client";
 import { type ReactNode, useCallback, useEffect, useState } from "react";
+import { signOut } from "../api/auth-client.ts";
 import { memoryClient, userClient } from "../api/client.ts";
+import { SignInCard } from "./SignInCard.tsx";
 
 const SPACE_STORAGE_KEY = "me.space";
 
@@ -45,13 +47,6 @@ type GateState =
   | { status: "error" }
   | { status: "needs-space"; identity: Identity; spaces: Space[] }
   | { status: "ready"; identity: Identity; spaces: Space[]; space: string };
-
-function startLogin(provider: "github" | "google"): void {
-  const redirect = encodeURIComponent(
-    window.location.pathname + window.location.search,
-  );
-  window.location.href = `/api/v1/auth/login/${provider}?redirect=${redirect}`;
-}
 
 export function AuthGate({ children }: { children: ReactNode }) {
   const [state, setState] = useState<GateState>({ status: "loading" });
@@ -98,7 +93,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
 
   const logout = useCallback(async () => {
     try {
-      await fetch("/api/v1/auth/logout", { method: "POST" });
+      await signOut();
     } finally {
       localStorage.removeItem(SPACE_STORAGE_KEY);
       setState({ status: "anonymous" });
@@ -162,33 +157,19 @@ function Card({ children }: { children: ReactNode }) {
 
 function LoginScreen({ onRetry }: { onRetry: () => void }) {
   return (
-    <Card>
-      <h1 className="text-lg font-semibold text-slate-900">Memory Engine</h1>
-      <p className="mt-1 text-sm text-slate-500">Sign in to continue.</p>
-      <div className="mt-6 flex flex-col gap-3">
+    <SignInCard
+      subtitle="Sign in to continue."
+      callbackURL={window.location.pathname + window.location.search}
+      footer={
         <button
           type="button"
-          onClick={() => startLogin("github")}
-          className="rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700"
+          onClick={onRetry}
+          className="mt-4 text-xs text-slate-400 hover:text-slate-600"
         >
-          Sign in with GitHub
+          Try again
         </button>
-        <button
-          type="button"
-          onClick={() => startLogin("google")}
-          className="rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-900 hover:bg-slate-50"
-        >
-          Sign in with Google
-        </button>
-      </div>
-      <button
-        type="button"
-        onClick={onRetry}
-        className="mt-4 text-xs text-slate-400 hover:text-slate-600"
-      >
-        Try again
-      </button>
-    </Card>
+      }
+    />
   );
 }
 
