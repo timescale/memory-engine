@@ -2,14 +2,14 @@
   "name": "memory-engine-server",
   "version": "0.2.5",
   "dependencies": {
-    "@better-auth/oauth-provider": "^1.6.20",
+    "@better-auth/oauth-provider": "1.6.20",
     "@memory.build/database": "workspace:*",
     "@memory.build/embedding": "workspace:*",
     "@memory.build/engine": "workspace:*",
     "@memory.build/protocol": "workspace:*",
     "@memory.build/worker": "workspace:*",
     "@pydantic/logfire-node": "^0.13.1",
-    "better-auth": "^1.6.20",
+    "better-auth": "1.6.20",
     "pg": "^8.22.0",
     "postgres": "^3.4.9",
     "zod": "^4.0.0"

@@ -13,6 +13,12 @@
 //
 // The api-key path (agents) stays entirely in `core` (core.validate_api_key).
 //
+// UPGRADING better-auth: the versions here are pinned EXACTLY (no `^`) because
+// better-auth owns DB tables — a bump can change the schema it expects and drift
+// from our hand-maintained migrations + the field mapping below. Follow the
+// regenerate→diff→migrate checklist in AUTH_DESIGN.md ("Upgrading better-auth")
+// before bumping; the auth migration test is the drift guard.
+//
 // Design notes (see the migration discussion / CLAUDE.md):
 //   * Dedicated pool. better-auth's adapter is Kysely and resolves the auth
 //     tables via the connection `search_path`, so it gets its OWN small

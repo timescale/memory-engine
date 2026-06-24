@@ -302,6 +302,52 @@ Server env:
 CLI env: `ME_SERVER`, `ME_API_KEY`, `ME_SPACE`, `ME_SESSION_TOKEN` (raw-bearer
 override), `ME_NO_KEYCHAIN`.
 
+## Upgrading better-auth (the DB-drift checklist)
+
+better-auth and `@better-auth/oauth-provider` **own DB tables** (`users`,
+`sessions`, `accounts`, `verifications`, `oauth_client`, `oauth_access_token`,
+`oauth_refresh_token`, `oauth_consent`, `jwks`). A version bump can change the
+schema better-auth *expects* — and because our migrations + the snake_case field
+mapping in `createBetterAuth` are hand-maintained, that expectation can silently
+drift from what the DB actually has, breaking at runtime (or at boot — recall
+the `helm --wait --atomic` crashloop in `CLAUDE.md`).
+
+Two guards: the versions are **pinned exactly** (no `^`, in
+`packages/server/package.json` + `packages/web/package.json` — same version both
+places so the web client matches the server), and the **auth migration test**
+(`packages/database/auth/migrate/migrate.integration.test.ts`) asserts the
+expected tables / functions / columns, so a schema change that we *haven't*
+migrated turns that suite red. Pinning makes the upgrade a deliberate, reviewed
+step rather than a transitive surprise.
+
+When bumping `better-auth` / `@better-auth/oauth-provider`, on a branch:
+
+1. **Bump the exact pins** in both `package.json`s (keep them equal) + `./bun install`.
+2. **Regenerate the expected schema.** Run better-auth's schema generator
+   (`bunx @better-auth/cli generate`) against our configured instance — i.e. the
+   `createBetterAuth` config in `packages/server/auth/betterauth.ts` (jwt +
+   oauthProvider plugins, the snake_case `modelName`/`fields` mappings) — pointed
+   at a throwaway/probe schema. (This is the same tool the initial oauth/jwks DDL
+   was derived from.)
+3. **Diff** the generated schema against the auth migrations in
+   `packages/database/auth/migrate` — look for new/changed tables, columns,
+   indexes, or constraints on the owned tables above.
+4. For any change, **write a new incremental** (`packages/database/auth/migrate/
+   incremental/00N_*.sql`) — never edit a shipped one — and register it in
+   `migrate.ts`. (If a change touches one of *our* idempotent SQL functions'
+   return types, follow the guarded-drop `42P13` pattern in `CLAUDE.md`;
+   better-auth's own tables are plain DDL.)
+5. **Reconcile the field mapping.** We map *every* better-auth field explicitly
+   via `modelName` + `fields`; a new better-auth field we don't map would be
+   queried by its default camelCase name and fail. Add the snake_case mapping (+
+   the column in the migration) for any new field.
+6. **Run the guards:** `migrate.integration.test.ts` (update its `EXPECTED_*` +
+   add column/constraint assertions for new objects), then `./bun run check:full`,
+   then **boot the server against an existing DB** (the boot-time idempotent
+   migration) to confirm no startup crash.
+7. Re-verify the live flows that better-auth owns end-to-end — social `me login`
+   + the web login — since they aren't covered headless (see Testing).
+
 ## Testing
 
 - **Unit** (`./bun run check`): transport refresh seams, credential token-set
