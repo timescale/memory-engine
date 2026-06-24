@@ -73,6 +73,12 @@ Memory Engine runs as an MCP server that AI agents connect to over stdio. Each a
 - **tstzrange** for temporal queries
 - **Tree-scoped access grants** evaluated in the search SQL (no RLS)
 
+## Self-hosting
+
+Want to run your own Memory Engine backend? See **[Self-Hosting](SELF_HOST.md)**
+— a Docker Compose stack (server + PostgreSQL), built from a tagged release,
+plus building the `me` CLI from source to connect to it.
+
 ## Documentation
 
 - [Getting Started](docs/getting-started.md) -- install, login, first memory
