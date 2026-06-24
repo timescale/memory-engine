@@ -179,24 +179,26 @@ create table me.memory
 );
 ```
 
-**Migration footgun — `CREATE OR REPLACE FUNCTION` can't change a return type**
-(`42P13`), and changing the *args* silently leaves the old overload behind. Both
-are invisible in CI (fresh schemas) but crash a boot-time migration against an
-existing dev/prod DB. So when a function's signature changes, wrap its
-`create or replace` in a `{{fn …}}` block (`template()` in `migrate/kit.ts`,
-helpers in `migrate/function_signature.sql`) — it drops a stale-signatured
-definition before and asserts the result after, so a drift fails CI loudly
-instead of churning prod:
+**Migration footgun — `CREATE OR REPLACE FUNCTION` can't change a return type or
+rename an input parameter** (both `42P13`), and changing the *arg types* silently
+leaves the old overload behind. All three are invisible in CI (fresh schemas) but
+crash a boot-time migration against an existing dev/prod DB. So when a function's
+signature changes, wrap its `create or replace` in a `{{fn …}}` block
+(`template()` in `migrate/kit.ts`, helpers in `migrate/function_signature.sql`) —
+it drops a stale-signatured definition before and asserts the result after, so a
+drift fails CI loudly instead of churning prod:
 
 ```sql
-{{fn get_memory(jsonb, uuid) returns table(id uuid, name text)}}
+{{fn get_memory(_tree_access jsonb, _id uuid) returns table(id uuid, name text)}}
 create or replace function {{schema}}.get_memory(_tree_access jsonb, _id uuid)
 returns table (id uuid, name text) as $func$ ... $func$ language sql;
 {{endfn}}
 ```
 
-`argtypes` go in `DROP FUNCTION` form (types only, no typmods: `halfvec`, not
-`halfvec(1536)`); never wrap a deliberately overloaded name like `count_tree`.
+Write each header arg as `name type` — the parameter **name** is part of the
+signature (a rename is a `42P13` just like a type change), the type without a
+typmod (`halfvec`, not `halfvec(1536)`; it's canonicalized via regtype). Never
+wrap a deliberately overloaded name like `count_tree`.
 
 ## Key Design Decisions
 
