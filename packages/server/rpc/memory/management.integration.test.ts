@@ -7,17 +7,13 @@
 //     bun test --timeout 30000 \
 //     packages/server/rpc/memory/management.integration.test.ts
 import { afterAll, beforeAll, beforeEach, expect, test } from "bun:test";
-import {
-  bootstrapSpaceDatabase,
-  migrateAuth,
-  migrateCore,
-} from "@memory.build/database";
+import { bootstrapSpaceDatabase, migrateCore } from "@memory.build/database";
 import type { TreeAccess } from "@memory.build/engine/core";
 import * as engineCore from "@memory.build/engine/core";
 import * as engineSpace from "@memory.build/engine/space";
 import { type AppErrorCode, isAppError } from "@memory.build/protocol/errors";
 import postgres, { type Sql } from "postgres";
-import { provisionUser } from "../../provision";
+import { seedUserSpace } from "../../test-support";
 import type { HandlerContext } from "../types";
 import { memoryMethods } from "./index";
 
@@ -34,7 +30,6 @@ const rand = (n: number) => {
 };
 
 let sql: Sql;
-let authSchema: string;
 let coreSchema: string;
 const createdSpaceSchemas: string[] = [];
 
@@ -105,10 +100,8 @@ async function makeUserWithEmail(email: string): Promise<string> {
 
 beforeAll(async () => {
   sql = postgres(URL, { onnotice: () => {} });
-  authSchema = `auth_test_${rand(8)}`;
   coreSchema = `core_test_${rand(8)}`;
   await bootstrapSpaceDatabase(sql);
-  await migrateAuth(sql, { schema: authSchema });
   await migrateCore(sql, { schema: coreSchema });
 });
 
@@ -116,22 +109,16 @@ afterAll(async () => {
   for (const s of createdSpaceSchemas) {
     await sql.unsafe(`drop schema if exists ${s} cascade`);
   }
-  await sql.unsafe(`drop schema if exists ${authSchema} cascade`);
   await sql.unsafe(`drop schema if exists ${coreSchema} cascade`);
   await sql.end();
 });
 
 beforeEach(async () => {
   ownerEmail = `owner_${crypto.randomUUID().slice(0, 8)}@example.com`;
-  const r = await provisionUser(
+  const r = await seedUserSpace(
     sql,
-    { auth: authSchema, core: coreSchema },
-    {
-      email: ownerEmail,
-      name: "Owner",
-      provider: "github",
-      accountId: crypto.randomUUID(),
-    },
+    { core: coreSchema },
+    { email: ownerEmail, name: "Owner" },
   );
   createdSpaceSchemas.push(`me_${r.spaceSlug}`);
   space = { id: r.spaceId, slug: r.spaceSlug };

@@ -18,7 +18,8 @@ import {
 import * as engineCore from "@memory.build/engine/core";
 import postgres, { type Sql } from "postgres";
 import { createBetterAuth } from "../auth/betterauth";
-import { addSpaceCreator, provisionUser } from "../provision";
+import { addSpaceCreator } from "../provision";
+import { seedUserSpace } from "../test-support";
 import { authenticateSpace, SPACE_HEADER } from "./authenticate-space";
 
 const URL =
@@ -82,15 +83,12 @@ async function mintAccessToken(userId: string): Promise<string> {
 // Provision a user + space and return its slug, the user id, and a bearer (a
 // real OAuth access token — the human credential under the new model).
 async function provision() {
-  const r = await provisionUser(
+  // auth: also insert the better-auth users row — mintAccessToken's token joins
+  // users in verifyOAuthAccessToken.
+  const r = await seedUserSpace(
     sql,
-    { auth: authSchema, core: coreSchema },
-    {
-      email: email(),
-      name: "Tester",
-      provider: "github",
-      accountId: crypto.randomUUID(),
-    },
+    { core: coreSchema, auth: authSchema },
+    { email: email(), name: "Tester" },
   );
   createdSpaceSchemas.push(`me_${r.spaceSlug}`);
   const token = await mintAccessToken(r.userId);

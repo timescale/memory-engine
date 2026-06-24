@@ -16,7 +16,7 @@ import {
 import type { EmbeddingConfig } from "@memory.build/embedding";
 import postgres, { type Sql } from "postgres";
 import { startServer } from "./lib";
-import { provisionUser } from "./provision";
+import { seedUserSpace } from "./test-support";
 
 const URL =
   process.env.TEST_DATABASE_URL ??
@@ -77,16 +77,12 @@ beforeAll(async () => {
   await bootstrapSpaceDatabase(sql);
   await migrateCore(sql, { schema: coreSchema });
   await migrateAuth(sql, { schema: authSchema });
-  const provisioned = await provisionUser(
+  // Core-only seed: this suite boots the server + checks the schema sweep; it
+  // makes no authenticated RPC calls, so no auth.users row is needed.
+  const provisioned = await seedUserSpace(
     sql,
-    { auth: authSchema, core: coreSchema },
-    {
-      email: "boot@example.test",
-      name: "Boot",
-      provider: "github",
-      accountId: `boot-${rand()}`,
-      emailVerified: true,
-    },
+    { core: coreSchema },
+    { email: "boot@example.test", name: "Boot" },
   );
   spaceSchema = `metest_${provisioned.spaceSlug}`;
   await sql.unsafe(`

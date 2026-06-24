@@ -8,7 +8,7 @@
 //
 //   TEST_DATABASE_URL="$(ghost connect testing_me)" ./bun run test:e2e
 //
-// Boundaries (deliberate): authentication is token injection (provisionUser +
+// Boundaries (deliberate): authentication is token injection (seedUserSpace +
 // a minted OAuth access token → ME_SESSION_TOKEN, the raw-bearer override), not
 // `me login`'s browser round-trip; embeddings hit real OpenAI directly (a key is
 // required to run — the suite skips, not fails, without one).
@@ -20,6 +20,7 @@
 process.env.SPACE_SCHEMA_PREFIX = "metest_";
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import {
   mkdir,
@@ -30,7 +31,6 @@ import {
   stat,
   writeFile,
 } from "node:fs/promises";
-import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -46,7 +46,7 @@ import {
   resolveTestDatabaseUrl,
 } from "../packages/database/migrate/test-utils.ts";
 import { type RunningServer, startServer } from "../packages/server/lib.ts";
-import { provisionUser } from "../packages/server/provision.ts";
+import { seedUserSpace } from "../packages/server/test-support.ts";
 
 const OPENAI_KEY = process.env.OPENAI_API_KEY ?? process.env.EMBEDDING_API_KEY;
 
@@ -85,16 +85,12 @@ describe.skipIf(
     // Provision the user (and its default space) BEFORE booting the server, so
     // the worker discovers the space at startup — no rediscovery lag for the
     // initial space.
-    const provisioned = await provisionUser(
+    // auth: also insert the better-auth users row — the minted OAuth bearer
+    // below joins users in verifyOAuthAccessToken.
+    const provisioned = await seedUserSpace(
       sql,
-      { auth: authSchema, core: coreSchema },
-      {
-        email: "e2e@example.test",
-        name: "E2E",
-        provider: "github",
-        accountId: `e2e-${rand()}`,
-        emailVerified: true,
-      },
+      { core: coreSchema, auth: authSchema },
+      { email: "e2e@example.test", name: "E2E" },
     );
     spaceSlug = provisioned.spaceSlug;
     // Inject a real OAuth access token as the bearer (ME_SESSION_TOKEN is the
