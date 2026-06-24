@@ -5,12 +5,7 @@
 //     bun test --timeout 30000 \
 //     packages/server/rpc/user/api-key.integration.test.ts
 import { afterAll, beforeAll, beforeEach, expect, test } from "bun:test";
-import { authStore } from "@memory.build/auth";
-import {
-  bootstrapSpaceDatabase,
-  migrateAuth,
-  migrateCore,
-} from "@memory.build/database";
+import { bootstrapSpaceDatabase, migrateCore } from "@memory.build/database";
 import { coreStore } from "@memory.build/engine/core";
 import { type AppErrorCode, isAppError } from "@memory.build/protocol/errors";
 import postgres, { type Sql } from "postgres";
@@ -31,7 +26,6 @@ const rand = (n: number) => {
 
 let sql: Sql;
 let coreSchema: string;
-let authSchema: string;
 let userId: string;
 
 function call<T = unknown>(
@@ -44,7 +38,6 @@ function call<T = unknown>(
   const context = {
     request: new Request("http://localhost/api/v1/user/rpc"),
     core: coreStore(sql, coreSchema),
-    auth: authStore(sql, authSchema),
     userId: asUser,
     db: sql,
     coreSchema,
@@ -72,15 +65,12 @@ async function makeUser(): Promise<string> {
 beforeAll(async () => {
   sql = postgres(URL, { onnotice: () => {} });
   coreSchema = `core_test_${rand(8)}`;
-  authSchema = `auth_test_${rand(8)}`;
   await bootstrapSpaceDatabase(sql);
   await migrateCore(sql, { schema: coreSchema });
-  await migrateAuth(sql, { schema: authSchema });
 });
 
 afterAll(async () => {
   await sql.unsafe(`drop schema if exists ${coreSchema} cascade`);
-  await sql.unsafe(`drop schema if exists ${authSchema} cascade`);
   await sql.end();
 });
 

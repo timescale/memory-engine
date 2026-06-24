@@ -10,7 +10,6 @@
  */
 
 import { describe, expect, mock, test } from "bun:test";
-import type { AuthStore } from "@memory.build/auth";
 import type { EmbeddingConfig } from "@memory.build/embedding";
 import type { CoreStore } from "@memory.build/engine/core";
 import type { Sql } from "postgres";
@@ -22,17 +21,6 @@ import { createRouter } from "./router";
 // =============================================================================
 // Test Helpers
 // =============================================================================
-
-function createMockAuth(overrides?: {
-  validateSession?: ReturnType<typeof mock>;
-  getUser?: ReturnType<typeof mock>;
-}): AuthStore {
-  return {
-    validateSession:
-      overrides?.validateSession ?? mock(() => Promise.resolve(null)),
-    getUser: overrides?.getUser ?? mock(() => Promise.resolve(null)),
-  } as unknown as AuthStore;
-}
 
 function createMockBetterAuth(overrides?: {
   getSession?: ReturnType<typeof mock>;
@@ -47,7 +35,6 @@ function createMockBetterAuth(overrides?: {
 function createMockContext(overrides?: Partial<ServerContext>): ServerContext {
   return {
     db: {} as Sql,
-    auth: createMockAuth(),
     betterAuth: createMockBetterAuth(),
     verifyOAuthToken: async () => null,
     core: {} as unknown as CoreStore,

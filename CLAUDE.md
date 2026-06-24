@@ -50,10 +50,9 @@ Read the relevant docs before starting work on a subsystem.
 
 ```
 packages/
-  auth/         # auth-schema store: users, sessions, oauth accounts, device flow
   cli/          # CLI + MCP server (the `me` binary)
   claude-plugin/# Claude Code plugin (capture hooks, slash commands)
-  client/       # TS client: createMemoryClient + createUserClient (+ auth device flow)
+  client/       # TS client: createMemoryClient + createUserClient
   database/     # schema migrations (auth, core, space) + shared migrate kit
   docs-site/    # Next.js static site that renders `docs/` for docs.memory.build
   embedding/    # vector embedding providers (OpenAI, Ollama)

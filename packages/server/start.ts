@@ -7,7 +7,6 @@
 // telemetry configure()). It returns a `RunningServer` handle whose `stop()`
 // tears everything down. index.ts is the thin entrypoint that wraps this with
 // telemetry + signal handling; the e2e harness calls it directly.
-import { authStore } from "@memory.build/auth";
 import {
   bootstrapSpaceDatabase,
   migrateAuth,
@@ -26,6 +25,7 @@ import { info, reportError, span } from "@pydantic/logfire-node";
 import postgres, { type Sql } from "postgres";
 import { MIN_CLIENT_VERSION, SERVER_VERSION } from "../../version";
 import { createBetterAuth } from "./auth/betterauth";
+import { cleanupExpiredAuth } from "./auth/cleanup";
 import { embeddingConstants } from "./config";
 import type { ServerContext } from "./context";
 import { checkSizeLimit } from "./middleware";
@@ -390,9 +390,6 @@ export async function startServer(
     },
   });
 
-  // Auth store (auth schema) on the runtime application pool.
-  const auth = authStore(runtimeDb, authSchema);
-
   // Core control-plane store (core schema) on the runtime application pool.
   const core = coreStore(runtimeDb, coreSchema);
 
@@ -436,7 +433,6 @@ export async function startServer(
 
   const context: ServerContext = {
     db: runtimeDb,
-    auth,
     betterAuth,
     verifyOAuthToken: verifyOAuthAccessToken,
     core,
@@ -508,45 +504,24 @@ export async function startServer(
   // Cleanup Jobs
   // ---------------------------------------------------------------------------
 
-  // Sweep expired device authorizations and sessions on a cron schedule (UTC).
-  // Both live in the auth schema now; terminal device states delete themselves
-  // on poll, so this only reclaims rows abandoned before completing.
+  // Sweep expired auth rows on a cron schedule (UTC). better-auth + the OAuth
+  // provider own these tables (sessions, verifications, oauth tokens) but don't
+  // purge expired rows on their own, so this reclaims them.
   const cleanupCron =
     (opts.enableCleanupCron ?? true)
       ? Bun.cron(deviceFlowCleanupCron, async () => {
           try {
-            const devices = await auth.deleteExpiredDevices();
-            if (devices > 0) {
-              info("Cleaned up expired device authorizations", {
-                count: devices,
+            const { sessions, verifications, oauthTokens } =
+              await cleanupExpiredAuth(runtimeDb, authSchema);
+            if (sessions || verifications || oauthTokens) {
+              info("Cleaned up expired auth rows", {
+                sessions,
+                verifications,
+                oauthTokens,
               });
             }
           } catch (error) {
-            reportError(
-              "Failed to cleanup device authorizations",
-              error as Error,
-            );
-          }
-          try {
-            const sessions = await auth.cleanupExpiredSessions();
-            if (sessions > 0) {
-              info("Cleaned up expired sessions", { count: sessions });
-            }
-          } catch (error) {
-            reportError("Failed to cleanup expired sessions", error as Error);
-          }
-          try {
-            const verifications = await auth.cleanupExpiredVerifications();
-            if (verifications > 0) {
-              info("Cleaned up expired verifications", {
-                count: verifications,
-              });
-            }
-          } catch (error) {
-            reportError(
-              "Failed to cleanup expired verifications",
-              error as Error,
-            );
+            reportError("Failed to clean up expired auth rows", error as Error);
           }
         })
       : null;
