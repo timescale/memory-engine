@@ -291,3 +291,104 @@ override), `ME_NO_KEYCHAIN`.
   agents, so the user RPC rejects api keys entirely.
 - **Authorization** — the `tree_access` model (read/write/owner grants, the
   `build_tree_access` gate) is unchanged and orthogonal to this document.
+
+## Alternatives considered and rejected
+
+The design above was the endpoint of a fairly long debate. The roads not taken,
+and why — so they don't get re-litigated:
+
+### Keep the home-grown auth (don't adopt better-auth)
+
+The prior system worked. The push to adopt better-auth was to get a **standard,
+audited** identity layer (social login, sessions, an OAuth 2.1 AS) instead of
+hand-maintained crypto, and to lay the foundation for a **hosted MCP** connector
+(same AS). The main objection was at-rest credential protection (see below);
+once that resolved, the standardization + MCP foundation won. **Note we did not
+adopt it wholesale** — agent api keys stayed in `core` (next item).
+
+### Move agent api keys into better-auth (e.g. its apiKey plugin)
+
+**Rejected.** Api keys are already global, sha256-hashed, agent-scoped, and wired
+into `tree_access` + the space roster in `core`. Moving them buys nothing and
+would split the agent model across two schemas. They stay in `core`; better-auth
+owns only human identity.
+
+### better-auth **device flow** for the CLI (the original plan)
+
+**Rejected — it doesn't compose.** The plan was the OAuth device-authorization
+grant + `bearer({ requireSignature: true })` to harden tokens. But `/device/token`
+returns the raw token and emits **no `set-auth-token` header** (better-auth's
+bearer header only fires alongside a `set-cookie`), so a CLI could never obtain a
+usable signed token. Confirmed by a spike; better-auth discussion #5068 shows
+others abandoned the device plugin for the same reason. Device flow is also not
+the idiomatic native-app pattern — that's auth-code + PKCE + loopback (RFC 8252).
+
+### better-auth **sessions** as the CLI credential
+
+**Rejected.** better-auth sessions **can't be hashed at rest** (the raw token
+round-trips through the session row into the cookie), and the hardening that would
+have mitigated it (`requireSignature`) was the very thing incompatible with the
+device flow above. Opaque OAuth tokens, by contrast, are **hashed at rest by
+default** in `@better-auth/oauth-provider` — which resolved the at-rest concern
+that drove the whole debate (net: a real-but-narrow worry, since agent keys are
+hashed in `core` regardless and only short-lived web session tokens are plaintext).
+
+### A **confidential** OAuth client for the CLI
+
+**Rejected.** A distributed CLI can't keep a client secret — it would ship in the
+binary / sit on every user's disk. The CLI is a **public client** and uses
+**PKCE** instead (RFC 8252 / 7636). This also drives the validation choice below.
+
+### **JWT access tokens** (full OIDC, JWKS-verified) for API auth
+
+**Rejected for API auth.** JWT access tokens validated via JWKS make sense when
+the resource server is separate from the AS. Here the resource server **shares the
+database** with the AS, so **opaque tokens + a hashed DB lookup**
+(`verifyOAuthAccessToken`) are simpler, allow instant revocation (delete the row),
+and need no key distribution. The `jwt` plugin is still mounted for OIDC id-token
+signing (a future hosted-MCP nicety); the CLI omits the `openid` scope, so no
+id_token / JWKS is involved in `me login`.
+
+### **RFC 7662 token introspection** for validation
+
+**Rejected.** Introspection (`/oauth2/introspect`) requires a confidential client
+to call it — overkill for a resource server co-located with the AS and its
+database. The direct hashed lookup is one query and needs no extra client.
+
+### **Dynamic Client Registration** (DCR) for the CLI client
+
+**Rejected.** `me-cli` is a single, first-party, well-known client. A static
+seeded `oauth_client` row (migration `006`, marked trusted via
+`cachedTrustedClients`) is simpler and lets it skip the consent screen. DCR is
+worth revisiting only for third-party / hosted-MCP clients.
+
+### A **hand-rolled** loopback handoff / hand-rolled PKCE in the CLI
+
+**Rejected.** The browser→loopback handoff and PKCE are standardized (RFC 8252 /
+7636) and done by every modern CLI; there's no reason to hand-roll the audited
+bits (state + `iss` validation, token-response parsing). The CLI uses the
+certified **`openid-client`** library with explicit endpoints.
+
+### **Reactive-only** (or proactive-only) CLI token refresh
+
+**Rejected.** Pure reactive-on-401 wastes a guaranteed-401 round-trip on every
+expired token and ignores the proactive norm; pure proactive-per-command refreshes
+when it needn't. Best practice (gcloud, aws, kubectl-oidc, MSAL) is **proactive
+refresh by expiry** (primary) **+ a reactive 401 retry** (safety net for clock
+skew / out-of-band revocation), centralized at token acquisition — which is what
+`session.ts` + the transport seams implement.
+
+### A **server-rendered HTML** `/login` page
+
+**Rejected.** `packages/web` already exists, is served at root, and `/login`
+already falls through to its SPA; the hosted UI needs login anyway (cookie
+sessions), and better-auth ships a first-class React client. A bolt-on server HTML
+page would be throwaway duplication. `/login` is a route in the existing SPA,
+driven by the better-auth SDK.
+
+### A **new** GitHub OAuth app for better-auth
+
+**Not needed.** better-auth's GitHub callback path (`/api/v1/auth/callback/github`)
+and env vars (`GITHUB_CLIENT_ID`/`GITHUB_CLIENT_SECRET`) are identical to the prior
+design's, so the existing OAuth app carries over unchanged — only update its
+callback URL if the deployment domain changes.
