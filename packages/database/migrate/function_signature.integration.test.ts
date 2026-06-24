@@ -131,6 +131,24 @@ describe("drop_function_if_signature_differs", () => {
     expect(await dropIfDiffers("fs_over", "_a jsonb, _b uuid", "int")).toBe(1);
     expect(await identityArgs("fs_over")).toEqual(["_a jsonb, _b uuid"]);
   });
+
+  test("no-op for a 0-arg function whose result matches (empty arg list)", async () => {
+    await mkfn("fs_noargs() returns int");
+    expect(await dropIfDiffers("fs_noargs", "", "int")).toBe(0);
+    expect(await identityArgs("fs_noargs")).toEqual([""]);
+  });
+
+  test("drops when the target gains args (0-arg live -> N-arg target)", async () => {
+    await mkfn("fs_gain() returns int");
+    expect(await dropIfDiffers("fs_gain", "_a jsonb", "int")).toBe(1);
+    expect(await identityArgs("fs_gain")).toEqual([]);
+  });
+
+  test("drops when the target loses all args (N-arg live -> 0-arg target)", async () => {
+    await mkfn("fs_lose(_a jsonb) returns int");
+    expect(await dropIfDiffers("fs_lose", "", "int")).toBe(1);
+    expect(await identityArgs("fs_lose")).toEqual([]);
+  });
 });
 
 describe("assert_function_signature", () => {
@@ -159,5 +177,15 @@ describe("assert_function_signature", () => {
     await mkfn("as_dup(_a jsonb) returns int");
     await mkfn("as_dup(_a uuid) returns int");
     await expectReject(() => assertSig("as_dup", "_a jsonb", "int"));
+  });
+
+  test("passes for a 0-arg function (empty arg list)", async () => {
+    await mkfn("as_noargs() returns int");
+    await assertSig("as_noargs", "", "int");
+  });
+
+  test("raises when a 0-arg target does not match an N-arg definition", async () => {
+    await mkfn("as_zero_drift(_a jsonb) returns int");
+    await expectReject(() => assertSig("as_zero_drift", "", "int"));
   });
 });
