@@ -72,6 +72,12 @@ export interface EnsureProvisionedParams {
   userId: string;
   /** The user's email — the globally-unique core principal name. */
   email: string;
+  /**
+   * Whether the identity provider verified the email. Invitations are
+   * email-keyed, so redemption only runs for a verified address — an unverified
+   * email must not auto-join spaces invited to it. Defaults to not-verified.
+   */
+  emailVerified?: boolean;
   /** Name for the personal space (default "default"). */
   spaceName?: string;
 }
@@ -124,8 +130,11 @@ export async function ensureUserProvisioned(
 
   // Join any spaces this email was invited to. better-auth gives us no
   // dedicated "login" hook, so this rides every user RPC — it's idempotent and
-  // best-effort (a no-op once nothing is pending), and the email is one the
-  // identity provider verified. This is the new home of the redemption that the
-  // retired device-flow callback used to run on each sign-in.
-  await redeemInvitationsForVerifiedLogin(core, params.userId, params.email);
+  // best-effort (a no-op once nothing is pending). Gated on a provider-VERIFIED
+  // email: invitations are email-keyed, so an unverified address must not
+  // auto-join spaces invited to it. This is the new home of the redemption the
+  // retired device-flow callback ran on each sign-in.
+  if (params.emailVerified) {
+    await redeemInvitationsForVerifiedLogin(core, params.userId, params.email);
+  }
 }

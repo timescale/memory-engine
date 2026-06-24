@@ -226,9 +226,14 @@ better-auth owns the `auth.users` + `accounts` rows (written on social login). T
 - create `core.principal` (sharing the auth user id) + a default space + its
   `me_<slug>` schema + the creator grants (admin + owner@home + owner@share, not
   owner@root).
-- then `redeemInvitationsForVerifiedLogin` — join any spaces this (provider-
-  verified) email was invited to. It rides every user RPC (better-auth gives no
-  dedicated login hook); idempotent + best-effort.
+- then `redeemInvitationsForVerifiedLogin` — join any spaces this email was
+  invited to. It rides every user RPC (better-auth gives no dedicated login
+  hook); idempotent + best-effort. **Gated on a provider-verified email**:
+  invitations are email-keyed, so an unverified address must not auto-join its
+  invited spaces. `emailVerified` is plumbed from both auth paths
+  (`verifyOAuthAccessToken` joins `users.email_verified`; the cookie path reads
+  `session.user.emailVerified`) → the user RPC context → `ensureUserProvisioned`,
+  which only redeems when it's true.
 
 ## Cleanup
 

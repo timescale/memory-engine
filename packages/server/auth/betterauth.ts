@@ -290,13 +290,15 @@ export function createBetterAuth(opts: BetterAuthOptions) {
     userId: string;
     email: string;
     name: string;
+    /** Whether the identity provider verified the email — gates email-keyed ops. */
+    emailVerified: boolean;
     scopes: string[];
   } | null> {
     // Join the user so callers get identity (whoami / provisioning) in one hop.
     // A user-less token (client_credentials) yields no row → treated as invalid;
     // our API auth is user-bound (agents use core api keys, not OAuth).
     const { rows } = await pool.query(
-      `select t.user_id, u.email, u.name, t.scopes
+      `select t.user_id, u.email, u.name, u.email_verified, t.scopes
          from oauth_access_token t
          join users u on u.id = t.user_id
         where t.token = $1 and t.expires_at > now()
@@ -309,6 +311,7 @@ export function createBetterAuth(opts: BetterAuthOptions) {
       userId: row.user_id as string,
       email: row.email as string,
       name: row.name as string,
+      emailVerified: Boolean(row.email_verified),
       scopes: Array.isArray(row.scopes) ? (row.scopes as string[]) : [],
     };
   }

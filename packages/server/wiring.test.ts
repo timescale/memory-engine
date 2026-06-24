@@ -154,6 +154,7 @@ describe("Server-Database Wiring", () => {
           userId: identity.id,
           email: identity.email,
           name: identity.name,
+          emailVerified: true,
           scopes: [],
         }),
         // Already-provisioned: getPrincipal returns truthy so lazy provisioning
