@@ -27,35 +27,42 @@ import {
 
 const EXPECTED_TABLES = [
   "accounts",
-  "device_authorization",
+  "jwks",
   "migration",
+  "oauth_access_token",
+  "oauth_client",
+  "oauth_consent",
+  "oauth_refresh_token",
   "sessions",
   "users",
   "verifications",
   "version",
 ];
 
+// 004_device_authorization stays in the log (it ran historically); 006 dropped
+// its tables/functions and added the better-auth OAuth-provider + jwks schema.
 const EXPECTED_MIGRATIONS = [
   "001_users",
   "002_accounts",
   "003_sessions",
   "004_device_authorization",
   "005_verifications",
+  "006_betterauth",
 ];
 
+// The functions the schema still owns after 006: the updated_at trigger fn, the
+// user/account helpers, and the cron cleanup sweeps. (Session validation + the
+// device flow moved to better-auth / were dropped.)
 const EXPECTED_FUNCTIONS = [
   "update_updated_at",
   "create_user",
   "get_user",
   "get_user_by_email",
-  "create_session",
-  "validate_session",
   "upsert_account",
   "get_account_by_provider",
-  "create_device_auth",
-  "bind_device_user",
-  "approve_device",
-  "poll_device",
+  "cleanup_expired_sessions",
+  "cleanup_expired_verifications",
+  "cleanup_expired_oauth_tokens",
 ];
 
 // The auth schema deliberately requires only citext — not the engine extensions.
@@ -118,23 +125,26 @@ describe("provisioned auth schema", () => {
     }
   });
 
-  test("creates the updated_at trigger function in the schema", async () => {
+  test("creates the expected SQL functions in the schema", async () => {
     const functions = await listFunctions(sql, canonical.schema);
     for (const fn of EXPECTED_FUNCTIONS) {
       expect(functions).toContain(fn);
     }
   });
 
-  test("installs updated_at triggers on mutable tables only", async () => {
+  test("installs updated_at triggers on trigger-managed tables only", async () => {
     for (const table of ["users", "accounts", "verifications"]) {
       const triggers = await listTriggers(sql, canonical.schema, table);
       expect(triggers).toContain(`${table}_before_update_trg`);
     }
-    // insert/delete-only tables have no updated_at and thus no trigger
-    for (const table of ["sessions", "device_authorization"]) {
-      const triggers = await listTriggers(sql, canonical.schema, table);
-      expect(triggers).not.toContain(`${table}_before_update_trg`);
-    }
+    // sessions has an updated_at column but better-auth maintains it (no DB
+    // trigger), so the before-update trigger must not be installed there.
+    const sessionTriggers = await listTriggers(
+      sql,
+      canonical.schema,
+      "sessions",
+    );
+    expect(sessionTriggers).not.toContain("sessions_before_update_trg");
   });
 });
 
@@ -200,32 +210,53 @@ describe("schema constraints enforce", () => {
     );
   });
 
-  test("session token_hash is unique", async () => {
+  test("session token is unique (better-auth's plaintext lookup token)", async () => {
     const s = canonical.schema;
     const userId = await insertUser(sql, s);
+    const token = `tok_${crypto.randomUUID()}`;
     await sql.unsafe(
-      `insert into ${s}.sessions (user_id, token_hash, expires_at)
-       values ('${userId}', '\\xdeadbeef', now() + interval '1 day')`,
+      `insert into ${s}.sessions (user_id, token, expires_at)
+       values ('${userId}', '${token}', now() + interval '1 day')`,
     );
     await expectReject(() =>
       sql.unsafe(
-        `insert into ${s}.sessions (user_id, token_hash, expires_at)
-         values ('${userId}', '\\xdeadbeef', now() + interval '1 day')`,
+        `insert into ${s}.sessions (user_id, token, expires_at)
+         values ('${userId}', '${token}', now() + interval '1 day')`,
       ),
     );
   });
 
-  test("device_authorization.user_code is unique", async () => {
-    const s = canonical.schema;
-    const code = `AB${crypto.randomUUID().slice(0, 4).toUpperCase()}`;
-    await sql.unsafe(
-      `insert into ${s}.device_authorization (device_code, user_code, provider, oauth_state, expires_at)
-       values ('${crypto.randomUUID()}', '${code}', 'google', '${crypto.randomUUID()}', now() + interval '15 min')`,
+  test("the me-cli OAuth client is seeded (public PKCE client, consent skipped)", async () => {
+    const [cli] = await sql.unsafe(
+      `select public, type, require_pkce, skip_consent
+         from ${canonical.schema}.oauth_client where client_id = 'me-cli'`,
     );
+    expect(cli).toBeDefined();
+    expect(cli?.public).toBe(true);
+    expect(cli?.type).toBe("native");
+    expect(cli?.require_pkce).toBe(true);
+    expect(cli?.skip_consent).toBe(true);
+  });
+
+  test("oauth_access_token.token is unique and client_id FKs oauth_client", async () => {
+    const s = canonical.schema;
+    const userId = await insertUser(sql, s);
+    await sql.unsafe(
+      `insert into ${s}.oauth_access_token (token, client_id, user_id, scopes, expires_at)
+       values ('at-dup', 'me-cli', '${userId}', '[]'::jsonb, now() + interval '1 hour')`,
+    );
+    // duplicate token → unique violation
     await expectReject(() =>
       sql.unsafe(
-        `insert into ${s}.device_authorization (device_code, user_code, provider, oauth_state, expires_at)
-         values ('${crypto.randomUUID()}', '${code}', 'google', '${crypto.randomUUID()}', now() + interval '15 min')`,
+        `insert into ${s}.oauth_access_token (token, client_id, user_id, scopes, expires_at)
+         values ('at-dup', 'me-cli', '${userId}', '[]'::jsonb, now() + interval '1 hour')`,
+      ),
+    );
+    // unknown client_id → FK violation
+    await expectReject(() =>
+      sql.unsafe(
+        `insert into ${s}.oauth_access_token (token, client_id, user_id, scopes, expires_at)
+         values ('at-orphan', 'no-such-client', '${userId}', '[]'::jsonb, now() + interval '1 hour')`,
       ),
     );
   });
@@ -255,38 +286,6 @@ describe("auth functions", () => {
         [e.toUpperCase()],
       );
       expect(byEmail?.id).toBe(id);
-    });
-  });
-
-  test("create_session + validate_session (valid + expired)", async () => {
-    await withTestAuth(sql, {}, async (auth) => {
-      const s = auth.schema;
-      const [u] = await sql.unsafe(`select ${s}.create_user($1, $2) as id`, [
-        email(),
-        "Bob",
-      ]);
-      const userId = u?.id as string;
-
-      await sql.unsafe(
-        `select ${s}.create_session($1, $2::bytea, now() + interval '1 day')`,
-        [userId, "\\xabcd"],
-      );
-      const valid = await sql.unsafe(
-        `select * from ${s}.validate_session($1::bytea)`,
-        ["\\xabcd"],
-      );
-      expect(valid.length).toBe(1);
-      expect(valid[0]?.user_id).toBe(userId);
-
-      await sql.unsafe(
-        `select ${s}.create_session($1, $2::bytea, now() - interval '1 second')`,
-        [userId, "\\xbeef"],
-      );
-      const expired = await sql.unsafe(
-        `select * from ${s}.validate_session($1::bytea)`,
-        ["\\xbeef"],
-      );
-      expect(expired.length).toBe(0);
     });
   });
 
@@ -328,97 +327,6 @@ describe("auth functions", () => {
       expect(none.length).toBe(0);
     });
   });
-
-  test("device flow: create → bind → consent → authorized (and deny path)", async () => {
-    await withTestAuth(sql, {}, async (auth) => {
-      const s = auth.schema;
-      const [u] = await sql.unsafe(`select ${s}.create_user($1, $2) as id`, [
-        email(),
-        "Dave",
-      ]);
-      const userId = u?.id as string;
-
-      const deviceCode = crypto.randomUUID();
-      const userCode = "ABCD-2345";
-      const oauthState = crypto.randomUUID();
-      await sql.unsafe(
-        `select ${s}.create_device_auth($1, $2, 'google', $3, now() + interval '15 min')`,
-        [deviceCode, userCode, oauthState],
-      );
-
-      const byState = await sql.unsafe(
-        `select * from ${s}.get_device_by_oauth_state($1)`,
-        [oauthState],
-      );
-      expect(byState[0]?.device_code).toBe(deviceCode);
-      expect(byState[0]?.status).toBe("pending");
-      const byUserCode = await sql.unsafe(
-        `select * from ${s}.get_device_by_user_code($1)`,
-        [userCode],
-      );
-      expect(byUserCode[0]?.device_code).toBe(deviceCode);
-
-      // before binding → pending (interval 0 bypasses rate limit)
-      const [p1] = await sql.unsafe(`select * from ${s}.poll_device($1, 0)`, [
-        deviceCode,
-      ]);
-      expect(p1?.status).toBe("pending");
-
-      // immediate re-poll with the default interval → slow_down
-      const [sd] = await sql.unsafe(`select * from ${s}.poll_device($1)`, [
-        deviceCode,
-      ]);
-      expect(sd?.status).toBe("slow_down");
-
-      // callback binds the user, but status stays pending until consent
-      const [b] = await sql.unsafe(
-        `select ${s}.bind_device_user($1, $2) as ok`,
-        [deviceCode, userId],
-      );
-      expect(b?.ok).toBe(true);
-      const [pBound] = await sql.unsafe(
-        `select * from ${s}.poll_device($1, 0)`,
-        [deviceCode],
-      );
-      expect(pBound?.status).toBe("pending"); // bound but NOT yet approved
-
-      // consent: approve → authorized; a second approve is a no-op
-      const [ap] = await sql.unsafe(`select ${s}.approve_device($1) as ok`, [
-        deviceCode,
-      ]);
-      expect(ap?.ok).toBe(true);
-      const [ap2] = await sql.unsafe(`select ${s}.approve_device($1) as ok`, [
-        deviceCode,
-      ]);
-      expect(ap2?.ok).toBe(false);
-
-      const [p2] = await sql.unsafe(`select * from ${s}.poll_device($1, 0)`, [
-        deviceCode,
-      ]);
-      expect(p2?.status).toBe("approved");
-      expect(p2?.user_id).toBe(userId);
-
-      // deny path on a separate device → poll resolves to denied
-      const dc2 = crypto.randomUUID();
-      await sql.unsafe(
-        `select ${s}.create_device_auth($1, $2, 'google', $3, now() + interval '15 min')`,
-        [dc2, "WXYZ-3456", crypto.randomUUID()],
-      );
-      expect(
-        (await sql.unsafe(`select ${s}.deny_device($1) as ok`, [dc2]))[0]?.ok,
-      ).toBe(true);
-      const [pd] = await sql.unsafe(`select * from ${s}.poll_device($1, 0)`, [
-        dc2,
-      ]);
-      expect(pd?.status).toBe("denied");
-
-      // unknown / expired device code → expired
-      const [ex] = await sql.unsafe(`select * from ${s}.poll_device($1, 0)`, [
-        crypto.randomUUID(),
-      ]);
-      expect(ex?.status).toBe("expired");
-    });
-  });
 });
 
 describe("cascade + trigger behavior", () => {
@@ -430,7 +338,7 @@ describe("cascade + trigger behavior", () => {
         `insert into ${s}.accounts (user_id, provider_id, account_id) values ('${userId}', 'github', '1')`,
       );
       await sql.unsafe(
-        `insert into ${s}.sessions (user_id, token_hash, expires_at) values ('${userId}', '\\xaa', now() + interval '1 day')`,
+        `insert into ${s}.sessions (user_id, token, expires_at) values ('${userId}', 'tok_${crypto.randomUUID()}', now() + interval '1 day')`,
       );
 
       await sql.unsafe(`delete from ${s}.users where id = '${userId}'`);
