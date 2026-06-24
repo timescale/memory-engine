@@ -90,7 +90,7 @@ function mapSpaceError(e: unknown): never {
     );
   }
   if (code === "ME002") {
-    throw new AppError("CONFLICT", "Memory was modified; refresh and retry");
+    throw new AppError("CONFLICT", "Memory was modified; the version_hash is stale. Fetch the memory again to get the latest version_hash, re-apply your changes over the latest vesion, and retry");
   }
   throw e instanceof Error ? e : new Error(String(e));
 }
