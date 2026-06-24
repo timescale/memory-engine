@@ -6,7 +6,8 @@
  * discriminated by whether the bearer token parses as an api key:
  *
  *   - api key (agent): `me.<lookupId>.<secret>` — validated against core.
- *   - session (human): an opaque session token — validated against auth.
+ *   - human: an OAuth access token (Bearer, CLI/MCP) or a better-auth cookie
+ *     session — both opaque, validated against the auth schema.
  *
  * The space is always selected by the `X-Me-Space` header (uniform for both
  * modes). `core.buildTreeAccess(principalId, space.id)` is the single

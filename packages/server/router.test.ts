@@ -63,11 +63,11 @@ describe("matchRoute", () => {
   });
 
   describe("auth endpoints (better-auth catch-all)", () => {
-    test("routes device-flow + session paths (any method) to the catch-all", () => {
+    test("routes better-auth sub-paths (any method) to the catch-all", () => {
       const cases: Array<[string, string]> = [
-        ["POST", "/api/v1/auth/device/code"],
-        ["POST", "/api/v1/auth/device/token"],
-        ["GET", "/api/v1/auth/device"],
+        ["POST", "/api/v1/auth/sign-in/social"],
+        ["GET", "/api/v1/auth/oauth2/authorize"],
+        ["POST", "/api/v1/auth/oauth2/token"],
         ["POST", "/api/v1/auth/sign-out"],
       ];
       for (const [method, path] of cases) {

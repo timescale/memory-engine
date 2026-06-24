@@ -1,9 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import {
-  extractBearerToken,
-  extractSessionCredential,
-  passesCsrfCheck,
-} from "./authenticate";
+import { extractBearerToken, passesCsrfCheck } from "./authenticate";
 
 describe("extractBearerToken", () => {
   test("extracts token from valid Authorization header", () => {
@@ -37,53 +33,6 @@ describe("extractBearerToken", () => {
       headers: { Cookie: "me_session=cookietoken" },
     });
     expect(extractBearerToken(request)).toBeNull();
-  });
-});
-
-describe("extractSessionCredential", () => {
-  test("prefers the Authorization header (source=header)", () => {
-    const request = new Request("http://localhost/test", {
-      headers: {
-        Authorization: "Bearer headertoken",
-        Cookie: "me_session=cookietoken",
-      },
-    });
-    expect(extractSessionCredential(request, false)).toEqual({
-      token: "headertoken",
-      source: "header",
-    });
-  });
-
-  test("falls back to the unprefixed cookie in non-secure mode (source=cookie)", () => {
-    const request = new Request("http://localhost/test", {
-      headers: { Cookie: "me_session=cookietoken" },
-    });
-    expect(extractSessionCredential(request, false)).toEqual({
-      token: "cookietoken",
-      source: "cookie",
-    });
-  });
-
-  test("reads the __Host- prefixed cookie in secure mode", () => {
-    const request = new Request("http://localhost/test", {
-      headers: { Cookie: "__Host-me_session=secure-token; other=x" },
-    });
-    expect(extractSessionCredential(request, true)).toEqual({
-      token: "secure-token",
-      source: "cookie",
-    });
-  });
-
-  test("secure mode ignores a plain me_session cookie (__Host- only)", () => {
-    const request = new Request("http://localhost/test", {
-      headers: { Cookie: "me_session=cookietoken" },
-    });
-    expect(extractSessionCredential(request, true)).toBeNull();
-  });
-
-  test("returns null with no credential", () => {
-    const request = new Request("http://localhost/test");
-    expect(extractSessionCredential(request, true)).toBeNull();
   });
 });
 
