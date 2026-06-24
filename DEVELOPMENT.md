@@ -42,7 +42,7 @@ memory-engine itself as that can be confusing for the model.
 
 ```bash
 ./bun install
-./bun run pg
+./bun run pg:docker
 # configure .env (see below)
 ./bun run setup
 ./bun run server
@@ -63,10 +63,10 @@ memory-engine itself as that can be confusing for the model.
 The project requires PostgreSQL 18 with three extensions: `pgvector`, `pg_textsearch`, and `ltree`. The included Dockerfile builds a pre-configured image:
 
 ```bash
-./bun run pg
+./bun run pg:docker
 ```
 
-This builds the Docker image and starts a container named `me-postgres` on `localhost:5432` with trust authentication (no password).
+This builds the Docker image and starts a container named `me-postgres` on `localhost:5432` with trust authentication (no password). It serves the default `postgres` database, which is the one `.env.sample` targets.
 
 Other database commands:
 
@@ -88,7 +88,7 @@ cp .env.sample .env
 **Database connection** — one database holds the `auth` + `core` control plane and every per-space `me_<slug>` schema:
 
 ```
-DATABASE_URL=postgres://postgres@localhost:5432/memory_engine
+DATABASE_URL=postgres://postgres@localhost:5432/postgres
 ```
 
 
@@ -144,7 +144,7 @@ GITHUB_CLIENT_SECRET=...
 
 ```bash
 # Database
-DATABASE_URL=postgres://postgres@localhost:5432/memory_engine
+DATABASE_URL=postgres://postgres@localhost:5432/postgres
 
 # Server
 API_BASE_URL=http://localhost:3000
@@ -173,18 +173,55 @@ specified in milliseconds, for example `RPC_DB_STATEMENT_TIMEOUT_MS=30000`.
 ./bun run setup
 ```
 
-This is idempotent (safe to run multiple times) and will:
-
-1. Create the `accounts` and `shard1` databases if they don't exist
-2. Run account schema migrations
-3. Create and activate an encryption data key
-4. Bootstrap the engine database (extensions and roles)
+This is idempotent (safe to run multiple times). It reads `DATABASE_URL` and
+creates that database if it doesn't already exist (everything else —
+bootstrap, migrations, encryption keys — happens automatically at server
+startup). When `DATABASE_URL` targets `/postgres` (the `me-postgres`
+container's default database, as in `.env.sample`), this is effectively a
+no-op since that database already exists — running it is still harmless.
 
 ### 5. Start the server
 
 ```bash
 ./bun run server
 ```
+
+### 5b. Run the server in Docker (optional)
+
+To exercise the actual production image locally — the multi-stage
+`packages/server/Dockerfile` that CI builds and deploys — use the `server:*`
+scripts (the Docker counterparts to `pg:*`):
+
+```bash
+./bun run server:docker   # build the image + run the container (me-server)
+./bun run server:rm       # stop and remove the container
+./bun run server:build    # build the image only
+```
+
+`server:docker` publishes the server on `127.0.0.1:3000` and wires it to the
+`me-postgres` container. Prerequisites:
+
+- Postgres running (`./bun run pg:docker`).
+- A populated `.env` (the container is started with `--env-file .env`, so it
+  reads `EMBEDDING_API_KEY`, the OAuth credentials, telemetry, etc. from there).
+
+How it reaches Postgres: the script overrides `DATABASE_URL` to
+`postgres://postgres@host.docker.internal:5432/postgres` (and adds
+`--add-host=host.docker.internal:host-gateway` so the hostname resolves on
+Linux too). A container can't reach the host's `localhost`, so this override
+replaces the `localhost` value your `.env` uses for host-run development.
+`-e` takes precedence over `--env-file`, so the rest of `.env` still applies.
+
+Caveats:
+
+- The script hardcodes port `3000`. If you set a different `PORT` in `.env`,
+  edit the `server:docker` script's published port and keep `API_BASE_URL`
+  consistent.
+- The override only covers `DATABASE_URL`. If you uncomment
+  `WORKER_DATABASE_URL` in `.env`, it must also use `host.docker.internal`.
+- `docker run --env-file` parses literal `KEY=VALUE` lines — no quotes, no
+  `$VAR` expansion (unlike Bun's `.env` loader). `.env.sample` is already
+  compatible.
 
 ### 6. Test with the CLI
 
@@ -207,11 +244,14 @@ After login, the server URL is stored as the default in `~/.config/me/credential
 
 | Command | Description |
 |---|---|
-| `./bun run server` | Start the server |
-| `./bun run setup` | Create databases, run migrations, bootstrap engine |
-| `./bun run pg` | Build and start PostgreSQL in Docker |
+| `./bun run server` | Start the server (on the host) |
+| `./bun run setup` | Ensure the `DATABASE_URL` database exists |
+| `./bun run pg:docker` | Build and start PostgreSQL in Docker |
 | `./bun run pg:rm` | Stop and remove the PostgreSQL container |
 | `./bun run psql` | Connect to PostgreSQL with psql |
+| `./bun run server:build` | Build the server Docker image (`me-server`) |
+| `./bun run server:docker` | Build + run the server in Docker (vs `me-postgres`) |
+| `./bun run server:rm` | Stop and remove the server container |
 | `./bun run test` | Run all package tests (unit + integration, vs local Postgres by default) |
 | `./bun run check` | Fast inner loop: typecheck + lint + unit tests (no database) |
 | `./bun run check:full` | Everything: check + full suite + e2e (vs local Postgres by default) |

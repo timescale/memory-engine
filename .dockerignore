@@ -14,9 +14,16 @@
 .env.*
 !.env.sample
 
-# Documentation and repos
+# Documentation, scratch, and repos (not needed to build/run the server)
 docs/
 repos/
+scratch/
+queries/
+packs/
+*.md
+
+# Local tool downloads (the ./bun wrapper caches Bun here)
+download/
 
 # CLI build artifacts
 packages/cli/dist/
