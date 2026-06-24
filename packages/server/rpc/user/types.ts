@@ -19,6 +19,13 @@ export interface UserRpcContext extends HandlerContext {
   db: Sql;
   /** The core control-plane schema name. */
   coreSchema: string;
+  /**
+   * True when the caller authenticated with an api key (a user PAT) rather than
+   * a session / OAuth token. Gates the credential-management ops: a key can't
+   * mint or revoke keys (preserves revocability), so apiKey.create/delete reject
+   * a key-authenticated caller.
+   */
+  viaApiKey: boolean;
 }
 
 export function isUserRpcContext(ctx: HandlerContext): ctx is UserRpcContext {

@@ -24,16 +24,22 @@ All auth code lives in `packages/server/auth/` (`betterauth.ts` + `cleanup.ts`),
 `packages/client/transport.ts`, and `packages/web/src/` (`api/auth-client.ts` +
 the login components).
 
-## Three credential types
+## Credential types
 
 | Caller | Credential | Mechanism | At rest |
 |---|---|---|---|
 | Human, web UI | session cookie | better-auth social login | session token plaintext in `sessions.token`; cookie is httpOnly |
-| Human, CLI / programmatic | OAuth access + refresh token | auth-code + PKCE + loopback | **hashed** (sha256) in `oauth_access_token` / `oauth_refresh_token` |
-| Agent | api key (`me.<lookupId>.<secret>`) | `core.api_key` | **hashed** (sha256) in `core` — unchanged |
+| Human, CLI (interactive) | OAuth access + refresh token | auth-code + PKCE + loopback | **hashed** (sha256) in `oauth_access_token` / `oauth_refresh_token` |
+| Human, headless CLI | **user api key (PAT)** | `core.api_key` for the user's own (`'u'`) principal | **hashed** (sha256) in `core` |
+| Agent | api key (`me.<lookupId>.<secret>`) | `core.api_key` for an agent (`'a'`) | **hashed** (sha256) in `core` |
 
-A human therefore has two distinct credentials depending on surface: a cookie for
-the browser, OAuth tokens for the CLI. They share one identity (`auth.users` row).
+A human can hold several credentials by surface: a cookie for the browser, OAuth
+tokens for the interactive CLI (`me login`), and a **personal access token** for
+headless/SSH/VM use (`me apikey create --self`). All share one identity
+(the `auth.users` / `core.principal` row). A user PAT carries the user's *full*
+authority on the data plane but is barred from minting/revoking credentials — see
+flow E. (An agent key is the right choice for sandboxes; a user PAT is for "be me,
+headless" — see the device-flow vs. PAT note in the alternatives section.)
 
 ## Data model (the `auth` schema)
 
@@ -105,7 +111,10 @@ scopes         = ["openid", "profile", "email", "offline_access"]
 - **`/api/v1/memory/rpc`** — memory data plane + space management. Auth: api key
   **or** OAuth access token (Bearer) **or** cookie; requires `X-Me-Space`.
 - **`/api/v1/user/rpc`** — user-scoped (whoami, agent/api-key/space management).
-  Auth: OAuth access token (Bearer) **or** cookie. Never an api key.
+  Auth: OAuth access token (Bearer), cookie, **or the user's own api key (PAT)**.
+  An **agent** key is rejected here (403 — agents can't manage the account), and
+  `apiKey.create` / `apiKey.delete` reject *any* key-authenticated caller
+  (session-only: a key can't mint or revoke keys).
 - **`/`** (any non-`/api` GET) — the web UI (static SPA + fallback), including the
   `/login` page below.
 
@@ -210,12 +219,30 @@ Long-lived consumers — `me serve` (the `/rpc` proxy) and `me mcp` (the MCP
 server) — use the same bearer sources, so they survive access-token expiry
 instead of dying after the access-token lifetime.
 
-### E. Agent api keys (unchanged)
+### E. Api keys (agents + user PATs)
 
-Agents present `ME_API_KEY` (`me.<lookupId>.<secret>`), validated in `core`. Keys
-are global per-principal (not space-bound); the space comes from `X-Me-Space`,
-gated by `build_tree_access`. No OAuth, no sessions. `apiKey.create` prints the
-key once; it is never persisted by the CLI.
+`ME_API_KEY` (`me.<lookupId>.<secret>`) is validated in `core`
+(`validate_api_key` → a principal, kind-agnostic). Keys are global per-principal
+(not space-bound); the space comes from `X-Me-Space`, gated by
+`build_tree_access`. No OAuth, no sessions. The key is printed once by
+`apiKey.create` and never persisted by the CLI.
+
+A key can be minted for two kinds of member (`apiKey.create({ memberId })`,
+gated by `requireOwnMember` — the caller's own user or an owned agent):
+
+- **Agent key** (kind `'a'`) — a headless service account, scoped to the agent's
+  grants. Memory RPC only; rejected on the user RPC.
+- **User PAT** (kind `'u'`, the caller's own principal) — "be me, headless"
+  (`me apikey create --self`; explicit opt-in, since it's a full-access
+  credential). Authenticates as
+  the **user** with their full grants, on **both** the memory RPC and the user
+  RPC — *except* it cannot mint or revoke keys (`apiKey.create` / `apiKey.delete`
+  stay session-only). That carve-out keeps a leaked key from minting a sibling
+  to outlive revocation, and matches the PAT norm. `me serve` / `me mcp` accept
+  it like any bearer.
+
+Minting/revoking is itself session-only: the user RPC accepts a user PAT for
+everything *but* `apiKey.create` / `apiKey.delete`, so keys can't manage keys.
 
 ## Provisioning
 
@@ -292,8 +319,9 @@ override), `ME_NO_KEYCHAIN`.
 
 ## What is intentionally NOT better-auth
 
-- **Agent api keys** — stay in `core` (global, sha256-hashed). Agents can't manage
-  agents, so the user RPC rejects api keys entirely.
+- **Api keys** — agent keys and user PATs both live in `core` (global,
+  sha256-hashed), separate from better-auth. Agent keys are barred from the user
+  RPC; user PATs are admitted there but can't manage keys (flow E).
 - **Authorization** — the `tree_access` model (read/write/owner grants, the
   `build_tree_access` gate) is unchanged and orthogonal to this document.
 
@@ -475,3 +503,33 @@ driven by the better-auth SDK.
 and env vars (`GITHUB_CLIENT_ID`/`GITHUB_CLIENT_SECRET`) are identical to the prior
 design's, so the existing OAuth app carries over unchanged — only update its
 callback URL if the deployment domain changes.
+
+### Device flow (RFC 8628) for headless / SSH / VM CLI use
+
+The loopback `me login` can't complete on a headless box (no local browser; the
+laptop browser can't reach the VM's `127.0.0.1` callback). Device flow is the
+standard fix — and it has a real security edge over the chosen answer: it issues
+short-lived + rotating tokens rather than a long-lived static secret.
+
+**Deferred in favor of user PATs + agent keys**, for three reasons:
+1. **Not natively supported.** `@better-auth/oauth-provider` implements only
+   `authorization_code` / `refresh_token` / `client_credentials` — no device
+   grant. better-auth's separate `deviceAuthorization` plugin is *session*-based
+   (the rejected path). So device flow would be a custom device-grant endpoint on
+   our AS — a real build.
+2. **It still needs a human.** The device-code step requires someone to open a
+   browser and enter the code, so it can't serve **non-interactive / programmatic**
+   contexts (CI, auto-provisioned agent sandboxes) — those need a pre-injected key
+   regardless.
+3. **User PATs are cheap and cover both.** The `core` api-key layer already keys
+   by `member_id` (`'u'|'a'`); allowing the user's own principal was a small
+   handler change. A user PAT gives the human's identity headless with zero
+   runtime interaction.
+
+Tradeoff accepted: a user PAT is a long-lived, full-(data-plane)-authority static
+secret — higher standing blast radius than device flow's short-lived tokens.
+Mitigations: it can't manage keys (no self-replication; revocation stays
+effective), supports `expiresAt`, and for sandboxes we steer to **scoped agent
+keys** rather than a full-authority user PAT. Revisit device flow if interactive
+headless-as-yourself becomes common and the short-lived-token posture is worth the
+build.

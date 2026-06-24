@@ -169,6 +169,30 @@ test("api key: agent of the space resolves with apiKeyId set", async () => {
   }
 });
 
+test("api key: a user's own key (PAT) resolves as the user with full grants", async () => {
+  const p = await provision();
+  const core = engineCore.coreStore(sql, coreSchema);
+
+  // A personal access token minted for the user's own principal.
+  const key = await core.createApiKey(p.userId, "my-pat");
+  const fullKey = engineCore.formatApiKey(key.lookupId, key.secret);
+
+  const result = await authenticateSpace(
+    req({ token: fullKey, space: p.spaceSlug }),
+    deps(),
+  );
+  expect(result.ok).toBe(true);
+  if (result.ok) {
+    // Authenticates as the user (not clamped like an agent) with full grants.
+    expect(result.context.principalId).toBe(p.userId);
+    expect(result.context.apiKeyId).not.toBeNull();
+    expect(result.context.treeAccess).toContainEqual({
+      tree_path: "share",
+      access: engineCore.ACCESS.owner,
+    });
+  }
+});
+
 test("api key is global: one key authenticates into every space the agent belongs to", async () => {
   const p = await provision();
   const core = engineCore.coreStore(sql, coreSchema);

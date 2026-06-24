@@ -1,6 +1,8 @@
 // Integration test for the user RPC api-key handlers (apiKey.* lifecycle).
-// Keys are agent-only and global: minting one needs only agent ownership — no
-// space membership — and the key string carries no space slug.
+// A key is minted for a member the caller owns — an agent, or the caller's OWN
+// user principal (a personal access token). Keys are global (no space slug) and
+// minting needs only ownership, not space membership. Minting/revoking is
+// session-only: a key-authenticated caller (viaApiKey) can't manage keys.
 //   TEST_DATABASE_URL="postgresql://postgres@127.0.0.1:5432/postgres" \
 //     bun test --timeout 30000 \
 //     packages/server/rpc/user/api-key.integration.test.ts
@@ -32,6 +34,7 @@ function call<T = unknown>(
   method: string,
   params: unknown,
   asUser: string = userId,
+  opts: { viaApiKey?: boolean } = {},
 ): Promise<T> {
   const registered = userMethods.get(method);
   if (!registered) throw new Error(`no handler for ${method}`);
@@ -41,6 +44,7 @@ function call<T = unknown>(
     userId: asUser,
     db: sql,
     coreSchema,
+    viaApiKey: opts.viaApiKey ?? false,
   } as unknown as HandlerContext;
   return registered.handler(params, context) as Promise<T>;
 }
@@ -86,7 +90,7 @@ test("create (global, no space needed) / list / get / delete", async () => {
   });
 
   const created = await call<{ id: string; key: string }>("apiKey.create", {
-    agentId,
+    memberId: agentId,
     name: "ci",
     expiresAt: null,
   });
@@ -112,12 +116,49 @@ test("create (global, no space needed) / list / get / delete", async () => {
   ).toBeNull();
 });
 
-test("apiKey.create rejects a non-agent member", async () => {
-  // a user id is not an agent → NOT_FOUND
+test("mints a personal access token for the caller's own user principal", async () => {
+  const created = await call<{ id: string; key: string }>("apiKey.create", {
+    memberId: userId, // self → a PAT
+    name: "my-pat",
+    expiresAt: null,
+  });
+  expect(created.key).toMatch(/^me\.[A-Za-z0-9_-]{16}\.[A-Za-z0-9_-]{32}$/);
+  // It's listed under the user's own member id.
+  const list = await call<{ apiKeys: { id: string }[] }>("apiKey.list", {
+    memberId: userId,
+  });
+  expect(list.apiKeys.map((k) => k.id)).toContain(created.id);
+});
+
+test("a key-authenticated caller can't mint or revoke keys (keys can't manage keys)", async () => {
+  // First mint a key as a session caller (viaApiKey defaults false).
+  const created = await call<{ id: string }>("apiKey.create", {
+    memberId: userId,
+    name: "pat",
+    expiresAt: null,
+  });
+  // Now the same ops via a key (viaApiKey) are forbidden — even for self.
   await expectAppError(
-    call("apiKey.create", { agentId: userId, name: "nope", expiresAt: null }),
-    "NOT_FOUND",
+    call(
+      "apiKey.create",
+      { memberId: userId, name: "sibling", expiresAt: null },
+      userId,
+      { viaApiKey: true },
+    ),
+    "FORBIDDEN",
   );
+  await expectAppError(
+    call("apiKey.delete", { id: created.id }, userId, { viaApiKey: true }),
+    "FORBIDDEN",
+  );
+  // Read-only ops remain available to a key caller.
+  const got = await call<{ apiKey: { id: string } | null }>(
+    "apiKey.get",
+    { id: created.id },
+    userId,
+    { viaApiKey: true },
+  );
+  expect(got.apiKey?.id).toBe(created.id);
 });
 
 test("cannot manage keys for another user's agent", async () => {
@@ -126,7 +167,11 @@ test("cannot manage keys for another user's agent", async () => {
   });
   const intruder = await makeUser();
   await expectAppError(
-    call("apiKey.create", { agentId, name: "x", expiresAt: null }, intruder),
+    call(
+      "apiKey.create",
+      { memberId: agentId, name: "x", expiresAt: null },
+      intruder,
+    ),
     "FORBIDDEN",
   );
   await expectAppError(
