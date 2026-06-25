@@ -90,3 +90,21 @@ jobs:
       - uses: actions/checkout@v6
       - name: Build server image (no push)
         run: docker build -f packages/server/Dockerfile -t me-server:ci .
+
+  publish-build:
+    # Build the publishable npm packages exactly as the Release workflow's
+    # publish-npm job does. Those builds (each package's hardcoded bundler entry
+    # list + tsc) only ran on a release tag, so a stale entry — e.g. a renamed or
+    # deleted module still listed in protocol's build:js — passed every PR and
+    # only broke mid-release. This job is that guard: the build fails here instead.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install dependencies
+        run: ./bun install
+      - name: Prepare embedded web assets (stub)
+        run: ./bun scripts/bundle-web-assets.ts
+      - name: Build @memory.build/protocol
+        run: ./bun run --filter '@memory.build/protocol' build
+      - name: Build @memory.build/client
+        run: ./bun run --filter '@memory.build/client' build
