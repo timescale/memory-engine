@@ -38,11 +38,12 @@ export function isLegacyApiKey(token: string): boolean {
 
 /**
  * Treat unset / empty / unsubstituted-placeholder flag values as missing. The
- * Claude Code plugin's .mcp.json substitutes `${user_config.api_key}` statically;
- * when api_key is left blank that arrives as `""` (or the literal placeholder),
- * which must fall through to the session, not be used as a token.
+ * Claude Code plugin's .mcp.json passes `--server/--api-key/--space
+ * ${user_config.X}` statically; when left blank each arrives as `""` (or the
+ * literal `${...}` placeholder), which must fall through to the live `me` config
+ * (server/session/active space), not be used verbatim.
  */
-function blankFlag(v: unknown): string | undefined {
+export function blankFlag(v: unknown): string | undefined {
   if (typeof v !== "string" || v === "" || /^\$\{.*\}$/.test(v))
     return undefined;
   return v;
@@ -51,7 +52,11 @@ function blankFlag(v: unknown): string | undefined {
 function createMcpRunAction() {
   return async (_opts: Record<string, unknown>, cmd: Command) => {
     const opts = cmd.optsWithGlobals();
-    const creds = resolveCredentials(opts.server as string | undefined);
+    // Run server through blankFlag like api_key/space below: the plugin's
+    // .mcp.json always passes `--server ${user_config.server}`, which arrives as
+    // "" (or the literal placeholder) when left blank — it must fall back to the
+    // live `me` config (ME_SERVER / default_server), not be used verbatim.
+    const creds = resolveCredentials(blankFlag(opts.server));
 
     // Bearer: --api-key > ME_API_KEY (creds.apiKey), else the logged-in human's
     // OAuth session (resolved + refreshed at runtime by `memoryBearer`).
