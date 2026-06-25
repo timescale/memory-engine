@@ -24,7 +24,7 @@ import {
   buildMemoryClient,
   buildUserClient,
   handleError,
-  requireSession,
+  requireAuth,
   requireSpace,
   resolveAgentId,
 } from "../util.ts";
@@ -37,7 +37,7 @@ function createAgentListCommand(): Command {
       const globalOpts = cmd.optsWithGlobals();
       const creds = resolveCredentials(globalOpts.server);
       const fmt = getOutputFormat(globalOpts);
-      requireSession(creds, fmt);
+      requireAuth(creds, fmt);
 
       const user = buildUserClient(creds);
       try {
@@ -66,7 +66,7 @@ function createAgentCreateCommand(): Command {
       const globalOpts = cmd.optsWithGlobals();
       const creds = resolveCredentials(globalOpts.server);
       const fmt = getOutputFormat(globalOpts);
-      requireSession(creds, fmt);
+      requireAuth(creds, fmt);
 
       const user = buildUserClient(creds);
       try {
@@ -92,7 +92,7 @@ function createAgentRenameCommand(): Command {
       const globalOpts = cmd.optsWithGlobals();
       const creds = resolveCredentials(globalOpts.server);
       const fmt = getOutputFormat(globalOpts);
-      requireSession(creds, fmt);
+      requireAuth(creds, fmt);
 
       const user = buildUserClient(creds);
       try {
@@ -116,7 +116,7 @@ function createAgentDeleteCommand(): Command {
       const globalOpts = cmd.optsWithGlobals();
       const creds = resolveCredentials(globalOpts.server);
       const fmt = getOutputFormat(globalOpts);
-      requireSession(creds, fmt);
+      requireAuth(creds, fmt);
 
       const user = buildUserClient(creds);
       try {
@@ -140,7 +140,7 @@ function createAgentAddCommand(): Command {
       const globalOpts = cmd.optsWithGlobals();
       const creds = resolveCredentials(globalOpts.server);
       const fmt = getOutputFormat(globalOpts);
-      requireSession(creds, fmt);
+      requireAuth(creds, fmt);
       requireSpace(creds, fmt);
 
       const user = buildUserClient(creds);
@@ -167,7 +167,7 @@ function createAgentSpacesCommand(): Command {
       const globalOpts = cmd.optsWithGlobals();
       const creds = resolveCredentials(globalOpts.server);
       const fmt = getOutputFormat(globalOpts);
-      requireSession(creds, fmt);
+      requireAuth(creds, fmt);
 
       const user = buildUserClient(creds);
       try {
@@ -207,7 +207,7 @@ function createAgentGroupsCommand(): Command {
       const globalOpts = cmd.optsWithGlobals();
       const creds = resolveCredentials(globalOpts.server);
       const fmt = getOutputFormat(globalOpts);
-      requireSession(creds, fmt);
+      requireAuth(creds, fmt);
       requireSpace(creds, fmt);
 
       const user = buildUserClient(creds);

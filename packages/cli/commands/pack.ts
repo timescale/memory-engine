@@ -16,7 +16,7 @@ import { parsePack, validatePackConstraints } from "../parsers/pack.ts";
 import {
   buildMemoryClient,
   handleError,
-  requireMemoryAuth,
+  requireAuth,
   requireSpace,
 } from "../util.ts";
 
@@ -103,7 +103,7 @@ function createPackInstallCommand(): Command {
       const globalOpts = cmd.optsWithGlobals();
       const creds = resolveCredentials(globalOpts.server);
       const fmt = getOutputFormat(globalOpts);
-      requireMemoryAuth(creds, fmt);
+      requireAuth(creds, fmt);
       requireSpace(creds, fmt);
 
       try {
@@ -370,7 +370,7 @@ function createPackListCommand(): Command {
       const globalOpts = cmd.optsWithGlobals();
       const creds = resolveCredentials(globalOpts.server);
       const fmt = getOutputFormat(globalOpts);
-      requireMemoryAuth(creds, fmt);
+      requireAuth(creds, fmt);
       requireSpace(creds, fmt);
 
       const client = buildMemoryClient(creds);

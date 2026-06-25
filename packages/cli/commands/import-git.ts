@@ -37,7 +37,7 @@ import { getOutputFormat, output } from "../output.ts";
 import {
   buildMemoryClient,
   handleError,
-  requireMemoryAuth,
+  requireAuth,
   requireSpace,
 } from "../util.ts";
 import { VALID_TREE_ROOT_RE } from "./import.ts";
@@ -152,7 +152,7 @@ export async function runGitImport(
     typeof globalOpts.server === "string" ? globalOpts.server : undefined,
   );
   const fmt = getOutputFormat(globalOpts);
-  requireMemoryAuth(creds, fmt);
+  requireAuth(creds, fmt);
   requireSpace(creds, fmt);
 
   let opts: GitImportOptions;

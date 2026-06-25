@@ -15,6 +15,7 @@ import {
   expectReject,
   extensionInstalled,
   getSchemaVersion,
+  listColumns,
   listFunctions,
   listTables,
   listTriggers,
@@ -38,6 +39,127 @@ const EXPECTED_TABLES = [
   "verifications",
   "version",
 ];
+
+// Exact column set for every better-auth / oauth-provider-owned table. These
+// names are dictated by the library's adapter (and the @better-auth/oauth-provider
+// plugin) — drift breaks at runtime (a missing/renamed field the adapter reads),
+// invisibly to the table-name check above. Freezing the full set turns any
+// unmigrated change red and forces the AUTH_DESIGN "Upgrading better-auth"
+// checklist to be run. Listed in definition order; the assertion sorts both sides.
+// (The `migration` + `version` tables are our own infra, not better-auth's, so
+// they're intentionally excluded.)
+const EXPECTED_COLUMNS: Record<string, string[]> = {
+  users: [
+    "id",
+    "name",
+    "email",
+    "email_verified",
+    "image",
+    "created_at",
+    "updated_at",
+  ],
+  accounts: [
+    "id",
+    "user_id",
+    "provider_id",
+    "account_id",
+    "access_token",
+    "refresh_token",
+    "id_token",
+    "access_token_expires_at",
+    "refresh_token_expires_at",
+    "scope",
+    "password",
+    "created_at",
+    "updated_at",
+  ],
+  // 006 dropped token_hash and added token + updated_at (better-auth's session shape).
+  sessions: [
+    "id",
+    "user_id",
+    "token",
+    "expires_at",
+    "ip_address",
+    "user_agent",
+    "created_at",
+    "updated_at",
+  ],
+  verifications: [
+    "id",
+    "identifier",
+    "value",
+    "expires_at",
+    "created_at",
+    "updated_at",
+  ],
+  jwks: ["id", "public_key", "private_key", "created_at", "expires_at"],
+  oauth_client: [
+    "id",
+    "client_id",
+    "client_secret",
+    "disabled",
+    "skip_consent",
+    "enable_end_session",
+    "subject_type",
+    "scopes",
+    "user_id",
+    "created_at",
+    "updated_at",
+    "name",
+    "uri",
+    "icon",
+    "contacts",
+    "tos",
+    "policy",
+    "software_id",
+    "software_version",
+    "software_statement",
+    "redirect_uris",
+    "post_logout_redirect_uris",
+    "token_endpoint_auth_method",
+    "grant_types",
+    "response_types",
+    "public",
+    "type",
+    "require_pkce",
+    "reference_id",
+    "metadata",
+  ],
+  oauth_refresh_token: [
+    "id",
+    "token",
+    "client_id",
+    "session_id",
+    "user_id",
+    "reference_id",
+    "expires_at",
+    "created_at",
+    "revoked",
+    "auth_time",
+    "scopes",
+  ],
+  oauth_access_token: [
+    "id",
+    "token",
+    "client_id",
+    "session_id",
+    "user_id",
+    "reference_id",
+    "refresh_id",
+    "expires_at",
+    "created_at",
+    "scopes",
+  ],
+  oauth_consent: [
+    "id",
+    "client_id",
+    "user_id",
+    "reference_id",
+    "scopes",
+    "created_at",
+    "updated_at",
+  ],
+};
 
 // 004_device_authorization stays in the log (it ran historically); 006 dropped
 // its tables/functions and added the better-auth OAuth-provider + jwks schema.
@@ -105,6 +227,17 @@ describe("provisioned auth schema", () => {
     for (const table of EXPECTED_TABLES) {
       expect(tables).toContain(table);
     }
+  });
+
+  // Drift guard: every better-auth / oauth-provider-owned table must have exactly
+  // the column set the library expects. A library upgrade (or hand-edit) that
+  // changes the shape without a migration fails here instead of silently at
+  // runtime. Exact match (not subset) so an *added* unmigrated column is caught too.
+  test.each(
+    Object.entries(EXPECTED_COLUMNS),
+  )("%s has exactly the better-auth column set (drift guard)", async (table, expected) => {
+    const actual = await listColumns(sql, canonical.schema, table);
+    expect(actual).toEqual([...expected].sort());
   });
 
   test("records every incremental migration exactly once", async () => {

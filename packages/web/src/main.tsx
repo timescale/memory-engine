@@ -16,9 +16,11 @@ import { LoginPage } from "./components/LoginPage.tsx";
 import "./styles.css";
 
 // The OAuth-provider login page (`me login`'s authorize flow redirects here).
-// It's served by the API server at /login alongside the SPA, so handle the path
-// before the hosted/local app split.
-const isLoginPage = window.location.pathname === "/login";
+// Only the hosted API server serves it (it owns the better-auth `/api/v1/auth/*`
+// routes the page calls); under local `me serve` there is no auth backend, so a
+// stray /login must fall through to the SPA rather than render a page whose
+// sign-in calls would 404.
+const isLoginPage = HOSTED && window.location.pathname === "/login";
 
 const queryClient = new QueryClient({
   defaultOptions: {

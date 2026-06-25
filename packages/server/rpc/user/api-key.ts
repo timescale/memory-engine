@@ -8,7 +8,6 @@
  */
 import type { ApiKeyInfo } from "@memory.build/engine/core";
 import { formatApiKey } from "@memory.build/engine/core";
-import { AppError } from "@memory.build/protocol/errors";
 import type {
   ApiKeyCreateParams,
   ApiKeyCreateResult,
@@ -27,6 +26,7 @@ import {
   apiKeyListParams,
 } from "@memory.build/protocol/user";
 import { guardCore } from "../core-error";
+import { AppError } from "../errors";
 import { buildRegistry } from "../registry";
 import type { HandlerContext } from "../types";
 import { requireOwnMember } from "./agent";

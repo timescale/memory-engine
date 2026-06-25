@@ -19,11 +19,13 @@ const UUIDV7_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 /**
- * Ensure a human is logged in. Exits with an error if not.
+ * Ensure a *real session* is present (a `me login` token, not an api key).
+ * Exits with an error if not.
  *
- * Use this for the user endpoint (/api/v1/user/rpc), which is session-only — an
- * api key never authenticates there (agents can't manage agents). For the memory
- * endpoint, which accepts either bearer, use {@link requireMemoryAuth}.
+ * Reserved for operations a key may never perform regardless of endpoint —
+ * minting/revoking api keys (`apiKey.create`/`delete`): "keys can't mint keys".
+ * The server enforces this too (`denyApiKeyCaller`); this is the CLI-side
+ * fail-fast. Every other command takes either credential — use {@link requireAuth}.
  */
 export function requireSession(
   creds: ResolvedCredentials,
@@ -40,19 +42,20 @@ export function requireSession(
 }
 
 /**
- * Ensure the caller can authenticate to the memory endpoint
- * (/api/v1/memory/rpc), which accepts either bearer: an agent api key
- * (ME_API_KEY) or a logged-in human. Exits with an error if neither is present.
- * Pair with {@link requireSpace}; then {@link buildMemoryClient} picks the
- * bearer (api key first, mirroring `me mcp`).
+ * Ensure the caller can authenticate. Exits with an error if not.
+ *
+ * Both RPC endpoints accept either bearer: an api key (ME_API_KEY — a user PAT
+ * or an agent key) or a logged-in human session. This is the gate for every
+ * command except api-key mint/revoke (see {@link requireSession}). The server
+ * decides what a given credential may do (e.g. it 403s an agent key on the user
+ * RPC); the CLI only checks that *some* credential is present.
  */
-export function requireMemoryAuth(
+export function requireAuth(
   creds: ResolvedCredentials,
   fmt: OutputFormat,
 ): void {
   if (!creds.apiKey && !creds.loggedIn) {
-    const msg =
-      "Not authenticated. Run 'me login', or set ME_API_KEY for an agent.";
+    const msg = "Not authenticated. Run 'me login', or set ME_API_KEY.";
     if (fmt === "text") {
       clack.log.error(msg);
     } else {
@@ -83,18 +86,22 @@ export function requireSpace(
 }
 
 /**
- * Build a user client (session-only, /api/v1/user/rpc). Call requireSession
- * first. The bearer is the human's OAuth access token, resolved (and refreshed)
- * lazily per call via {@link userBearer}.
+ * Build a user client (/api/v1/user/rpc). Call {@link requireAuth} first (or
+ * {@link requireSession} for key mint/revoke). The bearer is the api key when
+ * set (ME_API_KEY, a user PAT, static) else the human's OAuth access token,
+ * resolved (and refreshed) lazily per call via {@link userBearer}.
  */
 export function buildUserClient(creds: ResolvedCredentials): UserClient {
-  return createUserClient({ url: creds.server, ...userBearer(creds.server) });
+  return createUserClient({
+    url: creds.server,
+    ...userBearer(creds.server, creds.apiKey),
+  });
 }
 
 /**
  * Build a memory client (bearer + active space, /api/v1/memory/rpc). Call
- * requireMemoryAuth and requireSpace first so a bearer and a space are present.
- * The bearer is the agent api key when set (ME_API_KEY, static), else the
+ * {@link requireAuth} and {@link requireSpace} first so a bearer and a space are
+ * present. The bearer is the api key when set (ME_API_KEY, static), else the
  * human's OAuth access token (refreshed by {@link memoryBearer}) — the memory
  * endpoint accepts either, and this mirrors `me mcp`'s precedence.
  */

@@ -210,10 +210,23 @@ synchronously. Api keys are never persisted (env-only).
   - Refresh-token **rotation** is honored (persist the new refresh token), and
     concurrent refreshes are **deduped** per server (so long-lived `me serve` /
     `me mcp` don't race the rotating token).
-  - `userBearer` / `memoryBearer` wire these into the clients. An agent api key is
-    static (returned as-is, never refreshed); the human OAuth token refreshes.
+  - `userBearer` / `memoryBearer` wire these into the clients. An api key (a user
+    PAT on the user RPC, an agent key on the memory RPC) is static (returned as-is,
+    never refreshed); the human OAuth token refreshes. Both share the same bearer
+    policy — `memoryBearer` delegates to `userBearer`.
 - `ME_SESSION_TOKEN` is a raw-bearer override (CI/scripting): returned as-is,
   never refreshed.
+
+**Cross-process refresh races are not deduped — by design.** The dedup is an
+in-memory map keyed by server, so it only coalesces concurrent refreshes *within
+one process*. Two separate `me` invocations racing on the same rotating refresh
+token aren't coordinated (no cross-process file lock). With refresh-token
+rotation the loser presents an already-consumed token and gets a 401; it then
+falls back to its reactive refresh, or, failing that, to a fresh `me login`. We
+accept this: interactive CLI calls are effectively sequential, and the place
+concurrency *does* happen — the long-lived `me serve` / `me mcp` processes — is
+single-process, where the in-memory dedup applies. A cross-process lock would add
+keychain/file-locking complexity for a transient, self-healing reauth.
 
 Long-lived consumers — `me serve` (the `/rpc` proxy) and `me mcp` (the MCP
 server) — use the same bearer sources, so they survive access-token expiry
@@ -261,6 +274,17 @@ better-auth owns the `auth.users` + `accounts` rows (written on social login). T
   (`verifyOAuthAccessToken` joins `users.email_verified`; the cookie path reads
   `session.user.emailVerified`) → the user RPC context → `ensureUserProvisioned`,
   which only redeems when it's true.
+
+**Why not better-auth's global `requireEmailVerification`?** We deliberately leave
+it off and gate the one email-sensitive operation (invitation redemption) per-op
+instead. Two reasons: (1) we enable only GitHub/Google social login — no
+email/password — and both providers release the email only after they've verified
+it, so an unverified address barely arises; (2) the global flag would block
+*sign-in* itself, hurting the common case to defend an edge the per-op gate
+already covers. The per-op gate is the tighter control (it governs what an
+identity may *do*, not whether it may authenticate). If we ever add
+email/password or an unverified-by-default provider, revisit enabling the flag as
+defense-in-depth.
 
 ## Cleanup
 

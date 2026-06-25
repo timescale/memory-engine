@@ -224,8 +224,9 @@ export function createRouter(ctx: ServerContext): Router {
     },
 
     // better-auth owns the entire auth surface under its basePath: social
-    // sign-in + OAuth callbacks, sessions/sign-out, and the device flow. Mounted
-    // as a method-agnostic catch-all so the library routes its own sub-paths.
+    // sign-in + OAuth callbacks, sessions/sign-out, and the OAuth 2.1
+    // authorize/token endpoints (the CLI's PKCE flow). Mounted as a
+    // method-agnostic catch-all so the library routes its own sub-paths.
     {
       method: "*",
       pattern: "/api/v1/auth/*",
