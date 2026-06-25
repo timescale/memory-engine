@@ -257,10 +257,9 @@ function isUnauthorized(error: unknown): boolean {
 /**
  * Which credential surface a command authenticates against — drives the
  * `UNAUTHORIZED` guidance:
- *   - `account`: a user-RPC call (whoami, agent.*, apiKey.*, space.*). A 401 here
+ *   - `account`: a user-RPC call (e.g. whoami, agent.*, apiKey.*, space.*). A 401 here
  *     is unambiguously a credential problem.
- *   - `space`: a memory-RPC call (group.*, access.*, memory.*). A 401 here is
- *     *ambiguous* — the server returns the same generic "Invalid credentials" for
+ *   - `space`: a memory-RPC call (e.g. group.*, access.*, memory.*, principal.*, grant.*, invite.*). A 401 here is
  *     a bad credential and for an unknown/unset space (it resolves the space
  *     before validating the credential, and keeps the message generic to avoid
  *     space enumeration). So the message must mention the space, and we must not
