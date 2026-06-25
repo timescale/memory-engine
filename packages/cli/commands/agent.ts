@@ -53,7 +53,7 @@ function createAgentListCommand(): Command {
           );
         });
       } catch (error) {
-        handleError(error, fmt, { sessionServer: creds.server });
+        handleError(error, fmt, { creds });
       }
     });
 }
@@ -78,7 +78,7 @@ function createAgentCreateCommand(): Command {
           );
         });
       } catch (error) {
-        handleError(error, fmt, { sessionServer: creds.server });
+        handleError(error, fmt, { creds });
       }
     });
 }
@@ -102,7 +102,7 @@ function createAgentRenameCommand(): Command {
           clack.log.success(`Renamed agent → '${newName}'`);
         });
       } catch (error) {
-        handleError(error, fmt, { sessionServer: creds.server });
+        handleError(error, fmt, { creds });
       }
     });
 }
@@ -127,7 +127,7 @@ function createAgentDeleteCommand(): Command {
           else clack.log.warn("Agent not found.");
         });
       } catch (error) {
-        handleError(error, fmt, { sessionServer: creds.server });
+        handleError(error, fmt, { creds });
       }
     });
 }
@@ -154,7 +154,7 @@ function createAgentAddCommand(): Command {
           clack.log.info("Mint a key with 'me apikey create'.");
         });
       } catch (error) {
-        handleError(error, fmt, { sessionServer: creds.server });
+        handleError(error, fmt, { creds, scope: "space" });
       }
     });
 }
@@ -194,7 +194,7 @@ function createAgentSpacesCommand(): Command {
           );
         });
       } catch (error) {
-        handleError(error, fmt, { sessionServer: creds.server });
+        handleError(error, fmt, { creds });
       }
     });
 }
@@ -226,7 +226,7 @@ function createAgentGroupsCommand(): Command {
           );
         });
       } catch (error) {
-        handleError(error, fmt, { sessionServer: creds.server });
+        handleError(error, fmt, { creds, scope: "space" });
       }
     });
 }

@@ -255,17 +255,81 @@ function isUnauthorized(error: unknown): boolean {
 }
 
 /**
+ * Which credential surface a command authenticates against — drives the
+ * `UNAUTHORIZED` guidance:
+ *   - `account`: a user-RPC call (whoami, agent.*, apiKey.*, space.*). A 401 here
+ *     is unambiguously a credential problem.
+ *   - `space`: a memory-RPC call (group.*, access.*, memory.*). A 401 here is
+ *     *ambiguous* — the server returns the same generic "Invalid credentials" for
+ *     a bad credential and for an unknown/unset space (it resolves the space
+ *     before validating the credential, and keeps the message generic to avoid
+ *     space enumeration). So the message must mention the space, and we must not
+ *     clear a session token over what may just be a stale active space.
+ */
+export type AuthScope = "account" | "space";
+
+/**
+ * Classify an `UNAUTHORIZED` RPC error into an actionable message and whether the
+ * stored session token should be cleared. Returns `null` for any other error, so
+ * the caller falls back to the raw server message.
+ *
+ * The CLI can't tell a bad credential from an unknown space apart on the wire
+ * (both are a generic 401), so the guidance is tailored by *credential type* and
+ * *command scope* instead:
+ *   - api key (ME_API_KEY): never a session, so never "run me login" and never
+ *     clear a token. Point at ME_API_KEY (and, for space commands, the space).
+ *   - session: only the account-scoped 401 is a true session expiry (clear the
+ *     token, prompt re-login). A space-scoped 401 is ambiguous — keep the token
+ *     and mention both the space and a possible re-login.
+ */
+export function describeAuthError(
+  error: unknown,
+  creds: ResolvedCredentials,
+  scope: AuthScope,
+): { message: string; clearSession: boolean } | null {
+  if (!isUnauthorized(error)) return null;
+
+  const space = creds.activeSpace ? ` '${creds.activeSpace}'` : "";
+
+  if (creds.apiKey) {
+    // Api-key auth — there is no session to expire or clear.
+    const message =
+      scope === "space"
+        ? `Not authorized. Check that ME_API_KEY is valid, and that the active space${space} exists and is accessible — run 'me space list'.`
+        : "Not authorized. Your ME_API_KEY is invalid or expired.";
+    return { message, clearSession: false };
+  }
+
+  if (scope === "space") {
+    // Ambiguous: a bad space slug looks identical to an expired session. Don't
+    // clear the token over a stale active space.
+    return {
+      message: `Not authorized. The active space${space} may not exist or be accessible (run 'me space list'), or your login may have expired (run 'me login').`,
+      clearSession: false,
+    };
+  }
+
+  // Account-scoped session call — a genuine session expiry.
+  return {
+    message: "Session expired. Run 'me login' to sign in again.",
+    clearSession: true,
+  };
+}
+
+/**
  * Handle an error from an RPC call. Formats per output mode and exits.
  *
- * Pass `opts.sessionServer` for commands that authenticate with a session
- * token. When the server returns UNAUTHORIZED we clear the stored token for
- * that server (so the next command says "Not logged in") and replace the
- * generic message with an actionable "Run 'me login' to sign in again." hint.
+ * Pass `opts.creds` for commands that authenticate (every RPC command). On an
+ * `UNAUTHORIZED` the message is tailored by credential type and `opts.scope`
+ * (default `account`) — see {@link describeAuthError}. A genuine session expiry
+ * (account-scoped, session auth) clears the stored token so the next command
+ * says "Not logged in"; api-key auth and ambiguous space-scoped 401s leave it
+ * intact.
  */
 export function handleError(
   error: unknown,
   fmt: OutputFormat,
-  opts?: { sessionServer?: string },
+  opts?: { creds?: ResolvedCredentials; scope?: AuthScope },
 ): never {
   let msg =
     error instanceof RpcError
@@ -275,10 +339,13 @@ export function handleError(
         : String(error);
   let code: string | undefined;
 
-  if (opts?.sessionServer && isUnauthorized(error)) {
-    clearTokens(opts.sessionServer);
-    msg = "Session expired. Run 'me login' to sign in again.";
-    code = "UNAUTHORIZED";
+  if (opts?.creds) {
+    const auth = describeAuthError(error, opts.creds, opts.scope ?? "account");
+    if (auth) {
+      if (auth.clearSession) clearTokens(opts.creds.server);
+      msg = auth.message;
+      code = "UNAUTHORIZED";
+    }
   }
 
   if (fmt === "text") {

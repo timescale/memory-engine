@@ -196,7 +196,7 @@ export async function runGitImport(
         range = `${highWater}..${rev}`;
       }
     } catch (error) {
-      handleError(error, fmt);
+      handleError(error, fmt, { creds, scope: "space" });
     }
   }
 
@@ -245,7 +245,7 @@ export async function runGitImport(
     }
   } catch (error) {
     progress?.stop();
-    handleError(error, fmt);
+    handleError(error, fmt, { creds, scope: "space" });
   }
 
   // Dedup on the commit sha (the (tree, name) key), not the random id.

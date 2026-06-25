@@ -90,7 +90,7 @@ function createApiKeyCreateCommand(): Command {
             );
           });
         } catch (error) {
-          handleError(error, fmt, { sessionServer: creds.server });
+          handleError(error, fmt, { creds });
         }
       },
     );
@@ -122,7 +122,7 @@ function createApiKeyListCommand(): Command {
           );
         });
       } catch (error) {
-        handleError(error, fmt, { sessionServer: creds.server });
+        handleError(error, fmt, { creds });
       }
     });
 }
@@ -152,7 +152,7 @@ function createApiKeyGetCommand(): Command {
           console.log(`  Expires: ${apiKey.expiresAt ?? "(never)"}`);
         });
       } catch (error) {
-        handleError(error, fmt, { sessionServer: creds.server });
+        handleError(error, fmt, { creds });
       }
     });
 }
@@ -188,7 +188,7 @@ function createApiKeyDeleteCommand(): Command {
           else clack.log.warn("API key not found.");
         });
       } catch (error) {
-        handleError(error, fmt, { sessionServer: creds.server });
+        handleError(error, fmt, { creds });
       }
     });
 }

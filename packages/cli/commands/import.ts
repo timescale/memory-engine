@@ -215,7 +215,7 @@ export async function runAgentImport(
     );
   } catch (error) {
     progress?.stop();
-    handleError(error, fmt);
+    handleError(error, fmt, { creds, scope: "space" });
   } finally {
     progress?.stop();
   }

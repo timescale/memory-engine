@@ -45,7 +45,7 @@ export function createWhoamiCommand(): Command {
           },
         );
       } catch (error) {
-        handleError(error, fmt, { sessionServer: creds.server });
+        handleError(error, fmt, { creds });
       }
     });
 }

@@ -144,7 +144,7 @@ function createSpaceListCommand(): Command {
           },
         );
       } catch (error) {
-        handleError(error, fmt, { sessionServer: creds.server });
+        handleError(error, fmt, { creds });
       }
     });
 }
@@ -169,7 +169,7 @@ function createSpaceUseCommand(): Command {
           clack.log.success(`Active space: ${space.name} (${space.slug})`);
         });
       } catch (error) {
-        handleError(error, fmt, { sessionServer: creds.server });
+        handleError(error, fmt, { creds });
       }
     });
 }
@@ -195,7 +195,7 @@ function createSpaceCreateCommand(): Command {
           clack.log.info("It is now your active space.");
         });
       } catch (error) {
-        handleError(error, fmt, { sessionServer: creds.server });
+        handleError(error, fmt, { creds });
       }
     });
 }
@@ -227,7 +227,7 @@ function createSpaceRenameCommand(): Command {
           );
         });
       } catch (error) {
-        handleError(error, fmt, { sessionServer: creds.server });
+        handleError(error, fmt, { creds });
       }
     });
 }
@@ -282,7 +282,7 @@ function createSpaceDeleteCommand(): Command {
           }
         });
       } catch (error) {
-        handleError(error, fmt, { sessionServer: creds.server });
+        handleError(error, fmt, { creds });
       }
     });
 }
@@ -340,7 +340,7 @@ function createSpaceInviteListCommand(): Command {
           );
         });
       } catch (error) {
-        handleError(error, fmt, { sessionServer: creds.server });
+        handleError(error, fmt, { creds, scope: "space" });
       }
     });
 }
@@ -367,7 +367,7 @@ function createSpaceInviteRevokeCommand(): Command {
           }
         });
       } catch (error) {
-        handleError(error, fmt, { sessionServer: creds.server });
+        handleError(error, fmt, { creds, scope: "space" });
       }
     });
 }
@@ -420,7 +420,7 @@ function createSpaceInviteCommand(): Command {
           }
         });
       } catch (error) {
-        handleError(error, fmt, { sessionServer: creds.server });
+        handleError(error, fmt, { creds, scope: "space" });
       }
     });
   invite.addCommand(createSpaceInviteListCommand());

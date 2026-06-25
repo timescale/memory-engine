@@ -353,7 +353,7 @@ function createPackInstallCommand(): Command {
           }
         });
       } catch (error) {
-        handleError(error, fmt);
+        handleError(error, fmt, { creds, scope: "space" });
       }
     });
 }
@@ -419,7 +419,7 @@ function createPackListCommand(): Command {
           );
         });
       } catch (error) {
-        handleError(error, fmt);
+        handleError(error, fmt, { creds, scope: "space" });
       }
     });
 }
