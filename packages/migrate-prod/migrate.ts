@@ -19,7 +19,8 @@
  *
  * Phases:
  *   A  control plane  — `migrateControlPlane` — provision auth+core in the new DB,
- *      migrate identities/oauth/sessions from DB_ACCOUNTS.
+ *      migrate identities + oauth from DB_ACCOUNTS. (Sessions can't migrate —
+ *      better-auth stores raw session tokens; we only have old sha256 hashes.)
  *   B  per engine     — `migrateEngine` — one target transaction: create the
  *      space, provision its schema, build the roster + grants from DB_ACCOUNTS +
  *      DB_SHARD, stream-copy memories from DB_SHARD.
@@ -70,12 +71,6 @@ interface OldOAuth {
   identity_id: string;
   provider: string;
   provider_account_id: string;
-  created_at: Date;
-}
-interface OldSession {
-  identity_id: string;
-  token_hash: Uint8Array;
-  expires_at: Date;
   created_at: Date;
 }
 interface OldEngine {
@@ -155,7 +150,6 @@ export interface EngineReport {
 export interface MigrationReport {
   identities: number;
   oauthAccounts: number;
-  sessions: number;
   engines: EngineReport[];
   skippedEngines: { slug: string; reason: string }[];
   warnings: string[];
@@ -164,8 +158,6 @@ export interface MigrationReport {
 export interface MigrateOptions {
   /** Embedding dimension for the new space schemas (prod: 1536). */
   embeddingDimensions?: number;
-  /** Copy live sessions so users stay logged in (default true). */
-  migrateSessions?: boolean;
   /** Copy pending org invitations as per-space invitations (default true). */
   migrateInvitations?: boolean;
   /**
@@ -194,10 +186,9 @@ async function schemaExists(sql: Sql, name: string): Promise<boolean> {
 export async function migrateControlPlane(
   conns: Connections,
   cfg: MigrationConfig,
-  opts: MigrateOptions,
 ): Promise<{
   identityIds: Set<string>;
-  report: Pick<MigrationReport, "identities" | "oauthAccounts" | "sessions">;
+  report: Pick<MigrationReport, "identities" | "oauthAccounts">;
 }> {
   // Provision auth + core in the (empty) target database.
   await migrateAuth(conns.target, { schema: cfg.authSchema });
@@ -211,14 +202,9 @@ export async function migrateControlPlane(
     select identity_id, provider, provider_account_id, created_at
     from ${conns.accounts(cfg.accountsSchema)}.oauth_account
   `;
-  const sessions =
-    opts.migrateSessions === false
-      ? []
-      : await conns.accounts<OldSession[]>`
-          select identity_id, token_hash, expires_at, created_at
-          from ${conns.accounts(cfg.accountsSchema)}.session
-          where expires_at > now()
-        `;
+  // Sessions are NOT migrated: better-auth's auth.sessions stores the *raw*
+  // token (no `token_hash` column), and we only have old one-way sha256 hashes —
+  // there's nothing to reconstruct. Everyone re-authenticates after cutover.
 
   await conns.target.begin(async (tx) => {
     const core = coreStore(tx as unknown as Sql, cfg.coreSchema);
@@ -226,7 +212,7 @@ export async function migrateControlPlane(
     for (const id of identities) {
       // Direct insert (not authStore.createUser) so the principal/auth user
       // keep the OLD identity.id — the auth.users.id == core.principal.id
-      // invariant, with no remapping of session/account references.
+      // invariant, with no remapping of account references.
       await tx`
         insert into ${tx(cfg.authSchema)}.users (id, name, email, email_verified, created_at)
         values (${id.id}, ${id.name}, ${id.email}, true, ${id.created_at})
@@ -240,15 +226,6 @@ export async function migrateControlPlane(
         values (${a.identity_id}, ${a.provider}, ${a.provider_account_id}, ${a.created_at})
       `;
     }
-
-    // Old and new both store token_hash = sha256(rawToken) as bytea and look up
-    // by equality, so copying the hash verbatim keeps live sessions valid.
-    for (const s of sessions) {
-      await tx`
-        insert into ${tx(cfg.authSchema)}.sessions (user_id, token_hash, expires_at, created_at)
-        values (${s.identity_id}, ${s.token_hash}, ${s.expires_at}, ${s.created_at})
-      `;
-    }
   });
 
   return {
@@ -256,7 +233,6 @@ export async function migrateControlPlane(
     report: {
       identities: identities.length,
       oauthAccounts: oauth.length,
-      sessions: sessions.length,
     },
   };
 }
@@ -472,12 +448,14 @@ export async function migrateEngine(
     `.cursor(MEMORY_COPY_BATCH)) {
       if (rows.length === 0) continue;
       await tx.unsafe(
+        // old memory.embedding_version → new memory.content_version (renamed on
+        // main); the new `name` column stays null (old memories had no name).
         `insert into ${targetSchema}.memory
-           (id, meta, tree, temporal, content, embedding, embedding_version, created_at, updated_at)
+           (id, meta, tree, temporal, content, embedding, content_version, created_at, updated_at)
          select id::uuid, meta::jsonb, tree::ltree, temporal::tstzrange, content,
-                embedding::halfvec, embedding_version::int, created_at::timestamptz, updated_at::timestamptz
+                embedding::halfvec, content_version::int, created_at::timestamptz, updated_at::timestamptz
          from unnest($1::text[],$2::text[],$3::text[],$4::text[],$5::text[],$6::text[],$7::text[],$8::text[],$9::text[])
-              as t(id, meta, tree, temporal, content, embedding, embedding_version, created_at, updated_at)`,
+              as t(id, meta, tree, temporal, content, embedding, content_version, created_at, updated_at)`,
         [
           rows.map((r) => r.id),
           rows.map((r) => r.meta),
@@ -532,11 +510,7 @@ export async function migrateProdToMultiplayer(
   cfg: MigrationConfig,
   opts: MigrateOptions = {},
 ): Promise<MigrationReport> {
-  const { identityIds, report: a } = await migrateControlPlane(
-    conns,
-    cfg,
-    opts,
-  );
+  const { identityIds, report: a } = await migrateControlPlane(conns, cfg);
 
   const allEngines = await conns.accounts<OldEngine[]>`
     select id, org_id, slug, name, language

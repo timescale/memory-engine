@@ -59,8 +59,8 @@ Write the new model to a brand-new database; never modify the two sources.
   batched inserts into the target), not `insert … select`. See §5.
 
 Procedure:
-1. Provision `auth` + `core` in the empty target DB; migrate identities/oauth/
-   sessions from `DB_ACCOUNTS` (Phase A).
+1. Provision `auth` + `core` in the empty target DB; migrate identities + oauth
+   from `DB_ACCOUNTS` (Phase A). (Sessions can't migrate — §2.3.)
 2. Per active engine (Phase B, one target transaction): `create_space` (reusing
    the slug) → `provisionSpace` a fresh `me_<slug>` in the target → build the
    roster + grants from `DB_ACCOUNTS` + `DB_SHARD` → stream-copy memories from
@@ -107,28 +107,21 @@ needed at ETL time).
 | `created_at` | `created_at` |
 | `access_token`/`refresh_token`/`encryption_key_id` | **dropped** |
 
-### 2.3 `accounts.session` → `auth.sessions`  — *migrate (keep users logged in)*
+### 2.3 `accounts.session` — **NOT migrated** (better-auth changed the scheme)
 
-**Both sides store `sha256(rawToken)` as `bytea` and look up by equality** — the
-identical scheme. So sessions migrate verbatim and live CLI/browser logins keep
-working across cutover.
+Originally we copied `session.token_hash` verbatim (both sides were
+`sha256(rawToken)` bytea). **That no longer works on current main**: the
+better-auth migration (`auth/migrate/incremental/006_betterauth.sql`) **dropped
+`auth.sessions.token_hash` and added a plaintext `token`** — better-auth
+round-trips the raw token, so it can't be a one-way hash. We only have the old
+*hashes*, with no way to recover the raw tokens, so there is nothing to migrate.
 
-| source | target |
-|---|---|
-| `token_hash` (bytea, sha256) | `token_hash` (bytea, sha256) — copy verbatim |
-| `identity_id` | `user_id` |
-| `expires_at`, `created_at` | same |
-| — | `ip_address`/`user_agent` null (old didn't track) |
-
-> **Parity (confirmed from code)**: old and new both compute
-> `new Bun.CryptoHasher("sha256").update(token).digest()` → bytea and look up by
-> equality (old `packages/accounts/util/hash.ts`; new `packages/auth/token.ts` +
-> `auth.validate_session`). So copying `token_hash` verbatim keeps sessions valid.
-> §9 leaves only a belt-and-suspenders check that `validate_session` adds no other
-> gate; if it ever diverges, drop sessions and force re-login (low impact).
+⇒ **All users re-authenticate after cutover** (a normal OAuth login — cheap).
+The ETL inserts no `auth.sessions` rows.
 
 ### 2.4 Not migrated (auth side)
 
+- **`session`** — see §2.3 (better-auth stores raw tokens; old hashes are useless). Users re-login.
 - `device_authorization` — ephemeral (~15 min TTL); will be expired at cutover. Seed nothing.
 - `verifications` — kept empty for better-auth parity (new model seeds nothing).
 - `encryption_key` — old-only (OAuth-token envelope encryption); new model doesn't store those tokens.
@@ -262,7 +255,9 @@ and postgres.js's lack of native ltree/tstzrange/halfvec parsers. Column mapping
 
 | old `me_<slug>.memory` | new `me_<slug>.memory` |
 |---|---|
-| `id`, `meta`, `tree`, `temporal`, `content`, `embedding`, `embedding_version`, `created_at`, `updated_at` | same columns, **copy verbatim** |
+| `id`, `meta`, `tree`, `temporal`, `content`, `embedding`, `created_at`, `updated_at` | same columns, copied |
+| `embedding_version` | → **`content_version`** (renamed on main by `space/migrate/incremental/006_content_version.sql`) |
+| — | new nullable `name` column (added by `005_memory_name.sql`) — left **null** (old memories had no name) |
 | `created_by` (engine-user id) | **dropped** — the new `memory` table has no `created_by` column |
 | `embedding_attempts`, `embedding_last_error` | dropped (bookkeeping; not in new schema) |
 
@@ -330,7 +325,7 @@ provisioning + `core` functions rather than re-implementing SQL.
    `migrateCore`).
 2. **Identities** (§2): for each `DB_ACCOUNTS accounts.identity` → insert
    `auth.users` (preserving the id) + `core.create_user(id, email)`; then
-   `auth.accounts` (§2.2) and `auth.sessions` (§2.3, copied from `DB_ACCOUNTS`).
+   `auth.accounts` (§2.2). Sessions are not migrated (§2.3).
 
 **Phase B — per active engine, one target transaction each:**
 3. `core.create_space(slug, name, language)` (reusing the engine slug) →
@@ -411,9 +406,8 @@ us which complex paths are even exercised:
     from `DB_ACCOUNTS accounts.identity`; `DB_SHARD me_<slug>` schemas with no
     `accounts.engine` row (and vice-versa); engines whose `status='active'` but the
     shard schema is missing.
-- [ ] Session validation parity (§2.3) — confirm before relying on session migration.
-- [ ] Counts to reconcile post-ETL: identities, oauth_accounts, sessions, engines→spaces,
-      memories per engine.
+- [ ] Counts to reconcile post-ETL: identities, oauth_accounts, engines→spaces,
+      memories per engine. (Sessions are not migrated — §2.3.)
 - [ ] Confirm the cutover sequencing for api-key re-issue (§6.1) with whoever
       operates the agents.
 
@@ -438,8 +432,9 @@ us which complex paths are even exercised:
   write (the documented over-permissive lossiness, §4.3). 2 non-root tree_owners.
 - **Anomalies**: **none** — every org has an owner; **0 orphans** (no
   engine↔schema mismatch, no dangling `identity_id`).
-- **Sessions** (§2.3): hashing+lookup parity confirmed from code; 18 live sessions
-  migrate verbatim.
+- **Sessions** (§2.3): **not migrated** — better-auth (merged to main since this
+  survey) stores raw session tokens, so the old sha256 hashes are useless; the 18
+  live sessions are dropped and those users re-login after cutover.
 
 ---
 
@@ -449,7 +444,7 @@ us which complex paths are even exercised:
 |---|---|---|---|
 | 1 | target topology | **fresh target DB** — `DB_ACCOUNTS` + `DB_SHARD` → one new database; sources read-only | §1.1 |
 | 2 | roster = all org members vs only realized engine users | **all org members** | §3.1 — only observable for multi-member orgs |
-| 3 | migrate sessions vs force re-login | **migrate** (pending parity check) | §2.3 |
+| 3 | sessions | **not migrated** — better-auth stores raw tokens; users re-login after cutover | §2.3 |
 | 4 | api keys | **not migrated; re-issue** (forced by argon2) | §6.1 |
 | 5 | memory tree paths | **preserve verbatim** (incl. root) | §5 |
 | 6 | grant action→level mapping | **read→1, any write→2, grant-option→3** (lossy, over-permissive) | §4.3 |

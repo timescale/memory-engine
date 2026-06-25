@@ -7,10 +7,12 @@ app, verify, re-issue agent keys. The **why** and the full mapping live in
 `PROD_MIGRATION_PLAN.md`; the ETL is `packages/migrate-prod`. This doc is the
 **how-to-operate**.
 
-> ⚠️ **One hard, user-visible break: API keys do not migrate.** Old keys are
-> argon2-hashed and engine-scoped. **Humans keep working** (sessions migrate —
-> plan §2.3). Only **agents** need a re-issued key (`apiKey.create` → update
-> `ME_API_KEY` where the agent runs). The agents are the old "service users"; run
+> ⚠️ **User-visible break: everyone re-authenticates after cutover.** Sessions do
+> NOT migrate (better-auth stores raw session tokens; we only have old sha256
+> hashes — plan §2.3), so **humans log in again** (a normal OAuth login, cheap).
+> **Agents** additionally need a re-issued key — old keys are argon2-hashed +
+> engine-scoped (`apiKey.create` → update `ME_API_KEY` where the agent runs). The
+> agents are the old "service users"; run
 > `survey.ts` for the current list (at the last §9 survey: 6 agents across 3
 > owners). Plan the comms before starting.
 
@@ -159,7 +161,7 @@ app failing its boot health check.
    ```
    If boot crashloops on migration, the DB state is wrong — capture `kubectl logs`
    **before** Helm rolls back, then rollback (§2).
-7. **Smoke test:** a known user logs in (session should still be valid); lists
+7. **Smoke test:** a known user logs in fresh (sessions don't migrate); lists
    spaces; reads a memory; runs a search (BM25 + semantic). The worker should
    drain `embedding_queue` for the few null-embedding memories.
 8. **Re-issue agent API keys** and update each `ME_API_KEY`. Old keys are dead.

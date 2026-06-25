@@ -105,19 +105,14 @@ async function main(): Promise<void> {
       "oauth accounts copied",
       `source=${srcOauth} target=${tgtAcct}`,
     );
-
-    const srcSess = await count(
-      accounts,
-      `select count(*)::int n from ${C.accountsSchema}.session where expires_at > now()`,
-    );
-    const tgtSess = await count(
-      target,
-      `select count(*)::int n from ${C.authSchema}.sessions`,
-    );
+    // Sessions are intentionally not migrated (better-auth stores raw tokens);
+    // the target should have none from the ETL.
     check(
-      tgtSess <= srcSess && tgtSess > 0,
-      "live sessions copied (≤ source; some may expire between runs)",
-      `source-live=${srcSess} target=${tgtSess}`,
+      (await count(
+        target,
+        `select count(*)::int n from ${C.authSchema}.sessions`,
+      )) === 0,
+      "no sessions migrated (expected — users re-auth after cutover)",
     );
 
     // --- per-space (whatever is in the target — subset-aware) ---

@@ -113,14 +113,8 @@ describe("control plane (Phase A)", () => {
     expect(u?.name).toBe("owner1@example.com"); // principal name == email
   });
 
-  test("migrates only the live session, hash copied verbatim", async () => {
-    expect(report.sessions).toBe(1);
-    expect(await countRows(cfg.authSchema, "sessions")).toBe(1);
-    const [s] = await sql`
-      select user_id, token_hash from ${sql(cfg.authSchema)}.sessions
-      where token_hash = ${scenario.i1SessionHash}
-    `;
-    expect(s?.user_id).toBe(scenario.i1);
+  test("does NOT migrate sessions (better-auth stores raw tokens)", async () => {
+    expect(await countRows(cfg.authSchema, "sessions")).toBe(0);
   });
 });
 

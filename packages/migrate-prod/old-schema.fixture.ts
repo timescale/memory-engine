@@ -165,9 +165,6 @@ export interface SeededScenario {
   teamSlug: string;
   deletedSlug: string; // engine.status='deleted' → skipped
   orphanActiveSlug: string; // active engine, NO data schema → skipped
-  /** the raw session token whose hash was seeded for i1 */
-  i1SessionToken: string;
-  i1SessionHash: Uint8Array;
   /** a pending-invite email in the team org */
   inviteEmail: string;
   /** ltree paths used for memory/grants */
@@ -241,17 +238,6 @@ export async function seedScenario(
     await sql`insert into ${sql(acc)}.oauth_account (identity_id, provider, provider_account_id)
               values (${id}, ${provider}, ${`acct-${id}`})`;
   }
-
-  // A live session for i1, to assert session migration (hash copied verbatim).
-  const i1SessionToken = "tok-owner1-abcdefghijklmnopqrstuvwxyz0123456789";
-  const i1SessionHash = new Bun.CryptoHasher("sha256")
-    .update(i1SessionToken)
-    .digest();
-  await sql`insert into ${sql(acc)}.session (identity_id, expires_at, token_hash)
-            values (${i1}, now() + interval '30 days', ${i1SessionHash})`;
-  // An expired session (should NOT migrate).
-  await sql`insert into ${sql(acc)}.session (identity_id, expires_at, token_hash)
-            values (${i1}, now() - interval '1 day', ${new Bun.CryptoHasher("sha256").update("expired").digest()})`;
 
   // --- Personal org (simple): i1 owner, one active engine "default" ---
   const personalOrg = await insertId(sql, acc, "org", {
@@ -365,8 +351,6 @@ export async function seedScenario(
     teamSlug: TEAM_SLUG,
     deletedSlug: DELETED_SLUG,
     orphanActiveSlug: ORPHAN_SLUG,
-    i1SessionToken,
-    i1SessionHash,
     inviteEmail,
     paths,
   };
