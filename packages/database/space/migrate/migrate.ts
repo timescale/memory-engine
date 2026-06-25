@@ -264,9 +264,22 @@ function normalizeMigrateSpaceOptions(
     bm25B: options.bm25B ?? 0.75,
     hnswM: options.hnswM ?? 16,
     hnswEfConstruction: options.hnswEfConstruction ?? 64,
-    statementTimeout: options.statementTimeout ?? "20s",
+    // Migrations may include a one-time, version-tracked **data backfill** whose
+    // runtime scales with the table (e.g. 007's `version_hash` md5 over every
+    // row), so the old 20s statement / 1min transaction cap just crashed the
+    // spaces with the most data (and would on prod). No per-statement cap — the
+    // backfill is intentionally one long statement; an artificial sub-limit only
+    // splits the budget. But keep a generous **20min ceiling on the whole
+    // migration**: far beyond any healthy backfill, while still failing a
+    // genuinely stuck migration cleanly (an attributable `transaction timeout`)
+    // rather than hanging until the deploy's outer helm `--wait` kills the pod.
+    // A backfill that truly needs >20min at boot should be redesigned (batched /
+    // online), not block readiness. `lock_timeout` (fail fast on lock contention)
+    // + `idle_in_transaction_session_timeout` (an abandoned tx can't hold locks)
+    // bound the other hang risks. The request path has its own RPC_DB_*_MS caps.
+    statementTimeout: options.statementTimeout ?? "0",
     lockTimeout: options.lockTimeout ?? "5s",
-    transactionTimeout: options.transactionTimeout ?? "1min",
+    transactionTimeout: options.transactionTimeout ?? "20min",
     idleInTransactionSessionTimeout:
       options.idleInTransactionSessionTimeout ?? "5s",
   };
