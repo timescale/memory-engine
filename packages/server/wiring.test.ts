@@ -146,6 +146,7 @@ describe("Server-Database Wiring", () => {
     test("whoami succeeds with a valid session (happy path)", async () => {
       const identity = {
         id: "01960000-0000-7000-8000-000000000000",
+        kind: "u",
         email: "test@example.com",
         name: "Test User",
       };
@@ -184,7 +185,12 @@ describe("Server-Database Wiring", () => {
       expect(response.status).toBe(200);
       const body = (await response.json()) as {
         jsonrpc: string;
-        result: { id: string; email: string; name: string };
+        result: {
+          id: string;
+          kind: string;
+          email: string | null;
+          name: string;
+        };
       };
       expect(body.jsonrpc).toBe("2.0");
       expect(body.result).toEqual(identity);

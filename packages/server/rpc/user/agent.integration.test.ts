@@ -8,6 +8,7 @@ import { bootstrapSpaceDatabase, migrateCore } from "@memory.build/database";
 import { ACCESS, coreStore, ROOT_PATH } from "@memory.build/engine/core";
 import { type AppErrorCode, isAppError } from "@memory.build/protocol/errors";
 import postgres, { type Sql } from "postgres";
+import { handleRpcRequest } from "../handler";
 import type { HandlerContext } from "../types";
 import { userMethods } from "./index";
 
@@ -28,25 +29,31 @@ let coreSchema: string;
 let userId: string;
 const createdSpaceSchemas: string[] = [];
 
-function call<T = unknown>(
+async function call<T = unknown>(
   method: string,
   params: unknown,
   asUser: string = userId,
-  identity?: { email?: string; name?: string },
+  identity?: { email?: string; name?: string; kind?: "u" | "a" },
 ): Promise<T> {
   const registered = userMethods.get(method);
   if (!registered) throw new Error(`no handler for ${method}`);
+  const kind = identity?.kind ?? "u";
   const context = {
     request: new Request("http://localhost/api/v1/user/rpc"),
     core: coreStore(sql, coreSchema),
-    userId: asUser,
     // Identity the middleware (authenticateUser) would have put on the context
-    // from the validated session; whoami echoes it.
-    email: identity?.email ?? `${asUser}@example.com`,
+    // from the validated credential; whoami echoes it. An agent carries no
+    // email (kind "a"); the account-management methods reject it.
+    kind,
+    userId: asUser,
+    email: kind === "a" ? null : (identity?.email ?? `${asUser}@example.com`),
     name: identity?.name ?? "Test User",
     db: sql,
     coreSchema,
   } as unknown as HandlerContext;
+  // Mirror the dispatcher: per-method authorization (the agent allow-list gate)
+  // runs before the handler. async, so a denial surfaces as a rejected promise.
+  registered.authorize?.(context);
   return registered.handler(params, context) as Promise<T>;
 }
 
@@ -91,17 +98,103 @@ test("whoami echoes the validated session identity", async () => {
   // the validated session/token (ctx.email/ctx.name) — no store lookup. Token
   // validity (e.g. a deleted user → 401) is the middleware's job, covered in the
   // authenticate-space/user integration tests.
-  const me = await call<{ id: string; email: string; name: string }>(
-    "whoami",
-    {},
-    userId,
-    { email: "who@example.com", name: "Who Am I" },
-  );
+  const me = await call<{
+    id: string;
+    kind: string;
+    email: string | null;
+    name: string;
+  }>("whoami", {}, userId, { email: "who@example.com", name: "Who Am I" });
   expect(me).toEqual({
     id: userId,
+    kind: "u",
     email: "who@example.com",
     name: "Who Am I",
   });
+});
+
+// An agent acting with ME_API_KEY reaches the user RPC; the door admits it and
+// the handlers authorize per-method. The account-scoped *reads* work; every
+// account-*management* method is user-only (requireUserCaller).
+test("an agent caller can whoami (kind 'a', null email)", async () => {
+  const agentId = await coreStore(sql, coreSchema).createAgent(userId, "bot");
+  const me = await call<{
+    id: string;
+    kind: string;
+    email: string | null;
+    name: string;
+  }>("whoami", {}, agentId, { kind: "a", name: "bot" });
+  expect(me).toEqual({ id: agentId, kind: "a", email: null, name: "bot" });
+});
+
+test("an agent caller can list its own spaces (space.list)", async () => {
+  const core = coreStore(sql, coreSchema);
+  const agentId = await core.createAgent(userId, "bot");
+  const spaceId = await core.createSpace(rand(12), "Agent Space");
+  await core.addPrincipalToSpace(spaceId, agentId);
+
+  const res = await call<{ spaces: { id: string }[] }>(
+    "space.list",
+    {},
+    agentId,
+    { kind: "a", name: "bot" },
+  );
+  expect(res.spaces.some((s) => s.id === spaceId)).toBe(true);
+});
+
+test("an agent caller is denied every account-management method (FORBIDDEN)", async () => {
+  const agentId = await coreStore(sql, coreSchema).createAgent(userId, "bot");
+  const asAgent = { kind: "a" as const, name: "bot" };
+  // The gate's authorize hook (mirrored in `call`) rejects an agent before the
+  // handler — and, in production, before param validation — so the param shapes
+  // below are placeholders and the denial is FORBIDDEN regardless of validity.
+  const denied: [string, unknown][] = [
+    ["agent.create", { name: "x" }],
+    ["agent.list", {}],
+    ["agent.spaces", { id: agentId }],
+    ["agent.rename", { id: agentId, name: "x" }],
+    ["agent.delete", { id: agentId }],
+    ["apiKey.create", { memberId: agentId, name: "x" }],
+    ["apiKey.list", { memberId: agentId }],
+    ["apiKey.get", { id: agentId }],
+    ["apiKey.delete", { id: agentId }],
+    ["space.create", { name: "x" }],
+    ["space.rename", { slug: "a".repeat(12), name: "x" }],
+    ["space.delete", { slug: "a".repeat(12) }],
+  ];
+  for (const [method, params] of denied) {
+    await expectAppError(call(method, params, agentId, asAgent), "FORBIDDEN");
+  }
+});
+
+test("through the dispatcher, a gated method denies an agent BEFORE param validation", async () => {
+  // The denial is an `authorize` hook that runs before schema validation, so an
+  // agent gets the user-only FORBIDDEN even when its params are invalid (rather
+  // than an INVALID_PARAMS that would leak the param schema). Drive the real
+  // dispatcher (which validates params) with a deliberately invalid body.
+  const agentId = await coreStore(sql, coreSchema).createAgent(userId, "bot");
+  const request = new Request("http://localhost/api/v1/user/rpc", {
+    method: "POST",
+    body: JSON.stringify({
+      jsonrpc: "2.0",
+      method: "agent.create",
+      params: { not: "the right shape" }, // invalid for agent.create
+      id: 1,
+    }),
+  });
+  const response = await handleRpcRequest(request, userMethods, {
+    core: coreStore(sql, coreSchema),
+    kind: "a",
+    userId: agentId,
+    email: null,
+    name: "bot",
+    db: sql,
+    coreSchema,
+  } as unknown as HandlerContext);
+
+  const body = JSON.stringify(await response.json());
+  // The user-only message proves authorize ran first; a schema-first ordering
+  // would instead surface the zod "params" validation error.
+  expect(body).toContain("user-only");
 });
 
 test("create / list / rename / delete the caller's agents", async () => {

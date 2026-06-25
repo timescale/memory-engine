@@ -29,7 +29,12 @@ export function createWhoamiCommand(): Command {
           fmt,
           () => {
             console.log(`  Name:   ${identity.name}`);
-            console.log(`  Email:  ${identity.email}`);
+            console.log(
+              `  Kind:   ${identity.kind === "a" ? "agent" : "user"}`,
+            );
+            // Agents have no email (null); humans always have one.
+            if (identity.email !== null)
+              console.log(`  Email:  ${identity.email}`);
             console.log(`  ID:     ${identity.id}`);
             console.log(`  Server: ${creds.server}`);
             if (creds.activeSpace) {

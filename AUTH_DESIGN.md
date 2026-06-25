@@ -110,11 +110,16 @@ scopes         = ["openid", "profile", "email", "offline_access"]
   endpoints `/oauth2/authorize` + `/oauth2/token`.
 - **`/api/v1/memory/rpc`** — memory data plane + space management. Auth: api key
   **or** OAuth access token (Bearer) **or** cookie; requires `X-Me-Space`.
-- **`/api/v1/user/rpc`** — user-scoped (whoami, agent/api-key/space management).
-  Auth: OAuth access token (Bearer), cookie, **or the user's own api key (PAT)**.
-  An **agent** key is rejected here (403 — agents can't manage the account), and
-  `apiKey.create` / `apiKey.delete` reject *any* key-authenticated caller
-  (session-only: a key can't mint or revoke keys).
+- **`/api/v1/user/rpc`** — account-scoped (whoami, agent/api-key/space management).
+  Auth: OAuth access token (Bearer), cookie, **or an api key** (a user PAT or an
+  agent key). Authentication establishes *who*, not *what*: the door admits any
+  authenticated principal and a per-method **allow-list** authorizes. An **agent**
+  key validates to its agent principal, so the two account-scoped *reads* on the
+  allow-list — `whoami` and `space.list` — work for it; every other method is
+  account *management* and stays user-only (the gate calls `requireUserCaller`,
+  so a new method is default-denied to agents unless explicitly allow-listed).
+  `apiKey.create` / `apiKey.delete` additionally reject *any* key-authenticated
+  caller (session-only: a key can't mint or revoke keys).
 - **`/`** (any non-`/api` GET) — the web UI (static SPA + fallback), including the
   `/login` page below.
 
@@ -244,7 +249,10 @@ A key can be minted for two kinds of member (`apiKey.create({ memberId })`,
 gated by `requireOwnMember` — the caller's own user or an owned agent):
 
 - **Agent key** (kind `'a'`) — a headless service account, scoped to the agent's
-  grants. Memory RPC only; rejected on the user RPC.
+  grants. Drives the full memory RPC (data plane + the space management its
+  grants authorize), plus the account-scoped *reads* on the user RPC (`whoami`,
+  `space.list`) — but not account management (it owns no agents/keys/spaces and
+  is never an admin), which the user RPC denies per-method.
 - **User PAT** (kind `'u'`, the caller's own principal) — "be me, headless"
   (`me apikey create --self`; explicit opt-in, since it's a full-access
   credential). Authenticates as

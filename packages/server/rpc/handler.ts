@@ -136,6 +136,14 @@ export async function handleRpcRequest(
       return json(methodNotFound(rpcRequest.method, requestId));
     }
 
+    const handlerContext: HandlerContext = { request, ...context };
+
+    // Authorize before validating params: a caller that may not invoke this
+    // method shouldn't have its input parsed — it gets a consistent
+    // authorization error rather than an INVALID_PARAMS that leaks the param
+    // schema. Throws an AppError on denial (mapped below).
+    method.authorize?.(handlerContext);
+
     // Validate params
     const paramsResult = method.schema.safeParse(rpcRequest.params);
     if (!paramsResult.success) {
@@ -170,13 +178,7 @@ export async function handleRpcRequest(
         "rpc.request_id": String(requestId),
         ...identityAttrs,
       },
-      callback: async () => {
-        const handlerContext: HandlerContext = {
-          request,
-          ...context,
-        };
-        return method.handler(paramsResult.data, handlerContext);
-      },
+      callback: async () => method.handler(paramsResult.data, handlerContext),
     });
 
     return json(createSuccessResponse(result, requestId ?? 0));

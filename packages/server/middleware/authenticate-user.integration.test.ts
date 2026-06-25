@@ -1,8 +1,9 @@
 // Integration test for user-RPC authentication (authenticateUser).
 //
-// Covers the three admitted credentials + the bars: an OAuth access token and
-// the user's OWN api key (a PAT) authenticate as the user; an AGENT api key is
-// rejected here (agents can't manage the account); invalid/missing → 401.
+// Covers the admitted credentials: an OAuth access token and the user's OWN api
+// key (a PAT) authenticate as the user (kind 'u'); an AGENT api key is admitted
+// as kind 'a' (per-method authz, not a door bar, keeps it off account
+// management); invalid/missing → 401.
 //   TEST_DATABASE_URL="postgresql://postgres@127.0.0.1:5432/postgres" \
 //     bun test --timeout 30000 \
 //     packages/server/middleware/authenticate-user.integration.test.ts
@@ -144,13 +145,22 @@ test("a PAT for an unverified user reports emailVerified=false (read from the DB
   if (result.ok) expect(result.context.emailVerified).toBe(false);
 });
 
-test("an agent api key is forbidden on the user RPC (403)", async () => {
+test("an agent api key is admitted on the user RPC as kind 'a' (no email)", async () => {
+  // Authn establishes *who*; it no longer doubles as the authz gate. An agent
+  // key validates to its agent principal so the account-scoped reads (whoami,
+  // space.list) work; the per-method handlers still deny account management.
   const userId = await seedUser();
   const agentId = await core.createAgent(userId, `agent-${rand()}`);
   const key = await core.createApiKey(agentId, "ci");
   const result = await auth(engineCore.formatApiKey(key.lookupId, key.secret));
-  expect(result.ok).toBe(false);
-  if (!result.ok) expect(result.error.status).toBe(403);
+  expect(result.ok).toBe(true);
+  if (result.ok) {
+    expect(result.context.kind).toBe("a");
+    expect(result.context.userId).toBe(agentId);
+    expect(result.context.viaApiKey).toBe(true);
+    expect(result.context.email).toBeNull();
+    expect(result.context.emailVerified).toBe(false);
+  }
 });
 
 test("an invalid api key → 401", async () => {

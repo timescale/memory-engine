@@ -667,11 +667,34 @@ describe.skipIf(
     // Search with ONLY the api key — no session token. The agent's global key
     // plus X-Me-Space (ME_SPACE) selects the space; this exercises the CLI's
     // api-key auth path against the real server end-to-end.
+    const agentEnv = { ME_API_KEY: key.key, ME_SESSION_TOKEN: "" };
     const res = await meJson<{ total: number }>(
       ["search", "--fulltext", "fox"],
-      { ME_API_KEY: key.key, ME_SESSION_TOKEN: "" },
+      agentEnv,
     );
     expect(res.total).toBeGreaterThan(0);
+
+    // TNT-139: the same agent key now drives the account-scoped *reads* on the
+    // user RPC too — authn establishes *who*, the server authorizes per-method.
+    // whoami reports the agent's own identity (kind "a", no email).
+    const who = await meJson<{
+      identity: { id: string; kind: string; email: string | null };
+    }>(["whoami"], agentEnv);
+    expect(who.identity.id).toBe(agent.id);
+    expect(who.identity.kind).toBe("a");
+    expect(who.identity.email).toBeNull();
+
+    // space.list returns the spaces the agent is admitted to.
+    const spaces = await meJson<{ spaces: { slug: string }[] }>(
+      ["space", "list"],
+      agentEnv,
+    );
+    expect(spaces.spaces.some((s) => s.slug === spaceSlug)).toBe(true);
+
+    // …but account management stays user-only: the CLI no longer pre-empts with
+    // a session gate, so the server's FORBIDDEN surfaces instead (non-zero exit).
+    const denied = await me(["agent", "list"], agentEnv);
+    expect(denied.code).not.toBe(0);
   });
 
   test("8. `me claude import` backfills work that predates the hook", async () => {
