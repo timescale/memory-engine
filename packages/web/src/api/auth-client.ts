@@ -30,8 +30,17 @@ export const authClient = createAuthClient({
 export async function signInWithProvider(
   provider: SocialProvider,
   callbackURL: string,
+  errorCallbackURL?: string,
 ): Promise<void> {
-  await authClient.signIn.social({ provider, callbackURL });
+  // `errorCallbackURL` is where the social flow redirects on failure (e.g. the
+  // server's verified-email login gate throws → better-auth appends
+  // `?error=…&error_description=…`). Default to the current page so the error
+  // surfaces in-place rather than on better-auth's bare `/error`.
+  await authClient.signIn.social({
+    provider,
+    callbackURL,
+    errorCallbackURL: errorCallbackURL ?? window.location.pathname,
+  });
 }
 
 /** Clear the session cookie (server-side) + return. */
