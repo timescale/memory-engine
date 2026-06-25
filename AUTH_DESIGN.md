@@ -35,7 +35,8 @@ the login components).
 
 A human can hold several credentials by surface: a cookie for the browser, OAuth
 tokens for the interactive CLI (`me login`), and a **personal access token** for
-headless/SSH/VM use (`me apikey create --self`). All share one identity
+headless/SSH/VM use (`me apikey create`, which targets yourself by default).
+All share one identity
 (the `auth.users` / `core.principal` row). A user PAT carries the user's *full*
 authority on the data plane but is barred from minting/revoking credentials — see
 flow E. (An agent key is the right choice for sandboxes; a user PAT is for "be me,
@@ -254,8 +255,8 @@ gated by `requireOwnMember` — the caller's own user or an owned agent):
   `space.list`) — but not account management (it owns no agents/keys/spaces and
   is never an admin), which the user RPC denies per-method.
 - **User PAT** (kind `'u'`, the caller's own principal) — "be me, headless"
-  (`me apikey create --self`; explicit opt-in, since it's a full-access
-  credential). Authenticates as
+  (`me apikey create`, which targets yourself by default; an agent key is the
+  `--agent` opt-in). Authenticates as
   the **user** with their full grants, on **both** the memory RPC and the user
   RPC — *except* it cannot mint or revoke keys (`apiKey.create` / `apiKey.delete`
   stay session-only). That carve-out keeps a leaked key from minting a sibling

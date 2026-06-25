@@ -73,7 +73,7 @@ function createMcpRunAction() {
     // can take this shape; a session token never does.)
     if (apiKey && isLegacyApiKey(apiKey)) {
       console.error(
-        "Error: this API key uses the old space-scoped format (me.<slug>.<id>.<secret>) and no longer works. Recreate it with 'me apikey create <agent>', then update ME_API_KEY or your MCP config.",
+        "Error: this API key uses the old space-scoped format (me.<slug>.<id>.<secret>) and no longer works. Recreate it with 'me apikey create --agent <agent>', then update ME_API_KEY or your MCP config.",
       );
       process.exit(1);
     }

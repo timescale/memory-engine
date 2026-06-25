@@ -45,7 +45,7 @@ me agent add claude-code-agent
 me access grant claude-code-agent share.projects w
 
 # 3. Mint an API key for that agent
-me apikey create claude-code-agent plugin-key
+me apikey create --agent claude-code-agent plugin-key
 # → prints the raw key once; paste it into the plugin's api_key config
 ```
 

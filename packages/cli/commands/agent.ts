@@ -2,9 +2,8 @@
  * me agent — manage your agents (global service accounts).
  *
  * Agents are owned by you and live across spaces; their lifecycle is on the
- * user endpoint. Bringing an agent into the active space and minting its
- * (space-bound) api key are space operations — see `me agent add` and
- * `me apikey create`.
+ * user endpoint. Bringing an agent into the active space and minting its api
+ * key — see `me agent add` and `me apikey create --agent`.
  *
  * - me agent list:                    list your agents
  * - me agent create <name>:           create an agent
@@ -74,7 +73,7 @@ function createAgentCreateCommand(): Command {
         output({ id, name }, fmt, () => {
           clack.log.success(`Created agent '${name}' (${id})`);
           clack.log.info(
-            "Add it to a space with 'me agent add', then mint a key with 'me apikey create'.",
+            `Add it to a space with 'me agent add', then mint a key with 'me apikey create --agent ${name}'.`,
           );
         });
       } catch (error) {
@@ -151,7 +150,9 @@ function createAgentAddCommand(): Command {
         const result = await memory.principal.add({ principalId: id });
         output({ agentId: id, ...result }, fmt, () => {
           clack.log.success(`Added agent ${agent} to the space.`);
-          clack.log.info("Mint a key with 'me apikey create'.");
+          clack.log.info(
+            `Mint a key with 'me apikey create --agent ${agent}'.`,
+          );
         });
       } catch (error) {
         handleError(error, fmt, { creds, scope: "space" });

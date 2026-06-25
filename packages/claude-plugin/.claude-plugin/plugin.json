@@ -13,7 +13,7 @@
     "api_key": {
       "type": "string",
       "title": "API key (optional)",
-      "description": "Optional. Leave blank to use your `me login` session — the plugin falls back to it automatically. Set an API key to attribute captures to a dedicated agent instead: create one with `me apikey create` (or have an admin create one with restricted privileges).",
+      "description": "Optional. Leave blank to use your `me login` session — the plugin falls back to it automatically. Set an API key to attribute captures to a dedicated agent instead: create one with `me apikey create --agent <agent>` (or have an admin create one with restricted privileges).",
       "sensitive": true,
       "required": false
     },

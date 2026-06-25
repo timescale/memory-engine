@@ -1,19 +1,21 @@
 /**
- * me apikey — manage API keys (for your agents, or yourself via --self).
+ * me apikey — manage API keys, for yourself (a personal access token) or your
+ * agents (`--agent`).
  *
  * Keys are global: a key works in any space its principal has been admitted to.
  * The plaintext key is shown exactly once, by `create`. No revoke state — delete
- * is the removal. A `--self` key is a personal access token (full access as you,
- * headless); minting/revoking always requires a `me login` session.
+ * is the removal. A personal access token has full access as you (headless/CLI
+ * use); minting/revoking always requires a `me login` session.
  *
- * - me apikey create <agent> [name] [--expires <ts>]: mint an agent key
- * - me apikey create --self [name]:                   mint a personal access token
- * - me apikey list <agent>:                           list an agent's keys
- * - me apikey get <id>:                               key metadata
- * - me apikey delete <id>:                            delete (revoke) a key
+ * - me apikey create [name] [--expires <ts>]: mint a personal access token (you)
+ * - me apikey create --agent <agent> [name]: mint a key for one of your agents
+ * - me apikey list [--agent <agent>]:        list your keys (or an agent's)
+ * - me apikey get <id>:                      key metadata
+ * - me apikey delete <id>:                   delete (revoke) a key
  *
  * <agent> is an agent id or name; <id> is an api-key id.
  */
+import { randomBytes } from "node:crypto";
 import * as clack from "@clack/prompts";
 import { Command } from "commander";
 import { resolveCredentials } from "../credentials.ts";
@@ -26,82 +28,73 @@ import {
   resolveAgentId,
 } from "../util.ts";
 
+/**
+ * Default name for an unnamed key. The random suffix keeps two unnamed keys
+ * minted for the same principal on the same day from colliding on the
+ * `unique (member_id, name)` constraint.
+ */
+function defaultKeyName(): string {
+  const date = new Date().toISOString().slice(0, 10);
+  return `cli-${date}-${randomBytes(2).toString("hex")}`;
+}
+
 function createApiKeyCreateCommand(): Command {
   return new Command("create")
-    .description("mint an API key for one of your agents")
-    .argument("[agent]", "agent id or name")
+    .description("mint a personal access token (or an agent key with --agent)")
     .argument("[name]", "key name (auto-generated if omitted)")
-    .option("--expires <timestamp>", "expiration timestamp (ISO 8601)")
     .option(
-      "--self",
-      "mint a personal access token for YOURSELF (headless/CLI use) — full access as you; can't manage keys",
+      "--agent <agent>",
+      "mint a key for one of your agents instead of yourself (agent id or name)",
     )
-    .action(
-      async (
-        agent: string | undefined,
-        name: string | undefined,
-        opts,
-        cmd,
-      ) => {
-        const globalOpts = cmd.optsWithGlobals();
-        const creds = resolveCredentials(globalOpts.server);
-        const fmt = getOutputFormat(globalOpts);
-        requireSession(creds, fmt);
+    .option("--expires <timestamp>", "expiration timestamp (ISO 8601)")
+    .action(async (name: string | undefined, opts, cmd) => {
+      const globalOpts = cmd.optsWithGlobals();
+      const creds = resolveCredentials(globalOpts.server);
+      const fmt = getOutputFormat(globalOpts);
+      requireSession(creds, fmt);
 
-        // Minting a PAT must be explicit (`--self`) — it's a full-access
-        // credential, so it never happens implicitly. Require exactly one target.
-        if (opts.self && agent) {
-          handleError(new Error("Pass an agent or --self, not both."), fmt);
-        }
-        if (!opts.self && !agent) {
-          handleError(
-            new Error(
-              "Specify an agent (e.g. `me apikey create <agent>`), or --self to mint a personal access token for yourself.",
-            ),
-            fmt,
+      const user = buildUserClient(creds);
+      const keyName = name ?? defaultKeyName();
+
+      try {
+        // No --agent → the caller's own user principal (a PAT, resolved via
+        // whoami); --agent → the named agent.
+        const memberId = opts.agent
+          ? await resolveAgentId(user, opts.agent, fmt)
+          : (await user.whoami()).id;
+        const result = await user.apiKey.create({
+          memberId,
+          name: keyName,
+          expiresAt: opts.expires ?? null,
+        });
+        output(result, fmt, () => {
+          clack.log.success(`Created API key '${keyName}'`);
+          console.log(`  ID: ${result.id}`);
+          clack.note(
+            result.key,
+            "API key — save it now; it won't be shown again",
           );
-        }
-
-        const user = buildUserClient(creds);
-        const keyName = name ?? `cli-${new Date().toISOString().slice(0, 10)}`;
-
-        try {
-          // --self → the caller's own user principal (resolved via whoami);
-          // else the named agent.
-          const memberId = opts.self
-            ? (await user.whoami()).id
-            : await resolveAgentId(user, agent as string, fmt);
-          const result = await user.apiKey.create({
-            memberId,
-            name: keyName,
-            expiresAt: opts.expires ?? null,
-          });
-          output(result, fmt, () => {
-            clack.log.success(`Created API key '${keyName}'`);
-            console.log(`  ID: ${result.id}`);
-            clack.note(
-              result.key,
-              "API key — save it now; it won't be shown again",
-            );
-            clack.log.info(
-              opts.self
-                ? "Personal access token — use it as ME_API_KEY for headless/CLI access as you (e.g. in a VM or over SSH). Managing keys (create/revoke) still requires `me login`."
-                : "Give it to the agent via ME_API_KEY or its MCP config. It works in any space the agent is a member of.",
-            );
-          });
-        } catch (error) {
-          handleError(error, fmt, { creds });
-        }
-      },
-    );
+          clack.log.info(
+            opts.agent
+              ? "Give it to the agent via ME_API_KEY or its MCP config. It works in any space the agent is a member of."
+              : "Personal access token — use it as ME_API_KEY for headless/CLI access as you (e.g. in a VM or over SSH). It works in any space you're a member of. Managing keys (create/revoke) still requires `me login`.",
+          );
+        });
+      } catch (error) {
+        handleError(error, fmt, { creds });
+      }
+    });
 }
 
 function createApiKeyListCommand(): Command {
   return new Command("list")
     .alias("ls")
-    .description("list an agent's API keys")
-    .argument("<agent>", "agent id or name")
-    .action(async (agent: string, _opts, cmd) => {
+    .description("list your API keys (or an agent's with --agent)")
+    .option(
+      "--agent <agent>",
+      "list one of your agents' keys instead of your own (agent id or name)",
+    )
+    .action(async (opts, cmd) => {
       const globalOpts = cmd.optsWithGlobals();
       const creds = resolveCredentials(globalOpts.server);
       const fmt = getOutputFormat(globalOpts);
@@ -109,8 +102,11 @@ function createApiKeyListCommand(): Command {
 
       const user = buildUserClient(creds);
       try {
-        const agentId = await resolveAgentId(user, agent, fmt);
-        const { apiKeys } = await user.apiKey.list({ memberId: agentId });
+        // No --agent → your own keys (resolved via whoami); --agent → the agent.
+        const memberId = opts.agent
+          ? await resolveAgentId(user, opts.agent, fmt)
+          : (await user.whoami()).id;
+        const { apiKeys } = await user.apiKey.list({ memberId });
         output({ apiKeys }, fmt, () => {
           if (apiKeys.length === 0) {
             console.log("  No API keys.");
@@ -195,7 +191,7 @@ function createApiKeyDeleteCommand(): Command {
 
 export function createApiKeyCommand(): Command {
   const apikey = new Command("apikey").description(
-    "manage API keys (for your agents, or yourself via --self)",
+    "manage API keys (your own personal access token, or your agents' via --agent)",
   );
   apikey.addCommand(createApiKeyCreateCommand());
   apikey.addCommand(createApiKeyListCommand());
