@@ -35,7 +35,7 @@ import {
  */
 function defaultKeyName(): string {
   const date = new Date().toISOString().slice(0, 10);
-  return `cli-${date}-${randomBytes(2).toString("hex")}`;
+  return `cli-${date}-${randomBytes(6).toString("hex")}`;
 }
 
 function createApiKeyCreateCommand(): Command {
