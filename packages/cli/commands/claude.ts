@@ -9,12 +9,16 @@
  *
  *        claude plugin marketplace add timescale/memory-engine
  *        claude plugin install memory-engine@memory-engine \
- *          --config server=… [--config space=…] [--config api_key=…]
+ *          [--config server=…] [--config space=…] [--config api_key=…]
  *
- *      Claude Code delivers the configured values to our hook (`me claude
- *      hook --event <name>`) via CLAUDE_PLUGIN_OPTION_* env vars. api_key is
- *      optional: left blank, the hook (and the plugin's MCP server) use your
- *      `me login` session.
+ *      Claude Code delivers any configured values to our hook (`me claude
+ *      hook --event <name>`) and the plugin's MCP server via CLAUDE_PLUGIN_OPTION_*
+ *      env vars. By default we pin NOTHING — a personal install leaves all three
+ *      blank so the plugin tracks your live `me` config at runtime (default
+ *      server, active space, login session), the same fallback the CLI uses.
+ *      Pinning is opt-in: `--server` / `--space` pin those, and an api key
+ *      (`--api-key` / ME_API_KEY) marks a headless install — no session to fall
+ *      back to — so it bakes in a fixed server + space + key together.
  *
  *      Pass --dev (run from inside the repo) to install the plugin from your
  *      local checkout — the repo's .claude-plugin/marketplace.json — instead of
@@ -178,15 +182,81 @@ function findRepoMarketplaceRoot(startDir: string): string | undefined {
   }
 }
 
+/** The `--config` args to bake into the install, or a fatal validation error. */
+export type PluginConfigDecision =
+  | { config: string[]; warn?: string }
+  | { error: string };
+
+/**
+ * Decide what (if anything) to pin into the plugin config. Pure, so it's unit
+ * tested independently of the install shell-out.
+ *
+ * Default: pin NOTHING for a personal (session) install, so the plugin tracks
+ * your live `me` config at runtime — default server, active space, and login
+ * session — the same fallback the CLI itself uses (see `me mcp`). Pinning is
+ * opt-in: explicit `server` / `space` pin those; an api key (`--api-key` /
+ * `ME_API_KEY`, surfaced as `creds.apiKey`) marks a headless install with no
+ * session to fall back to, so it bakes in a fixed server + space + key together.
+ */
+export function buildPluginConfig(
+  opts: { server?: string; space?: string; apiKey?: string },
+  creds: {
+    server: string;
+    activeSpace?: string;
+    apiKey?: string;
+    loggedIn: boolean;
+  },
+): PluginConfigDecision {
+  const apiKey = opts.apiKey ?? creds.apiKey;
+  if (apiKey) {
+    const server = opts.server ?? creds.server;
+    const space = opts.space ?? creds.activeSpace;
+    if (!server) {
+      return {
+        error: "No server URL available. Pass --server or set ME_SERVER.",
+      };
+    }
+    if (!space) {
+      return {
+        error:
+          "No space for the API key. Pass --space, set ME_SPACE, or run 'me space use <space>' (keys are global, so the space must be fixed).",
+      };
+    }
+    return {
+      config: [
+        "--config",
+        `server=${server}`,
+        "--config",
+        `space=${space}`,
+        "--config",
+        `api_key=${apiKey}`,
+      ],
+    };
+  }
+  if (!creds.loggedIn) {
+    return {
+      error:
+        "Not logged in. Run 'me login' (the plugin will use your session), or pass --api-key / set ME_API_KEY for a headless agent.",
+    };
+  }
+  const config: string[] = [];
+  if (opts.server) config.push("--config", `server=${opts.server}`);
+  if (opts.space) config.push("--config", `space=${opts.space}`);
+  const warn =
+    !opts.space && !creds.activeSpace
+      ? "No active space set — captures are skipped until you run 'me space use <space>' (or set ME_SPACE / re-run with --space to pin one)."
+      : undefined;
+  return { config, warn };
+}
+
 /**
  * Install the full Memory Engine plugin for Claude Code.
  *
  * Drives Claude Code's plugin CLI: registers the marketplace (idempotent — a
- * no-op if it's already configured) and installs the plugin, passing the
- * resolved server/space/api_key through `--config` (the same path as the
- * interactive `/plugin` configure flow). Credential handling mirrors the
- * MCP-only path: an api key requires a pinned space; otherwise the plugin
- * falls back to your `me login` session at runtime.
+ * no-op if it's already configured) and installs the plugin, baking in only the
+ * config {@link buildPluginConfig} chose to pin (none by default). Credential
+ * handling mirrors the MCP-only path: an api key requires a pinned space;
+ * otherwise the plugin falls back to your `me login` session at runtime.
  */
 async function runClaudePluginInstall(
   opts: AgentInstallOptions & { scope: ClaudeScope; dev?: boolean },
@@ -198,35 +268,17 @@ async function runClaudePluginInstall(
     process.exit(1);
   }
 
-  // Resolve credentials: flags > env (ME_API_KEY / ME_SERVER / ME_SPACE) >
-  // stored config.
+  // Decide what (if anything) to pin into the plugin config — see
+  // {@link buildPluginConfig}. Default pins NOTHING so the plugin tracks your
+  // live `me` config at runtime.
   const creds = resolveCredentials(opts.server);
-  const apiKey = opts.apiKey ?? creds.apiKey;
-  const server = opts.server ?? creds.server;
-  if (!server) {
-    clack.log.error("No server URL available. Pass --server or set ME_SERVER.");
+  const decision = buildPluginConfig(opts, creds);
+  if ("error" in decision) {
+    clack.log.error(decision.error);
     process.exit(1);
   }
-  const space = opts.space ?? creds.activeSpace;
-
-  if (apiKey) {
-    // A global key isn't space-bound, so the space must be fixed.
-    if (!space) {
-      clack.log.error(
-        "No space for the API key. Pass --space, set ME_SPACE, or run 'me space use <space>' (keys are global, so the space must be fixed).",
-      );
-      process.exit(1);
-    }
-  } else if (!creds.loggedIn) {
-    clack.log.error(
-      "Not logged in. Run 'me login' (the plugin will use your session), or pass --api-key / set ME_API_KEY for a headless agent.",
-    );
-    process.exit(1);
-  } else if (!space) {
-    clack.log.warn(
-      "No active space set — captures are skipped until you run 'me space use <space>' (or set ME_SPACE). Re-run with --space to pin one.",
-    );
-  }
+  if (decision.warn) clack.log.warn(decision.warn);
+  const config = decision.config;
 
   // Resolve the marketplace source: the published GitHub repo, or — with --dev
   // — the local checkout, so captures exercise the plugin files from your
@@ -315,15 +367,20 @@ async function runClaudePluginInstall(
     }
   }
 
-  // 2. Install the plugin, baking the resolved config so captures land in the
-  //    right space. Leave tree_root / content_mode at the plugin defaults
-  //    (reconfigure them later via `/plugin` if needed).
+  // 2. Install the plugin, baking in only the config we chose to pin above
+  //    (none by default — the plugin then tracks your live `me` config). Leave
+  //    tree_root / content_mode at the plugin defaults (reconfigure later via
+  //    `/plugin` if needed).
   spin.message("Installing the memory-engine plugin...");
-  const install = ["claude", "plugin", "install", "--scope", opts.scope];
-  install.push("--config", `server=${server}`);
-  if (space) install.push("--config", `space=${space}`);
-  if (apiKey) install.push("--config", `api_key=${apiKey}`);
-  install.push(PLUGIN_REF);
+  const install = [
+    "claude",
+    "plugin",
+    "install",
+    "--scope",
+    opts.scope,
+    ...config,
+    PLUGIN_REF,
+  ];
 
   const result = await runCommand(install);
   if (result.exitCode !== 0) {

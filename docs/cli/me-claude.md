@@ -26,10 +26,10 @@ Under the hood it runs the equivalent of:
 ```bash
 claude plugin marketplace add timescale/memory-engine
 claude plugin install memory-engine@memory-engine \
-  --config server=<url> [--config space=<slug>] [--config api_key=<key>]
+  [--config server=<url>] [--config space=<slug>] [--config api_key=<key>]
 ```
 
-The marketplace step is idempotent (skipped if already configured), and the resolved `server` / `space` / `api_key` are passed through `--config` -- the same path as the interactive `/plugin` configure flow. After install, restart Claude Code (or run `/plugin`) to load the hooks and slash commands.
+The marketplace step is idempotent (skipped if already configured). **By default nothing is pinned** -- `server`, `space`, and `api_key` are left blank so the plugin (hooks + MCP) tracks your live `me` config at runtime: your `me login` server, active space, and session. Pinning is opt-in: `--server` / `--space` pin those, and `--api-key` marks a headless install (see below). After install, restart Claude Code (or run `/plugin`) to load the hooks and slash commands.
 
 Pass `--mcp-only` to skip the plugin and register just the `me` MCP server (no hooks, no slash commands -- the previous default behavior).
 
@@ -38,10 +38,10 @@ Pass `--mcp-only` to skip the plugin and register just the `me` MCP server (no h
 | `--mcp-only` | Register only the `me` MCP server (no hooks or slash commands). |
 | `--api-key <key>` | API key for a headless agent. Default: the plugin/MCP server uses your `me login` session, resolved at runtime. |
 | `--space <slug>` | Pin a space. Default: resolve `ME_SPACE` / active space at runtime. |
-| `--server <url>` | Server URL to embed in the config. |
+| `--server <url>` | Pin a server. Default: use your `me login` server at runtime. |
 | `-s, --scope <scope>` | Claude Code config scope: `local`, `user`, or `project`. Default: `user`. |
 
-Credential handling is the same for both modes: with no `--api-key`, the plugin (and the MCP server) uses your `me login` session, resolved from the OS keychain / `~/.config/me` at runtime (so it survives re-login), and your active space (set by `me space use` / `ME_SPACE`). Pass `--api-key` (mint one with `me apikey create <agent>`) for a headless agent that cannot reach your keychain; that requires a pinned `--space`.
+Credential handling: by default (a personal install) nothing is pinned, so the plugin (and the MCP server) uses your `me login` session, server, and active space, resolved from the OS keychain / `~/.config/me` at runtime — so it follows `me login` / `me space use` and survives re-login. Pass `--server` / `--space` to pin either. Pass `--api-key` (mint one with `me apikey create <agent>` or `--self`) for a **headless** install that can't reach your keychain — since there's no session to fall back to, an api key bakes in a fixed server + space + key together (so `--space` is required, and `--server` defaults to your resolved server).
 
 The `--scope` flag mirrors `claude plugin install --scope` / `claude mcp add --scope`:
 
