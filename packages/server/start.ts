@@ -407,6 +407,7 @@ export async function startServer(
     auth: betterAuth,
     pool: authDbPool,
     verifyOAuthAccessToken,
+    getUserEmailVerified,
   } = createBetterAuth({
     databaseUrl,
     authSchema,
@@ -437,6 +438,7 @@ export async function startServer(
     db: runtimeDb,
     betterAuth,
     verifyOAuthToken: verifyOAuthAccessToken,
+    getUserEmailVerified,
     core,
     authSchema,
     coreSchema,

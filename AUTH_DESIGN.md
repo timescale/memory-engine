@@ -270,10 +270,13 @@ better-auth owns the `auth.users` + `accounts` rows (written on social login). T
   invited to. It rides every user RPC (better-auth gives no dedicated login
   hook); idempotent + best-effort. **Gated on a provider-verified email**:
   invitations are email-keyed, so an unverified address must not auto-join its
-  invited spaces. `emailVerified` is plumbed from both auth paths
-  (`verifyOAuthAccessToken` joins `users.email_verified`; the cookie path reads
-  `session.user.emailVerified`) → the user RPC context → `ensureUserProvisioned`,
-  which only redeems when it's true.
+  invited spaces. `emailVerified` is the real `users.email_verified`, carried on
+  **all three** credential paths (`verifyOAuthAccessToken` joins it; the cookie
+  path reads `session.user.emailVerified`; the api-key path looks it up via
+  `getUserEmailVerified`) → the user RPC context → `ensureUserProvisioned`, which
+  only redeems when it's true. Because the key path carries the *real* flag (not
+  a sentinel), a **user PAT redeems exactly like a session** — a PAT's only
+  carve-out is that it can't mint/revoke keys.
 
 **Why not better-auth's `requireEmailVerification`?** It would be a no-op for us.
 It is **not** a global flag — in better-auth 1.6.20 it's
