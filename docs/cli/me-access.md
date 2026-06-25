@@ -64,7 +64,7 @@ me access rm-grant <principal> <path>
 
 List grants in the active space, optionally scoped to one principal and/or a path subtree. Alias: `me access ls`.
 
-This enumerates other principals' grants, so it requires **space admin** or **owner** of the path being listed (an admin can self-grant `owner@root`). To see only your own grants without admin rights, use [`me access mine`](#me-access-mine).
+Listing the whole space or another principal's grants requires **space admin** or **owner** of the path being listed (an admin can self-grant `owner@root`). Listing your own grants (or an agent you own) is self-service; [`me access mine`](#me-access-mine) is a convenient shortcut.
 
 ```
 me access list [principal] [--path <path>]
