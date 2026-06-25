@@ -63,11 +63,6 @@
       "bun": "./user/*.ts",
       "types": "./user/*.ts",
       "import": "./dist/user/*.js"
-    },
-    "./auth/*": {
-      "bun": "./auth/*.ts",
-      "types": "./auth/*.ts",
-      "import": "./dist/auth/*.js"
     }
   },
   "files": [
@@ -75,11 +70,10 @@
     "*.ts",
     "space/*.ts",
     "user/*.ts",
-    "auth/*.ts",
     "!*.test.ts"
   ],
   "scripts": {
-    "build:js": "../../bun build index.ts fields.ts jsonrpc.ts errors.ts headers.ts version.ts memory.ts space/index.ts space/principal.ts space/group.ts space/grant.ts space/api-key.ts user/index.ts user/agent.ts user/space.ts user/whoami.ts auth/device-flow.ts --outdir dist --format esm --target node --packages external --splitting",
+    "build:js": "../../bun build index.ts fields.ts jsonrpc.ts errors.ts headers.ts version.ts memory.ts space/index.ts space/principal.ts space/group.ts space/grant.ts space/invitation.ts user/index.ts user/agent.ts user/space.ts user/whoami.ts user/api-key.ts --outdir dist --format esm --target node --packages external --splitting",
     "build:types": "tsc -p tsconfig.build.json",
     "build": "../../bun run build:js && ../../bun run build:types",
     "prepublishOnly": "../../bun run build"
