@@ -227,6 +227,8 @@ Levels are `1` (read), `2` (write), `3` (owner).
 await me.grant.set({ principalId: "019...", treePath: "/share/work", access: 2 });
 await me.grant.remove({ principalId: "019...", treePath: "/share/work" });
 const { grants } = await me.grant.list();                         // optionally { principalId } / { treePath }
+// Enumerating others' grants needs admin / path owner; passing your own principalId
+// (or an agent you own) is self-service — any member can list their own grants.
 ```
 
 ### invite

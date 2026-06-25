@@ -18,7 +18,8 @@ These commands authenticate with your **session** and operate on the active spac
 
 - [me access grant](#me-access-grant) -- grant or update access at a path
 - [me access rm-grant](#me-access-rm-grant) -- remove a grant
-- [me access list](#me-access-list) -- list grants
+- [me access list](#me-access-list) -- list grants (admin / path owner)
+- [me access mine](#me-access-mine) -- list your own grants (any member)
 
 ---
 
@@ -63,6 +64,8 @@ me access rm-grant <principal> <path>
 
 List grants in the active space, optionally scoped to one principal and/or a path subtree. Alias: `me access ls`.
 
+This enumerates other principals' grants, so it requires **space admin** or **owner** of the path being listed (an admin can self-grant `owner@root`). To see only your own grants without admin rights, use [`me access mine`](#me-access-mine).
+
 ```
 me access list [principal] [--path <path>]
 ```
@@ -74,6 +77,16 @@ me access list [principal] [--path <path>]
 | Option | Description |
 |--------|-------------|
 | `--path <path>` | Only grants at or below this tree path. |
+
+---
+
+## me access mine
+
+List the access grants **you** hold in the active space. Available to **any member** (no admin or path-owner rights required) — every member holds at least one grant, so this always shows something.
+
+```
+me access mine
+```
 
 ## See also
 
