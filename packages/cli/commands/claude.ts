@@ -255,8 +255,10 @@ export function buildPluginConfig(
  * Drives Claude Code's plugin CLI: registers the marketplace (idempotent — a
  * no-op if it's already configured) and installs the plugin, baking in only the
  * config {@link buildPluginConfig} chose to pin (none by default). Credential
- * handling mirrors the MCP-only path: an api key requires a pinned space;
- * otherwise the plugin falls back to your `me login` session at runtime.
+ * handling mirrors the MCP-only path: an api key needs a resolvable space
+ * (`--space`, `ME_SPACE`, or your active space — it gets baked in), since a
+ * global key has no active space to fall back to at runtime; otherwise the
+ * plugin uses your `me login` session.
  */
 async function runClaudePluginInstall(
   opts: AgentInstallOptions & { scope: ClaudeScope; dev?: boolean },
