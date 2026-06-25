@@ -87,8 +87,9 @@ async function grantList(
   // No path filter means the whole space, i.e. the root path. Listing grants
   // under a path requires owning that path (root → owning the whole space),
   // else space-admin. Self-service paths (no admin/owner needed): listing your
-  // OWN grants (powers `me access mine`) or those of an agent you own — both
-  // pin the principal filter to you, so neither can reveal anyone else's grants.
+  // own grants (powers `me access mine`), or those of an agent you own — both
+  // keep the principal filter pinned to you (self) or your owned agent, so they
+  // can't reveal another principal's grants.
   const under =
     params.treePath !== undefined && params.treePath !== null
       ? inputTreePath(ctx, params.treePath)
