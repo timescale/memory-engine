@@ -19,10 +19,9 @@
     },
     "server": {
       "type": "string",
-      "title": "Server URL",
-      "description": "Memory Engine server URL",
-      "default": "https://api.memory.build",
-      "required": true
+      "title": "Server URL (optional)",
+      "description": "Optional. Leave blank to use your `me login` server — the plugin falls back to your CLI config, same as the api key and space. Set it to pin a specific server, e.g. for unattended or project-scope installs (e.g. https://api.memory.build).",
+      "required": false
     },
     "space": {
       "type": "string",
