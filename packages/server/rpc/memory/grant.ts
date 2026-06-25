@@ -86,16 +86,22 @@ async function grantList(
   const ctx = context as SpaceRpcContext;
   // No path filter means the whole space, i.e. the root path. Listing grants
   // under a path requires owning that path (root → owning the whole space),
-  // else space-admin. Listing your OWN agent's grants is always self-service.
+  // else space-admin. Self-service paths (no admin/owner needed): listing your
+  // OWN grants (powers `me access mine`) or those of an agent you own — both
+  // pin the principal filter to you, so neither can reveal anyone else's grants.
   const under =
     params.treePath !== undefined && params.treePath !== null
       ? inputTreePath(ctx, params.treePath)
       : ROOT_PATH;
+  const ownSelf =
+    params.principalId !== undefined &&
+    params.principalId !== null &&
+    params.principalId === ctx.principalId;
   const ownAgent =
     params.principalId !== undefined &&
     params.principalId !== null &&
     (await callerOwnsAgent(ctx, params.principalId));
-  if (!ownAgent && !ownsTreePath(ctx, under)) {
+  if (!ownSelf && !ownAgent && !ownsTreePath(ctx, under)) {
     requireSpaceAdmin(ctx);
   }
   const grants = await ctx.core.listTreeAccessGrants(

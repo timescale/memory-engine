@@ -8,6 +8,7 @@
  * - me access grant <principal> <path> <r|w|o>: grant or update access
  * - me access rm-grant <principal> <path>:      remove a grant
  * - me access list [principal] [--path <p>]:     list grants (optionally scoped)
+ * - me access mine:                              list your own grants (any member)
  *
  * <principal> is a UUID, or a name (user = email, agent/group = display name).
  */
@@ -21,6 +22,7 @@ import { resolveCredentials } from "../credentials.ts";
 import { getOutputFormat, output, table } from "../output.ts";
 import {
   buildMemoryClient,
+  buildUserClient,
   handleError,
   requireAuth,
   requireSpace,
@@ -167,6 +169,43 @@ function createAccessListCommand(): Command {
     });
 }
 
+function createAccessMineCommand(): Command {
+  return new Command("mine")
+    .description("list your own access grants (in the active space)")
+    .action(async (_opts, cmd) => {
+      const globalOpts = cmd.optsWithGlobals();
+      const creds = resolveCredentials(globalOpts.server);
+      const fmt = getOutputFormat(globalOpts);
+      requireAuth(creds, fmt);
+      requireSpace(creds, fmt);
+
+      const user = buildUserClient(creds);
+      const memory = buildMemoryClient(creds);
+      try {
+        const me = await user.whoami();
+        const { grants } = await memory.grant.list({
+          principalId: me.id,
+          treePath: null,
+        });
+        output({ grants }, fmt, () => {
+          if (grants.length === 0) {
+            console.log("  You hold no grants in this space.");
+            return;
+          }
+          table(
+            ["tree_path", "access"],
+            grants.map((g) => [
+              g.treePath === "" ? "(root)" : g.treePath,
+              accessLevelName(g.access),
+            ]),
+          );
+        });
+      } catch (error) {
+        handleError(error, fmt, { sessionServer: creds.server });
+      }
+    });
+}
+
 export function createAccessCommand(): Command {
   const access = new Command("access").description(
     "manage tree-access grants in the active space",
@@ -174,5 +213,6 @@ export function createAccessCommand(): Command {
   access.addCommand(createAccessGrantCommand());
   access.addCommand(createAccessRmGrantCommand());
   access.addCommand(createAccessListCommand());
+  access.addCommand(createAccessMineCommand());
   return access;
 }

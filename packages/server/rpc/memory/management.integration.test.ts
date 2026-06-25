@@ -450,6 +450,72 @@ test("group.listForMember: own memberships are self-service, others need admin",
   );
 });
 
+test("grant.list: own grants are self-service, others/whole-space need admin", async () => {
+  // a plain member: not a space admin, holds only a single read grant, owns no
+  // tree path (treeAccess intentionally empty so ownsTreePath is false)
+  const member = await makeUser();
+  await call("principal.add", { principalId: member });
+  await call("grant.set", { principalId: member, treePath: "docs", access: 1 });
+  const as = {
+    principalId: member,
+    treeAccess: [] as TreeAccess,
+    admin: false,
+  };
+
+  // the member can list their OWN grants (powers `me access mine`)
+  const mine = await call<{
+    grants: { principalId: string; treePath: string }[];
+  }>("grant.list", { principalId: member }, as);
+  // every row is the caller's own, and the docs grant is present
+  expect(mine.grants.length).toBeGreaterThan(0);
+  expect(mine.grants.every((g) => g.principalId === member)).toBe(true);
+  expect(mine.grants.some((g) => g.treePath === "/docs")).toBe(true);
+
+  // but not someone else's grants, nor the whole space (no principal filter)
+  const other = await makeUser();
+  await expectAppError(
+    call("grant.list", { principalId: other }, as),
+    "FORBIDDEN",
+  );
+  await expectAppError(call("grant.list", {}, as), "FORBIDDEN");
+});
+
+test("grant.list: an agent's owner can list its grants", async () => {
+  // a member who owns an agent that holds a grant; the member is not an admin
+  // and owns no tree path of their own
+  const member = await makeUser();
+  const agentId = await makeAgent(member);
+  await call("principal.add", { principalId: agentId });
+  await call("grant.set", {
+    principalId: agentId,
+    treePath: "docs",
+    access: 1,
+  });
+  const as = {
+    principalId: member,
+    treeAccess: [] as TreeAccess,
+    admin: false,
+  };
+
+  const res = await call<{ grants: { principalId: string }[] }>(
+    "grant.list",
+    { principalId: agentId },
+    as,
+  );
+  expect(res.grants.some((g) => g.principalId === agentId)).toBe(true);
+
+  // a stranger who doesn't own the agent cannot
+  const stranger = await makeUser();
+  await expectAppError(
+    call(
+      "grant.list",
+      { principalId: agentId },
+      { principalId: stranger, treeAccess: [] as TreeAccess, admin: false },
+    ),
+    "FORBIDDEN",
+  );
+});
+
 test("group member management allows a group admin (not a space admin)", async () => {
   // owner creates a group and makes `lead` an admin of it
   const { id: groupId } = await call<{ id: string }>("group.create", {
