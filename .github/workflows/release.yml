@@ -32,7 +32,7 @@ jobs:
         run: ./bun run lint
 
       - name: Test (unit)
-        run: find packages -name '*.test.ts' ! -name '*.integration.test.ts' -print0 | xargs -0 ./bun test
+        run: ./bun run test:unit
 
       - name: Build @memory.build/protocol
         run: ./bun run --filter '@memory.build/protocol' build
