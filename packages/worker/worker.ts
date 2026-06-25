@@ -1,5 +1,6 @@
+import { reportError } from "@memory.build/database/telemetry";
 import { RateLimitError } from "@memory.build/embedding";
-import { info, reportError, warning } from "@pydantic/logfire-node";
+import { info, warning } from "@pydantic/logfire-node";
 import type { Sql } from "postgres";
 import { processBatch, pruneQueue } from "./process";
 import type { WorkerConfig, WorkerStats } from "./types";

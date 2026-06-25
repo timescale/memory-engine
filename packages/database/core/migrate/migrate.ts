@@ -1,4 +1,4 @@
-import { info, reportError, span } from "@pydantic/logfire-node";
+import { info, span } from "@pydantic/logfire-node";
 import { semver } from "bun";
 import type { Sql as SQL } from "postgres";
 import {
@@ -15,6 +15,7 @@ import {
   runSchemaMigrations,
   template,
 } from "../../migrate/kit";
+import { reportError } from "../../telemetry";
 import { CORE_SCHEMA_VERSION } from "../version";
 import idempotent000 from "./idempotent/000_update.sql" with { type: "text" };
 import idempotent001 from "./idempotent/001_principal_space.sql" with {

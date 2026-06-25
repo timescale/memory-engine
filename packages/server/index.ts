@@ -4,7 +4,9 @@
 // then install the process-level signal/error handlers that index.ts owns (and
 // startServer deliberately does not). The actual bootstrap lives in start.ts so
 // it can be driven in-process by tests.
-import { configure, info, reportError } from "@pydantic/logfire-node";
+
+import { reportError } from "@memory.build/database/telemetry";
+import { configure, info } from "@pydantic/logfire-node";
 import { SERVER_VERSION } from "../../version";
 import { startServer } from "./start";
 
@@ -46,7 +48,17 @@ configure({
 // Boot the full stack. All env parsing / pools / migrate / worker / Bun.serve
 // happen inside startServer(); see start.ts for the documented environment
 // variables.
-const srv = await startServer();
+//
+// Catch boot failures so the cause is reported (reportError → stderr + logfire;
+// see ./telemetry) and we exit cleanly, rather than surfacing as a bare
+// top-level rejection with no diagnosable cause.
+let srv: Awaited<ReturnType<typeof startServer>>;
+try {
+  srv = await startServer();
+} catch (error) {
+  reportError("Server failed to start", error as Error);
+  process.exit(1);
+}
 
 // =============================================================================
 // Graceful Shutdown

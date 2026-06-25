@@ -3,8 +3,9 @@ import {
   provisionSpace,
   SHARE_NAMESPACE,
 } from "@memory.build/database";
+import { reportError } from "@memory.build/database/telemetry";
 import * as engineCore from "@memory.build/engine/core";
-import { info, reportError } from "@pydantic/logfire-node";
+import { info } from "@pydantic/logfire-node";
 import type { Sql } from "postgres";
 
 /**
