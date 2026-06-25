@@ -275,16 +275,21 @@ better-auth owns the `auth.users` + `accounts` rows (written on social login). T
   `session.user.emailVerified`) → the user RPC context → `ensureUserProvisioned`,
   which only redeems when it's true.
 
-**Why not better-auth's global `requireEmailVerification`?** We deliberately leave
-it off and gate the one email-sensitive operation (invitation redemption) per-op
-instead. Two reasons: (1) we enable only GitHub/Google social login — no
-email/password — and both providers release the email only after they've verified
-it, so an unverified address barely arises; (2) the global flag would block
-*sign-in* itself, hurting the common case to defend an edge the per-op gate
-already covers. The per-op gate is the tighter control (it governs what an
-identity may *do*, not whether it may authenticate). If we ever add
-email/password or an unverified-by-default provider, revisit enabling the flag as
-defense-in-depth.
+**Why not better-auth's `requireEmailVerification`?** It would be a no-op for us.
+It is **not** a global flag — in better-auth 1.6.20 it's
+`emailAndPassword.requireEmailVerification`, enforced only in the email/password
+sign-in route (`dist/api/routes/sign-in.mjs`). The social OAuth callback never
+consults it; that path simply persists the provider's verified-email claim into
+`users.email_verified` (`dist/oauth2/link-account.mjs`). We run **social-only**
+(GitHub/Google) with no `emailAndPassword` config, so there is no surface for the
+flag — and adding one would mean opting into a password sign-in flow we
+deliberately don't offer, only to set a sub-flag that still wouldn't gate a social
+login. (It also wouldn't future-proof against a "laxer provider": that path is
+social, which the flag doesn't touch.) The verification we actually rely on is
+that provider claim plus the **per-op invitation-redemption gate** — the one place
+authorization is email-keyed — which is the tighter control regardless: it governs
+what an identity may *do*, not whether it may authenticate. If we ever add an
+email/password flow, enabling the flag on *that* route is the right move.
 
 ## Cleanup
 
