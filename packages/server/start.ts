@@ -14,6 +14,7 @@ import {
   migrateSpace,
   slugToSchema as spaceSlugToSchema,
 } from "@memory.build/database";
+import { reportError } from "@memory.build/database/telemetry";
 import type { EmbeddingConfig } from "@memory.build/embedding";
 import { type CoreStore, coreStore } from "@memory.build/engine/core";
 import {
@@ -21,7 +22,7 @@ import {
   WorkerPool,
   type WorkerTimeouts,
 } from "@memory.build/worker";
-import { info, reportError, span } from "@pydantic/logfire-node";
+import { info, span } from "@pydantic/logfire-node";
 import postgres, { type Sql } from "postgres";
 import { MIN_CLIENT_VERSION, SERVER_VERSION } from "../../version";
 import { createBetterAuth } from "./auth/betterauth";

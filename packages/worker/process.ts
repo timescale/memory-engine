@@ -1,9 +1,10 @@
+import { reportError } from "@memory.build/database/telemetry";
 import {
   type EmbedResult,
   generateEmbeddings,
   RateLimitError,
 } from "@memory.build/embedding";
-import { info, reportError, span, warning } from "@pydantic/logfire-node";
+import { info, span, warning } from "@pydantic/logfire-node";
 import type { Sql } from "postgres";
 import {
   DEFAULT_WORKER_TIMEOUTS,

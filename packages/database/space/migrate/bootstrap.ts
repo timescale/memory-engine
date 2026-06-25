@@ -1,4 +1,4 @@
-import { info, reportError, span } from "@pydantic/logfire-node";
+import { info, span } from "@pydantic/logfire-node";
 import type { Sql as SQL } from "postgres";
 import {
   acquireAdvisoryLock,
@@ -8,6 +8,7 @@ import {
   ensureRequiredExtensions,
   REQUIRED_EXTENSIONS,
 } from "../../migrate/kit";
+import { reportError } from "../../telemetry";
 
 /**
  * Prepare a physical database to host space schemas.
