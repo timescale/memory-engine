@@ -1,7 +1,11 @@
 import type { EmbeddingConfig } from "@memory.build/embedding";
 import type { CoreStore } from "@memory.build/engine/core";
 import type { Sql } from "postgres";
-import type { Auth, VerifyOAuthAccessToken } from "./auth/betterauth";
+import type {
+  Auth,
+  GetUserEmailVerified,
+  VerifyOAuthAccessToken,
+} from "./auth/betterauth";
 
 /**
  * Server-wide context containing database connections.
@@ -21,6 +25,11 @@ export interface ServerContext {
    * hashed lookup → { userId, email, name, scopes } | null.
    */
   verifyOAuthToken: VerifyOAuthAccessToken;
+  /**
+   * Current `email_verified` for a user id. The api-key (PAT) path uses it to
+   * report an honest `emailVerified` (the cookie/OAuth paths get it inline).
+   */
+  getUserEmailVerified: GetUserEmailVerified;
   /** Core control-plane store (core schema): spaces/principals/grants/api-keys */
   core: CoreStore;
   /** The auth schema name */

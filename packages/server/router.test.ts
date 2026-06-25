@@ -13,6 +13,7 @@ function createMockContext(): ServerContext {
     db: {} as Sql,
     betterAuth: {} as unknown as Auth,
     verifyOAuthToken: async () => null,
+    getUserEmailVerified: async () => false,
     core: {} as unknown as CoreStore,
     authSchema: "auth",
     coreSchema: "core",

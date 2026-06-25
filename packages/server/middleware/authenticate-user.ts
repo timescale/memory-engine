@@ -9,7 +9,11 @@
  */
 import { type CoreStore, parseApiKey } from "@memory.build/engine/core";
 import { debug, span } from "@pydantic/logfire-node";
-import type { Auth, VerifyOAuthAccessToken } from "../auth/betterauth";
+import type {
+  Auth,
+  GetUserEmailVerified,
+  VerifyOAuthAccessToken,
+} from "../auth/betterauth";
 import { forbidden, unauthorized } from "../util/response";
 import { extractBearerToken, passesCsrfCheck } from "./authenticate";
 
@@ -43,6 +47,7 @@ export async function authenticateUser(
   request: Request,
   betterAuth: Auth,
   verifyOAuthToken: VerifyOAuthAccessToken,
+  getUserEmailVerified: GetUserEmailVerified,
   core: CoreStore,
   allowedOrigins: string[],
 ): Promise<UserAuthResult> {
@@ -88,10 +93,11 @@ export async function authenticateUser(
               // lives on auth.users (not fetched on the key path).
               email: principal.name,
               name: principal.name,
-              // We don't carry the verified flag on the key path → the
-              // email-keyed redemption step is skipped for PAT calls (it runs on
-              // the user's interactive logins instead).
-              emailVerified: false,
+              // Carry the real verified flag (the same fact a session reports),
+              // so a PAT behaves like any other credential — including the
+              // email-keyed redemption step. A PAT's only carve-out is that it
+              // can't mint/revoke keys (enforced at the handler layer).
+              emailVerified: await getUserEmailVerified(principal.id),
               viaApiKey: true,
             },
           };

@@ -37,6 +37,7 @@ function createMockContext(overrides?: Partial<ServerContext>): ServerContext {
     db: {} as Sql,
     betterAuth: createMockBetterAuth(),
     verifyOAuthToken: async () => null,
+    getUserEmailVerified: async () => false,
     core: {} as unknown as CoreStore,
     authSchema: "auth",
     coreSchema: "core",

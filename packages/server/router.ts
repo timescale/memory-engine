@@ -115,6 +115,7 @@ export function createRouter(ctx: ServerContext): Router {
     db,
     betterAuth,
     verifyOAuthToken,
+    getUserEmailVerified,
     core,
     coreSchema,
     embeddingConfig,
@@ -177,6 +178,7 @@ export function createRouter(ctx: ServerContext): Router {
       request,
       betterAuth,
       verifyOAuthToken,
+      getUserEmailVerified,
       core,
       webAllowedOrigins,
     );

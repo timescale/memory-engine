@@ -322,7 +322,22 @@ export function createBetterAuth(opts: BetterAuthOptions) {
     };
   }
 
-  return { auth, pool, verifyOAuthAccessToken };
+  /**
+   * Current email-verified flag for a user id — the same fact the cookie/OAuth
+   * paths carry (`users.email_verified`). The api-key (PAT) path resolves a
+   * principal but doesn't otherwise touch the auth schema, so it uses this to
+   * report an honest `emailVerified` rather than a sentinel. Defaults to false
+   * for a missing user (fail-closed for the email-keyed redemption gate).
+   */
+  async function getUserEmailVerified(userId: string): Promise<boolean> {
+    const { rows } = await pool.query(
+      `select email_verified from users where id = $1 limit 1`,
+      [userId],
+    );
+    return Boolean(rows[0]?.email_verified);
+  }
+
+  return { auth, pool, verifyOAuthAccessToken, getUserEmailVerified };
 }
 
 /** The better-auth instance type (inferred from our concrete config). */
@@ -332,3 +347,8 @@ export type Auth = ReturnType<typeof createBetterAuth>["auth"];
 export type VerifyOAuthAccessToken = ReturnType<
   typeof createBetterAuth
 >["verifyOAuthAccessToken"];
+
+/** Current `email_verified` for a user id (from createBetterAuth). */
+export type GetUserEmailVerified = ReturnType<
+  typeof createBetterAuth
+>["getUserEmailVerified"];

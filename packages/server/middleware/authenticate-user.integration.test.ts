@@ -52,6 +52,7 @@ function auth(token: string | undefined) {
     request,
     betterAuth.auth,
     betterAuth.verifyOAuthAccessToken,
+    betterAuth.getUserEmailVerified,
     core,
     ALLOWED,
   );
@@ -117,15 +118,30 @@ test("OAuth access token authenticates as the user (not viaApiKey)", async () =>
   }
 });
 
-test("the user's own api key (PAT) authenticates as the user (viaApiKey)", async () => {
-  const userId = await seedUser();
+test("the user's own api key (PAT) authenticates as the user (viaApiKey), carrying the real emailVerified", async () => {
+  const userId = await seedUser(); // seedUserSpace sets email_verified = true
   const key = await core.createApiKey(userId, "pat");
   const result = await auth(engineCore.formatApiKey(key.lookupId, key.secret));
   expect(result.ok).toBe(true);
   if (result.ok) {
     expect(result.context.userId).toBe(userId);
     expect(result.context.viaApiKey).toBe(true);
+    // Not a sentinel: the PAT path reads the real users.email_verified, so a
+    // PAT behaves like a session (incl. the email-keyed redemption step).
+    expect(result.context.emailVerified).toBe(true);
   }
+});
+
+test("a PAT for an unverified user reports emailVerified=false (read from the DB, not faked)", async () => {
+  const userId = await seedUser();
+  await sql.unsafe(
+    `update ${authSchema}.users set email_verified = false where id = $1`,
+    [userId],
+  );
+  const key = await core.createApiKey(userId, "pat");
+  const result = await auth(engineCore.formatApiKey(key.lookupId, key.secret));
+  expect(result.ok).toBe(true);
+  if (result.ok) expect(result.context.emailVerified).toBe(false);
 });
 
 test("an agent api key is forbidden on the user RPC (403)", async () => {
