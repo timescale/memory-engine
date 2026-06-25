@@ -132,10 +132,19 @@ export interface BearerSource {
 }
 
 /**
- * Bearer source for the user endpoint (/api/v1/user/rpc) — session/OAuth only,
- * never an api key (agents can't manage agents).
+ * Bearer source for the user endpoint (/api/v1/user/rpc). Both endpoints accept
+ * either bearer: a static api key (a user PAT here, or an agent key on the
+ * memory endpoint) is returned as-is and never refreshed; otherwise the human
+ * OAuth access token with refresh. (The server still rejects an *agent* key on
+ * the user RPC — agents can't manage agents — but the CLI sends what it has.)
  */
-export function userBearer(server: string): BearerSource {
+export function userBearer(server: string, apiKey?: string): BearerSource {
+  if (apiKey) {
+    return {
+      getToken: async () => apiKey,
+      onUnauthorized: async () => undefined,
+    };
+  }
   return {
     getToken: () => getAccessToken(server),
     onUnauthorized: () => refreshAccessToken(server),
@@ -143,16 +152,10 @@ export function userBearer(server: string): BearerSource {
 }
 
 /**
- * Bearer source for the memory endpoint (/api/v1/memory/rpc), which accepts
- * either bearer. An agent api key (when present) is static — returned as-is and
- * never refreshed; otherwise the human OAuth access token with refresh.
+ * Bearer source for the memory endpoint (/api/v1/memory/rpc) — identical policy
+ * to {@link userBearer}: a static api key (when present) else the refreshed
+ * human OAuth token.
  */
 export function memoryBearer(server: string, apiKey?: string): BearerSource {
-  if (apiKey) {
-    return {
-      getToken: async () => apiKey,
-      onUnauthorized: async () => undefined,
-    };
-  }
-  return userBearer(server);
+  return userBearer(server, apiKey);
 }

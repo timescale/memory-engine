@@ -4,7 +4,7 @@
 import { Command } from "commander";
 import { resolveCredentials } from "../credentials.ts";
 import { getOutputFormat, output } from "../output.ts";
-import { buildUserClient, handleError, requireSession } from "../util.ts";
+import { buildUserClient, handleError, requireAuth } from "../util.ts";
 
 export function createWhoamiCommand(): Command {
   return new Command("whoami")
@@ -13,7 +13,7 @@ export function createWhoamiCommand(): Command {
       const globalOpts = cmd.optsWithGlobals();
       const creds = resolveCredentials(globalOpts.server);
       const fmt = getOutputFormat(globalOpts);
-      requireSession(creds, fmt);
+      requireAuth(creds, fmt);
 
       const user = buildUserClient(creds);
 

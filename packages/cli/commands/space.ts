@@ -37,7 +37,7 @@ import {
   buildMemoryClient,
   buildUserClient,
   handleError,
-  requireSession,
+  requireAuth,
   requireSpace,
 } from "../util.ts";
 
@@ -113,7 +113,7 @@ function createSpaceListCommand(): Command {
       const globalOpts = cmd.optsWithGlobals();
       const creds = resolveCredentials(globalOpts.server);
       const fmt = getOutputFormat(globalOpts);
-      requireSession(creds, fmt);
+      requireAuth(creds, fmt);
 
       const user = buildUserClient(creds);
 
@@ -157,7 +157,7 @@ function createSpaceUseCommand(): Command {
       const globalOpts = cmd.optsWithGlobals();
       const creds = resolveCredentials(globalOpts.server);
       const fmt = getOutputFormat(globalOpts);
-      requireSession(creds, fmt);
+      requireAuth(creds, fmt);
 
       const user = buildUserClient(creds);
 
@@ -182,7 +182,7 @@ function createSpaceCreateCommand(): Command {
       const globalOpts = cmd.optsWithGlobals();
       const creds = resolveCredentials(globalOpts.server);
       const fmt = getOutputFormat(globalOpts);
-      requireSession(creds, fmt);
+      requireAuth(creds, fmt);
 
       const user = buildUserClient(creds);
 
@@ -209,7 +209,7 @@ function createSpaceRenameCommand(): Command {
       const globalOpts = cmd.optsWithGlobals();
       const creds = resolveCredentials(globalOpts.server);
       const fmt = getOutputFormat(globalOpts);
-      requireSession(creds, fmt);
+      requireAuth(creds, fmt);
 
       const user = buildUserClient(creds);
 
@@ -242,7 +242,7 @@ function createSpaceDeleteCommand(): Command {
       const globalOpts = cmd.optsWithGlobals();
       const creds = resolveCredentials(globalOpts.server);
       const fmt = getOutputFormat(globalOpts);
-      requireSession(creds, fmt);
+      requireAuth(creds, fmt);
 
       const user = buildUserClient(creds);
 
@@ -317,7 +317,7 @@ function createSpaceInviteListCommand(): Command {
       const globalOpts = cmd.optsWithGlobals();
       const creds = resolveCredentials(globalOpts.server);
       const fmt = getOutputFormat(globalOpts);
-      requireSession(creds, fmt);
+      requireAuth(creds, fmt);
       requireSpace(creds, fmt);
 
       const memory = buildMemoryClient(creds);
@@ -353,7 +353,7 @@ function createSpaceInviteRevokeCommand(): Command {
       const globalOpts = cmd.optsWithGlobals();
       const creds = resolveCredentials(globalOpts.server);
       const fmt = getOutputFormat(globalOpts);
-      requireSession(creds, fmt);
+      requireAuth(creds, fmt);
       requireSpace(creds, fmt);
 
       const memory = buildMemoryClient(creds);
@@ -386,7 +386,7 @@ function createSpaceInviteCommand(): Command {
       const globalOpts = cmd.optsWithGlobals();
       const creds = resolveCredentials(globalOpts.server);
       const fmt = getOutputFormat(globalOpts);
-      requireSession(creds, fmt);
+      requireAuth(creds, fmt);
       requireSpace(creds, fmt);
 
       if (!email) {

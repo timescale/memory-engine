@@ -27,7 +27,7 @@ import {
   buildMemoryClient,
   handleError,
   isAppErrorCode,
-  requireMemoryAuth,
+  requireAuth,
   requireSpace,
   shellTildeExpansionHint,
 } from "../util.ts";
@@ -176,7 +176,7 @@ function createMemoryCreateCommand(): Command {
       const globalOpts = cmd.optsWithGlobals();
       const creds = resolveCredentials(globalOpts.server);
       const fmt = getOutputFormat(globalOpts);
-      requireMemoryAuth(creds, fmt);
+      requireAuth(creds, fmt);
       requireSpace(creds, fmt);
 
       // Resolve content: positional > --content flag > stdin
@@ -262,7 +262,7 @@ function createMemoryGetCommand(): Command {
       const globalOpts = cmd.optsWithGlobals();
       const creds = resolveCredentials(globalOpts.server);
       const fmt = getOutputFormat(globalOpts);
-      requireMemoryAuth(creds, fmt);
+      requireAuth(creds, fmt);
       requireSpace(creds, fmt);
 
       const client = buildMemoryClient(creds);
@@ -341,7 +341,7 @@ function createMemorySearchCommand(): Command {
       const globalOpts = cmd.optsWithGlobals();
       const creds = resolveCredentials(globalOpts.server);
       const fmt = getOutputFormat(globalOpts);
-      requireMemoryAuth(creds, fmt);
+      requireAuth(creds, fmt);
       requireSpace(creds, fmt);
 
       // Resolve search text. A positional query runs hybrid search
@@ -489,7 +489,7 @@ function createMemoryUpdateCommand(): Command {
       const globalOpts = cmd.optsWithGlobals();
       const creds = resolveCredentials(globalOpts.server);
       const fmt = getOutputFormat(globalOpts);
-      requireMemoryAuth(creds, fmt);
+      requireAuth(creds, fmt);
       requireSpace(creds, fmt);
 
       // Resolve content
@@ -558,7 +558,7 @@ function createMemoryDeleteCommand(): Command {
       const globalOpts = cmd.optsWithGlobals();
       const creds = resolveCredentials(globalOpts.server);
       const fmt = getOutputFormat(globalOpts);
-      requireMemoryAuth(creds, fmt);
+      requireAuth(creds, fmt);
       requireSpace(creds, fmt);
 
       const client = buildMemoryClient(creds);
@@ -611,7 +611,7 @@ function createMemoryDeltreeCommand(): Command {
       const globalOpts = cmd.optsWithGlobals();
       const creds = resolveCredentials(globalOpts.server);
       const fmt = getOutputFormat(globalOpts);
-      requireMemoryAuth(creds, fmt);
+      requireAuth(creds, fmt);
       requireSpace(creds, fmt);
 
       const client = buildMemoryClient(creds);
@@ -670,7 +670,7 @@ function createMemoryEditCommand(): Command {
       const globalOpts = cmd.optsWithGlobals();
       const creds = resolveCredentials(globalOpts.server);
       const fmt = getOutputFormat(globalOpts);
-      requireMemoryAuth(creds, fmt);
+      requireAuth(creds, fmt);
       requireSpace(creds, fmt);
 
       const client = buildMemoryClient(creds);
@@ -695,7 +695,7 @@ function createMemoryCountCommand(): Command {
       const globalOpts = cmd.optsWithGlobals();
       const creds = resolveCredentials(globalOpts.server);
       const fmt = getOutputFormat(globalOpts);
-      requireMemoryAuth(creds, fmt);
+      requireAuth(creds, fmt);
       requireSpace(creds, fmt);
 
       const client = buildMemoryClient(creds);
@@ -726,7 +726,7 @@ function createMemoryTreeCommand(): Command {
       const globalOpts = cmd.optsWithGlobals();
       const creds = resolveCredentials(globalOpts.server);
       const fmt = getOutputFormat(globalOpts);
-      requireMemoryAuth(creds, fmt);
+      requireAuth(creds, fmt);
       requireSpace(creds, fmt);
 
       const client = buildMemoryClient(creds);
@@ -765,7 +765,7 @@ function createMemoryMoveCommand(): Command {
       const globalOpts = cmd.optsWithGlobals();
       const creds = resolveCredentials(globalOpts.server);
       const fmt = getOutputFormat(globalOpts);
-      requireMemoryAuth(creds, fmt);
+      requireAuth(creds, fmt);
       requireSpace(creds, fmt);
 
       const client = buildMemoryClient(creds);
@@ -839,7 +839,7 @@ function createMemoryCopyCommand(): Command {
       const globalOpts = cmd.optsWithGlobals();
       const creds = resolveCredentials(globalOpts.server);
       const fmt = getOutputFormat(globalOpts);
-      requireMemoryAuth(creds, fmt);
+      requireAuth(creds, fmt);
       requireSpace(creds, fmt);
 
       const client = buildMemoryClient(creds);
@@ -939,7 +939,7 @@ function createMemoryExportCommand(): Command {
       const globalOpts = cmd.optsWithGlobals();
       const creds = resolveCredentials(globalOpts.server);
       const fmt = getOutputFormat(globalOpts);
-      requireMemoryAuth(creds, fmt);
+      requireAuth(creds, fmt);
       requireSpace(creds, fmt);
 
       const format = opts.format as "json" | "yaml" | "md";

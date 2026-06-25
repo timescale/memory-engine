@@ -22,7 +22,7 @@ import { getOutputFormat, output, table } from "../output.ts";
 import {
   buildMemoryClient,
   handleError,
-  requireSession,
+  requireAuth,
   requireSpace,
   resolveSpacePrincipalId,
 } from "../util.ts";
@@ -41,7 +41,7 @@ function createAccessGrantCommand(): Command {
         const globalOpts = cmd.optsWithGlobals();
         const creds = resolveCredentials(globalOpts.server);
         const fmt = getOutputFormat(globalOpts);
-        requireSession(creds, fmt);
+        requireAuth(creds, fmt);
         requireSpace(creds, fmt);
 
         const access = parseAccessLevel(level);
@@ -89,7 +89,7 @@ function createAccessRmGrantCommand(): Command {
       const globalOpts = cmd.optsWithGlobals();
       const creds = resolveCredentials(globalOpts.server);
       const fmt = getOutputFormat(globalOpts);
-      requireSession(creds, fmt);
+      requireAuth(creds, fmt);
       requireSpace(creds, fmt);
 
       const memory = buildMemoryClient(creds);
@@ -126,7 +126,7 @@ function createAccessListCommand(): Command {
       const globalOpts = cmd.optsWithGlobals();
       const creds = resolveCredentials(globalOpts.server);
       const fmt = getOutputFormat(globalOpts);
-      requireSession(creds, fmt);
+      requireAuth(creds, fmt);
       requireSpace(creds, fmt);
 
       const memory = buildMemoryClient(creds);

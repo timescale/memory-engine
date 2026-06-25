@@ -30,7 +30,7 @@ import {
   buildMemoryClient,
   buildUserClient,
   handleError,
-  requireSession,
+  requireAuth,
   requireSpace,
   resolveSpacePrincipalId,
 } from "../util.ts";
@@ -71,7 +71,7 @@ function createGroupListCommand(): Command {
       const globalOpts = cmd.optsWithGlobals();
       const creds = resolveCredentials(globalOpts.server);
       const fmt = getOutputFormat(globalOpts);
-      requireSession(creds, fmt);
+      requireAuth(creds, fmt);
       requireSpace(creds, fmt);
 
       const memory = buildMemoryClient(creds);
@@ -101,7 +101,7 @@ function createGroupCreateCommand(): Command {
       const globalOpts = cmd.optsWithGlobals();
       const creds = resolveCredentials(globalOpts.server);
       const fmt = getOutputFormat(globalOpts);
-      requireSession(creds, fmt);
+      requireAuth(creds, fmt);
       requireSpace(creds, fmt);
 
       const memory = buildMemoryClient(creds);
@@ -125,7 +125,7 @@ function createGroupRenameCommand(): Command {
       const globalOpts = cmd.optsWithGlobals();
       const creds = resolveCredentials(globalOpts.server);
       const fmt = getOutputFormat(globalOpts);
-      requireSession(creds, fmt);
+      requireAuth(creds, fmt);
       requireSpace(creds, fmt);
 
       const memory = buildMemoryClient(creds);
@@ -150,7 +150,7 @@ function createGroupDeleteCommand(): Command {
       const globalOpts = cmd.optsWithGlobals();
       const creds = resolveCredentials(globalOpts.server);
       const fmt = getOutputFormat(globalOpts);
-      requireSession(creds, fmt);
+      requireAuth(creds, fmt);
       requireSpace(creds, fmt);
 
       const memory = buildMemoryClient(creds);
@@ -177,7 +177,7 @@ function createGroupAddCommand(): Command {
       const globalOpts = cmd.optsWithGlobals();
       const creds = resolveCredentials(globalOpts.server);
       const fmt = getOutputFormat(globalOpts);
-      requireSession(creds, fmt);
+      requireAuth(creds, fmt);
       requireSpace(creds, fmt);
 
       const memory = buildMemoryClient(creds);
@@ -210,7 +210,7 @@ function createGroupRemoveCommand(): Command {
       const globalOpts = cmd.optsWithGlobals();
       const creds = resolveCredentials(globalOpts.server);
       const fmt = getOutputFormat(globalOpts);
-      requireSession(creds, fmt);
+      requireAuth(creds, fmt);
       requireSpace(creds, fmt);
 
       const memory = buildMemoryClient(creds);
@@ -237,7 +237,7 @@ function createGroupMembersCommand(): Command {
       const globalOpts = cmd.optsWithGlobals();
       const creds = resolveCredentials(globalOpts.server);
       const fmt = getOutputFormat(globalOpts);
-      requireSession(creds, fmt);
+      requireAuth(creds, fmt);
       requireSpace(creds, fmt);
 
       const memory = buildMemoryClient(creds);
@@ -272,7 +272,7 @@ function createGroupMineCommand(): Command {
       const globalOpts = cmd.optsWithGlobals();
       const creds = resolveCredentials(globalOpts.server);
       const fmt = getOutputFormat(globalOpts);
-      requireSession(creds, fmt);
+      requireAuth(creds, fmt);
       requireSpace(creds, fmt);
 
       const user = buildUserClient(creds);

@@ -78,6 +78,21 @@ export async function listTables(sql: SQL, schema: string): Promise<string[]> {
   return rows.map((r) => r.table_name as string);
 }
 
+/** Sorted column names of one table — for schema-drift assertions. */
+export async function listColumns(
+  sql: SQL,
+  schema: string,
+  table: string,
+): Promise<string[]> {
+  const rows = await sql`
+    select column_name
+    from information_schema.columns
+    where table_schema = ${schema} and table_name = ${table}
+    order by column_name
+  `;
+  return rows.map((r) => r.column_name as string);
+}
+
 /** Distinct function names in a schema (overloads collapse to one entry). */
 export async function listFunctions(
   sql: SQL,

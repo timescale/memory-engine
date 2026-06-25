@@ -21,6 +21,7 @@ import { getOutputFormat, output, table } from "../output.ts";
 import {
   buildUserClient,
   handleError,
+  requireAuth,
   requireSession,
   resolveAgentId,
 } from "../util.ts";
@@ -104,7 +105,7 @@ function createApiKeyListCommand(): Command {
       const globalOpts = cmd.optsWithGlobals();
       const creds = resolveCredentials(globalOpts.server);
       const fmt = getOutputFormat(globalOpts);
-      requireSession(creds, fmt);
+      requireAuth(creds, fmt);
 
       const user = buildUserClient(creds);
       try {
@@ -134,7 +135,7 @@ function createApiKeyGetCommand(): Command {
       const globalOpts = cmd.optsWithGlobals();
       const creds = resolveCredentials(globalOpts.server);
       const fmt = getOutputFormat(globalOpts);
-      requireSession(creds, fmt);
+      requireAuth(creds, fmt);
 
       const user = buildUserClient(creds);
       try {
