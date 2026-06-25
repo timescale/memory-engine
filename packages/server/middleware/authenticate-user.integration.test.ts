@@ -6,7 +6,7 @@
 //   TEST_DATABASE_URL="postgresql://postgres@127.0.0.1:5432/postgres" \
 //     bun test --timeout 30000 \
 //     packages/server/middleware/authenticate-user.integration.test.ts
-import { afterAll, beforeAll, expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
 import {
   bootstrapSpaceDatabase,
@@ -169,4 +169,46 @@ test("missing credential → 401", async () => {
   const result = await auth(undefined);
   expect(result.ok).toBe(false);
   if (!result.ok) expect(result.error.status).toBe(401);
+});
+
+// The login gate: better-auth's `session.create.before` hook refuses to create a
+// session for an unverified email. Social sign-in (and the CLI's OAuth flow,
+// which rides the web session) goes through `internalAdapter.createSession`, so
+// we exercise the gate directly through it rather than mocking a whole provider.
+describe("login gate (a verified email is required to establish a session)", () => {
+  async function createSession(userId: string) {
+    const ctx = await betterAuth.auth.$context;
+    return ctx.internalAdapter.createSession(userId, false);
+  }
+
+  test("an unverified user cannot get a session (no row written)", async () => {
+    const userId = await seedUser();
+    await sql.unsafe(
+      `update ${authSchema}.users set email_verified = false where id = $1`,
+      [userId],
+    );
+    let error: unknown;
+    try {
+      await createSession(userId);
+    } catch (e) {
+      error = e;
+    }
+    expect(error).toBeDefined();
+    const [row] = await sql.unsafe(
+      `select count(*)::int as n from ${authSchema}.sessions where user_id = $1`,
+      [userId],
+    );
+    expect(row?.n).toBe(0);
+  });
+
+  test("a verified user gets a session", async () => {
+    const userId = await seedUser(); // seedUserSpace sets email_verified = true
+    const session = await createSession(userId);
+    expect(session).toBeTruthy();
+    const [row] = await sql.unsafe(
+      `select count(*)::int as n from ${authSchema}.sessions where user_id = $1`,
+      [userId],
+    );
+    expect(row?.n).toBe(1);
+  });
 });

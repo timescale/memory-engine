@@ -278,21 +278,31 @@ better-auth owns the `auth.users` + `accounts` rows (written on social login). T
   a sentinel), a **user PAT redeems exactly like a session** — a PAT's only
   carve-out is that it can't mint/revoke keys.
 
-**Why not better-auth's `requireEmailVerification`?** It would be a no-op for us.
-It is **not** a global flag — in better-auth 1.6.20 it's
-`emailAndPassword.requireEmailVerification`, enforced only in the email/password
-sign-in route (`dist/api/routes/sign-in.mjs`). The social OAuth callback never
-consults it; that path simply persists the provider's verified-email claim into
-`users.email_verified` (`dist/oauth2/link-account.mjs`). We run **social-only**
-(GitHub/Google) with no `emailAndPassword` config, so there is no surface for the
-flag — and adding one would mean opting into a password sign-in flow we
-deliberately don't offer, only to set a sub-flag that still wouldn't gate a social
-login. (It also wouldn't future-proof against a "laxer provider": that path is
-social, which the flag doesn't touch.) The verification we actually rely on is
-that provider claim plus the **per-op invitation-redemption gate** — the one place
-authorization is email-keyed — which is the tighter control regardless: it governs
-what an identity may *do*, not whether it may authenticate. If we ever add an
-email/password flow, enabling the flag on *that* route is the right move.
+**Login gate — a verified email is required to establish a session.** A
+`databaseHooks.session.create.before` hook (`betterauth.ts`) throws
+`EMAIL_NOT_VERIFIED` unless `users.email_verified` is true, so social sign-in —
+and the CLI OAuth flow, which rides the web session — cannot mint a session for
+an unverified email. The memory RPC is covered transitively (no session/token →
+no bearer), so this is the single front-door chokepoint, no per-endpoint checks.
+Agents are unaffected (they authenticate with api keys, never sessions), and
+credentials minted while verified keep working. The thrown `APIError` makes the
+social callback redirect back to the sign-in page with
+`?error=EMAIL_NOT_VERIFIED&error_description=…` (surfaced by `SignInCard`) rather
+than 500.
+
+This is the social-login equivalent of better-auth's `requireEmailVerification`,
+which we do **not** use: that flag is `emailAndPassword.requireEmailVerification`,
+enforced only in the email/password sign-in route (`dist/api/routes/sign-in.mjs`);
+the social OAuth callback never consults it (it only persists the provider's
+verified-email claim, `dist/oauth2/link-account.mjs`). We're social-only with no
+`emailAndPassword` config, so the flag has no surface — the `session.create.before`
+hook is where the equivalent lives.
+
+Defense in depth, not the only control: authorization is otherwise principal-id
+based, and the one email-keyed step (invitation redemption, above) is *also* gated
+on `emailVerified`. That second gate still earns its keep for the edge case of a
+PAT that outlives its user's verified status — the key keeps working (it doesn't
+re-cross the login gate) but won't redeem while the flag reads false.
 
 ## Cleanup
 

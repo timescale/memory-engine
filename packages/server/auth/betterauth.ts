@@ -36,6 +36,7 @@
 import { createHash } from "node:crypto";
 import { oauthProvider } from "@better-auth/oauth-provider";
 import { betterAuth } from "better-auth";
+import { APIError } from "better-auth/api";
 import { jwt } from "better-auth/plugins";
 import { Pool } from "pg";
 
@@ -113,6 +114,31 @@ export function createBetterAuth(opts: BetterAuthOptions) {
     basePath: AUTH_BASE_PATH,
     secret: opts.secret,
     trustedOrigins: opts.trustedOrigins,
+    databaseHooks: {
+      session: {
+        create: {
+          // Gate login on a provider-verified email — the single front-door
+          // chokepoint. Social sign-in creates the session here, and the CLI's
+          // OAuth flow is built on that web session, so blocking it blocks both;
+          // the memory RPC is covered transitively (no session/token → no
+          // bearer). Agents never reach this (they use api keys, not sessions),
+          // and credentials minted while verified keep working. `email_verified`
+          // is the provider's claim (GitHub/Google only release a verified
+          // email), re-read on every login. Throwing an APIError makes the
+          // social callback redirect to the error URL (see AUTH_DESIGN flows
+          // A/B) rather than 500.
+          before: async (session) => {
+            if (!(await getUserEmailVerified(session.userId))) {
+              throw new APIError("FORBIDDEN", {
+                code: "EMAIL_NOT_VERIFIED",
+                message:
+                  "Your email is not verified with your identity provider. Verify it with GitHub or Google, then sign in again.",
+              });
+            }
+          },
+        },
+      },
+    },
     socialProviders: {
       ...(opts.github
         ? {
