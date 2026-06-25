@@ -156,7 +156,7 @@ async function authenticateSpaceInner(
     return {
       ok: false,
       error: error(
-        "This API key uses the old space-scoped format (me.<slug>.<id>.<secret>) and no longer works. Recreate it with `me apikey create <agent>`, then update ME_API_KEY or your MCP/plugin config.",
+        "This API key uses the old space-scoped format (me.<slug>.<id>.<secret>) and no longer works. Recreate it with `me apikey create --agent <agent>`, then update ME_API_KEY or your MCP/plugin config.",
         401,
         "LEGACY_API_KEY",
       ),

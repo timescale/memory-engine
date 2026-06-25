@@ -660,6 +660,7 @@ describe.skipIf(
     const key = await meJson<{ id: string; key: string }>([
       "apikey",
       "create",
+      "--agent",
       agent.id,
     ]);
     expect(key.key).toMatch(/^me\./);
@@ -695,6 +696,48 @@ describe.skipIf(
     // a session gate, so the server's FORBIDDEN surfaces instead (non-zero exit).
     const denied = await me(["agent", "list"], agentEnv);
     expect(denied.code).not.toBe(0);
+  });
+
+  test("7b. personal access tokens: self-default create/list, no same-day collision", async () => {
+    // `me apikey create` with no agent mints a PAT for the caller. Two unnamed
+    // PATs minted back-to-back must NOT collide on `unique (member_id, name)` —
+    // the default name carries a random suffix. (This is the bug TNT-145 fixes.)
+    const pat1 = await meJson<{ id: string; key: string }>([
+      "apikey",
+      "create",
+    ]);
+    const pat2 = await meJson<{ id: string; key: string }>([
+      "apikey",
+      "create",
+    ]);
+    expect(pat1.key).toMatch(/^me\./);
+    expect(pat2.key).toMatch(/^me\./);
+    expect(pat2.id).not.toBe(pat1.id);
+
+    // A named PAT is now possible (the old `--self` shape couldn't take a name).
+    const named = await meJson<{ id: string }>([
+      "apikey",
+      "create",
+      `pat-${rand()}`,
+    ]);
+
+    // `me apikey list` (no --agent) lists the caller's OWN keys — all three.
+    const { apiKeys } = await meJson<{ apiKeys: { id: string }[] }>([
+      "apikey",
+      "list",
+    ]);
+    const ids = new Set(apiKeys.map((k) => k.id));
+    expect(ids.has(pat1.id)).toBe(true);
+    expect(ids.has(pat2.id)).toBe(true);
+    expect(ids.has(named.id)).toBe(true);
+
+    // The PAT authenticates as the user themselves (kind "u"), no session.
+    const patEnv = { ME_API_KEY: pat1.key, ME_SESSION_TOKEN: "" };
+    const who = await meJson<{ identity: { kind: string } }>(
+      ["whoami"],
+      patEnv,
+    );
+    expect(who.identity.kind).toBe("u");
   });
 
   test("8. `me claude import` backfills work that predates the hook", async () => {

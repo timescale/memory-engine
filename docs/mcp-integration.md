@@ -20,7 +20,7 @@ Each `me mcp` instance is locked to a single **space**, carried as the `X-Me-Spa
 
 ### Prerequisites
 
-Log in with `me login` and select a space — `me whoami` shows your active space and identity. That session is enough to run the MCP server locally. For an unattended or dedicated-agent install, mint an API key with `me apikey create <agent>` and pass it with `--api-key`.
+Log in with `me login` and select a space — `me whoami` shows your active space and identity. That session is enough to run the MCP server locally. For an unattended or dedicated-agent install, mint an API key — `me apikey create` for a personal access token (acts as you) or `me apikey create --agent <agent>` for a dedicated agent — and pass it with `--api-key`.
 
 The server defaults to `https://api.memory.build`. Pass `--server <url>` only if you're running a self-hosted server.
 

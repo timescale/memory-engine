@@ -733,7 +733,7 @@ async function phase4_rbac(): Promise<void> {
     const { json } = await runJson<{
       apiKey: { id: string; name: string };
       rawKey: string;
-    }>(["apikey", "create", "itest_user2", "itest-key"]);
+    }>(["apikey", "create", "--agent", "itest_user2", "itest-key"]);
     expect(typeof json.apiKey?.id === "string", "apikey.id");
     expect(typeof json.rawKey === "string", "rawKey");
     apiKeyId = json.apiKey.id;
@@ -743,6 +743,7 @@ async function phase4_rbac(): Promise<void> {
     const { json } = await runJson<{ apiKeys: { id: string }[] }>([
       "apikey",
       "list",
+      "--agent",
       "itest_user2",
     ]);
     if (apiKeyId) {
