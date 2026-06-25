@@ -37,7 +37,7 @@ me apikey create [name] [--agent <agent>] [--expires <timestamp>]
 | `--agent <agent>` | Mint a key for one of your agents (id or name) instead of yourself. |
 | `--expires <timestamp>` | Expiration timestamp (ISO 8601). |
 
-Names are unique per principal, so you can't mint two keys with the same name for the same target. The auto-generated default carries a random suffix, so repeated `me apikey create` calls never collide.
+Names are unique per principal, so you can't mint two keys with the same name for the same target. The auto-generated default carries a random suffix, making repeated `me apikey create` calls extremely unlikely to collide.
 
 ```bash
 # A personal access token for yourself (e.g. to use headlessly in a VM)
