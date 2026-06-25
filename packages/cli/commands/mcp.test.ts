@@ -1,5 +1,31 @@
 import { describe, expect, test } from "bun:test";
-import { isLegacyApiKey } from "./mcp.ts";
+import { blankFlag, isLegacyApiKey } from "./mcp.ts";
+
+// blankFlag normalizes the plugin's `--server/--api-key/--space ${user_config.X}`
+// args: blank (or an unsubstituted placeholder) → undefined, so resolution falls
+// back to the live `me` config instead of using the literal value.
+describe("blankFlag", () => {
+  test("empty string → undefined (falls back)", () => {
+    expect(blankFlag("")).toBeUndefined();
+  });
+
+  test("unsubstituted ${...} placeholder → undefined (falls back)", () => {
+    expect(blankFlag("${user_config.server}")).toBeUndefined();
+    expect(blankFlag("${user_config.api_key}")).toBeUndefined();
+  });
+
+  test("undefined / non-string → undefined", () => {
+    expect(blankFlag(undefined)).toBeUndefined();
+    expect(blankFlag(123)).toBeUndefined();
+  });
+
+  test("a real value passes through unchanged", () => {
+    expect(blankFlag("https://me.dev-us-east-1.ops.dev.timescale.com")).toBe(
+      "https://me.dev-us-east-1.ops.dev.timescale.com",
+    );
+    expect(blankFlag("7plcwreyoxdd")).toBe("7plcwreyoxdd");
+  });
+});
 
 // Guards the CLI's copy of the legacy-key detector (duplicated from
 // @memory.build/engine/core to avoid an engine dependency). Keep in sync with
