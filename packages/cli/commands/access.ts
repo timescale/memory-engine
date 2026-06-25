@@ -74,7 +74,7 @@ function createAccessGrantCommand(): Command {
             },
           );
         } catch (error) {
-          handleError(error, fmt, { sessionServer: creds.server });
+          handleError(error, fmt, { creds, scope: "space" });
         }
       },
     );
@@ -111,7 +111,7 @@ function createAccessRmGrantCommand(): Command {
           }
         });
       } catch (error) {
-        handleError(error, fmt, { sessionServer: creds.server });
+        handleError(error, fmt, { creds, scope: "space" });
       }
     });
 }
@@ -162,7 +162,7 @@ function createAccessListCommand(): Command {
           );
         });
       } catch (error) {
-        handleError(error, fmt, { sessionServer: creds.server });
+        handleError(error, fmt, { creds, scope: "space" });
       }
     });
 }

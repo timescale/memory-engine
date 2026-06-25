@@ -88,7 +88,7 @@ function createGroupListCommand(): Command {
           );
         });
       } catch (error) {
-        handleError(error, fmt, { sessionServer: creds.server });
+        handleError(error, fmt, { creds, scope: "space" });
       }
     });
 }
@@ -111,7 +111,7 @@ function createGroupCreateCommand(): Command {
           clack.log.success(`Created group '${name}' (${id})`);
         });
       } catch (error) {
-        handleError(error, fmt, { sessionServer: creds.server });
+        handleError(error, fmt, { creds, scope: "space" });
       }
     });
 }
@@ -136,7 +136,7 @@ function createGroupRenameCommand(): Command {
           clack.log.success(`Renamed group → '${newName}'`);
         });
       } catch (error) {
-        handleError(error, fmt, { sessionServer: creds.server });
+        handleError(error, fmt, { creds, scope: "space" });
       }
     });
 }
@@ -162,7 +162,7 @@ function createGroupDeleteCommand(): Command {
           else clack.log.warn("Group not found.");
         });
       } catch (error) {
-        handleError(error, fmt, { sessionServer: creds.server });
+        handleError(error, fmt, { creds, scope: "space" });
       }
     });
 }
@@ -195,7 +195,7 @@ function createGroupAddCommand(): Command {
           );
         });
       } catch (error) {
-        handleError(error, fmt, { sessionServer: creds.server });
+        handleError(error, fmt, { creds, scope: "space" });
       }
     });
 }
@@ -224,7 +224,7 @@ function createGroupRemoveCommand(): Command {
           else clack.log.warn("Member not in group.");
         });
       } catch (error) {
-        handleError(error, fmt, { sessionServer: creds.server });
+        handleError(error, fmt, { creds, scope: "space" });
       }
     });
 }
@@ -260,7 +260,7 @@ function createGroupMembersCommand(): Command {
           );
         });
       } catch (error) {
-        handleError(error, fmt, { sessionServer: creds.server });
+        handleError(error, fmt, { creds, scope: "space" });
       }
     });
 }
@@ -293,7 +293,7 @@ function createGroupMineCommand(): Command {
           );
         });
       } catch (error) {
-        handleError(error, fmt, { sessionServer: creds.server });
+        handleError(error, fmt, { creds, scope: "space" });
       }
     });
 }

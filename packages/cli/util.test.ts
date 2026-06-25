@@ -4,12 +4,21 @@
  * Tests the space-model resolution functions with mocked clients.
  */
 import { describe, expect, mock, test } from "bun:test";
-import type { MemoryClient, UserClient } from "@memory.build/client";
+import {
+  type MemoryClient,
+  RpcError,
+  type UserClient,
+} from "@memory.build/client";
+import type { ResolvedCredentials } from "./credentials.ts";
 
 // Dynamic import to avoid pulling in @clack/prompts at top level (it touches
 // process.stdin).
-const { resolveSpacePrincipalId, resolveAgentId, shellTildeExpansionHint } =
-  await import("./util.ts");
+const {
+  resolveSpacePrincipalId,
+  resolveAgentId,
+  shellTildeExpansionHint,
+  describeAuthError,
+} = await import("./util.ts");
 
 const UUID = "019d694f-79f6-7595-8faf-b70b01c11f98";
 
@@ -154,5 +163,92 @@ describe("shellTildeExpansionHint", () => {
     expect(
       shellTildeExpansionHint("/anything", argv("tree", "/anything"), "/"),
     ).toBeNull();
+  });
+});
+
+// =============================================================================
+// describeAuthError
+// =============================================================================
+
+const SERVER = "https://api.example.com";
+const unauthorized = () =>
+  new RpcError(-32000, "Invalid credentials", { code: "UNAUTHORIZED" });
+const creds = (
+  over: Partial<ResolvedCredentials> = {},
+): ResolvedCredentials => ({
+  server: SERVER,
+  loggedIn: false,
+  ...over,
+});
+
+describe("describeAuthError", () => {
+  test("returns null for a non-UNAUTHORIZED error (falls back to raw message)", () => {
+    const notFound = new RpcError(-32000, "Nope", { code: "NOT_FOUND" });
+    expect(
+      describeAuthError(notFound, creds({ apiKey: "me.k" }), "space"),
+    ).toBeNull();
+    expect(describeAuthError(new Error("boom"), creds(), "account")).toBeNull();
+  });
+
+  test("api key, account scope: blames the key, never clears a session", () => {
+    const r = describeAuthError(
+      unauthorized(),
+      creds({ apiKey: "me.k", activeSpace: "abc123" }),
+      "account",
+    );
+    expect(r).not.toBeNull();
+    expect(r?.clearSession).toBe(false);
+    expect(r?.message).toContain("ME_API_KEY");
+    expect(r?.message).not.toContain("me login");
+    // Account scope doesn't mention the space even when one is set.
+    expect(r?.message).not.toContain("abc123");
+  });
+
+  test("api key, space scope: mentions the active space and 'me space list'", () => {
+    const r = describeAuthError(
+      unauthorized(),
+      creds({ apiKey: "me.k", activeSpace: "abc123" }),
+      "space",
+    );
+    expect(r?.clearSession).toBe(false);
+    expect(r?.message).toContain("ME_API_KEY");
+    expect(r?.message).toContain("'abc123'");
+    expect(r?.message).toContain("me space list");
+    expect(r?.message).not.toContain("me login");
+  });
+
+  test("session, account scope: genuine expiry — clears the token, prompts login", () => {
+    const r = describeAuthError(
+      unauthorized(),
+      creds({ loggedIn: true }),
+      "account",
+    );
+    expect(r?.clearSession).toBe(true);
+    expect(r?.message).toBe(
+      "Session expired. Run 'me login' to sign in again.",
+    );
+  });
+
+  test("session, space scope: ambiguous — keeps the token, mentions space and login", () => {
+    const r = describeAuthError(
+      unauthorized(),
+      creds({ loggedIn: true, activeSpace: "abc123" }),
+      "space",
+    );
+    // Must NOT clear the session over what may just be a stale active space.
+    expect(r?.clearSession).toBe(false);
+    expect(r?.message).toContain("'abc123'");
+    expect(r?.message).toContain("me space list");
+    expect(r?.message).toContain("me login");
+  });
+
+  test("omits the slug when no active space is set", () => {
+    const r = describeAuthError(
+      unauthorized(),
+      creds({ apiKey: "me.k" }),
+      "space",
+    );
+    expect(r?.message).not.toContain("''");
+    expect(r?.message).toContain("me space list");
   });
 });

@@ -248,7 +248,7 @@ function createMemoryCreateCommand(): Command {
           if (memory.name) console.log(`  Name: ${memory.name}`);
         });
       } catch (error) {
-        handleError(error, fmt);
+        handleError(error, fmt, { creds, scope: "space" });
       }
     });
 }
@@ -308,7 +308,7 @@ function createMemoryGetCommand(): Command {
 
         console.log(`\n${header}\n\n${rendered.trimEnd()}\n`);
       } catch (error) {
-        handleError(error, fmt);
+        handleError(error, fmt, { creds, scope: "space" });
       }
     });
 }
@@ -464,7 +464,7 @@ function createMemorySearchCommand(): Command {
           );
         });
       } catch (error) {
-        handleError(error, fmt);
+        handleError(error, fmt, { creds, scope: "space" });
       }
     });
 }
@@ -544,7 +544,7 @@ function createMemoryUpdateCommand(): Command {
           clack.log.success(`Updated memory ${memory.id}`);
         });
       } catch (error) {
-        handleError(error, fmt);
+        handleError(error, fmt, { creds, scope: "space" });
       }
     });
 }
@@ -595,7 +595,7 @@ function createMemoryDeleteCommand(): Command {
             // Couldn't probe the subtree — fall through to the original error.
           }
         }
-        handleError(error, fmt);
+        handleError(error, fmt, { creds, scope: "space" });
       }
     });
 }
@@ -657,7 +657,7 @@ function createMemoryDeltreeCommand(): Command {
           );
         });
       } catch (error) {
-        handleError(error, fmt);
+        handleError(error, fmt, { creds, scope: "space" });
       }
     });
 }
@@ -678,7 +678,7 @@ function createMemoryEditCommand(): Command {
       try {
         await editMemory(client, id);
       } catch (error) {
-        handleError(error, fmt);
+        handleError(error, fmt, { creds, scope: "space" });
       }
     });
 }
@@ -712,7 +712,7 @@ function createMemoryCountCommand(): Command {
           }
         });
       } catch (error) {
-        handleError(error, fmt);
+        handleError(error, fmt, { creds, scope: "space" });
       }
     });
 }
@@ -748,7 +748,7 @@ function createMemoryTreeCommand(): Command {
           }
         });
       } catch (error) {
-        handleError(error, fmt);
+        handleError(error, fmt, { creds, scope: "space" });
       }
     });
 }
@@ -822,7 +822,7 @@ function createMemoryMoveCommand(): Command {
           );
         });
       } catch (error) {
-        handleError(error, fmt);
+        handleError(error, fmt, { creds, scope: "space" });
       }
     });
 }
@@ -896,7 +896,7 @@ function createMemoryCopyCommand(): Command {
           );
         });
       } catch (error) {
-        handleError(error, fmt);
+        handleError(error, fmt, { creds, scope: "space" });
       }
     });
 }
@@ -1086,7 +1086,7 @@ function createMemoryExportCommand(): Command {
           }
         }
       } catch (error) {
-        handleError(error, fmt);
+        handleError(error, fmt, { creds, scope: "space" });
       }
     });
 }
