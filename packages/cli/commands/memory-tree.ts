@@ -18,38 +18,44 @@ interface TreeNode {
 
 /**
  * Build a nested tree from flat path/count pairs.
+ *
+ * Paths are canonical **slash display paths** as emitted on the wire
+ * (`/share/work`, `~/notes`, and the bare `~` home root) — not dotted ltree
+ * paths. The hierarchy is parsed by splitting on the final `/`: the leaf
+ * segment becomes the label and the prefix is the parent path. A node is a
+ * root when its parent path is absent from the input (a top-level path, or a
+ * gap introduced by `--levels`).
  */
 function buildTree(nodes: TreeViewNode[]): TreeNode[] {
   if (nodes.length === 0) return [];
 
-  const depths = nodes.map((n) => n.path.split(".").length);
-  const minDepth = Math.min(...depths);
-
   const roots: TreeNode[] = [];
   const byPath = new Map<string, TreeNode>();
 
+  // Shorter prefixes sort before their descendants under both `/` and `~`,
+  // so a parent is always built before its children.
   const sorted = [...nodes].sort((a, b) => a.path.localeCompare(b.path));
 
   for (const node of sorted) {
-    const parts = node.path.split(".");
-    const lastPart = parts[parts.length - 1];
+    const lastSlash = node.path.lastIndexOf("/");
+    // leaf = segment after the final `/`; the lone `~` home root has none.
+    const label = lastSlash === -1 ? node.path : node.path.slice(lastSlash + 1);
+    // parent = prefix before the final `/`. `lastSlash <= 0` means no parent:
+    // a leading-`/` top-level path (`/share`) or the bare `~` root.
+    const parentPath = lastSlash <= 0 ? null : node.path.slice(0, lastSlash);
+
     const treeNode: TreeNode = {
-      label: lastPart ?? node.path,
+      label,
       count: node.count,
       children: [],
     };
     byPath.set(node.path, treeNode);
 
-    if (parts.length === minDepth) {
-      roots.push(treeNode);
+    const parent = parentPath !== null ? byPath.get(parentPath) : undefined;
+    if (parent) {
+      parent.children.push(treeNode);
     } else {
-      const parentPath = parts.slice(0, -1).join(".");
-      const parent = byPath.get(parentPath);
-      if (parent) {
-        parent.children.push(treeNode);
-      } else {
-        roots.push(treeNode);
-      }
+      roots.push(treeNode);
     }
   }
 
