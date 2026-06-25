@@ -9,7 +9,6 @@ WORKDIR /app
 # Every workspace package.json + lockfile, so the workspace tree matches
 # bun.lock for --frozen-lockfile (same rationale as the runtime stage below).
 COPY package.json bun.lock ./
-COPY packages/auth/package.json packages/auth/
 COPY packages/cli/package.json packages/cli/
 COPY packages/client/package.json packages/client/
 COPY packages/database/package.json packages/database/
@@ -49,7 +48,6 @@ EXPOSE 3000
 # workspace declared in bun.lock is missing from the build context, so any
 # new workspace added under packages/* must be copied here too.
 COPY package.json bun.lock ./
-COPY packages/auth/package.json packages/auth/
 COPY packages/cli/package.json packages/cli/
 COPY packages/client/package.json packages/client/
 COPY packages/database/package.json packages/database/
@@ -74,7 +72,6 @@ COPY version.ts ./
 
 # Copy server source + all workspace dependencies
 COPY packages/server/ packages/server/
-COPY packages/auth/ packages/auth/
 COPY packages/database/ packages/database/
 COPY packages/engine/ packages/engine/
 COPY packages/embedding/ packages/embedding/
