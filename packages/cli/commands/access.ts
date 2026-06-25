@@ -195,7 +195,7 @@ function createAccessMineCommand(): Command {
           table(
             ["tree_path", "access"],
             grants.map((g) => [
-              g.treePath === "" ? "(root)" : g.treePath,
+              g.treePath === "/" || g.treePath === "" ? "(root)" : g.treePath,
               accessLevelName(g.access),
             ]),
           );
