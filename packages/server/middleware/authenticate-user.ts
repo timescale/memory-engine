@@ -1,11 +1,15 @@
 /**
  * Authentication for the user RPC (`/api/v1/user/rpc`).
  *
- * User-scoped: resolves the calling human (a user principal) from one of three
- * credentials — an OAuth access token (CLI/MCP), the browser cookie session, or
- * the user's own api key (a personal access token, for headless/CLI use). Only
- * the caller's OWN (kind 'u') key is admitted: an AGENT key is barred here
- * (agents can't manage the account) → 403.
+ * Resolves the calling principal from one of three credentials — an OAuth access
+ * token (CLI/MCP), the browser cookie session, or an api key (a user PAT or an
+ * agent key, for headless/CLI use). Authentication establishes *who*; it no
+ * longer doubles as the authorization gate. Any authenticated principal is
+ * admitted here so the account-scoped *reads* (`whoami`, `space.list`) work for
+ * an agent acting with `ME_API_KEY`; the account-*management* methods stay
+ * user-only, enforced by the user-RPC gate's allow-list (`gateAgentAccess` +
+ * `requireUserCaller`). Sessions / OAuth tokens are always users; an api key
+ * carries its principal's real kind.
  */
 import { type CoreStore, parseApiKey } from "@memory.build/engine/core";
 import { debug, span } from "@pydantic/logfire-node";
@@ -19,22 +23,29 @@ import { extractBearerToken, passesCsrfCheck } from "./authenticate";
 
 export interface UserAuthContext {
   type: "user";
-  /** The authenticated user id (== the core user-principal id). */
+  /** The authenticated principal's kind: a user ("u") or an agent ("a"). */
+  kind: "u" | "a";
+  /** The authenticated principal id (a user-principal id, or an agent's). */
   userId: string;
-  /** The user's email (powers whoami + lazy provisioning). */
-  email: string;
-  /** The user's display name. */
+  /** The user's email (powers whoami + lazy provisioning); null for an agent. */
+  email: string | null;
+  /**
+   * The principal's name. From a session / OAuth token this is the human's
+   * display name; on the api-key path it's the core principal's name — which is
+   * the user's email for a user PAT, or the agent's name for an agent.
+   */
   name: string;
   /**
    * Whether the identity provider verified the email. Gates email-keyed
    * provisioning steps (invitation redemption) — invitations are addressed by
    * email, so an unverified address must not auto-join its invited spaces.
+   * Always false for an agent (no email).
    */
   emailVerified: boolean;
   /**
-   * True when authenticated by an api key (a user PAT) rather than a session /
-   * OAuth token. The handler layer uses this to keep key mint/revoke
-   * session-only (a key can't manage keys).
+   * True when authenticated by an api key (a user PAT or an agent key) rather
+   * than a session / OAuth token. The handler layer uses this to keep key
+   * mint/revoke session-only (a key can't manage keys).
    */
   viaApiKey: boolean;
 }
@@ -56,10 +67,10 @@ export async function authenticateUser(
     callback: async () => {
       const bearer = extractBearerToken(request);
       if (bearer) {
-        // A user PAT (api key). Only the caller's OWN (kind 'u') principal is
-        // admitted here; an agent key is a valid credential but not for the user
-        // API (agents can't manage the account) → 403. An api key is never an
-        // OAuth token, so this branch always returns.
+        // An api key — a user PAT (kind 'u') or an agent key (kind 'a'). Both
+        // are admitted; the per-method handlers authorize what each may do (an
+        // agent gets `whoami` / `space.list`, nothing that manages the account).
+        // An api key is never an OAuth token, so this branch always returns.
         const parsed = parseApiKey(bearer);
         if (parsed) {
           const validated = await core.validateApiKey(
@@ -74,30 +85,39 @@ export async function authenticateUser(
             };
           }
           const principal = await core.getPrincipal(validated.memberId);
-          if (!principal || principal.kind !== "u") {
-            debug("user auth failed: agent api key on the user RPC");
+          // A key only ever resolves to a user or an agent (groups hold no key);
+          // a missing principal means a member torn down under a live key.
+          if (!principal || principal.kind === "g") {
+            debug("user auth failed: api key resolves to no usable principal");
             return {
               ok: false,
-              error: forbidden(
-                "Agent API keys can't access the user API; use a session or a user key.",
-              ),
+              error: unauthorized("Invalid or expired token"),
             };
           }
-          debug("user auth succeeded (user pat)", { userId: principal.id });
+          const isUser = principal.kind === "u";
+          debug("user auth succeeded (api key)", {
+            userId: principal.id,
+            kind: principal.kind,
+          });
           return {
             ok: true,
             context: {
               type: "user",
+              kind: principal.kind,
               userId: principal.id,
-              // The core user principal's name is the email; the display name
-              // lives on auth.users (not fetched on the key path).
-              email: principal.name,
+              // For a user the core principal's name IS the email (the display
+              // name lives on auth.users, not fetched on the key path); an agent
+              // has no email — its name is its display name.
+              email: isUser ? principal.name : null,
               name: principal.name,
-              // Carry the real verified flag (the same fact a session reports),
-              // so a PAT behaves like any other credential — including the
-              // email-keyed redemption step. A PAT's only carve-out is that it
-              // can't mint/revoke keys (enforced at the handler layer).
-              emailVerified: await getUserEmailVerified(principal.id),
+              // For a user PAT, carry the real verified flag (the same fact a
+              // session reports), so it behaves like any other credential —
+              // including the email-keyed redemption step. An agent has no
+              // email to verify. A key's only carve-out is that it can't
+              // mint/revoke keys (enforced at the handler layer).
+              emailVerified: isUser
+                ? await getUserEmailVerified(principal.id)
+                : false,
               viaApiKey: true,
             },
           };
@@ -117,6 +137,7 @@ export async function authenticateUser(
           ok: true,
           context: {
             type: "user",
+            kind: "u",
             userId: verified.userId,
             email: verified.email,
             name: verified.name,
@@ -153,6 +174,7 @@ export async function authenticateUser(
         ok: true,
         context: {
           type: "user",
+          kind: "u",
           userId: user.id,
           email: user.email,
           name: user.name,

@@ -41,6 +41,9 @@ function call<T = unknown>(
   const context = {
     request: new Request("http://localhost/api/v1/user/rpc"),
     core: coreStore(sql, coreSchema),
+    // These tests exercise the user-PAT carve-out (a key-authenticated *user*);
+    // the agent-caller denial is covered in agent.integration.test.ts.
+    kind: "u",
     userId: asUser,
     db: sql,
     coreSchema,

@@ -172,7 +172,8 @@ export function createRouter(ctx: ServerContext): Router {
     };
   });
 
-  // User RPC (new model): session-only, user-scoped (agent lifecycle)
+  // User RPC (new model): account-scoped. Admits any authenticated principal;
+  // the handlers authorize per-method (an agent gets whoami / space.list only).
   const userRpcHandler = createRpcHandler(userMethods, async (request) => {
     const result = await authenticateUser(
       request,
@@ -185,19 +186,23 @@ export function createRouter(ctx: ServerContext): Router {
     if (!result.ok) {
       return result.error;
     }
-    const { userId, email, name, emailVerified, viaApiKey } = result.context;
+    const { kind, userId, email, name, emailVerified, viaApiKey } =
+      result.context;
     // Lazy first-login provisioning: stand up the core principal + default space
     // the first time a better-auth user reaches the user RPC (idempotent no-op
     // thereafter). The CLI hits whoami/space.list right after login, so this is
     // the natural first touchpoint. `emailVerified` gates the email-keyed
-    // invitation-redemption step.
-    await ensureUserProvisioned(
-      db,
-      core,
-      { core: coreSchema },
-      { userId, email, emailVerified },
-    );
-    return { core, userId, email, name, db, coreSchema, viaApiKey };
+    // invitation-redemption step. USERS only — an agent is already provisioned
+    // by its owner, and provisioning is user+email keyed (an agent has neither).
+    if (kind === "u" && email !== null) {
+      await ensureUserProvisioned(
+        db,
+        core,
+        { core: coreSchema },
+        { userId, email, emailVerified },
+      );
+    }
+    return { core, kind, userId, email, name, db, coreSchema, viaApiKey };
   });
 
   /**
