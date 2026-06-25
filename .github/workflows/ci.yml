@@ -78,3 +78,15 @@ jobs:
         run: ./bun run test:e2e
       - name: Stop Postgres
         run: docker stop me-postgres
+
+  docker-build:
+    # Build the server image the dev/prod deploy ships. The lint/typecheck/test
+    # jobs never touch packages/server/Dockerfile, so workspace drift — e.g. a
+    # COPY of a retired package — passes CI and only fails at deploy time. This
+    # job is that guard: it builds the image (no push) so the Dockerfile breaks
+    # here instead. Mirrors the build the deploy dispatches to tiger-agents-deploy.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Build server image (no push)
+        run: docker build -f packages/server/Dockerfile -t me-server:ci .
