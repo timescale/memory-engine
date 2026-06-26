@@ -71,13 +71,22 @@ export function setExpanded(value: boolean): void {
 export function table(columns: string[], rows: string[][]): void {
   if (rows.length === 0) return;
 
+  // Collapse any embedded control characters (newlines, carriage returns,
+  // tabs) to a single space. The renderer sizes columns with `.length` and
+  // pads with `.padEnd()`, both line-unaware: an embedded "\n" in any cell
+  // would inject a hard line break mid-row and destroy column alignment for
+  // the rest of that row (and visually for the rows that follow). See TNT-153.
+  const safe = rows.map((row) =>
+    row.map((cell) => (cell ?? "").replace(/[\r\n\t]+/g, " ")),
+  );
+
   if (_expanded) {
     const labelWidth = Math.max(...columns.map((c) => c.length));
-    for (let r = 0; r < rows.length; r++) {
+    for (let r = 0; r < safe.length; r++) {
       const tag = `-[ RECORD ${r + 1} ]`;
       console.log(`  ${tag}${"─".repeat(Math.max(0, 40 - tag.length))}`);
       for (let c = 0; c < columns.length; c++) {
-        const val = rows[r]?.[c] ?? "";
+        const val = safe[r]?.[c] ?? "";
         if (val) {
           console.log(`  ${(columns[c] ?? "").padEnd(labelWidth)}  ${val}`);
         }
@@ -88,7 +97,7 @@ export function table(columns: string[], rows: string[][]): void {
 
   const widths = columns.map((col, i) => {
     let max = col.length;
-    for (const row of rows) {
+    for (const row of safe) {
       const len = (row[i] ?? "").length;
       if (len > max) max = len;
     }
@@ -101,7 +110,7 @@ export function table(columns: string[], rows: string[][]): void {
   const separator = widths.map((w) => "\u2500".repeat(w)).join("\u2500\u2500");
   console.log(`  ${separator}`);
 
-  for (const row of rows) {
+  for (const row of safe) {
     const line = columns
       .map((_, i) => (row[i] ?? "").padEnd(widths[i] ?? 0))
       .join("  ");
