@@ -7,6 +7,11 @@ function sourcePath(relativePath: string): string {
   return fileURLToPath(new URL(relativePath, import.meta.url));
 }
 
+// Backend the dev server proxies /rpc + /healthz to (a running `me serve` or
+// `me server`). Defaults to :3000; override when that port is taken, e.g.
+// ME_DEV_RPC_TARGET=http://127.0.0.1:3100 ./bun run web
+const rpcTarget = process.env.ME_DEV_RPC_TARGET ?? "http://localhost:3000";
+
 /**
  * Vite config for the Memory Engine web UI.
  *
@@ -44,11 +49,11 @@ export default defineConfig({
     strictPort: false,
     proxy: {
       "/rpc": {
-        target: "http://localhost:3000",
+        target: rpcTarget,
         changeOrigin: true,
       },
       "/healthz": {
-        target: "http://localhost:3000",
+        target: rpcTarget,
         changeOrigin: true,
       },
     },
