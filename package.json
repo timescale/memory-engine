@@ -19,6 +19,7 @@
     "docs:build": "./bun --filter @memory.build/docs-site build",
     "web": "./bun --filter @memory.build/web dev",
     "web:build": "./bun --filter @memory.build/web build",
+    "web:remote": "./bun scripts/web-remote.ts",
     "generate:master-key": "./bun scripts/generate-master-key.ts",
     "install:local": "./bun scripts/install-local.ts",
     "lint": "biome check",

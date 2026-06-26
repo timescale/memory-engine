@@ -505,6 +505,42 @@ then run the server with `API_BASE_URL=http://localhost:3000` +
 `WEB_DIST=packages/web/dist` and open `http://localhost:3000`. (Over plain HTTP
 the cookie name is `me_session`; over HTTPS it's `__Host-me_session`.)
 
+### Developing the web UI (hot reload)
+
+`me serve` and the hosted server both serve the **built** UI, so neither
+reflects in-progress source edits. For that, run the **Vite dev server**
+(`./bun run web`, port 5173) — it serves `packages/web/src` with hot-module
+reload. Vite is *only* a frontend, though: it proxies `/rpc` + `/healthz` to a
+backend (default `http://localhost:3000`) and injects no credentials, so
+something must answer those paths. Two ways to supply that backend:
+
+- **Local backend** — run the API server (`./bun run server`, needs local
+  Postgres + `.env`) on `:3000`, then `./bun run web` in another terminal. Edits
+  hot-reload against your local data.
+- **Remote backend (e.g. production), no local server** — one command:
+
+  ```bash
+  ./bun run web:remote          # defaults to https://api.memory.build
+  ME_SERVER=https://… ./bun run web:remote   # or any other backend
+  ```
+
+  Open `http://localhost:5173`. This is hot-reloading UI against **live**
+  production data — writes/deletes are real.
+
+  `web:remote` (`scripts/web-remote.ts`) spawns `me serve` on an auto-picked
+  free port, points the Vite dev server at it via `ME_DEV_RPC_TARGET`, and tears
+  both down together on Ctrl+C (or if either exits — e.g. `me serve` failing
+  because you're not logged in). `me serve` is what proxies `/rpc` to the remote
+  `…/api/v1/memory/rpc` and injects your OAuth token + active space, so the
+  browser stays credential-free.
+
+**`ME_DEV_RPC_TARGET`** (read in `packages/web/vite.config.ts`) overrides the
+proxy target; set it when `:3000` is occupied. Prefer an explicit `127.0.0.1`
+over `localhost` to avoid IPv4/IPv6 ambiguity when an unrelated service also
+holds `:3000`. Both `me serve` and the Vite dev server run the UI in **local**
+mode (neither injects `window.__ME_BOOTSTRAP__`), so behavior matches production
+aside from hot reload.
+
 ### Moving the hosted UI to `app.memory.build`
 
 The design keeps this to **config + ingress — no application code changes** (the
