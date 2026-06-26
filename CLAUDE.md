@@ -106,8 +106,10 @@ gate: it runs every suite with `TEST_CI=1`, which disables conditional skips
 its condition (pattern: `packages/embedding/generate.test.ts`,
 `e2e/cli.e2e.test.ts`) so CI never silently skips it.
 
-> `packages/web` and `packages/docs-site` are excluded from the root typecheck
-> (they have their own); `check`/`check:full` do not cover them.
+> `packages/web` and `packages/docs-site` have their own tsconfigs, so they
+> aren't part of the root `tsc` project. The root `typecheck` script chains in
+> the web typecheck (`web:typecheck`), so `check`/`check:full` and CI **do**
+> cover `packages/web`; `docs-site` stays uncovered (run its own typecheck).
 
 ### Database integration tests
 
