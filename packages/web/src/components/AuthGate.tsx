@@ -56,10 +56,16 @@ export function AuthGate({ children }: { children: ReactNode }) {
   const load = useCallback(async () => {
     setState({ status: "loading" });
     try {
-      const [identity, { spaces }] = await Promise.all([
+      const [whoami, { spaces }] = await Promise.all([
         userClient.whoami(),
         userClient.space.list(),
       ]);
+      // whoami's email is nullable; fall back to the display name so the
+      // header always has something to show.
+      const identity: Identity = {
+        email: whoami.email ?? whoami.name,
+        name: whoami.name,
+      };
       if (spaces.length === 0) {
         setState({ status: "needs-space", identity, spaces });
         return;
