@@ -450,10 +450,9 @@ function createMemorySearchCommand(): Command {
           table(
             ["id", "content", "tree", "score"],
             result.results.map((r) => {
+              const flat = r.content.replace(/\s+/g, " ").trim();
               const preview =
-                r.content.length > 60
-                  ? `${r.content.slice(0, 60)}...`
-                  : r.content;
+                flat.length > 60 ? `${flat.slice(0, 60)}...` : flat;
               return [
                 r.id,
                 preview,
