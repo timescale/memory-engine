@@ -8,23 +8,16 @@
  */
 import MonacoEditor, { loader } from "@monaco-editor/react";
 import * as monaco from "monaco-editor";
-// Import workers as Vite workers. Import paths come from Monaco's internal
-// ESM entries.
-// @ts-expect-error Vite ?worker suffix resolves at build time.
+// Import workers as Vite workers (the `?worker` suffix is typed by
+// `vite/client`). Import paths come from Monaco's internal ESM entries.
 import EditorWorker from "monaco-editor/esm/vs/editor/editor.worker?worker";
-// @ts-expect-error Vite ?worker suffix resolves at build time.
 import JsonWorker from "monaco-editor/esm/vs/language/json/json.worker?worker";
 import { useEffect } from "react";
 
 type WorkerCtor = new () => Worker;
 
-declare global {
-  interface Window {
-    MonacoEnvironment?: {
-      getWorker: (workerId: string, label: string) => Worker;
-    };
-  }
-}
+// `window.MonacoEnvironment` is already declared globally by monaco-editor's
+// types, so no local augmentation is needed.
 
 // Hook Monaco's worker factory before the editor mounts. Only `json` has a
 // language-specific worker we care about; everything else (including
