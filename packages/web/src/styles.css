@@ -1,10 +1,63 @@
 @import "tailwindcss";
-@import "highlight.js/styles/github.css";
+
+/**
+ * Tiger Data design tokens (Memory Engine "Console" redesign, light mode).
+ *
+ * Colors and type are straight from the Tiger Data design system; the ink
+ * surface tints are opacity-based so they hold on any near-white surface —
+ * use them via Tailwind opacity modifiers, e.g. `border-ink/[0.12]`,
+ * `bg-ink/[0.03]`, `text-ink/50`.
+ */
+@theme {
+  --font-sans: "Geist", "Inter", system-ui, -apple-system, sans-serif;
+  --font-mono: "Geist Mono", ui-monospace, "SFMono-Regular", monospace;
+
+  /* Mechanical motion — sharp, no overshoot (design system). */
+  --default-transition-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
+  --default-transition-duration: 175ms;
+
+  /* Ink / near-black */
+  --color-ink: #101013;
+
+  /* Solar Flare — web accent yellow */
+  --color-solar: #f1ff5c;
+  --color-solar-hover: #d9e553;
+  --color-solar-chip: #c1cc4a;
+
+  /* Code card */
+  --color-code: #0a0a0c;
+  --color-code-border: #27272a;
+
+  /* Eye-of-the-Tiger blue + Tiger Blood red */
+  --color-tiger-blue: #4b7bff;
+  --color-tiger-blue-strong: #3c62cc;
+  --color-tiger-red: #ff9b8e;
+}
 
 html,
 body,
 #root {
   height: 100%;
+}
+
+body {
+  font-family: var(--font-sans);
+  background: #ffffff;
+  color: var(--color-ink);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Thin, mechanical scrollbars (design system). */
+::-webkit-scrollbar {
+  width: 9px;
+  height: 9px;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(16, 16, 19, 0.16);
+  border-radius: 999px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
 }
 
 /* Tailwind v4 dropped the implicit `cursor: pointer` on buttons; restore
@@ -15,75 +68,56 @@ body,
   }
 }
 
-/* Lightweight prose styles for react-markdown output.
- * Keeps line length comfortable, adds vertical rhythm, and makes code,
- * tables, and blockquotes readable without pulling in a full typography
- * plugin. */
+/* Prose styles for react-markdown output — Tiger Data type ramp.
+ * Body is Geist 15px / 1.7 at 86% ink; headings are full-ink Geist 700. */
 .prose {
-  color: #1e293b; /* slate-800 */
-  line-height: 1.65;
-  max-width: 72ch;
+  color: rgba(16, 16, 19, 0.86);
+  font-size: 15px;
+  line-height: 1.7;
+  max-width: 100%;
 }
 .prose > * + * {
-  margin-top: 1em;
+  margin-top: 16px;
 }
 .prose h1,
 .prose h2,
 .prose h3,
 .prose h4 {
-  font-weight: 600;
-  color: #0f172a; /* slate-900 */
-  line-height: 1.25;
-  margin-top: 1.5em;
+  color: #101013;
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+  margin-top: 1.6em;
   margin-bottom: 0.5em;
 }
 .prose h1 {
-  font-size: 1.75em;
+  font-size: 26px;
+  letter-spacing: -0.025em;
 }
 .prose h2 {
-  font-size: 1.4em;
+  font-size: 20px;
 }
 .prose h3 {
-  font-size: 1.15em;
+  font-size: 16px;
 }
 .prose h4 {
-  font-size: 1em;
+  font-size: 14px;
 }
 .prose p {
   margin: 0;
 }
+.prose strong {
+  font-weight: 600;
+  color: #101013;
+}
 .prose a {
-  color: #0284c7; /* sky-600 */
+  color: #3c62cc;
   text-decoration: underline;
-}
-.prose code {
-  background: #e2e8f0; /* slate-200 */
-  padding: 0.1em 0.35em;
-  border-radius: 4px;
-  font-size: 0.9em;
-}
-.prose pre {
-  background: #0f172a; /* slate-900 */
-  color: #e2e8f0;
-  padding: 1em;
-  border-radius: 8px;
-  overflow-x: auto;
-  font-size: 0.875em;
-}
-.prose pre code {
-  background: transparent;
-  padding: 0;
-  color: inherit;
-}
-.prose blockquote {
-  border-left: 3px solid #cbd5e1;
-  padding-left: 1em;
-  color: #475569;
-  font-style: italic;
+  text-underline-offset: 2px;
 }
 .prose ul,
 .prose ol {
-  padding-left: 1.5em;
+  padding-left: 1.4em;
 }
 .prose ul {
   list-style: disc;
@@ -94,21 +128,102 @@ body,
 .prose li + li {
   margin-top: 0.25em;
 }
-.prose table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 0.9em;
-}
-.prose th,
-.prose td {
-  border: 1px solid #e2e8f0;
-  padding: 0.35em 0.6em;
-  text-align: left;
-}
-.prose th {
-  background: #f1f5f9;
+.prose blockquote {
+  border-left: 2px solid rgba(16, 16, 19, 0.18);
+  padding-left: 1em;
+  color: rgba(16, 16, 19, 0.6);
 }
 .prose hr {
   border: 0;
-  border-top: 1px solid #e2e8f0;
+  border-top: 1px solid rgba(16, 16, 19, 0.12);
+}
+.prose table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+.prose th,
+.prose td {
+  border: 1px solid rgba(16, 16, 19, 0.14);
+  padding: 0.4em 0.6em;
+  text-align: left;
+}
+.prose th {
+  background: rgba(16, 16, 19, 0.04);
+}
+
+/* Inline code (anything not inside a <pre> code card). */
+.prose :not(pre) > code {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  background: rgba(16, 16, 19, 0.07);
+  padding: 1px 5px;
+  border-radius: 4px;
+  color: #101013;
+}
+
+/* Code card body — dark surface (chrome supplied by the CodeCard component). */
+.prose pre {
+  margin: 0;
+}
+.prose pre code,
+.prose pre code.hljs {
+  background: transparent;
+  padding: 0;
+  color: #d4d4d8;
+  font-family: var(--font-mono);
+}
+
+/* highlight.js syntax theme, dark, Tiger palette. Keywords are Solar Flare;
+ * operators are Tiger Blood red — the two colors the handoff calls out. */
+.hljs-comment,
+.hljs-quote {
+  color: #71717a;
+  font-style: italic;
+}
+.hljs-keyword,
+.hljs-selector-tag,
+.hljs-literal,
+.hljs-section,
+.hljs-name,
+.hljs-built_in,
+.hljs-tag {
+  color: #f1ff5c;
+}
+.hljs-string,
+.hljs-attr,
+.hljs-symbol,
+.hljs-bullet,
+.hljs-addition,
+.hljs-template-tag {
+  color: #b6e3a8;
+}
+.hljs-number,
+.hljs-meta,
+.hljs-link {
+  color: #fcd49b;
+}
+.hljs-operator,
+.hljs-punctuation {
+  color: #ff9b8e;
+}
+.hljs-title,
+.hljs-class .hljs-title,
+.hljs-function .hljs-title {
+  color: #e4e4e7;
+}
+.hljs-attribute,
+.hljs-variable,
+.hljs-type,
+.hljs-params {
+  color: #d4d4d8;
+}
+.hljs-deletion {
+  color: #ff9b8e;
+}
+.hljs-emphasis {
+  font-style: italic;
+}
+.hljs-strong {
+  font-weight: 700;
 }

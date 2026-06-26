@@ -36,32 +36,32 @@ export function SearchResultRow({
         onClick={selectMemory}
         onContextMenu={handleContextMenu}
         className={[
-          "block w-full cursor-pointer px-3 py-2 text-left text-sm",
+          "block w-full cursor-pointer px-3 py-2 text-left text-[13px] transition-colors",
           selected
-            ? "bg-sky-100 text-sky-950"
-            : "text-slate-700 hover:bg-slate-100",
+            ? "bg-ink/[0.08] text-ink"
+            : "text-ink/70 hover:bg-ink/[0.04]",
         ].join(" ")}
       >
-        <div className="mt-1 flex min-w-0 items-center gap-2 text-xs text-slate-500">
+        <div className="mt-1 flex min-w-0 items-center gap-2 font-mono text-[11px] text-ink/50">
           <span
-            className="min-w-0 truncate font-mono flex-auto"
+            className="min-w-0 flex-auto truncate"
             title={memory.tree || "(root)"}
           >
             {memory.tree || "(root)"}
           </span>
           {memory.name && (
             <span
-              className="min-w-0 shrink truncate font-mono font-medium text-slate-700"
+              className="min-w-0 shrink truncate font-medium text-ink/80"
               title={memory.name}
             >
               {memory.name}
             </span>
           )}
-          <span className="shrink-0 rounded bg-white/70 px-1.5 py-0.5 font-mono text-slate-600 ring-1 ring-slate-200">
+          <span className="shrink-0 rounded bg-white px-1.5 py-0.5 text-ink/70 ring-1 ring-ink/[0.12]">
             {formatScore(memory.score)}
           </span>
         </div>
-        <div className="line-clamp-2 text-sm leading-snug">{fragment}</div>
+        <div className="line-clamp-2 text-[13px] leading-snug">{fragment}</div>
       </button>
     </li>
   );

@@ -68,12 +68,12 @@ export function ToastStack() {
           type="button"
           onClick={() => dismiss(t.id)}
           className={[
-            "pointer-events-auto cursor-pointer rounded-md border px-4 py-3 text-left text-sm shadow-md transition-opacity",
+            "pointer-events-auto cursor-pointer rounded-lg border px-4 py-3 text-left text-[13px] shadow-md transition-opacity",
             t.kind === "success"
               ? "border-emerald-200 bg-emerald-50 text-emerald-900"
               : t.kind === "error"
                 ? "border-red-200 bg-red-50 text-red-900"
-                : "border-slate-200 bg-white text-slate-800",
+                : "border-ink/[0.12] bg-white text-ink",
           ].join(" ")}
         >
           {t.message}

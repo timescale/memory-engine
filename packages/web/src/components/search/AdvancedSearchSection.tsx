@@ -11,9 +11,9 @@ import { useRefreshMemories } from "../../api/queries.ts";
 import { summarizeFilter, useFilter } from "../../store/filter.ts";
 import { useLayout } from "../../store/layout.ts";
 import { DisclosureCaret } from "../DisclosureCaret.tsx";
+import { RefreshIcon } from "../icons.tsx";
 import { AdvancedSearchPanel } from "./AdvancedSearchPanel.tsx";
 import { ModeToggle } from "./ModeToggle.tsx";
-import { RefreshIcon } from "./RefreshIcon.tsx";
 
 export function AdvancedSearchSection() {
   const filter = useFilter();
@@ -27,12 +27,12 @@ export function AdvancedSearchSection() {
 
   return (
     <div>
-      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
         <button
           type="button"
           onClick={toggleSearchCollapsed}
           aria-expanded={!searchCollapsed}
-          className="-ml-1 inline-flex shrink-0 items-center gap-1 rounded px-1 py-1 text-sm font-medium text-slate-700 hover:bg-slate-100 hover:text-slate-900"
+          className="-ml-1 inline-flex shrink-0 items-center gap-1 rounded-md px-1 py-1 text-[13px] font-semibold text-ink hover:text-ink"
           title={searchCollapsed ? "Show filter fields" : "Hide filter fields"}
         >
           <DisclosureCaret expanded={!searchCollapsed} />
@@ -44,7 +44,7 @@ export function AdvancedSearchSection() {
             {chips.map((chip) => (
               <span
                 key={chip}
-                className="inline-block max-w-full truncate rounded-full border border-sky-200 bg-sky-50 px-2 py-0.5 text-xs text-sky-800"
+                className="inline-block max-w-full truncate rounded-full border border-ink/[0.16] px-2.5 py-0.5 font-mono text-[11px] text-ink/80"
                 title={chip}
               >
                 {chip}
@@ -53,14 +53,14 @@ export function AdvancedSearchSection() {
           </div>
         )}
 
-        <div className="ml-auto flex shrink-0 items-center gap-2">
+        <div className="ml-auto flex shrink-0 items-center gap-3">
           <ModeToggle current="advanced" onChange={setMode} />
 
           <button
             type="button"
             onClick={clear}
             title="Clear all search filters"
-            className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 hover:bg-slate-100"
+            className="flex h-[42px] items-center rounded-lg border border-ink/[0.18] px-4 text-[13px] font-medium transition-colors hover:border-ink"
           >
             Clear
           </button>
@@ -70,7 +70,7 @@ export function AdvancedSearchSection() {
             onClick={refresh}
             title="Re-run the query for the freshest results"
             aria-label="Refresh"
-            className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 hover:bg-slate-100"
+            className="flex h-[42px] w-[42px] items-center justify-center rounded-lg border border-ink/[0.18] text-ink/70 transition-colors hover:border-ink hover:text-ink"
           >
             <RefreshIcon />
           </button>
@@ -78,7 +78,7 @@ export function AdvancedSearchSection() {
       </div>
 
       {!searchCollapsed && (
-        <div className="mt-3">
+        <div className="mt-4">
           <AdvancedSearchPanel />
         </div>
       )}
