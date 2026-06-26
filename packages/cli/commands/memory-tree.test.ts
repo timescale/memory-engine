@@ -30,7 +30,7 @@ describe("renderTree", () => {
       { path: "/personal/notes", count: 3 },
     ]);
 
-    expect(rendered).toContain(". (5)");
+    expect(rendered).toContain("/ (5)");
     expect(rendered).toContain("├── personal (3)");
     expect(rendered).toContain("│   └── notes (3)");
     expect(rendered).toContain("└── work (2)");

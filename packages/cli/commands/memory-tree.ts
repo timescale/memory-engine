@@ -67,7 +67,7 @@ function buildTree(nodes: TreeViewNode[]): TreeNode[] {
  *
  * Output example:
  * ```
- * . (45)
+ * / (45)
  * ├── work (20)
  * │   ├── projects (15)
  * │   └── notes (5)
@@ -88,7 +88,7 @@ export function renderTree(nodes: TreeViewNode[], filter?: string): string {
   }
   const lines: string[] = [];
 
-  const rootLabel = filter || ".";
+  const rootLabel = filter || "/";
   lines.push(`${rootLabel} (${renderedTotal})`);
 
   function render(children: TreeNode[], prefix: string): void {
