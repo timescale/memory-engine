@@ -61,6 +61,18 @@ import { displayTreePath, inputTreeFilter, inputTreePath } from "./support";
 import { assertSpaceRpcContext, type SpaceRpcContext } from "./types";
 
 // =============================================================================
+// Constants
+// =============================================================================
+
+/**
+ * Max characters of a semantic search query that get embedded. Comfortably
+ * above any meaningful query, but bounds the cost of embedding (and tokenizing)
+ * a pathologically large input on the request path. The embedding layer still
+ * enforces the model's exact token limit.
+ */
+const MAX_SEMANTIC_QUERY_CHARS = 8192;
+
+// =============================================================================
 // Helpers
 // =============================================================================
 
@@ -423,9 +435,16 @@ async function memorySearch(
         "Semantic search requires embedding configuration. Set EMBEDDING_API_KEY.",
       );
     }
+    // Clip the query before embedding. The embedding layer also truncates to
+    // the model's token limit, but a query longer than this carries no useful
+    // semantic signal — capping here bounds tokenizer CPU on the request path
+    // (the embedding worker shares this process's event loop).
+    const query =
+      params.semantic.length > MAX_SEMANTIC_QUERY_CHARS
+        ? params.semantic.slice(0, MAX_SEMANTIC_QUERY_CHARS)
+        : params.semantic;
     try {
-      vec = (await generateEmbedding(params.semantic, embeddingConfig))
-        .embedding;
+      vec = (await generateEmbedding(query, embeddingConfig)).embedding;
     } catch (error) {
       throw new AppError(
         "EMBEDDING_FAILED",
