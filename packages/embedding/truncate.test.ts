@@ -1,12 +1,46 @@
 import { describe, expect, test } from "bun:test";
 import { encode, isWithinTokenLimit } from "gpt-tokenizer/encoding/cl100k_base";
 import {
+  clipToCharLimit,
   DEFAULT_CHARS_PER_TOKEN,
   MAX_OPENAI_TOKENS,
   safeCharFloor,
   truncateText,
   truncateToTokenLimit,
 } from "./truncate";
+
+describe("clipToCharLimit", () => {
+  test("returns text unchanged when under the character limit", () => {
+    expect(clipToCharLimit("hello", 10)).toBe("hello");
+  });
+
+  test("clips plain text to the character limit", () => {
+    expect(clipToCharLimit("abcdef", 3)).toBe("abc");
+  });
+
+  test("does not leave a dangling high surrogate at the boundary", () => {
+    const result = clipToCharLimit("a😀b", 2);
+
+    expect(result).toBe("a");
+    expect(result.length).toBe(1);
+  });
+
+  test("keeps a complete surrogate pair when the boundary is clean", () => {
+    const result = clipToCharLimit("a😀b", 3);
+
+    expect(result).toBe("a😀");
+    expect(result.length).toBe(3);
+  });
+
+  test("rejects invalid maxChars", () => {
+    expect(() => clipToCharLimit("hello", 0)).toThrow(
+      "maxChars must be a positive integer",
+    );
+    expect(() => clipToCharLimit("hello", 1.5)).toThrow(
+      "maxChars must be a positive integer",
+    );
+  });
+});
 
 describe("truncateText (char-based)", () => {
   describe("under limit", () => {

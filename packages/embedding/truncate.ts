@@ -37,6 +37,12 @@ function assertPositiveMaxTokens(maxTokens: number): void {
   }
 }
 
+function assertPositiveMaxChars(maxChars: number): void {
+  if (!Number.isInteger(maxChars) || maxChars < 1) {
+    throw new Error("maxChars must be a positive integer");
+  }
+}
+
 // =============================================================================
 // Safe character floor
 // =============================================================================
@@ -60,6 +66,24 @@ export function safeCharFloor(maxTokens: number = MAX_OPENAI_TOKENS): number {
 /** True if `code` is a UTF-16 high surrogate (first unit of a surrogate pair). */
 function isHighSurrogate(code: number): boolean {
   return code >= 0xd800 && code <= 0xdbff;
+}
+
+/**
+ * Clip text to a raw UTF-16 character limit without leaving a dangling high
+ * surrogate. This is a CPU guard for request-path inputs, not token truncation.
+ */
+export function clipToCharLimit(text: string, maxChars: number): string {
+  assertPositiveMaxChars(maxChars);
+
+  if (text.length <= maxChars) {
+    return text;
+  }
+
+  let clipped = text.slice(0, maxChars);
+  if (isHighSurrogate(clipped.charCodeAt(clipped.length - 1))) {
+    clipped = clipped.slice(0, -1);
+  }
+  return clipped;
 }
 
 // =============================================================================

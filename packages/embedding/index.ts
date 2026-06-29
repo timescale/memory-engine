@@ -36,6 +36,7 @@ export {
 // =============================================================================
 
 export {
+  clipToCharLimit,
   DEFAULT_CHARS_PER_TOKEN,
   MAX_OPENAI_TOKENS,
   safeCharFloor,
