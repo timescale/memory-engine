@@ -3,7 +3,7 @@
  */
 import { describe, expect, test } from "bun:test";
 import { join } from "node:path";
-import { opencodeImporter } from "./opencode.ts";
+import { opencodeImporter, resolveSessionFile } from "./opencode.ts";
 import type {
   ImportedSession,
   ImporterOptions,
@@ -112,5 +112,42 @@ describe("opencode importer", () => {
     expect(s.messages[0]?.blocks[0]?.text).toBe(
       "Explore DM image handling code.",
     );
+  });
+});
+
+describe("opencode parseFile (live-capture path)", () => {
+  test("parseFile yields the same session as discoverSessions", async () => {
+    const sessionFile = join(FIXTURE_DIR, "session", "projA", "ses_test.json");
+    const parsed = await opencodeImporter.parseFile?.(sessionFile);
+    expect(parsed).not.toBeNull();
+    if (!parsed) return;
+
+    const { sessions } = await collect(baseOptions());
+    const bulk = sessions[0];
+    if (!bulk) return;
+
+    // The live-capture parse must be byte-for-byte equivalent to bulk import,
+    // so a hook capture and `me import opencode` reconcile onto the same rows.
+    expect(parsed).toEqual(bulk);
+  });
+});
+
+describe("resolveSessionFile", () => {
+  test("locates a session file by id across project dirs", async () => {
+    const found = await resolveSessionFile("ses_test", FIXTURE_DIR);
+    expect(found).toBe(join(FIXTURE_DIR, "session", "projA", "ses_test.json"));
+  });
+
+  test("returns null for an unknown session id", async () => {
+    const found = await resolveSessionFile("ses_nope", FIXTURE_DIR);
+    expect(found).toBeNull();
+  });
+
+  test("returns null when the storage tree is absent", async () => {
+    const found = await resolveSessionFile(
+      "ses_test",
+      join(FIXTURE_DIR, "does-not-exist"),
+    );
+    expect(found).toBeNull();
   });
 });
