@@ -34,13 +34,15 @@ function truncateInline(texts: string[], maxTokens: number): TruncateResult[] {
 function parseThreadCount(): number {
   const raw = process.env.EMBEDDING_TOKENIZE_THREADS;
   if (raw !== undefined && raw !== "") {
-    const value = Number.parseInt(raw, 10);
-    if (!Number.isFinite(value) || value < 0) {
+    // Strict: only a bare non-negative integer. Number.parseInt would silently
+    // accept "1.5" (→1) or "2abc" (→2) and misconfigure the pool, so reject
+    // anything that isn't all digits before parsing.
+    if (!/^\d+$/.test(raw.trim())) {
       throw new Error(
         "EMBEDDING_TOKENIZE_THREADS must be a non-negative integer",
       );
     }
-    return value;
+    return Number.parseInt(raw, 10);
   }
 
   const cores = availableParallelism();
@@ -112,8 +114,22 @@ class TokenizePool {
       entry.current = undefined;
       if (message.error) {
         job.reject(new Error(message.error));
+      } else if (
+        !message.results ||
+        message.results.length !== job.texts.length
+      ) {
+        // Protocol invariant broken (missing or misaligned results). Reject so
+        // truncateTextsToTokenLimit falls back to inline rather than throwing
+        // (single path) or producing misaligned batch results.
+        job.reject(
+          new Error(
+            `Tokenizer worker returned ${
+              message.results?.length ?? 0
+            } result(s) for ${job.texts.length} text(s)`,
+          ),
+        );
       } else {
-        job.resolve(message.results ?? []);
+        job.resolve(message.results);
       }
       this.dispatch();
     });
@@ -145,6 +161,11 @@ class TokenizePool {
     job?.reject(error);
 
     if (index !== -1) {
+      // Best-effort terminate the failed worker before replacing it so a thread
+      // stuck in a bad state doesn't leak. A resulting exit event is a no-op:
+      // the entry is no longer in this.workers.
+      void entry.worker.terminate().catch(() => {});
+
       if (this.closed) {
         this.workers.splice(index, 1);
       } else {
@@ -179,7 +200,16 @@ class TokenizePool {
         maxTokens: job.maxTokens,
         texts: job.texts,
       };
-      entry.worker.postMessage(request);
+      try {
+        entry.worker.postMessage(request);
+      } catch (error) {
+        // The worker died between selection and send. Reject this job and
+        // replace the slot instead of leaving entry.current stuck.
+        this.replaceFailedWorker(
+          entry,
+          error instanceof Error ? error : new Error(String(error)),
+        );
+      }
     }
   }
 }
