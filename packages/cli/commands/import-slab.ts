@@ -1,8 +1,9 @@
 /**
  * `me import slab <dir>` — import a Slab knowledge-base export as memories.
  *
- * Walks an unzipped Slab export (a directory of markdown posts nested in topic
- * folders) and writes one memory per `.md` file under
+ * Walks a Slab export — either an unzipped directory of markdown posts nested
+ * in topic folders, or the raw `.zip` (extracted to a temp dir first; see
+ * importers/slab-zip.ts) — and writes one memory per `.md` file under
  * `<tree-root>.<topic>.<subtopic>...`, reconstructing Slab's topic hierarchy as
  * the ltree path. The post body is the content; the human-readable title, topic
  * path, and original filename go in `meta`; a leading date in the filename
@@ -13,7 +14,7 @@
  * nothing changed and an importer_version bump re-renders every post in place.
  */
 
-import { existsSync, statSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import * as clack from "@clack/prompts";
 import type { MemoryCreateParams } from "@memory.build/protocol/memory";
@@ -28,6 +29,7 @@ import {
   type SlabMemoryContext,
   walkSlabDir,
 } from "../importers/slab.ts";
+import { resolveSlabSource } from "../importers/slab-zip.ts";
 import { getOutputFormat, output } from "../output.ts";
 import {
   buildMemoryClient,
@@ -39,8 +41,8 @@ import { VALID_TREE_ROOT_RE } from "./import.ts";
 
 /** Validated options for one Slab import run. */
 export interface SlabImportOptions {
-  /** Export directory to walk (the Slab dump). */
-  dir: string;
+  /** Export source: a directory to walk, or a `.zip` to extract first. */
+  source: string;
   /** Tree root under which the topic hierarchy is placed. */
   treeRoot: string;
   /** Bucket label for topic-less posts at the export root. */
@@ -58,7 +60,7 @@ const VALID_NODE_LABEL_RE = /^[a-z0-9_]+$/;
 
 /** Validate raw Commander opts into a typed option set. */
 export function buildSlabImportOptions(
-  dirArg: string,
+  sourceArg: string,
   opts: Record<string, unknown>,
 ): SlabImportOptions {
   const treeRoot =
@@ -78,7 +80,7 @@ export function buildSlabImportOptions(
     );
   }
   return {
-    dir: dirArg,
+    source: sourceArg,
     treeRoot,
     uncategorizedNode,
     // Commander sets `temporal` false when `--no-temporal` is passed.
@@ -103,7 +105,7 @@ interface SlabImportResult {
 
 /** Run one Slab import end-to-end and render the outcome. */
 export async function runSlabImport(
-  dirArg: string,
+  sourceArg: string,
   rawOpts: Record<string, unknown>,
   globalOpts: Record<string, unknown>,
 ): Promise<void> {
@@ -116,15 +118,24 @@ export async function runSlabImport(
 
   let opts: SlabImportOptions;
   try {
-    opts = buildSlabImportOptions(dirArg, rawOpts);
+    opts = buildSlabImportOptions(sourceArg, rawOpts);
   } catch (error) {
     handleError(error, fmt);
   }
 
-  const dir = resolve(opts.dir);
-  if (!existsSync(dir) || !statSync(dir).isDirectory()) {
-    handleError(new Error(`Not a directory: ${opts.dir}`), fmt);
+  const sourcePath = resolve(opts.source);
+  if (!existsSync(sourcePath)) {
+    handleError(new Error(`Source not found: ${opts.source}`), fmt);
   }
+  // A `.zip` is extracted into a temp dir; a directory passes through. The
+  // returned cleanup removes any temp dir and runs in the finally below.
+  let resolved: Awaited<ReturnType<typeof resolveSlabSource>>;
+  try {
+    resolved = await resolveSlabSource(sourcePath);
+  } catch (error) {
+    handleError(error, fmt);
+  }
+  const dir = resolved.dir;
 
   const ctx: SlabMemoryContext = {
     treeRoot: opts.treeRoot,
@@ -137,6 +148,15 @@ export async function runSlabImport(
   const progress =
     fmt === "text" ? createProgressReporter(process.stderr) : undefined;
   progress?.start();
+
+  // Remove any temp extraction dir before a terminal point. `process.exit`
+  // (which handleError calls) skips `finally`, so cleanup is invoked explicitly
+  // on every path rather than via a finally block. `cleanup` is idempotent.
+  const failAndClean = async (error: unknown): Promise<never> => {
+    progress?.stop();
+    await resolved.cleanup();
+    handleError(error, fmt, { creds, scope: "space" });
+  };
 
   const planned: Array<{ payload: MemoryCreateParams }> = [];
   let filesScanned = 0;
@@ -155,8 +175,7 @@ export async function runSlabImport(
       }
     }
   } catch (error) {
-    progress?.stop();
-    handleError(error, fmt, { creds, scope: "space" });
+    await failAndClean(error);
   }
 
   // Dedup on the (tree, name) idempotency key — defensive; the sorted walk
@@ -168,27 +187,35 @@ export async function runSlabImport(
 
   let inserted = 0;
   let skipped = 0;
-  if (opts.dryRun) {
-    inserted = unique.length;
-  } else if (unique.length > 0) {
-    const result = await batchCreateChunked(
-      engine,
-      unique.map((p) => p.payload),
-      { onConflict: "replace" },
-    );
-    // A post "imported" if it was inserted or re-rendered; skipped = unchanged.
-    inserted = result.results.filter(
-      (r) => r.status === "inserted" || r.status === "updated",
-    ).length;
-    skipped = result.results.filter((r) => r.status === "skipped").length;
-    for (const e of result.errors) {
-      errors.push({ source: `chunk ${e.chunkIndex}`, error: e.error });
+  try {
+    if (opts.dryRun) {
+      inserted = unique.length;
+    } else if (unique.length > 0) {
+      const result = await batchCreateChunked(
+        engine,
+        unique.map((p) => p.payload),
+        { onConflict: "replace" },
+      );
+      // A post "imported" if inserted or re-rendered; skipped = unchanged.
+      inserted = result.results.filter(
+        (r) => r.status === "inserted" || r.status === "updated",
+      ).length;
+      skipped = result.results.filter((r) => r.status === "skipped").length;
+      for (const e of result.errors) {
+        errors.push({ source: `chunk ${e.chunkIndex}`, error: e.error });
+      }
     }
+  } catch (error) {
+    await failAndClean(error);
   }
   progress?.stop();
 
+  // Success path: remove the temp dir before rendering + exiting.
+  await resolved.cleanup();
+
   const structured: SlabImportResult = {
-    source: dir,
+    // Report the original source the user passed, not the temp extraction dir.
+    source: opts.source,
     treeRoot: opts.treeRoot,
     dryRun: opts.dryRun,
     filesScanned,
@@ -216,8 +243,8 @@ export async function runSlabImport(
 /** `me import slab` subcommand factory. */
 export function createSlabImportCommand(): Command {
   return new Command("slab")
-    .description("import a Slab knowledge-base export (directory of markdown)")
-    .argument("<dir>", "path to the Slab export directory")
+    .description("import a Slab knowledge-base export (a directory or .zip)")
+    .argument("<source>", "path to the Slab export directory or .zip file")
     .option(
       "--tree-root <path>",
       `tree root under which the topic hierarchy is placed (default: ${DEFAULT_SLAB_TREE_ROOT})`,
@@ -235,8 +262,8 @@ export function createSlabImportCommand(): Command {
       "parse and report what would be imported without writing",
     )
     .option("-v, --verbose", "per-file progress output")
-    .action(async (dirArg: string, opts, cmdRef) => {
+    .action(async (sourceArg: string, opts, cmdRef) => {
       const globalOpts = cmdRef.optsWithGlobals();
-      await runSlabImport(dirArg, opts, globalOpts);
+      await runSlabImport(sourceArg, opts, globalOpts);
     });
 }

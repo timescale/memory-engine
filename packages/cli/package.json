@@ -19,6 +19,7 @@
     "@memory.build/protocol": "workspace:*",
     "@modelcontextprotocol/sdk": "^1.25.3",
     "commander": "^14.0.0",
+    "fflate": "^0.8.2",
     "openid-client": "^6.8.4",
     "yaml": "^2.7.0",
     "zod": "^4.0.0"
