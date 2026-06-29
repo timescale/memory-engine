@@ -150,3 +150,10 @@ the CLI are separate processes.
 - **Version mismatch errors** at login or on RPC calls usually mean the CLI and
   server were built from different commits. Rebuild both from the same
   `server/v*` tag (see [step 0](#0-get-the-code-at-a-tagged-release)).
+- **Embedding provider rate limits (HTTP 429).** The embedding worker backs off
+  and retries on its own — its visibility-timeout requeue plus a pool-wide
+  backoff are the single retry authority — so `EMBEDDING_MAX_RETRIES` defaults
+  to `0` (the Vercel AI SDK's own internal retry ladder is disabled). Leave it
+  at `0`; under a sustained 429 the worker pauses and resumes automatically when
+  the provider recovers. Set it `>0` only if you specifically want the SDK to
+  retry individual calls on top of the worker's own logic.
