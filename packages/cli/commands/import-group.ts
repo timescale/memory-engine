@@ -9,6 +9,7 @@
  *   me import opencode            OpenCode sessions
  *   me import git [repo]          git commit history
  *   me import granola             Granola meeting notes & transcripts
+ *   me import slab <dir>          Slab knowledge-base export
  *
  * There is deliberately no bare default: `me import <file>` does not parse.
  * The pre-group spellings stay registered as aliases built from the same
@@ -25,6 +26,7 @@ import {
 import { createGitImportCommand } from "./import-git.ts";
 import { createGitHookCommand } from "./import-git-hook.ts";
 import { createGranolaImportCommand } from "./import-granola.ts";
+import { createSlabImportCommand } from "./import-slab.ts";
 import { createMemoryImportCommand } from "./memory-import.ts";
 
 export function createImportCommand(): Command {
@@ -38,6 +40,7 @@ export function createImportCommand(): Command {
   imp.addCommand(createGranolaImportCommand());
   imp.addCommand(createGitImportCommand());
   imp.addCommand(createGitHookCommand());
+  imp.addCommand(createSlabImportCommand());
   imp.addHelpText(
     "after",
     "\nTo import memory files (the old `me import <file>`), use: me import memories <file>",
