@@ -23,7 +23,7 @@
     },
     "packages/cli": {
       "name": "@memory.build/cli",
-      "version": "0.2.6",
+      "version": "0.3.4",
       "bin": {
         "me": "./index.ts",
       },
@@ -34,6 +34,7 @@
         "@memory.build/protocol": "workspace:*",
         "@modelcontextprotocol/sdk": "^1.25.3",
         "commander": "^14.0.0",
+        "fflate": "^0.8.2",
         "openid-client": "^6.8.4",
         "yaml": "^2.7.0",
         "zod": "^4.0.0",
@@ -41,7 +42,7 @@
     },
     "packages/client": {
       "name": "@memory.build/client",
-      "version": "0.2.6",
+      "version": "0.3.4",
       "dependencies": {
         "@memory.build/protocol": "workspace:*",
       },
@@ -95,7 +96,7 @@
     },
     "packages/embedding": {
       "name": "@memory.build/embedding",
-      "version": "0.2.5",
+      "version": "0.3.0",
       "dependencies": {
         "@ai-sdk/openai": "^3.0.0",
         "@pydantic/logfire-node": "^0.13.1",
@@ -104,7 +105,7 @@
     },
     "packages/engine": {
       "name": "@memory.build/engine",
-      "version": "0.2.5",
+      "version": "0.3.0",
       "dependencies": {
         "@memory.build/database": "workspace:*",
         "@pydantic/logfire-node": "^0.13.1",
@@ -113,7 +114,7 @@
     },
     "packages/protocol": {
       "name": "@memory.build/protocol",
-      "version": "0.2.6",
+      "version": "0.3.4",
       "dependencies": {
         "zod": "^4.0.0",
       },
@@ -126,7 +127,7 @@
     },
     "packages/server": {
       "name": "memory-engine-server",
-      "version": "0.2.5",
+      "version": "0.3.0",
       "dependencies": {
         "@better-auth/oauth-provider": "1.6.20",
         "@memory.build/database": "workspace:*",
@@ -175,7 +176,7 @@
     },
     "packages/worker": {
       "name": "@memory.build/worker",
-      "version": "0.2.5",
+      "version": "0.3.0",
       "dependencies": {
         "@memory.build/database": "workspace:*",
         "@memory.build/embedding": "workspace:*",
@@ -951,6 +952,8 @@
     "fast-wrap-ansi": ["fast-wrap-ansi@0.1.6", "", { "dependencies": { "fast-string-width": "^1.1.0" } }, "sha512-HlUwET7a5gqjURj70D5jl7aC3Zmy4weA1SHUfM0JFI0Ptq987NH2TwbBFLoERhfwk+E+eaq4EK3jXoT+R3yp3w=="],
 
     "fdir": ["fdir@6.5.0", "", { "peerDependencies": { "picomatch": "^3 || ^4" }, "optionalPeers": ["picomatch"] }, "sha512-tIbYtZbucOs0BRGqPJkshJUYdL+SDH7dVM8gjy+ERp3WAUjLEFJE+02kanyHtwjWOnwrKYBiwAmM0p4kLJAnXg=="],
+
+    "fflate": ["fflate@0.8.3", "", {}, "sha512-tbZNuJrLwGUp3zshBtdy4W+ORxZuIh8a5ilyIEQDC5rY1f3U20JMry0Ll3WBzU58EZKsEuJFXhb5gwv8CsPvgA=="],
 
     "finalhandler": ["finalhandler@2.1.1", "", { "dependencies": { "debug": "^4.4.0", "encodeurl": "^2.0.0", "escape-html": "^1.0.3", "on-finished": "^2.4.1", "parseurl": "^1.3.3", "statuses": "^2.0.1" } }, "sha512-S8KoZgRZN+a5rNwqTxlZZePjT/4cnm0ROV70LedRHZ0p8u9fRID0hJUZQpkKLzro8LfmC8sx23bY6tVNxv8pQA=="],
 

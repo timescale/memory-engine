@@ -11,7 +11,7 @@ Get data into Memory Engine — one subcommand per source.
 - [me import granola](#me-import-granola) -- import Granola meeting notes and transcripts
 - [me import git](#me-import-git) -- import a repo's git commit history
 - [me import git-hook](#me-import-git-hook) -- install a post-commit hook that keeps git history memories current
-- [me import slab](#me-import-slab) -- import a Slab knowledge-base export (directory of markdown)
+- [me import slab](#me-import-slab) -- import a Slab knowledge-base export (a directory or `.zip`)
 
 There is no bare default: `me import <file>` does not parse — use `me import memories <file>`.
 
@@ -197,17 +197,19 @@ me import git                # later: walks only commits since the last import
 
 ## me import slab
 
-Import a [Slab](https://slab.com/) knowledge-base export — a directory of markdown posts laid out in topic folders — as one memory per post. Slab's topic hierarchy becomes the tree path, so the whole wiki is browsable (`me memory tree`) and searchable (hybrid BM25 + semantic) in one space.
+Import a [Slab](https://slab.com/) knowledge-base export — markdown posts laid out in topic folders — as one memory per post. Slab's topic hierarchy becomes the tree path, so the whole wiki is browsable (`me memory tree`) and searchable (hybrid BM25 + semantic) in one space.
 
-The export is an unzipped Slab export: nested folders of `.md` files (one per post, mirroring Slab's topic hierarchy), with no per-file frontmatter. Unlike [`me import memories`](#me-import-memories) (which needs frontmatter and otherwise flattens everything into `share`), this command derives the tree, name, title, and temporal from the filesystem layout itself.
+The source is a Slab export: nested folders of `.md` files (one per post, mirroring Slab's topic hierarchy), with no per-file frontmatter. Unlike [`me import memories`](#me-import-memories) (which needs frontmatter and otherwise flattens everything into `share`), this command derives the tree, name, title, and temporal from the filesystem layout itself.
+
+The source may be either an already-unzipped **directory** or the raw **`.zip`** export — a zip is detected by its contents (not just the `.zip` extension), extracted into a temporary directory (only `.md` entries; auto-removed when the import finishes), and imported exactly like a directory. If the zip wraps everything in a single top-level folder, that wrapper is stripped so topics still map directly under the tree root.
 
 ```
-me import slab <dir> [options]
+me import slab <source> [options]
 ```
 
 | Argument | Required | Description |
 |----------|----------|-------------|
-| `dir` | yes | Path to the Slab export directory. |
+| `source` | yes | Path to the Slab export — a directory, or a `.zip` file. |
 
 | Option | Description |
 |--------|-------------|
@@ -252,9 +254,10 @@ Temporal is a point-in-time parsed from a leading `YYYY-MM-DD`, `YYYY.MM.DD`, or
 ### Example
 
 ```bash
-me import slab ./data --dry-run -v        # preview the tree + names
-me import slab ./data                      # import under /share/slab
-me memory tree /share/slab --levels 2      # browse the reconstructed topics
+me import slab ./export.zip --dry-run -v   # preview straight from the zip
+me import slab ./export.zip                 # extract + import under /share/slab
+me import slab ./data                       # or from an already-unzipped dir
+me memory tree /share/slab --levels 2       # browse the reconstructed topics
 ```
 
 Everything lands under one tree root, so the import is reversible — `me memory deltree /share/slab` removes it cleanly.

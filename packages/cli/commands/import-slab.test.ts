@@ -15,7 +15,7 @@ describe("buildSlabImportOptions", () => {
   test("applies defaults", () => {
     const opts = buildSlabImportOptions("/data", {});
     expect(opts).toEqual({
-      dir: "/data",
+      source: "/data",
       treeRoot: "share.slab",
       uncategorizedNode: "uncategorized",
       parseTemporal: true,
@@ -25,13 +25,14 @@ describe("buildSlabImportOptions", () => {
   });
 
   test("maps flags through", () => {
-    const opts = buildSlabImportOptions("/data", {
+    const opts = buildSlabImportOptions("/data.zip", {
       treeRoot: "~/kb",
       uncategorizedNode: "misc",
       temporal: false, // --no-temporal
       dryRun: true,
       verbose: true,
     });
+    expect(opts.source).toBe("/data.zip");
     expect(opts.treeRoot).toBe("~/kb");
     expect(opts.uncategorizedNode).toBe("misc");
     expect(opts.parseTemporal).toBe(false);
