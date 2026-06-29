@@ -42,6 +42,15 @@ describe("getTokenizerThreadCount", () => {
       "EMBEDDING_TOKENIZE_THREADS must be a non-negative integer",
     );
   });
+
+  test("rejects non-integer values rather than silently truncating", () => {
+    for (const raw of ["1.5", "2abc", "-1"]) {
+      process.env.EMBEDDING_TOKENIZE_THREADS = raw;
+      expect(() => getTokenizerThreadCount()).toThrow(
+        "EMBEDDING_TOKENIZE_THREADS must be a non-negative integer",
+      );
+    }
+  });
 });
 
 describe("truncateTextsToTokenLimit", () => {
