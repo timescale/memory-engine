@@ -34,13 +34,23 @@ describe.skipIf(!process.env.TEST_CI && !RUN_OPENAI_INTEGRATION)(
       expect(result.tokens).toBeGreaterThan(0);
     });
 
-    test("generateEmbedding truncates long text with character estimate", async () => {
+    test("generateEmbedding truncates long text to the exact token limit", async () => {
       // Create text that would exceed 8191 tokens (~32K chars)
       const longText = "Hello world. ".repeat(4000); // ~52K chars
 
       const result = await generateEmbedding(longText, openaiConfig);
       expect(result.embedding.length).toBe(1536);
-      // Should succeed without error due to truncation
+      // Should succeed without error due to exact token-based truncation
+    });
+
+    test("generateEmbedding embeds token-dense content that would exceed the limit", async () => {
+      // Dense CJK content: ~1 token/char, so this far exceeds 8191 tokens and
+      // would have failed the old char-based truncation (which assumed ~2.5+
+      // chars/token). Exact token truncation must keep it under the limit.
+      const dense = "あ".repeat(20000);
+
+      const result = await generateEmbedding(dense, openaiConfig);
+      expect(result.embedding.length).toBe(1536);
     });
 
     test("generateEmbeddings handles batch with truncation", async () => {
@@ -306,7 +316,7 @@ describe("rate limit handling", () => {
     }
   });
 
-  test("batch maximum input length errors fall back to individual retries", async () => {
+  test("batch context-length error falls back to individual requests", async () => {
     const requests: string[] = [];
     const mockEmbedding = Array.from({ length: 1536 }, (_, i) => i * 0.001);
     const server = Bun.serve({
@@ -316,25 +326,15 @@ describe("rate limit handling", () => {
         const input = Array.isArray(body.input) ? body.input[0] : body.input;
         requests.push(input ?? "");
 
+        // First request is the batch — fail it with a context-length error so
+        // the OpenAI individual-fallback path engages. Individual requests
+        // (already token-truncated) succeed.
         if (requests.length === 1) {
           return new Response(
             JSON.stringify({
               error: {
                 message:
                   "Invalid 'input[0]': maximum input length is 8192 tokens.",
-                type: "invalid_request_error",
-              },
-            }),
-            { status: 400 },
-          );
-        }
-
-        if ((input?.length ?? 0) > 300) {
-          return new Response(
-            JSON.stringify({
-              error: {
-                message:
-                  "Invalid 'input': maximum input length is 8192 tokens.",
                 type: "invalid_request_error",
               },
             }),
@@ -370,10 +370,64 @@ describe("rate limit handling", () => {
       expect(results[0]?.error).toBeUndefined();
       expect(results[0]?.embedding).toHaveLength(1536);
 
-      // 1 batch request, then individual retries at 3.8 and 3.0 chars/token.
-      expect(requests).toHaveLength(3);
-      expect(requests[1]).toBe("x".repeat(350));
-      expect(requests[2]).toBe("x".repeat(300));
+      // 1 batch request + 1 individual fallback request (no char-ratio retries).
+      expect(requests).toHaveLength(2);
+      // The fallback input was token-truncated below the original length.
+      expect(requests[1]?.length ?? 0).toBeLessThanOrEqual(350);
+    } finally {
+      server.stop();
+    }
+  });
+
+  test("generateEmbedding retries once on a context-length error", async () => {
+    const requests: string[] = [];
+    const mockEmbedding = Array.from({ length: 1536 }, (_, i) => i * 0.001);
+    const server = Bun.serve({
+      port: 0,
+      async fetch(req) {
+        const body = (await req.json()) as { input: string | string[] };
+        const input = Array.isArray(body.input) ? body.input[0] : body.input;
+        requests.push(input ?? "");
+
+        // First attempt: pretend the API counted more tokens than we targeted.
+        // The defensive retry re-truncates and succeeds.
+        if (requests.length === 1) {
+          return new Response(
+            JSON.stringify({
+              error: {
+                message:
+                  "Invalid 'input': maximum input length is 8192 tokens.",
+                type: "invalid_request_error",
+              },
+            }),
+            { status: 400 },
+          );
+        }
+
+        return Response.json({
+          object: "list",
+          data: [{ object: "embedding", embedding: mockEmbedding, index: 0 }],
+          model: "text-embedding-3-small",
+          usage: { prompt_tokens: 5, total_tokens: 5 },
+        });
+      },
+    });
+
+    try {
+      const config: EmbeddingConfig = {
+        provider: "openai",
+        model: "text-embedding-3-small",
+        dimensions: 1536,
+        apiKey: "test-key",
+        baseUrl: `http://localhost:${server.port}/v1`,
+        options: { maxRetries: 0, maxTokens: 300 },
+      };
+
+      const result = await generateEmbedding("x".repeat(1000), config);
+
+      expect(result.embedding).toHaveLength(1536);
+      // One failed attempt + one successful defensive retry.
+      expect(requests).toHaveLength(2);
     } finally {
       server.stop();
     }

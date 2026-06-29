@@ -38,7 +38,8 @@ export {
 export {
   DEFAULT_CHARS_PER_TOKEN,
   MAX_OPENAI_TOKENS,
-  TRUNCATION_RATIOS,
+  safeCharFloor,
   type TruncateResult,
   truncateText,
+  truncateToTokenLimit,
 } from "./truncate";

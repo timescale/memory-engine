@@ -6,8 +6,30 @@ import {
   RateLimitError,
 } from "./errors";
 import { getEmbeddingModel } from "./provider";
-import { MAX_OPENAI_TOKENS, TRUNCATION_RATIOS, truncateText } from "./truncate";
+import {
+  MAX_OPENAI_TOKENS,
+  safeCharFloor,
+  truncateText,
+  truncateToTokenLimit,
+} from "./truncate";
 import type { EmbeddingConfig, EmbedResult, MemoryRow } from "./types";
+
+/**
+ * Yield to the event loop so a long batch of synchronous tokenization doesn't
+ * monopolize the loop (the embedding worker runs in-process with the API
+ * server). `setImmediate` runs after pending I/O callbacks, giving requests a
+ * chance to be serviced between encodes.
+ */
+function yieldToEventLoop(): Promise<void> {
+  return new Promise((resolve) => setImmediate(resolve));
+}
+
+/**
+ * On a context-length error the API counts more tokens than our truncation
+ * targeted (rare edge cases). Re-truncate with a small safety margin below the
+ * model limit before the single defensive retry.
+ */
+const RETRY_TOKEN_MARGIN = 100;
 
 // =============================================================================
 // Embed Options
@@ -132,9 +154,11 @@ async function generateEmbeddingOnce(
  *
  * Used for search queries where we need to embed the query text.
  *
- * All providers get character-based truncation as a defensive measure.
- * For OpenAI, also retries with progressively tighter ratios (3.0, 2.5)
- * if the initial estimate (3.8 chars/token) isn't aggressive enough.
+ * OpenAI gets exact, token-based truncation (cl100k_base) so the input is
+ * guaranteed to fit the model limit; other providers get character-based
+ * truncation as a defensive measure. On the rare context-length error (the API
+ * counting tokens slightly differently), OpenAI retries once after re-truncating
+ * with a small safety margin.
  *
  * @throws Error if embedding generation fails or dimensions don't match
  */
@@ -152,36 +176,36 @@ export async function generateEmbedding(
     callback: async () => {
       const maxTokens = config.options?.maxTokens ?? MAX_OPENAI_TOKENS;
 
-      // Ollama: truncate defensively, single attempt
+      // Non-OpenAI (e.g. Ollama): char-based defensive truncation, single attempt
       if (config.provider !== "openai") {
         const { text: truncated } = truncateText(text, maxTokens);
         return generateEmbeddingOnce(truncated, config);
       }
 
-      // OpenAI: try with progressively tighter truncation ratios
-      for (const ratio of TRUNCATION_RATIOS) {
-        const { text: truncated } = truncateText(text, maxTokens, ratio);
+      // OpenAI: exact token-based truncation guarantees the input fits.
+      const { text: truncated } = truncateToTokenLimit(text, maxTokens);
 
-        try {
-          return await generateEmbeddingOnce(truncated, config);
-        } catch (error) {
-          // Rate limit — stop immediately, don't retry with different truncation
-          if (isRateLimitError(error)) {
-            throw new RateLimitError(
-              "Rate limited by embedding provider",
-              extractRetryAfterMs(error),
-            );
-          }
-          if (!isContextLengthError(error)) {
-            throw error;
-          }
-          // Context length error — try next ratio
+      try {
+        return await generateEmbeddingOnce(truncated, config);
+      } catch (error) {
+        if (isRateLimitError(error)) {
+          throw new RateLimitError(
+            "Rate limited by embedding provider",
+            extractRetryAfterMs(error),
+          );
         }
-      }
+        if (!isContextLengthError(error)) {
+          throw error;
+        }
 
-      throw new Error(
-        "Failed to embed: text exceeds maximum context length even with aggressive truncation",
-      );
+        // Defensive retry: the API counted more tokens than we targeted.
+        // Re-truncate below the limit and try once more.
+        const { text: retruncated } = truncateToTokenLimit(
+          text,
+          Math.max(1, maxTokens - RETRY_TOKEN_MARGIN),
+        );
+        return generateEmbeddingOnce(retruncated, config);
+      }
     },
   });
 }
@@ -196,7 +220,8 @@ export async function generateEmbedding(
  * Used by the embedding worker for background batch processing.
  *
  * Strategy:
- * 1. Pre-truncate all texts using character estimate (all providers)
+ * 1. Pre-truncate all texts — exact token-based for OpenAI, char estimate
+ *    otherwise — yielding to the event loop between encodes
  * 2. Try batch API (embedMany) first for efficiency
  * 3. On context length error (OpenAI), fall back to individual requests with retry
  * 4. On other batch failures, fall back to individual requests
@@ -223,10 +248,23 @@ export async function generateEmbeddings(
       const model = getEmbeddingModel(config);
       const maxTokens = config.options?.maxTokens ?? MAX_OPENAI_TOKENS;
 
-      // Pre-truncate all providers defensively
-      const texts = rows.map(
-        (row) => truncateText(row.content, maxTokens).text,
-      );
+      // Pre-truncate every row before hitting the API. OpenAI uses exact
+      // token-based truncation (cl100k_base); other providers use the char
+      // estimate. Tokenization is CPU-bound and this worker runs in-process
+      // with the API server, so yield to the event loop between the rows that
+      // actually need encoding (small rows skip the tokenizer entirely).
+      const floor = safeCharFloor(maxTokens);
+      const texts: string[] = [];
+      for (const row of rows) {
+        if (config.provider === "openai") {
+          if (row.content.length > floor) {
+            await yieldToEventLoop();
+          }
+          texts.push(truncateToTokenLimit(row.content, maxTokens).text);
+        } else {
+          texts.push(truncateText(row.content, maxTokens).text);
+        }
+      }
 
       const results: EmbedResult[] = [];
 

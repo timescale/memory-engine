@@ -23,7 +23,7 @@
     },
     "packages/cli": {
       "name": "@memory.build/cli",
-      "version": "0.2.6",
+      "version": "0.3.4",
       "bin": {
         "me": "./index.ts",
       },
@@ -41,7 +41,7 @@
     },
     "packages/client": {
       "name": "@memory.build/client",
-      "version": "0.2.6",
+      "version": "0.3.4",
       "dependencies": {
         "@memory.build/protocol": "workspace:*",
       },
@@ -95,16 +95,17 @@
     },
     "packages/embedding": {
       "name": "@memory.build/embedding",
-      "version": "0.2.5",
+      "version": "0.3.0",
       "dependencies": {
         "@ai-sdk/openai": "^3.0.0",
         "@pydantic/logfire-node": "^0.13.1",
         "ai": "^6.0.0",
+        "gpt-tokenizer": "^3.4.0",
       },
     },
     "packages/engine": {
       "name": "@memory.build/engine",
-      "version": "0.2.5",
+      "version": "0.3.0",
       "dependencies": {
         "@memory.build/database": "workspace:*",
         "@pydantic/logfire-node": "^0.13.1",
@@ -113,7 +114,7 @@
     },
     "packages/protocol": {
       "name": "@memory.build/protocol",
-      "version": "0.2.6",
+      "version": "0.3.4",
       "dependencies": {
         "zod": "^4.0.0",
       },
@@ -126,7 +127,7 @@
     },
     "packages/server": {
       "name": "memory-engine-server",
-      "version": "0.2.5",
+      "version": "0.3.0",
       "dependencies": {
         "@better-auth/oauth-provider": "1.6.20",
         "@memory.build/database": "workspace:*",
@@ -175,7 +176,7 @@
     },
     "packages/worker": {
       "name": "@memory.build/worker",
-      "version": "0.2.5",
+      "version": "0.3.0",
       "dependencies": {
         "@memory.build/database": "workspace:*",
         "@memory.build/embedding": "workspace:*",
@@ -983,6 +984,8 @@
     "google-logging-utils": ["google-logging-utils@0.0.2", "", {}, "sha512-NEgUnEcBiP5HrPzufUkBzJOD/Sxsco3rLNo1F1TNf7ieU8ryUzBhqba8r756CjLX7rn3fHl6iLEwPYuqpoKgQQ=="],
 
     "gopd": ["gopd@1.2.0", "", {}, "sha512-ZUKRh6/kUFoAiTAtTYPZJ3hw9wNxx+BIBOijnlG9PnrJsCcSjs1wyyD6vJpaYtgnzDrKYRSqf3OO6Rfa93xsRg=="],
+
+    "gpt-tokenizer": ["gpt-tokenizer@3.4.0", "", {}, "sha512-wxFLnhIXTDjYebd9A9pGl3e31ZpSypbpIJSOswbgop5jLte/AsZVDvjlbEuVFlsqZixVKqbcoNmRlFDf6pz/UQ=="],
 
     "graceful-fs": ["graceful-fs@4.2.11", "", {}, "sha512-RbJ5/jmFcNNCcDV5o9eTnBLJ/HszWV0P73bc+Ff4nS/rJj+YaS6IGyiOL0VoBYX+l1Wrl3k63h/KrH+nhJ0XvQ=="],
 
