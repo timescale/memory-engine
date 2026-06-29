@@ -85,13 +85,16 @@ export function buildEmbeddingConfig(): EmbeddingConfig {
       "0",
     );
   }
-  if (process.env.EMBEDDING_MAX_RETRIES) {
-    options.maxRetries = parseIntEnv(
-      "EMBEDDING_MAX_RETRIES",
-      process.env.EMBEDDING_MAX_RETRIES,
-      "0",
-    );
-  }
+  // Default to 0: the worker's own visibility-timeout requeue + the pool-wide
+  // rate-limit backoff are the single retry authority, so the AI SDK's internal
+  // retry ladder (default 2 → 3 attempts) is redundant and actively harmful
+  // during a provider 429 — it multiplies the calls behind every surfaced
+  // error. Set EMBEDDING_MAX_RETRIES explicitly to re-enable SDK retries.
+  options.maxRetries = parseIntEnv(
+    "EMBEDDING_MAX_RETRIES",
+    process.env.EMBEDDING_MAX_RETRIES || "",
+    "0",
+  );
   if (process.env.EMBEDDING_MAX_PARALLEL_CALLS) {
     options.maxParallelCalls = parseIntEnv(
       "EMBEDDING_MAX_PARALLEL_CALLS",
