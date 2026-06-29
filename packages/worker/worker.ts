@@ -257,7 +257,7 @@ async function run(
           // Publish the backoff window to the shared gate so the other workers
           // in the pool stand down too, instead of each discovering the 429
           // independently and amplifying it.
-          gate.until = Date.now() + backoffMs;
+          gate.until = Math.max(gate.until, Date.now() + backoffMs);
           warning("Rate limited by embedding provider, backing off", {
             backoffMs,
             retryAfterMs: error.retryAfterMs,
