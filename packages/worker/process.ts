@@ -6,6 +6,7 @@ import {
 } from "@memory.build/embedding";
 import { info, span, warning } from "@pydantic/logfire-node";
 import type { Sql } from "postgres";
+import { rateLimitBackoffMs } from "./backoff";
 import {
   DEFAULT_WORKER_TIMEOUTS,
   type ProcessResult,
@@ -159,13 +160,17 @@ export async function processBatch(
       } catch (error) {
         if (error instanceof RateLimitError) {
           // Undo the attempt increment from claim — rate limits are transient
-          // and should not consume the attempt budget.
+          // and should not consume the attempt budget — and defer the row's
+          // visibility by the same backoff the worker loop sleeps, so another
+          // worker can't re-claim it mid-backoff and re-trigger the 429.
+          const backoffMs = rateLimitBackoffMs(error.retryAfterMs);
           await sql.begin(async (tx) => {
             await prepareTx(tx as unknown as Sql, schema, timeouts);
             for (const row of claimed) {
-              await tx.unsafe(`SELECT ${schema}.release_embedding($1)`, [
-                row.queue_id,
-              ]);
+              await tx.unsafe(
+                `SELECT ${schema}.release_embedding($1, $2::interval)`,
+                [row.queue_id, `${backoffMs} milliseconds`],
+              );
             }
           });
         }
