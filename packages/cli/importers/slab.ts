@@ -183,7 +183,10 @@ export function treeForDir(relDir: string, ctx: SlabMemoryContext): string {
   if (relDir === "" || relDir === ".") {
     return `${ctx.treeRoot}.${ctx.uncategorizedNode}`;
   }
-  const labels = relDir.split(/[\\/]+/).filter(Boolean).map(normalizeTreeLabel);
+  const labels = relDir
+    .split(/[\\/]+/)
+    .filter(Boolean)
+    .map(normalizeTreeLabel);
   return [ctx.treeRoot, ...labels].join(".");
 }
 
