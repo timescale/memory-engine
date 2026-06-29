@@ -1,11 +1,18 @@
 /**
  * HTTP server powering `me serve`.
  *
- * Two concerns:
+ * Concerns:
  *
  * 1. Serve the embedded web UI (Vite build).
  * 2. Proxy `POST /rpc` to the space memory JSON-RPC endpoint, injecting the
  *    session token (Authorization: Bearer) and the active space (X-Me-Space).
+ *    A browser-sent `X-Me-Space` overrides the bound space, so the web UI's
+ *    space switcher works in local mode; the bound space is the fallback.
+ * 3. Proxy `POST /api/v1/user/rpc` to the user JSON-RPC endpoint (whoami /
+ *    space discovery), session-scoped and space-agnostic, so the web UI can
+ *    show the signed-in account + a space picker in local mode.
+ * 4. Answer `GET /api/serve-context` with the bound space, so the browser
+ *    (which otherwise can't know it) can display + default to it.
  *
  * The proxy is intentionally transparent — it forwards request bodies
  * byte-for-byte and streams responses back, so any `memory.*` (and management)
@@ -34,10 +41,13 @@ export interface ServeOptions {
 }
 
 /**
- * Path on the remote server where the space memory JSON-RPC endpoint lives.
- * Kept as a constant so tests can assert the exact URL.
+ * Paths on the remote server. Kept as constants so tests can assert exact URLs.
  */
 export const MEMORY_RPC_PATH = "/api/v1/memory/rpc";
+export const USER_RPC_PATH = "/api/v1/user/rpc";
+
+/** Local-only endpoint exposing the bound space to the browser. */
+export const SERVE_CONTEXT_PATH = "/api/serve-context";
 
 export interface RunningServer {
   /** The URL the server is listening on (e.g., http://127.0.0.1:3000). */
@@ -65,24 +75,31 @@ export function startHttpServer(options: ServeOptions): RunningServer {
         return Response.json({ ok: true });
       }
 
-      // `/rpc` proxy — forwards JSON-RPC bodies to the configured engine,
-      // injecting the stored API key. The browser never sees the key.
+      // The bound space, so the web UI's account cluster can display + default
+      // to it in local mode (the browser otherwise can't know it).
+      if (req.method === "GET" && url.pathname === SERVE_CONTEXT_PATH) {
+        return Response.json({ space: options.space });
+      }
+
+      // `/rpc` proxy — forwards memory JSON-RPC bodies to the configured engine,
+      // injecting the bearer (the browser never sees it). The space comes from a
+      // browser-sent X-Me-Space (the space switcher) and falls back to the bound
+      // space.
       if (url.pathname === "/rpc") {
-        if (req.method !== "POST") {
-          return new Response("Method Not Allowed", {
-            status: 405,
-            headers: { Allow: "POST" },
-          });
-        }
-        return proxyRpc(req, options);
+        if (req.method !== "POST") return methodNotAllowed("POST");
+        const space = req.headers.get(SPACE_HEADER) || options.space;
+        return proxyJsonRpc(req, options, MEMORY_RPC_PATH, space);
+      }
+
+      // User RPC (whoami / space discovery) — session-scoped, no space header.
+      if (url.pathname === USER_RPC_PATH) {
+        if (req.method !== "POST") return methodNotAllowed("POST");
+        return proxyJsonRpc(req, options, USER_RPC_PATH);
       }
 
       // Everything else: serve embedded assets with SPA fallback to index.html.
       if (req.method !== "GET" && req.method !== "HEAD") {
-        return new Response("Method Not Allowed", {
-          status: 405,
-          headers: { Allow: "GET, HEAD" },
-        });
+        return methodNotAllowed("GET, HEAD");
       }
       return resolveAssetResponse(url.pathname);
     },
@@ -109,22 +126,35 @@ export function startHttpServer(options: ServeOptions): RunningServer {
  * Strategy: briefly bind with `Bun.serve` (no handler work) and immediately
  * stop. Binding is the only reliable "is it free?" check on most platforms.
  */
+function methodNotAllowed(allow: string): Response {
+  return new Response("Method Not Allowed", {
+    status: 405,
+    headers: { Allow: allow },
+  });
+}
+
 /**
- * Forward a `/rpc` request to the configured engine's JSON-RPC endpoint.
+ * Forward a JSON-RPC request to one of the configured engine's endpoints
+ * (`MEMORY_RPC_PATH` or `USER_RPC_PATH`).
  *
  * The body is buffered (not streamed) so that a 401 — an expired access token —
  * can be retried once with a freshly refreshed bearer. The engine's JSON-RPC
  * response is streamed back to the browser verbatim.
  *
+ * `space` is sent as `X-Me-Space` for the memory endpoint; the user endpoint is
+ * space-agnostic and passes `undefined`.
+ *
  * Errors talking to the remote engine surface as a JSON-RPC-shaped 502 so
  * the web UI can render them through the same error path as normal RPC
  * failures.
  */
-async function proxyRpc(
+async function proxyJsonRpc(
   req: Request,
   options: ServeOptions,
+  path: string,
+  space?: string,
 ): Promise<Response> {
-  const targetUrl = new URL(MEMORY_RPC_PATH, options.server).toString();
+  const targetUrl = new URL(path, options.server).toString();
   const contentType = req.headers.get("Content-Type");
   // Buffer the body so a 401 refresh can replay it (JSON-RPC bodies are small).
   const body = await req.arrayBuffer();
@@ -135,7 +165,7 @@ async function proxyRpc(
     const outHeaders = new Headers();
     if (contentType) outHeaders.set("Content-Type", contentType);
     if (token) outHeaders.set("Authorization", `Bearer ${token}`);
-    outHeaders.set(SPACE_HEADER, options.space);
+    if (space) outHeaders.set(SPACE_HEADER, space);
     outHeaders.set("Accept", "application/json");
     return fetch(targetUrl, { method: "POST", headers: outHeaders, body });
   };
@@ -167,7 +197,7 @@ async function proxyRpc(
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    console.error(`[me serve] /rpc proxy failure: ${message}`);
+    console.error(`[me serve] proxy failure for ${path}: ${message}`);
     return Response.json(
       {
         jsonrpc: "2.0",

@@ -24,6 +24,12 @@ export interface AccountInfo {
   space: string;
   onChooseSpace: (slug: string) => void;
   onLogout: () => void;
+  /**
+   * True in local mode (`me serve`), where the CLI owns the session — there is
+   * no web sign-out, so the cluster hides it. The space switcher still works
+   * (the proxy honors a browser-sent space).
+   */
+  local?: boolean;
 }
 
 const AccountContext = createContext<AccountInfo | null>(null);

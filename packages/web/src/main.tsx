@@ -12,6 +12,7 @@ import { createRoot } from "react-dom/client";
 import { HOSTED } from "./api/bootstrap.ts";
 import { App } from "./app.tsx";
 import { AuthGate } from "./components/AuthGate.tsx";
+import { LocalAccountGate } from "./components/account/LocalAccountGate.tsx";
 import { LoginPage } from "./components/LoginPage.tsx";
 import "./styles.css";
 
@@ -47,7 +48,9 @@ createRoot(rootElement).render(
           <App />
         </AuthGate>
       ) : (
-        <App />
+        <LocalAccountGate>
+          <App />
+        </LocalAccountGate>
       )}
     </QueryClientProvider>
   </StrictMode>,

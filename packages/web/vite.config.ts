@@ -56,6 +56,16 @@ export default defineConfig({
         target: rpcTarget,
         changeOrigin: true,
       },
+      // The user RPC (whoami / space discovery) and the bound-space probe are
+      // served by `me serve` too, so the account cluster works in local mode.
+      "/api/v1/user/rpc": {
+        target: rpcTarget,
+        changeOrigin: true,
+      },
+      "/api/serve-context": {
+        target: rpcTarget,
+        changeOrigin: true,
+      },
     },
   },
   build: {

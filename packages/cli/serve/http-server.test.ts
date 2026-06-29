@@ -10,7 +10,9 @@ import {
   findAvailablePort,
   MEMORY_RPC_PATH,
   type RunningServer,
+  SERVE_CONTEXT_PATH,
   startHttpServer,
+  USER_RPC_PATH,
 } from "./http-server.ts";
 
 interface MockUpstream {
@@ -148,6 +150,50 @@ describe("startHttpServer", () => {
     expect(mock.lastRequest?.headers[SPACE_HEADER.toLowerCase()]).toBe(
       "abc123def456",
     );
+  });
+
+  test("/rpc honors a browser-sent X-Me-Space, overriding the bound space", async () => {
+    await fetch(`${running.url}/rpc`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", [SPACE_HEADER]: "zzz999" },
+      body: "{}",
+    });
+
+    expect(mock.lastRequest?.headers[SPACE_HEADER.toLowerCase()]).toBe(
+      "zzz999",
+    );
+  });
+
+  test("serve-context returns the bound space", async () => {
+    const res = await fetch(`${running.url}${SERVE_CONTEXT_PATH}`);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ space: "abc123def456" });
+  });
+
+  test("/api/v1/user/rpc proxies to the user RPC endpoint with no space header", async () => {
+    const res = await fetch(`${running.url}${USER_RPC_PATH}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "whoami" }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(mock.lastRequest?.path).toBe(USER_RPC_PATH);
+    expect(mock.lastRequest?.headers.authorization).toBe(
+      "Bearer sess-test-token",
+    );
+    // User RPC is space-agnostic — no X-Me-Space should be forwarded.
+    expect(
+      mock.lastRequest?.headers[SPACE_HEADER.toLowerCase()],
+    ).toBeUndefined();
+  });
+
+  test("/api/v1/user/rpc rejects non-POST with 405", async () => {
+    const res = await fetch(`${running.url}${USER_RPC_PATH}`, {
+      method: "GET",
+    });
+    expect(res.status).toBe(405);
+    expect(res.headers.get("Allow")).toBe("POST");
   });
 
   test("/rpc surfaces upstream status codes", async () => {

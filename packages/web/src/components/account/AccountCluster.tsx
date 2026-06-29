@@ -21,13 +21,15 @@ export function AccountCluster() {
       <span className="hidden text-ink/50 sm:inline">
         {account.identity.email}
       </span>
-      <button
-        type="button"
-        onClick={account.onLogout}
-        className="text-ink/50 hover:text-ink hover:underline"
-      >
-        Sign out
-      </button>
+      {!account.local && (
+        <button
+          type="button"
+          onClick={account.onLogout}
+          className="text-ink/50 hover:text-ink hover:underline"
+        >
+          Sign out
+        </button>
+      )}
     </div>
   );
 }
