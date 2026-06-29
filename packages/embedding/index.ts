@@ -31,6 +31,11 @@ export {
   validateConfig,
 } from "./generate";
 
+export {
+  getTokenizerThreadCount,
+  shutdownTokenizerPool,
+} from "./tokenize-pool";
+
 // =============================================================================
 // Truncation
 // =============================================================================

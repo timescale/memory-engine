@@ -15,7 +15,11 @@ import {
   slugToSchema as spaceSlugToSchema,
 } from "@memory.build/database";
 import { reportError } from "@memory.build/database/telemetry";
-import type { EmbeddingConfig } from "@memory.build/embedding";
+import {
+  type EmbeddingConfig,
+  getTokenizerThreadCount,
+  shutdownTokenizerPool,
+} from "@memory.build/embedding";
 import { type CoreStore, coreStore } from "@memory.build/engine/core";
 import {
   DEFAULT_WORKER_TIMEOUTS,
@@ -438,6 +442,9 @@ export async function startServer(
   // Router
   // ---------------------------------------------------------------------------
 
+  const tokenizerThreads = getTokenizerThreadCount();
+  info("Embedding tokenizer configured", { threads: tokenizerThreads });
+
   const context: ServerContext = {
     db: runtimeDb,
     betterAuth,
@@ -585,6 +592,13 @@ export async function startServer(
       info("Embedding worker pool stopped");
     } catch (error) {
       reportError("Error stopping embedding workers", error as Error);
+    }
+
+    try {
+      await shutdownTokenizerPool();
+      info("Embedding tokenizer pool stopped");
+    } catch (error) {
+      reportError("Error stopping embedding tokenizer pool", error as Error);
     }
 
     // Stop background jobs

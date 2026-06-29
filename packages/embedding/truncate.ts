@@ -135,8 +135,8 @@ export function truncateText(
  * encoding the whole string. Small inputs (below `safeCharFloor`) skip the
  * tokenizer entirely.
  *
- * This is synchronous CPU work; callers processing batches should yield to the
- * event loop between calls (see `generateEmbeddings`).
+ * This is synchronous CPU work; callers on latency-sensitive event loops should
+ * run it off-thread (see `tokenize-pool`).
  *
  * @param text - The text to truncate
  * @param maxTokens - Maximum tokens allowed (default: 8191 for OpenAI)

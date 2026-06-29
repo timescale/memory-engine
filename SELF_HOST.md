@@ -51,6 +51,10 @@ cp .env.sample .env
 Set the required values:
 
 - `EMBEDDING_API_KEY` — your OpenAI (or compatible) API key.
+- Optional: `EMBEDDING_TOKENIZE_THREADS` controls worker threads used for OpenAI
+  tokenization/truncation. It auto-sizes by default
+  (`max(1, min(available CPU cores - 1, 4))`); set `0` to run inline in very
+  small environments.
 - `POSTGRES_PASSWORD` — the password for the bundled Postgres container. Use a
   URL-safe value (letters/digits) so it needs no encoding in the connection
   string. `compose.yaml` refuses to start if this is unset.
