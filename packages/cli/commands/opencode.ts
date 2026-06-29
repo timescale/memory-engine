@@ -7,7 +7,6 @@
  * - me opencode import:  bulk-import OpenCode session history
  */
 import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { homedir } from "node:os";
 import { join } from "node:path";
 import * as clack from "@clack/prompts";
 import { Command } from "commander";
@@ -16,6 +15,7 @@ import {
   DIM,
   DIM_OFF,
   type InitStep,
+  type InitStepContext,
   initOutroLead,
   type StepAvailability,
 } from "../agent/init.ts";
@@ -52,6 +52,13 @@ import {
   PLUGIN_MARKER,
   renderPluginSource,
 } from "../opencode/plugin-template.ts";
+import {
+  type OpenCodeScope,
+  openCodeCommandsDir,
+  openCodePluginsDir,
+  openCodeSkillsDir,
+  parseScope,
+} from "../opencode/scope.ts";
 import { memoryBearer } from "../session.ts";
 import { createOpenCodeImportCommand, runAgentImport } from "./import.ts";
 import { runGitImport } from "./import-git.ts";
@@ -64,38 +71,37 @@ const AGENTS_MD_POINTER: MemoryPointerSpec = {
   agentLabel: "OpenCode",
 };
 
-/** The global OpenCode plugins dir where the generated capture plugin lives. */
-function openCodePluginsDir(): string {
-  return join(homedir(), ".config", "opencode", "plugins");
-}
-
-/** Absolute path of the generated capture plugin. */
-function openCodePluginPath(): string {
-  return join(openCodePluginsDir(), PLUGIN_FILENAME);
+/** Absolute path of the generated capture plugin for a scope. */
+function openCodePluginPath(scope: OpenCodeScope, projectRoot: string): string {
+  return join(openCodePluginsDir(scope, projectRoot), PLUGIN_FILENAME);
 }
 
 /** Whether our managed capture plugin is already installed (by its marker). */
-async function openCodePluginInstalled(): Promise<boolean> {
+async function openCodePluginInstalled(
+  scope: OpenCodeScope,
+  projectRoot: string,
+): Promise<boolean> {
   try {
-    const existing = await readFile(openCodePluginPath(), "utf8");
+    const existing = await readFile(
+      openCodePluginPath(scope, projectRoot),
+      "utf8",
+    );
     return existing.startsWith(PLUGIN_MARKER);
   } catch {
     return false;
   }
 }
 
-/** Write (or refresh) the generated capture plugin into the global plugins dir. */
-async function installOpenCodePlugin(): Promise<void> {
-  const dir = openCodePluginsDir();
+/** Write (or refresh) the generated capture plugin into the scoped plugins dir. */
+async function installOpenCodePlugin(
+  scope: OpenCodeScope,
+  projectRoot: string,
+): Promise<void> {
+  const dir = openCodePluginsDir(scope, projectRoot);
   await mkdir(dir, { recursive: true });
-  const file = openCodePluginPath();
+  const file = openCodePluginPath(scope, projectRoot);
   await writeFile(file, renderPluginSource());
   clack.log.success(`Installed the OpenCode capture plugin → ${file}`);
-}
-
-/** Root of the global OpenCode config dir. */
-function openCodeConfigDir(): string {
-  return join(homedir(), ".config", "opencode");
 }
 
 /** Whether a managed asset file already carries our marker. */
@@ -107,28 +113,40 @@ async function assetInstalled(path: string): Promise<boolean> {
   }
 }
 
-const recallCommandPath = (): string =>
-  join(openCodeConfigDir(), "commands", RECALL_COMMAND_FILENAME);
+const recallCommandPath = (scope: OpenCodeScope, projectRoot: string): string =>
+  join(openCodeCommandsDir(scope, projectRoot), RECALL_COMMAND_FILENAME);
 
-const skillPath = (): string =>
-  join(openCodeConfigDir(), "skills", SKILL_NAME, SKILL_FILENAME);
+const skillPath = (scope: OpenCodeScope, projectRoot: string): string =>
+  join(openCodeSkillsDir(scope, projectRoot), SKILL_NAME, SKILL_FILENAME);
 
-/** Write (or refresh) the `/memory-recall` command into the global commands dir. */
-async function installRecallCommand(): Promise<void> {
-  const file = recallCommandPath();
-  await mkdir(join(openCodeConfigDir(), "commands"), { recursive: true });
+/** Write (or refresh) the `/memory-recall` command into the scoped commands dir. */
+async function installRecallCommand(
+  scope: OpenCodeScope,
+  projectRoot: string,
+): Promise<void> {
+  const file = recallCommandPath(scope, projectRoot);
+  await mkdir(openCodeCommandsDir(scope, projectRoot), { recursive: true });
   await writeFile(file, renderRecallCommand());
   clack.log.success(`Installed the /memory-recall command → ${file}`);
 }
 
-/** Write (or refresh) the `memory-engine` skill into the global skills dir. */
-async function installSkill(): Promise<void> {
-  const file = skillPath();
-  await mkdir(join(openCodeConfigDir(), "skills", SKILL_NAME), {
+/** Write (or refresh) the `memory-engine` skill into the scoped skills dir. */
+async function installSkill(
+  scope: OpenCodeScope,
+  projectRoot: string,
+): Promise<void> {
+  const file = skillPath(scope, projectRoot);
+  await mkdir(join(openCodeSkillsDir(scope, projectRoot), SKILL_NAME), {
     recursive: true,
   });
   await writeFile(file, renderSkill());
   clack.log.success(`Installed the ${SKILL_NAME} skill → ${file}`);
+}
+
+/** Resolve the project root (git root, else cwd) for `scope: "project"`. */
+async function resolveProjectRoot(): Promise<string> {
+  const { gitRoot } = await new SlugRegistry().resolve(process.cwd());
+  return gitRoot ?? process.cwd();
 }
 
 function createOpenCodeInstallCommand(): Command {
@@ -143,14 +161,28 @@ function createOpenCodeInstallCommand(): Command {
       "--space <slug>",
       "pin a space (default: resolve ME_SPACE / active space at runtime)",
     )
-    .action(async (opts: AgentInstallOptions, cmd: Command) => {
-      const globalOpts = cmd.optsWithGlobals();
-      await runAgentMcpInstall("opencode", {
-        apiKey: opts.apiKey,
-        server: globalOpts.server ?? opts.server,
-        space: opts.space,
-      });
-    });
+    .option(
+      "--scope <scope>",
+      "where to write the MCP config: project (./opencode.json) or user (~/.config/opencode) [default: user]",
+      (v) => parseScope(v),
+    )
+    .action(
+      async (
+        opts: AgentInstallOptions & { scope?: OpenCodeScope },
+        cmd: Command,
+      ) => {
+        const globalOpts = cmd.optsWithGlobals();
+        const scope = opts.scope ?? "user";
+        await runAgentMcpInstall("opencode", {
+          apiKey: opts.apiKey,
+          server: globalOpts.server ?? opts.server,
+          space: opts.space,
+          scope,
+          projectDir:
+            scope === "project" ? await resolveProjectRoot() : undefined,
+        });
+      },
+    );
 }
 
 /**
@@ -262,6 +294,18 @@ function createOpenCodeHookCommand(): Command {
  * The steps differ from Claude's because OpenCode capture is a generated local
  * plugin (not a marketplace plugin) and MCP registration is a separate step.
  */
+/** Read the resolved scope + project root from the init context (defaults to
+ * project / cwd if resolveContext somehow didn't run). */
+function scopeOf(ctx: InitStepContext): {
+  scope: OpenCodeScope;
+  projectRoot: string;
+} {
+  return {
+    scope: (ctx.scope as OpenCodeScope) ?? "project",
+    projectRoot: ctx.projectRoot ?? process.cwd(),
+  };
+}
+
 const INIT_STEPS: InitStep[] = [
   {
     id: "session-import",
@@ -275,12 +319,12 @@ const INIT_STEPS: InitStep[] = [
     // Scope the backfill to sessions recorded in this repo (cwd at or under the
     // repo root); `me import opencode` remains the machine-wide sweep. Include
     // temp-cwd sessions since the scope is already pinned to this project.
-    run: async ({ globalOpts }) => {
-      const { gitRoot } = await new SlugRegistry().resolve(process.cwd());
+    run: async (ctx) => {
+      const { projectRoot } = scopeOf(ctx);
       await runAgentImport(
         opencodeImporter,
-        { project: gitRoot ?? process.cwd(), includeTempCwd: true },
-        globalOpts,
+        { project: projectRoot, includeTempCwd: true },
+        ctx.globalOpts,
       );
     },
   },
@@ -294,12 +338,19 @@ const INIT_STEPS: InitStep[] = [
     label:
       "Install the OpenCode capture plugin — captures new sessions going forward",
     // ✓ when our managed plugin file is already present; a re-run refreshes it.
-    available: async () =>
-      (await openCodePluginInstalled()) ? "done" : "available",
+    available: async (ctx) => {
+      const { scope, projectRoot } = scopeOf(ctx);
+      return (await openCodePluginInstalled(scope, projectRoot))
+        ? "done"
+        : "available";
+    },
     doneLabel: "OpenCode capture plugin already installed",
     rerunLabel:
       "Reinstall the OpenCode capture plugin — captures new sessions going forward (already installed)",
-    run: () => installOpenCodePlugin(),
+    run: (ctx) => {
+      const { scope, projectRoot } = scopeOf(ctx);
+      return installOpenCodePlugin(scope, projectRoot);
+    },
   },
   {
     id: "mcp-install",
@@ -310,7 +361,14 @@ const INIT_STEPS: InitStep[] = [
     skipDescription: "do not register me as an MCP server with OpenCode",
     label:
       "Register me as an MCP server — gives OpenCode the memory search/create tools",
-    run: ({ server }) => runAgentMcpInstall("opencode", { server }),
+    run: (ctx) => {
+      const { scope, projectRoot } = scopeOf(ctx);
+      return runAgentMcpInstall("opencode", {
+        server: ctx.server,
+        scope,
+        projectDir: scope === "project" ? projectRoot : undefined,
+      });
+    },
   },
   {
     id: "recall-command",
@@ -320,11 +378,18 @@ const INIT_STEPS: InitStep[] = [
     skipFlag: "--skip-recall-command",
     skipDescription: "do not install the /memory-recall command",
     label: "Install the /memory-recall command",
-    available: async () =>
-      (await assetInstalled(recallCommandPath())) ? "done" : "available",
+    available: async (ctx) => {
+      const { scope, projectRoot } = scopeOf(ctx);
+      return (await assetInstalled(recallCommandPath(scope, projectRoot)))
+        ? "done"
+        : "available";
+    },
     doneLabel: "/memory-recall command already installed",
     rerunLabel: "Rewrite the /memory-recall command (already installed)",
-    run: () => installRecallCommand(),
+    run: (ctx) => {
+      const { scope, projectRoot } = scopeOf(ctx);
+      return installRecallCommand(scope, projectRoot);
+    },
   },
   {
     id: "skill",
@@ -334,11 +399,18 @@ const INIT_STEPS: InitStep[] = [
     skipFlag: "--skip-skill",
     skipDescription: "do not install the memory-engine skill",
     label: "Install the memory-engine skill (teaches when/how to use memory)",
-    available: async () =>
-      (await assetInstalled(skillPath())) ? "done" : "available",
+    available: async (ctx) => {
+      const { scope, projectRoot } = scopeOf(ctx);
+      return (await assetInstalled(skillPath(scope, projectRoot)))
+        ? "done"
+        : "available";
+    },
     doneLabel: "memory-engine skill already installed",
     rerunLabel: "Rewrite the memory-engine skill (already installed)",
-    run: () => installSkill(),
+    run: (ctx) => {
+      const { scope, projectRoot } = scopeOf(ctx);
+      return installSkill(scope, projectRoot);
+    },
   },
   {
     id: "git-import",
@@ -406,12 +478,65 @@ function printInitOutro(steps: InitStep[]): void {
   );
 }
 
+/**
+ * Resolve the install scope for `me opencode init`: an explicit `--scope`
+ * (validated by the option's arg parser) wins; otherwise prompt in an
+ * interactive terminal (project preselected), and default to project when
+ * non-interactive. Also resolves the project root once for project-scoped steps.
+ */
+async function resolveOpenCodeInitContext(
+  base: InitStepContext,
+  cmdOpts: Record<string, unknown>,
+  { interactive }: { interactive: boolean },
+): Promise<InitStepContext> {
+  const projectRoot = await resolveProjectRoot();
+  // The --scope arg parser already validated + narrowed the value.
+  let scope = cmdOpts.scope as OpenCodeScope | undefined;
+  if (!scope) {
+    if (interactive) {
+      const picked = await clack.select<OpenCodeScope>({
+        message: "Install scope",
+        options: [
+          {
+            value: "project",
+            label: "Project",
+            hint: ".opencode/ + opencode.json — commit to share with your team",
+          },
+          {
+            value: "user",
+            label: "User (global)",
+            hint: "~/.config/opencode/ — just for you, across all projects",
+          },
+        ],
+        initialValue: "project",
+      });
+      if (clack.isCancel(picked)) {
+        clack.cancel("Cancelled.");
+        process.exit(0);
+      }
+      scope = picked;
+    } else {
+      scope = "project";
+    }
+  }
+  return { ...base, scope, projectRoot };
+}
+
 function createOpenCodeInitCommand(): Command {
   return buildInitCommand({
     description:
       "set up OpenCode memory integration (interactive step picker; otherwise runs all steps)",
     steps: INIT_STEPS,
     outro: printInitOutro,
+    options: [
+      {
+        flags: "--scope <scope>",
+        description:
+          "install scope: project (.opencode/) or user (~/.config/opencode) [default: project; prompted in a TTY]",
+        argParser: (v) => parseScope(v),
+      },
+    ],
+    resolveContext: resolveOpenCodeInitContext,
   });
 }
 

@@ -14,10 +14,12 @@ export interface AgentInstallOptions {
   /** The space slug to bake into the MCP command (api keys are global). */
   space?: string;
   /**
-   * Configuration scope for tools that support it (Claude Code, Gemini CLI).
-   * Ignored by tools without a scope concept (Codex, OpenCode).
+   * Configuration scope for tools that support it (Claude Code, Gemini CLI,
+   * and OpenCode — "project" vs "user"). Ignored by Codex.
    */
   scope?: string;
+  /** Project root for `scope: "project"` (OpenCode). Defaults to cwd. */
+  projectDir?: string;
 }
 
 /**
@@ -91,7 +93,10 @@ export async function runAgentMcpInstall(
 
   const spin = clack.spinner();
   spin.start(`Registering with ${tool.name}...`);
-  const result = await installMcpServer(tool, meCmd, { scope: opts.scope });
+  const result = await installMcpServer(tool, meCmd, {
+    scope: opts.scope,
+    projectDir: opts.projectDir,
+  });
 
   if (result.success) {
     spin.stop(result.message);

@@ -24,8 +24,11 @@ me opencode install [options]
 | `--api-key <key>` | API key for a headless agent. Default: the MCP server uses your `me login` session, resolved at runtime. |
 | `--space <slug>` | Pin a space. Default: resolve `ME_SPACE` / active space at runtime. |
 | `--server <url>` | Server URL to embed in the MCP config. |
+| `--scope <scope>` | Where to write the config: `project` (`./opencode.json` at the repo root) or `user` (`~/.config/opencode/opencode.json`). Default: `user`. |
 
 By default only the server URL is baked into the config: at runtime `me mcp` uses your `me login` session (resolved from the OS keychain / `~/.config/me` each run, so it survives re-login) and your active space (set by `me space use` / `ME_SPACE`). Pass `--api-key` (mint one with `me apikey create --agent <agent>`, or `me apikey create` for a personal access token) for a headless agent that cannot reach your keychain; that bakes the key and requires a pinned `--space`.
+
+Use `--scope project` to write the `mcp.me` entry into the repo's `opencode.json` (instead of your global config) so it can be committed and shared with your team. Don't combine `--scope project` with a baked `--api-key` unless you intend to commit that key.
 
 For manual MCP client configuration, see [MCP Integration](../mcp-integration.md).
 
@@ -54,6 +57,7 @@ Steps:
 
 | Option | Description |
 |--------|-------------|
+| `--scope <scope>` | `project` (`.opencode/` + `opencode.json` in the repo) or `user` (`~/.config/opencode/`). Default: `project`; prompted interactively when unset in a TTY. |
 | `--skip-session-import` | do not import this project's OpenCode sessions |
 | `--skip-plugin-install` | do not install the OpenCode capture plugin |
 | `--skip-mcp-install` | do not register `me` as an MCP server |
@@ -62,6 +66,8 @@ Steps:
 | `--skip-git-import` | do not import the repo's git commit history |
 | `--skip-git-hook` | do not install the git post-commit hook |
 | `--skip-agents-md` | do not write the memory pointer into AGENTS.md |
+
+**Scope.** `init` is per-project, so it defaults to `project` scope: the plugin, MCP entry, command, and skill are written under the repo (`.opencode/plugins/`, `.opencode/commands/`, `.opencode/skills/`, and `opencode.json`), so you can commit them and the whole team gets memory integration. This is safe to commit because no API key is embedded — each teammate's own `me login` (or `ME_API_KEY`/`ME_SPACE`) resolves at runtime. Pass `--scope user` to install into your global `~/.config/opencode/` instead. The AGENTS.md memory pointer is always written at the repo root regardless of scope.
 
 The capture plugin shells out to `me opencode hook`, which reuses your `me login` session (or `ME_API_KEY` + `ME_SPACE`) -- no API key needs to be embedded in the plugin. The `me` CLI must be on `PATH` where OpenCode runs.
 

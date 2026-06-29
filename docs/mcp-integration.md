@@ -38,6 +38,8 @@ See the agent-specific command references for details: [`me opencode install`](c
 
 For OpenCode, [`me opencode init`](cli/me-opencode.md#me-opencode-init) goes further than `install`: it also backfills the project's existing sessions, installs a capture plugin (so new sessions are captured automatically, like the Claude Code plugin), and writes a memory pointer into `AGENTS.md`.
 
+Both `me opencode install` and `me opencode init` take `--scope project|user`. Project scope writes into the repo (`opencode.json` + `.opencode/`) so the integration can be committed and shared with a team (no key is embedded — credentials resolve from each teammate's `me login`); user scope writes the global `~/.config/opencode/` config. `install` defaults to `user`; `init` defaults to `project` (and prompts when run interactively).
+
 | Tool | Install command |
 |------|-----------------|
 | OpenCode | `me opencode install` |
