@@ -5,7 +5,8 @@
  * directly. It probes the session via the user RPC (whoami + space discovery,
  * authenticated by the httpOnly cookie). Not signed in → a login screen that
  * starts the browser OAuth flow. Signed in → a space picker (when needed), then
- * the app with a slim account bar (space switcher + sign out).
+ * the app — the account/space cluster lives in the app header via the account
+ * context this gate provides.
  *
  * The session token never touches JS — login is a full-page redirect to the
  * server, which sets the cookie; logout POSTs to the server, which clears it.
@@ -15,6 +16,7 @@ import { isRpcError } from "@memory.build/client";
 import { type ReactNode, useCallback, useEffect, useState } from "react";
 import { signOut } from "../api/auth-client.ts";
 import { memoryClient, userClient } from "../api/client.ts";
+import { AccountProvider } from "./account/account-context.ts";
 import { SignInCard } from "./SignInCard.tsx";
 
 const SPACE_STORAGE_KEY = "me.space";
@@ -54,10 +56,16 @@ export function AuthGate({ children }: { children: ReactNode }) {
   const load = useCallback(async () => {
     setState({ status: "loading" });
     try {
-      const [identity, { spaces }] = await Promise.all([
+      const [whoami, { spaces }] = await Promise.all([
         userClient.whoami(),
         userClient.space.list(),
       ]);
+      // whoami's email is nullable; fall back to the display name so the
+      // header always has something to show.
+      const identity: Identity = {
+        email: whoami.email ?? whoami.name,
+        name: whoami.name,
+      };
       if (spaces.length === 0) {
         setState({ status: "needs-space", identity, spaces });
         return;
@@ -124,31 +132,32 @@ export function AuthGate({ children }: { children: ReactNode }) {
   }
 
   return (
-    <div className="flex h-full flex-col">
-      <AccountBar
-        identity={state.identity}
-        spaces={state.spaces}
-        space={state.space}
-        onChooseSpace={chooseSpace}
-        onLogout={logout}
-      />
-      <div className="min-h-0 flex-1">{children}</div>
-    </div>
+    <AccountProvider
+      value={{
+        identity: state.identity,
+        spaces: state.spaces,
+        space: state.space,
+        onChooseSpace: chooseSpace,
+        onLogout: logout,
+      }}
+    >
+      {children}
+    </AccountProvider>
   );
 }
 
 function CenteredMessage({ children }: { children: ReactNode }) {
   return (
     <div className="flex h-full items-center justify-center">
-      <p className="text-sm text-slate-500">{children}</p>
+      <p className="text-[13px] text-ink/50">{children}</p>
     </div>
   );
 }
 
 function Card({ children }: { children: ReactNode }) {
   return (
-    <div className="flex h-full items-center justify-center bg-slate-50 p-6">
-      <div className="w-full max-w-sm rounded-xl border border-slate-200 bg-white p-8 shadow-sm">
+    <div className="flex h-full items-center justify-center p-6">
+      <div className="w-full max-w-sm rounded-xl border border-ink/[0.14] bg-white p-8">
         {children}
       </div>
     </div>
@@ -164,7 +173,7 @@ function LoginScreen({ onRetry }: { onRetry: () => void }) {
         <button
           type="button"
           onClick={onRetry}
-          className="mt-4 text-xs text-slate-400 hover:text-slate-600"
+          className="mt-4 text-[12px] text-ink/40 hover:text-ink/70"
         >
           Try again
         </button>
@@ -176,17 +185,15 @@ function LoginScreen({ onRetry }: { onRetry: () => void }) {
 function ErrorScreen({ onRetry }: { onRetry: () => void }) {
   return (
     <Card>
-      <h1 className="text-lg font-semibold text-slate-900">
-        Something went wrong
-      </h1>
-      <p className="mt-1 text-sm text-slate-500">
+      <h1 className="text-lg font-semibold text-ink">Something went wrong</h1>
+      <p className="mt-1 text-[13px] text-ink/55">
         Couldn't reach Memory Engine. This isn't a sign-in problem — check your
         connection and try again.
       </p>
       <button
         type="button"
         onClick={onRetry}
-        className="mt-6 rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700"
+        className="mt-6 inline-flex h-9 items-center rounded-md bg-solar px-4 text-[13px] font-semibold text-ink transition-colors hover:bg-solar-hover"
       >
         Retry
       </button>
@@ -207,12 +214,12 @@ function SpacePicker({
 }) {
   return (
     <Card>
-      <h1 className="text-lg font-semibold text-slate-900">Choose a space</h1>
-      <p className="mt-1 text-sm text-slate-500">
+      <h1 className="text-lg font-semibold text-ink">Choose a space</h1>
+      <p className="mt-1 text-[13px] text-ink/55">
         Signed in as {identity.email}
       </p>
       {spaces.length === 0 ? (
-        <p className="mt-6 text-sm text-slate-500">
+        <p className="mt-6 text-[13px] text-ink/55">
           You don't have access to any spaces yet.
         </p>
       ) : (
@@ -222,7 +229,7 @@ function SpacePicker({
               key={s.slug}
               type="button"
               onClick={() => onChoose(s.slug)}
-              className="rounded-md border border-slate-300 bg-white px-4 py-2 text-left text-sm font-medium text-slate-900 hover:bg-slate-50"
+              className="rounded-md border border-ink/[0.18] bg-white px-4 py-2 text-left text-[13px] font-medium text-ink transition-colors hover:border-ink"
             >
               {s.name}
             </button>
@@ -232,53 +239,10 @@ function SpacePicker({
       <button
         type="button"
         onClick={onLogout}
-        className="mt-4 text-xs text-slate-400 hover:text-slate-600"
+        className="mt-4 text-[12px] text-ink/40 hover:text-ink/70"
       >
         Sign out
       </button>
     </Card>
-  );
-}
-
-function AccountBar({
-  identity,
-  spaces,
-  space,
-  onChooseSpace,
-  onLogout,
-}: {
-  identity: Identity;
-  spaces: Space[];
-  space: string;
-  onChooseSpace: (slug: string) => void;
-  onLogout: () => void;
-}) {
-  return (
-    <div className="flex shrink-0 items-center justify-between border-b border-slate-200 bg-white px-4 py-1.5 text-xs text-slate-500">
-      <label className="flex items-center gap-2">
-        <span>Space</span>
-        <select
-          value={space}
-          onChange={(e) => onChooseSpace(e.target.value)}
-          className="rounded border border-slate-300 bg-white px-1.5 py-0.5 text-slate-900"
-        >
-          {spaces.map((s) => (
-            <option key={s.slug} value={s.slug}>
-              {s.name}
-            </option>
-          ))}
-        </select>
-      </label>
-      <div className="flex items-center gap-3">
-        <span>{identity.email}</span>
-        <button
-          type="button"
-          onClick={onLogout}
-          className="text-slate-400 hover:text-slate-700"
-        >
-          Sign out
-        </button>
-      </div>
-    </div>
   );
 }

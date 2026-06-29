@@ -101,7 +101,7 @@ export function SearchResultsResizer({
       tabIndex={0}
       onPointerDown={handlePointerDown}
       onKeyDown={handleKeyDown}
-      className="h-1 shrink-0 cursor-row-resize bg-slate-200 transition-colors hover:bg-sky-400 focus:outline-none focus-visible:bg-sky-500 active:bg-sky-500"
+      className="h-px shrink-0 cursor-row-resize bg-ink/[0.12] transition-colors hover:bg-ink/40 focus:outline-none focus-visible:bg-tiger-blue active:bg-tiger-blue"
       title="Drag or use up/down arrow keys to resize"
     />
   );

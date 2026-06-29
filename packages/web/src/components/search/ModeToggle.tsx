@@ -1,6 +1,6 @@
 /**
- * Shared [Simple | Advanced] mode toggle used by both the simple search
- * bar and the advanced search section.
+ * Shared [Simple | Advanced] segmented mode toggle used by both the simple
+ * search bar and the advanced search section. Active segment is Solar Flare.
  */
 import type { FilterMode } from "../../store/filter.ts";
 
@@ -12,7 +12,7 @@ export function ModeToggle({
   onChange: (mode: FilterMode) => void;
 }) {
   return (
-    <div className="inline-flex rounded-md border border-slate-300 bg-white p-0.5 text-sm">
+    <div className="flex h-[42px] shrink-0 overflow-hidden rounded-lg border border-ink/[0.18]">
       <ToggleButton
         active={current === "simple"}
         onClick={() => onChange("simple")}
@@ -46,10 +46,10 @@ function ToggleButton({
       onClick={onClick}
       title={title}
       className={[
-        "rounded px-3 py-1.5 transition-colors",
+        "flex items-center px-4 text-[13px] transition-colors duration-150",
         active
-          ? "bg-sky-600 text-white"
-          : "text-slate-600 hover:text-slate-900",
+          ? "bg-solar font-semibold text-ink hover:bg-solar-hover"
+          : "text-ink/55 hover:text-ink",
       ].join(" ")}
     >
       {label}

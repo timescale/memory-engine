@@ -6,7 +6,7 @@ import {
   ROOT_PATH,
   sortLeaves,
 } from "../lib/tree-build.ts";
-import { treeRowPaddingLeft } from "../lib/tree-layout.ts";
+import { leafRowPaddingLeft, pathRowPaddingLeft } from "../lib/tree-layout.ts";
 import {
   selectIsExpanded,
   type TreeContext,
@@ -46,6 +46,8 @@ export function PathRow({
     );
   }, [hasInline, node.inlineLeaves, leavesQuery.data, node.depth]);
 
+  const isRoot = node.depth === 0;
+
   const handleContextMenu = (e: React.MouseEvent) => {
     // The synthetic `.` bucket isn't a real ltree path, so deleting it
     // via `memory.deleteTree` is meaningless — disable the context menu.
@@ -70,14 +72,27 @@ export function PathRow({
       <button
         type="button"
         onClick={() => toggle(context, node.path)}
-        className="flex w-full cursor-pointer items-center gap-1 px-2 py-1 text-left text-sm text-slate-700 hover:bg-slate-100"
-        style={{ paddingLeft: treeRowPaddingLeft(node.depth) }}
+        className={[
+          "flex w-full items-center gap-1.5 rounded-md pr-2.5 text-left text-[13px] transition-colors duration-150 hover:bg-ink/[0.04]",
+          isRoot ? "mt-1.5 py-1.5 font-semibold" : "py-[5px] text-ink/[0.88]",
+        ].join(" ")}
+        style={{ paddingLeft: pathRowPaddingLeft(node.depth) }}
       >
-        <DisclosureCaret expanded={expanded} />
-        <span className="min-w-0 flex-1 truncate font-medium">
-          {node.label}
-        </span>
-        <span className="shrink-0 pl-2 text-xs text-slate-400">
+        <DisclosureCaret
+          expanded={expanded}
+          className={
+            isRoot
+              ? "size-3.5 shrink-0 text-ink/50"
+              : "size-3 shrink-0 text-ink/40"
+          }
+        />
+        <span className="min-w-0 flex-1 truncate">{node.label}</span>
+        <span
+          className={[
+            "shrink-0 pl-2 font-mono text-[11px]",
+            isRoot ? "text-ink/40" : "text-ink/[0.33]",
+          ].join(" ")}
+        >
           {node.aggregateCount}
         </span>
       </button>
@@ -90,8 +105,8 @@ export function PathRow({
 
           {!hasInline && node.directCount > 0 && leavesQuery.isLoading && (
             <div
-              className="px-2 py-1 text-xs text-slate-400"
-              style={{ paddingLeft: treeRowPaddingLeft(node.depth + 1) }}
+              className="py-[5px] pr-2.5 font-mono text-[11px] text-ink/40"
+              style={{ paddingLeft: leafRowPaddingLeft(node.depth + 1) }}
             >
               Loading memories…
             </div>
@@ -99,8 +114,8 @@ export function PathRow({
 
           {!hasInline && node.directCount > 0 && leavesQuery.error && (
             <div
-              className="px-2 py-1 text-xs text-red-600"
-              style={{ paddingLeft: treeRowPaddingLeft(node.depth + 1) }}
+              className="py-[5px] pr-2.5 font-mono text-[11px] text-tiger-red"
+              style={{ paddingLeft: leafRowPaddingLeft(node.depth + 1) }}
             >
               Failed to load:{" "}
               {leavesQuery.error instanceof Error

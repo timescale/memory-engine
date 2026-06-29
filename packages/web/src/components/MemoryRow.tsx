@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 import type { MemoryLeaf } from "../lib/tree-build.ts";
-import { treeRowPaddingLeft } from "../lib/tree-layout.ts";
+import { leafRowPaddingLeft } from "../lib/tree-layout.ts";
 import { useMemorySelection } from "../lib/useMemorySelection.ts";
 import { useUi } from "../store/ui.ts";
 import { MemoryLeafBullet } from "./MemoryLeafBullet.tsx";
@@ -39,14 +39,14 @@ export function MemoryRow({ leaf }: { leaf: MemoryLeaf }) {
         type="button"
         onClick={selectMemory}
         className={[
-          "flex w-full cursor-pointer items-center gap-2 px-2 py-1 text-left text-sm",
+          "flex w-full items-center gap-[9px] rounded-md pr-2.5 text-left font-mono text-[12px] transition-colors duration-150",
           selected
-            ? "bg-sky-100 text-sky-900"
-            : "text-slate-700 hover:bg-slate-100",
+            ? "bg-ink/[0.08] py-1.5 font-medium text-ink"
+            : "py-[5px] text-ink/60 hover:bg-ink/[0.04]",
         ].join(" ")}
-        style={{ paddingLeft: treeRowPaddingLeft(leaf.depth) }}
+        style={{ paddingLeft: leafRowPaddingLeft(leaf.depth) }}
       >
-        <MemoryLeafBullet />
+        <MemoryLeafBullet selected={selected} />
         <span className="min-w-0 flex-1 truncate">{leaf.title}</span>
       </button>
     </div>

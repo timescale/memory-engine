@@ -45,7 +45,7 @@ export function DeleteMemoryDialog() {
             type="button"
             onClick={close}
             disabled={del.isPending}
-            className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-100"
+            className="rounded-md border border-ink/[0.18] bg-white px-3 py-1.5 text-[12px] font-medium text-ink transition-colors hover:border-ink"
           >
             Cancel
           </button>
@@ -53,7 +53,7 @@ export function DeleteMemoryDialog() {
             type="button"
             onClick={handleConfirm}
             disabled={del.isPending}
-            className="rounded-md bg-red-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-red-700 disabled:bg-slate-300"
+            className="rounded-md bg-red-600 px-3 py-1.5 text-[12px] font-medium text-white hover:bg-red-700 disabled:opacity-50"
           >
             {del.isPending ? "Deleting…" : "Delete"}
           </button>
@@ -62,9 +62,9 @@ export function DeleteMemoryDialog() {
     >
       {target && (
         <>
-          <p className="font-medium text-slate-900">{target.title}</p>
-          <p className="mt-1 font-mono text-xs text-slate-500">{target.id}</p>
-          <p className="mt-3 text-slate-600">
+          <p className="font-medium text-ink">{target.title}</p>
+          <p className="mt-1 font-mono text-[11px] text-ink/50">{target.id}</p>
+          <p className="mt-3 text-ink/70">
             This cannot be undone. Any grants referencing this memory will be
             removed automatically.
           </p>

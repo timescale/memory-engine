@@ -1,9 +1,14 @@
 /**
  * Memory detail pane with view/edit modes.
  *
- * View mode: rendered markdown via `MarkdownViewer`.
- * Edit mode: Monaco editor on the frontmatter + body. Save button is
- * disabled unless the text has changed AND the frontmatter parses cleanly.
+ * View mode: the "Console" reading layout — breadcrumb, title, meta row,
+ * rendered markdown body, tag pills, and a collapsible details/metadata
+ * section. A slim action cluster (Edit / Copy / Delete) sits on the
+ * breadcrumb row.
+ *
+ * Edit mode: a toolbar (Preview / Save / Delete) above a Monaco editor on the
+ * frontmatter + body. Save is disabled unless the text changed AND the
+ * frontmatter parses cleanly.
  *
  * Dirty state is mirrored into the global `useEditor` store so the tree
  * view can prompt before discarding changes on navigation. A beforeunload
@@ -15,10 +20,17 @@ import { useQueryClient } from "@tanstack/react-query";
 import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import { useUpdateMemory } from "../../api/queries.ts";
 import { memoryToEditorText, parseEditorText } from "../../lib/frontmatter.ts";
+import {
+  breadcrumbSegments,
+  deriveTitleAndBody,
+  extractTags,
+  formatShortDate,
+} from "../../lib/memory-view.ts";
 import { useEditor } from "../../store/editor.ts";
 import { pushToast } from "../toast/Toast.tsx";
 import { FrontmatterBlock } from "../viewer/FrontmatterBlock.tsx";
 import { MarkdownViewer } from "../viewer/MarkdownViewer.tsx";
+import { MetadataPanel } from "../viewer/MetadataPanel.tsx";
 
 // Monaco is ~3 MB minified; lazy-load it so the initial page render stays fast
 // and users who never edit never download it.
@@ -31,13 +43,12 @@ type Mode = "view" | "edit";
 
 interface Props {
   memory: MemoryResponse;
-  /** Opens the delete confirmation dialog. Wired in step 11. */
   onRequestDelete?: () => void;
 }
 
 function EditorLoading() {
   return (
-    <div className="flex h-full items-center justify-center text-sm text-slate-500">
+    <div className="flex h-full items-center justify-center text-[13px] text-ink/50">
       Loading editor…
     </div>
   );
@@ -125,41 +136,272 @@ export function EditorPane({ memory, onRequestDelete }: Props) {
     }
   }
 
-  return (
-    <div className="flex h-full flex-col">
-      <Toolbar
+  const toggleMode = () => setMode(mode === "view" ? "edit" : "view");
+
+  if (mode === "view") {
+    return (
+      <ReadingView
         memory={memory}
-        mode={mode}
-        onToggleMode={() => setMode(mode === "view" ? "edit" : "view")}
-        dirty={dirty}
-        canSave={canSave}
-        saving={update.isPending}
-        saveError={update.error}
+        onEdit={toggleMode}
         onCopy={handleCopy}
-        onSave={handleSave}
         onDelete={onRequestDelete}
       />
+    );
+  }
 
-      {!parsed.ok && mode === "edit" && (
-        <div className="border-b border-red-200 bg-red-50 px-4 py-2 text-xs text-red-700">
+  return (
+    <div className="flex h-full flex-col">
+      <header className="flex flex-wrap items-center gap-3 border-b border-ink/[0.12] px-6 py-3">
+        <Breadcrumb tree={memory.tree} />
+        {saveErrorText(update.error) && (
+          <span className="font-mono text-[11px] text-tiger-red">
+            {saveErrorText(update.error)}
+          </span>
+        )}
+        <div className="ml-auto flex items-center gap-2">
+          {dirty && (
+            <span className="font-mono text-[11px] text-ink/55">unsaved</span>
+          )}
+          <IconButton title="Copy Markdown" onClick={handleCopy}>
+            <CopyIcon />
+          </IconButton>
+          <GhostButton onClick={toggleMode}>Preview</GhostButton>
+          <PrimaryButton onClick={handleSave} disabled={!canSave}>
+            {update.isPending ? "Saving…" : "Save"}
+          </PrimaryButton>
+          <GhostButton
+            onClick={onRequestDelete}
+            disabled={!onRequestDelete}
+            danger
+          >
+            Delete
+          </GhostButton>
+        </div>
+      </header>
+
+      {!parsed.ok && (
+        <div className="border-b border-tiger-red/40 bg-tiger-red/10 px-6 py-2 font-mono text-[11px] text-ink/70">
           Frontmatter error: {parsed.error}
         </div>
       )}
 
       <div className="flex-1 overflow-hidden">
-        {mode === "view" ? (
-          <div className="h-full overflow-auto p-6">
-            {parsed.ok && <FrontmatterBlock frontmatter={parsed.value} />}
-            <MarkdownViewer content={parsed.ok ? parsed.value.body : text} />
-          </div>
-        ) : (
-          <Suspense fallback={<EditorLoading />}>
-            <MonacoMarkdownEditor value={text} onChange={setText} />
-          </Suspense>
-        )}
+        <Suspense fallback={<EditorLoading />}>
+          <MonacoMarkdownEditor value={text} onChange={setText} />
+        </Suspense>
       </div>
     </div>
   );
+}
+
+function ReadingView({
+  memory,
+  onEdit,
+  onCopy,
+  onDelete,
+}: {
+  memory: MemoryResponse;
+  onEdit: () => void;
+  onCopy: () => void;
+  onDelete?: () => void;
+}) {
+  const { title, body } = useMemo(
+    () => deriveTitleAndBody(memory.content, memory.name),
+    [memory.content, memory.name],
+  );
+  const parsedFrontmatter = useMemo(() => {
+    try {
+      return parseEditorText(memoryToEditorText(memory));
+    } catch {
+      return null;
+    }
+  }, [memory]);
+  const tags = extractTags(memory.meta);
+
+  return (
+    <div className="h-full overflow-auto px-11 py-[34px]">
+      <article className="max-w-[760px]">
+        <div className="mb-3.5 flex items-start justify-between gap-4">
+          <Breadcrumb tree={memory.tree} />
+          <div className="flex shrink-0 items-center gap-2">
+            <GhostButton onClick={onEdit}>Edit</GhostButton>
+            <IconButton title="Copy Markdown" onClick={onCopy}>
+              <CopyIcon />
+            </IconButton>
+            <IconButton
+              title="Delete memory"
+              onClick={onDelete}
+              disabled={!onDelete}
+              danger
+            >
+              <TrashIcon />
+            </IconButton>
+          </div>
+        </div>
+
+        <h1 className="mb-4 text-[31px] font-bold leading-[1.12] tracking-[-0.025em] text-ink">
+          {title}
+        </h1>
+
+        <MetaRow memory={memory} />
+
+        <div className="mt-[26px]">
+          <MarkdownViewer content={body} />
+        </div>
+
+        {tags.length > 0 && (
+          <div className="mt-[26px] flex flex-wrap gap-2">
+            {tags.map((tag) => (
+              <span
+                key={tag}
+                className="inline-flex items-center gap-[7px] rounded-full border border-ink/[0.16] px-[11px] py-1 font-mono text-[12px] text-ink/80"
+              >
+                <span className="size-[5px] rounded-full bg-tiger-blue" />
+                {tag}
+              </span>
+            ))}
+          </div>
+        )}
+
+        <div className="mt-10 space-y-4 border-t border-ink/10 pt-6">
+          {parsedFrontmatter && (
+            <FrontmatterBlock frontmatter={parsedFrontmatter} />
+          )}
+          <MetadataPanel memory={memory} />
+        </div>
+      </article>
+    </div>
+  );
+}
+
+function MetaRow({ memory }: { memory: MemoryResponse }) {
+  return (
+    <div className="flex flex-wrap items-center gap-[13px] font-mono text-[12px] text-ink/[0.62]">
+      <span>created {formatShortDate(memory.createdAt)}</span>
+      {memory.updatedAt && (
+        <>
+          <MetaDot />
+          <span>updated {formatShortDate(memory.updatedAt)}</span>
+        </>
+      )}
+      <MetaDot />
+      <span>{memory.hasEmbedding ? "embedded" : "embedding pending"}</span>
+      {memory.version > 1 && (
+        <>
+          <MetaDot />
+          <span>v{memory.version}</span>
+        </>
+      )}
+    </div>
+  );
+}
+
+function MetaDot() {
+  return <span className="text-ink/40">·</span>;
+}
+
+function Breadcrumb({ tree }: { tree: string }) {
+  const segments = breadcrumbSegments(tree);
+  if (segments.length === 0) {
+    return <div className="font-mono text-[12px] text-ink/50">/</div>;
+  }
+  return (
+    <div className="min-w-0 truncate font-mono text-[12px] tracking-[0.03em] text-ink/50">
+      {segments.map((segment, index) => (
+        <span key={segments.slice(0, index + 1).join(".")}>
+          {index > 0 && <span className="px-1.5 text-ink/30">/</span>}
+          {segment}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+function GhostButton({
+  children,
+  onClick,
+  disabled,
+  danger,
+}: {
+  children: React.ReactNode;
+  onClick?: () => void;
+  disabled?: boolean;
+  danger?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      className={[
+        "inline-flex h-8 items-center rounded-md border px-3 text-[12px] font-medium transition-colors",
+        "disabled:cursor-not-allowed disabled:opacity-40",
+        danger
+          ? "border-ink/[0.18] text-ink/70 hover:border-tiger-red hover:text-tiger-red"
+          : "border-ink/[0.18] text-ink hover:border-ink",
+      ].join(" ")}
+    >
+      {children}
+    </button>
+  );
+}
+
+function PrimaryButton({
+  children,
+  onClick,
+  disabled,
+}: {
+  children: React.ReactNode;
+  onClick?: () => void;
+  disabled?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      className="inline-flex h-8 items-center rounded-md bg-solar px-3 text-[12px] font-semibold text-ink transition-colors hover:bg-solar-hover disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-solar"
+    >
+      {children}
+    </button>
+  );
+}
+
+function IconButton({
+  children,
+  onClick,
+  disabled,
+  danger,
+  title,
+}: {
+  children: React.ReactNode;
+  onClick?: () => void;
+  disabled?: boolean;
+  danger?: boolean;
+  title: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      title={title}
+      aria-label={title}
+      className={[
+        "inline-flex h-8 w-8 items-center justify-center rounded-md border transition-colors",
+        "disabled:cursor-not-allowed disabled:opacity-40",
+        danger
+          ? "border-ink/[0.18] text-ink/70 hover:border-tiger-red hover:text-tiger-red"
+          : "border-ink/[0.18] text-ink/70 hover:border-ink hover:text-ink",
+      ].join(" ")}
+    >
+      {children}
+    </button>
+  );
+}
+
+function saveErrorText(error: Error | null): string | null {
+  return error ? `Save failed: ${error.message}` : null;
 }
 
 function CopyIcon() {
@@ -170,7 +412,7 @@ function CopyIcon() {
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
-      strokeWidth="1.8"
+      strokeWidth="1.7"
       strokeLinecap="round"
       strokeLinejoin="round"
     >
@@ -180,83 +422,21 @@ function CopyIcon() {
   );
 }
 
-interface ToolbarProps {
-  memory: MemoryResponse;
-  mode: Mode;
-  dirty: boolean;
-  canSave: boolean;
-  saving: boolean;
-  saveError: Error | null;
-  onToggleMode: () => void;
-  onCopy: () => void;
-  onSave: () => void;
-  onDelete?: () => void;
-}
-
-function Toolbar({
-  memory,
-  mode,
-  dirty,
-  canSave,
-  saving,
-  saveError,
-  onToggleMode,
-  onCopy,
-  onSave,
-  onDelete,
-}: ToolbarProps) {
+function TrashIcon() {
   return (
-    <header className="flex flex-wrap items-center gap-3 border-b border-slate-200 bg-white px-4 py-3">
-      <div className="min-w-0 flex-1">
-        <p className="truncate text-xs uppercase tracking-wide text-slate-400">
-          {memory.tree || "(root)"}
-        </p>
-        {saveError && (
-          <p className="mt-1 text-xs text-red-600">
-            Save failed: {saveError.message}
-          </p>
-        )}
-      </div>
-
-      <div className="flex items-center gap-2">
-        {dirty && (
-          <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs text-amber-800">
-            unsaved
-          </span>
-        )}
-        <button
-          type="button"
-          onClick={onCopy}
-          title="Copy Markdown"
-          aria-label="Copy Markdown"
-          className="rounded-md border border-slate-300 bg-white p-1.5 text-slate-700 hover:bg-slate-100"
-        >
-          <CopyIcon />
-        </button>
-        <button
-          type="button"
-          onClick={onToggleMode}
-          className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-100"
-        >
-          {mode === "view" ? "Edit" : "Preview"}
-        </button>
-        <button
-          type="button"
-          onClick={onSave}
-          disabled={!canSave}
-          className="rounded-md bg-sky-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-sky-700 disabled:cursor-not-allowed disabled:bg-slate-300"
-        >
-          {saving ? "Saving…" : "Save"}
-        </button>
-        <button
-          type="button"
-          onClick={onDelete}
-          disabled={!onDelete}
-          className="rounded-md border border-red-300 bg-white px-3 py-1.5 text-xs font-medium text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-40"
-        >
-          Delete
-        </button>
-      </div>
-    </header>
+    <svg
+      aria-hidden="true"
+      className="h-4 w-4"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.7"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M3 6h18" />
+      <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+      <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+    </svg>
   );
 }

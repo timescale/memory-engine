@@ -17,11 +17,11 @@ export function TreeContent({
 }) {
   if (activeError) {
     return (
-      <div className="p-4 text-sm text-red-700">
+      <div className="p-4 text-[13px] text-tiger-red">
         <p className="font-medium">
           {searchActive ? "Search failed" : "Failed to load tree"}
         </p>
-        <p className="mt-1 text-xs text-red-600">
+        <p className="mt-1 font-mono text-[11px] text-tiger-red/80">
           {activeError instanceof Error
             ? activeError.message
             : String(activeError)}
@@ -32,7 +32,7 @@ export function TreeContent({
 
   if (activeLoading) {
     return (
-      <div className="p-4 text-sm text-slate-500">
+      <div className="p-4 text-[13px] text-ink/50">
         {searchActive ? "Searching…" : "Loading tree…"}
       </div>
     );
@@ -40,7 +40,7 @@ export function TreeContent({
 
   if (roots.length === 0) {
     return (
-      <div className="p-4 text-sm text-slate-500">
+      <div className="p-4 text-[13px] text-ink/50">
         {searchActive
           ? "No memories match the current filter."
           : "No memories yet. Create one from the CLI or MCP server to see it here."}
@@ -49,7 +49,7 @@ export function TreeContent({
   }
 
   return (
-    <div className="py-1" role="tree" aria-label="Memories">
+    <div className="p-2" role="tree" aria-label="Memories">
       {roots.map((node) => (
         <PathRow key={node.path} node={node} context={context} />
       ))}

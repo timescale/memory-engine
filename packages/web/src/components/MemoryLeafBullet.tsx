@@ -1,15 +1,24 @@
 /**
- * Leaf marker. Fixed 16×16 inline-flex box so the dot lands in the same
- * column as the caret above (and stays vertically centered regardless of
- * the text's line height).
+ * Memory-leaf marker.
+ *
+ * Plain: a 5px square bullet in the current text color at 45% opacity.
+ * Selected: the active-row indicator — a 6px Solar-Flare LED dot with a soft
+ * glow ring. (The selected row's gray fill lives on the row itself; this is
+ * never a left-border stripe.)
  */
-export function MemoryLeafBullet() {
+export function MemoryLeafBullet({ selected = false }: { selected?: boolean }) {
+  if (selected) {
+    return (
+      <span
+        aria-hidden="true"
+        className="block size-1.5 shrink-0 rounded-full bg-solar shadow-[0_0_0_3px_rgba(241,255,92,0.3)]"
+      />
+    );
+  }
   return (
     <span
       aria-hidden="true"
-      className="inline-flex size-4 shrink-0 items-center justify-center text-slate-400"
-    >
-      <span className="block size-1 rounded-full bg-current" />
-    </span>
+      className="block size-[5px] shrink-0 rounded-[1px] bg-current opacity-45"
+    />
   );
 }

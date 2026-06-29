@@ -10,6 +10,7 @@
  */
 import type { ReactNode } from "react";
 import { type SocialProvider, signInWithProvider } from "../api/auth-client.ts";
+import { Logo } from "./icons.tsx";
 
 /**
  * A failed social sign-in redirects back here with `?error[&error_description]`
@@ -49,12 +50,17 @@ export function SignInCard({
   const signInError = readSignInError();
 
   return (
-    <div className="flex h-full items-center justify-center bg-slate-50 p-6">
-      <div className="w-full max-w-sm rounded-xl border border-slate-200 bg-white p-8 shadow-sm">
-        <h1 className="text-lg font-semibold text-slate-900">{title}</h1>
-        <p className="mt-1 text-sm text-slate-500">{subtitle}</p>
+    <div className="flex h-full items-center justify-center p-6">
+      <div className="w-full max-w-sm rounded-xl border border-ink/[0.14] bg-white p-8">
+        <div className="flex items-center gap-[11px]">
+          <Logo />
+          <h1 className="text-[15px] font-semibold tracking-[-0.01em] text-ink">
+            {title}
+          </h1>
+        </div>
+        <p className="mt-3 text-[13px] text-ink/55">{subtitle}</p>
         {signInError && (
-          <div className="mt-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+          <div className="mt-4 rounded-md border border-tiger-red/50 bg-tiger-red/10 px-3 py-2 text-[13px] text-ink/80">
             {signInError}
           </div>
         )}
@@ -62,14 +68,14 @@ export function SignInCard({
           <button
             type="button"
             onClick={() => start("github")}
-            className="rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700"
+            className="inline-flex h-10 items-center justify-center rounded-lg bg-solar text-[13px] font-semibold text-ink transition-colors hover:bg-solar-hover"
           >
             Sign in with GitHub
           </button>
           <button
             type="button"
             onClick={() => start("google")}
-            className="rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-900 hover:bg-slate-50"
+            className="inline-flex h-10 items-center justify-center rounded-lg border border-ink/[0.18] text-[13px] font-medium text-ink transition-colors hover:border-ink"
           >
             Sign in with Google
           </button>

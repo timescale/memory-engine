@@ -11,6 +11,9 @@ on:
       - packages/protocol/**
       - packages/auth/**
       - packages/database/**
+      # The web UI is bundled into the server image (bundle-web-assets), so a
+      # UI-only change still needs a dev redeploy to ship.
+      - packages/web/**
       - scripts/**
       - package.json
       - bun.lock

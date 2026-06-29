@@ -20,7 +20,7 @@ export function AdvancedSearchPanel() {
   const metaError = validateMetaJson(advanced.metaJson);
 
   return (
-    <div className="grid grid-cols-1 gap-4 rounded-md border border-slate-200 bg-slate-50 p-4 sm:grid-cols-2">
+    <div className="grid grid-cols-1 gap-4 rounded-lg border border-ink/[0.12] bg-ink/[0.02] p-4 sm:grid-cols-2">
       <Field label="semantic (vector)">
         <TextInput
           value={advanced.semantic}
@@ -60,10 +60,10 @@ export function AdvancedSearchPanel() {
           rows={3}
           placeholder='{"priority":"high"}'
           className={[
-            "w-full rounded-md border bg-white px-3 py-2 font-mono text-xs focus:outline-none focus:ring-1",
+            "w-full rounded-md border bg-white px-3 py-2 font-mono text-[12px] transition-colors focus:outline-none",
             metaError
-              ? "border-red-500 focus:border-red-500 focus:ring-red-500"
-              : "border-slate-300 focus:border-sky-500 focus:ring-sky-500",
+              ? "border-red-500 focus:border-red-500"
+              : "border-ink/[0.18] focus:border-ink",
           ].join(" ")}
         />
       </Field>
@@ -80,7 +80,7 @@ export function AdvancedSearchPanel() {
                 },
               })
             }
-            className="rounded-md border border-slate-300 bg-white px-2 py-2 text-sm"
+            className="rounded-md border border-ink/[0.18] bg-white px-2 py-2 text-[13px] transition-colors focus:border-ink focus:outline-none"
           >
             <option value="contains">contains</option>
             <option value="overlaps">overlaps</option>
@@ -108,7 +108,7 @@ export function AdvancedSearchPanel() {
             pickerLabel="Pick end timestamp"
           />
         </div>
-        <p className="mt-1 text-xs text-slate-500">
+        <p className="mt-1 text-[11px] text-ink/50">
           {advanced.temporal.mode === "contains"
             ? "contains: the memory's range contains this single point"
             : advanced.temporal.mode === "overlaps"
@@ -146,7 +146,7 @@ export function AdvancedSearchPanel() {
           min={0}
           max={1}
         />
-        <p className="mt-1 text-xs text-slate-500">
+        <p className="mt-1 text-[11px] text-ink/50">
           Filters semantic candidates before ranking. Higher is stricter.
         </p>
       </Field>
@@ -227,7 +227,7 @@ function TemporalTimestampInput({
         onChange={(e) => onChange(e.target.value)}
         disabled={disabled}
         placeholder={placeholder}
-        className="min-w-0 flex-1 rounded-md border border-slate-300 bg-white px-2 py-2 font-mono text-xs focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500 disabled:bg-slate-100 disabled:text-slate-400"
+        className="min-w-0 flex-1 rounded-md border border-ink/[0.18] bg-white px-2 py-2 font-mono text-[12px] transition-colors focus:border-ink focus:outline-none disabled:bg-ink/[0.04] disabled:text-ink/40"
       />
       <button
         type="button"
@@ -235,7 +235,7 @@ function TemporalTimestampInput({
         disabled={disabled}
         title={pickerLabel}
         aria-label={pickerLabel}
-        className="inline-flex w-9 shrink-0 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-500 hover:bg-slate-100 hover:text-slate-700 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
+        className="inline-flex w-9 shrink-0 items-center justify-center rounded-md border border-ink/[0.18] bg-white text-ink/50 transition-colors hover:border-ink hover:text-ink disabled:cursor-not-allowed disabled:bg-ink/[0.04] disabled:text-ink/40"
       >
         <CalendarIcon />
       </button>
@@ -305,11 +305,11 @@ function Field({
   // input. Visual labeling only; per-input aria can be added when needed.
   return (
     <div className={`block ${className ?? ""}`}>
-      <span className="mb-1 block text-xs font-medium uppercase tracking-wide text-slate-500">
+      <span className="mb-1 block font-mono text-[11px] uppercase tracking-[0.08em] text-ink/50">
         {label}
       </span>
       {children}
-      {error && <p className="mt-1 text-xs text-red-600">{error}</p>}
+      {error && <p className="mt-1 text-[11px] text-red-600">{error}</p>}
     </div>
   );
 }
@@ -329,7 +329,7 @@ function TextInput({
       value={value}
       onChange={(e) => onChange(e.target.value)}
       placeholder={placeholder}
-      className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500"
+      className="w-full rounded-md border border-ink/[0.18] bg-white px-3 py-2 text-[13px] transition-colors focus:border-ink focus:outline-none"
     />
   );
 }
@@ -359,7 +359,7 @@ function NumberInput({
       min={min}
       max={max}
       step={step}
-      className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500"
+      className="w-full rounded-md border border-ink/[0.18] bg-white px-3 py-2 text-[13px] transition-colors focus:border-ink focus:outline-none"
     />
   );
 }

@@ -92,7 +92,7 @@ export function SidebarResizer() {
       tabIndex={0}
       onPointerDown={handlePointerDown}
       onKeyDown={handleKeyDown}
-      className="w-1 shrink-0 cursor-col-resize bg-slate-200 transition-colors hover:bg-sky-400 focus:outline-none focus-visible:bg-sky-500 active:bg-sky-500"
+      className="w-px shrink-0 cursor-col-resize bg-ink/[0.12] transition-colors hover:bg-ink/40 focus:outline-none focus-visible:bg-tiger-blue active:bg-tiger-blue"
       title="Drag or use arrow keys to resize"
     />
   );

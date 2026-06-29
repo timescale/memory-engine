@@ -27,13 +27,13 @@ export function SearchResultsList({
 
   return (
     <div className="min-h-full">
-      <div className="sticky top-0 z-10 border-b border-slate-200 bg-slate-50/95 px-3 py-2 backdrop-blur">
+      <div className="sticky top-0 z-10 border-b border-ink/[0.1] bg-white/90 px-3 py-2 backdrop-blur">
         <div className="flex items-baseline justify-between gap-2">
-          <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-            Search results
+          <h2 className="font-mono text-[11px] uppercase tracking-[0.08em] text-ink/50">
+            search results
           </h2>
           {!loading && !error && (
-            <span className="text-xs text-slate-400">
+            <span className="font-mono text-[11px] text-ink/40">
               {sortedResults.length}{" "}
               {sortedResults.length === 1 ? "match" : "matches"}
             </span>
@@ -42,20 +42,20 @@ export function SearchResultsList({
       </div>
 
       {error ? (
-        <div className="p-3 text-sm text-red-700">
+        <div className="p-3 text-[13px] text-tiger-red">
           <p className="font-medium">Search results failed</p>
-          <p className="mt-1 text-xs text-red-600">
+          <p className="mt-1 font-mono text-[11px] text-tiger-red/80">
             {error instanceof Error ? error.message : String(error)}
           </p>
         </div>
       ) : loading ? (
-        <div className="p-3 text-sm text-slate-500">Searching…</div>
+        <div className="p-3 text-[13px] text-ink/50">Searching…</div>
       ) : sortedResults.length === 0 ? (
-        <div className="p-3 text-sm text-slate-500">
+        <div className="p-3 text-[13px] text-ink/50">
           No memories match the current text filter.
         </div>
       ) : (
-        <ol className="divide-y divide-slate-200">
+        <ol className="divide-y divide-ink/[0.08]">
           {sortedResults.map((memory) => (
             <SearchResultRow
               key={memory.id}

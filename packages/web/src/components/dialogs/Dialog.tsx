@@ -39,7 +39,7 @@ export function Dialog({ open, onClose, title, children, footer }: Props) {
         type="button"
         aria-label="Close dialog"
         onClick={onClose}
-        className="absolute inset-0 cursor-default bg-slate-900/40"
+        className="absolute inset-0 cursor-default bg-ink/40"
         tabIndex={-1}
       />
       <div
@@ -47,16 +47,16 @@ export function Dialog({ open, onClose, title, children, footer }: Props) {
         tabIndex={-1}
         role="dialog"
         aria-modal="true"
-        className="relative w-full max-w-md rounded-lg bg-white shadow-xl focus:outline-none"
+        className="relative w-full max-w-md rounded-xl border border-ink/[0.14] bg-white shadow-xl focus:outline-none"
       >
         {title && (
-          <header className="border-b border-slate-200 px-5 py-3 text-sm font-semibold text-slate-900">
+          <header className="border-b border-ink/[0.12] px-5 py-3 text-[14px] font-semibold text-ink">
             {title}
           </header>
         )}
-        <div className="px-5 py-4 text-sm text-slate-700">{children}</div>
+        <div className="px-5 py-4 text-[13px] text-ink/70">{children}</div>
         {footer && (
-          <footer className="flex items-center justify-end gap-2 border-t border-slate-200 bg-slate-50 px-5 py-3">
+          <footer className="flex items-center justify-end gap-2 border-t border-ink/[0.12] bg-ink/[0.02] px-5 py-3">
             {footer}
           </footer>
         )}

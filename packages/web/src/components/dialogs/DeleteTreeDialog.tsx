@@ -56,7 +56,7 @@ export function DeleteTreeDialog() {
       title={
         <span>
           Delete subtree{" "}
-          <code className="font-mono text-xs text-slate-600">{treePath}</code>?
+          <code className="font-mono text-[12px] text-ink/70">{treePath}</code>?
         </span>
       }
       footer={
@@ -65,7 +65,7 @@ export function DeleteTreeDialog() {
             type="button"
             onClick={close}
             disabled={del.isPending}
-            className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-100"
+            className="rounded-md border border-ink/[0.18] bg-white px-3 py-1.5 text-[12px] font-medium text-ink transition-colors hover:border-ink"
           >
             Cancel
           </button>
@@ -73,7 +73,7 @@ export function DeleteTreeDialog() {
             type="button"
             onClick={handleConfirm}
             disabled={del.isPending || isLoading || !data || data.count === 0}
-            className="rounded-md bg-red-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-red-700 disabled:cursor-not-allowed disabled:bg-slate-300"
+            className="rounded-md bg-red-600 px-3 py-1.5 text-[12px] font-medium text-white hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {del.isPending
               ? "Deleting…"
@@ -95,10 +95,9 @@ export function DeleteTreeDialog() {
           <p>No memories live under this path.</p>
         ) : (
           <p>
-            This will delete{" "}
-            <strong className="text-slate-900">{data.count}</strong>{" "}
+            This will delete <strong className="text-ink">{data.count}</strong>{" "}
             {data.count === 1 ? "memory" : "memories"} under{" "}
-            <code className="font-mono text-xs">{treePath}</code> and its
+            <code className="font-mono text-[12px]">{treePath}</code> and its
             subpaths. This cannot be undone.
           </p>
         ))}

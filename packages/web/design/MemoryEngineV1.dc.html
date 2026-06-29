@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700;800&family=Geist+Mono:wght@400;500;600;700&family=VT323&display=swap" rel="stylesheet">
+<style>
+  *{box-sizing:border-box}
+    ::-webkit-scrollbar{width:9px;height:9px}
+    ::-webkit-scrollbar-thumb{background:rgba(16,16,19,.16);border-radius:999px}
+    ::-webkit-scrollbar-track{background:transparent}
+</style>
+</helmet>
+
+<div style="width:100%;height:100%;font-family:'Geist','Inter',system-ui,sans-serif;background:#FFFFFF;color:#101013;overflow:hidden;display:flex;flex-direction:column;-webkit-font-smoothing:antialiased">
+  <div style="display:flex;flex-direction:column;height:100%">
+    <header style="display:flex;align-items:center;justify-content:space-between;padding:0 24px;height:54px;border-bottom:1px solid rgba(16,16,19,.12);flex-shrink:0">
+      <div style="display:flex;align-items:center;gap:11px">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" style="display:block"><rect x="2.6" y="2.6" width="18.8" height="18.8" rx="4.5" stroke="currentColor" stroke-width="1.6"></rect><rect x="6.4" y="6.4" width="4.6" height="4.6" rx="1.2" fill="currentColor"></rect><rect x="13" y="6.4" width="4.6" height="4.6" rx="1.2" fill="#F1FF5C"></rect><rect x="6.4" y="13" width="4.6" height="4.6" rx="1.2" fill="#F1FF5C"></rect><rect x="13" y="13" width="4.6" height="4.6" rx="1.2" fill="currentColor"></rect></svg>
+        <span style="font-weight:600;font-size:15px;letter-spacing:-0.01em">Memory Engine</span>
+        <span style="font-family:'Geist Mono',monospace;font-size:11px;opacity:0.38;padding-left:2px">v2.0</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:16px;font-family:'Geist Mono',monospace;font-size:12px">
+        <span style="opacity:0.5">space</span>
+        <span style="display:inline-flex;align-items:center;gap:7px;padding:5px 10px;border:1px solid rgba(16,16,19,.16);border-radius:6px">default <span style="opacity:0.5">&#9662;</span></span>
+        <span style="opacity:0.5">cevian@gmail.com</span>
+        <span style="opacity:0.5">Sign out</span>
+      </div>
+    </header>
+
+    <div style="display:flex;gap:12px;align-items:center;padding:16px 24px;border-bottom:1px solid rgba(16,16,19,.12);flex-shrink:0">
+      <div style="flex:1;display:flex;align-items:center;gap:11px;height:42px;padding:0 14px;border:1px solid rgba(16,16,19,.18);border-radius:8px;background:rgba(16,16,19,.03)">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" style="opacity:0.5"><circle cx="11" cy="11" r="7"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+        <span style="font-family:'Geist Mono',monospace;font-size:13px;opacity:0.4">search memories — hybrid semantic + full-text…</span>
+      </div>
+      <div style="display:flex;border:1px solid rgba(16,16,19,.18);border-radius:8px;overflow:hidden;height:42px">
+        <span style="display:flex;align-items:center;padding:0 16px;background:#F1FF5C;color:#101013;font-weight:600;font-size:13px">Simple</span>
+        <span style="display:flex;align-items:center;padding:0 16px;font-size:13px;opacity:0.55">Advanced</span>
+      </div>
+      <span style="display:flex;align-items:center;padding:0 16px;height:42px;border:1px solid rgba(16,16,19,.18);border-radius:8px;font-size:13px;font-weight:500">Clear</span>
+      <span style="display:flex;align-items:center;justify-content:center;width:42px;height:42px;border:1px solid rgba(16,16,19,.18);border-radius:8px">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" style="opacity:0.7"><path d="M21 12a9 9 0 1 1-3-6.7"></path><path d="M21 3v5h-5"></path></svg>
+      </span>
+    </div>
+
+    <div style="display:flex;flex:1;min-height:0">
+      <aside style="width:300px;flex-shrink:0;border-right:1px solid rgba(16,16,19,.12);display:flex;flex-direction:column;min-height:0">
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:13px 16px;border-bottom:1px solid rgba(16,16,19,.1);flex-shrink:0">
+          <span style="font-family:'Geist Mono',monospace;font-size:11px;letter-spacing:0.08em;text-transform:uppercase;opacity:0.5">explorer</span>
+          <span style="font-family:'Geist Mono',monospace;font-size:11px;padding:2px 8px;border-radius:999px;background:#F1FF5C;color:#101013;font-weight:600">7,721</span>
+        </div>
+        <div style="flex:1;overflow:auto;padding:8px 8px">
+          <sc-for list="{{ rows }}" as="row" hint-placeholder-count="14">
+            <sc-if value="{{ row.isRoot }}" hint-placeholder-val="{{ true }}"><div style="display:flex;align-items:center;gap:7px;padding:6px 10px;border-radius:6px;font-weight:600;font-size:13px;margin-top:6px"><span style="opacity:0.5;font-size:9px">&#9662;</span><span>{{ row.label }}</span><span style="margin-left:auto;font-family:'Geist Mono',monospace;font-size:11px;opacity:0.4">{{ row.count }}</span></div></sc-if>
+            <sc-if value="{{ row.isChild }}" hint-placeholder-val="{{ false }}"><div style="display:flex;align-items:center;gap:7px;padding:5px 10px 5px 26px;border-radius:6px;font-size:13px"><span style="opacity:0.38;font-size:8px">&#9656;</span><span style="opacity:0.88">{{ row.label }}</span><span style="margin-left:auto;font-family:'Geist Mono',monospace;font-size:11px;opacity:0.33">{{ row.count }}</span></div></sc-if>
+            <sc-if value="{{ row.isMemoryPlain }}" hint-placeholder-val="{{ false }}"><div style="display:flex;align-items:center;gap:9px;padding:5px 10px 5px 44px;border-radius:6px;font-family:'Geist Mono',monospace;font-size:12px;opacity:0.6"><span style="width:5px;height:5px;border-radius:1px;background:currentColor;opacity:0.45;flex-shrink:0"></span><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ row.label }}</span></div></sc-if>
+            <sc-if value="{{ row.isMemorySel }}" hint-placeholder-val="{{ false }}"><div style="display:flex;align-items:center;gap:9px;padding:6px 10px 6px 44px;border-radius:6px;font-family:'Geist Mono',monospace;font-size:12px;font-weight:500;background:rgba(16,16,19,.08)"><span style="width:6px;height:6px;border-radius:999px;background:#F1FF5C;flex-shrink:0;box-shadow:0 0 0 3px rgba(241,255,92,.3)"></span><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ row.label }}</span></div></sc-if>
+          </sc-for>
+        </div>
+      </aside>
+
+      <main style="flex:1;min-width:0;overflow:auto;padding:34px 44px">
+        <div style="max-width:760px">
+          <div style="font-family:'Geist Mono',monospace;font-size:12px;letter-spacing:0.03em;opacity:0.5;margin-bottom:14px">projects&nbsp;&nbsp;/&nbsp;&nbsp;harness_rag</div>
+          <h1 style="font-size:31px;font-weight:700;letter-spacing:-0.025em;line-height:1.12;margin:0 0 16px">Hybrid retrieval ranking weights</h1>
+          <div style="display:flex;align-items:center;gap:13px;flex-wrap:wrap;font-family:'Geist Mono',monospace;font-size:12px;opacity:0.62;margin-bottom:26px">
+            <span>created Jun 18, 2026</span><span style="opacity:0.4">·</span><span>1,284 tokens</span><span style="opacity:0.4">·</span>
+            <span style="display:inline-flex;align-items:center;gap:7px">relevance <span style="background:#F1FF5C;color:#101013;padding:2px 8px;border-radius:4px;font-weight:600">0.94</span></span>
+          </div>
+          <p style="font-size:15px;line-height:1.7;opacity:0.86;margin:0 0 16px">Hybrid search blends pgvector cosine similarity with full-text <code style="font-family:'Geist Mono',monospace;font-size:13px;background:rgba(16,16,19,.07);padding:1px 5px;border-radius:4px">ts_rank_cd</code> scores. The final ranking weights semantic relevance at <strong style="font-weight:600">0.6</strong> and lexical match at <strong style="font-weight:600">0.4</strong>, normalized per query so neither signal dominates short keyword lookups.</p>
+          <p style="font-size:15px;line-height:1.7;opacity:0.86;margin:0 0 26px">Re-ranking runs inside a single SQL CTE — no round-trip to the application layer.</p>
+          <div style="border-radius:8px;overflow:hidden;border:1px solid rgba(16,16,19,.14);margin-bottom:26px">
+            <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 14px;background:#0A0A0C;border-bottom:1px solid #27272A">
+              <span style="font-family:'Geist Mono',monospace;font-size:11px;color:#A1A1AA;letter-spacing:0.08em;text-transform:uppercase">sql</span>
+              <span style="font-family:'Geist Mono',monospace;font-size:11px;color:#71717A">rank.sql</span>
+            </div>
+            <pre style="margin:0;padding:16px;background:#0A0A0C;color:#D4D4D8;font-family:'Geist Mono',monospace;font-size:13px;line-height:1.7;overflow:auto"><span style="color:#F1FF5C">SELECT</span> id, content,
+  0.6 * (1 - (embedding <span style="color:#FF9B8E">&lt;=&gt;</span> $1))
+  + 0.4 * ts_rank_cd(tsv, query) <span style="color:#F1FF5C">AS</span> score
+<span style="color:#F1FF5C">FROM</span> memories, plainto_tsquery($2) query
+<span style="color:#F1FF5C">WHERE</span> tsv @@ query
+<span style="color:#F1FF5C">ORDER BY</span> score <span style="color:#F1FF5C">DESC</span>
+<span style="color:#F1FF5C">LIMIT</span> 20;</pre>
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <sc-for list="{{ tags }}" as="t" hint-placeholder-count="4"><span style="display:inline-flex;align-items:center;gap:7px;font-family:'Geist Mono',monospace;font-size:12px;padding:4px 11px;border:1px solid rgba(16,16,19,.16);border-radius:999px;opacity:0.82"><span style="width:5px;height:5px;border-radius:999px;background:#4B7BFF"></span>{{ t }}</span></sc-for>
+          </div>
+        </div>
+      </main>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1280,&quot;height&quot;:840}}">
+class Component extends DCLogic {
+  renderVals() {
+    const raw = [
+      ['projects','6722',0],
+      ['0pflow','66',1],
+      ['autoresearch_me','595',1],
+      ['empty','109',1],
+      ['ghost','435',1],
+      ['ghost_api','15',1],
+      ['ghost_www','273',1],
+      ['harness','1122',1],
+      ['harness_rag','2203',1,'open'],
+      ['hybrid-retrieval-ranking','',2,'sel'],
+      ['pgvector-index-tuning','',2],
+      ['chunking-strategy-v3','',2],
+      ['reranker-eval-notes','',2],
+      ['me_test','14',1],
+      ['mempalace','7',1],
+      ['posthog_1','39',1],
+      ['savannah_projects','1595',1],
+      ['tiger_docs_mcp_server','244',1],
+      ['share','999',0],
+      ['projects','998',1],
+      ['We are actively working on Memory Engine —','',2],
+    ];
+    const rows = raw.map(function (r) {
+      const level = r[2];
+      const flag = r[3] || '';
+      return {
+        label: r[0],
+        count: r[1],
+        isRoot: level === 0,
+        isChild: level === 1,
+        isMemoryPlain: level === 2 && flag !== 'sel',
+        isMemorySel: level === 2 && flag === 'sel',
+      };
+    });
+    return { rows: rows, tags: ['retrieval', 'ranking', 'pgvector', 'sql'] };
+  }
+}
+</script>
+</body>
+</html>

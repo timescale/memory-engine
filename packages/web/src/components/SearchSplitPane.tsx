@@ -29,7 +29,7 @@ export function SearchSplitPane({
   return (
     <div ref={containerRef} className="flex h-full min-h-0 flex-col">
       <section
-        className="min-h-0 shrink-0 overflow-auto border-b border-slate-200 bg-slate-50"
+        className="min-h-0 shrink-0 overflow-auto border-b border-ink/[0.12] bg-ink/[0.02]"
         style={{
           height: searchResultsHeight,
           minHeight: MIN_SEARCH_RESULTS_HEIGHT,
@@ -46,7 +46,7 @@ export function SearchSplitPane({
       </section>
       <SearchResultsResizer containerRef={containerRef} />
       <section
-        className="min-h-0 flex-1 overflow-auto bg-white"
+        className="min-h-0 flex-1 overflow-auto"
         style={{ minHeight: MIN_TREE_PANE_HEIGHT }}
         aria-label="Tree"
       >
