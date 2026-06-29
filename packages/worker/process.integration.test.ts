@@ -210,14 +210,29 @@ describe("processBatch integration (space model)", () => {
 
       // claim incremented attempts to 1 and locked the row (vt in the future);
       // the RateLimitError handler released it — attempts back to 0 (the
-      // transient failure isn't charged) and vt reset so it's immediately
-      // claimable again rather than waiting out the full claim lock.
+      // transient failure isn't charged) and vt DEFERRED by the rate-limit
+      // backoff (not reset to now()), so another worker can't re-claim it
+      // mid-backoff and re-trigger the 429.
       const queue = await getQueueEntries(memoryId);
       const entry = queue.find((q) => q.outcome === null);
       expect(entry?.attempts).toBe(0);
-      expect((entry?.vt as Date).getTime()).toBeLessThanOrEqual(Date.now());
+      expect((entry?.vt as Date).getTime()).toBeGreaterThan(Date.now());
     } finally {
       server.stop();
+    }
+
+    // Practical effect: even a healthy worker polling immediately afterward
+    // claims nothing — the row is invisible until its deferred vt passes.
+    const healthy = embedServer();
+    try {
+      const result = await processBatch(
+        sql,
+        target,
+        mockConfig(`http://localhost:${healthy.port}/v1`, 0),
+      );
+      expect(result.claimed).toBe(0);
+    } finally {
+      healthy.stop();
     }
   });
 
@@ -436,7 +451,7 @@ describe("write-back SQL functions", () => {
     expect(q?.last_error).toBe("boom"); // unchanged
   });
 
-  test("release_embedding decrements attempts, resets vt, floors at 0, no-op once terminal", async () => {
+  test("release_embedding decrements attempts, defers vt by the backoff, floors at 0, no-op once terminal", async () => {
     const { memoryId, queueId } = await pendingRow("release me");
     // Simulate a claim: attempt charged + locked (vt pushed into the future).
     await sql.unsafe(
@@ -445,21 +460,30 @@ describe("write-back SQL functions", () => {
       [queueId],
     );
 
-    await sql.unsafe(`SELECT ${schema}.release_embedding($1)`, [queueId]);
+    await sql.unsafe(`SELECT ${schema}.release_embedding($1, $2::interval)`, [
+      queueId,
+      "30 seconds",
+    ]);
     const [released] = (await sql.unsafe(
-      `SELECT attempts, (vt <= now()) AS claimable
+      `SELECT attempts, (vt > now()) AS deferred, (vt <= now() + interval '31 seconds') AS within_backoff
        FROM ${schema}.embedding_queue WHERE id = $1`,
       [queueId],
-    )) as { attempts: number; claimable: boolean }[];
+    )) as { attempts: number; deferred: boolean; within_backoff: boolean }[];
     expect(Number(released?.attempts)).toBe(1);
-    expect(released?.claimable).toBe(true); // vt reset → eligible again now
+    // vt deferred by the backoff (~30s out), NOT reset to now() — so another
+    // worker can't re-claim it mid-backoff and re-trigger the 429.
+    expect(released?.deferred).toBe(true);
+    expect(released?.within_backoff).toBe(true);
 
     // Floors at 0.
     await sql.unsafe(
       `UPDATE ${schema}.embedding_queue SET attempts = 0 WHERE id = $1`,
       [queueId],
     );
-    await sql.unsafe(`SELECT ${schema}.release_embedding($1)`, [queueId]);
+    await sql.unsafe(`SELECT ${schema}.release_embedding($1, $2::interval)`, [
+      queueId,
+      "30 seconds",
+    ]);
     expect(Number((await getQueueEntries(memoryId))[0]?.attempts)).toBe(0);
 
     // No-op once terminal.
@@ -468,7 +492,10 @@ describe("write-back SQL functions", () => {
        SET outcome = 'completed', attempts = 5 WHERE id = $1`,
       [queueId],
     );
-    await sql.unsafe(`SELECT ${schema}.release_embedding($1)`, [queueId]);
+    await sql.unsafe(`SELECT ${schema}.release_embedding($1, $2::interval)`, [
+      queueId,
+      "30 seconds",
+    ]);
     expect(Number((await getQueueEntries(memoryId))[0]?.attempts)).toBe(5);
   });
 });

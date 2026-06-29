@@ -238,18 +238,23 @@ set search_path to pg_catalog, {{schema}}, pg_temp
 
 -- Undo a claim for a transient rate limit — the inverse of claim_embedding_batch:
 -- decrement attempts (the rate limit must not consume the attempt budget) AND
--- reset the visibility timeout so the row is immediately claimable again.
--- Without resetting vt the row would sit out the full claim lock (~minutes)
--- before retrying; the worker's own rate-limit backoff (honoring Retry-After)
--- paces the actual retry. No-op once the row is terminal.
+-- defer the visibility timeout by _backoff so the row is NOT immediately
+-- re-claimable. Deferring (rather than resetting vt = now()) is what stops other
+-- workers from grabbing the same rows during this worker's rate-limit backoff
+-- sleep — the cross-worker bounce that amplifies a provider 429. The
+-- worker paces its own retry with the same backoff (honoring Retry-After), so
+-- the row reappears right as the worker is ready to try again. No-op once the
+-- row is terminal.
+{{fn release_embedding(_queue_id bigint, _backoff interval) returns void}}
 create or replace function {{schema}}.release_embedding
 ( _queue_id bigint
+, _backoff interval
 )
 returns void
 as $func$
   update {{schema}}.embedding_queue
   set attempts = greatest(attempts - 1, 0)
-    , vt = now()
+    , vt = now() + _backoff
   where id = _queue_id
   and outcome is null
   ;
@@ -257,3 +262,4 @@ $func$
 language sql volatile security invoker
 set search_path to pg_catalog, {{schema}}, pg_temp
 ;
+{{endfn}}

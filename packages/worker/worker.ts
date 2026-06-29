@@ -2,11 +2,9 @@ import { reportError } from "@memory.build/database/telemetry";
 import { RateLimitError } from "@memory.build/embedding";
 import { info, warning } from "@pydantic/logfire-node";
 import type { Sql } from "postgres";
+import { rateLimitBackoffMs } from "./backoff";
 import { processBatch, pruneQueue } from "./process";
 import type { WorkerConfig, WorkerStats } from "./types";
-
-/** Minimum backoff when rate limited, even if Retry-After is shorter. */
-const RATE_LIMIT_FLOOR_MS = 30_000;
 
 /**
  * SQLSTATE 3F000 = invalid_schema_name. Raised when the space's schema no
@@ -221,10 +219,7 @@ async function run(
         // Rate limit — back off without incrementing consecutive errors.
         // processBatch already decremented queue attempts so they aren't wasted.
         if (error instanceof RateLimitError) {
-          const backoffMs = Math.max(
-            error.retryAfterMs ?? RATE_LIMIT_FLOOR_MS,
-            RATE_LIMIT_FLOOR_MS,
-          );
+          const backoffMs = rateLimitBackoffMs(error.retryAfterMs);
           warning("Rate limited by embedding provider, backing off", {
             backoffMs,
             retryAfterMs: error.retryAfterMs,
