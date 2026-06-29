@@ -20,7 +20,14 @@ import { dirname, join } from "node:path";
  *   Gemini CLI). Ignored by tools without a scope concept (Codex, OpenCode).
  */
 export interface McpInstallOpts {
+  /**
+   * Configuration scope. CLI tools (Claude/Gemini) pass it to their own
+   * `mcp add` CLI. OpenCode (json-file) maps it to a config path: "project"
+   * writes `<projectDir>/opencode.json`, anything else writes the global config.
+   */
   scope?: string;
+  /** Project root for `scope: "project"` (OpenCode). Defaults to cwd. */
+  projectDir?: string;
 }
 
 interface McpToolBase {
@@ -223,9 +230,14 @@ export async function installMcpServer(
 // =============================================================================
 
 /**
- * Path to OpenCode's config file.
+ * Path to OpenCode's config file for the given scope. "project" targets the
+ * repo's `opencode.json` (under `projectDir`, default cwd) so it can be
+ * committed for a team; any other scope targets the global user config.
  */
-export function openCodeConfigPath(): string {
+export function openCodeConfigPath(opts: McpInstallOpts = {}): string {
+  if (opts.scope === "project") {
+    return join(opts.projectDir ?? process.cwd(), "opencode.json");
+  }
   return join(homedir(), ".config", "opencode", "opencode.json");
 }
 
@@ -265,9 +277,9 @@ export function buildOpenCodeConfig(
  */
 async function installOpenCode(
   meCmd: string[],
-  _opts: McpInstallOpts,
+  opts: McpInstallOpts,
 ): Promise<InstallResult> {
-  const configPath = openCodeConfigPath();
+  const configPath = openCodeConfigPath(opts);
 
   let existing: Record<string, unknown> = {};
   try {

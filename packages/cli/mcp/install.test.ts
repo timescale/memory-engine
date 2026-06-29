@@ -2,7 +2,14 @@
  * Unit tests for MCP install helpers.
  */
 import { describe, expect, test } from "bun:test";
-import { buildMeCommand, buildOpenCodeConfig, MCP_TOOLS } from "./install.ts";
+import { homedir } from "node:os";
+import { join } from "node:path";
+import {
+  buildMeCommand,
+  buildOpenCodeConfig,
+  MCP_TOOLS,
+  openCodeConfigPath,
+} from "./install.ts";
 
 describe("buildMeCommand", () => {
   test("uses bare 'me' command on PATH", () => {
@@ -122,6 +129,27 @@ describe("buildOpenCodeConfig", () => {
         command: meCmd,
       },
     });
+  });
+});
+
+describe("openCodeConfigPath scope", () => {
+  const userPath = join(homedir(), ".config", "opencode", "opencode.json");
+
+  test("defaults to the global user config", () => {
+    expect(openCodeConfigPath()).toBe(userPath);
+    expect(openCodeConfigPath({ scope: "user" })).toBe(userPath);
+  });
+
+  test("project scope targets <projectDir>/opencode.json", () => {
+    expect(openCodeConfigPath({ scope: "project", projectDir: "/repo" })).toBe(
+      join("/repo", "opencode.json"),
+    );
+  });
+
+  test("project scope without projectDir falls back to cwd", () => {
+    expect(openCodeConfigPath({ scope: "project" })).toBe(
+      join(process.cwd(), "opencode.json"),
+    );
   });
 });
 

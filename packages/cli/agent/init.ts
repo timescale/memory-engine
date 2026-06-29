@@ -31,6 +31,10 @@ export interface InitStepContext {
   globalOpts: Record<string, unknown>;
   /** Resolved server URL, if any. */
   server?: string;
+  /** Install scope, when the agent supports one (e.g. OpenCode project/user). */
+  scope?: string;
+  /** Project root for a "project" scope (git root, else cwd). */
+  projectRoot?: string;
 }
 
 /**
@@ -111,12 +115,37 @@ export function buildInitCommand(opts: {
   steps: InitStep[];
   /** Renders the closing note; receives everything covered (ran + already done). */
   outro: (covered: InitStep[]) => void;
+  /** Extra CLI options to register (e.g. `--scope <scope>`). */
+  options?: Array<{
+    flags: string;
+    description: string;
+    /** Optional commander arg parser (validates/transforms the value). */
+    argParser?: (value: string, previous: unknown) => unknown;
+  }>;
+  /**
+   * Optional hook to augment the step context before availability probing —
+   * e.g. resolve + (interactively) prompt for an install scope. Runs once after
+   * `interactive` is known, so availability probes and steps see the result.
+   */
+  resolveContext?: (
+    base: InitStepContext,
+    cmdOpts: Record<string, unknown>,
+    env: { interactive: boolean; fmt: string },
+  ) => Promise<InitStepContext>;
 }): Command {
   const { steps: INIT_STEPS, outro } = opts;
   const cmd = new Command("init").description(opts.description);
   // One --skip-<step> flag per step, so non-interactive runs can opt out.
   for (const step of INIT_STEPS) {
     cmd.option(step.skipFlag, step.skipDescription);
+  }
+  // Agent-specific extra options (e.g. --scope).
+  for (const opt of opts.options ?? []) {
+    if (opt.argParser) {
+      cmd.option(opt.flags, opt.description, opt.argParser);
+    } else {
+      cmd.option(opt.flags, opt.description);
+    }
   }
   cmd.action(async (cmdOpts: Record<string, unknown>, cmdRef: Command) => {
     const globalOpts = cmdRef.optsWithGlobals();
@@ -135,7 +164,10 @@ export function buildInitCommand(opts: {
     // Steps available in this environment. Already-done steps get a ✓ line
     // instead of a row. The probe is skipped for steps already opted out
     // non-interactively, so a `--skip-<step>` run never pays for that probe.
-    const ctx: InitStepContext = { globalOpts, server };
+    let ctx: InitStepContext = { globalOpts, server };
+    if (opts.resolveContext) {
+      ctx = await opts.resolveContext(ctx, cmdOpts, { interactive, fmt });
+    }
     const candidates: InitStep[] = [];
     const doneSteps: InitStep[] = [];
     for (const step of INIT_STEPS) {
