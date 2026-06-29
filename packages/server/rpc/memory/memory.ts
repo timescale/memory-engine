@@ -9,7 +9,7 @@
  * by id, desc (default, newest first) or asc; ranked/hybrid search ignores it
  * (score-desc).
  */
-import { generateEmbedding } from "@memory.build/embedding";
+import { clipToCharLimit, generateEmbedding } from "@memory.build/embedding";
 import { ACCESS } from "@memory.build/engine/core";
 import type {
   SearchResultItem,
@@ -439,10 +439,7 @@ async function memorySearch(
     // the model's token limit, but a query longer than this carries no useful
     // semantic signal — capping here bounds tokenizer CPU on the request path
     // (the embedding worker shares this process's event loop).
-    const query =
-      params.semantic.length > MAX_SEMANTIC_QUERY_CHARS
-        ? params.semantic.slice(0, MAX_SEMANTIC_QUERY_CHARS)
-        : params.semantic;
+    const query = clipToCharLimit(params.semantic, MAX_SEMANTIC_QUERY_CHARS);
     try {
       vec = (await generateEmbedding(query, embeddingConfig)).embedding;
     } catch (error) {
