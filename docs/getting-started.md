@@ -84,6 +84,12 @@ me codex install
 me gemini install
 ```
 
+For OpenCode, `me opencode init` goes further — it backfills existing sessions, installs a capture plugin for automatic session capture going forward, registers the MCP server, and adds a memory pointer to `AGENTS.md`:
+
+```bash
+me opencode init             # guided per-project setup
+```
+
 For Claude Code, `me claude install` installs the full Memory Engine plugin (hooks + slash commands + MCP):
 
 ```bash

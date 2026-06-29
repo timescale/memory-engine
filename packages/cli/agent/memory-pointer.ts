@@ -1,0 +1,147 @@
+/**
+ * Shared "project memory pointer" writer for agent `init` commands.
+ *
+ * `me claude init` and `me opencode init` both upsert a marker-delimited managed
+ * block into the project's agent rules file (CLAUDE.md / AGENTS.md) telling the
+ * agent where this project's memories live and how to search them. The block
+ * shape is identical across agents; only the filename, the managing-command name
+ * in the marker, and the agent label in the copy differ — captured here as a
+ * `MemoryPointerSpec` so there is one implementation.
+ */
+import { readFile, writeFile } from "node:fs/promises";
+import { join } from "node:path";
+import * as clack from "@clack/prompts";
+import { resolveCredentials } from "../credentials.ts";
+import { GIT_HISTORY_NODE_NAME } from "../importers/git.ts";
+import {
+  DEFAULT_SESSIONS_NODE_NAME,
+  DEFAULT_TREE_ROOT,
+} from "../importers/index.ts";
+import { SlugRegistry } from "../importers/slug.ts";
+
+/** What distinguishes one agent's memory pointer from another's. */
+export interface MemoryPointerSpec {
+  /** Rules file to write, relative to the repo root (e.g. "CLAUDE.md"). */
+  filename: string;
+  /** The managing command, embedded in the start marker (e.g. "me claude init"). */
+  managedBy: string;
+  /** Agent label used in the body copy (e.g. "Claude Code", "OpenCode"). */
+  agentLabel: string;
+}
+
+const startMarker = (managedBy: string): string =>
+  `<!-- memory-engine:start (managed by \`${managedBy}\`) -->`;
+const END_MARKER = "<!-- memory-engine:end -->";
+
+/**
+ * Build the managed block that tells an agent where this project's memories
+ * live and how to search them. `projectTree` is the canonical (dot-separated)
+ * ltree path (e.g. `share.projects.foo`); `space` is the active space slug.
+ */
+export function buildMemoryPointerSection(
+  spec: MemoryPointerSpec,
+  projectTree: string,
+  space?: string,
+): string {
+  const sessions = `${projectTree}.${DEFAULT_SESSIONS_NODE_NAME}`;
+  const gitHistory = `${projectTree}.${GIT_HISTORY_NODE_NAME}`;
+  const where = space ? `Memory Engine (space \`${space}\`)` : "Memory Engine";
+  return [
+    startMarker(spec.managedBy),
+    "## Project memories (Memory Engine)",
+    "",
+    `Prior context for this project — including captured/imported ${spec.agentLabel}`,
+    `sessions — is stored in ${where} under the tree:`,
+    "",
+    `    ${projectTree}`,
+    "",
+    `- Captured & imported agent sessions: \`${sessions}\``,
+    `- Imported git commit history: \`${gitHistory}\``,
+    `- Search them with the \`me_memory_search\` MCP tool (set \`tree\` to`,
+    `  \`${projectTree}\`), or from a shell: \`me search "<query>" --tree ${projectTree}\`.`,
+    "",
+    "Always consult these memories when exploring the codebase or starting a",
+    "task: search them FIRST to recall earlier decisions and context before",
+    "digging into the code.",
+    END_MARKER,
+    "",
+  ].join("\n");
+}
+
+/**
+ * Resolve the rules file the memory pointer lives in (the git repo root's when
+ * in a repo, else the current directory's) and the managed section to write.
+ */
+export async function resolveMemoryPointer(
+  spec: MemoryPointerSpec,
+  server?: string,
+): Promise<{ filePath: string; section: string }> {
+  const cwd = process.cwd();
+  const { slug, gitRoot } = await new SlugRegistry().resolve(cwd);
+  const projectTree = `${DEFAULT_TREE_ROOT}.${slug}`;
+  const space = resolveCredentials(server).activeSpace;
+  const section = buildMemoryPointerSection(spec, projectTree, space);
+  const filePath = join(gitRoot ?? cwd, spec.filename);
+  return { filePath, section };
+}
+
+/**
+ * Whether the project's rules file already carries the exact managed section
+ * this run would write — i.e. re-running would be a no-op. A present-but-stale
+ * block (template change, different active space) does NOT count, so the step
+ * stays offered and a re-run refreshes it.
+ */
+export async function memoryPointerUpToDate(
+  spec: MemoryPointerSpec,
+  server?: string,
+): Promise<boolean> {
+  const { filePath, section } = await resolveMemoryPointer(spec, server);
+  try {
+    const existing = await readFile(filePath, "utf8");
+    return existing.includes(section);
+  } catch {
+    return false; // no rules file yet
+  }
+}
+
+/**
+ * Upsert the managed Memory Engine section into the project's rules file.
+ *
+ * Idempotent: if the marker block already exists it is replaced in place;
+ * otherwise the block is appended (creating the file if absent).
+ */
+export async function writeMemoryPointer(
+  spec: MemoryPointerSpec,
+  server?: string,
+): Promise<void> {
+  const { filePath, section } = await resolveMemoryPointer(spec, server);
+  let existing = "";
+  try {
+    existing = await readFile(filePath, "utf8");
+  } catch {
+    existing = ""; // no file yet → create it
+  }
+
+  const START = startMarker(spec.managedBy);
+  let next: string;
+  const start = existing.indexOf(START);
+  if (start !== -1) {
+    // Replace the existing managed block in place.
+    const endMarker = existing.indexOf(END_MARKER, start);
+    const end =
+      endMarker === -1 ? existing.length : endMarker + END_MARKER.length;
+    // Swallow a single trailing newline after the old block so we don't grow
+    // blank lines on every re-run.
+    const tail = existing[end] === "\n" ? end + 1 : end;
+    next = existing.slice(0, start) + section + existing.slice(tail);
+  } else if (existing.trim().length === 0) {
+    next = section;
+  } else {
+    // Append after the existing content with one blank line of separation.
+    const sep = existing.endsWith("\n") ? "\n" : "\n\n";
+    next = existing + sep + section;
+  }
+
+  await writeFile(filePath, next);
+  clack.log.success(`Recorded project memory location in ${filePath}`);
+}

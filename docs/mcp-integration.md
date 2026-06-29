@@ -36,6 +36,8 @@ These commands register Memory Engine with the named tool, writing a `me mcp` in
 
 See the agent-specific command references for details: [`me opencode install`](cli/me-opencode.md#me-opencode-install), [`me codex install`](cli/me-codex.md#me-codex-install), and [`me gemini install`](cli/me-gemini.md#me-gemini-install).
 
+For OpenCode, [`me opencode init`](cli/me-opencode.md#me-opencode-init) goes further than `install`: it also backfills the project's existing sessions, installs a capture plugin (so new sessions are captured automatically, like the Claude Code plugin), and writes a memory pointer into `AGENTS.md`.
+
 | Tool | Install command |
 |------|-----------------|
 | OpenCode | `me opencode install` |

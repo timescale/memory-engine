@@ -44,7 +44,50 @@ export const opencodeImporter: Importer = {
   tool: "opencode",
   defaultSource: DEFAULT_SOURCE,
   discoverSessions,
+  parseFile: parseSessionFile,
 };
+
+/**
+ * Parse a single OpenCode session file into one session — the live-capture path
+ * used by `me opencode hook`. The storage root is the `storage/` ancestor three
+ * levels up from the session file (`<storageRoot>/session/<projectID>/ses_<id>.json`),
+ * so the per-message/per-part directories resolve the same way bulk import does.
+ */
+async function parseSessionFile(file: string): Promise<ImportedSession | null> {
+  const storageRoot = join(file, "..", "..", "..");
+  return parseSession(file, storageRoot);
+}
+
+/**
+ * Locate a session file by its id within an OpenCode storage tree. Session files
+ * live at `<storage>/session/<projectID>/ses_<id>.json`, nested under a project
+ * dir, so the id alone needs a lookup across project dirs. Returns the absolute
+ * path, or null when no session with that id exists. Used by `me opencode hook`,
+ * which receives a session id from the plugin (not a file path).
+ */
+export async function resolveSessionFile(
+  sessionId: string,
+  storage: string = DEFAULT_SOURCE,
+): Promise<string | null> {
+  const sessionRoot = join(storage, "session");
+  let projectDirs: string[];
+  try {
+    projectDirs = await listSubdirs(sessionRoot);
+  } catch {
+    return null;
+  }
+  const fileName = `${sessionId}.json`;
+  for (const projectDir of projectDirs) {
+    const candidate = join(projectDir, fileName);
+    try {
+      const stat = await fs.stat(candidate);
+      if (stat.isFile()) return candidate;
+    } catch {
+      // not in this project dir; keep scanning.
+    }
+  }
+  return null;
+}
 
 async function* discoverSessions(
   options: ImporterOptions,

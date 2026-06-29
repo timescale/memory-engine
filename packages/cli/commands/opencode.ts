@@ -2,13 +2,134 @@
  * me opencode — OpenCode integration commands.
  *
  * - me opencode install: register me as an MCP server with OpenCode
+ * - me opencode init:    one-shot per-project setup (backfill + plugin + MCP + AGENTS.md)
+ * - me opencode hook:    invoked by the OpenCode plugin to capture a session
+ * - me opencode import:  bulk-import OpenCode session history
  */
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { homedir } from "node:os";
+import { join } from "node:path";
+import * as clack from "@clack/prompts";
 import { Command } from "commander";
+import {
+  buildInitCommand,
+  DIM,
+  DIM_OFF,
+  type InitStep,
+  initOutroLead,
+  type StepAvailability,
+} from "../agent/init.ts";
+import {
+  type MemoryPointerSpec,
+  memoryPointerUpToDate,
+  writeMemoryPointer,
+} from "../agent/memory-pointer.ts";
+import { createMemoryClient } from "../client.ts";
+import { resolveCredentials } from "../credentials.ts";
+import { importTranscriptFile } from "../importers/index.ts";
+import { opencodeImporter, resolveSessionFile } from "../importers/opencode.ts";
+import { SlugRegistry } from "../importers/slug.ts";
 import {
   type AgentInstallOptions,
   runAgentMcpInstall,
 } from "../mcp/agent-install.ts";
-import { createOpenCodeImportCommand } from "./import.ts";
+import {
+  ASSET_MARKER,
+  RECALL_COMMAND_FILENAME,
+  renderRecallCommand,
+  renderSkill,
+  SKILL_FILENAME,
+  SKILL_NAME,
+} from "../opencode/assets.ts";
+import {
+  HOOK_EVENT_NAMES,
+  type HookEventName,
+  resolveHookConfig,
+  SESSIONS_NODE,
+} from "../opencode/capture.ts";
+import {
+  PLUGIN_FILENAME,
+  PLUGIN_MARKER,
+  renderPluginSource,
+} from "../opencode/plugin-template.ts";
+import { memoryBearer } from "../session.ts";
+import { createOpenCodeImportCommand, runAgentImport } from "./import.ts";
+import { runGitImport } from "./import-git.ts";
+import { gitHookStatus, runGitHookInstall } from "./import-git-hook.ts";
+
+/** The managed AGENTS.md memory-pointer block `me opencode init` upserts. */
+const AGENTS_MD_POINTER: MemoryPointerSpec = {
+  filename: "AGENTS.md",
+  managedBy: "me opencode init",
+  agentLabel: "OpenCode",
+};
+
+/** The global OpenCode plugins dir where the generated capture plugin lives. */
+function openCodePluginsDir(): string {
+  return join(homedir(), ".config", "opencode", "plugins");
+}
+
+/** Absolute path of the generated capture plugin. */
+function openCodePluginPath(): string {
+  return join(openCodePluginsDir(), PLUGIN_FILENAME);
+}
+
+/** Whether our managed capture plugin is already installed (by its marker). */
+async function openCodePluginInstalled(): Promise<boolean> {
+  try {
+    const existing = await readFile(openCodePluginPath(), "utf8");
+    return existing.startsWith(PLUGIN_MARKER);
+  } catch {
+    return false;
+  }
+}
+
+/** Write (or refresh) the generated capture plugin into the global plugins dir. */
+async function installOpenCodePlugin(): Promise<void> {
+  const dir = openCodePluginsDir();
+  await mkdir(dir, { recursive: true });
+  const file = openCodePluginPath();
+  await writeFile(file, renderPluginSource());
+  clack.log.success(`Installed the OpenCode capture plugin → ${file}`);
+}
+
+/** Root of the global OpenCode config dir. */
+function openCodeConfigDir(): string {
+  return join(homedir(), ".config", "opencode");
+}
+
+/** Whether a managed asset file already carries our marker. */
+async function assetInstalled(path: string): Promise<boolean> {
+  try {
+    return (await readFile(path, "utf8")).includes(ASSET_MARKER);
+  } catch {
+    return false;
+  }
+}
+
+const recallCommandPath = (): string =>
+  join(openCodeConfigDir(), "commands", RECALL_COMMAND_FILENAME);
+
+const skillPath = (): string =>
+  join(openCodeConfigDir(), "skills", SKILL_NAME, SKILL_FILENAME);
+
+/** Write (or refresh) the `/memory-recall` command into the global commands dir. */
+async function installRecallCommand(): Promise<void> {
+  const file = recallCommandPath();
+  await mkdir(join(openCodeConfigDir(), "commands"), { recursive: true });
+  await writeFile(file, renderRecallCommand());
+  clack.log.success(`Installed the /memory-recall command → ${file}`);
+}
+
+/** Write (or refresh) the `memory-engine` skill into the global skills dir. */
+async function installSkill(): Promise<void> {
+  const file = skillPath();
+  await mkdir(join(openCodeConfigDir(), "skills", SKILL_NAME), {
+    recursive: true,
+  });
+  await writeFile(file, renderSkill());
+  clack.log.success(`Installed the ${SKILL_NAME} skill → ${file}`);
+}
 
 function createOpenCodeInstallCommand(): Command {
   return new Command("install")
@@ -32,9 +153,273 @@ function createOpenCodeInstallCommand(): Command {
     });
 }
 
+/**
+ * me opencode hook — invoked by the OpenCode plugin on session.idle /
+ * session.deleted to capture the session.
+ *
+ * The plugin runs in-process JS and forwards the session id (not a transcript
+ * path), so this command resolves the id to its storage file and runs it through
+ * `importTranscriptFile` — the same parse + write as `me import opencode`,
+ * incremental so each call only writes messages new since the last.
+ *
+ * Best-effort: logs failures to stderr but always exits 0 so a hook failure never
+ * blocks an OpenCode session.
+ */
+function createOpenCodeHookCommand(): Command {
+  return new Command("hook")
+    .description("invoked by the OpenCode plugin to capture a session")
+    .requiredOption(
+      "--event <name>",
+      `hook event name (${HOOK_EVENT_NAMES.join(", ")})`,
+    )
+    .requiredOption("--session <id>", "OpenCode session id (e.g. ses_abc123)")
+    .option(
+      "--storage <dir>",
+      "OpenCode storage dir (default: standard location)",
+    )
+    .option(
+      "--tree-root <ltree>",
+      "tree root for captures (default: share.projects)",
+    )
+    .option(
+      "--full-transcript",
+      "also store reasoning + tool calls/results (default: prompts + responses)",
+    )
+    .action(
+      async (
+        opts: {
+          event: string;
+          session: string;
+          storage?: string;
+          treeRoot?: string;
+          fullTranscript?: boolean;
+        },
+        cmd: Command,
+      ) => {
+        const eventName = opts.event as HookEventName;
+        if (!HOOK_EVENT_NAMES.includes(eventName)) {
+          console.error(
+            `[memory-engine] unknown event '${opts.event}'. Expected one of: ${HOOK_EVENT_NAMES.join(", ")}`,
+          );
+          process.exit(0);
+        }
+
+        const globalOpts = cmd.optsWithGlobals();
+        const config = resolveHookConfig(
+          resolveCredentials(globalOpts.server),
+          { treeRoot: opts.treeRoot, fullTranscript: opts.fullTranscript },
+        );
+        if (!config) {
+          console.error(
+            "[memory-engine] no credentials. Run `me login`, or set ME_API_KEY + ME_SPACE.",
+          );
+          process.exit(0);
+        }
+
+        // Resolve the session id to its storage file (id alone needs a lookup
+        // across project dirs).
+        const sessionFile = await resolveSessionFile(
+          opts.session,
+          opts.storage,
+        );
+        if (!sessionFile) {
+          console.error(
+            `[memory-engine] ${eventName}: session '${opts.session}' not found in OpenCode storage`,
+          );
+          process.exit(0);
+        }
+
+        // Import the session (incremental; same path as `me import opencode`).
+        try {
+          const client = createMemoryClient({
+            url: config.server,
+            ...memoryBearer(config.server, config.apiKey),
+            space: config.space,
+          });
+          await importTranscriptFile(client, opencodeImporter, sessionFile, {
+            treeRoot: config.treeRoot,
+            sessionsNodeName: SESSIONS_NODE,
+            fullTranscript: config.fullTranscript,
+            dryRun: false,
+            verbose: false,
+          });
+        } catch (error) {
+          console.error(
+            `[memory-engine] ${eventName} capture failed: ${error instanceof Error ? error.message : String(error)}`,
+          );
+        }
+
+        process.exit(0);
+      },
+    );
+}
+
+/**
+ * me opencode init — one-shot setup of OpenCode memory integration.
+ *
+ * Mirrors `me claude init` on the shared init engine: a grouped, pre-checked
+ * step picker (or, non-interactively, every step minus its `--skip-*` flag).
+ * The steps differ from Claude's because OpenCode capture is a generated local
+ * plugin (not a marketplace plugin) and MCP registration is a separate step.
+ */
+const INIT_STEPS: InitStep[] = [
+  {
+    id: "session-import",
+    group: "OpenCode sessions",
+    kind: "backfill",
+    optionKey: "skipSessionImport",
+    skipFlag: "--skip-session-import",
+    skipDescription: "do not import this project's OpenCode sessions",
+    label:
+      "Import this project's existing OpenCode sessions (one-time backfill)",
+    // Scope the backfill to sessions recorded in this repo (cwd at or under the
+    // repo root); `me import opencode` remains the machine-wide sweep. Include
+    // temp-cwd sessions since the scope is already pinned to this project.
+    run: async ({ globalOpts }) => {
+      const { gitRoot } = await new SlugRegistry().resolve(process.cwd());
+      await runAgentImport(
+        opencodeImporter,
+        { project: gitRoot ?? process.cwd(), includeTempCwd: true },
+        globalOpts,
+      );
+    },
+  },
+  {
+    id: "plugin-install",
+    group: "OpenCode sessions",
+    kind: "ongoing",
+    optionKey: "skipPluginInstall",
+    skipFlag: "--skip-plugin-install",
+    skipDescription: "do not install the OpenCode capture plugin",
+    label:
+      "Install the OpenCode capture plugin — captures new sessions going forward",
+    // ✓ when our managed plugin file is already present; a re-run refreshes it.
+    available: async () =>
+      (await openCodePluginInstalled()) ? "done" : "available",
+    doneLabel: "OpenCode capture plugin already installed",
+    rerunLabel:
+      "Reinstall the OpenCode capture plugin — captures new sessions going forward (already installed)",
+    run: () => installOpenCodePlugin(),
+  },
+  {
+    id: "mcp-install",
+    group: "Memory tools",
+    kind: "config",
+    optionKey: "skipMcpInstall",
+    skipFlag: "--skip-mcp-install",
+    skipDescription: "do not register me as an MCP server with OpenCode",
+    label:
+      "Register me as an MCP server — gives OpenCode the memory search/create tools",
+    run: ({ server }) => runAgentMcpInstall("opencode", { server }),
+  },
+  {
+    id: "recall-command",
+    group: "Memory tools",
+    kind: "config",
+    optionKey: "skipRecallCommand",
+    skipFlag: "--skip-recall-command",
+    skipDescription: "do not install the /memory-recall command",
+    label: "Install the /memory-recall command",
+    available: async () =>
+      (await assetInstalled(recallCommandPath())) ? "done" : "available",
+    doneLabel: "/memory-recall command already installed",
+    rerunLabel: "Rewrite the /memory-recall command (already installed)",
+    run: () => installRecallCommand(),
+  },
+  {
+    id: "skill",
+    group: "Memory tools",
+    kind: "config",
+    optionKey: "skipSkill",
+    skipFlag: "--skip-skill",
+    skipDescription: "do not install the memory-engine skill",
+    label: "Install the memory-engine skill (teaches when/how to use memory)",
+    available: async () =>
+      (await assetInstalled(skillPath())) ? "done" : "available",
+    doneLabel: "memory-engine skill already installed",
+    rerunLabel: "Rewrite the memory-engine skill (already installed)",
+    run: () => installSkill(),
+  },
+  {
+    id: "git-import",
+    group: "Git history",
+    kind: "backfill",
+    optionKey: "skipGitImport",
+    skipFlag: "--skip-git-import",
+    skipDescription: "do not import the repo's git commit history",
+    label: "Import existing git commit history (one-time backfill)",
+    run: ({ globalOpts }) => runGitImport({ skipIfNotRepo: true }, globalOpts),
+  },
+  {
+    id: "git-hook",
+    group: "Git history",
+    kind: "ongoing",
+    optionKey: "skipGitHook",
+    skipFlag: "--skip-git-hook",
+    skipDescription: "do not install the git post-commit capture hook",
+    label:
+      "Install a git post-commit hook — captures new commits going forward",
+    available: async () => {
+      const status = await gitHookStatus(process.cwd());
+      if (status === "installed") return "done";
+      return status === "installable" ? "available" : "hidden";
+    },
+    doneLabel: "Git post-commit hook already installed",
+    rerunLabel:
+      "Reinstall the git post-commit hook — captures new commits going forward (already installed)",
+    run: ({ globalOpts }) =>
+      runGitHookInstall({ skipIfNotRepo: true }, globalOpts),
+  },
+  {
+    id: "agents-md",
+    group: "Project config",
+    kind: "config",
+    optionKey: "skipAgentsMd",
+    skipFlag: "--skip-agents-md",
+    skipDescription:
+      "do not write the memory pointer into the project's AGENTS.md",
+    label: "Add a memory pointer to AGENTS.md",
+    available: async ({ server }) =>
+      (await memoryPointerUpToDate(AGENTS_MD_POINTER, server))
+        ? "done"
+        : ("available" satisfies StepAvailability),
+    doneLabel: "Memory pointer already in AGENTS.md",
+    rerunLabel: "Rewrite the memory pointer in AGENTS.md (already present)",
+    run: ({ server }) => writeMemoryPointer(AGENTS_MD_POINTER, server),
+  },
+];
+
+/** Closing guidance after `me opencode init` — recap + how to use memories. */
+function printInitOutro(steps: InitStep[]): void {
+  clack.note(
+    [
+      ...initOutroLead(steps),
+      "Ask OpenCode about this project's history or architecture — it now",
+      "draws on the project's memories through the `me_memory_search` tool,",
+      "and consults them when exploring the code for new features.",
+      "",
+      "You can also point OpenCode at them explicitly, e.g.:",
+      `${DIM}"Search memory engine: why did we structure the database this way?"${DIM_OFF}`,
+      `${DIM}"Check me memories for past work on this area before we start"${DIM_OFF}`,
+    ].join("\n"),
+    "Your project now has memory",
+  );
+}
+
+function createOpenCodeInitCommand(): Command {
+  return buildInitCommand({
+    description:
+      "set up OpenCode memory integration (interactive step picker; otherwise runs all steps)",
+    steps: INIT_STEPS,
+    outro: printInitOutro,
+  });
+}
+
 export function createOpenCodeCommand(): Command {
   const opencode = new Command("opencode").description("OpenCode integration");
   opencode.addCommand(createOpenCodeInstallCommand());
+  opencode.addCommand(createOpenCodeInitCommand());
+  opencode.addCommand(createOpenCodeHookCommand());
   opencode.addCommand(createOpenCodeImportCommand());
   return opencode;
 }
