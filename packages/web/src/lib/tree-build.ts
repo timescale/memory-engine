@@ -193,9 +193,14 @@ export function memoryToLeaf(
   return {
     kind: "memory",
     id: memory.id,
-    // A named memory shows its name (the filename-like leaf); otherwise fall
-    // back to the first content line, then the id tail.
-    title: memory.name ?? titleForMemory(memory.content, memory.id),
+    // Label preference: an explicit `meta.display_name` (a human label an
+    // importer chose, e.g. a meeting's "Title — date", independent of the
+    // idempotency-key `name`), then the filename-like `name`, then the first
+    // content line, then the id tail.
+    title:
+      displayNameFromMeta(memory.meta) ??
+      memory.name ??
+      titleForMemory(memory.content, memory.id),
     tree: memory.tree,
     temporalStart: memory.temporal?.start ?? null,
     depth,
@@ -311,6 +316,20 @@ function compareLeaves(a: MemoryLeaf, b: MemoryLeaf): number {
     if (cmp !== 0) return cmp;
   }
   return a.title.localeCompare(b.title);
+}
+
+/**
+ * A non-empty `meta.display_name` string, trimmed, or undefined. Lets an
+ * importer pick a human-friendly tree label without disturbing the memory's
+ * `name` (which the engine uses as the `(tree, name)` idempotency key).
+ */
+export function displayNameFromMeta(
+  meta: Record<string, unknown> | null | undefined,
+): string | undefined {
+  const value = meta?.display_name;
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
 }
 
 /**

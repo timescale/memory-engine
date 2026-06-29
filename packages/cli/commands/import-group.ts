@@ -8,6 +8,7 @@
  *   me import codex               Codex sessions
  *   me import opencode            OpenCode sessions
  *   me import git [repo]          git commit history
+ *   me import granola             Granola meeting notes & transcripts
  *
  * There is deliberately no bare default: `me import <file>` does not parse.
  * The pre-group spellings stay registered as aliases built from the same
@@ -23,6 +24,7 @@ import {
 } from "./import.ts";
 import { createGitImportCommand } from "./import-git.ts";
 import { createGitHookCommand } from "./import-git-hook.ts";
+import { createGranolaImportCommand } from "./import-granola.ts";
 import { createMemoryImportCommand } from "./memory-import.ts";
 
 export function createImportCommand(): Command {
@@ -33,6 +35,7 @@ export function createImportCommand(): Command {
   imp.addCommand(createClaudeImportCommand("claude"));
   imp.addCommand(createCodexImportCommand("codex"));
   imp.addCommand(createOpenCodeImportCommand("opencode"));
+  imp.addCommand(createGranolaImportCommand());
   imp.addCommand(createGitImportCommand());
   imp.addCommand(createGitHookCommand());
   imp.addHelpText(

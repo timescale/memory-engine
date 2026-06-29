@@ -270,6 +270,33 @@ describe("memoryToLeaf + sortLeaves + titleForMemory", () => {
     expect(leaf.title).toBe("jwt-rotation");
   });
 
+  test("memoryToLeaf prefers meta.display_name over name and content", () => {
+    const leaf = memoryToLeaf(
+      mkMemory({
+        meta: { display_name: "Weekly Sync — 2026-06-23" },
+        name: "d5b1e4f7-c265-4e41-af4a-83f44deef56a",
+        content: "# Ghost/Memory Weekly\n\nbody",
+      }),
+      0,
+    );
+    expect(leaf.title).toBe("Weekly Sync — 2026-06-23");
+  });
+
+  test("memoryToLeaf ignores a blank or non-string display_name", () => {
+    expect(
+      memoryToLeaf(
+        mkMemory({ meta: { display_name: "   " }, name: "keep-name" }),
+        0,
+      ).title,
+    ).toBe("keep-name");
+    expect(
+      memoryToLeaf(
+        mkMemory({ meta: { display_name: 42 }, name: "keep-name" }),
+        0,
+      ).title,
+    ).toBe("keep-name");
+  });
+
   test("sortLeaves: newest temporal first, nulls last, title tiebreak", () => {
     const leaves = [
       memoryToLeaf(
