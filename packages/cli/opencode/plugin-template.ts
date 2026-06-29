@@ -20,38 +20,39 @@ export const PLUGIN_MARKER =
 export const PLUGIN_FILENAME = "memory-engine.ts";
 
 /**
- * Strict ltree-safe tree-root pattern. `treeRoot` is spliced into the generated
- * `$\`…\`` command as *static* template text (not an escaped `${}` interpolation),
- * so it must contain only characters that are safe in a shell command — no
- * whitespace or shell metacharacters. Mirrors the lenient wire form in
- * `@memory.build/protocol` (`[A-Za-z0-9_~./-]`) minus the empty string.
+ * Strict ltree-safe tree-root pattern, used as an input-sanity check at render
+ * time (we reject obviously-wrong tree roots early rather than bake them in).
+ * Mirrors the lenient wire form in `@memory.build/protocol` (`[A-Za-z0-9_~./-]`)
+ * minus the empty string. Note this is *not* the injection defense — the value
+ * is passed to Bun `$` as an interpolated array element, which Bun escapes.
  */
 const TREE_ROOT_SAFE = /^[A-Za-z0-9_~./-]+$/;
 
 /**
- * Render the plugin source. `treeRoot` is appended as a `--tree-root` flag only
- * when it differs from the hook's own default (`share.projects`), so the common
- * case stays flag-free; `fullTranscript` adds `--full-transcript`. A non-default
- * `treeRoot` is validated against `TREE_ROOT_SAFE` (throws on violation) and
- * single-quoted in the command, so it can't break the command or inject shell
- * (the regex already forbids quotes/metacharacters; the quotes also stop a
- * leading-`~` from being tilde-expanded by the shell).
+ * Render the plugin source. `treeRoot` adds `--tree-root <root>` only when it
+ * differs from the hook's own default (`share.projects`), so the common case
+ * stays flag-free; `fullTranscript` adds `--full-transcript`. The extra args are
+ * emitted as a JS array and interpolated into the `$\`…\`` command as `${...}`,
+ * so Bun `$` escapes each element — the tree root cannot break the command or
+ * inject shell regardless of its contents. A non-default `treeRoot` is also
+ * validated against `TREE_ROOT_SAFE` (throws) as an early sanity check.
  */
 export function renderPluginSource(
   opts: { treeRoot?: string; fullTranscript?: boolean } = {},
 ): string {
-  const flags: string[] = [];
+  const extraArgs: string[] = [];
   if (opts.treeRoot && opts.treeRoot !== "share.projects") {
     if (!TREE_ROOT_SAFE.test(opts.treeRoot)) {
       throw new Error(
         `invalid tree root ${JSON.stringify(opts.treeRoot)}: must match ${TREE_ROOT_SAFE}`,
       );
     }
-    flags.push(`--tree-root '${opts.treeRoot}'`);
+    extraArgs.push("--tree-root", opts.treeRoot);
   }
-  if (opts.fullTranscript) flags.push("--full-transcript");
-  // Extra flags are spliced into the tagged-template command as static args.
-  const extra = flags.length ? ` ${flags.join(" ")}` : "";
+  if (opts.fullTranscript) extraArgs.push("--full-transcript");
+  // Emitted as a JS array literal and interpolated into the command below, so
+  // Bun `$` escapes each element (empty array → no extra args).
+  const argsLiteral = JSON.stringify(extraArgs);
 
   return `${PLUGIN_MARKER}
 //
@@ -59,11 +60,14 @@ export function renderPluginSource(
 // Requires the \`me\` CLI on PATH and a \`me login\` session (or ME_API_KEY + ME_SPACE).
 
 export const MemoryEngine = async ({ $ }) => {
+  // Extra args passed to every capture (empty in the common case). Interpolated
+  // as an array so Bun \`$\` escapes each element — no shell-injection surface.
+  const EXTRA_ARGS = ${argsLiteral}
   const capture = (eventName, sessionID) => {
     if (!sessionID) return
     // Fire-and-forget; .nothrow() + try/catch so a capture never breaks a session.
     try {
-      $\`me opencode hook --event \${eventName} --session \${sessionID}${extra}\`
+      $\`me opencode hook --event \${eventName} --session \${sessionID} \${EXTRA_ARGS}\`
         .quiet()
         .nothrow()
     } catch {}
