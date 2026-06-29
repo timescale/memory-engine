@@ -6,23 +6,9 @@ import {
   RateLimitError,
 } from "./errors";
 import { getEmbeddingModel } from "./provider";
-import {
-  MAX_OPENAI_TOKENS,
-  safeCharFloor,
-  truncateText,
-  truncateToTokenLimit,
-} from "./truncate";
+import { truncateTextsToTokenLimit } from "./tokenize-pool";
+import { MAX_OPENAI_TOKENS, truncateText } from "./truncate";
 import type { EmbeddingConfig, EmbedResult, MemoryRow } from "./types";
-
-/**
- * Yield to the event loop so a long batch of synchronous tokenization doesn't
- * monopolize the loop (the embedding worker runs in-process with the API
- * server). `setImmediate` runs after pending I/O callbacks, giving requests a
- * chance to be serviced between encodes.
- */
-function yieldToEventLoop(): Promise<void> {
-  return new Promise((resolve) => setImmediate(resolve));
-}
 
 /**
  * On a context-length error the API counts more tokens than our truncation
@@ -182,8 +168,16 @@ export async function generateEmbedding(
         return generateEmbeddingOnce(truncated, config);
       }
 
-      // OpenAI: exact token-based truncation guarantees the input fits.
-      const { text: truncated } = truncateToTokenLimit(text, maxTokens);
+      // OpenAI: exact token-based truncation guarantees the input fits. The
+      // tokenizer is CPU-bound, so run it off the API event loop.
+      const [truncatedResult] = await truncateTextsToTokenLimit(
+        [text],
+        maxTokens,
+      );
+      if (!truncatedResult) {
+        throw new Error("Tokenizer returned no result");
+      }
+      const { text: truncated } = truncatedResult;
 
       try {
         return await generateEmbeddingOnce(truncated, config);
@@ -200,10 +194,14 @@ export async function generateEmbedding(
 
         // Defensive retry: the API counted more tokens than we targeted.
         // Re-truncate below the limit and try once more.
-        const { text: retruncated } = truncateToTokenLimit(
-          text,
+        const [retruncatedResult] = await truncateTextsToTokenLimit(
+          [text],
           Math.max(1, maxTokens - RETRY_TOKEN_MARGIN),
         );
+        if (!retruncatedResult) {
+          throw new Error("Tokenizer returned no result");
+        }
+        const { text: retruncated } = retruncatedResult;
         return generateEmbeddingOnce(retruncated, config);
       }
     },
@@ -220,8 +218,8 @@ export async function generateEmbedding(
  * Used by the embedding worker for background batch processing.
  *
  * Strategy:
- * 1. Pre-truncate all texts — exact token-based for OpenAI, char estimate
- *    otherwise — yielding to the event loop between encodes
+ * 1. Pre-truncate all texts — exact token-based for OpenAI via the tokenizer
+ *    thread pool, char estimate otherwise
  * 2. Try batch API (embedMany) first for efficiency
  * 3. On context length error (OpenAI), fall back to individual requests with retry
  * 4. On other batch failures, fall back to individual requests
@@ -249,22 +247,17 @@ export async function generateEmbeddings(
       const maxTokens = config.options?.maxTokens ?? MAX_OPENAI_TOKENS;
 
       // Pre-truncate every row before hitting the API. OpenAI uses exact
-      // token-based truncation (cl100k_base); other providers use the char
-      // estimate. Tokenization is CPU-bound and this worker runs in-process
-      // with the API server, so yield to the event loop between the rows that
-      // actually need encoding (small rows skip the tokenizer entirely).
-      const floor = safeCharFloor(maxTokens);
-      const texts: string[] = [];
-      for (const row of rows) {
-        if (config.provider === "openai") {
-          if (row.content.length > floor) {
-            await yieldToEventLoop();
-          }
-          texts.push(truncateToTokenLimit(row.content, maxTokens).text);
-        } else {
-          texts.push(truncateText(row.content, maxTokens).text);
-        }
-      }
+      // token-based truncation (cl100k_base) in a worker-thread pool because
+      // tokenization is CPU-bound; other providers use the cheap char estimate.
+      const texts =
+        config.provider === "openai"
+          ? (
+              await truncateTextsToTokenLimit(
+                rows.map((row) => row.content),
+                maxTokens,
+              )
+            ).map((result) => result.text)
+          : rows.map((row) => truncateText(row.content, maxTokens).text);
 
       const results: EmbedResult[] = [];
 

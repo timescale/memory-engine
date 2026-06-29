@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { RateLimitError } from "./errors";
 import {
   generateEmbedding,
@@ -6,6 +6,23 @@ import {
   validateConfig,
 } from "./generate";
 import type { EmbeddingConfig } from "./types";
+
+// These unit tests exercise embedding control flow (truncation, rate limits,
+// fallbacks), not the tokenizer thread pool. Force inline tokenization so they
+// stay fast and deterministic and don't spawn worker threads.
+const originalThreadCount = process.env.EMBEDDING_TOKENIZE_THREADS;
+
+beforeAll(() => {
+  process.env.EMBEDDING_TOKENIZE_THREADS = "0";
+});
+
+afterAll(() => {
+  if (originalThreadCount === undefined) {
+    delete process.env.EMBEDDING_TOKENIZE_THREADS;
+  } else {
+    process.env.EMBEDDING_TOKENIZE_THREADS = originalThreadCount;
+  }
+});
 
 // =============================================================================
 // OpenAI Integration Tests (conditional)
