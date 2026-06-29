@@ -16,16 +16,21 @@ const tmp = mkdtempSync(join(tmpdir(), "me-oc-plugin-"));
 afterAll(() => rmSync(tmp, { recursive: true, force: true }));
 
 /** A mock Bun `$` that records the reconstructed command and supports the
- * `.quiet().nothrow()` chain the plugin calls. */
+ * `.quiet().nothrow()` chain the plugin calls. Mirrors Bun `$` enough for our
+ * assertions: array interpolations expand space-separated, and incidental
+ * whitespace (e.g. an empty `${EXTRA_ARGS}`) is normalized away. */
 function makeShell() {
   const commands: string[] = [];
   const $ = (strings: TemplateStringsArray, ...values: unknown[]) => {
     let cmd = "";
     strings.forEach((s, i) => {
       cmd += s;
-      if (i < values.length) cmd += String(values[i]);
+      if (i < values.length) {
+        const v = values[i];
+        cmd += Array.isArray(v) ? v.join(" ") : String(v);
+      }
     });
-    commands.push(cmd);
+    commands.push(cmd.replace(/\s+/g, " ").trim());
     return { quiet: () => ({ nothrow: () => ({}) }) };
   };
   return { $, commands };
@@ -51,25 +56,28 @@ describe("renderPluginSource", () => {
     expect(renderPluginSource().startsWith(PLUGIN_MARKER)).toBe(true);
   });
 
-  test("default render has no --tree-root / --full-transcript flags", () => {
-    const src = renderPluginSource();
-    expect(src).not.toContain("--tree-root");
-    expect(src).not.toContain("--full-transcript");
-  });
-
-  test("custom tree root + full transcript are spliced into the command", () => {
+  test("custom tree root + full transcript become interpolated array args", () => {
     const src = renderPluginSource({
       treeRoot: "share.work",
       fullTranscript: true,
     });
-    // The validated value is single-quoted so it can't break the shell command.
-    expect(src).toContain("--tree-root 'share.work'");
-    expect(src).toContain("--full-transcript");
+    // Emitted as a JS array literal that Bun `$` interpolates + escapes.
+    expect(src).toContain(
+      'const EXTRA_ARGS = ["--tree-root","share.work","--full-transcript"]',
+    );
+    expect(src).toContain("${EXTRA_ARGS}");
+  });
+
+  test("default render emits an empty EXTRA_ARGS array (no flags)", () => {
+    const src = renderPluginSource();
+    expect(src).toContain("const EXTRA_ARGS = []");
+    expect(src).not.toContain("--tree-root");
+    expect(src).not.toContain("--full-transcript");
   });
 
   test("default tree root is not emitted as a flag", () => {
-    expect(renderPluginSource({ treeRoot: "share.projects" })).not.toContain(
-      "--tree-root",
+    expect(renderPluginSource({ treeRoot: "share.projects" })).toContain(
+      "const EXTRA_ARGS = []",
     );
   });
 
@@ -133,7 +141,7 @@ describe("generated plugin behavior", () => {
       event: { type: "session.idle", properties: { sessionID: "ses_abc" } },
     });
     expect(shell.commands[0]).toBe(
-      "me opencode hook --event idle --session ses_abc --tree-root 'share.work' --full-transcript",
+      "me opencode hook --event idle --session ses_abc --tree-root share.work --full-transcript",
     );
   });
 
