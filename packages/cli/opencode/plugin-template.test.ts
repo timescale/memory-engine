@@ -62,13 +62,26 @@ describe("renderPluginSource", () => {
       treeRoot: "share.work",
       fullTranscript: true,
     });
-    expect(src).toContain("--tree-root share.work");
+    // The validated value is single-quoted so it can't break the shell command.
+    expect(src).toContain("--tree-root 'share.work'");
     expect(src).toContain("--full-transcript");
   });
 
   test("default tree root is not emitted as a flag", () => {
     expect(renderPluginSource({ treeRoot: "share.projects" })).not.toContain(
       "--tree-root",
+    );
+  });
+
+  test("rejects a tree root with shell metacharacters (injection guard)", () => {
+    expect(() => renderPluginSource({ treeRoot: "share; rm -rf ~" })).toThrow(
+      /invalid tree root/,
+    );
+    expect(() => renderPluginSource({ treeRoot: "a`whoami`" })).toThrow(
+      /invalid tree root/,
+    );
+    expect(() => renderPluginSource({ treeRoot: "a b" })).toThrow(
+      /invalid tree root/,
     );
   });
 });
@@ -120,7 +133,7 @@ describe("generated plugin behavior", () => {
       event: { type: "session.idle", properties: { sessionID: "ses_abc" } },
     });
     expect(shell.commands[0]).toBe(
-      "me opencode hook --event idle --session ses_abc --tree-root share.work --full-transcript",
+      "me opencode hook --event idle --session ses_abc --tree-root 'share.work' --full-transcript",
     );
   });
 
