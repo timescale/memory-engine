@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { RateLimitError } from "@memory.build/embedding";
 import { WorkerPool } from "./pool";
-import { Worker } from "./worker";
+import { type RateLimitGate, Worker } from "./worker";
 
 /**
  * Create a mock SQL object that supports .begin() for processBatch transactions.
@@ -15,6 +15,45 @@ function createMockSql(handlers: {
     close: async () => {},
   });
   return sql;
+}
+
+/** A mock OpenAI embeddings server that always returns HTTP 429. */
+function rateLimitServer(): ReturnType<typeof Bun.serve> {
+  return Bun.serve({
+    port: 0,
+    fetch() {
+      return new Response(
+        JSON.stringify({
+          error: { message: "Rate limited", type: "rate_limit_error" },
+        }),
+        { status: 429, headers: { "retry-after-ms": "5000" } },
+      );
+    },
+  });
+}
+
+/** Mock SQL whose claim returns one embeddable row; everything else no-ops. */
+function claimsOneRowSql() {
+  return createMockSql({
+    begin: async (fn: (tx: unknown) => Promise<unknown>) => {
+      const tx = {
+        unsafe: async (q: string) => {
+          if (q.includes("claim_embedding_batch")) {
+            return [
+              {
+                queue_id: "1",
+                memory_id: "mem-1",
+                content_version: 1,
+                content: "test",
+              },
+            ];
+          }
+          return [];
+        },
+      };
+      return fn(tx);
+    },
+  });
 }
 
 describe("Worker", () => {
@@ -402,6 +441,89 @@ describe("Worker", () => {
     // on whether the error was a RateLimitError or something else.
     // What matters is that the worker ran and stopped cleanly.
     expect(worker.stats).toBeDefined();
+  });
+});
+
+describe("rate-limit gate", () => {
+  // The pool-wide gate has two sides, tested independently here; their
+  // composition (a 429 on one pooled worker stands the others down) follows
+  // because WorkerPool hands the same gate object to every worker.
+
+  test("a worker stands down without claiming while the shared gate is open", async () => {
+    // Consuming side: gate stamped into the future → the loop sleeps before
+    // claiming, so the provider is never touched.
+    let claimCalls = 0;
+    const mockSql = createMockSql({
+      begin: async (fn: (tx: unknown) => Promise<unknown>) => {
+        const tx = {
+          unsafe: async (q: string) => {
+            if (q.includes("claim_embedding_batch")) {
+              claimCalls++;
+              return [];
+            }
+            return [];
+          },
+        };
+        return fn(tx);
+      },
+    });
+
+    const gate: RateLimitGate = { until: Date.now() + 60_000 };
+    const worker = new Worker(
+      mockSql as never,
+      {
+        embedding: { provider: "openai", model: "test", dimensions: 3 },
+        discover: async () => [{ schema: "me_test12345678" }],
+        idleDelayMs: 50,
+        refreshIntervalMs: 1_000_000,
+      },
+      gate,
+    );
+
+    await worker.start();
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    await worker.stop();
+
+    expect(claimCalls).toBe(0);
+    expect(worker.stats.schemasPolled).toBe(0);
+  });
+
+  test("a provider 429 stamps the shared gate (floored at 30s)", async () => {
+    // Publishing side: a RateLimitError out of processBatch pushes `until` into
+    // the future so every worker sharing this gate will stand down.
+    const server = rateLimitServer();
+    const gate: RateLimitGate = { until: 0 };
+    try {
+      const worker = new Worker(
+        claimsOneRowSql() as never,
+        {
+          embedding: {
+            provider: "openai",
+            model: "text-embedding-3-small",
+            dimensions: 1536,
+            apiKey: "test-key",
+            baseUrl: `http://localhost:${server.port}/v1`,
+            options: { maxRetries: 0 },
+          },
+          discover: async () => [{ schema: "me_test12345678" }],
+          idleDelayMs: 50,
+          refreshIntervalMs: 1_000_000,
+        },
+        gate,
+      );
+
+      const before = Date.now();
+      await worker.start();
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      await worker.stop();
+
+      // Retry-After was 5s but the floor is 30s, so the window is >= now + 30s.
+      expect(gate.until).toBeGreaterThanOrEqual(before + 30_000);
+      // A rate limit is not a worker error.
+      expect(worker.stats.consecutiveErrors).toBe(0);
+    } finally {
+      server.stop();
+    }
   });
 });
 
