@@ -27,7 +27,7 @@
  * (commands/import-slab.ts) does auth, walking, batching, and rendering.
  */
 
-import { basename, dirname, sep } from "node:path";
+import { basename, dirname, join, sep } from "node:path";
 import type { MemoryCreateParams } from "@memory.build/protocol/memory";
 import { normalizeSlug } from "./slug.ts";
 import { uuidv7At } from "./uuid.ts";
@@ -183,7 +183,7 @@ export function treeForDir(relDir: string, ctx: SlabMemoryContext): string {
   if (relDir === "" || relDir === ".") {
     return `${ctx.treeRoot}.${ctx.uncategorizedNode}`;
   }
-  const labels = relDir.split(sep).filter(Boolean).map(normalizeTreeLabel);
+  const labels = relDir.split(/[\\/]+/).filter(Boolean).map(normalizeTreeLabel);
   return [ctx.treeRoot, ...labels].join(".");
 }
 
@@ -216,7 +216,7 @@ export function buildSlabMemory(
   const meta: Record<string, unknown> = {
     title,
     source: "slab",
-    slab_topic_path: relDir.split(sep).join("/"),
+    slab_topic_path: relDir.split(/[\\/]+/).join("/"),
     original_filename: rawFilename,
     importer_version: SLAB_IMPORTER_VERSION,
   };
@@ -258,7 +258,7 @@ export async function* walkSlabDir(dir: string): AsyncIterable<SlabFile> {
   }
   rel.sort();
   for (const relPath of rel) {
-    const content = (await Bun.file(`${dir}/${relPath}`).text()).trim();
+    const content = (await Bun.file(join(dir, relPath)).text()).trim();
     if (content.length === 0) continue;
     yield { relPath, content };
   }

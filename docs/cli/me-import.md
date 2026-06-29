@@ -231,7 +231,7 @@ Every directory segment is normalized to an ltree label (lowercase, non-alphanum
 
 ### Content shape
 
-Each memory's content is the post's full markdown body, verbatim (image links and `slab.com` URLs preserved as-is). The title is the post's first `# H1` heading, or the filename when there is none; it is stored in `meta.title` (the human-readable form, with punctuation and emoji intact that the ltree slug drops).
+Each memory's content is the post's full markdown body, trimmed of leading/trailing whitespace (image links and `slab.com` URLs preserved as-is). The title is the post's first `# H1` heading, or the filename when there is none; it is stored in `meta.title` (the human-readable form, with punctuation and emoji intact that the ltree slug drops).
 
 > **Images are not rehosted.** Image links in a post are kept exactly as they appear in the export — they still point at Slab-hosted (or otherwise external) URLs. The import copies no image bytes, so an embedded image renders only while its original URL is reachable; if the source becomes unavailable or its links expire, those images will break. The surrounding markdown text is unaffected.
 
