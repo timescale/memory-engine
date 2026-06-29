@@ -7,6 +7,21 @@ import { processBatch, pruneQueue } from "./process";
 import type { WorkerConfig, WorkerStats } from "./types";
 
 /**
+ * Pool-wide rate-limit gate. A single mutable object shared by every Worker in
+ * a WorkerPool: when one worker hits a provider 429 it stamps `until` with the
+ * end of the backoff window, and every other worker checks it before claiming
+ * and stands down until it passes. This stops the N workers from each
+ * independently claiming a (different) space's batch and re-triggering the same
+ * account-wide 429 during the window. In-process / single-pod; the companion
+ * DB-side visibility deferral on release covers the cross-pod case at the row
+ * level.
+ */
+export interface RateLimitGate {
+  /** Epoch ms until which all workers should stand down. 0 = open. */
+  until: number;
+}
+
+/**
  * SQLSTATE 3F000 = invalid_schema_name. Raised when the space's schema no
  * longer exists — typically because the space was deleted between discover()
  * refreshes. Treated as benign: drop the target and continue.
@@ -59,6 +74,7 @@ function shuffle<T>(arr: T[]): T[] {
 export class Worker {
   private readonly sql: Sql;
   private readonly config: WorkerConfig;
+  private readonly gate: RateLimitGate;
   private abort: AbortController | null = null;
   private runPromise: Promise<void> | null = null;
   readonly _stats: WorkerStats = {
@@ -70,9 +86,15 @@ export class Worker {
     consecutiveErrors: 0,
   };
 
-  constructor(sql: Sql, config: WorkerConfig) {
+  /**
+   * @param gate Shared rate-limit gate. Omit for a standalone worker (it gets
+   *   its own open gate); the WorkerPool passes one shared instance to every
+   *   worker so a 429 on any of them stands the whole pool down.
+   */
+  constructor(sql: Sql, config: WorkerConfig, gate?: RateLimitGate) {
     this.sql = sql;
     this.config = config;
+    this.gate = gate ?? { until: 0 };
   }
 
   async start(): Promise<void> {
@@ -86,6 +108,7 @@ export class Worker {
       this.config,
       this.abort.signal,
       this._stats,
+      this.gate,
     );
   }
 
@@ -108,6 +131,7 @@ async function run(
   config: WorkerConfig,
   signal: AbortSignal,
   stats: WorkerStats,
+  gate: RateLimitGate,
 ): Promise<void> {
   const idleDelayMs = config.idleDelayMs ?? 10_000;
   const maxBackoffMs = config.maxBackoffMs ?? 60_000;
@@ -122,6 +146,16 @@ async function run(
 
   try {
     while (!signal.aborted) {
+      // Pool-wide rate-limit gate: if any worker (or this one) was rate limited
+      // and the backoff window hasn't elapsed, stand down before claiming so we
+      // don't pile more requests onto an already-throttled provider.
+      const gateRemainingMs = gate.until - Date.now();
+      if (gateRemainingMs > 0) {
+        if (signal.aborted) break;
+        await sleep(gateRemainingMs, signal);
+        continue;
+      }
+
       // Periodic engine re-discovery
       if (Date.now() - lastRefresh >= refreshIntervalMs) {
         targets = shuffle(await config.discover());
@@ -220,6 +254,10 @@ async function run(
         // processBatch already decremented queue attempts so they aren't wasted.
         if (error instanceof RateLimitError) {
           const backoffMs = rateLimitBackoffMs(error.retryAfterMs);
+          // Publish the backoff window to the shared gate so the other workers
+          // in the pool stand down too, instead of each discovering the 429
+          // independently and amplifying it.
+          gate.until = Date.now() + backoffMs;
           warning("Rate limited by embedding provider, backing off", {
             backoffMs,
             retryAfterMs: error.retryAfterMs,

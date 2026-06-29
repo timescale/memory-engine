@@ -1,6 +1,6 @@
 import type { Sql } from "postgres";
 import type { WorkerConfig, WorkerStats } from "./types";
-import { Worker } from "./worker";
+import { type RateLimitGate, Worker } from "./worker";
 
 /**
  * Pool of N embedding workers using the provided SQL connection pool.
@@ -12,6 +12,11 @@ export class WorkerPool {
   private readonly config: WorkerConfig;
   private workers: Worker[] = [];
   private running = false;
+  /**
+   * Shared rate-limit gate handed to every worker: a 429 on any one of them
+   * stands the whole pool down for the backoff window.
+   */
+  private readonly gate: RateLimitGate = { until: 0 };
 
   constructor(sql: Sql, config: WorkerConfig) {
     this.sql = sql;
@@ -26,7 +31,7 @@ export class WorkerPool {
     this.running = true;
     this.workers = [];
     for (let i = 0; i < count; i++) {
-      const worker = new Worker(this.sql, this.config);
+      const worker = new Worker(this.sql, this.config, this.gate);
       this.workers.push(worker);
       await worker.start();
     }
