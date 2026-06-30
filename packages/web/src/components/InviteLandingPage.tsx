@@ -120,16 +120,25 @@ export function InviteLandingPage({ token }: { token: string }) {
       </p>
 
       <div className="mt-6 rounded-lg border border-ink/[0.12] bg-ink/[0.02] p-4">
-        <h2 className="text-[13px] font-semibold text-ink">Get the CLI</h2>
-        <p className="mt-1 text-[12px] text-ink/55">
-          Install the <code>me</code> binary, then sign in and use this space:
-        </p>
-        <CopyBlock text={INSTALL_CMD} />
-        <p className="mt-2 font-mono text-[12px] text-ink/70">
-          me login
-          <br />
-          me space use {state.spaceSlug}
-        </p>
+        <h2 className="text-[13px] font-semibold text-ink">
+          Use it from the terminal
+        </h2>
+        <ol className="mt-3 flex flex-col gap-3">
+          <li>
+            <div className="text-[12px] text-ink/55">
+              <span className="font-semibold text-ink/80">1.</span> Install the{" "}
+              <code>me</code> CLI
+            </div>
+            <CopyBlock text={INSTALL_CMD} />
+          </li>
+          <li>
+            <div className="text-[12px] text-ink/55">
+              <span className="font-semibold text-ink/80">2.</span> Then run
+              these to sign in and open this space
+            </div>
+            <CopyBlock text={`me login\nme space use ${state.spaceSlug}`} />
+          </li>
+        </ol>
       </div>
 
       <button
@@ -146,8 +155,8 @@ export function InviteLandingPage({ token }: { token: string }) {
 function CopyBlock({ text }: { text: string }) {
   const [copied, setCopied] = useState(false);
   return (
-    <div className="mt-2 flex items-center gap-2">
-      <code className="flex-1 overflow-x-auto rounded bg-ink/[0.06] px-2 py-1 font-mono text-[12px] text-ink">
+    <div className="mt-1.5 flex items-start gap-2">
+      <code className="flex-1 overflow-x-auto whitespace-pre rounded bg-ink/[0.06] px-2 py-1.5 font-mono text-[12px] leading-relaxed text-ink">
         {text}
       </code>
       <button
