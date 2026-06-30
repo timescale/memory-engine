@@ -77,10 +77,13 @@ export interface ValidatedApiKey {
 }
 
 /**
- * A principal that is a member of a space — i.e. has a direct principal_space
- * row (group membership alone does not make you a space member). `admin` is the
- * effective space-admin status (a direct admin row OR a direct member who
- * belongs to an admin group, never an agent).
+ * A principal on a space's roster — i.e. with a direct principal_space row.
+ * Users, agents, and groups (a group is rostered into its space on creation).
+ * This is about the principal's own roster entry, not membership conferral: a
+ * user/agent who is only in a group (no principal_space row of their own) is
+ * still not a space member. `admin` is the effective space-admin status (a
+ * direct admin row OR a direct member who belongs to an admin group, never an
+ * agent; false for a group rostered admin=false).
  */
 export interface SpacePrincipal {
   id: string;

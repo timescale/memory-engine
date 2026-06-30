@@ -14,6 +14,8 @@ A **principal** is anything that can be granted access. There are three kinds:
 
 A **member** is the user/agent sense only — the things that can be put into a group or hold an API key. Group membership does **not** by itself confer space membership: a group's grants (and its admin, if it's an admin group) apply to you only once you have **also** joined the space directly. So an admin can add you to a group before you join — the group's access stays dormant until you do.
 
+A group is itself part of its space's roster (it gets a roster entry when created), which is what lets you grant access to it or reference it **by name**. That roster entry is the group's own; it is separate from membership conferral, which still depends on each user/agent having joined the space directly.
+
 ## Spaces
 
 A **space** is an isolated collection of memories with its own roster, groups, and access grants. Each space has:

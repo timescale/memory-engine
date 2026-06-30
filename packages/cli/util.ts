@@ -163,6 +163,51 @@ export async function resolveSpacePrincipalId(
 }
 
 /**
+ * Resolve a space *member* (user or agent) to its id, by UUIDv7 or name. Like
+ * {@link resolveSpacePrincipalId} but excludes groups — for call sites where a
+ * group is never a valid target (e.g. group membership: groups are not
+ * nestable). A bare name that matches only a group yields a precise error.
+ * Exits with an actionable error on miss / ambiguity.
+ *
+ * A group passed by *id* is not caught here (we don't round-trip to classify a
+ * UUID); the server's add_group_member guard rejects it with a clear message.
+ */
+export async function resolveSpaceMemberId(
+  memory: MemoryClient,
+  input: string,
+  fmt: OutputFormat,
+): Promise<string> {
+  if (UUIDV7_RE.test(input)) return input;
+
+  const { principals } = await memory.principal.resolve({ name: input });
+  const members = principals.filter((p) => p.kind !== "g");
+
+  if (members.length === 1 && members[0]) return members[0].id;
+
+  if (members.length === 0) {
+    const onlyGroup = principals.some((p) => p.kind === "g");
+    const msg = onlyGroup
+      ? `'${input}' is a group, not a member — groups can't be group members.`
+      : `No member named '${input}' in this space.`;
+    if (fmt === "text") {
+      clack.log.error(msg);
+    } else {
+      output({ error: msg }, fmt, () => {});
+    }
+    process.exit(1);
+  }
+
+  const msg = `Multiple members named '${input}'. Use the id instead:`;
+  if (fmt === "text") {
+    clack.log.error(msg);
+    for (const m of members) console.log(`  ${m.name} (${m.kind}) — ${m.id}`);
+  } else {
+    output({ error: msg, matches: members }, fmt, () => {});
+  }
+  process.exit(1);
+}
+
+/**
  * Resolve one of the caller's agents to its id, by UUIDv7 or name (agent names
  * are unique per user). Exits with an actionable error on miss / ambiguity.
  */

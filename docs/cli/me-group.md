@@ -84,7 +84,8 @@ me group delete <group>
 
 ## me group add
 
-Add a member (user or agent) to a group.
+Add a member (user or agent) to a group. Groups are not nestable — a group
+cannot be a member of another group; passing a group name or id is rejected.
 
 ```
 me group add <group> <member> [--admin]

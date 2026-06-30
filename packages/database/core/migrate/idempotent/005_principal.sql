@@ -36,7 +36,17 @@ set search_path to pg_catalog, {{schema}}, public, pg_temp
 
 -------------------------------------------------------------------------------
 -- create_group
--- Groups belong to a single space.
+-- Groups belong to a single space, and are rostered into that space's
+-- principal_space on creation: principal_space is the single source of truth for
+-- who/what belongs to a space, so a group is a first-class roster entry (this is
+-- what makes it resolvable and grantable by name via principal.resolve /
+-- list_space_principals). The group is rostered admin=false, and
+-- add_principal_to_space skips the home grant for groups (only u/a get a home).
+-- Rostering the group does NOT confer space access on its members:
+-- member_tree_access still gates a group's grants on each member's own
+-- principal_space row, so group membership alone never confers space membership.
+-- plpgsql (not sql) so the body's reference to add_principal_to_space — defined
+-- in a later idempotent file (006) — is resolved at call time, not creation time.
 -------------------------------------------------------------------------------
 create or replace function {{schema}}.create_group
 ( _space_id uuid
@@ -45,10 +55,18 @@ create or replace function {{schema}}.create_group
 )
 returns uuid
 as $func$
+declare
+  _group_id uuid;
+begin
   insert into {{schema}}.principal (id, kind, name, space_id)
   values (coalesce(_id, uuidv7()), 'g', _name, _space_id)
-  returning id
-$func$ language sql volatile security invoker
+  returning id into _group_id;
+
+  perform {{schema}}.add_principal_to_space(_space_id, _group_id, false);
+
+  return _group_id;
+end;
+$func$ language plpgsql volatile security invoker
 set search_path to pg_catalog, {{schema}}, public, pg_temp
 ;
 

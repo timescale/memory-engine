@@ -698,6 +698,42 @@ describe.skipIf(
     expect(denied.code).not.toBe(0);
   });
 
+  test("7a2. groups resolve by name: grant by group name + groups are not nestable (TNT-160)", async () => {
+    const groupName = `team-${rand()}`;
+    const group = await meJson<{ id: string }>(["group", "create", groupName]);
+
+    // TNT-160: grant access to the group BY NAME (previously only the id
+    // worked, because groups weren't on the roster that resolve reads).
+    const granted = await meJson<{ principalId: string }>([
+      "access",
+      "grant",
+      groupName,
+      "share",
+      "r",
+    ]);
+    expect(granted.principalId).toBe(group.id);
+
+    // the grant is now listed against the group id
+    const listed = await meJson<{
+      grants: { principalId: string; treePath: string }[];
+    }>(["access", "list", groupName]);
+    expect(
+      listed.grants.some(
+        (g) => g.principalId === group.id && g.treePath === "/share",
+      ),
+    ).toBe(true);
+
+    // Groups are not nestable: a group name in the <member> slot is excluded
+    // from member resolution, so `me group add` rejects it with a clear error.
+    const nestedName = `team-${rand()}`;
+    await meJson(["group", "create", nestedName]);
+    const nest = await me(["group", "add", groupName, nestedName]);
+    expect(nest.code).not.toBe(0);
+    expect(`${nest.stdout}${nest.stderr}`.toLowerCase()).toContain(
+      "not a member",
+    );
+  });
+
   test("7b. personal access tokens: self-default create/list, no same-day collision", async () => {
     // `me apikey create` with no agent mints a PAT for the caller. Two unnamed
     // PATs minted back-to-back must NOT collide on `unique (member_id, name)` —

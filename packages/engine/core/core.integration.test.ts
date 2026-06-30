@@ -126,6 +126,41 @@ test("groups: create, list, rename, members, delete", async () => {
   expect(await core.listSpaceGroups(spaceId)).toHaveLength(0);
 });
 
+test("createGroup rosters the group into principal_space (admin=false, no home grant)", async () => {
+  const groupId = await core.createGroup(spaceId, `roster_${rand(6)}`);
+
+  // the group is on the roster as a kind 'g' principal, non-admin
+  const groups = await core.listSpacePrincipals(spaceId, "g");
+  expect(groups.map((g) => g.id)).toContain(groupId);
+  expect(groups.find((g) => g.id === groupId)?.admin).toBe(false);
+
+  // and it shows up in the unfiltered roster alongside the owner
+  const all = await core.listSpacePrincipals(spaceId);
+  expect(all.map((p) => p.id)).toContain(groupId);
+
+  // groups get NO home grant (only users/agents do), so the group holds no
+  // tree_access of its own and cannot authenticate (build_tree_access empty).
+  expect(await core.listTreeAccessGrants(spaceId, groupId)).toEqual([]);
+  expect(await core.buildTreeAccess(groupId, spaceId)).toEqual([]);
+});
+
+test("addGroupMember rejects a group as a member (groups are not nestable)", async () => {
+  const groupId = await core.createGroup(spaceId, `g1_${rand(6)}`);
+  const nested = await core.createGroup(spaceId, `g2_${rand(6)}`);
+
+  let err: unknown;
+  try {
+    await core.addGroupMember(spaceId, groupId, nested);
+  } catch (e) {
+    err = e;
+  }
+  expect(err).toBeDefined();
+  expect(String(err)).toContain("not nestable");
+
+  // the rejected nesting left no group_member row behind
+  expect(await core.listGroupMembers(spaceId, groupId)).toHaveLength(0);
+});
+
 test("space admin transfers through an admin group (only for direct members)", async () => {
   const groupId = await core.createGroup(spaceId, `admins_${rand(6)}`);
   // designate the group itself as an admin member of the space

@@ -230,6 +230,22 @@ test("group: create / list / members / rename / delete", async () => {
     ),
   ).toBe(true);
 
+  // The group is rostered into principal_space on creation, so it appears in
+  // the space roster (principal.list) as a kind 'g' principal and resolves by
+  // name — this is what lets `me access grant <group-name>` work (TNT-160).
+  const roster = await call<{ principals: { id: string; kind: string }[] }>(
+    "principal.list",
+    { kind: "g" },
+  );
+  expect(
+    roster.principals.some((p) => p.id === groupId && p.kind === "g"),
+  ).toBe(true);
+  const resolved = await call<{ principals: { id: string }[] }>(
+    "principal.resolve",
+    { name: "eng" },
+  );
+  expect(resolved.principals.some((p) => p.id === groupId)).toBe(true);
+
   await call("group.addMember", { groupId, memberId: ownerId, admin: true });
   const members = await call<{
     members: { memberId: string; admin: boolean }[];
