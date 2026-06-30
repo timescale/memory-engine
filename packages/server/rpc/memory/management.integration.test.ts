@@ -280,6 +280,37 @@ test("group: create / list / members / rename / delete", async () => {
   ).toBe(true);
 });
 
+test("admin groups: group.create --admin and group.setAdmin toggle", async () => {
+  // create as an admin group
+  const { id: groupId } = await call<{ id: string }>("group.create", {
+    name: "leads",
+    admin: true,
+  });
+  const listed = await call<{ groups: { id: string; admin: boolean }[] }>(
+    "group.list",
+    {},
+  );
+  expect(listed.groups.find((g) => g.id === groupId)?.admin).toBe(true);
+
+  // demote, then re-promote
+  const demoted = await call<{ admin: boolean; updated: boolean }>(
+    "group.setAdmin",
+    { id: groupId, admin: false },
+  );
+  expect(demoted).toEqual({ admin: false, updated: true });
+  expect(
+    (
+      await call<{ groups: { id: string; admin: boolean }[] }>("group.list", {})
+    ).groups.find((g) => g.id === groupId)?.admin,
+  ).toBe(false);
+
+  const promoted = await call<{ admin: boolean; updated: boolean }>(
+    "group.setAdmin",
+    { id: groupId, admin: true },
+  );
+  expect(promoted).toEqual({ admin: true, updated: true });
+});
+
 test("grant: set / list / remove", async () => {
   const other = await makeUser();
   await call("grant.set", { principalId: other, treePath: "docs", access: 1 });

@@ -83,8 +83,8 @@ function createGroupListCommand(): Command {
             return;
           }
           table(
-            ["name", "id"],
-            groups.map((g) => [g.name, g.id]),
+            ["name", "admin", "id"],
+            groups.map((g) => [g.name, g.admin ? "yes" : "", g.id]),
           );
         });
       } catch (error) {
@@ -97,18 +97,61 @@ function createGroupCreateCommand(): Command {
   return new Command("create")
     .description("create a group")
     .argument("<name>", "group name")
-    .action(async (name: string, _opts, cmd) => {
+    .option(
+      "--admin",
+      "create as an admin group: its members who are also space members gain space-admin",
+    )
+    .action(async (name: string, opts, cmd) => {
       const globalOpts = cmd.optsWithGlobals();
       const creds = resolveCredentials(globalOpts.server);
       const fmt = getOutputFormat(globalOpts);
       requireAuth(creds, fmt);
       requireSpace(creds, fmt);
 
+      const admin = opts.admin === true;
       const memory = buildMemoryClient(creds);
       try {
-        const { id } = await memory.group.create({ name });
-        output({ id, name }, fmt, () => {
-          clack.log.success(`Created group '${name}' (${id})`);
+        const { id } = await memory.group.create({ name, admin });
+        output({ id, name, admin }, fmt, () => {
+          clack.log.success(
+            `Created ${admin ? "admin " : ""}group '${name}' (${id})`,
+          );
+        });
+      } catch (error) {
+        handleError(error, fmt, { creds, scope: "space" });
+      }
+    });
+}
+
+function createGroupSetAdminCommand(): Command {
+  return new Command("set-admin")
+    .description(
+      "make a group an admin group (its members gain space-admin), or revoke with --no-admin",
+    )
+    .argument("<group>", "group id or name")
+    .option(
+      "--no-admin",
+      "revoke the group's admin-group status instead of granting it",
+    )
+    .action(async (group: string, opts, cmd) => {
+      const globalOpts = cmd.optsWithGlobals();
+      const creds = resolveCredentials(globalOpts.server);
+      const fmt = getOutputFormat(globalOpts);
+      requireAuth(creds, fmt);
+      requireSpace(creds, fmt);
+
+      // commander sets opts.admin = true by default, false when --no-admin.
+      const admin = opts.admin !== false;
+      const memory = buildMemoryClient(creds);
+      try {
+        const groupId = await resolveGroupId(memory, group, fmt);
+        const result = await memory.group.setAdmin({ id: groupId, admin });
+        output({ groupId, ...result }, fmt, () => {
+          clack.log.success(
+            admin
+              ? `Group ${group} is now an admin group.`
+              : `Group ${group} is no longer an admin group.`,
+          );
         });
       } catch (error) {
         handleError(error, fmt, { creds, scope: "space" });
@@ -307,6 +350,7 @@ export function createGroupCommand(): Command {
   group.addCommand(createGroupCreateCommand());
   group.addCommand(createGroupRenameCommand());
   group.addCommand(createGroupDeleteCommand());
+  group.addCommand(createGroupSetAdminCommand());
   group.addCommand(createGroupAddCommand());
   group.addCommand(createGroupRemoveCommand());
   group.addCommand(createGroupMembersCommand());

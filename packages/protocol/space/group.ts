@@ -2,8 +2,11 @@
  * Group method schemas (group.*).
  *
  * Groups are space-scoped principals used to bundle members for tree-access
- * grants. Group membership confers space access (a group member is a space
- * member, flagged direct=false in principal.list).
+ * grants. A group is itself rostered into its space (principal_space), which is
+ * what makes it resolvable/grantable by name — but group membership alone does
+ * NOT confer space membership on a user/agent: a group's grants (and its admin
+ * flag, if it's an admin group) apply to a member only once they have also joined
+ * the space directly.
  */
 import { z } from "zod";
 import { principalHandleNameSchema, uuidv7Schema } from "../fields.ts";
@@ -12,6 +15,9 @@ import { principalKindSchema } from "./principal.ts";
 export const groupResponse = z.object({
   id: z.string(),
   name: z.string(),
+  // Whether this is an admin group (its own principal_space.admin) — its
+  // space-admin authority flows to its direct-member users.
+  admin: z.boolean(),
   createdAt: z.string(),
   updatedAt: z.string().nullable(),
 });
@@ -35,11 +41,30 @@ export const groupMembershipResponse = z.object({
 export type GroupMembershipResponse = z.infer<typeof groupMembershipResponse>;
 
 // group.create
-export const groupCreateParams = z.object({ name: principalHandleNameSchema });
+export const groupCreateParams = z.object({
+  name: principalHandleNameSchema,
+  // Create as an admin group (its members who are also space members gain
+  // space-admin). Defaults false. Admin-gated on the server.
+  admin: z.boolean().optional(),
+});
 export type GroupCreateParams = z.infer<typeof groupCreateParams>;
 
 export const groupCreateResult = z.object({ id: z.string() });
 export type GroupCreateResult = z.infer<typeof groupCreateResult>;
+
+// group.setAdmin — toggle a group's admin-group status (principal_space.admin).
+// Demotion is guarded by the space's last-admin safeguard.
+export const groupSetAdminParams = z.object({
+  id: uuidv7Schema,
+  admin: z.boolean(),
+});
+export type GroupSetAdminParams = z.infer<typeof groupSetAdminParams>;
+
+export const groupSetAdminResult = z.object({
+  admin: z.boolean(),
+  updated: z.boolean(),
+});
+export type GroupSetAdminResult = z.infer<typeof groupSetAdminResult>;
 
 // group.list
 export const groupListParams = z.object({});

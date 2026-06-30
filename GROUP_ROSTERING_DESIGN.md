@@ -56,9 +56,14 @@ roster the single source of truth, while preserving:
 
 ### Locked sub-decisions
 
-- Group rows are rostered with **`admin = false`**. ("Admin group" creation — a
-  group rostered `admin=true` — has merit but is **deferred**; the underlying
-  machinery already exists and is untouched.)
+- Group rows are rostered with **`admin = false`** by default. **Admin groups are
+  now supported** (not deferred): the admin-group mechanism (`is_principal_space_admin`
+  / `enforce_last_admin`) was always built to key on a group's own
+  `principal_space.admin`, so the only thing missing was a way to set it.
+  `create_group` takes an `_admin` flag, `set_group_admin` toggles it (guarded by
+  `enforce_last_admin` on demotion), surfaced as `group.create --admin` /
+  `me group set-admin`. (This withdraws the earlier "FM3 / block admin groups"
+  idea, which would have removed a real, tested feature.)
 - Group nesting is blocked at the DB (explicit guard) and groups are excluded from
   the `me group add/remove` member resolver.
 - Member-only resolution is done **CLI-side** (Design A below). Promoting to a
@@ -141,10 +146,11 @@ roster the single source of truth, while preserving:
 
 ## Out of scope (deferred)
 
-- "Admin group" creation (rostering a group with `admin=true`).
 - Decline-invite / opt-in membership flow.
 - Design B: server-enforced member-only resolution
   (`principalResolveParams.kinds` / `memberOnly`).
+- A CLI surface to remove a *user/agent* from a space (`principal.remove` has no
+  CLI) — tracked separately as TNT-164.
 
 ---
 

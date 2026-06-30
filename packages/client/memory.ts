@@ -62,6 +62,8 @@ import type {
   GroupRemoveMemberResult,
   GroupRenameParams,
   GroupRenameResult,
+  GroupSetAdminParams,
+  GroupSetAdminResult,
   InviteCreateParams,
   InviteCreateResult,
   InviteListParams,
@@ -140,6 +142,7 @@ export interface GroupNamespace {
   list(params?: GroupListParams): Promise<GroupListResult>;
   rename(params: GroupRenameParams): Promise<GroupRenameResult>;
   delete(params: GroupDeleteParams): Promise<GroupDeleteResult>;
+  setAdmin(params: GroupSetAdminParams): Promise<GroupSetAdminResult>;
   addMember(params: GroupAddMemberParams): Promise<GroupAddMemberResult>;
   removeMember(
     params: GroupRemoveMemberParams,
@@ -235,6 +238,7 @@ export function createMemoryClient(
       list: (p) => readRpc("group.list", p ?? {}),
       rename: (p) => writeRpc("group.rename", p),
       delete: (p) => writeRpc("group.delete", p),
+      setAdmin: (p) => writeRpc("group.setAdmin", p),
       addMember: (p) => writeRpc("group.addMember", p),
       removeMember: (p) => writeRpc("group.removeMember", p),
       listMembers: (p) => readRpc("group.listMembers", p),
