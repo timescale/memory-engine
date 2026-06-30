@@ -153,11 +153,45 @@ set search_path to pg_catalog, {{schema}}, public, pg_temp
 {{endfn}}
 
 -------------------------------------------------------------------------------
+-- _invitation_valid
+-- The single source of truth for "can this invitation still be redeemed by an
+-- eligible user right now". Every read/accept/redeem path goes through it so the
+-- validity rules can't drift: not revoked, not expired, and not exhausted —
+-- where exhaustion is the single-use accepted_at for an email invite, or the
+-- max_uses redemption cap for an open link (null = unlimited). It does NOT check
+-- WHO may redeem (the email match / token) — that's the caller's gate.
+-------------------------------------------------------------------------------
+create or replace function {{schema}}._invitation_valid
+( _invitation_id uuid
+)
+returns bool
+as $func$
+  select i.revoked_at is null
+     and (i.expires_at is null or i.expires_at > pg_catalog.now())
+     -- single-use email invite: consumed once accepted_at is stamped.
+     and i.accepted_at is null
+     -- open link (email null): bounded by max_uses across distinct redeemers.
+     and (
+       i.email is not null
+       or i.max_uses is null
+       or (
+         select count(*)
+         from {{schema}}.space_invitation_redemption r
+         where r.invitation_id = i.id
+       ) < i.max_uses
+     )
+  from {{schema}}.space_invitation i
+  where i.id = _invitation_id
+$func$ language sql stable security invoker
+set search_path to pg_catalog, {{schema}}, public, pg_temp
+;
+
+-------------------------------------------------------------------------------
 -- list_pending_invitations_for_email
--- Every pending invitation addressed to an email, across all spaces — the
--- invitee's view of what they can accept. email is citext, so the match is
--- case-insensitive. Includes the space slug/name and the inviter's display name
--- when still resolvable.
+-- Every currently-valid invitation addressed to an email, across all spaces —
+-- the invitee's view of what they can accept (excludes accepted / revoked /
+-- expired). email is citext, so the match is case-insensitive. Includes the
+-- space slug/name and the inviter's display name when still resolvable.
 -------------------------------------------------------------------------------
 create or replace function {{schema}}.list_pending_invitations_for_email
 ( _email citext
@@ -178,8 +212,7 @@ as $func$
   join {{schema}}.space s on s.id = i.space_id
   left join {{schema}}.principal p on p.id = i.invited_by
   where i.email = _email
-  and i.accepted_at is null
-  and i.revoked_at is null
+  and {{schema}}._invitation_valid(i.id)
   order by i.created_at
 $func$ language sql stable strict security invoker
 set search_path to pg_catalog, {{schema}}, public, pg_temp
@@ -210,16 +243,16 @@ as $func$
 declare
   inv record;
 begin
+  -- Lock the row addressed to this email; validity (expired / revoked / already
+  -- accepted) is the shared _invitation_valid gate.
   select i.id, i.space_id, i.admin, i.share_access
   into inv
   from {{schema}}.space_invitation i
   where i.id = _invitation_id
   and i.email = _email
-  and i.accepted_at is null
-  and i.revoked_at is null
   for update;
 
-  if not found then
+  if not found or not {{schema}}._invitation_valid(inv.id) then
     return;
   end if;
 
@@ -292,13 +325,13 @@ begin
     return;
   end if;
 
+  -- Lock the row by its token; the for-update lock serializes concurrent
+  -- redemptions of the same link so _invitation_valid's max_uses count is
+  -- consistent.
   select i.id, i.space_id, i.email, i.admin, i.share_access, i.token_hash
-       , i.accepted_at, i.max_uses
   into inv
   from {{schema}}.space_invitation i
   where i.token_lookup = _token_lookup
-  and i.revoked_at is null
-  and (i.expires_at is null or i.expires_at > pg_catalog.now())
   for update;
 
   -- not found / hash mismatch (constant-ish: still requires the row)
@@ -306,18 +339,14 @@ begin
     return;
   end if;
 
-  if inv.email is not null then
-    -- email-constrained: only the matching verified email, single-use.
-    if inv.email <> _user_email or inv.accepted_at is not null then
-      return;
-    end if;
-  else
-    -- open link: bounded by max_uses across distinct redeemers.
-    if inv.max_uses is not null
-       and (select count(*) from {{schema}}.space_invitation_redemption r
-            where r.invitation_id = inv.id) >= inv.max_uses then
-      return;
-    end if;
+  -- shared validity (revoked / expired / single-use accepted / max_uses) ...
+  if not {{schema}}._invitation_valid(inv.id) then
+    return;
+  end if;
+
+  -- ... and the WHO gate: an email-constrained link only its matching email.
+  if inv.email is not null and inv.email <> _user_email then
+    return;
   end if;
 
   perform {{schema}}._join_via_invitation(inv.id, _user_id);

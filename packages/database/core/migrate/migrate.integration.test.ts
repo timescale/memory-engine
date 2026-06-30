@@ -991,6 +991,58 @@ describe("control-plane functions", () => {
         [spaceId, revId],
       );
       expect(ok2?.ok).toBe(false);
+
+      // expiry is enforced uniformly (the shared _invitation_valid gate):
+      // an already-expired open link can't be redeemed.
+      await sql.unsafe(
+        `select ${s}.create_space_invitation($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+        [
+          spaceId,
+          null,
+          false,
+          null,
+          inviterId,
+          "lk_exp",
+          "h_exp",
+          new Date(Date.now() - 60_000).toISOString(),
+          null,
+        ],
+      );
+      const xUser = await mkUser("x@example.com");
+      expect(
+        await redeem("lk_exp", "h_exp", xUser, "x@example.com"),
+      ).toHaveLength(0);
+
+      // ... and an expired *email* invite is neither listed for the invitee nor
+      // acceptable (the bug this gate closes).
+      const expiredEmail = "expired-invitee@example.com";
+      const [eInv] = await sql.unsafe(
+        `select ${s}.create_space_invitation($1,$2,$3,$4,$5,$6,$7,$8,$9) as id`,
+        [
+          spaceId,
+          expiredEmail,
+          false,
+          null,
+          inviterId,
+          "lk_eml_exp",
+          "h_eml_exp",
+          new Date(Date.now() - 60_000).toISOString(),
+          null,
+        ],
+      );
+      const eUser2 = await mkUser(expiredEmail);
+      expect(
+        await sql.unsafe(
+          `select * from ${s}.list_pending_invitations_for_email($1)`,
+          [expiredEmail],
+        ),
+      ).toHaveLength(0);
+      expect(
+        await sql.unsafe(
+          `select * from ${s}.accept_space_invitation($1, $2, $3)`,
+          [eUser2, expiredEmail, eInv?.id as string],
+        ),
+      ).toHaveLength(0);
     });
   });
 
