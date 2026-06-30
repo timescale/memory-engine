@@ -49,7 +49,8 @@ async function inviteCreate(
   const email = params.email ?? null; // null → an open shareable link
 
   // Always pending — no auto-enroll. The invitee joins by accepting (email
-  // invite) or by redeeming the returned token link. The token is shown once.
+  // invite) or by redeeming the returned token link. The token is returned here
+  // and re-readable later by an admin via invite.list (so the URL can be re-copied).
   const { id, token } = await guardCore(() =>
     ctx.core.createSpaceInvitation(ctx.space.id, email, {
       admin,

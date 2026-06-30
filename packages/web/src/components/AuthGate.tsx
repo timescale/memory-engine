@@ -125,8 +125,18 @@ export function AuthGate({ children }: { children: ReactNode }) {
         if (created && space) {
           spaces = [{ slug: space.slug, name: space.name, admin: space.admin }];
         } else {
-          setState({ status: "onboarding", identity, invitations });
-          return;
+          // ensureDefault was a no-op — e.g. a concurrent tab/device already
+          // created (or the user joined) a space. Re-fetch before concluding
+          // the user has nowhere to go.
+          spaces = (await userClient.space.list()).spaces.map((s) => ({
+            slug: s.slug,
+            name: s.name,
+            admin: s.admin,
+          }));
+          if (spaces.length === 0) {
+            setState({ status: "onboarding", identity, invitations });
+            return;
+          }
         }
       }
       const saved = localStorage.getItem(SPACE_STORAGE_KEY);

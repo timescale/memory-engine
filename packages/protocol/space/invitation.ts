@@ -56,7 +56,8 @@ export type InviteCreateParams = z.infer<typeof inviteCreateParams>;
 export const inviteCreateResult = z.object({
   /** The invitation id. */
   invitationId: z.string(),
-  /** The full magic-link token (`inv.<lookupId>.<secret>`), shown once. */
+  /** The full magic-link token (`inv.<secret>`). Also re-readable later by an
+   *  admin via `invite.list`, so the URL can be re-copied. */
   token: z.string(),
 });
 export type InviteCreateResult = z.infer<typeof inviteCreateResult>;
