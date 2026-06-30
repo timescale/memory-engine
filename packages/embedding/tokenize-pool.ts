@@ -45,6 +45,9 @@ function parseThreadCount(): number {
     return Number.parseInt(raw, 10);
   }
 
+  // Auto-size: leave a core free for the main thread (cores - 1) and cap at 4
+  // workers by default — tokenization is a latency mitigation, not a throughput
+  // sink, so more than 4 threads buys little. Floor of 1 for single-core hosts.
   const cores = availableParallelism();
   return Math.max(1, Math.min(cores - 1, 4));
 }
@@ -56,6 +59,14 @@ class TokenizePool {
   private closed = false;
 
   constructor(size: number) {
+    // Spawn every worker eagerly rather than lazily on demand. The pool itself
+    // is already lazy (built on the first truncate call), but once it exists we
+    // want all workers prewarmed: each thread's startup pays a cold start —
+    // spawn + import of the cl100k_base BPE tokenizer data (tens of ms). Loading
+    // them all up front means workers 1..N warm concurrently while worker 0
+    // handles the first job, so a concurrent burst (batch embed / search) finds
+    // every worker hot instead of eating that cold start on the request path —
+    // exactly the latency this pool exists to remove.
     for (let i = 0; i < size; i++) {
       this.workers.push(this.createWorker());
     }
