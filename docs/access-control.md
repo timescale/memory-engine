@@ -29,7 +29,7 @@ A user can belong to many spaces; each memory lives in exactly one space. There 
 
 Access splits into two independent axes:
 
-- **Structural authority** — `me space invite`, the roster (`me agent add`, `me group ...`), and invitations. This is the space **admin** flag. Admin transfers through an **admin group** to its members who are also direct space members. Designate one with `me group create <name> --admin` or `me group set-admin <group>` (revoke with `--no-admin`); `me group list` shows which groups are admin groups. Agents are never admins.
+- **Structural authority** — `me space invite`, the roster (`me agent add`, `me group ...`), and invitations. This is the space **admin** flag. Admin transfers through an **admin group** to its members who are also direct space members. Designate one with `me group create <name> --space-admin` or `me group set-space-admin <group>` (revoke with `--off`); `me group list` shows which groups are admin groups. Agents are never admins.
 - **Data authority** — who can read/write/own memories at a given tree path. This is a **tree-access grant**.
 
 A space must always keep at least one *effective* admin (a user who is a direct admin or a direct member of an admin group). The last-admin safeguard rejects any removal or demotion that would drop it (error code `LAST_ADMIN`).

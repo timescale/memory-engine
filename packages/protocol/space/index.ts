@@ -33,8 +33,8 @@ import {
   groupRemoveMemberResult,
   groupRenameParams,
   groupRenameResult,
-  groupSetAdminParams,
-  groupSetAdminResult,
+  groupSetIsSpaceAdminParams,
+  groupSetIsSpaceAdminResult,
 } from "./group.ts";
 import {
   inviteCreateParams,
@@ -88,7 +88,10 @@ export const spaceMethods = {
   "group.list": method(groupListParams, groupListResult),
   "group.rename": method(groupRenameParams, groupRenameResult),
   "group.delete": method(groupDeleteParams, groupDeleteResult),
-  "group.setAdmin": method(groupSetAdminParams, groupSetAdminResult),
+  "group.setIsSpaceAdmin": method(
+    groupSetIsSpaceAdminParams,
+    groupSetIsSpaceAdminResult,
+  ),
   "group.addMember": method(groupAddMemberParams, groupAddMemberResult),
   "group.removeMember": method(
     groupRemoveMemberParams,

@@ -48,13 +48,14 @@ export interface CoreStore {
   createUser(id: string, name: string): Promise<string>;
   createAgent(ownerId: string, name: string, id?: string): Promise<string>;
   /**
-   * Create a group, rostered into its space. `admin` makes it an admin group
-   * (its space-admin authority flows to direct-member users); defaults false.
+   * Create a group, rostered into its space. `isSpaceAdmin` makes it an admin
+   * group (its space-admin authority flows to direct-member users); defaults
+   * false.
    */
   createGroup(
     spaceId: string,
     name: string,
-    admin?: boolean,
+    isSpaceAdmin?: boolean,
     id?: string,
   ): Promise<string>;
   getPrincipal(id: string): Promise<Principal | null>;
@@ -82,12 +83,12 @@ export interface CoreStore {
   /**
    * Toggle a group's admin-group status (its own principal_space.admin).
    * Demotion is guarded by the space's last-admin safeguard. Returns true if the
-   * group's roster row was updated.
+   * group's roster row actually changed (a no-op toggle returns false).
    */
-  setGroupAdmin(
+  setGroupIsSpaceAdmin(
     spaceId: string,
     groupId: string,
-    admin: boolean,
+    isSpaceAdmin: boolean,
   ): Promise<boolean>;
   /** A user's agents (global; agents are owned by a user, not a space). */
   listAgents(ownerId: string): Promise<Principal[]>;
@@ -264,7 +265,7 @@ function mapGroup(row: Record<string, unknown>): Group {
   return {
     id: row.id as string,
     name: row.name as string,
-    admin: Boolean(row.admin),
+    isSpaceAdmin: Boolean(row.is_space_admin),
     createdAt: row.created_at as Date,
     updatedAt: (row.updated_at as Date | null) ?? null,
   };
@@ -337,10 +338,10 @@ export function coreStore(sql: Sql, schema: string = CORE_SCHEMA): CoreStore {
       return row.id as string;
     },
 
-    async createGroup(spaceId, name, admin = false, id) {
+    async createGroup(spaceId, name, isSpaceAdmin = false, id) {
       const [row] = await sql`
         select ${sch}.create_group(
-          ${spaceId}, ${name}, ${admin}, ${id ?? null}
+          ${spaceId}, ${name}, ${isSpaceAdmin}, ${id ?? null}
         ) as id
       `;
       if (!row) throw new Error("create_group returned no row");
@@ -382,9 +383,11 @@ export function coreStore(sql: Sql, schema: string = CORE_SCHEMA): CoreStore {
       return rows.map(mapGroup);
     },
 
-    async setGroupAdmin(spaceId, groupId, admin) {
+    async setGroupIsSpaceAdmin(spaceId, groupId, isSpaceAdmin) {
       const [row] = await sql`
-        select ${sch}.set_group_admin(${spaceId}, ${groupId}, ${admin}) as updated
+        select ${sch}.set_group_is_space_admin(
+          ${spaceId}, ${groupId}, ${isSpaceAdmin}
+        ) as updated
       `;
       return Boolean(row?.updated);
     },

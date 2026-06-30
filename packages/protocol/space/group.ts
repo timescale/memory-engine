@@ -16,8 +16,9 @@ export const groupResponse = z.object({
   id: z.string(),
   name: z.string(),
   // Whether this is an admin group (its own principal_space.admin) — its
-  // space-admin authority flows to its direct-member users.
-  admin: z.boolean(),
+  // space-admin authority flows to its direct-member users. Distinct from a group
+  // member's own admin flag (groupMemberResponse.admin).
+  isSpaceAdmin: z.boolean(),
   createdAt: z.string(),
   updatedAt: z.string().nullable(),
 });
@@ -45,26 +46,31 @@ export const groupCreateParams = z.object({
   name: principalHandleNameSchema,
   // Create as an admin group (its members who are also space members gain
   // space-admin). Defaults false. Admin-gated on the server.
-  admin: z.boolean().optional(),
+  isSpaceAdmin: z.boolean().optional(),
 });
 export type GroupCreateParams = z.infer<typeof groupCreateParams>;
 
 export const groupCreateResult = z.object({ id: z.string() });
 export type GroupCreateResult = z.infer<typeof groupCreateResult>;
 
-// group.setAdmin — toggle a group's admin-group status (principal_space.admin).
-// Demotion is guarded by the space's last-admin safeguard.
-export const groupSetAdminParams = z.object({
+// group.setIsSpaceAdmin — toggle a group's admin-group status
+// (principal_space.admin). Distinct from a group member's admin flag. Demotion
+// is guarded by the space's last-admin safeguard.
+export const groupSetIsSpaceAdminParams = z.object({
   id: uuidv7Schema,
-  admin: z.boolean(),
+  isSpaceAdmin: z.boolean(),
 });
-export type GroupSetAdminParams = z.infer<typeof groupSetAdminParams>;
+export type GroupSetIsSpaceAdminParams = z.infer<
+  typeof groupSetIsSpaceAdminParams
+>;
 
-export const groupSetAdminResult = z.object({
-  admin: z.boolean(),
+export const groupSetIsSpaceAdminResult = z.object({
+  isSpaceAdmin: z.boolean(),
   updated: z.boolean(),
 });
-export type GroupSetAdminResult = z.infer<typeof groupSetAdminResult>;
+export type GroupSetIsSpaceAdminResult = z.infer<
+  typeof groupSetIsSpaceAdminResult
+>;
 
 // group.list
 export const groupListParams = z.object({});

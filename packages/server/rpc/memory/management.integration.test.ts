@@ -280,35 +280,37 @@ test("group: create / list / members / rename / delete", async () => {
   ).toBe(true);
 });
 
-test("admin groups: group.create --admin and group.setAdmin toggle", async () => {
+test("admin groups: group.create --space-admin and group.setIsSpaceAdmin toggle", async () => {
   // create as an admin group
   const { id: groupId } = await call<{ id: string }>("group.create", {
     name: "leads",
-    admin: true,
+    isSpaceAdmin: true,
   });
-  const listed = await call<{ groups: { id: string; admin: boolean }[] }>(
-    "group.list",
-    {},
-  );
-  expect(listed.groups.find((g) => g.id === groupId)?.admin).toBe(true);
+  const listed = await call<{
+    groups: { id: string; isSpaceAdmin: boolean }[];
+  }>("group.list", {});
+  expect(listed.groups.find((g) => g.id === groupId)?.isSpaceAdmin).toBe(true);
 
   // demote, then re-promote
-  const demoted = await call<{ admin: boolean; updated: boolean }>(
-    "group.setAdmin",
-    { id: groupId, admin: false },
+  const demoted = await call<{ isSpaceAdmin: boolean; updated: boolean }>(
+    "group.setIsSpaceAdmin",
+    { id: groupId, isSpaceAdmin: false },
   );
-  expect(demoted).toEqual({ admin: false, updated: true });
+  expect(demoted).toEqual({ isSpaceAdmin: false, updated: true });
   expect(
     (
-      await call<{ groups: { id: string; admin: boolean }[] }>("group.list", {})
-    ).groups.find((g) => g.id === groupId)?.admin,
+      await call<{ groups: { id: string; isSpaceAdmin: boolean }[] }>(
+        "group.list",
+        {},
+      )
+    ).groups.find((g) => g.id === groupId)?.isSpaceAdmin,
   ).toBe(false);
 
-  const promoted = await call<{ admin: boolean; updated: boolean }>(
-    "group.setAdmin",
-    { id: groupId, admin: true },
+  const promoted = await call<{ isSpaceAdmin: boolean; updated: boolean }>(
+    "group.setIsSpaceAdmin",
+    { id: groupId, isSpaceAdmin: true },
   );
-  expect(promoted).toEqual({ admin: true, updated: true });
+  expect(promoted).toEqual({ isSpaceAdmin: true, updated: true });
 });
 
 test("grant: set / list / remove", async () => {
