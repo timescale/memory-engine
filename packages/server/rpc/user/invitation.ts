@@ -109,6 +109,10 @@ async function inviteDecline(
  * open link is redeemable by any logged-in user, and an email-constrained link's
  * email check happens in SQL against the caller's email. So it doesn't require a
  * verified email — only a logged-in user (agents are barred by the allow-list).
+ *
+ * Only a *verified* email is passed for the constraint check, mirroring `accept`'s
+ * requireVerifiedEmail: an unverified email must not satisfy an email-constrained
+ * link. An open link (email null) ignores the caller's email, so it still works.
  */
 async function inviteRedeem(
   params: InviteRedeemParams,
@@ -119,7 +123,7 @@ async function inviteRedeem(
   const joined = await ctx.core.redeemInvitation(
     params.token,
     ctx.userId,
-    ctx.email,
+    ctx.emailVerified ? ctx.email : null,
   );
   if (!joined) {
     throw new AppError(
