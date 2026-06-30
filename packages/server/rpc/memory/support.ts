@@ -267,6 +267,7 @@ export function toSpaceInvitationResponse(
     expiresAt: i.expiresAt?.toISOString() ?? null,
     maxUses: i.maxUses,
     uses: i.uses,
+    valid: i.valid,
     createdAt: i.createdAt.toISOString(),
   };
 }

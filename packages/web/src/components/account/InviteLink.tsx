@@ -176,6 +176,11 @@ function InviteLinkPanel() {
                   {" · "}
                   {l.uses}
                   {l.maxUses != null ? `/${l.maxUses}` : ""} used
+                  {!l.valid && (
+                    <span className="ml-1 rounded bg-ink/[0.08] px-1 text-[11px] text-ink/50">
+                      expired/used
+                    </span>
+                  )}
                 </span>
                 <button
                   type="button"

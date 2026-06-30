@@ -31,6 +31,8 @@ export const spaceInvitationResponse = z.object({
   maxUses: z.number().int().nullable(),
   /** Redemptions so far. */
   uses: z.number().int(),
+  /** Whether it can still be redeemed (false = expired / exhausted). */
+  valid: z.boolean(),
   createdAt: z.string(),
 });
 export type SpaceInvitationResponse = z.infer<typeof spaceInvitationResponse>;

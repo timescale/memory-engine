@@ -543,6 +543,7 @@ export function coreStore(sql: Sql, schema: string = CORE_SCHEMA): CoreStore {
           expiresAt: (r.expires_at as Date | null) ?? null,
           maxUses: (r.max_uses as number | null) ?? null,
           uses: Number(r.uses ?? 0),
+          valid: Boolean(r.valid),
           createdAt: r.created_at as Date,
         }),
       );

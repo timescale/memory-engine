@@ -315,6 +315,7 @@ test("magic links: open link multi-use + max_uses; email link enforces email; re
   );
   expect(link?.maxUses).toBe(2);
   expect(link?.uses).toBe(2);
+  expect(link?.valid).toBe(false); // exhausted → still listed, marked invalid
 
   // a malformed token redeems nothing
   expect(await core.redeemInvitation("not-a-token", u3, null)).toBeNull();

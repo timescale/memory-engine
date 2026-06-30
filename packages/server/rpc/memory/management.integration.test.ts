@@ -352,6 +352,7 @@ test("invite.create (open link): returns a token, lists as a link, revokeById", 
       email: string | null;
       maxUses: number | null;
       uses: number;
+      valid: boolean;
     }[];
   }>("invite.list", {});
   const link = invitations.find((i) => i.id === res.invitationId);
@@ -359,6 +360,7 @@ test("invite.create (open link): returns a token, lists as a link, revokeById", 
   expect(link?.email).toBeNull();
   expect(link?.maxUses).toBe(5);
   expect(link?.uses).toBe(0);
+  expect(link?.valid).toBe(true); // fresh, unused → still valid
 
   expect(
     (
