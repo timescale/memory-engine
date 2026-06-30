@@ -218,3 +218,67 @@ do $$ begin
     execute function {{schema}}.enforce_last_admin();
   end if;
 end $$;
+
+-------------------------------------------------------------------------------
+-- enforce_group_space_coherence (trigger fn on principal_space)
+-- A group belongs to exactly one space (principal.space_id, fixed at creation),
+-- so its roster row must live in that same space. add_principal_to_space already
+-- guards this for its own callers; this is the table-level backstop that also
+-- catches a direct insert/update: any principal_space row for a group (kind 'g')
+-- whose space_id differs from the group's principal.space_id is rejected. Users
+-- and agents are global (principal.space_id null) and unconstrained — they can be
+-- rostered into many spaces.
+--
+-- This is the half of the group<->space coherence invariant that cannot be a
+-- composite FK: principal_space(principal_id, space_id) -> principal(id, space_id)
+-- would break users/agents, whose principal.space_id is null (and FKs can't be
+-- conditioned on kind). The group_member half IS a composite FK — see
+-- incremental/011_group_member_space_fk.sql.
+-------------------------------------------------------------------------------
+create or replace function {{schema}}.enforce_group_space_coherence()
+returns trigger
+as $func$
+begin
+  if exists
+  (
+    -- match by the group identity column (group_id = id for a group, null
+    -- otherwise), so this both restricts to groups and rides the group_id unique
+    -- index — a non-group principal_id finds no match without a heap fetch.
+    select 1
+    from {{schema}}.principal p
+    where p.group_id = new.principal_id
+    and p.space_id is distinct from new.space_id
+  ) then
+    raise exception
+      'group % cannot be rostered into space %: it belongs to a different space', new.principal_id, new.space_id
+      using errcode = '23514'
+      , hint = 'a group is rostered only into the space it was created in';
+  end if;
+  return null;
+end;
+$func$ language plpgsql
+set search_path to pg_catalog, {{schema}}, public, pg_temp
+;
+
+-- Guarded like the keep-admin triggers above (constraint triggers support
+-- neither CREATE OR REPLACE nor IF NOT EXISTS): (re)create only when the live
+-- trigger isn't already a deferred constraint trigger, so it upgrades a stale
+-- shape once and is a lock-free no-op thereafter. Fires on insert and update —
+-- a group's space_id never changes, so update coherence holds trivially, but
+-- covering update makes the backstop total.
+do $$ begin
+  if not exists
+  (
+    select 1 from pg_trigger
+    where tgrelid = '{{schema}}.principal_space'::regclass
+    and tgname = 'principal_space_group_space_coherence'
+    and tgconstraint <> 0 and tgdeferrable and tginitdeferred
+  ) then
+    drop trigger if exists principal_space_group_space_coherence on {{schema}}.principal_space;
+    create constraint trigger principal_space_group_space_coherence
+    after insert or update on {{schema}}.principal_space
+    deferrable initially deferred
+    for each row
+    execute function {{schema}}.enforce_group_space_coherence();
+  end if;
+end $$;
