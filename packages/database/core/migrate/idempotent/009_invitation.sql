@@ -165,7 +165,12 @@ set search_path to pg_catalog, {{schema}}, public, pg_temp
 -- the single place both accept_space_invitation and redeem_invitation go through
 -- so the two are identical by construction:
 --   1. join the space (add_principal_to_space also grants owner@home), and grant
---      the share level when set;
+--      the share level when set — but ONLY for a not-yet-member. add_principal_to_space
+--      upserts admin = excluded.admin and grant_tree_access overwrites access, so
+--      joining an existing member would silently overwrite their role/share with
+--      the invite's (demoting an admin, or aborting with LAST_ADMIN if they were
+--      the last one). For an existing member this is therefore a no-op on
+--      membership/access — redeeming an invite never changes a role you already have;
 --   2. record a space_invitation_redemption row (who joined via this invite) —
 --      so the audit trail is the same whether joined by accept or by token;
 --   3. for a single-use email invite (email is not null), stamp accepted_at to
@@ -194,9 +199,16 @@ begin
     return;
   end if;
 
-  perform {{schema}}.add_principal_to_space(inv.space_id, _user_id, inv.admin);
-  if inv.share_access is not null then
-    perform {{schema}}.grant_tree_access(inv.space_id, _user_id, 'share'::ltree, inv.share_access);
+  -- Only join/grant for a not-yet-member; never overwrite an existing member's
+  -- role or share access (see header).
+  if not exists (
+    select 1 from {{schema}}.principal_space ps
+    where ps.space_id = inv.space_id and ps.principal_id = _user_id
+  ) then
+    perform {{schema}}.add_principal_to_space(inv.space_id, _user_id, inv.admin);
+    if inv.share_access is not null then
+      perform {{schema}}.grant_tree_access(inv.space_id, _user_id, 'share'::ltree, inv.share_access);
+    end if;
   end if;
 
   -- audit: one row per (invitation, user) — both accept and redeem record it.

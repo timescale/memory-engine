@@ -1041,6 +1041,38 @@ describe("control-plane functions", () => {
           [eUser2, expiredEmail, eInv?.id as string],
         ),
       ).toHaveLength(0);
+
+      // re-membership is a no-op: an existing admin/owner member who redeems a
+      // lower (non-admin, read) invite keeps their role + share — not demoted,
+      // not aborted by enforce_last_admin.
+      const member = await mkUser("member@example.com");
+      await sql.unsafe(`select ${s}.add_principal_to_space($1, $2, $3)`, [
+        spaceId,
+        member,
+        true, // admin
+      ]);
+      await sql.unsafe(
+        `select ${s}.grant_tree_access($1, $2, 'share'::ltree, $3)`,
+        [spaceId, member, 3], // owner@share
+      );
+      await sql.unsafe(
+        `select ${s}.create_space_invitation($1,$2,$3,$4,$5,$6,$7,$8)`,
+        [spaceId, null, false, 1, inviterId, "inv.rejoin", null, null],
+      );
+      expect(await redeem("inv.rejoin", member, null)).toHaveLength(1); // succeeds
+      const [ps] = await sql.unsafe(
+        `select admin from ${s}.principal_space where space_id=$1 and principal_id=$2`,
+        [spaceId, member],
+      );
+      expect(ps?.admin).toBe(true); // still admin (not demoted)
+      const [taRow] = await sql.unsafe(
+        `select ${s}.build_tree_access($1, $2) as ta`,
+        [member, spaceId],
+      );
+      expect(taRow?.ta as Grant[]).toContainEqual({
+        tree_path: "share",
+        access: 3, // still owner@share (not downgraded to read)
+      });
     });
   });
 

@@ -224,3 +224,29 @@ test("invite.redeem joins via an open magic link (no email match needed)", async
   // a bogus token is NOT_FOUND
   await expectAppError(call("invite.redeem", { token: "nope" }), "NOT_FOUND");
 });
+
+test("invite.redeem of an email-constrained link requires a VERIFIED email", async () => {
+  const core = coreStore(sql, coreSchema);
+  const inviterId = (await sql`select uuidv7() as id`)[0]?.id as string;
+  await core.createUser(inviterId, `inviter_${rand(8)}@example.com`);
+  const spaceId = await core.createSpace(rand(12), "EmailLink");
+  // an email-constrained link addressed to the test user's email
+  const { token } = await core.createSpaceInvitation(spaceId, userEmail, {
+    admin: false,
+    shareAccess: null,
+    invitedBy: inviterId,
+  });
+
+  // unverified email must NOT satisfy the constraint (the handler passes null)
+  await expectAppError(
+    call("invite.redeem", { token }, { emailVerified: false }),
+    "NOT_FOUND",
+  );
+  expect(
+    (await core.listSpacesForMember(userId)).some((s) => s.id === spaceId),
+  ).toBe(false);
+
+  // verified + matching email → joins
+  const joined = await call<{ spaceName: string }>("invite.redeem", { token });
+  expect(joined.spaceName).toBe("EmailLink");
+});
