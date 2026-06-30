@@ -340,6 +340,7 @@ function createSpaceInviteListCommand(): Command {
               "uses",
               "expires",
               "status",
+              "link",
             ],
             invitations.map((i) => [
               i.id,
@@ -352,6 +353,7 @@ function createSpaceInviteListCommand(): Command {
                 : "",
               i.expiresAt ?? "",
               i.valid ? "active" : "expired/used",
+              i.token ? inviteUrl(creds.server, i.token) : "—",
             ]),
           );
         });
