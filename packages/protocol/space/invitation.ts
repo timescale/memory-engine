@@ -33,6 +33,8 @@ export const spaceInvitationResponse = z.object({
   uses: z.number().int(),
   /** Whether it can still be redeemed (false = expired / exhausted). */
   valid: z.boolean(),
+  /** The raw magic-link token (admin-only — lets the URL be re-copied); null on legacy rows. */
+  token: z.string().nullable(),
   createdAt: z.string(),
 });
 export type SpaceInvitationResponse = z.infer<typeof spaceInvitationResponse>;

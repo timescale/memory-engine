@@ -163,6 +163,8 @@ export interface SpaceInvitation {
   uses: number;
   /** Whether it can still be redeemed (not expired / exhausted / revoked). */
   valid: boolean;
+  /** The raw magic-link token (so an admin can re-copy the URL); null on legacy rows. */
+  token: string | null;
   createdAt: Date;
 }
 

@@ -1,11 +1,7 @@
 import { CORE_SCHEMA } from "@memory.build/database";
 import type { Sql } from "postgres";
 import { generateLookupId, generateSecret, hashApiKeySecret } from "./api-key";
-import {
-  generateInviteToken,
-  hashInviteToken,
-  parseInviteToken,
-} from "./invite-token";
+import { generateInviteToken } from "./invite-token";
 import type {
   AccessLevel,
   ApiKeyInfo,
@@ -514,12 +510,11 @@ export function coreStore(sql: Sql, schema: string = CORE_SCHEMA): CoreStore {
     },
 
     async createSpaceInvitation(spaceId, email, opts) {
-      const { lookupId, secret, token } = generateInviteToken();
-      const tokenHash = hashInviteToken(secret);
+      const token = generateInviteToken();
       const [row] = await sql`
         select ${sch}.create_space_invitation(
           ${spaceId}, ${email}, ${opts.admin}, ${opts.shareAccess ?? null},
-          ${opts.invitedBy}, ${lookupId}, ${tokenHash},
+          ${opts.invitedBy}, ${token},
           ${opts.expiresAt ?? null}, ${opts.maxUses ?? null}
         ) as id
       `;
@@ -544,6 +539,7 @@ export function coreStore(sql: Sql, schema: string = CORE_SCHEMA): CoreStore {
           maxUses: (r.max_uses as number | null) ?? null,
           uses: Number(r.uses ?? 0),
           valid: Boolean(r.valid),
+          token: (r.token as string | null) ?? null,
           createdAt: r.created_at as Date,
         }),
       );
@@ -564,13 +560,9 @@ export function coreStore(sql: Sql, schema: string = CORE_SCHEMA): CoreStore {
     },
 
     async redeemInvitation(token, userId, userEmail) {
-      const parsed = parseInviteToken(token);
-      if (!parsed) return null;
-      const tokenHash = hashInviteToken(parsed.secret);
+      if (!token) return null;
       const [row] = await sql`
-        select * from ${sch}.redeem_invitation(
-          ${parsed.lookupId}, ${tokenHash}, ${userId}, ${userEmail}
-        )
+        select * from ${sch}.redeem_invitation(${token}, ${userId}, ${userEmail})
       `;
       if (!row) return null;
       return {

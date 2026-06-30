@@ -182,14 +182,28 @@ function InviteLinkPanel() {
                     </span>
                   )}
                 </span>
-                <button
-                  type="button"
-                  disabled={busy}
-                  onClick={() => revoke(l.id)}
-                  className="shrink-0 text-ink/50 hover:text-ink hover:underline disabled:opacity-50"
-                >
-                  Revoke
-                </button>
+                <span className="flex shrink-0 items-center gap-3">
+                  {l.token && (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        l.token &&
+                        void navigator.clipboard?.writeText(inviteUrl(l.token))
+                      }
+                      className="text-ink/50 hover:text-ink hover:underline"
+                    >
+                      Copy link
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => revoke(l.id)}
+                    className="text-ink/50 hover:text-ink hover:underline disabled:opacity-50"
+                  >
+                    Revoke
+                  </button>
+                </span>
               </li>
             ))}
           </ul>
