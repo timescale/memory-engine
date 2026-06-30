@@ -66,6 +66,8 @@ import type {
   InviteCreateResult,
   InviteListParams,
   InviteListResult,
+  InviteRevokeByIdParams,
+  InviteRevokeByIdResult,
   InviteRevokeParams,
   InviteRevokeResult,
   PrincipalAddParams,
@@ -158,6 +160,7 @@ export interface InviteNamespace {
   create(params: InviteCreateParams): Promise<InviteCreateResult>;
   list(params?: InviteListParams): Promise<InviteListResult>;
   revoke(params: InviteRevokeParams): Promise<InviteRevokeResult>;
+  revokeById(params: InviteRevokeByIdParams): Promise<InviteRevokeByIdResult>;
 }
 
 export interface MemoryClient {
@@ -246,6 +249,7 @@ export function createMemoryClient(
       create: (p) => writeRpc("invite.create", p),
       list: (p) => readRpc("invite.list", p ?? {}),
       revoke: (p) => writeRpc("invite.revoke", p),
+      revokeById: (p) => writeRpc("invite.revokeById", p),
     },
     setToken(token: string) {
       config.token = token;

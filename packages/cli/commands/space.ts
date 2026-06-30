@@ -312,7 +312,7 @@ function shareLabel(level: AccessLevel | null): string {
 function createSpaceInviteListCommand(): Command {
   return new Command("list")
     .alias("ls")
-    .description("list pending invitations for the active space")
+    .description("list active invitations for the active space (email + links)")
     .action(async (_opts, cmd) => {
       const globalOpts = cmd.optsWithGlobals();
       const creds = resolveCredentials(globalOpts.server);
@@ -325,17 +325,21 @@ function createSpaceInviteListCommand(): Command {
         const { invitations } = await memory.invite.list();
         output({ invitations }, fmt, () => {
           if (invitations.length === 0) {
-            console.log("  No pending invitations.");
+            console.log("  No active invitations.");
             return;
           }
           table(
-            ["email", "admin", "share", "invited by", "created"],
+            ["id", "kind", "email", "admin", "share", "uses", "expires"],
             invitations.map((i) => [
-              i.email,
+              i.id,
+              i.kind,
+              i.email ?? "—",
               i.admin ? "yes" : "",
               shareLabel(i.shareAccess),
-              i.invitedByName ?? "",
-              i.createdAt,
+              i.kind === "link"
+                ? `${i.uses}${i.maxUses != null ? `/${i.maxUses}` : ""}`
+                : "",
+              i.expiresAt ?? "",
             ]),
           );
         });
@@ -347,9 +351,11 @@ function createSpaceInviteListCommand(): Command {
 
 function createSpaceInviteRevokeCommand(): Command {
   return new Command("revoke")
-    .description("revoke a pending invitation by email")
-    .argument("<email>", "the invitee's email")
-    .action(async (email: string, _opts, cmd) => {
+    .description(
+      "revoke an invitation by id (link or email) or by invitee email",
+    )
+    .argument("<id-or-email>", "the invitation id, or the invitee's email")
+    .action(async (target: string, _opts, cmd) => {
       const globalOpts = cmd.optsWithGlobals();
       const creds = resolveCredentials(globalOpts.server);
       const fmt = getOutputFormat(globalOpts);
@@ -358,12 +364,17 @@ function createSpaceInviteRevokeCommand(): Command {
 
       const memory = buildMemoryClient(creds);
       try {
-        const result = await memory.invite.revoke({ email });
-        output({ email, ...result }, fmt, () => {
+        // An "@" means it's an email (delete the pending email invite); anything
+        // else is an invitation id (revoke a link or an email invite by id).
+        const byEmail = target.includes("@");
+        const result = byEmail
+          ? await memory.invite.revoke({ email: target })
+          : await memory.invite.revokeById({ invitationId: target });
+        output({ target, ...result }, fmt, () => {
           if (result.revoked) {
-            clack.log.success(`Revoked the invitation for ${email}.`);
+            clack.log.success(`Revoked the invitation (${target}).`);
           } else {
-            clack.log.warn(`No pending invitation for ${email}.`);
+            clack.log.warn(`No active invitation matching ${target}.`);
           }
         });
       } catch (error) {
@@ -372,16 +383,53 @@ function createSpaceInviteRevokeCommand(): Command {
     });
 }
 
+/** Parse a duration like "7d" / "24h" / "30m" into an ISO expiry timestamp. */
+function parseExpires(raw: string, fmt: OutputFormat): string {
+  const m = /^(\d+)([dhm])$/.exec(raw.trim());
+  if (!m) {
+    inviteFail(
+      `Invalid --expires '${raw}'. Use <n>d | <n>h | <n>m (e.g. 7d).`,
+      fmt,
+    );
+  }
+  const n = Number(m?.[1]);
+  const unitMs = { d: 86_400_000, h: 3_600_000, m: 60_000 }[m?.[2] ?? "d"] ?? 0;
+  return new Date(Date.now() + n * unitMs).toISOString();
+}
+
+/** Build the shareable invite URL from the server base + token. */
+function inviteUrl(server: string, token: string): string {
+  return `${server.replace(/\/+$/, "")}/invite/${token}`;
+}
+
+/** Print an invite-command error per output mode and exit. Never returns. */
+function inviteFail(msg: string, fmt: OutputFormat): never {
+  if (fmt === "text") {
+    clack.log.error(msg);
+  } else {
+    output({ error: msg }, fmt, () => {});
+  }
+  process.exit(1);
+}
+
 function createSpaceInviteCommand(): Command {
   const invite = new Command("invite")
-    .description("invite a user to the active space by email")
-    .argument("[email]", "the invitee's email (omit when using a subcommand)")
+    .description(
+      "invite someone to the active space (by email or an open link)",
+    )
+    .argument(
+      "[email]",
+      "the invitee's email (omit with --link for an open link)",
+    )
+    .option("--link", "create an open shareable link (anyone with it can join)")
     .option("--admin", "make the user a space admin")
     .option(
       "--share <level>",
       "shared-root access to grant: none | read | write | owner",
       "read",
     )
+    .option("--expires <duration>", "open-link expiry, e.g. 7d | 24h | 30m")
+    .option("--max-uses <n>", "open-link max redemptions")
     .action(async (email: string | undefined, opts, cmd) => {
       const globalOpts = cmd.optsWithGlobals();
       const creds = resolveCredentials(globalOpts.server);
@@ -389,29 +437,52 @@ function createSpaceInviteCommand(): Command {
       requireAuth(creds, fmt);
       requireSpace(creds, fmt);
 
-      if (!email) {
-        const msg =
-          "An email is required: me space invite <email> [--admin] [--share <level>]";
-        if (fmt === "text") {
-          clack.log.error(msg);
-        } else {
-          output({ error: msg }, fmt, () => {});
-        }
-        process.exit(1);
+      const isLink = opts.link === true;
+      if (!email && !isLink) {
+        inviteFail(
+          "Provide an email (me space invite <email>) or --link for an open link.",
+          fmt,
+        );
+      }
+      if (email && isLink) {
+        inviteFail("Can't combine an <email> with --link.", fmt);
       }
 
       const shareAccess = parseShareLevel(opts.share, fmt);
+      const expiresAt = opts.expires
+        ? parseExpires(opts.expires as string, fmt)
+        : null;
+      let maxUses: number | null = null;
+      if (opts.maxUses !== undefined) {
+        const n = Number.parseInt(opts.maxUses as string, 10);
+        if (!Number.isInteger(n) || n <= 0) {
+          inviteFail("--max-uses must be a positive integer.", fmt);
+        }
+        maxUses = n;
+      }
+
       const memory = buildMemoryClient(creds);
       try {
         const result = await memory.invite.create({
-          email,
+          email: email ?? null,
           admin: opts.admin === true,
           shareAccess,
+          expiresAt,
+          maxUses,
         });
-        output({ email, ...result }, fmt, () => {
-          clack.log.success(
-            `Invited ${email}${opts.admin ? " as an admin" : ""} — pending their acceptance.`,
-          );
+        const url = inviteUrl(creds.server, result.token);
+        output({ email: email ?? null, link: url, ...result }, fmt, () => {
+          if (email) {
+            clack.log.success(
+              `Invited ${email}${opts.admin ? " as an admin" : ""} — pending their acceptance.`,
+            );
+            clack.log.info(`Or share this link: ${url}`);
+          } else {
+            clack.log.success(
+              `Created an invite link${opts.admin ? " (admin)" : ""}.`,
+            );
+            clack.note(url, "Share this link");
+          }
         });
       } catch (error) {
         handleError(error, fmt, { creds, scope: "space" });

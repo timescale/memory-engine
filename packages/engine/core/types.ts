@@ -143,7 +143,10 @@ export interface ApiKeyInfo {
  */
 export interface SpaceInvitation {
   id: string;
-  email: string;
+  /** Invitee email — null for an open shareable link (addressed to no one). */
+  email: string | null;
+  /** "email" = email-constrained (single-use); "link" = open shareable link. */
+  kind: "email" | "link";
   /** Make the user a space admin on redemption. */
   admin: boolean;
   /** Access granted at the shared root on redemption; null = no share grant. */
@@ -152,7 +155,20 @@ export interface SpaceInvitation {
   invitedBy: string | null;
   /** Display name of the inviter (a user's name is their email), if resolvable. */
   invitedByName: string | null;
+  /** When the (open-link) invite expires; null = never. */
+  expiresAt: Date | null;
+  /** Max redemptions for an open link; null = unlimited. */
+  maxUses: number | null;
+  /** How many times it has been redeemed so far. */
+  uses: number;
   createdAt: Date;
+}
+
+/** A freshly-created invitation: its id and the one-time magic-link token. */
+export interface CreatedInvitation {
+  id: string;
+  /** The full `inv.<lookupId>.<secret>` token — shown once, then only hashed. */
+  token: string;
 }
 
 /**

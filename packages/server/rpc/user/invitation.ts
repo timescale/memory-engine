@@ -18,11 +18,14 @@ import type {
   InviteDeclineResult,
   InvitePendingParams,
   InvitePendingResult,
+  InviteRedeemParams,
+  InviteRedeemResult,
 } from "@memory.build/protocol/user";
 import {
   inviteAcceptParams,
   inviteDeclineParams,
   invitePendingParams,
+  inviteRedeemParams,
 } from "@memory.build/protocol/user";
 import { AppError } from "../errors";
 import { buildRegistry } from "../registry";
@@ -101,8 +104,35 @@ async function inviteDecline(
   return { declined };
 }
 
+/**
+ * Redeem a magic-link token. Unlike accept/decline this is NOT email-keyed: an
+ * open link is redeemable by any logged-in user, and an email-constrained link's
+ * email check happens in SQL against the caller's email. So it doesn't require a
+ * verified email — only a logged-in user (agents are barred by the allow-list).
+ */
+async function inviteRedeem(
+  params: InviteRedeemParams,
+  context: HandlerContext,
+): Promise<InviteRedeemResult> {
+  assertUserRpcContext(context);
+  const ctx = context as UserRpcContext;
+  const joined = await ctx.core.redeemInvitation(
+    params.token,
+    ctx.userId,
+    ctx.email,
+  );
+  if (!joined) {
+    throw new AppError(
+      "NOT_FOUND",
+      "This invite link is invalid, expired, revoked, fully used, or for a different email.",
+    );
+  }
+  return { spaceSlug: joined.slug, spaceName: joined.name };
+}
+
 export const inviteeMethods = buildRegistry()
   .register("invite.pending", invitePendingParams, invitePending)
   .register("invite.accept", inviteAcceptParams, inviteAccept)
   .register("invite.decline", inviteDeclineParams, inviteDecline)
+  .register("invite.redeem", inviteRedeemParams, inviteRedeem)
   .build();

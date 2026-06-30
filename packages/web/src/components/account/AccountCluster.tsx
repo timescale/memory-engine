@@ -6,6 +6,7 @@
  */
 import { type AccountSpace, useAccount } from "./account-context.ts";
 import { InvitationsButton } from "./Invitations.tsx";
+import { InviteLinkButton } from "./InviteLink.tsx";
 
 export function AccountCluster() {
   const account = useAccount();
@@ -14,6 +15,7 @@ export function AccountCluster() {
   return (
     <div className="flex items-center gap-4 font-mono text-[12px]">
       <InvitationsButton />
+      <InviteLinkButton />
       <span className="text-ink/50">space</span>
       <SpaceSwitcher
         spaces={account.spaces}

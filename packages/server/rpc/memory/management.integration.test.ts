@@ -337,6 +337,44 @@ test("invite.create: an already-registered user also gets a PENDING invite (no a
   expect(invitations.some((i) => i.email === email)).toBe(true);
 });
 
+test("invite.create (open link): returns a token, lists as a link, revokeById", async () => {
+  const res = await call<{ invitationId: string; token: string }>(
+    "invite.create",
+    { admin: false, shareAccess: 2, maxUses: 5 },
+  );
+  expect(res.invitationId).toBeTruthy();
+  expect(res.token).toMatch(/^inv\./);
+
+  const { invitations } = await call<{
+    invitations: {
+      id: string;
+      kind: string;
+      email: string | null;
+      maxUses: number | null;
+      uses: number;
+    }[];
+  }>("invite.list", {});
+  const link = invitations.find((i) => i.id === res.invitationId);
+  expect(link?.kind).toBe("link");
+  expect(link?.email).toBeNull();
+  expect(link?.maxUses).toBe(5);
+  expect(link?.uses).toBe(0);
+
+  expect(
+    (
+      await call<{ revoked: boolean }>("invite.revokeById", {
+        invitationId: res.invitationId,
+      })
+    ).revoked,
+  ).toBe(true);
+  // gone from the list after revoke
+  expect(
+    (
+      await call<{ invitations: { id: string }[] }>("invite.list", {})
+    ).invitations.some((i) => i.id === res.invitationId),
+  ).toBe(false);
+});
+
 test("invite.* require space-admin authority (owner@root is not enough)", async () => {
   // a plain member with no authority
   const plain = await makeUser();

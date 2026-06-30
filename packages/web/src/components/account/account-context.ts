@@ -16,6 +16,8 @@ export interface AccountIdentity {
 export interface AccountSpace {
   slug: string;
   name: string;
+  /** Whether the signed-in user is an admin of this space. */
+  admin: boolean;
 }
 
 /** A pending invitation addressed to the signed-in user. */

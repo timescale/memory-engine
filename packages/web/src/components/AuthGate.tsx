@@ -45,6 +45,7 @@ interface Identity {
 interface Space {
   slug: string;
   name: string;
+  admin: boolean;
 }
 
 type GateState =
@@ -110,6 +111,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
       let spaces: Space[] = spacesRes.spaces.map((s) => ({
         slug: s.slug,
         name: s.name,
+        admin: s.admin,
       }));
       if (spaces.length === 0) {
         // Invited but space-less → let the user accept before we manufacture a
@@ -121,7 +123,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
         }
         const { created, space } = await userClient.space.ensureDefault();
         if (created && space) {
-          spaces = [{ slug: space.slug, name: space.name }];
+          spaces = [{ slug: space.slug, name: space.name, admin: space.admin }];
         } else {
           setState({ status: "onboarding", identity, invitations });
           return;

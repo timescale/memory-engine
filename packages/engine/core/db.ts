@@ -1,10 +1,16 @@
 import { CORE_SCHEMA } from "@memory.build/database";
 import type { Sql } from "postgres";
 import { generateLookupId, generateSecret, hashApiKeySecret } from "./api-key";
+import {
+  generateInviteToken,
+  hashInviteToken,
+  parseInviteToken,
+} from "./invite-token";
 import type {
   AccessLevel,
   ApiKeyInfo,
   CreatedApiKey,
+  CreatedInvitation,
   Group,
   GroupMember,
   GroupMembership,
@@ -140,23 +146,43 @@ export interface CoreStore {
   deleteApiKey(id: string): Promise<boolean>;
 
   /**
-   * Issue (or update, if one is already pending) an invitation to a space,
-   * keyed by invitee email — so it can be issued before the user registers.
-   * `shareAccess` null means no share grant. Returns the invitation id.
+   * Issue an invitation to a space and mint its magic-link token (returned once,
+   * stored only as a hash). `email` set → an email-constrained invite (re-inviting
+   * the same email upserts the pending row); `email` null → an open shareable link.
+   * `shareAccess` null = no share grant; `expiresAt` / `maxUses` bound an open link.
    */
   createSpaceInvitation(
     spaceId: string,
-    email: string,
+    email: string | null,
     opts: {
       admin: boolean;
       shareAccess: AccessLevel | null;
       invitedBy: string;
+      expiresAt?: Date | null;
+      maxUses?: number | null;
     },
-  ): Promise<string>;
-  /** Pending invitations for a space (accepted ones are history). */
+  ): Promise<CreatedInvitation>;
+  /** Active invitations for a space (email-constrained + open links). */
   listSpaceInvitations(spaceId: string): Promise<SpaceInvitation[]>;
   /** Revoke a pending invitation by email. Returns true if one was removed. */
   revokeSpaceInvitation(spaceId: string, email: string): Promise<boolean>;
+  /**
+   * Revoke any invitation by id (an open link or an email invite). Returns true
+   * if an active row was revoked.
+   */
+  revokeInvitationById(spaceId: string, invitationId: string): Promise<boolean>;
+  /**
+   * Redeem a magic-link token: join the space (owner@home + share level). An
+   * email-constrained token requires the caller's email to match (single-use); an
+   * open link is multi-use (bounded by expiry / max-uses). Returns the joined
+   * space, or null on any failure (bad/expired/revoked token, email mismatch,
+   * exhausted).
+   */
+  redeemInvitation(
+    token: string,
+    userId: string,
+    userEmail: string | null,
+  ): Promise<RedeemedInvitation | null>;
   /**
    * Every pending invitation addressed to an email, across all spaces — the
    * invitee's view of what they can accept (case-insensitive match).
@@ -488,13 +514,17 @@ export function coreStore(sql: Sql, schema: string = CORE_SCHEMA): CoreStore {
     },
 
     async createSpaceInvitation(spaceId, email, opts) {
+      const { lookupId, secret, token } = generateInviteToken();
+      const tokenHash = hashInviteToken(secret);
       const [row] = await sql`
         select ${sch}.create_space_invitation(
-          ${spaceId}, ${email}, ${opts.admin}, ${opts.shareAccess ?? null}, ${opts.invitedBy}
+          ${spaceId}, ${email}, ${opts.admin}, ${opts.shareAccess ?? null},
+          ${opts.invitedBy}, ${lookupId}, ${tokenHash},
+          ${opts.expiresAt ?? null}, ${opts.maxUses ?? null}
         ) as id
       `;
       if (!row) throw new Error("create_space_invitation returned no row");
-      return row.id as string;
+      return { id: row.id as string, token } satisfies CreatedInvitation;
     },
 
     async listSpaceInvitations(spaceId) {
@@ -504,11 +534,15 @@ export function coreStore(sql: Sql, schema: string = CORE_SCHEMA): CoreStore {
       return rows.map(
         (r): SpaceInvitation => ({
           id: r.id as string,
-          email: r.email as string,
+          email: (r.email as string | null) ?? null,
+          kind: r.kind as "email" | "link",
           admin: Boolean(r.admin),
           shareAccess: (r.share_access as AccessLevel | null) ?? null,
           invitedBy: (r.invited_by as string | null) ?? null,
           invitedByName: (r.invited_by_name as string | null) ?? null,
+          expiresAt: (r.expires_at as Date | null) ?? null,
+          maxUses: (r.max_uses as number | null) ?? null,
+          uses: Number(r.uses ?? 0),
           createdAt: r.created_at as Date,
         }),
       );
@@ -519,6 +553,32 @@ export function coreStore(sql: Sql, schema: string = CORE_SCHEMA): CoreStore {
         select ${sch}.revoke_space_invitation(${spaceId}, ${email}) as ok
       `;
       return Boolean(row?.ok);
+    },
+
+    async revokeInvitationById(spaceId, invitationId) {
+      const [row] = await sql`
+        select ${sch}.revoke_invitation_by_id(${spaceId}, ${invitationId}) as ok
+      `;
+      return Boolean(row?.ok);
+    },
+
+    async redeemInvitation(token, userId, userEmail) {
+      const parsed = parseInviteToken(token);
+      if (!parsed) return null;
+      const tokenHash = hashInviteToken(parsed.secret);
+      const [row] = await sql`
+        select * from ${sch}.redeem_invitation(
+          ${parsed.lookupId}, ${tokenHash}, ${userId}, ${userEmail}
+        )
+      `;
+      if (!row) return null;
+      return {
+        spaceId: row.space_id as string,
+        slug: row.slug as string,
+        name: row.name as string,
+        admin: Boolean(row.admin),
+        shareAccess: (row.share_access as AccessLevel | null) ?? null,
+      } satisfies RedeemedInvitation;
     },
 
     async listInvitationsForEmail(email) {

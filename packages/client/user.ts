@@ -31,6 +31,8 @@ import type {
   InviteDeclineResult,
   InvitePendingParams,
   InvitePendingResult,
+  InviteRedeemParams,
+  InviteRedeemResult,
   SpaceCreateParams,
   SpaceCreateResult,
   SpaceDeleteParams,
@@ -98,6 +100,8 @@ export interface InviteeNamespace {
   pending(params?: InvitePendingParams): Promise<InvitePendingResult>;
   accept(params: InviteAcceptParams): Promise<InviteAcceptResult>;
   decline(params: InviteDeclineParams): Promise<InviteDeclineResult>;
+  /** Redeem a magic-link token (open link, or an email-matched link). */
+  redeem(params: InviteRedeemParams): Promise<InviteRedeemResult>;
 }
 
 export interface UserClient {
@@ -165,6 +169,7 @@ export function createUserClient(options: UserClientOptions = {}): UserClient {
       pending: (p) => readRpc("invite.pending", p ?? {}),
       accept: (p) => writeRpc("invite.accept", p),
       decline: (p) => writeRpc("invite.decline", p),
+      redeem: (p) => writeRpc("invite.redeem", p),
     },
     setToken(token: string) {
       config.token = token;

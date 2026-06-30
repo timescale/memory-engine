@@ -39,6 +39,8 @@ import {
   inviteCreateResult,
   inviteListParams,
   inviteListResult,
+  inviteRevokeByIdParams,
+  inviteRevokeByIdResult,
   inviteRevokeParams,
   inviteRevokeResult,
 } from "./invitation.ts";
@@ -104,6 +106,7 @@ export const spaceMethods = {
   "invite.create": method(inviteCreateParams, inviteCreateResult),
   "invite.list": method(inviteListParams, inviteListResult),
   "invite.revoke": method(inviteRevokeParams, inviteRevokeResult),
+  "invite.revokeById": method(inviteRevokeByIdParams, inviteRevokeByIdResult),
 } as const;
 
 export type SpaceMethodName = keyof typeof spaceMethods;

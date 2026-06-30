@@ -200,16 +200,22 @@ test("listTreeAccessGrants returns grants; filterable by principal", async () =>
 test("space invitations: create / list / accept / decline via the store", async () => {
   // spaceId + the owner userId come from beforeEach; the owner is the inviter
   const email = `invitee_${rand(8)}@example.com`;
-  const inviteId = await core.createSpaceInvitation(spaceId, email, {
-    admin: true,
-    shareAccess: ACCESS.write,
-    invitedBy: userId,
-  });
+  const { id: inviteId, token } = await core.createSpaceInvitation(
+    spaceId,
+    email,
+    {
+      admin: true,
+      shareAccess: ACCESS.write,
+      invitedBy: userId,
+    },
+  );
   expect(inviteId).toBeTruthy();
+  expect(token).toMatch(/^inv\./); // an email invite is also a shareable link
 
   const pending = await core.listSpaceInvitations(spaceId);
   expect(pending).toHaveLength(1);
   expect(pending[0]?.email).toBe(email);
+  expect(pending[0]?.kind).toBe("email");
   expect(pending[0]?.admin).toBe(true);
   expect(pending[0]?.shareAccess).toBe(ACCESS.write);
   expect(pending[0]?.invitedBy).toBe(userId);
@@ -253,7 +259,7 @@ test("space invitations: create / list / accept / decline via the store", async 
   ).toBeNull();
 
   // a fresh invite is declinable by the invitee (gated on email), once
-  const second = await core.createSpaceInvitation(spaceId, email, {
+  const { id: second } = await core.createSpaceInvitation(spaceId, email, {
     admin: false,
     shareAccess: null,
     invitedBy: userId,
@@ -272,6 +278,74 @@ test("space invitations: create / list / accept / decline via the store", async 
   });
   expect(await core.revokeSpaceInvitation(spaceId, email)).toBe(true);
   expect(await core.revokeSpaceInvitation(spaceId, email)).toBe(false);
+});
+
+test("magic links: open link multi-use + max_uses; email link enforces email; revoke", async () => {
+  // an open shareable link (no email), capped at 2 redemptions
+  const { token } = await core.createSpaceInvitation(spaceId, null, {
+    admin: false,
+    shareAccess: ACCESS.read,
+    invitedBy: userId,
+    maxUses: 2,
+  });
+
+  const mkUser = async () => {
+    const id = await v7();
+    await core.createUser(id, `lnk_${rand(8)}@example.com`);
+    return id;
+  };
+  const u1 = await mkUser();
+  const u2 = await mkUser();
+  const u3 = await mkUser();
+
+  // multi-use: two different users join (email is not checked for an open link)
+  expect((await core.redeemInvitation(token, u1, null))?.spaceId).toBe(spaceId);
+  expect((await core.redeemInvitation(token, u2, null))?.spaceId).toBe(spaceId);
+  // joined with read@share
+  expect(await core.buildTreeAccess(u1, spaceId)).toContainEqual({
+    tree_path: "share",
+    access: ACCESS.read,
+  });
+  // third redeemer exceeds max_uses
+  expect(await core.redeemInvitation(token, u3, null)).toBeNull();
+
+  // listed as a link with uses=2
+  const link = (await core.listSpaceInvitations(spaceId)).find(
+    (i) => i.kind === "link",
+  );
+  expect(link?.maxUses).toBe(2);
+  expect(link?.uses).toBe(2);
+
+  // a malformed token redeems nothing
+  expect(await core.redeemInvitation("not-a-token", u3, null)).toBeNull();
+
+  // an email-constrained link: only the matching email may redeem (single-use)
+  const target = `target_${rand(8)}@example.com`;
+  const { token: etoken } = await core.createSpaceInvitation(spaceId, target, {
+    admin: false,
+    shareAccess: null,
+    invitedBy: userId,
+  });
+  const eUser = await v7();
+  await core.createUser(eUser, target);
+  expect(
+    await core.redeemInvitation(etoken, eUser, "wrong@example.com"),
+  ).toBeNull();
+  expect((await core.redeemInvitation(etoken, eUser, target))?.spaceId).toBe(
+    spaceId,
+  );
+  // single-use: a second redeem is rejected (consumed)
+  expect(await core.redeemInvitation(etoken, eUser, target)).toBeNull();
+
+  // revoke by id: a fresh link can't be redeemed afterward
+  const { id: linkId, token: rtoken } = await core.createSpaceInvitation(
+    spaceId,
+    null,
+    { admin: false, shareAccess: null, invitedBy: userId },
+  );
+  expect(await core.revokeInvitationById(spaceId, linkId)).toBe(true);
+  const rUser = await mkUser();
+  expect(await core.redeemInvitation(rtoken, rUser, null)).toBeNull();
 });
 
 test("api keys: create, get, list, delete (no secret leaked)", async () => {
