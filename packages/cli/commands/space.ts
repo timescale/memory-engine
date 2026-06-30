@@ -6,10 +6,12 @@
  * - me space create <name>:        create a space and make it active
  * - me space rename <space> <name>: rename a space's display label
  * - me space delete <space>:       delete a space and all its data
- * - me space invite <email> [--admin] [--share <level>]: invite by email — always
- *     records a pending invitation the invitee accepts (see `me invite`)
- * - me space invite list:          list pending invitations
- * - me space invite revoke <email>: revoke a pending invitation
+ * - me space invite --email <addr> | --anyone [--admin] [--share <level>]
+ *     [--expires <dur>] [--max-uses <n>]: invite a specific email (single-use)
+ *     or mint an open shareable link (multi-use); both print a join link. The
+ *     invitee joins by accepting (see `me invite`) or by opening the link.
+ * - me space invite list:           list active invitations (email + links)
+ * - me space invite revoke <id|email>: revoke an invitation
  *
  * <space> accepts a slug (exact) or a name (case-insensitive). The slug is the
  * immutable 12-char routing key; the name is the renamable display label.
@@ -414,38 +416,41 @@ function inviteFail(msg: string, fmt: OutputFormat): never {
 
 function createSpaceInviteCommand(): Command {
   const invite = new Command("invite")
-    .description(
-      "invite someone to the active space (by email or an open link)",
+    .description("invite to the active space: --email <addr> or --anyone")
+    .option(
+      "--email <email>",
+      "invite a specific email (only they can join; single-use)",
     )
-    .argument(
-      "[email]",
-      "the invitee's email (omit with --link for an open link)",
+    .option(
+      "--anyone",
+      "create an open link anyone signed-in can use to join (multi-use)",
     )
-    .option("--link", "create an open shareable link (anyone with it can join)")
-    .option("--admin", "make the user a space admin")
+    .option("--admin", "grant the joiner space-admin")
     .option(
       "--share <level>",
       "shared-root access to grant: none | read | write | owner",
       "read",
     )
-    .option("--expires <duration>", "open-link expiry, e.g. 7d | 24h | 30m")
-    .option("--max-uses <n>", "open-link max redemptions")
-    .action(async (email: string | undefined, opts, cmd) => {
+    .option("--expires <duration>", "link expiry, e.g. 7d | 24h | 30m")
+    .option("--max-uses <n>", "max redemptions (with --anyone)")
+    .action(async (opts, cmd) => {
       const globalOpts = cmd.optsWithGlobals();
       const creds = resolveCredentials(globalOpts.server);
       const fmt = getOutputFormat(globalOpts);
       requireAuth(creds, fmt);
       requireSpace(creds, fmt);
 
-      const isLink = opts.link === true;
-      if (!email && !isLink) {
+      const email = typeof opts.email === "string" ? opts.email : null;
+      const anyone = opts.anyone === true;
+      // Exactly one audience: a specific --email, or --anyone (an open link).
+      if (!email && !anyone) {
         inviteFail(
-          "Provide an email (me space invite <email>) or --link for an open link.",
+          "Choose an audience: --email <addr> for one person, or --anyone for an open link.",
           fmt,
         );
       }
-      if (email && isLink) {
-        inviteFail("Can't combine an <email> with --link.", fmt);
+      if (email && anyone) {
+        inviteFail("Use either --email or --anyone, not both.", fmt);
       }
 
       const shareAccess = parseShareLevel(opts.share, fmt);
@@ -464,14 +469,14 @@ function createSpaceInviteCommand(): Command {
       const memory = buildMemoryClient(creds);
       try {
         const result = await memory.invite.create({
-          email: email ?? null,
+          email,
           admin: opts.admin === true,
           shareAccess,
           expiresAt,
           maxUses,
         });
         const url = inviteUrl(creds.server, result.token);
-        output({ email: email ?? null, link: url, ...result }, fmt, () => {
+        output({ email, link: url, ...result }, fmt, () => {
           if (email) {
             clack.log.success(
               `Invited ${email}${opts.admin ? " as an admin" : ""} — pending their acceptance.`,
@@ -479,7 +484,7 @@ function createSpaceInviteCommand(): Command {
             clack.log.info(`Or share this link: ${url}`);
           } else {
             clack.log.success(
-              `Created an invite link${opts.admin ? " (admin)" : ""}.`,
+              `Created an open invite link${opts.admin ? " (admin)" : ""}.`,
             );
             clack.note(url, "Share this link");
           }
