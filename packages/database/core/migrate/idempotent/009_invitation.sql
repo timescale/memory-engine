@@ -4,6 +4,41 @@
 drop function if exists {{schema}}.redeem_space_invitations(uuid, citext);
 
 -------------------------------------------------------------------------------
+-- _invitation_valid
+-- The single source of truth for "can this invitation still be redeemed by an
+-- eligible user right now". Every read/accept/redeem path goes through it so the
+-- validity rules can't drift: not revoked, not expired, and not exhausted —
+-- where exhaustion is the single-use accepted_at for an email invite, or the
+-- max_uses redemption cap for an open link (null = unlimited). It does NOT check
+-- WHO may redeem (the email match / token) — that's the caller's gate. Defined
+-- first so the SQL-language list functions below can reference it at creation.
+-------------------------------------------------------------------------------
+create or replace function {{schema}}._invitation_valid
+( _invitation_id uuid
+)
+returns bool
+as $func$
+  select i.revoked_at is null
+     and (i.expires_at is null or i.expires_at > pg_catalog.now())
+     -- single-use email invite: consumed once accepted_at is stamped.
+     and i.accepted_at is null
+     -- open link (email null): bounded by max_uses across distinct redeemers.
+     and (
+       i.email is not null
+       or i.max_uses is null
+       or (
+         select count(*)
+         from {{schema}}.space_invitation_redemption r
+         where r.invitation_id = i.id
+       ) < i.max_uses
+     )
+  from {{schema}}.space_invitation i
+  where i.id = _invitation_id
+$func$ language sql stable security invoker
+set search_path to pg_catalog, {{schema}}, public, pg_temp
+;
+
+-------------------------------------------------------------------------------
 -- create_space_invitation
 -- Issue an invitation to a space. _email set → an email-constrained invite
 -- (only that verified email may redeem, single-use), keyed so re-inviting the
@@ -49,12 +84,15 @@ set search_path to pg_catalog, {{schema}}, public, pg_temp
 
 -------------------------------------------------------------------------------
 -- list_space_invitations
--- Active invitations for a space — both email-constrained invites and open
--- links (kind = 'email' | 'link') — with the inviter's display name, the open-
--- link bounds (expires_at / max_uses), and the redemption count (uses). Excludes
--- accepted (single-use, consumed) and revoked rows. Never returns the token.
+-- The admin management view: non-terminal invitations for a space — both email-
+-- constrained invites and open links (kind = 'email' | 'link') — with the
+-- inviter's display name, the open-link bounds (expires_at / max_uses), the
+-- redemption count (uses), and a derived `valid` flag (_invitation_valid). It
+-- deliberately still lists expired / exhausted (but not yet revoked) rows so the
+-- admin can see they lapsed; `valid = false` marks them. Excludes accepted
+-- (consumed) and revoked rows. Never returns the token.
 -------------------------------------------------------------------------------
-{{fn list_space_invitations(_space_id uuid) returns table(id uuid, email text, admin bool, share_access int, invited_by uuid, invited_by_name text, created_at timestamptz, kind text, expires_at timestamptz, max_uses int, uses int)}}
+{{fn list_space_invitations(_space_id uuid) returns table(id uuid, email text, admin bool, share_access int, invited_by uuid, invited_by_name text, created_at timestamptz, kind text, expires_at timestamptz, max_uses int, uses int, valid bool)}}
 create or replace function {{schema}}.list_space_invitations
 ( _space_id uuid
 )
@@ -70,12 +108,14 @@ returns table
 , expires_at timestamptz
 , max_uses int
 , uses int
+, valid bool
 )
 as $func$
   select i.id, i.email::text, i.admin, i.share_access, i.invited_by, p.name::text, i.created_at
        , case when i.email is null then 'link' else 'email' end
        , i.expires_at, i.max_uses
        , (select count(*)::int from {{schema}}.space_invitation_redemption r where r.invitation_id = i.id)
+       , {{schema}}._invitation_valid(i.id)
   from {{schema}}.space_invitation i
   left join {{schema}}.principal p on p.id = i.invited_by
   where i.space_id = _space_id
@@ -151,40 +191,6 @@ $func$ language plpgsql volatile security invoker
 set search_path to pg_catalog, {{schema}}, public, pg_temp
 ;
 {{endfn}}
-
--------------------------------------------------------------------------------
--- _invitation_valid
--- The single source of truth for "can this invitation still be redeemed by an
--- eligible user right now". Every read/accept/redeem path goes through it so the
--- validity rules can't drift: not revoked, not expired, and not exhausted —
--- where exhaustion is the single-use accepted_at for an email invite, or the
--- max_uses redemption cap for an open link (null = unlimited). It does NOT check
--- WHO may redeem (the email match / token) — that's the caller's gate.
--------------------------------------------------------------------------------
-create or replace function {{schema}}._invitation_valid
-( _invitation_id uuid
-)
-returns bool
-as $func$
-  select i.revoked_at is null
-     and (i.expires_at is null or i.expires_at > pg_catalog.now())
-     -- single-use email invite: consumed once accepted_at is stamped.
-     and i.accepted_at is null
-     -- open link (email null): bounded by max_uses across distinct redeemers.
-     and (
-       i.email is not null
-       or i.max_uses is null
-       or (
-         select count(*)
-         from {{schema}}.space_invitation_redemption r
-         where r.invitation_id = i.id
-       ) < i.max_uses
-     )
-  from {{schema}}.space_invitation i
-  where i.id = _invitation_id
-$func$ language sql stable security invoker
-set search_path to pg_catalog, {{schema}}, public, pg_temp
-;
 
 -------------------------------------------------------------------------------
 -- list_pending_invitations_for_email

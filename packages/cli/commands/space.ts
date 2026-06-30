@@ -331,7 +331,16 @@ function createSpaceInviteListCommand(): Command {
             return;
           }
           table(
-            ["id", "kind", "email", "admin", "share", "uses", "expires"],
+            [
+              "id",
+              "kind",
+              "email",
+              "admin",
+              "share",
+              "uses",
+              "expires",
+              "status",
+            ],
             invitations.map((i) => [
               i.id,
               i.kind,
@@ -342,6 +351,7 @@ function createSpaceInviteListCommand(): Command {
                 ? `${i.uses}${i.maxUses != null ? `/${i.maxUses}` : ""}`
                 : "",
               i.expiresAt ?? "",
+              i.valid ? "active" : "expired/used",
             ]),
           );
         });

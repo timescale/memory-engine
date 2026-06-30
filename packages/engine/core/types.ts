@@ -161,6 +161,8 @@ export interface SpaceInvitation {
   maxUses: number | null;
   /** How many times it has been redeemed so far. */
   uses: number;
+  /** Whether it can still be redeemed (not expired / exhausted / revoked). */
+  valid: boolean;
   createdAt: Date;
 }
 

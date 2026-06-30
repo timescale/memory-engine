@@ -934,7 +934,7 @@ describe("control-plane functions", () => {
         await redeem("lk_open", "h_open", u3, "u3@example.com"),
       ).toHaveLength(0);
 
-      // listed as a link with uses=2
+      // still listed (admin view) with uses=2, but marked invalid — it's exhausted
       const listed = await sql.unsafe(
         `select * from ${s}.list_space_invitations($1)`,
         [spaceId],
@@ -942,6 +942,7 @@ describe("control-plane functions", () => {
       const link = listed.find((r) => r.kind === "link");
       expect(link?.max_uses).toBe(2);
       expect(link?.uses).toBe(2);
+      expect(link?.valid).toBe(false);
 
       // email-constrained link: only the matching email may redeem, single-use
       const target = "target@example.com";
