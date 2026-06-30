@@ -612,3 +612,46 @@ test("deleting the whole space is exempt from the guard (teardown)", async () =>
   expect(await core.deleteSpace(slug)).toBe(true);
   expect(await core.getSpace(slug)).toBeNull();
 });
+
+test("deleting a space with an admin group + members + grants cascades cleanly (teardown)", async () => {
+  // Exercises the multi-path FK cascade on group_member (it is a cascade target
+  // of space, of the group principal via the composite (group_id, space_id) FK,
+  // and of the member principal) plus the enforce_last_admin teardown exemption
+  // firing through both the group_member and admin principal_space deletes.
+  const slug = rand(12);
+  const sid = await core.createSpace(slug, "Doomed Group Space");
+
+  const admin = await v7();
+  await core.createUser(admin, `adm_${rand(8)}@example.com`);
+  await core.addPrincipalToSpace(sid, admin, true); // direct admin
+
+  const groupId = await core.createGroup(sid, `admins_${rand(6)}`, true); // admin group
+  const member = await v7();
+  await core.createUser(member, `mem_${rand(8)}@example.com`);
+  await core.addPrincipalToSpace(sid, member); // direct member
+  await core.addGroupMember(sid, groupId, member); // effective admin via the group
+
+  await core.grantTreeAccess(sid, groupId, "shared", ACCESS.read);
+  await core.grantTreeAccess(sid, member, "notes", ACCESS.write);
+
+  // teardown must not trip the last-admin guard, and must cascade everything
+  expect(await core.deleteSpace(slug)).toBe(true);
+  expect(await core.getSpace(slug)).toBeNull();
+
+  const countBySpace = async (table: string) => {
+    const [r] = await sql.unsafe(
+      `select count(*)::int as n from ${coreSchema}.${table} where space_id = $1`,
+      [sid],
+    );
+    return Number(r?.n);
+  };
+  // every space-scoped row for the space is gone
+  expect(await countBySpace("principal_space")).toBe(0);
+  expect(await countBySpace("group_member")).toBe(0);
+  expect(await countBySpace("tree_access")).toBe(0);
+
+  // the group principal (space-scoped) is deleted; the users (global) survive
+  expect(await core.getPrincipal(groupId)).toBeNull();
+  expect((await core.getPrincipal(admin))?.id).toBe(admin);
+  expect((await core.getPrincipal(member))?.id).toBe(member);
+});
