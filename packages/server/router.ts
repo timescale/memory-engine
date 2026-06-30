@@ -188,21 +188,35 @@ export function createRouter(ctx: ServerContext): Router {
     }
     const { kind, userId, email, name, emailVerified, viaApiKey } =
       result.context;
-    // Lazy first-login provisioning: stand up the core principal + default space
-    // the first time a better-auth user reaches the user RPC (idempotent no-op
-    // thereafter). The CLI hits whoami/space.list right after login, so this is
-    // the natural first touchpoint. `emailVerified` gates the email-keyed
-    // invitation-redemption step. USERS only — an agent is already provisioned
-    // by its owner, and provisioning is user+email keyed (an agent has neither).
+    // Lazy first-login provisioning: stand up the core principal the first time
+    // a better-auth user reaches the user RPC (idempotent no-op thereafter). The
+    // CLI hits whoami/space.list right after login, so this is the natural first
+    // touchpoint. NO default space is created here — it's provisioned explicitly
+    // via space.ensureDefault at onboarding (so invitees who join don't get a
+    // junk space). USERS only — an agent is already provisioned by its owner, and
+    // provisioning is user+email keyed (an agent has neither).
     if (kind === "u" && email !== null) {
       await ensureUserProvisioned(
         db,
         core,
         { core: coreSchema },
-        { userId, email, emailVerified },
+        {
+          userId,
+          email,
+        },
       );
     }
-    return { core, kind, userId, email, name, db, coreSchema, viaApiKey };
+    return {
+      core,
+      kind,
+      userId,
+      email,
+      name,
+      emailVerified,
+      db,
+      coreSchema,
+      viaApiKey,
+    };
   });
 
   /**

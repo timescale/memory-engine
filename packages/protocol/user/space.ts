@@ -38,6 +38,21 @@ export const spaceCreateResult = z.object({
 });
 export type SpaceCreateResult = z.infer<typeof spaceCreateResult>;
 
+// space.ensureDefault — create a personal "default" space ONLY when the caller
+// has zero space memberships; a no-op otherwise. The onboarding entry points
+// (CLI `me login`, web AuthGate) call this when `space.list` is empty, so an
+// invited user who joins via accept/redeem never gets a junk default space.
+export const spaceEnsureDefaultParams = z.object({});
+export type SpaceEnsureDefaultParams = z.infer<typeof spaceEnsureDefaultParams>;
+
+export const spaceEnsureDefaultResult = z.object({
+  /** True when a default space was created by this call. */
+  created: z.boolean(),
+  /** The created space (null when the caller already had ≥1 space). */
+  space: memberSpaceResponse.nullable(),
+});
+export type SpaceEnsureDefaultResult = z.infer<typeof spaceEnsureDefaultResult>;
+
 /** A space's slug (12-char routing key). */
 const spaceSlugSchema = z.string().regex(/^[a-z0-9]{12}$/);
 

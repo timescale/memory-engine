@@ -17,6 +17,7 @@ import { createCodexCommand } from "./commands/codex.ts";
 import { createGeminiCommand } from "./commands/gemini.ts";
 import { createGroupCommand } from "./commands/group.ts";
 import { createImportCommand } from "./commands/import-group.ts";
+import { createInviteCommand } from "./commands/invite.ts";
 import { createLoginCommand } from "./commands/login.ts";
 import { createLogoutCommand } from "./commands/logout.ts";
 import { createMcpCommand } from "./commands/mcp.ts";
@@ -67,6 +68,7 @@ program.addCommand(createUpgradeCommand());
 
 // Space commands (the new model: spaces, groups, access, agents, api keys)
 program.addCommand(createSpaceCommand());
+program.addCommand(createInviteCommand());
 program.addCommand(createGroupCommand());
 program.addCommand(createAccessCommand());
 program.addCommand(createAgentCommand());

@@ -9,6 +9,7 @@ import type {
   GroupMember,
   GroupMembership,
   MemberSpace,
+  PendingInvitationForEmail,
   Principal,
   PrincipalKind,
   RedeemedInvitation,
@@ -157,15 +158,27 @@ export interface CoreStore {
   /** Revoke a pending invitation by email. Returns true if one was removed. */
   revokeSpaceInvitation(spaceId: string, email: string): Promise<boolean>;
   /**
-   * Redeem all pending invitations for a (now-registered, verified) email:
-   * join each space (owner@home), grant share access where set, mark accepted.
-   * Idempotent; the user must already exist as a core principal. Returns the
-   * spaces joined.
+   * Every pending invitation addressed to an email, across all spaces — the
+   * invitee's view of what they can accept (case-insensitive match).
    */
-  redeemSpaceInvitations(
+  listInvitationsForEmail(email: string): Promise<PendingInvitationForEmail[]>;
+  /**
+   * Explicitly accept ONE pending invitation by id, gated on `email` (the
+   * caller's verified email): join the space (owner@home + the per-invite share
+   * level) and mark it accepted. Idempotent. Returns the joined space, or null
+   * on mismatch / not-found / already-accepted. The user must already exist as a
+   * core principal.
+   */
+  acceptSpaceInvitation(
     userId: string,
     email: string,
-  ): Promise<RedeemedInvitation[]>;
+    invitationId: string,
+  ): Promise<RedeemedInvitation | null>;
+  /**
+   * Decline (delete) ONE pending invitation by id, gated on `email`. Returns
+   * true if a pending row was removed.
+   */
+  declineSpaceInvitation(email: string, invitationId: string): Promise<boolean>;
 
   /** Run operations atomically against the same transaction. */
   withTransaction<T>(fn: (db: CoreStore) => Promise<T>): Promise<T>;
@@ -508,19 +521,43 @@ export function coreStore(sql: Sql, schema: string = CORE_SCHEMA): CoreStore {
       return Boolean(row?.ok);
     },
 
-    async redeemSpaceInvitations(userId, email) {
+    async listInvitationsForEmail(email) {
       const rows = await sql`
-        select * from ${sch}.redeem_space_invitations(${userId}, ${email})
+        select * from ${sch}.list_pending_invitations_for_email(${email})
       `;
       return rows.map(
-        (r): RedeemedInvitation => ({
+        (r): PendingInvitationForEmail => ({
+          invitationId: r.invitation_id as string,
           spaceId: r.space_id as string,
           slug: r.slug as string,
           name: r.name as string,
           admin: Boolean(r.admin),
           shareAccess: (r.share_access as AccessLevel | null) ?? null,
+          invitedByName: (r.invited_by_name as string | null) ?? null,
+          createdAt: r.created_at as Date,
         }),
       );
+    },
+
+    async acceptSpaceInvitation(userId, email, invitationId) {
+      const [row] = await sql`
+        select * from ${sch}.accept_space_invitation(${userId}, ${email}, ${invitationId})
+      `;
+      if (!row) return null;
+      return {
+        spaceId: row.space_id as string,
+        slug: row.slug as string,
+        name: row.name as string,
+        admin: Boolean(row.admin),
+        shareAccess: (row.share_access as AccessLevel | null) ?? null,
+      } satisfies RedeemedInvitation;
+    },
+
+    async declineSpaceInvitation(email, invitationId) {
+      const [row] = await sql`
+        select ${sch}.decline_space_invitation(${email}, ${invitationId}) as ok
+      `;
+      return Boolean(row?.ok);
     },
 
     async withTransaction<T>(fn: (db: CoreStore) => Promise<T>): Promise<T> {

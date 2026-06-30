@@ -18,12 +18,31 @@ export interface AccountSpace {
   name: string;
 }
 
+/** A pending invitation addressed to the signed-in user. */
+export interface AccountInvitation {
+  invitationId: string;
+  spaceName: string;
+  spaceSlug: string;
+  admin: boolean;
+  shareAccess: 1 | 2 | 3 | null;
+  invitedByName: string | null;
+}
+
 export interface AccountInfo {
   identity: AccountIdentity;
   spaces: AccountSpace[];
   space: string;
   onChooseSpace: (slug: string) => void;
   onLogout: () => void;
+  /**
+   * Pending invitations addressed to the user (hosted mode only — local `me
+   * serve` omits these). The header surfaces them for accept/decline.
+   */
+  invitations?: AccountInvitation[];
+  /** Accept an invitation by id (joins the space), then refresh. */
+  onAcceptInvite?: (invitationId: string) => Promise<void>;
+  /** Decline (delete) an invitation by id, then refresh. */
+  onDeclineInvite?: (invitationId: string) => Promise<void>;
   /**
    * True in local mode (`me serve`), where the CLI owns the session — there is
    * no web sign-out, so the cluster hides it. The space switcher still works

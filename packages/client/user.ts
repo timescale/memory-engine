@@ -25,10 +25,18 @@ import type {
   ApiKeyGetResult,
   ApiKeyListParams,
   ApiKeyListResult,
+  InviteAcceptParams,
+  InviteAcceptResult,
+  InviteDeclineParams,
+  InviteDeclineResult,
+  InvitePendingParams,
+  InvitePendingResult,
   SpaceCreateParams,
   SpaceCreateResult,
   SpaceDeleteParams,
   SpaceDeleteResult,
+  SpaceEnsureDefaultParams,
+  SpaceEnsureDefaultResult,
   SpaceListParams,
   SpaceListResult,
   SpaceRenameParams,
@@ -78,8 +86,18 @@ export interface ApiKeyNamespace {
 export interface SpaceNamespace {
   list(params?: SpaceListParams): Promise<SpaceListResult>;
   create(params: SpaceCreateParams): Promise<SpaceCreateResult>;
+  ensureDefault(
+    params?: SpaceEnsureDefaultParams,
+  ): Promise<SpaceEnsureDefaultResult>;
   rename(params: SpaceRenameParams): Promise<SpaceRenameResult>;
   delete(params: SpaceDeleteParams): Promise<SpaceDeleteResult>;
+}
+
+/** Invitee-side invitation operations (invitations addressed to the caller). */
+export interface InviteeNamespace {
+  pending(params?: InvitePendingParams): Promise<InvitePendingResult>;
+  accept(params: InviteAcceptParams): Promise<InviteAcceptResult>;
+  decline(params: InviteDeclineParams): Promise<InviteDeclineResult>;
 }
 
 export interface UserClient {
@@ -88,6 +106,7 @@ export interface UserClient {
   agent: AgentNamespace;
   apiKey: ApiKeyNamespace;
   space: SpaceNamespace;
+  invite: InviteeNamespace;
   /** Update the session token at runtime. */
   setToken(token: string): void;
 }
@@ -138,8 +157,14 @@ export function createUserClient(options: UserClientOptions = {}): UserClient {
     space: {
       list: (p) => readRpc("space.list", p ?? {}),
       create: (p) => writeRpc("space.create", p),
+      ensureDefault: (p) => writeRpc("space.ensureDefault", p ?? {}),
       rename: (p) => writeRpc("space.rename", p),
       delete: (p) => writeRpc("space.delete", p),
+    },
+    invite: {
+      pending: (p) => readRpc("invite.pending", p ?? {}),
+      accept: (p) => writeRpc("invite.accept", p),
+      decline: (p) => writeRpc("invite.decline", p),
     },
     setToken(token: string) {
       config.token = token;

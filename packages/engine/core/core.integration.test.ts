@@ -197,7 +197,7 @@ test("listTreeAccessGrants returns grants; filterable by principal", async () =>
   expect(await core.listTreeAccessGrants(spaceId)).toHaveLength(2);
 });
 
-test("space invitations: create / list / redeem / revoke via the store", async () => {
+test("space invitations: create / list / accept / decline via the store", async () => {
   // spaceId + the owner userId come from beforeEach; the owner is the inviter
   const email = `invitee_${rand(8)}@example.com`;
   const inviteId = await core.createSpaceInvitation(spaceId, email, {
@@ -215,15 +215,27 @@ test("space invitations: create / list / redeem / revoke via the store", async (
   expect(pending[0]?.invitedBy).toBe(userId);
   expect(pending[0]?.invitedByName).toBe(userName);
 
-  // the invitee registers and redeems
+  // the invitee registers; the invite shows in their email-keyed list
   const inviteeId = await v7();
   await core.createUser(inviteeId, email);
-  const joined = await core.redeemSpaceInvitations(inviteeId, email);
-  expect(joined).toHaveLength(1);
-  expect(joined[0]?.spaceId).toBe(spaceId);
-  expect(joined[0]?.slug).toBeTruthy();
-  expect(joined[0]?.admin).toBe(true);
-  expect(joined[0]?.shareAccess).toBe(ACCESS.write);
+  const forEmail = await core.listInvitationsForEmail(email);
+  expect(forEmail).toHaveLength(1);
+  expect(forEmail[0]?.invitationId).toBe(inviteId);
+  expect(forEmail[0]?.spaceId).toBe(spaceId);
+  expect(forEmail[0]?.slug).toBeTruthy();
+  expect(forEmail[0]?.invitedByName).toBe(userName);
+
+  // accepting a different email's id (mismatch) joins nothing
+  expect(
+    await core.acceptSpaceInvitation(inviteeId, "nobody@example.com", inviteId),
+  ).toBeNull();
+
+  // accept by id, gated on the matching email
+  const joined = await core.acceptSpaceInvitation(inviteeId, email, inviteId);
+  expect(joined?.spaceId).toBe(spaceId);
+  expect(joined?.slug).toBeTruthy();
+  expect(joined?.admin).toBe(true);
+  expect(joined?.shareAccess).toBe(ACCESS.write);
 
   // effective access: owner@home (from joining) + write@share
   const ta = await core.buildTreeAccess(inviteeId, spaceId);
@@ -233,11 +245,26 @@ test("space invitations: create / list / redeem / revoke via the store", async (
   });
   expect(ta).toContainEqual({ tree_path: "share", access: ACCESS.write });
 
-  // accepted → no longer pending; re-redeem is a no-op
+  // accepted → no longer pending (admin list or email list); re-accept is a no-op
   expect(await core.listSpaceInvitations(spaceId)).toHaveLength(0);
-  expect(await core.redeemSpaceInvitations(inviteeId, email)).toHaveLength(0);
+  expect(await core.listInvitationsForEmail(email)).toHaveLength(0);
+  expect(
+    await core.acceptSpaceInvitation(inviteeId, email, inviteId),
+  ).toBeNull();
 
-  // a fresh invite (with no share grant) is revocable once
+  // a fresh invite is declinable by the invitee (gated on email), once
+  const second = await core.createSpaceInvitation(spaceId, email, {
+    admin: false,
+    shareAccess: null,
+    invitedBy: userId,
+  });
+  expect(await core.declineSpaceInvitation("other@example.com", second)).toBe(
+    false,
+  );
+  expect(await core.declineSpaceInvitation(email, second)).toBe(true);
+  expect(await core.declineSpaceInvitation(email, second)).toBe(false);
+
+  // the admin can still revoke a pending invite by email
   await core.createSpaceInvitation(spaceId, email, {
     admin: false,
     shareAccess: null,

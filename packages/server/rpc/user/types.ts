@@ -19,6 +19,12 @@ export interface UserRpcContext extends HandlerContext {
   /** The caller's email (powers whoami); null for an agent (no email). */
   email: string | null;
   /**
+   * Whether the identity provider verified the email. Gates the email-keyed
+   * invitee methods (`invite.*`): a caller may only act on invitations addressed
+   * to their own verified address. Always false for an agent (no email).
+   */
+  emailVerified: boolean;
+  /**
    * The caller's name: a human display name from a session / OAuth token, or
    * the core principal's name on the api-key path — the user's email for a user
    * PAT, the agent's name for an agent.
