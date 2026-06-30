@@ -27,12 +27,19 @@ const isLoginPage = HOSTED && window.location.pathname === "/login";
 // Magic-link redeem landing (`/invite/<token>`). Hosted-only: it signs the
 // visitor in (cookie session) and redeems against the user RPC. Under local
 // `me serve` there's no such auth backend, so it falls through to the SPA.
-const inviteToken =
-  HOSTED && window.location.pathname.startsWith("/invite/")
-    ? decodeURIComponent(
-        window.location.pathname.slice("/invite/".length).split("/")[0] ?? "",
-      )
-    : null;
+function readInviteToken(): string | null {
+  if (!HOSTED || !window.location.pathname.startsWith("/invite/")) return null;
+  const raw = window.location.pathname.slice("/invite/".length).split("/")[0];
+  if (!raw) return null;
+  try {
+    // The token is untrusted URL input; a malformed %-escape would otherwise
+    // throw and crash the app. Fall through to the SPA on bad input.
+    return decodeURIComponent(raw) || null;
+  } catch {
+    return null;
+  }
+}
+const inviteToken = readInviteToken();
 
 const queryClient = new QueryClient({
   defaultOptions: {

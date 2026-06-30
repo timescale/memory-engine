@@ -377,7 +377,9 @@ begin
   end if;
 
   -- ... and the WHO gate: an email-constrained link only its matching email.
-  if inv.email is not null and inv.email <> _user_email then
+  -- NULL-safe: a null caller email must NOT satisfy the constraint (a plain `<>`
+  -- yields NULL and would let it through).
+  if inv.email is not null and inv.email is distinct from _user_email then
     return;
   end if;
 

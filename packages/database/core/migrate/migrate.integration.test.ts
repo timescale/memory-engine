@@ -921,7 +921,7 @@ describe("control-plane functions", () => {
         await sql.unsafe(`select ${s}.create_user($1, $2)`, [id, email]);
         return id;
       };
-      const redeem = (token: string, uid: string, em: string) =>
+      const redeem = (token: string, uid: string, em: string | null) =>
         sql.unsafe(`select * from ${s}.redeem_invitation($1, $2, $3)`, [
           token,
           uid,
@@ -969,6 +969,8 @@ describe("control-plane functions", () => {
       expect(
         await redeem("inv.email", eUser, "wrong@example.com"),
       ).toHaveLength(0);
+      // a NULL caller email must NOT satisfy an email-constrained invite
+      expect(await redeem("inv.email", eUser, null)).toHaveLength(0);
       expect(await redeem("inv.email", eUser, target)).toHaveLength(1);
       expect(await redeem("inv.email", eUser, target)).toHaveLength(0); // consumed
 
