@@ -67,6 +67,17 @@ me access rm-grant bob@example.com /share/work/backend
 
 The level argument accepts `r` (read), `w` (write), or `o` (owner).
 
+### Granting your own agents
+
+Managing a grant normally requires **owner** at the path. The exception is your
+own **agents**: an agent's effective access is always clamped to its owner's, so
+you can never give an agent more than you hold. Because of that you may grant or
+revoke access for an agent you own at **any** path — even one you don't own —
+without holding an owner grant there. The clamp keeps it honest: grant the agent
+a higher level than you hold and it clamps down to yours; grant it a path you
+have no access to and the agent simply gets nothing. This lets you scope an
+agent to just the part of a subtree it needs, even on shared trees you don't own.
+
 ## Reserved tree roots
 
 Every space has two conventional roots:

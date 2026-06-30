@@ -326,6 +326,106 @@ describe("agent_tree_access clamps agent access to its owner", () => {
       expect(result).toEqual([{ tree_path: "foo.bar", access: 2 }]);
     });
   });
+
+  // Resolve an agent's effective (clamped) access given a set of owner grants and
+  // a set of agent grants, each as [tree_path, access] tuples. Owner and agent
+  // both join the space so the access functions can see them.
+  const effectiveAgentAccess = async (
+    ownerGrants: [string, number][],
+    agentGrants: [string, number][],
+  ): Promise<{ tree_path: string; access: number }[]> => {
+    let out: { tree_path: string; access: number }[] = [];
+    await withTestCore(sql, {}, async (core) => {
+      const s = core.schema;
+      const [space] = await sql.unsafe(
+        `insert into ${s}.space (slug, name) values ($1, $2) returning id`,
+        [randomSlug(), "clamp"],
+      );
+      const spaceId = space?.id as string;
+      const [owner] = await sql.unsafe(
+        `insert into ${s}.principal (kind, name) values ('u', 'owner') returning id`,
+      );
+      const ownerId = owner?.id as string;
+      const [agent] = await sql.unsafe(
+        `insert into ${s}.principal (kind, name, owner_id) values ('a', 'agent', $1) returning id`,
+        [ownerId],
+      );
+      const agentId = agent?.id as string;
+      await sql.unsafe(
+        `insert into ${s}.principal_space (space_id, principal_id) values ($1, $2), ($1, $3)`,
+        [spaceId, ownerId, agentId],
+      );
+      const rows: [string, string, string, number][] = [
+        ...ownerGrants.map(
+          ([p, a]) =>
+            [spaceId, ownerId, p, a] as [string, string, string, number],
+        ),
+        ...agentGrants.map(
+          ([p, a]) =>
+            [spaceId, agentId, p, a] as [string, string, string, number],
+        ),
+      ];
+      for (const [sp, pr, path, acc] of rows) {
+        await sql.unsafe(
+          `insert into ${s}.tree_access (space_id, principal_id, tree_path, access) values ($1, $2, $3, $4)`,
+          [sp, pr, path, acc],
+        );
+      }
+      const result = await sql.unsafe(
+        `select tree_path::text as tree_path, access
+         from ${s}.agent_tree_access($1, $2)
+         order by tree_path`,
+        [agentId, spaceId],
+      );
+      out = result.map((r) => ({
+        tree_path: r.tree_path as string,
+        access: r.access as number,
+      }));
+    });
+    return out;
+  };
+
+  test("clamps DOWN (not away) when the agent grant exceeds the owner deeper", async () => {
+    // TNT-165: owner holds read@foo; the agent is granted write@foo.bar (deeper
+    // AND higher). The agent must end up with read@foo.bar — the owner's level —
+    // not nothing. (The old exists-based clamp dropped this row entirely.)
+    expect(await effectiveAgentAccess([["foo", 1]], [["foo.bar", 2]])).toEqual([
+      { tree_path: "foo.bar", access: 1 },
+    ]);
+  });
+
+  test("a broad agent grant is clamped to the owner's narrower coverage", async () => {
+    // owner owns only foo.deep; the agent is granted read across all of foo. The
+    // agent is effective only where the owner has coverage — read@foo.deep.
+    expect(await effectiveAgentAccess([["foo.deep", 3]], [["foo", 1]])).toEqual(
+      [{ tree_path: "foo.deep", access: 1 }],
+    );
+  });
+
+  test("a grant the owner does not cover at all yields nothing", async () => {
+    // owner has access only under bar; an agent grant under foo has no owner
+    // coverage on its lineage, so it is dropped.
+    expect(await effectiveAgentAccess([["bar", 3]], [["foo", 2]])).toEqual([]);
+  });
+
+  test("write@root mirrors the owner's whole footprint, clamped to write", async () => {
+    // The agent is granted write at the root (the empty path). Root is an
+    // ancestor of every owner grant, so the agent inherits the owner's ENTIRE
+    // footprint, each path clamped to least(write, owner): the owner's owner@share
+    // becomes write@share, while the owner's read@docs stays read@docs.
+    expect(
+      await effectiveAgentAccess(
+        [
+          ["share", 3],
+          ["docs", 1],
+        ],
+        [["", 2]],
+      ),
+    ).toEqual([
+      { tree_path: "docs", access: 1 },
+      { tree_path: "share", access: 2 },
+    ]);
+  });
 });
 
 describe("control-plane functions", () => {
