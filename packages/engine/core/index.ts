@@ -15,6 +15,7 @@ export type {
   GroupMember,
   GroupMembership,
   MemberSpace,
+  PendingInvitationForEmail,
   Principal,
   PrincipalKind,
   RedeemedInvitation,

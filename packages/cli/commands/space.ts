@@ -6,8 +6,8 @@
  * - me space create <name>:        create a space and make it active
  * - me space rename <space> <name>: rename a space's display label
  * - me space delete <space>:       delete a space and all its data
- * - me space invite <email> [--admin] [--share <level>]: invite by email (adds
- *     an existing user now, else a pending invite redeemed at their first login)
+ * - me space invite <email> [--admin] [--share <level>]: invite by email — always
+ *     records a pending invitation the invitee accepts (see `me invite`)
  * - me space invite list:          list pending invitations
  * - me space invite revoke <email>: revoke a pending invitation
  *
@@ -409,15 +409,9 @@ function createSpaceInviteCommand(): Command {
           shareAccess,
         });
         output({ email, ...result }, fmt, () => {
-          if (result.applied) {
-            clack.log.success(
-              `Added ${email} to the space${opts.admin ? " as an admin" : ""}.`,
-            );
-          } else {
-            clack.log.success(
-              `Invited ${email} — they'll join when they next sign in.`,
-            );
-          }
+          clack.log.success(
+            `Invited ${email}${opts.admin ? " as an admin" : ""} — pending their acceptance.`,
+          );
         });
       } catch (error) {
         handleError(error, fmt, { creds, scope: "space" });

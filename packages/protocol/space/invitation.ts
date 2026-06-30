@@ -1,12 +1,12 @@
 /**
- * Space invitation method schemas (invite.*).
+ * Space invitation method schemas (invite.*) — the admin side, on the space RPC.
  *
  * Invitations are keyed by invitee email so an invite can be issued before the
- * user registers. Inviting an *already-registered* user adds them to the space
- * immediately (instant access on their existing session); inviting a not-yet-
- * registered email records a pending invitation, redeemed at their first
- * verified login. Each invite carries whether to make the user a space admin and
- * an optional share level (read/write/owner at the shared root; null = none).
+ * user registers. Every invite is recorded as **pending**; the invitee joins by
+ * explicitly accepting it (see the invitee-side `invite.*` on the user RPC),
+ * never by auto-enrollment. Each invite carries whether to make the user a space
+ * admin and an optional share level (read/write/owner at the shared root; null =
+ * none).
  */
 import { z } from "zod";
 import { emailSchema } from "../fields.ts";
@@ -25,8 +25,9 @@ export const spaceInvitationResponse = z.object({
 });
 export type SpaceInvitationResponse = z.infer<typeof spaceInvitationResponse>;
 
-// invite.create — invite by email; adds an existing user now, else records a
-// pending invite. `admin` defaults false; `shareAccess` null/omitted = no share.
+// invite.create — invite by email; always records a PENDING invitation (no
+// auto-enroll, even for an existing user). `admin` defaults false; `shareAccess`
+// null/omitted = no share.
 export const inviteCreateParams = z.object({
   email: emailSchema,
   admin: z.boolean().optional(),
@@ -35,12 +36,8 @@ export const inviteCreateParams = z.object({
 export type InviteCreateParams = z.infer<typeof inviteCreateParams>;
 
 export const inviteCreateResult = z.object({
-  /** True when the invitee was an existing user and was added to the space now. */
-  applied: z.boolean(),
-  /** The pending invitation id (null when applied immediately). */
-  invitationId: z.string().nullable(),
-  /** The principal added now (null when deferred to a pending invitation). */
-  principalId: z.string().nullable(),
+  /** The pending invitation id. */
+  invitationId: z.string(),
 });
 export type InviteCreateResult = z.infer<typeof inviteCreateResult>;
 

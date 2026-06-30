@@ -284,16 +284,14 @@ test("grant: set / list / remove", async () => {
   ).toBe(true);
 });
 
-test("invite.create: a not-yet-registered email creates a pending invite; list + revoke", async () => {
+test("invite.create: records a pending invite; list + revoke", async () => {
   const email = `newcomer_${rand(8)}@example.com`;
-  const res = await call<{
-    applied: boolean;
-    invitationId: string | null;
-    principalId: string | null;
-  }>("invite.create", { email, admin: false, shareAccess: 1 });
-  expect(res.applied).toBe(false);
+  const res = await call<{ invitationId: string }>("invite.create", {
+    email,
+    admin: false,
+    shareAccess: 1,
+  });
   expect(res.invitationId).toBeTruthy();
-  expect(res.principalId).toBeNull();
 
   const { invitations } = await call<{
     invitations: {
@@ -315,34 +313,28 @@ test("invite.create: a not-yet-registered email creates a pending invite; list +
   ).toHaveLength(0);
 });
 
-test("invite.create: an already-registered user is added immediately (no pending invite)", async () => {
+test("invite.create: an already-registered user also gets a PENDING invite (no auto-enroll)", async () => {
   const email = `existing_${rand(8)}@example.com`;
   const existingId = await makeUserWithEmail(email);
 
-  const res = await call<{
-    applied: boolean;
-    invitationId: string | null;
-    principalId: string | null;
-  }>("invite.create", { email, admin: true, shareAccess: 2 });
-  expect(res.applied).toBe(true);
-  expect(res.principalId).toBe(existingId);
-  expect(res.invitationId).toBeNull();
+  const res = await call<{ invitationId: string }>("invite.create", {
+    email,
+    admin: true,
+    shareAccess: 2,
+  });
+  expect(res.invitationId).toBeTruthy();
 
-  // they are a space admin now, with owner@home + write@share
+  // NOT added to the space — acceptance is explicit, even for an existing user.
   const core = engineCore.coreStore(sql, coreSchema);
   const principals = await core.listSpacePrincipals(space.id);
-  expect(principals.find((p) => p.id === existingId)?.admin).toBe(true);
-  const ta = await core.buildTreeAccess(existingId, space.id);
-  expect(ta).toContainEqual({
-    tree_path: `home.${existingId.replace(/-/g, "")}`,
-    access: 3,
-  });
-  expect(ta).toContainEqual({ tree_path: "share", access: 2 });
+  expect(principals.find((p) => p.id === existingId)).toBeUndefined();
 
-  // joined → not shown as a pending invitation
-  expect(
-    (await call<{ invitations: unknown[] }>("invite.list", {})).invitations,
-  ).toHaveLength(0);
+  // shown as a pending invitation instead
+  const { invitations } = await call<{ invitations: { email: string }[] }>(
+    "invite.list",
+    {},
+  );
+  expect(invitations.some((i) => i.email === email)).toBe(true);
 });
 
 test("invite.* require space-admin authority (owner@root is not enough)", async () => {

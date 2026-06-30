@@ -1,18 +1,15 @@
 /**
- * Space invitation handlers (invite.*).
+ * Space invitation handlers (invite.*) — the admin side.
  *
- * Inviting an *already-registered* user adds them to the space immediately —
- * access is recomputed per request (build_tree_access), so it takes effect on
- * their existing session without a re-login. Inviting a not-yet-registered email
- * records a pending invitation, redeemed at their first verified login (see
- * redeemInvitationsForVerifiedLogin). Both paths grant owner@home and, when a
- * share level is set, that level at the shared root.
+ * Inviting an email — registered or not — records a **pending** invitation; the
+ * invitee joins by explicitly accepting it (invitee-side `invite.*` on the user
+ * RPC), never by auto-enrollment. Accepting grants owner@home and, when a share
+ * level is set, that level at the shared root.
  *
  * Authority: all three methods require space-admin (structural authority over
  * the roster, like group management — owner@root alone is not enough). Inviting
  * people, optionally as admins, is a deliberate structural act.
  */
-import { SHARE_NAMESPACE } from "@memory.build/database";
 import type {
   InviteCreateParams,
   InviteCreateResult,
@@ -45,24 +42,8 @@ async function inviteCreate(
   const admin = params.admin ?? false;
   const shareAccess = params.shareAccess ?? null;
 
-  // Already-registered user → add them now (instant access on their existing
-  // session). Not-yet-registered → a pending invite, redeemed at first login.
-  const existing = await ctx.core.getUserByName(params.email);
-  if (existing) {
-    await guardCore(async () => {
-      await ctx.core.addPrincipalToSpace(ctx.space.id, existing.id, admin);
-      if (shareAccess !== null) {
-        await ctx.core.grantTreeAccess(
-          ctx.space.id,
-          existing.id,
-          SHARE_NAMESPACE,
-          shareAccess,
-        );
-      }
-    });
-    return { applied: true, invitationId: null, principalId: existing.id };
-  }
-
+  // Always record a pending invitation — no auto-enroll, even for an existing
+  // user. The invitee joins by accepting it (invite.accept on the user RPC).
   const invitationId = await guardCore(() =>
     ctx.core.createSpaceInvitation(ctx.space.id, params.email, {
       admin,
@@ -70,7 +51,7 @@ async function inviteCreate(
       invitedBy: ctx.principalId,
     }),
   );
-  return { applied: false, invitationId, principalId: null };
+  return { invitationId };
 }
 
 async function inviteList(

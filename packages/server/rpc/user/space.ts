@@ -20,6 +20,8 @@ import type {
   SpaceCreateResult,
   SpaceDeleteParams,
   SpaceDeleteResult,
+  SpaceEnsureDefaultParams,
+  SpaceEnsureDefaultResult,
   SpaceListParams,
   SpaceListResult,
   SpaceRenameParams,
@@ -28,6 +30,7 @@ import type {
 import {
   spaceCreateParams,
   spaceDeleteParams,
+  spaceEnsureDefaultParams,
   spaceListParams,
   spaceRenameParams,
 } from "@memory.build/protocol/user";
@@ -76,12 +79,31 @@ async function spaceList(
 }
 
 /**
- * Create a new space. The creator becomes a space admin and owner of its own
- * home (via add_principal_to_space) and of the shared root (`share`) — but NOT
- * owner@root, so it sees `/share` and `~` but not other members' homes. As an
- * admin it can self-grant owner@root later if it wants the whole tree. Atomic:
- * the core.space row, the me_<slug> data schema, the membership, and the grant
- * all land in one transaction (any failure rolls the schema back).
+ * Provision a brand-new space + its creator grants inside a transaction: the
+ * core.space row, the me_<slug> data schema, the creator's membership, and the
+ * owner@home + owner@share grants. The creator becomes a space admin and owner of
+ * its own home and the shared root (`share`) — but NOT owner@root, so it sees
+ * `/share` and `~` but not other members' homes. Shared by `space.create` and
+ * `space.ensureDefault` so the two stay in lockstep. Returns the new space id.
+ */
+async function provisionSpaceWithCreator(
+  tx: Sql,
+  coreSchema: string,
+  userId: string,
+  slug: string,
+  name: string,
+): Promise<string> {
+  const core = coreStore(tx as unknown as Sql, coreSchema);
+  const spaceId = await core.createSpace(slug, name);
+  await provisionSpace(tx, { slug }); // creates the me_<slug> data schema
+  await addSpaceCreator(core, spaceId, userId);
+  return spaceId;
+}
+
+/**
+ * Create a new space. Atomic: the core.space row, the me_<slug> data schema, the
+ * membership, and the creator grants all land in one transaction (any failure
+ * rolls the schema back).
  */
 async function spaceCreate(
   params: SpaceCreateParams,
@@ -91,15 +113,62 @@ async function spaceCreate(
   const ctx = context as UserRpcContext;
   const slug = generateSlug();
 
-  const id = (await ctx.db.begin(async (tx) => {
-    const core = coreStore(tx as unknown as Sql, ctx.coreSchema);
-    const spaceId = await core.createSpace(slug, params.name);
-    await provisionSpace(tx, { slug }); // creates the me_<slug> data schema
-    await addSpaceCreator(core, spaceId, ctx.userId);
-    return spaceId;
-  })) as string;
+  const id = (await ctx.db.begin((tx) =>
+    provisionSpaceWithCreator(
+      tx as unknown as Sql,
+      ctx.coreSchema,
+      ctx.userId,
+      slug,
+      params.name,
+    ),
+  )) as string;
 
   return { id, slug };
+}
+
+/**
+ * Create a personal "default" space ONLY when the caller has zero memberships; a
+ * no-op otherwise. Default-space provisioning is NOT done lazily in middleware
+ * anymore — the onboarding entry points (CLI `me login`, web AuthGate) call this
+ * when `space.list` is empty, so a user who joins via an accepted invitation or a
+ * redeemed magic link never gets a junk personal space. The zero-membership check
+ * is re-run inside the transaction to stay safe under concurrent first-requests.
+ */
+async function spaceEnsureDefault(
+  _params: SpaceEnsureDefaultParams,
+  context: HandlerContext,
+): Promise<SpaceEnsureDefaultResult> {
+  assertUserRpcContext(context);
+  const ctx = context as UserRpcContext;
+
+  if ((await ctx.core.listSpacesForMember(ctx.userId)).length > 0) {
+    return { created: false, space: null };
+  }
+
+  const slug = generateSlug();
+  const created = (await ctx.db.begin(async (tx) => {
+    const core = coreStore(tx as unknown as Sql, ctx.coreSchema);
+    // Re-check inside the transaction: a concurrent call may have created one.
+    if ((await core.listSpacesForMember(ctx.userId)).length > 0) return false;
+    await provisionSpaceWithCreator(
+      tx as unknown as Sql,
+      ctx.coreSchema,
+      ctx.userId,
+      slug,
+      "default",
+    );
+    return true;
+  })) as boolean;
+
+  if (!created) return { created: false, space: null };
+  const space =
+    (await ctx.core.listSpacesForMember(ctx.userId)).find(
+      (s) => s.slug === slug,
+    ) ?? null;
+  return {
+    created: space !== null,
+    space: space ? toMemberSpaceResponse(space) : null,
+  };
 }
 
 /** Rename a space's display name (admin only); the slug is immutable. */
@@ -143,6 +212,7 @@ async function spaceDelete(
 export const spaceMethods = buildRegistry()
   .register("space.list", spaceListParams, spaceList)
   .register("space.create", spaceCreateParams, spaceCreate)
+  .register("space.ensureDefault", spaceEnsureDefaultParams, spaceEnsureDefault)
   .register("space.rename", spaceRenameParams, spaceRename)
   .register("space.delete", spaceDeleteParams, spaceDelete)
   .build();

@@ -16,7 +16,11 @@ import { isRpcError } from "@memory.build/client";
 import { type ReactNode, useCallback, useEffect, useState } from "react";
 import { signOut } from "../api/auth-client.ts";
 import { memoryClient, userClient } from "../api/client.ts";
-import { AccountProvider } from "./account/account-context.ts";
+import {
+  type AccountInvitation,
+  AccountProvider,
+} from "./account/account-context.ts";
+import { InvitationList } from "./account/Invitations.tsx";
 import { SignInCard } from "./SignInCard.tsx";
 
 const SPACE_STORAGE_KEY = "me.space";
@@ -47,8 +51,44 @@ type GateState =
   | { status: "loading" }
   | { status: "anonymous" }
   | { status: "error" }
-  | { status: "needs-space"; identity: Identity; spaces: Space[] }
-  | { status: "ready"; identity: Identity; spaces: Space[]; space: string };
+  | {
+      status: "onboarding";
+      identity: Identity;
+      invitations: AccountInvitation[];
+    }
+  | {
+      status: "needs-space";
+      identity: Identity;
+      spaces: Space[];
+      invitations: AccountInvitation[];
+    }
+  | {
+      status: "ready";
+      identity: Identity;
+      spaces: Space[];
+      space: string;
+      invitations: AccountInvitation[];
+    };
+
+/**
+ * Pending invitations for the signed-in email. Best-effort — an error (e.g. an
+ * unverified email) yields an empty list rather than blocking the gate.
+ */
+async function fetchInvitations(): Promise<AccountInvitation[]> {
+  try {
+    const { invitations } = await userClient.invite.pending();
+    return invitations.map((i) => ({
+      invitationId: i.invitationId,
+      spaceName: i.spaceName,
+      spaceSlug: i.spaceSlug,
+      admin: i.admin,
+      shareAccess: i.shareAccess,
+      invitedByName: i.invitedByName,
+    }));
+  } catch {
+    return [];
+  }
+}
 
 export function AuthGate({ children }: { children: ReactNode }) {
   const [state, setState] = useState<GateState>({ status: "loading" });
@@ -56,9 +96,10 @@ export function AuthGate({ children }: { children: ReactNode }) {
   const load = useCallback(async () => {
     setState({ status: "loading" });
     try {
-      const [whoami, { spaces }] = await Promise.all([
+      const [whoami, spacesRes, invitations] = await Promise.all([
         userClient.whoami(),
         userClient.space.list(),
+        fetchInvitations(),
       ]);
       // whoami's email is nullable; fall back to the display name so the
       // header always has something to show.
@@ -66,9 +107,25 @@ export function AuthGate({ children }: { children: ReactNode }) {
         email: whoami.email ?? whoami.name,
         name: whoami.name,
       };
+      let spaces: Space[] = spacesRes.spaces.map((s) => ({
+        slug: s.slug,
+        name: s.name,
+      }));
       if (spaces.length === 0) {
-        setState({ status: "needs-space", identity, spaces });
-        return;
+        // Invited but space-less → let the user accept before we manufacture a
+        // personal space. No invites → provision a default one now (explicit,
+        // not done lazily server-side anymore).
+        if (invitations.length > 0) {
+          setState({ status: "onboarding", identity, invitations });
+          return;
+        }
+        const { created, space } = await userClient.space.ensureDefault();
+        if (created && space) {
+          spaces = [{ slug: space.slug, name: space.name }];
+        } else {
+          setState({ status: "onboarding", identity, invitations });
+          return;
+        }
       }
       const saved = localStorage.getItem(SPACE_STORAGE_KEY);
       const chosen =
@@ -76,9 +133,15 @@ export function AuthGate({ children }: { children: ReactNode }) {
         (spaces.length === 1 ? spaces[0]?.slug : undefined);
       if (chosen) {
         memoryClient.setSpace(chosen);
-        setState({ status: "ready", identity, spaces, space: chosen });
+        setState({
+          status: "ready",
+          identity,
+          spaces,
+          space: chosen,
+          invitations,
+        });
       } else {
-        setState({ status: "needs-space", identity, spaces });
+        setState({ status: "needs-space", identity, spaces, invitations });
       }
     } catch (err) {
       // A 401 → not signed in (login screen); anything else (CSRF, 5xx, network)
@@ -89,6 +152,27 @@ export function AuthGate({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     void load();
+  }, [load]);
+
+  // Accept / decline an invitation, then refresh the whole gate (a joined space
+  // now shows up; the invitation drops off the pending list).
+  const acceptInvite = useCallback(
+    async (invitationId: string) => {
+      await userClient.invite.accept({ invitationId });
+      await load();
+    },
+    [load],
+  );
+  const declineInvite = useCallback(
+    async (invitationId: string) => {
+      await userClient.invite.decline({ invitationId });
+      await load();
+    },
+    [load],
+  );
+  const createDefaultSpace = useCallback(async () => {
+    await userClient.space.ensureDefault();
+    await load();
   }, [load]);
 
   const chooseSpace = useCallback((slug: string) => {
@@ -120,6 +204,19 @@ export function AuthGate({ children }: { children: ReactNode }) {
     return <ErrorScreen onRetry={load} />;
   }
 
+  if (state.status === "onboarding") {
+    return (
+      <OnboardingScreen
+        identity={state.identity}
+        invitations={state.invitations}
+        onAccept={acceptInvite}
+        onDecline={declineInvite}
+        onCreateSpace={createDefaultSpace}
+        onLogout={logout}
+      />
+    );
+  }
+
   if (state.status === "needs-space") {
     return (
       <SpacePicker
@@ -139,6 +236,9 @@ export function AuthGate({ children }: { children: ReactNode }) {
         space: state.space,
         onChooseSpace: chooseSpace,
         onLogout: logout,
+        invitations: state.invitations,
+        onAcceptInvite: acceptInvite,
+        onDeclineInvite: declineInvite,
       }}
     >
       {children}
@@ -196,6 +296,81 @@ function ErrorScreen({ onRetry }: { onRetry: () => void }) {
         className="mt-6 inline-flex h-9 items-center rounded-md bg-solar px-4 text-[13px] font-semibold text-ink transition-colors hover:bg-solar-hover"
       >
         Retry
+      </button>
+    </Card>
+  );
+}
+
+/**
+ * Zero-space onboarding. Shown when the user belongs to no space yet: list any
+ * invitations to accept, or create a personal space. Accepting / creating
+ * refreshes the gate (which then lands in the app).
+ */
+function OnboardingScreen({
+  identity,
+  invitations,
+  onAccept,
+  onDecline,
+  onCreateSpace,
+  onLogout,
+}: {
+  identity: Identity;
+  invitations: AccountInvitation[];
+  onAccept: (invitationId: string) => Promise<void>;
+  onDecline: (invitationId: string) => Promise<void>;
+  onCreateSpace: () => Promise<void>;
+  onLogout: () => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const createSpace = async () => {
+    setBusy(true);
+    try {
+      await onCreateSpace();
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Card>
+      <h1 className="text-lg font-semibold text-ink">Welcome</h1>
+      <p className="mt-1 text-[13px] text-ink/55">
+        Signed in as {identity.email}
+      </p>
+      {invitations.length > 0 ? (
+        <>
+          <p className="mt-6 text-[13px] text-ink/70">
+            You've been invited to{" "}
+            {invitations.length === 1 ? "a space" : "these spaces"}:
+          </p>
+          <div className="mt-3">
+            <InvitationList
+              invitations={invitations}
+              onAccept={onAccept}
+              onDecline={onDecline}
+            />
+          </div>
+          <p className="mt-4 text-[12px] text-ink/45">or</p>
+        </>
+      ) : (
+        <p className="mt-6 text-[13px] text-ink/70">
+          You don't belong to any space yet.
+        </p>
+      )}
+      <button
+        type="button"
+        disabled={busy}
+        onClick={createSpace}
+        className="mt-3 inline-flex h-9 items-center rounded-md bg-solar px-4 text-[13px] font-semibold text-ink transition-colors hover:bg-solar-hover disabled:opacity-50"
+      >
+        {busy ? "Creating…" : "Create a personal space"}
+      </button>
+      <button
+        type="button"
+        onClick={onLogout}
+        className="mt-4 block text-[12px] text-ink/40 hover:text-ink/70"
+      >
+        Sign out
       </button>
     </Card>
   );

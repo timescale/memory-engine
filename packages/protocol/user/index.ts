@@ -29,10 +29,20 @@ import {
   apiKeyListResult,
 } from "./api-key.ts";
 import {
+  inviteAcceptParams,
+  inviteAcceptResult,
+  inviteDeclineParams,
+  inviteDeclineResult,
+  invitePendingParams,
+  invitePendingResult,
+} from "./invitation.ts";
+import {
   spaceCreateParams,
   spaceCreateResult,
   spaceDeleteParams,
   spaceDeleteResult,
+  spaceEnsureDefaultParams,
+  spaceEnsureDefaultResult,
   spaceListParams,
   spaceListResult,
   spaceRenameParams,
@@ -42,6 +52,7 @@ import { whoamiParams, whoamiResult } from "./whoami.ts";
 
 export * from "./agent.ts";
 export * from "./api-key.ts";
+export * from "./invitation.ts";
 export * from "./space.ts";
 export * from "./whoami.ts";
 
@@ -72,8 +83,16 @@ export const userMethods = {
 
   "space.list": method(spaceListParams, spaceListResult),
   "space.create": method(spaceCreateParams, spaceCreateResult),
+  "space.ensureDefault": method(
+    spaceEnsureDefaultParams,
+    spaceEnsureDefaultResult,
+  ),
   "space.rename": method(spaceRenameParams, spaceRenameResult),
   "space.delete": method(spaceDeleteParams, spaceDeleteResult),
+
+  "invite.pending": method(invitePendingParams, invitePendingResult),
+  "invite.accept": method(inviteAcceptParams, inviteAcceptResult),
+  "invite.decline": method(inviteDeclineParams, inviteDeclineResult),
 } as const;
 
 export type UserMethodName = keyof typeof userMethods;

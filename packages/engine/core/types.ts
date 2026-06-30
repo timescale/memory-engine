@@ -138,8 +138,8 @@ export interface ApiKeyInfo {
 
 /**
  * A pending invitation to a space, keyed by invitee email (so an invite can be
- * issued before the user registers). Redeemed at login against the verified
- * email; see CoreStore.redeemSpaceInvitations.
+ * issued before the user registers). Redeemed by explicit acceptance against the
+ * verified email; see CoreStore.acceptSpaceInvitation.
  */
 export interface SpaceInvitation {
   id: string;
@@ -155,7 +155,22 @@ export interface SpaceInvitation {
   createdAt: Date;
 }
 
-/** A space joined by redeeming an invitation. */
+/**
+ * A pending invitation addressed to an email, across all spaces — the invitee's
+ * view of what they can accept. See CoreStore.listInvitationsForEmail.
+ */
+export interface PendingInvitationForEmail {
+  invitationId: string;
+  spaceId: string;
+  slug: string;
+  name: string;
+  admin: boolean;
+  shareAccess: AccessLevel | null;
+  invitedByName: string | null;
+  createdAt: Date;
+}
+
+/** A space joined by accepting an invitation. */
 export interface RedeemedInvitation {
   spaceId: string;
   slug: string;

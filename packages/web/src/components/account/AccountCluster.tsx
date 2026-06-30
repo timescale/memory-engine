@@ -5,6 +5,7 @@
  * there is no signed-in user or switchable space.
  */
 import { type AccountSpace, useAccount } from "./account-context.ts";
+import { InvitationsButton } from "./Invitations.tsx";
 
 export function AccountCluster() {
   const account = useAccount();
@@ -12,6 +13,7 @@ export function AccountCluster() {
 
   return (
     <div className="flex items-center gap-4 font-mono text-[12px]">
+      <InvitationsButton />
       <span className="text-ink/50">space</span>
       <SpaceSwitcher
         spaces={account.spaces}

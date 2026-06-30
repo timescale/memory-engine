@@ -727,7 +727,7 @@ describe("control-plane functions", () => {
     });
   });
 
-  test("space invitations: create (upsert) / list / redeem (join + home + share) / revoke", async () => {
+  test("space invitations: create (upsert) / list / accept (join + home + share) / decline / revoke", async () => {
     await withTestCore(sql, {}, async (core) => {
       const s = core.schema;
       const [sp] = await sql.unsafe(`select ${s}.create_space($1, $2) as id`, [
@@ -769,17 +769,35 @@ describe("control-plane functions", () => {
       expect(listed[0]?.share_access).toBe(3);
       expect(listed[0]?.invited_by_name).toBe("inviter@example.com");
 
-      // the invitee registers, then redeems (email match is case-insensitive)
+      // the invitee registers; the invite appears in their email-keyed list
+      // (email match is case-insensitive)
       const userId = await v7();
       await sql.unsafe(`select ${s}.create_user($1, $2)`, [userId, email]);
-      const redeemed = await sql.unsafe(
-        `select * from ${s}.redeem_space_invitations($1, $2)`,
-        [userId, "INVITEE@EXAMPLE.COM"],
+      const forEmail = await sql.unsafe(
+        `select * from ${s}.list_pending_invitations_for_email($1)`,
+        ["INVITEE@EXAMPLE.COM"],
       );
-      expect(redeemed).toHaveLength(1);
-      expect(redeemed[0]?.space_id).toBe(spaceId);
-      expect(redeemed[0]?.admin).toBe(true);
-      expect(redeemed[0]?.share_access).toBe(3);
+      expect(forEmail).toHaveLength(1);
+      expect(forEmail[0]?.invitation_id).toBe(inviteId);
+      expect(forEmail[0]?.space_id).toBe(spaceId);
+      expect(forEmail[0]?.invited_by_name).toBe("inviter@example.com");
+
+      // accept gated on email: a mismatched email accepts nothing
+      const mismatch = await sql.unsafe(
+        `select * from ${s}.accept_space_invitation($1, $2, $3)`,
+        [userId, "someone-else@example.com", inviteId],
+      );
+      expect(mismatch).toHaveLength(0);
+
+      // accept by id (email match is case-insensitive)
+      const accepted = await sql.unsafe(
+        `select * from ${s}.accept_space_invitation($1, $2, $3)`,
+        [userId, "INVITEE@EXAMPLE.COM", inviteId],
+      );
+      expect(accepted).toHaveLength(1);
+      expect(accepted[0]?.space_id).toBe(spaceId);
+      expect(accepted[0]?.admin).toBe(true);
+      expect(accepted[0]?.share_access).toBe(3);
 
       // joined as admin, with owner@home (add_principal_to_space) + owner@share
       const [ps] = await sql.unsafe(
@@ -795,7 +813,7 @@ describe("control-plane functions", () => {
       expect(ta).toContainEqual({ tree_path: homePath(userId), access: 3 });
       expect(ta).toContainEqual({ tree_path: "share", access: 3 });
 
-      // accepted: gone from the pending list, and re-redeem is a no-op
+      // accepted: gone from both lists, and re-accept is a no-op
       expect(
         await sql.unsafe(`select * from ${s}.list_space_invitations($1)`, [
           spaceId,
@@ -803,13 +821,38 @@ describe("control-plane functions", () => {
       ).toHaveLength(0);
       expect(
         await sql.unsafe(
-          `select * from ${s}.redeem_space_invitations($1, $2)`,
-          [userId, email],
+          `select * from ${s}.list_pending_invitations_for_email($1)`,
+          [email],
+        ),
+      ).toHaveLength(0);
+      expect(
+        await sql.unsafe(
+          `select * from ${s}.accept_space_invitation($1, $2, $3)`,
+          [userId, email, inviteId],
         ),
       ).toHaveLength(0);
 
-      // revoke: a fresh pending invite is revocable once
-      await create(false, null); // re-invite the same email (now allowed: prior is accepted)
+      // decline gated on email: a fresh invite is declinable by the invitee once
+      const [d0] = await create(false, null);
+      const declineId = d0?.id as string;
+      const [dMismatch] = await sql.unsafe(
+        `select ${s}.decline_space_invitation($1, $2) as ok`,
+        ["someone-else@example.com", declineId],
+      );
+      expect(dMismatch?.ok).toBe(false);
+      const [d1] = await sql.unsafe(
+        `select ${s}.decline_space_invitation($1, $2) as ok`,
+        [email, declineId],
+      );
+      expect(d1?.ok).toBe(true);
+      const [d2] = await sql.unsafe(
+        `select ${s}.decline_space_invitation($1, $2) as ok`,
+        [email, declineId],
+      );
+      expect(d2?.ok).toBe(false);
+
+      // revoke: a fresh pending invite is revocable by the admin once
+      await create(false, null);
       const [r1] = await sql.unsafe(
         `select ${s}.revoke_space_invitation($1, $2) as ok`,
         [spaceId, email],

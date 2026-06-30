@@ -56,6 +56,7 @@ export {
   type AgentNamespace,
   type ApiKeyNamespace,
   createUserClient,
+  type InviteeNamespace,
   type SpaceNamespace,
   type UserClient,
   type UserClientOptions,
