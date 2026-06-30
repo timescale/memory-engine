@@ -143,6 +143,7 @@ begin
     set admin = _admin
     where principal_id = _group_id
     and space_id = _space_id
+    and admin is distinct from _admin
     returning 1
   )
   select exists (select 1 from upd) into _updated;
