@@ -66,7 +66,11 @@ set search_path to pg_catalog, {{schema}}, public, pg_temp
 
 -------------------------------------------------------------------------------
 -- add_group_member
--- Adds a user/agent member to a group within a space.
+-- Adds a user/agent member to a group within a space. Groups are NOT nestable:
+-- a group can never be a group member. This is already structurally impossible
+-- (group_member.member_id references principal(member_id), which is null for
+-- groups, so a group id can't be inserted), but we reject it explicitly first so
+-- the caller gets a clear message instead of an opaque foreign-key violation.
 -------------------------------------------------------------------------------
 create or replace function {{schema}}.add_group_member
 ( _space_id uuid
@@ -76,11 +80,26 @@ create or replace function {{schema}}.add_group_member
 )
 returns void
 as $func$
+begin
+  if exists
+  (
+    select 1
+    from {{schema}}.principal p
+    where p.id = _member_id
+    and p.kind = 'g'
+  ) then
+    raise exception
+      'cannot add group % as a member of group %: groups are not nestable', _member_id, _group_id
+      using errcode = '23514'
+      , hint = 'group members must be users or agents, not groups';
+  end if;
+
   insert into {{schema}}.group_member (space_id, group_id, member_id, admin)
   values (_space_id, _group_id, _member_id, _admin)
   on conflict (space_id, member_id, group_id) do update set
-    admin = excluded.admin -- updated_at maintained by the before-update trigger
-$func$ language sql volatile security invoker
+    admin = excluded.admin; -- updated_at maintained by the before-update trigger
+end;
+$func$ language plpgsql volatile security invoker
 set search_path to pg_catalog, {{schema}}, public, pg_temp
 ;
 
@@ -148,12 +167,16 @@ set search_path to pg_catalog, {{schema}}, public, pg_temp
 
 -------------------------------------------------------------------------------
 -- list_space_principals
--- The space roster: principals with a direct membership row (principal_space).
--- Group membership alone does NOT make you a space member, so group-only
--- principals are not listed. `admin` is the EFFECTIVE space-admin status via
--- is_principal_space_admin (a direct admin row OR a direct member who belongs to
--- an admin group, never an agent). Optional kind filter ('u' | 'a' | 'g'); null
--- returns all.
+-- The space roster: principals with a direct membership row (principal_space) —
+-- users, agents, AND groups (a group is rostered into its space on creation, so
+-- principal_space is the single source of truth for who/what belongs to a space).
+-- Note the distinction: a group appears here because it is itself a roster entry;
+-- this says nothing about its members — a user/agent who is only in a group (no
+-- principal_space row of their own) is still NOT a space member and is not listed.
+-- `admin` is the EFFECTIVE space-admin status via is_principal_space_admin (a
+-- direct admin row OR a direct member who belongs to an admin group, never an
+-- agent; false for a group rostered admin=false). Optional kind filter
+-- ('u' | 'a' | 'g'); null returns all.
 -------------------------------------------------------------------------------
 -- list_space_principals dropped its `direct` output column — a returns-table
 -- change create-or-replace cannot make. The fn block drops a stale-signatured

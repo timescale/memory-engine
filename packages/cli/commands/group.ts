@@ -32,7 +32,7 @@ import {
   handleError,
   requireAuth,
   requireSpace,
-  resolveSpacePrincipalId,
+  resolveSpaceMemberId,
 } from "../util.ts";
 
 const UUIDV7_RE =
@@ -183,7 +183,7 @@ function createGroupAddCommand(): Command {
       const memory = buildMemoryClient(creds);
       try {
         const groupId = await resolveGroupId(memory, group, fmt);
-        const memberId = await resolveSpacePrincipalId(memory, member, fmt);
+        const memberId = await resolveSpaceMemberId(memory, member, fmt);
         const result = await memory.group.addMember({
           groupId,
           memberId,
@@ -216,7 +216,7 @@ function createGroupRemoveCommand(): Command {
       const memory = buildMemoryClient(creds);
       try {
         const groupId = await resolveGroupId(memory, group, fmt);
-        const memberId = await resolveSpacePrincipalId(memory, member, fmt);
+        const memberId = await resolveSpaceMemberId(memory, member, fmt);
         const result = await memory.group.removeMember({ groupId, memberId });
         output({ groupId, memberId, ...result }, fmt, () => {
           if (result.removed)
