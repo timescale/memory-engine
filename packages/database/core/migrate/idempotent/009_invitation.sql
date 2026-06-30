@@ -161,14 +161,19 @@ set search_path to pg_catalog, {{schema}}, public, pg_temp
 
 -------------------------------------------------------------------------------
 -- _join_via_invitation
--- The shared join body for accepting / redeeming an invitation, identified by
--- id: add the user to the space (add_principal_to_space also grants owner@home)
--- and, when a share level is set, grant it at the shared root 'share'. Used by
--- accept_space_invitation and redeem_invitation so both paths join the same way.
+-- The shared body for accepting / redeeming an invitation, identified by id —
+-- the single place both accept_space_invitation and redeem_invitation go through
+-- so the two are identical by construction:
+--   1. join the space (add_principal_to_space also grants owner@home), and grant
+--      the share level when set;
+--   2. record a space_invitation_redemption row (who joined via this invite) —
+--      so the audit trail is the same whether joined by accept or by token;
+--   3. for a single-use email invite (email is not null), stamp accepted_at to
+--      consume it; an open link (email null) leaves accepted_at null and stays
+--      multi-use, bounded by max_uses.
 -- The granted privileges (admin, share_access, target space) are read from the
 -- invitation row itself — never passed in — so no caller can join a user with
--- more access than the invitation specifies. Caller is responsible for stamping
--- accepted_at / recording the redemption. A no-op if the invitation is gone.
+-- more access than the invitation specifies. A no-op if the invitation is gone.
 -------------------------------------------------------------------------------
 {{fn _join_via_invitation(_invitation_id uuid, _user_id uuid) returns void}}
 create or replace function {{schema}}._join_via_invitation
@@ -180,7 +185,7 @@ as $func$
 declare
   inv record;
 begin
-  select space_id, admin, share_access
+  select space_id, email, admin, share_access
   into inv
   from {{schema}}.space_invitation
   where id = _invitation_id;
@@ -192,6 +197,17 @@ begin
   perform {{schema}}.add_principal_to_space(inv.space_id, _user_id, inv.admin);
   if inv.share_access is not null then
     perform {{schema}}.grant_tree_access(inv.space_id, _user_id, 'share'::ltree, inv.share_access);
+  end if;
+
+  -- audit: one row per (invitation, user) — both accept and redeem record it.
+  insert into {{schema}}.space_invitation_redemption (invitation_id, user_id)
+  values (_invitation_id, _user_id)
+  on conflict (invitation_id, user_id) do nothing;
+
+  -- single-use email invite → consume it; open links stay multi-use.
+  if inv.email is not null then
+    update {{schema}}.space_invitation set accepted_at = pg_catalog.now()
+    where id = _invitation_id;
   end if;
 end;
 $func$ language plpgsql volatile security invoker
@@ -235,10 +251,10 @@ set search_path to pg_catalog, {{schema}}, public, pg_temp
 -- accept_space_invitation
 -- Explicitly accept ONE pending invitation, identified by id, only if it is
 -- addressed to _email (the caller's verified email — the email-keyed gate) and
--- still pending. Joins the space (owner@home + the per-invite share level) and
--- stamps accepted_at. Idempotent: a second call finds nothing pending. Returns
--- the joined space (one row), or no rows on mismatch / not-found / already
--- accepted. The user must already exist as a core principal.
+-- still valid. Joins via _join_via_invitation (which grants access, records the
+-- redemption, and consumes the single-use email invite). Idempotent: a second
+-- call finds nothing valid. Returns the joined space (one row), or no rows on
+-- mismatch / not-found / already-accepted. The user must already be a principal.
 -------------------------------------------------------------------------------
 create or replace function {{schema}}.accept_space_invitation
 ( _user_id       uuid
@@ -270,7 +286,6 @@ begin
   end if;
 
   perform {{schema}}._join_via_invitation(inv.id, _user_id);
-  update {{schema}}.space_invitation set accepted_at = pg_catalog.now() where id = inv.id;
 
   return query
     select s.id, s.slug, s.name::text, inv.admin, inv.share_access
@@ -366,13 +381,9 @@ begin
     return;
   end if;
 
+  -- _join_via_invitation grants access, records the redemption, and (for an
+  -- email invite) consumes it — identical to accept_space_invitation.
   perform {{schema}}._join_via_invitation(inv.id, _user_id);
-  insert into {{schema}}.space_invitation_redemption (invitation_id, user_id)
-  values (inv.id, _user_id)
-  on conflict (invitation_id, user_id) do nothing;
-  if inv.email is not null then
-    update {{schema}}.space_invitation set accepted_at = pg_catalog.now() where id = inv.id;
-  end if;
 
   return query
     select s.id, s.slug, s.name::text, inv.admin, inv.share_access
