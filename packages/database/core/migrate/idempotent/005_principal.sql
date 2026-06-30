@@ -45,20 +45,20 @@ set search_path to pg_catalog, {{schema}}, public, pg_temp
 -- members: member_tree_access still gates a group's grants on each member's own
 -- principal_space row, so group membership alone never confers space membership.
 --
--- _admin rosters the group as an ADMIN GROUP (principal_space.admin) — its
--- space-admin authority then flows to its direct-member users
+-- _is_space_admin rosters the group as an ADMIN GROUP (principal_space.admin) —
+-- its space-admin authority then flows to its direct-member users
 -- (is_principal_space_admin). Defaults false: a freshly created group is not an
--- admin group until promoted (set_group_admin / principal.add). Toggle later with
--- set_group_admin.
+-- admin group until promoted (set_group_is_space_admin / principal.add). Toggle
+-- later with set_group_is_space_admin.
 --
 -- plpgsql (not sql) so the body's reference to add_principal_to_space — defined
 -- in a later idempotent file (006) — is resolved at call time, not creation time.
 -------------------------------------------------------------------------------
-{{fn create_group(_space_id uuid, _name text, _admin bool, _id uuid) returns uuid}}
+{{fn create_group(_space_id uuid, _name text, _is_space_admin bool, _id uuid) returns uuid}}
 create or replace function {{schema}}.create_group
 ( _space_id uuid
 , _name text
-, _admin bool default false
+, _is_space_admin bool default false
 , _id uuid default null
 )
 returns uuid
@@ -70,7 +70,7 @@ begin
   values (coalesce(_id, uuidv7()), 'g', _name, _space_id)
   returning id into _group_id;
 
-  perform {{schema}}.add_principal_to_space(_space_id, _group_id, _admin);
+  perform {{schema}}.add_principal_to_space(_space_id, _group_id, _is_space_admin);
 
   return _group_id;
 end;
@@ -157,24 +157,24 @@ set search_path to pg_catalog, {{schema}}, public, pg_temp
 -------------------------------------------------------------------------------
 -- list_space_groups
 -- All groups belonging to a space (groups are space-scoped via space_id).
--- `admin` is the group's own space-admin flag (principal_space.admin) — true for
--- an admin group, whose authority flows to its direct-member users. LEFT JOIN so
--- a group with no roster row (only possible transiently, before the one-time
--- backfill of pre-rostering groups) still lists, as admin=false.
+-- `is_space_admin` is the group's own space-admin flag (principal_space.admin) —
+-- true for an admin group, whose authority flows to its direct-member users.
+-- LEFT JOIN so a group with no roster row (only possible transiently, before the
+-- one-time backfill of pre-rostering groups) still lists, as is_space_admin=false.
 -------------------------------------------------------------------------------
-{{fn list_space_groups(_space_id uuid) returns table(id uuid, name text, admin bool, created_at timestamptz, updated_at timestamptz)}}
+{{fn list_space_groups(_space_id uuid) returns table(id uuid, name text, is_space_admin bool, created_at timestamptz, updated_at timestamptz)}}
 create or replace function {{schema}}.list_space_groups
 ( _space_id uuid
 )
 returns table
 ( id uuid
 , name text
-, admin bool
+, is_space_admin bool
 , created_at timestamptz
 , updated_at timestamptz
 )
 as $func$
-  select p.id, p.name::text, coalesce(ps.admin, false) as admin
+  select p.id, p.name::text, coalesce(ps.admin, false) as is_space_admin
        , p.created_at, p.updated_at
   from {{schema}}.principal p
   left join {{schema}}.principal_space ps

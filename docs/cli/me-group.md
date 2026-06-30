@@ -13,7 +13,7 @@ These commands authenticate with your **session** and operate on the active spac
 - [me group create](#me-group-create) -- create a group
 - [me group rename](#me-group-rename) -- rename a group
 - [me group delete](#me-group-delete) -- delete a group
-- [me group set-admin](#me-group-set-admin) -- make/unmake an admin group
+- [me group set-space-admin](#me-group-set-space-admin) -- make/unmake an admin group
 - [me group add](#me-group-add) -- add a member
 - [me group remove](#me-group-remove) -- remove a member
 - [me group members](#me-group-members) -- list a group's members
@@ -22,8 +22,8 @@ These commands authenticate with your **session** and operate on the active spac
 
 ## me group list
 
-List groups in the active space. Alias: `me group ls`. The `admin` column marks
-**admin groups** (groups whose space-admin authority flows to their members).
+List groups in the active space. Alias: `me group ls`. The `space-admin` column
+marks **admin groups** (groups whose space-admin authority flows to their members).
 
 ```
 me group list
@@ -43,11 +43,11 @@ me group mine
 
 ## me group create
 
-Create a group. With `--admin`, the group is created as an **admin group**: its
-members who are also space members gain space-admin. Admin-gated.
+Create a group. With `--space-admin`, the group is created as an **admin group**:
+its members who are also space members gain space-admin. Admin-gated.
 
 ```
-me group create <name> [--admin]
+me group create <name> [--space-admin]
 ```
 
 | Argument | Required | Description |
@@ -56,23 +56,23 @@ me group create <name> [--admin]
 
 | Option | Description |
 |--------|-------------|
-| `--admin` | Create as an admin group (its members gain space-admin). |
+| `--space-admin` | Create as an admin group (its members gain space-admin). |
 
 ---
 
-## me group set-admin
+## me group set-space-admin
 
 Make a group an **admin group** — its members who are also space members gain
-space-admin — or revoke that with `--no-admin`. Admin-gated. Demotion is subject
-to the space's last-admin safeguard: you cannot demote the group if it is the
+space-admin — or revoke that with `--off`. Admin-gated. Demotion is subject to
+the space's last-admin safeguard: you cannot demote the group if it is the
 space's only remaining source of admin.
 
 This is distinct from `me group add --admin`, which makes a *member* an admin of
-the *group* (managing the group's own membership). `set-admin` is about the
+the *group* (managing the group's own membership). `set-space-admin` is about the
 *group's* authority over the *space*.
 
 ```
-me group set-admin <group> [--no-admin]
+me group set-space-admin <group> [--off]
 ```
 
 | Argument | Required | Description |
@@ -81,7 +81,7 @@ me group set-admin <group> [--no-admin]
 
 | Option | Description |
 |--------|-------------|
-| `--no-admin` | Revoke the group's admin-group status instead of granting it. |
+| `--off` | Revoke the group's admin-group status instead of granting it. |
 
 ---
 

@@ -60,10 +60,12 @@ roster the single source of truth, while preserving:
   now supported** (not deferred): the admin-group mechanism (`is_principal_space_admin`
   / `enforce_last_admin`) was always built to key on a group's own
   `principal_space.admin`, so the only thing missing was a way to set it.
-  `create_group` takes an `_admin` flag, `set_group_admin` toggles it (guarded by
-  `enforce_last_admin` on demotion), surfaced as `group.create --admin` /
-  `me group set-admin`. (This withdraws the earlier "FM3 / block admin groups"
-  idea, which would have removed a real, tested feature.)
+  `create_group` takes an `_is_space_admin` flag, `set_group_is_space_admin`
+  toggles it (guarded by `enforce_last_admin` on demotion), surfaced as
+  `me group create --space-admin` / `me group set-space-admin`. (This withdraws
+  the earlier "FM3 / block admin groups" idea, which would have removed a real,
+  tested feature.) The "is space admin" naming disambiguates from a group
+  *member's* admin flag (`group_member.admin`).
 - Group nesting is blocked at the DB (explicit guard) and groups are excluded from
   the `me group add/remove` member resolver.
 - Member-only resolution is done **CLI-side** (Design A below). Promoting to a

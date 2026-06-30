@@ -61,7 +61,7 @@ const EXPECTED_FUNCTIONS = [
   "is_principal_space_admin",
   "member_groups",
   "member_tree_access",
-  "set_group_admin",
+  "set_group_is_space_admin",
   "update_updated_at",
   "user_tree_access",
 ];

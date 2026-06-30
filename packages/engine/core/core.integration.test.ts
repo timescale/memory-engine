@@ -184,11 +184,12 @@ test("removePrincipalFromSpace rejects a group (a group leaves only by deletion)
   ).toBe(false);
 });
 
-test("admin groups: create as admin, toggle via setGroupAdmin, confer admin to direct members", async () => {
+test("admin groups: create as admin, toggle via setGroupIsSpaceAdmin, confer admin to direct members", async () => {
   // create the group directly as an admin group
   const groupId = await core.createGroup(spaceId, `adm_${rand(6)}`, true);
   expect(
-    (await core.listSpaceGroups(spaceId)).find((g) => g.id === groupId)?.admin,
+    (await core.listSpaceGroups(spaceId)).find((g) => g.id === groupId)
+      ?.isSpaceAdmin,
   ).toBe(true);
   expect(
     (await core.listSpacePrincipals(spaceId, "g")).find((g) => g.id === groupId)
@@ -204,21 +205,22 @@ test("admin groups: create as admin, toggle via setGroupAdmin, confer admin to d
 
   // demote the group (the beforeEach user is still a direct admin, so this is
   // allowed) → the member loses admin-via-group
-  expect(await core.setGroupAdmin(spaceId, groupId, false)).toBe(true);
+  expect(await core.setGroupIsSpaceAdmin(spaceId, groupId, false)).toBe(true);
   expect(
-    (await core.listSpaceGroups(spaceId)).find((g) => g.id === groupId)?.admin,
+    (await core.listSpaceGroups(spaceId)).find((g) => g.id === groupId)
+      ?.isSpaceAdmin,
   ).toBe(false);
   expect(await core.isSpaceAdmin(member, spaceId)).toBe(false);
 
   // re-promote
-  expect(await core.setGroupAdmin(spaceId, groupId, true)).toBe(true);
+  expect(await core.setGroupIsSpaceAdmin(spaceId, groupId, true)).toBe(true);
   expect(await core.isSpaceAdmin(member, spaceId)).toBe(true);
 });
 
-test("setGroupAdmin rejects a non-group principal", async () => {
+test("setGroupIsSpaceAdmin rejects a non-group principal", async () => {
   let err: unknown;
   try {
-    await core.setGroupAdmin(spaceId, userId, true);
+    await core.setGroupIsSpaceAdmin(spaceId, userId, true);
   } catch (e) {
     err = e;
   }
@@ -235,10 +237,11 @@ test("demoting the sole admin group is rejected (ME001)", async () => {
   await core.addGroupMember(sid, groupId, member); // sole effective admin via the group
 
   // demoting the only admin group would drop the space to zero effective admins
-  await expectLastAdmin(core.setGroupAdmin(sid, groupId, false));
+  await expectLastAdmin(core.setGroupIsSpaceAdmin(sid, groupId, false));
   // rolled back — still an admin group
   expect(
-    (await core.listSpaceGroups(sid)).find((g) => g.id === groupId)?.admin,
+    (await core.listSpaceGroups(sid)).find((g) => g.id === groupId)
+      ?.isSpaceAdmin,
   ).toBe(true);
 });
 

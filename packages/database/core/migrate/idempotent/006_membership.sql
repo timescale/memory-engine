@@ -104,20 +104,27 @@ set search_path to pg_catalog, {{schema}}, public, pg_temp
 ;
 
 -------------------------------------------------------------------------------
--- set_group_admin
+-- set_group_is_space_admin
 -- Promote/demote a group to/from an ADMIN GROUP of its space — toggles the
--- group's own principal_space.admin. An admin group's space-admin authority
--- flows to its direct-member users (is_principal_space_admin); group membership
--- alone still confers nothing. Operates on the group's existing roster row (a
--- group is rostered on creation), so it's an UPDATE, not an upsert. Demotion is
--- guarded by enforce_last_admin (the principal_space_keep_admin_upd constraint
--- trigger) — it can't strip the space's last effective admin. Rejects a
--- non-group principal. Returns true if the group's roster row was updated.
+-- group's own principal_space.admin. (Distinct from a group MEMBER's admin
+-- flag, group_member.admin, which governs the group's own membership.) An admin
+-- group's space-admin authority flows to its direct-member users
+-- (is_principal_space_admin); group membership alone still confers nothing.
+-- Operates on the group's existing roster row (a group is rostered on creation),
+-- so it's an UPDATE, not an upsert. Demotion is guarded by enforce_last_admin
+-- (the principal_space_keep_admin_upd constraint trigger) — it can't strip the
+-- space's last effective admin. Rejects a non-group principal. Returns true if
+-- the group's roster row actually changed (a no-op toggle returns false).
+--
+-- (Renamed from set_group_admin to disambiguate from a group MEMBER's admin
+-- flag; drop the old name in case a pre-rename branch migration installed it.)
 -------------------------------------------------------------------------------
-create or replace function {{schema}}.set_group_admin
+drop function if exists {{schema}}.set_group_admin(uuid, uuid, bool);
+
+create or replace function {{schema}}.set_group_is_space_admin
 ( _space_id uuid
 , _group_id uuid
-, _admin bool
+, _is_space_admin bool
 )
 returns bool
 as $func$
@@ -134,16 +141,16 @@ begin
     raise exception
       'principal % is not a group', _group_id
       using errcode = '22023'
-      , hint = 'set_group_admin applies only to groups';
+      , hint = 'set_group_is_space_admin applies only to groups';
   end if;
 
   with upd as
   (
     update {{schema}}.principal_space
-    set admin = _admin
+    set admin = _is_space_admin
     where principal_id = _group_id
     and space_id = _space_id
-    and admin is distinct from _admin
+    and admin is distinct from _is_space_admin
     returning 1
   )
   select exists (select 1 from upd) into _updated;

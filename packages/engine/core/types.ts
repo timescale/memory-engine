@@ -99,8 +99,11 @@ export interface SpacePrincipal {
 export interface Group {
   id: string;
   name: string;
-  /** Admin group: its own principal_space.admin (authority flows to members). */
-  admin: boolean;
+  /**
+   * Admin group: its own principal_space.admin (authority flows to members).
+   * Distinct from a group member's own admin flag (GroupMember.admin).
+   */
+  isSpaceAdmin: boolean;
   createdAt: Date;
   updatedAt: Date | null;
 }

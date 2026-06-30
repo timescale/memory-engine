@@ -734,39 +734,40 @@ describe.skipIf(
     );
   });
 
-  test("7a3. admin groups: create --admin, list shows admin, set-admin toggles", async () => {
+  test("7a3. admin groups: create --space-admin, list shows space-admin, set-space-admin toggles", async () => {
     // create as an admin group
     const adminName = `leads-${rand()}`;
-    const created = await meJson<{ id: string; admin: boolean }>([
+    const created = await meJson<{ id: string; isSpaceAdmin: boolean }>([
       "group",
       "create",
       adminName,
-      "--admin",
+      "--space-admin",
     ]);
-    expect(created.admin).toBe(true);
+    expect(created.isSpaceAdmin).toBe(true);
 
-    // `me group list` surfaces the admin flag
-    const listed = await meJson<{ groups: { id: string; admin: boolean }[] }>([
-      "group",
-      "list",
-    ]);
-    expect(listed.groups.find((g) => g.id === created.id)?.admin).toBe(true);
+    // `me group list` surfaces the space-admin flag
+    const listed = await meJson<{
+      groups: { id: string; isSpaceAdmin: boolean }[];
+    }>(["group", "list"]);
+    expect(listed.groups.find((g) => g.id === created.id)?.isSpaceAdmin).toBe(
+      true,
+    );
 
-    // demote by name with --no-admin, then re-promote
-    const demoted = await meJson<{ admin: boolean; updated: boolean }>([
+    // demote by name with --off, then re-promote
+    const demoted = await meJson<{ isSpaceAdmin: boolean; updated: boolean }>([
       "group",
-      "set-admin",
+      "set-space-admin",
       adminName,
-      "--no-admin",
+      "--off",
     ]);
-    expect(demoted).toMatchObject({ admin: false, updated: true });
+    expect(demoted).toMatchObject({ isSpaceAdmin: false, updated: true });
 
-    const promoted = await meJson<{ admin: boolean }>([
+    const promoted = await meJson<{ isSpaceAdmin: boolean }>([
       "group",
-      "set-admin",
+      "set-space-admin",
       adminName,
     ]);
-    expect(promoted.admin).toBe(true);
+    expect(promoted.isSpaceAdmin).toBe(true);
   });
 
   test("7b. personal access tokens: self-default create/list, no same-day collision", async () => {

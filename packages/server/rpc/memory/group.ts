@@ -19,8 +19,8 @@ import type {
   GroupRemoveMemberResult,
   GroupRenameParams,
   GroupRenameResult,
-  GroupSetAdminParams,
-  GroupSetAdminResult,
+  GroupSetIsSpaceAdminParams,
+  GroupSetIsSpaceAdminResult,
 } from "@memory.build/protocol/space";
 import {
   groupAddMemberParams,
@@ -31,7 +31,7 @@ import {
   groupListParams,
   groupRemoveMemberParams,
   groupRenameParams,
-  groupSetAdminParams,
+  groupSetIsSpaceAdminParams,
 } from "@memory.build/protocol/space";
 import { AppError } from "../errors";
 import { buildRegistry } from "../registry";
@@ -69,15 +69,19 @@ async function groupCreate(
   const ctx = context as SpaceRpcContext;
   requireSpaceAdmin(ctx);
   const id = await guardCore(() =>
-    ctx.core.createGroup(ctx.space.id, params.name, params.admin ?? false),
+    ctx.core.createGroup(
+      ctx.space.id,
+      params.name,
+      params.isSpaceAdmin ?? false,
+    ),
   );
   return { id };
 }
 
-async function groupSetAdmin(
-  params: GroupSetAdminParams,
+async function groupSetIsSpaceAdmin(
+  params: GroupSetIsSpaceAdminParams,
   context: HandlerContext,
-): Promise<GroupSetAdminResult> {
+): Promise<GroupSetIsSpaceAdminResult> {
   assertSpaceRpcContext(context);
   const ctx = context as SpaceRpcContext;
   // Making a group an admin group is a structural authority change — space-admin
@@ -86,9 +90,9 @@ async function groupSetAdmin(
   requireSpaceAdmin(ctx);
   await assertGroupInSpace(ctx, params.id);
   const updated = await guardCore(() =>
-    ctx.core.setGroupAdmin(ctx.space.id, params.id, params.admin),
+    ctx.core.setGroupIsSpaceAdmin(ctx.space.id, params.id, params.isSpaceAdmin),
   );
-  return { admin: params.admin, updated };
+  return { isSpaceAdmin: params.isSpaceAdmin, updated };
 }
 
 async function groupList(
@@ -199,7 +203,11 @@ export const groupMethods = buildRegistry()
   .register("group.list", groupListParams, groupList)
   .register("group.rename", groupRenameParams, groupRename)
   .register("group.delete", groupDeleteParams, groupDelete)
-  .register("group.setAdmin", groupSetAdminParams, groupSetAdmin)
+  .register(
+    "group.setIsSpaceAdmin",
+    groupSetIsSpaceAdminParams,
+    groupSetIsSpaceAdmin,
+  )
   .register("group.addMember", groupAddMemberParams, groupAddMember)
   .register("group.removeMember", groupRemoveMemberParams, groupRemoveMember)
   .register("group.listMembers", groupListMembersParams, groupListMembers)
