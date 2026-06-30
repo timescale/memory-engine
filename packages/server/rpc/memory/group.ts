@@ -19,6 +19,8 @@ import type {
   GroupRemoveMemberResult,
   GroupRenameParams,
   GroupRenameResult,
+  GroupSetAdminParams,
+  GroupSetAdminResult,
 } from "@memory.build/protocol/space";
 import {
   groupAddMemberParams,
@@ -29,6 +31,7 @@ import {
   groupListParams,
   groupRemoveMemberParams,
   groupRenameParams,
+  groupSetAdminParams,
 } from "@memory.build/protocol/space";
 import { AppError } from "../errors";
 import { buildRegistry } from "../registry";
@@ -66,9 +69,26 @@ async function groupCreate(
   const ctx = context as SpaceRpcContext;
   requireSpaceAdmin(ctx);
   const id = await guardCore(() =>
-    ctx.core.createGroup(ctx.space.id, params.name),
+    ctx.core.createGroup(ctx.space.id, params.name, params.admin ?? false),
   );
   return { id };
+}
+
+async function groupSetAdmin(
+  params: GroupSetAdminParams,
+  context: HandlerContext,
+): Promise<GroupSetAdminResult> {
+  assertSpaceRpcContext(context);
+  const ctx = context as SpaceRpcContext;
+  // Making a group an admin group is a structural authority change — space-admin
+  // only (owner@root is not enough), like roster mutations. Demotion is further
+  // guarded by the last-admin safeguard (enforce_last_admin → LAST_ADMIN).
+  requireSpaceAdmin(ctx);
+  await assertGroupInSpace(ctx, params.id);
+  const updated = await guardCore(() =>
+    ctx.core.setGroupAdmin(ctx.space.id, params.id, params.admin),
+  );
+  return { admin: params.admin, updated };
 }
 
 async function groupList(
@@ -179,6 +199,7 @@ export const groupMethods = buildRegistry()
   .register("group.list", groupListParams, groupList)
   .register("group.rename", groupRenameParams, groupRename)
   .register("group.delete", groupDeleteParams, groupDelete)
+  .register("group.setAdmin", groupSetAdminParams, groupSetAdmin)
   .register("group.addMember", groupAddMemberParams, groupAddMember)
   .register("group.removeMember", groupRemoveMemberParams, groupRemoveMember)
   .register("group.listMembers", groupListMembersParams, groupListMembers)

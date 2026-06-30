@@ -214,6 +214,7 @@ export function toGroupResponse(g: Group): GroupResponse {
   return {
     id: g.id,
     name: g.name,
+    admin: g.admin,
     createdAt: g.createdAt.toISOString(),
     updatedAt: g.updatedAt?.toISOString() ?? null,
   };

@@ -40,17 +40,25 @@ set search_path to pg_catalog, {{schema}}, public, pg_temp
 -- principal_space on creation: principal_space is the single source of truth for
 -- who/what belongs to a space, so a group is a first-class roster entry (this is
 -- what makes it resolvable and grantable by name via principal.resolve /
--- list_space_principals). The group is rostered admin=false, and
--- add_principal_to_space skips the home grant for groups (only u/a get a home).
--- Rostering the group does NOT confer space access on its members:
--- member_tree_access still gates a group's grants on each member's own
+-- list_space_principals). add_principal_to_space skips the home grant for groups
+-- (only u/a get a home). Rostering the group does NOT confer space access on its
+-- members: member_tree_access still gates a group's grants on each member's own
 -- principal_space row, so group membership alone never confers space membership.
+--
+-- _admin rosters the group as an ADMIN GROUP (principal_space.admin) — its
+-- space-admin authority then flows to its direct-member users
+-- (is_principal_space_admin). Defaults false: a freshly created group is not an
+-- admin group until promoted (set_group_admin / principal.add). Toggle later with
+-- set_group_admin.
+--
 -- plpgsql (not sql) so the body's reference to add_principal_to_space — defined
 -- in a later idempotent file (006) — is resolved at call time, not creation time.
 -------------------------------------------------------------------------------
+{{fn create_group(_space_id uuid, _name text, _admin bool, _id uuid) returns uuid}}
 create or replace function {{schema}}.create_group
 ( _space_id uuid
 , _name text
+, _admin bool default false
 , _id uuid default null
 )
 returns uuid
@@ -62,13 +70,14 @@ begin
   values (coalesce(_id, uuidv7()), 'g', _name, _space_id)
   returning id into _group_id;
 
-  perform {{schema}}.add_principal_to_space(_space_id, _group_id, false);
+  perform {{schema}}.add_principal_to_space(_space_id, _group_id, _admin);
 
   return _group_id;
 end;
 $func$ language plpgsql volatile security invoker
 set search_path to pg_catalog, {{schema}}, public, pg_temp
 ;
+{{endfn}}
 
 -------------------------------------------------------------------------------
 -- get_principal
@@ -148,25 +157,35 @@ set search_path to pg_catalog, {{schema}}, public, pg_temp
 -------------------------------------------------------------------------------
 -- list_space_groups
 -- All groups belonging to a space (groups are space-scoped via space_id).
+-- `admin` is the group's own space-admin flag (principal_space.admin) — true for
+-- an admin group, whose authority flows to its direct-member users. LEFT JOIN so
+-- a group with no roster row (only possible transiently, before the one-time
+-- backfill of pre-rostering groups) still lists, as admin=false.
 -------------------------------------------------------------------------------
+{{fn list_space_groups(_space_id uuid) returns table(id uuid, name text, admin bool, created_at timestamptz, updated_at timestamptz)}}
 create or replace function {{schema}}.list_space_groups
 ( _space_id uuid
 )
 returns table
 ( id uuid
 , name text
+, admin bool
 , created_at timestamptz
 , updated_at timestamptz
 )
 as $func$
-  select p.id, p.name::text, p.created_at, p.updated_at
+  select p.id, p.name::text, coalesce(ps.admin, false) as admin
+       , p.created_at, p.updated_at
   from {{schema}}.principal p
+  left join {{schema}}.principal_space ps
+    on ps.principal_id = p.id and ps.space_id = _space_id
   where p.kind = 'g'
   and p.space_id = _space_id
   order by p.name
 $func$ language sql stable strict security invoker
 set search_path to pg_catalog, {{schema}}, public, pg_temp
 ;
+{{endfn}}
 
 -------------------------------------------------------------------------------
 -- rename_principal

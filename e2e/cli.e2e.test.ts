@@ -734,6 +734,41 @@ describe.skipIf(
     );
   });
 
+  test("7a3. admin groups: create --admin, list shows admin, set-admin toggles", async () => {
+    // create as an admin group
+    const adminName = `leads-${rand()}`;
+    const created = await meJson<{ id: string; admin: boolean }>([
+      "group",
+      "create",
+      adminName,
+      "--admin",
+    ]);
+    expect(created.admin).toBe(true);
+
+    // `me group list` surfaces the admin flag
+    const listed = await meJson<{ groups: { id: string; admin: boolean }[] }>([
+      "group",
+      "list",
+    ]);
+    expect(listed.groups.find((g) => g.id === created.id)?.admin).toBe(true);
+
+    // demote by name with --no-admin, then re-promote
+    const demoted = await meJson<{ admin: boolean; updated: boolean }>([
+      "group",
+      "set-admin",
+      adminName,
+      "--no-admin",
+    ]);
+    expect(demoted).toMatchObject({ admin: false, updated: true });
+
+    const promoted = await meJson<{ admin: boolean }>([
+      "group",
+      "set-admin",
+      adminName,
+    ]);
+    expect(promoted.admin).toBe(true);
+  });
+
   test("7b. personal access tokens: self-default create/list, no same-day collision", async () => {
     // `me apikey create` with no agent mints a PAT for the caller. Two unnamed
     // PATs minted back-to-back must NOT collide on `unique (member_id, name)` —

@@ -104,12 +104,69 @@ set search_path to pg_catalog, {{schema}}, public, pg_temp
 ;
 
 -------------------------------------------------------------------------------
+-- set_group_admin
+-- Promote/demote a group to/from an ADMIN GROUP of its space — toggles the
+-- group's own principal_space.admin. An admin group's space-admin authority
+-- flows to its direct-member users (is_principal_space_admin); group membership
+-- alone still confers nothing. Operates on the group's existing roster row (a
+-- group is rostered on creation), so it's an UPDATE, not an upsert. Demotion is
+-- guarded by enforce_last_admin (the principal_space_keep_admin_upd constraint
+-- trigger) — it can't strip the space's last effective admin. Rejects a
+-- non-group principal. Returns true if the group's roster row was updated.
+-------------------------------------------------------------------------------
+create or replace function {{schema}}.set_group_admin
+( _space_id uuid
+, _group_id uuid
+, _admin bool
+)
+returns bool
+as $func$
+declare
+  _updated bool;
+begin
+  if not exists
+  (
+    select 1
+    from {{schema}}.principal p
+    where p.id = _group_id
+    and p.kind = 'g'
+  ) then
+    raise exception
+      'principal % is not a group', _group_id
+      using errcode = '22023'
+      , hint = 'set_group_admin applies only to groups';
+  end if;
+
+  with upd as
+  (
+    update {{schema}}.principal_space
+    set admin = _admin
+    where principal_id = _group_id
+    and space_id = _space_id
+    returning 1
+  )
+  select exists (select 1 from upd) into _updated;
+
+  return _updated;
+end;
+$func$ language plpgsql volatile security invoker
+set search_path to pg_catalog, {{schema}}, public, pg_temp
+;
+
+-------------------------------------------------------------------------------
 -- remove_principal_from_space
--- Removes a principal from a space and cascades: scrubs its tree_access grants
--- and its group_member rows in that space (both as a member and, if it is a
--- group, its members). Returns true if the principal was a member of the space.
--- (Space-scoped only; the principal row itself and any other spaces are left
--- untouched.)
+-- Removes a user/agent member from a space and cascades: scrubs its tree_access
+-- grants and its group_member rows in that space. Returns true if the principal
+-- was a member of the space. (Space-scoped only; the principal row itself and
+-- any other spaces are left untouched.)
+--
+-- Groups are rejected: a group is rostered into its space on creation
+-- (create_group → add_principal_to_space) and leaves only when the group itself
+-- is deleted (delete_principal, which cascades its principal_space / group_member
+-- / tree_access rows). Removing just the roster row here would orphan the group —
+-- it would still exist in `principal` (resolvable via list_space_groups) but
+-- vanish from the roster (list_space_principals / principal.resolve) and lose its
+-- grants, re-creating the TNT-160 "group not on the roster" state.
 -------------------------------------------------------------------------------
 create or replace function {{schema}}.remove_principal_from_space
 ( _space_id uuid
@@ -117,6 +174,24 @@ create or replace function {{schema}}.remove_principal_from_space
 )
 returns bool
 as $func$
+declare
+  _removed bool;
+begin
+  if exists
+  (
+    select 1
+    from {{schema}}.principal p
+    where p.id = _principal_id
+    and p.kind = 'g'
+  ) then
+    raise exception
+      'cannot remove group % from space %: delete the group instead', _principal_id, _space_id
+      using errcode = '23514'
+      , hint = 'a group leaves a space only by being deleted (group delete / delete_principal)';
+  end if;
+
+  -- The data-modifying CTEs must sit at the top level of the statement (Postgres
+  -- forbids them inside a subquery / EXISTS), so collect the result via SELECT INTO.
   with del_grants as
   (
     delete from {{schema}}.tree_access
@@ -127,7 +202,7 @@ as $func$
   (
     delete from {{schema}}.group_member
     where space_id = _space_id
-    and (member_id = _principal_id or group_id = _principal_id)
+    and member_id = _principal_id
   )
   , del_membership as
   (
@@ -136,8 +211,11 @@ as $func$
     and principal_id = _principal_id
     returning 1
   )
-  select exists (select 1 from del_membership)
-$func$ language sql volatile security invoker
+  select exists (select 1 from del_membership) into _removed;
+
+  return _removed;
+end;
+$func$ language plpgsql volatile security invoker
 set search_path to pg_catalog, {{schema}}, public, pg_temp
 ;
 
