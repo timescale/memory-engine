@@ -114,29 +114,43 @@ set search_path to pg_catalog, {{schema}}, public, pg_temp
 
 -------------------------------------------------------------------------------
 -- _join_via_invitation
--- The shared join body for accepting an invitation: add the user to the space
--- (add_principal_to_space also grants owner@home) and, when a share level is
--- set, grant it at the shared root 'share'. Used by accept_space_invitation
--- (and, in the magic-link work, redeem_invitation) so both paths join the same
--- way. Caller is responsible for stamping accepted_at / recording redemption.
+-- The shared join body for accepting / redeeming an invitation, identified by
+-- id: add the user to the space (add_principal_to_space also grants owner@home)
+-- and, when a share level is set, grant it at the shared root 'share'. Used by
+-- accept_space_invitation and redeem_invitation so both paths join the same way.
+-- The granted privileges (admin, share_access, target space) are read from the
+-- invitation row itself — never passed in — so no caller can join a user with
+-- more access than the invitation specifies. Caller is responsible for stamping
+-- accepted_at / recording the redemption. A no-op if the invitation is gone.
 -------------------------------------------------------------------------------
+{{fn _join_via_invitation(_invitation_id uuid, _user_id uuid) returns void}}
 create or replace function {{schema}}._join_via_invitation
-( _space_id     uuid
-, _user_id      uuid
-, _admin        bool
-, _share_access int
+( _invitation_id uuid
+, _user_id       uuid
 )
 returns void
 as $func$
+declare
+  inv record;
 begin
-  perform {{schema}}.add_principal_to_space(_space_id, _user_id, _admin);
-  if _share_access is not null then
-    perform {{schema}}.grant_tree_access(_space_id, _user_id, 'share'::ltree, _share_access);
+  select space_id, admin, share_access
+  into inv
+  from {{schema}}.space_invitation
+  where id = _invitation_id;
+
+  if not found then
+    return;
+  end if;
+
+  perform {{schema}}.add_principal_to_space(inv.space_id, _user_id, inv.admin);
+  if inv.share_access is not null then
+    perform {{schema}}.grant_tree_access(inv.space_id, _user_id, 'share'::ltree, inv.share_access);
   end if;
 end;
 $func$ language plpgsql volatile security invoker
 set search_path to pg_catalog, {{schema}}, public, pg_temp
 ;
+{{endfn}}
 
 -------------------------------------------------------------------------------
 -- list_pending_invitations_for_email
@@ -209,7 +223,7 @@ begin
     return;
   end if;
 
-  perform {{schema}}._join_via_invitation(inv.space_id, _user_id, inv.admin, inv.share_access);
+  perform {{schema}}._join_via_invitation(inv.id, _user_id);
   update {{schema}}.space_invitation set accepted_at = pg_catalog.now() where id = inv.id;
 
   return query
@@ -306,7 +320,7 @@ begin
     end if;
   end if;
 
-  perform {{schema}}._join_via_invitation(inv.space_id, _user_id, inv.admin, inv.share_access);
+  perform {{schema}}._join_via_invitation(inv.id, _user_id);
   insert into {{schema}}.space_invitation_redemption (invitation_id, user_id)
   values (inv.id, _user_id)
   on conflict (invitation_id, user_id) do nothing;
