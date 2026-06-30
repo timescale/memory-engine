@@ -812,6 +812,14 @@ describe("control-plane functions", () => {
       expect(accepted[0]?.admin).toBe(true);
       expect(accepted[0]?.share_access).toBe(3);
 
+      // accepting records a redemption row too (same audit as redeem_invitation)
+      const [red] = await sql.unsafe(
+        `select count(*)::int as n from ${s}.space_invitation_redemption
+         where invitation_id = $1 and user_id = $2`,
+        [inviteId, userId],
+      );
+      expect(red?.n).toBe(1);
+
       // joined as admin, with owner@home (add_principal_to_space) + owner@share
       const [ps] = await sql.unsafe(
         `select admin from ${s}.principal_space where space_id=$1 and principal_id=$2`,
