@@ -56,6 +56,7 @@ const EXPECTED_MIGRATIONS = [
 
 const EXPECTED_FUNCTIONS = [
   "agent_tree_access",
+  "enforce_group_space_coherence",
   "is_principal_in_space",
   "is_principal_space_admin",
   "member_groups",
@@ -732,6 +733,48 @@ describe("control-plane functions", () => {
     });
   });
 
+  test("a group's principal_space row is pinned to its own space (coherence trigger)", async () => {
+    await withTestCore(sql, {}, async (core) => {
+      const s = core.schema;
+      const [a] = await sql.unsafe(`select ${s}.create_space($1, $2) as id`, [
+        randomSlug(),
+        "A",
+      ]);
+      const [b] = await sql.unsafe(`select ${s}.create_space($1, $2) as id`, [
+        randomSlug(),
+        "B",
+      ]);
+      const spaceA = a?.id as string;
+      const spaceB = b?.id as string;
+      // create_group rosters the group into space A (admin=false)
+      const [grp] = await sql.unsafe(`select ${s}.create_group($1, $2) as id`, [
+        spaceA,
+        "team",
+      ]);
+      const groupId = grp?.id as string;
+
+      // a DIRECT insert that bypasses add_principal_to_space's guard, rostering
+      // the (space A) group into space B, is rejected by the coherence trigger
+      // (the half of the invariant that can't be a composite FK).
+      await expectReject(() =>
+        sql.unsafe(
+          `insert into ${s}.principal_space (space_id, principal_id, admin)
+           values ($1, $2, false)`,
+          [spaceB, groupId],
+        ),
+      );
+
+      // a direct insert into the group's OWN space is fine (idempotent upsert
+      // target already exists, so use a conflict-free no-op check instead)
+      const [ok] = await sql.unsafe(
+        `select count(*)::int as n from ${s}.principal_space
+         where principal_id = $1 and space_id = $2`,
+        [groupId, spaceA],
+      );
+      expect(Number(ok?.n)).toBe(1);
+    });
+  });
+
   test("remove_tree_access_grant drops the grant", async () => {
     await withTestCore(sql, {}, async (core) => {
       const s = core.schema;
@@ -1315,6 +1358,7 @@ describe("migration behavior", () => {
       const triggers: [string, string][] = [
         ["principal_space", "principal_space_keep_admin_del"],
         ["principal_space", "principal_space_keep_admin_upd"],
+        ["principal_space", "principal_space_group_space_coherence"],
         ["group_member", "group_member_keep_admin_del"],
       ];
 
