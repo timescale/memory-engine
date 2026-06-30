@@ -64,6 +64,12 @@ import incremental008 from "./incremental/008_principal_name.sql" with {
 import incremental009 from "./incremental/009_invitation_links.sql" with {
   type: "text",
 };
+import incremental010 from "./incremental/010_roster_existing_groups.sql" with {
+  type: "text",
+};
+import incremental011 from "./incremental/011_group_member_space_fk.sql" with {
+  type: "text",
+};
 import provisionSql from "./provision.sql" with { type: "text" };
 
 const DIR = "packages/database/core/migrate";
@@ -109,6 +115,16 @@ const incrementals: Migration[] = [
     name: "009_invitation_links",
     file: "incremental/009_invitation_links.sql",
     sql: incremental009,
+  },
+  {
+    name: "010_roster_existing_groups",
+    file: "incremental/010_roster_existing_groups.sql",
+    sql: incremental010,
+  },
+  {
+    name: "011_group_member_space_fk",
+    file: "incremental/011_group_member_space_fk.sql",
+    sql: incremental011,
   },
 ];
 

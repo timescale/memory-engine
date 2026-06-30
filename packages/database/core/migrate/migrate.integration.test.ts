@@ -50,6 +50,8 @@ const EXPECTED_MIGRATIONS = [
   "007_space_invitation",
   "008_principal_name",
   "009_invitation_links",
+  "010_roster_existing_groups",
+  "011_group_member_space_fk",
 ];
 
 const EXPECTED_FUNCTIONS = [
@@ -58,6 +60,7 @@ const EXPECTED_FUNCTIONS = [
   "is_principal_space_admin",
   "member_groups",
   "member_tree_access",
+  "set_group_admin",
   "update_updated_at",
   "user_tree_access",
 ];
@@ -684,6 +687,48 @@ describe("control-plane functions", () => {
       // the group itself and its own grant are untouched
       expect(await count("principal_space", "principal_id", groupId)).toBe(1);
       expect(await count("tree_access", "principal_id", groupId)).toBe(1);
+    });
+  });
+
+  test("group_member.space_id is pinned to the group's space (composite FK)", async () => {
+    await withTestCore(sql, {}, async (core) => {
+      const s = core.schema;
+      const [a] = await sql.unsafe(`select ${s}.create_space($1, $2) as id`, [
+        randomSlug(),
+        "A",
+      ]);
+      const [b] = await sql.unsafe(`select ${s}.create_space($1, $2) as id`, [
+        randomSlug(),
+        "B",
+      ]);
+      const spaceA = a?.id as string;
+      const spaceB = b?.id as string;
+      const userId = await v7();
+      await sql.unsafe(`select ${s}.create_user($1, $2)`, [userId, "frank"]);
+      const [grp] = await sql.unsafe(`select ${s}.create_group($1, $2) as id`, [
+        spaceA,
+        "team",
+      ]);
+      const groupId = grp?.id as string;
+
+      // the group belongs to space A; tagging a membership with space B is
+      // rejected by the composite FK (group_id, space_id) -> principal(...)
+      await expectReject(() =>
+        sql.unsafe(`select ${s}.add_group_member($1, $2, $3, $4)`, [
+          spaceB,
+          groupId,
+          userId,
+          false,
+        ]),
+      );
+
+      // the group's own space works
+      await sql.unsafe(`select ${s}.add_group_member($1, $2, $3, $4)`, [
+        spaceA,
+        groupId,
+        userId,
+        false,
+      ]);
     });
   });
 
