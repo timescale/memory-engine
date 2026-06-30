@@ -19,6 +19,7 @@ create or replace function {{schema}}._invitation_valid
 returns bool
 as $func$
   select i.revoked_at is null
+     and i.declined_at is null
      and (i.expires_at is null or i.expires_at > pg_catalog.now())
      -- single-use email invite: consumed once accepted_at is stamped.
      and i.accepted_at is null
@@ -66,9 +67,9 @@ as $func$
     (space_id, email, admin, share_access, invited_by, token_lookup, token_hash, expires_at, max_uses)
   values
     (_space_id, _email, _admin, _share_access, _invited_by, _token_lookup, _token_hash, _expires_at, _max_uses)
-  -- re-inviting the same email upserts the pending row (matches the partial
-  -- unique index predicate). Open links (email null) never conflict here.
-  on conflict (space_id, email) where email is not null and accepted_at is null and revoked_at is null do update set
+  -- re-inviting the same email upserts the active pending row (matches the
+  -- partial unique index predicate). Open links (email null) never conflict here.
+  on conflict (space_id, email) where email is not null and accepted_at is null and revoked_at is null and declined_at is null do update set
     admin = excluded.admin
   , share_access = excluded.share_access
   , invited_by = excluded.invited_by -- updated_at maintained by the before-update trigger
@@ -121,6 +122,7 @@ as $func$
   where i.space_id = _space_id
   and i.accepted_at is null
   and i.revoked_at is null
+  and i.declined_at is null
   order by i.created_at
 $func$ language sql stable strict security invoker
 set search_path to pg_catalog, {{schema}}, public, pg_temp
@@ -129,9 +131,10 @@ set search_path to pg_catalog, {{schema}}, public, pg_temp
 
 -------------------------------------------------------------------------------
 -- revoke_space_invitation
--- Delete a pending invitation by email. Returns true if one was removed. An
--- already-accepted invitation is not revocable here (the user is a member;
--- use remove_principal_from_space).
+-- Revoke the active pending invitation for an email by stamping revoked_at (a
+-- soft delete — the row persists for audit). Returns true if one was revoked. An
+-- already-accepted invitation is not revocable here (the user is a member; use
+-- remove_principal_from_space); an already-revoked/declined one is a no-op.
 -------------------------------------------------------------------------------
 create or replace function {{schema}}.revoke_space_invitation
 ( _space_id uuid
@@ -139,15 +142,18 @@ create or replace function {{schema}}.revoke_space_invitation
 )
 returns bool
 as $func$
-  with d as
+  with u as
   (
-    delete from {{schema}}.space_invitation
+    update {{schema}}.space_invitation
+    set revoked_at = pg_catalog.now()
     where space_id = _space_id
     and email = _email
     and accepted_at is null
+    and revoked_at is null
+    and declined_at is null
     returning 1
   )
-  select exists (select 1 from d)
+  select exists (select 1 from u)
 $func$ language sql volatile security invoker
 set search_path to pg_catalog, {{schema}}, public, pg_temp
 ;
@@ -276,9 +282,11 @@ set search_path to pg_catalog, {{schema}}, public, pg_temp
 
 -------------------------------------------------------------------------------
 -- decline_space_invitation
--- Decline (delete) ONE pending invitation by id, gated on _email so a caller
--- can only decline an invitation addressed to their own verified email. Returns
--- true if a pending row was removed.
+-- Decline ONE active invitation by id by stamping declined_at (a soft delete —
+-- the row persists for audit, and re-inviting the email is allowed since the
+-- pending-unique index excludes declined rows). Gated on _email so a caller can
+-- only decline an invitation addressed to their own verified email. Returns true
+-- if an active row was declined.
 -------------------------------------------------------------------------------
 create or replace function {{schema}}.decline_space_invitation
 ( _email         citext
@@ -286,15 +294,18 @@ create or replace function {{schema}}.decline_space_invitation
 )
 returns bool
 as $func$
-  with d as
+  with u as
   (
-    delete from {{schema}}.space_invitation
+    update {{schema}}.space_invitation
+    set declined_at = pg_catalog.now()
     where id = _invitation_id
     and email = _email
     and accepted_at is null
+    and revoked_at is null
+    and declined_at is null
     returning 1
   )
-  select exists (select 1 from d)
+  select exists (select 1 from u)
 $func$ language sql volatile security invoker
 set search_path to pg_catalog, {{schema}}, public, pg_temp
 ;
@@ -374,10 +385,11 @@ set search_path to pg_catalog, {{schema}}, public, pg_temp
 
 -------------------------------------------------------------------------------
 -- revoke_invitation_by_id
--- Revoke any invitation by id (an open link or an email invite) by stamping
--- revoked_at — it then disappears from the lists and can no longer be redeemed.
--- (Email invites can also be deleted by email via revoke_space_invitation.)
--- Returns true if an active row was revoked.
+-- Revoke any active invitation by id (an open link or an email invite) by
+-- stamping revoked_at — it then disappears from the lists and can no longer be
+-- redeemed. (Email invites can also be revoked by email via
+-- revoke_space_invitation.) A no-op on an already-terminal row. Returns true if
+-- an active row was revoked.
 -------------------------------------------------------------------------------
 create or replace function {{schema}}.revoke_invitation_by_id
 ( _space_id      uuid
@@ -391,8 +403,9 @@ as $func$
     set revoked_at = pg_catalog.now()
     where id = _invitation_id
     and space_id = _space_id
-    and revoked_at is null
     and accepted_at is null
+    and revoked_at is null
+    and declined_at is null
     returning 1
   )
   select exists (select 1 from u)
