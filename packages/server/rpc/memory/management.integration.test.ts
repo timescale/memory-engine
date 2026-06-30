@@ -516,6 +516,126 @@ test("grant.list: an agent's owner can list its grants", async () => {
   );
 });
 
+test("grant.set/remove: an agent's owner can grant at an unowned path (TNT-165)", async () => {
+  // A member who is NOT a space admin and does NOT own the target subtree — they
+  // hold only write@share.work (level 2, not owner) — can still grant and revoke
+  // access for their OWN agent there. Agent access is clamped to the owner's, so
+  // this self-service can't escalate beyond what the owner already has.
+  const core = engineCore.coreStore(sql, coreSchema);
+  const member = await makeUser();
+  await call("principal.add", { principalId: member });
+  // real, non-owner write access for the member at share.work
+  await call("grant.set", {
+    principalId: member,
+    treePath: "share/work",
+    access: 2,
+  });
+  const agentId = await makeAgent(member);
+  await call("principal.add", { principalId: agentId });
+
+  const memberTa = await core.buildTreeAccess(member, space.id);
+  const as = { principalId: member, treeAccess: memberTa, admin: false };
+
+  // they can grant their own agent at share.work.sub despite holding no owner
+  // grant there (the agent-ownership bypass, not admin/owner, is what allows it)
+  expect(
+    (
+      await call<{ granted: boolean }>(
+        "grant.set",
+        { principalId: agentId, treePath: "share/work/sub", access: 2 },
+        as,
+      )
+    ).granted,
+  ).toBe(true);
+
+  // proof it's the agent-ownership doing the work: granting the SAME path to a
+  // plain user (not the caller's agent) is forbidden for this same member
+  const otherUser = await makeUser();
+  await expectAppError(
+    call(
+      "grant.set",
+      { principalId: otherUser, treePath: "share/work/sub", access: 2 },
+      as,
+    ),
+    "FORBIDDEN",
+  );
+
+  // the grant is EFFECTIVE, clamped to the owner's write (min(2, 2) = 2)
+  const agentTa = await core.buildTreeAccess(agentId, space.id);
+  expect(agentTa).toContainEqual({ tree_path: "share.work.sub", access: 2 });
+
+  // they can revoke it too
+  expect(
+    (
+      await call<{ removed: boolean }>(
+        "grant.remove",
+        { principalId: agentId, treePath: "share/work/sub" },
+        as,
+      )
+    ).removed,
+  ).toBe(true);
+
+  // a stranger who doesn't own the agent (and isn't admin/owner) cannot
+  const stranger = await makeUser();
+  const asStranger = {
+    principalId: stranger,
+    treeAccess: [] as TreeAccess,
+    admin: false,
+  };
+  await expectAppError(
+    call(
+      "grant.set",
+      { principalId: agentId, treePath: "share/work/sub", access: 2 },
+      asStranger,
+    ),
+    "FORBIDDEN",
+  );
+  await expectAppError(
+    call(
+      "grant.remove",
+      { principalId: agentId, treePath: "share/work/sub" },
+      asStranger,
+    ),
+    "FORBIDDEN",
+  );
+});
+
+test("an agent grant is clamped DOWN to the owner's level, not dropped (TNT-165)", async () => {
+  // The headline case: a member holding only READ at share.work grants their
+  // agent WRITE at share.work.sub. The grant is allowed (self-service) and the
+  // agent ends up with READ there — clamped down to the owner's level, not
+  // dropped to nothing.
+  const core = engineCore.coreStore(sql, coreSchema);
+  const member = await makeUser();
+  await call("principal.add", { principalId: member });
+  await call("grant.set", {
+    principalId: member,
+    treePath: "share/work",
+    access: 1,
+  });
+  const agentId = await makeAgent(member);
+  await call("principal.add", { principalId: agentId });
+  const as = {
+    principalId: member,
+    treeAccess: await core.buildTreeAccess(member, space.id),
+    admin: false,
+  };
+
+  expect(
+    (
+      await call<{ granted: boolean }>(
+        "grant.set",
+        { principalId: agentId, treePath: "share/work/sub", access: 2 },
+        as,
+      )
+    ).granted,
+  ).toBe(true);
+
+  // owner holds read(1) at share.work → the agent's write(2) clamps to read(1)
+  const agentTa = await core.buildTreeAccess(agentId, space.id);
+  expect(agentTa).toContainEqual({ tree_path: "share.work.sub", access: 1 });
+});
+
 test("group member management allows a group admin (not a space admin)", async () => {
   // owner creates a group and makes `lead` an admin of it
   const { id: groupId } = await call<{ id: string }>("group.create", {

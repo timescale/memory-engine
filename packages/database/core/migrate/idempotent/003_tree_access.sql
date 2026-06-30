@@ -99,37 +99,32 @@ as $func$
     ) a
     cross join lateral {{schema}}.user_tree_access(a.owner_id, _space_id) x
   )
+  -- An agent's effective access is its grants clamped to its owner's: at every
+  -- path on a shared lineage the agent gets least(agent, owner). So it can never
+  -- exceed the owner — and, when granted MORE than the owner holds, it clamps
+  -- DOWN to the owner's level rather than vanishing (e.g. owner read@foo + agent
+  -- write@foo.bar -> the agent gets read@foo.bar). Two arms cover the two nesting
+  -- directions; the deeper path wins each pairing, and max() collapses duplicate
+  -- paths to the highest surviving level. A path the owner doesn't cover at all
+  -- produces no row, so the agent gets nothing there.
   select
     x.tree_path
   , max(x.access)
   from
   (
-    -- take the agent's access when it is covered by the owner's access
+    -- owner grant is at-or-above the agent's path: clamp the agent's grant down
     select
       aa.tree_path
-    , aa.access
+    , least(aa.access, oa.access) as access
     from agent_access aa
-    where exists
-    (
-      -- the owner must have access that is the same or greater than the agent's
-      select 1
-      from owner_access oa
-      where oa.tree_path @> aa.tree_path
-      and oa.access >= aa.access
-    )
-    union
-    -- when the agent has more access than the owner, take the owner's access
+    inner join owner_access oa on (oa.tree_path @> aa.tree_path)
+    union all
+    -- agent grant is at-or-above the owner's (narrower) path: take min at the owner's
     select
       oa.tree_path
-    , oa.access
-    from owner_access oa
-    where exists
-    (
-      select 1
-      from agent_access aa
-      where aa.tree_path @> oa.tree_path
-      and aa.access >= oa.access
-    )
+    , least(aa.access, oa.access) as access
+    from agent_access aa
+    inner join owner_access oa on (aa.tree_path @> oa.tree_path)
   ) x
   group by x.tree_path
 $func$ language sql stable security invoker
