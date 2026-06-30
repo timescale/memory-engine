@@ -13,6 +13,7 @@ import { HOSTED } from "./api/bootstrap.ts";
 import { App } from "./app.tsx";
 import { AuthGate } from "./components/AuthGate.tsx";
 import { LocalAccountGate } from "./components/account/LocalAccountGate.tsx";
+import { InviteLandingPage } from "./components/InviteLandingPage.tsx";
 import { LoginPage } from "./components/LoginPage.tsx";
 import "./styles.css";
 
@@ -22,6 +23,16 @@ import "./styles.css";
 // stray /login must fall through to the SPA rather than render a page whose
 // sign-in calls would 404.
 const isLoginPage = HOSTED && window.location.pathname === "/login";
+
+// Magic-link redeem landing (`/invite/<token>`). Hosted-only: it signs the
+// visitor in (cookie session) and redeems against the user RPC. Under local
+// `me serve` there's no such auth backend, so it falls through to the SPA.
+const inviteToken =
+  HOSTED && window.location.pathname.startsWith("/invite/")
+    ? decodeURIComponent(
+        window.location.pathname.slice("/invite/".length).split("/")[0] ?? "",
+      )
+    : null;
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -43,6 +54,8 @@ createRoot(rootElement).render(
     <QueryClientProvider client={queryClient}>
       {isLoginPage ? (
         <LoginPage />
+      ) : inviteToken ? (
+        <InviteLandingPage token={inviteToken} />
       ) : HOSTED ? (
         <AuthGate>
           <App />

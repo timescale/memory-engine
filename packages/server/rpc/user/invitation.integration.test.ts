@@ -200,3 +200,27 @@ test("invitee methods require a verified email", async () => {
 test("an agent caller is denied the invitee methods", async () => {
   await expectAppError(call("invite.pending", {}, { kind: "a" }), "FORBIDDEN");
 });
+
+test("invite.redeem joins via an open magic link (no email match needed)", async () => {
+  const core = coreStore(sql, coreSchema);
+  const inviterId = (await sql`select uuidv7() as id`)[0]?.id as string;
+  await core.createUser(inviterId, `inviter_${rand(8)}@example.com`);
+  const spaceId = await core.createSpace(rand(12), "LinkSpace");
+  const { token } = await core.createSpaceInvitation(spaceId, null, {
+    admin: false,
+    shareAccess: ACCESS.read,
+    invitedBy: inviterId,
+  });
+
+  const joined = await call<{ spaceSlug: string; spaceName: string }>(
+    "invite.redeem",
+    { token },
+  );
+  expect(joined.spaceName).toBe("LinkSpace");
+  expect(
+    (await core.listSpacesForMember(userId)).some((s) => s.id === spaceId),
+  ).toBe(true);
+
+  // a bogus token is NOT_FOUND
+  await expectAppError(call("invite.redeem", { token: "nope" }), "NOT_FOUND");
+});

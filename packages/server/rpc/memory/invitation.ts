@@ -1,13 +1,15 @@
 /**
  * Space invitation handlers (invite.*) — the admin side.
  *
- * Inviting an email — registered or not — records a **pending** invitation; the
- * invitee joins by explicitly accepting it (invitee-side `invite.*` on the user
- * RPC), never by auto-enrollment. Accepting grants owner@home and, when a share
- * level is set, that level at the shared root.
+ * One unified surface: an `email` invite is email-constrained (only that verified
+ * email may redeem, single-use); an invite with no `email` is an open shareable
+ * link (anyone logged in may redeem, multi-use, optional expiry / max-uses).
+ * Every invite is **pending** — the invitee joins by explicitly accepting it
+ * (invitee-side `invite.*` on the user RPC) or by redeeming its token link; no
+ * path auto-enrolls. `invite.create` mints and returns the magic-link token once.
  *
- * Authority: all three methods require space-admin (structural authority over
- * the roster, like group management — owner@root alone is not enough). Inviting
+ * Authority: all methods require space-admin (structural authority over the
+ * roster, like group management — owner@root alone is not enough). Inviting
  * people, optionally as admins, is a deliberate structural act.
  */
 import type {
@@ -15,12 +17,15 @@ import type {
   InviteCreateResult,
   InviteListParams,
   InviteListResult,
+  InviteRevokeByIdParams,
+  InviteRevokeByIdResult,
   InviteRevokeParams,
   InviteRevokeResult,
 } from "@memory.build/protocol/space";
 import {
   inviteCreateParams,
   inviteListParams,
+  inviteRevokeByIdParams,
   inviteRevokeParams,
 } from "@memory.build/protocol/space";
 import { buildRegistry } from "../registry";
@@ -41,17 +46,20 @@ async function inviteCreate(
   requireSpaceAdmin(ctx);
   const admin = params.admin ?? false;
   const shareAccess = params.shareAccess ?? null;
+  const email = params.email ?? null; // null → an open shareable link
 
-  // Always record a pending invitation — no auto-enroll, even for an existing
-  // user. The invitee joins by accepting it (invite.accept on the user RPC).
-  const invitationId = await guardCore(() =>
-    ctx.core.createSpaceInvitation(ctx.space.id, params.email, {
+  // Always pending — no auto-enroll. The invitee joins by accepting (email
+  // invite) or by redeeming the returned token link. The token is shown once.
+  const { id, token } = await guardCore(() =>
+    ctx.core.createSpaceInvitation(ctx.space.id, email, {
       admin,
       shareAccess,
       invitedBy: ctx.principalId,
+      expiresAt: params.expiresAt ? new Date(params.expiresAt) : null,
+      maxUses: params.maxUses ?? null,
     }),
   );
-  return { invitationId };
+  return { invitationId: id, token };
 }
 
 async function inviteList(
@@ -78,8 +86,22 @@ async function inviteRevoke(
   return { revoked };
 }
 
+async function inviteRevokeById(
+  params: InviteRevokeByIdParams,
+  context: HandlerContext,
+): Promise<InviteRevokeByIdResult> {
+  assertSpaceRpcContext(context);
+  const ctx = context as SpaceRpcContext;
+  requireSpaceAdmin(ctx);
+  const revoked = await guardCore(() =>
+    ctx.core.revokeInvitationById(ctx.space.id, params.invitationId),
+  );
+  return { revoked };
+}
+
 export const invitationMethods = buildRegistry()
   .register("invite.create", inviteCreateParams, inviteCreate)
   .register("invite.list", inviteListParams, inviteList)
   .register("invite.revoke", inviteRevokeParams, inviteRevoke)
+  .register("invite.revokeById", inviteRevokeByIdParams, inviteRevokeById)
   .build();

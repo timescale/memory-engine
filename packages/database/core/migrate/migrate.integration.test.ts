@@ -35,6 +35,7 @@ const EXPECTED_TABLES = [
   "principal_space",
   "space",
   "space_invitation",
+  "space_invitation_redemption",
   "tree_access",
   "version",
 ];
@@ -48,6 +49,7 @@ const EXPECTED_MIGRATIONS = [
   "006_api_key",
   "007_space_invitation",
   "008_principal_name",
+  "009_invitation_links",
 ];
 
 const EXPECTED_FUNCTIONS = [
@@ -744,10 +746,22 @@ describe("control-plane functions", () => {
       ]);
 
       const email = "invitee@example.com";
+      // Each invite needs a distinct token_lookup (partial unique index).
+      let tok = 0;
       const create = (admin: boolean, share: number | null) =>
         sql.unsafe(
-          `select ${s}.create_space_invitation($1, $2, $3, $4, $5) as id`,
-          [spaceId, email, admin, share, inviterId],
+          `select ${s}.create_space_invitation($1, $2, $3, $4, $5, $6, $7, $8, $9) as id`,
+          [
+            spaceId,
+            email,
+            admin,
+            share,
+            inviterId,
+            `lookup_${tok++}`,
+            `hash_${tok}`,
+            null,
+            null,
+          ],
         );
 
       // create (read share, not admin), then re-create promotes the SAME pending
@@ -863,6 +877,120 @@ describe("control-plane functions", () => {
         [spaceId, email],
       );
       expect(r2?.ok).toBe(false);
+    });
+  });
+
+  test("magic links: redeem_invitation (open multi-use, email-constrained, max_uses, revoke)", async () => {
+    await withTestCore(sql, {}, async (core) => {
+      const s = core.schema;
+      const [sp] = await sql.unsafe(`select ${s}.create_space($1, $2) as id`, [
+        randomSlug(),
+        "Links",
+      ]);
+      const spaceId = sp?.id as string;
+      const inviterId = await v7();
+      await sql.unsafe(`select ${s}.create_user($1, $2)`, [
+        inviterId,
+        "inviter@example.com",
+      ]);
+
+      const mkUser = async (email: string) => {
+        const id = await v7();
+        await sql.unsafe(`select ${s}.create_user($1, $2)`, [id, email]);
+        return id;
+      };
+      const redeem = (lookup: string, hash: string, uid: string, em: string) =>
+        sql.unsafe(`select * from ${s}.redeem_invitation($1, $2, $3, $4)`, [
+          lookup,
+          hash,
+          uid,
+          em,
+        ]);
+
+      // open link (email null), capped at 2 uses
+      const [linkRow] = await sql.unsafe(
+        `select ${s}.create_space_invitation($1,$2,$3,$4,$5,$6,$7,$8,$9) as id`,
+        [spaceId, null, false, 1, inviterId, "lk_open", "h_open", null, 2],
+      );
+      expect(linkRow?.id).toBeTruthy();
+
+      const u1 = await mkUser("u1@example.com");
+      const u2 = await mkUser("u2@example.com");
+      const u3 = await mkUser("u3@example.com");
+
+      // multi-use: two distinct users join with the right token (email ignored)
+      expect(
+        await redeem("lk_open", "h_open", u1, "u1@example.com"),
+      ).toHaveLength(1);
+      expect(
+        await redeem("lk_open", "h_open", u2, "u2@example.com"),
+      ).toHaveLength(1);
+      // wrong hash → nothing
+      expect(
+        await redeem("lk_open", "WRONG", u3, "u3@example.com"),
+      ).toHaveLength(0);
+      // third distinct user exceeds max_uses
+      expect(
+        await redeem("lk_open", "h_open", u3, "u3@example.com"),
+      ).toHaveLength(0);
+
+      // listed as a link with uses=2
+      const listed = await sql.unsafe(
+        `select * from ${s}.list_space_invitations($1)`,
+        [spaceId],
+      );
+      const link = listed.find((r) => r.kind === "link");
+      expect(link?.max_uses).toBe(2);
+      expect(link?.uses).toBe(2);
+
+      // email-constrained link: only the matching email may redeem, single-use
+      const target = "target@example.com";
+      await sql.unsafe(
+        `select ${s}.create_space_invitation($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+        [
+          spaceId,
+          target,
+          false,
+          null,
+          inviterId,
+          "lk_email",
+          "h_email",
+          null,
+          null,
+        ],
+      );
+      const eUser = await mkUser(target);
+      expect(
+        await redeem("lk_email", "h_email", eUser, "wrong@example.com"),
+      ).toHaveLength(0);
+      expect(await redeem("lk_email", "h_email", eUser, target)).toHaveLength(
+        1,
+      );
+      expect(await redeem("lk_email", "h_email", eUser, target)).toHaveLength(
+        0,
+      ); // consumed
+
+      // revoke_invitation_by_id: a fresh link is dead after revoke
+      const [rev] = await sql.unsafe(
+        `select ${s}.create_space_invitation($1,$2,$3,$4,$5,$6,$7,$8,$9) as id`,
+        [spaceId, null, false, null, inviterId, "lk_rev", "h_rev", null, null],
+      );
+      const revId = rev?.id as string;
+      const [ok1] = await sql.unsafe(
+        `select ${s}.revoke_invitation_by_id($1, $2) as ok`,
+        [spaceId, revId],
+      );
+      expect(ok1?.ok).toBe(true);
+      const rUser = await mkUser("r@example.com");
+      expect(
+        await redeem("lk_rev", "h_rev", rUser, "r@example.com"),
+      ).toHaveLength(0);
+      // re-revoke is a no-op
+      const [ok2] = await sql.unsafe(
+        `select ${s}.revoke_invitation_by_id($1, $2) as ok`,
+        [spaceId, revId],
+      );
+      expect(ok2?.ok).toBe(false);
     });
   });
 

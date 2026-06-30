@@ -51,3 +51,14 @@ export type InviteDeclineParams = z.infer<typeof inviteDeclineParams>;
 
 export const inviteDeclineResult = z.object({ declined: z.boolean() });
 export type InviteDeclineResult = z.infer<typeof inviteDeclineResult>;
+
+// invite.redeem — redeem a magic-link token (open link, or an email-constrained
+// link whose email matches the caller), joining the space.
+export const inviteRedeemParams = z.object({ token: z.string() });
+export type InviteRedeemParams = z.infer<typeof inviteRedeemParams>;
+
+export const inviteRedeemResult = z.object({
+  spaceSlug: z.string(),
+  spaceName: z.string(),
+});
+export type InviteRedeemResult = z.infer<typeof inviteRedeemResult>;

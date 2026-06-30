@@ -35,6 +35,8 @@ import {
   inviteDeclineResult,
   invitePendingParams,
   invitePendingResult,
+  inviteRedeemParams,
+  inviteRedeemResult,
 } from "./invitation.ts";
 import {
   spaceCreateParams,
@@ -93,6 +95,7 @@ export const userMethods = {
   "invite.pending": method(invitePendingParams, invitePendingResult),
   "invite.accept": method(inviteAcceptParams, inviteAcceptResult),
   "invite.decline": method(inviteDeclineParams, inviteDeclineResult),
+  "invite.redeem": method(inviteRedeemParams, inviteRedeemResult),
 } as const;
 
 export type UserMethodName = keyof typeof userMethods;

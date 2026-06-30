@@ -259,10 +259,14 @@ export function toSpaceInvitationResponse(
   return {
     id: i.id,
     email: i.email,
+    kind: i.kind,
     admin: i.admin,
     shareAccess: i.shareAccess,
     invitedBy: i.invitedBy,
     invitedByName: i.invitedByName,
+    expiresAt: i.expiresAt?.toISOString() ?? null,
+    maxUses: i.maxUses,
+    uses: i.uses,
     createdAt: i.createdAt.toISOString(),
   };
 }
