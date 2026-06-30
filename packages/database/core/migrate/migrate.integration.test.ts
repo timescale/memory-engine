@@ -865,7 +865,22 @@ describe("control-plane functions", () => {
       );
       expect(d2?.ok).toBe(false);
 
-      // revoke: a fresh pending invite is revocable by the admin once
+      // decline is a SOFT delete: the row persists (declined_at stamped) for
+      // audit, drops off the invitee's list, and frees the email to be re-invited.
+      const [declinedRow] = await sql.unsafe(
+        `select declined_at from ${s}.space_invitation where id = $1`,
+        [declineId],
+      );
+      expect(declinedRow?.declined_at).not.toBeNull();
+      expect(
+        await sql.unsafe(
+          `select * from ${s}.list_pending_invitations_for_email($1)`,
+          [email],
+        ),
+      ).toHaveLength(0);
+
+      // revoke: re-inviting the (now declined) email creates a fresh active row,
+      // revocable by the admin once (also a soft delete).
       await create(false, null);
       const [r1] = await sql.unsafe(
         `select ${s}.revoke_space_invitation($1, $2) as ok`,
