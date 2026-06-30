@@ -44,37 +44,35 @@ set search_path to pg_catalog, {{schema}}, public, pg_temp
 -- Issue an invitation to a space. _email set → an email-constrained invite
 -- (only that verified email may redeem, single-use), keyed so re-inviting the
 -- same email upserts the pending row; _email null → an open shareable link
--- (any logged-in user may redeem). Every invite carries a magic-link token
--- (_token_lookup + sha256 _token_hash). _share_access null = no share grant;
--- _expires_at / _max_uses bound an open link (ignored for single-use email
--- invites). Returns the id.
+-- (any logged-in user may redeem). Every invite carries a raw magic-link token
+-- (_token, stored as-is so the URL can be re-copied). _share_access null = no
+-- share grant; _expires_at / _max_uses bound an open link (ignored for
+-- single-use email invites). Returns the id.
 -------------------------------------------------------------------------------
-{{fn create_space_invitation(_space_id uuid, _email citext, _admin bool, _share_access int, _invited_by uuid, _token_lookup text, _token_hash text, _expires_at timestamptz, _max_uses int) returns uuid}}
+{{fn create_space_invitation(_space_id uuid, _email citext, _admin bool, _share_access int, _invited_by uuid, _token text, _expires_at timestamptz, _max_uses int) returns uuid}}
 create or replace function {{schema}}.create_space_invitation
 ( _space_id     uuid
 , _email        citext
 , _admin        bool
 , _share_access int
 , _invited_by   uuid
-, _token_lookup text
-, _token_hash   text
+, _token        text
 , _expires_at   timestamptz
 , _max_uses     int
 )
 returns uuid
 as $func$
   insert into {{schema}}.space_invitation
-    (space_id, email, admin, share_access, invited_by, token_lookup, token_hash, expires_at, max_uses)
+    (space_id, email, admin, share_access, invited_by, token, expires_at, max_uses)
   values
-    (_space_id, _email, _admin, _share_access, _invited_by, _token_lookup, _token_hash, _expires_at, _max_uses)
+    (_space_id, _email, _admin, _share_access, _invited_by, _token, _expires_at, _max_uses)
   -- re-inviting the same email upserts the active pending row (matches the
   -- partial unique index predicate). Open links (email null) never conflict here.
   on conflict (space_id, email) where email is not null and accepted_at is null and revoked_at is null and declined_at is null do update set
     admin = excluded.admin
   , share_access = excluded.share_access
   , invited_by = excluded.invited_by -- updated_at maintained by the before-update trigger
-  , token_lookup = excluded.token_lookup
-  , token_hash = excluded.token_hash
+  , token = excluded.token
   , expires_at = excluded.expires_at
   , max_uses = excluded.max_uses
   returning id
@@ -88,12 +86,13 @@ set search_path to pg_catalog, {{schema}}, public, pg_temp
 -- The admin management view: non-terminal invitations for a space — both email-
 -- constrained invites and open links (kind = 'email' | 'link') — with the
 -- inviter's display name, the open-link bounds (expires_at / max_uses), the
--- redemption count (uses), and a derived `valid` flag (_invitation_valid). It
--- deliberately still lists expired / exhausted (but not yet revoked) rows so the
--- admin can see they lapsed; `valid = false` marks them. Excludes accepted
--- (consumed) and revoked rows. Never returns the token.
+-- redemption count (uses), a derived `valid` flag (_invitation_valid), and the
+-- raw token (admin-only — this RPC is space-admin-gated — so the URL can be
+-- re-copied). It deliberately still lists expired / exhausted (but not yet
+-- revoked) rows so the admin can see they lapsed; `valid = false` marks them.
+-- Excludes accepted (consumed), revoked, and declined rows.
 -------------------------------------------------------------------------------
-{{fn list_space_invitations(_space_id uuid) returns table(id uuid, email text, admin bool, share_access int, invited_by uuid, invited_by_name text, created_at timestamptz, kind text, expires_at timestamptz, max_uses int, uses int, valid bool)}}
+{{fn list_space_invitations(_space_id uuid) returns table(id uuid, email text, admin bool, share_access int, invited_by uuid, invited_by_name text, created_at timestamptz, kind text, expires_at timestamptz, max_uses int, uses int, valid bool, token text)}}
 create or replace function {{schema}}.list_space_invitations
 ( _space_id uuid
 )
@@ -110,6 +109,7 @@ returns table
 , max_uses int
 , uses int
 , valid bool
+, token text
 )
 as $func$
   select i.id, i.email::text, i.admin, i.share_access, i.invited_by, p.name::text, i.created_at
@@ -117,6 +117,7 @@ as $func$
        , i.expires_at, i.max_uses
        , (select count(*)::int from {{schema}}.space_invitation_redemption r where r.invitation_id = i.id)
        , {{schema}}._invitation_valid(i.id)
+       , i.token
   from {{schema}}.space_invitation i
   left join {{schema}}.principal p on p.id = i.invited_by
   where i.space_id = _space_id
@@ -312,20 +313,20 @@ set search_path to pg_catalog, {{schema}}, public, pg_temp
 
 -------------------------------------------------------------------------------
 -- redeem_invitation
--- Redeem a magic-link token: validate the token (lookup + sha256 hash equality),
--- not revoked, not expired. If the invite is email-constrained, only the
--- matching verified email may redeem and it is single-use (consumed via
--- accepted_at); if it is an open link, any user may redeem, bounded by max_uses
--- across distinct redeemers. Joins the space (owner@home + share level) and
--- records the redemption. Returns the joined space, or no rows on any failure.
--- The for-update lock on the invite row serializes concurrent redemptions of the
+-- Redeem a magic-link token (matched raw, by equality): not revoked, not
+-- expired, not exhausted. If the invite is email-constrained, only the matching
+-- verified email may redeem and it is single-use (consumed via accepted_at); if
+-- it is an open link, any user may redeem, bounded by max_uses across distinct
+-- redeemers. Joins the space (owner@home + share level) and records the
+-- redemption. Returns the joined space, or no rows on any failure. The
+-- for-update lock on the invite row serializes concurrent redemptions of the
 -- same link (so the max_uses count is consistent).
 -------------------------------------------------------------------------------
+{{fn redeem_invitation(_token text, _user_id uuid, _user_email citext) returns table(space_id uuid, slug text, name text, admin bool, share_access int)}}
 create or replace function {{schema}}.redeem_invitation
-( _token_lookup text
-, _token_hash   text
-, _user_id      uuid
-, _user_email   citext
+( _token      text
+, _user_id    uuid
+, _user_email citext
 )
 returns table
 ( space_id     uuid
@@ -338,25 +339,24 @@ as $func$
 declare
   inv record;
 begin
-  if _token_lookup is null or _token_hash is null then
+  if _token is null then
     return;
   end if;
 
   -- Lock the row by its token; the for-update lock serializes concurrent
   -- redemptions of the same link so _invitation_valid's max_uses count is
   -- consistent.
-  select i.id, i.space_id, i.email, i.admin, i.share_access, i.token_hash
+  select i.id, i.space_id, i.email, i.admin, i.share_access
   into inv
   from {{schema}}.space_invitation i
-  where i.token_lookup = _token_lookup
+  where i.token = _token
   for update;
 
-  -- not found / hash mismatch (constant-ish: still requires the row)
-  if not found or inv.token_hash is distinct from _token_hash then
+  if not found then
     return;
   end if;
 
-  -- shared validity (revoked / expired / single-use accepted / max_uses) ...
+  -- shared validity (revoked / expired / declined / single-use / max_uses) ...
   if not {{schema}}._invitation_valid(inv.id) then
     return;
   end if;
@@ -382,6 +382,7 @@ end;
 $func$ language plpgsql volatile security invoker
 set search_path to pg_catalog, {{schema}}, public, pg_temp
 ;
+{{endfn}}
 
 -------------------------------------------------------------------------------
 -- revoke_invitation_by_id

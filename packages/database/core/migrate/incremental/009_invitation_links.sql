@@ -5,11 +5,12 @@
 -- multi-use, bounded by an optional expiry / max-uses, revocable.
 
 alter table {{schema}}.space_invitation
-  -- the magic-link credential: an indexed lookup id + a sha256 of the secret
-  -- (equality-compared, like api_key). Nullable — legacy email invites created
-  -- before this migration have no token and stay accept-by-id only.
-  add column token_lookup text
-, add column token_hash   text
+  -- the magic-link credential: the raw, opaque, high-entropy token, stored as-is
+  -- (NOT hashed) so an admin can re-copy the invite URL — an invite link is a
+  -- scoped, revocable, capped bearer link, not a show-once secret like an api
+  -- key. Nullable: legacy email invites created before this migration have no
+  -- token and stay accept-by-id only.
+  add column token        text
   -- open-link knobs (ignored for email invites, which are single-use):
 , add column expires_at   timestamptz                 -- null = never expires
 , add column max_uses     int                         -- null = unlimited redemptions
@@ -22,10 +23,11 @@ alter table {{schema}}.space_invitation
 -- email is now optional: null = an open shareable link (not addressed to anyone).
 alter table {{schema}}.space_invitation alter column email drop not null;
 
--- O(1) token lookup; partial so the many token-less legacy rows don't collide.
+-- O(1) token lookup + uniqueness; partial so the many token-less legacy rows
+-- don't collide.
 create unique index space_invitation_token_uq
-  on {{schema}}.space_invitation (token_lookup)
-  where token_lookup is not null;
+  on {{schema}}.space_invitation (token)
+  where token is not null;
 
 -- The pending-email uniqueness (at most one *active* invite per (space, email))
 -- excludes every terminal state and link rows (email null), so re-inviting an

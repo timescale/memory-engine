@@ -746,19 +746,18 @@ describe("control-plane functions", () => {
       ]);
 
       const email = "invitee@example.com";
-      // Each invite needs a distinct token_lookup (partial unique index).
+      // Each invite needs a distinct token (partial unique index).
       let tok = 0;
       const create = (admin: boolean, share: number | null) =>
         sql.unsafe(
-          `select ${s}.create_space_invitation($1, $2, $3, $4, $5, $6, $7, $8, $9) as id`,
+          `select ${s}.create_space_invitation($1, $2, $3, $4, $5, $6, $7, $8) as id`,
           [
             spaceId,
             email,
             admin,
             share,
             inviterId,
-            `lookup_${tok++}`,
-            `hash_${tok}`,
+            `inv.tok_${tok++}`,
             null,
             null,
           ],
@@ -914,18 +913,17 @@ describe("control-plane functions", () => {
         await sql.unsafe(`select ${s}.create_user($1, $2)`, [id, email]);
         return id;
       };
-      const redeem = (lookup: string, hash: string, uid: string, em: string) =>
-        sql.unsafe(`select * from ${s}.redeem_invitation($1, $2, $3, $4)`, [
-          lookup,
-          hash,
+      const redeem = (token: string, uid: string, em: string) =>
+        sql.unsafe(`select * from ${s}.redeem_invitation($1, $2, $3)`, [
+          token,
           uid,
           em,
         ]);
 
       // open link (email null), capped at 2 uses
       const [linkRow] = await sql.unsafe(
-        `select ${s}.create_space_invitation($1,$2,$3,$4,$5,$6,$7,$8,$9) as id`,
-        [spaceId, null, false, 1, inviterId, "lk_open", "h_open", null, 2],
+        `select ${s}.create_space_invitation($1,$2,$3,$4,$5,$6,$7,$8) as id`,
+        [spaceId, null, false, 1, inviterId, "inv.open", null, 2],
       );
       expect(linkRow?.id).toBeTruthy();
 
@@ -934,22 +932,15 @@ describe("control-plane functions", () => {
       const u3 = await mkUser("u3@example.com");
 
       // multi-use: two distinct users join with the right token (email ignored)
-      expect(
-        await redeem("lk_open", "h_open", u1, "u1@example.com"),
-      ).toHaveLength(1);
-      expect(
-        await redeem("lk_open", "h_open", u2, "u2@example.com"),
-      ).toHaveLength(1);
-      // wrong hash → nothing
-      expect(
-        await redeem("lk_open", "WRONG", u3, "u3@example.com"),
-      ).toHaveLength(0);
+      expect(await redeem("inv.open", u1, "u1@example.com")).toHaveLength(1);
+      expect(await redeem("inv.open", u2, "u2@example.com")).toHaveLength(1);
+      // wrong token → nothing
+      expect(await redeem("inv.WRONG", u3, "u3@example.com")).toHaveLength(0);
       // third distinct user exceeds max_uses
-      expect(
-        await redeem("lk_open", "h_open", u3, "u3@example.com"),
-      ).toHaveLength(0);
+      expect(await redeem("inv.open", u3, "u3@example.com")).toHaveLength(0);
 
-      // still listed (admin view) with uses=2, but marked invalid — it's exhausted
+      // still listed (admin view) with uses=2 + the raw token (re-copyable), but
+      // marked invalid — it's exhausted
       const listed = await sql.unsafe(
         `select * from ${s}.list_space_invitations($1)`,
         [spaceId],
@@ -958,38 +949,25 @@ describe("control-plane functions", () => {
       expect(link?.max_uses).toBe(2);
       expect(link?.uses).toBe(2);
       expect(link?.valid).toBe(false);
+      expect(link?.token).toBe("inv.open");
 
       // email-constrained link: only the matching email may redeem, single-use
       const target = "target@example.com";
       await sql.unsafe(
-        `select ${s}.create_space_invitation($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
-        [
-          spaceId,
-          target,
-          false,
-          null,
-          inviterId,
-          "lk_email",
-          "h_email",
-          null,
-          null,
-        ],
+        `select ${s}.create_space_invitation($1,$2,$3,$4,$5,$6,$7,$8)`,
+        [spaceId, target, false, null, inviterId, "inv.email", null, null],
       );
       const eUser = await mkUser(target);
       expect(
-        await redeem("lk_email", "h_email", eUser, "wrong@example.com"),
+        await redeem("inv.email", eUser, "wrong@example.com"),
       ).toHaveLength(0);
-      expect(await redeem("lk_email", "h_email", eUser, target)).toHaveLength(
-        1,
-      );
-      expect(await redeem("lk_email", "h_email", eUser, target)).toHaveLength(
-        0,
-      ); // consumed
+      expect(await redeem("inv.email", eUser, target)).toHaveLength(1);
+      expect(await redeem("inv.email", eUser, target)).toHaveLength(0); // consumed
 
       // revoke_invitation_by_id: a fresh link is dead after revoke
       const [rev] = await sql.unsafe(
-        `select ${s}.create_space_invitation($1,$2,$3,$4,$5,$6,$7,$8,$9) as id`,
-        [spaceId, null, false, null, inviterId, "lk_rev", "h_rev", null, null],
+        `select ${s}.create_space_invitation($1,$2,$3,$4,$5,$6,$7,$8) as id`,
+        [spaceId, null, false, null, inviterId, "inv.rev", null, null],
       );
       const revId = rev?.id as string;
       const [ok1] = await sql.unsafe(
@@ -998,9 +976,7 @@ describe("control-plane functions", () => {
       );
       expect(ok1?.ok).toBe(true);
       const rUser = await mkUser("r@example.com");
-      expect(
-        await redeem("lk_rev", "h_rev", rUser, "r@example.com"),
-      ).toHaveLength(0);
+      expect(await redeem("inv.rev", rUser, "r@example.com")).toHaveLength(0);
       // re-revoke is a no-op
       const [ok2] = await sql.unsafe(
         `select ${s}.revoke_invitation_by_id($1, $2) as ok`,
@@ -1011,37 +987,33 @@ describe("control-plane functions", () => {
       // expiry is enforced uniformly (the shared _invitation_valid gate):
       // an already-expired open link can't be redeemed.
       await sql.unsafe(
-        `select ${s}.create_space_invitation($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+        `select ${s}.create_space_invitation($1,$2,$3,$4,$5,$6,$7,$8)`,
         [
           spaceId,
           null,
           false,
           null,
           inviterId,
-          "lk_exp",
-          "h_exp",
+          "inv.exp",
           new Date(Date.now() - 60_000).toISOString(),
           null,
         ],
       );
       const xUser = await mkUser("x@example.com");
-      expect(
-        await redeem("lk_exp", "h_exp", xUser, "x@example.com"),
-      ).toHaveLength(0);
+      expect(await redeem("inv.exp", xUser, "x@example.com")).toHaveLength(0);
 
       // ... and an expired *email* invite is neither listed for the invitee nor
       // acceptable (the bug this gate closes).
       const expiredEmail = "expired-invitee@example.com";
       const [eInv] = await sql.unsafe(
-        `select ${s}.create_space_invitation($1,$2,$3,$4,$5,$6,$7,$8,$9) as id`,
+        `select ${s}.create_space_invitation($1,$2,$3,$4,$5,$6,$7,$8) as id`,
         [
           spaceId,
           expiredEmail,
           false,
           null,
           inviterId,
-          "lk_eml_exp",
-          "h_eml_exp",
+          "inv.eml_exp",
           new Date(Date.now() - 60_000).toISOString(),
           null,
         ],

@@ -268,6 +268,7 @@ export function toSpaceInvitationResponse(
     maxUses: i.maxUses,
     uses: i.uses,
     valid: i.valid,
+    token: i.token,
     createdAt: i.createdAt.toISOString(),
   };
 }
