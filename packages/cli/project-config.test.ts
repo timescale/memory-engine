@@ -1,10 +1,18 @@
 /**
  * Tests for the `.me/config.yaml` project-config resolver: walk-up discovery,
  * `--config-dir` override, `.local` per-field override, a fatal error on a
- * malformed file, schema validation, and the memoized process-wide accessor.
+ * malformed file, schema validation, the memoized process-wide accessor, and
+ * the effective-scope space writer (`writeProjectSpace`).
  */
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -13,6 +21,7 @@ import {
   ProjectConfigError,
   resetProjectConfigCache,
   setConfigDirOverride,
+  writeProjectSpace,
 } from "./project-config.ts";
 
 let root: string;
@@ -125,4 +134,103 @@ test("getProjectConfig reads ME_CONFIG_DIR when no override is set", () => {
   writeConfig(root, "space: sp_env\n");
   process.env.ME_CONFIG_DIR = root;
   expect(getProjectConfig()?.space).toBe("sp_env");
+});
+
+// =============================================================================
+// writeProjectSpace — the effective-scope space writer
+// =============================================================================
+
+/** Read a `.me` file's raw text under `dir`. */
+function readRaw(dir: string, local = false): string {
+  return readFileSync(
+    join(dir, ".me", local ? "config.local.yaml" : "config.yaml"),
+    "utf-8",
+  );
+}
+
+/** Discover, asserting the config exists (writer needs a ProjectConfig). */
+function mustDiscover(dir: string) {
+  const cfg = discoverProjectConfig(dir);
+  expect(cfg).toBeDefined();
+  if (!cfg) throw new Error("unreachable");
+  return cfg;
+}
+
+test("writeProjectSpace updates the committed file when it defines space", () => {
+  writeConfig(root, "space: sp_old\ntree: /share/projects/foo\n");
+  const path = writeProjectSpace(mustDiscover(root), { space: "sp_new" });
+  expect(path).toBe(join(root, ".me", "config.yaml"));
+  const cfg = discoverProjectConfig(root);
+  expect(cfg?.space).toBe("sp_new");
+  expect(cfg?.tree).toBe("/share/projects/foo"); // other fields untouched
+  expect(existsSync(join(root, ".me", "config.local.yaml"))).toBe(false);
+});
+
+test("writeProjectSpace targets the .local file when it defines space", () => {
+  writeConfig(root, "space: sp_committed\n");
+  writeConfig(root, "space: sp_local\n", true);
+  const path = writeProjectSpace(mustDiscover(root), { space: "sp_new" });
+  expect(path).toBe(join(root, ".me", "config.local.yaml"));
+  // The committed pin is untouched; the .local override carries the new value.
+  expect(readRaw(root)).toContain("sp_committed");
+  expect(discoverProjectConfig(root)?.space).toBe("sp_new");
+});
+
+test("writeProjectSpace returns undefined when no .me file defines space", () => {
+  writeConfig(root, "tree: /share/projects/foo\n");
+  writeConfig(root, "server: https://local.example\n", true);
+  const path = writeProjectSpace(mustDiscover(root), { space: "sp_new" });
+  expect(path).toBeUndefined();
+  // Nothing was written — no space appears in either file, no file created.
+  expect(readRaw(root)).not.toContain("sp_new");
+  expect(readRaw(root, true)).not.toContain("sp_new");
+});
+
+test("writeProjectSpace preserves comments and formatting", () => {
+  writeConfig(
+    root,
+    "# pinned by the platform team\nserver: https://api.example.com # prod\nspace: sp_old\n",
+  );
+  writeProjectSpace(mustDiscover(root), { space: "sp_new" });
+  const raw = readRaw(root);
+  expect(raw).toContain("# pinned by the platform team");
+  expect(raw).toContain("# prod");
+  expect(raw).toContain("space: sp_new");
+  expect(raw).not.toContain("sp_old");
+});
+
+test("writeProjectSpace writes server: only when given", () => {
+  writeConfig(root, "space: sp_old\n");
+  writeProjectSpace(mustDiscover(root), { space: "sp_a" });
+  expect(readRaw(root)).not.toContain("server:");
+
+  writeProjectSpace(mustDiscover(root), {
+    space: "sp_b",
+    server: "https://other.example.com",
+  });
+  const cfg = discoverProjectConfig(root);
+  expect(cfg?.space).toBe("sp_b");
+  expect(cfg?.server).toBe("https://other.example.com");
+});
+
+test("writeProjectSpace invalidates the process-wide memo", () => {
+  writeConfig(root, "space: sp_before\n");
+  setConfigDirOverride(root);
+  const project = getProjectConfig();
+  expect(project?.space).toBe("sp_before");
+  if (!project) throw new Error("unreachable");
+
+  writeProjectSpace(project, { space: "sp_after" });
+  // No reset: the writer itself must have dropped the memoized value.
+  expect(getProjectConfig()?.space).toBe("sp_after");
+});
+
+test("writeProjectSpace surfaces a malformed target as ProjectConfigError", () => {
+  writeConfig(root, "space: sp_ok\n");
+  const project = mustDiscover(root);
+  // Corrupt the file after discovery — the writer re-validates before editing.
+  writeConfig(root, ":\n  - not: valid: yaml: {[}\n");
+  expect(() => writeProjectSpace(project, { space: "sp_new" })).toThrow(
+    ProjectConfigError,
+  );
 });
