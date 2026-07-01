@@ -2,7 +2,9 @@
  * me group — manage groups in the active space.
  *
  * Groups bundle members (users / agents) so a single tree-access grant covers
- * everyone in the group. Group membership also confers space membership.
+ * everyone in the group. Group membership does not by itself make someone a
+ * space member — a group's grants apply only to members who have also joined the
+ * space directly (see AGENTS.md); joining is the single membership path.
  *
  * - me group list:                       list groups
  * - me group mine:                       list the groups you are in
@@ -38,14 +40,16 @@ import {
 const UUIDV7_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
-/** Resolve a group id from a UUID or name (via group.list). */
-export async function resolveGroupId(
-  memory: MemoryClient,
+/**
+ * Resolve one group id from a UUID (returned as-is) or a name matched
+ * case-insensitively against `groups`. Exits on a miss or an ambiguous name.
+ */
+function resolveGroupInList(
   input: string,
+  groups: { id: string; name: string }[],
   fmt: OutputFormat,
-): Promise<string> {
+): string {
   if (UUIDV7_RE.test(input)) return input;
-  const { groups } = await memory.group.list();
   const lower = input.toLowerCase();
   const matches = groups.filter((g) => g.name.toLowerCase() === lower);
   if (matches.length === 1 && matches[0]) return matches[0].id;
@@ -61,6 +65,35 @@ export async function resolveGroupId(
     output({ error: msg, matches }, fmt, () => {});
   }
   process.exit(1);
+}
+
+/** Resolve a group id from a UUID or name (via group.list). */
+export async function resolveGroupId(
+  memory: MemoryClient,
+  input: string,
+  fmt: OutputFormat,
+): Promise<string> {
+  // Only hit the network for a name; a bare UUID needs no lookup.
+  const groups = UUIDV7_RE.test(input)
+    ? []
+    : (await memory.group.list()).groups;
+  return resolveGroupInList(input, groups, fmt);
+}
+
+/**
+ * Resolve several group ids/names in a single `group.list` round-trip (used by
+ * `me space invite --group … --group …`). Fetches the list only when at least
+ * one input is a name.
+ */
+export async function resolveGroupIds(
+  memory: MemoryClient,
+  inputs: string[],
+  fmt: OutputFormat,
+): Promise<string[]> {
+  const groups = inputs.every((i) => UUIDV7_RE.test(i))
+    ? []
+    : (await memory.group.list()).groups;
+  return inputs.map((i) => resolveGroupInList(i, groups, fmt));
 }
 
 function createGroupListCommand(): Command {

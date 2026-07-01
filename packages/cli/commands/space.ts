@@ -39,7 +39,7 @@ import {
   requireAuth,
   requireSpace,
 } from "../util.ts";
-import { resolveGroupId } from "./group.ts";
+import { resolveGroupIds } from "./group.ts";
 
 /**
  * Resolve a <space> argument against the caller's spaces by slug (exact) or
@@ -465,9 +465,7 @@ function createSpaceInviteCommand(): Command {
         : [DEFAULT_GROUP_NAME];
       const groupsLabel = groupNames.join(", ");
       try {
-        const groupIds = await Promise.all(
-          groupNames.map((g) => resolveGroupId(memory, g, fmt)),
-        );
+        const groupIds = await resolveGroupIds(memory, groupNames, fmt);
         const result = await memory.invite.create({
           email,
           admin: opts.admin === true,
