@@ -226,7 +226,7 @@ function createMemoryCreateCommand(): Command {
         process.exit(1);
       }
 
-      const client = buildMemoryClient(creds);
+      const client = buildMemoryClient(creds, globalOpts);
 
       try {
         const params: Record<string, unknown> = { content };
@@ -265,7 +265,7 @@ function createMemoryGetCommand(): Command {
       requireAuth(creds, fmt);
       requireSpace(creds, fmt);
 
-      const client = buildMemoryClient(creds);
+      const client = buildMemoryClient(creds, globalOpts);
 
       try {
         const memory = UUIDV7_RE.test(ref)
@@ -414,7 +414,7 @@ function createMemorySearchCommand(): Command {
           weights.fulltext = Number.parseFloat(opts.weightFulltext);
       }
 
-      const client = buildMemoryClient(creds);
+      const client = buildMemoryClient(creds, globalOpts);
 
       try {
         const params: Record<string, unknown> = {
@@ -514,7 +514,7 @@ function createMemoryUpdateCommand(): Command {
         process.exit(1);
       }
 
-      const client = buildMemoryClient(creds);
+      const client = buildMemoryClient(creds, globalOpts);
 
       try {
         // update is id-addressed; resolve a tree/name ref to its id first.
@@ -560,7 +560,7 @@ function createMemoryDeleteCommand(): Command {
       requireAuth(creds, fmt);
       requireSpace(creds, fmt);
 
-      const client = buildMemoryClient(creds);
+      const client = buildMemoryClient(creds, globalOpts);
 
       try {
         // A UUID deletes by id; anything else is a tree/name path (the segment
@@ -613,7 +613,7 @@ function createMemoryDeltreeCommand(): Command {
       requireAuth(creds, fmt);
       requireSpace(creds, fmt);
 
-      const client = buildMemoryClient(creds);
+      const client = buildMemoryClient(creds, globalOpts);
 
       try {
         // Always preview first so --dry-run can NEVER delete, and so the
@@ -672,7 +672,7 @@ function createMemoryEditCommand(): Command {
       requireAuth(creds, fmt);
       requireSpace(creds, fmt);
 
-      const client = buildMemoryClient(creds);
+      const client = buildMemoryClient(creds, globalOpts);
 
       try {
         await editMemory(client, id);
@@ -697,7 +697,7 @@ function createMemoryCountCommand(): Command {
       requireAuth(creds, fmt);
       requireSpace(creds, fmt);
 
-      const client = buildMemoryClient(creds);
+      const client = buildMemoryClient(creds, globalOpts);
 
       try {
         const maxCount = parseMaxCount(opts.maxCount);
@@ -728,7 +728,7 @@ function createMemoryTreeCommand(): Command {
       requireAuth(creds, fmt);
       requireSpace(creds, fmt);
 
-      const client = buildMemoryClient(creds);
+      const client = buildMemoryClient(creds, globalOpts);
 
       try {
         const params: Record<string, unknown> = {};
@@ -767,7 +767,7 @@ function createMemoryMoveCommand(): Command {
       requireAuth(creds, fmt);
       requireSpace(creds, fmt);
 
-      const client = buildMemoryClient(creds);
+      const client = buildMemoryClient(creds, globalOpts);
 
       try {
         // Always dry-run first to show preview
@@ -841,7 +841,7 @@ function createMemoryCopyCommand(): Command {
       requireAuth(creds, fmt);
       requireSpace(creds, fmt);
 
-      const client = buildMemoryClient(creds);
+      const client = buildMemoryClient(creds, globalOpts);
 
       try {
         // Always dry-run first to show preview
@@ -982,7 +982,7 @@ function createMemoryExportCommand(): Command {
         };
       }
 
-      const client = buildMemoryClient(creds);
+      const client = buildMemoryClient(creds, globalOpts);
 
       try {
         const result = await client.memory.search(

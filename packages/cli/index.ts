@@ -47,6 +47,10 @@ program
     "--server <url>",
     "server URL (overrides ME_SERVER env and stored default)",
   )
+  .option(
+    "--agent [idOrName]",
+    "act as one of your agents (id or name), sent as X-Me-Agent (overrides ME_AGENT)",
+  )
   .option("--json", "output as JSON")
   .option("--yaml", "output as YAML")
   .option("-x, --expanded", "show list output in expanded (vertical) format");

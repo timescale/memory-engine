@@ -24,14 +24,14 @@ import {
   type TreeAccess,
 } from "@memory.build/engine/core";
 import { type SpaceStore, spaceStore } from "@memory.build/engine/space";
-import { SPACE_HEADER } from "@memory.build/protocol/headers";
+import { AGENT_HEADER, SPACE_HEADER } from "@memory.build/protocol/headers";
 import { debug, span } from "@pydantic/logfire-node";
 import type { Sql } from "postgres";
 import type { Auth, VerifyOAuthAccessToken } from "../auth/betterauth";
 import { error, forbidden, unauthorized } from "../util/response";
 import { extractBearerToken, passesCsrfCheck } from "./authenticate";
 
-export { SPACE_HEADER };
+export { AGENT_HEADER, SPACE_HEADER };
 
 /**
  * The authenticated principal + resolved space for a memory RPC request.
@@ -58,6 +58,13 @@ export interface SpaceAuthContext {
   treeAccess: TreeAccess;
   /** Whether the principal is a space admin (principal_space.admin). */
   admin: boolean;
+  /**
+   * When a human acts as one of their agents via the `X-Me-Agent` header, this
+   * is the *human's* id (the true authenticator), while `principalId`/`ownerId`
+   * are switched to the agent. Null otherwise. Not used for authorization — only
+   * observability/audit.
+   */
+  authenticatedAs: string | null;
 }
 
 export type SpaceAuthResult =
@@ -188,6 +195,52 @@ async function authenticateSpaceInner(
     apiKeyId = null;
   }
 
+  // 4b. X-Me-Agent: a *human* can act as one of their own agents — the request
+  // stays authenticated as the human but is authorized as the agent (grants
+  // clamped to the human by build_tree_access → agent_tree_access). Switching
+  // principalId to the agent (and ownerId to the human) makes every downstream
+  // consumer — the tree_access gate, `~` home nesting, and the admin check —
+  // behave exactly as if the agent had acted.
+  //
+  // Precedence: an agent-issued api key (typically ME_API_KEY) *trumps*
+  // X-Me-Agent. The `ownerId === null` guard is the whole mechanism: only a
+  // human credential (a session or a user PAT) has a null owner, whereas an
+  // agent key resolves via validate_api_key to owner_id = the agent's owner
+  // (non-null). So when the bearer is already an agent, the header is skipped
+  // entirely — not resolved, not validated, never a 403 — because that key *is*
+  // the acting agent and there is nothing to switch. (The header still rides
+  // along on the request; the CLI can't tell an agent key from a user PAT
+  // locally, so the server, which can, is the sole arbiter of this precedence.)
+  let authenticatedAs: string | null = null;
+  const agentHeader = request.headers.get(AGENT_HEADER);
+  if (agentHeader && ownerId === null) {
+    // ownerId === null ⇒ the bearer is a human (session or user PAT), not an
+    // agent key. Resolve the header value (agent id or name) against the
+    // caller's own agents — this is the ownership check.
+    const owned = await core.listAgents(principalId);
+    const agent =
+      owned.find((a) => a.id === agentHeader) ??
+      owned.find((a) => a.name === agentHeader) ??
+      null;
+    if (!agent) {
+      debug("space auth failed: X-Me-Agent not an owned agent", {
+        slug,
+        agentHeader,
+      });
+      return {
+        ok: false,
+        error: error(
+          `X-Me-Agent '${agentHeader}' is not an agent you own`,
+          403,
+          "INVALID_AGENT",
+        ),
+      };
+    }
+    authenticatedAs = principalId; // the true human authenticator
+    ownerId = principalId; // the human owns the agent
+    principalId = agent.id; // authorize as the agent
+  }
+
   // 5. The single membership / authorization gate. An empty set means the
   // principal has no grants in this space (incl. a wrong-space api key) — deny.
   const treeAccess = await core.buildTreeAccess(principalId, space.id);
@@ -205,6 +258,7 @@ async function authenticateSpaceInner(
     slug,
     principalId,
     byApiKey: apiKeyId !== null,
+    actingAsAgent: authenticatedAs !== null,
   });
   return {
     ok: true,
@@ -218,6 +272,7 @@ async function authenticateSpaceInner(
       apiKeyId,
       treeAccess,
       admin,
+      authenticatedAs,
     },
   };
 }

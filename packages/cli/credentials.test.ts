@@ -27,7 +27,13 @@ const TOKENS: OAuthTokenSet = {
   refresh_token: "ref-456",
   expires_at: 1_750_000_000_000,
 };
-const TOKEN_ENVS = ["ME_SESSION_TOKEN", "ME_SPACE", "ME_SERVER", "ME_API_KEY"];
+const TOKEN_ENVS = [
+  "ME_SESSION_TOKEN",
+  "ME_SPACE",
+  "ME_SERVER",
+  "ME_API_KEY",
+  "ME_AGENT",
+];
 // Every env key these tests touch — snapshotted and restored so the ambient
 // environment (and other test files in the same process) is left untouched.
 const ENV_KEYS = [...TOKEN_ENVS, "XDG_CONFIG_HOME", "ME_NO_KEYCHAIN"];
@@ -161,4 +167,44 @@ test("migrates a legacy credentials.yaml: salvages config, scrubs the dead token
   const credsFile = readFileSync(join(dir, "credentials.yaml"), "utf-8");
   expect(credsFile).not.toContain("legacy-tok"); // scrubbed from disk
   expect(credsFile).not.toContain("legacyspace1");
+});
+
+// =============================================================================
+// resolveAgent — X-Me-Agent value (--agent flag > ME_AGENT env)
+// =============================================================================
+
+test("resolveAgent: explicit flag value wins and passes through verbatim", () => {
+  process.env.ME_AGENT = "env-agent"; // flag beats env
+  expect(creds.resolveAgent("my-agent")).toBe("my-agent");
+  expect(creds.resolveAgent("019f0000-0000-7000-8000-000000000000")).toBe(
+    "019f0000-0000-7000-8000-000000000000",
+  );
+});
+
+test("resolveAgent: no flag + no env → undefined", () => {
+  expect(creds.resolveAgent()).toBeUndefined();
+  expect(creds.resolveAgent(undefined)).toBeUndefined();
+});
+
+test("resolveAgent: falls back to ME_AGENT env value", () => {
+  process.env.ME_AGENT = "env-agent";
+  expect(creds.resolveAgent()).toBe("env-agent");
+});
+
+test("resolveAgent: bare flag (true) throws not-implemented", () => {
+  expect(() => creds.resolveAgent(true)).toThrow(/not implemented/i);
+});
+
+test("resolveAgent: empty-string flag throws not-implemented", () => {
+  expect(() => creds.resolveAgent("")).toThrow(/not implemented/i);
+});
+
+test("resolveAgent: ME_AGENT=1 (bare env sentinel) throws not-implemented", () => {
+  process.env.ME_AGENT = "1";
+  expect(() => creds.resolveAgent()).toThrow(/not implemented/i);
+});
+
+test("resolveAgent: ME_AGENT empty string throws not-implemented", () => {
+  process.env.ME_AGENT = "";
+  expect(() => creds.resolveAgent()).toThrow(/not implemented/i);
 });

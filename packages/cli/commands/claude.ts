@@ -58,7 +58,7 @@ import {
   SESSIONS_NODE,
 } from "../claude/capture.ts";
 import { createMemoryClient } from "../client.ts";
-import { resolveCredentials } from "../credentials.ts";
+import { resolveAgent, resolveCredentials } from "../credentials.ts";
 import { claudeImporter } from "../importers/claude.ts";
 import { importTranscriptFile } from "../importers/index.ts";
 import { SlugRegistry } from "../importers/slug.ts";
@@ -487,6 +487,7 @@ function createClaudeHookCommand(): Command {
           url: config.server,
           ...memoryBearer(config.server, config.apiKey),
           space: config.space,
+          agent: resolveAgent(),
         });
         await importTranscriptFile(client, claudeImporter, transcriptPath, {
           treeRoot: config.treeRoot,

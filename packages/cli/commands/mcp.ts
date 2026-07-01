@@ -15,7 +15,7 @@
  * Claude Code uses the Memory Engine plugin instead of a CLI installer.
  */
 import { Command } from "commander";
-import { resolveCredentials } from "../credentials.ts";
+import { resolveAgent, resolveCredentials } from "../credentials.ts";
 import { runMcpServer } from "../mcp/server.ts";
 import { memoryBearer } from "../session.ts";
 
@@ -87,10 +87,19 @@ function createMcpRunAction() {
       process.exit(1);
     }
 
+    // Agent (X-Me-Agent): --agent <id|name> / ME_AGENT. Strings run through
+    // blankFlag (the plugin may pass a `${user_config.agent}` placeholder); a
+    // bare `--agent` (boolean true) is passed through so resolveAgent reports the
+    // not-yet-implemented `.me/` path rather than silently ignoring it.
+    const agentFlag =
+      typeof opts.agent === "string" ? blankFlag(opts.agent) : opts.agent;
+    const agent = resolveAgent(agentFlag);
+
     await runMcpServer({
       server: creds.server,
       bearer: memoryBearer(creds.server, apiKey),
       space,
+      agent,
     });
   };
 }

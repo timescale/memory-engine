@@ -25,7 +25,7 @@ import {
   writeMemoryPointer,
 } from "../agent/memory-pointer.ts";
 import { createMemoryClient } from "../client.ts";
-import { resolveCredentials } from "../credentials.ts";
+import { resolveAgent, resolveCredentials } from "../credentials.ts";
 import { importTranscriptFile } from "../importers/index.ts";
 import { opencodeImporter, resolveSessionFile } from "../importers/opencode.ts";
 import { SlugRegistry } from "../importers/slug.ts";
@@ -267,6 +267,7 @@ function createOpenCodeHookCommand(): Command {
             url: config.server,
             ...memoryBearer(config.server, config.apiKey),
             space: config.space,
+            agent: resolveAgent(globalOpts.agent),
           });
           await importTranscriptFile(client, opencodeImporter, sessionFile, {
             treeRoot: config.treeRoot,

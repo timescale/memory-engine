@@ -11,7 +11,11 @@ import { homedir } from "node:os";
 import * as clack from "@clack/prompts";
 import type { MemoryClient, UserClient } from "./client.ts";
 import { createMemoryClient, createUserClient, RpcError } from "./client.ts";
-import { clearTokens, type ResolvedCredentials } from "./credentials.ts";
+import {
+  clearTokens,
+  type ResolvedCredentials,
+  resolveAgent,
+} from "./credentials.ts";
 import type { OutputFormat } from "./output.ts";
 import { output } from "./output.ts";
 import { memoryBearer, userBearer } from "./session.ts";
@@ -108,11 +112,14 @@ export function buildUserClient(creds: ResolvedCredentials): UserClient {
  */
 export function buildMemoryClient(
   creds: ResolvedCredentials & { activeSpace: string },
+  globalOpts?: { agent?: string | boolean },
 ): MemoryClient {
   return createMemoryClient({
     url: creds.server,
     ...memoryBearer(creds.server, creds.apiKey),
     space: creds.activeSpace,
+    // Act as an owned agent (X-Me-Agent) when `--agent`/`ME_AGENT` is set.
+    agent: resolveAgent(globalOpts?.agent),
     // Bulk imports send 1000-memory batchCreate chunks that the server
     // processes row-by-row; on a loaded server (or one far from its
     // database) a chunk can legitimately exceed the client's 30s default.

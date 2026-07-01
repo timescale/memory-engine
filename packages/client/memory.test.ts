@@ -87,6 +87,55 @@ test("memory client setSpace updates the X-Me-Space header", async () => {
   expect(captured.headers["X-Me-Space"]).toBe("bbbbbbbbbbbb");
 });
 
+test("memory client sends X-Me-Agent when the agent option is set", async () => {
+  const captured = captureFetch();
+  const client = createMemoryClient({
+    url: "https://api.example.com",
+    token: "sess-tok",
+    space: "abc123def456",
+    agent: "my-agent",
+    retries: 0,
+  });
+
+  await client.memory.tree();
+
+  expect(captured.headers["X-Me-Agent"]).toBe("my-agent");
+});
+
+test("memory client omits X-Me-Agent when no agent is set", async () => {
+  const captured = captureFetch();
+  const client = createMemoryClient({
+    url: "https://api.example.com",
+    token: "sess-tok",
+    space: "abc123def456",
+    retries: 0,
+  });
+
+  await client.memory.tree();
+
+  expect(captured.headers["X-Me-Agent"]).toBeUndefined();
+});
+
+test("memory client setAgent sets and clears the X-Me-Agent header", async () => {
+  const captured = captureFetch();
+  const client = createMemoryClient({
+    url: "https://api.example.com",
+    token: "t",
+    space: "aaaaaaaaaaaa",
+    retries: 0,
+  });
+
+  client.setAgent("agent-1");
+  await client.memory.tree();
+  expect(captured.headers["X-Me-Agent"]).toBe("agent-1");
+
+  // Empty string clears it — the header should be gone on the next request.
+  client.setAgent("");
+  captured.headers = {};
+  await client.memory.tree();
+  expect(captured.headers["X-Me-Agent"]).toBeUndefined();
+});
+
 test("user client targets the user endpoint with no X-Me-Space", async () => {
   const captured = captureFetch();
   const client = createUserClient({

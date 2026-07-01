@@ -14,7 +14,7 @@
  * ```
  */
 
-import { SPACE_HEADER } from "@memory.build/protocol/headers";
+import { AGENT_HEADER, SPACE_HEADER } from "@memory.build/protocol/headers";
 import type {
   MemoryBatchCreateParams,
   MemoryBatchCreateResult,
@@ -101,6 +101,12 @@ export interface MemoryClientOptions {
   onUnauthorized?: () => Promise<string | undefined>;
   /** The active space slug, sent as X-Me-Space. */
   space?: string;
+  /**
+   * Act as one of the caller's own agents (an agent id or name), sent as
+   * X-Me-Agent. Only meaningful when the bearer is a human (session or user
+   * PAT); ignored server-side when the bearer is itself an agent key.
+   */
+  agent?: string;
   /** Request timeout in milliseconds (default: 30000) */
   timeout?: number;
   /** Maximum retry attempts for read-only calls. Mutating calls are not retried. */
@@ -179,6 +185,8 @@ export interface MemoryClient {
   setToken(token: string): void;
   /** Update the active space slug (X-Me-Space) at runtime. */
   setSpace(space: string): void;
+  /** Update the acting agent (X-Me-Agent) at runtime; empty string clears it. */
+  setAgent(agent: string): void;
 }
 
 const DEFAULT_URL = "https://api.memory.build";
@@ -198,7 +206,10 @@ export function createMemoryClient(
     timeout: options.timeout ?? DEFAULT_TIMEOUT,
     retries: options.retries ?? DEFAULT_RETRIES,
     clientVersion: options.clientVersion,
-    headers: options.space ? { [SPACE_HEADER]: options.space } : undefined,
+    headers: {
+      ...(options.space ? { [SPACE_HEADER]: options.space } : {}),
+      ...(options.agent ? { [AGENT_HEADER]: options.agent } : {}),
+    },
   };
 
   function readRpc<TResult>(method: string, params: unknown): Promise<TResult> {
@@ -262,6 +273,12 @@ export function createMemoryClient(
     },
     setSpace(space: string) {
       config.headers = { ...config.headers, [SPACE_HEADER]: space };
+    },
+    setAgent(agent: string) {
+      const headers = { ...config.headers };
+      if (agent) headers[AGENT_HEADER] = agent;
+      else delete headers[AGENT_HEADER];
+      config.headers = headers;
     },
   };
 }

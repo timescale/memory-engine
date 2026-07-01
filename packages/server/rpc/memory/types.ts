@@ -30,6 +30,12 @@ export interface SpaceRpcContext extends HandlerContext {
   treeAccess: TreeAccess;
   /** Whether the principal is a space admin (principal_space.admin). */
   admin: boolean;
+  /**
+   * When a human acts as one of their agents via `X-Me-Agent`, the human's id
+   * (the true authenticator); `principalId`/`ownerId` are the agent. Null
+   * otherwise. Observability/audit only — not used for authorization.
+   */
+  authenticatedAs: string | null;
   /** Embedding config for semantic search (optional). */
   embeddingConfig?: EmbeddingConfig;
 }

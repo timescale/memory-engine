@@ -168,6 +168,7 @@ export function createRouter(ctx: ServerContext): Router {
       apiKeyId: spaceContext.apiKeyId,
       treeAccess: spaceContext.treeAccess,
       admin: spaceContext.admin,
+      authenticatedAs: spaceContext.authenticatedAs,
       embeddingConfig,
     };
   });

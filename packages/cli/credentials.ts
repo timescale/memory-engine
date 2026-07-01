@@ -383,6 +383,33 @@ export function resolveSpace(
   return getServerConfig(server).active_space;
 }
 
+/**
+ * Resolve the agent to act as (the `X-Me-Agent` value), from the `--agent` flag
+ * or the `ME_AGENT` env. Precedence: --agent > ME_AGENT.
+ *
+ * - An explicit value (`--agent <id-or-name>` / `ME_AGENT=<id-or-name>`) is
+ *   returned as-is (the server resolves id-or-name against the caller's agents).
+ * - The bare form (`--agent` with no value → `true`, or `ME_AGENT=1`/empty) means
+ *   "read the agent from `.me/`", which isn't implemented yet — it throws so the
+ *   caller sees a clear message rather than silently acting as the human.
+ * - Absent → undefined (no agent mode).
+ */
+export function resolveAgent(flagValue?: string | boolean): string | undefined {
+  const bareError = new Error(
+    "Reading the agent from .me/ is not implemented yet. Specify it explicitly " +
+      "with --agent <id-or-name> or ME_AGENT=<id-or-name>.",
+  );
+  if (flagValue === true) throw bareError;
+  if (typeof flagValue === "string") {
+    if (flagValue.length === 0) throw bareError;
+    return flagValue;
+  }
+  const env = process.env.ME_AGENT;
+  if (env === undefined) return undefined;
+  if (env === "" || env === "1") throw bareError;
+  return env;
+}
+
 // =============================================================================
 // Resolution
 // =============================================================================
