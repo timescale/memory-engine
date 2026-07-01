@@ -6,10 +6,11 @@
  * - me space create <name>:        create a space and make it active
  * - me space rename <space> <name>: rename a space's display label
  * - me space delete <space>:       delete a space and all its data
- * - me space invite --email <addr> | --anyone [--admin] [--share <level>]
+ * - me space invite --email <addr> | --anyone [--admin] [--group <name>]
  *     [--expires <dur>] [--max-uses <n>]: invite a specific email (single-use)
- *     or mint an open shareable link (multi-use); both print a join link. The
- *     invitee joins by accepting (see `me invite`) or by opening the link.
+ *     or mint an open shareable link (multi-use); the redeemer joins the given
+ *     group (default "team"). Both print a join link. The invitee joins by
+ *     accepting (see `me invite`) or by opening the link.
  * - me space invite list:           list active invitations (email + links)
  * - me space invite revoke <id|email>: revoke an invitation
  *
@@ -17,11 +18,7 @@
  * immutable 12-char routing key; the name is the renamable display label.
  */
 import * as clack from "@clack/prompts";
-import {
-  type AccessLevel,
-  accessLevelName,
-  parseAccessLevel,
-} from "@memory.build/protocol/space";
+import { DEFAULT_GROUP_NAME } from "@memory.build/protocol";
 import type { MemberSpaceResponse } from "@memory.build/protocol/user";
 import { Command } from "commander";
 import {
@@ -42,6 +39,7 @@ import {
   requireAuth,
   requireSpace,
 } from "../util.ts";
+import { resolveGroupId } from "./group.ts";
 
 /**
  * Resolve a <space> argument against the caller's spaces by slug (exact) or
@@ -289,28 +287,6 @@ function createSpaceDeleteCommand(): Command {
     });
 }
 
-/**
- * Map a `--share` value to the nullable access level: "none" → null (no share
- * grant), otherwise read/write/owner via the shared parser. Exits on bad input.
- */
-function parseShareLevel(value: string, fmt: OutputFormat): AccessLevel | null {
-  if (value.trim().toLowerCase() === "none") return null;
-  const level = parseAccessLevel(value);
-  if (level !== null) return level;
-  const msg = `Invalid --share value '${value}'. Use none, read, write, or owner.`;
-  if (fmt === "text") {
-    clack.log.error(msg);
-  } else {
-    output({ error: msg }, fmt, () => {});
-  }
-  process.exit(1);
-}
-
-/** Display label for a stored share-access level (null → "none"). */
-function shareLabel(level: AccessLevel | null): string {
-  return level === null ? "none" : accessLevelName(level);
-}
-
 function createSpaceInviteListCommand(): Command {
   return new Command("list")
     .alias("ls")
@@ -336,7 +312,7 @@ function createSpaceInviteListCommand(): Command {
               "kind",
               "email",
               "admin",
-              "share",
+              "group",
               "uses",
               "expires",
               "status",
@@ -347,7 +323,7 @@ function createSpaceInviteListCommand(): Command {
               i.kind,
               i.email ?? "—",
               i.admin ? "yes" : "",
-              shareLabel(i.shareAccess),
+              i.groupName ?? "—",
               i.kind === "link"
                 ? `${i.uses}${i.maxUses != null ? `/${i.maxUses}` : ""}`
                 : "",
@@ -428,7 +404,9 @@ function inviteFail(msg: string, fmt: OutputFormat): never {
 
 function createSpaceInviteCommand(): Command {
   const invite = new Command("invite")
-    .description("invite to the active space: --email <addr> or --anyone")
+    .description(
+      "invite to the active space: --email <addr> or --anyone [--group <name>]",
+    )
     .option(
       "--email <email>",
       "invite a specific email (only they can join; single-use)",
@@ -439,9 +417,9 @@ function createSpaceInviteCommand(): Command {
     )
     .option("--admin", "grant the joiner space-admin")
     .option(
-      "--share <level>",
-      "shared-root access to grant: none | read | write | owner",
-      "read",
+      "--group <name-or-id>",
+      "the group the joiner is added to (its grants are their access)",
+      DEFAULT_GROUP_NAME,
     )
     .option("--expires <duration>", "link expiry, e.g. 7d | 24h | 30m")
     .option("--max-uses <n>", "max redemptions (with --anyone)")
@@ -465,7 +443,6 @@ function createSpaceInviteCommand(): Command {
         inviteFail("Use either --email or --anyone, not both.", fmt);
       }
 
-      const shareAccess = parseShareLevel(opts.share, fmt);
       const expiresAt = opts.expires
         ? parseExpires(opts.expires as string, fmt)
         : null;
@@ -479,24 +456,28 @@ function createSpaceInviteCommand(): Command {
       }
 
       const memory = buildMemoryClient(creds);
+      // --group defaults to "team"; resolve the name/id to a group id (errors if
+      // the space has no such group). The joiner's access comes from this group.
+      const group = String(opts.group ?? DEFAULT_GROUP_NAME);
       try {
+        const groupId = await resolveGroupId(memory, group, fmt);
         const result = await memory.invite.create({
           email,
           admin: opts.admin === true,
-          shareAccess,
+          groupId,
           expiresAt,
           maxUses,
         });
         const url = inviteUrl(creds.server, result.token);
-        output({ email, link: url, ...result }, fmt, () => {
+        output({ email, group, link: url, ...result }, fmt, () => {
           if (email) {
             clack.log.success(
-              `Invited ${email}${opts.admin ? " as an admin" : ""} — pending their acceptance.`,
+              `Invited ${email}${opts.admin ? " as an admin" : ""} to group '${group}' — pending their acceptance.`,
             );
             clack.log.info(`Or share this link: ${url}`);
           } else {
             clack.log.success(
-              `Created an open invite link${opts.admin ? " (admin)" : ""}.`,
+              `Created an open invite link${opts.admin ? " (admin)" : ""} for group '${group}'.`,
             );
             clack.note(url, "Share this link");
           }

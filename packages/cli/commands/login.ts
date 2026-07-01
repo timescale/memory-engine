@@ -278,12 +278,6 @@ async function selectSpace(
 
 type LoginUserClient = ReturnType<typeof createUserClient>;
 
-/** Display label for a stored share-access level (null → "none"). */
-function shareLabel(level: 1 | 2 | 3 | null): string {
-  if (level === null) return "none";
-  return level === 1 ? "read" : level === 2 ? "write" : "owner";
-}
-
 /**
  * Pending invitations addressed to the logged-in email. Best-effort: an error
  * (e.g. an unverified email) yields an empty list rather than failing login.
@@ -315,7 +309,7 @@ async function acceptInvitationsInteractive(
     options: invites.map((i) => {
       const bits = [
         i.admin ? "admin" : null,
-        i.shareAccess ? `share:${shareLabel(i.shareAccess)}` : null,
+        i.groupName ? `group:${i.groupName}` : null,
       ].filter(Boolean);
       return {
         value: i.invitationId,

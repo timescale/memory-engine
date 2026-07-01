@@ -173,14 +173,15 @@ export interface CoreStore {
    * Issue an invitation to a space and mint its magic-link token (returned once,
    * stored only as a hash). `email` set → an email-constrained invite (re-inviting
    * the same email upserts the pending row); `email` null → an open shareable link.
-   * `shareAccess` null = no share grant; `expiresAt` / `maxUses` bound an open link.
+   * `groupId` is the group the redeemer is added to on join — its grants are the
+   * joiner's access; `expiresAt` / `maxUses` bound an open link.
    */
   createSpaceInvitation(
     spaceId: string,
     email: string | null,
     opts: {
       admin: boolean;
-      shareAccess: AccessLevel | null;
+      groupId: string;
       invitedBy: string;
       expiresAt?: Date | null;
       maxUses?: number | null;
@@ -196,7 +197,8 @@ export interface CoreStore {
    */
   revokeInvitationById(spaceId: string, invitationId: string): Promise<boolean>;
   /**
-   * Redeem a magic-link token: join the space (owner@home + share level). An
+   * Redeem a magic-link token: join the space (owner@home) and the invite's
+   * group. An
    * email-constrained token requires the caller's email to match (single-use); an
    * open link is multi-use (bounded by expiry / max-uses). Returns the joined
    * space, or null on any failure (bad/expired/revoked token, email mismatch,
@@ -214,8 +216,8 @@ export interface CoreStore {
   listInvitationsForEmail(email: string): Promise<PendingInvitationForEmail[]>;
   /**
    * Explicitly accept ONE pending invitation by id, gated on `email` (the
-   * caller's verified email): join the space (owner@home + the per-invite share
-   * level) and mark it accepted. Idempotent. Returns the joined space, or null
+   * caller's verified email): join the space (owner@home + the invite's group)
+   * and mark it accepted. Idempotent. Returns the joined space, or null
    * on mismatch / not-found / already-accepted. The user must already exist as a
    * core principal.
    */
@@ -561,7 +563,7 @@ export function coreStore(sql: Sql, schema: string = CORE_SCHEMA): CoreStore {
       const token = generateInviteToken();
       const [row] = await sql`
         select ${sch}.create_space_invitation(
-          ${spaceId}, ${email}, ${opts.admin}, ${opts.shareAccess ?? null},
+          ${spaceId}, ${email}, ${opts.admin}, ${opts.groupId},
           ${opts.invitedBy}, ${token},
           ${opts.expiresAt ?? null}, ${opts.maxUses ?? null}
         ) as id
@@ -580,7 +582,8 @@ export function coreStore(sql: Sql, schema: string = CORE_SCHEMA): CoreStore {
           email: (r.email as string | null) ?? null,
           kind: r.kind as "email" | "link",
           admin: Boolean(r.admin),
-          shareAccess: (r.share_access as AccessLevel | null) ?? null,
+          groupId: r.group_id as string,
+          groupName: (r.group_name as string | null) ?? null,
           invitedBy: (r.invited_by as string | null) ?? null,
           invitedByName: (r.invited_by_name as string | null) ?? null,
           expiresAt: (r.expires_at as Date | null) ?? null,
@@ -618,7 +621,7 @@ export function coreStore(sql: Sql, schema: string = CORE_SCHEMA): CoreStore {
         slug: row.slug as string,
         name: row.name as string,
         admin: Boolean(row.admin),
-        shareAccess: (row.share_access as AccessLevel | null) ?? null,
+        groupName: (row.group_name as string | null) ?? null,
       } satisfies RedeemedInvitation;
     },
 
@@ -633,7 +636,7 @@ export function coreStore(sql: Sql, schema: string = CORE_SCHEMA): CoreStore {
           slug: r.slug as string,
           name: r.name as string,
           admin: Boolean(r.admin),
-          shareAccess: (r.share_access as AccessLevel | null) ?? null,
+          groupName: (r.group_name as string | null) ?? null,
           invitedByName: (r.invited_by_name as string | null) ?? null,
           createdAt: r.created_at as Date,
         }),
@@ -650,7 +653,7 @@ export function coreStore(sql: Sql, schema: string = CORE_SCHEMA): CoreStore {
         slug: row.slug as string,
         name: row.name as string,
         admin: Boolean(row.admin),
-        shareAccess: (row.share_access as AccessLevel | null) ?? null,
+        groupName: (row.group_name as string | null) ?? null,
       } satisfies RedeemedInvitation;
     },
 

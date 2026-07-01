@@ -71,6 +71,16 @@ export const SHARE_NAMESPACE = "share";
 export const SHARE_PROJECTS_NAMESPACE = "share.projects";
 
 /**
+ * The name of the default group auto-provisioned for every space. Invitations
+ * default to adding their redeemer to this group, and its grants (read on
+ * `share`, write on `share.projects`) are the joiner's out-of-the-box access.
+ * Single source of truth for the `"team"` literal on the TS side (server default
+ * resolution + the CLI `--group` default); the SQL provisioner/backfill hardcode
+ * the same literal.
+ */
+export const DEFAULT_GROUP_NAME = "team";
+
+/**
  * Memory name (leaf) — an optional, mutable, filename-like slug, unique within
  * its tree path. Must start alphanumeric, then `[A-Za-z0-9._-]` (no slashes or
  * spaces; dots are fine because a name is never an ltree label). Mirrors the

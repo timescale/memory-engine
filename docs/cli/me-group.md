@@ -4,6 +4,8 @@ Manage groups in the active space.
 
 A **group** is a named bundle of members (users and agents). Grant access to a group once and every member who is also a space member gets it. Group membership does **not** by itself make someone a space member: a group's grants (and its admin flag, if it's an admin group) apply to a member only once they've **also** joined the space directly — so you can add someone to a group before they join, and the access stays dormant until they do.
 
+Every space is auto-provisioned with a default group named **`team`** (`read` on `/share`, `write` on `/share/projects`). New members join it by default (`me space invite`), so it's the space's baseline shared access. Being a plain group, an admin can freely re-grant, rename, or delete it — see [Access Control](../access-control.md#the-default-team-group).
+
 These commands authenticate with your **session** and operate on the active space.
 
 ## Commands

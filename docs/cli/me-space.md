@@ -90,22 +90,23 @@ me space delete <space> [--force]
 
 ## me space invite
 
-Invite a user to the active space by email. If the email already belongs to a registered user, they're added immediately; otherwise a pending invitation is recorded and redeemed at their next verified login. **Admin only.**
+Invite someone to the active space, or create an open shareable link. Every invite adds its redeemer to a **group** (default `team`) — the group's grants become the joiner's shared access. Every invite is **pending** until the invitee accepts (email invite) or redeems the link; nothing auto-enrolls. **Admin only.**
 
 ```
-me space invite <email> [--admin] [--share <level>]
+me space invite --email <addr> [--admin] [--group <name-or-id>]
+me space invite --anyone [--admin] [--group <name-or-id>] [--expires <dur>] [--max-uses <n>]
 ```
-
-| Argument | Required | Description |
-|----------|----------|-------------|
-| `email` | yes | The invitee's email address. |
 
 | Option | Description |
 |--------|-------------|
-| `--admin` | Make the user a space admin (structural authority). |
-| `--share <level>` | Access to grant at the shared root: `none`, `read`, `write`, or `owner` (default: `read`). |
+| `--email <addr>` | Invite a specific email (only they can join; single-use). |
+| `--anyone` | Create an open link anyone signed-in can use to join (multi-use). |
+| `--admin` | Make the joiner a space admin (structural authority). |
+| `--group <name-or-id>` | The group the joiner is added to; its grants are their shared access. Default: `team`. |
+| `--expires <duration>` | Open-link expiry, e.g. `7d`, `24h`, `30m`. |
+| `--max-uses <n>` | Max redemptions for an open link. |
 
-A joining user always receives `owner@home` (their private root); `--share` controls their access to `share`.
+Exactly one of `--email` or `--anyone` is required. A joining user always receives `owner@home` (their private root); their **shared** access comes from the group they join — the default `team` group grants `read` on `/share` and `write` on `/share/projects`. See [Access Control](../access-control.md#the-default-team-group) for changing these defaults.
 
 ### me space invite list
 

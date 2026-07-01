@@ -157,8 +157,10 @@ export interface SpaceInvitation {
   kind: "email" | "link";
   /** Make the user a space admin on redemption. */
   admin: boolean;
-  /** Access granted at the shared root on redemption; null = no share grant. */
-  shareAccess: AccessLevel | null;
+  /** The group the redeemer is added to on join (its grants are the access). */
+  groupId: string;
+  /** Display name of that group ("team" by default), if resolvable. */
+  groupName: string | null;
   /** The principal who issued the invite (null if it has since been deleted). */
   invitedBy: string | null;
   /** Display name of the inviter (a user's name is their email), if resolvable. */
@@ -193,7 +195,8 @@ export interface PendingInvitationForEmail {
   slug: string;
   name: string;
   admin: boolean;
-  shareAccess: AccessLevel | null;
+  /** The group the invite joins the redeemer to ("team" by default). */
+  groupName: string | null;
   invitedByName: string | null;
   createdAt: Date;
 }
@@ -204,5 +207,6 @@ export interface RedeemedInvitation {
   slug: string;
   name: string;
   admin: boolean;
-  shareAccess: AccessLevel | null;
+  /** The group the redeemer was added to ("team" by default). */
+  groupName: string | null;
 }

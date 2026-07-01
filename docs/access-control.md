@@ -90,7 +90,23 @@ Every space has two conventional roots:
 ### Default grants
 
 - A space **creator** gets `admin` + `owner@home` + `owner@share` — **not** `owner@root`. So the creator sees `share` and their own `~`, but not other members' homes. Because they're an admin, they can self-grant `owner@root` if they need the whole space.
-- A **user** who joins a space is granted `owner@home` (their own private root). An **agent** who joins is likewise granted owner over its home — nested under its owner's (`/home/<owner-id>/<agent-id>`) — so it's usable immediately and the grant isn't clamped away. An admin then grants whatever shared access is appropriate (often via `me space invite --share`).
+- A **user** who joins a space is granted `owner@home` (their own private root). An **agent** who joins is likewise granted owner over its home — nested under its owner's (`/home/<owner-id>/<agent-id>`) — so it's usable immediately and the grant isn't clamped away. Their **shared** access comes from the group they join (the default `team` group — see below), not from a per-invite grant.
+
+### The default `team` group
+
+Every space is auto-provisioned with a group named **`team`** (created with the space, and backfilled for spaces that predate this). It carries the standard shared-tree grants:
+
+- **read** on `/share`
+- **write** on `/share/projects`
+
+Invitations default to adding their redeemer to `team` (`me space invite … ` without `--group`), so a new member's out-of-the-box shared access is exactly the group's grants. The group starts memberless, so it changes no one's access until members join.
+
+A **space admin** owns these defaults and can change them at any time:
+
+- adjust the grants — `me access grant team /share/x w`, `me access rm-grant team /share`
+- manage membership directly — `me group add team <member>`, `me group remove team <member>`
+- rename or delete it — `me group rename team …`, `me group delete team`
+- invite into a **different** group instead — `me space invite --email … --group <name>`
 
 ## How it's enforced
 
@@ -105,13 +121,17 @@ Access filtering happens inside the query. If you lack `read` on a memory's tree
 ## Example: team setup
 
 ```bash
-# Create and enter a space (you become admin + owner@home + owner@share)
+# Create and enter a space (you become admin + owner@home + owner@share; a
+# default "team" group is provisioned with read on /share + write on /share/projects)
 me space create "Acme Engineering"
 
-# Invite teammates by email; --share sets their access to the shared root
-me space invite alice@example.com --share write
-me space invite bob@example.com --share read
-me space invite lead@example.com --admin --share owner
+# Invite teammates by email — they join the default "team" group (its grants
+# become their shared access). Pass --admin for structural authority.
+me space invite --email alice@example.com
+me space invite --email lead@example.com --admin
+
+# Or invite into a different group
+me space invite --email bob@example.com --group backend
 
 # Group people for shared grants
 me group create backend

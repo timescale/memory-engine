@@ -15,12 +15,6 @@ import { resolveCredentials, setActiveSpace } from "../credentials.ts";
 import { getOutputFormat, output, table } from "../output.ts";
 import { buildUserClient, handleError, requireAuth } from "../util.ts";
 
-/** Display label for a stored share-access level (null → "none"). */
-function shareLabel(level: 1 | 2 | 3 | null): string {
-  if (level === null) return "none";
-  return level === 1 ? "read" : level === 2 ? "write" : "owner";
-}
-
 function createInviteListCommand(): Command {
   return new Command("list")
     .alias("ls")
@@ -40,12 +34,12 @@ function createInviteListCommand(): Command {
             return;
           }
           table(
-            ["id", "space", "admin", "share", "invited by"],
+            ["id", "space", "admin", "group", "invited by"],
             invitations.map((i) => [
               i.invitationId,
               `${i.spaceName} (${i.spaceSlug})`,
               i.admin ? "yes" : "",
-              shareLabel(i.shareAccess),
+              i.groupName ?? "—",
               i.invitedByName ?? "",
             ]),
           );

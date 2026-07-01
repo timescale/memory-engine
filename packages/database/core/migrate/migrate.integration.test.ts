@@ -57,6 +57,7 @@ const EXPECTED_MIGRATIONS = [
   "010_roster_existing_groups",
   "011_group_member_space_fk",
   "012_default_groups",
+  "013_invite_group",
 ];
 
 const EXPECTED_FUNCTIONS = [
@@ -1131,16 +1132,37 @@ describe("control-plane functions", () => {
       ]);
 
       const email = "invitee@example.com";
+      // Two groups with different shared-tree grants: an invite adds its redeemer
+      // to a group, and the joiner inherits that group's grants.
+      const [gr] = await sql.unsafe(
+        `select ${s}.create_group($1, $2, false) as id`,
+        [spaceId, "readers"],
+      );
+      const readers = gr?.id as string;
+      await sql.unsafe(
+        `select ${s}.grant_tree_access($1, $2, 'share'::ltree, 1)`,
+        [spaceId, readers],
+      );
+      const [go] = await sql.unsafe(
+        `select ${s}.create_group($1, $2, false) as id`,
+        [spaceId, "owners"],
+      );
+      const owners = go?.id as string;
+      await sql.unsafe(
+        `select ${s}.grant_tree_access($1, $2, 'share'::ltree, 3)`,
+        [spaceId, owners],
+      );
+
       // Each invite needs a distinct token (partial unique index).
       let tok = 0;
-      const create = (admin: boolean, share: number | null) =>
+      const create = (admin: boolean, groupId: string) =>
         sql.unsafe(
           `select ${s}.create_space_invitation($1, $2, $3, $4, $5, $6, $7, $8) as id`,
           [
             spaceId,
             email,
             admin,
-            share,
+            groupId,
             inviterId,
             `inv.tok_${tok++}`,
             null,
@@ -1148,12 +1170,12 @@ describe("control-plane functions", () => {
           ],
         );
 
-      // create (read share, not admin), then re-create promotes the SAME pending
-      // row to admin + owner share (upsert, not a duplicate)
-      const [c1] = await create(false, 1);
+      // create (readers group, not admin), then re-create promotes the SAME
+      // pending row to admin + the owners group (upsert, not a duplicate)
+      const [c1] = await create(false, readers);
       const inviteId = c1?.id as string;
       expect(inviteId).toBeTruthy();
-      const [c2] = await create(true, 3);
+      const [c2] = await create(true, owners);
       expect(c2?.id).toBe(inviteId);
 
       // list: one pending invite with the updated fields + the inviter's name
@@ -1164,7 +1186,8 @@ describe("control-plane functions", () => {
       expect(listed).toHaveLength(1);
       expect(listed[0]?.email).toBe(email);
       expect(listed[0]?.admin).toBe(true);
-      expect(listed[0]?.share_access).toBe(3);
+      expect(listed[0]?.group_id).toBe(owners);
+      expect(listed[0]?.group_name).toBe("owners");
       expect(listed[0]?.invited_by_name).toBe("inviter@example.com");
 
       // the invitee registers; the invite appears in their email-keyed list
@@ -1195,7 +1218,7 @@ describe("control-plane functions", () => {
       expect(accepted).toHaveLength(1);
       expect(accepted[0]?.space_id).toBe(spaceId);
       expect(accepted[0]?.admin).toBe(true);
-      expect(accepted[0]?.share_access).toBe(3);
+      expect(accepted[0]?.group_name).toBe("owners");
 
       // accepting records a redemption row too (same audit as redeem_invitation)
       const [red] = await sql.unsafe(
@@ -1206,6 +1229,7 @@ describe("control-plane functions", () => {
       expect(red?.n).toBe(1);
 
       // joined as admin, with owner@home (add_principal_to_space) + owner@share
+      // (inherited from the owners group)
       const [ps] = await sql.unsafe(
         `select admin from ${s}.principal_space where space_id=$1 and principal_id=$2`,
         [spaceId, userId],
@@ -1239,7 +1263,7 @@ describe("control-plane functions", () => {
       ).toHaveLength(0);
 
       // decline gated on email: a fresh invite is declinable by the invitee once
-      const [d0] = await create(false, null);
+      const [d0] = await create(false, readers);
       const declineId = d0?.id as string;
       const [dMismatch] = await sql.unsafe(
         `select ${s}.decline_space_invitation($1, $2) as ok`,
@@ -1273,7 +1297,7 @@ describe("control-plane functions", () => {
 
       // revoke: re-inviting the (now declined) email creates a fresh active row,
       // revocable by the admin once (also a soft delete).
-      await create(false, null);
+      await create(false, readers);
       const [r1] = await sql.unsafe(
         `select ${s}.revoke_space_invitation($1, $2) as ok`,
         [spaceId, email],
@@ -1313,10 +1337,21 @@ describe("control-plane functions", () => {
           em,
         ]);
 
+      // the group every invite in this test adds its redeemer to
+      const [grp] = await sql.unsafe(
+        `select ${s}.create_group($1, $2, false) as id`,
+        [spaceId, "team"],
+      );
+      const groupId = grp?.id as string;
+      await sql.unsafe(
+        `select ${s}.grant_tree_access($1, $2, 'share'::ltree, 1)`,
+        [spaceId, groupId],
+      );
+
       // open link (email null), capped at 2 uses
       const [linkRow] = await sql.unsafe(
         `select ${s}.create_space_invitation($1,$2,$3,$4,$5,$6,$7,$8) as id`,
-        [spaceId, null, false, 1, inviterId, "inv.open", null, 2],
+        [spaceId, null, false, groupId, inviterId, "inv.open", null, 2],
       );
       expect(linkRow?.id).toBeTruthy();
 
@@ -1348,7 +1383,7 @@ describe("control-plane functions", () => {
       const target = "target@example.com";
       await sql.unsafe(
         `select ${s}.create_space_invitation($1,$2,$3,$4,$5,$6,$7,$8)`,
-        [spaceId, target, false, null, inviterId, "inv.email", null, null],
+        [spaceId, target, false, groupId, inviterId, "inv.email", null, null],
       );
       const eUser = await mkUser(target);
       expect(
@@ -1362,7 +1397,7 @@ describe("control-plane functions", () => {
       // revoke_invitation_by_id: a fresh link is dead after revoke
       const [rev] = await sql.unsafe(
         `select ${s}.create_space_invitation($1,$2,$3,$4,$5,$6,$7,$8) as id`,
-        [spaceId, null, false, null, inviterId, "inv.rev", null, null],
+        [spaceId, null, false, groupId, inviterId, "inv.rev", null, null],
       );
       const revId = rev?.id as string;
       const [ok1] = await sql.unsafe(
@@ -1387,7 +1422,7 @@ describe("control-plane functions", () => {
           spaceId,
           null,
           false,
-          null,
+          groupId,
           inviterId,
           "inv.exp",
           new Date(Date.now() - 60_000).toISOString(),
@@ -1406,7 +1441,7 @@ describe("control-plane functions", () => {
           spaceId,
           expiredEmail,
           false,
-          null,
+          groupId,
           inviterId,
           "inv.eml_exp",
           new Date(Date.now() - 60_000).toISOString(),
@@ -1428,8 +1463,8 @@ describe("control-plane functions", () => {
       ).toHaveLength(0);
 
       // re-membership is a no-op: an existing admin/owner member who redeems a
-      // lower (non-admin, read) invite keeps their role + share — not demoted,
-      // not aborted by enforce_last_admin.
+      // lower (non-admin) invite keeps their role + share — not demoted, not
+      // added to the invite's group, not aborted by enforce_last_admin.
       const member = await mkUser("member@example.com");
       await sql.unsafe(`select ${s}.add_principal_to_space($1, $2, $3)`, [
         spaceId,
@@ -1442,7 +1477,7 @@ describe("control-plane functions", () => {
       );
       await sql.unsafe(
         `select ${s}.create_space_invitation($1,$2,$3,$4,$5,$6,$7,$8)`,
-        [spaceId, null, false, 1, inviterId, "inv.rejoin", null, null],
+        [spaceId, null, false, groupId, inviterId, "inv.rejoin", null, null],
       );
       expect(await redeem("inv.rejoin", member, null)).toHaveLength(1); // succeeds
       const [ps] = await sql.unsafe(

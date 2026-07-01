@@ -39,7 +39,7 @@ const UUIDV7_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 /** Resolve a group id from a UUID or name (via group.list). */
-async function resolveGroupId(
+export async function resolveGroupId(
   memory: MemoryClient,
   input: string,
   fmt: OutputFormat,
