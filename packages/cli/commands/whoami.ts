@@ -26,8 +26,8 @@ export function createWhoamiCommand(): Command {
         // Resolve the active-space slug to its full record (name + admin) for a
         // friendlier display. Best-effort: only when a space is set, and a
         // space.list failure falls back to the bare slug so whoami never breaks
-        // over the extra round-trip. `resolved` distinguishes a list failure
-        // (undefined) from a stale slug that no longer matches (null).
+        // over the extra round-trip. When `resolved` is true, `space === null`
+        // means the stored slug is stale; when `resolved` is false, the lookup failed.
         let space: MemberSpaceResponse | null = null;
         let resolved = true;
         if (creds.activeSpace) {
