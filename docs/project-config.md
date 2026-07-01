@@ -28,6 +28,31 @@ breaks an agent session.)
 > `agent:` is reserved for a future "act as an agent" mode and currently has no
 > effect.
 
+## Trusted servers (credential safety)
+
+A `.me/config.yaml` is **untrusted input** — you might `cd` into someone else's
+repo. Because an api key (`ME_API_KEY`) and `ME_SESSION_TOKEN` are *global*
+credentials (sent to whichever server is resolved), a malicious `.me` pinning
+`server: https://attacker.example` could otherwise exfiltrate them.
+
+So `me` only honors a **`.me` server pin** that is on a **trusted list**:
+
+- Trusted by default: the prod server (`https://api.memory.build`) and the dev
+  server.
+- `me login --server <url>` adds that server (logging in is an explicit act of
+  trust).
+- You can hand-add more via `server_whitelist` in your global
+  `~/.config/me/config.yaml`:
+  ```yaml
+  server_whitelist:
+    - https://me.internal.example
+  ```
+
+A `.me` that pins an **untrusted** server is refused with a fatal error rather
+than sending credentials to it. This gate applies **only** to a server chosen by
+a project's `.me` — an explicit `--server` / `ME_SERVER` and your stored
+`default_server` are your own choices and are never gated.
+
 ## Discovery
 
 `me` finds the config by walking **up** from the current directory to the first

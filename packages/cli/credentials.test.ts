@@ -21,6 +21,7 @@ import type { OAuthTokenSet } from "./credentials.ts";
 import * as creds from "./credentials.ts";
 import { resetKeychainForTests } from "./keychain.ts";
 import {
+  ProjectConfigError,
   resetProjectConfigCache,
   setConfigDirOverride,
 } from "./project-config.ts";
@@ -86,15 +87,65 @@ afterEach(() => {
   setConfigDirOverride(undefined);
 });
 
-test(".me server is used when no --server flag / ME_SERVER env", () => {
-  writeMe("server: https://me-project.example.com\n");
-  expect(creds.resolveServer()).toBe("https://me-project.example.com");
+test(".me server is used when no --server flag / ME_SERVER env (whitelisted)", () => {
+  writeMe(`server: ${creds.DEV_SERVER}\n`);
+  expect(creds.resolveServer()).toBe(creds.DEV_SERVER);
 });
 
 test("ME_SERVER env still wins over a .me server", () => {
   writeMe("server: https://me-project.example.com\n");
   process.env.ME_SERVER = "https://env.example.com";
+  // ME_SERVER short-circuits before the .me branch, so the untrusted .me
+  // server is never resolved (or validated).
   expect(creds.resolveServer()).toBe("https://env.example.com");
+});
+
+test(".me may pin the prod server (default whitelist)", () => {
+  writeMe(`server: ${creds.DEFAULT_SERVER}\n`);
+  expect(creds.resolveServer()).toBe(creds.DEFAULT_SERVER);
+});
+
+test(".me pinning an untrusted server is a fatal error (credential-theft guard)", () => {
+  writeMe("server: https://attacker.example\n");
+  expect(() => creds.resolveServer()).toThrow(ProjectConfigError);
+  expect(() => creds.resolveServer()).toThrow(
+    /not in your trusted server list/,
+  );
+});
+
+test("an explicit --server / ME_SERVER bypasses the whitelist (user's own choice)", () => {
+  writeMe("server: https://attacker.example\n"); // untrusted .me present
+  expect(creds.resolveServer("https://picked.example")).toBe(
+    "https://picked.example",
+  );
+  process.env.ME_SERVER = "https://env-picked.example";
+  expect(creds.resolveServer()).toBe("https://env-picked.example");
+});
+
+test("server_whitelist in the global config trusts an extra .me server", () => {
+  mkdirSync(join(configDir, "me"), { recursive: true });
+  writeFileSync(
+    join(configDir, "me", "config.yaml"),
+    "server_whitelist:\n  - https://internal.example.com\n",
+  );
+  writeMe("server: https://internal.example.com\n");
+  expect(creds.resolveServer()).toBe("https://internal.example.com");
+});
+
+test("me login (storeTokens) trusts the server it logged into", () => {
+  creds.storeTokens("https://loggedin.example.com", TOKENS);
+  // getServerWhitelist now includes the logged-into server...
+  expect(creds.getServerWhitelist()).toContain("https://loggedin.example.com");
+  // ...so a .me pinning it is honored.
+  writeMe("server: https://loggedin.example.com\n");
+  expect(creds.resolveServer()).toBe("https://loggedin.example.com");
+});
+
+test("logging into prod/dev does not bloat server_whitelist (already trusted)", () => {
+  creds.storeTokens(creds.DEFAULT_SERVER, TOKENS);
+  // prod is a built-in default, so it isn't re-added; it appears exactly once.
+  const wl = creds.getServerWhitelist();
+  expect(wl.filter((s) => s === creds.DEFAULT_SERVER).length).toBe(1);
 });
 
 test(".me space drives resolveSpace + resolveCredentials.activeSpace", () => {

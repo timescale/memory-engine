@@ -488,8 +488,10 @@ function createClaudeHookCommand(): Command {
         // space fallback could reflect a different project. Seeding the override
         // keeps routing deterministic.
         if (project) setConfigDirOverride(project.dir);
+        // Don't pass the `.me` server explicitly: let resolveCredentials() →
+        // resolveServer() resolve (and whitelist-validate) it, so an untrusted
+        // `.me` server can't slip in here and receive credentials.
         config = resolveHookConfigFromEnv(process.env, resolveCredentials(), {
-          server: project?.server,
           space: project?.space,
           tree: project?.tree,
         });

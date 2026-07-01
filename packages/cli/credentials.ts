@@ -20,6 +20,8 @@
  * servers:
  *   https://api.memory.build:
  *     active_space: abc123def456
+ * server_whitelist:            # extra servers trusted for a `.me` server pin
+ *   - https://me.internal.example
  * ```
  * credentials.yaml (0600):
  * ```yaml
@@ -39,13 +41,26 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { parse, stringify } from "yaml";
 import { keychainDelete, keychainGet, keychainSet } from "./keychain.ts";
-import { getProjectConfig } from "./project-config.ts";
+import { getProjectConfig, ProjectConfigError } from "./project-config.ts";
 
 // =============================================================================
 // Constants & types
 // =============================================================================
 
 export const DEFAULT_SERVER = "https://api.memory.build";
+/** The shared dev deployment. */
+export const DEV_SERVER = "https://me.dev-us-east-1.ops.dev.timescale.com";
+/**
+ * Servers trusted by default for a `.me/config.yaml` **server pin**. A project
+ * config is untrusted input (you might `cd` into someone else's repo), and
+ * api-key / `ME_SESSION_TOKEN` credentials are global (sent to whatever server
+ * is resolved) — so a malicious `.me` pinning `server: attacker` could exfiltrate
+ * them. We only honor a `.me` server that is in this list (extendable via
+ * `server_whitelist` in the global config, and auto-extended by `me login
+ * --server`). Explicit `--server` / `ME_SERVER` and the stored `default_server`
+ * are the user's own choice and are NOT gated.
+ */
+const DEFAULT_TRUSTED_SERVERS = [DEFAULT_SERVER, DEV_SERVER];
 
 /** Per-server non-secret config. */
 export interface ServerConfig {
@@ -57,6 +72,11 @@ export interface ServerConfig {
 export interface ConfigFile {
   default_server: string;
   servers: Record<string, ServerConfig>;
+  /**
+   * Extra servers (beyond {@link DEFAULT_TRUSTED_SERVERS}) trusted for a `.me`
+   * server pin. `me login --server` appends here; users may also hand-edit.
+   */
+  server_whitelist?: string[];
 }
 
 /**
@@ -173,6 +193,9 @@ function readConfig(): ConfigFile {
     return {
       default_server: data?.default_server ?? DEFAULT_SERVER,
       servers: data?.servers ?? {},
+      server_whitelist: Array.isArray(data?.server_whitelist)
+        ? data.server_whitelist
+        : undefined,
     };
   } catch {
     return { default_server: DEFAULT_SERVER, servers: {} };
@@ -296,6 +319,17 @@ export function storeTokens(server: string, tokens: OAuthTokenSet): void {
 
   const config = readConfig();
   config.default_server = origin;
+  // Logging into a server is an explicit act of trust — add it to the whitelist
+  // so its `.me` server pins are honored (no-op for the built-in prod/dev or an
+  // already-listed server).
+  const trusted = new Set(
+    [...DEFAULT_TRUSTED_SERVERS, ...(config.server_whitelist ?? [])].map(
+      normalizeOrigin,
+    ),
+  );
+  if (!trusted.has(origin)) {
+    config.server_whitelist = [...(config.server_whitelist ?? []), origin];
+  }
   writeConfig(config);
 }
 
@@ -397,14 +431,50 @@ export function resolveSpace(
 // =============================================================================
 
 /**
+ * The set of servers trusted for a `.me/config.yaml` server pin: the built-in
+ * defaults (prod + dev) plus any `server_whitelist` entries, normalized to
+ * origins and deduped.
+ */
+export function getServerWhitelist(): string[] {
+  const extra = readConfig().server_whitelist ?? [];
+  return [
+    ...new Set([...DEFAULT_TRUSTED_SERVERS, ...extra].map(normalizeOrigin)),
+  ];
+}
+
+/**
+ * Guard a `.me`-sourced server against the whitelist. Throws a fatal
+ * {@link ProjectConfigError} when the server isn't trusted, so we never send
+ * global credentials (an api key / `ME_SESSION_TOKEN`) to a server chosen by an
+ * untrusted project config. Direct CLI/`me mcp` use fails loudly; the
+ * best-effort capture hooks catch it and skip.
+ */
+function assertProjectServerAllowed(origin: string): void {
+  if (getServerWhitelist().includes(origin)) return;
+  throw new ProjectConfigError(
+    `.me/config.yaml pins server "${origin}", which is not in your trusted server list — ` +
+      `refusing to send credentials to it. If you trust this server, run ` +
+      `\`me login --server ${origin}\`, or add it to \`server_whitelist\` in ${getConfigPath()}.`,
+  );
+}
+
+/**
  * Resolve the active server URL.
  * Priority: --server flag > ME_SERVER env > `.me` server > default_server (config) > DEFAULT_SERVER
+ *
+ * A `.me`-sourced server is validated against the whitelist (see
+ * {@link assertProjectServerAllowed}); `--server` / `ME_SERVER` / the stored
+ * default are the user's own choice and pass through unguarded.
  */
 export function resolveServer(flagValue?: string): string {
   if (flagValue) return normalizeOrigin(flagValue);
   if (process.env.ME_SERVER) return normalizeOrigin(process.env.ME_SERVER);
   const projectServer = getProjectConfig()?.server;
-  if (projectServer) return normalizeOrigin(projectServer);
+  if (projectServer) {
+    const origin = normalizeOrigin(projectServer);
+    assertProjectServerAllowed(origin);
+    return origin;
+  }
   return readConfig().default_server;
 }
 
