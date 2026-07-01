@@ -48,26 +48,30 @@ const TREE_PATH_RE = /^[A-Za-z0-9_~./-]+$/;
 /**
  * Schema for `.me/config.yaml`. Every field is optional — a `.me` may pin only a
  * `tree`, inheriting server/space from the global config. A present-but-invalid
- * field (or unparseable YAML) is a fatal {@link ProjectConfigError}: better to
- * fail loudly than silently ignore the pins the project meant to apply.
+ * field, an unparseable YAML, OR an unknown/misspelled key is a fatal
+ * {@link ProjectConfigError}: better to fail loudly than silently ignore the
+ * pins the project meant to apply. `.strict()` makes the common typo (`serer:`,
+ * `spaces:`, `treeRoot:`) an error rather than a silently-stripped no-op.
  */
-const projectConfigSchema = z.object({
-  /** Pins the server URL (normalized to an origin where consumed). */
-  server: z.string().min(1).optional(),
-  /** Pins the space slug (the X-Me-Space). */
-  space: z.string().min(1).optional(),
-  /**
-   * The full project-tree root for integrations (capture hooks, `me import
-   * git`). Integrations nest UNDER it without appending a project slug — so
-   * `/share/projects/foo` yields `…/foo/agent_sessions`, not `…/foo/<slug>/…`.
-   */
-  tree: z.string().min(1).regex(TREE_PATH_RE).optional(),
-  /**
-   * An agent to act as. Parsed for forward-compatibility but NOT yet wired to
-   * any behavior — "act as an agent" (`--agent` / `ME_AGENT`) is a follow-up.
-   */
-  agent: z.string().min(1).optional(),
-});
+const projectConfigSchema = z
+  .object({
+    /** Pins the server URL (normalized to an origin where consumed). */
+    server: z.string().min(1).optional(),
+    /** Pins the space slug (the X-Me-Space). */
+    space: z.string().min(1).optional(),
+    /**
+     * The full project-tree root for integrations (capture hooks, `me import
+     * git`). Integrations nest UNDER it without appending a project slug — so
+     * `/share/projects/foo` yields `…/foo/agent_sessions`, not `…/foo/<slug>/…`.
+     */
+    tree: z.string().min(1).regex(TREE_PATH_RE).optional(),
+    /**
+     * An agent to act as. Parsed for forward-compatibility but NOT yet wired to
+     * any behavior — "act as an agent" (`--agent` / `ME_AGENT`) is a follow-up.
+     */
+    agent: z.string().min(1).optional(),
+  })
+  .strict();
 
 /** Resolved project config plus the directory whose `.me/` produced it. */
 export type ProjectConfig = z.infer<typeof projectConfigSchema> & {

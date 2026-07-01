@@ -100,6 +100,12 @@ test("an invalid field type is a fatal ProjectConfigError", () => {
   expect(() => discoverProjectConfig(root)).toThrow(ProjectConfigError);
 });
 
+test("an unknown/misspelled key is a fatal ProjectConfigError (strict)", () => {
+  // A typo'd key must fail loudly, not be silently stripped to a no-op pin.
+  writeConfig(root, "serer: https://typo.example\n");
+  expect(() => discoverProjectConfig(root)).toThrow(ProjectConfigError);
+});
+
 test("getProjectConfig honors --config-dir override and memoizes", () => {
   writeConfig(root, "space: sp_seed\n");
   setConfigDirOverride(root);
