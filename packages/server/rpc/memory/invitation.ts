@@ -12,6 +12,7 @@
  * roster, like group management — owner@root alone is not enough). Inviting
  * people, optionally as admins, is a deliberate structural act.
  */
+
 import type {
   InviteCreateParams,
   InviteCreateResult,
@@ -30,6 +31,7 @@ import {
 } from "@memory.build/protocol/space";
 import { buildRegistry } from "../registry";
 import type { HandlerContext } from "../types";
+import { assertGroupInSpace } from "./group";
 import {
   guardCore,
   requireSpaceAdmin,
@@ -44,8 +46,12 @@ async function inviteCreate(
   assertSpaceRpcContext(context);
   const ctx = context as SpaceRpcContext;
   requireSpaceAdmin(ctx);
+  // The redeemer joins this group (its grants are their access). Required — the
+  // client chooses it (the CLI/web default to the "team" group); the server does
+  // not guess. Validated here for a clean NOT_FOUND (the FK would also reject a
+  // group from another space).
+  await assertGroupInSpace(ctx, params.groupId);
   const admin = params.admin ?? false;
-  const shareAccess = params.shareAccess ?? null;
   const email = params.email ?? null; // null → an open shareable link
 
   // Always pending — no auto-enroll. The invitee joins by accepting (email
@@ -54,7 +60,7 @@ async function inviteCreate(
   const { id, token } = await guardCore(() =>
     ctx.core.createSpaceInvitation(ctx.space.id, email, {
       admin,
-      shareAccess,
+      groupId: params.groupId,
       invitedBy: ctx.principalId,
       expiresAt: params.expiresAt ? new Date(params.expiresAt) : null,
       maxUses: params.maxUses ?? null,

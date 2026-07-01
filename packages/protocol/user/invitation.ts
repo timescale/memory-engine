@@ -8,7 +8,6 @@
  * admin-side `invite.*` on the space RPC (create/list/revoke for a space).
  */
 import { z } from "zod";
-import { accessLevelSchema } from "../space/grant.ts";
 
 /** A pending invitation addressed to the caller's email. */
 export const pendingInvitationResponse = z.object({
@@ -17,8 +16,8 @@ export const pendingInvitationResponse = z.object({
   spaceSlug: z.string(),
   spaceName: z.string(),
   admin: z.boolean(),
-  /** Share-root access granted on acceptance; null = no share grant. */
-  shareAccess: accessLevelSchema.nullable(),
+  /** The group joined on acceptance ("team" by default). */
+  groupName: z.string().nullable(),
   invitedByName: z.string().nullable(),
   createdAt: z.string(),
 });

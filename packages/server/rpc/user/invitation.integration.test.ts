@@ -6,7 +6,7 @@
 //     packages/server/rpc/user/invitation.integration.test.ts
 import { afterAll, beforeAll, beforeEach, expect, test } from "bun:test";
 import { bootstrapSpaceDatabase, migrateCore } from "@memory.build/database";
-import { ACCESS, coreStore } from "@memory.build/engine/core";
+import { coreStore } from "@memory.build/engine/core";
 import { type AppErrorCode, isAppError } from "@memory.build/protocol/errors";
 import postgres, { type Sql } from "postgres";
 import type { HandlerContext } from "../types";
@@ -123,9 +123,10 @@ test("invite.pending → accept joins the space; pending then empties", async ()
   const inviterId = (await sql`select uuidv7() as id`)[0]?.id as string;
   await core.createUser(inviterId, `inviter_${rand(8)}@example.com`);
   const spaceId = await core.createSpace(rand(12), "Invited");
+  const groupId = await core.createGroup(spaceId, "team");
   await core.createSpaceInvitation(spaceId, userEmail, {
     admin: true,
-    shareAccess: ACCESS.write,
+    groupId,
     invitedBy: inviterId,
   });
 
@@ -156,9 +157,10 @@ test("invite.decline removes a pending invitation", async () => {
   const inviterId = (await sql`select uuidv7() as id`)[0]?.id as string;
   await core.createUser(inviterId, `inviter_${rand(8)}@example.com`);
   const spaceId = await core.createSpace(rand(12), "DeclineMe");
+  const groupId = await core.createGroup(spaceId, "team");
   await core.createSpaceInvitation(spaceId, userEmail, {
     admin: false,
-    shareAccess: null,
+    groupId,
     invitedBy: inviterId,
   });
 
@@ -206,9 +208,10 @@ test("invite.redeem joins via an open magic link (no email match needed)", async
   const inviterId = (await sql`select uuidv7() as id`)[0]?.id as string;
   await core.createUser(inviterId, `inviter_${rand(8)}@example.com`);
   const spaceId = await core.createSpace(rand(12), "LinkSpace");
+  const groupId = await core.createGroup(spaceId, "team");
   const { token } = await core.createSpaceInvitation(spaceId, null, {
     admin: false,
-    shareAccess: ACCESS.read,
+    groupId,
     invitedBy: inviterId,
   });
 
@@ -230,10 +233,11 @@ test("invite.redeem of an email-constrained link requires a VERIFIED email", asy
   const inviterId = (await sql`select uuidv7() as id`)[0]?.id as string;
   await core.createUser(inviterId, `inviter_${rand(8)}@example.com`);
   const spaceId = await core.createSpace(rand(12), "EmailLink");
+  const groupId = await core.createGroup(spaceId, "team");
   // an email-constrained link addressed to the test user's email
   const { token } = await core.createSpaceInvitation(spaceId, userEmail, {
     admin: false,
-    shareAccess: null,
+    groupId,
     invitedBy: inviterId,
   });
 

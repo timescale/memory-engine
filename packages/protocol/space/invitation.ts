@@ -10,8 +10,7 @@
  * token once.
  */
 import { z } from "zod";
-import { emailSchema } from "../fields.ts";
-import { accessLevelSchema } from "./grant.ts";
+import { emailSchema, uuidv7Schema } from "../fields.ts";
 
 /** An active invitation to the space (email-constrained or an open link). */
 export const spaceInvitationResponse = z.object({
@@ -21,8 +20,10 @@ export const spaceInvitationResponse = z.object({
   /** "email" = email-constrained (single-use); "link" = open shareable link. */
   kind: z.enum(["email", "link"]),
   admin: z.boolean(),
-  /** Share-root access granted on redemption; null = no share grant. */
-  shareAccess: accessLevelSchema.nullable(),
+  /** The group the redeemer is added to on join (its grants are the access). */
+  groupId: z.string(),
+  /** Display name of that group ("team" by default). */
+  groupName: z.string().nullable(),
   invitedBy: z.string().nullable(),
   invitedByName: z.string().nullable(),
   /** When an open link expires (ISO); null = never. */
@@ -45,7 +46,12 @@ export type SpaceInvitationResponse = z.infer<typeof spaceInvitationResponse>;
 export const inviteCreateParams = z.object({
   email: emailSchema.nullable().optional(),
   admin: z.boolean().optional(),
-  shareAccess: accessLevelSchema.nullable().optional(),
+  /**
+   * The group the redeemer joins — its grants are their access. Required: the
+   * client picks it (the CLI/web default to the "team" group); the server does
+   * not default.
+   */
+  groupId: uuidv7Schema,
   /** Open-link expiry (ISO timestamp); null/omitted = never. */
   expiresAt: z.string().datetime().nullable().optional(),
   /** Open-link max redemptions; null/omitted = unlimited. */

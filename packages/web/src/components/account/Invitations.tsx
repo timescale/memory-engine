@@ -11,11 +11,6 @@ import { useState } from "react";
 import { Dialog } from "../dialogs/Dialog.tsx";
 import { type AccountInvitation, useAccount } from "./account-context.ts";
 
-function shareLabel(level: 1 | 2 | 3 | null): string {
-  if (level === null) return "no share access";
-  return level === 1 ? "read" : level === 2 ? "write" : "owner";
-}
-
 export function InvitationList({
   invitations,
   onAccept,
@@ -54,7 +49,7 @@ export function InvitationList({
             </div>
             <div className="truncate text-[11px] text-ink/50">
               {inv.admin ? "admin · " : ""}
-              {shareLabel(inv.shareAccess)}
+              {inv.groupName ?? "no group"}
               {inv.invitedByName ? ` · from ${inv.invitedByName}` : ""}
             </div>
           </div>

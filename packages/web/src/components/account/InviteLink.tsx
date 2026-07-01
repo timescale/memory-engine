@@ -5,7 +5,7 @@
  * existing links. Renders nothing unless the signed-in user is an admin of the
  * active space. Uses the space (memory) RPC, scoped to the active X-Me-Space.
  */
-import { isRpcError } from "@memory.build/client";
+import { DEFAULT_GROUP_NAME, isRpcError } from "@memory.build/client";
 import { useCallback, useEffect, useState } from "react";
 import { memoryClient } from "../../api/client.ts";
 import { Dialog } from "../dialogs/Dialog.tsx";
@@ -16,13 +16,10 @@ type Invitation = Awaited<
   ReturnType<typeof memoryClient.invite.list>
 >["invitations"][number];
 
-type Share = "none" | "read" | "write" | "owner";
-const SHARE_LEVEL: Record<Share, 1 | 2 | 3 | null> = {
-  none: null,
-  read: 1,
-  write: 2,
-  owner: 3,
-};
+/** The group rows returned by the memory client's `group.list`. */
+type Group = Awaited<
+  ReturnType<typeof memoryClient.group.list>
+>["groups"][number];
 
 function inviteUrl(token: string): string {
   return `${window.location.origin}/invite/${token}`;
@@ -54,7 +51,8 @@ export function InviteLinkButton() {
 
 function InviteLinkPanel() {
   const [links, setLinks] = useState<Invitation[]>([]);
-  const [share, setShare] = useState<Share>("read");
+  const [groups, setGroups] = useState<Group[]>([]);
+  const [groupId, setGroupId] = useState<string>("");
   const [admin, setAdmin] = useState(false);
   const [busy, setBusy] = useState(false);
   const [created, setCreated] = useState<string | null>(null);
@@ -62,8 +60,22 @@ function InviteLinkPanel() {
 
   const refresh = useCallback(async () => {
     try {
-      const { invitations } = await memoryClient.invite.list();
+      const [{ invitations }, groupsRes] = await Promise.all([
+        memoryClient.invite.list(),
+        memoryClient.group.list(),
+      ]);
       setLinks(invitations.filter((i) => i.kind === "link"));
+      setGroups(groupsRes.groups);
+      // default the selection to the "team" group (fall back to the first)
+      setGroupId(
+        (cur) =>
+          cur ||
+          groupsRes.groups.find(
+            (g) => g.name.toLowerCase() === DEFAULT_GROUP_NAME,
+          )?.id ||
+          groupsRes.groups[0]?.id ||
+          "",
+      );
     } catch (err) {
       setError(isRpcError(err) ? err.message : "Couldn't load invite links.");
     }
@@ -79,7 +91,7 @@ function InviteLinkPanel() {
     try {
       const { token } = await memoryClient.invite.create({
         admin,
-        shareAccess: SHARE_LEVEL[share],
+        groupId,
       });
       setCreated(inviteUrl(token));
       await refresh();
@@ -107,15 +119,16 @@ function InviteLinkPanel() {
       <div>
         <div className="flex items-center gap-2">
           <select
-            value={share}
-            onChange={(e) => setShare(e.target.value as Share)}
+            value={groupId}
+            onChange={(e) => setGroupId(e.target.value)}
             className="rounded-md border border-ink/[0.18] px-2 py-1 text-[13px]"
-            aria-label="Share access"
+            aria-label="Group"
           >
-            <option value="none">no share access</option>
-            <option value="read">read</option>
-            <option value="write">write</option>
-            <option value="owner">owner</option>
+            {groups.map((g) => (
+              <option key={g.id} value={g.id}>
+                {g.name}
+              </option>
+            ))}
           </select>
           <label className="flex items-center gap-1 text-[13px] text-ink/70">
             <input
@@ -127,7 +140,7 @@ function InviteLinkPanel() {
           </label>
           <button
             type="button"
-            disabled={busy}
+            disabled={busy || !groupId}
             onClick={create}
             className="ml-auto rounded-md bg-solar px-3 py-1 text-[12px] font-semibold text-ink hover:bg-solar-hover disabled:opacity-50"
           >
@@ -166,13 +179,7 @@ function InviteLinkPanel() {
               >
                 <span className="truncate text-ink/70">
                   {l.admin ? "admin · " : ""}
-                  {l.shareAccess === null
-                    ? "no share"
-                    : l.shareAccess === 1
-                      ? "read"
-                      : l.shareAccess === 2
-                        ? "write"
-                        : "owner"}
+                  {l.groupName ?? "no group"}
                   {" · "}
                   {l.uses}
                   {l.maxUses != null ? `/${l.maxUses}` : ""} used

@@ -26,7 +26,8 @@ export interface AccountInvitation {
   spaceName: string;
   spaceSlug: string;
   admin: boolean;
-  shareAccess: 1 | 2 | 3 | null;
+  /** The group joined on acceptance ("team" by default). */
+  groupName: string | null;
   invitedByName: string | null;
 }
 
