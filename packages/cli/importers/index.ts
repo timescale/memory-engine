@@ -56,7 +56,9 @@ const SESSION_LABEL_MAX = 200;
 const MESSAGE_NAME_BODY_MAX = 128 - "msg_".length;
 
 /**
- * The ltree node for one session: `<root>.<slug>.<sessionsNode>.<sessionLabel>`.
+ * The ltree node for one session:
+ * `<root>.<slug>.<sessionsNode>.<sessionLabel>` — or, when a `.me` project tree
+ * is in effect, `<projectTree>.<sessionsNode>.<sessionLabel>` (no slug).
  * The session id is mapped to a valid, collision-free ltree label via
  * `boundedUniqueLabel` — `normalizeSlug` alone is lossy (e.g. it merges a UUID's
  * dashes), so distinct session ids could otherwise share one node. Each session
@@ -68,7 +70,10 @@ function sessionTree(
   sessionId: string,
 ): string {
   const label = boundedUniqueLabel(sessionId, normalizeSlug, SESSION_LABEL_MAX);
-  return `${options.treeRoot}.${slug}.${options.sessionsNodeName}.${label}`;
+  // A `.me` project tree is the full project node — nest sessions directly under
+  // it (no slug). Otherwise the slug is the per-project node under `treeRoot`.
+  const projectNode = options.projectTree ?? `${options.treeRoot}.${slug}`;
+  return `${projectNode}.${options.sessionsNodeName}.${label}`;
 }
 
 /**
@@ -144,6 +149,15 @@ export interface SessionOutcome {
 export interface WriteOptions {
   /** Tree root (ltree-safe, no trailing dot). Default: projects. */
   treeRoot: string;
+  /**
+   * The full project-tree root (from a `.me/config.yaml`), when the caller is
+   * scoped to a single project. When set it is used verbatim as the project node
+   * and the per-project slug is NOT appended — sessions nest as
+   * `<projectTree>.<sessionsNodeName>.<label>` rather than
+   * `<treeRoot>.<slug>.<sessionsNodeName>.<label>`. Lenient wire form (`~`/`/`
+   * accepted); normalized server-side.
+   */
+  projectTree?: string;
   /** Per-project node name for imported agent sessions. */
   sessionsNodeName: string;
   /** Include full transcript (reasoning/tool calls) in message memories. */

@@ -33,6 +33,7 @@ import { createUpgradeCommand } from "./commands/upgrade.ts";
 import { createVersionCommand } from "./commands/version.ts";
 import { createWhoamiCommand } from "./commands/whoami.ts";
 import { setExpanded } from "./output.ts";
+import { setConfigDirOverride } from "./project-config.ts";
 
 const SHELLS = ["zsh", "bash", "fish", "powershell"] as const;
 type Shell = (typeof SHELLS)[number];
@@ -47,14 +48,21 @@ program
     "--server <url>",
     "server URL (overrides ME_SERVER env and stored default)",
   )
+  .option(
+    "--config-dir <dir>",
+    "directory containing the .me/config.yaml to use (else walk up from cwd; ME_CONFIG_DIR)",
+  )
   .option("--json", "output as JSON")
   .option("--yaml", "output as YAML")
   .option("-x, --expanded", "show list output in expanded (vertical) format");
 
-// Set expanded mode before any command runs
+// Set expanded mode + seed the .me/config.yaml resolver before any command runs.
 program.hook("preAction", (thisCommand) => {
   const opts = thisCommand.optsWithGlobals();
   setExpanded(opts.expanded ?? false);
+  setConfigDirOverride(
+    typeof opts.configDir === "string" ? opts.configDir : undefined,
+  );
 });
 
 // Auth commands

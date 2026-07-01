@@ -66,6 +66,7 @@ import {
   type AgentInstallOptions,
   runAgentMcpInstall,
 } from "../mcp/agent-install.ts";
+import { discoverProjectConfig } from "../project-config.ts";
 import { memoryBearer } from "../session.ts";
 import { createClaudeImportCommand, runAgentImport } from "./import.ts";
 import { runGitImport } from "./import-git.ts";
@@ -448,21 +449,7 @@ function createClaudeHookCommand(): Command {
         process.exit(0);
       }
 
-      // Resolve config: the plugin's api_key if configured, else fall back to
-      // the user's `me login` session (resolved from the keychain/config).
-      const config = resolveHookConfigFromEnv(
-        process.env,
-        resolveCredentials(),
-      );
-      if (!config) {
-        console.error(
-          "[memory-engine] no credentials. Run `me login`, or set the plugin's " +
-            "api_key + space via `/plugin` in Claude Code.",
-        );
-        process.exit(0);
-      }
-
-      // Read + parse the event JSON from stdin for the transcript path.
+      // Read + parse the event JSON from stdin (transcript path + cwd).
       let event: HookEvent;
       try {
         event = JSON.parse(await Bun.stdin.text()) as HookEvent;
@@ -481,6 +468,36 @@ function createClaudeHookCommand(): Command {
         process.exit(0);
       }
 
+      // Resolve config: the plugin's api_key if configured, else the user's
+      // `me login` session (from the keychain/config). Server/space/tree fall
+      // back to the session project's `.me/config.yaml` (from the event cwd),
+      // so a per-project tree routes live captures without a plugin reinstall.
+      // A broken `.me` is fatal for direct CLI use, but the hook is best-effort:
+      // log + exit 0 so a typo never blocks the session.
+      let config: ReturnType<typeof resolveHookConfigFromEnv>;
+      try {
+        const project = event.cwd
+          ? discoverProjectConfig(event.cwd)
+          : undefined;
+        config = resolveHookConfigFromEnv(process.env, resolveCredentials(), {
+          server: project?.server,
+          space: project?.space,
+          tree: project?.tree,
+        });
+      } catch (error) {
+        console.error(
+          `[memory-engine] ${eventName}: ${error instanceof Error ? error.message : String(error)}`,
+        );
+        process.exit(0);
+      }
+      if (!config) {
+        console.error(
+          "[memory-engine] no credentials. Run `me login`, or set the plugin's " +
+            "api_key + space via `/plugin` in Claude Code.",
+        );
+        process.exit(0);
+      }
+
       // Import the transcript (incremental; same path as `me import claude`).
       try {
         const client = createMemoryClient({
@@ -490,6 +507,7 @@ function createClaudeHookCommand(): Command {
         });
         await importTranscriptFile(client, claudeImporter, transcriptPath, {
           treeRoot: config.treeRoot,
+          projectTree: config.projectTree,
           sessionsNodeName: SESSIONS_NODE,
           fullTranscript: config.fullTranscript,
           dryRun: false,

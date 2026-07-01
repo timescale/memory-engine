@@ -178,7 +178,16 @@ export async function runGitImport(
     handleError(new Error(`${repoPath} is not a git repository`), fmt);
   }
 
-  const tree = `${opts.treeRoot}.${slug}.${GIT_HISTORY_NODE_NAME}`;
+  // A `.me/config.yaml` in scope pins the full project tree (no slug); its git
+  // history nests directly under it. `creds.projectTree` already resolves it
+  // through the standard precedence (so it honors `--config-dir`). An explicit
+  // `--tree-root` still wins (falls back to `<treeRoot>.<slug>`), as does the
+  // default when there's no `.me`.
+  const explicitTreeRoot = typeof rawOpts.treeRoot === "string";
+  const projectTree = explicitTreeRoot ? undefined : creds.projectTree;
+  const tree = projectTree
+    ? `${projectTree}.${GIT_HISTORY_NODE_NAME}`
+    : `${opts.treeRoot}.${slug}.${GIT_HISTORY_NODE_NAME}`;
   const rev = opts.branch ?? "HEAD";
   const engine = buildMemoryClient(creds);
 

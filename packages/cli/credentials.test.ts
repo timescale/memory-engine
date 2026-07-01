@@ -20,6 +20,10 @@ import { join } from "node:path";
 import type { OAuthTokenSet } from "./credentials.ts";
 import * as creds from "./credentials.ts";
 import { resetKeychainForTests } from "./keychain.ts";
+import {
+  resetProjectConfigCache,
+  setConfigDirOverride,
+} from "./project-config.ts";
 
 const SERVER = "https://api.example.com";
 const TOKENS: OAuthTokenSet = {
@@ -30,10 +34,26 @@ const TOKENS: OAuthTokenSet = {
 const TOKEN_ENVS = ["ME_SESSION_TOKEN", "ME_SPACE", "ME_SERVER", "ME_API_KEY"];
 // Every env key these tests touch — snapshotted and restored so the ambient
 // environment (and other test files in the same process) is left untouched.
-const ENV_KEYS = [...TOKEN_ENVS, "XDG_CONFIG_HOME", "ME_NO_KEYCHAIN"];
+const ENV_KEYS = [
+  ...TOKEN_ENVS,
+  "XDG_CONFIG_HOME",
+  "ME_NO_KEYCHAIN",
+  "ME_CONFIG_DIR",
+];
 
 let configDir: string;
+/** A throwaway project dir; the `.me` resolver is pinned here (empty by default,
+ *  so discovery is deterministic — no ambient `.me` from the repo ancestry). */
+let projectDir: string;
 let savedEnv: Record<string, string | undefined>;
+
+/** Write a `.me/config.yaml` into the pinned project dir + refresh the cache. */
+function writeMe(body: string): void {
+  mkdirSync(join(projectDir, ".me"), { recursive: true });
+  writeFileSync(join(projectDir, ".me", "config.yaml"), body);
+  resetProjectConfigCache();
+  setConfigDirOverride(projectDir);
+}
 
 beforeEach(() => {
   savedEnv = {};
@@ -43,17 +63,49 @@ beforeEach(() => {
   process.env.XDG_CONFIG_HOME = configDir;
   process.env.ME_NO_KEYCHAIN = "1"; // force the file fallback
   for (const k of TOKEN_ENVS) delete process.env[k];
+  delete process.env.ME_CONFIG_DIR;
   resetKeychainForTests();
+
+  // Pin the `.me` resolver at an empty throwaway dir so discovery is
+  // deterministic (no walk-up into the repo/home) and off by default.
+  projectDir = mkdtempSync(join(tmpdir(), "me-proj-"));
+  resetProjectConfigCache();
+  setConfigDirOverride(projectDir);
 });
 
 afterEach(() => {
   rmSync(configDir, { recursive: true, force: true });
+  rmSync(projectDir, { recursive: true, force: true });
   for (const k of ENV_KEYS) {
     const v = savedEnv[k];
     if (v === undefined) delete process.env[k];
     else process.env[k] = v;
   }
   resetKeychainForTests();
+  resetProjectConfigCache();
+  setConfigDirOverride(undefined);
+});
+
+test(".me server is used when no --server flag / ME_SERVER env", () => {
+  writeMe("server: https://me-project.example.com\n");
+  expect(creds.resolveServer()).toBe("https://me-project.example.com");
+});
+
+test("ME_SERVER env still wins over a .me server", () => {
+  writeMe("server: https://me-project.example.com\n");
+  process.env.ME_SERVER = "https://env.example.com";
+  expect(creds.resolveServer()).toBe("https://env.example.com");
+});
+
+test(".me space drives resolveSpace + resolveCredentials.activeSpace", () => {
+  writeMe("space: sp_from_me\n");
+  expect(creds.resolveSpace(SERVER)).toBe("sp_from_me");
+  expect(creds.resolveCredentials().activeSpace).toBe("sp_from_me");
+});
+
+test(".me tree surfaces as resolveCredentials.projectTree", () => {
+  writeMe("tree: ~/projects/foo\n");
+  expect(creds.resolveCredentials().projectTree).toBe("~/projects/foo");
 });
 
 test("store + read an OAuth token set (file fallback)", () => {

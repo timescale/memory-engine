@@ -95,4 +95,29 @@ describe("resolveHookConfig", () => {
     );
     expect(cfg?.treeRoot).toBe("share.projects");
   });
+
+  test("a .me projectTree (from creds) sets projectTree, keeping the default parent", () => {
+    const cfg = resolveHookConfig({
+      server: "https://api.example.com",
+      loggedIn: true,
+      activeSpace: "eng123def456",
+      projectTree: "share.projects.foo",
+    });
+    expect(cfg?.projectTree).toBe("share.projects.foo");
+    expect(cfg?.treeRoot).toBe("share.projects");
+  });
+
+  test("an explicit --tree-root flag overrides the .me projectTree", () => {
+    const cfg = resolveHookConfig(
+      {
+        server: "https://api.example.com",
+        loggedIn: true,
+        activeSpace: "eng123def456",
+        projectTree: "share.projects.foo",
+      },
+      { treeRoot: "share.work" },
+    );
+    expect(cfg?.treeRoot).toBe("share.work");
+    expect(cfg?.projectTree).toBeUndefined();
+  });
 });
