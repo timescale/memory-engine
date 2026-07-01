@@ -66,7 +66,7 @@ export function createWhoamiCommand(): Command {
             } else if (resolved) {
               // Slug is set but no longer matches one of your spaces.
               console.log(
-                `  Space:  ${creds.activeSpace}  (not found — you may have been removed; run 'me space use <space>')`,
+                `  Space:  ${creds.activeSpace} (not found — you may have been removed; run 'me space use <space>')`,
               );
             } else {
               // Couldn't reach space.list — show the raw slug.
