@@ -37,7 +37,7 @@ export type {
   TemporalFilter,
 } from "@memory.build/protocol/fields";
 // The default group invites add their redeemer to — clients default their UI to
-// it (see InviteNamespace.create's groupId).
+// it (see InviteNamespace.create's groupIds).
 export { DEFAULT_GROUP_NAME } from "@memory.build/protocol/fields";
 export type * from "@memory.build/protocol/memory";
 
