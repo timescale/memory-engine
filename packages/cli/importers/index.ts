@@ -26,6 +26,7 @@ import { batchCreateChunked } from "../chunk.ts";
 import type { MemoryClient } from "../client.ts";
 import type { ProgressReporter } from "./progress.ts";
 import { boundedUniqueLabel, normalizeSlug, SlugRegistry } from "./slug.ts";
+import { stampConversationLinks } from "./thread-links.ts";
 import { renderMessageContent, synthesizeTitle } from "./transcript.ts";
 import type {
   ConversationMessage,
@@ -385,6 +386,13 @@ function planSession(
   // (the same messageId twice in one file) collapse before submit. tree is
   // constant within a session, so the name alone distinguishes them.
   const dedup = dedupBy(planned, (p) => p.payload.name ?? "");
+  // Stamp thread links ($prev/$thread) over the final surviving order — before
+  // any incremental suffix-narrowing, so a submitted suffix still points back at
+  // its predecessor's stable path.
+  stampConversationLinks(
+    dedup.unique.map((p) => p.payload),
+    session.sessionId,
+  );
   return {
     planned: dedup.unique,
     skipped: skipped + dedup.duplicates,

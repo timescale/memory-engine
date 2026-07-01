@@ -1166,6 +1166,21 @@ describe.skipIf(
     expect(row?.content).toContain("Files:");
     expect(row?.content).toContain("b.txt (+1 -0)");
 
+    // Thread links: commits chain via $prev along the first-parent line, with
+    // the canonical /tree/sha path form; the root commit (a) has none.
+    const gitPath = (sha: string) => `/${tree.replaceAll(".", "/")}/${sha}`;
+    const chain = await sql.unsafe(
+      `select meta->>'sha' as sha, meta->>'$prev' as prev
+         from metest_${spaceSlug}.memory
+         where tree = $1::ltree
+         order by (meta->>'commit_date')`,
+      [tree],
+    );
+    expect(chain).toHaveLength(3);
+    expect(chain[0]?.prev).toBeNull(); // root commit: no $prev
+    expect(chain[1]?.prev).toBe(gitPath(chain[0]?.sha)); // b → a
+    expect(chain[2]?.prev).toBe(gitPath(chain[1]?.sha)); // c → b
+
     // 2. Plain re-run: the high-water commit is HEAD → incremental walk of
     //    an empty range; nothing re-sent, nothing duplicated.
     const rerun = await meJson<{ inserted: number; commitsWalked: number }>([
@@ -1211,6 +1226,17 @@ describe.skipIf(
     expect(incr.inserted).toBe(1);
     expect(incr.skippedMerges).toBe(1);
     expect(await countUnder(tree)).toBe(4);
+
+    // The incrementally-imported commit d links $prev back to c — its
+    // first parent, imported in the FIRST run and NOT in this batch. This is
+    // the out-of-batch-parent case: the high-water walk doesn't gate on the
+    // batch set, so the link is stamped from the parent sha alone.
+    const [dRow] = await sql.unsafe(
+      `select meta->>'$prev' as prev from metest_${spaceSlug}.memory
+         where tree = $1::ltree and content like 'feat: add d%'`,
+      [tree],
+    );
+    expect(dRow?.prev).toBe(gitPath(chain[2]?.sha));
 
     await rm(root, { recursive: true, force: true });
   });

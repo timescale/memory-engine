@@ -7,6 +7,7 @@
  * version-bump re-render logic is exercised without a database.
  */
 import { describe, expect, test } from "bun:test";
+import { memoryPath } from "@memory.build/protocol/meta";
 import type { MemoryClient } from "../client.ts";
 import {
   type Importer,
@@ -273,5 +274,63 @@ describe("importTranscriptFile", () => {
       expect(row.meta.importer_version).toBe("1");
       expect(row.content).not.toBe("stale render");
     }
+  });
+
+  test("stamps $thread on every message and $prev linking consecutive ones", async () => {
+    const { client, store } = mockEngine();
+    await importTranscriptFile(
+      client,
+      importerFor(session(["a", "b", "c"])),
+      "/x.jsonl",
+      WRITE,
+    );
+    const rows = [...store.values()];
+    const byId = (id: string) =>
+      rows.find((r) => r.meta.source_message_id === id);
+    const a = byId("a");
+    const b = byId("b");
+    const c = byId("c");
+    if (!a || !b || !c) throw new Error("expected three imported messages");
+
+    // Every message shares the session's $thread grouping id.
+    expect(rows.every((r) => r.meta.$thread === "sess-1")).toBe(true);
+    // $prev links each message to the previous one's canonical path; the head
+    // of the thread has none.
+    expect(a.meta.$prev).toBeUndefined();
+    expect(b.meta.$prev).toBe(memoryPath(a.tree, a.name));
+    expect(c.meta.$prev).toBe(memoryPath(b.tree, b.name));
+    // $next is never stored — the UI derives it from $prev.
+    expect(rows.every((r) => !("$next" in r.meta))).toBe(true);
+  });
+
+  test("an incrementally-captured message links $prev back to the already-imported previous one", async () => {
+    const { client, store } = mockEngine();
+    // First capture: a, b, c.
+    await importTranscriptFile(
+      client,
+      importerFor(session(["a", "b", "c"])),
+      "/x.jsonl",
+      WRITE,
+    );
+    // Live capture after message "d" is appended — only "d" is submitted
+    // (the watermark narrows the plan to the new suffix).
+    const out = await importTranscriptFile(
+      client,
+      importerFor(session(["a", "b", "c", "d"])),
+      "/x.jsonl",
+      WRITE,
+    );
+    expect(out?.inserted).toBe(1);
+
+    const rows = [...store.values()];
+    const byId = (id: string) =>
+      rows.find((r) => r.meta.source_message_id === id);
+    const c = byId("c");
+    const d = byId("d");
+    if (!c || !d) throw new Error("expected messages c and d");
+    // Links are stamped over the full plan before the suffix slice, so the
+    // incrementally-submitted "d" still points back at the already-stored "c".
+    expect(d.meta.$prev).toBe(memoryPath(c.tree, c.name));
+    expect(d.meta.$thread).toBe("sess-1");
   });
 });

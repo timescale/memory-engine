@@ -37,6 +37,13 @@ export type {
   TemporalFilter,
 } from "@memory.build/protocol/fields";
 export type * from "@memory.build/protocol/memory";
+// Reserved thread-link meta keys + canonical memory-path builder (runtime values)
+export {
+  META_NEXT,
+  META_PREV,
+  META_THREAD,
+  memoryPath,
+} from "@memory.build/protocol/meta";
 
 // Errors
 export { isRpcError, RpcError } from "./errors.ts";

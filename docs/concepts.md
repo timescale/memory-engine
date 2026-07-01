@@ -160,6 +160,22 @@ Metadata is indexed with a GIN index, making attribute-based filtering fast. You
 
 `display_name` is a presentation hint: the web UI's tree view prefers it over the memory's `name` and content when labelling a leaf. Use it when the stable `name` is an opaque id (e.g. an importer keying idempotency on a source id) but you still want a readable label. It does not affect addressing or search.
 
+### Reserved thread-link keys
+
+Some memories form an ordered **thread** -- the messages of one agent session, or a run of git commits. Three reserved `$`-prefixed meta keys stitch them together, and the web UI renders **Previous** / **Next** / **Entire thread** buttons from them:
+
+| Key | Purpose | Value |
+|-----|---------|-------|
+| `$prev` | The previous memory in the thread. | A memory path (e.g. `/share/projects/foo/agent_sessions/s1/msg_2`) |
+| `$next` | The next memory in the thread. Optional. | A memory path |
+| `$thread` | A grouping id shared by every memory in the thread. | An opaque string (the importers use the session id) |
+
+The values of `$prev`/`$next` are memory paths (the same form `memory.getByPath` accepts), so they stay stable across re-imports (unlike a memory's id). `$thread` is just a grouping key: a search with `meta: {"$thread": "<id>"}` returns the whole thread.
+
+`$next` is optional and usually left unset -- it can be derived by finding the memory whose `$prev` points back at the current one (`meta: {"$prev": "<this memory's path>"}`), which is what the web UI does when no explicit `$next` is present. By convention `$prev` is (almost) always set; the head of a thread has none.
+
+The conversation importers (`me import claude` / `codex` / `opencode`) set `$prev` + `$thread`; the git importer (`me import git`) sets `$prev` only. You can set these keys on your own memories to build custom threads.
+
 ### Meta vs. tree
 
 - **Tree** gives one hierarchical path per memory and supports subtree queries. Use for browsable organization.

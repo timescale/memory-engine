@@ -15,10 +15,20 @@
  * listener handles the "close tab / refresh" path.
  */
 
-import type { MemoryResponse } from "@memory.build/client";
+import {
+  META_NEXT,
+  META_PREV,
+  META_THREAD,
+  type MemoryResponse,
+  memoryPath,
+} from "@memory.build/client";
 import { useQueryClient } from "@tanstack/react-query";
 import { lazy, Suspense, useEffect, useMemo, useState } from "react";
-import { useUpdateMemory } from "../../api/queries.ts";
+import {
+  useMemoryByPath,
+  useNextByPrev,
+  useUpdateMemory,
+} from "../../api/queries.ts";
 import { memoryToEditorText, parseEditorText } from "../../lib/frontmatter.ts";
 import {
   breadcrumbSegments,
@@ -26,7 +36,10 @@ import {
   extractTags,
   formatShortDate,
 } from "../../lib/memory-view.ts";
-import { useEditor } from "../../store/editor.ts";
+import { confirmDiscardChangesIfDirty, useEditor } from "../../store/editor.ts";
+import { useFilter } from "../../store/filter.ts";
+import { useLayout } from "../../store/layout.ts";
+import { useSelection } from "../../store/selection.ts";
 import { pushToast } from "../toast/Toast.tsx";
 import { FrontmatterBlock } from "../viewer/FrontmatterBlock.tsx";
 import { MarkdownViewer } from "../viewer/MarkdownViewer.tsx";
@@ -245,6 +258,8 @@ function ReadingView({
 
         <MetaRow memory={memory} />
 
+        <ThreadNav memory={memory} />
+
         <div className="mt-[26px]">
           <MarkdownViewer content={body} />
         </div>
@@ -271,6 +286,80 @@ function ReadingView({
         </div>
       </article>
     </div>
+  );
+}
+
+/**
+ * Thread navigation: Previous / Next / Entire thread, shown when the memory
+ * carries the reserved link keys. `$prev` (and a stored `$next`) are canonical
+ * paths resolved to their memory; when `$next` is absent it is derived from
+ * `$prev` (the memory pointing back at this one). `$thread` filters search to
+ * the whole thread. Renders nothing for a memory with no links.
+ */
+function ThreadNav({ memory }: { memory: MemoryResponse }) {
+  const select = useSelection((s) => s.select);
+  const applyMetaJsonFilter = useFilter((s) => s.applyMetaJsonFilter);
+  const setSearchCollapsed = useLayout((s) => s.setSearchCollapsed);
+
+  const meta = memory.meta;
+  const asString = (v: unknown): string | null =>
+    typeof v === "string" && v.length > 0 ? v : null;
+  const prevPath = asString(meta[META_PREV]);
+  const storedNextPath = asString(meta[META_NEXT]);
+  const threadId = asString(meta[META_THREAD]);
+  const currentPath = memory.name ? memoryPath(memory.tree, memory.name) : null;
+
+  const prev = useMemoryByPath(prevPath);
+  const storedNext = useMemoryByPath(storedNextPath);
+  // Derive the next memory only when there's no stored $next and this memory is
+  // addressable by path (named).
+  const deriveEnabled = storedNextPath === null && currentPath !== null;
+  const derivedNext = useNextByPrev(
+    deriveEnabled ? { path: currentPath as string, thread: threadId } : null,
+  );
+  const nextMemory =
+    storedNextPath !== null ? storedNext.data : derivedNext.data;
+
+  const navigate = (id: string | undefined) => {
+    if (!id || id === memory.id) return;
+    if (!confirmDiscardChangesIfDirty()) return;
+    select(id);
+  };
+
+  const showPrev = prevPath !== null;
+  const showNext = storedNextPath !== null || nextMemory != null;
+  const showThread = threadId !== null;
+  if (!showPrev && !showNext && !showThread) return null;
+
+  return (
+    <nav className="mt-3.5 flex flex-wrap items-center gap-2">
+      {showPrev && (
+        <GhostButton
+          onClick={() => navigate(prev.data?.id)}
+          disabled={!prev.data}
+        >
+          ← Previous
+        </GhostButton>
+      )}
+      {showNext && (
+        <GhostButton
+          onClick={() => navigate(nextMemory?.id)}
+          disabled={!nextMemory}
+        >
+          Next →
+        </GhostButton>
+      )}
+      {showThread && (
+        <GhostButton
+          onClick={() => {
+            applyMetaJsonFilter({ [META_THREAD]: threadId });
+            setSearchCollapsed(false);
+          }}
+        >
+          Entire thread
+        </GhostButton>
+      )}
+    </nav>
   );
 }
 

@@ -5,9 +5,11 @@
  * naturally triggers a refetch and re-caches the result.
  */
 
-import type {
-  MemorySearchParams,
-  MemoryUpdateParams,
+import {
+  META_PREV,
+  META_THREAD,
+  type MemorySearchParams,
+  type MemoryUpdateParams,
 } from "@memory.build/client";
 import {
   type QueryClient,
@@ -118,6 +120,45 @@ export function useMemory(id: string | null) {
     queryKey: ["memory", id],
     queryFn: () =>
       memoryClient.memory.get({ id: id as string }).then(memoryToDot),
+  });
+}
+
+/**
+ * Fetch a single memory by its `tree/name` path — used to resolve a thread
+ * link (`$prev`, or a stored `$next`). `retry: false` so a dangling link (a
+ * link to a not-yet-imported memory → NOT_FOUND) surfaces immediately as an
+ * error state rather than retrying; the caller disables the button.
+ */
+export function useMemoryByPath(path: string | null) {
+  return useQuery({
+    enabled: path !== null,
+    retry: false,
+    queryKey: ["memory-by-path", path],
+    queryFn: () =>
+      memoryClient.memory.getByPath({ path: path as string }).then(memoryToDot),
+  });
+}
+
+/**
+ * Derive the "next" memory in a thread: the memory whose `$prev` points back at
+ * `path` (further constrained by `$thread` when the current memory has one, so a
+ * git fork with several children resolves to at most one). Returns null when
+ * nothing points back — i.e. `path` is the thread head. Used when a memory has
+ * no explicit `$next` (the importers don't store one).
+ */
+export function useNextByPrev(
+  args: { path: string; thread: string | null } | null,
+) {
+  return useQuery({
+    enabled: args !== null,
+    queryKey: ["memory-next-by-prev", args?.path, args?.thread],
+    queryFn: () => {
+      const meta: Record<string, unknown> = { [META_PREV]: args?.path };
+      if (args?.thread != null) meta[META_THREAD] = args.thread;
+      return memoryClient.memory
+        .search({ meta, limit: 1 })
+        .then((r) => (r.results[0] ? memoryToDot(r.results[0]) : null));
+    },
   });
 }
 
