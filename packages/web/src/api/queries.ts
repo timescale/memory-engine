@@ -140,11 +140,13 @@ export function useMemoryByPath(path: string | null) {
 }
 
 /**
- * Derive the "next" memory in a thread: the memory whose `$prev` points back at
- * `path` (further constrained by `$thread` when the current memory has one, so a
- * git fork with several children resolves to at most one). Returns null when
- * nothing points back — i.e. `path` is the thread head. Used when a memory has
- * no explicit `$next` (the importers don't store one).
+ * Find the memories whose `$prev` points back at `path` — the "next" candidates
+ * in a thread (constrained by `$thread` when present). Returns up to 2 so the
+ * caller can distinguish a unique next from an ambiguous one: a linear
+ * conversation resolves to exactly one, but a branching git history can have
+ * several children sharing the same `$prev`. When ambiguous, the UI offers a
+ * search rather than navigating to an arbitrary child. Empty when `path` is the
+ * thread head. Used when a memory has no explicit `$next`.
  */
 export function useNextByPrev(
   args: { path: string; thread: string | null } | null,
@@ -156,8 +158,8 @@ export function useNextByPrev(
       const meta: Record<string, unknown> = { [META_PREV]: args?.path };
       if (args?.thread != null) meta[META_THREAD] = args.thread;
       return memoryClient.memory
-        .search({ meta, limit: 1 })
-        .then((r) => (r.results[0] ? memoryToDot(r.results[0]) : null));
+        .search({ meta, limit: 2 })
+        .then((r) => r.results.map(memoryToDot));
     },
   });
 }

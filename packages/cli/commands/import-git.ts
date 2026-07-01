@@ -225,11 +225,20 @@ export async function runGitImport(
       since: opts.since,
       until: opts.until,
       maxCount: opts.maxCount,
-      noMerges: opts.merges === false,
+      // Deliberately NOT `--no-merges` at the git level: we walk merges and drop
+      // them in-process (below) so their first parent is recorded in
+      // `skippedFirstParent`, letting `$prev` step through a dropped merge even
+      // under --no-merges (git-level filtering would hide them entirely).
     })) {
       commitsWalked++;
       progress?.process(`${commit.sha.slice(0, 8)} ${commit.subject}`);
-      if (mergeSkipReason(commit) !== null) {
+      // Drop boilerplate merges always, and every merge under --no-merges —
+      // recording each dropped merge's first parent for $prev skip-through.
+      const isMerge = commit.parents.length >= 2;
+      if (
+        mergeSkipReason(commit) !== null ||
+        (isMerge && opts.merges === false)
+      ) {
         skippedMerges++;
         if (commit.parents[0] !== undefined) {
           skippedFirstParent.set(commit.sha, commit.parents[0]);
