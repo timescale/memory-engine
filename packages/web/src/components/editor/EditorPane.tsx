@@ -293,8 +293,11 @@ function ReadingView({
  * Thread navigation: Previous / Next / Entire thread, shown when the memory
  * carries the reserved link keys. `$prev` (and a stored `$next`) are canonical
  * paths resolved to their memory; when `$next` is absent it is derived from
- * `$prev` (the memory pointing back at this one). `$thread` filters search to
- * the whole thread. Renders nothing for a memory with no links.
+ * `$prev` (the memory pointing back at this one). If several memories share
+ * that `$prev` (a branching git history), navigating to one would be arbitrary,
+ * so instead we show a **Find next** button that pre-populates the search with
+ * all of them. `$thread` filters search to the whole thread. Renders nothing
+ * for a memory with no links.
  */
 function ThreadNav({ memory }: { memory: MemoryResponse }) {
   const select = useSelection((s) => s.select);
@@ -311,14 +314,25 @@ function ThreadNav({ memory }: { memory: MemoryResponse }) {
 
   const prev = useMemoryByPath(prevPath);
   const storedNext = useMemoryByPath(storedNextPath);
-  // Derive the next memory only when there's no stored $next and this memory is
+  // Derive next candidates only when there's no stored $next and this memory is
   // addressable by path (named).
   const deriveEnabled = storedNextPath === null && currentPath !== null;
   const derivedNext = useNextByPrev(
     deriveEnabled ? { path: currentPath as string, thread: threadId } : null,
   );
-  const nextMemory =
-    storedNextPath !== null ? storedNext.data : derivedNext.data;
+  const derivedNexts = derivedNext.data ?? [];
+
+  // An explicit stored $next is always a single target; a derived next is
+  // unique only when exactly one memory points back. Two or more means the
+  // thread forks here — offer a search instead of an arbitrary jump.
+  const singleNext =
+    storedNextPath !== null
+      ? storedNext.data
+      : derivedNexts.length === 1
+        ? derivedNexts[0]
+        : undefined;
+  const showSingleNext = storedNextPath !== null || derivedNexts.length === 1;
+  const forkedNext = storedNextPath === null && derivedNexts.length > 1;
 
   const navigate = (id: string | undefined) => {
     if (!id || id === memory.id) return;
@@ -326,10 +340,18 @@ function ThreadNav({ memory }: { memory: MemoryResponse }) {
     select(id);
   };
 
+  // Pre-populate search with everything whose $prev points back here.
+  const searchForNext = () => {
+    if (currentPath === null) return;
+    const filter: Record<string, unknown> = { [META_PREV]: currentPath };
+    if (threadId !== null) filter[META_THREAD] = threadId;
+    applyMetaJsonFilter(filter);
+    setSearchCollapsed(false);
+  };
+
   const showPrev = prevPath !== null;
-  const showNext = storedNextPath !== null || nextMemory != null;
   const showThread = threadId !== null;
-  if (!showPrev && !showNext && !showThread) return null;
+  if (!showPrev && !showSingleNext && !forkedNext && !showThread) return null;
 
   return (
     <nav className="mt-3.5 flex flex-wrap items-center gap-2">
@@ -341,13 +363,16 @@ function ThreadNav({ memory }: { memory: MemoryResponse }) {
           ← Previous
         </GhostButton>
       )}
-      {showNext && (
+      {showSingleNext && (
         <GhostButton
-          onClick={() => navigate(nextMemory?.id)}
-          disabled={!nextMemory}
+          onClick={() => navigate(singleNext?.id)}
+          disabled={!singleNext}
         >
           Next →
         </GhostButton>
+      )}
+      {forkedNext && (
+        <GhostButton onClick={searchForNext}>Find next →</GhostButton>
       )}
       {showThread && (
         <GhostButton

@@ -1358,6 +1358,25 @@ describe.skipIf(
     );
     expect(dRow?.prev).toBe(gitPath(chain[2]?.sha));
 
+    // 5. --no-merges: the merge is walked but dropped in-process, so a commit
+    //    whose first parent is that dropped merge still links $prev through to
+    //    the merge's first parent (c) instead of dangling at the vanished merge.
+    await commitFile("e.txt", "feat: add e", "2026-05-06T10:00:00Z");
+    const noMerges = await meJson<{ inserted: number }>([
+      "import",
+      "git",
+      "--full",
+      "--no-merges",
+      repo,
+    ]);
+    expect(noMerges.inserted).toBe(1); // just e; a–d already present, unchanged
+    const [eRow] = await sql.unsafe(
+      `select meta->>'$prev' as prev from metest_${spaceSlug}.memory
+         where tree = $1::ltree and content like 'feat: add e%'`,
+      [tree],
+    );
+    expect(eRow?.prev).toBe(gitPath(chain[2]?.sha)); // e → (through merge) → c
+
     await rm(root, { recursive: true, force: true });
   });
 
