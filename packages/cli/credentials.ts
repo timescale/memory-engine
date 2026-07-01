@@ -186,20 +186,32 @@ function readConfig(): ConfigFile {
   migrateLegacyIfNeeded();
   const path = getConfigPath();
   if (!existsSync(path)) return { default_server: DEFAULT_SERVER, servers: {} };
+  let data: Record<string, unknown> | null;
   try {
-    const data = parse(
-      readFileSync(path, "utf-8"),
-    ) as Partial<ConfigFile> | null;
-    return {
-      default_server: data?.default_server ?? DEFAULT_SERVER,
-      servers: data?.servers ?? {},
-      server_whitelist: Array.isArray(data?.server_whitelist)
-        ? data.server_whitelist
-        : undefined,
-    };
+    data = parse(readFileSync(path, "utf-8")) as Record<string, unknown> | null;
   } catch {
     return { default_server: DEFAULT_SERVER, servers: {} };
   }
+  // A present server_whitelist must be a list of strings — fail loudly on a
+  // mistyped one rather than throwing an opaque error later in normalizeOrigin.
+  const rawWhitelist = data?.server_whitelist;
+  if (
+    rawWhitelist !== undefined &&
+    (!Array.isArray(rawWhitelist) ||
+      !rawWhitelist.every((s) => typeof s === "string"))
+  ) {
+    throw new Error(
+      `Invalid server_whitelist in ${path}: it must be a list of server URL strings.`,
+    );
+  }
+  return {
+    default_server:
+      typeof data?.default_server === "string"
+        ? data.default_server
+        : DEFAULT_SERVER,
+    servers: (data?.servers as ConfigFile["servers"]) ?? {},
+    server_whitelist: rawWhitelist as string[] | undefined,
+  };
 }
 
 /** Write config.yaml. Non-secret, but the dir is 0700 (owner-only). */
@@ -459,23 +471,46 @@ function assertProjectServerAllowed(origin: string): void {
 }
 
 /**
+ * Normalize a `.me`-sourced server to a canonical origin, first validating it is
+ * a real http(s) URL — so a malformed pin (missing scheme, `ftp://…`) fails with
+ * a clear "invalid server" error instead of the misleading "not trusted".
+ */
+function projectServerOrigin(raw: string): string {
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    throw new ProjectConfigError(
+      `.me/config.yaml has an invalid server "${raw}": expected an http(s) URL like https://api.memory.build.`,
+    );
+  }
+  if (url.protocol !== "http:" && url.protocol !== "https:") {
+    throw new ProjectConfigError(
+      `.me/config.yaml server "${raw}" must use http(s), not "${url.protocol}".`,
+    );
+  }
+  return normalizeOrigin(raw);
+}
+
+/**
  * Resolve the active server URL.
  * Priority: --server flag > ME_SERVER env > `.me` server > default_server (config) > DEFAULT_SERVER
  *
- * A `.me`-sourced server is validated against the whitelist (see
- * {@link assertProjectServerAllowed}); `--server` / `ME_SERVER` / the stored
- * default are the user's own choice and pass through unguarded.
+ * A `.me`-sourced server is validated as an http(s) URL and against the
+ * whitelist (see {@link assertProjectServerAllowed}); `--server` / `ME_SERVER` /
+ * the stored default are the user's own choice and pass through unguarded. Every
+ * branch returns a normalized origin.
  */
 export function resolveServer(flagValue?: string): string {
   if (flagValue) return normalizeOrigin(flagValue);
   if (process.env.ME_SERVER) return normalizeOrigin(process.env.ME_SERVER);
   const projectServer = getProjectConfig()?.server;
   if (projectServer) {
-    const origin = normalizeOrigin(projectServer);
+    const origin = projectServerOrigin(projectServer);
     assertProjectServerAllowed(origin);
     return origin;
   }
-  return readConfig().default_server;
+  return normalizeOrigin(readConfig().default_server);
 }
 
 /**

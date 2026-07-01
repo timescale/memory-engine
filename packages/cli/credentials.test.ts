@@ -148,6 +148,36 @@ test("logging into prod/dev does not bloat server_whitelist (already trusted)", 
   expect(wl.filter((s) => s === creds.DEFAULT_SERVER).length).toBe(1);
 });
 
+test("a non-string server_whitelist entry is a fatal config error", () => {
+  mkdirSync(join(configDir, "me"), { recursive: true });
+  writeFileSync(
+    join(configDir, "me", "config.yaml"),
+    "server_whitelist:\n  - 12345\n",
+  );
+  expect(() => creds.getServerWhitelist()).toThrow(/Invalid server_whitelist/);
+});
+
+test(".me server that isn't a valid http(s) URL fails with a clear error", () => {
+  writeMe("server: not-a-url\n");
+  expect(() => creds.resolveServer()).toThrow(ProjectConfigError);
+  expect(() => creds.resolveServer()).toThrow(/invalid server/i);
+});
+
+test("a non-http(s) .me server scheme is rejected", () => {
+  writeMe("server: ftp://api.memory.build\n");
+  expect(() => creds.resolveServer()).toThrow(/must use http/i);
+});
+
+test("resolveServer normalizes a hand-edited default_server (trailing slash)", () => {
+  mkdirSync(join(configDir, "me"), { recursive: true });
+  writeFileSync(
+    join(configDir, "me", "config.yaml"),
+    "default_server: https://api.memory.build/\n",
+  );
+  // projectDir has no `.me` server, no flag/env → falls to default_server.
+  expect(creds.resolveServer()).toBe("https://api.memory.build");
+});
+
 test(".me space drives resolveSpace + resolveCredentials.activeSpace", () => {
   writeMe("space: sp_from_me\n");
   expect(creds.resolveSpace(SERVER)).toBe("sp_from_me");
