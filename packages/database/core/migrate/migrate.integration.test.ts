@@ -9,7 +9,11 @@
 // processes for core and space).
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import type { Sql as SQL } from "postgres";
+import { template } from "../../migrate/kit";
 import { CORE_SCHEMA_VERSION } from "../version";
+import backfill012 from "./incremental/012_default_groups.sql" with {
+  type: "text",
+};
 import { migrateCore } from "./migrate";
 import {
   appliedMigrations,
@@ -52,6 +56,7 @@ const EXPECTED_MIGRATIONS = [
   "009_invitation_links",
   "010_roster_existing_groups",
   "011_group_member_space_fk",
+  "012_default_groups",
 ];
 
 const EXPECTED_FUNCTIONS = [
@@ -61,6 +66,7 @@ const EXPECTED_FUNCTIONS = [
   "is_principal_space_admin",
   "member_groups",
   "member_tree_access",
+  "provision_default_group",
   "set_group_is_space_admin",
   "update_updated_at",
   "user_tree_access",
@@ -342,6 +348,86 @@ describe("control-plane functions", () => {
     `${homePath(ownerId)}.${agentId.replace(/-/g, "")}`;
 
   type Grant = { tree_path: string; access: number };
+
+  test("012 backfill: adds a rostered 'team' group + grants for spaces lacking one (idempotent, non-clobbering)", async () => {
+    await withTestCore(sql, {}, async (core) => {
+      const s = core.schema;
+      const runBackfill = () =>
+        sql.unsafe(template(backfill012, { schema: s }));
+      const groupIds = (spaceId: string) =>
+        sql.unsafe(
+          `select id from ${s}.principal where kind='g' and space_id=$1`,
+          [spaceId],
+        );
+      const grants = async (
+        spaceId: string,
+        principalId: string,
+      ): Promise<Grant[]> => {
+        const rows = await sql.unsafe(
+          `select tree_path::text as tree_path, access from ${s}.tree_access
+             where space_id=$1 and principal_id=$2 order by tree_path`,
+          [spaceId, principalId],
+        );
+        return rows as unknown as Grant[];
+      };
+      const isRostered = async (spaceId: string, principalId: string) => {
+        const [row] = await sql.unsafe(
+          `select 1 as ok from ${s}.principal_space
+             where space_id=$1 and principal_id=$2`,
+          [spaceId, principalId],
+        );
+        return Boolean(row?.ok);
+      };
+
+      // space A: no team group (the common pre-migration state)
+      const [a] = await sql.unsafe(`select ${s}.create_space($1, $2) as id`, [
+        randomSlug(),
+        "Backfill A",
+      ]);
+      const spaceA = a?.id as string;
+
+      // space B: already has a 'team' group (rostered by create_group) with a
+      // NON-standard grant we must keep
+      const [b] = await sql.unsafe(`select ${s}.create_space($1, $2) as id`, [
+        randomSlug(),
+        "Backfill B",
+      ]);
+      const spaceB = b?.id as string;
+      const [gb] = await sql.unsafe(
+        `select ${s}.create_group($1, $2, false) as id`,
+        [spaceB, "team"],
+      );
+      const teamB = gb?.id as string;
+      await sql.unsafe(
+        `select ${s}.grant_tree_access($1, $2, 'share'::ltree, 3)`,
+        [spaceB, teamB],
+      );
+
+      await runBackfill();
+
+      // A gained a brand-new team group — rostered, with the two standard grants
+      const aGroups = await groupIds(spaceA);
+      expect(aGroups).toHaveLength(1);
+      const teamA = aGroups[0]?.id as string;
+      expect(await isRostered(spaceA, teamA)).toBe(true);
+      expect(await grants(spaceA, teamA)).toEqual([
+        { tree_path: "share", access: 1 },
+        { tree_path: "share.projects", access: 2 },
+      ]);
+
+      // B's pre-existing team group is left entirely untouched (no second group,
+      // its non-standard owner@share grant survives — non-clobbering)
+      expect(await groupIds(spaceB)).toHaveLength(1);
+      expect(await grants(spaceB, teamB)).toEqual([
+        { tree_path: "share", access: 3 },
+      ]);
+
+      // re-running is a no-op: no duplicate groups or grants
+      await runBackfill();
+      expect(await groupIds(spaceA)).toHaveLength(1);
+      expect(await grants(spaceA, teamA)).toHaveLength(2);
+    });
+  });
 
   test("create_space + create_user + grant → build_tree_access returns the search_memory jsonb shape", async () => {
     await withTestCore(sql, {}, async (core) => {
