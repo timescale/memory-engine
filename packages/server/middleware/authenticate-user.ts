@@ -12,13 +12,14 @@
  * carries its principal's real kind.
  */
 import { type CoreStore, parseApiKey } from "@memory.build/engine/core";
+import { AS_AGENT_HEADER } from "@memory.build/protocol/headers";
 import { debug, span } from "@pydantic/logfire-node";
 import type {
   Auth,
   GetUserEmailVerified,
   VerifyOAuthAccessToken,
 } from "../auth/betterauth";
-import { forbidden, unauthorized } from "../util/response";
+import { error, forbidden, unauthorized } from "../util/response";
 import { extractBearerToken, passesCsrfCheck } from "./authenticate";
 
 export interface UserAuthContext {
@@ -48,6 +49,13 @@ export interface UserAuthContext {
    * mint/revoke session-only (a key can't manage keys).
    */
   viaApiKey: boolean;
+  /**
+   * When a human is acting as one of their own agents (via `X-Me-As-Agent`),
+   * the human's principal id; null otherwise. Observability only — never gates
+   * authorization (which reads `kind` / `userId`, both already switched to the
+   * agent).
+   */
+  authenticatedAs: string | null;
 }
 
 export type UserAuthResult =
@@ -65,123 +73,191 @@ export async function authenticateUser(
   return span("auth.user", {
     attributes: { "auth.type": "user" },
     callback: async () => {
-      const bearer = extractBearerToken(request);
-      if (bearer) {
-        // An api key — a user PAT (kind 'u') or an agent key (kind 'a'). Both
-        // are admitted; the per-method handlers authorize what each may do (an
-        // agent gets `whoami` / `space.list`, nothing that manages the account).
-        // An api key is never an OAuth token, so this branch always returns.
-        const parsed = parseApiKey(bearer);
-        if (parsed) {
-          const validated = await core.validateApiKey(
-            parsed.lookupId,
-            parsed.secret,
-          );
-          if (!validated) {
-            debug("user auth failed: invalid api key");
-            return {
-              ok: false,
-              error: unauthorized("Invalid or expired token"),
-            };
-          }
-          const principal = await core.getPrincipal(validated.memberId);
-          // A key only ever resolves to a user or an agent (groups hold no key);
-          // a missing principal means a member torn down under a live key.
-          if (!principal || principal.kind === "g") {
-            debug("user auth failed: api key resolves to no usable principal");
-            return {
-              ok: false,
-              error: unauthorized("Invalid or expired token"),
-            };
-          }
-          const isUser = principal.kind === "u";
-          debug("user auth succeeded (api key)", {
-            userId: principal.id,
-            kind: principal.kind,
-          });
-          return {
-            ok: true,
-            context: {
-              type: "user",
-              kind: principal.kind,
-              userId: principal.id,
-              // For a user the core principal's name IS the email (the display
-              // name lives on auth.users, not fetched on the key path); an agent
-              // has no email — its name is its display name.
-              email: isUser ? principal.name : null,
-              name: principal.name,
-              // For a user PAT, carry the real verified flag (the same fact a
-              // session reports), so it behaves like any other credential —
-              // including the email-keyed redemption step. An agent has no
-              // email to verify. A key's only carve-out is that it can't
-              // mint/revoke keys (enforced at the handler layer).
-              emailVerified: isUser
-                ? await getUserEmailVerified(principal.id)
-                : false,
-              viaApiKey: true,
-            },
-          };
-        }
+      const result = await resolvePrincipal();
+      if (!result.ok) return result;
+      // Act-as-agent switch: a human caller (kind 'u') may run as one of their
+      // own agents via `X-Me-As-Agent`. An agent key (kind 'a') already IS an
+      // agent → the header is ignored (parity precedence). On a match the whole
+      // context is overwritten to the agent, reusing the agent-key semantics so
+      // the `AGENT_ALLOWED` allow-list constrains it automatically.
+      return applyActAsAgent(result, request, core);
+    },
+  });
 
-        // OAuth access token (CLI / MCP). One lookup yields user + identity.
-        const verified = await verifyOAuthToken(bearer);
-        if (!verified) {
-          debug("user auth failed: invalid or expired OAuth access token");
+  async function resolvePrincipal(): Promise<UserAuthResult> {
+    const bearer = extractBearerToken(request);
+    if (bearer) {
+      // An api key — a user PAT (kind 'u') or an agent key (kind 'a'). Both
+      // are admitted; the per-method handlers authorize what each may do (an
+      // agent gets `whoami` / `space.list`, nothing that manages the account).
+      // An api key is never an OAuth token, so this branch always returns.
+      const parsed = parseApiKey(bearer);
+      if (parsed) {
+        const validated = await core.validateApiKey(
+          parsed.lookupId,
+          parsed.secret,
+        );
+        if (!validated) {
+          debug("user auth failed: invalid api key");
           return {
             ok: false,
             error: unauthorized("Invalid or expired token"),
           };
         }
-        debug("user auth succeeded (oauth)", { userId: verified.userId });
+        const principal = await core.getPrincipal(validated.memberId);
+        // A key only ever resolves to a user or an agent (groups hold no key);
+        // a missing principal means a member torn down under a live key.
+        if (!principal || principal.kind === "g") {
+          debug("user auth failed: api key resolves to no usable principal");
+          return {
+            ok: false,
+            error: unauthorized("Invalid or expired token"),
+          };
+        }
+        const isUser = principal.kind === "u";
+        debug("user auth succeeded (api key)", {
+          userId: principal.id,
+          kind: principal.kind,
+        });
         return {
           ok: true,
           context: {
             type: "user",
-            kind: "u",
-            userId: verified.userId,
-            email: verified.email,
-            name: verified.name,
-            emailVerified: verified.emailVerified,
-            viaApiKey: false,
+            kind: principal.kind,
+            userId: principal.id,
+            // For a user the core principal's name IS the email (the display
+            // name lives on auth.users, not fetched on the key path); an agent
+            // has no email — its name is its display name.
+            email: isUser ? principal.name : null,
+            name: principal.name,
+            // For a user PAT, carry the real verified flag (the same fact a
+            // session reports), so it behaves like any other credential —
+            // including the email-keyed redemption step. An agent has no
+            // email to verify. A key's only carve-out is that it can't
+            // mint/revoke keys (enforced at the handler layer).
+            emailVerified: isUser
+              ? await getUserEmailVerified(principal.id)
+              : false,
+            viaApiKey: true,
+            authenticatedAs: null,
           },
         };
       }
 
-      // Browser cookie session. CSRF gates the ambient cookie credential.
-      if (request.headers.get("cookie") === null) {
-        debug("user auth failed: missing credential");
+      // OAuth access token (CLI / MCP). One lookup yields user + identity.
+      const verified = await verifyOAuthToken(bearer);
+      if (!verified) {
+        debug("user auth failed: invalid or expired OAuth access token");
         return {
           ok: false,
-          error: unauthorized(
-            "Authentication required (Authorization header or session cookie)",
-          ),
+          error: unauthorized("Invalid or expired token"),
         };
       }
-      if (!passesCsrfCheck(request, allowedOrigins)) {
-        debug("user auth failed: cookie request failed CSRF origin check");
-        return { ok: false, error: forbidden("Cross-origin request rejected") };
-      }
-      const session = await betterAuth.api.getSession({
-        headers: request.headers,
-      });
-      if (!session) {
-        debug("user auth failed: missing or invalid session");
-        return { ok: false, error: unauthorized("Invalid or expired session") };
-      }
-      const { user } = session;
-      debug("user auth succeeded (cookie)", { userId: user.id });
+      debug("user auth succeeded (oauth)", { userId: verified.userId });
       return {
         ok: true,
         context: {
           type: "user",
           kind: "u",
-          userId: user.id,
-          email: user.email,
-          name: user.name,
-          emailVerified: user.emailVerified,
+          userId: verified.userId,
+          email: verified.email,
+          name: verified.name,
+          emailVerified: verified.emailVerified,
           viaApiKey: false,
+          authenticatedAs: null,
         },
       };
-    },
-  });
+    }
+
+    // Browser cookie session. CSRF gates the ambient cookie credential.
+    if (request.headers.get("cookie") === null) {
+      debug("user auth failed: missing credential");
+      return {
+        ok: false,
+        error: unauthorized(
+          "Authentication required (Authorization header or session cookie)",
+        ),
+      };
+    }
+    if (!passesCsrfCheck(request, allowedOrigins)) {
+      debug("user auth failed: cookie request failed CSRF origin check");
+      return { ok: false, error: forbidden("Cross-origin request rejected") };
+    }
+    const session = await betterAuth.api.getSession({
+      headers: request.headers,
+    });
+    if (!session) {
+      debug("user auth failed: missing or invalid session");
+      return { ok: false, error: unauthorized("Invalid or expired session") };
+    }
+    const { user } = session;
+    debug("user auth succeeded (cookie)", { userId: user.id });
+    return {
+      ok: true,
+      context: {
+        type: "user",
+        kind: "u",
+        userId: user.id,
+        email: user.email,
+        name: user.name,
+        emailVerified: user.emailVerified,
+        viaApiKey: false,
+        authenticatedAs: null,
+      },
+    };
+  }
+
+  /**
+   * Apply the `X-Me-As-Agent` switch to a resolved human context. When the
+   * bearer is a human (`kind === 'u'`) and the header names one of their owned
+   * agents (id, then case-insensitive name), overwrite the context to that
+   * agent — `kind='a'`, `userId=agent.id`, `email=null`, `name=agent.name`,
+   * `emailVerified=false`, `viaApiKey=true` (Decision B: strict agent-key
+   * parity), recording the human as `authenticatedAs` for observability. An
+   * agent key (`kind === 'a'`) already IS an agent, so the header is ignored. A
+   * header value that isn't an owned agent → 403 `INVALID_AGENT`.
+   */
+  async function applyActAsAgent(
+    result: { ok: true; context: UserAuthContext },
+    req: Request,
+    coreStore: CoreStore,
+  ): Promise<UserAuthResult> {
+    const asAgent = req.headers.get(AS_AGENT_HEADER);
+    if (!asAgent || result.context.kind !== "u") return result;
+
+    const human = result.context.userId;
+    const agents = await coreStore.listAgents(human);
+    const wanted = asAgent.toLowerCase();
+    const agent =
+      agents.find((a) => a.id === asAgent) ??
+      agents.find((a) => a.name.toLowerCase() === wanted);
+    if (!agent) {
+      debug("user auth failed: X-Me-As-Agent not an owned agent", {
+        userId: human,
+        asAgent,
+      });
+      return {
+        ok: false,
+        error: error(
+          `X-Me-As-Agent '${asAgent}' is not an agent you own`,
+          403,
+          "INVALID_AGENT",
+        ),
+      };
+    }
+    debug("user auth act-as-agent", { userId: human, agentId: agent.id });
+    return {
+      ok: true,
+      context: {
+        ...result.context,
+        kind: "a",
+        userId: agent.id,
+        email: null,
+        name: agent.name,
+        emailVerified: false,
+        viaApiKey: true,
+        authenticatedAs: human,
+      },
+    };
+  }
 }

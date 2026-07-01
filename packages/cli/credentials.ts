@@ -104,6 +104,13 @@ export interface ResolvedCredentials {
    * under it without appending a slug. Undefined when there is no `.me`.
    */
   projectTree?: string;
+  /**
+   * Act-as-agent target — a concrete agent id/name to send as `X-Me-As-Agent`,
+   * resolved from `--as-agent` / `ME_AS_AGENT` (the `.me` sentinel already
+   * substituted for `.me/config.yaml`'s `agent`). Undefined when the mode is off
+   * (activation is always explicit — a `.me` `agent` alone never enables it).
+   */
+  asAgent?: string;
 }
 
 // =============================================================================
@@ -393,6 +400,67 @@ export function resolveSpace(
 }
 
 // =============================================================================
+// Act-as-agent (X-Me-As-Agent)
+// =============================================================================
+
+/**
+ * The literal `.me` sentinel for `--as-agent` / `ME_AS_AGENT`: "use the
+ * project's agent". Substituted client-side for `.me/config.yaml`'s `agent` id;
+ * never sent to the server. `.me` is a DB-impossible agent name (agent names
+ * match `^[A-Za-z0-9]…`, so they can never start with `.`), so it can't shadow a
+ * real agent.
+ */
+const AS_AGENT_PROJECT_SENTINEL = ".me";
+
+/** The `--as-agent` global-flag value, seeded once from the root preAction hook. */
+let asAgentOverride: string | undefined;
+
+/**
+ * Seed the `--as-agent` override (called once from the root `preAction` hook,
+ * before any command resolves credentials) so it is ambiently visible to
+ * {@link resolveAsAgent} without threading `globalOpts` through every command.
+ * Mirrors {@link setConfigDirOverride}.
+ */
+export function setAsAgentOverride(value: string | undefined): void {
+  asAgentOverride = value;
+}
+
+/**
+ * Whether act-as-agent mode was explicitly requested by flag or env. This does
+ * not resolve the `.me` sentinel, so local session-management commands can
+ * refuse agent mode without consulting project config.
+ */
+export function isAsAgentRequested(): boolean {
+  return Boolean(asAgentOverride ?? process.env.ME_AS_AGENT);
+}
+
+/**
+ * Resolve the act-as-agent target (the `X-Me-As-Agent` value), highest first:
+ *   1. the `--as-agent` flag override (from `preAction`),
+ *   2. the `ME_AS_AGENT` env,
+ *   3. otherwise `undefined` (mode OFF).
+ *
+ * Activation is always explicit: when neither the flag nor env is present, the
+ * mode stays off even if a `.me/config.yaml` `agent` is in scope. When the value
+ * is the literal `.me` sentinel it resolves to that `.me` `agent` (throwing if
+ * none is in scope); any other value is an explicit agent id/name, verbatim.
+ */
+export function resolveAsAgent(): string | undefined {
+  const raw = asAgentOverride ?? process.env.ME_AS_AGENT;
+  if (!raw) return undefined;
+  if (raw === AS_AGENT_PROJECT_SENTINEL) {
+    const agent = getProjectConfig()?.agent;
+    if (!agent) {
+      throw new Error(
+        "--as-agent .me needs an 'agent:' in .me/config.yaml, but none is in scope",
+      );
+    }
+    return agent;
+  }
+  return raw;
+}
+
+// =============================================================================
 // Resolution
 // =============================================================================
 
@@ -426,5 +494,6 @@ export function resolveCredentials(serverFlag?: string): ResolvedCredentials {
     apiKey: process.env.ME_API_KEY,
     activeSpace: process.env.ME_SPACE ?? project?.space ?? config.active_space,
     projectTree: project?.tree,
+    asAgent: resolveAsAgent(),
   };
 }

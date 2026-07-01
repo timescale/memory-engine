@@ -91,6 +91,7 @@ function createMcpRunAction() {
       server: creds.server,
       bearer: memoryBearer(creds.server, apiKey),
       space,
+      asAgent: creds.asAgent,
     });
   };
 }

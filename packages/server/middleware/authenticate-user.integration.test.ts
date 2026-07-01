@@ -15,6 +15,7 @@ import {
   migrateCore,
 } from "@memory.build/database";
 import * as engineCore from "@memory.build/engine/core";
+import { AS_AGENT_HEADER } from "@memory.build/protocol/headers";
 import postgres, { type Sql } from "postgres";
 import { createBetterAuth } from "../auth/betterauth";
 import { seedUserSpace } from "../test-support";
@@ -41,10 +42,11 @@ let betterAuth: ReturnType<typeof createBetterAuth>;
 let core: engineCore.CoreStore;
 const createdSpaceSchemas: string[] = [];
 
-/** Authenticate a request bearing `token` (helper around authenticateUser). */
-function auth(token: string | undefined) {
+/** Authenticate a request bearing `token` (+ optional X-Me-As-Agent header). */
+function auth(token: string | undefined, asAgent?: string) {
   const headers: Record<string, string> = {};
   if (token) headers.Authorization = `Bearer ${token}`;
+  if (asAgent) headers[AS_AGENT_HEADER] = asAgent;
   const request = new Request("http://localhost/api/v1/user/rpc", {
     method: "POST",
     headers,
@@ -160,6 +162,89 @@ test("an agent api key is admitted on the user RPC as kind 'a' (no email)", asyn
     expect(result.context.viaApiKey).toBe(true);
     expect(result.context.email).toBeNull();
     expect(result.context.emailVerified).toBe(false);
+  }
+});
+
+// =============================================================================
+// Act-as-agent (X-Me-As-Agent)
+// =============================================================================
+
+test("act-as: human OAuth + owned agent by id → kind='a', userId=agent, email null, viaApiKey, authenticatedAs=human", async () => {
+  const userId = await seedUser();
+  const agentId = await core.createAgent(userId, `agent-${rand()}`);
+  const result = await auth(await mintAccessToken(userId), agentId);
+  expect(result.ok).toBe(true);
+  if (result.ok) {
+    expect(result.context.kind).toBe("a");
+    expect(result.context.userId).toBe(agentId);
+    expect(result.context.email).toBeNull();
+    expect(result.context.emailVerified).toBe(false);
+    expect(result.context.viaApiKey).toBe(true);
+    expect(result.context.authenticatedAs).toBe(userId);
+  }
+});
+
+test("act-as: human OAuth + owned agent by name (mixed case) → switches to the agent", async () => {
+  const userId = await seedUser();
+  const name = `agent-${rand()}`;
+  const agentId = await core.createAgent(userId, name);
+  const result = await auth(await mintAccessToken(userId), name.toUpperCase());
+  expect(result.ok).toBe(true);
+  if (result.ok) {
+    expect(result.context.kind).toBe("a");
+    expect(result.context.userId).toBe(agentId);
+    expect(result.context.authenticatedAs).toBe(userId);
+  }
+});
+
+test("act-as: agent-key bearer + X-Me-As-Agent → header ignored (key trumps)", async () => {
+  const userId = await seedUser();
+  const a = await core.createAgent(userId, `agent-${rand()}`);
+  const b = await core.createAgent(userId, `agent-${rand()}`); // a valid other agent
+  const key = await core.createApiKey(a, "ci");
+  const result = await auth(
+    engineCore.formatApiKey(key.lookupId, key.secret),
+    b,
+  );
+  expect(result.ok).toBe(true);
+  if (result.ok) {
+    // Stays the key's own agent; not switched to b.
+    expect(result.context.userId).toBe(a);
+    expect(result.context.authenticatedAs).toBeNull();
+  }
+});
+
+test("act-as: unknown / unowned header → 403 INVALID_AGENT", async () => {
+  const userId = await seedUser();
+  const other = await seedUser();
+  const foreign = await core.createAgent(other, `agent-${rand()}`);
+  for (const value of [foreign, "does-not-exist"]) {
+    const result = await auth(await mintAccessToken(userId), value);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.status).toBe(403);
+      const body = (await result.error.json()) as { error: { code: string } };
+      expect(body.error.code).toBe("INVALID_AGENT");
+    }
+  }
+});
+
+test("act-as parity: human+X-Me-As-Agent equals the agent-key context on kind/userId", async () => {
+  const userId = await seedUser();
+  const agentId = await core.createAgent(userId, `agent-${rand()}`);
+  const key = await core.createApiKey(agentId, "ci");
+
+  const asAgent = await auth(await mintAccessToken(userId), agentId);
+  const byKey = await auth(engineCore.formatApiKey(key.lookupId, key.secret));
+  expect(asAgent.ok).toBe(true);
+  expect(byKey.ok).toBe(true);
+  if (asAgent.ok && byKey.ok) {
+    // Authorization reads only kind + userId — identical on both paths.
+    expect(asAgent.context.kind).toBe(byKey.context.kind);
+    expect(asAgent.context.userId).toBe(byKey.context.userId);
+    // Observability-only: authenticatedAs may differ.
+    expect(asAgent.context.authenticatedAs).toBe(userId);
+    expect(byKey.context.authenticatedAs).toBeNull();
   }
 });
 

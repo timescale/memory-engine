@@ -18,6 +18,7 @@ const {
   resolveAgentId,
   shellTildeExpansionHint,
   describeAuthError,
+  describeForbiddenError,
 } = await import("./util.ts");
 
 const UUID = "019d694f-79f6-7595-8faf-b70b01c11f98";
@@ -250,5 +251,38 @@ describe("describeAuthError", () => {
     );
     expect(r?.message).not.toContain("''");
     expect(r?.message).toContain("me space list");
+  });
+});
+
+// =============================================================================
+// describeForbiddenError
+// =============================================================================
+
+const forbidden = () =>
+  new RpcError(-32000, "This action is user-only", { code: "FORBIDDEN" });
+
+describe("describeForbiddenError", () => {
+  test("account scope + act-as-agent explains how to run as the user", () => {
+    const r = describeForbiddenError(
+      forbidden(),
+      creds({ asAgent: "my-agent" }),
+      "account",
+    );
+    expect(r).toEqual({
+      code: "FORBIDDEN",
+      message:
+        "Acting as agent 'my-agent'; this operation requires your user account. Unset ME_AS_AGENT or omit --as-agent to run it as your user account.",
+    });
+  });
+
+  test("non-act-as or space denials fall back to the server message", () => {
+    expect(describeForbiddenError(forbidden(), creds(), "account")).toBeNull();
+    expect(
+      describeForbiddenError(
+        forbidden(),
+        creds({ asAgent: "my-agent" }),
+        "space",
+      ),
+    ).toBeNull();
   });
 });

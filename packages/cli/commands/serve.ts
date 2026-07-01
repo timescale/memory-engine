@@ -79,6 +79,7 @@ export function createServeCommand(): Command {
           server: creds.server,
           bearer: userBearer(creds.server, creds.apiKey),
           space: creds.activeSpace,
+          asAgent: creds.asAgent,
           host,
           port,
         });

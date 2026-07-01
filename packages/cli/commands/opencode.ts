@@ -281,6 +281,7 @@ function createOpenCodeHookCommand(): Command {
             url: config.server,
             ...memoryBearer(config.server, config.apiKey),
             space: config.space,
+            asAgent: config.asAgent,
           });
           await importTranscriptFile(client, opencodeImporter, sessionFile, {
             treeRoot: config.treeRoot,

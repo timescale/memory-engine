@@ -31,6 +31,7 @@ import {
 } from "../oauth.ts";
 import { LoopbackError, runLoopbackAuth } from "../oauth-loopback.ts";
 import { getOutputFormat, type OutputFormat, output } from "../output.ts";
+import { rejectActAsAgentForSessionCommand } from "../util.ts";
 
 /**
  * Attempt to open a URL in the user's default browser.
@@ -76,6 +77,8 @@ export function createLoginCommand(): Command {
       const globalOpts = cmd.optsWithGlobals();
       const server = resolveServer(globalOpts.server);
       const fmt = getOutputFormat(globalOpts);
+
+      await rejectActAsAgentForSessionCommand("login", fmt);
 
       if (fmt === "text") {
         clack.intro("me login");

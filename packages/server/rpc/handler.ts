@@ -166,6 +166,10 @@ export async function handleRpcRequest(
     if (typeof ctx.userId === "string") identityAttrs["user.id"] = ctx.userId;
     if (typeof ctx.apiKeyId === "string")
       identityAttrs["api_key.id"] = ctx.apiKeyId;
+    // When a human is acting as one of their own agents (X-Me-As-Agent), record
+    // the human separately for observability. Never gates authorization.
+    if (typeof ctx.authenticatedAs === "string")
+      identityAttrs.authenticated_as = ctx.authenticatedAs;
     if (ctx.identity && typeof ctx.identity === "object") {
       const identity = ctx.identity as { id?: string };
       if (identity.id) identityAttrs["identity.id"] = identity.id;

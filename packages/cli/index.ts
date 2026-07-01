@@ -32,6 +32,7 @@ import { createSpaceCommand } from "./commands/space.ts";
 import { createUpgradeCommand } from "./commands/upgrade.ts";
 import { createVersionCommand } from "./commands/version.ts";
 import { createWhoamiCommand } from "./commands/whoami.ts";
+import { setAsAgentOverride } from "./credentials.ts";
 import { setExpanded } from "./output.ts";
 import { setConfigDirOverride } from "./project-config.ts";
 
@@ -52,6 +53,10 @@ program
     "--config-dir <dir>",
     "directory containing the .me/config.yaml to use (else walk up from cwd; ME_CONFIG_DIR)",
   )
+  .option(
+    "--as-agent <idOrName>",
+    "act as one of your own agents (id/name, or '.me' for the .me/config.yaml agent); overrides ME_AS_AGENT",
+  )
   .option("--json", "output as JSON")
   .option("--yaml", "output as YAML")
   .option("-x, --expanded", "show list output in expanded (vertical) format");
@@ -62,6 +67,9 @@ program.hook("preAction", (thisCommand) => {
   setExpanded(opts.expanded ?? false);
   setConfigDirOverride(
     typeof opts.configDir === "string" ? opts.configDir : undefined,
+  );
+  setAsAgentOverride(
+    typeof opts.asAgent === "string" ? opts.asAgent : undefined,
   );
 });
 
