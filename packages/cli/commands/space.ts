@@ -323,7 +323,7 @@ function createSpaceInviteListCommand(): Command {
               i.kind,
               i.email ?? "—",
               i.admin ? "yes" : "",
-              i.groupName ?? "—",
+              i.groupNames.join(", ") || "—",
               i.kind === "link"
                 ? `${i.uses}${i.maxUses != null ? `/${i.maxUses}` : ""}`
                 : "",
@@ -418,8 +418,9 @@ function createSpaceInviteCommand(): Command {
     .option("--admin", "grant the joiner space-admin")
     .option(
       "--group <name-or-id>",
-      "the group the joiner is added to (its grants are their access)",
-      DEFAULT_GROUP_NAME,
+      "group the joiner is added to (repeatable; its grants are their access)",
+      (val: string, prev: string[]) => [...prev, val],
+      [] as string[],
     )
     .option("--expires <duration>", "link expiry, e.g. 7d | 24h | 30m")
     .option("--max-uses <n>", "max redemptions (with --anyone)")
@@ -456,28 +457,34 @@ function createSpaceInviteCommand(): Command {
       }
 
       const memory = buildMemoryClient(creds);
-      // --group defaults to "team"; resolve the name/id to a group id (errors if
-      // the space has no such group). The joiner's access comes from this group.
-      const group = String(opts.group ?? DEFAULT_GROUP_NAME);
+      // --group is repeatable and defaults to just "team"; resolve each name/id to
+      // a group id (errors if the space has no such group). The joiner's access is
+      // the union of these groups' grants.
+      const groupNames = (opts.group as string[]).length
+        ? (opts.group as string[])
+        : [DEFAULT_GROUP_NAME];
+      const groupsLabel = groupNames.join(", ");
       try {
-        const groupId = await resolveGroupId(memory, group, fmt);
+        const groupIds = await Promise.all(
+          groupNames.map((g) => resolveGroupId(memory, g, fmt)),
+        );
         const result = await memory.invite.create({
           email,
           admin: opts.admin === true,
-          groupId,
+          groupIds,
           expiresAt,
           maxUses,
         });
         const url = inviteUrl(creds.server, result.token);
-        output({ email, group, link: url, ...result }, fmt, () => {
+        output({ email, groups: groupNames, link: url, ...result }, fmt, () => {
           if (email) {
             clack.log.success(
-              `Invited ${email}${opts.admin ? " as an admin" : ""} to group '${group}' — pending their acceptance.`,
+              `Invited ${email}${opts.admin ? " as an admin" : ""} to ${groupsLabel} — pending their acceptance.`,
             );
             clack.log.info(`Or share this link: ${url}`);
           } else {
             clack.log.success(
-              `Created an open invite link${opts.admin ? " (admin)" : ""} for group '${group}'.`,
+              `Created an open invite link${opts.admin ? " (admin)" : ""} for ${groupsLabel}.`,
             );
             clack.note(url, "Share this link");
           }

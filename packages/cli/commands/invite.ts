@@ -39,7 +39,7 @@ function createInviteListCommand(): Command {
               i.invitationId,
               `${i.spaceName} (${i.spaceSlug})`,
               i.admin ? "yes" : "",
-              i.groupName ?? "—",
+              i.groupNames.join(", ") || "—",
               i.invitedByName ?? "",
             ]),
           );

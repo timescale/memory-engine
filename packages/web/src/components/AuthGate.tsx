@@ -83,7 +83,7 @@ async function fetchInvitations(): Promise<AccountInvitation[]> {
       spaceName: i.spaceName,
       spaceSlug: i.spaceSlug,
       admin: i.admin,
-      groupName: i.groupName,
+      groupNames: i.groupNames,
       invitedByName: i.invitedByName,
     }));
   } catch {

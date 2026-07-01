@@ -76,7 +76,7 @@ import incremental011 from "./incremental/011_group_member_space_fk.sql" with {
 import incremental012 from "./incremental/012_default_groups.sql" with {
   type: "text",
 };
-import incremental013 from "./incremental/013_invite_group.sql" with {
+import incremental013 from "./incremental/013_invite_groups.sql" with {
   type: "text",
 };
 import provisionSql from "./provision.sql" with { type: "text" };
@@ -141,8 +141,8 @@ const incrementals: Migration[] = [
     sql: incremental012,
   },
   {
-    name: "013_invite_group",
-    file: "incremental/013_invite_group.sql",
+    name: "013_invite_groups",
+    file: "incremental/013_invite_groups.sql",
     sql: incremental013,
   },
 ];

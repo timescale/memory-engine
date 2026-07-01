@@ -29,15 +29,36 @@ import {
   inviteRevokeByIdParams,
   inviteRevokeParams,
 } from "@memory.build/protocol/space";
+import { AppError } from "../errors";
 import { buildRegistry } from "../registry";
 import type { HandlerContext } from "../types";
-import { assertGroupInSpace } from "./group";
 import {
   guardCore,
   requireSpaceAdmin,
   toSpaceInvitationResponse,
 } from "./support";
 import { assertSpaceRpcContext, type SpaceRpcContext } from "./types";
+
+/**
+ * Validate every id in `groupIds` is a group in this space and return the deduped
+ * set (clean NOT_FOUND on the first stray id; the coherence trigger is the
+ * DB-level backstop). Required — the client picks the groups (the CLI/web default
+ * to the "team" group); the server does not guess.
+ */
+async function resolveInviteGroupIds(
+  ctx: SpaceRpcContext,
+  groupIds: string[],
+): Promise<string[]> {
+  const inSpace = new Set(
+    (await ctx.core.listSpaceGroups(ctx.space.id)).map((g) => g.id),
+  );
+  for (const id of groupIds) {
+    if (!inSpace.has(id)) {
+      throw new AppError("NOT_FOUND", `Group not found in this space: ${id}`);
+    }
+  }
+  return [...new Set(groupIds)];
+}
 
 async function inviteCreate(
   params: InviteCreateParams,
@@ -46,11 +67,7 @@ async function inviteCreate(
   assertSpaceRpcContext(context);
   const ctx = context as SpaceRpcContext;
   requireSpaceAdmin(ctx);
-  // The redeemer joins this group (its grants are their access). Required — the
-  // client chooses it (the CLI/web default to the "team" group); the server does
-  // not guess. Validated here for a clean NOT_FOUND (the FK would also reject a
-  // group from another space).
-  await assertGroupInSpace(ctx, params.groupId);
+  const groupIds = await resolveInviteGroupIds(ctx, params.groupIds);
   const admin = params.admin ?? false;
   const email = params.email ?? null; // null → an open shareable link
 
@@ -60,7 +77,7 @@ async function inviteCreate(
   const { id, token } = await guardCore(() =>
     ctx.core.createSpaceInvitation(ctx.space.id, email, {
       admin,
-      groupId: params.groupId,
+      groupIds,
       invitedBy: ctx.principalId,
       expiresAt: params.expiresAt ? new Date(params.expiresAt) : null,
       maxUses: params.maxUses ?? null,

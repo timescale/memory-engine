@@ -16,8 +16,8 @@ export const pendingInvitationResponse = z.object({
   spaceSlug: z.string(),
   spaceName: z.string(),
   admin: z.boolean(),
-  /** The group joined on acceptance ("team" by default). */
-  groupName: z.string().nullable(),
+  /** The groups joined on acceptance ("team" by default). */
+  groupNames: z.array(z.string()),
   invitedByName: z.string().nullable(),
   createdAt: z.string(),
 });

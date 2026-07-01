@@ -348,20 +348,20 @@ test("invite.create: records a pending invite; list + revoke", async () => {
   const res = await call<{ invitationId: string }>("invite.create", {
     email,
     admin: false,
-    groupId: await teamGroupId(),
+    groupIds: [await teamGroupId()],
   });
   expect(res.invitationId).toBeTruthy();
 
   const { invitations } = await call<{
     invitations: {
       email: string;
-      groupName: string | null;
+      groupNames: string[];
       invitedByName: string | null;
     }[];
   }>("invite.list", {});
   expect(invitations).toHaveLength(1);
   expect(invitations[0]?.email).toBe(email);
-  expect(invitations[0]?.groupName).toBe("team");
+  expect(invitations[0]?.groupNames).toEqual(["team"]);
   expect(invitations[0]?.invitedByName).toBe(ownerEmail); // the owner invited
 
   expect(
@@ -378,18 +378,20 @@ test("invite.create: targets a named group; rejects a group not in the space", a
     name: `crew_${rand(6)}`,
   });
   const email = `custom_${rand(8)}@example.com`;
-  await call("invite.create", { email, groupId });
+  await call("invite.create", { email, groupIds: [groupId] });
   const { invitations } = await call<{
-    invitations: { email: string; groupId: string }[];
+    invitations: { email: string; groupIds: string[] }[];
   }>("invite.list", {});
-  expect(invitations.find((i) => i.email === email)?.groupId).toBe(groupId);
+  expect(invitations.find((i) => i.email === email)?.groupIds).toEqual([
+    groupId,
+  ]);
 
   // a group id that isn't a group in this space → NOT_FOUND
   const bogus = (await sql`select uuidv7() as id`)[0]?.id as string;
   await expectAppError(
     call("invite.create", {
       email: `nope_${rand(8)}@example.com`,
-      groupId: bogus,
+      groupIds: [bogus],
     }),
     "NOT_FOUND",
   );
@@ -402,7 +404,7 @@ test("invite.create: an already-registered user also gets a PENDING invite (no a
   const res = await call<{ invitationId: string }>("invite.create", {
     email,
     admin: true,
-    groupId: await teamGroupId(),
+    groupIds: [await teamGroupId()],
   });
   expect(res.invitationId).toBeTruthy();
 
@@ -422,7 +424,7 @@ test("invite.create: an already-registered user also gets a PENDING invite (no a
 test("invite.create (open link): returns a token, lists as a link, revokeById", async () => {
   const res = await call<{ invitationId: string; token: string }>(
     "invite.create",
-    { admin: false, maxUses: 5, groupId: await teamGroupId() },
+    { admin: false, maxUses: 5, groupIds: [await teamGroupId()] },
   );
   expect(res.invitationId).toBeTruthy();
   expect(res.token).toMatch(/^inv\./);
@@ -488,7 +490,7 @@ test("invite.* require space-admin authority (owner@root is not enough)", async 
       {
         email: `x_${rand(8)}@example.com`,
         admin: false,
-        groupId: await teamGroupId(),
+        groupIds: [await teamGroupId()],
       },
       asOwner,
     ),

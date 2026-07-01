@@ -48,7 +48,7 @@ import {
 import { assertSpaceRpcContext, type SpaceRpcContext } from "./types";
 
 /** Guard that the group exists in this space. */
-export async function assertGroupInSpace(
+async function assertGroupInSpace(
   ctx: SpaceRpcContext,
   groupId: string,
 ): Promise<void> {

@@ -52,7 +52,7 @@ export function InviteLinkButton() {
 function InviteLinkPanel() {
   const [links, setLinks] = useState<Invitation[]>([]);
   const [groups, setGroups] = useState<Group[]>([]);
-  const [groupId, setGroupId] = useState<string>("");
+  const [groupIds, setGroupIds] = useState<string[]>([]);
   const [admin, setAdmin] = useState(false);
   const [busy, setBusy] = useState(false);
   const [created, setCreated] = useState<string | null>(null);
@@ -66,18 +66,20 @@ function InviteLinkPanel() {
       ]);
       setLinks(invitations.filter((i) => i.kind === "link"));
       setGroups(groupsRes.groups);
-      // keep the current selection only if it still exists; else default to the
-      // "team" group (fall back to the first) so the <select> never holds a value
-      // that isn't an option (which would create an invite that fails server-side).
-      setGroupId((cur) =>
-        cur && groupsRes.groups.some((g) => g.id === cur)
-          ? cur
-          : (groupsRes.groups.find(
-              (g) => g.name.toLowerCase() === DEFAULT_GROUP_NAME,
-            )?.id ??
-            groupsRes.groups[0]?.id ??
-            ""),
-      );
+      // keep the selections that still exist; if none do, default to the "team"
+      // group (fall back to the first) so we never submit a group that isn't an
+      // option (which would create an invite that fails server-side).
+      setGroupIds((cur) => {
+        const live = cur.filter((id) =>
+          groupsRes.groups.some((g) => g.id === id),
+        );
+        if (live.length > 0) return live;
+        const fallback =
+          groupsRes.groups.find(
+            (g) => g.name.toLowerCase() === DEFAULT_GROUP_NAME,
+          )?.id ?? groupsRes.groups[0]?.id;
+        return fallback ? [fallback] : [];
+      });
     } catch (err) {
       setError(isRpcError(err) ? err.message : "Couldn't load invite links.");
     }
@@ -87,13 +89,18 @@ function InviteLinkPanel() {
     void refresh();
   }, [refresh]);
 
+  const toggleGroup = (id: string) =>
+    setGroupIds((cur) =>
+      cur.includes(id) ? cur.filter((g) => g !== id) : [...cur, id],
+    );
+
   const create = async () => {
     setBusy(true);
     setError(null);
     try {
       const { token } = await memoryClient.invite.create({
         admin,
-        groupId,
+        groupIds,
       });
       setCreated(inviteUrl(token));
       await refresh();
@@ -119,35 +126,41 @@ function InviteLinkPanel() {
   return (
     <div className="flex flex-col gap-4">
       <div>
-        <div className="flex items-center gap-2">
-          <select
-            value={groupId}
-            onChange={(e) => setGroupId(e.target.value)}
-            className="rounded-md border border-ink/[0.18] px-2 py-1 text-[13px]"
-            aria-label="Group"
-          >
+        <div className="flex flex-col gap-2">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+            <span className="text-[13px] text-ink/70">Groups:</span>
             {groups.map((g) => (
-              <option key={g.id} value={g.id}>
+              <label
+                key={g.id}
+                className="flex items-center gap-1 text-[13px] text-ink/70"
+              >
+                <input
+                  type="checkbox"
+                  checked={groupIds.includes(g.id)}
+                  onChange={() => toggleGroup(g.id)}
+                />
                 {g.name}
-              </option>
+              </label>
             ))}
-          </select>
-          <label className="flex items-center gap-1 text-[13px] text-ink/70">
-            <input
-              type="checkbox"
-              checked={admin}
-              onChange={(e) => setAdmin(e.target.checked)}
-            />
-            admin
-          </label>
-          <button
-            type="button"
-            disabled={busy || !groupId}
-            onClick={create}
-            className="ml-auto rounded-md bg-solar px-3 py-1 text-[12px] font-semibold text-ink hover:bg-solar-hover disabled:opacity-50"
-          >
-            Create link
-          </button>
+          </div>
+          <div className="flex items-center gap-2">
+            <label className="flex items-center gap-1 text-[13px] text-ink/70">
+              <input
+                type="checkbox"
+                checked={admin}
+                onChange={(e) => setAdmin(e.target.checked)}
+              />
+              admin
+            </label>
+            <button
+              type="button"
+              disabled={busy || groupIds.length === 0}
+              onClick={create}
+              className="ml-auto rounded-md bg-solar px-3 py-1 text-[12px] font-semibold text-ink hover:bg-solar-hover disabled:opacity-50"
+            >
+              Create link
+            </button>
+          </div>
         </div>
         {created && (
           <div className="mt-2 flex items-center gap-2">
@@ -181,7 +194,7 @@ function InviteLinkPanel() {
               >
                 <span className="truncate text-ink/70">
                   {l.admin ? "admin · " : ""}
-                  {l.groupName ?? "no group"}
+                  {l.groupNames.join(", ") || "no group"}
                   {" · "}
                   {l.uses}
                   {l.maxUses != null ? `/${l.maxUses}` : ""} used
