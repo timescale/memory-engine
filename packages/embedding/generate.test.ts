@@ -275,6 +275,50 @@ describe("rate limit handling", () => {
     }
   });
 
+  test("RateLimitError surfaces the provider's original error message", async () => {
+    const server = Bun.serve({
+      port: 0,
+      fetch() {
+        return new Response(
+          JSON.stringify({
+            error: {
+              message:
+                "You exceeded your current quota, please check your plan and billing details.",
+              type: "insufficient_quota",
+              code: "insufficient_quota",
+            },
+          }),
+          { status: 429 },
+        );
+      },
+    });
+
+    try {
+      const config: EmbeddingConfig = {
+        provider: "openai",
+        model: "text-embedding-3-small",
+        dimensions: 1536,
+        apiKey: "test-key",
+        baseUrl: `http://localhost:${server.port}/v1`,
+        options: { maxRetries: 0 },
+      };
+
+      try {
+        await generateEmbedding("test text", config);
+        expect.unreachable("should have thrown");
+      } catch (err) {
+        expect(err).toBeInstanceOf(RateLimitError);
+        const rle = err as RateLimitError;
+        // Generic prefix is kept, and the provider's own message is appended so
+        // logs can tell insufficient_quota apart from transient throttling.
+        expect(rle.message).toContain("Rate limited by embedding provider");
+        expect(rle.message).toContain("You exceeded your current quota");
+      }
+    } finally {
+      server.stop();
+    }
+  });
+
   test("non-429 errors still fall back to individual requests", async () => {
     let requestCount = 0;
     const mockEmbedding = Array.from({ length: 1536 }, (_, i) => i * 0.001);

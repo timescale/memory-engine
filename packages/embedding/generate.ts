@@ -1,6 +1,7 @@
 import { span, warning } from "@pydantic/logfire-node";
 import { embed, embedMany } from "ai";
 import {
+  extractProviderMessage,
   extractRetryAfterMs,
   isRateLimitError,
   RateLimitError,
@@ -81,6 +82,22 @@ function isContextLengthError(error: unknown): boolean {
     );
   }
   return false;
+}
+
+/**
+ * Wrap a detected rate-limit error as a RateLimitError, appending the provider's
+ * original message (what OpenAI actually returned) so logs distinguish e.g.
+ * transient `rate_limit_exceeded` from persistent `insufficient_quota` instead
+ * of showing only a generic string.
+ */
+function rateLimited(error: unknown): RateLimitError {
+  const providerMessage = extractProviderMessage(error);
+  return new RateLimitError(
+    providerMessage
+      ? `Rate limited by embedding provider: ${providerMessage}`
+      : "Rate limited by embedding provider",
+    extractRetryAfterMs(error),
+  );
 }
 
 // =============================================================================
@@ -183,10 +200,7 @@ export async function generateEmbedding(
         return await generateEmbeddingOnce(truncated, config);
       } catch (error) {
         if (isRateLimitError(error)) {
-          throw new RateLimitError(
-            "Rate limited by embedding provider",
-            extractRetryAfterMs(error),
-          );
+          throw rateLimited(error);
         }
         if (!isContextLengthError(error)) {
           throw error;
@@ -295,10 +309,7 @@ export async function generateEmbeddings(
         // Rate limit — abort immediately, don't fall back to individual
         // requests (that would amplify load ~10x during a rate limit window)
         if (isRateLimitError(batchError)) {
-          throw new RateLimitError(
-            "Rate limited by embedding provider",
-            extractRetryAfterMs(batchError),
-          );
+          throw rateLimited(batchError);
         }
 
         // Report batch error for debugging

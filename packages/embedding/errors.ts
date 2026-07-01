@@ -82,9 +82,58 @@ export function extractRetryAfterMs(error: unknown): number | undefined {
   return undefined;
 }
 
+/**
+ * Extract the provider's original error message from a rate-limit error.
+ *
+ * Walks the same error chain as {@link extractRetryAfterMs} (direct
+ * `APICallError` → RetryError `lastError` → `errors[]`) to the underlying 429
+ * and returns its `message`, so callers can surface what the provider actually
+ * said (the specific limit hit, `insufficient_quota`, …) rather than only a
+ * generic string.
+ */
+export function extractProviderMessage(error: unknown): string | undefined {
+  // Direct APICallError with statusCode 429
+  if (hasStatusCode(error, 429)) {
+    const message = readMessage(error);
+    if (message) return message;
+  }
+
+  // RetryError → lastError
+  if (hasLastError(error)) {
+    const message = extractProviderMessage(error.lastError);
+    if (message) return message;
+  }
+
+  // RetryError → errors array (find the 429)
+  if (hasErrors(error)) {
+    for (const inner of error.errors) {
+      if (hasStatusCode(inner, 429)) {
+        const message = readMessage(inner);
+        if (message) return message;
+      }
+    }
+  }
+
+  return undefined;
+}
+
 // =============================================================================
 // Type Narrowing Helpers
 // =============================================================================
+
+/** Read a non-empty string `message` off an error-like object. */
+function readMessage(error: unknown): string | undefined {
+  if (
+    error != null &&
+    typeof error === "object" &&
+    "message" in error &&
+    typeof (error as { message: unknown }).message === "string"
+  ) {
+    const message = (error as { message: string }).message;
+    return message.length > 0 ? message : undefined;
+  }
+  return undefined;
+}
 
 /** Check for an object with `statusCode` matching the expected value. */
 function hasStatusCode(
