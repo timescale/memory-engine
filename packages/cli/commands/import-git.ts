@@ -36,6 +36,7 @@ import {
   dedupBy,
 } from "../importers/index.ts";
 import { SlugRegistry } from "../importers/slug.ts";
+import { stampGitPrevLinks } from "../importers/thread-links.ts";
 import { getOutputFormat, output } from "../output.ts";
 import {
   buildMemoryClient,
@@ -217,7 +218,14 @@ export async function runGitImport(
     fmt === "text" ? createProgressReporter(process.stderr) : undefined;
   progress?.start();
 
-  const planned: Array<{ memoryId: string; payload: MemoryCreateParams }> = [];
+  const planned: Array<{
+    memoryId: string;
+    payload: MemoryCreateParams;
+    firstParent: string | undefined;
+  }> = [];
+  // Dropped (boilerplate) merges: sha → its first parent, so `$prev` links can
+  // step through them to the nearest imported ancestor.
+  const skippedFirstParent = new Map<string, string>();
   let commitsWalked = 0;
   let skippedMerges = 0;
   let failed = 0;
@@ -236,6 +244,9 @@ export async function runGitImport(
       progress?.process(`${commit.sha.slice(0, 8)} ${commit.subject}`);
       if (mergeSkipReason(commit) !== null) {
         skippedMerges++;
+        if (commit.parents[0] !== undefined) {
+          skippedFirstParent.set(commit.sha, commit.parents[0]);
+        }
         continue;
       }
       const built = buildCommitMemory(commit, {
@@ -249,7 +260,11 @@ export async function runGitImport(
         errors.push({ sha: commit.sha, error: built.error });
         continue;
       }
-      planned.push({ memoryId: built.id as string, payload: built });
+      planned.push({
+        memoryId: built.id as string,
+        payload: built,
+        firstParent: commit.parents[0],
+      });
       if (opts.verbose && fmt === "text") {
         const line = `  ${commit.sha.slice(0, 8)} ${commit.subject}`;
         if (progress) progress.log(line);
@@ -263,6 +278,18 @@ export async function runGitImport(
 
   // Dedup on the commit sha (the (tree, name) key), not the random id.
   const { unique } = dedupBy(planned, (p) => p.payload.name ?? p.memoryId);
+
+  // Link each commit to its first-parent via `$prev` (stepping through dropped
+  // merges). Gate on the batch set for a full/bounded walk so the oldest commit
+  // doesn't dangle; for an incremental walk (`range` set) the resolved parent is
+  // already imported though not in this batch, so don't gate.
+  stampGitPrevLinks(unique, {
+    skipped: skippedFirstParent,
+    inSet:
+      range === undefined
+        ? new Set(unique.map((p) => p.payload.name ?? ""))
+        : undefined,
+  });
 
   let inserted = 0;
   let skipped = 0;

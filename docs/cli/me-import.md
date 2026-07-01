@@ -180,6 +180,9 @@ Re-runs are also incremental: the newest already-imported commit is looked up se
 | `files_changed` / `insertions` / `deletions` | Change stats (binary files excluded from line counts). |
 | `is_merge` | `true` on merge commits (absent otherwise). |
 | `importer_version` | Version tag of the importer schema. |
+| `$prev` | Path of the first-parent commit (absent on the root commit). |
+
+`$prev` is the reserved [thread-link key](../concepts.md#reserved-thread-link-keys) that lets the web UI step through history with **Previous** / **Next**. Commits link along the first-parent chain, stepping through dropped (boilerplate) merges to the nearest imported ancestor. Unlike the session importers, git sets no `$thread` — a repo's history is a DAG, not one linear thread — so there is no "Entire thread" grouping; `$next` is derived from `$prev`.
 
 Temporal is a point-in-time at the commit date.
 

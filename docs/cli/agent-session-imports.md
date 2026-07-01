@@ -86,5 +86,9 @@ Each imported memory carries:
 | `source_file` | Absolute path of the session file on disk. |
 | `content_mode` | `"default"` or `"full_transcript"`. |
 | `importer_version` | Version tag of the importer schema. |
+| `$prev` | Path of the previous message in the session (absent on the first message). |
+| `$thread` | The session id, shared by every message — the thread grouping key. |
+
+`$prev` and `$thread` are the reserved [thread-link keys](../concepts.md#reserved-thread-link-keys): they let the web UI walk a session with **Previous** / **Next** buttons and pull up the whole session via **Entire thread**. `$next` is not stored — it is derived from `$prev`. Because `$prev` is a memory path (not an id) it stays stable across re-imports.
 
 Temporal is a point-in-time at the message's timestamp.

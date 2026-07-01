@@ -22,5 +22,7 @@ export * from "./headers.ts";
 export * from "./jsonrpc.ts";
 // Memory data-plane schemas
 export * from "./memory.ts";
+// Reserved thread-link meta keys + canonical memory-path builder
+export * from "./meta.ts";
 // Version compatibility schemas
 export * from "./version.ts";
