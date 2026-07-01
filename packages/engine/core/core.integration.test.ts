@@ -4,7 +4,11 @@
 //   TEST_DATABASE_URL="postgresql://postgres@127.0.0.1:5432/postgres" \
 //     bun test --timeout 30000 packages/engine/core/core.integration.test.ts
 import { afterAll, beforeAll, beforeEach, expect, test } from "bun:test";
-import { migrateCore } from "@memory.build/database";
+import {
+  migrateCore,
+  SHARE_NAMESPACE,
+  SHARE_PROJECTS_NAMESPACE,
+} from "@memory.build/database";
 import postgres, { type Sql } from "postgres";
 import { type CoreStore, coreStore } from "./db";
 import { ACCESS } from "./types";
@@ -124,6 +128,49 @@ test("groups: create, list, rename, members, delete", async () => {
 
   expect(await core.deletePrincipal(groupId)).toBe(true);
   expect(await core.listSpaceGroups(spaceId)).toHaveLength(0);
+});
+
+test("provisionDefaultGroup: idempotent, rostered 'team' group with read@share + write@share.projects", async () => {
+  const gid = await core.provisionDefaultGroup(spaceId);
+
+  // exactly one group, named 'team', rostered into the space (create_group rosters)
+  const groups = await core.listSpaceGroups(spaceId);
+  expect(groups.map((g) => g.name)).toEqual(["team"]);
+  expect(groups[0]?.id).toBe(gid);
+  expect(
+    (await core.listSpacePrincipals(spaceId, "g")).map((p) => p.id),
+  ).toContain(gid);
+
+  // its standard grants: read on share, write on share.projects
+  const grants = (await core.listTreeAccessGrants(spaceId, gid)).map((g) => ({
+    treePath: g.treePath,
+    access: g.access,
+  }));
+  expect(grants).toEqual([
+    { treePath: SHARE_NAMESPACE, access: ACCESS.read },
+    { treePath: SHARE_PROJECTS_NAMESPACE, access: ACCESS.write },
+  ]);
+
+  // idempotent: same id, still one group, grants unchanged
+  expect(await core.provisionDefaultGroup(spaceId)).toBe(gid);
+  expect(await core.listSpaceGroups(spaceId)).toHaveLength(1);
+  expect(await core.listTreeAccessGrants(spaceId, gid)).toHaveLength(2);
+
+  // the grants are dormant until a member joins the group AND the space; such a
+  // member then inherits read@share + write@share.projects via build_tree_access
+  const member = await v7();
+  await core.createUser(member, `m_${rand(8)}@example.com`);
+  await core.addPrincipalToSpace(spaceId, member);
+  await core.addGroupMember(spaceId, gid, member);
+  const ta = await core.buildTreeAccess(member, spaceId);
+  expect(ta).toContainEqual({
+    tree_path: SHARE_NAMESPACE,
+    access: ACCESS.read,
+  });
+  expect(ta).toContainEqual({
+    tree_path: SHARE_PROJECTS_NAMESPACE,
+    access: ACCESS.write,
+  });
 });
 
 test("createGroup rosters the group into principal_space (admin=false, no home grant)", async () => {

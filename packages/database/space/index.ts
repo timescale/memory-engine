@@ -12,6 +12,7 @@ export {
   normalizeTreeFilter,
   normalizeTreePath,
   SHARE_NAMESPACE,
+  SHARE_PROJECTS_NAMESPACE,
   type TreeFilter,
   TreePathError,
   type TreePathOptions,

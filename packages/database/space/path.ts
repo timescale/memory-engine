@@ -39,7 +39,10 @@ export const HOME_NAMESPACE = "home";
  * Canonically defined in `@memory.build/protocol` (the wire contract) and
  * re-exported here so the database/server side keeps a single source of truth.
  */
-export { SHARE_NAMESPACE } from "@memory.build/protocol";
+export {
+  SHARE_NAMESPACE,
+  SHARE_PROJECTS_NAMESPACE,
+} from "@memory.build/protocol";
 
 /** A legal ltree label (PostgreSQL 16+): letters, digits, underscore, hyphen. */
 const LTREE_LABEL = /^[A-Za-z0-9_-]+$/;

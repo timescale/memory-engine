@@ -723,9 +723,10 @@ test("an agent grant is clamped DOWN to the owner's level, not dropped (TNT-165)
 });
 
 test("group member management allows a group admin (not a space admin)", async () => {
-  // owner creates a group and makes `lead` an admin of it
+  // owner creates a group and makes `lead` an admin of it (a fresh name — every
+  // space is now provisioned with a default "team" group)
   const { id: groupId } = await call<{ id: string }>("group.create", {
-    name: "team",
+    name: "squad",
   });
   const lead = await makeUser();
   // lead is only a group admin (not a space admin) — group-admin authority over

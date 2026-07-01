@@ -62,6 +62,15 @@ export const treePathSchema = z
 export const SHARE_NAMESPACE = "share";
 
 /**
+ * The conventional shared subtree for project work, nested under `share`. The
+ * default `team` group provisioned for every space is granted write here so
+ * members can collaborate on project memories, and the claude-plugin defaults
+ * its session-capture root to this path. Stored dotted because it is the literal
+ * ltree path; the canonical display form is `/share/projects`.
+ */
+export const SHARE_PROJECTS_NAMESPACE = "share.projects";
+
+/**
  * Memory name (leaf) — an optional, mutable, filename-like slug, unique within
  * its tree path. Must start alphanumeric, then `[A-Za-z0-9._-]` (no slashes or
  * spaces; dots are fine because a name is never an ltree label). Mirrors the

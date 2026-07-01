@@ -58,6 +58,14 @@ export interface CoreStore {
     isSpaceAdmin?: boolean,
     id?: string,
   ): Promise<string>;
+  /**
+   * Provision a space's default "team" group (rostered, non-admin) with its
+   * standard grants (read on `share`, write on `share.projects`), creating it if
+   * absent. Idempotent; returns the group id. Call inside the space-creation
+   * transaction. The group starts memberless, so its grants are dormant until a
+   * member is added.
+   */
+  provisionDefaultGroup(spaceId: string): Promise<string>;
   getPrincipal(id: string): Promise<Principal | null>;
   /** Resolve a global user (kind 'u') by name (email). */
   getUserByName(name: string): Promise<Principal | null>;
@@ -345,6 +353,14 @@ export function coreStore(sql: Sql, schema: string = CORE_SCHEMA): CoreStore {
         ) as id
       `;
       if (!row) throw new Error("create_group returned no row");
+      return row.id as string;
+    },
+
+    async provisionDefaultGroup(spaceId) {
+      const [row] = await sql`
+        select ${sch}.provision_default_group(${spaceId}) as id
+      `;
+      if (!row) throw new Error("provision_default_group returned no row");
       return row.id as string;
     },
 

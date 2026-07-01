@@ -13,12 +13,15 @@ import type { Sql } from "postgres";
  */
 
 /**
- * Grant a new space's creator its default access — shared by `space.create` and
+ * Stand up a new space's defaults — shared by `space.create` and
  * `space.ensureDefault` so the two stay in lockstep. The creator
  * becomes a space admin who owns its home (via add_principal_to_space) and the
  * shared root (`share`), but NOT owner@root: it sees `/share` and its own `~`,
  * not other members' homes. As an admin it can self-grant owner@root later if it
- * wants the whole tree. Call inside the space-creation transaction.
+ * wants the whole tree. Also provisions the default "team" group (read on
+ * `share`, write on `share.projects`); the group starts memberless, so its
+ * grants are dormant until members are added. Call inside the space-creation
+ * transaction.
  */
 export async function addSpaceCreator(
   core: engineCore.CoreStore,
@@ -32,6 +35,7 @@ export async function addSpaceCreator(
     SHARE_NAMESPACE,
     engineCore.ACCESS.owner,
   );
+  await core.provisionDefaultGroup(spaceId);
 }
 
 export interface EnsureProvisionedParams {
