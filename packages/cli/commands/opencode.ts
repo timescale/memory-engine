@@ -237,8 +237,12 @@ function createOpenCodeHookCommand(): Command {
         }
 
         const globalOpts = cmd.optsWithGlobals();
-        // A broken `.me` is fatal for direct CLI use, but the hook is
-        // best-effort: log + exit 0 so a typo never blocks capture.
+        // `.me` server/space/tree come via cwd-based resolveCredentials (not an
+        // explicit discoverProjectConfig from the session's cwd like the Claude
+        // hook): OpenCode's hook event carries only a `--session <id>`, no cwd,
+        // and the plugin shells out from the project dir — so process.cwd() is
+        // already the project. A broken `.me` is fatal for direct CLI use, but
+        // the hook is best-effort: log + exit 0 so a typo never blocks capture.
         let config: ReturnType<typeof resolveHookConfig>;
         try {
           config = resolveHookConfig(resolveCredentials(globalOpts.server), {

@@ -16,7 +16,7 @@ describe("buildGitImportOptions", () => {
       full: false,
       merges: true,
       fileList: true,
-      treeRoot: "share.projects",
+      projectTree: undefined,
       dryRun: false,
       verbose: false,
       skipIfNotRepo: false,
@@ -33,7 +33,7 @@ describe("buildGitImportOptions", () => {
         full: true,
         merges: false,
         fileList: false,
-        treeRoot: "~/work",
+        projectTree: "~/work",
         dryRun: true,
         verbose: true,
         skipIfNotRepo: true,
@@ -48,15 +48,15 @@ describe("buildGitImportOptions", () => {
     expect(opts.full).toBe(true);
     expect(opts.merges).toBe(false);
     expect(opts.fileList).toBe(false);
-    expect(opts.treeRoot).toBe("~/work");
+    expect(opts.projectTree).toBe("~/work");
     expect(opts.dryRun).toBe(true);
     expect(opts.verbose).toBe(true);
     expect(opts.skipIfNotRepo).toBe(true);
   });
 
-  test("rejects an invalid --tree-root", () => {
-    expect(() => buildGitImportOptions({ treeRoot: "bad path!" })).toThrow(
-      /Invalid --tree-root/,
+  test("rejects an invalid --project-tree", () => {
+    expect(() => buildGitImportOptions({ projectTree: "bad path!" })).toThrow(
+      /Invalid --project-tree/,
     );
   });
 });

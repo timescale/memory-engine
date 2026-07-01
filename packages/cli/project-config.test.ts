@@ -1,7 +1,7 @@
 /**
  * Tests for the `.me/config.yaml` project-config resolver: walk-up discovery,
- * `--config-dir` override, `.local` per-field override, malformed-file tolerance,
- * schema validation, and the memoized process-wide accessor.
+ * `--config-dir` override, `.local` per-field override, a fatal error on a
+ * malformed file, schema validation, and the memoized process-wide accessor.
  */
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
