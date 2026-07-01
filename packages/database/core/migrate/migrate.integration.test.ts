@@ -420,6 +420,117 @@ describe("agent_tree_access clamps agent access to its owner", () => {
       { tree_path: "share", access: 2 },
     ]);
   });
+
+  test("no escalation across overlapping owner grants", async () => {
+    // Owners can hold many overlapping grants (the unique constraint is only on
+    // (space, principal, path)): here owner@foo.bar + read@foo + write@foo.bar.baz.
+    // The agent holds read@foo. Every covered path must resolve to read — the
+    // owner's deeper owner@foo.bar must NOT leak extra access to the agent.
+    const result = await effectiveAgentAccess(
+      [
+        ["foo.bar", 3],
+        ["foo", 1],
+        ["foo.bar.baz", 2],
+      ],
+      [["foo", 1]],
+    );
+    expect(result).toEqual([
+      { tree_path: "foo", access: 1 },
+      { tree_path: "foo.bar", access: 1 },
+      { tree_path: "foo.bar.baz", access: 1 },
+    ]);
+    // no path resolves above read
+    expect(result.every((r) => r.access <= 1)).toBe(true);
+  });
+
+  test("an explicit over-grant clamps down to the owner's level", async () => {
+    // agent granted owner@foo where the owner only reads foo → clamps to read@foo.
+    expect(await effectiveAgentAccess([["foo", 1]], [["foo", 3]])).toEqual([
+      { tree_path: "foo", access: 1 },
+    ]);
+  });
+
+  test("clamps against the owner's group-inherited access (same path, two groups)", async () => {
+    // The one case the (space, principal, path) unique constraint doesn't cover:
+    // the owner receives the SAME path at two levels via two separate groups
+    // (read@foo via g1, write@foo via g2). user_tree_access unions both, so the
+    // owner's effective foo is write (the max). An agent granted owner@foo must
+    // clamp to write@foo — exercising the union/group path in member_tree_access
+    // → user_tree_access that the single-grant tests skip.
+    await withTestCore(sql, {}, async (core) => {
+      const s = core.schema;
+      const [space] = await sql.unsafe(
+        `insert into ${s}.space (slug, name) values ($1, $2) returning id`,
+        [randomSlug(), "groups"],
+      );
+      const spaceId = space?.id as string;
+      const [owner] = await sql.unsafe(
+        `insert into ${s}.principal (kind, name) values ('u', 'owner') returning id`,
+      );
+      const ownerId = owner?.id as string;
+      const [agent] = await sql.unsafe(
+        `insert into ${s}.principal (kind, name, owner_id) values ('a', 'agent', $1) returning id`,
+        [ownerId],
+      );
+      const agentId = agent?.id as string;
+      await sql.unsafe(
+        `insert into ${s}.principal_space (space_id, principal_id) values ($1, $2), ($1, $3)`,
+        [spaceId, ownerId, agentId],
+      );
+
+      // two groups the owner belongs to, each granting foo at a different level
+      const [g1] = await sql.unsafe(`select ${s}.create_group($1, $2) as id`, [
+        spaceId,
+        "readers",
+      ]);
+      const [g2] = await sql.unsafe(`select ${s}.create_group($1, $2) as id`, [
+        spaceId,
+        "writers",
+      ]);
+      const g1Id = g1?.id as string;
+      const g2Id = g2?.id as string;
+      for (const gid of [g1Id, g2Id]) {
+        await sql.unsafe(`select ${s}.add_group_member($1, $2, $3)`, [
+          spaceId,
+          gid,
+          ownerId,
+        ]);
+      }
+      await sql.unsafe(`select ${s}.grant_tree_access($1, $2, $3::ltree, $4)`, [
+        spaceId,
+        g1Id,
+        "foo",
+        1,
+      ]);
+      await sql.unsafe(`select ${s}.grant_tree_access($1, $2, $3::ltree, $4)`, [
+        spaceId,
+        g2Id,
+        "foo",
+        2,
+      ]);
+      // the agent is granted owner@foo directly
+      await sql.unsafe(`select ${s}.grant_tree_access($1, $2, $3::ltree, $4)`, [
+        spaceId,
+        agentId,
+        "foo",
+        3,
+      ]);
+
+      const rows = await sql.unsafe(
+        `select tree_path::text as tree_path, access
+         from ${s}.agent_tree_access($1, $2)
+         order by tree_path`,
+        [agentId, spaceId],
+      );
+      // owner's effective foo = max(read, write) = write; the agent clamps to it
+      expect(
+        rows.map((r) => ({
+          tree_path: r.tree_path as string,
+          access: r.access as number,
+        })),
+      ).toEqual([{ tree_path: "foo", access: 2 }]);
+    });
+  });
 });
 
 describe("control-plane functions", () => {
