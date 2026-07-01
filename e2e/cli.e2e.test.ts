@@ -279,6 +279,23 @@ describe.skipIf(
     const r = await me(["whoami"]);
     expect(r.code).toBe(0);
     expect(r.stdout).toContain("e2e@example.test");
+    // TNT-162: the active space renders as name (slug), with an admin marker
+    // (the creator is an admin) and the auth method.
+    expect(r.stdout).toContain(`default (${spaceSlug}) [admin]`);
+    expect(r.stdout).toContain("Auth:   session");
+
+    // JSON gains a resolved `space` object + `auth`, without dropping the
+    // backward-compatible `activeSpace` slug.
+    const who = await meJson<{
+      activeSpace: string | null;
+      space: { slug: string; name: string; admin: boolean } | null;
+      auth: string;
+    }>(["whoami"]);
+    expect(who.activeSpace).toBe(spaceSlug);
+    expect(who.space?.slug).toBe(spaceSlug);
+    expect(who.space?.name).toBe("default");
+    expect(who.space?.admin).toBe(true);
+    expect(who.auth).toBe("session");
   });
 
   test("2. create + tree round-trip (share namespace)", async () => {
@@ -680,10 +697,13 @@ describe.skipIf(
     // whoami reports the agent's own identity (kind "a", no email).
     const who = await meJson<{
       identity: { id: string; kind: string; email: string | null };
+      auth: string;
     }>(["whoami"], agentEnv);
     expect(who.identity.id).toBe(agent.id);
     expect(who.identity.kind).toBe("a");
     expect(who.identity.email).toBeNull();
+    // An agent authenticates with its api key.
+    expect(who.auth).toBe("agent");
 
     // space.list returns the spaces the agent is admitted to.
     const spaces = await meJson<{ spaces: { slug: string }[] }>(
@@ -805,11 +825,13 @@ describe.skipIf(
 
     // The PAT authenticates as the user themselves (kind "u"), no session.
     const patEnv = { ME_API_KEY: pat1.key, ME_SESSION_TOKEN: "" };
-    const who = await meJson<{ identity: { kind: string } }>(
+    const who = await meJson<{ identity: { kind: string }; auth: string }>(
       ["whoami"],
       patEnv,
     );
     expect(who.identity.kind).toBe("u");
+    // A user PAT is an api key acting as the user themselves.
+    expect(who.auth).toBe("pat");
   });
 
   test("8. `me claude import` backfills work that predates the hook", async () => {
