@@ -483,7 +483,13 @@ test("invite.* require space-admin authority (owner@root is not enough)", async 
   await expectAppError(
     call(
       "invite.create",
-      { email: `x_${rand(8)}@example.com`, admin: false },
+      // a valid (in-space) group, so this exercises the authorization gate, not
+      // param validation — a non-admin is FORBIDDEN even with a well-formed invite
+      {
+        email: `x_${rand(8)}@example.com`,
+        admin: false,
+        groupId: await teamGroupId(),
+      },
       asOwner,
     ),
     "FORBIDDEN",

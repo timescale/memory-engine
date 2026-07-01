@@ -66,15 +66,17 @@ function InviteLinkPanel() {
       ]);
       setLinks(invitations.filter((i) => i.kind === "link"));
       setGroups(groupsRes.groups);
-      // default the selection to the "team" group (fall back to the first)
-      setGroupId(
-        (cur) =>
-          cur ||
-          groupsRes.groups.find(
-            (g) => g.name.toLowerCase() === DEFAULT_GROUP_NAME,
-          )?.id ||
-          groupsRes.groups[0]?.id ||
-          "",
+      // keep the current selection only if it still exists; else default to the
+      // "team" group (fall back to the first) so the <select> never holds a value
+      // that isn't an option (which would create an invite that fails server-side).
+      setGroupId((cur) =>
+        cur && groupsRes.groups.some((g) => g.id === cur)
+          ? cur
+          : (groupsRes.groups.find(
+              (g) => g.name.toLowerCase() === DEFAULT_GROUP_NAME,
+            )?.id ??
+            groupsRes.groups[0]?.id ??
+            ""),
       );
     } catch (err) {
       setError(isRpcError(err) ? err.message : "Couldn't load invite links.");
