@@ -66,7 +66,10 @@ import {
   type AgentInstallOptions,
   runAgentMcpInstall,
 } from "../mcp/agent-install.ts";
-import { discoverProjectConfig } from "../project-config.ts";
+import {
+  discoverProjectConfig,
+  setConfigDirOverride,
+} from "../project-config.ts";
 import { memoryBearer } from "../session.ts";
 import { createClaudeImportCommand, runAgentImport } from "./import.ts";
 import { runGitImport } from "./import-git.ts";
@@ -479,6 +482,12 @@ function createClaudeHookCommand(): Command {
         const project = event.cwd
           ? discoverProjectConfig(event.cwd)
           : undefined;
+        // Scope credential resolution to the SESSION project's `.me` (from the
+        // event cwd), not the hook process cwd: resolveCredentials() otherwise
+        // re-discovers `.me` from process.cwd(), so the login check + server/
+        // space fallback could reflect a different project. Seeding the override
+        // keeps routing deterministic.
+        if (project) setConfigDirOverride(project.dir);
         config = resolveHookConfigFromEnv(process.env, resolveCredentials(), {
           server: project?.server,
           space: project?.space,
