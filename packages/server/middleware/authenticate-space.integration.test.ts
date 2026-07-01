@@ -388,6 +388,23 @@ test("act-as: human session + owned agent by name (mixed case) → principal swi
   }
 });
 
+test("act-as: human session + owned agent by UPPERCASE id → principal switch (id match is case-insensitive)", async () => {
+  const p = await provision();
+  const { agentId } = await seedOwnedAgent(p);
+
+  // Postgres emits uuids lowercase, but a client may send an uppercase UUID
+  // (the CLI's UUID gate is case-insensitive and passes it through verbatim).
+  const result = await authenticateSpace(
+    req({ token: p.token, space: p.spaceSlug, asAgent: agentId.toUpperCase() }),
+    deps(),
+  );
+  expect(result.ok).toBe(true);
+  if (result.ok) {
+    expect(result.context.principalId).toBe(agentId);
+    expect(result.context.authenticatedAs).toBe(p.userId);
+  }
+});
+
 test("act-as: agent-key bearer + X-Me-As-Agent (a valid other owned agent) → header ignored, key trumps", async () => {
   const p = await provision();
   const a = await seedOwnedAgent(p);

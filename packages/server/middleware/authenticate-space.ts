@@ -205,9 +205,11 @@ async function authenticateSpaceInner(
   if (asAgent && ownerId === null) {
     const agents = await core.listAgents(principalId);
     const wanted = asAgent.toLowerCase();
-    // Match id first, then case-insensitive name (mirrors util.ts:resolveAgentId).
+    // Match id first, then name — both case-insensitive (mirrors
+    // util.ts:resolveAgentId; Postgres emits uuids lowercase, but a client may
+    // send an uppercase UUID, which must not spuriously 403).
     const agent =
-      agents.find((a) => a.id === asAgent) ??
+      agents.find((a) => a.id.toLowerCase() === wanted) ??
       agents.find((a) => a.name.toLowerCase() === wanted);
     if (!agent) {
       debug("space auth failed: X-Me-As-Agent not an owned agent", {

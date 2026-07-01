@@ -228,8 +228,10 @@ export async function authenticateUser(
     const human = result.context.userId;
     const agents = await coreStore.listAgents(human);
     const wanted = asAgent.toLowerCase();
+    // Id first, then name — both case-insensitive (Postgres emits uuids
+    // lowercase, but a client may send an uppercase UUID).
     const agent =
-      agents.find((a) => a.id === asAgent) ??
+      agents.find((a) => a.id.toLowerCase() === wanted) ??
       agents.find((a) => a.name.toLowerCase() === wanted);
     if (!agent) {
       debug("user auth failed: X-Me-As-Agent not an owned agent", {

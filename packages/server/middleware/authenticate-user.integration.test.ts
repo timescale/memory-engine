@@ -197,6 +197,22 @@ test("act-as: human OAuth + owned agent by name (mixed case) → switches to the
   }
 });
 
+test("act-as: human OAuth + owned agent by UPPERCASE id → switches (id match is case-insensitive)", async () => {
+  const userId = await seedUser();
+  const agentId = await core.createAgent(userId, `agent-${rand()}`);
+  // Postgres emits uuids lowercase, but a client may send an uppercase UUID.
+  const result = await auth(
+    await mintAccessToken(userId),
+    agentId.toUpperCase(),
+  );
+  expect(result.ok).toBe(true);
+  if (result.ok) {
+    expect(result.context.kind).toBe("a");
+    expect(result.context.userId).toBe(agentId);
+    expect(result.context.authenticatedAs).toBe(userId);
+  }
+});
+
 test("act-as: agent-key bearer + X-Me-As-Agent → header ignored (key trumps)", async () => {
   const userId = await seedUser();
   const a = await core.createAgent(userId, `agent-${rand()}`);
