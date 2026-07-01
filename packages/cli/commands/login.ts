@@ -21,6 +21,7 @@ import { Command } from "commander";
 import { CLIENT_VERSION, MIN_SERVER_VERSION } from "../../../version";
 import { checkServerVersion, createUserClient, RpcError } from "../client.ts";
 import { resolveServer, setActiveSpace, storeTokens } from "../credentials.ts";
+import { formatSpaceLabel } from "../identity.ts";
 import {
   buildAuthorizeUrl,
   exchangeCode,
@@ -165,15 +166,24 @@ export function createLoginCommand(): Command {
         const active = await selectSpace(server, spaces, spaceArg, fmt);
 
         output(
-          { server, identity, space: active, pendingInvitations: remaining },
+          {
+            server,
+            identity,
+            space: active,
+            // Login always establishes an OAuth session (never an api key), so
+            // the auth method is constant — surfaced for parity with `whoami`.
+            auth: "session",
+            pendingInvitations: remaining,
+          },
           fmt,
           () => {
             clack.log.success(
               `Logged in as ${identity.name} (${identity.email})`,
             );
+            clack.log.info("Auth:   session");
             clack.log.info(`Server: ${server}`);
             if (active) {
-              clack.log.info(`Space:  ${active.name} (${active.slug})`);
+              clack.log.info(`Space:  ${formatSpaceLabel(active)}`);
               clack.note(
                 "Run 'me claude init' at the root of a software development\nproject to set up Claude Code memory for it.",
                 "Next step",
