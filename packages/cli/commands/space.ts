@@ -24,6 +24,7 @@ import { Command } from "commander";
 import {
   clearActiveSpace,
   getDefaultServer,
+  getServerConfig,
   normalizeOrigin,
   resolveCredentials,
   setActiveSpace,
@@ -302,8 +303,15 @@ function createSpaceDeleteCommand(): Command {
         }
 
         const result = await user.space.delete({ slug: space.slug });
-        // If we just deleted the active space, drop the stale pointer.
-        if (result.deleted && creds.activeSpace === space.slug) {
+        // If the global config's active_space points at the just-deleted
+        // space, drop the stale pointer. Check the stored value directly —
+        // creds.activeSpace can come from ME_SPACE or a `.me` pin, and
+        // clearing on those would wipe a global selection that points at a
+        // different, still-valid space.
+        if (
+          result.deleted &&
+          getServerConfig(creds.server).active_space === space.slug
+        ) {
           clearActiveSpace(creds.server);
         }
         output({ slug: space.slug, ...result }, fmt, () => {
