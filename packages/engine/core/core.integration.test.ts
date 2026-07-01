@@ -365,18 +365,26 @@ test("listTreeAccessGrants returns grants; filterable by principal", async () =>
 
 test("space invitations: create / list / accept / decline via the store", async () => {
   // spaceId + the owner userId come from beforeEach; the owner is the inviter.
-  // An invite adds its redeemer to a group — create one with a shared-tree grant
-  // so we can assert the joiner inherits it.
+  // An invite adds its redeemer to one or more groups — create two with distinct
+  // grants so we can assert the joiner inherits the UNION.
   const email = `invitee_${rand(8)}@example.com`;
-  const groupId = await core.createGroup(spaceId, "team");
-  await core.grantTreeAccess(spaceId, groupId, SHARE_NAMESPACE, ACCESS.write);
+  const sortIds = (a: string[]) => [...a].sort();
+  const team = await core.createGroup(spaceId, "team");
+  await core.grantTreeAccess(spaceId, team, SHARE_NAMESPACE, ACCESS.write);
+  const docs = await core.createGroup(spaceId, "docs");
+  await core.grantTreeAccess(
+    spaceId,
+    docs,
+    SHARE_PROJECTS_NAMESPACE,
+    ACCESS.read,
+  );
 
   const { id: inviteId, token } = await core.createSpaceInvitation(
     spaceId,
     email,
     {
       admin: true,
-      groupId,
+      groupIds: [team, docs],
       invitedBy: userId,
     },
   );
@@ -388,8 +396,8 @@ test("space invitations: create / list / accept / decline via the store", async 
   expect(pending[0]?.email).toBe(email);
   expect(pending[0]?.kind).toBe("email");
   expect(pending[0]?.admin).toBe(true);
-  expect(pending[0]?.groupId).toBe(groupId);
-  expect(pending[0]?.groupName).toBe("team");
+  expect(sortIds(pending[0]?.groupIds ?? [])).toEqual(sortIds([team, docs]));
+  expect([...(pending[0]?.groupNames ?? [])].sort()).toEqual(["docs", "team"]);
   expect(pending[0]?.invitedBy).toBe(userId);
   expect(pending[0]?.invitedByName).toBe(userName);
 
@@ -401,7 +409,7 @@ test("space invitations: create / list / accept / decline via the store", async 
   expect(forEmail[0]?.invitationId).toBe(inviteId);
   expect(forEmail[0]?.spaceId).toBe(spaceId);
   expect(forEmail[0]?.slug).toBeTruthy();
-  expect(forEmail[0]?.groupName).toBe("team");
+  expect([...(forEmail[0]?.groupNames ?? [])].sort()).toEqual(["docs", "team"]);
   expect(forEmail[0]?.invitedByName).toBe(userName);
 
   // accepting a different email's id (mismatch) joins nothing
@@ -414,20 +422,27 @@ test("space invitations: create / list / accept / decline via the store", async 
   expect(joined?.spaceId).toBe(spaceId);
   expect(joined?.slug).toBeTruthy();
   expect(joined?.admin).toBe(true);
-  expect(joined?.groupName).toBe("team");
+  expect([...(joined?.groupNames ?? [])].sort()).toEqual(["docs", "team"]);
 
-  // the joiner is now a member of the group ...
-  expect(
-    (await core.listGroupMembers(spaceId, groupId)).map((m) => m.memberId),
-  ).toContain(inviteeId);
-  // ... so their effective access is owner@home (from joining) + the group's
-  // write@share (there is no per-invite share grant).
+  // the joiner is now a member of BOTH groups ...
+  for (const g of [team, docs]) {
+    expect(
+      (await core.listGroupMembers(spaceId, g)).map((m) => m.memberId),
+    ).toContain(inviteeId);
+  }
+  // ... so their effective access is owner@home (from joining) + the UNION of the
+  // groups' grants: write@share (team) + read@share.projects (docs). There is no
+  // per-invite share grant.
   const ta = await core.buildTreeAccess(inviteeId, spaceId);
   expect(ta).toContainEqual({
     tree_path: `home.${inviteeId.replace(/-/g, "")}`,
     access: ACCESS.owner,
   });
   expect(ta).toContainEqual({ tree_path: "share", access: ACCESS.write });
+  expect(ta).toContainEqual({
+    tree_path: SHARE_PROJECTS_NAMESPACE,
+    access: ACCESS.read,
+  });
 
   // accepted → no longer pending (admin list or email list); re-accept is a no-op
   expect(await core.listSpaceInvitations(spaceId)).toHaveLength(0);
@@ -439,7 +454,7 @@ test("space invitations: create / list / accept / decline via the store", async 
   // a fresh invite is declinable by the invitee (gated on email), once
   const { id: second } = await core.createSpaceInvitation(spaceId, email, {
     admin: false,
-    groupId,
+    groupIds: [team],
     invitedBy: userId,
   });
   expect(await core.declineSpaceInvitation("other@example.com", second)).toBe(
@@ -451,7 +466,7 @@ test("space invitations: create / list / accept / decline via the store", async 
   // the admin can still revoke a pending invite by email
   await core.createSpaceInvitation(spaceId, email, {
     admin: false,
-    groupId,
+    groupIds: [team],
     invitedBy: userId,
   });
   expect(await core.revokeSpaceInvitation(spaceId, email)).toBe(true);
@@ -466,7 +481,7 @@ test("magic links: open link multi-use + max_uses; email link enforces email; re
   // an open shareable link (no email), capped at 2 redemptions
   const { token } = await core.createSpaceInvitation(spaceId, null, {
     admin: false,
-    groupId,
+    groupIds: [groupId],
     invitedBy: userId,
     maxUses: 2,
   });
@@ -506,7 +521,7 @@ test("magic links: open link multi-use + max_uses; email link enforces email; re
   const target = `target_${rand(8)}@example.com`;
   const { token: etoken } = await core.createSpaceInvitation(spaceId, target, {
     admin: false,
-    groupId,
+    groupIds: [groupId],
     invitedBy: userId,
   });
   const eUser = await v7();
@@ -524,7 +539,7 @@ test("magic links: open link multi-use + max_uses; email link enforces email; re
   const { id: linkId, token: rtoken } = await core.createSpaceInvitation(
     spaceId,
     null,
-    { admin: false, groupId, invitedBy: userId },
+    { admin: false, groupIds: [groupId], invitedBy: userId },
   );
   expect(await core.revokeInvitationById(spaceId, linkId)).toBe(true);
   const rUser = await mkUser();

@@ -49,7 +49,7 @@ export function InvitationList({
             </div>
             <div className="truncate text-[11px] text-ink/50">
               {inv.admin ? "admin · " : ""}
-              {inv.groupName ?? "no group"}
+              {inv.groupNames.join(", ") || "no group"}
               {inv.invitedByName ? ` · from ${inv.invitedByName}` : ""}
             </div>
           </div>

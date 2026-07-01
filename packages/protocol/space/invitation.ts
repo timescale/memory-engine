@@ -20,10 +20,10 @@ export const spaceInvitationResponse = z.object({
   /** "email" = email-constrained (single-use); "link" = open shareable link. */
   kind: z.enum(["email", "link"]),
   admin: z.boolean(),
-  /** The group the redeemer is added to on join (its grants are the access). */
-  groupId: z.string(),
-  /** Display name of that group ("team" by default). */
-  groupName: z.string().nullable(),
+  /** The groups the redeemer is added to on join (their grants are the access). */
+  groupIds: z.array(z.string()),
+  /** Display names of those groups ("team" by default); excludes any since deleted. */
+  groupNames: z.array(z.string()),
   invitedBy: z.string().nullable(),
   invitedByName: z.string().nullable(),
   /** When an open link expires (ISO); null = never. */
@@ -47,11 +47,11 @@ export const inviteCreateParams = z.object({
   email: emailSchema.nullable().optional(),
   admin: z.boolean().optional(),
   /**
-   * The group the redeemer joins — its grants are their access. Required: the
-   * client picks it (the CLI/web default to the "team" group); the server does
-   * not default.
+   * The groups the redeemer joins — the union of their grants is their access.
+   * Required, non-empty: the client picks them (the CLI/web default to the "team"
+   * group); the server does not default.
    */
-  groupId: uuidv7Schema,
+  groupIds: z.array(uuidv7Schema).min(1),
   /** Open-link expiry (ISO timestamp); null/omitted = never. */
   expiresAt: z.string().datetime().nullable().optional(),
   /** Open-link max redemptions; null/omitted = unlimited. */

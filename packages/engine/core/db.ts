@@ -173,15 +173,15 @@ export interface CoreStore {
    * Issue an invitation to a space and mint its magic-link token (returned once,
    * stored only as a hash). `email` set → an email-constrained invite (re-inviting
    * the same email upserts the pending row); `email` null → an open shareable link.
-   * `groupId` is the group the redeemer is added to on join — its grants are the
-   * joiner's access; `expiresAt` / `maxUses` bound an open link.
+   * `groupIds` are the groups the redeemer is added to on join — the union of
+   * their grants is the joiner's access; `expiresAt` / `maxUses` bound an open link.
    */
   createSpaceInvitation(
     spaceId: string,
     email: string | null,
     opts: {
       admin: boolean;
-      groupId: string;
+      groupIds: string[];
       invitedBy: string;
       expiresAt?: Date | null;
       maxUses?: number | null;
@@ -563,7 +563,7 @@ export function coreStore(sql: Sql, schema: string = CORE_SCHEMA): CoreStore {
       const token = generateInviteToken();
       const [row] = await sql`
         select ${sch}.create_space_invitation(
-          ${spaceId}, ${email}, ${opts.admin}, ${opts.groupId},
+          ${spaceId}, ${email}, ${opts.admin}, ${opts.groupIds}::uuid[],
           ${opts.invitedBy}, ${token},
           ${opts.expiresAt ?? null}, ${opts.maxUses ?? null}
         ) as id
@@ -582,8 +582,8 @@ export function coreStore(sql: Sql, schema: string = CORE_SCHEMA): CoreStore {
           email: (r.email as string | null) ?? null,
           kind: r.kind as "email" | "link",
           admin: Boolean(r.admin),
-          groupId: r.group_id as string,
-          groupName: (r.group_name as string | null) ?? null,
+          groupIds: r.group_ids as string[],
+          groupNames: (r.group_names as string[] | null) ?? [],
           invitedBy: (r.invited_by as string | null) ?? null,
           invitedByName: (r.invited_by_name as string | null) ?? null,
           expiresAt: (r.expires_at as Date | null) ?? null,
@@ -621,7 +621,7 @@ export function coreStore(sql: Sql, schema: string = CORE_SCHEMA): CoreStore {
         slug: row.slug as string,
         name: row.name as string,
         admin: Boolean(row.admin),
-        groupName: (row.group_name as string | null) ?? null,
+        groupNames: (row.group_names as string[] | null) ?? [],
       } satisfies RedeemedInvitation;
     },
 
@@ -636,7 +636,7 @@ export function coreStore(sql: Sql, schema: string = CORE_SCHEMA): CoreStore {
           slug: r.slug as string,
           name: r.name as string,
           admin: Boolean(r.admin),
-          groupName: (r.group_name as string | null) ?? null,
+          groupNames: (r.group_names as string[] | null) ?? [],
           invitedByName: (r.invited_by_name as string | null) ?? null,
           createdAt: r.created_at as Date,
         }),
@@ -653,7 +653,7 @@ export function coreStore(sql: Sql, schema: string = CORE_SCHEMA): CoreStore {
         slug: row.slug as string,
         name: row.name as string,
         admin: Boolean(row.admin),
-        groupName: (row.group_name as string | null) ?? null,
+        groupNames: (row.group_names as string[] | null) ?? [],
       } satisfies RedeemedInvitation;
     },
 

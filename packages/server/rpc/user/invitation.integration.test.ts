@@ -126,7 +126,7 @@ test("invite.pending → accept joins the space; pending then empties", async ()
   const groupId = await core.createGroup(spaceId, "team");
   await core.createSpaceInvitation(spaceId, userEmail, {
     admin: true,
-    groupId,
+    groupIds: [groupId],
     invitedBy: inviterId,
   });
 
@@ -160,7 +160,7 @@ test("invite.decline removes a pending invitation", async () => {
   const groupId = await core.createGroup(spaceId, "team");
   await core.createSpaceInvitation(spaceId, userEmail, {
     admin: false,
-    groupId,
+    groupIds: [groupId],
     invitedBy: inviterId,
   });
 
@@ -211,7 +211,7 @@ test("invite.redeem joins via an open magic link (no email match needed)", async
   const groupId = await core.createGroup(spaceId, "team");
   const { token } = await core.createSpaceInvitation(spaceId, null, {
     admin: false,
-    groupId,
+    groupIds: [groupId],
     invitedBy: inviterId,
   });
 
@@ -237,7 +237,7 @@ test("invite.redeem of an email-constrained link requires a VERIFIED email", asy
   // an email-constrained link addressed to the test user's email
   const { token } = await core.createSpaceInvitation(spaceId, userEmail, {
     admin: false,
-    groupId,
+    groupIds: [groupId],
     invitedBy: inviterId,
   });
 

@@ -62,7 +62,7 @@ async function invitePending(
       spaceSlug: i.slug,
       spaceName: i.name,
       admin: i.admin,
-      groupName: i.groupName,
+      groupNames: i.groupNames,
       invitedByName: i.invitedByName,
       createdAt: i.createdAt.toISOString(),
     })),

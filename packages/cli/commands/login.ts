@@ -309,7 +309,7 @@ async function acceptInvitationsInteractive(
     options: invites.map((i) => {
       const bits = [
         i.admin ? "admin" : null,
-        i.groupName ? `group:${i.groupName}` : null,
+        i.groupNames.length ? `groups:${i.groupNames.join(", ")}` : null,
       ].filter(Boolean);
       return {
         value: i.invitationId,

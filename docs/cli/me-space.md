@@ -90,11 +90,11 @@ me space delete <space> [--force]
 
 ## me space invite
 
-Invite someone to the active space, or create an open shareable link. Every invite adds its redeemer to a **group** (default `team`) — the group's grants become the joiner's shared access. Every invite is **pending** until the invitee accepts (email invite) or redeems the link; nothing auto-enrolls. **Admin only.**
+Invite someone to the active space, or create an open shareable link. Every invite adds its redeemer to one or more **groups** (default `team`) — the union of those groups' grants becomes the joiner's shared access. Every invite is **pending** until the invitee accepts (email invite) or redeems the link; nothing auto-enrolls. **Admin only.**
 
 ```
-me space invite --email <addr> [--admin] [--group <name-or-id>]
-me space invite --anyone [--admin] [--group <name-or-id>] [--expires <dur>] [--max-uses <n>]
+me space invite --email <addr> [--admin] [--group <name-or-id> ...]
+me space invite --anyone [--admin] [--group <name-or-id> ...] [--expires <dur>] [--max-uses <n>]
 ```
 
 | Option | Description |
@@ -102,9 +102,15 @@ me space invite --anyone [--admin] [--group <name-or-id>] [--expires <dur>] [--m
 | `--email <addr>` | Invite a specific email (only they can join; single-use). |
 | `--anyone` | Create an open link anyone signed-in can use to join (multi-use). |
 | `--admin` | Make the joiner a space admin (structural authority). |
-| `--group <name-or-id>` | The group the joiner is added to; its grants are their shared access. Default: `team`. |
+| `--group <name-or-id>` | A group the joiner is added to; its grants are their shared access. **Repeatable** — pass `--group` multiple times to add to several. Default: `team`. |
 | `--expires <duration>` | Open-link expiry, e.g. `7d`, `24h`, `30m`. |
 | `--max-uses <n>` | Max redemptions for an open link. |
+
+Example — invite into two groups:
+
+```
+me space invite --email alice@example.com --group team --group backend
+```
 
 Exactly one of `--email` or `--anyone` is required. A joining user always receives `owner@home` (their private root); their **shared** access comes from the group they join — the default `team` group grants `read` on `/share` and `write` on `/share/projects`. See [Access Control](../access-control.md#the-default-team-group) for changing these defaults.
 

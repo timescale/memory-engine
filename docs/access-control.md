@@ -106,7 +106,7 @@ A **space admin** owns these defaults and can change them at any time:
 - adjust the grants — `me access grant team /share/x w`, `me access rm-grant team /share`
 - manage membership directly — `me group add team <member>`, `me group remove team <member>`
 - rename or delete it — `me group rename team …`, `me group delete team`
-- invite into a **different** group instead — `me space invite --email … --group <name>`
+- invite into **different** groups instead — `me space invite --email … --group <name>` (repeatable: pass `--group` several times to add the joiner to multiple groups; their access is the union)
 
 ## How it's enforced
 
@@ -130,8 +130,8 @@ me space create "Acme Engineering"
 me space invite --email alice@example.com
 me space invite --email lead@example.com --admin
 
-# Or invite into a different group
-me space invite --email bob@example.com --group backend
+# Or invite into other groups (repeatable; access is the union of their grants)
+me space invite --email bob@example.com --group backend --group oncall
 
 # Group people for shared grants
 me group create backend
