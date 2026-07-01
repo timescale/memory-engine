@@ -218,7 +218,8 @@ create or replace function {{schema}}._join_via_invitation
 returns void
 as $func$
 declare
-  inv record;
+  inv  record;
+  _gid uuid;
 begin
   select space_id, email, admin, group_ids
   into inv
@@ -232,17 +233,20 @@ begin
   -- Only join for a not-yet-member; never overwrite an existing member's role or
   -- group memberships (see header). Add the member to every group in group_ids
   -- that still exists in the space (whose grants become the joiner's access);
-  -- the join filters out any group deleted since the invite was created.
+  -- the join filters out any group deleted since the invite was created, and we
+  -- route through add_group_member so group-membership logic stays in one place.
   if not exists (
     select 1 from {{schema}}.principal_space ps
     where ps.space_id = inv.space_id and ps.principal_id = _user_id
   ) then
     perform {{schema}}.add_principal_to_space(inv.space_id, _user_id, inv.admin);
-    insert into {{schema}}.group_member (space_id, group_id, member_id, admin)
-    select inv.space_id, p.group_id, _user_id, false
-    from unnest(inv.group_ids) gid
-    join {{schema}}.principal p on p.group_id = gid and p.space_id = inv.space_id
-    on conflict (space_id, member_id, group_id) do nothing;
+    for _gid in
+      select p.group_id
+      from unnest(inv.group_ids) gid
+      join {{schema}}.principal p on p.group_id = gid and p.space_id = inv.space_id
+    loop
+      perform {{schema}}.add_group_member(inv.space_id, _gid, _user_id);
+    end loop;
   end if;
 
   -- audit: one row per (invitation, user) — both accept and redeem record it.
