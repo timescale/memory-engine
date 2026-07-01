@@ -632,8 +632,11 @@ test("grant.set/remove: an agent's owner can grant at an unowned path (TNT-165)"
   ).toBe(true);
 
   // proof it's the agent-ownership doing the work: granting the SAME path to a
-  // plain user (not the caller's agent) is forbidden for this same member
+  // plain user (a space member, but NOT the caller's agent) is forbidden for
+  // this same member — so the failure is strictly the missing agent-ownership
+  // authority, not the target's non-membership.
   const otherUser = await makeUser();
+  await call("principal.add", { principalId: otherUser });
   await expectAppError(
     call(
       "grant.set",
