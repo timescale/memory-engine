@@ -49,6 +49,13 @@ export interface HookConfig {
   space: string;
   /** Tree root; captures nest as `<treeRoot>.<project>.agent_sessions`. */
   treeRoot: string;
+  /**
+   * The full project tree from a `.me/config.yaml` in the session's project, if
+   * any. When set, captures nest directly under it (`<projectTree>.agent_sessions`,
+   * NO slug) — it takes precedence over `<treeRoot>.<slug>`. A plugin-pinned
+   * `tree_root` (headless install) overrides it back to the slug layout.
+   */
+  projectTree?: string;
   /** content_mode=full_transcript → also store reasoning + tool calls/results. */
   fullTranscript: boolean;
 }
@@ -60,6 +67,16 @@ export interface HookFallbackCreds {
   loggedIn?: boolean;
   activeSpace?: string;
   server?: string;
+}
+
+/**
+ * The session project's `.me/config.yaml` (resolved from the session cwd), when
+ * present. Provides server/space fallbacks and the full project `tree`.
+ */
+export interface HookProjectConfig {
+  server?: string;
+  space?: string;
+  tree?: string;
 }
 
 /**
@@ -75,12 +92,18 @@ function blank(v: string | undefined): boolean {
  * Resolve the hook config. The bearer is the plugin's `api_key`
  * (`CLAUDE_PLUGIN_OPTION_API_KEY`) when set; otherwise it falls back to the
  * user's `me login` session (passed in via `creds`, so this stays pure/testable).
- * The space comes from the plugin config, else the caller's active space.
- * Returns null when no bearer or no space is available.
+ *
+ * Precedence for server/space/tree: an explicit plugin-pinned value (headless
+ * install) > the session project's `.me/config.yaml` (`project`) > the caller's
+ * fallback creds. The project `.me` `tree` is the full project tree, so when it
+ * supplies the tree we set `projectTree` (no-slug layout); a plugin-pinned
+ * `tree_root` overrides back to `<treeRoot>.<slug>`. Returns null when no bearer
+ * or no space is available.
  */
 export function resolveHookConfigFromEnv(
   env: NodeJS.ProcessEnv = process.env,
   creds: HookFallbackCreds = {},
+  project: HookProjectConfig = {},
 ): HookConfig | null {
   const pluginKey = blank(env.CLAUDE_PLUGIN_OPTION_API_KEY)
     ? undefined
@@ -91,23 +114,27 @@ export function resolveHookConfigFromEnv(
   const apiKey = pluginKey ?? creds.apiKey;
   if (!apiKey && !creds.loggedIn) return null;
 
-  // Space: plugin config, else the active space. Required either way.
+  // Space: plugin config > project `.me` > the active space. Required either way.
   const space = blank(env.CLAUDE_PLUGIN_OPTION_SPACE)
-    ? creds.activeSpace
+    ? (project.space ?? creds.activeSpace)
     : env.CLAUDE_PLUGIN_OPTION_SPACE;
   if (!space) return null;
 
   const server = blank(env.CLAUDE_PLUGIN_OPTION_SERVER)
-    ? (creds.server ?? DEFAULT_SERVER)
+    ? (project.server ?? creds.server ?? DEFAULT_SERVER)
     : (env.CLAUDE_PLUGIN_OPTION_SERVER as string);
 
-  const treeRoot = blank(env.CLAUDE_PLUGIN_OPTION_TREE_ROOT)
-    ? DEFAULT_TREE_ROOT
+  // A plugin-pinned tree_root (parent+slug) wins; otherwise the project `.me`
+  // tree is the full project node (no slug), else the default parent+slug.
+  const pinnedTreeRoot = blank(env.CLAUDE_PLUGIN_OPTION_TREE_ROOT)
+    ? undefined
     : (env.CLAUDE_PLUGIN_OPTION_TREE_ROOT as string);
+  const treeRoot = pinnedTreeRoot ?? DEFAULT_TREE_ROOT;
+  const projectTree = pinnedTreeRoot ? undefined : project.tree;
 
   const fullTranscript =
     (env.CLAUDE_PLUGIN_OPTION_CONTENT_MODE ?? "").toLowerCase() ===
     "full_transcript";
 
-  return { server, apiKey, space, treeRoot, fullTranscript };
+  return { server, apiKey, space, treeRoot, projectTree, fullTranscript };
 }

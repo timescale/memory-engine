@@ -102,4 +102,46 @@ describe("resolveHookConfigFromEnv", () => {
     );
     expect(cfg?.apiKey).toBe("me.lookupid12345678.secret");
   });
+
+  test("a .me project tree sets projectTree (no-slug), keeping the default parent", () => {
+    const cfg = resolveHookConfigFromEnv(
+      {},
+      { loggedIn: true, activeSpace: "act123def456" },
+      { tree: "share.projects.foo" },
+    );
+    expect(cfg?.projectTree).toBe("share.projects.foo");
+    expect(cfg?.treeRoot).toBe("share.projects");
+  });
+
+  test("a plugin-pinned tree_root overrides the .me projectTree", () => {
+    const cfg = resolveHookConfigFromEnv(
+      {
+        CLAUDE_PLUGIN_OPTION_SPACE: "eng123def456",
+        CLAUDE_PLUGIN_OPTION_TREE_ROOT: "share.work",
+      },
+      { loggedIn: true },
+      { tree: "share.projects.foo" },
+    );
+    expect(cfg?.treeRoot).toBe("share.work");
+    expect(cfg?.projectTree).toBeUndefined();
+  });
+
+  test("a .me project server/space fill in when plugin + session lack them", () => {
+    const cfg = resolveHookConfigFromEnv(
+      {},
+      { loggedIn: true },
+      { server: "https://project.example", space: "proj123space6" },
+    );
+    expect(cfg?.server).toBe("https://project.example");
+    expect(cfg?.space).toBe("proj123space6");
+  });
+
+  test("a plugin-pinned space wins over the .me project space", () => {
+    const cfg = resolveHookConfigFromEnv(
+      { CLAUDE_PLUGIN_OPTION_SPACE: "plugin12space" },
+      { loggedIn: true },
+      { space: "proj123space6" },
+    );
+    expect(cfg?.space).toBe("plugin12space");
+  });
 });

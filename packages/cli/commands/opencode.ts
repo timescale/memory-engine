@@ -237,10 +237,20 @@ function createOpenCodeHookCommand(): Command {
         }
 
         const globalOpts = cmd.optsWithGlobals();
-        const config = resolveHookConfig(
-          resolveCredentials(globalOpts.server),
-          { treeRoot: opts.treeRoot, fullTranscript: opts.fullTranscript },
-        );
+        // A broken `.me` is fatal for direct CLI use, but the hook is
+        // best-effort: log + exit 0 so a typo never blocks capture.
+        let config: ReturnType<typeof resolveHookConfig>;
+        try {
+          config = resolveHookConfig(resolveCredentials(globalOpts.server), {
+            treeRoot: opts.treeRoot,
+            fullTranscript: opts.fullTranscript,
+          });
+        } catch (error) {
+          console.error(
+            `[memory-engine] ${eventName}: ${error instanceof Error ? error.message : String(error)}`,
+          );
+          process.exit(0);
+        }
         if (!config) {
           console.error(
             "[memory-engine] no credentials. Run `me login`, or set ME_API_KEY + ME_SPACE.",
@@ -270,6 +280,7 @@ function createOpenCodeHookCommand(): Command {
           });
           await importTranscriptFile(client, opencodeImporter, sessionFile, {
             treeRoot: config.treeRoot,
+            projectTree: config.projectTree,
             sessionsNodeName: SESSIONS_NODE,
             fullTranscript: config.fullTranscript,
             dryRun: false,

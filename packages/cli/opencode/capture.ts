@@ -49,6 +49,12 @@ export interface HookConfig {
   space: string;
   /** Tree root; captures nest as `<treeRoot>.<project>.agent_sessions`. */
   treeRoot: string;
+  /**
+   * The full project tree from a `.me/config.yaml` in scope, if any. When set,
+   * captures nest directly under it (no slug); an explicit `--tree-root` flag
+   * overrides it back to `<treeRoot>.<slug>`.
+   */
+  projectTree?: string;
   /** content_mode=full_transcript → also store reasoning + tool calls/results. */
   fullTranscript: boolean;
 }
@@ -56,7 +62,7 @@ export interface HookConfig {
 /** The slice of resolved credentials the hook needs. */
 export type HookCreds = Pick<
   ResolvedCredentials,
-  "server" | "apiKey" | "activeSpace" | "loggedIn"
+  "server" | "apiKey" | "activeSpace" | "loggedIn" | "projectTree"
 >;
 
 /** Optional knobs the plugin/command passes through (default: shared layout). */
@@ -89,10 +95,21 @@ export function resolveHookConfig(
   if (!space) return null;
 
   const server = creds.server || DEFAULT_SERVER;
-  const treeRoot = blank(input.treeRoot)
-    ? DEFAULT_TREE_ROOT
+  // An explicit `--tree-root` flag (parent+slug) wins; otherwise a `.me` project
+  // tree is the full project node (no slug), else the default parent+slug.
+  const pinnedTreeRoot = blank(input.treeRoot)
+    ? undefined
     : (input.treeRoot as string);
+  const treeRoot = pinnedTreeRoot ?? DEFAULT_TREE_ROOT;
+  const projectTree = pinnedTreeRoot ? undefined : creds.projectTree;
   const fullTranscript = input.fullTranscript ?? false;
 
-  return { server, apiKey: creds.apiKey, space, treeRoot, fullTranscript };
+  return {
+    server,
+    apiKey: creds.apiKey,
+    space,
+    treeRoot,
+    projectTree,
+    fullTranscript,
+  };
 }

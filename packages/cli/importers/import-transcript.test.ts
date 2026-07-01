@@ -168,6 +168,40 @@ describe("importTranscriptFile", () => {
     expect(store.size).toBe(3);
   });
 
+  test("projectTree nests sessions directly under it (no slug appended)", async () => {
+    const { client, store } = mockEngine();
+    await importTranscriptFile(
+      client,
+      importerFor(session(["a"])),
+      "/x.jsonl",
+      {
+        ...WRITE,
+        projectTree: "share.myteam.backend",
+      },
+    );
+    const [row] = [...store.values()];
+    // `<projectTree>.agent_sessions.<label>` — no per-project slug segment.
+    expect(row?.tree.startsWith("share.myteam.backend.agent_sessions.")).toBe(
+      true,
+    );
+  });
+
+  test("without projectTree, sessions nest under <treeRoot>.<slug>", async () => {
+    const { client, store } = mockEngine();
+    await importTranscriptFile(
+      client,
+      importerFor(session(["a"])),
+      "/x.jsonl",
+      WRITE,
+    );
+    const [row] = [...store.values()];
+    const segs = row?.tree.split(".") ?? [];
+    // share . projects . <slug> . agent_sessions . <label>
+    expect(segs[0]).toBe("share");
+    expect(segs[1]).toBe("projects");
+    expect(segs[3]).toBe("agent_sessions");
+  });
+
   test("re-importing the same transcript is a no-op (watermark fast path)", async () => {
     const { client, store } = mockEngine();
     const imp = () =>

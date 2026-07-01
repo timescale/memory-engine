@@ -39,6 +39,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { parse, stringify } from "yaml";
 import { keychainDelete, keychainGet, keychainSet } from "./keychain.ts";
+import { getProjectConfig } from "./project-config.ts";
 
 // =============================================================================
 // Constants & types
@@ -95,8 +96,14 @@ export interface ResolvedCredentials {
   loggedIn: boolean;
   /** Agent api key — ME_API_KEY only; never persisted. */
   apiKey?: string;
-  /** Active space slug (the X-Me-Space) — ME_SPACE env > stored active_space. */
+  /** Active space slug (the X-Me-Space) — ME_SPACE > `.me` space > stored active_space. */
   activeSpace?: string;
+  /**
+   * The full project-tree root from a `.me/config.yaml` in scope, if any — used
+   * by integrations (capture hooks, git import) as the project root, nesting
+   * under it without appending a slug. Undefined when there is no `.me`.
+   */
+  projectTree?: string;
 }
 
 // =============================================================================
@@ -372,7 +379,7 @@ export function clearActiveSpace(server: string): void {
 
 /**
  * Resolve the active space slug for a server.
- * Priority: --space flag > ME_SPACE env > stored active_space.
+ * Priority: --space flag > ME_SPACE env > `.me` space > stored active_space.
  */
 export function resolveSpace(
   server: string,
@@ -380,6 +387,8 @@ export function resolveSpace(
 ): string | undefined {
   if (flagValue) return flagValue;
   if (process.env.ME_SPACE) return process.env.ME_SPACE;
+  const projectSpace = getProjectConfig()?.space;
+  if (projectSpace) return projectSpace;
   return getServerConfig(server).active_space;
 }
 
@@ -389,11 +398,13 @@ export function resolveSpace(
 
 /**
  * Resolve the active server URL.
- * Priority: --server flag > ME_SERVER env > default_server (config) > DEFAULT_SERVER
+ * Priority: --server flag > ME_SERVER env > `.me` server > default_server (config) > DEFAULT_SERVER
  */
 export function resolveServer(flagValue?: string): string {
   if (flagValue) return normalizeOrigin(flagValue);
   if (process.env.ME_SERVER) return normalizeOrigin(process.env.ME_SERVER);
+  const projectServer = getProjectConfig()?.server;
+  if (projectServer) return normalizeOrigin(projectServer);
   return readConfig().default_server;
 }
 
@@ -407,11 +418,13 @@ export function resolveServer(flagValue?: string): string {
 export function resolveCredentials(serverFlag?: string): ResolvedCredentials {
   const server = resolveServer(serverFlag);
   const config = getServerConfig(server);
+  const project = getProjectConfig();
 
   return {
     server,
     loggedIn: Boolean(process.env.ME_SESSION_TOKEN) || hasStoredTokens(server),
     apiKey: process.env.ME_API_KEY,
-    activeSpace: process.env.ME_SPACE ?? config.active_space,
+    activeSpace: process.env.ME_SPACE ?? project?.space ?? config.active_space,
+    projectTree: project?.tree,
   };
 }
