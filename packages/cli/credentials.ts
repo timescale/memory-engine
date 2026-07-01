@@ -520,7 +520,7 @@ export function resolveServer(flagValue?: string): string {
  * written alongside it).
  */
 export function getDefaultServer(): string {
-  return readConfig().default_server;
+  return normalizeOrigin(readConfig().default_server);
 }
 
 /**
