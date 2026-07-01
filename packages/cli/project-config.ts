@@ -27,9 +27,9 @@
  * This module is intentionally free of any dependency on `credentials.ts` so the
  * latter can import it without a cycle.
  */
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
-import { parse } from "yaml";
+import { parse, parseDocument } from "yaml";
 import { z } from "zod";
 
 /** The per-project config directory and its files. */
@@ -157,6 +157,47 @@ export function discoverProjectConfig(
   );
   if (!committed && !local) return undefined;
   return { ...committed, ...local, dir };
+}
+
+/**
+ * Update the project's pinned space **in the `.me` file that currently defines
+ * `space`** — the effective scope, like `git config` editing the config level a
+ * value comes from. Checks `.me/config.local.yaml` first (it overrides the
+ * committed file per field, so writing the committed one would be shadowed),
+ * then the committed `.me/config.yaml`. When **neither** file defines `space`,
+ * returns undefined without touching anything — the global per-server
+ * `active_space` governs there, and the caller should update it instead.
+ *
+ * Pass `server` to rewrite the pin's server alongside the space (used when the
+ * effective server differs from what the project would resolve on its own, so
+ * the pin stays self-consistent).
+ *
+ * The edit goes through yaml's document API, so comments and formatting in a
+ * committed config survive. Invalidates the process-wide memo so subsequent
+ * resolution in the same process sees the write. Returns the path written.
+ */
+export function writeProjectSpace(
+  project: ProjectConfig,
+  opts: { space: string; server?: string },
+): string | undefined {
+  const localPath = join(project.dir, CONFIG_DIRNAME, LOCAL_CONFIG_FILENAME);
+  const committedPath = join(project.dir, CONFIG_DIRNAME, CONFIG_FILENAME);
+  // readConfigFile re-validates; a malformed file throws ProjectConfigError
+  // here just as it does on read.
+  const target =
+    readConfigFile(localPath)?.space !== undefined
+      ? localPath
+      : readConfigFile(committedPath)?.space !== undefined
+        ? committedPath
+        : undefined;
+  if (!target) return undefined;
+
+  const doc = parseDocument(readFileSync(target, "utf-8"));
+  doc.set("space", opts.space);
+  if (opts.server !== undefined) doc.set("server", opts.server);
+  writeFileSync(target, doc.toString());
+  cached = undefined; // re-resolve on next getProjectConfig()
+  return target;
 }
 
 // =============================================================================

@@ -23,6 +23,8 @@ import type { MemberSpaceResponse } from "@memory.build/protocol/user";
 import { Command } from "commander";
 import {
   clearActiveSpace,
+  getDefaultServer,
+  normalizeOrigin,
   resolveCredentials,
   setActiveSpace,
 } from "../credentials.ts";
@@ -32,6 +34,7 @@ import {
   output,
   table,
 } from "../output.ts";
+import { getProjectConfig, writeProjectSpace } from "../project-config.ts";
 import {
   buildMemoryClient,
   buildUserClient,
@@ -164,10 +167,40 @@ function createSpaceUseCommand(): Command {
       try {
         const { spaces } = await user.space.list();
         const space = await resolveSpaceArg(spaces, arg, fmt);
-        setActiveSpace(creds.server, space.slug);
-        output({ space, switched: true }, fmt, () => {
-          clack.log.success(`Active space: ${space.name} (${space.slug})`);
-        });
+
+        // Effective-scope write (like `git config`): when a `.me` file in
+        // scope defines `space`, that pin shadows the global active_space —
+        // edit it instead. Otherwise the global config governs; write there.
+        let configPath: string | undefined;
+        const project = getProjectConfig();
+        if (project) {
+          // Keep the pin self-consistent: if the effective server differs from
+          // what the project resolves on its own (a --server/ME_SERVER
+          // override, or a stale `.me` server pin), write `server:` alongside.
+          const projectServer = normalizeOrigin(
+            project.server ?? getDefaultServer(),
+          );
+          configPath = writeProjectSpace(project, {
+            space: space.slug,
+            server: projectServer === creds.server ? undefined : creds.server,
+          });
+        }
+        if (!configPath) setActiveSpace(creds.server, space.slug);
+
+        output(
+          { space, switched: true, configPath: configPath ?? null },
+          fmt,
+          () => {
+            clack.log.success(
+              `Active space: ${space.name} (${space.slug}) — saved to ${configPath ?? "global config"}`,
+            );
+            if (process.env.ME_SPACE && process.env.ME_SPACE !== space.slug) {
+              clack.log.warn(
+                `ME_SPACE=${process.env.ME_SPACE} is set and overrides the saved active space.`,
+              );
+            }
+          },
+        );
       } catch (error) {
         handleError(error, fmt, { creds });
       }
@@ -276,7 +309,12 @@ function createSpaceDeleteCommand(): Command {
         output({ slug: space.slug, ...result }, fmt, () => {
           if (result.deleted) {
             clack.log.success(`Space '${space.name}' has been deleted.`);
-            if (creds.activeSpace === space.slug) {
+            const project = getProjectConfig();
+            if (project?.space === space.slug) {
+              clack.log.warn(
+                `This project's .me config (${project.dir}/.me) still pins the deleted space — run 'me space use <space>' here to repoint it.`,
+              );
+            } else if (creds.activeSpace === space.slug) {
               clack.log.info("Run 'me space use <space>' to pick another.");
             }
           }

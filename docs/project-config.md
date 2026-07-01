@@ -89,6 +89,18 @@ So an explicit `--server` / `--space` (or `ME_SERVER` / `ME_SPACE`) still wins f
 a one-off, and a project's `.me` beats your global default when you're working
 inside it.
 
+## Changing the pinned space (`me space use`)
+
+You don't have to hand-edit the file to repoint a project: `me space use <space>`
+writes to whichever config **currently defines** the effective space — the
+`git config` model of editing the effective scope. Inside a project whose `.me`
+defines `space`, it updates that pin (`.me/config.local.yaml` if it defines
+`space`, since it overrides the committed file; else the committed
+`.me/config.yaml` — comments are preserved). When no `.me` file defines `space`,
+the global `~/.config/me/config.yaml` is updated as usual — a tree-only `.me`
+keeps following your global active space. The command prints which file it
+saved to.
+
 ## The `tree` field (for integrations)
 
 `tree` is the **full project tree** — the exact node integrations write under, with

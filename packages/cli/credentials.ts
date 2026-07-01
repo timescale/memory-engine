@@ -514,6 +514,16 @@ export function resolveServer(flagValue?: string): string {
 }
 
 /**
+ * The global default server (config.yaml), ignoring flags, env, and any `.me`
+ * project config. Used to compute what a project would resolve to "on its own"
+ * (e.g. `me space use` deciding whether a `.me` space pin needs a server pin
+ * written alongside it).
+ */
+export function getDefaultServer(): string {
+  return readConfig().default_server;
+}
+
+/**
  * Resolve all credentials for the active server. A human is "logged in" when a
  * token set is stored (or ME_SESSION_TOKEN overrides) — the live access token
  * is resolved lazily (with refresh) by `session.ts`, not here. The active space
