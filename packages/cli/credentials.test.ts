@@ -40,6 +40,7 @@ const ENV_KEYS = [
   "XDG_CONFIG_HOME",
   "ME_NO_KEYCHAIN",
   "ME_CONFIG_DIR",
+  "ME_AS_AGENT",
 ];
 
 let configDir: string;
@@ -65,6 +66,8 @@ beforeEach(() => {
   process.env.ME_NO_KEYCHAIN = "1"; // force the file fallback
   for (const k of TOKEN_ENVS) delete process.env[k];
   delete process.env.ME_CONFIG_DIR;
+  delete process.env.ME_AS_AGENT;
+  creds.setAsAgentOverride(undefined);
   resetKeychainForTests();
 
   // Pin the `.me` resolver at an empty throwaway dir so discovery is
@@ -82,6 +85,7 @@ afterEach(() => {
     if (v === undefined) delete process.env[k];
     else process.env[k] = v;
   }
+  creds.setAsAgentOverride(undefined);
   resetKeychainForTests();
   resetProjectConfigCache();
   setConfigDirOverride(undefined);
@@ -187,6 +191,56 @@ test(".me space drives resolveSpace + resolveCredentials.activeSpace", () => {
 test(".me tree surfaces as resolveCredentials.projectTree", () => {
   writeMe("tree: ~/projects/foo\n");
   expect(creds.resolveCredentials().projectTree).toBe("~/projects/foo");
+});
+
+// =============================================================================
+// resolveAsAgent (X-Me-As-Agent)
+// =============================================================================
+
+test("resolveAsAgent: off by default (no flag / env)", () => {
+  expect(creds.resolveAsAgent()).toBeUndefined();
+  expect(creds.isAsAgentRequested()).toBe(false);
+});
+
+test("resolveAsAgent: explicit id/name passes through verbatim (env)", () => {
+  process.env.ME_AS_AGENT = "my-agent";
+  expect(creds.isAsAgentRequested()).toBe(true);
+  expect(creds.resolveAsAgent()).toBe("my-agent");
+});
+
+test("resolveAsAgent: the flag override wins over ME_AS_AGENT env", () => {
+  process.env.ME_AS_AGENT = "from-env";
+  creds.setAsAgentOverride("from-flag");
+  expect(creds.isAsAgentRequested()).toBe(true);
+  expect(creds.resolveAsAgent()).toBe("from-flag");
+});
+
+test("resolveAsAgent: the .me sentinel resolves to the project's agent id", () => {
+  writeMe("agent: 018f1138-7f07-7c48-8bd1-c9a6b1095978\n");
+  creds.setAsAgentOverride(".me");
+  expect(creds.resolveAsAgent()).toBe("018f1138-7f07-7c48-8bd1-c9a6b1095978");
+});
+
+test("resolveAsAgent: the .me sentinel with no project agent throws", () => {
+  writeMe("space: sp_no_agent\n");
+  creds.setAsAgentOverride(".me");
+  expect(creds.isAsAgentRequested()).toBe(true);
+  expect(() => creds.resolveAsAgent()).toThrow(/\.me\/config\.yaml/);
+});
+
+test("resolveAsAgent: a .me agent alone does NOT activate the mode (explicit only)", () => {
+  writeMe("agent: 018f1138-7f07-7c48-8bd1-c9a6b1095978\n");
+  // No flag, no env → mode stays off even though `.me` has an agent.
+  expect(creds.isAsAgentRequested()).toBe(false);
+  expect(creds.resolveAsAgent()).toBeUndefined();
+  expect(creds.resolveCredentials().asAgent).toBeUndefined();
+});
+
+test("resolveAsAgent: env .me sentinel also resolves via the project agent", () => {
+  writeMe("agent: my-project-agent\n");
+  process.env.ME_AS_AGENT = ".me";
+  expect(creds.resolveAsAgent()).toBe("my-project-agent");
+  expect(creds.resolveCredentials().asAgent).toBe("my-project-agent");
 });
 
 test("store + read an OAuth token set (file fallback)", () => {

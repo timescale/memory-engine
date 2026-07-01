@@ -163,6 +163,7 @@ describe.skipIf(
       "ME_SERVER",
       "ME_SPACE",
       "ME_SESSION_TOKEN",
+      "ME_AS_AGENT",
     ]) {
       delete env[k];
     }
@@ -716,6 +717,103 @@ describe.skipIf(
     // a session gate, so the server's FORBIDDEN surfaces instead (non-zero exit).
     const denied = await me(["agent", "list"], agentEnv);
     expect(denied.code).not.toBe(0);
+  });
+
+  test("7a1. act-as-agent (X-Me-As-Agent): a human session runs as one of its agents, constrained", async () => {
+    // Set up an owned agent that is a space member with read on `share`.
+    const agent = await meJson<{ id: string }>([
+      "agent",
+      "create",
+      `asbot-${rand()}`,
+    ]);
+    await me(["agent", "add", agent.id]);
+    await meJson(["access", "grant", agent.id, "share", "r"]);
+
+    // Something to find under `share` (created by the human, before switching).
+    const needle = `asagent${rand()}`;
+    await meJson(["create", `act-as probe ${needle}`, "--tree", "share"]);
+
+    // Agent mode: the SESSION token (no api key) + ME_AS_AGENT selects the agent
+    // on both endpoints. whoami reports the AGENT identity (kind "a", null email).
+    const asAgentEnv = { ME_AS_AGENT: agent.id };
+    const who = await meJson<{
+      identity: { id: string; kind: string; email: string | null };
+    }>(["whoami"], asAgentEnv);
+    expect(who.identity.id).toBe(agent.id);
+    expect(who.identity.kind).toBe("a");
+    expect(who.identity.email).toBeNull();
+
+    // space.list works in agent mode (an agent-allowed read) and shows the space.
+    const spaces = await meJson<{ spaces: { slug: string }[] }>(
+      ["space", "list"],
+      asAgentEnv,
+    );
+    expect(spaces.spaces.some((s) => s.slug === spaceSlug)).toBe(true);
+
+    // A memory op is constrained to the agent's access — read@share lets it find
+    // the probe, but not write a new memory there. The same write succeeds as
+    // the human, proving this would fail if X-Me-As-Agent were not forwarded.
+    const res = await meJson<{ total: number }>(
+      ["search", "--fulltext", needle],
+      asAgentEnv,
+    );
+    expect(res.total).toBeGreaterThan(0);
+    const deniedWrite = await me(
+      ["create", `agent write denied ${rand()}`, "--tree", "share", "--json"],
+      asAgentEnv,
+    );
+    expect(deniedWrite.code).not.toBe(0);
+    await meJson([
+      "create",
+      `human write allowed ${rand()}`,
+      "--tree",
+      "share",
+    ]);
+
+    // Management ops fail server-side in agent mode (FORBIDDEN → non-zero exit).
+    const deniedAgentList = await me(["agent", "list"], asAgentEnv);
+    expect(deniedAgentList.code).not.toBe(0);
+    const deniedKeyCreate = await me(["apikey", "create"], asAgentEnv);
+    expect(deniedKeyCreate.code).not.toBe(0);
+
+    // Local user-session management is the explicit client-side exception:
+    // login/logout refuse act-as mode rather than managing the human's session
+    // from an agent-marked shell.
+    const deniedLogin = await me(["login", "--json"], asAgentEnv);
+    expect(deniedLogin.code).not.toBe(0);
+    expect(JSON.parse(deniedLogin.stdout)).toMatchObject({
+      code: "ACT_AS_AGENT_UNSUPPORTED",
+    });
+    const deniedLogout = await me(["logout", "--json"], asAgentEnv);
+    expect(deniedLogout.code).not.toBe(0);
+    expect(JSON.parse(deniedLogout.stdout)).toMatchObject({
+      code: "ACT_AS_AGENT_UNSUPPORTED",
+    });
+    // Refused logout must not clear the stored human session.
+    const stillLoggedIn = await meJson<{ identity: { kind: string } }>([
+      "whoami",
+    ]);
+    expect(stillLoggedIn.identity.kind).toBe("u");
+
+    // The --as-agent global flag is required-value, so it does NOT eat the
+    // `search` subcommand nor its query.
+    const viaFlag = await meJson<{ total: number }>([
+      "--as-agent",
+      agent.id,
+      "search",
+      "--fulltext",
+      needle,
+    ]);
+    expect(viaFlag.total).toBeGreaterThan(0);
+
+    // apikey create --agent still works when NOT in agent mode (no flag clash).
+    const key = await meJson<{ key: string }>([
+      "apikey",
+      "create",
+      "--agent",
+      agent.id,
+    ]);
+    expect(key.key).toMatch(/^me\./);
   });
 
   test("7a2. groups resolve by name: grant by group name + groups are not nestable (TNT-160)", async () => {

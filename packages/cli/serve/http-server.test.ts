@@ -5,7 +5,7 @@
  * upstream — no network access required.
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { SPACE_HEADER } from "@memory.build/protocol/headers";
+import { AS_AGENT_HEADER, SPACE_HEADER } from "@memory.build/protocol/headers";
 import {
   findAvailablePort,
   MEMORY_RPC_PATH,
@@ -80,6 +80,7 @@ describe("startHttpServer", () => {
         onUnauthorized: async () => undefined,
       },
       space: "abc123def456",
+      asAgent: "serve-agent",
       host: "127.0.0.1",
       port: servePort,
     });
@@ -147,6 +148,9 @@ describe("startHttpServer", () => {
     expect(mock.lastRequest?.headers.authorization).toBe(
       "Bearer sess-test-token",
     );
+    expect(mock.lastRequest?.headers[AS_AGENT_HEADER.toLowerCase()]).toBe(
+      "serve-agent",
+    );
     expect(mock.lastRequest?.headers[SPACE_HEADER.toLowerCase()]).toBe(
       "abc123def456",
     );
@@ -181,6 +185,9 @@ describe("startHttpServer", () => {
     expect(mock.lastRequest?.path).toBe(USER_RPC_PATH);
     expect(mock.lastRequest?.headers.authorization).toBe(
       "Bearer sess-test-token",
+    );
+    expect(mock.lastRequest?.headers[AS_AGENT_HEADER.toLowerCase()]).toBe(
+      "serve-agent",
     );
     // User RPC is space-agnostic — no X-Me-Space should be forwarded.
     expect(

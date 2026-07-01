@@ -24,7 +24,7 @@ import {
   type TreeAccess,
 } from "@memory.build/engine/core";
 import { type SpaceStore, spaceStore } from "@memory.build/engine/space";
-import { SPACE_HEADER } from "@memory.build/protocol/headers";
+import { AS_AGENT_HEADER, SPACE_HEADER } from "@memory.build/protocol/headers";
 import { debug, span } from "@pydantic/logfire-node";
 import type { Sql } from "postgres";
 import type { Auth, VerifyOAuthAccessToken } from "../auth/betterauth";
@@ -58,6 +58,13 @@ export interface SpaceAuthContext {
   treeAccess: TreeAccess;
   /** Whether the principal is a space admin (principal_space.admin). */
   admin: boolean;
+  /**
+   * When a human is acting as one of their own agents (via `X-Me-As-Agent`),
+   * the human's principal id; null otherwise. Observability only — never gates
+   * authorization (which reads `principalId` / `ownerId` / `treeAccess` /
+   * `admin`, all already switched to the agent).
+   */
+  authenticatedAs: string | null;
 }
 
 export type SpaceAuthResult =
@@ -188,8 +195,46 @@ async function authenticateSpaceInner(
     apiKeyId = null;
   }
 
+  // 4b. Act-as-agent switch. A human credential (session / OAuth / user PAT,
+  // signalled by a null owner) may send `X-Me-As-Agent` to run as one of their
+  // own agents. An agent key already IS an agent (non-null owner) → the header
+  // is ignored. Done BEFORE the access gate (step 5) and the admin check (step
+  // 6) so `treeAccess`, `~`-home nesting, and `admin` all reflect the agent.
+  let authenticatedAs: string | null = null;
+  const asAgent = request.headers.get(AS_AGENT_HEADER);
+  if (asAgent && ownerId === null) {
+    const agents = await core.listAgents(principalId);
+    const wanted = asAgent.toLowerCase();
+    // Match id first, then case-insensitive name (mirrors util.ts:resolveAgentId).
+    const agent =
+      agents.find((a) => a.id === asAgent) ??
+      agents.find((a) => a.name.toLowerCase() === wanted);
+    if (!agent) {
+      debug("space auth failed: X-Me-As-Agent not an owned agent", {
+        principalId,
+        asAgent,
+      });
+      return {
+        ok: false,
+        error: error(
+          `X-Me-As-Agent '${asAgent}' is not an agent you own`,
+          403,
+          "INVALID_AGENT",
+        ),
+      };
+    }
+    // Overwrite the resolved principal to the agent, reusing the existing agent
+    // semantics so parity with the agent-key path is automatic. The human owns
+    // the agent, so `ownerId = human` drives `~` home nesting the same way.
+    authenticatedAs = principalId;
+    ownerId = principalId;
+    principalId = agent.id;
+  }
+
   // 5. The single membership / authorization gate. An empty set means the
   // principal has no grants in this space (incl. a wrong-space api key) — deny.
+  // `buildTreeAccess(agentId, spaceId)` applies the `agent_tree_access` clamp
+  // internally, so an act-as request gets byte-identical access to the key path.
   const treeAccess = await core.buildTreeAccess(principalId, space.id);
   if (treeAccess.length === 0) {
     debug("space auth failed: no access in space", { slug, principalId });
@@ -218,6 +263,7 @@ async function authenticateSpaceInner(
       apiKeyId,
       treeAccess,
       admin,
+      authenticatedAs,
     },
   };
 }

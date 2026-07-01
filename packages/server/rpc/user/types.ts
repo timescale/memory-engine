@@ -41,6 +41,12 @@ export interface UserRpcContext extends HandlerContext {
    * apiKey.create/delete reject a key-authenticated caller.
    */
   viaApiKey: boolean;
+  /**
+   * When a human is acting as one of their own agents (via `X-Me-As-Agent`),
+   * the human's principal id; null otherwise. Observability only — authorization
+   * reads the (already switched) `kind` / `userId`.
+   */
+  authenticatedAs: string | null;
 }
 
 export function isUserRpcContext(ctx: HandlerContext): ctx is UserRpcContext {
@@ -76,7 +82,7 @@ export function requireUserCaller(ctx: UserRpcContext): void {
   if (ctx.kind !== "u") {
     throw new AppError(
       "FORBIDDEN",
-      "This action is user-only; an agent API key can't manage the account.",
+      "This action is user-only; an agent can't manage the account.",
     );
   }
 }

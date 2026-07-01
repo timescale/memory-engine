@@ -87,6 +87,89 @@ test("memory client setSpace updates the X-Me-Space header", async () => {
   expect(captured.headers["X-Me-Space"]).toBe("bbbbbbbbbbbb");
 });
 
+test("memory client sends X-Me-As-Agent when asAgent is set", async () => {
+  const captured = captureFetch();
+  const client = createMemoryClient({
+    url: "https://api.example.com",
+    token: "sess-tok",
+    space: "abc123def456",
+    asAgent: "my-agent",
+    retries: 0,
+  });
+
+  await client.memory.tree();
+
+  expect(captured.headers["X-Me-As-Agent"]).toBe("my-agent");
+  expect(captured.headers["X-Me-Space"]).toBe("abc123def456");
+});
+
+test("memory client omits X-Me-As-Agent when asAgent is unset", async () => {
+  const captured = captureFetch();
+  const client = createMemoryClient({
+    url: "https://api.example.com",
+    token: "sess-tok",
+    space: "abc123def456",
+    retries: 0,
+  });
+
+  await client.memory.tree();
+
+  expect(captured.headers["X-Me-As-Agent"]).toBeUndefined();
+});
+
+test("memory client setAsAgent sets then clears the X-Me-As-Agent header", async () => {
+  const captured = captureFetch();
+  const client = createMemoryClient({
+    url: "https://api.example.com",
+    token: "t",
+    space: "aaaaaaaaaaaa",
+    retries: 0,
+  });
+
+  client.setAsAgent("agent-x");
+  await client.memory.tree();
+  expect(captured.headers["X-Me-As-Agent"]).toBe("agent-x");
+  // Space is preserved through the header merge.
+  expect(captured.headers["X-Me-Space"]).toBe("aaaaaaaaaaaa");
+
+  client.setAsAgent("");
+  captured.headers = {};
+  await client.memory.tree();
+  expect(captured.headers["X-Me-As-Agent"]).toBeUndefined();
+});
+
+test("user client sends X-Me-As-Agent when asAgent is set (headers initialized from unset)", async () => {
+  const captured = captureFetch();
+  const client = createUserClient({
+    url: "https://api.example.com",
+    token: "sess-tok",
+    asAgent: "my-agent",
+    retries: 0,
+  });
+
+  await client.whoami();
+
+  expect(captured.headers["X-Me-As-Agent"]).toBe("my-agent");
+});
+
+test("user client setAsAgent initializes headers when previously unset, then clears", async () => {
+  const captured = captureFetch();
+  const client = createUserClient({
+    url: "https://api.example.com",
+    token: "sess-tok",
+    retries: 0,
+  });
+
+  client.setAsAgent("agent-x");
+  await client.whoami();
+  expect(captured.headers["X-Me-As-Agent"]).toBe("agent-x");
+
+  client.setAsAgent("");
+  captured.headers = {};
+  await client.whoami();
+  expect(captured.headers["X-Me-As-Agent"]).toBeUndefined();
+});
+
 test("user client targets the user endpoint with no X-Me-Space", async () => {
   const captured = captureFetch();
   const client = createUserClient({

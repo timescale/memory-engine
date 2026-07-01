@@ -515,6 +515,7 @@ function createClaudeHookCommand(): Command {
           url: config.server,
           ...memoryBearer(config.server, config.apiKey),
           space: config.space,
+          asAgent: config.asAgent,
         });
         await importTranscriptFile(client, claudeImporter, transcriptPath, {
           treeRoot: config.treeRoot,

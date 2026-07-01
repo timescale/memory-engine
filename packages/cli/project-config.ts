@@ -66,8 +66,11 @@ const projectConfigSchema = z
      */
     tree: z.string().min(1).regex(TREE_PATH_RE).optional(),
     /**
-     * An agent to act as. Parsed for forward-compatibility but NOT yet wired to
-     * any behavior — "act as an agent" (`--agent` / `ME_AGENT`) is a follow-up.
+     * The project's default agent to act as. Wired as the *value source* for the
+     * `.me` sentinel: `--as-agent .me` / `ME_AS_AGENT=.me` resolves to this id
+     * and is sent as `X-Me-As-Agent`. It never activates agent mode on its own —
+     * a bare `.me` `agent` present in the tree does not put `me` in agent mode
+     * (activation is always explicit via the flag/env).
      */
     agent: z.string().min(1).optional(),
   })

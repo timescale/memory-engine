@@ -168,6 +168,7 @@ export function createRouter(ctx: ServerContext): Router {
       apiKeyId: spaceContext.apiKeyId,
       treeAccess: spaceContext.treeAccess,
       admin: spaceContext.admin,
+      authenticatedAs: spaceContext.authenticatedAs,
       embeddingConfig,
     };
   });
@@ -186,8 +187,15 @@ export function createRouter(ctx: ServerContext): Router {
     if (!result.ok) {
       return result.error;
     }
-    const { kind, userId, email, name, emailVerified, viaApiKey } =
-      result.context;
+    const {
+      kind,
+      userId,
+      email,
+      name,
+      emailVerified,
+      viaApiKey,
+      authenticatedAs,
+    } = result.context;
     // Lazy first-login provisioning: stand up the core principal the first time
     // a better-auth user reaches the user RPC (idempotent no-op thereafter). The
     // CLI hits whoami/space.list right after login, so this is the natural first
@@ -216,6 +224,7 @@ export function createRouter(ctx: ServerContext): Router {
       db,
       coreSchema,
       viaApiKey,
+      authenticatedAs,
     };
   });
 

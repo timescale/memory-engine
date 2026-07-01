@@ -11,13 +11,43 @@ import { homedir } from "node:os";
 import * as clack from "@clack/prompts";
 import type { MemoryClient, UserClient } from "./client.ts";
 import { createMemoryClient, createUserClient, RpcError } from "./client.ts";
-import { clearTokens, type ResolvedCredentials } from "./credentials.ts";
+import {
+  clearTokens,
+  isAsAgentRequested,
+  type ResolvedCredentials,
+} from "./credentials.ts";
 import type { OutputFormat } from "./output.ts";
 import { output } from "./output.ts";
 import { memoryBearer, userBearer } from "./session.ts";
 
 const UUIDV7_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+const ACT_AS_AGENT_UNSUPPORTED = "ACT_AS_AGENT_UNSUPPORTED";
+
+/**
+ * `login` / `logout` mutate the local human session store, so they are explicit
+ * exceptions to ambient act-as-agent mode. Refuse before opening a browser or
+ * clearing tokens; normal RPC commands should keep forwarding X-Me-As-Agent.
+ */
+export async function rejectActAsAgentForSessionCommand(
+  command: "login" | "logout",
+  fmt: OutputFormat,
+): Promise<void> {
+  if (!isAsAgentRequested()) return;
+
+  const message = `me ${command} manages your user session and cannot run in act-as-agent mode. Unset ME_AS_AGENT or omit --as-agent, then run me ${command} again.`;
+  if (fmt === "text") {
+    clack.log.error(message);
+  } else {
+    await output(
+      { error: message, code: ACT_AS_AGENT_UNSUPPORTED },
+      fmt,
+      () => {},
+    );
+  }
+  process.exit(1);
+}
 
 /**
  * Ensure a *real session* is present (a `me login` token, not an api key).
@@ -96,6 +126,7 @@ export function buildUserClient(creds: ResolvedCredentials): UserClient {
   return createUserClient({
     url: creds.server,
     ...userBearer(creds.server, creds.apiKey),
+    asAgent: creds.asAgent,
   });
 }
 
@@ -113,6 +144,7 @@ export function buildMemoryClient(
     url: creds.server,
     ...memoryBearer(creds.server, creds.apiKey),
     space: creds.activeSpace,
+    asAgent: creds.asAgent,
     // Bulk imports send 1000-memory batchCreate chunks that the server
     // processes row-by-row; on a loaded server (or one far from its
     // database) a chunk can legitimately exceed the client's 30s default.
@@ -299,6 +331,11 @@ function isUnauthorized(error: unknown): boolean {
   return isAppErrorCode(error, "UNAUTHORIZED");
 }
 
+/** Detect an authorization denial from the server (`FORBIDDEN`). */
+function isForbidden(error: unknown): boolean {
+  return isAppErrorCode(error, "FORBIDDEN");
+}
+
 /**
  * Which credential surface a command authenticates against — drives the
  * `UNAUTHORIZED` guidance:
@@ -361,6 +398,23 @@ export function describeAuthError(
 }
 
 /**
+ * Make account-management denials clearer when a human credential is explicitly
+ * acting as an agent. Space-scoped denials keep the server's precise access
+ * message because those may be fixed by granting the agent more access.
+ */
+export function describeForbiddenError(
+  error: unknown,
+  creds: ResolvedCredentials,
+  scope: AuthScope,
+): { message: string; code: string } | null {
+  if (!isForbidden(error) || scope !== "account" || !creds.asAgent) return null;
+  return {
+    message: `Acting as agent '${creds.asAgent}'; this operation requires your user account. Unset ME_AS_AGENT or omit --as-agent to run it as your user account.`,
+    code: "FORBIDDEN",
+  };
+}
+
+/**
  * Handle an error from an RPC call. Formats per output mode and exits.
  *
  * Pass `opts.creds` for commands that authenticate (every RPC command). On an
@@ -389,6 +443,16 @@ export function handleError(
       if (auth.clearSession) clearTokens(opts.creds.server);
       msg = auth.message;
       code = "UNAUTHORIZED";
+    } else {
+      const forbidden = describeForbiddenError(
+        error,
+        opts.creds,
+        opts.scope ?? "account",
+      );
+      if (forbidden) {
+        msg = forbidden.message;
+        code = forbidden.code;
+      }
     }
   }
 

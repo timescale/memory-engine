@@ -18,7 +18,7 @@
  * byte-for-byte and streams responses back, so any `memory.*` (and management)
  * RPC methods work without backend changes here.
  */
-import { SPACE_HEADER } from "@memory.build/protocol/headers";
+import { AS_AGENT_HEADER, SPACE_HEADER } from "@memory.build/protocol/headers";
 import type { BearerSource } from "../session.ts";
 import { resolveAssetResponse } from "./web-assets.ts";
 
@@ -34,6 +34,8 @@ export interface ServeOptions {
   bearer: BearerSource;
   /** Active space slug. Forwarded as X-Me-Space. */
   space: string;
+  /** Act-as-agent target. Forwarded as X-Me-As-Agent when set. */
+  asAgent?: string;
   /** Hostname to bind (defaults to 127.0.0.1). */
   host: string;
   /** Port to bind. Use `findAvailablePort` first if you want auto-discovery. */
@@ -166,6 +168,7 @@ async function proxyJsonRpc(
     if (contentType) outHeaders.set("Content-Type", contentType);
     if (token) outHeaders.set("Authorization", `Bearer ${token}`);
     if (space) outHeaders.set(SPACE_HEADER, space);
+    if (options.asAgent) outHeaders.set(AS_AGENT_HEADER, options.asAgent);
     outHeaders.set("Accept", "application/json");
     return fetch(targetUrl, { method: "POST", headers: outHeaders, body });
   };

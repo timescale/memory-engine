@@ -1201,6 +1201,11 @@ export interface McpServerOptions {
   bearer: BearerSource;
   /** Active space slug (sent as X-Me-Space). */
   space: string;
+  /**
+   * Act-as-agent target (sent as X-Me-As-Agent) — a human bearer is then
+   * authorized as that agent. Undefined when not in agent mode.
+   */
+  asAgent?: string;
 }
 
 /**
@@ -1212,6 +1217,7 @@ export async function runMcpServer(options: McpServerOptions): Promise<void> {
     getToken: options.bearer.getToken,
     onUnauthorized: options.bearer.onUnauthorized,
     space: options.space,
+    asAgent: options.asAgent,
   });
 
   const mcpServer = new McpServer(
