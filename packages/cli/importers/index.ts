@@ -147,15 +147,21 @@ export interface SessionOutcome {
 
 /** Options that affect writing sessions to the engine. */
 export interface WriteOptions {
-  /** Tree root (ltree-safe, no trailing dot). Default: projects. */
+  /**
+   * The PARENT tree for the multi-project consumers — the bulk `me import
+   * <tool>` sweep (walks many projects) and a global/headless plugin pin. The
+   * per-project slug is appended: `<treeRoot>.<slug>.<sessionsNodeName>`. It is
+   * NOT redundant with `projectTree` (below): this one nests many projects by
+   * slug; `projectTree` is a single project's full node. ltree-safe, no trailing
+   * dot; default `share.projects`.
+   */
   treeRoot: string;
   /**
-   * The full project-tree root (from a `.me/config.yaml`), when the caller is
-   * scoped to a single project. When set it is used verbatim as the project node
-   * and the per-project slug is NOT appended — sessions nest as
-   * `<projectTree>.<sessionsNodeName>.<label>` rather than
+   * A single project's full tree (e.g. from a `.me/config.yaml`). When set it is
+   * used verbatim as the project node and the per-project slug is NOT appended —
+   * sessions nest as `<projectTree>.<sessionsNodeName>.<label>` rather than
    * `<treeRoot>.<slug>.<sessionsNodeName>.<label>`. Lenient wire form (`~`/`/`
-   * accepted); normalized server-side.
+   * accepted); normalized server-side. Wins over `treeRoot` when present.
    */
   projectTree?: string;
   /** Per-project node name for imported agent sessions. */

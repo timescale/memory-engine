@@ -2,8 +2,11 @@
  * `me import git` — import a repo's commit history as memories.
  *
  * One memory per commit (message + capped changed-file list) under
- * `<tree-root>.<project_slug>.git_history`, named with the commit `<sha>` and
- * with the commit date as the memory's temporal. Idempotency is keyed on
+ * `<project-tree>.git_history` — the full project tree from `--project-tree` or
+ * the repo's `.me`, else `<DEFAULT_TREE_ROOT>.<project_slug>` — named with the
+ * commit `<sha>` and with the commit date as the memory's temporal. `me import
+ * git` is single-repo, so the tree is a full node (no slug appended here).
+ * Idempotency is keyed on
  * `(tree, sha)`, so re-runs become server-side skips; the id is a
  * timestamp-prefixed UUIDv7 (random tail) so commits sort by date on the id.
  *
@@ -60,8 +63,12 @@ export interface GitImportOptions {
   merges?: boolean;
   /** False (via --no-file-list) omits the changed-file list from content. */
   fileList?: boolean;
-  /** Tree root under which `<slug>.git_history` is placed. */
-  treeRoot?: string;
+  /**
+   * The full project tree to place `git_history` under (no slug appended). From
+   * `--project-tree`; when unset, runGitImport falls back to the repo's `.me`
+   * tree, else `<DEFAULT_TREE_ROOT>.<slug>`.
+   */
+  projectTree?: string;
   /** Report without writing. */
   dryRun?: boolean;
   /** Per-commit progress output. */
@@ -78,11 +85,11 @@ export function buildGitImportOptions(
   opts: Record<string, unknown>,
   repoArg?: string,
 ): GitImportOptions {
-  const treeRoot =
-    typeof opts.treeRoot === "string" ? opts.treeRoot : DEFAULT_TREE_ROOT;
-  if (!VALID_TREE_ROOT_RE.test(treeRoot)) {
+  const projectTree =
+    typeof opts.projectTree === "string" ? opts.projectTree : undefined;
+  if (projectTree !== undefined && !VALID_TREE_ROOT_RE.test(projectTree)) {
     throw new Error(
-      `Invalid --tree-root: '${treeRoot}'. Use ltree labels ([A-Za-z0-9_-]) separated by '.' or '/', with an optional leading '~' for your home.`,
+      `Invalid --project-tree: '${projectTree}'. Use ltree labels ([A-Za-z0-9_-]) separated by '.' or '/', with an optional leading '~' for your home.`,
     );
   }
   return {
@@ -94,7 +101,7 @@ export function buildGitImportOptions(
     full: opts.full === true,
     merges: opts.merges !== false,
     fileList: opts.fileList !== false,
-    treeRoot,
+    projectTree,
     dryRun: opts.dryRun === true,
     verbose: opts.verbose === true,
     skipIfNotRepo: opts.skipIfNotRepo === true,
@@ -178,16 +185,13 @@ export async function runGitImport(
     handleError(new Error(`${repoPath} is not a git repository`), fmt);
   }
 
-  // A `.me/config.yaml` in scope pins the full project tree (no slug); its git
-  // history nests directly under it. `creds.projectTree` already resolves it
-  // through the standard precedence (so it honors `--config-dir`). An explicit
-  // `--tree-root` still wins (falls back to `<treeRoot>.<slug>`), as does the
-  // default when there's no `.me`.
-  const explicitTreeRoot = typeof rawOpts.treeRoot === "string";
-  const projectTree = explicitTreeRoot ? undefined : creds.projectTree;
-  const tree = projectTree
-    ? `${projectTree}.${GIT_HISTORY_NODE_NAME}`
-    : `${opts.treeRoot}.${slug}.${GIT_HISTORY_NODE_NAME}`;
+  // The full project node git history nests under (no slug appended — git import
+  // is single-repo): an explicit `--project-tree`, else the repo's `.me` tree
+  // (`creds.projectTree`, resolved through the standard precedence so it honors
+  // `--config-dir`), else the default `<DEFAULT_TREE_ROOT>.<slug>`.
+  const projectTree =
+    opts.projectTree ?? creds.projectTree ?? `${DEFAULT_TREE_ROOT}.${slug}`;
+  const tree = `${projectTree}.${GIT_HISTORY_NODE_NAME}`;
   const rev = opts.branch ?? "HEAD";
   const engine = buildMemoryClient(creds);
 
@@ -354,8 +358,8 @@ export function createGitImportCommand(): Command {
     .option("--no-merges", "drop all merge commits")
     .option("--no-file-list", "omit the changed-file list from commit memories")
     .option(
-      "--tree-root <path>",
-      `tree root under which '<slug>.${GIT_HISTORY_NODE_NAME}' is placed (default: ${DEFAULT_TREE_ROOT})`,
+      "--project-tree <path>",
+      `full project tree to place '${GIT_HISTORY_NODE_NAME}' under, no slug appended (default: the repo's .me tree, else ${DEFAULT_TREE_ROOT}.<slug>)`,
     )
     .option(
       "--dry-run",

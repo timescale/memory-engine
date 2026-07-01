@@ -31,8 +31,9 @@ breaks an agent session.)
 ## Discovery
 
 `me` finds the config by walking **up** from the current directory to the first
-ancestor that contains a `.me/config.yaml` — so it works from any subdirectory of
-the project, just like `.git`.
+ancestor that contains a `.me/config.yaml` **or `.me/config.local.yaml`** — so it
+works from any subdirectory of the project, just like `.git`, and a machine-local
+project (only a `.local` file, no committed one) is discovered too.
 
 To point at a specific project without being inside it, pass **`--config-dir <dir>`**
 (the directory that contains `.me/`) or set **`ME_CONFIG_DIR`**. Either skips the
@@ -77,8 +78,10 @@ home — e.g. a team subtree (`/share/teams/backend`) or a private one
 (`~/projects/acme`, which resolves to your own home per user).
 
 A leading `~` (your home) and `/`-separated paths are accepted; the path is
-normalized server-side. An explicit `--tree-root` flag on an import still
-overrides the `.me` tree.
+normalized server-side. An explicit `me import git --project-tree <path>` still
+overrides the `.me` tree for that run. (The bulk `me import <tool>` sweep and the
+capture-plugin pins use `--tree-root` instead — a *parent* under which each
+project nests by slug — since they span many projects.)
 
 The Claude/OpenCode capture hooks resolve the `.me` for the **session's** project,
 so a single globally-installed plugin routes each project to its own tree.
