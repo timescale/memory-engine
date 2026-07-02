@@ -124,12 +124,17 @@ Runs an interactive wizard (see `CLAUDE_INIT_WIZARD.md`) and writes
 server: https://api.memory.build   # where memories go
 space: acme-eng                    # the X-Me-Space
 tree: /share/projects/my-repo      # public → shared; default is private ~/projects/<slug>
+capture: true                      # collect this project's agent sessions (default on)
 ```
 
 - **Space + server are required** — a committed project config must be
   self-contained, so `me project init` always writes both (defaulting to your
   current resolved space/server). The tree root defaults if unset; the agent is
   optional.
+- **Session capture** — a toggle (default on) writes a **`capture`** flag; the
+  already-installed plugin's hooks honor it, so a project can **opt out** of
+  collecting its agent sessions (e.g. a sensitive repo) while still getting the
+  tools + backfill. Absent = on, matching the global default.
 - **Visibility** — *public* nests the project tree root under the shared `share`
   (team-wide); *private* under your home `~` (the default).
 - **Agent** — if you scope access to an agent, its name is written to
@@ -170,9 +175,9 @@ Captures nest under a **project tree root**, resolved highest-first in
 2. the global default **`~/projects/<slug>`** — private, per-repo `<slug>` from
    the session `cwd`.
 
-So live capture is **always on**, but **private by default** and **shared only
-when a project opts in** — a change from today's default of the shared
-`share.projects.<slug>` (see *What changes*).
+So live capture is **on by default** (unless a project sets `capture: false`),
+but **private by default** and **shared only when a project opts in** — a change
+from today's default of the shared `share.projects.<slug>` (see *What changes*).
 
 > The manual backfill `me import claude` keeps its own default tree — an
 > explicit, user-invoked sweep can choose where it lands.

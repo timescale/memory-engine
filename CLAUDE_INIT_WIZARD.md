@@ -133,6 +133,7 @@ Setup steps to run (all selected by default — ↑/↓ move, space to toggle of
 
 Claude Code sessions
   ◉ Import this project's existing Claude Code sessions (one-time backfill)
+  ◉ Enable ongoing capture of new Claude Code sessions for this project
 Git history
   ◉ Import existing git commit history (one-time backfill)
   ◉ Install a git post-commit hook — captures new commits going forward
@@ -140,11 +141,12 @@ Project config
   ◉ Add a memory pointer to CLAUDE.md
 ```
 
-Three groups, four rows:
+Three groups, five rows:
 
-- **Claude Code sessions** — backfill this repo's past sessions. (Ongoing capture
-  of new sessions comes from the plugin, installed once by `me claude install` —
-  **not** an init step.)
+- **Claude Code sessions** — backfill this repo's past sessions, and **enable
+  ongoing capture** of new ones for this project. The capturing is done by the
+  already-installed plugin (`me claude install`); this row just turns it on for
+  this project (a flag in `.me/config.yaml`), so a project can opt out.
 - **Git history** — backfill the repo's commit history; install a post-commit
   hook so future commits are captured.
 - **Project config** — add a managed memory-pointer block to `CLAUDE.md`.
@@ -190,6 +192,7 @@ just pressing enter at each prompt:
 
 4. Setup steps to run:
    ◉ Import this project's existing Claude Code sessions (one-time backfill)
+   ◉ Enable ongoing capture of new Claude Code sessions for this project
    ◉ Import existing git commit history (one-time backfill)
    ◉ Install a git post-commit hook — captures new commits going forward
    ◉ Add a memory pointer to CLAUDE.md
@@ -204,9 +207,10 @@ Result:
   space: acme-eng
   tree: /share/projects/acme-api
   ```
-- Backfills this repo's past Claude sessions + git history, installs the git
-  post-commit hook, and adds the CLAUDE.md pointer. (The capture plugin itself is
-  already installed once via `me claude install` — not part of init.)
+- Backfills this repo's past Claude sessions + git history, enables ongoing
+  session capture for the project, installs the git post-commit hook, and adds the
+  CLAUDE.md pointer. (The capture plugin itself is already installed once via
+  `me claude install` — not part of init.)
 
 So the happy path is **four enters**: public, accept the tree root, all-memories,
 run everything — no agent provisioning, no branching.
