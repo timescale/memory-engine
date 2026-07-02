@@ -4,9 +4,9 @@ Status: **proposal / design** (not implemented). Captures the intended split
 between `me claude install` and `me claude init`, and the rule that makes a
 global plugin install safe by keeping capture **inert until a project opts in**.
 
-# Meeting notes
+## Meeting notes (jul 2)
 
-## Principles 
+### Principles
 
 - make install simple
 - push down as much logic as possible to the config - so can share across harness
@@ -14,27 +14,26 @@ global plugin install safe by keeping capture **inert until a project opts in**.
 - non-project things go into private dir
 - projects are for when you want to customize for a particular project (potentially sharing)
 
+### How claude would work
 
-## How claude would work: 
 - one user-scoped install of the plugin
   - listens to .me/config but falls back to global
   - global config should by default (but these can be changed):
-     - pin space/server
-     - not use an agent 
-     - tree root would default to ~/projects/<slug>
+    - pin space/server
+    - not use an agent
+    - tree root would default to ~/projects/<slug>
   - project config would
-     - pin space/server
-     - pin tree root for project (through wizard)
-     - determine an agent if needed (through wizard) - would also be written to settings.json env var 
+    - pin space/server
+    - pin tree root for project (through wizard)
+    - determine an agent if needed (through wizard) - would also be written to settings.json env var
   - we can easily pin an agent for everything claude does through settings.json env vars at user/project scope.
 - If we want "parallel access" to other spaces use an mcp server. But the automatic write paths import/hooks all work through the plugins
-  - so you'd have a one-plugin many secondary mcp model for power users.   
+  - so you'd have a one-plugin many secondary mcp model for power users.
 
-## Commands:
+### Commands
+
 - me claude install - installs the plugin
-- me project init - intializes the project config
-
-
+- me project init - initializes the project config
 
 ## The problem we're fixing
 
