@@ -15,6 +15,7 @@ import type { ResolvedCredentials } from "./credentials.ts";
 // process.stdin).
 const {
   resolveSpacePrincipalId,
+  resolveSpaceMemberId,
   resolveAgentId,
   shellTildeExpansionHint,
   describeAuthError,
@@ -53,6 +54,45 @@ describe("resolveSpacePrincipalId", () => {
       name: "eng",
       kind: "g",
     });
+  });
+});
+
+// =============================================================================
+// resolveSpaceMemberId
+// =============================================================================
+
+describe("resolveSpaceMemberId", () => {
+  test("returns a UUIDv7 as-is without resolving", async () => {
+    const memory = {
+      principal: { resolve: mock(() => Promise.reject(new Error("unused"))) },
+    } as unknown as MemoryClient;
+    expect(await resolveSpaceMemberId(memory, UUID, "text")).toBe(UUID);
+    expect(memory.principal.resolve).not.toHaveBeenCalled();
+  });
+
+  test("resolves a member name, filtering out a same-named group", async () => {
+    // principal.resolve is name-scoped, not kind-scoped, so a shared name can
+    // return both a member and a group; the member must win.
+    const memory = {
+      principal: {
+        resolve: mock(() =>
+          Promise.resolve({
+            principals: [
+              { id: UUID, kind: "u", name: "ops" },
+              {
+                id: "019d0000-0000-7000-8000-000000000000",
+                kind: "g",
+                name: "ops",
+              },
+            ],
+          }),
+        ),
+      },
+    } as unknown as MemoryClient;
+
+    expect(await resolveSpaceMemberId(memory, "ops", "text")).toBe(UUID);
+    // resolves by name only (no kind constraint); the filtering is client-side
+    expect(memory.principal.resolve).toHaveBeenCalledWith({ name: "ops" });
   });
 });
 

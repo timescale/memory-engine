@@ -187,6 +187,76 @@ test("last-admin safeguard: removing/demoting the sole admin → LAST_ADMIN", as
   ).toBe(true);
 });
 
+test("non-admin user can self-remove (leave), cascading their in-space agent", async () => {
+  // a non-admin member with an agent they brought into the space
+  const member = await makeUser();
+  await call("principal.add", { principalId: member });
+  const agent = await makeAgent(member);
+  const asMember = {
+    principalId: member,
+    admin: false,
+    treeAccess: [{ tree_path: "share", access: 1 }] as TreeAccess,
+  };
+  await call("principal.add", { principalId: agent }, asMember); // self-service add
+
+  // the member removes THEMSELVES (no admin) — succeeds
+  expect(
+    (
+      await call<{ removed: boolean }>(
+        "principal.remove",
+        { principalId: member },
+        asMember,
+      )
+    ).removed,
+  ).toBe(true);
+
+  // both the member and their agent are gone from the roster (DB cascade)
+  const { principals } = await call<{ principals: { id: string }[] }>(
+    "principal.list",
+    {},
+  );
+  expect(principals.some((p) => p.id === member)).toBe(false);
+  expect(principals.some((p) => p.id === agent)).toBe(false);
+});
+
+test("non-admin can remove their OWN agent, but not another user / another's agent", async () => {
+  const member = await makeUser();
+  await call("principal.add", { principalId: member });
+  const asMember = {
+    principalId: member,
+    admin: false,
+    treeAccess: [{ tree_path: "share", access: 1 }] as TreeAccess,
+  };
+
+  // own agent → allowed
+  const ownAgent = await makeAgent(member);
+  await call("principal.add", { principalId: ownAgent }, asMember);
+  expect(
+    (
+      await call<{ removed: boolean }>(
+        "principal.remove",
+        { principalId: ownAgent },
+        asMember,
+      )
+    ).removed,
+  ).toBe(true);
+
+  // another user (the admin owner) → FORBIDDEN (authz before last-admin)
+  await expectAppError(
+    call("principal.remove", { principalId: ownerId }, asMember),
+    "FORBIDDEN",
+  );
+
+  // someone else's agent → FORBIDDEN
+  const otherUser = await makeUser();
+  const otherAgent = await makeAgent(otherUser);
+  await call("principal.add", { principalId: otherAgent });
+  await expectAppError(
+    call("principal.remove", { principalId: otherAgent }, asMember),
+    "FORBIDDEN",
+  );
+});
+
 test("principal.resolve / lookup are available to non-admin members (list is admin-only)", async () => {
   const email = `target_${rand(8)}@example.com`;
   const targetId = await makeUserWithEmail(email);
@@ -875,8 +945,10 @@ test("structural mutations require admin — owner@root is not enough", async ()
     call("principal.add", { principalId: stranger }, as),
     "FORBIDDEN",
   );
+  // Removing ANOTHER principal is admin-only (the self / own-agent carve-outs
+  // are exercised in the dedicated self-remove test above).
   await expectAppError(
-    call("principal.remove", { principalId: member }, as),
+    call("principal.remove", { principalId: stranger }, as),
     "FORBIDDEN",
   );
   await expectAppError(call("group.create", { name: "g" }, as), "FORBIDDEN");

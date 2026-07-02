@@ -990,6 +990,114 @@ describe("control-plane functions", () => {
     });
   });
 
+  test("remove_principal_from_space cascades a user's owned agents (space-scoped)", async () => {
+    await withTestCore(sql, {}, async (core) => {
+      const s = core.schema;
+      const [sp1] = await sql.unsafe(`select ${s}.create_space($1, $2) as id`, [
+        randomSlug(),
+        "One",
+      ]);
+      const [sp2] = await sql.unsafe(`select ${s}.create_space($1, $2) as id`, [
+        randomSlug(),
+        "Two",
+      ]);
+      const space1 = sp1?.id as string;
+      const space2 = sp2?.id as string;
+      const userId = await v7();
+      await sql.unsafe(`select ${s}.create_user($1, $2)`, [userId, "frank"]);
+
+      // agent1 lives in space1 (with a grant + group membership); agent2 in space2.
+      const [a1] = await sql.unsafe(`select ${s}.create_agent($1, $2) as id`, [
+        userId,
+        "agent-one",
+      ]);
+      const [a2] = await sql.unsafe(`select ${s}.create_agent($1, $2) as id`, [
+        userId,
+        "agent-two",
+      ]);
+      const agent1 = a1?.id as string;
+      const agent2 = a2?.id as string;
+
+      // roster the user + agent1 into space1
+      for (const id of [userId, agent1]) {
+        await sql.unsafe(`select ${s}.add_principal_to_space($1, $2, $3)`, [
+          space1,
+          id,
+          false,
+        ]);
+      }
+      // agent1 gets a grant and a group membership in space1
+      const [grp] = await sql.unsafe(`select ${s}.create_group($1, $2) as id`, [
+        space1,
+        "team",
+      ]);
+      const groupId = grp?.id as string;
+      await sql.unsafe(`select ${s}.add_group_member($1, $2, $3, $4)`, [
+        space1,
+        groupId,
+        agent1,
+        false,
+      ]);
+      await sql.unsafe(`select ${s}.grant_tree_access($1, $2, $3::ltree, $4)`, [
+        space1,
+        agent1,
+        "share",
+        2,
+      ]);
+
+      // agent2 is rostered into space2 (a different space); the join grants it
+      // owner over its home directory (the one tree_access row we assert stays).
+      await sql.unsafe(`select ${s}.add_principal_to_space($1, $2, $3)`, [
+        space2,
+        agent2,
+        false,
+      ]);
+
+      const [removed] = await sql.unsafe(
+        `select ${s}.remove_principal_from_space($1, $2) as removed`,
+        [space1, userId],
+      );
+      expect(removed?.removed).toBe(true);
+
+      const count = async (
+        table: string,
+        col: string,
+        id: string,
+        spaceId: string,
+      ) => {
+        const [r] = await sql.unsafe(
+          `select count(*)::int as n from ${s}.${table} where space_id=$1 and ${col}=$2`,
+          [spaceId, id],
+        );
+        return Number(r?.n);
+      };
+
+      // agent1 is fully deprovisioned from space1: membership, grant, group row
+      expect(
+        await count("principal_space", "principal_id", agent1, space1),
+      ).toBe(0);
+      expect(await count("tree_access", "principal_id", agent1, space1)).toBe(
+        0,
+      );
+      expect(await count("group_member", "member_id", agent1, space1)).toBe(0);
+
+      // but agent1's `principal` row itself survives (it was not deleted)
+      const [pr] = await sql.unsafe(
+        `select count(*)::int as n from ${s}.principal where id=$1`,
+        [agent1],
+      );
+      expect(Number(pr?.n)).toBe(1);
+
+      // agent2 in the OTHER space is untouched (membership + its home grant)
+      expect(
+        await count("principal_space", "principal_id", agent2, space2),
+      ).toBe(1);
+      expect(await count("tree_access", "principal_id", agent2, space2)).toBe(
+        1,
+      );
+    });
+  });
+
   test("group_member.space_id is pinned to the group's space (composite FK)", async () => {
     await withTestCore(sql, {}, async (core) => {
       const s = core.schema;
