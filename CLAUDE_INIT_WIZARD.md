@@ -1,4 +1,4 @@
-# `me claude init` — interactive wizard flow
+# `me project init` — interactive wizard flow
 
 Status: **target interactive flow** (design; companion to
 `CLAUDE_INTEGRATION_DESIGN.md`).
@@ -133,7 +133,6 @@ Setup steps to run (all selected by default — ↑/↓ move, space to toggle of
 
 Claude Code sessions
   ◉ Import this project's existing Claude Code sessions (one-time backfill)
-  ◉ Install the Claude Code plugin — captures new sessions going forward (+ slash commands, MCP)
 Git history
   ◉ Import existing git commit history (one-time backfill)
   ◉ Install a git post-commit hook — captures new commits going forward
@@ -141,13 +140,19 @@ Project config
   ◉ Add a memory pointer to CLAUDE.md
 ```
 
-Three groups, five rows:
+Three groups, four rows:
 
-- **Claude Code sessions** — backfill this repo's past sessions; install the
-  plugin so future sessions are captured (installed **globally, user scope**).
+- **Claude Code sessions** — backfill this repo's past sessions. (Ongoing capture
+  of new sessions comes from the plugin, installed once by `me claude install` —
+  **not** an init step.)
 - **Git history** — backfill the repo's commit history; install a post-commit
   hook so future commits are captured.
 - **Project config** — add a managed memory-pointer block to `CLAUDE.md`.
+
+> **Harness-agnostic TODO:** these rows are still Claude/repo-specific (session
+> backfill, CLAUDE.md pointer). A fuller `me project init` should offer only the
+> harness-neutral steps here (or detect the harness) — see
+> `CLAUDE_INTEGRATION_DESIGN.md`. Left for a follow-up.
 
 ## Interaction
 
@@ -160,17 +165,15 @@ Three groups, five rows:
 
 - **Already done** → the row appears **unchecked** with a refresh label, so a
   re-run is opt-in rather than default:
-  - *"Reinstall the Claude Code plugin … (already installed)"*
   - *"Reinstall the git post-commit hook … (already installed)"*
   - *"Rewrite the memory pointer in CLAUDE.md (already present)"*
 - **Not applicable** → the row is **hidden** entirely:
-  - the plugin row is gone if Claude Code isn't on the PATH;
   - both git rows are gone outside a git repo (or when another hooks manager owns
     the hook path).
 
 ## Example: the default flow
 
-A user logged into space `acme-eng`, running `me claude init` in
+A user logged into space `acme-eng`, running `me project init` in
 `~/dev/acme-api` (a git repo, Claude Code on PATH), accepting every default —
 just pressing enter at each prompt:
 
@@ -187,7 +190,6 @@ just pressing enter at each prompt:
 
 4. Setup steps to run:
    ◉ Import this project's existing Claude Code sessions (one-time backfill)
-   ◉ Install the Claude Code plugin — captures new sessions going forward (+ slash commands, MCP)
    ◉ Import existing git commit history (one-time backfill)
    ◉ Install a git post-commit hook — captures new commits going forward
    ◉ Add a memory pointer to CLAUDE.md
@@ -202,8 +204,9 @@ Result:
   space: acme-eng
   tree: /share/projects/acme-api
   ```
-- Backfills this repo's past Claude sessions + git history, installs the plugin
-  (user scope) and the git post-commit hook, and adds the CLAUDE.md pointer.
+- Backfills this repo's past Claude sessions + git history, installs the git
+  post-commit hook, and adds the CLAUDE.md pointer. (The capture plugin itself is
+  already installed once via `me claude install` — not part of init.)
 
 So the happy path is **four enters**: public, accept the tree root, all-memories,
 run everything — no agent provisioning, no branching.
