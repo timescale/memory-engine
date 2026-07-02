@@ -1,8 +1,10 @@
-# Claude Code integration — `install` vs `init` (usage-focused design)
+# Claude Code integration — `me claude install` + `me project init`
 
-Status: **proposal / design** (not implemented). Captures the intended split
-between `me claude install` and `me claude init`, and the rule that makes a
-global plugin install safe by keeping capture **inert until a project opts in**.
+Status: **proposal / design** (not implemented). Reconciled with the meeting
+notes below: **one** user-scoped plugin (`me claude install`) that reads a
+project's `.me/config.yaml` with global fallback, plus a harness-agnostic
+`me project init` that writes that config. Capture works out of the box,
+**private by default**, and is shared only when a project opts in.
 
 ## Meeting notes (jul 2)
 
@@ -39,191 +41,194 @@ global plugin install safe by keeping capture **inert until a project opts in**.
 
 Today `me claude install` and `me claude init` both install the *same* plugin
 but disagree on scope, and the capture hook fires **everywhere** the plugin is
-enabled:
+enabled — always into the *shared* `share.projects.<slug>`:
 
 - `me claude install` — `--scope` flag, defaults to **user** (global).
 - `me claude init` — hardcodes **user** scope (`claude.ts:615`), even though
   every other init step (session backfill, git hook, CLAUDE.md pointer) is
   scoped to *this* repo.
-- The hook has no "should I capture here?" gate: `resolveHookConfigFromEnv`
-  defaults `treeRoot` to `share.projects` and captures **any** session into
-  `<share.projects>.<slug>.agent_sessions`. So a single global install quietly
-  captures every project you ever open.
+- The hook has no notion of *whose* memory a session is: it captures into the
+  **shared** `share.projects.<slug>`, so a global install quietly publishes every
+  project you open into the team space.
 
-The result is a muddled mental model ("which command, which scope, and why is it
-capturing my unrelated side project?").
+Muddled mental model, plus a privacy default (everything shared) nobody chose.
 
-## The mental model we want
+## The model
 
-Two commands, two jobs, no scope flag to reason about:
+Push the per-project choices into **config**, and keep the harness wiring to a
+**single install**:
 
-| Command | Scope | What it's for |
+- **One user-scoped plugin** — `me claude install`, run once. It provides the
+  memory tools + capture hooks in every project. At runtime it reads the
+  project's `.me/config.yaml` (cwd walk-up) and **falls back to your global
+  `~/.config/me` config** when there isn't one.
+- **Useful with no project config** (principle: *don't require project config to
+  do useful stuff*). On the global config alone the plugin uses your active
+  space/server, runs as **you** (no agent), and captures into your **private**
+  home at **`~/projects/<slug>`** (`<slug>` from the repo). Capture works out of
+  the box — and non-project captures land in your **private** dir, not a shared
+  space.
+- **`me project init` customizes a project** (principle: *projects are for when
+  you want to customize, potentially sharing*). It is **harness-agnostic** — it
+  writes `.me/config.yaml`, which every harness's plugin reads. Via a wizard it
+  can pin the space/server, set the project **tree root** (e.g. public
+  `/share/projects/<slug>` to share with the team, vs the private default), and
+  **determine an agent** to scope access — also written to a `settings.json` env
+  var so it applies to everything Claude does.
+
+| Command | Job | Scope |
 |---|---|---|
-| **`me claude install`** | **user** (global) | Give *me* the memory tools everywhere. Capture stays **off** unless I'm in a project that opted in. |
-| **`me claude init`** | **project** (committed) | Set up **this repo** for memory — backfill, git hook, CLAUDE.md pointer, **and** turn on capture by writing a `.me/config.yaml`. Shared with the team via git. |
+| **`me claude install`** | Install the one plugin (tools + capture hooks). | user (global), harness-specific |
+| **`me project init`** | Write this project's `.me/config.yaml` (space/server, tree root, agent). | project (committed), harness-agnostic |
 
-Analogy people already hold: `install` = "add the tool for me" (like `npm i
--g`); `init` = "initialize *this* project" (like `git init`) — and initializing
-a project is what *activates* capture.
+Analogy: `install` = "add the tool for me" (once, like `npm i -g`);
+`project init` = "configure *this* project" (like `git init` writing repo config
+the tools then read).
 
-The key move: **`me claude install` behaves almost like `--mcp-only`** — tools
-always available, hooks present but inert — **until you `cd` into a directory
-with a `.me/config.yaml`** (i.e. a project someone ran `me claude init` in).
-Capture is opt-in per project, not opt-out per machine.
-
-## `me claude install` — global, capture-inert
+## `me claude install` — the one plugin
 
 ```bash
-me claude install            # always user scope; no --scope decision
+me claude install            # user scope, once; no --scope decision
 ```
 
-- Installs the plugin at **user** scope: MCP memory tools + capture hooks, in
-  every project.
-- The hooks are **inert by default** — see [the capture-activation
-  rule](#the-capture-activation-rule). With no project config in scope, `Stop` /
-  `SessionEnd` resolve to "nothing to capture" and no-op.
-- So in practice this is "the memory tools, everywhere" plus *latent* capture
-  that only wakes up inside an initialized project.
+- Installs the plugin at **user** scope: the memory MCP tools + capture hooks,
+  available in every project.
+- At runtime it resolves space / server / tree root / agent from the project
+  `.me/config.yaml` if present, else your global config.
+- With no project config, captures land in your **private** `~/projects/<slug>`
+  under your own identity — nothing is shared until a project opts in.
 
-This makes a global install **safe**: opening a random repo, a scratch dir, or
-`$HOME` never starts capturing.
+There is only ever this one plugin install. Project-level sharing is done through
+committed **config** (below), not a second (project-scope) plugin.
 
-> `--mcp-only` becomes nearly redundant under this design (a full install is
-> already capture-inert globally). Open question below: keep it as an explicit
-> "never capture, even in init'd projects" guarantee, or drop it.
-
-## `me claude init` — this project, capture-on
+## `me project init` — configure a project
 
 ```bash
 cd my-repo
-me claude init               # always project scope; sets up + activates capture
+me project init              # writes .me/config.yaml (harness-agnostic)
 ```
 
-Runs the existing init steps, with two changes:
+Runs an interactive wizard (see `CLAUDE_INIT_WIZARD.md`) and writes
+`.me/config.yaml` at the repo root:
 
-1. **Plugin install moves to `--scope project`** (committed to
-   `.claude/settings.json`) — so a teammate who clones the repo gets the plugin
-   without running anything.
-2. **A new step writes `.me/config.yaml`** at the repo root, pinning:
+```yaml
+# .me/config.yaml  (committed)
+server: https://api.memory.build   # where memories go
+space: acme-eng                    # the X-Me-Space
+tree: /share/projects/my-repo      # public → shared; default is private ~/projects/<slug>
+```
 
-   ```yaml
-   # .me/config.yaml  (committed)
-   server: https://api.memory.build   # where memories go
-   space: acme-eng                    # the X-Me-Space
-   tree: /share/projects/my-repo      # the project tree root (see naming note)
-   ```
+- **Visibility** — *public* nests the project tree root under the shared `share`
+  (team-wide); *private* under your home `~` (the default).
+- **Agent** — if you scope access to an agent, its name is written to
+  `.me/config.yaml` **and** to a `settings.json` env var (`ME_AS_AGENT`) so all of
+  Claude's `me` calls act as it.
+- One file drives **all** integrations (the plugin's hooks + MCP, the `me` CLI,
+  `me import git`) across **every** harness — so there's nothing Claude-specific
+  to commit.
 
-   This is the file that **activates capture** (it provides the project tree root)
-   *and* points every other `me` invocation in the repo (CLI, `me mcp`, `me
-   import git`) at the same server/space/tree. One file drives all integrations.
+No plugin is installed here: the already-installed user-scoped plugin picks up
+this config as soon as you're in the repo. Teammates who have run
+`me claude install` get the project's behavior just by cloning the committed
+`.me/config.yaml` — no per-repo install.
 
-The other steps (session backfill, git post-commit hook, CLAUDE.md pointer) are
-unchanged. As today, each step is deselectable in the interactive picker, so the
-plugin/`.me` write is opt-out within init.
+### Naming: keep the field `tree`; the concept is "project tree root"
 
-### Naming: "project tree root" is the `.me/config` `tree`
+Two "roots", kept distinct:
 
-There are two "roots" — keep them distinct:
+- **filesystem project root** — the git root / cwd, used to decide *where* to
+  write `.me/` and to derive the `<slug>`. (`InitStepContext.projectRoot`.)
+- **project tree root** — the ltree path memories nest under: the
+  `.me/config.yaml` **`tree`** field (`project-config.ts:67`) / the hook's
+  `projectTree` (`capture.ts:58`). Memories land at `<tree>/agent_sessions` (no
+  slug appended when set explicitly).
 
-- **filesystem project root** — the git root / cwd, used only to decide *where*
-  to write `.me/` and to scope the install. (`InitStepContext.projectRoot`.)
-- **project tree root** — the ltree path this project's memories nest
-  under. This is the existing `.me/config.yaml` **`tree`** field
-  (`project-config.ts:67`) and the capture hook's `projectTree`
-  (`capture.ts:58`). Memories land at `<tree>/agent_sessions` (no slug appended).
+The YAML field stays `tree`; this doc names the *concept* "project tree root".
 
-When this doc says init "pins the project tree root," it means writing the
-**`tree`** field. We reuse the existing field rather than adding a new
-`projectTreeRoot` key — they'd be the same thing. (Open question: is `tree` the
-right *name* to surface to users, or should the doc/UX call it "project tree
-root"?)
+## Where captures go (tree-root resolution)
 
-## The capture-activation rule
+Captures nest under a **project tree root**, resolved highest-first in
+`resolveHookConfigFromEnv`:
 
-**The hook captures only when a project tree root is resolvable; otherwise it
-no-ops.** Concretely, in `resolveHookConfigFromEnv`:
+1. the project `.me/config.yaml` **`tree`** (written by `me project init`) — e.g.
+   public `/share/projects/<slug>`;
+2. a plugin-pinned `tree_root` (`CLAUDE_PLUGIN_OPTION_TREE_ROOT`, headless
+   installs);
+3. the global default **`~/projects/<slug>`** — private, per-repo `<slug>` from
+   the session `cwd`.
 
-- Today: `treeRoot` always defaults to `share.projects`, so capture always
-  proceeds.
-- Proposed: capture proceeds **iff** one of these is set —
-  1. a **`.me/config.yaml` `tree`** discovered from the session `cwd`
-     (`discoverProjectConfig(event.cwd)` — the `me claude init` case), **or**
-  2. an explicit **plugin-pinned `tree_root`** (`CLAUDE_PLUGIN_OPTION_TREE_ROOT`
-     — the headless/unattended install that deliberately opted into a fixed
-     tree).
+So live capture is **always on**, but **private by default** and **shared only
+when a project opts in** — a change from today's default of the shared
+`share.projects.<slug>` (see *What changes*).
 
-  With neither, `resolveHookConfigFromEnv` returns `null` and the hook exits 0
-  without writing. No more implicit `share.projects` fallback for live capture.
-
-This is what makes `install` (global) safe and `init` (per-project) the switch
-that turns capture on.
-
-> Scope note: this only gates **live capture** (the hook). The manual backfill
-> `me import claude` keeps its `share.projects` default — an explicit,
-> user-invoked sweep is allowed to choose a default tree.
+> The manual backfill `me import claude` keeps its own default tree — an
+> explicit, user-invoked sweep can choose where it lands.
 
 ## User journeys
 
-### 1. Solo dev, personal memory
+### 1. Solo dev
 
 ```bash
-me claude install            # tools everywhere, capture off
-cd project-a && me claude init   # capture on for project-a → its space/tree
-cd project-b                 # no .me → capture stays off; tools still work
+me claude install                  # once
+# work in any repo → captured privately to ~/projects/<slug>
+cd project-a && me project init    # optional: customize (make it public, pin an agent, …)
 ```
 
-Only `project-a` captures. `project-b` and everything else get the tools but no
-capture. No global noise.
+Everything is captured to your private home by default; `me project init` is only
+for when you want to change that — share it, scope an agent, pin a space.
 
 ### 2. Team repo
 
 ```bash
 # One person, once:
-cd team-repo && me claude init
-git add .claude/settings.json .me/config.yaml CLAUDE.md && git commit
+cd team-repo && me project init    # choose public → tree /share/projects/team-repo
+git add .me/config.yaml && git commit
 ```
 
-A teammate clones and — if they're logged into `me` — capture is already on:
+A teammate who has run `me claude install` clones and — logged into `me` —
+captures into the team's shared space automatically:
 
-- **plugin** comes from the committed **project-scope** install
-  (`.claude/settings.json`).
 - **server / space / tree** come from the committed **`.me/config.yaml`**.
-- **credentials** fall back to *each* teammate's own `me login` session (no
-  shared secret in git). A dedicated agent key stays optional via the plugin's
-  `api_key` userConfig.
+- **credentials** fall back to *each* teammate's own `me login` session (no shared
+  secret in git).
+- a **scoped agent** (if configured) applies via `.me/config.yaml` + the
+  `settings.json` env var.
 
-So "clone the repo → your Claude sessions capture into the team's space" falls
-out of two committed files, no per-dev setup.
+**No per-repo install** — the single user-scoped plugin reads the committed
+config. "Clone the repo → your Claude sessions capture into the team's space"
+falls out of one committed file.
 
-### 3. Both (global + a team repo)
+### 3. Headless / unattended agent
 
-`install` (user) + `init` (project) install the *same* plugin
-(`memory-engine@memory-engine`). Claude Code dedups the bundled MCP server **by
-name** (`plugin_memory-engine_me`), connecting once from the higher-precedence
-scope (**project > user**). No double MCP server. userConfig also resolves
-project-over-user, so inside the repo the repo's settings win — which is what we
-want.
+A pinned `tree_root` + `space` + `api_key` (plugin userConfig / env) drives
+capture without a `.me/config.yaml` (resolution rule 2).
 
-### 4. Headless / unattended agent
+### 4. Power user — parallel access to other spaces
 
-Unchanged from today: a pinned `tree_root` + `space` + `api_key` (via the plugin
-userConfig or a headless install) satisfies rule (2) of the activation gate, so
-capture works without a `.me/config.yaml`.
+The single plugin owns the **automatic write paths** (import + capture hooks),
+which always target the resolved project/space. To also read/write **another**
+space from inside a session, add a **secondary MCP server** pointed at it — a
+**one-plugin, many-secondary-MCP** model, rather than multiple plugins.
 
 ## What changes vs today
 
-- `me claude init` installs at **project** scope (was user) and writes
-  `.me/config.yaml` (new step).
-- `me claude install` drops the `--scope` decision and is **always user** (was
-  user-by-default-but-flaggable).
-- The hook **no longer captures without a project tree root** (was: always captured
-  into `share.projects`). **Migration note:** anyone who today relies on a plain
-  global plugin install to capture everything loses that until they
-  `me claude init` the projects they care about (or pin a headless `tree_root`).
-- Project config (server/space/tree) is expressed in **`.me/config.yaml`**
-  (committed, drives all integrations) rather than the plugin's per-scope
-  userConfig. The plugin userConfig shrinks to mainly `api_key` (+ optional
-  headless `tree_root`/`content_mode`).
+- **Capture default flips shared → private.** The default tree root moves from
+  `share.projects.<slug>` to **`~/projects/<slug>`**, so an out-of-the-box install
+  captures to your **private** home, not the team space. Sharing is an explicit
+  `me project init` (public) choice. **Migration note:** installs that relied on
+  the shared default start writing privately until the relevant projects run
+  `me project init` with a public tree.
+- **`me claude init` → `me project init`**, now **harness-agnostic**, and it **no
+  longer installs a plugin** — it only writes `.me/config.yaml`. There is a single
+  user-scoped plugin (`me claude install`).
+- **Project behavior is config, not scope.** Space / server / tree / agent live in
+  `.me/config.yaml` (committed, drives every harness); the plugin reads it with
+  global fallback. The per-scope-plugin idea — and its scope-blind "already
+  installed" probe — is gone.
+- **Agent** is conveyed via `.me/config.yaml` **plus** a `settings.json` env var,
+  at user or project scope.
+- **Parallel access** to other spaces is a secondary MCP server, not another
+  plugin.
 
 ## Interactions & safety
 
@@ -239,40 +244,32 @@ capture works without a `.me/config.yaml`.
 
 ## Open questions
 
-1. **Scope-blind "already installed" probe (blocker).** `me claude init`'s
-   plugin step decides "done" via `claude plugin list --json`, whose entries are
-   `{id, version, enabled}` with **no scope field** (per the test fixtures). If a
-   user ran `me claude install` first (user scope), `init` sees the plugin
-   present and **skips the project-scope install** — silently failing its main
-   job. This design makes "installed at user, want it at project too" the
-   *normal* path, so it must be solved. Likely fix: for the project step, detect
-   by reading the **project's `.claude/settings.json`** directly rather than the
-   scope-blind global list. (Needs confirmation of where
-   `claude plugin install --scope project` actually writes.)
-2. **Keep or drop `--mcp-only`?** A full install is already capture-inert
-   globally, so `--mcp-only`'s remaining value is "guaranteed never capture, even
-   in init'd projects." Worth it, or is the inert-by-default install enough?
-3. **Surface the field as `tree` or `project tree root`?** We reuse `.me/config`'s
-   existing `tree` field; the UX/docs may still want to *call* it "project tree root."
-4. **Escape hatches.** Do we keep an undocumented `--scope` on both commands for
-   power users (the plumbing already exists), or commit fully to the opinionated
-   split?
-5. **`init` when a global install already exists.** The project-scope install is
-   partly redundant *for the initializing user* (their global plugin already
-   works once `.me/config` exists), but it's the mechanism that onboards
-   *teammates*. Keep it unconditionally — just make sure (1) doesn't cause it to
-   be skipped.
+1. **Global default tree root.** Confirm `~/projects/<slug>` (private) as the
+   no-config default, and how `<slug>` is derived (git remote vs directory
+   basename) — it must match the importers so live + backfilled sessions share a
+   node.
+2. **Keep or drop `--mcp-only`?** The plugin now *is* the write path; a pure-tools
+   (no-capture) install may still be worth offering.
+3. **Secondary-MCP UX.** How does a power user add an MCP for another space —
+   `me claude install --mcp-only --space <other>`, or a dedicated command? And how
+   are its tool names kept from colliding with the primary plugin's?
+4. **Agent via env vs config.** We write the agent to both `.me/config.yaml` and a
+   `settings.json` env var; confirm the env var (`ME_AS_AGENT`) actually reaches
+   the plugin's MCP server + hooks in a running session (see the note in the
+   comparison section).
 
 ## Comparison to John's design (Claude only)
 
-John's clean-slate proposal ("4 harnesses × 2 scopes") covers the same
-`install` = user / `init` = project split, but for Claude it differs on three
+John's clean-slate proposal ("4 harnesses × 2 scopes") shares this doc's
+install-once + configure-per-project spirit, but for Claude it differs on three
 things: it **drops the marketplace plugin** and writes files directly
 (`claude mcp add`, `~/.claude` vs `.claude/settings.json` hooks, skills,
-commands); it makes **project scope act as an agent** (`--as-agent .me` +
-`ME_AS_AGENT=.me`); and it keeps **user-scope capture always on**, deduping the
-two scopes with a `--scope user|project` hook flag. This section records how the
-two relate once we strip out what's *not* actually a design fork.
+commands); it installs a **project-scope** set of files that **act as an agent**
+(`--as-agent .me` + `ME_AS_AGENT=.me`); and it keeps **capture always on as the
+human** by default, deduping the two scopes with a `--scope user|project` hook
+flag. This section records how the two relate once we strip out what's *not*
+actually a design fork. (With this doc now on a single user-scoped plugin +
+config, John's project-scope *file writes* are the main structural difference.)
 
 ### Agent identity is orthogonal — not a scope-linked feature
 
@@ -312,18 +309,17 @@ agent overlay.
 
 Two axes, both about plumbing/defaults rather than capability:
 
-1. **Delivery: marketplace plugin (this doc) vs direct file writes (John).**
-   Direct writes dissolve [open question #1](#open-questions) by construction
-   (scope is a file location, not a scope-blind `plugin list` lookup) and ship
-   the **skill + `/memory-recall` command** this doc's plugin path doesn't. Cost:
-   a clean-slate rewrite that retires `packages/claude-plugin`. John's §6 argues
-   the plugin's only real edge is marketplace discoverability, worth keeping
-   later as a thin optional wrapper.
-2. **Capture default: inert-until-project-tree-root (this doc) vs always-on +
-   `--scope` dedup (John).** John's user-scope hooks capture *every* session as
-   the human by default; this doc's [capture-activation
-   rule](#the-capture-activation-rule) captures nothing until a project opts in.
-   These are separable: John's model would still work with this doc's inert gate
-   bolted on, and that combination (direct writes + inert gate + agent overlay)
-   is likely the best-of-both.
+1. **Delivery: marketplace plugin (this doc) vs direct file writes (John).** With
+   a single user-scoped plugin, this doc no longer has a project-scope install to
+   probe for — the old scope-blind `plugin list` blocker is gone either way. The
+   remaining contrast: John's direct writes also ship a **skill + `/memory-recall`
+   command** the plugin path doesn't, at the cost of a clean-slate rewrite that
+   retires `packages/claude-plugin`. John's §6 argues the plugin's only real edge
+   is marketplace discoverability, worth keeping later as a thin optional wrapper.
+2. **Capture default: private-by-default (this doc) vs as-the-human (John).** Both
+   capture *every* session out of the box — the axis is the default *destination*,
+   not on/off. This doc defaults to your **private** home (`~/projects/<slug>`),
+   made shared via `me project init`; John captures into your personal space as the
+   human. Largely converged (both always-on); the residual difference is the
+   default privacy of the landing tree.
 ```
