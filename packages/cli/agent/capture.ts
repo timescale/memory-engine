@@ -42,6 +42,7 @@ import {
 import { SlugRegistry } from "../importers/slug.ts";
 import {
   discoverProjectConfig,
+  getConfigDirOverride,
   setConfigDirOverride,
 } from "../project-config.ts";
 import { memoryBearer } from "../session.ts";
@@ -175,8 +176,14 @@ export async function runCaptureHook(spec: CaptureHookSpec): Promise<void> {
     // process cwd. A broken `.me` is fatal for direct CLI use, but capture is
     // best-effort: log + return so a typo never blocks a session.
     const project = discoverProjectConfig(cwd);
-    if (project) setConfigDirOverride(project.dir);
-    const config = resolveHookConfig(resolveCredentials(), spec.input);
+    const previousConfigDirOverride = getConfigDirOverride();
+    let config: HookConfig | null;
+    try {
+      if (project) setConfigDirOverride(project.dir);
+      config = resolveHookConfig(resolveCredentials(), spec.input);
+    } finally {
+      setConfigDirOverride(previousConfigDirOverride);
+    }
     if (!config) {
       log(
         spec,

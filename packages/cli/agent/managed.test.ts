@@ -116,14 +116,14 @@ describe("file-level ops", () => {
     // Now only the block:
     await writeFile(file, block);
     expect(await removeBlockFromFile(file, MD)).toBe("removed");
-    expect(stat(file)).rejects.toBeDefined();
+    await expect(stat(file)).rejects.toBeDefined();
     expect(await removeBlockFromFile(file, MD)).toBe("absent");
   });
 
   test("writeManagedFile refuses to overwrite an unmanaged file", async () => {
     const file = join(dir, "SKILL.md");
     await writeFile(file, "someone else's skill\n");
-    expect(
+    await expect(
       writeManagedFile(file, "MARKER content\n", "MARKER"),
     ).rejects.toThrow(/not managed/);
     // force overrides
@@ -151,7 +151,7 @@ describe("file-level ops", () => {
   });
 
   test("writeManagedFile rejects content missing its own marker", async () => {
-    expect(
+    await expect(
       writeManagedFile(join(dir, "x.md"), "no marker\n", "MARKER"),
     ).rejects.toThrow(/missing its marker/);
   });
@@ -179,7 +179,7 @@ describe("file-level ops", () => {
     expect(await readJsonFile(join(dir, "missing.json"))).toBeNull();
     const file = join(dir, "arr.json");
     await writeFile(file, "[1,2]");
-    expect(readJsonFile(file)).rejects.toThrow(/not a JSON object/);
+    await expect(readJsonFile(file)).rejects.toThrow(/not a JSON object/);
   });
 });
 
