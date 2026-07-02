@@ -26,6 +26,17 @@ describe("buildHookBlock", () => {
       '("/opt/bun" "/repo/packages/cli/index.ts" import git >/dev/null 2>&1 &)',
     );
   });
+
+  test("project scope bakes --as-agent before the subcommand", () => {
+    const block = buildHookBlock('"/usr/local/bin/me"', { asAgent: ".me" });
+    expect(block).toContain(
+      '("/usr/local/bin/me" --as-agent .me import git >/dev/null 2>&1 &)',
+    );
+  });
+
+  test("no as-agent by default (user/human variant)", () => {
+    expect(BLOCK).not.toContain("--as-agent");
+  });
 });
 
 describe("upsertHookScript", () => {
