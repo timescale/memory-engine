@@ -35,7 +35,7 @@ interface McpToolBase {
   bin: string;
 }
 
-interface McpToolCli extends McpToolBase {
+export interface McpToolCli extends McpToolBase {
   method: "cli";
   addCmd: (meCmd: string[], opts: McpInstallOpts) => string[];
   removeCmd: (opts: McpInstallOpts) => string[];

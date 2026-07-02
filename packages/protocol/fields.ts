@@ -64,9 +64,9 @@ export const SHARE_NAMESPACE = "share";
 /**
  * The conventional shared subtree for project work, nested under `share`. The
  * default `team` group provisioned for every space is granted write here so
- * members can collaborate on project memories, and the claude-plugin defaults
- * its session-capture root to this path. Stored dotted because it is the literal
- * ltree path; the canonical display form is `/share/projects`.
+ * members can collaborate on project memories, and the harness integrations
+ * default their session-capture root to this path. Stored dotted because it is
+ * the literal ltree path; the canonical display form is `/share/projects`.
  */
 export const SHARE_PROJECTS_NAMESPACE = "share.projects";
 

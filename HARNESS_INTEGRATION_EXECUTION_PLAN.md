@@ -160,7 +160,29 @@ Original scope (for reference):
 **Tests:** plugin-template (as-agent + shell.env + injection safety), installer
 unit tests, init-step wiring.
 
-## P3 — Claude (PR 3) — plugin retirement
+## P3 — Claude (PR 3) — plugin retirement — ✅ DONE 2026-07-01
+
+Retired the marketplace plugin; Claude is now direct-write like the others.
+`me claude install` (user scope): `claude mcp add --scope user`, capture hooks
+in `~/.claude/settings.json`, skill + /memory-recall in `~/.claude/`, user
+pointer in `~/.claude/CLAUDE.md`, `--server`/`--space` pins, `--remove`.
+`me claude init` (project scope): `requireProjectAgent` fail-fast; `claude mcp
+add --scope project` (→ `.mcp.json` with `--as-agent .me mcp`), hooks +
+`env.ME_AS_AGENT=.me` in `.claude/settings.json` (scoped `me --as-agent .me
+claude hook --scope project`), skill + command in `.claude/`, git hook
+(`--as-agent .me`), backfills, and the CLAUDE.md pointer — using the `@AGENTS.md`
+import bridge when a shared AGENTS.md block already exists. New
+`claude/settings.ts` does the hook/env JSON merge (pure + tested). Deleted
+`packages/claude-plugin`, `.claude-plugin/marketplace.json`,
+`claude/capture.ts`, and `agent/memory-pointer.ts` (now fully unused — OpenCode
++ Claude both migrated onto `agent/assets.ts`). Smoke-tested: fail-fast, full
+project wiring, and the @AGENTS.md bridge.
+
+**Migration note for existing users:** run `claude plugin uninstall
+memory-engine@memory-engine` (the old marketplace plugin) once; then
+`me claude install` / `me claude init`. (A future polish could detect + warn.)
+
+Original scope (for reference):
 
 1. Replace plugin install with direct writes per design §3.1:
    `claude mcp add --scope user|project`, hooks + (project) `env.ME_AS_AGENT`
