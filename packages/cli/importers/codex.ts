@@ -53,6 +53,9 @@ export const codexImporter: Importer = {
   tool: "codex",
   defaultSource: DEFAULT_SOURCE,
   discoverSessions,
+  // Live-capture path (`me codex hook`): parse one rollout file. Same parse as
+  // the bulk sweep, so live + imported sessions produce identical memories.
+  parseFile: parseSessionFile,
 };
 
 async function* discoverSessions(

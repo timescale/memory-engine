@@ -16,6 +16,8 @@
  * Assets shared across harnesses (`.agents/skills/`, the project `AGENTS.md`
  * block) must carry harness-agnostic markers — see `managed.ts`.
  */
+import { homedir } from "node:os";
+import { join } from "node:path";
 import { GIT_HISTORY_NODE_NAME } from "../importers/git.ts";
 import { DEFAULT_SESSIONS_NODE_NAME } from "../importers/index.ts";
 import { type BlockMarkers, markdownMarkers, renderBlock } from "./managed.ts";
@@ -35,6 +37,22 @@ export const SKILL_FILENAME = "SKILL.md";
 
 /** Filename of the recall command in markdown-command harnesses. */
 export const RECALL_COMMAND_FILENAME = "memory-recall.md";
+
+/**
+ * The cross-harness shared skills dir — `.agents/skills` (project) /
+ * `~/.agents/skills` (user), the agentskills.io convention read by OpenCode,
+ * Codex, AND Gemini. The skill is written here ONCE and served to all three;
+ * only Claude keeps its own copy (`.claude/skills/`, since Claude doesn't read
+ * `.agents/skills`). One shared location also avoids the duplicate-skill-name
+ * warning a harness raises when the same skill appears under two dirs it reads.
+ */
+export function sharedSkillsDir(
+  scope: "user" | "project",
+  projectRoot: string,
+): string {
+  const base = scope === "project" ? projectRoot : homedir();
+  return join(base, ".agents", "skills");
+}
 
 /** Options shared by the renderers. */
 export interface AssetRenderOptions {

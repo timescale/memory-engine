@@ -196,7 +196,26 @@ Original scope (for reference):
    (`claude plugin uninstall`), printed by the new `install`/`init` when it
    detects the plugin.
 
-## P4 — Codex (PR 4)
+## P4 — Codex (PR 4) — ✅ DONE 2026-07-01
+
+`me codex install` (user) + new `me codex init` (project), direct-write. MCP +
+(project) `[shell_environment_policy]` live in a managed TOML block in
+`config.toml`; capture hooks in `hooks.json` (Codex's turn event is `Stop`,
+timeout seconds); the memory-engine + memory-recall **skills** go in the shared
+`.agents/skills/` (prompts are deprecated → recall is a skill); the memory
+pointer in `~/.codex/AGENTS.md` (user) / repo `AGENTS.md` (project). Exposed
+`parseFile` on the codex importer (the existing `parseSessionFile`) for the
+capture runner; `me codex hook` reads the event from stdin. New `codex/config.ts`
+(TOML block render + hooks.json merge, pure + tested). init prints the trust +
+`/hooks`-approval reminder. **Also reconciled OpenCode's skill onto the shared
+`.agents/skills/`** (was `.opencode/skills/`) so OpenCode + Codex + Gemini share
+one copy and no harness sees a duplicate skill name. Smoke-tested end to end.
+
+Known limitation: the TOML block appends `[shell_environment_policy]`; if the
+user already defines their own top-level `[shell_environment_policy]`, TOML
+forbids the duplicate table (rare — documented).
+
+Original scope (for reference):
 
 1. New `me codex hook` handler (thin adapter on the P1 contract) per P0
    findings.

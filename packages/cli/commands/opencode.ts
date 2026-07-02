@@ -28,6 +28,7 @@ import {
   renderUserContextSnippet,
   SKILL_FILENAME,
   SKILL_NAME,
+  sharedSkillsDir,
   userSnippetMarkers,
 } from "../agent/assets.ts";
 import { parseHookScope, runCaptureHook } from "../agent/capture.ts";
@@ -70,7 +71,6 @@ import {
   openCodeBaseDir,
   openCodeCommandsDir,
   openCodePluginsDir,
-  openCodeSkillsDir,
 } from "../opencode/scope.ts";
 import { createOpenCodeImportCommand, runAgentImport } from "./import.ts";
 import { runGitImport } from "./import-git.ts";
@@ -86,8 +86,10 @@ type HookEventName = (typeof HOOK_EVENT_NAMES)[number];
 
 const pluginFile = (scope: OpenCodeScope, root: string): string =>
   join(openCodePluginsDir(scope, root), PLUGIN_FILENAME);
+// The skill goes in the shared `.agents/skills` dir (read by OpenCode + Codex
+// + Gemini) so all three share one copy; the command/plugin stay OpenCode's.
 const skillFile = (scope: OpenCodeScope, root: string): string =>
-  join(openCodeSkillsDir(scope, root), SKILL_NAME, SKILL_FILENAME);
+  join(sharedSkillsDir(scope, root), SKILL_NAME, SKILL_FILENAME);
 const recallFile = (scope: OpenCodeScope, root: string): string =>
   join(openCodeCommandsDir(scope, root), RECALL_COMMAND_FILENAME);
 /** Context file: repo `AGENTS.md` (project) vs `~/.config/opencode/AGENTS.md`
