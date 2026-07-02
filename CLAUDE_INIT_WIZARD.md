@@ -3,12 +3,30 @@
 Status: **target interactive flow** (design; companion to
 `CLAUDE_INTEGRATION_DESIGN.md`).
 
-The wizard runs in four ordered steps:
+The wizard runs in five ordered steps (0–4):
 
+0. **Space** — which space this project's memories live in.
 1. **Memory visibility** — public vs private.
 2. **Tree root** — where this project's memories live (pre-filled from step 1).
 3. **Memory access** — all, or a subset? (a subset opens **3a**: pick the agent)
 4. **Setup checklist** — a multiselect of the setup steps to run.
+
+## 0. Space
+
+First, pick which space this project's memories live in:
+
+```
+Which space should this project use?
+  ● acme-eng (active)   — your current active space
+  ○ personal
+  ○ acme-research
+```
+
+- Lists the spaces you're a member of; **defaults to your active space**.
+- Written as `space:` in `.me/config.yaml` (**required** — a committed project must
+  be deterministic). The **server** is pinned alongside it (a space lives on one
+  server), so teammates resolve the same space without relying on their own active
+  one.
 
 ## 1. Memory visibility (public vs private)
 
@@ -111,14 +129,15 @@ A freeform text field for the new agent's name:
 
 ```
 Name for the new agent:
-> claude-code-agent-my-project
+> my-project-agent
 ```
 
-- Pre-filled with `claude-code-agent-<project-slug>` (`<project-slug>` is the same
-  slug derived from the current directory as the tree root in step 2).
-- The pre-fill is a **free** name: if `claude-code-agent-<project-slug>` already
-  exists, it's bumped to the next available variant, so confirming always creates
-  a new agent rather than colliding.
+- Pre-filled with `<project-slug>-agent` (`<project-slug>` is the same slug derived
+  from the current directory as the tree root in step 2). **No harness prefix** —
+  one `.me/` can serve multiple harnesses, so the agent isn't Claude-specific.
+- The pre-fill is a **free** name: if `<project-slug>-agent` already exists, it's
+  bumped to the next available variant, so confirming always creates a new agent
+  rather than colliding.
 - The confirmed name is the agent we create — granted the project tree root
   ("this project only") or nothing ("empty agent") — and written as `agent:` in
   `.me/config.yaml`.
@@ -180,6 +199,9 @@ A user logged into space `acme-eng`, running `me project init` in
 just pressing enter at each prompt:
 
 ```
+0. Which space should this project use?
+   > ● acme-eng (active)                        ⏎
+
 1. Do you want memories for this project to be public or private?
    > ● Public (recommended)                    ⏎
 
@@ -212,5 +234,5 @@ Result:
   CLAUDE.md pointer. (The capture plugin itself is already installed once via
   `me claude install` — not part of init.)
 
-So the happy path is **four enters**: public, accept the tree root, all-memories,
-run everything — no agent provisioning, no branching.
+So the happy path is **five enters**: active space, public, accept the tree root,
+all-memories, run everything — no agent provisioning, no branching.
