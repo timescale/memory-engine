@@ -13,6 +13,8 @@ These commands authenticate with your **session** (humans only — `me login`). 
 - [me space create](#me-space-create) -- create a space
 - [me space rename](#me-space-rename) -- rename a space
 - [me space delete](#me-space-delete) -- delete a space
+- [me space remove-member](#me-space-remove-member) -- remove a user/agent from the space (admin)
+- [me space leave](#me-space-leave) -- remove yourself from the space
 - [me space invite](#me-space-invite) -- invite a user (and manage invitations)
 
 ---
@@ -100,6 +102,42 @@ me space delete <space> [--force]
 | Option | Description |
 |--------|-------------|
 | `--force` | Skip the confirmation prompt. |
+
+---
+
+## me space remove-member
+
+Remove a **user or agent** from the active space's roster, scrubbing their access grants and group memberships in that space. Removing a **user** also removes every agent that user owns *from this space* (their own memories, keys, and other spaces are untouched). **Admin only.**
+
+```
+me space remove-member <principal> [-y]
+```
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `principal` | yes | User or agent **id or name** to remove. |
+
+| Option | Description |
+|--------|-------------|
+| `-y, --yes` | Skip the confirmation prompt. |
+
+Members only: a **group** cannot be removed this way — a group leaves a space only by being deleted (`me group delete`). Passing a group name errors clearly. Removing the space's **sole admin** is rejected (`LAST_ADMIN`) — promote another admin first. To remove yourself, use [`me space leave`](#me-space-leave); to remove your own agent, [`me agent remove`](me-agent.md#me-agent-remove) (neither needs admin).
+
+---
+
+## me space leave
+
+Remove **yourself** from the active space — no admin required. Your access grants and group memberships in the space are scrubbed, along with **any agents you own in this space** (their memories, keys, and other spaces are untouched). On success the active-space pointer is cleared.
+
+```
+me space leave [-y]
+```
+
+| Option | Description |
+|--------|-------------|
+| `-y, --yes` | Skip the confirmation prompt. |
+
+If you are the space's **sole admin**, the leave is rejected (`LAST_ADMIN`) — promote another admin (e.g. `me space invite --admin`, or add one) before leaving so the space keeps at least one.
 
 ---
 

@@ -66,6 +66,7 @@ let srv: RunningServer;
 let authSchema: string;
 let coreSchema: string;
 let spaceSlug: string;
+let spaceId: string;
 let token: string;
 let tmpHome: string;
 
@@ -93,6 +94,7 @@ describe.skipIf(
       { email: "e2e@example.test", name: "E2E" },
     );
     spaceSlug = provisioned.spaceSlug;
+    spaceId = provisioned.spaceId;
     // Inject a real OAuth access token as the bearer (ME_SESSION_TOKEN is the
     // raw-bearer override): store sha256(raw) in oauth_access_token — exactly
     // what the server hashes + looks up — and hand the CLI the raw token. Bound
@@ -270,6 +272,44 @@ describe.skipIf(
       await Bun.sleep(250);
     }
     throw new Error(`timed out waiting for ${count} embeddings`);
+  }
+
+  // Seed a SECOND, non-admin space member with their own OAuth bearer, so the
+  // suite can exercise self-service leave as a plain member (the primary
+  // identity is the space's sole admin). Mirrors the beforeAll token injection:
+  // insert the auth `users` row (verifyOAuthAccessToken joins it) + a hashed
+  // oauth_access_token, and hand back the raw token as env2.
+  async function seedSecondMember(): Promise<{
+    userId: string;
+    email: string;
+    env2: Record<string, string>;
+  }> {
+    const [idRow] = await sql.unsafe(`select uuidv7() as id`);
+    const userId = idRow?.id as string;
+    const email = `member_${rand()}@example.test`;
+    await sql.unsafe(
+      `insert into ${authSchema}.users (id, name, email, email_verified)
+         values ($1, $2, $3, true)`,
+      [userId, "Member", email],
+    );
+    // core side, via the same SQL functions ensureUserProvisioned composes
+    await sql.unsafe(`select ${coreSchema}.create_user($1, $2)`, [
+      userId,
+      email,
+    ]);
+    await sql.unsafe(
+      `select ${coreSchema}.add_principal_to_space($1, $2, $3)`,
+      [spaceId, userId, false], // non-admin member
+    );
+
+    const raw = `me_at_${rand()}${rand()}`;
+    await sql.unsafe(
+      `insert into ${authSchema}.oauth_access_token
+         (token, client_id, user_id, scopes, expires_at)
+       values ($1, 'me-cli', $2, '["openid"]'::jsonb, now() + interval '24 hours')`,
+      [createHash("sha256").update(raw).digest("hex"), userId],
+    );
+    return { userId, email, env2: { ME_SESSION_TOKEN: raw } };
   }
 
   // -------------------------------------------------------------------------
@@ -1690,5 +1730,90 @@ describe.skipIf(
 
     const noAuth = await me(["whoami"], { ME_SESSION_TOKEN: "" });
     expect(noAuth.code).not.toBe(0);
+  });
+
+  test("11. space leave: a non-admin member self-removes, cascading their agent", async () => {
+    const { env2 } = await seedSecondMember();
+
+    // the member is in the space before leaving
+    const before = await meJson<{ spaces: { slug: string }[] }>(
+      ["space", "list"],
+      env2,
+    );
+    expect(before.spaces.some((s) => s.slug === spaceSlug)).toBe(true);
+
+    // they bring one of their own agents into the space (self-service)
+    const agent = await meJson<{ id: string }>(
+      ["agent", "create", `leaver-${rand()}`],
+      env2,
+    );
+    await me(["agent", "add", agent.id], env2);
+    const agentSpaces = await meJson<{ spaces: { slug: string }[] }>(
+      ["agent", "spaces", agent.id],
+      env2,
+    );
+    expect(agentSpaces.spaces.some((s) => s.slug === spaceSlug)).toBe(true);
+
+    // leave (self-service, no admin) succeeds
+    const left = await meJson<{ removed: boolean }>(
+      ["space", "leave", "-y"],
+      env2,
+    );
+    expect(left.removed).toBe(true);
+
+    // the space is no longer on the member's roster…
+    const after = await meJson<{ spaces: { slug: string }[] }>(
+      ["space", "list"],
+      env2,
+    );
+    expect(after.spaces.some((s) => s.slug === spaceSlug)).toBe(false);
+
+    // …and the cascade removed the agent from the space too
+    const agentAfter = await meJson<{ spaces: { slug: string }[] }>(
+      ["agent", "spaces", agent.id],
+      env2,
+    );
+    expect(agentAfter.spaces.some((s) => s.slug === spaceSlug)).toBe(false);
+  });
+
+  test("11a. the sole admin cannot leave (LAST_ADMIN)", async () => {
+    // the primary identity is the space's only admin
+    const r = await me(["space", "leave", "-y"]);
+    expect(r.code).not.toBe(0);
+    expect(`${r.stdout}${r.stderr}`.toLowerCase()).toContain("sole admin");
+    // still a member (and still admin) after the rejected leave
+    const who = await meJson<{ activeSpace: string }>(["whoami"]);
+    expect(who.activeSpace).toBe(spaceSlug);
+  });
+
+  test("12. space remove-member: an admin removes an agent from the roster", async () => {
+    // the admin creates an agent, adds it, then removes it from the space
+    const agent = await meJson<{ id: string }>([
+      "agent",
+      "create",
+      `evictee-${rand()}`,
+    ]);
+    await me(["agent", "add", agent.id]);
+    const inSpace = await meJson<{ spaces: { slug: string }[] }>([
+      "agent",
+      "spaces",
+      agent.id,
+    ]);
+    expect(inSpace.spaces.some((s) => s.slug === spaceSlug)).toBe(true);
+
+    const removed = await meJson<{ removed: boolean }>([
+      "space",
+      "remove-member",
+      agent.id,
+      "-y",
+    ]);
+    expect(removed.removed).toBe(true);
+
+    const gone = await meJson<{ spaces: { slug: string }[] }>([
+      "agent",
+      "spaces",
+      agent.id,
+    ]);
+    expect(gone.spaces.some((s) => s.slug === spaceSlug)).toBe(false);
   });
 });
