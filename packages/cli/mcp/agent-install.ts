@@ -33,7 +33,7 @@ export type InstallPins =
 /**
  * Resolve the opt-in `--server`/`--space` pins for `me <harness> install`.
  *
- * Rules (HARNESS_INTEGRATION_DESIGN.md §5):
+ * Rules (design/HARNESS_INTEGRATION_DESIGN.md §5):
  * - No flags → pin nothing; the MCP server resolves everything at runtime.
  * - `--space` implies `--server`: a space slug only exists on its server, so a
  *   space pin resolves the server (flag > resolved default) and pins the PAIR.

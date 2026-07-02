@@ -28,7 +28,7 @@ export const DIM_OFF = "\x1b[22m";
 export const CHECK = "\x1b[32m✓\x1b[39m";
 
 /**
- * Project-scope precondition (design: HARNESS_INTEGRATION_DESIGN.md §5):
+ * Project-scope precondition (design/HARNESS_INTEGRATION_DESIGN.md §5):
  * `me <harness> init` requires a `.me/config.yaml` with an `agent:` in scope —
  * project scope MEANS agent identity, and every authored command bakes
  * `--as-agent .me`. Fails fast (exit 1) before anything is written, pointing

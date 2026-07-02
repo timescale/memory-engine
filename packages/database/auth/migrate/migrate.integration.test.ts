@@ -44,7 +44,7 @@ const EXPECTED_TABLES = [
 // names are dictated by the library's adapter (and the @better-auth/oauth-provider
 // plugin) — drift breaks at runtime (a missing/renamed field the adapter reads),
 // invisibly to the table-name check above. Freezing the full set turns any
-// unmigrated change red and forces the AUTH_DESIGN "Upgrading better-auth"
+// unmigrated change red and forces the design/AUTH_DESIGN "Upgrading better-auth"
 // checklist to be run. Listed in definition order; the assertion sorts both sides.
 // (The `migration` + `version` tables are our own infra, not better-auth's, so
 // they're intentionally excluded.)

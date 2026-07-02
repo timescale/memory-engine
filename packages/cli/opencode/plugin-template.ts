@@ -12,7 +12,7 @@
  * resolution) lives in the `me` CLI, consistent with the "require `me` on PATH,
  * don't bundle the binary" decision.
  *
- * Scope shapes two things (HARNESS_INTEGRATION_DESIGN.md §3.2):
+ * Scope shapes two things (design/HARNESS_INTEGRATION_DESIGN.md §3.2):
  *   - **project** scope bakes `--as-agent .me` into the hook command (captures
  *     write as the project's agent) AND exports a `shell.env` hook injecting
  *     `ME_AS_AGENT=.me` into every tool shell (so the agent's ad-hoc `me` calls

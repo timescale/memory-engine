@@ -1,7 +1,7 @@
 /**
  * me opencode — OpenCode integration commands.
  *
- * Two scopes, two commands (HARNESS_INTEGRATION_DESIGN.md §3.2):
+ * Two scopes, two commands (design/HARNESS_INTEGRATION_DESIGN.md §3.2):
  *   - `me opencode install`: USER scope (`~/.config/opencode/`) — acts as the
  *     human. MCP + capture plugin + skill + /memory-recall command + a user
  *     context snippet in `~/.config/opencode/AGENTS.md`. No agent mode, no env

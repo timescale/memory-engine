@@ -9,7 +9,7 @@
  * - the context snippet (the managed "memory pointer" block written into
  *   CLAUDE.md / AGENTS.md / GEMINI.md).
  *
- * Scope determines identity (design: HARNESS_INTEGRATION_DESIGN.md §2): at
+ * Scope determines identity (design/HARNESS_INTEGRATION_DESIGN.md §2): at
  * project scope every embedded `me` CLI invocation carries `--as-agent .me`;
  * at user scope it doesn't. Renderers take `{ agentMode }` for that.
  *

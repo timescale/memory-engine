@@ -1,6 +1,6 @@
 /**
  * Tests for the shared agent-install helpers — the `--server`/`--space` pin
- * rules for `me <harness> install` (HARNESS_INTEGRATION_DESIGN.md §5).
+ * rules for `me <harness> install` (design/HARNESS_INTEGRATION_DESIGN.md §5).
  */
 import { describe, expect, test } from "bun:test";
 import { resolveInstallPins } from "./agent-install.ts";

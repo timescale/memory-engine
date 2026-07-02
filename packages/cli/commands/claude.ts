@@ -2,7 +2,7 @@
  * me claude — Claude Code integration commands.
  *
  * Direct-write integration (no marketplace plugin — see
- * HARNESS_INTEGRATION_DESIGN.md §6). Two scopes, two commands:
+ * design/HARNESS_INTEGRATION_DESIGN.md §6). Two scopes, two commands:
  *   - `me claude install`: USER scope (`~/.claude/`) — acts as the human. MCP
  *     (`claude mcp add --scope user`), capture hooks in `~/.claude/settings.json`,
  *     the memory-engine skill, the /memory-recall command, and a user memory

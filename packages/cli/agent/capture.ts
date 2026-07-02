@@ -8,7 +8,7 @@
  * are thin adapters: parse the harness's event payload into a transcript path
  * (+ session cwd), pick the importer, and call {@link runCaptureHook}.
  *
- * Semantics (design: HARNESS_INTEGRATION_DESIGN.md §2/§5):
+ * Semantics (design/HARNESS_INTEGRATION_DESIGN.md §2/§5):
  *
  * - **Best-effort, never throws.** Failures log to stderr with a
  *   `[memory-engine]` prefix; the caller always exits 0 so a capture problem

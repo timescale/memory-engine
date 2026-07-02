@@ -1,7 +1,7 @@
 /**
  * me codex — Codex CLI integration commands.
  *
- * Direct-write, scope-split (HARNESS_INTEGRATION_DESIGN.md §3.3):
+ * Direct-write, scope-split (design/HARNESS_INTEGRATION_DESIGN.md §3.3):
  *   - `me codex install`: USER scope (`~/.codex/`, `~/.agents/skills/`) — acts
  *     as the human. MCP + shell-env live in `config.toml` (a managed TOML
  *     block); capture hooks in `hooks.json`; the memory-engine + memory-recall

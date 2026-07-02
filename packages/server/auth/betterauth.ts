@@ -16,7 +16,7 @@
 // UPGRADING better-auth: the versions here are pinned EXACTLY (no `^`) because
 // better-auth owns DB tables — a bump can change the schema it expects and drift
 // from our hand-maintained migrations + the field mapping below. Follow the
-// regenerate→diff→migrate checklist in AUTH_DESIGN.md ("Upgrading better-auth")
+// regenerate→diff→migrate checklist in design/AUTH_DESIGN.md ("Upgrading better-auth")
 // before bumping; the auth migration test is the drift guard.
 //
 // Design notes (see the migration discussion / CLAUDE.md):
@@ -125,7 +125,7 @@ export function createBetterAuth(opts: BetterAuthOptions) {
           // and credentials minted while verified keep working. `email_verified`
           // is the provider's claim (GitHub/Google only release a verified
           // email), re-read on every login. Throwing an APIError makes the
-          // social callback redirect to the error URL (see AUTH_DESIGN flows
+          // social callback redirect to the error URL (see design/AUTH_DESIGN flows
           // A/B) rather than 500.
           before: async (session) => {
             if (!(await getUserEmailVerified(session.userId))) {

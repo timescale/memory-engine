@@ -1,7 +1,7 @@
 /**
  * me gemini — Gemini CLI integration commands.
  *
- * Direct-write, scope-split (HARNESS_INTEGRATION_DESIGN.md §3.4):
+ * Direct-write, scope-split (design/HARNESS_INTEGRATION_DESIGN.md §3.4):
  *   - `me gemini install`: USER scope (`~/.gemini/`, `~/.agents/skills/`) — acts
  *     as the human. MCP (`mcpServers.me`) + capture hooks in settings.json, the
  *     memory-engine skill in `~/.agents/skills/`, the /memory-recall TOML
