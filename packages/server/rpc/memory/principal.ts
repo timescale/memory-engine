@@ -94,11 +94,17 @@ async function principalRemove(
   // intentionally NOT covered here — its owner removes it via `me agent remove`.
   // `LAST_ADMIN` still protects a sole admin (the deferred trigger, mapped by
   // guardCore).
+  //
+  // The allow set is `isSelfUser || admin || ownAgent`. Evaluate the two cheap
+  // in-context checks first and only fall back to the own-agent carve-out — a
+  // `getPrincipal` round-trip — for a non-self, non-admin removal, so the common
+  // admin remove-member and self-leave paths pay no extra query.
   const isSelfUser =
     params.principalId === ctx.principalId && ctx.ownerId === null;
-  const ownAgent = await callerOwnsAgentGlobal(ctx, params.principalId);
-  if (!isSelfUser && !ownAgent) {
-    requireSpaceAdmin(ctx);
+  if (!isSelfUser && !ctx.admin) {
+    const ownAgent = await callerOwnsAgentGlobal(ctx, params.principalId);
+    // Not self, not admin, not the caller's own agent → structural, denied.
+    if (!ownAgent) requireSpaceAdmin(ctx);
   }
   const removed = await guardCore(() =>
     ctx.core.removePrincipalFromSpace(ctx.space.id, params.principalId),
