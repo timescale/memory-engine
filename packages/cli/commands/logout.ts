@@ -19,7 +19,7 @@ export function createLogoutCommand(): Command {
 
       clearServerCredentials(server);
 
-      output({ server, loggedOut: true }, fmt, () => {
+      await output({ server, loggedOut: true }, fmt, () => {
         clack.log.success(`Logged out from ${server}`);
       });
     });
