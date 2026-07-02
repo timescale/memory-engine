@@ -1786,6 +1786,21 @@ describe.skipIf(
     expect(who.activeSpace).toBe(spaceSlug);
   });
 
+  test("11b. an agent principal cannot leave — actionable error, not a bare FORBIDDEN", async () => {
+    // an owned agent; run `space leave` AS that agent (ME_AS_AGENT) — whoami then
+    // reports kind "a", and the CLI must reject with a clear message.
+    const agent = await meJson<{ id: string }>([
+      "agent",
+      "create",
+      `noleave-${rand()}`,
+    ]);
+    const r = await me(["space", "leave", "-y"], { ME_AS_AGENT: agent.id });
+    expect(r.code).not.toBe(0);
+    expect(`${r.stdout}${r.stderr}`.toLowerCase()).toContain(
+      "only a user can leave",
+    );
+  });
+
   test("12. space remove-member: an admin removes an agent from the roster", async () => {
     // the admin creates an agent, adds it, then removes it from the space
     const agent = await meJson<{ id: string }>([

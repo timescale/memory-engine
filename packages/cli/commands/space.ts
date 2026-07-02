@@ -405,6 +405,22 @@ function createSpaceLeaveCommand(): Command {
       try {
         const me = await user.whoami();
 
+        // `leave` is for users removing themselves. An agent principal (an agent
+        // api key, or a human acting via --as-agent / ME_AS_AGENT) can't self-
+        // remove — the server would deny it with an opaque FORBIDDEN — so reject
+        // it here with an actionable message. An agent leaves a space when its
+        // owner runs `me agent remove`, or is removed with the owner via `leave`.
+        if (me.kind !== "u") {
+          const msg =
+            "Only a user can leave a space. To take an agent out of a space, its owner runs 'me agent remove <agent>'.";
+          if (fmt === "text") {
+            clack.log.error(msg);
+          } else {
+            output({ error: msg }, fmt, () => {});
+          }
+          process.exit(1);
+        }
+
         if (fmt === "text" && !opts.yes) {
           clack.log.warn(
             "This removes you from the active space, along with any agents you own in it.",
