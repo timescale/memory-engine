@@ -76,28 +76,31 @@ Starts a local web UI on `http://127.0.0.1:3000` (or the next free port) with a 
 
 ## Connect to AI tools
 
-Register Memory Engine with your AI coding tools:
+Register Memory Engine with your AI coding tools. Each has two commands:
+
+**`me <tool> install`** — set it up **for your user** (global). MCP tools,
+session capture, the `memory-engine` skill, and a `/memory-recall` command, all
+running as **you** (your `me login` session):
 
 ```bash
+me claude install
 me opencode install
 me codex install
 me gemini install
 ```
 
-For OpenCode, `me opencode init` goes further — it backfills existing sessions, installs a capture plugin for automatic session capture going forward, registers the MCP server, and adds a memory pointer to `AGENTS.md`:
+**`me <tool> init`** — set up **this project** (committable config in the repo).
+It backfills existing sessions + git history, installs ongoing capture + a git
+post-commit hook, and adds a memory pointer to the tool's context file. Memory
+access runs as the **project's agent** (the `agent` in `.me/config.yaml`) — so
+the harness acts as a constrained agent that belongs to you, not as you:
 
 ```bash
-me opencode init             # guided per-project setup
+me claude init      # or: me opencode init / me codex init / me gemini init
 ```
 
-For Claude Code, `me claude install` installs the full Memory Engine plugin (hooks + slash commands + MCP):
-
-```bash
-me claude install            # full plugin
-me claude install --mcp-only # or just the MCP server
-```
-
-This drives Claude Code's native plugin flow for you (`claude plugin marketplace add` + `claude plugin install`), passing your resolved server/space/api_key through `--config`. Afterwards, restart Claude Code (or run `/plugin`) to load the hooks and slash commands; you can re-run `/plugin` → `memory-engine` → Configure to adjust options. All are optional except `server`: leave `api_key` blank to use your `me login` session, leave `space` blank to use your active space, and `tree_root` defaults to `/share/projects`.
+`init` requires a `.me/config.yaml` with an `agent:` (see
+[Project config](project-config.md#the-agent-field-act-as-agent)).
 
 After installation, your AI agent has access to memory tools -- create, search, get, update, delete, and more.
 

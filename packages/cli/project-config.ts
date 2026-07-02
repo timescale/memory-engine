@@ -179,6 +179,11 @@ export function setConfigDirOverride(dir: string | undefined): void {
   cached = undefined;
 }
 
+/** Current process-level config-dir override, for temporarily scoped overrides. */
+export function getConfigDirOverride(): string | undefined {
+  return configDirOverride;
+}
+
 /**
  * The resolved project config for the current process (discovered from
  * `process.cwd()`, honoring `--config-dir` / `ME_CONFIG_DIR`), memoized so the

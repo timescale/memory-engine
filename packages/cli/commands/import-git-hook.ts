@@ -55,12 +55,18 @@ export function resolveMeInvocation(): string {
   );
 }
 
-/** The managed block (ends with a newline). */
-export function buildHookBlock(invocation: string): string {
+/** The managed block (ends with a newline). `asAgent` (project-scope installs,
+ * normally ".me") bakes the global `--as-agent` flag before the subcommand so
+ * imported commits are written as the project's agent. */
+export function buildHookBlock(
+  invocation: string,
+  opts: { asAgent?: string } = {},
+): string {
+  const asAgent = opts.asAgent ? ` --as-agent ${opts.asAgent}` : "";
   return [
     HOOK_START,
     "# Best-effort and asynchronous: never blocks or fails the commit.",
-    `(${invocation} import git >/dev/null 2>&1 &)`,
+    `(${invocation}${asAgent} import git >/dev/null 2>&1 &)`,
     HOOK_END,
     "",
   ].join("\n");
@@ -154,6 +160,8 @@ export interface GitHookOptions {
   remove?: boolean;
   /** Soft-skip when the target isn't a git repo (used by `me claude init`). */
   skipIfNotRepo?: boolean;
+  /** Bake `--as-agent <v>` into the hook's `me import git` (project scope). */
+  asAgent?: string;
 }
 
 /**
@@ -231,7 +239,7 @@ export async function runGitHookInstall(
   const updated = existing !== null && existing.includes(HOOK_START);
   const next = upsertHookScript(
     existing,
-    buildHookBlock(resolveMeInvocation()),
+    buildHookBlock(resolveMeInvocation(), { asAgent: opts.asAgent }),
   );
   await mkdir(join(hooksFile, ".."), { recursive: true });
   await writeFile(hooksFile, next);

@@ -2,16 +2,29 @@
 
 Codex CLI integration commands.
 
+Two scopes, two commands:
+
+- **`me codex install`** — set up the integration **for your user**
+  (`~/.codex/`, `~/.agents/skills/`). Runs as **you**.
+- **`me codex init`** — set up **this project** (`.codex/`, `.agents/skills/`,
+  repo `AGENTS.md`). Runs as the **project's agent** (`.me` `agent`).
+
 ## Commands
 
-- [me codex install](#me-codex-install) -- register `me` as an MCP server with Codex CLI
-- [me codex import](#me-codex-import) -- import Codex sessions from `~/.codex/sessions` and `~/.codex/archived_sessions`
+- [me codex install](#me-codex-install) -- user-scope setup (MCP + capture hook + skills + pointer)
+- [me codex init](#me-codex-init) -- project-scope setup, acting as the project's `.me` agent (+ git history + backfills)
+- [me codex hook](#me-codex-hook) -- invoked by the Codex Stop hook (not run by hand)
+- [me codex import](#me-codex-import) -- import Codex sessions from `~/.codex/sessions`
 
 ---
 
 ## me codex install
 
-Register `me` as an MCP server with Codex CLI.
+Set up the Codex integration for your user. Writes: the MCP server
+(a managed `[mcp_servers.me]` block in `~/.codex/config.toml`), the capture
+hook (`hooks.json`), the `memory-engine` + `memory-recall` skills (in the shared
+`~/.agents/skills/` — Codex custom prompts are deprecated, so recall ships as a
+skill), and a memory pointer in `~/.codex/AGENTS.md`. Runs as **you**.
 
 ```
 me codex install [options]
@@ -19,28 +32,46 @@ me codex install [options]
 
 | Option | Description |
 |--------|-------------|
-| `--api-key <key>` | API key for a headless agent. Default: the MCP server uses your `me login` session, resolved at runtime. |
-| `--space <slug>` | Pin a space. Default: resolve `ME_SPACE` / active space at runtime. |
-| `--server <url>` | Server URL to embed in the MCP config. |
+| `--server <url>` | Pin a server into the MCP config. |
+| `--space <slug>` | Pin a space into the MCP config. Implies `--server`. |
+| `--remove` | Remove the user-scope integration. |
 
-By default only the server URL is baked into the config: at runtime `me mcp` uses your `me login` session (resolved from the OS keychain / `~/.config/me` each run, so it survives re-login) and your active space (set by `me space use` / `ME_SPACE`). Pass `--api-key` (mint one with `me apikey create --agent <agent>`, or `me apikey create` for a personal access token) for a headless agent that cannot reach your keychain; that bakes the key and requires a pinned `--space`.
+---
 
-For manual MCP client configuration, see [MCP Integration](../mcp-integration.md).
+## me codex init
+
+Set up **this project**, acting as the project's agent. Requires a
+`.me/config.yaml` with an `agent:` (fails fast otherwise). Steps (picker in a
+TTY; else every step minus its `--skip-*` flag):
+
+- **Import this project's existing Codex sessions** (one-time backfill)
+- **Install the capture hook** in `.codex/hooks.json` (Codex's turn-end `Stop`)
+- **Register the MCP server** + a `[shell_environment_policy]` injecting `ME_AS_AGENT=.me` — both in `.codex/config.toml`
+- **Install the `memory-engine` + `memory-recall` skills** (`.agents/skills/`)
+- **Import git history** + **install a git post-commit hook** (act as the agent)
+- **Add a memory pointer to AGENTS.md**
+
+Codex gates project `.codex/` config behind **trusting the project**, and a new
+capture hook needs a one-time approval (`/hooks`) — `init` prints a reminder.
+All baked `me` invocations carry `--as-agent .me`.
+
+---
+
+## me codex hook
+
+Invoked by the Codex `Stop` hook (reads the event JSON from stdin) to import
+the session rollout — the same path as `me codex import`, incremental. Not run
+by hand.
+
+```
+me codex hook --event stop [--scope <user|project>] [--full-transcript]
+```
+
+Best-effort: always exits 0.
 
 ---
 
 ## me codex import
 
-Import Codex sessions from `~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl` and `~/.codex/archived_sessions/*.jsonl`. This is an alias of [`me import codex`](me-import.md#me-import-claude--codex--opencode).
-
-```
-me codex import [options]
-```
-
-See [agent session imports](agent-session-imports.md) for the full option reference, tree layout, idempotency rules, content shape, and metadata schema.
-
-Codex sessions include git commit, branch, and remote URL in `session_meta`, so the importer captures all three. Both the recent on-disk format (with a leading `session_meta` line wrapping payloads in `response_item` / `event_msg`) and the legacy format (bare response-item-like objects per line) are handled.
-
-Reasoning and function-call response items don't always carry a native id. In those cases the importer synthesizes a stable id from `(session_id, type, ordinal)` so re-imports remain idempotent.
-
-Injected Codex wrapper messages like `# AGENTS.md instructions ...`, `<user_instructions>...</user_instructions>`, `<environment_context>...</environment_context>`, and `<turn_aborted>...</turn_aborted>` are ignored.
+Import Codex sessions from `~/.codex/sessions` and `~/.codex/archived_sessions`.
+Alias of [`me import codex`](./me-import.md).

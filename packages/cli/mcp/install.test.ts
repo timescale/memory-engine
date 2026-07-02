@@ -57,6 +57,38 @@ describe("buildMeCommand", () => {
       "abc123def456",
     ]);
   });
+
+  test("bakes nothing by default (runtime resolution)", () => {
+    expect(buildMeCommand({})).toEqual(["me", "mcp"]);
+  });
+
+  test("asAgent prefixes the global flag BEFORE the mcp subcommand", () => {
+    expect(buildMeCommand({ asAgent: ".me" })).toEqual([
+      "me",
+      "--as-agent",
+      ".me",
+      "mcp",
+    ]);
+  });
+
+  test("asAgent composes with pins (flag stays before the subcommand)", () => {
+    expect(
+      buildMeCommand({
+        asAgent: ".me",
+        server: "https://example.com",
+        space: "abc123def456",
+      }),
+    ).toEqual([
+      "me",
+      "--as-agent",
+      ".me",
+      "mcp",
+      "--server",
+      "https://example.com",
+      "--space",
+      "abc123def456",
+    ]);
+  });
 });
 
 describe("buildOpenCodeConfig", () => {

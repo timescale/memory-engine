@@ -1,576 +1,459 @@
 /**
  * me claude — Claude Code integration commands.
  *
- * `me claude install` has two modes:
+ * Direct-write integration (no marketplace plugin — see
+ * design/HARNESS_INTEGRATION_DESIGN.md §6). Two scopes, two commands:
+ *   - `me claude install`: USER scope (`~/.claude/`) — acts as the human. MCP
+ *     (`claude mcp add --scope user`), capture hooks in `~/.claude/settings.json`,
+ *     the memory-engine skill, the /memory-recall command, and a user memory
+ *     pointer in `~/.claude/CLAUDE.md`. Optional `--server`/`--space` pins.
+ *   - `me claude init`: PROJECT scope (`.claude/` + repo `.mcp.json` / CLAUDE.md)
+ *     — acts as the project's `.me` agent. Everything install does plus
+ *     `--as-agent .me` on the MCP + hook commands, `env.ME_AS_AGENT=.me` in
+ *     `.claude/settings.json`, the git post-commit hook, and one-time backfills.
+ *     Requires a `.me/config.yaml` with an `agent:` (fail-fast).
+ *   - `me claude hook`: invoked by the settings hooks (reads event from stdin).
+ *   - `me claude import`: bulk-import Claude Code session history.
  *
- *   1. Full plugin (default) — installs the Memory Engine plugin (hooks +
- *      slash commands + MCP) via Claude Code's native plugin marketplace,
- *      driving the same commands you'd otherwise run by hand:
- *
- *        claude plugin marketplace add timescale/memory-engine
- *        claude plugin install memory-engine@memory-engine \
- *          [--config server=…] [--config space=…] [--config api_key=…]
- *
- *      Claude Code delivers any configured values to our hook (`me claude
- *      hook --event <name>`) and the plugin's MCP server via CLAUDE_PLUGIN_OPTION_*
- *      env vars. By default we pin NOTHING — a personal install leaves all three
- *      blank so the plugin tracks your live `me` config at runtime (default
- *      server, active space, login session), the same fallback the CLI uses.
- *      Pinning is opt-in: `--server` / `--space` pin those, and an api key
- *      (`--api-key` / ME_API_KEY) marks a headless install — no session to fall
- *      back to — so it bakes in a fixed server + space + key together.
- *
- *      Pass --dev (run from inside the repo) to install the plugin from your
- *      local checkout — the repo's .claude-plugin/marketplace.json — instead of
- *      the published marketplace. The two share the marketplace name
- *      "memory-engine", so --dev re-points it at your working tree and
- *      reinstalls fresh (plugin files are copied into the cache, so a new build
- *      needs a reinstall).
- *
- *   2. MCP-only (`--mcp-only`) — registers `me` as an MCP server with Claude
- *      Code (no hooks, no slash commands — just the tools).
+ * Claude reads CLAUDE.md, not AGENTS.md — so the project pointer goes in
+ * CLAUDE.md, using an `@AGENTS.md` import when a shared AGENTS.md block already
+ * exists (written by another harness's init).
  */
-import { existsSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import * as clack from "@clack/prompts";
-import { Command, InvalidArgumentError } from "commander";
+import { Command } from "commander";
+import {
+  ASSET_MARKER,
+  type AssetRenderOptions,
+  projectSnippetMarkers,
+  RECALL_COMMAND_FILENAME,
+  renderClaudeImportSnippet,
+  renderProjectContextSnippet,
+  renderRecallCommand,
+  renderSkill,
+  renderUserContextSnippet,
+  SKILL_FILENAME,
+  SKILL_NAME,
+  userSnippetMarkers,
+} from "../agent/assets.ts";
+import { parseHookScope, runCaptureHook } from "../agent/capture.ts";
 import {
   buildInitCommand,
   DIM,
   DIM_OFF,
   type InitStep,
+  type InitStepContext,
   initOutroLead,
+  requireProjectAgent,
   type StepAvailability,
 } from "../agent/init.ts";
 import {
-  type MemoryPointerSpec,
-  memoryPointerUpToDate,
-  writeMemoryPointer,
-} from "../agent/memory-pointer.ts";
-
-export { initOutroLead };
-
+  managedFileInstalled,
+  readJsonFile,
+  removeBlockFromFile,
+  removeManagedFile,
+  type UpsertOutcome,
+  updateJsonFile,
+  upsertBlockInFile,
+  writeManagedFile,
+} from "../agent/managed.ts";
 import {
-  HOOK_EVENT_NAMES,
-  type HookEvent,
-  type HookEventName,
-  resolveHookConfigFromEnv,
-  SESSIONS_NODE,
-} from "../claude/capture.ts";
-import { createMemoryClient } from "../client.ts";
+  claudeSettingsHasCapture,
+  removeClaudeSettings,
+  upsertClaudeSettings,
+} from "../claude/settings.ts";
 import { resolveCredentials } from "../credentials.ts";
 import { claudeImporter } from "../importers/claude.ts";
-import { importTranscriptFile } from "../importers/index.ts";
+import { DEFAULT_TREE_ROOT } from "../importers/index.ts";
 import { SlugRegistry } from "../importers/slug.ts";
 import {
-  type AgentInstallOptions,
-  runAgentMcpInstall,
-} from "../mcp/agent-install.ts";
-import {
-  discoverProjectConfig,
-  setConfigDirOverride,
-} from "../project-config.ts";
-import { memoryBearer } from "../session.ts";
+  buildMeCommand,
+  installMcpServer,
+  MCP_TOOLS,
+  type McpToolCli,
+} from "../mcp/install.ts";
 import { createClaudeImportCommand, runAgentImport } from "./import.ts";
 import { runGitImport } from "./import-git.ts";
 import { gitHookStatus, runGitHookInstall } from "./import-git-hook.ts";
 
-/** GitHub source for `claude plugin marketplace add`. */
-const PLUGIN_MARKETPLACE_SOURCE = "timescale/memory-engine";
-/** The marketplace `name` (from .claude-plugin/marketplace.json). */
-const PLUGIN_MARKETPLACE_NAME = "memory-engine";
-/** `<plugin>@<marketplace>` ref for `claude plugin install`. */
-const PLUGIN_REF = `memory-engine@${PLUGIN_MARKETPLACE_NAME}`;
+export { initOutroLead };
 
-const CLAUDE_SCOPES = ["local", "user", "project"] as const;
-type ClaudeScope = (typeof CLAUDE_SCOPES)[number];
+/** Claude Code capture events (Stop = per-turn, SessionEnd = final flush). */
+const HOOK_EVENT_NAMES = ["stop", "session-end"] as const;
+type HookEventName = (typeof HOOK_EVENT_NAMES)[number];
 
-function parseClaudeScope(value: string): ClaudeScope {
-  if (!CLAUDE_SCOPES.includes(value as ClaudeScope)) {
-    throw new InvalidArgumentError(
-      `must be one of: ${CLAUDE_SCOPES.join(", ")}`,
-    );
-  }
-  return value as ClaudeScope;
+/** The slice of a Claude hook event payload we read from stdin. */
+interface HookEvent {
+  transcript_path?: string;
+  cwd?: string;
 }
 
-/**
- * me claude install — install the Memory Engine plugin for Claude Code.
- *
- * Default: the full plugin (hooks + slash commands + MCP), installed via
- * Claude Code's native plugin marketplace. `--mcp-only` falls back to
- * registering just the `me` MCP server (no hooks, no slash commands).
- */
-function createClaudeInstallCommand(): Command {
-  return new Command("install")
-    .description(
-      "install the Memory Engine plugin for Claude Code (hooks + slash commands + MCP)",
-    )
-    .option(
-      "--mcp-only",
-      "register only the me MCP server (no hooks or slash commands)",
-    )
-    .option(
-      "--api-key <key>",
-      "API key for a headless agent (default: use your login session at runtime)",
-    )
-    .option("--server <url>", "server URL to embed in the config")
-    .option(
-      "--space <slug>",
-      "pin a space (default: resolve ME_SPACE / active space at runtime)",
-    )
-    .option(
-      "-s, --scope <scope>",
-      `Claude Code config scope (${CLAUDE_SCOPES.join(", ")})`,
-      parseClaudeScope,
-      "user",
-    )
-    .option(
-      "--dev",
-      "install the plugin from the local checkout instead of the published marketplace (run from inside the repo)",
-    )
-    .action(
-      async (
-        opts: AgentInstallOptions & {
-          scope: ClaudeScope;
-          mcpOnly?: boolean;
-          dev?: boolean;
-        },
-        cmd: Command,
-      ) => {
-        const globalOpts = cmd.optsWithGlobals();
-        const server = globalOpts.server ?? opts.server;
-        if (opts.mcpOnly) {
-          if (opts.dev) {
-            clack.log.warn(
-              "--dev has no effect with --mcp-only: the MCP server already runs your local `me` binary on PATH.",
-            );
-          }
-          await runAgentMcpInstall("claude", {
-            apiKey: opts.apiKey,
-            server,
-            space: opts.space,
-            scope: opts.scope,
-          });
-          return;
-        }
-        await runClaudePluginInstall({
-          apiKey: opts.apiKey,
-          server,
-          space: opts.space,
-          scope: opts.scope,
-          dev: opts.dev,
-        });
-      },
-    );
+type Scope = "user" | "project";
+
+// =============================================================================
+// Scoped asset paths
+// =============================================================================
+
+const USER_CLAUDE_DIR = join(homedir(), ".claude");
+const claudeBase = (scope: Scope, root: string): string =>
+  scope === "project" ? join(root, ".claude") : USER_CLAUDE_DIR;
+const settingsFile = (scope: Scope, root: string): string =>
+  join(claudeBase(scope, root), "settings.json");
+const skillFile = (scope: Scope, root: string): string =>
+  join(claudeBase(scope, root), "skills", SKILL_NAME, SKILL_FILENAME);
+const recallFile = (scope: Scope, root: string): string =>
+  join(claudeBase(scope, root), "commands", RECALL_COMMAND_FILENAME);
+/** Context file: repo CLAUDE.md (project) vs ~/.claude/CLAUDE.md (user). */
+const contextFile = (scope: Scope, root: string): string =>
+  scope === "project"
+    ? join(root, "CLAUDE.md")
+    : join(USER_CLAUDE_DIR, "CLAUDE.md");
+
+function verb(o: UpsertOutcome): string {
+  return o === "installed"
+    ? "Installed"
+    : o === "updated"
+      ? "Updated"
+      : "Already up to date:";
 }
 
-/** Run a command, capturing its exit code, stdout, and stderr. */
-async function runCommand(
-  cmd: string[],
-): Promise<{ exitCode: number; stdout: string; stderr: string }> {
-  const proc = Bun.spawn(cmd, { stdout: "pipe", stderr: "pipe" });
-  const [stdout, stderr] = await Promise.all([
-    new Response(proc.stdout).text(),
-    new Response(proc.stderr).text(),
-  ]);
-  const exitCode = await proc.exited;
-  return { exitCode, stdout, stderr };
-}
+const renderOpts = (scope: Scope): AssetRenderOptions => ({
+  agentMode: scope === "project",
+});
 
-/**
- * Walk up from `startDir` to the repo's marketplace manifest
- * (`.claude-plugin/marketplace.json`), returning the directory that contains it
- * — the marketplace root passed to `claude plugin marketplace add`. Used by
- * `--dev` to install the plugin from the local checkout. Returns undefined when
- * not run from inside the repo.
- */
-function findRepoMarketplaceRoot(startDir: string): string | undefined {
-  let dir = resolve(startDir);
-  for (;;) {
-    if (existsSync(join(dir, ".claude-plugin", "marketplace.json"))) return dir;
-    const parent = dirname(dir);
-    if (parent === dir) return undefined; // reached filesystem root
-    dir = parent;
-  }
-}
+const claudeTool = (): McpToolCli => {
+  const tool = MCP_TOOLS.find((t) => t.bin === "claude");
+  if (!tool || tool.method !== "cli") throw new Error("claude tool missing");
+  return tool;
+};
 
-/** The `--config` args to bake into the install, or a fatal validation error. */
-export type PluginConfigDecision =
-  | { config: string[]; warn?: string }
-  | { error: string };
+// =============================================================================
+// Scoped asset installers (shared by install + init)
+// =============================================================================
 
-/**
- * Decide what (if anything) to pin into the plugin config. Pure, so it's unit
- * tested independently of the install shell-out.
- *
- * Default: pin NOTHING for a personal (session) install, so the plugin tracks
- * your live `me` config at runtime — default server, active space, and login
- * session — the same fallback the CLI itself uses (see `me mcp`). Pinning is
- * opt-in: explicit `server` / `space` pin those; an api key (`--api-key` /
- * `ME_API_KEY`, surfaced as `creds.apiKey`) marks a headless install with no
- * session to fall back to, so it bakes in a fixed server + space + key together.
- */
-export function buildPluginConfig(
-  opts: { server?: string; space?: string; apiKey?: string },
-  creds: {
-    server: string;
-    activeSpace?: string;
-    apiKey?: string;
-    loggedIn: boolean;
-  },
-): PluginConfigDecision {
-  const apiKey = opts.apiKey ?? creds.apiKey;
-  if (apiKey) {
-    const server = opts.server ?? creds.server;
-    const space = opts.space ?? creds.activeSpace;
-    if (!server) {
-      return {
-        error: "No server URL available. Pass --server or set ME_SERVER.",
-      };
-    }
-    if (!space) {
-      return {
-        error:
-          "No space for the API key. Pass --space, set ME_SPACE, or run 'me space use <space>' (keys are global, so the space must be fixed).",
-      };
-    }
-    return {
-      config: [
-        "--config",
-        `server=${server}`,
-        "--config",
-        `space=${space}`,
-        "--config",
-        `api_key=${apiKey}`,
-      ],
-    };
-  }
-  if (!creds.loggedIn) {
-    return {
-      error:
-        "Not logged in. Run 'me login' (the plugin will use your session), or pass --api-key / set ME_API_KEY for a headless agent.",
-    };
-  }
-  const config: string[] = [];
-  if (opts.server) config.push("--config", `server=${opts.server}`);
-  if (opts.space) config.push("--config", `space=${opts.space}`);
-  const warn =
-    !opts.space && !creds.activeSpace
-      ? "No active space set — captures are skipped until you run 'me space use <space>' (or set ME_SPACE / re-run with --space to pin one)."
-      : undefined;
-  return { config, warn };
-}
-
-/**
- * Install the full Memory Engine plugin for Claude Code.
- *
- * Drives Claude Code's plugin CLI: registers the marketplace (idempotent — a
- * no-op if it's already configured) and installs the plugin, baking in only the
- * config {@link buildPluginConfig} chose to pin (none by default). Credential
- * handling mirrors the MCP-only path: an api key needs a resolvable space
- * (`--space`, `ME_SPACE`, or your active space — it gets baked in), since a
- * global key has no active space to fall back to at runtime; otherwise the
- * plugin uses your `me login` session.
- */
-async function runClaudePluginInstall(
-  opts: AgentInstallOptions & { scope: ClaudeScope; dev?: boolean },
+async function installMcp(
+  scope: Scope,
+  root: string,
+  pins: { server?: string; space?: string } = {},
 ): Promise<void> {
+  const meCmd = buildMeCommand({
+    asAgent: scope === "project" ? ".me" : undefined,
+    server: pins.server,
+    space: pins.space,
+  });
+  // Project scope → write the repo's `.mcp.json` directly (isolated, committable,
+  // no `claude` binary needed). User scope → `claude mcp add --scope user`, since
+  // the user store (~/.claude.json) is Claude's own complex config best edited
+  // through its CLI.
+  if (scope === "project") {
+    const file = join(root, ".mcp.json");
+    const [command, ...args] = meCmd;
+    await updateJsonFile(file, (c) => {
+      const servers =
+        c.mcpServers &&
+        typeof c.mcpServers === "object" &&
+        !Array.isArray(c.mcpServers)
+          ? { ...(c.mcpServers as Record<string, unknown>) }
+          : {};
+      servers.me = { type: "stdio", command, args, env: {} };
+      c.mcpServers = servers;
+      return c;
+    });
+    clack.log.success(`Registered MCP server → ${file}`);
+    return;
+  }
+  requireClaudeBinary();
+  const result = await installMcpServer(claudeTool(), meCmd, { scope });
+  if (result.success) clack.log.success(result.message);
+  else {
+    clack.log.error(result.message);
+    process.exit(1);
+  }
+}
+
+async function removeMcp(scope: Scope, root: string): Promise<void> {
+  if (scope === "project") {
+    await updateJsonFile(join(root, ".mcp.json"), (c) => {
+      const servers = c.mcpServers;
+      if (servers && typeof servers === "object" && !Array.isArray(servers)) {
+        delete (servers as Record<string, unknown>).me;
+      }
+      return c;
+    }).catch(() => {});
+    return;
+  }
+  if (Bun.which("claude") === null) return;
+  const proc = Bun.spawn(claudeTool().removeCmd({ scope }), {
+    stdout: "ignore",
+    stderr: "ignore",
+  });
+  await proc.exited;
+}
+
+async function installHooks(scope: Scope, root: string): Promise<void> {
+  const file = settingsFile(scope, root);
+  await updateJsonFile(file, (s) => upsertClaudeSettings(s, { scope }));
+  clack.log.success(`Registered capture hooks → ${file}`);
+}
+
+async function installSkill(scope: Scope, root: string): Promise<void> {
+  const file = skillFile(scope, root);
+  const outcome = await writeManagedFile(
+    file,
+    renderSkill(renderOpts(scope)),
+    ASSET_MARKER,
+  );
+  clack.log.success(`${verb(outcome)} the ${SKILL_NAME} skill → ${file}`);
+}
+
+async function installRecall(scope: Scope, root: string): Promise<void> {
+  const file = recallFile(scope, root);
+  const outcome = await writeManagedFile(
+    file,
+    renderRecallCommand(),
+    ASSET_MARKER,
+  );
+  clack.log.success(`${verb(outcome)} the /memory-recall command → ${file}`);
+}
+
+async function projectFacts(
+  root: string,
+  server?: string,
+): Promise<Parameters<typeof renderProjectContextSnippet>[0]> {
+  const creds = resolveCredentials(server);
+  const { slug } = await new SlugRegistry().resolve(root);
+  return {
+    projectTree: creds.projectTree ?? `${DEFAULT_TREE_ROOT}.${slug}`,
+    space: creds.activeSpace,
+    agentMode: true,
+  };
+}
+
+/** Whether the repo already carries the shared AGENTS.md project block (from
+ * another harness's init) — if so Claude imports it via `@AGENTS.md`. */
+async function repoHasSharedBlock(root: string): Promise<boolean> {
+  try {
+    return (await Bun.file(join(root, "AGENTS.md")).text()).includes(
+      projectSnippetMarkers().start,
+    );
+  } catch {
+    return false;
+  }
+}
+
+/** The CLAUDE.md block to write at project scope: the `@AGENTS.md` bridge when
+ * a shared block exists, else the full templated snippet. */
+async function projectClaudeBlock(
+  root: string,
+  server?: string,
+): Promise<string> {
+  return (await repoHasSharedBlock(root))
+    ? renderClaudeImportSnippet()
+    : renderProjectContextSnippet(await projectFacts(root, server));
+}
+
+async function installContextSnippet(
+  scope: Scope,
+  root: string,
+  server?: string,
+): Promise<void> {
+  const file = contextFile(scope, root);
+  const block =
+    scope === "user"
+      ? renderUserContextSnippet()
+      : await projectClaudeBlock(root, server);
+  const markers =
+    scope === "user" ? userSnippetMarkers() : projectSnippetMarkers();
+  const outcome = await upsertBlockInFile(file, block, markers);
+  clack.log.success(`${verb(outcome)} the memory pointer → ${file}`);
+}
+
+async function contextSnippetUpToDate(
+  root: string,
+  server?: string,
+): Promise<boolean> {
+  const block = await projectClaudeBlock(root, server);
+  try {
+    return (await Bun.file(contextFile("project", root)).text()).includes(
+      block,
+    );
+  } catch {
+    return false;
+  }
+}
+
+/** Whether Claude project-scope capture is installed at `root` (the dedup gate
+ * for user-scope hook invocations). */
+async function claudeProjectCaptureInstalled(root: string): Promise<boolean> {
+  try {
+    const settings = await readJsonFile(settingsFile("project", root));
+    return settings !== null && claudeSettingsHasCapture(settings);
+  } catch {
+    return false;
+  }
+}
+
+function requireClaudeBinary(): void {
   if (Bun.which("claude") === null) {
     clack.log.error(
       "Claude Code (claude) not found on PATH. Install it first.",
     );
     process.exit(1);
   }
-
-  // Decide what (if anything) to pin into the plugin config — see
-  // {@link buildPluginConfig}. Default pins NOTHING so the plugin tracks your
-  // live `me` config at runtime.
-  const creds = resolveCredentials(opts.server);
-  const decision = buildPluginConfig(opts, creds);
-  if ("error" in decision) {
-    clack.log.error(decision.error);
-    process.exit(1);
-  }
-  if (decision.warn) clack.log.warn(decision.warn);
-  const config = decision.config;
-
-  // Resolve the marketplace source: the published GitHub repo, or — with --dev
-  // — the local checkout, so captures exercise the plugin files from your
-  // working tree (.mcp.json, hooks, slash commands) rather than the published
-  // version.
-  let marketplaceSource = PLUGIN_MARKETPLACE_SOURCE;
-  if (opts.dev) {
-    const root = findRepoMarketplaceRoot(process.cwd());
-    if (!root) {
-      clack.log.error(
-        "--dev must be run from inside the memory-engine repo (no .claude-plugin/marketplace.json found at or above the current directory).",
-      );
-      process.exit(1);
-    }
-    marketplaceSource = root;
-  }
-
-  const spin = clack.spinner();
-
-  // 1. Register the marketplace.
-  if (opts.dev) {
-    // The local and published marketplaces share the name "memory-engine", so
-    // they can't coexist and `marketplace add` won't re-point an existing name;
-    // plugin install also copies files into the cache, so a fresh build needs a
-    // reinstall. Tear both down first (ignoring "not found" — these may be a
-    // no-op on a clean machine), then re-add from the local checkout so the
-    // install below picks up your working tree.
-    spin.start(
-      "Pointing the Memory Engine marketplace at your local checkout...",
-    );
-    await runCommand([
-      "claude",
-      "plugin",
-      "uninstall",
-      "-y",
-      "-s",
-      opts.scope,
-      PLUGIN_REF,
-    ]);
-    await runCommand([
-      "claude",
-      "plugin",
-      "marketplace",
-      "remove",
-      PLUGIN_MARKETPLACE_NAME,
-    ]);
-    const add = await runCommand([
-      "claude",
-      "plugin",
-      "marketplace",
-      "add",
-      "--scope",
-      opts.scope,
-      marketplaceSource,
-    ]);
-    if (add.exitCode !== 0 && !/already/i.test(add.stderr + add.stdout)) {
-      spin.stop("Failed to add the local marketplace");
-      clack.log.error(
-        `claude plugin marketplace add exited with ${add.exitCode}${add.stderr ? ` — ${add.stderr.trim()}` : ""}`,
-      );
-      process.exit(1);
-    }
-  } else {
-    // Idempotent: skip if already there.
-    spin.start("Adding the Memory Engine marketplace...");
-    const list = await runCommand(["claude", "plugin", "marketplace", "list"]);
-    const alreadyAdded =
-      list.exitCode === 0 && list.stdout.includes(marketplaceSource);
-    if (!alreadyAdded) {
-      const add = await runCommand([
-        "claude",
-        "plugin",
-        "marketplace",
-        "add",
-        "--scope",
-        opts.scope,
-        marketplaceSource,
-      ]);
-      if (add.exitCode !== 0 && !/already/i.test(add.stderr + add.stdout)) {
-        spin.stop("Failed to add the marketplace");
-        clack.log.error(
-          `claude plugin marketplace add exited with ${add.exitCode}${add.stderr ? ` — ${add.stderr.trim()}` : ""}`,
-        );
-        process.exit(1);
-      }
-    }
-  }
-
-  // 2. Install the plugin, baking in only the config we chose to pin above
-  //    (none by default — the plugin then tracks your live `me` config). Leave
-  //    tree_root / content_mode at the plugin defaults (reconfigure later via
-  //    `/plugin` if needed).
-  spin.message("Installing the memory-engine plugin...");
-  const install = [
-    "claude",
-    "plugin",
-    "install",
-    "--scope",
-    opts.scope,
-    ...config,
-    PLUGIN_REF,
-  ];
-
-  const result = await runCommand(install);
-  if (result.exitCode !== 0) {
-    if (/already/i.test(result.stderr + result.stdout)) {
-      spin.stop("Memory Engine plugin already installed");
-      clack.log.info(
-        "Run '/plugin' in Claude Code to reconfigure (or '--mcp-only' for the MCP server alone).",
-      );
-      return;
-    }
-    spin.stop("Failed to install the plugin");
-    clack.log.error(
-      `claude plugin install exited with ${result.exitCode}${result.stderr ? ` — ${result.stderr.trim()}` : ""}`,
-    );
-    process.exit(1);
-  }
-
-  spin.stop(
-    opts.dev
-      ? "Installed the Memory Engine plugin from your local checkout"
-      : "Installed the Memory Engine plugin for Claude Code",
-  );
-  clack.log.info(
-    "Restart Claude Code (or run '/plugin') to load the hooks + slash commands.",
-  );
 }
 
-/**
- * me claude hook — invoked by the Claude Code plugin on Stop / SessionEnd to
- * capture the session.
- *
- * Reads the event JSON from stdin for the `transcript_path`, resolves config
- * from the CLAUDE_PLUGIN_OPTION_* env vars (falling back to the `me login`
- * session when no api_key is configured), and runs the transcript through
- * `importTranscriptFile` — the same parse + write as `me import claude`, incremental so
- * each call only writes messages new since the last.
- *
- * Best-effort: logs failures to stderr but always exits 0 so that a hook
- * failure never blocks a Claude Code session.
- */
+// =============================================================================
+// me claude install (USER scope)
+// =============================================================================
+
+function createClaudeInstallCommand(): Command {
+  return new Command("install")
+    .description(
+      "set up the Claude Code integration for your user (MCP + capture + skill + command)",
+    )
+    .option(
+      "--server <url>",
+      "pin a server for the MCP config (implies your login session for it)",
+    )
+    .option(
+      "--space <slug>",
+      "pin a space for the MCP config (implies --server)",
+    )
+    .option("--remove", "remove the user-scope Claude Code integration")
+    .action(
+      async (
+        opts: { server?: string; space?: string; remove?: boolean },
+        cmd: Command,
+      ) => {
+        const globalOpts = cmd.optsWithGlobals();
+        const server = globalOpts.server ?? opts.server ?? undefined;
+        const scope: Scope = "user";
+        const root = process.cwd(); // user scope ignores it (uniform API)
+        requireClaudeBinary();
+
+        if (opts.remove) {
+          await removeMcp(scope, root);
+          await updateJsonFile(settingsFile(scope, root), (s) =>
+            removeClaudeSettings(s),
+          ).catch(() => {});
+          await removeManagedFile(skillFile(scope, root), ASSET_MARKER);
+          await removeManagedFile(recallFile(scope, root), ASSET_MARKER);
+          await removeBlockFromFile(
+            contextFile(scope, root),
+            userSnippetMarkers(),
+          );
+          clack.log.success("Removed the user-scope Claude Code integration.");
+          return;
+        }
+
+        const creds = resolveCredentials(server);
+        if (!creds.apiKey && !creds.loggedIn) {
+          clack.log.error(
+            "Not logged in. Run 'me login' first (or set ME_API_KEY for a headless install).",
+          );
+          process.exit(1);
+        }
+        let pins: { server?: string; space?: string } = {};
+        if (opts.server || opts.space) {
+          pins = opts.space
+            ? { server: opts.server ?? creds.server, space: opts.space }
+            : { server: opts.server };
+        }
+
+        await installMcp(scope, root, pins);
+        await installHooks(scope, root);
+        await installSkill(scope, root);
+        await installRecall(scope, root);
+        await installContextSnippet(scope, root, server);
+        clack.log.success(
+          "Claude Code is set up for your user. New sessions are captured to Memory Engine.",
+        );
+      },
+    );
+}
+
+// =============================================================================
+// me claude hook (capture) — reads the event JSON from stdin
+// =============================================================================
+
 function createClaudeHookCommand(): Command {
   return new Command("hook")
-    .description("invoked by Claude Code plugin hooks (reads event from stdin)")
+    .description(
+      "invoked by Claude Code capture hooks (reads event from stdin)",
+    )
     .requiredOption(
       "--event <name>",
       `hook event name (${HOOK_EVENT_NAMES.join(", ")})`,
     )
-    .action(async (opts: { event: string }) => {
-      const eventName = opts.event as HookEventName;
-      if (!HOOK_EVENT_NAMES.includes(eventName)) {
-        console.error(
-          `[memory-engine] unknown event '${opts.event}'. Expected one of: ${HOOK_EVENT_NAMES.join(", ")}`,
-        );
-        process.exit(0);
-      }
+    .option(
+      "--scope <scope>",
+      "install scope that authored this hook (user|project)",
+    )
+    .option(
+      "--full-transcript",
+      "also store reasoning + tool calls/results (default: prompts + responses)",
+    )
+    .action(
+      async (opts: {
+        event: string;
+        scope?: string;
+        fullTranscript?: boolean;
+      }) => {
+        const eventName = opts.event as HookEventName;
+        if (!HOOK_EVENT_NAMES.includes(eventName)) {
+          console.error(
+            `[memory-engine] unknown event '${opts.event}'. Expected one of: ${HOOK_EVENT_NAMES.join(", ")}`,
+          );
+          process.exit(0);
+        }
 
-      // Read + parse the event JSON from stdin (transcript path + cwd).
-      let event: HookEvent;
-      try {
-        event = JSON.parse(await Bun.stdin.text()) as HookEvent;
-      } catch (error) {
-        console.error(
-          `[memory-engine] failed to read/parse event JSON: ${error instanceof Error ? error.message : String(error)}`,
-        );
-        process.exit(0);
-      }
+        let event: HookEvent;
+        try {
+          event = JSON.parse(await Bun.stdin.text()) as HookEvent;
+        } catch (error) {
+          console.error(
+            `[memory-engine] failed to read/parse event JSON: ${error instanceof Error ? error.message : String(error)}`,
+          );
+          process.exit(0);
+        }
 
-      const transcriptPath = event.transcript_path;
-      if (!transcriptPath) {
-        console.error(
-          `[memory-engine] ${eventName}: no transcript_path in event payload`,
-        );
-        process.exit(0);
-      }
+        const transcriptPath = event.transcript_path;
+        if (!transcriptPath) {
+          console.error(
+            `[memory-engine] ${eventName}: no transcript_path in event payload`,
+          );
+          process.exit(0);
+        }
 
-      // Resolve config: the plugin's api_key if configured, else the user's
-      // `me login` session (from the keychain/config). Server/space/tree fall
-      // back to the session project's `.me/config.yaml` (from the event cwd),
-      // so a per-project tree routes live captures without a plugin reinstall.
-      // A broken `.me` is fatal for direct CLI use, but the hook is best-effort:
-      // log + exit 0 so a typo never blocks the session.
-      let config: ReturnType<typeof resolveHookConfigFromEnv>;
-      try {
-        const project = event.cwd
-          ? discoverProjectConfig(event.cwd)
-          : undefined;
-        // Scope credential resolution to the SESSION project's `.me` (from the
-        // event cwd), not the hook process cwd: resolveCredentials() otherwise
-        // re-discovers `.me` from process.cwd(), so the login check + server/
-        // space fallback could reflect a different project. Seeding the override
-        // keeps routing deterministic.
-        if (project) setConfigDirOverride(project.dir);
-        config = resolveHookConfigFromEnv(process.env, resolveCredentials(), {
-          server: project?.server,
-          space: project?.space,
-          tree: project?.tree,
+        await runCaptureHook({
+          harness: "claude",
+          event: eventName,
+          scope: parseHookScope(opts.scope),
+          transcriptPath,
+          projectCwd: event.cwd ?? process.cwd(),
+          importer: claudeImporter,
+          projectCaptureInstalled: claudeProjectCaptureInstalled,
+          input: { fullTranscript: opts.fullTranscript },
         });
-      } catch (error) {
-        console.error(
-          `[memory-engine] ${eventName}: ${error instanceof Error ? error.message : String(error)}`,
-        );
         process.exit(0);
-      }
-      if (!config) {
-        console.error(
-          "[memory-engine] no credentials. Run `me login`, or set the plugin's " +
-            "api_key + space via `/plugin` in Claude Code.",
-        );
-        process.exit(0);
-      }
-
-      // Import the transcript (incremental; same path as `me import claude`).
-      try {
-        const client = createMemoryClient({
-          url: config.server,
-          ...memoryBearer(config.server, config.apiKey),
-          space: config.space,
-          asAgent: config.asAgent,
-        });
-        await importTranscriptFile(client, claudeImporter, transcriptPath, {
-          treeRoot: config.treeRoot,
-          projectTree: config.projectTree,
-          sessionsNodeName: SESSIONS_NODE,
-          fullTranscript: config.fullTranscript,
-          dryRun: false,
-          verbose: false,
-        });
-      } catch (error) {
-        console.error(
-          `[memory-engine] ${eventName} capture failed: ${error instanceof Error ? error.message : String(error)}`,
-        );
-      }
-
-      process.exit(0);
-    });
+      },
+    );
 }
 
-/** The managed CLAUDE.md memory-pointer block this command upserts. */
-const CLAUDE_MD_POINTER: MemoryPointerSpec = {
-  filename: "CLAUDE.md",
-  managedBy: "me claude init",
-  agentLabel: "Claude Code",
-};
+// =============================================================================
+// me claude init (PROJECT scope)
+// =============================================================================
 
-/**
- * Parse `claude plugin list --json` output and report whether the Memory
- * Engine plugin is installed. Exported for tests. Unparseable output counts
- * as not-installed — the wrong guess costs an idempotent re-install offer,
- * never a missed install.
- */
-export function pluginListShowsInstalled(stdout: string): boolean {
-  try {
-    const plugins = JSON.parse(stdout);
-    if (!Array.isArray(plugins)) return false;
-    return plugins.some((p) => (p as { id?: unknown }).id === PLUGIN_REF);
-  } catch {
-    return false;
-  }
+/** Project root anchor (git root, else cwd). `claude mcp add --scope project`
+ * writes `.mcp.json` relative to the process cwd, so run init from the repo. */
+async function resolveProjectRoot(): Promise<string> {
+  const { gitRoot } = await new SlugRegistry().resolve(process.cwd());
+  return gitRoot ?? process.cwd();
 }
 
-/**
- * Availability of the plugin-install init step: hidden when the `claude`
- * binary is absent, "done" when the plugin is already installed.
- */
-async function pluginInstallAvailable(): Promise<StepAvailability> {
-  if (Bun.which("claude") === null) return "hidden";
-  const { exitCode, stdout } = await runCommand([
-    "claude",
-    "plugin",
-    "list",
-    "--json",
-  ]);
-  if (exitCode !== 0) return "available"; // can't tell → offer the install
-  return pluginListShowsInstalled(stdout) ? "done" : "available";
-}
+const projectRootOf = (ctx: InitStepContext): string =>
+  ctx.projectRoot ?? process.cwd();
 
 const INIT_STEPS: InitStep[] = [
   {
@@ -582,36 +465,80 @@ const INIT_STEPS: InitStep[] = [
     skipDescription: "do not import this project's Claude Code sessions",
     label:
       "Import this project's existing Claude Code sessions (one-time backfill)",
-    // Init is per-project setup, so scope the backfill to sessions recorded
-    // in this repo (cwd at or under the repo root) — `me import claude`
-    // remains the machine-wide sweep. The temp-cwd filter exists to keep
-    // throwaway sessions out of bulk sweeps; with the scope pinned to the
-    // project the user is standing in, it would only veto projects that
-    // happen to live under a temp dir, so include them.
-    run: async ({ globalOpts }) => {
-      const { gitRoot } = await new SlugRegistry().resolve(process.cwd());
+    run: async (ctx) => {
       await runAgentImport(
         claudeImporter,
-        { project: gitRoot ?? process.cwd(), includeTempCwd: true },
-        globalOpts,
+        { project: projectRootOf(ctx), includeTempCwd: true },
+        ctx.globalOpts,
       );
     },
   },
   {
-    id: "plugin-install",
+    id: "hooks-install",
     group: "Claude Code sessions",
     kind: "ongoing",
-    optionKey: "skipPluginInstall",
-    skipFlag: "--skip-plugin-install",
-    skipDescription: "do not install the Claude Code plugin",
+    optionKey: "skipHooksInstall",
+    skipFlag: "--skip-hooks-install",
+    skipDescription: "do not install the Claude Code capture hooks",
     label:
-      "Install the Claude Code plugin — captures new sessions going forward (+ slash commands, MCP)",
-    // Hidden when Claude Code is absent; ✓ when the plugin is already there.
-    available: pluginInstallAvailable,
-    doneLabel: "Claude Code plugin already installed",
+      "Install the Claude Code capture hooks — captures new sessions going forward",
+    available: async (ctx) =>
+      (await claudeProjectCaptureInstalled(projectRootOf(ctx)))
+        ? "done"
+        : "available",
+    doneLabel: "Claude Code capture hooks already installed",
     rerunLabel:
-      "Reinstall the Claude Code plugin — captures new sessions going forward (already installed)",
-    run: ({ server }) => runClaudePluginInstall({ server, scope: "user" }),
+      "Reinstall the Claude Code capture hooks — captures new sessions going forward (already installed)",
+    run: (ctx) => installHooks("project", projectRootOf(ctx)),
+  },
+  {
+    id: "mcp-install",
+    group: "Memory tools",
+    kind: "config",
+    optionKey: "skipMcpInstall",
+    skipFlag: "--skip-mcp-install",
+    skipDescription: "do not register me as an MCP server with Claude Code",
+    label:
+      "Register me as an MCP server — gives Claude the memory search/create tools",
+    run: (ctx) => installMcp("project", projectRootOf(ctx)),
+  },
+  {
+    id: "recall-command",
+    group: "Memory tools",
+    kind: "config",
+    optionKey: "skipRecallCommand",
+    skipFlag: "--skip-recall-command",
+    skipDescription: "do not install the /memory-recall command",
+    label: "Install the /memory-recall command",
+    available: async (ctx) =>
+      (await managedFileInstalled(
+        recallFile("project", projectRootOf(ctx)),
+        ASSET_MARKER,
+      ))
+        ? "done"
+        : "available",
+    doneLabel: "/memory-recall command already installed",
+    rerunLabel: "Rewrite the /memory-recall command (already installed)",
+    run: (ctx) => installRecall("project", projectRootOf(ctx)),
+  },
+  {
+    id: "skill",
+    group: "Memory tools",
+    kind: "config",
+    optionKey: "skipSkill",
+    skipFlag: "--skip-skill",
+    skipDescription: "do not install the memory-engine skill",
+    label: "Install the memory-engine skill (teaches when/how to use memory)",
+    available: async (ctx) =>
+      (await managedFileInstalled(
+        skillFile("project", projectRootOf(ctx)),
+        ASSET_MARKER,
+      ))
+        ? "done"
+        : "available",
+    doneLabel: "memory-engine skill already installed",
+    rerunLabel: "Rewrite the memory-engine skill (already installed)",
+    run: (ctx) => installSkill("project", projectRootOf(ctx)),
   },
   {
     id: "git-import",
@@ -632,8 +559,6 @@ const INIT_STEPS: InitStep[] = [
     skipDescription: "do not install the git post-commit capture hook",
     label:
       "Install a git post-commit hook — captures new commits going forward",
-    // Hidden outside a git repo or when a committed hooks manager owns the
-    // hook path; ✓ when the managed block is already installed.
     available: async () => {
       const status = await gitHookStatus(process.cwd());
       if (status === "installed") return "done";
@@ -643,7 +568,7 @@ const INIT_STEPS: InitStep[] = [
     rerunLabel:
       "Reinstall the git post-commit hook — captures new commits going forward (already installed)",
     run: ({ globalOpts }) =>
-      runGitHookInstall({ skipIfNotRepo: true }, globalOpts),
+      runGitHookInstall({ skipIfNotRepo: true, asAgent: ".me" }, globalOpts),
   },
   {
     id: "claude-md",
@@ -654,34 +579,17 @@ const INIT_STEPS: InitStep[] = [
     skipDescription:
       "do not write the memory pointer into the project's CLAUDE.md",
     label: "Add a memory pointer to CLAUDE.md",
-    // ✓ when CLAUDE.md already carries the exact block this run would write;
-    // a stale block (template or active-space change) keeps the step offered
-    // so the re-run refreshes it.
     available: async ({ server }) =>
-      (await memoryPointerUpToDate(CLAUDE_MD_POINTER, server))
+      (await contextSnippetUpToDate(await resolveProjectRoot(), server))
         ? "done"
-        : "available",
+        : ("available" satisfies StepAvailability),
     doneLabel: "Memory pointer already in CLAUDE.md",
     rerunLabel: "Rewrite the memory pointer in CLAUDE.md (already present)",
-    run: ({ server }) => writeMemoryPointer(CLAUDE_MD_POINTER, server),
+    run: (ctx) =>
+      installContextSnippet("project", projectRootOf(ctx), ctx.server),
   },
 ];
 
-function createClaudeInitCommand(): Command {
-  return buildInitCommand({
-    description:
-      "set up Claude Code memory integration (interactive step picker; otherwise runs all steps)",
-    steps: INIT_STEPS,
-    outro: printInitOutro,
-  });
-}
-
-/**
- * Closing guidance after init: a recap of what setup covered (historical
- * backfill, ongoing capture), what having project memories wired up actually
- * buys the user, and how to invoke them deliberately. `steps` is everything
- * covered — the steps that just ran plus any reported already done.
- */
 function printInitOutro(steps: InitStep[]): void {
   clack.note(
     [
@@ -697,6 +605,23 @@ function printInitOutro(steps: InitStep[]): void {
     ].join("\n"),
     "Your project now has memory",
   );
+}
+
+function createClaudeInitCommand(): Command {
+  return buildInitCommand({
+    description:
+      "set up this project's Claude Code memory integration (acts as the project's .me agent)",
+    steps: INIT_STEPS,
+    outro: printInitOutro,
+    resolveContext: async (base) => {
+      requireProjectAgent();
+      return {
+        ...base,
+        scope: "project",
+        projectRoot: await resolveProjectRoot(),
+      };
+    },
+  });
 }
 
 export function createClaudeCommand(): Command {

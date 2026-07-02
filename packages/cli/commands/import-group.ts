@@ -21,6 +21,7 @@ import { Command } from "commander";
 import {
   createClaudeImportCommand,
   createCodexImportCommand,
+  createGeminiImportCommand,
   createOpenCodeImportCommand,
 } from "./import.ts";
 import { createGitImportCommand } from "./import-git.ts";
@@ -37,6 +38,7 @@ export function createImportCommand(): Command {
   imp.addCommand(createClaudeImportCommand("claude"));
   imp.addCommand(createCodexImportCommand("codex"));
   imp.addCommand(createOpenCodeImportCommand("opencode"));
+  imp.addCommand(createGeminiImportCommand("gemini"));
   imp.addCommand(createGranolaImportCommand());
   imp.addCommand(createGitImportCommand());
   imp.addCommand(createGitHookCommand());

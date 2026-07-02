@@ -8,7 +8,7 @@
  */
 
 /** Supported source tool names. */
-export type SourceTool = "claude" | "codex" | "opencode";
+export type SourceTool = "claude" | "codex" | "opencode" | "gemini";
 
 /**
  * A single content block inside a source-native message.

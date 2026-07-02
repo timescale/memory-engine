@@ -16,6 +16,7 @@
 import * as clack from "@clack/prompts";
 import { Command } from "commander";
 import { getOutputFormat } from "../output.ts";
+import { getProjectConfig } from "../project-config.ts";
 
 /** Dim (secondary text) ANSI, for de-emphasizing hint copy. `\x1b[22m` resets
  * only the dim attribute so surrounding clack styling is left intact. */
@@ -25,6 +26,31 @@ export const DIM_OFF = "\x1b[22m";
 /** Green checkmark (resets only the foreground color) for already-done init
  * steps, matching clack's green log symbols. */
 export const CHECK = "\x1b[32m✓\x1b[39m";
+
+/**
+ * Project-scope precondition (design/HARNESS_INTEGRATION_DESIGN.md §5):
+ * `me <harness> init` requires a `.me/config.yaml` with an `agent:` in scope —
+ * project scope MEANS agent identity, and every authored command bakes
+ * `--as-agent .me`. Fails fast (exit 1) before anything is written, pointing
+ * at the provisioning wizard. Returns the agent id/name on success.
+ */
+export function requireProjectAgent(): string {
+  const project = getProjectConfig();
+  const agent = project?.agent;
+  if (!agent) {
+    clack.log.error(
+      project
+        ? `The project's .me/config.yaml (${project.dir}/.me) has no 'agent:'. ` +
+            "Project-scope integrations act as the project's agent — add an 'agent:' " +
+            "(id or name of an agent you own) or run the provisioning wizard first."
+        : "No .me/config.yaml found (searched from the current directory upward). " +
+            "Project-scope integrations act as the project's agent — create .me/config.yaml " +
+            "with an 'agent:' (id or name of an agent you own) or run the provisioning wizard first.",
+    );
+    process.exit(1);
+  }
+  return agent;
+}
 
 export interface InitStepContext {
   /** Global CLI opts (carries --server, output format) for the step to use. */

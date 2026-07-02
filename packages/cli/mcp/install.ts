@@ -35,7 +35,7 @@ interface McpToolBase {
   bin: string;
 }
 
-interface McpToolCli extends McpToolBase {
+export interface McpToolCli extends McpToolBase {
   method: "cli";
   addCmd: (meCmd: string[], opts: McpInstallOpts) => string[];
   removeCmd: (opts: McpInstallOpts) => string[];
@@ -121,26 +121,33 @@ export function detectInstalledTools(): McpTool[] {
 }
 
 /**
- * Build the `me mcp …` command array to embed in an MCP config.
+ * Build the `me … mcp …` command array to embed in an MCP config.
  *
- * Only `--server` is always baked. `--api-key` and `--space` are baked **only**
- * when provided:
- *   - **Default (no api key):** the MCP server resolves your login *session* from
- *     the keychain/config at runtime (so it keeps working across `me login`), and
- *     the space from `ME_SPACE`/active space at runtime — nothing secret or
- *     stateful is written into the config.
- *   - **Headless agent (`--api-key`):** the global key is baked in, along with a
- *     pinned `--space` (keys aren't space-bound, so the space must be fixed).
+ * Everything is opt-in — the default bakes nothing, so the MCP server resolves
+ * server/session/space from the live `me` config (global or `.me/`) at runtime:
+ *
+ *   - **`asAgent`** (project scope): prefixes the global `--as-agent <v>` flag
+ *     BEFORE the `mcp` subcommand (canonical global-flag position) — normally
+ *     the `.me` sentinel, so identity resolves from `.me/config.yaml`.
+ *   - **`server` / `space`** (user-scope pins, design §5): baked as a pair when
+ *     pinning a global install to a fixed target.
+ *   - **`apiKey`** (headless): the global key, with a pinned space (keys aren't
+ *     space-bound, so the space must be fixed).
  *
  * Always uses bare `me` — the binary is expected to be on PATH whether installed
  * via the install script, Homebrew, or npm.
  */
 export function buildMeCommand(opts: {
-  server: string;
+  server?: string;
   apiKey?: string;
   space?: string;
+  /** Act-as-agent value (normally ".me") — project-scope installs only. */
+  asAgent?: string;
 }): string[] {
-  const cmd = ["me", "mcp", "--server", opts.server];
+  const cmd = ["me"];
+  if (opts.asAgent) cmd.push("--as-agent", opts.asAgent);
+  cmd.push("mcp");
+  if (opts.server) cmd.push("--server", opts.server);
   if (opts.apiKey) cmd.push("--api-key", opts.apiKey);
   if (opts.space) cmd.push("--space", opts.space);
   return cmd;

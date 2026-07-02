@@ -20,6 +20,43 @@ export interface AgentInstallOptions {
   scope?: string;
   /** Project root for `scope: "project"` (OpenCode). Defaults to cwd. */
   projectDir?: string;
+  /** Act-as-agent value baked before the subcommand (normally ".me") —
+   * project-scope installs only. */
+  asAgent?: string;
+}
+
+/** Resolved `--server`/`--space` pins for a user-scope install (design §5). */
+export type InstallPins =
+  | { server?: string; space?: string }
+  | { error: string };
+
+/**
+ * Resolve the opt-in `--server`/`--space` pins for `me <harness> install`.
+ *
+ * Rules (design/HARNESS_INTEGRATION_DESIGN.md §5):
+ * - No flags → pin nothing; the MCP server resolves everything at runtime.
+ * - `--space` implies `--server`: a space slug only exists on its server, so a
+ *   space pin resolves the server (flag > resolved default) and pins the PAIR.
+ * - A pin requires a login session for the pinned server (else the MCP server
+ *   fails at runtime) — `creds` must come from `resolveCredentials(opts.server)`
+ *   so `loggedIn` reflects that server.
+ */
+export function resolveInstallPins(
+  opts: { server?: string; space?: string },
+  creds: { server: string; loggedIn: boolean },
+): InstallPins {
+  if (!opts.server && !opts.space) return {};
+  if (!creds.loggedIn) {
+    return {
+      error:
+        "Pinning --server/--space requires a login session for that server. Run 'me login' first (or pass --api-key for a headless install).",
+    };
+  }
+  if (opts.space) {
+    // Space implies server — pin the pair.
+    return { server: opts.server ?? creds.server, space: opts.space };
+  }
+  return { server: opts.server };
 }
 
 /**
@@ -64,7 +101,7 @@ export async function runAgentMcpInstall(
       );
       process.exit(1);
     }
-    meCmd = buildMeCommand({ server, apiKey, space });
+    meCmd = buildMeCommand({ server, apiKey, space, asAgent: opts.asAgent });
   } else {
     if (!creds.loggedIn) {
       clack.log.error(
@@ -74,7 +111,11 @@ export async function runAgentMcpInstall(
     }
     // Bake only --server (+ an explicit --space pin if given); the session token
     // and space resolve at runtime.
-    meCmd = buildMeCommand({ server, space: opts.space });
+    meCmd = buildMeCommand({
+      server,
+      space: opts.space,
+      asAgent: opts.asAgent,
+    });
     if (!opts.space && !creds.activeSpace) {
       clack.log.warn(
         "No active space set — the MCP server will fail until you run 'me space use <space>' (or set ME_SPACE). Re-run with --space to pin one.",
