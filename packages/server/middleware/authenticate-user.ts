@@ -210,9 +210,9 @@ export async function authenticateUser(
 
   /**
    * Apply the `X-Me-As-Agent` switch to a resolved human context. When the
-   * bearer is a human (`kind === 'u'`) and the header names one of their owned
-   * agents (id, then case-insensitive name), overwrite the context to that
-   * agent — `kind='a'`, `userId=agent.id`, `email=null`, `name=agent.name`,
+   * bearer is a human (`kind === 'u'`) and the header unambiguously names one
+   * of their owned agents by id or case-insensitive name, overwrite the context
+   * to that agent — `kind='a'`, `userId=agent.id`, `email=null`, `name=agent.name`,
    * `emailVerified=false`, `viaApiKey=true` (Decision B: strict agent-key
    * parity), recording the human as `authenticatedAs` for observability. An
    * agent key (`kind === 'a'`) already IS an agent, so the header is ignored. A
