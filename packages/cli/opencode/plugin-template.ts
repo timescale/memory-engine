@@ -1,6 +1,7 @@
 /**
- * The OpenCode capture plugin source, written by `me opencode init` into the
- * global plugin dir (`~/.config/opencode/plugins/`).
+ * The OpenCode capture plugin source, written by `me opencode install` (user
+ * scope, `~/.config/opencode/plugins/`) and `me opencode init` (project scope,
+ * `.opencode/plugins/`).
  *
  * It is deliberately tiny and dependency-free so it runs as a dropped-in local
  * plugin with no install step: on `session.idle` (per-turn-ish) and
@@ -10,11 +11,24 @@
  * OpenCode session. All real logic (parsing, incremental dedup, credential
  * resolution) lives in the `me` CLI, consistent with the "require `me` on PATH,
  * don't bundle the binary" decision.
+ *
+ * Scope shapes two things (HARNESS_INTEGRATION_DESIGN.md §3.2):
+ *   - **project** scope bakes `--as-agent .me` into the hook command (captures
+ *     write as the project's agent) AND exports a `shell.env` hook injecting
+ *     `ME_AS_AGENT=.me` into every tool shell (so the agent's ad-hoc `me` calls
+ *     run as the agent too — Tier-2).
+ *   - **user** scope does neither (captures + shells run as the human).
+ * The `--scope <scope>` flag on the hook command drives the double-capture
+ * dedup when both scopes are installed (§5): the user-scope plugin defers when
+ * the project-scope plugin is present.
  */
+import type { HookScope } from "../agent/capture.ts";
 
-/** Marker (first line) identifying a file we manage, for idempotent re-init. */
+/** Marker (first line) identifying a file we manage, for idempotent re-install.
+ * Scope-neutral: the same marker is written by user- and project-scope installs
+ * so either can recognize (and refresh/remove) the other's file. */
 export const PLUGIN_MARKER =
-  "// memory-engine: OpenCode capture plugin (managed by `me opencode init`)";
+  "// memory-engine: OpenCode capture plugin (managed by the `me` CLI)";
 
 /** Default filename for the generated plugin. */
 export const PLUGIN_FILENAME = "memory-engine.ts";
@@ -28,18 +42,23 @@ export const PLUGIN_FILENAME = "memory-engine.ts";
  */
 const TREE_ROOT_SAFE = /^[A-Za-z0-9_~./-]+$/;
 
+export interface RenderPluginOptions {
+  /** Install scope: "project" bakes agent mode + shell.env; "user" doesn't. */
+  scope: HookScope;
+  treeRoot?: string;
+  fullTranscript?: boolean;
+}
+
 /**
- * Render the plugin source. `treeRoot` adds `--tree-root <root>` only when it
- * differs from the hook's own default (`share.projects`), so the common case
- * stays flag-free; `fullTranscript` adds `--full-transcript`. The extra args are
- * emitted as a JS array and interpolated into the `$\`…\`` command as `${...}`,
- * so Bun `$` escapes each element — the tree root cannot break the command or
- * inject shell regardless of its contents. A non-default `treeRoot` is also
- * validated against `TREE_ROOT_SAFE` (throws) as an early sanity check.
+ * Render the plugin source. The hook command is a static template literal (so
+ * Bun `$` word-splits `--as-agent .me` / `--scope <scope>` normally); only
+ * `treeRoot`/`fullTranscript` become interpolated `EXTRA_ARGS` (escaped by Bun
+ * `$` — a tree root can't break the command or inject shell). A non-default
+ * `treeRoot` is validated against `TREE_ROOT_SAFE` (throws) as a sanity check.
  */
-export function renderPluginSource(
-  opts: { treeRoot?: string; fullTranscript?: boolean } = {},
-): string {
+export function renderPluginSource(opts: RenderPluginOptions): string {
+  const project = opts.scope === "project";
+
   const extraArgs: string[] = [];
   if (opts.treeRoot && opts.treeRoot !== "share.projects") {
     if (!TREE_ROOT_SAFE.test(opts.treeRoot)) {
@@ -50,13 +69,24 @@ export function renderPluginSource(
     extraArgs.push("--tree-root", opts.treeRoot);
   }
   if (opts.fullTranscript) extraArgs.push("--full-transcript");
-  // Emitted as a JS array literal and interpolated into the command below, so
-  // Bun `$` escapes each element (empty array → no extra args).
   const argsLiteral = JSON.stringify(extraArgs);
+
+  // Static command prefix (all literals — no user input): agent flag + scope.
+  const asAgent = project ? "--as-agent .me " : "";
+  const cmdPrefix = `me ${asAgent}opencode hook --scope ${opts.scope}`;
+
+  // Tier-2: project scope injects ME_AS_AGENT into every tool shell.
+  const shellEnvHook = project
+    ? `
+    // Tier-2: run the agent's ad-hoc \`me\` calls as the project agent too.
+    "shell.env": async (_input, output) => {
+      output.env.ME_AS_AGENT = ".me"
+    },`
+    : "";
 
   return `${PLUGIN_MARKER}
 //
-// Captures OpenCode sessions to Memory Engine. Regenerate with \`me opencode init\`.
+// Captures OpenCode sessions to Memory Engine. Regenerate with \`me opencode ${project ? "init" : "install"}\`.
 // Requires the \`me\` CLI on PATH and a \`me login\` session (or ME_API_KEY + ME_SPACE).
 
 export const MemoryEngine = async ({ $ }) => {
@@ -67,7 +97,7 @@ export const MemoryEngine = async ({ $ }) => {
     if (!sessionID) return
     // Fire-and-forget; .nothrow() + try/catch so a capture never breaks a session.
     try {
-      $\`me opencode hook --event \${eventName} --session \${sessionID} \${EXTRA_ARGS}\`
+      $\`${cmdPrefix} --event \${eventName} --session \${sessionID} \${EXTRA_ARGS}\`
         .quiet()
         .nothrow()
     } catch {}
@@ -79,7 +109,7 @@ export const MemoryEngine = async ({ $ }) => {
       } else if (event.type === "session.deleted") {
         capture("deleted", event.properties?.info?.id)
       }
-    },
+    },${shellEnvHook}
     // Nudge the post-compaction continuation to reload project memory. Harmless
     // on opencode builds that don't support this experimental hook (uncalled).
     "experimental.session.compacting": async (_input, output) => {

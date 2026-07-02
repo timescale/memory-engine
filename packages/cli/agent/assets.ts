@@ -188,7 +188,7 @@ export function renderProjectContextSnippet(
   const body = [
     "## Project memories (Memory Engine)",
     "",
-    `This project has persistent memory in ${where} (\`me_memory_*\` MCP tools),`,
+    `This project has persistent memory (\`me_memory_*\` MCP tools) in ${where},`,
     "under the tree:",
     "",
     `    ${facts.projectTree}`,

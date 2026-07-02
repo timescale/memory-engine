@@ -132,9 +132,20 @@ shared markers; pin validation). Existing suites updated for the scope split.
 **Exit:** `check:full` green; no harness behavior regressed (existing installs
 still work through the new plumbing).
 
-## P2 — OpenCode (PR 2) — pattern proof
+## P2 — OpenCode (PR 2) — ✅ DONE 2026-07-01
 
-Smallest delta; proves the whole 8-cell pattern end-to-end.
+Proves the 8-cell pattern end-to-end. `me opencode install` is now a
+user-scope multi-asset installer (MCP + capture plugin + skill + /memory-recall
++ user `AGENTS.md` snippet, `--server`/`--space` pins, `--remove`), and
+`me opencode init` is project-scope only (drops `--scope`; `requireProjectAgent`
+fail-fast; bakes `--as-agent .me` into MCP + hook + git hook; the generated
+plugin adds `--scope project` + a `shell.env` injecting `ME_AS_AGENT=.me`). The
+hook command is a thin adapter over `agent/capture.runCaptureHook` with the
+project-plugin dedup detector. Retired `opencode/{assets,capture}.ts`; the
+plugin template gained a `scope`. Smoke-tested: fail-fast + full project wiring
+(opencode.json, plugin, skill, command, AGENTS.md) verified.
+
+Original scope (for reference):
 
 1. `me opencode install` (user): MCP (`~/.config/opencode/opencode.json`),
    capture plugin, skill, command, user context snippet
