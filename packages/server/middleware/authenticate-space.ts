@@ -29,6 +29,7 @@ import { debug, span } from "@pydantic/logfire-node";
 import type { Sql } from "postgres";
 import type { Auth, VerifyOAuthAccessToken } from "../auth/betterauth";
 import { error, forbidden, unauthorized } from "../util/response";
+import { resolveOwnedAgent } from "./act-as-agent";
 import { extractBearerToken, passesCsrfCheck } from "./authenticate";
 
 export { SPACE_HEADER };
@@ -204,27 +205,25 @@ async function authenticateSpaceInner(
   const asAgent = request.headers.get(AS_AGENT_HEADER);
   if (asAgent && ownerId === null) {
     const agents = await core.listAgents(principalId);
-    const wanted = asAgent.toLowerCase();
-    // Match id first, then name — both case-insensitive (mirrors
-    // util.ts:resolveAgentId; Postgres emits uuids lowercase, but a client may
-    // send an uppercase UUID, which must not spuriously 403).
-    const agent =
-      agents.find((a) => a.id.toLowerCase() === wanted) ??
-      agents.find((a) => a.name.toLowerCase() === wanted);
-    if (!agent) {
+    const resolved = resolveOwnedAgent(agents, asAgent);
+    if (resolved.kind !== "found") {
       debug("space auth failed: X-Me-As-Agent not an owned agent", {
         principalId,
         asAgent,
+        reason: resolved.kind,
       });
       return {
         ok: false,
         error: error(
-          `X-Me-As-Agent '${asAgent}' is not an agent you own`,
+          resolved.kind === "ambiguous"
+            ? `X-Me-As-Agent '${asAgent}' matches multiple agents you own; rename the conflicting agent`
+            : `X-Me-As-Agent '${asAgent}' is not an agent you own`,
           403,
           "INVALID_AGENT",
         ),
       };
     }
+    const { agent } = resolved;
     // Overwrite the resolved principal to the agent, reusing the existing agent
     // semantics so parity with the agent-key path is automatic. The human owns
     // the agent, so `ownerId = human` drives `~` home nesting the same way.

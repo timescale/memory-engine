@@ -20,6 +20,7 @@ import type {
   VerifyOAuthAccessToken,
 } from "../auth/betterauth";
 import { error, forbidden, unauthorized } from "../util/response";
+import { resolveOwnedAgent } from "./act-as-agent";
 import { extractBearerToken, passesCsrfCheck } from "./authenticate";
 
 export interface UserAuthContext {
@@ -227,26 +228,25 @@ export async function authenticateUser(
 
     const human = result.context.userId;
     const agents = await coreStore.listAgents(human);
-    const wanted = asAgent.toLowerCase();
-    // Id first, then name — both case-insensitive (Postgres emits uuids
-    // lowercase, but a client may send an uppercase UUID).
-    const agent =
-      agents.find((a) => a.id.toLowerCase() === wanted) ??
-      agents.find((a) => a.name.toLowerCase() === wanted);
-    if (!agent) {
+    const resolved = resolveOwnedAgent(agents, asAgent);
+    if (resolved.kind !== "found") {
       debug("user auth failed: X-Me-As-Agent not an owned agent", {
         userId: human,
         asAgent,
+        reason: resolved.kind,
       });
       return {
         ok: false,
         error: error(
-          `X-Me-As-Agent '${asAgent}' is not an agent you own`,
+          resolved.kind === "ambiguous"
+            ? `X-Me-As-Agent '${asAgent}' matches multiple agents you own; rename the conflicting agent`
+            : `X-Me-As-Agent '${asAgent}' is not an agent you own`,
           403,
           "INVALID_AGENT",
         ),
       };
     }
+    const { agent } = resolved;
     debug("user auth act-as-agent", { userId: human, agentId: agent.id });
     return {
       ok: true,

@@ -83,6 +83,7 @@ import type {
   PrincipalResolveParams,
   PrincipalResolveResult,
 } from "@memory.build/protocol/space";
+import { assertConcreteAsAgent } from "./as-agent";
 import { rpcCall, type TransportConfig } from "./transport.ts";
 
 export interface MemoryClientOptions {
@@ -202,6 +203,7 @@ const DEFAULT_RETRIES = 3;
 function seedHeaders(
   options: MemoryClientOptions,
 ): Record<string, string> | undefined {
+  assertConcreteAsAgent(options.asAgent);
   const headers: Record<string, string> = {};
   if (options.space) headers[SPACE_HEADER] = options.space;
   if (options.asAgent) headers[AS_AGENT_HEADER] = options.asAgent;
@@ -286,6 +288,7 @@ export function createMemoryClient(
       config.headers = { ...config.headers, [SPACE_HEADER]: space };
     },
     setAsAgent(asAgent: string) {
+      assertConcreteAsAgent(asAgent);
       const headers = { ...config.headers };
       if (asAgent) headers[AS_AGENT_HEADER] = asAgent;
       else delete headers[AS_AGENT_HEADER];

@@ -213,6 +213,23 @@ test("act-as: human OAuth + owned agent by UPPERCASE id → switches (id match i
   }
 });
 
+test("act-as: id/name collision among owned agents → 403 INVALID_AGENT", async () => {
+  const userId = await seedUser();
+  const idAgent = await core.createAgent(userId, `agent-${rand()}`);
+  await core.createAgent(userId, idAgent);
+
+  const result = await auth(await mintAccessToken(userId), idAgent);
+  expect(result.ok).toBe(false);
+  if (!result.ok) {
+    expect(result.error.status).toBe(403);
+    const body = (await result.error.json()) as {
+      error: { code: string; message: string };
+    };
+    expect(body.error.code).toBe("INVALID_AGENT");
+    expect(body.error.message).toContain("matches multiple agents");
+  }
+});
+
 test("act-as: agent-key bearer + X-Me-As-Agent → header ignored (key trumps)", async () => {
   const userId = await seedUser();
   const a = await core.createAgent(userId, `agent-${rand()}`);

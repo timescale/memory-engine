@@ -48,6 +48,7 @@ import type {
   WhoamiParams,
   WhoamiResult,
 } from "@memory.build/protocol/user";
+import { assertConcreteAsAgent } from "./as-agent";
 import { rpcCall, type TransportConfig } from "./transport.ts";
 
 export interface UserClientOptions {
@@ -135,6 +136,7 @@ const DEFAULT_TIMEOUT = 30_000;
 const DEFAULT_RETRIES = 3;
 
 export function createUserClient(options: UserClientOptions = {}): UserClient {
+  assertConcreteAsAgent(options.asAgent);
   const config: TransportConfig = {
     url: (options.url ?? DEFAULT_URL).replace(/\/+$/, ""),
     path: options.rpcPath ?? USER_RPC_PATH,
@@ -194,6 +196,7 @@ export function createUserClient(options: UserClientOptions = {}): UserClient {
       config.token = token;
     },
     setAsAgent(asAgent: string) {
+      assertConcreteAsAgent(asAgent);
       const headers = { ...config.headers };
       if (asAgent) headers[AS_AGENT_HEADER] = asAgent;
       else delete headers[AS_AGENT_HEADER];
