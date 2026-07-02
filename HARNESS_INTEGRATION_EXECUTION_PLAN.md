@@ -249,7 +249,31 @@ Original scope (for reference):
    GEMINI.md fallback per P0); command TOML; GEMINI.md snippets; git hook +
    backfills (project). `me gemini init` is net-new.
 
-## P6 — Docs + e2e (PR 6, or folded into P2–P5)
+## P6 — Docs + e2e (PR 6) — ✅ DONE 2026-07-01
+
+- **Docs** rewritten around the install(user/human) / init(project/agent)
+  matrix: `docs/cli/me-{claude,opencode,codex,gemini}.md`, `me-mcp.md`,
+  `me-import.md` (adds gemini), `mcp-integration.md`, `getting-started.md`,
+  `project-config.md` (the `agent:` field is now documented as the implemented
+  act-as-agent source, not "reserved"), `agents.txt`, and the repo `AGENTS.md`
+  CLI list. All stale plugin/marketplace/`--mcp-only`/`--scope` references removed.
+- **Also** (bonus during P6): Claude project MCP now writes `.mcp.json`
+  **directly** (no `claude` binary needed, P0-verified shape) rather than via
+  `claude mcp add` — removing the binary dependency from `me claude init` and
+  unblocking the e2e.
+- **e2e**: fixed the three `me claude init` tests (8b/8c/8e) for the new model —
+  they now seed a `.me/config.yaml` `agent:` (the fail-fast precondition), use
+  the new `--skip-*` flag names, and assert the new pointer markers. Could not
+  run the e2e suite locally (it requires `OPENAI_API_KEY` + `TEST_DATABASE_URL`);
+  relying on CI (`TEST_CI=1`).
+
+**Coverage note / follow-up:** a full "project-scope capture writes *as the
+agent*" e2e wasn't added — attribution isn't directly queryable via the CLI, and
+the X-Me-As-Agent forwarding is already covered by test 7a1 (a human session
+acting as an agent, constrained) plus the unit tests (capture threads
+`asAgent`) and the per-harness smoke tests (artifacts bake `--as-agent .me`).
+
+Original scope (for reference):
 
 1. Rewrite `docs/cli/me-claude|opencode|codex|gemini.md`,
    `docs/mcp-integration.md`, `docs/project-config.md` around the

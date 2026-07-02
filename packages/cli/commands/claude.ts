@@ -134,6 +134,7 @@ const claudeTool = (): McpToolCli => {
 
 async function installMcp(
   scope: Scope,
+  root: string,
   pins: { server?: string; space?: string } = {},
 ): Promise<void> {
   const meCmd = buildMeCommand({
@@ -141,6 +142,28 @@ async function installMcp(
     server: pins.server,
     space: pins.space,
   });
+  // Project scope → write the repo's `.mcp.json` directly (isolated, committable,
+  // no `claude` binary needed). User scope → `claude mcp add --scope user`, since
+  // the user store (~/.claude.json) is Claude's own complex config best edited
+  // through its CLI.
+  if (scope === "project") {
+    const file = join(root, ".mcp.json");
+    const [command, ...args] = meCmd;
+    await updateJsonFile(file, (c) => {
+      const servers =
+        c.mcpServers &&
+        typeof c.mcpServers === "object" &&
+        !Array.isArray(c.mcpServers)
+          ? { ...(c.mcpServers as Record<string, unknown>) }
+          : {};
+      servers.me = { type: "stdio", command, args, env: {} };
+      c.mcpServers = servers;
+      return c;
+    });
+    clack.log.success(`Registered MCP server → ${file}`);
+    return;
+  }
+  requireClaudeBinary();
   const result = await installMcpServer(claudeTool(), meCmd, { scope });
   if (result.success) clack.log.success(result.message);
   else {
@@ -149,7 +172,18 @@ async function installMcp(
   }
 }
 
-async function removeMcp(scope: Scope): Promise<void> {
+async function removeMcp(scope: Scope, root: string): Promise<void> {
+  if (scope === "project") {
+    await updateJsonFile(join(root, ".mcp.json"), (c) => {
+      const servers = c.mcpServers;
+      if (servers && typeof servers === "object" && !Array.isArray(servers)) {
+        delete (servers as Record<string, unknown>).me;
+      }
+      return c;
+    }).catch(() => {});
+    return;
+  }
+  if (Bun.which("claude") === null) return;
   const proc = Bun.spawn(claudeTool().removeCmd({ scope }), {
     stdout: "ignore",
     stderr: "ignore",
@@ -299,7 +333,7 @@ function createClaudeInstallCommand(): Command {
         requireClaudeBinary();
 
         if (opts.remove) {
-          await removeMcp(scope);
+          await removeMcp(scope, root);
           await updateJsonFile(settingsFile(scope, root), (s) =>
             removeClaudeSettings(s),
           ).catch(() => {});
@@ -327,7 +361,7 @@ function createClaudeInstallCommand(): Command {
             : { server: opts.server };
         }
 
-        await installMcp(scope, pins);
+        await installMcp(scope, root, pins);
         await installHooks(scope, root);
         await installSkill(scope, root);
         await installRecall(scope, root);
@@ -466,7 +500,7 @@ const INIT_STEPS: InitStep[] = [
     skipDescription: "do not register me as an MCP server with Claude Code",
     label:
       "Register me as an MCP server — gives Claude the memory search/create tools",
-    run: () => installMcp("project"),
+    run: (ctx) => installMcp("project", projectRootOf(ctx)),
   },
   {
     id: "recall-command",
@@ -581,7 +615,6 @@ function createClaudeInitCommand(): Command {
     outro: printInitOutro,
     resolveContext: async (base) => {
       requireProjectAgent();
-      requireClaudeBinary();
       return {
         ...base,
         scope: "project",

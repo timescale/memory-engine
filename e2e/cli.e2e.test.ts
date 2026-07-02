@@ -1028,6 +1028,14 @@ describe.skipIf(
     const projectRoot = await mkdtemp(join(tmpdir(), "me-e2e-initcwd-"));
     const projectDir = join(projectRoot, "initcwd");
     await mkdir(projectDir, { recursive: true });
+    // Project-scope init acts as the project's `.me` agent (fail-fast without
+    // one). The agent need not exist server-side for init's own file writes +
+    // human-authenticated backfill — only for the baked `--as-agent .me` runtime.
+    await mkdir(join(projectDir, ".me"), { recursive: true });
+    await writeFile(
+      join(projectDir, ".me", "config.yaml"),
+      "agent: initagent\n",
+    );
     // The recorded session cwd must be the REAL path (as Claude Code would
     // record it): macOS tmpdir is a symlink (/var/folders → /private/var),
     // and init filters against the resolved process.cwd().
@@ -1083,8 +1091,16 @@ describe.skipIf(
     expect(await countBySession(sessionId)).toBe(0);
 
     // Run `init` FROM the project dir so its cwd → slug → CLAUDE.md location.
+    // Skip the config-writing steps unrelated to this test (hooks/MCP/skill/
+    // command); we exercise the transcript backfill + the CLAUDE.md pointer.
+    const initFlags = [
+      "--skip-hooks-install",
+      "--skip-mcp-install",
+      "--skip-skill",
+      "--skip-recall-command",
+    ];
     const init = await me(
-      ["claude", "init", "--skip-plugin-install"],
+      ["claude", "init", ...initFlags],
       undefined,
       projectDir,
     );
@@ -1097,20 +1113,20 @@ describe.skipIf(
 
     // Step 2: CLAUDE.md now points at this project's memories.
     const claudeMd = await readFile(join(projectDir, "CLAUDE.md"), "utf8");
-    expect(claudeMd).toContain("memory-engine:start");
+    expect(claudeMd).toContain(">>> memory-engine");
     expect(claudeMd).toContain("share.projects.initcwd");
     expect(claudeMd).toContain("share.projects.initcwd.agent_sessions");
     expect(claudeMd).toContain("share.projects.initcwd.git_history");
 
     // Re-running is idempotent: still exactly one managed block.
     const init2 = await me(
-      ["claude", "init", "--skip-plugin-install"],
+      ["claude", "init", ...initFlags],
       undefined,
       projectDir,
     );
     expect(init2.code, init2.stderr).toBe(0);
     const claudeMd2 = await readFile(join(projectDir, "CLAUDE.md"), "utf8");
-    expect(claudeMd2.split("memory-engine:start").length - 1).toBe(1);
+    expect(claudeMd2.split(">>> memory-engine").length - 1).toBe(1);
 
     for (const cwd of [projectCwd, "/work/other-proj"]) {
       await rm(join(tmpHome, ".claude", "projects", encodeProjectDir(cwd)), {
@@ -1132,8 +1148,18 @@ describe.skipIf(
       const root = await mkdtemp(join(tmpdir(), "me-e2e-skip-"));
       const dir = join(root, name);
       await mkdir(dir, { recursive: true });
+      // Project-scope init requires a `.me` agent (fail-fast otherwise).
+      await mkdir(join(dir, ".me"), { recursive: true });
+      await writeFile(join(dir, ".me", "config.yaml"), "agent: initagent\n");
       return { root, dir };
     };
+    // Skip the config steps unrelated to these assertions.
+    const noise = [
+      "--skip-hooks-install",
+      "--skip-mcp-install",
+      "--skip-skill",
+      "--skip-recall-command",
+    ];
     const writeTranscript = async (sid: string, cwd: string) => {
       const mkMsg = (i: number, type: "user" | "assistant") => ({
         type,
@@ -1171,7 +1197,7 @@ describe.skipIf(
     const sessionA = `skipa-${rand()}`;
     await writeTranscript(sessionA, await realpath(a.dir));
     const r1 = await me(
-      ["claude", "init", "--skip-transcript-import", "--skip-plugin-install"],
+      ["claude", "init", "--skip-transcript-import", ...noise],
       undefined,
       a.dir,
     );
@@ -1184,7 +1210,7 @@ describe.skipIf(
     const sessionB = `skipb-${rand()}`;
     await writeTranscript(sessionB, await realpath(b.dir));
     const r2 = await me(
-      ["claude", "init", "--skip-claude-md", "--skip-plugin-install"],
+      ["claude", "init", "--skip-claude-md", ...noise],
       undefined,
       b.dir,
     );
@@ -1350,10 +1376,19 @@ describe.skipIf(
       ["commit", "-q", "-m", "feat: initial"],
       "2026-05-01T10:00:00Z",
     );
+    // Project-scope init requires a `.me` agent (fail-fast otherwise).
+    await mkdir(join(repo, ".me"), { recursive: true });
+    await writeFile(join(repo, ".me", "config.yaml"), "agent: initagent\n");
+    const noise = [
+      "--skip-hooks-install",
+      "--skip-mcp-install",
+      "--skip-skill",
+      "--skip-recall-command",
+    ];
 
     // --skip-git-import: no commit memories.
     const skipped = await me(
-      ["claude", "init", "--skip-git-import", "--skip-plugin-install"],
+      ["claude", "init", "--skip-git-import", ...noise],
       undefined,
       repo,
     );
@@ -1362,11 +1397,7 @@ describe.skipIf(
 
     // Plain init (non-interactive baseline) imports the repo's history and
     // the CLAUDE.md pointer names the git_history node.
-    const init = await me(
-      ["claude", "init", "--skip-plugin-install"],
-      undefined,
-      repo,
-    );
+    const init = await me(["claude", "init", ...noise], undefined, repo);
     expect(init.code, init.stderr).toBe(0);
     expect(await countUnder(tree)).toBe(1);
     const claudeMd = await readFile(join(repo, "CLAUDE.md"), "utf8");

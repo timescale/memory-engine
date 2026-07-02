@@ -24,44 +24,37 @@ Log in with `me login` and select a space — `me whoami` shows your active spac
 
 The server defaults to `https://api.memory.build`. Pass `--server <url>` only if you're running a self-hosted server.
 
-### Agent-specific installers
+### Agent-specific setup: `install` (user) vs `init` (project)
 
-```bash
-me opencode install
-me codex install
-me gemini install
-```
+Each harness has two setup commands with a deliberate split:
 
-These commands register Memory Engine with the named tool, writing a `me mcp` invocation into the tool's MCP configuration. By default they embed no key — the server uses your `me login` session at runtime. Pass `--api-key` to pin a dedicated agent key instead, `--space <slug>` to pin a space, and `--server <url>` to pin a non-default server.
+- **`me <harness> install`** — **user scope** (the tool's global config). The
+  integration runs as **you** (your `me login` session). Sets up the MCP server,
+  capture, the `memory-engine` skill, a `/memory-recall` command, and a memory
+  pointer. Optional `--server`/`--space` pin a fixed target; `--remove` uninstalls.
+- **`me <harness> init`** — **project scope** (writes into the repo, committable).
+  The integration runs as the **project's agent** (the `agent` in
+  [`.me/config.yaml`](project-config.md#the-agent-field-act-as-agent)) via the
+  `X-Me-As-Agent` header — every baked `me` invocation carries `--as-agent .me`,
+  and the tool shell gets `ME_AS_AGENT=.me` so ad-hoc `me` calls run as the agent
+  too. `init` also backfills existing sessions + git history and installs a git
+  post-commit hook. It **requires** a `.me` `agent:` (fails fast otherwise).
 
-See the agent-specific command references for details: [`me opencode install`](cli/me-opencode.md#me-opencode-install), [`me codex install`](cli/me-codex.md#me-codex-install), and [`me gemini install`](cli/me-gemini.md#me-gemini-install).
+| Tool | User setup | Project setup |
+|------|-----------|---------------|
+| Claude Code | `me claude install` | `me claude init` |
+| OpenCode | `me opencode install` | `me opencode init` |
+| Codex CLI | `me codex install` | `me codex init` |
+| Gemini CLI | `me gemini install` | `me gemini init` |
 
-For OpenCode, [`me opencode init`](cli/me-opencode.md#me-opencode-init) goes further than `install`: it also backfills the project's existing sessions, installs a capture plugin (so new sessions are captured automatically, like the Claude Code plugin), and writes a memory pointer into `AGENTS.md`.
+See each command reference for details:
+[claude](cli/me-claude.md) ·
+[opencode](cli/me-opencode.md) ·
+[codex](cli/me-codex.md) ·
+[gemini](cli/me-gemini.md).
 
-Both `me opencode install` and `me opencode init` take `--scope project|user`. Project scope writes into the repo (`opencode.json` + `.opencode/`) so the integration can be committed and shared with a team (no key is embedded — credentials resolve from each teammate's `me login`); user scope writes the global `~/.config/opencode/` config. `install` defaults to `user`; `init` defaults to `project` (and prompts when run interactively).
-
-| Tool | Install command |
-|------|-----------------|
-| OpenCode | `me opencode install` |
-| Codex CLI | `me codex install` |
-| Gemini CLI | `me gemini install` |
-| Claude Code | `me claude install` (full plugin) / `me claude install --mcp-only` |
-
-### Claude Code
-
-```bash
-me claude install            # full plugin: hooks + slash commands + MCP
-me claude install --mcp-only # or just the MCP server
-```
-
-By default `me claude install` installs the Memory Engine plugin, driving Claude Code's native plugin flow for you (`claude plugin marketplace add` + `claude plugin install`) and passing your resolved `server` / `space` / `api_key` through `--config`. The plugin provides the MCP server and captures Claude Code session events as memories. After installing, restart Claude Code (or run `/plugin`) to load the hooks and slash commands; re-run `/plugin` → `memory-engine` → Configure to adjust options. To run the underlying flow by hand instead:
-
-```bash
-claude plugin marketplace add timescale/memory-engine
-claude plugin install memory-engine@memory-engine [--scope user|project|local]
-```
-
-See [`me claude install`](cli/me-claude.md#me-claude-install) for the full option reference.
+The rest of this page documents the raw MCP config each installer writes, for
+manual setup.
 
 ### Gemini CLI
 

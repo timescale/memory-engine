@@ -16,6 +16,7 @@ under tree `Z`" once, and have every tool that touches the repo agree.
 server: https://api.memory.build   # pin the server
 space: xjjg3kmq6vvb                 # pin the space (slug)
 tree: /share/projects/acme          # optional: where integrations write (see below)
+agent: acme-bot                     # optional: the project's agent (see below)
 ```
 
 All fields are optional. A `.me` that sets only `tree` still inherits its
@@ -25,8 +26,21 @@ rather than silently ignoring the pins the project meant to apply. (The
 best-effort capture hooks are the exception — they log and skip, so a typo never
 breaks an agent session.)
 
-> `agent:` is reserved for a future "act as an agent" mode and currently has no
-> effect.
+## The `agent` field (act-as-agent)
+
+`agent:` names the project's agent (an agent id or name you own). It is the
+value source for the **`.me` sentinel**: `--as-agent .me` / `ME_AS_AGENT=.me`
+resolves to this agent and is sent as the `X-Me-As-Agent` header, so the request
+runs as that owned agent (its access clamped to yours). The agent id is
+non-secret — safe to commit.
+
+Setting `agent:` alone does **not** put `me` in agent mode; activation is always
+explicit via `--as-agent .me` / `ME_AS_AGENT=.me`. The project-scope integration
+setup (`me <harness> init`) wires both — it bakes `--as-agent .me` into the MCP
+server, capture hooks, and git hook, and injects `ME_AS_AGENT=.me` into the
+harness's tool shell — and it **requires** `agent:` to be present (it fails fast
+otherwise). The user-scope setup (`me <harness> install`) does not use it and
+runs as you.
 
 ## Discovery
 

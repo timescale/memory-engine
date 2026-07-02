@@ -11,12 +11,16 @@ docs: https://docs.memory.build
 # MCP server
 mcp:
   install:
+    claude_code: me claude install
     opencode: me opencode install
     codex_cli: me codex install
     gemini_cli: me gemini install
-    claude_code: me claude install --mcp-only
-    claude_code_plugin: me claude install
-  description: Memory engine ships as an MCP server. OpenCode, Codex CLI, Gemini CLI, and Claude Code all support MCP-only install via `me <agent> install` (Claude Code: `me claude install --mcp-only`). For Claude Code, the default `me claude install` installs the full plugin (hooks + slash commands + MCP) via Claude Code's plugin marketplace.
+  init:
+    claude_code: me claude init
+    opencode: me opencode init
+    codex_cli: me codex init
+    gemini_cli: me gemini init
+  description: Memory engine ships as an MCP server. Each harness has two setup commands. `me <tool> install` (user scope) sets up MCP + capture + skill + command running as you. `me <tool> init` (project scope) sets it up for the repo, acting as the project's `.me` agent via the X-Me-As-Agent header (requires an `agent:` in .me/config.yaml), and also backfills sessions + git history.
   compatible_clients:
     - Claude Code
     - Codex CLI

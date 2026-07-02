@@ -5,9 +5,10 @@ Get data into Memory Engine — one subcommand per source.
 ## Commands
 
 - [me import memories](#me-import-memories) -- import memory records from files or stdin (md/yaml/json/ndjson)
-- [me import claude](#me-import-claude--codex--opencode) -- import Claude Code sessions
-- [me import codex](#me-import-claude--codex--opencode) -- import Codex sessions
-- [me import opencode](#me-import-claude--codex--opencode) -- import OpenCode sessions
+- [me import claude](#me-import-claude--codex--opencode--gemini) -- import Claude Code sessions
+- [me import codex](#me-import-claude--codex--opencode--gemini) -- import Codex sessions
+- [me import opencode](#me-import-claude--codex--opencode--gemini) -- import OpenCode sessions
+- [me import gemini](#me-import-claude--codex--opencode--gemini) -- import Gemini CLI sessions
 - [me import granola](#me-import-granola) -- import Granola meeting notes and transcripts
 - [me import git](#me-import-git) -- import a repo's git commit history
 - [me import git-hook](#me-import-git-hook) -- install a post-commit hook that keeps git history memories current
@@ -29,15 +30,18 @@ See [me memory import](me-memory.md#me-memory-import) for the full option refere
 
 ---
 
-## me import claude / codex / opencode
+## me import claude / codex / opencode / gemini
 
-Import agent sessions from each tool's native storage. The per-agent spellings (`me claude import`, `me codex import`, `me opencode import`) are aliases of these commands.
+Import agent sessions from each tool's native storage. The per-agent spellings (`me claude import`, `me codex import`, `me opencode import`, `me gemini import`) are aliases of these commands.
 
 ```
 me import claude [options]
 me import codex [options]
 me import opencode [options]
+me import gemini [options]
 ```
+
+Sources: Claude `~/.claude/projects`, Codex `~/.codex/sessions` (+ archived), OpenCode `~/.local/share/opencode/storage`, Gemini `~/.gemini/tmp`.
 
 See [agent session imports](agent-session-imports.md) for the shared option reference, tree layout, idempotency rules, content shape, and metadata schema.
 

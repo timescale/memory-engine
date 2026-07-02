@@ -37,20 +37,14 @@ This command is typically not run directly -- it is invoked by AI tools based on
 
 ## Installation
 
-MCP registration lives under agent-specific commands:
+MCP registration lives under agent-specific commands — `install` (user scope,
+acts as you) or `init` (project scope, acts as the project's `.me` agent):
 
-| Tool | Command |
-|------|---------|
-| OpenCode | [`me opencode install`](me-opencode.md#me-opencode-install) |
-| Codex CLI | [`me codex install`](me-codex.md#me-codex-install) |
-| Gemini CLI | [`me gemini install`](me-gemini.md#me-gemini-install) |
-| Claude Code | [`me claude`](me-claude.md) plugin hooks |
+| Tool | User | Project |
+|------|------|---------|
+| Claude Code | [`me claude install`](me-claude.md#me-claude-install) | [`me claude init`](me-claude.md#me-claude-init) |
+| OpenCode | [`me opencode install`](me-opencode.md#me-opencode-install) | [`me opencode init`](me-opencode.md#me-opencode-init) |
+| Codex CLI | [`me codex install`](me-codex.md#me-codex-install) | [`me codex init`](me-codex.md#me-codex-init) |
+| Gemini CLI | [`me gemini install`](me-gemini.md#me-gemini-install) | [`me gemini init`](me-gemini.md#me-gemini-init) |
 
-Claude Code uses the Memory Engine plugin instead of MCP registration through the `me` CLI:
-
-```
-claude plugin marketplace add timescale/memory-engine
-claude plugin install memory-engine@memory-engine [--scope user|project|local]
-```
-
-Then start Claude Code, run `/plugin`, select `memory-engine`, and configure the options (all optional except `server`): leave `api_key` blank to use your `me login` session, leave `space` blank to use your active space, and `tree_root` defaults to `/share/projects`.
+See [MCP Integration](../mcp-integration.md) for the raw config each writes.
