@@ -405,6 +405,27 @@ test("act-as: human session + owned agent by UPPERCASE id → principal switch (
   }
 });
 
+test("act-as: id/name collision among owned agents → 403 INVALID_AGENT", async () => {
+  const p = await provision();
+  const { agentId } = await seedOwnedAgent(p);
+  const core = engineCore.coreStore(sql, coreSchema);
+  await core.createAgent(p.userId, agentId);
+
+  const result = await authenticateSpace(
+    req({ token: p.token, space: p.spaceSlug, asAgent: agentId }),
+    deps(),
+  );
+  expect(result.ok).toBe(false);
+  if (!result.ok) {
+    expect(result.error.status).toBe(403);
+    const body = (await result.error.json()) as {
+      error: { code: string; message: string };
+    };
+    expect(body.error.code).toBe("INVALID_AGENT");
+    expect(body.error.message).toContain("matches multiple agents");
+  }
+});
+
 test("act-as: agent-key bearer + X-Me-As-Agent (a valid other owned agent) → header ignored, key trumps", async () => {
   const p = await provision();
   const a = await seedOwnedAgent(p);

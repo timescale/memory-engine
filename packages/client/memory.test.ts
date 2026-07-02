@@ -103,6 +103,18 @@ test("memory client sends X-Me-As-Agent when asAgent is set", async () => {
   expect(captured.headers["X-Me-Space"]).toBe("abc123def456");
 });
 
+test("memory client rejects unresolved .me asAgent sentinel", () => {
+  expect(() =>
+    createMemoryClient({
+      url: "https://api.example.com",
+      token: "sess-tok",
+      space: "abc123def456",
+      asAgent: ".me",
+      retries: 0,
+    }),
+  ).toThrow(/resolved/);
+});
+
 test("memory client omits X-Me-As-Agent when asAgent is unset", async () => {
   const captured = captureFetch();
   const client = createMemoryClient({
@@ -138,6 +150,17 @@ test("memory client setAsAgent sets then clears the X-Me-As-Agent header", async
   expect(captured.headers["X-Me-As-Agent"]).toBeUndefined();
 });
 
+test("memory client setAsAgent rejects unresolved .me sentinel", () => {
+  const client = createMemoryClient({
+    url: "https://api.example.com",
+    token: "t",
+    space: "aaaaaaaaaaaa",
+    retries: 0,
+  });
+
+  expect(() => client.setAsAgent(".me")).toThrow(/resolved/);
+});
+
 test("user client sends X-Me-As-Agent when asAgent is set (headers initialized from unset)", async () => {
   const captured = captureFetch();
   const client = createUserClient({
@@ -150,6 +173,17 @@ test("user client sends X-Me-As-Agent when asAgent is set (headers initialized f
   await client.whoami();
 
   expect(captured.headers["X-Me-As-Agent"]).toBe("my-agent");
+});
+
+test("user client rejects unresolved .me asAgent sentinel", () => {
+  expect(() =>
+    createUserClient({
+      url: "https://api.example.com",
+      token: "sess-tok",
+      asAgent: ".me",
+      retries: 0,
+    }),
+  ).toThrow(/resolved/);
 });
 
 test("user client setAsAgent initializes headers when previously unset, then clears", async () => {
@@ -168,6 +202,16 @@ test("user client setAsAgent initializes headers when previously unset, then cle
   captured.headers = {};
   await client.whoami();
   expect(captured.headers["X-Me-As-Agent"]).toBeUndefined();
+});
+
+test("user client setAsAgent rejects unresolved .me sentinel", () => {
+  const client = createUserClient({
+    url: "https://api.example.com",
+    token: "sess-tok",
+    retries: 0,
+  });
+
+  expect(() => client.setAsAgent(".me")).toThrow(/resolved/);
 });
 
 test("user client targets the user endpoint with no X-Me-Space", async () => {

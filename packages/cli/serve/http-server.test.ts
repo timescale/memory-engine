@@ -65,6 +65,22 @@ function startMockUpstream(port: number): MockUpstream {
   return state;
 }
 
+test("startHttpServer rejects unresolved .me asAgent sentinel", () => {
+  expect(() =>
+    startHttpServer({
+      server: "http://127.0.0.1:1",
+      bearer: {
+        getToken: async () => "sess-test-token",
+        onUnauthorized: async () => undefined,
+      },
+      space: "abc123def456",
+      asAgent: ".me",
+      host: "127.0.0.1",
+      port: 1,
+    }),
+  ).toThrow(/resolved/);
+});
+
 describe("startHttpServer", () => {
   let mock: MockUpstream;
   let running: RunningServer;

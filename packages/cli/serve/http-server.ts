@@ -51,6 +51,8 @@ export const USER_RPC_PATH = "/api/v1/user/rpc";
 /** Local-only endpoint exposing the bound space to the browser. */
 export const SERVE_CONTEXT_PATH = "/api/serve-context";
 
+const AS_AGENT_PROJECT_SENTINEL = ".me";
+
 export interface RunningServer {
   /** The URL the server is listening on (e.g., http://127.0.0.1:3000). */
   url: string;
@@ -65,6 +67,10 @@ export interface RunningServer {
  * Throws if the port cannot be bound (e.g., EADDRINUSE).
  */
 export function startHttpServer(options: ServeOptions): RunningServer {
+  if (options.asAgent === AS_AGENT_PROJECT_SENTINEL) {
+    throw new Error("asAgent '.me' must be resolved before starting me serve");
+  }
+
   const server = Bun.serve({
     hostname: options.host,
     port: options.port,
