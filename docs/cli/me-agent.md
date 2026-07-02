@@ -4,7 +4,7 @@ Manage agents.
 
 An **agent** is a service account you own — a non-human principal that authenticates with an API key. Agents are **global** (owned by you, names unique per user), independent of any space. Create an agent, add it to the spaces it should work in, then mint it an API key with [`me apikey`](me-apikey.md).
 
-These commands authenticate with your **session** (`me login`). Lifecycle commands (`create`/`list`/`rename`/`delete`) are global; `spaces` lists one of your agent's space memberships; `add` and `groups` operate on the active space.
+These commands authenticate with your **session** (`me login`). Lifecycle commands (`create`/`list`/`rename`/`delete`) are global; `spaces` lists one of your agent's space memberships; `add`, `remove`, and `groups` operate on the active space.
 
 ## Commands
 
@@ -14,6 +14,7 @@ These commands authenticate with your **session** (`me login`). Lifecycle comman
 - [me agent delete](#me-agent-delete) -- delete an agent
 - [me agent spaces](#me-agent-spaces) -- list the spaces an agent belongs to
 - [me agent add](#me-agent-add) -- add an agent to the active space
+- [me agent remove](#me-agent-remove) -- remove an agent from the active space
 - [me agent groups](#me-agent-groups) -- list an agent's groups in the space
 
 ---
@@ -59,7 +60,7 @@ me agent rename <agent> <new-name>
 
 ## me agent delete
 
-Delete an agent. Its API keys are deleted with it. Alias: `me agent rm`.
+Delete an agent **globally**. Its API keys are deleted with it, and it leaves every space. Alias: `me agent rm`. To take an agent out of a *single* space while keeping it alive elsewhere, use [`me agent remove`](#me-agent-remove) instead.
 
 ```
 me agent delete <agent>
@@ -82,6 +83,26 @@ me agent add <agent>
 | Argument | Required | Description |
 |----------|----------|-------------|
 | `agent` | yes | Agent id or name. |
+
+---
+
+## me agent remove
+
+Remove one of your agents from the active space's roster — the inverse of [`me agent add`](#me-agent-add). Its access grants and group memberships **in this space** are scrubbed; the agent itself, its API keys, and its memberships in other spaces are untouched. Removing your **own** agent is self-service — **no space-admin needed**.
+
+```
+me agent remove <agent> [-y]
+```
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `agent` | yes | Agent id or name. |
+
+| Option | Description |
+|--------|-------------|
+| `-y, --yes` | Skip the confirmation prompt. |
+
+To remove someone else's agent (as an admin), use [`me space remove-member`](me-space.md#me-space-remove-member). Note that leaving a space with [`me space leave`](me-space.md#me-space-leave) already removes your agents in that space automatically.
 
 ---
 

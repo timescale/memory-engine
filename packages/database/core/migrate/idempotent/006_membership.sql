@@ -168,6 +168,17 @@ set search_path to pg_catalog, {{schema}}, public, pg_temp
 -- was a member of the space. (Space-scoped only; the principal row itself and
 -- any other spaces are left untouched.)
 --
+-- User → agent cascade: removing a USER also deprovisions the agents that user
+-- owns from THIS space (their tree_access / group_member / principal_space rows),
+-- because an agent is a separate principal nested under its owner's home and would
+-- otherwise stay rostered and usable via its own api key after its owner leaves.
+-- The cascade is space-scoped (only rows in _space_id) — the agents' `principal`
+-- rows and their memberships in other spaces are left intact — and gated on the
+-- target actually having been a member, so removing a non-member is a clean no-op.
+-- It lives here so every caller (admin remove-member, self-leave) inherits it
+-- atomically; agents are never admins, so the agent-row deletes can't trip the
+-- deferred enforce_last_admin guard.
+--
 -- Groups are rejected: a group is rostered into its space on creation
 -- (create_group → add_principal_to_space) and leaves only when the group itself
 -- is deleted (delete_principal, which cascades its principal_space / group_member
@@ -220,6 +231,39 @@ begin
     returning 1
   )
   select exists (select 1 from del_membership) into _removed;
+
+  -- User → agent cascade (space-scoped). Only when the target was actually a
+  -- member and is a user: deprovision the agents it owns from this space too.
+  if _removed and exists
+  (
+    select 1
+    from {{schema}}.principal p
+    where p.id = _principal_id
+    and p.kind = 'u'
+  ) then
+    with owned_agents as
+    (
+      select p.id
+      from {{schema}}.principal p
+      where p.kind = 'a'
+      and p.owner_id = _principal_id
+    )
+    , del_agent_grants as
+    (
+      delete from {{schema}}.tree_access
+      where space_id = _space_id
+      and principal_id in (select id from owned_agents)
+    )
+    , del_agent_group_member as
+    (
+      delete from {{schema}}.group_member
+      where space_id = _space_id
+      and member_id in (select id from owned_agents)
+    )
+    delete from {{schema}}.principal_space
+    where space_id = _space_id
+    and principal_id in (select id from owned_agents);
+  end if;
 
   return _removed;
 end;

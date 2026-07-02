@@ -231,6 +231,42 @@ test("removePrincipalFromSpace rejects a group (a group leaves only by deletion)
   ).toBe(false);
 });
 
+test("removePrincipalFromSpace cascades to owned agents (space-scoped)", async () => {
+  // a second, non-admin member (removing the beforeEach admin would trip ME001)
+  const member = await v7();
+  await core.createUser(member, `m_${rand(8)}@example.com`);
+  await core.addPrincipalToSpace(spaceId, member);
+
+  // agent1 lives in this space with a grant + a group membership
+  const agent1 = await core.createAgent(member, `a1-${rand(6)}`);
+  await core.addPrincipalToSpace(spaceId, agent1);
+  await core.grantTreeAccess(spaceId, agent1, "share", ACCESS.write);
+  const groupId = await core.createGroup(spaceId, `g-${rand(6)}`);
+  await core.addGroupMember(spaceId, groupId, agent1);
+
+  // agent2 lives in a different space (must stay untouched)
+  const otherSpace = await core.createSpace(rand(12), "Other");
+  const agent2 = await core.createAgent(member, `a2-${rand(6)}`);
+  await core.addPrincipalToSpace(otherSpace, agent2);
+
+  expect(await core.removePrincipalFromSpace(spaceId, member)).toBe(true);
+
+  // the member and its in-space agent are both off this space's roster
+  const ids = (await core.listSpacePrincipals(spaceId)).map((p) => p.id);
+  expect(ids).not.toContain(member);
+  expect(ids).not.toContain(agent1);
+  // agent1's grant + group membership in this space are scrubbed
+  expect(await core.listTreeAccessGrants(spaceId, agent1)).toHaveLength(0);
+  expect(await core.listGroupMembers(spaceId, groupId)).toHaveLength(0);
+
+  // but agent1's principal row itself survives (only its space rows were removed)
+  expect((await core.getPrincipal(agent1))?.id).toBe(agent1);
+  // and agent2 in the OTHER space is untouched
+  expect(
+    (await core.listSpacePrincipals(otherSpace)).map((p) => p.id),
+  ).toContain(agent2);
+});
+
 test("admin groups: create as admin, toggle via setGroupIsSpaceAdmin, confer admin to direct members", async () => {
   // create the group directly as an admin group
   const groupId = await core.createGroup(spaceId, `adm_${rand(6)}`, true);

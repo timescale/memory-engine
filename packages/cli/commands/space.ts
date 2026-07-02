@@ -6,6 +6,12 @@
  * - me space create <name>:        create a space and make it active
  * - me space rename <space> <name>: rename a space's display label
  * - me space delete <space>:       delete a space and all its data
+ * - me space remove-member <principal> [-y]: (admin) remove a user/agent from
+ *     the active space's roster. Removing a user also removes their agents in
+ *     this space. Members-only (groups leave via `me group delete`).
+ * - me space leave [-y]:           remove yourself (and your agents in this
+ *     space) from the active space — no admin needed (unless you're the sole
+ *     admin → LAST_ADMIN). Clears the active-space pointer on success.
  * - me space invite --email <addr> | --anyone [--admin] [--group <name>]
  *     [--expires <dur>] [--max-uses <n>]: invite a specific email (single-use)
  *     or mint an open shareable link (multi-use); the redeemer joins the given
@@ -40,8 +46,10 @@ import {
   buildMemoryClient,
   buildUserClient,
   handleError,
+  isAppErrorCode,
   requireAuth,
   requireSpace,
+  resolveSpaceMemberId,
 } from "../util.ts";
 import { resolveGroupIds } from "./group.ts";
 
@@ -333,6 +341,116 @@ function createSpaceDeleteCommand(): Command {
     });
 }
 
+function createSpaceRemoveMemberCommand(): Command {
+  return new Command("remove-member")
+    .description("remove a user or agent from the active space (admin)")
+    .argument("<principal>", "user or agent id or name")
+    .option("-y, --yes", "skip confirmation prompt")
+    .action(async (principal: string, opts, cmd) => {
+      const globalOpts = cmd.optsWithGlobals();
+      const creds = resolveCredentials(globalOpts.server);
+      const fmt = getOutputFormat(globalOpts);
+      requireAuth(creds, fmt);
+      requireSpace(creds, fmt);
+
+      const memory = buildMemoryClient(creds);
+      try {
+        // Members only: a group leaves via `me group delete` (a group name
+        // errors here; a group id is rejected server-side).
+        const principalId = await resolveSpaceMemberId(memory, principal, fmt);
+
+        if (fmt === "text" && !opts.yes) {
+          clack.log.warn(
+            "This removes the member from the space, scrubbing their grants and group memberships.",
+          );
+          clack.log.warn(
+            "For a user, their agents in this space are removed too. This cannot be undone.",
+          );
+          const ok = await clack.confirm({
+            message: `Remove '${principal}' from the space?`,
+          });
+          if (clack.isCancel(ok) || !ok) {
+            clack.cancel("Cancelled.");
+            process.exit(0);
+          }
+        }
+
+        const result = await memory.principal.remove({ principalId });
+        output({ principalId, ...result }, fmt, () => {
+          if (result.removed) {
+            clack.log.success(`Removed '${principal}' from the space.`);
+          } else {
+            clack.log.warn(`'${principal}' is not a member of this space.`);
+          }
+        });
+      } catch (error) {
+        handleError(error, fmt, { creds, scope: "space" });
+      }
+    });
+}
+
+function createSpaceLeaveCommand(): Command {
+  return new Command("leave")
+    .description("remove yourself (and your agents) from the active space")
+    .option("-y, --yes", "skip confirmation prompt")
+    .action(async (opts, cmd) => {
+      const globalOpts = cmd.optsWithGlobals();
+      const creds = resolveCredentials(globalOpts.server);
+      const fmt = getOutputFormat(globalOpts);
+      requireAuth(creds, fmt);
+      requireSpace(creds, fmt);
+
+      const user = buildUserClient(creds);
+      const memory = buildMemoryClient(creds);
+      try {
+        const me = await user.whoami();
+
+        if (fmt === "text" && !opts.yes) {
+          clack.log.warn(
+            "This removes you from the active space, along with any agents you own in it.",
+          );
+          clack.log.warn("This action cannot be undone.");
+          const ok = await clack.confirm({ message: "Leave this space?" });
+          if (clack.isCancel(ok) || !ok) {
+            clack.cancel("Cancelled.");
+            process.exit(0);
+          }
+        }
+
+        const result = await memory.principal.remove({ principalId: me.id });
+        // Drop the global active-space pointer only if it points at the space we
+        // just left (like `space delete`); leave a ME_SPACE / `.me` pin alone.
+        if (
+          result.removed &&
+          getServerConfig(creds.server).active_space === creds.activeSpace
+        ) {
+          clearActiveSpace(creds.server);
+        }
+        output({ principalId: me.id, ...result }, fmt, () => {
+          if (result.removed) {
+            clack.log.success("You have left the space.");
+            clack.log.info("Run 'me space use <space>' to pick another.");
+          } else {
+            clack.log.warn("You are not a member of this space.");
+          }
+        });
+      } catch (error) {
+        // A sole admin can't leave without first promoting another admin.
+        if (isAppErrorCode(error, "LAST_ADMIN")) {
+          const msg =
+            "You're the sole admin — promote another admin before leaving (e.g. 'me space invite --admin', or add an admin) so the space keeps one.";
+          if (fmt === "text") {
+            clack.log.error(msg);
+          } else {
+            output({ error: msg, code: "LAST_ADMIN" }, fmt, () => {});
+          }
+          process.exit(1);
+        }
+        handleError(error, fmt, { creds, scope: "space" });
+      }
+    });
+}
+
 function createSpaceInviteListCommand(): Command {
   return new Command("list")
     .alias("ls")
@@ -549,6 +667,8 @@ export function createSpaceCommand(): Command {
   space.addCommand(createSpaceCreateCommand());
   space.addCommand(createSpaceRenameCommand());
   space.addCommand(createSpaceDeleteCommand());
+  space.addCommand(createSpaceRemoveMemberCommand());
+  space.addCommand(createSpaceLeaveCommand());
   space.addCommand(createSpaceInviteCommand());
   return space;
 }

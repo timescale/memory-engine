@@ -78,8 +78,24 @@ async function principalRemove(
 ): Promise<PrincipalRemoveResult> {
   assertSpaceRpcContext(context);
   const ctx = context as SpaceRpcContext;
-  // Removing a roster member is structural, like adding — space-admin only.
-  requireSpaceAdmin(ctx);
+  // Removing a roster member is structural — space-admin only — with two
+  // self-service exceptions that mirror `principal.add`'s own-agent carve-out:
+  //   (a) a member removing THEIR OWN agent (inverse of `me agent add`), and
+  //   (b) a USER removing THEMSELVES (`me space leave`).
+  // Kind detection uses `ctx.ownerId`: it is null for every user credential
+  // (session, OAuth, and user PAT) and non-null only for an agent, so it is a
+  // correct "the caller is a user" signal here. (Its primary role is `~`-home
+  // nesting; it works as a user/agent discriminator because agents are the only
+  // owned principal and no credential authenticates as a group.) An agent
+  // removing itself is intentionally NOT covered — it falls through to the admin
+  // gate; its owner removes it via `me agent remove`. `LAST_ADMIN` still protects
+  // a sole admin (the deferred trigger, mapped by guardCore).
+  const isSelfUser =
+    params.principalId === ctx.principalId && ctx.ownerId === null;
+  const ownAgent = await callerOwnsAgentGlobal(ctx, params.principalId);
+  if (!isSelfUser && !ownAgent) {
+    requireSpaceAdmin(ctx);
+  }
   const removed = await guardCore(() =>
     ctx.core.removePrincipalFromSpace(ctx.space.id, params.principalId),
   );

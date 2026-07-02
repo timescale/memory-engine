@@ -10,6 +10,8 @@
  * - me agent rename <agent> <name>:   rename an agent
  * - me agent delete <agent>:          delete an agent
  * - me agent add <agent>:             add the agent to the active space
+ * - me agent remove <agent> [-y]:     remove the agent from the active space
+ *     (self-service; the inverse of `me agent add` — no space-admin needed)
  * - me agent spaces <agent>:          list the agent's spaces
  * - me agent groups <agent>:          list the agent's groups in the active space
  *
@@ -160,6 +162,52 @@ function createAgentAddCommand(): Command {
     });
 }
 
+function createAgentRemoveCommand(): Command {
+  return new Command("remove")
+    .description("remove one of your agents from the active space")
+    .argument("<agent>", "agent id or name")
+    .option("-y, --yes", "skip confirmation prompt")
+    .action(async (agent: string, opts, cmd) => {
+      const globalOpts = cmd.optsWithGlobals();
+      const creds = resolveCredentials(globalOpts.server);
+      const fmt = getOutputFormat(globalOpts);
+      requireAuth(creds, fmt);
+      requireSpace(creds, fmt);
+
+      const user = buildUserClient(creds);
+      const memory = buildMemoryClient(creds);
+      try {
+        const id = await resolveAgentId(user, agent, fmt);
+
+        if (fmt === "text" && !opts.yes) {
+          clack.log.warn(
+            `This removes agent ${agent} from the active space, scrubbing its grants and group memberships here.`,
+          );
+          const ok = await clack.confirm({
+            message: `Remove agent ${agent} from the space?`,
+          });
+          if (clack.isCancel(ok) || !ok) {
+            clack.cancel("Cancelled.");
+            process.exit(0);
+          }
+        }
+
+        // Removing your OWN agent from a space is self-service (no admin flag) —
+        // the server allows it via callerOwnsAgentGlobal.
+        const result = await memory.principal.remove({ principalId: id });
+        output({ agentId: id, ...result }, fmt, () => {
+          if (result.removed) {
+            clack.log.success(`Removed agent ${agent} from the space.`);
+          } else {
+            clack.log.warn(`Agent ${agent} is not in this space.`);
+          }
+        });
+      } catch (error) {
+        handleError(error, fmt, { creds, scope: "space" });
+      }
+    });
+}
+
 function createAgentSpacesCommand(): Command {
   return new Command("spaces")
     .description("list the spaces an agent belongs to")
@@ -239,6 +287,7 @@ export function createAgentCommand(): Command {
   agent.addCommand(createAgentRenameCommand());
   agent.addCommand(createAgentDeleteCommand());
   agent.addCommand(createAgentAddCommand());
+  agent.addCommand(createAgentRemoveCommand());
   agent.addCommand(createAgentSpacesCommand());
   agent.addCommand(createAgentGroupsCommand());
   return agent;
