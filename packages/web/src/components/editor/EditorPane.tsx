@@ -258,8 +258,6 @@ function ReadingView({
 
         <MetaRow memory={memory} />
 
-        <ThreadNav memory={memory} />
-
         <div className="mt-[26px]">
           <MarkdownViewer content={body} />
         </div>
@@ -284,6 +282,8 @@ function ReadingView({
           )}
           <MetadataPanel memory={memory} />
         </div>
+
+        <ThreadNav memory={memory} />
       </article>
     </div>
   );
@@ -354,36 +354,44 @@ function ThreadNav({ memory }: { memory: MemoryResponse }) {
   if (!showPrev && !showSingleNext && !forkedNext && !showThread) return null;
 
   return (
-    <nav className="mt-3.5 flex flex-wrap items-center gap-2">
-      {showPrev && (
-        <GhostButton
-          onClick={() => navigate(prev.data?.id)}
-          disabled={!prev.data}
-        >
-          ← Previous
-        </GhostButton>
-      )}
-      {showSingleNext && (
-        <GhostButton
-          onClick={() => navigate(singleNext?.id)}
-          disabled={!singleNext}
-        >
-          Next →
-        </GhostButton>
-      )}
-      {forkedNext && (
-        <GhostButton onClick={searchForNext}>Find next →</GhostButton>
-      )}
-      {showThread && (
-        <GhostButton
-          onClick={() => {
-            applyMetaJsonFilter({ [META_THREAD]: threadId });
-            setSearchCollapsed(false);
-          }}
-        >
-          Entire thread
-        </GhostButton>
-      )}
+    // 3 columns so "Entire thread" stays centered even when Previous or Next is
+    // absent: Previous left, thread centered, Next right.
+    <nav className="mt-8 grid grid-cols-3 items-center gap-2 border-t border-ink/10 pt-6">
+      <div className="justify-self-start">
+        {showPrev && (
+          <GhostButton
+            onClick={() => navigate(prev.data?.id)}
+            disabled={!prev.data}
+          >
+            ← Previous
+          </GhostButton>
+        )}
+      </div>
+      <div className="justify-self-center">
+        {showThread && (
+          <GhostButton
+            onClick={() => {
+              applyMetaJsonFilter({ [META_THREAD]: threadId });
+              setSearchCollapsed(false);
+            }}
+          >
+            Entire thread
+          </GhostButton>
+        )}
+      </div>
+      <div className="justify-self-end">
+        {showSingleNext && (
+          <GhostButton
+            onClick={() => navigate(singleNext?.id)}
+            disabled={!singleNext}
+          >
+            Next →
+          </GhostButton>
+        )}
+        {forkedNext && (
+          <GhostButton onClick={searchForNext}>Find next →</GhostButton>
+        )}
+      </div>
     </nav>
   );
 }
