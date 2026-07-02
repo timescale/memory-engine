@@ -888,7 +888,7 @@ describe.skipIf(
     const nest = await me(["group", "add", groupName, nestedName]);
     expect(nest.code).not.toBe(0);
     expect(`${nest.stdout}${nest.stderr}`.toLowerCase()).toContain(
-      "not a member",
+      "is a group",
     );
   });
 
