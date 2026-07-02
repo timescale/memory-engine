@@ -225,7 +225,21 @@ Original scope (for reference):
    snippets; git hook + backfills (project). Trust-gating note printed by init.
 3. `me codex init` is net-new (Codex had no init).
 
-## P5 — Gemini (PR 5) — biggest lift
+## P5 — Gemini (PR 5) — biggest lift — ✅ DONE 2026-07-01
+
+New `importers/gemini.ts` (parses the JSONL `~/.gemini/tmp/<hash>/chats/`
+transcripts — user/gemini turns, parts → text/thinking/tool blocks, `$set`/
+`$rewindTo` handling, `parseFile` + `discoverSessions`) wired as `me import
+gemini`. `me gemini install` (user) + new `me gemini init` (project): MCP
+(`mcpServers.me`, written as JSON — not `gemini mcp add` — so a leading
+`--as-agent` can't be misparsed) + capture hooks (`AfterAgent` + `SessionEnd`,
+timeout ms) in settings.json; memory-engine skill in the shared `.agents/
+skills/`; a TOML `/memory-recall` command; `ME_AS_AGENT=.me` in `.gemini/.env`
+(Tier-2, project); the memory pointer in `~/.gemini/GEMINI.md` (user) / repo
+`GEMINI.md` (project); git hook + backfills. New `gemini/settings.ts` (hooks +
+mcpServers merge, pure + tested). Smoke-tested end to end.
+
+Original scope (for reference):
 
 1. **New importer** `packages/cli/importers/gemini.ts` (+ `me import gemini`,
    registered in the import group) per P0 storage findings.

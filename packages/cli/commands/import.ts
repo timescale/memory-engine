@@ -28,6 +28,7 @@ import { Command } from "commander";
 import { resolveCredentials } from "../credentials.ts";
 import { claudeImporter } from "../importers/claude.ts";
 import { codexImporter } from "../importers/codex.ts";
+import { geminiImporter } from "../importers/gemini.ts";
 import {
   createProgressReporter,
   DEFAULT_SESSIONS_NODE_NAME,
@@ -363,6 +364,15 @@ export function createOpenCodeImportCommand(name = "import"): Command {
   return buildAgentImportSubcommand(
     "import OpenCode sessions from ~/.local/share/opencode/storage",
     opencodeImporter,
+    false,
+    name,
+  );
+}
+
+export function createGeminiImportCommand(name = "import"): Command {
+  return buildAgentImportSubcommand(
+    "import Gemini CLI sessions from ~/.gemini/tmp",
+    geminiImporter,
     false,
     name,
   );

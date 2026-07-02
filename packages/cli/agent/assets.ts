@@ -131,6 +131,17 @@ ${recallPromptBody(opts.argsPlaceholder ?? "$ARGUMENTS")}
 `;
 }
 
+/** The `/memory-recall` command as a Gemini TOML command file (`prompt = …`;
+ * Gemini interpolates `{{args}}`). The managed marker rides as a TOML comment. */
+export function renderGeminiRecallCommand(): string {
+  return `# ${ASSET_MARKER}
+description = "Search Memory Engine for prior context on a topic"
+prompt = """
+${recallPromptBody("{{args}}")}
+"""
+`;
+}
+
 /**
  * The recall affordance as a skill (for harnesses whose custom-prompt/command
  * mechanism is deprecated — Codex — or that share `.agents/skills/`).
