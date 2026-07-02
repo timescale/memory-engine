@@ -231,4 +231,68 @@ capture works without a `.me/config.yaml`.
    works once `.me/config` exists), but it's the mechanism that onboards
    *teammates*. Keep it unconditionally — just make sure (1) doesn't cause it to
    be skipped.
+
+## Comparison to John's design (Claude only)
+
+John's clean-slate proposal ("4 harnesses × 2 scopes") covers the same
+`install` = user / `init` = project split, but for Claude it differs on three
+things: it **drops the marketplace plugin** and writes files directly
+(`claude mcp add`, `~/.claude` vs `.claude/settings.json` hooks, skills,
+commands); it makes **project scope act as an agent** (`--as-agent .me` +
+`ME_AS_AGENT=.me`); and it keeps **user-scope capture always on**, deduping the
+two scopes with a `--scope user|project` hook flag. This section records how the
+two relate once we strip out what's *not* actually a design fork.
+
+### Agent identity is orthogonal — not a scope-linked feature
+
+John's design ties agent identity to project scope: `--as-agent .me` is baked
+only into the project-scope commands, and user scope is forced to be the human.
+**That coupling is an artifact of the mechanism, not something intrinsic.** If
+the agent is simply an **`agent:` field in `.me/config.yaml`**, identity rides on
+the *project directory*, not on which scope installed the integration — and both
+scopes pick it up for free:
+
+- The **`.me/config`** is discovered by cwd walk-up and is already wired into
+  `resolveServer` / `resolveSpace` / `resolveCredentials`, which **both `me mcp`
+  and the capture hook inherit** (`me mcp` resolves `.me` from its launch cwd;
+  the hook does `discoverProjectConfig(event.cwd)`). Surfacing `agent` through
+  that same resolution means a user-scoped *and* a project-scoped install both
+  act as the project's agent whenever they run inside a project that declares
+  one — with **no per-scope `--as-agent` baking** and no `.me` sentinel plumbing.
+- So "do we use an agent?" is an **independent overlay** that bolts onto *either*
+  design identically (add `agent` to the `.me` resolution layer; the field
+  already exists in the schema, parsed but unwired — `project-config.ts:72`).
+  It is **not** a reason to pick one design over the other, and it does **not**
+  belong on the install-vs-init axis.
+
+This is strictly simpler than John's mechanism (which needs the strict `.me`
+sentinel + per-scope flag baking) and gives full user/project parity for the
+agent overlay.
+
+> **Caveat (worth a deliberate look):** John made `--as-agent .me` *explicit and
+> strict* partly for the `PROJECT_CONFIG_DESIGN.md` cooperative-scoping threat
+> model. Making agent resolution *automatic* from a committed `.me/config` means
+> a repo's `.me` names the agent you act as. This is almost certainly safe — the
+> server validates `X-Me-As-Agent` against your PAT and `agent_tree_access`
+> clamps to `least(agent, owner)`, so a hostile `.me` either names an agent you
+> control or fails auth — but it trades away an opt-in John chose on purpose.
+
+### What actually differs, once identity is factored out
+
+Two axes, both about plumbing/defaults rather than capability:
+
+1. **Delivery: marketplace plugin (this doc) vs direct file writes (John).**
+   Direct writes dissolve [open question #1](#open-questions) by construction
+   (scope is a file location, not a scope-blind `plugin list` lookup) and ship
+   the **skill + `/memory-recall` command** this doc's plugin path doesn't. Cost:
+   a clean-slate rewrite that retires `packages/claude-plugin`. John's §6 argues
+   the plugin's only real edge is marketplace discoverability, worth keeping
+   later as a thin optional wrapper.
+2. **Capture default: inert-until-project-tree-root (this doc) vs always-on +
+   `--scope` dedup (John).** John's user-scope hooks capture *every* session as
+   the human by default; this doc's [capture-activation
+   rule](#the-capture-activation-rule) captures nothing until a project opts in.
+   These are separable: John's model would still work with this doc's inert gate
+   bolted on, and that combination (direct writes + inert gate + agent overlay)
+   is likely the best-of-both.
 ```
