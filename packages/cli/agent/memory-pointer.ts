@@ -14,8 +14,8 @@ import * as clack from "@clack/prompts";
 import { resolveCredentials } from "../credentials.ts";
 import { GIT_HISTORY_NODE_NAME } from "../importers/git.ts";
 import {
+  DEFAULT_PRIVATE_TREE_ROOT,
   DEFAULT_SESSIONS_NODE_NAME,
-  DEFAULT_TREE_ROOT,
 } from "../importers/index.ts";
 import { SlugRegistry } from "../importers/slug.ts";
 
@@ -35,16 +35,17 @@ const END_MARKER = "<!-- memory-engine:end -->";
 
 /**
  * Build the managed block that tells an agent where this project's memories
- * live and how to search them. `projectTree` is the canonical (dot-separated)
- * ltree path (e.g. `share.projects.foo`); `space` is the active space slug.
+ * live and how to search them. `projectTree` is the project's tree in lenient
+ * wire form (`/share/projects/foo`, `~/projects/foo`, or dotted); sub-nodes are
+ * joined with `/`. `space` is the active space slug.
  */
 export function buildMemoryPointerSection(
   spec: MemoryPointerSpec,
   projectTree: string,
   space?: string,
 ): string {
-  const sessions = `${projectTree}.${DEFAULT_SESSIONS_NODE_NAME}`;
-  const gitHistory = `${projectTree}.${GIT_HISTORY_NODE_NAME}`;
+  const sessions = `${projectTree}/${DEFAULT_SESSIONS_NODE_NAME}`;
+  const gitHistory = `${projectTree}/${GIT_HISTORY_NODE_NAME}`;
   const where = space ? `Memory Engine (space \`${space}\`)` : "Memory Engine";
   return [
     startMarker(spec.managedBy),
@@ -58,7 +59,7 @@ export function buildMemoryPointerSection(
     `- Captured & imported agent sessions: \`${sessions}\``,
     `- Imported git commit history: \`${gitHistory}\``,
     `- Search them with the \`me_memory_search\` MCP tool (set \`tree\` to`,
-    `  \`${projectTree}\`), or from a shell: \`me search "<query>" --tree ${projectTree}\`.`,
+    `  \`${projectTree}\`), or from a shell: \`me search "<query>" --tree '${projectTree}'\`.`,
     "",
     "Always consult these memories when exploring the codebase or starting a",
     "task: search them FIRST to recall earlier decisions and context before",
@@ -71,6 +72,11 @@ export function buildMemoryPointerSection(
 /**
  * Resolve the rules file the memory pointer lives in (the git repo root's when
  * in a repo, else the current directory's) and the managed section to write.
+ *
+ * The pointer's tree matches where the imports/hooks actually write: the
+ * project's `.me/config.yaml` `tree` when one is in scope, else the private
+ * `~/projects/<slug>` default — so the pointer never names a node the
+ * project's memories don't land in.
  */
 export async function resolveMemoryPointer(
   spec: MemoryPointerSpec,
@@ -78,9 +84,14 @@ export async function resolveMemoryPointer(
 ): Promise<{ filePath: string; section: string }> {
   const cwd = process.cwd();
   const { slug, gitRoot } = await new SlugRegistry().resolve(cwd);
-  const projectTree = `${DEFAULT_TREE_ROOT}.${slug}`;
-  const space = resolveCredentials(server).activeSpace;
-  const section = buildMemoryPointerSection(spec, projectTree, space);
+  const creds = resolveCredentials(server);
+  const projectTree =
+    creds.projectTree ?? `${DEFAULT_PRIVATE_TREE_ROOT}/${slug}`;
+  const section = buildMemoryPointerSection(
+    spec,
+    projectTree,
+    creds.activeSpace,
+  );
   const filePath = join(gitRoot ?? cwd, spec.filename);
   return { filePath, section };
 }

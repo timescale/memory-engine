@@ -5,7 +5,10 @@
  * (`me import claude|codex|opencode`) and as an alias under its agent command
  * group (`me claude import`, …) — both built from the same per-tool factory
  * (`createClaudeImportCommand`, …). Each source-native message becomes one
- * memory, stored under `<tree-root>.<project_slug>.<sessions-node-name>`.
+ * memory, stored under `<tree-root>.<project_slug>.<sessions-node-name>` — or,
+ * for a `--project`-scoped run whose project pins a `.me/config.yaml` `tree`,
+ * directly under `<tree>.<sessions-node-name>` (no slug), matching the live
+ * capture hook.
  *
  * Shared flags across every agent import subcommand:
  *   --source <dir>           override default source directory
@@ -13,7 +16,8 @@
  *   --since <iso>            only sessions started at/after this timestamp
  *   --until <iso>            only sessions started at/before this timestamp
  *   --tree-root <path>       tree root under which `<slug>.<sessions-node-name>`
- *                            nodes are placed (default: projects)
+ *                            nodes are placed (default: the `.me` tree for a
+ *                            --project run, else the private `~/projects`)
  *   --sessions-node-name     per-project node name for imported agent
  *                            sessions (default: agent_sessions)
  *   --full-transcript        include reasoning, tool calls, tool results
@@ -30,8 +34,8 @@ import { claudeImporter } from "../importers/claude.ts";
 import { codexImporter } from "../importers/codex.ts";
 import {
   createProgressReporter,
+  DEFAULT_PRIVATE_TREE_ROOT,
   DEFAULT_SESSIONS_NODE_NAME,
-  DEFAULT_TREE_ROOT,
   type Importer,
   type ImportResult,
   runImport,
@@ -47,7 +51,7 @@ import {
   requireSpace,
 } from "../util.ts";
 
-// Default capture layout (share.projects.<slug>.agent_sessions) lives in the
+// Default capture layout (~/projects.<slug>.agent_sessions — private) lives in the
 // importers module so `me import <tool>` and the Claude Code hook share one source.
 // Lenient user-facing tree-path input (matches the protocol's treePathSchema):
 // labels [A-Za-z0-9_-], `.` or `/` separators, optional leading `~` (home). The
@@ -77,7 +81,7 @@ function addCommonOptions(
     )
     .option(
       "--tree-root <path>",
-      `tree root under which '<slug>.<sessions-node-name>' nodes are placed (default: ${DEFAULT_TREE_ROOT})`,
+      `tree root under which '<slug>.<sessions-node-name>' nodes are placed (default: the .me/config.yaml tree for a --project run, else ${DEFAULT_PRIVATE_TREE_ROOT} — private)`,
     )
     .option(
       "--sessions-node-name <name>",
@@ -112,13 +116,31 @@ function addCommonOptions(
 /**
  * Assemble importer + write options from Commander parsed opts.
  * Validates --tree-root syntax and the ISO filter bounds.
+ *
+ * Tree resolution mirrors the capture hook, highest-first: an explicit
+ * `--tree-root` (parent + slug) > the `.me/config.yaml` `tree`
+ * (`projectTree` — the full project node, no slug) > the private
+ * `~/projects` default (parent + slug). The `.me` tree applies only to a run
+ * scoped to one project (`--project`): it is a single project's node, so a
+ * bare multi-project sweep must keep the parent+slug fallback (per-session
+ * `.me` resolution for bare sweeps is future work) — this way a scoped
+ * backfill lands exactly where live capture does, with no flags.
  */
-export function buildOptions(opts: Record<string, unknown>): {
+export function buildOptions(
+  opts: Record<string, unknown>,
+  creds?: { projectTree?: string },
+): {
   importer: ImporterOptions;
   write: WriteOptions;
 } {
-  const treeRoot =
-    typeof opts.treeRoot === "string" ? opts.treeRoot : DEFAULT_TREE_ROOT;
+  const explicitTreeRoot = typeof opts.treeRoot === "string";
+  const treeRoot = explicitTreeRoot
+    ? (opts.treeRoot as string)
+    : DEFAULT_PRIVATE_TREE_ROOT;
+  const projectTree =
+    explicitTreeRoot || typeof opts.project !== "string"
+      ? undefined
+      : creds?.projectTree;
   const sessionsNodeName =
     typeof opts.sessionsNodeName === "string"
       ? opts.sessionsNodeName
@@ -154,6 +176,7 @@ export function buildOptions(opts: Record<string, unknown>): {
   };
   const write: WriteOptions = {
     treeRoot,
+    projectTree,
     sessionsNodeName,
     fullTranscript: opts.fullTranscript === true,
     dryRun: opts.dryRun === true,
@@ -184,7 +207,7 @@ export async function runAgentImport(
 
   let config: ReturnType<typeof buildOptions>;
   try {
-    config = buildOptions(opts);
+    config = buildOptions(opts, creds);
   } catch (error) {
     handleError(error, fmt);
   }
@@ -253,6 +276,7 @@ function renderResult(
     tool,
     dryRun: write.dryRun,
     treeRoot: write.treeRoot,
+    projectTree: write.projectTree ?? null,
     sessionsNodeName: write.sessionsNodeName,
     fullTranscript: write.fullTranscript,
     totalFiles: result.discovery.totalFiles,

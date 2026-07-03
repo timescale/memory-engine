@@ -69,6 +69,9 @@ let spaceSlug: string;
 let spaceId: string;
 let token: string;
 let tmpHome: string;
+// The user's private home parent (`~/projects` normalized): captures and
+// session/git imports default here since the private-by-default change.
+let homeProjects: string;
 
 // TEST_CI disables the conditional skip: in CI this suite always runs
 // (missing env fails loudly as test errors, never as a silent skip).
@@ -95,6 +98,7 @@ describe.skipIf(
     );
     spaceSlug = provisioned.spaceSlug;
     spaceId = provisioned.spaceId;
+    homeProjects = `home.${provisioned.userId.replace(/-/g, "")}.projects`;
     // Inject a real OAuth access token as the bearer (ME_SESSION_TOKEN is the
     // raw-bearer override): store sha256(raw) in oauth_access_token — exactly
     // what the server hashes + looks up — and hand the CLI the raw token. Bound
@@ -135,6 +139,13 @@ describe.skipIf(
     });
 
     tmpHome = await mkdtemp(join(tmpdir(), "me-e2e-"));
+    // Opt into session capture machine-wide (the `me claude install` prompt
+    // would write this) — the capture hook ships inert without it.
+    await mkdir(join(tmpHome, ".config", "me"), { recursive: true });
+    await writeFile(
+      join(tmpHome, ".config", "me", "config.yaml"),
+      "capture: true\n",
+    );
   });
 
   afterAll(async () => {
@@ -986,7 +997,7 @@ describe.skipIf(
     // cwd "/work/backfill-proj" → no git repo on disk → slug = basename, so
     // both sessions land under the same tree.
     const cwd = "/work/backfill-proj";
-    const tree = "share.projects.backfill_proj.agent_sessions";
+    const tree = `${homeProjects}.backfill_proj.agent_sessions`;
 
     const mkMsg =
       (sessionId: string) =>
@@ -1075,7 +1086,7 @@ describe.skipIf(
 
     const sessionId = `init-${rand()}`;
     const foreignId = `foreign-${rand()}`;
-    const tree = "share.projects.initcwd.agent_sessions";
+    const tree = `${homeProjects}.initcwd.agent_sessions`;
     const mkMsg = (
       sid: string,
       cwd: string,
@@ -1138,9 +1149,9 @@ describe.skipIf(
     // Step 2: CLAUDE.md now points at this project's memories.
     const claudeMd = await readFile(join(projectDir, "CLAUDE.md"), "utf8");
     expect(claudeMd).toContain("memory-engine:start");
-    expect(claudeMd).toContain("share.projects.initcwd");
-    expect(claudeMd).toContain("share.projects.initcwd.agent_sessions");
-    expect(claudeMd).toContain("share.projects.initcwd.git_history");
+    expect(claudeMd).toContain("~/projects/initcwd");
+    expect(claudeMd).toContain("~/projects/initcwd/agent_sessions");
+    expect(claudeMd).toContain("~/projects/initcwd/git_history");
 
     // Re-running is idempotent: still exactly one managed block.
     const init2 = await me(
@@ -1290,7 +1301,10 @@ describe.skipIf(
     const name = `gitproj${rand()}`;
     const repo = join(root, name);
     await mkdir(repo, { recursive: true });
-    const tree = `share.projects.${name}.git_history`;
+    const tree = `${homeProjects}.${name}.git_history`;
+    // What the CLI composes + reports client-side (normalized server-side to
+    // the `home.<id>`-prefixed `tree` above).
+    const rawTree = `~/projects.${name}.git_history`;
 
     await git(repo, ["init", "-q", "-b", "main"]);
     const commitFile = async (file: string, msg: string, dateIso: string) => {
@@ -1308,7 +1322,7 @@ describe.skipIf(
       commitsWalked: number;
       tree: string;
     }>(["import", "git", repo]);
-    expect(first.tree).toBe(tree);
+    expect(first.tree).toBe(rawTree);
     expect(first.commitsWalked).toBe(3);
     expect(first.inserted).toBe(3);
     expect(await countUnder(tree)).toBe(3);
@@ -1328,7 +1342,8 @@ describe.skipIf(
 
     // Thread links: commits chain via $prev along the first-parent line, with
     // the canonical /tree/sha path form; the root commit (a) has none.
-    const gitPath = (sha: string) => `/${tree.replaceAll(".", "/")}/${sha}`;
+    // $prev paths are stamped client-side from the raw (~-form) tree.
+    const gitPath = (sha: string) => `/${rawTree.replaceAll(".", "/")}/${sha}`;
     const chain = await sql.unsafe(
       `select meta->>'sha' as sha, meta->>'$prev' as prev
          from metest_${spaceSlug}.memory
@@ -1425,7 +1440,7 @@ describe.skipIf(
     const name = `gitinit${rand()}`;
     const repo = join(root, name);
     await mkdir(repo, { recursive: true });
-    const tree = `share.projects.${name}.git_history`;
+    const tree = `${homeProjects}.${name}.git_history`;
 
     await git(repo, ["init", "-q", "-b", "main"]);
     await writeFile(join(repo, "x.txt"), "x\n");
@@ -1455,7 +1470,7 @@ describe.skipIf(
     expect(init.code, init.stderr).toBe(0);
     expect(await countUnder(tree)).toBe(1);
     const claudeMd = await readFile(join(repo, "CLAUDE.md"), "utf8");
-    expect(claudeMd).toContain(`${tree}\``);
+    expect(claudeMd).toContain(`~/projects/${name}/git_history\``);
 
     await rm(root, { recursive: true, force: true });
   });
@@ -1465,7 +1480,7 @@ describe.skipIf(
     const name = `githook${rand()}`;
     const repo = join(root, name);
     await mkdir(repo, { recursive: true });
-    const tree = `share.projects.${name}.git_history`;
+    const tree = `${homeProjects}.${name}.git_history`;
 
     await git(repo, ["init", "-q", "-b", "main"]);
     await writeFile(join(repo, "a.txt"), "a\n");
@@ -1549,7 +1564,7 @@ describe.skipIf(
     await writeFile(transcript, lines.map((l) => JSON.stringify(l)).join("\n"));
 
     // cwd "/work/idempotent-proj" → no git repo on disk → slug = basename.
-    const tree = "share.projects.idempotent_proj.agent_sessions";
+    const tree = `${homeProjects}.idempotent_proj.agent_sessions`;
 
     // 1. Live capture via the real hook (reads transcript_path from stdin,
     //    auths with the session, writes via importTranscriptFile).
@@ -1573,6 +1588,41 @@ describe.skipIf(
     );
     expect(hook2.code, hook2.stderr).toBe(0);
     expect(await countUnder(tree)).toBe(4);
+
+    await rm(root, { recursive: true, force: true });
+  });
+
+  test("9e. capture gating: a project `.me` capture:false silences the hook", async () => {
+    // The e2e harness opts into capture machine-wide (beforeAll); a project's
+    // committed `capture: false` must still opt that project out — the hook
+    // exits 0 with no output and writes nothing.
+    const sessionId = `optout-${rand()}`;
+    const root = await mkdtemp(join(tmpdir(), "me-e2e-optout-"));
+    const projectDir = join(root, "optout-proj");
+    await mkdir(join(projectDir, ".me"), { recursive: true });
+    await writeFile(join(projectDir, ".me", "config.yaml"), "capture: false\n");
+    const transcript = join(root, `${sessionId}.jsonl`);
+    const msg = {
+      type: "user",
+      uuid: `${sessionId}-user-0`,
+      timestamp: "2026-02-01T00:00:00.000Z",
+      sessionId,
+      cwd: projectDir,
+      message: { content: "must not be captured" },
+    };
+    await writeFile(transcript, JSON.stringify(msg));
+
+    const hook = await meStdin(
+      ["claude", "hook", "--event", "stop"],
+      JSON.stringify({
+        transcript_path: transcript,
+        session_id: sessionId,
+        cwd: projectDir,
+      }),
+    );
+    expect(hook.code).toBe(0);
+    expect(hook.stderr).toBe(""); // silent — a deliberate opt-out, not an error
+    expect(await countBySession(sessionId)).toBe(0);
 
     await rm(root, { recursive: true, force: true });
   });

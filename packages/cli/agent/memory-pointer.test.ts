@@ -48,10 +48,18 @@ describe("buildMemoryPointerSection", () => {
   });
 
   test("renders the project tree, sessions, and git-history paths", () => {
-    const out = buildMemoryPointerSection(OPENCODE, "share.projects.foo");
-    expect(out).toContain("    share.projects.foo");
-    expect(out).toContain("`share.projects.foo.agent_sessions`");
-    expect(out).toContain("`share.projects.foo.git_history`");
+    const out = buildMemoryPointerSection(OPENCODE, "/share/projects/foo");
+    expect(out).toContain("    /share/projects/foo");
+    expect(out).toContain("`/share/projects/foo/agent_sessions`");
+    expect(out).toContain("`/share/projects/foo/git_history`");
+  });
+
+  test("a private ~ tree renders with quoted shell usage", () => {
+    const out = buildMemoryPointerSection(CLAUDE, "~/projects/foo");
+    expect(out).toContain("    ~/projects/foo");
+    expect(out).toContain("`~/projects/foo/agent_sessions`");
+    // The shell example quotes the tree so `~` survives the user's shell.
+    expect(out).toContain(`--tree '~/projects/foo'`);
   });
 
   test("notes the space when provided", () => {
