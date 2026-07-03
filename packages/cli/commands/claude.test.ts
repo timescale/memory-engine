@@ -2,9 +2,9 @@
  * Tests for `me claude` helpers.
  */
 import { describe, expect, test } from "bun:test";
+import { initOutroLead } from "../agent/init.ts";
 import {
   buildPluginConfig,
-  initOutroLead,
   type PluginConfigDecision,
   pluginListShowsInstalled,
 } from "./claude.ts";

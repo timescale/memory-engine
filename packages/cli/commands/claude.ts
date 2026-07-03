@@ -41,22 +41,7 @@ import { existsSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import * as clack from "@clack/prompts";
 import { Command } from "commander";
-import {
-  buildInitCommand,
-  DIM,
-  DIM_OFF,
-  type InitStep,
-  initOutroLead,
-  type StepAvailability,
-} from "../agent/init.ts";
-import {
-  type MemoryPointerSpec,
-  memoryPointerUpToDate,
-  writeMemoryPointer,
-} from "../agent/memory-pointer.ts";
-
-export { initOutroLead };
-
+import type { StepAvailability } from "../agent/init.ts";
 import {
   HOOK_EVENT_NAMES,
   type HookEvent,
@@ -74,7 +59,6 @@ import {
 } from "../credentials.ts";
 import { claudeImporter } from "../importers/claude.ts";
 import { importTranscriptFile } from "../importers/index.ts";
-import { SlugRegistry } from "../importers/slug.ts";
 import {
   type AgentInstallOptions,
   runAgentMcpInstall,
@@ -86,8 +70,6 @@ import {
 import { memoryBearer } from "../session.ts";
 import { runCapturePrompt } from "./capture-prompt.ts";
 import { createClaudeImportCommand, runAgentImport } from "./import.ts";
-import { runGitImport } from "./import-git.ts";
-import { gitHookStatus, runGitHookInstall } from "./import-git-hook.ts";
 
 /** GitHub source for `claude plugin marketplace add`. */
 const PLUGIN_MARKETPLACE_SOURCE = "timescale/memory-engine";
@@ -609,13 +591,6 @@ function createClaudeHookCommand(): Command {
     });
 }
 
-/** The managed CLAUDE.md memory-pointer block this command upserts. */
-const CLAUDE_MD_POINTER: MemoryPointerSpec = {
-  filename: "CLAUDE.md",
-  managedBy: "me claude init",
-  agentLabel: "Claude Code",
-};
-
 /**
  * Parse `claude plugin list --json` output and report whether the Memory
  * Engine plugin is installed. Exported for tests. Unparseable output counts
@@ -649,143 +624,12 @@ export async function pluginInstallAvailable(): Promise<StepAvailability> {
   return pluginListShowsInstalled(stdout) ? "done" : "available";
 }
 
-const INIT_STEPS: InitStep[] = [
-  {
-    id: "transcript-import",
-    group: "Claude Code sessions",
-    kind: "backfill",
-    optionKey: "skipTranscriptImport",
-    skipFlag: "--skip-transcript-import",
-    skipDescription: "do not import this project's Claude Code sessions",
-    label:
-      "Import this project's existing Claude Code sessions (one-time backfill)",
-    // Init is per-project setup, so scope the backfill to sessions recorded
-    // in this repo (cwd at or under the repo root) — `me import claude`
-    // remains the machine-wide sweep. The temp-cwd filter exists to keep
-    // throwaway sessions out of bulk sweeps; with the scope pinned to the
-    // project the user is standing in, it would only veto projects that
-    // happen to live under a temp dir, so include them.
-    run: async ({ globalOpts }) => {
-      const { gitRoot } = await new SlugRegistry().resolve(process.cwd());
-      await runAgentImport(
-        claudeImporter,
-        { project: gitRoot ?? process.cwd(), includeTempCwd: true },
-        globalOpts,
-      );
-    },
-  },
-  {
-    id: "plugin-install",
-    group: "Claude Code sessions",
-    kind: "ongoing",
-    optionKey: "skipPluginInstall",
-    skipFlag: "--skip-plugin-install",
-    skipDescription: "do not install the Claude Code plugin",
-    label:
-      "Install the Claude Code plugin — captures new sessions going forward (+ slash commands, MCP)",
-    // Hidden when Claude Code is absent; ✓ when the plugin is already there.
-    available: pluginInstallAvailable,
-    doneLabel: "Claude Code plugin already installed",
-    rerunLabel:
-      "Reinstall the Claude Code plugin — captures new sessions going forward (already installed)",
-    run: async ({ server }) => {
-      await runClaudePluginInstall({ server });
-      // The step's promise is ongoing capture, so selecting it is the opt-in:
-      // enable the machine-wide capture setting (the hook ships inert without
-      // it). Destination stays private (~/projects/<slug>) per the defaults.
-      setCaptureEnabled(true);
-    },
-  },
-  {
-    id: "git-import",
-    group: "Git history",
-    kind: "backfill",
-    optionKey: "skipGitImport",
-    skipFlag: "--skip-git-import",
-    skipDescription: "do not import the repo's git commit history",
-    label: "Import existing git commit history (one-time backfill)",
-    run: ({ globalOpts }) => runGitImport({ skipIfNotRepo: true }, globalOpts),
-  },
-  {
-    id: "git-hook",
-    group: "Git history",
-    kind: "ongoing",
-    optionKey: "skipGitHook",
-    skipFlag: "--skip-git-hook",
-    skipDescription: "do not install the git post-commit capture hook",
-    label:
-      "Install a git post-commit hook — captures new commits going forward",
-    // Hidden outside a git repo or when a committed hooks manager owns the
-    // hook path; ✓ when the managed block is already installed.
-    available: async () => {
-      const status = await gitHookStatus(process.cwd());
-      if (status === "installed") return "done";
-      return status === "installable" ? "available" : "hidden";
-    },
-    doneLabel: "Git post-commit hook already installed",
-    rerunLabel:
-      "Reinstall the git post-commit hook — captures new commits going forward (already installed)",
-    run: ({ globalOpts }) =>
-      runGitHookInstall({ skipIfNotRepo: true }, globalOpts),
-  },
-  {
-    id: "claude-md",
-    group: "Project config",
-    kind: "config",
-    optionKey: "skipClaudeMd",
-    skipFlag: "--skip-claude-md",
-    skipDescription:
-      "do not write the memory pointer into the project's CLAUDE.md",
-    label: "Add a memory pointer to CLAUDE.md",
-    // ✓ when CLAUDE.md already carries the exact block this run would write;
-    // a stale block (template or active-space change) keeps the step offered
-    // so the re-run refreshes it.
-    available: async ({ server }) =>
-      (await memoryPointerUpToDate(CLAUDE_MD_POINTER, server))
-        ? "done"
-        : "available",
-    doneLabel: "Memory pointer already in CLAUDE.md",
-    rerunLabel: "Rewrite the memory pointer in CLAUDE.md (already present)",
-    run: ({ server }) => writeMemoryPointer(CLAUDE_MD_POINTER, server),
-  },
-];
-
-function createClaudeInitCommand(): Command {
-  return buildInitCommand({
-    description:
-      "set up Claude Code memory integration (interactive step picker; otherwise runs all steps)",
-    steps: INIT_STEPS,
-    outro: printInitOutro,
-  });
-}
-
-/**
- * Closing guidance after init: a recap of what setup covered (historical
- * backfill, ongoing capture), what having project memories wired up actually
- * buys the user, and how to invoke them deliberately. `steps` is everything
- * covered — the steps that just ran plus any reported already done.
- */
-function printInitOutro(steps: InitStep[]): void {
-  clack.note(
-    [
-      ...initOutroLead(steps),
-      "Ask Claude about this project's history or architecture — it now",
-      "draws on the project's memories automatically, and consults them",
-      "when exploring the code for new features.",
-      "",
-      "You can also point Claude at them explicitly, e.g.:",
-      `${DIM}"Search memory engine: why did we structure the database this way?"${DIM_OFF}`,
-      `${DIM}"Check me memories for past work on this area before we start"${DIM_OFF}`,
-      `${DIM}"What do my me memories say about how deploys work here?"${DIM_OFF}`,
-    ].join("\n"),
-    "Your project now has memory",
-  );
-}
-
 export function createClaudeCommand(): Command {
   const claude = new Command("claude").description("Claude Code integration");
   claude.addCommand(createClaudeInstallCommand());
-  claude.addCommand(createClaudeInitCommand());
+  // `me claude init` is retired in favor of the harness-agnostic
+  // `me project init`; a deprecated alias (registered by index.ts to avoid a
+  // module cycle with project.ts) warns and delegates for one release.
   claude.addCommand(createClaudeHookCommand());
   claude.addCommand(createClaudeImportCommand());
   return claude;

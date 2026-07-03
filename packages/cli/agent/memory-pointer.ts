@@ -128,10 +128,19 @@ export async function memoryPointerUpToDate(
 }
 
 /**
+ * The generic prefix every start marker shares, regardless of the managing
+ * command embedded in it. Replacement matches on this prefix so a rename of
+ * the managing command (`me claude init` → `me project init`) updates the
+ * existing block in place instead of appending a duplicate.
+ */
+const START_MARKER_PREFIX = "<!-- memory-engine:start";
+
+/**
  * Upsert the managed Memory Engine section into the project's rules file.
  *
- * Idempotent: if the marker block already exists it is replaced in place;
- * otherwise the block is appended (creating the file if absent).
+ * Idempotent: if a marker block already exists — even one written under a
+ * previous managing-command name — it is replaced in place; otherwise the
+ * block is appended (creating the file if absent).
  */
 export async function writeMemoryPointer(
   spec: MemoryPointerSpec,
@@ -145,9 +154,8 @@ export async function writeMemoryPointer(
     existing = ""; // no file yet → create it
   }
 
-  const START = startMarker(spec.managedBy);
   let next: string;
-  const start = existing.indexOf(START);
+  const start = existing.indexOf(START_MARKER_PREFIX);
   if (start !== -1) {
     // Replace the existing managed block in place.
     const endMarker = existing.indexOf(END_MARKER, start);

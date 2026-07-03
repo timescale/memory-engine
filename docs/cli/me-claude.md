@@ -5,7 +5,7 @@ Claude Code integration commands.
 ## Commands
 
 - [me claude install](#me-claude-install) -- install the Memory Engine plugin for Claude Code (full plugin by default, `--mcp-only` for just the MCP server)
-- [me claude init](#me-claude-init) -- one-shot setup: backfill sessions, import git history, install the post-commit hook, record the project's memory location in CLAUDE.md
+- [me claude init](#me-claude-init) -- **deprecated** alias of [`me project init`](me-project.md)
 - [me claude hook](#me-claude-hook) -- invoked by the Claude Code plugin to capture events as memories
 - [me claude import](#me-claude-import) -- import Claude Code sessions from `~/.claude/projects`
 
@@ -55,16 +55,9 @@ For manual MCP client configuration, see [MCP Integration](../mcp-integration.md
 
 ## me claude init
 
-One-shot setup of Claude Code memory integration for the current project.
+**Deprecated** — renamed to [`me project init`](me-project.md), the harness-agnostic per-project setup wizard. This alias prints a rename notice, runs the same command, and will be removed in a future release.
 
-```
-me claude init [options]
-```
-
-Setup is a list of independent steps, grouped by source: Claude Code sessions and git history each pair a **one-time backfill** of existing data with **ongoing capture** of new activity going forward. In an interactive terminal `init` presents a grouped multiselect of all steps (each pre-checked) so you can deselect any; non-interactively it runs every step except those turned off by a `--skip-<step>` flag.
-
-| Group | Step | Skip flag | What it does |
-|-------|------|-----------|--------------|
+-------|------|-----------|--------------|
 | Claude Code sessions | Import existing sessions (one-time backfill) | `--skip-transcript-import` | Backfills sessions recorded in this project (cwd at/under the repo root, temp-dir projects included) from `~/.claude/projects`. For a machine-wide backfill across all projects, run [`me import claude`](me-import.md#me-import-claude--codex--opencode). |
 | Claude Code sessions | Install the Claude Code plugin (ongoing capture) | `--skip-plugin-install` | Installs the plugin (the same user-scoped install as [`me claude install`](#me-claude-install), login-session auth) **and enables the machine-wide capture setting** — selecting this step is the capture opt-in, so its hooks capture each new session as you work (privately, under `~/projects/<slug>`), plus slash commands and MCP tools. Hidden when the `claude` binary isn't on PATH; when `claude plugin list` already shows the plugin, the picker offers it unchecked as "Reinstall … (already installed)" (non-interactive runs report it as a ✓ line and skip it). |
 | Git history | Import existing commit history (one-time backfill) | `--skip-git-import` | Imports the repo's full commit history — the same import as [`me import git`](me-import.md#me-import-git). Skipped automatically when the current directory is not inside a git repo. |

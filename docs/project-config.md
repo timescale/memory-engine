@@ -9,6 +9,15 @@ automatically, with no per-command flags or environment variables.
 This is what lets a project say "my memories live in space `X` on server `Y`,
 under tree `Z`" once, and have every tool that touches the repo agree.
 
+The interactive [`me project init`](cli/me-project.md) wizard writes this file
+for you — `server` + `space` (pinned together, so a committed config is
+self-contained), the `tree`, a dedicated `agent`, and the `capture` flag — and
+also pins `ME_AS_AGENT=<agent name>` into the project's committed
+`.claude/settings.json` `env` so ad-hoc `me` calls from Claude's Bash tool act
+as the project agent too (the literal name, not the `.me` sentinel — the Bash
+tool runs from arbitrary directories where a `.me` walk-up wouldn't resolve;
+personal overrides belong in Claude's own `settings.local.json`).
+
 ## The file
 
 ```yaml
