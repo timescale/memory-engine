@@ -1,5 +1,6 @@
 import { SHARE_NAMESPACE } from "@memory.build/database";
 import * as engineCore from "@memory.build/engine/core";
+import { DEFAULT_GROUP_NAME } from "@memory.build/protocol";
 import type { Sql } from "postgres";
 
 /**
@@ -13,29 +14,78 @@ import type { Sql } from "postgres";
  */
 
 /**
+ * The access shape a new space is provisioned with (custom spaces).
+ * Resolved from the `space.create` flags; `space.ensureDefault` and the test
+ * helpers use {@link DEFAULT_SPACE_CREATOR_OPTIONS} (today's conventions).
+ */
+export interface SpaceCreatorOptions {
+  /** false → joiners (and the creator) get no owner@~; the creator gets god mode instead. */
+  autoGrantHome: boolean;
+  /** The default/invite group's name, or null to provision none. */
+  defaultGroupName: string | null;
+  /** When a default group is provisioned, whether to seed read@/share + write@/share/projects. */
+  defaultGroupGrants: boolean;
+}
+
+/** Today's conventions: home grants on, a granted "team" default group. */
+export const DEFAULT_SPACE_CREATOR_OPTIONS: SpaceCreatorOptions = {
+  autoGrantHome: true,
+  defaultGroupName: DEFAULT_GROUP_NAME,
+  defaultGroupGrants: true,
+};
+
+/**
  * Stand up a new space's defaults — shared by `space.create` and
- * `space.ensureDefault` so the two stay in lockstep. The creator
- * becomes a space admin who owns its home (via add_principal_to_space) and the
- * shared root (`share`), but NOT owner@root: it sees `/share` and its own `~`,
- * not other members' homes. As an admin it can self-grant owner@root later if it
- * wants the whole tree. Also provisions the default "team" group (read on
- * `share`, write on `share.projects`); the group starts memberless, so its
- * grants are dormant until members are added. Call inside the space-creation
- * transaction.
+ * `space.ensureDefault` so the two stay in lockstep.
+ *
+ * The creator is ALWAYS a space admin (so it can self-grant and reshape access
+ * however it likes); this only sets its DEFAULT tree access:
+ * - Standard (`autoGrantHome`): admin + owner@~ (seeded by add_principal_to_space,
+ *   which reads the space's auto_grant_home) + owner@/share (explicit). It sees
+ *   `/share` and its own `~`, not other members' homes.
+ * - God mode (`!autoGrantHome`): admin + owner@/ (owner@root, the whole space).
+ *   add_principal_to_space seeds no owner@~ (home grants are off), so god mode
+ *   grants the whole tree instead — which subsumes `~` + `/share`.
+ *
+ * A default group is provisioned unless `defaultGroupName` is null;
+ * `defaultGroupGrants` controls whether it is seeded with the standard grants.
+ * The group starts memberless, so its grants are dormant until members join.
+ *
+ * Requires the space row to already carry the resolved `auto_grant_home`
+ * (create_space sets it before this runs), since add_principal_to_space reads it.
+ * Call inside the space-creation transaction.
  */
 export async function addSpaceCreator(
   core: engineCore.CoreStore,
   spaceId: string,
   userId: string,
+  opts: SpaceCreatorOptions = DEFAULT_SPACE_CREATOR_OPTIONS,
 ): Promise<void> {
-  await core.addPrincipalToSpace(spaceId, userId, true); // admin + owner@home
-  await core.grantTreeAccess(
-    spaceId,
-    userId,
-    SHARE_NAMESPACE,
-    engineCore.ACCESS.owner,
-  );
-  await core.provisionDefaultGroup(spaceId);
+  // Always an admin; owner@~ is seeded here iff the space has auto_grant_home.
+  await core.addPrincipalToSpace(spaceId, userId, true);
+  if (opts.autoGrantHome) {
+    await core.grantTreeAccess(
+      spaceId,
+      userId,
+      SHARE_NAMESPACE,
+      engineCore.ACCESS.owner,
+    );
+  } else {
+    // god mode: owner@root (the whole space), which subsumes ~ + /share.
+    await core.grantTreeAccess(
+      spaceId,
+      userId,
+      engineCore.ROOT_PATH,
+      engineCore.ACCESS.owner,
+    );
+  }
+  if (opts.defaultGroupName !== null) {
+    await core.provisionDefaultGroup(
+      spaceId,
+      opts.defaultGroupName,
+      opts.defaultGroupGrants,
+    );
+  }
 }
 
 export interface EnsureProvisionedParams {

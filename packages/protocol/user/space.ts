@@ -5,7 +5,7 @@
  * select the X-Me-Space the rest of the commands are scoped to.
  */
 import { z } from "zod";
-import { nameSchema } from "../fields.ts";
+import { nameSchema, principalHandleNameSchema } from "../fields.ts";
 
 export const memberSpaceResponse = z.object({
   id: z.string(),
@@ -14,6 +14,10 @@ export const memberSpaceResponse = z.object({
   language: z.string(),
   /** Whether the user is a (direct) admin of the space. */
   admin: z.boolean(),
+  /** Whether joining users/agents automatically get owner@~ (custom spaces set false). */
+  autoGrantHome: z.boolean(),
+  /** The space's default/invite group (targeted by `me space invite` by default), or null. */
+  defaultGroup: z.object({ id: z.string(), name: z.string() }).nullable(),
   createdAt: z.string(),
   updatedAt: z.string().nullable(),
 });
@@ -28,8 +32,20 @@ export const spaceListResult = z.object({
 });
 export type SpaceListResult = z.infer<typeof spaceListResult>;
 
-// space.create — create a new space; the caller becomes admin + owner@root
-export const spaceCreateParams = z.object({ name: nameSchema });
+// space.create — create a new space. The caller always becomes a space admin;
+// the flags below (custom spaces) shape the DEFAULT tree access:
+//   autoGrantHome=false → joiners get no owner@~ and the creator gets god mode
+//     (admin + owner@/) instead of admin + owner@~ + owner@/share.
+//   defaultGroupName: omitted → the standard "team" group; null → no default
+//     group at all; a string → that name.
+//   defaultGroupGrants=false → the default group is created but grantless (the
+//     admin configures its access by hand). Ignored when defaultGroupName is null.
+export const spaceCreateParams = z.object({
+  name: nameSchema,
+  autoGrantHome: z.boolean().optional(),
+  defaultGroupName: principalHandleNameSchema.nullable().optional(),
+  defaultGroupGrants: z.boolean().optional(),
+});
 export type SpaceCreateParams = z.infer<typeof spaceCreateParams>;
 
 export const spaceCreateResult = z.object({

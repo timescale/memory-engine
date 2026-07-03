@@ -1,19 +1,22 @@
 -------------------------------------------------------------------------------
 -- create_space
 -------------------------------------------------------------------------------
+{{fn create_space(_slug text, _name text, _language text, _auto_grant_home bool) returns uuid}}
 create or replace function {{schema}}.create_space
 ( _slug text
 , _name text
 , _language text default 'english'
+, _auto_grant_home bool default true
 )
 returns uuid
 as $func$
-  insert into {{schema}}.space (slug, name, language)
-  values (_slug, _name, coalesce(_language, 'english'))
+  insert into {{schema}}.space (slug, name, language, auto_grant_home)
+  values (_slug, _name, coalesce(_language, 'english'), coalesce(_auto_grant_home, true))
   returning id
 $func$ language sql volatile security invoker
 set search_path to pg_catalog, {{schema}}, public, pg_temp
 ;
+{{endfn}}
 
 -------------------------------------------------------------------------------
 -- rename_space
@@ -56,6 +59,7 @@ set search_path to pg_catalog, {{schema}}, public, pg_temp
 -------------------------------------------------------------------------------
 -- get_space
 -------------------------------------------------------------------------------
+{{fn get_space(_slug text) returns table(id uuid, slug text, name text, language text, auto_grant_home bool, default_group_id uuid, default_group_name text, created_at timestamptz, updated_at timestamptz)}}
 create or replace function {{schema}}.get_space
 ( _slug text
 )
@@ -64,16 +68,24 @@ returns table
 , slug text
 , name text
 , language text
+, auto_grant_home bool
+, default_group_id uuid
+, default_group_name text
 , created_at timestamptz
 , updated_at timestamptz
 )
 as $func$
-  select s.id, s.slug, s.name::text, s.language, s.created_at, s.updated_at
+  select s.id, s.slug, s.name::text, s.language, s.auto_grant_home
+       , g.id, g.name::text
+       , s.created_at, s.updated_at
   from {{schema}}.space s
+  left join {{schema}}.principal g
+    on g.space_id = s.id and g.is_default_group
   where s.slug = _slug
 $func$ language sql stable strict rows 1 security invoker
 set search_path to pg_catalog, {{schema}}, public, pg_temp
 ;
+{{endfn}}
 
 -------------------------------------------------------------------------------
 -- list_spaces
@@ -106,6 +118,7 @@ set search_path to pg_catalog, {{schema}}, public, pg_temp
 -- admin group). Used by the user endpoint so a logged-in human can pick their
 -- space.
 -------------------------------------------------------------------------------
+{{fn list_spaces_for_member(_member_id uuid) returns table(id uuid, slug text, name text, language text, admin bool, auto_grant_home bool, default_group_id uuid, default_group_name text, created_at timestamptz, updated_at timestamptz)}}
 create or replace function {{schema}}.list_spaces_for_member
 ( _member_id uuid
 )
@@ -115,6 +128,9 @@ returns table
 , name text
 , language text
 , admin bool
+, auto_grant_home bool
+, default_group_id uuid
+, default_group_name text
 , created_at timestamptz
 , updated_at timestamptz
 )
@@ -128,12 +144,18 @@ as $func$
   -- derived from is_principal_space_admin so it matches the authority gate
   -- (a direct member who belongs to an admin group shows admin=true)
   , {{schema}}.is_principal_space_admin(_member_id, s.id) as admin
+  , s.auto_grant_home
+  , g.id
+  , g.name::text
   , s.created_at
   , s.updated_at
   from {{schema}}.principal_space ps
   inner join {{schema}}.space s on s.id = ps.space_id
+  left join {{schema}}.principal g
+    on g.space_id = s.id and g.is_default_group
   where ps.principal_id = _member_id
   order by s.created_at desc
 $func$ language sql stable strict security invoker
 set search_path to pg_catalog, {{schema}}, public, pg_temp
 ;
+{{endfn}}

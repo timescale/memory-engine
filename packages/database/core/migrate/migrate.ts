@@ -79,6 +79,9 @@ import incremental012 from "./incremental/012_default_groups.sql" with {
 import incremental013 from "./incremental/013_invite_groups.sql" with {
   type: "text",
 };
+import incremental014 from "./incremental/014_space_access_defaults.sql" with {
+  type: "text",
+};
 import provisionSql from "./provision.sql" with { type: "text" };
 
 const DIR = "packages/database/core/migrate";
@@ -144,6 +147,11 @@ const incrementals: Migration[] = [
     name: "013_invite_groups",
     file: "incremental/013_invite_groups.sql",
     sql: incremental013,
+  },
+  {
+    name: "014_space_access_defaults",
+    file: "incremental/014_space_access_defaults.sql",
+    sql: incremental014,
   },
 ];
 

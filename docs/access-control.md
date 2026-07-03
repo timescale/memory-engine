@@ -108,6 +108,18 @@ A **space admin** owns these defaults and can change them at any time:
 - rename or delete it — `me group rename team …`, `me group delete team`
 - invite into **different** groups instead — `me space invite --email … --group <name>` (repeatable: pass `--group` several times to add the joiner to multiple groups; their access is the union)
 
+### Custom spaces
+
+The provisioning defaults above are for a standard space. `me space create` flags let you shape a space's default access up front — e.g. a curated space you write to while others only read, or one where members can read without running up write (embedding) costs:
+
+- `--no-home-grants` — joining users **and** agents get no `owner@~`. You (the creator) get **god mode** instead of the standard grants: `admin` + `owner@/` (the whole space).
+- `--default-group <name>` — name the default/invite group (default `team`).
+- `--no-default-group-grants` — create the default group **grantless** (no `read@/share` + `write@/share/projects`); you grant it by hand.
+- `--no-default-group` — don't create a default group at all.
+- `--custom` — shortcut for `--no-home-grants --no-default-group`.
+
+The default group is surfaced on `me space list` and is what `me space invite` targets when `--group` is omitted. Because a member needs **≥1 grant** to use a space at all (see below), a space with no home grants **and** no granted default group leaves fresh joiners locked out until you grant them access. The ergonomic pattern for "I write, others read": create with `--no-home-grants --no-default-group-grants`, grant the default group `read@/share` once, then invite through it — every joiner lands read-only, and the grant applies retroactively to anyone already in the group.
+
 ## How it's enforced
 
 There is no Row-Level Security. For each request, the server calls `build_tree_access(principalId, spaceId)`, which collapses the principal's own grants and those from any groups it belongs to — but **only if the principal is a direct space member** — into a single set of `(tree_path, access)` rows. That set is passed as an argument into the space's SQL functions (`search_memory`, `get_memory`, …), which filter to the paths the caller may see.

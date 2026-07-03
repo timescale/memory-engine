@@ -54,20 +54,21 @@ set search_path to pg_catalog, {{schema}}, public, pg_temp
 -- plpgsql (not sql) so the body's reference to add_principal_to_space — defined
 -- in a later idempotent file (006) — is resolved at call time, not creation time.
 -------------------------------------------------------------------------------
-{{fn create_group(_space_id uuid, _name text, _is_space_admin bool, _id uuid) returns uuid}}
+{{fn create_group(_space_id uuid, _name text, _is_space_admin bool, _id uuid, _is_default_group bool) returns uuid}}
 create or replace function {{schema}}.create_group
 ( _space_id uuid
 , _name text
 , _is_space_admin bool default false
 , _id uuid default null
+, _is_default_group bool default false -- mark as the space's default/invite group
 )
 returns uuid
 as $func$
 declare
   _group_id uuid;
 begin
-  insert into {{schema}}.principal (id, kind, name, space_id)
-  values (coalesce(_id, uuidv7()), 'g', _name, _space_id)
+  insert into {{schema}}.principal (id, kind, name, space_id, is_default_group)
+  values (coalesce(_id, uuidv7()), 'g', _name, _space_id, _is_default_group)
   returning id into _group_id;
 
   perform {{schema}}.add_principal_to_space(_space_id, _group_id, _is_space_admin);

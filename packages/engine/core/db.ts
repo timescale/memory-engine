@@ -31,7 +31,11 @@ import type {
  * directly. Access enforcement and multi-table logic live in the SQL.
  */
 export interface CoreStore {
-  createSpace(slug: string, name: string, language?: string): Promise<string>;
+  createSpace(
+    slug: string,
+    name: string,
+    opts?: { language?: string; autoGrantHome?: boolean },
+  ): Promise<string>;
   getSpace(slug: string): Promise<Space | null>;
   /** All spaces (e.g. for the embedding worker to discover me_<slug> schemas). */
   listSpaces(): Promise<Space[]>;
@@ -59,13 +63,19 @@ export interface CoreStore {
     id?: string,
   ): Promise<string>;
   /**
-   * Provision a space's default "team" group (rostered, non-admin) with its
-   * standard grants (read on `share`, write on `share.projects`), creating it if
-   * absent. Idempotent; returns the group id. Call inside the space-creation
-   * transaction. The group starts memberless, so its grants are dormant until a
-   * member is added.
+   * Provision a space's default group (rostered, non-admin, flagged
+   * is_default_group), creating it if absent. `name` defaults to "team".
+   * `grantDefaults` (default true) seeds read on `share` + write on
+   * `share.projects`; pass false for a grantless default group the operator
+   * configures by hand. Idempotent; returns the group id. Call inside the
+   * space-creation transaction. The group starts memberless, so its grants are
+   * dormant until a member is added.
    */
-  provisionDefaultGroup(spaceId: string): Promise<string>;
+  provisionDefaultGroup(
+    spaceId: string,
+    name?: string,
+    grantDefaults?: boolean,
+  ): Promise<string>;
   getPrincipal(id: string): Promise<Principal | null>;
   /** Resolve a global user (kind 'u') by name (email). */
   getUserByName(name: string): Promise<Principal | null>;
@@ -296,9 +306,11 @@ export function coreStore(sql: Sql, schema: string = CORE_SCHEMA): CoreStore {
   const sch = sql(schema); // escaped schema identifier reused across queries
 
   const db: CoreStore = {
-    async createSpace(slug, name, language) {
+    async createSpace(slug, name, opts) {
       const [row] = await sql`
-        select ${sch}.create_space(${slug}, ${name}, ${language ?? null}) as id
+        select ${sch}.create_space(
+          ${slug}, ${name}, ${opts?.language ?? null}, ${opts?.autoGrantHome ?? null}
+        ) as id
       `;
       if (!row) throw new Error("create_space returned no row");
       return row.id as string;
@@ -319,7 +331,17 @@ export function coreStore(sql: Sql, schema: string = CORE_SCHEMA): CoreStore {
         select * from ${sch}.list_spaces_for_member(${memberId})
       `;
       return rows.map(
-        (r): MemberSpace => ({ ...mapSpace(r), admin: Boolean(r.admin) }),
+        (r): MemberSpace => ({
+          ...mapSpace(r),
+          admin: Boolean(r.admin),
+          autoGrantHome: Boolean(r.auto_grant_home),
+          defaultGroup: r.default_group_id
+            ? {
+                id: r.default_group_id as string,
+                name: r.default_group_name as string,
+              }
+            : null,
+        }),
       );
     },
 
@@ -358,9 +380,11 @@ export function coreStore(sql: Sql, schema: string = CORE_SCHEMA): CoreStore {
       return row.id as string;
     },
 
-    async provisionDefaultGroup(spaceId) {
+    async provisionDefaultGroup(spaceId, name, grantDefaults) {
       const [row] = await sql`
-        select ${sch}.provision_default_group(${spaceId}) as id
+        select ${sch}.provision_default_group(
+          ${spaceId}, ${name ?? null}, ${grantDefaults ?? null}
+        ) as id
       `;
       if (!row) throw new Error("provision_default_group returned no row");
       return row.id as string;

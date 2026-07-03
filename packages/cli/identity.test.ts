@@ -15,6 +15,8 @@ const space = (
   name: "John's Space",
   language: "en",
   admin: false,
+  autoGrantHome: true,
+  defaultGroup: null,
   createdAt: "2026-06-29T21:10:19.941Z",
   updatedAt: null,
   ...over,
