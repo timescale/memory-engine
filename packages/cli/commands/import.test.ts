@@ -2,10 +2,10 @@ import { describe, expect, test } from "bun:test";
 import { buildOptions } from "./import.ts";
 
 describe("buildOptions", () => {
-  test("defaults imported session node name to agent_sessions", () => {
+  test("defaults to the PRIVATE tree root and agent_sessions node name", () => {
     const config = buildOptions({});
 
-    expect(config.write.treeRoot).toBe("share.projects");
+    expect(config.write.treeRoot).toBe("~/projects");
     expect(config.write.sessionsNodeName).toBe("agent_sessions");
   });
 
@@ -34,5 +34,37 @@ describe("buildOptions", () => {
     expect(() => buildOptions({ treeRoot: "bad space" })).toThrow(
       "Invalid --tree-root",
     );
+  });
+
+  test("a --project run picks up the .me tree as projectTree (matches the hook)", () => {
+    const config = buildOptions(
+      { project: "/repo" },
+      { projectTree: "/share/projects/foo" },
+    );
+    expect(config.write.projectTree).toBe("/share/projects/foo");
+    // The parent+slug fallback is still the private default (unused when
+    // projectTree wins, but reported/available for sessions outside the tree).
+    expect(config.write.treeRoot).toBe("~/projects");
+  });
+
+  test("a bare (multi-project) sweep ignores the .me tree — parent+slug fallback", () => {
+    const config = buildOptions({}, { projectTree: "/share/projects/foo" });
+    expect(config.write.projectTree).toBeUndefined();
+    expect(config.write.treeRoot).toBe("~/projects");
+  });
+
+  test("an explicit --tree-root overrides the .me tree even for a --project run", () => {
+    const config = buildOptions(
+      { project: "/repo", treeRoot: "share.work" },
+      { projectTree: "/share/projects/foo" },
+    );
+    expect(config.write.projectTree).toBeUndefined();
+    expect(config.write.treeRoot).toBe("share.work");
+  });
+
+  test("no creds → no projectTree (private default governs)", () => {
+    const config = buildOptions({ project: "/repo" });
+    expect(config.write.projectTree).toBeUndefined();
+    expect(config.write.treeRoot).toBe("~/projects");
   });
 });

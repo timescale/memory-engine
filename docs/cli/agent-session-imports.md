@@ -18,7 +18,7 @@ All three subcommands accept the same flags (with one extra flag on the Claude i
 | `--project <cwd>` | Only import sessions whose cwd equals or is below this path. |
 | `--since <iso>` | Only import sessions started at or after this ISO 8601 timestamp. |
 | `--until <iso>` | Only import sessions started at or before this ISO 8601 timestamp. |
-| `--tree-root <path>` | Tree root under which `<slug>/<sessions-node-name>` nodes are placed. Default: `/share/projects`. Accepts ltree labels (`[A-Za-z0-9_-]`) separated by `/`, with an optional leading `~` for your home (e.g. `~/projects`). |
+| `--tree-root <path>` | Tree root under which `<slug>/<sessions-node-name>` nodes are placed. Default: the private `~/projects` (your own home) — and a `--project`-scoped run whose project pins a [`.me` tree](../project-config.md) nests directly under that tree instead (no slug), matching the live capture hook. Accepts ltree labels (`[A-Za-z0-9_-]`) separated by `/`, with an optional leading `~` for your home. |
 | `--sessions-node-name <name>` | Per-project node name for imported agent sessions. Default: `agent_sessions`. Must match `[a-z0-9_]+`. |
 | `--full-transcript` | Also store reasoning, tool calls, and tool results as their own message memories (default: user + assistant text only). |
 | `--include-temp-cwd` | Include sessions whose cwd is a system temp directory (`/tmp`, `/private/var/folders/...`). Off by default. |
@@ -40,7 +40,9 @@ Each session is its own tree node, and each message is a named leaf under it:
 <tree-root>/<project_slug>/<sessions-node-name>/<session_id>/msg_<message_id>
 ```
 
-For example, a Claude message from a session run in `/Users/me/dev/memory-engine` ends up at `/share/projects/memory_engine/agent_sessions/<session_id>/msg_<message_id>` by default. Each session is browsable as a folder, and an individual message is addressable by its path (`me get /share/projects/memory_engine/agent_sessions/<session_id>/msg_<message_id>`). The session id is normalized to an ltree label for the node; the raw id is also kept in `meta.source_session_id`.
+For example, a Claude message from a session run in `/Users/me/dev/memory-engine` ends up at `~/projects/memory_engine/agent_sessions/<session_id>/msg_<message_id>` by default — under your **private** home tree, visible only to you. Each session is browsable as a folder, and an individual message is addressable by its path (`me get '~/projects/memory_engine/agent_sessions/<session_id>/msg_<message_id>'`). The session id is normalized to an ltree label for the node; the raw id is also kept in `meta.source_session_id`.
+
+A `--project`-scoped run picks up the project's committed [`.me/config.yaml` `tree`](../project-config.md) when one is set — sessions then nest directly under it (`<tree>/<sessions-node-name>/…`, no slug), exactly where the live capture hook writes, so a backfill and ongoing capture share one node with no flags. A bare (multi-project) sweep ignores the `.me` tree — it is a single project's node — and keeps the `~/projects` + per-slug layout.
 
 Project slugs come from the git repo root directory name when the cwd is inside a repo, or from `basename(cwd)` otherwise. Slug collisions (two different cwds that normalize to the same label) are resolved automatically by appending a 4-char hash suffix -- the first cwd seen gets the plain slug, subsequent ones get `slug_<hash>`. The full cwd is always preserved in `meta.source_cwd`.
 

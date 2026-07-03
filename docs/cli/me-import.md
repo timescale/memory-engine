@@ -141,7 +141,7 @@ me import git [repo] [options]
 | `--full` | Walk the full history (skip the incremental high-water lookup). |
 | `--no-merges` | Drop all merge commits. |
 | `--no-file-list` | Omit the changed-file list from commit memories. |
-| `--project-tree <path>` | Full project tree to place `git_history` under (no slug appended — `me import git` is single-repo). Default: the repo's [`.me` tree](../project-config.md), else `/share/projects/<slug>`. |
+| `--project-tree <path>` | Full project tree to place `git_history` under (no slug appended — `me import git` is single-repo). Default: the repo's [`.me` tree](../project-config.md), else the private `~/projects/<slug>`. |
 | `--dry-run` | Parse and report what would be imported without writing. |
 | `-v, --verbose` | Per-commit progress output. |
 
@@ -153,7 +153,7 @@ Each commit is a named leaf (the commit `<sha>`) under the project's `git_histor
 <project-tree>/git_history/<sha>
 ```
 
-`<project-tree>` is the full project node — `--project-tree`, else the repo's [`.me` tree](../project-config.md), else `/share/projects/<project_slug>`. The default project slug is derived exactly as for [agent session imports](agent-session-imports.md#tree-layout) (git remote repo name, else repo root directory name), so a project's commit history sits next to its `agent_sessions` node — e.g. a commit lands at `/share/projects/memory_engine/git_history/<sha>` and is addressable by that path.
+`<project-tree>` is the full project node — `--project-tree`, else the repo's [`.me` tree](../project-config.md), else the private `~/projects/<project_slug>` (your own home). The default project slug is derived exactly as for [agent session imports](agent-session-imports.md#tree-layout) (git remote repo name, else repo root directory name), so a project's commit history sits next to its `agent_sessions` node — e.g. a commit lands at `~/projects/memory_engine/git_history/<sha>` and is addressable by that path (or at `/share/projects/memory_engine/git_history/<sha>` when the project's `.me` tree pins the shared layout).
 
 ### Content shape
 

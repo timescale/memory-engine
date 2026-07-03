@@ -3,7 +3,8 @@
  *
  * One memory per commit (message + capped changed-file list) under
  * `<project-tree>.git_history` — the full project tree from `--project-tree` or
- * the repo's `.me`, else `<DEFAULT_TREE_ROOT>.<project_slug>` — named with the
+ * the repo's `.me`, else the private `<DEFAULT_PRIVATE_TREE_ROOT>.<project_slug>`
+ * — named with the
  * commit `<sha>` and with the commit date as the memory's temporal. `me import
  * git` is single-repo, so the tree is a full node (no slug appended here).
  * Idempotency is keyed on
@@ -32,7 +33,7 @@ import {
 } from "../importers/git.ts";
 import {
   createProgressReporter,
-  DEFAULT_TREE_ROOT,
+  DEFAULT_PRIVATE_TREE_ROOT,
   dedupBy,
 } from "../importers/index.ts";
 import { SlugRegistry } from "../importers/slug.ts";
@@ -67,7 +68,7 @@ export interface GitImportOptions {
   /**
    * The full project tree to place `git_history` under (no slug appended). From
    * `--project-tree`; when unset, runGitImport falls back to the repo's `.me`
-   * tree, else `<DEFAULT_TREE_ROOT>.<slug>`.
+   * tree, else the private `<DEFAULT_PRIVATE_TREE_ROOT>.<slug>`.
    */
   projectTree?: string;
   /** Report without writing. */
@@ -189,9 +190,12 @@ export async function runGitImport(
   // The full project node git history nests under (no slug appended — git import
   // is single-repo): an explicit `--project-tree`, else the repo's `.me` tree
   // (`creds.projectTree`, resolved through the standard precedence so it honors
-  // `--config-dir`), else the default `<DEFAULT_TREE_ROOT>.<slug>`.
+  // `--config-dir`), else the PRIVATE default `<DEFAULT_PRIVATE_TREE_ROOT>.<slug>`
+  // — so commits and captured sessions share the same private-by-default root.
   const projectTree =
-    opts.projectTree ?? creds.projectTree ?? `${DEFAULT_TREE_ROOT}.${slug}`;
+    opts.projectTree ??
+    creds.projectTree ??
+    `${DEFAULT_PRIVATE_TREE_ROOT}.${slug}`;
   const tree = `${projectTree}.${GIT_HISTORY_NODE_NAME}`;
   const rev = opts.branch ?? "HEAD";
   const engine = buildMemoryClient(creds);
@@ -395,7 +399,7 @@ export function createGitImportCommand(): Command {
     .option("--no-file-list", "omit the changed-file list from commit memories")
     .option(
       "--project-tree <path>",
-      `full project tree to place '${GIT_HISTORY_NODE_NAME}' under, no slug appended (default: the repo's .me tree, else ${DEFAULT_TREE_ROOT}.<slug>)`,
+      `full project tree to place '${GIT_HISTORY_NODE_NAME}' under, no slug appended (default: the repo's .me tree, else ${DEFAULT_PRIVATE_TREE_ROOT}.<slug> — private)`,
     )
     .option(
       "--dry-run",
