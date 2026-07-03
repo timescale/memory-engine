@@ -50,11 +50,11 @@ export interface HookConfig {
   /** Tree root; captures nest as `<treeRoot>.<project>.agent_sessions`. */
   treeRoot: string;
   /**
-   * The full project tree from a `.me/config.yaml` in scope, if any. When set,
+   * The full project TREE from a `.me/config.yaml` in scope, if any. When set,
    * captures nest directly under it (no slug); an explicit `--tree-root` flag
    * overrides it back to `<treeRoot>.<slug>`.
    */
-  projectTree?: string;
+  tree?: string;
   /** content_mode=full_transcript → also store reasoning + tool calls/results. */
   fullTranscript: boolean;
   /**
@@ -71,7 +71,8 @@ export type HookCreds = Pick<
   | "apiKey"
   | "activeSpace"
   | "loggedIn"
-  | "projectTree"
+  | "tree"
+  | "treeRoot"
   | "asAgent"
   | "projectCapture"
 >;
@@ -117,14 +118,16 @@ export function resolveHookConfig(
   if (!space) return null;
 
   const server = creds.server || DEFAULT_SERVER;
-  // An explicit `--tree-root` flag (parent+slug) wins; otherwise a `.me` project
-  // tree is the full project node (no slug), else the PRIVATE default
-  // parent+slug (`~/projects/<slug>` — shared layouts are explicit opt-ins).
+  // An explicit `--tree-root` flag (parent+slug) wins; otherwise a `.me`
+  // project `tree` is the full project node (no slug), else the parent+slug
+  // layout under the machine-wide `tree_root` override, else the PRIVATE
+  // default (`~/projects/<slug>` — shared layouts are explicit opt-ins).
   const pinnedTreeRoot = blank(input.treeRoot)
     ? undefined
     : (input.treeRoot as string);
-  const treeRoot = pinnedTreeRoot ?? DEFAULT_PRIVATE_TREE_ROOT;
-  const projectTree = pinnedTreeRoot ? undefined : creds.projectTree;
+  const treeRoot =
+    pinnedTreeRoot ?? creds.treeRoot ?? DEFAULT_PRIVATE_TREE_ROOT;
+  const tree = pinnedTreeRoot ? undefined : creds.tree;
   const fullTranscript = input.fullTranscript ?? false;
 
   return {
@@ -132,7 +135,7 @@ export function resolveHookConfig(
     apiKey: creds.apiKey,
     space,
     treeRoot,
-    projectTree,
+    tree,
     fullTranscript,
     asAgent: creds.asAgent,
   };

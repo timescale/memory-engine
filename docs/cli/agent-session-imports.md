@@ -18,7 +18,7 @@ All three subcommands accept the same flags (with one extra flag on the Claude i
 | `--project <cwd>` | Only import sessions whose cwd equals or is below this path. |
 | `--since <iso>` | Only import sessions started at or after this ISO 8601 timestamp. |
 | `--until <iso>` | Only import sessions started at or before this ISO 8601 timestamp. |
-| `--tree-root <path>` | Tree root under which `<slug>/<sessions-node-name>` nodes are placed. Default: the private `~/projects` (your own home) — and a `--project`-scoped run whose project pins a [`.me` tree](../project-config.md) nests directly under that tree instead (no slug), matching the live capture hook. Accepts ltree labels (`[A-Za-z0-9_-]`) separated by `/`, with an optional leading `~` for your home. |
+| `--tree-root <path>` | Tree root under which `<slug>/<sessions-node-name>` nodes are placed. Default: your global [`tree_root`](../project-config.md#changing-the-default-tree-root-tree_root) override, else the private `~/projects` (your own home) — and a `--project`-scoped run whose project pins a [`.me` tree](../project-config.md) nests directly under that tree instead (no slug), matching the live capture hook. Accepts ltree labels (`[A-Za-z0-9_-]`) separated by `/`, with an optional leading `~` for your home. |
 | `--sessions-node-name <name>` | Per-project node name for imported agent sessions. Default: `agent_sessions`. Must match `[a-z0-9_]+`. |
 | `--full-transcript` | Also store reasoning, tool calls, and tool results as their own message memories (default: user + assistant text only). |
 | `--include-temp-cwd` | Include sessions whose cwd is a system temp directory (`/tmp`, `/private/var/folders/...`). Off by default. |

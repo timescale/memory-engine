@@ -141,7 +141,7 @@ me import git [repo] [options]
 | `--full` | Walk the full history (skip the incremental high-water lookup). |
 | `--no-merges` | Drop all merge commits. |
 | `--no-file-list` | Omit the changed-file list from commit memories. |
-| `--project-tree <path>` | Full project tree to place `git_history` under (no slug appended — `me import git` is single-repo). Default: the repo's [`.me` tree](../project-config.md), else the private `~/projects/<slug>`. |
+| `--tree <path>` | Full project tree to place `git_history` under (no slug appended — `me import git` is single-repo). Default: the repo's [`.me` tree](../project-config.md), else `<tree_root>/<slug>` (your global [`tree_root`](../project-config.md#changing-the-default-tree-root-tree_root) override, default the private `~/projects`). |
 | `--dry-run` | Parse and report what would be imported without writing. |
 | `-v, --verbose` | Per-commit progress output. |
 
@@ -150,10 +150,10 @@ me import git [repo] [options]
 Each commit is a named leaf (the commit `<sha>`) under the project's `git_history` node:
 
 ```
-<project-tree>/git_history/<sha>
+<tree>/git_history/<sha>
 ```
 
-`<project-tree>` is the full project node — `--project-tree`, else the repo's [`.me` tree](../project-config.md), else the private `~/projects/<project_slug>` (your own home). The default project slug is derived exactly as for [agent session imports](agent-session-imports.md#tree-layout) (git remote repo name, else repo root directory name), so a project's commit history sits next to its `agent_sessions` node — e.g. a commit lands at `~/projects/memory_engine/git_history/<sha>` and is addressable by that path (or at `/share/projects/memory_engine/git_history/<sha>` when the project's `.me` tree pins the shared layout).
+`<tree>` is the full project node — `--tree`, else the repo's [`.me` tree](../project-config.md), else `<tree_root>/<project_slug>` (the private `~/projects` unless your global config overrides `tree_root`). The default project slug is derived exactly as for [agent session imports](agent-session-imports.md#tree-layout) (git remote repo name, else repo root directory name), so a project's commit history sits next to its `agent_sessions` node — e.g. a commit lands at `~/projects/memory_engine/git_history/<sha>` and is addressable by that path (or at `/share/projects/memory_engine/git_history/<sha>` when the project's `.me` tree pins the shared layout).
 
 ### Content shape
 

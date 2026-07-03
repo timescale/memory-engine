@@ -107,13 +107,29 @@ describe("resolveHookConfigFromEnv", () => {
     expect(cfg?.apiKey).toBe("me.lookupid12345678.secret");
   });
 
-  test("a .me project tree sets projectTree (no-slug), keeping the default parent", () => {
+  test("a machine-wide tree_root (creds.treeRoot) replaces the ~/projects parent", () => {
+    const cfg = resolveHookConfigFromEnv(
+      {},
+      { loggedIn: true, activeSpace: "act123def456", treeRoot: "~/work" },
+    );
+    expect(cfg?.treeRoot).toBe("~/work");
+    // The .me tree still wins as the full project node when present.
+    const withTree = resolveHookConfigFromEnv(
+      {},
+      { loggedIn: true, activeSpace: "act123def456", treeRoot: "~/work" },
+      { tree: "share.projects.foo" },
+    );
+    expect(withTree?.tree).toBe("share.projects.foo");
+    expect(withTree?.treeRoot).toBe("~/work");
+  });
+
+  test("a .me project tree sets tree (no-slug), keeping the default parent", () => {
     const cfg = resolveHookConfigFromEnv(
       {},
       { loggedIn: true, activeSpace: "act123def456" },
       { tree: "share.projects.foo" },
     );
-    expect(cfg?.projectTree).toBe("share.projects.foo");
+    expect(cfg?.tree).toBe("share.projects.foo");
     expect(cfg?.treeRoot).toBe("~/projects");
   });
 
@@ -130,7 +146,7 @@ describe("resolveHookConfigFromEnv", () => {
       { tree: "share.projects.foo" },
     );
     expect(cfg?.treeRoot).toBe("~/projects");
-    expect(cfg?.projectTree).toBe("share.projects.foo");
+    expect(cfg?.tree).toBe("share.projects.foo");
   });
 
   test("a .me project server/space fill in when plugin + session lack them", () => {

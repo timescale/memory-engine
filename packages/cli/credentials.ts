@@ -23,6 +23,7 @@
  * server_whitelist:            # extra servers trusted for a `.me` server pin
  *   - https://me.internal.example
  * capture: true                # machine-wide session-capture opt-in (default off)
+ * tree_root: ~/work            # optional: override the default ~/projects parent
  * ```
  * credentials.yaml (0600):
  * ```yaml
@@ -63,6 +64,13 @@ export const DEV_SERVER = "https://me.dev-us-east-1.ops.dev.timescale.com";
  */
 const DEFAULT_TRUSTED_SERVERS = [DEFAULT_SERVER, DEV_SERVER];
 
+/**
+ * Lenient tree-path shape for the `tree_root` config key (mirrors the
+ * project-config `tree` gate): ltree labels separated by `.`/`/`, optional
+ * leading `~`. Normalized server-side; this is only a cheap sanity gate.
+ */
+const TREE_ROOT_RE = /^[A-Za-z0-9_~./-]+$/;
+
 /** Per-server non-secret config. */
 export interface ServerConfig {
   /** Active space slug (the X-Me-Space). */
@@ -85,6 +93,16 @@ export interface ConfigFile {
    * inert (a project `.me/config.yaml` `capture: true` still overrides).
    */
   capture?: boolean;
+  /**
+   * Machine-wide override of the default TREE ROOT — the parent under which
+   * captures and session/git imports nest per-project slugs
+   * (`<tree_root>/<slug>/agent_sessions`). Never written by any command
+   * (hand-edit to change it); absent → the code default, the private
+   * `~/projects`. A project's `.me/config.yaml` `tree` (a full node, no slug
+   * appended) still wins for that project. Lenient tree-path form (`~`/`/`
+   * accepted), normalized server-side.
+   */
+  tree_root?: string;
 }
 
 /**
@@ -127,11 +145,17 @@ export interface ResolvedCredentials {
   /** Active space slug (the X-Me-Space) — ME_SPACE > `.me` space > stored active_space. */
   activeSpace?: string;
   /**
-   * The full project-tree root from a `.me/config.yaml` in scope, if any — used
-   * by integrations (capture hooks, git import) as the project root, nesting
+   * The full project TREE from a `.me/config.yaml` in scope, if any — used by
+   * integrations (capture hooks, git import) as the project node, nesting
    * under it without appending a slug. Undefined when there is no `.me`.
    */
-  projectTree?: string;
+  tree?: string;
+  /**
+   * Machine-wide TREE ROOT override (config.yaml `tree_root`) — the parent
+   * for per-slug layouts (`<treeRoot>/<slug>/…`). Undefined when unset;
+   * callers fall back to the code default (the private `~/projects`).
+   */
+  treeRoot?: string;
   /**
    * Act-as-agent target — a concrete agent id/name to send as `X-Me-As-Agent`,
    * resolved from `--as-agent` / `ME_AS_AGENT` (the `.me` sentinel already
@@ -231,6 +255,17 @@ function readConfig(): ConfigFile {
       `Invalid server_whitelist in ${path}: it must be a list of server URL strings.`,
     );
   }
+  // A present tree_root must be a plausible tree path — fail loudly on a
+  // mistyped one rather than letting it silently flow into every capture.
+  const rawTreeRoot = data?.tree_root;
+  if (
+    rawTreeRoot !== undefined &&
+    (typeof rawTreeRoot !== "string" || !TREE_ROOT_RE.test(rawTreeRoot))
+  ) {
+    throw new Error(
+      `Invalid tree_root in ${path}: use ltree labels ([A-Za-z0-9_-]) separated by '/' or '.', with an optional leading '~'.`,
+    );
+  }
   return {
     default_server:
       typeof data?.default_server === "string"
@@ -239,6 +274,7 @@ function readConfig(): ConfigFile {
     servers: (data?.servers as ConfigFile["servers"]) ?? {},
     server_whitelist: rawWhitelist as string[] | undefined,
     capture: typeof data?.capture === "boolean" ? data.capture : undefined,
+    tree_root: rawTreeRoot as string | undefined,
   };
 }
 
@@ -661,7 +697,8 @@ export function resolveCredentials(serverFlag?: string): ResolvedCredentials {
     loggedIn: Boolean(process.env.ME_SESSION_TOKEN) || hasStoredTokens(server),
     apiKey: process.env.ME_API_KEY,
     activeSpace: process.env.ME_SPACE ?? project?.space ?? config.active_space,
-    projectTree: project?.tree,
+    tree: project?.tree,
+    treeRoot: readConfig().tree_root,
     asAgent: resolveAsAgent(),
     captureEnabled: project?.capture ?? getGlobalCaptureEnabled(),
     projectCapture: project?.capture,

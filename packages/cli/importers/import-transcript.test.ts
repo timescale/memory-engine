@@ -169,7 +169,7 @@ describe("importTranscriptFile", () => {
     expect(store.size).toBe(3);
   });
 
-  test("projectTree nests sessions directly under it (no slug appended)", async () => {
+  test("tree nests sessions directly under it (no slug appended)", async () => {
     const { client, store } = mockEngine();
     await importTranscriptFile(
       client,
@@ -177,17 +177,17 @@ describe("importTranscriptFile", () => {
       "/x.jsonl",
       {
         ...WRITE,
-        projectTree: "share.myteam.backend",
+        tree: "share.myteam.backend",
       },
     );
     const [row] = [...store.values()];
-    // `<projectTree>.agent_sessions.<label>` — no per-project slug segment.
+    // `<tree>.agent_sessions.<label>` — no per-project slug segment.
     expect(row?.tree.startsWith("share.myteam.backend.agent_sessions.")).toBe(
       true,
     );
   });
 
-  test("without projectTree, sessions nest under <treeRoot>.<slug>", async () => {
+  test("without tree, sessions nest under <treeRoot>.<slug>", async () => {
     const { client, store } = mockEngine();
     await importTranscriptFile(
       client,

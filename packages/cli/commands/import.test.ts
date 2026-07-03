@@ -36,35 +36,45 @@ describe("buildOptions", () => {
     );
   });
 
-  test("a --project run picks up the .me tree as projectTree (matches the hook)", () => {
+  test("a --project run picks up the .me tree as tree (matches the hook)", () => {
     const config = buildOptions(
       { project: "/repo" },
-      { projectTree: "/share/projects/foo" },
+      { tree: "/share/projects/foo" },
     );
-    expect(config.write.projectTree).toBe("/share/projects/foo");
+    expect(config.write.tree).toBe("/share/projects/foo");
     // The parent+slug fallback is still the private default (unused when
-    // projectTree wins, but reported/available for sessions outside the tree).
+    // tree wins, but reported/available for sessions outside the tree).
     expect(config.write.treeRoot).toBe("~/projects");
   });
 
   test("a bare (multi-project) sweep ignores the .me tree — parent+slug fallback", () => {
-    const config = buildOptions({}, { projectTree: "/share/projects/foo" });
-    expect(config.write.projectTree).toBeUndefined();
+    const config = buildOptions({}, { tree: "/share/projects/foo" });
+    expect(config.write.tree).toBeUndefined();
     expect(config.write.treeRoot).toBe("~/projects");
   });
 
   test("an explicit --tree-root overrides the .me tree even for a --project run", () => {
     const config = buildOptions(
       { project: "/repo", treeRoot: "share.work" },
-      { projectTree: "/share/projects/foo" },
+      { tree: "/share/projects/foo" },
     );
-    expect(config.write.projectTree).toBeUndefined();
+    expect(config.write.tree).toBeUndefined();
     expect(config.write.treeRoot).toBe("share.work");
   });
 
-  test("no creds → no projectTree (private default governs)", () => {
+  test("a machine-wide tree_root (creds.treeRoot) replaces the default parent", () => {
+    const config = buildOptions({}, { treeRoot: "~/work" });
+    expect(config.write.treeRoot).toBe("~/work");
+    // An explicit --tree-root still wins over it.
+    expect(
+      buildOptions({ treeRoot: "share.work" }, { treeRoot: "~/work" }).write
+        .treeRoot,
+    ).toBe("share.work");
+  });
+
+  test("no creds → no tree (private default governs)", () => {
     const config = buildOptions({ project: "/repo" });
-    expect(config.write.projectTree).toBeUndefined();
+    expect(config.write.tree).toBeUndefined();
     expect(config.write.treeRoot).toBe("~/projects");
   });
 });

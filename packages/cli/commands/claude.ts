@@ -632,7 +632,7 @@ function createClaudeHookCommand(): Command {
         });
         await importTranscriptFile(client, claudeImporter, transcriptPath, {
           treeRoot: config.treeRoot,
-          projectTree: config.projectTree,
+          tree: config.tree,
           sessionsNodeName: SESSIONS_NODE,
           fullTranscript: config.fullTranscript,
           dryRun: false,

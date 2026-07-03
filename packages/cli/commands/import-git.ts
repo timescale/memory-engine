@@ -2,11 +2,11 @@
  * `me import git` — import a repo's commit history as memories.
  *
  * One memory per commit (message + capped changed-file list) under
- * `<project-tree>.git_history` — the full project tree from `--project-tree` or
- * the repo's `.me`, else the private `<DEFAULT_PRIVATE_TREE_ROOT>.<project_slug>`
- * — named with the
- * commit `<sha>` and with the commit date as the memory's temporal. `me import
- * git` is single-repo, so the tree is a full node (no slug appended here).
+ * `<tree>.git_history` — the full project TREE from `--tree` or the repo's
+ * `.me` `tree`, else `<tree_root ?? ~/projects>.<project_slug>` (private by
+ * default) — named with the commit `<sha>` and with the commit date as the
+ * memory's temporal. `me import git` is single-repo, so the tree is a full
+ * node (no slug appended here).
  * Idempotency is keyed on
  * `(tree, sha)`, so re-runs become server-side skips; the id is a
  * timestamp-prefixed UUIDv7 (random tail) so commits sort by date on the id.
@@ -66,11 +66,11 @@ export interface GitImportOptions {
   /** False (via --no-file-list) omits the changed-file list from content. */
   fileList?: boolean;
   /**
-   * The full project tree to place `git_history` under (no slug appended). From
-   * `--project-tree`; when unset, runGitImport falls back to the repo's `.me`
-   * tree, else the private `<DEFAULT_PRIVATE_TREE_ROOT>.<slug>`.
+   * The full project TREE to place `git_history` under (no slug appended).
+   * From `--tree`; when unset, runGitImport falls back to the repo's `.me`
+   * `tree`, else `<tree_root ?? ~/projects>.<slug>`.
    */
-  projectTree?: string;
+  tree?: string;
   /** Report without writing. */
   dryRun?: boolean;
   /** Per-commit progress output. */
@@ -87,11 +87,10 @@ export function buildGitImportOptions(
   opts: Record<string, unknown>,
   repoArg?: string,
 ): GitImportOptions {
-  const projectTree =
-    typeof opts.projectTree === "string" ? opts.projectTree : undefined;
-  if (projectTree !== undefined && !VALID_TREE_ROOT_RE.test(projectTree)) {
+  const tree = typeof opts.tree === "string" ? opts.tree : undefined;
+  if (tree !== undefined && !VALID_TREE_ROOT_RE.test(tree)) {
     throw new Error(
-      `Invalid --project-tree: '${projectTree}'. Use ltree labels ([A-Za-z0-9_-]) separated by '.' or '/', with an optional leading '~' for your home.`,
+      `Invalid --tree: '${tree}'. Use ltree labels ([A-Za-z0-9_-]) separated by '.' or '/', with an optional leading '~' for your home.`,
     );
   }
   return {
@@ -103,7 +102,7 @@ export function buildGitImportOptions(
     full: opts.full === true,
     merges: opts.merges !== false,
     fileList: opts.fileList !== false,
-    projectTree,
+    tree,
     dryRun: opts.dryRun === true,
     verbose: opts.verbose === true,
     skipIfNotRepo: opts.skipIfNotRepo === true,
@@ -187,16 +186,17 @@ export async function runGitImport(
     handleError(new Error(`${repoPath} is not a git repository`), fmt);
   }
 
-  // The full project node git history nests under (no slug appended — git import
-  // is single-repo): an explicit `--project-tree`, else the repo's `.me` tree
-  // (`creds.projectTree`, resolved through the standard precedence so it honors
-  // `--config-dir`), else the PRIVATE default `<DEFAULT_PRIVATE_TREE_ROOT>.<slug>`
-  // — so commits and captured sessions share the same private-by-default root.
-  const projectTree =
-    opts.projectTree ??
-    creds.projectTree ??
-    `${DEFAULT_PRIVATE_TREE_ROOT}.${slug}`;
-  const tree = `${projectTree}.${GIT_HISTORY_NODE_NAME}`;
+  // The full project node git history nests under (no slug appended — git
+  // import is single-repo): an explicit `--tree`, else the repo's `.me` `tree`
+  // (`creds.tree`, resolved through the standard precedence so it honors
+  // `--config-dir`), else parent+slug under the machine-wide `tree_root`
+  // override or the PRIVATE default — so commits and captured sessions share
+  // the same private-by-default root.
+  const projectNode =
+    opts.tree ??
+    creds.tree ??
+    `${creds.treeRoot ?? DEFAULT_PRIVATE_TREE_ROOT}.${slug}`;
+  const tree = `${projectNode}.${GIT_HISTORY_NODE_NAME}`;
   const rev = opts.branch ?? "HEAD";
   const engine = buildMemoryClient(creds);
 
@@ -398,8 +398,8 @@ export function createGitImportCommand(): Command {
     .option("--no-merges", "drop all merge commits")
     .option("--no-file-list", "omit the changed-file list from commit memories")
     .option(
-      "--project-tree <path>",
-      `full project tree to place '${GIT_HISTORY_NODE_NAME}' under, no slug appended (default: the repo's .me tree, else ${DEFAULT_PRIVATE_TREE_ROOT}.<slug> — private)`,
+      "--tree <path>",
+      `full project tree to place '${GIT_HISTORY_NODE_NAME}' under, no slug appended (default: the repo's .me tree, else <tree_root ?? ${DEFAULT_PRIVATE_TREE_ROOT}>.<slug> — private)`,
     )
     .option(
       "--dry-run",
