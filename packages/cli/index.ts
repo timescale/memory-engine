@@ -27,6 +27,7 @@ import {
 } from "./commands/memory.ts";
 import { createOpenCodeCommand } from "./commands/opencode.ts";
 import { createPackCommand } from "./commands/pack.ts";
+import { createProjectCommand } from "./commands/project.ts";
 import { createServeCommand } from "./commands/serve.ts";
 import { createSpaceCommand } from "./commands/space.ts";
 import { createUpgradeCommand } from "./commands/upgrade.ts";
@@ -105,6 +106,9 @@ program.addCommand(createClaudeCommand());
 program.addCommand(createOpenCodeCommand());
 program.addCommand(createGeminiCommand());
 program.addCommand(createCodexCommand());
+
+// Harness-agnostic per-project setup (`me project init`)
+program.addCommand(createProjectCommand());
 
 // Local web UI
 program.addCommand(createServeCommand());
