@@ -634,9 +634,10 @@ export function pluginListShowsInstalled(stdout: string): boolean {
 
 /**
  * Availability of the plugin-install init step: hidden when the `claude`
- * binary is absent, "done" when the plugin is already installed.
+ * binary is absent, "done" when the plugin is already installed. Also used by
+ * the `me project init` preflight.
  */
-async function pluginInstallAvailable(): Promise<StepAvailability> {
+export async function pluginInstallAvailable(): Promise<StepAvailability> {
   if (Bun.which("claude") === null) return "hidden";
   const { exitCode, stdout } = await runCommand([
     "claude",
