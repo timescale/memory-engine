@@ -13,9 +13,9 @@ Claude Code integration commands.
 
 ## me claude install
 
-Install the Memory Engine plugin for Claude Code.
+Install the **one, user-scoped** Memory Engine plugin for Claude Code — run it once and it applies to every project.
 
-By default this installs the **full plugin** -- hooks (auto-capture of Claude Code events), slash commands, and the MCP tools -- by driving Claude Code's native plugin CLI for you:
+By default this installs the **full plugin** -- hooks (session capture, inert until you opt in), slash commands, and the MCP tools -- by driving Claude Code's native plugin CLI for you:
 
 ```
 me claude install [options]
@@ -25,11 +25,16 @@ Under the hood it runs the equivalent of:
 
 ```bash
 claude plugin marketplace add timescale/memory-engine
-claude plugin install memory-engine@memory-engine \
+claude plugin install --scope user memory-engine@memory-engine \
   [--config server=<url>] [--config space=<slug>] [--config api_key=<key>]
 ```
 
-The marketplace step is idempotent (skipped if already configured). **By default nothing is pinned** -- `server`, `space`, and `api_key` are left blank so the plugin (hooks + MCP) tracks your live `me` config at runtime: your `me login` server, active space, and session. Pinning is opt-in: `--server` / `--space` pin those, and `--api-key` marks a headless install (see below). After install, restart Claude Code (or run `/plugin`) to load the hooks and slash commands.
+The marketplace step is idempotent (skipped if already configured). **By default nothing is pinned into the plugin** -- `server`, `space`, and `api_key` are left blank so the plugin (hooks + MCP) tracks your live `me` config at runtime: your `me login` server, active space, and session. Pinning is opt-in: `--server` / `--space` pin those, and `--api-key` marks a headless install (see below). After install, restart Claude Code (or run `/plugin`) to load the hooks and slash commands.
+
+A session (non-headless) install then:
+
+1. **Persists global defaults** into `~/.config/me` — the resolved server (`default_server`) and active space. The private `~/projects` tree root and "no agent" are code defaults, not written keys.
+2. **Asks whether to turn on session capture** (default **no** — the capture hook ships inert). Say **yes** and it enables the machine-wide `capture: true` and runs a one-time machine-wide [`me import claude`](me-import.md) backfill — everything lands **privately** under `~/projects/<slug>`, per project. Say no and you get the tools only. Re-run `me claude install` any time to change the answer; a project's [`.me/config.yaml` `capture`](../project-config.md#the-capture-field-session-capture-onoff) overrides per project either way. (Non-interactive runs skip the prompt and leave the setting untouched.)
 
 Pass `--mcp-only` to skip the plugin and register just the `me` MCP server (no hooks, no slash commands -- the previous default behavior).
 
@@ -39,15 +44,10 @@ Pass `--mcp-only` to skip the plugin and register just the `me` MCP server (no h
 | `--api-key <key>` | API key for a headless agent. Default: the plugin/MCP server uses your `me login` session, resolved at runtime. |
 | `--space <slug>` | Pin a space. Default: resolve `ME_SPACE` / active space at runtime. |
 | `--server <url>` | Pin a server. Default: use your `me login` server at runtime. |
-| `-s, --scope <scope>` | Claude Code config scope: `local`, `user`, or `project`. Default: `user`. |
 
-Credential handling: by default (a personal install) nothing is pinned, so the plugin (and the MCP server) uses your `me login` session, server, and active space, resolved from the OS keychain / `~/.config/me` at runtime — so it follows `me login` / `me space use` and survives re-login. Pass `--server` / `--space` to pin either. Pass `--api-key` (mint one with `me apikey create` for a personal access token, or `me apikey create --agent <agent>` for an agent) for a **headless** install that can't reach your keychain — since there's no session to fall back to, an api key bakes in a fixed server + space + key together. The space is resolved from `--space`, `ME_SPACE`, or your active space (whichever is set — install errors if none, since a global key has no active space to fall back to at runtime), and `--server` defaults to your resolved server.
+Credential handling: by default (a personal install) nothing is pinned, so the plugin (and the MCP server) uses your `me login` session, server, and active space, resolved from the OS keychain / `~/.config/me` at runtime — so it follows `me login` / `me space use` and survives re-login. Pass `--server` / `--space` to pin either. Pass `--api-key` (mint one with `me apikey create` for a personal access token, or `me apikey create --agent <agent>` for an agent) for a **headless** install that can't reach your keychain — since there's no session to fall back to, an api key bakes in a fixed server + space + key together (and skips the defaults/capture steps above — the operator's `~/.config/me` is not the agent's; a pinned api key means the hooks capture without the per-user opt-in). The space is resolved from `--space`, `ME_SPACE`, or your active space (whichever is set — install errors if none, since a global key has no active space to fall back to at runtime), and `--server` defaults to your resolved server.
 
-The `--scope` flag mirrors `claude plugin install --scope` / `claude mcp add --scope`:
-
-- `local` -- scoped to the current project on this machine only.
-- `user` -- available to all projects for your user (default).
-- `project` -- committed to the current project (e.g. checked into `.claude/`).
+There is no `--scope` flag: the plugin is always installed at **user** scope (once, for all projects). Per-project behavior — a shared tree, a pinned space, a project agent, capture on/off — comes from the committed [`.me/config.yaml`](../project-config.md), which the single installed plugin reads per project.
 
 For manual MCP client configuration, see [MCP Integration](../mcp-integration.md).
 
@@ -66,10 +66,10 @@ Setup is a list of independent steps, grouped by source: Claude Code sessions an
 | Group | Step | Skip flag | What it does |
 |-------|------|-----------|--------------|
 | Claude Code sessions | Import existing sessions (one-time backfill) | `--skip-transcript-import` | Backfills sessions recorded in this project (cwd at/under the repo root, temp-dir projects included) from `~/.claude/projects`. For a machine-wide backfill across all projects, run [`me import claude`](me-import.md#me-import-claude--codex--opencode). |
-| Claude Code sessions | Install the Claude Code plugin (ongoing capture) | `--skip-plugin-install` | Runs the same install as [`me claude install`](#me-claude-install) (full plugin, `user` scope, login-session auth) — its hooks capture each new session as you work, plus slash commands and MCP tools. Hidden when the `claude` binary isn't on PATH; when `claude plugin list` already shows the plugin, the picker offers it unchecked as "Reinstall … (already installed)" (non-interactive runs report it as a ✓ line and skip it). |
+| Claude Code sessions | Install the Claude Code plugin (ongoing capture) | `--skip-plugin-install` | Installs the plugin (the same user-scoped install as [`me claude install`](#me-claude-install), login-session auth) **and enables the machine-wide capture setting** — selecting this step is the capture opt-in, so its hooks capture each new session as you work (privately, under `~/projects/<slug>`), plus slash commands and MCP tools. Hidden when the `claude` binary isn't on PATH; when `claude plugin list` already shows the plugin, the picker offers it unchecked as "Reinstall … (already installed)" (non-interactive runs report it as a ✓ line and skip it). |
 | Git history | Import existing commit history (one-time backfill) | `--skip-git-import` | Imports the repo's full commit history — the same import as [`me import git`](me-import.md#me-import-git). Skipped automatically when the current directory is not inside a git repo. |
 | Git history | Install a git post-commit hook (ongoing capture) | `--skip-git-hook` | Installs the managed hook from [`me import git-hook`](me-import.md#me-import-git-hook) so each new commit triggers a background incremental import. Hidden outside a git repo or when a `core.hooksPath` manager owns the hook path; when the hook is already installed, the picker offers it unchecked as "Reinstall … (already installed)" (non-interactive runs report it as a ✓ line and skip it). |
-| Project config | Add a memory pointer to CLAUDE.md | `--skip-claude-md` | Upserts a managed block into the project's CLAUDE.md naming the project tree (`/share/projects/<slug>`), its `agent_sessions` and `git_history` nodes, and how to search them. Idempotent — re-runs replace the block in place. When the block is already present and up to date, the picker offers it unchecked as "Rewrite … (already present)" (non-interactive runs report it as a ✓ line and skip it); a stale block (e.g. the active space changed) keeps the step pre-checked so the re-run refreshes it. |
+| Project config | Add a memory pointer to CLAUDE.md | `--skip-claude-md` | Upserts a managed block into the project's CLAUDE.md naming the project tree (the [`.me/config.yaml` `tree`](../project-config.md) when set, else the private `~/projects/<slug>`), its `agent_sessions` and `git_history` nodes, and how to search them. Idempotent — re-runs replace the block in place. When the block is already present and up to date, the picker offers it unchecked as "Rewrite … (already present)" (non-interactive runs report it as a ✓ line and skip it); a stale block (e.g. the active space changed) keeps the step pre-checked so the re-run refreshes it. |
 
 Re-running `init` is safe: both imports are incremental/idempotent and the CLAUDE.md block is replaced, not duplicated. After the steps run, `init` closes with a recap of what is now covered — historical data imported, hooks keeping it updated going forward.
 
@@ -78,6 +78,8 @@ Re-running `init` is safe: both imports are incremental/idempotent and the CLAUD
 ## me claude hook
 
 Invoked by the Claude Code plugin on `Stop` (each turn) and `SessionEnd`. Reads the `transcript_path` from the event JSON on stdin, resolves config from `CLAUDE_PLUGIN_OPTION_*` env vars (falling back to your `me login` session), and imports the session transcript — the same parse + write as [`me … import`](agent-session-imports.md), incremental so each call only writes messages new since the last.
+
+**Inert unless capture is enabled**: capture resolves project [`.me/config.yaml` `capture`](../project-config.md#the-capture-field-session-capture-onoff) → the machine-wide setting (the [`me claude install`](#me-claude-install) prompt) → off. With capture off the hook exits 0 silently. Once on, captures land privately under `~/projects/<slug>` unless the project's `.me` `tree` says otherwise.
 
 ```
 me claude hook --event <name>
@@ -91,7 +93,7 @@ This command is not run directly -- the Claude Code plugin calls it. The plugin 
 
 ```bash
 claude plugin marketplace add timescale/memory-engine
-claude plugin install memory-engine@memory-engine [--scope user|project|local]
+claude plugin install --scope user memory-engine@memory-engine
 # then, in a Claude Code session:
 /plugin  # select memory-engine, Configure (all values optional if logged in)
 ```
