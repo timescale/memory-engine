@@ -189,7 +189,7 @@ export async function runGitImport(
   // The full project node git history nests under (no slug appended — git
   // import is single-repo): an explicit `--tree`, else the repo's `.me` `tree`
   // (`creds.tree`, resolved through the standard precedence so it honors
-  // `--config-dir`), else parent+slug under the machine-wide `tree_root`
+  // `--config-dir`), else the slug nests under the machine-wide `tree_root`
   // override or the PRIVATE default — so commits and captured sessions share
   // the same private-by-default root.
   const projectNode =

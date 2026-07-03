@@ -54,10 +54,10 @@ export interface HookConfig {
   /** Active space slug (X-Me-Space). */
   space: string;
   /**
-   * Tree root (parent + slug layout); captures nest as
-   * `<treeRoot>.<project>.agent_sessions`. The machine-wide `tree_root`
-   * config override when set, else the private `~/projects`. There is
-   * deliberately NO plugin-level tree pin (the retired `tree_root`
+   * Tree root — the slug-free PARENT each project's slug is appended under:
+   * captures nest as `<treeRoot>.<slug>.agent_sessions`. The machine-wide
+   * `tree_root` config override when set, else the private `~/projects`.
+   * There is deliberately NO plugin-level tree pin (the retired `tree_root`
    * userConfig): a forgotten plugin value could silently override a repo's
    * committed `.me`.
    */
@@ -150,10 +150,10 @@ export function resolveCaptureEnabled(
  * caller's fallback creds. The TREE has no plugin pin (the `tree_root`
  * userConfig is retired — a plugin-level value would silently override
  * committed project config): the `.me` `tree` (the full project node,
- * no-slug layout) wins, else the parent+slug layout under the machine-wide
- * `tree_root` config override, else the private `~/projects` — the shared
- * `share.projects` layout is an explicit opt-in, never a default. Returns
- * null when no bearer or no space is available.
+ * no-slug layout) wins; otherwise the project slug is appended under the
+ * tree root — the machine-wide `tree_root` config override, else the private
+ * `~/projects`. The shared `share.projects` layout is an explicit opt-in,
+ * never a default. Returns null when no bearer or no space is available.
  */
 export function resolveHookConfigFromEnv(
   env: NodeJS.ProcessEnv = process.env,
