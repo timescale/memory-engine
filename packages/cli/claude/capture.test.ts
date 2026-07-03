@@ -2,11 +2,16 @@
  * Unit tests for Claude Code hook config resolution.
  *
  * Capture itself is the import path (importTranscriptFile, tested in
- * packages/cli/importers). This file only covers resolveHookConfigFromEnv —
- * bearer/space/server/tree-root/content-mode resolution + session fallback.
+ * packages/cli/importers). This file covers resolveHookConfigFromEnv —
+ * bearer/space/server/tree-root/content-mode resolution + session fallback —
+ * and resolveCaptureEnabled, the inert-by-default capture gate.
  */
 import { describe, expect, test } from "bun:test";
-import { type HookConfig, resolveHookConfigFromEnv } from "./capture.ts";
+import {
+  type HookConfig,
+  resolveCaptureEnabled,
+  resolveHookConfigFromEnv,
+} from "./capture.ts";
 
 describe("resolveHookConfigFromEnv", () => {
   test("returns null when no api_key and no session fallback", () => {
@@ -38,7 +43,7 @@ describe("resolveHookConfigFromEnv", () => {
     } satisfies HookConfig);
   });
 
-  test("defaults: server, tree root, content mode (default = not full)", () => {
+  test("defaults: server, PRIVATE tree root, content mode (default = not full)", () => {
     const cfg = resolveHookConfigFromEnv({
       CLAUDE_PLUGIN_OPTION_API_KEY: "me.lookupid12345678.secret",
       CLAUDE_PLUGIN_OPTION_SPACE: "eng123def456",
@@ -47,7 +52,7 @@ describe("resolveHookConfigFromEnv", () => {
       apiKey: "me.lookupid12345678.secret",
       space: "eng123def456",
       server: "https://api.memory.build",
-      treeRoot: "share.projects",
+      treeRoot: "~/projects",
       fullTranscript: false,
     } satisfies HookConfig);
   });
@@ -110,7 +115,7 @@ describe("resolveHookConfigFromEnv", () => {
       { tree: "share.projects.foo" },
     );
     expect(cfg?.projectTree).toBe("share.projects.foo");
-    expect(cfg?.treeRoot).toBe("share.projects");
+    expect(cfg?.treeRoot).toBe("~/projects");
   });
 
   test("a plugin-pinned tree_root overrides the .me projectTree", () => {
@@ -143,5 +148,62 @@ describe("resolveHookConfigFromEnv", () => {
       { space: "proj123space6" },
     );
     expect(cfg?.space).toBe("plugin12space");
+  });
+});
+
+describe("resolveCaptureEnabled", () => {
+  test("off by default — the hook ships inert", () => {
+    expect(resolveCaptureEnabled({}, {}, {})).toBe(false);
+    expect(resolveCaptureEnabled({}, { loggedIn: true }, {})).toBe(false);
+  });
+
+  test("the machine-wide setting turns it on", () => {
+    expect(resolveCaptureEnabled({}, { captureEnabled: true }, {})).toBe(true);
+    expect(resolveCaptureEnabled({}, { captureEnabled: false }, {})).toBe(
+      false,
+    );
+  });
+
+  test("project capture: true wins over a global off (team repo opt-in)", () => {
+    expect(
+      resolveCaptureEnabled({}, { captureEnabled: false }, { capture: true }),
+    ).toBe(true);
+    expect(resolveCaptureEnabled({}, {}, { capture: true })).toBe(true);
+  });
+
+  test("project capture: false wins over a global on (per-project opt-out)", () => {
+    expect(
+      resolveCaptureEnabled({}, { captureEnabled: true }, { capture: false }),
+    ).toBe(false);
+  });
+
+  test("a plugin-pinned api key (headless install) captures without the global opt-in", () => {
+    expect(
+      resolveCaptureEnabled(
+        { CLAUDE_PLUGIN_OPTION_API_KEY: "me.lookupid12345678.secret" },
+        {},
+        {},
+      ),
+    ).toBe(true);
+  });
+
+  test("a project capture: false still opts out a headless install", () => {
+    expect(
+      resolveCaptureEnabled(
+        { CLAUDE_PLUGIN_OPTION_API_KEY: "me.lookupid12345678.secret" },
+        {},
+        { capture: false },
+      ),
+    ).toBe(false);
+  });
+
+  test("an unsubstituted ${...} api-key placeholder does not count as headless", () => {
+    expect(
+      resolveCaptureEnabled(
+        { CLAUDE_PLUGIN_OPTION_API_KEY: "${user_config.api_key}" },
+        {},
+        {},
+      ),
+    ).toBe(false);
   });
 });

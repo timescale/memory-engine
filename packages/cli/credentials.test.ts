@@ -297,6 +297,41 @@ test("logout clears the secret but keeps the active space", () => {
   expect(r.activeSpace).toBe("abc123def456"); // non-secret config survives logout
 });
 
+test("capture: off by default; setCaptureEnabled persists the machine-wide flag", () => {
+  expect(creds.getGlobalCaptureEnabled()).toBe(false);
+  expect(creds.resolveCredentials(SERVER).captureEnabled).toBe(false);
+
+  creds.setCaptureEnabled(true);
+  expect(creds.getGlobalCaptureEnabled()).toBe(true);
+  expect(creds.resolveCredentials(SERVER).captureEnabled).toBe(true);
+  // Non-secret: lands in config.yaml.
+  expect(readFileSync(join(configDir, "me", "config.yaml"), "utf-8")).toContain(
+    "capture: true",
+  );
+
+  creds.setCaptureEnabled(false);
+  expect(creds.getGlobalCaptureEnabled()).toBe(false);
+});
+
+test("capture: a .me project capture overrides the machine-wide flag per project", () => {
+  creds.setCaptureEnabled(true);
+  writeMe("capture: false\n");
+  let r = creds.resolveCredentials(SERVER);
+  expect(r.captureEnabled).toBe(false); // project opt-out wins
+  expect(r.projectCapture).toBe(false);
+
+  creds.setCaptureEnabled(false);
+  writeMe("capture: true\n");
+  r = creds.resolveCredentials(SERVER);
+  expect(r.captureEnabled).toBe(true); // committed team opt-in wins
+  expect(r.projectCapture).toBe(true);
+
+  writeMe("space: abc123def456\n"); // no capture key → global (off) governs
+  r = creds.resolveCredentials(SERVER);
+  expect(r.captureEnabled).toBe(false);
+  expect(r.projectCapture).toBeUndefined();
+});
+
 test("secrets and config live in separate files", () => {
   creds.storeTokens(SERVER, {
     access_token: "tok-sep",

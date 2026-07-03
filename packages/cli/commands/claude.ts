@@ -54,6 +54,7 @@ import {
   HOOK_EVENT_NAMES,
   type HookEvent,
   type HookEventName,
+  resolveCaptureEnabled,
   resolveHookConfigFromEnv,
   SESSIONS_NODE,
 } from "../claude/capture.ts";
@@ -433,6 +434,10 @@ async function runClaudePluginInstall(
  * `importTranscriptFile` — the same parse + write as `me import claude`, incremental so
  * each call only writes messages new since the last.
  *
+ * Inert unless capture is enabled (see `resolveCaptureEnabled`): with capture
+ * off — the default — the hook exits 0 silently, a deliberate opt-out distinct
+ * from the "no credentials" error path.
+ *
  * Best-effort: logs failures to stderr but always exits 0 so that a hook
  * failure never blocks a Claude Code session.
  */
@@ -491,10 +496,18 @@ function createClaudeHookCommand(): Command {
         // Don't pass the `.me` server explicitly: let resolveCredentials() →
         // resolveServer() resolve (and whitelist-validate) it, so an untrusted
         // `.me` server can't slip in here and receive credentials.
-        config = resolveHookConfigFromEnv(process.env, resolveCredentials(), {
+        const creds = resolveCredentials();
+        // The hook ships inert: exit 0 SILENTLY when capture is off — a
+        // deliberate opt-out, distinct from the "no credentials" error below.
+        const projectConfig = {
           space: project?.space,
           tree: project?.tree,
-        });
+          capture: project?.capture,
+        };
+        if (!resolveCaptureEnabled(process.env, creds, projectConfig)) {
+          process.exit(0);
+        }
+        config = resolveHookConfigFromEnv(process.env, creds, projectConfig);
       } catch (error) {
         console.error(
           `[memory-engine] ${eventName}: ${error instanceof Error ? error.message : String(error)}`,

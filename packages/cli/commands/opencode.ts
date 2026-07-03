@@ -42,6 +42,7 @@ import {
   SKILL_NAME,
 } from "../opencode/assets.ts";
 import {
+  captureOptedOut,
   HOOK_EVENT_NAMES,
   type HookEventName,
   resolveHookConfig,
@@ -211,7 +212,7 @@ function createOpenCodeHookCommand(): Command {
     )
     .option(
       "--tree-root <ltree>",
-      "tree root for captures (default: share.projects)",
+      "tree root for captures (default: ~/projects — private)",
     )
     .option(
       "--full-transcript",
@@ -245,7 +246,13 @@ function createOpenCodeHookCommand(): Command {
         // the hook is best-effort: log + exit 0 so a typo never blocks capture.
         let config: ReturnType<typeof resolveHookConfig>;
         try {
-          config = resolveHookConfig(resolveCredentials(globalOpts.server), {
+          const creds = resolveCredentials(globalOpts.server);
+          // A project `.me` `capture: false` opts this project out — exit 0
+          // SILENTLY (a deliberate opt-out, distinct from "no credentials").
+          // Installing this plugin was the capture opt-in, so absent a project
+          // preference the hook captures.
+          if (captureOptedOut(creds)) process.exit(0);
+          config = resolveHookConfig(creds, {
             treeRoot: opts.treeRoot,
             fullTranscript: opts.fullTranscript,
           });

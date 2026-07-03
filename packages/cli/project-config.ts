@@ -73,6 +73,15 @@ const projectConfigSchema = z
      * (activation is always explicit via the flag/env).
      */
     agent: z.string().min(1).optional(),
+    /**
+     * Whether the installed capture hooks collect this project's agent
+     * sessions. `true` turns capture on for the project regardless of the
+     * user's machine-wide setting (so a committed config makes a team repo
+     * capture for every member); `false` opts the project out (e.g. a
+     * sensitive repo). Absent → the machine-wide setting decides (off unless
+     * opted in at `me claude install`).
+     */
+    capture: z.boolean().optional(),
   })
   .strict();
 

@@ -31,10 +31,9 @@
     },
     "tree_root": {
       "type": "string",
-      "title": "Tree root",
-      "description": "Ltree root under which captures are nested as `<root>.<project>.agent_sessions` (the same layout `me ... import` uses, so live and imported sessions share a node per project). Defaults under `share` so your login session can write there; use a `~`-prefixed root to keep captures in your private home instead.",
-      "default": "share.projects",
-      "required": true
+      "title": "Tree root (optional)",
+      "description": "Optional. Ltree root under which captures are nested as `<root>.<project>.agent_sessions` (the same layout `me ... import` uses, so live and imported sessions share a node per project). Leave blank to track live config: the project's `.me/config.yaml` `tree` when set, else the private `~/projects` (your own home). Pin an explicit root (e.g. `share.projects`) to force one layout everywhere.",
+      "required": false
     },
     "content_mode": {
       "type": "string",
