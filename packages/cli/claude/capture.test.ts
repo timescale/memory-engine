@@ -155,57 +155,44 @@ describe("resolveHookConfigFromEnv", () => {
 
 describe("resolveCaptureEnabled", () => {
   test("off by default — the hook ships inert", () => {
-    expect(resolveCaptureEnabled({}, {}, {})).toBe(false);
-    expect(resolveCaptureEnabled({}, { loggedIn: true }, {})).toBe(false);
+    expect(resolveCaptureEnabled({}, {})).toBe(false);
+    expect(resolveCaptureEnabled({ loggedIn: true }, {})).toBe(false);
   });
 
   test("the machine-wide setting turns it on", () => {
-    expect(resolveCaptureEnabled({}, { captureEnabled: true }, {})).toBe(true);
-    expect(resolveCaptureEnabled({}, { captureEnabled: false }, {})).toBe(
-      false,
-    );
+    expect(resolveCaptureEnabled({ captureEnabled: true }, {})).toBe(true);
+    expect(resolveCaptureEnabled({ captureEnabled: false }, {})).toBe(false);
   });
 
   test("project capture: true wins over a global off (team repo opt-in)", () => {
     expect(
-      resolveCaptureEnabled({}, { captureEnabled: false }, { capture: true }),
+      resolveCaptureEnabled({ captureEnabled: false }, { capture: true }),
     ).toBe(true);
-    expect(resolveCaptureEnabled({}, {}, { capture: true })).toBe(true);
+    expect(resolveCaptureEnabled({}, { capture: true })).toBe(true);
   });
 
   test("project capture: false wins over a global on (per-project opt-out)", () => {
     expect(
-      resolveCaptureEnabled({}, { captureEnabled: true }, { capture: false }),
+      resolveCaptureEnabled({ captureEnabled: true }, { capture: false }),
     ).toBe(false);
   });
 
-  test("a plugin-pinned api key (headless install) captures without the global opt-in", () => {
+  test("credential-agnostic: an api key never turns capture on by itself", () => {
+    // A key answers WHO captures write as, not WHETHER they happen — a
+    // headless box opts in via the same capture flags as everyone else.
     expect(
       resolveCaptureEnabled(
-        { CLAUDE_PLUGIN_OPTION_API_KEY: "me.lookupid12345678.secret" },
-        {},
+        { apiKey: "me.lookupid12345678.secret", captureEnabled: false },
         {},
       ),
+    ).toBe(false);
+    expect(resolveCaptureEnabled({ apiKey: "me.k" }, {})).toBe(false);
+    // …and the flags still work as usual with a key present.
+    expect(
+      resolveCaptureEnabled({ apiKey: "me.k", captureEnabled: true }, {}),
     ).toBe(true);
-  });
-
-  test("a project capture: false still opts out a headless install", () => {
-    expect(
-      resolveCaptureEnabled(
-        { CLAUDE_PLUGIN_OPTION_API_KEY: "me.lookupid12345678.secret" },
-        {},
-        { capture: false },
-      ),
-    ).toBe(false);
-  });
-
-  test("an unsubstituted ${...} api-key placeholder does not count as headless", () => {
-    expect(
-      resolveCaptureEnabled(
-        { CLAUDE_PLUGIN_OPTION_API_KEY: "${user_config.api_key}" },
-        {},
-        {},
-      ),
-    ).toBe(false);
+    expect(resolveCaptureEnabled({ apiKey: "me.k" }, { capture: true })).toBe(
+      true,
+    );
   });
 });

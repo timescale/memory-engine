@@ -453,7 +453,10 @@ export async function runClaudePluginInstall(
  *
  * A headless install (api key) skips 2–3: the config is baked into the plugin
  * for whatever machine it runs on, and this machine's `~/.config/me` — the
- * operator's — is not the agent's.
+ * operator's — is not necessarily the agent's. Capture is credential-agnostic
+ * (`resolveCaptureEnabled`), so a headless deployment opts in via the same
+ * flags as everyone else: a committed `.me` `capture: true` per project, or
+ * `capture: true` in the target machine's `~/.config/me/config.yaml`.
  */
 export async function runClaudeInstallFlow(
   opts: AgentInstallOptions & { dev?: boolean },
@@ -601,7 +604,7 @@ function createClaudeHookCommand(): Command {
           tree: project?.tree,
           capture: project?.capture,
         };
-        if (!resolveCaptureEnabled(process.env, creds, projectConfig)) {
+        if (!resolveCaptureEnabled(creds, projectConfig)) {
           process.exit(0);
         }
         config = resolveHookConfigFromEnv(process.env, creds, projectConfig);

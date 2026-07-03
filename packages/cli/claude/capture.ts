@@ -125,19 +125,16 @@ function blank(v: string | undefined): boolean {
  *      `me claude install` prompt), else
  *   3. OFF.
  *
- * Exception: a plugin-pinned api key (`CLAUDE_PLUGIN_OPTION_API_KEY`) is a
- * headless install — the operator explicitly configured the plugin to capture
- * with a fixed key/space, and the machine-wide opt-in (a per-user setting)
- * doesn't apply. A project `capture: false` still opts the project out.
+ * Deliberately credential-agnostic: a plugin-pinned api key answers WHO
+ * captures write as, never WHETHER they happen — a headless box opts in the
+ * same way everyone does (a committed `.me` `capture: true` per project, or
+ * the machine-wide flag in its own `~/.config/me/config.yaml`).
  */
 export function resolveCaptureEnabled(
-  env: NodeJS.ProcessEnv = process.env,
   creds: HookFallbackCreds = {},
   project: HookProjectConfig = {},
 ): boolean {
-  if (project.capture !== undefined) return project.capture;
-  if (!blank(env.CLAUDE_PLUGIN_OPTION_API_KEY)) return true;
-  return creds.captureEnabled ?? false;
+  return project.capture ?? creds.captureEnabled ?? false;
 }
 
 /**
