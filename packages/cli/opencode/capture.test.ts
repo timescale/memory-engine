@@ -41,13 +41,13 @@ describe("resolveHookConfig", () => {
         apiKey: "me.lookupid12345678.secret",
         activeSpace: "eng123def456",
       },
-      { treeRoot: "share.work", fullTranscript: true },
+      { fullTranscript: true },
     );
     expect(cfg).toEqual({
       apiKey: "me.lookupid12345678.secret",
       space: "eng123def456",
       server: "https://api.example.com",
-      treeRoot: "share.work",
+      treeRoot: "~/projects",
       fullTranscript: true,
     } satisfies HookConfig);
   });
@@ -88,18 +88,6 @@ describe("resolveHookConfig", () => {
     expect(cfg?.server).toBe("https://api.memory.build");
   });
 
-  test("treats an unsubstituted ${...} tree-root placeholder as blank", () => {
-    const cfg = resolveHookConfig(
-      {
-        server: "https://api.example.com",
-        loggedIn: true,
-        activeSpace: "eng123def456",
-      },
-      { treeRoot: "${tree_root}" },
-    );
-    expect(cfg?.treeRoot).toBe("~/projects");
-  });
-
   test("a .me tree (from creds) sets tree, keeping the default parent", () => {
     const cfg = resolveHookConfig({
       server: "https://api.example.com",
@@ -111,31 +99,14 @@ describe("resolveHookConfig", () => {
     expect(cfg?.treeRoot).toBe("~/projects");
   });
 
-  test("a machine-wide tree_root (creds.treeRoot) replaces the default parent; the flag still wins", () => {
-    const base = {
+  test("a machine-wide tree_root (creds.treeRoot) replaces the default parent", () => {
+    const cfg = resolveHookConfig({
       server: "https://api.example.com",
       loggedIn: true,
       activeSpace: "eng123def456",
       treeRoot: "~/work",
-    };
-    expect(resolveHookConfig(base)?.treeRoot).toBe("~/work");
-    expect(resolveHookConfig(base, { treeRoot: "share.work" })?.treeRoot).toBe(
-      "share.work",
-    );
-  });
-
-  test("an explicit --tree-root flag overrides the .me tree", () => {
-    const cfg = resolveHookConfig(
-      {
-        server: "https://api.example.com",
-        loggedIn: true,
-        activeSpace: "eng123def456",
-        tree: "share.projects.foo",
-      },
-      { treeRoot: "share.work" },
-    );
-    expect(cfg?.treeRoot).toBe("share.work");
-    expect(cfg?.tree).toBeUndefined();
+    });
+    expect(cfg?.treeRoot).toBe("~/work");
   });
 });
 

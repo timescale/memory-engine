@@ -11,7 +11,6 @@
  * resolution) lives in the `me` CLI, consistent with the "require `me` on PATH,
  * don't bundle the binary" decision.
  */
-import { DEFAULT_PRIVATE_TREE_ROOT } from "../importers/index.ts";
 
 /** Marker (first line) identifying a file we manage, for idempotent re-init. */
 export const PLUGIN_MARKER =
@@ -21,35 +20,16 @@ export const PLUGIN_MARKER =
 export const PLUGIN_FILENAME = "memory-engine.ts";
 
 /**
- * Strict ltree-safe tree-root pattern, used as an input-sanity check at render
- * time (we reject obviously-wrong tree roots early rather than bake them in).
- * Mirrors the lenient wire form in `@memory.build/protocol` (`[A-Za-z0-9_~./-]`)
- * minus the empty string. Note this is *not* the injection defense — the value
- * is passed to Bun `$` as an interpolated array element, which Bun escapes.
- */
-const TREE_ROOT_SAFE = /^[A-Za-z0-9_~./-]+$/;
-
-/**
- * Render the plugin source. `treeRoot` adds `--tree-root <root>` only when it
- * differs from the hook's own default (the private `~/projects`), so the common
- * case stays flag-free; `fullTranscript` adds `--full-transcript`. The extra
- * args are emitted as a JS array and interpolated into the `$\`…\`` command as
- * `${...}`, so Bun `$` escapes each element — the tree root cannot break the
- * command or inject shell regardless of its contents. A non-default `treeRoot`
- * is also validated against `TREE_ROOT_SAFE` (throws) as an early sanity check.
+ * Render the plugin source. `fullTranscript` adds `--full-transcript`. There
+ * is deliberately no tree knob: tree routing is `.me` config (else the
+ * machine-wide `tree_root` / private default), never a baked plugin value.
+ * The extra args are emitted as a JS array and interpolated into the
+ * `$\`…\`` command as `${...}`, so Bun `$` escapes each element.
  */
 export function renderPluginSource(
-  opts: { treeRoot?: string; fullTranscript?: boolean } = {},
+  opts: { fullTranscript?: boolean } = {},
 ): string {
   const extraArgs: string[] = [];
-  if (opts.treeRoot && opts.treeRoot !== DEFAULT_PRIVATE_TREE_ROOT) {
-    if (!TREE_ROOT_SAFE.test(opts.treeRoot)) {
-      throw new Error(
-        `invalid tree root ${JSON.stringify(opts.treeRoot)}: must match ${TREE_ROOT_SAFE}`,
-      );
-    }
-    extraArgs.push("--tree-root", opts.treeRoot);
-  }
   if (opts.fullTranscript) extraArgs.push("--full-transcript");
   // Emitted as a JS array literal and interpolated into the command below, so
   // Bun `$` escapes each element (empty array → no extra args).

@@ -47,12 +47,17 @@ export interface HookConfig {
   apiKey?: string;
   /** Active space slug (X-Me-Space). */
   space: string;
-  /** Tree root; captures nest as `<treeRoot>.<project>.agent_sessions`. */
+  /**
+   * Tree root — the slug-free parent each project's slug is appended under;
+   * captures nest as `<treeRoot>.<slug>.agent_sessions`. The machine-wide
+   * `tree_root` config override when set, else the private `~/projects`.
+   * There is deliberately no per-invocation tree pin (the `--tree-root` hook
+   * flag is retired): `.me` config is the one routing surface.
+   */
   treeRoot: string;
   /**
    * The full project TREE from a `.me/config.yaml` in scope, if any. When set,
-   * captures nest directly under it (no slug); an explicit `--tree-root` flag
-   * overrides it back to `<treeRoot>.<slug>`.
+   * captures nest directly under it (nothing appended).
    */
   tree?: string;
   /** content_mode=full_transcript → also store reasoning + tool calls/results. */
@@ -77,15 +82,9 @@ export type HookCreds = Pick<
   | "projectCapture"
 >;
 
-/** Optional knobs the plugin/command passes through (default: shared layout). */
+/** Optional knobs the plugin/command passes through. */
 export interface HookConfigInput {
-  treeRoot?: string;
   fullTranscript?: boolean;
-}
-
-/** Treat unset / empty / unsubstituted-placeholder values as missing. */
-function blank(v: string | undefined): boolean {
-  return !v || /^\$\{.*\}$/.test(v);
 }
 
 /**
@@ -118,17 +117,12 @@ export function resolveHookConfig(
   if (!space) return null;
 
   const server = creds.server || DEFAULT_SERVER;
-  // An explicit `--tree-root` flag (a slug-free parent; the project slug is
-  // appended under it) wins; otherwise a `.me` project `tree` is the full
-  // project node (nothing appended), else the slug nests under the
-  // machine-wide `tree_root` override, else under the PRIVATE default
-  // (`~/projects/<slug>` — shared layouts are explicit opt-ins).
-  const pinnedTreeRoot = blank(input.treeRoot)
-    ? undefined
-    : (input.treeRoot as string);
-  const treeRoot =
-    pinnedTreeRoot ?? creds.treeRoot ?? DEFAULT_PRIVATE_TREE_ROOT;
-  const tree = pinnedTreeRoot ? undefined : creds.tree;
+  // A `.me` project `tree` is the full project node (nothing appended); else
+  // the slug nests under the machine-wide `tree_root` override, else under
+  // the PRIVATE default (`~/projects/<slug>` — shared layouts are explicit
+  // opt-ins).
+  const treeRoot = creds.treeRoot ?? DEFAULT_PRIVATE_TREE_ROOT;
+  const tree = creds.tree;
   const fullTranscript = input.fullTranscript ?? false;
 
   return {

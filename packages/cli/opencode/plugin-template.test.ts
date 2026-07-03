@@ -56,15 +56,10 @@ describe("renderPluginSource", () => {
     expect(renderPluginSource().startsWith(PLUGIN_MARKER)).toBe(true);
   });
 
-  test("custom tree root + full transcript become interpolated array args", () => {
-    const src = renderPluginSource({
-      treeRoot: "share.work",
-      fullTranscript: true,
-    });
+  test("full transcript becomes an interpolated array arg", () => {
+    const src = renderPluginSource({ fullTranscript: true });
     // Emitted as a JS array literal that Bun `$` interpolates + escapes.
-    expect(src).toContain(
-      'const EXTRA_ARGS = ["--tree-root","share.work","--full-transcript"]',
-    );
+    expect(src).toContain('const EXTRA_ARGS = ["--full-transcript"]');
     expect(src).toContain("${EXTRA_ARGS}");
   });
 
@@ -73,30 +68,6 @@ describe("renderPluginSource", () => {
     expect(src).toContain("const EXTRA_ARGS = []");
     expect(src).not.toContain("--tree-root");
     expect(src).not.toContain("--full-transcript");
-  });
-
-  test("default (private) tree root is not emitted as a flag", () => {
-    expect(renderPluginSource({ treeRoot: "~/projects" })).toContain(
-      "const EXTRA_ARGS = []",
-    );
-  });
-
-  test("the shared share.projects layout is now an explicit (emitted) pin", () => {
-    expect(renderPluginSource({ treeRoot: "share.projects" })).toContain(
-      'const EXTRA_ARGS = ["--tree-root","share.projects"]',
-    );
-  });
-
-  test("rejects a tree root with shell metacharacters (injection guard)", () => {
-    expect(() => renderPluginSource({ treeRoot: "share; rm -rf ~" })).toThrow(
-      /invalid tree root/,
-    );
-    expect(() => renderPluginSource({ treeRoot: "a`whoami`" })).toThrow(
-      /invalid tree root/,
-    );
-    expect(() => renderPluginSource({ treeRoot: "a b" })).toThrow(
-      /invalid tree root/,
-    );
   });
 });
 
@@ -140,14 +111,14 @@ describe("generated plugin behavior", () => {
   test("custom flags are present in the emitted command", async () => {
     const shell = makeShell();
     const hooks = await loadPlugin(
-      renderPluginSource({ treeRoot: "share.work", fullTranscript: true }),
+      renderPluginSource({ fullTranscript: true }),
       shell,
     );
     await hooks.event({
       event: { type: "session.idle", properties: { sessionID: "ses_abc" } },
     });
     expect(shell.commands[0]).toBe(
-      "me opencode hook --event idle --session ses_abc --tree-root share.work --full-transcript",
+      "me opencode hook --event idle --session ses_abc --full-transcript",
     );
   });
 
