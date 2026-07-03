@@ -86,10 +86,12 @@ claude                               # start a session
 # → values take effect immediately; no restart required
 ```
 
-Setting `api_key` marks a **headless** install: the operator deliberately
-configured capture with a fixed key + space, so the hooks capture without the
-per-user machine-wide opt-in (a project `.me/config.yaml` `capture: false`
-still opts that project out).
+`api_key` is a **credential only** — it decides who captures are written as,
+never whether they happen. Capture is governed by the same flags everywhere:
+a project's `.me/config.yaml` `capture`, else the machine-wide `capture: true`
+in `~/.config/me/config.yaml` (on the machine Claude Code runs on), else off.
+A headless install opts in the same way — typically via a committed
+`capture: true` in each project it works on.
 
 Leave `api_key` blank to use your `me login` session (captures attributed to you); set it to use a dedicated agent key (see above). Leave `space` blank to capture into your active space; pin it for unattended or project-scope installs (a blank space with no active space set means captures are silently skipped). `content_mode` is `default` (user + assistant text — recommended) or `full_transcript` (also stores reasoning and tool calls/results as their own memories — more complete, but larger/noisier and may include sensitive tool output). Sensitive values (the api_key) go to your system keychain; non-sensitive values go to the `settings.json` for the scope you installed in.
 
