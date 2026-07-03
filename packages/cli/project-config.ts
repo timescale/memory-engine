@@ -27,7 +27,7 @@
  * This module is intentionally free of any dependency on `credentials.ts` so the
  * latter can import it without a cycle.
  */
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { parse, parseDocument } from "yaml";
 import { z } from "zod";
@@ -215,6 +215,59 @@ export function writeProjectSpace(
   writeFileSync(target, doc.toString());
   cached = undefined; // re-resolve on next getProjectConfig()
   return target;
+}
+
+/** The writable fields of a `.me/config.yaml` (everything but `dir`). */
+export type ProjectConfigValues = z.infer<typeof projectConfigSchema>;
+
+/**
+ * Create-or-update the **committed** `.me/config.yaml` under `projectRoot`,
+ * setting each provided key (undefined keys are left untouched). Unlike
+ * {@link writeProjectSpace} — which edits whichever existing file defines
+ * `space` — this is the general writer used by `me project init`: it creates
+ * the `.me/` directory and file when absent, and always targets the committed
+ * file (a project config is meant to be shared; personal overrides belong in
+ * `.me/config.local.yaml`, written by hand).
+ *
+ * Edits go through yaml's document API so comments/formatting in an existing
+ * file survive. The merged result is validated against the schema before
+ * writing — so a bad value (or a malformed existing file) throws
+ * {@link ProjectConfigError} and nothing is written. Invalidates the
+ * process-wide memo. Returns the path written.
+ */
+export function writeProjectConfig(
+  projectRoot: string,
+  values: ProjectConfigValues,
+): string {
+  const dir = join(projectRoot, CONFIG_DIRNAME);
+  const path = join(dir, CONFIG_FILENAME);
+  // A malformed existing file throws here (same error as on read) rather
+  // than being silently replaced.
+  readConfigFile(path);
+
+  // An empty seed yields block style ("key: value" lines) once keys are set.
+  const doc = existsSync(path)
+    ? parseDocument(readFileSync(path, "utf-8"))
+    : parseDocument("");
+  for (const [key, value] of Object.entries(values)) {
+    if (value !== undefined) doc.set(key, value);
+  }
+
+  const merged = projectConfigSchema.safeParse(doc.toJS());
+  if (!merged.success) {
+    const issue = merged.error.issues[0];
+    const where = issue?.path.length
+      ? ` (field '${issue.path.join(".")}')`
+      : "";
+    throw new ProjectConfigError(
+      `refusing to write ${path}${where}: ${issue?.message ?? "does not match the .me/config.yaml schema"}`,
+    );
+  }
+
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(path, doc.toString());
+  cached = undefined; // re-resolve on next getProjectConfig()
+  return path;
 }
 
 // =============================================================================
