@@ -31,14 +31,13 @@ describe("resolveHookConfigFromEnv", () => {
       CLAUDE_PLUGIN_OPTION_API_KEY: "me.lookupid12345678.secret",
       CLAUDE_PLUGIN_OPTION_SPACE: "eng123def456",
       CLAUDE_PLUGIN_OPTION_SERVER: "https://api.example.com",
-      CLAUDE_PLUGIN_OPTION_TREE_ROOT: "share.work",
       CLAUDE_PLUGIN_OPTION_CONTENT_MODE: "full_transcript",
     });
     expect(cfg).toEqual({
       apiKey: "me.lookupid12345678.secret",
       space: "eng123def456",
       server: "https://api.example.com",
-      treeRoot: "share.work",
+      treeRoot: "~/projects",
       fullTranscript: true,
     } satisfies HookConfig);
   });
@@ -118,7 +117,10 @@ describe("resolveHookConfigFromEnv", () => {
     expect(cfg?.treeRoot).toBe("~/projects");
   });
 
-  test("a plugin-pinned tree_root overrides the .me projectTree", () => {
+  test("a stale plugin tree_root env is IGNORED — the .me tree still routes", () => {
+    // The `tree_root` userConfig is retired: a leftover value from an old
+    // install must not override committed project config (or force the old
+    // shared layout back on).
     const cfg = resolveHookConfigFromEnv(
       {
         CLAUDE_PLUGIN_OPTION_SPACE: "eng123def456",
@@ -127,8 +129,8 @@ describe("resolveHookConfigFromEnv", () => {
       { loggedIn: true },
       { tree: "share.projects.foo" },
     );
-    expect(cfg?.treeRoot).toBe("share.work");
-    expect(cfg?.projectTree).toBeUndefined();
+    expect(cfg?.treeRoot).toBe("~/projects");
+    expect(cfg?.projectTree).toBe("share.projects.foo");
   });
 
   test("a .me project server/space fill in when plugin + session lack them", () => {

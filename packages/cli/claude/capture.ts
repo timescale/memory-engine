@@ -53,13 +53,19 @@ export interface HookConfig {
   apiKey?: string;
   /** Active space slug (X-Me-Space). */
   space: string;
-  /** Tree root; captures nest as `<treeRoot>.<project>.agent_sessions`. */
+  /**
+   * Tree root (parent + slug layout); captures nest as
+   * `<treeRoot>.<project>.agent_sessions`. Always the private `~/projects` —
+   * tree routing has exactly two levels: the `.me` `tree` (below), else this
+   * default. There is deliberately NO plugin-level tree pin (the retired
+   * `tree_root` userConfig): committed project config is the one routing
+   * surface, so a forgotten plugin value can never override a repo's `.me`.
+   */
   treeRoot: string;
   /**
    * The full project tree from a `.me/config.yaml` in the session's project, if
    * any. When set, captures nest directly under it (`<projectTree>.agent_sessions`,
-   * NO slug) — it takes precedence over `<treeRoot>.<slug>`. A plugin-pinned
-   * `tree_root` (headless install) overrides it back to the slug layout.
+   * NO slug) — it takes precedence over `<treeRoot>.<slug>`.
    */
   projectTree?: string;
   /** content_mode=full_transcript → also store reasoning + tool calls/results. */
@@ -139,12 +145,14 @@ export function resolveCaptureEnabled(
  * (`CLAUDE_PLUGIN_OPTION_API_KEY`) when set; otherwise it falls back to the
  * user's `me login` session (passed in via `creds`, so this stays pure/testable).
  *
- * Precedence for server/space/tree: an explicit plugin-pinned value (headless
- * install) > the session project's `.me/config.yaml` (`project`) > the caller's
- * fallback creds. The project `.me` `tree` is the full project tree, so when it
- * supplies the tree we set `projectTree` (no-slug layout); a plugin-pinned
- * `tree_root` overrides back to `<treeRoot>.<slug>`. Returns null when no bearer
- * or no space is available.
+ * Precedence for server/space: an explicit plugin-pinned value (headless
+ * install) > the session project's `.me/config.yaml` (`project`) > the
+ * caller's fallback creds. The TREE has no plugin pin (the `tree_root`
+ * userConfig is retired — a plugin-level value would silently override
+ * committed project config): the `.me` `tree` (the full project node,
+ * no-slug layout) wins, else the private `~/projects` parent+slug default —
+ * the shared `share.projects` layout is a `.me` opt-in, never a default.
+ * Returns null when no bearer or no space is available.
  */
 export function resolveHookConfigFromEnv(
   env: NodeJS.ProcessEnv = process.env,
@@ -170,16 +178,6 @@ export function resolveHookConfigFromEnv(
     ? (project.server ?? creds.server ?? DEFAULT_SERVER)
     : (env.CLAUDE_PLUGIN_OPTION_SERVER as string);
 
-  // A plugin-pinned tree_root (parent+slug) wins; otherwise the project `.me`
-  // tree is the full project node (no slug), else the PRIVATE default
-  // parent+slug (`~/projects/<slug>` — the shared `share.projects` layout is
-  // an explicit opt-in, never a default).
-  const pinnedTreeRoot = blank(env.CLAUDE_PLUGIN_OPTION_TREE_ROOT)
-    ? undefined
-    : (env.CLAUDE_PLUGIN_OPTION_TREE_ROOT as string);
-  const treeRoot = pinnedTreeRoot ?? DEFAULT_PRIVATE_TREE_ROOT;
-  const projectTree = pinnedTreeRoot ? undefined : project.tree;
-
   const fullTranscript =
     (env.CLAUDE_PLUGIN_OPTION_CONTENT_MODE ?? "").toLowerCase() ===
     "full_transcript";
@@ -188,8 +186,8 @@ export function resolveHookConfigFromEnv(
     server,
     apiKey,
     space,
-    treeRoot,
-    projectTree,
+    treeRoot: DEFAULT_PRIVATE_TREE_ROOT,
+    projectTree: project.tree,
     fullTranscript,
     asAgent: creds.asAgent,
   };
