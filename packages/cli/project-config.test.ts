@@ -98,6 +98,22 @@ test("tree + agent fields parse; tree accepts ~ and leading slash", () => {
   expect(cfg?.agent).toBe("my-agent");
 });
 
+test("capture field parses as a boolean (absent → undefined)", () => {
+  writeConfig(root, "capture: true\n");
+  expect(discoverProjectConfig(root)?.capture).toBe(true);
+
+  writeConfig(root, "capture: false\n");
+  expect(discoverProjectConfig(root)?.capture).toBe(false);
+
+  writeConfig(root, "space: sp_abc\n");
+  expect(discoverProjectConfig(root)?.capture).toBeUndefined();
+});
+
+test("a non-boolean capture is a fatal ProjectConfigError", () => {
+  writeConfig(root, "capture: yes please\n");
+  expect(() => discoverProjectConfig(root)).toThrow(ProjectConfigError);
+});
+
 test("malformed YAML is a fatal ProjectConfigError", () => {
   writeConfig(root, ":\n  - not: valid: yaml: {[}\n");
   expect(() => discoverProjectConfig(root)).toThrow(ProjectConfigError);

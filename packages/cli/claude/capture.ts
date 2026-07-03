@@ -7,10 +7,16 @@
  * metadata). This module only resolves the runtime config (bearer + space +
  * tree root + content mode) and types the slice of the hook event payload we
  * read. The orchestration lives in `commands/claude.ts` (`me claude hook`).
+ *
+ * The hook ships INERT: capture must be turned on — via the machine-wide
+ * setting (the `me claude install` prompt) or a project `.me/config.yaml`
+ * `capture: true` — before anything is written (see
+ * {@link resolveCaptureEnabled}). Once on, captures default to the PRIVATE
+ * `~/projects/<slug>` tree unless a project pins its own `tree`.
  */
 import {
+  DEFAULT_PRIVATE_TREE_ROOT,
   DEFAULT_SESSIONS_NODE_NAME,
-  DEFAULT_TREE_ROOT,
 } from "../importers/index.ts";
 
 export const DEFAULT_SERVER = "https://api.memory.build";
@@ -74,16 +80,23 @@ export interface HookFallbackCreds {
   server?: string;
   /** Act-as-agent target resolved from `--as-agent` / `ME_AS_AGENT`. */
   asAgent?: string;
+  /**
+   * The resolved capture setting (`ResolvedCredentials.captureEnabled`):
+   * project `.me` `capture` > machine-wide config > off.
+   */
+  captureEnabled?: boolean;
 }
 
 /**
  * The session project's `.me/config.yaml` (resolved from the session cwd), when
- * present. Provides server/space fallbacks and the full project `tree`.
+ * present. Provides server/space fallbacks, the full project `tree`, and the
+ * project's `capture` opt-in/out.
  */
 export interface HookProjectConfig {
   server?: string;
   space?: string;
   tree?: string;
+  capture?: boolean;
 }
 
 /**
@@ -93,6 +106,32 @@ export interface HookProjectConfig {
  */
 function blank(v: string | undefined): boolean {
   return !v || /^\$\{.*\}$/.test(v);
+}
+
+/**
+ * Whether the hook should capture at all. The hook ships inert; capture is on
+ * only when, highest-first:
+ *
+ *   1. the session project's `.me/config.yaml` pins `capture` (true → on even
+ *      if the user never opted in globally — a committed team config wins;
+ *      false → off, a per-project opt-out), else
+ *   2. the machine-wide setting (`creds.captureEnabled`, written by the
+ *      `me claude install` prompt), else
+ *   3. OFF.
+ *
+ * Exception: a plugin-pinned api key (`CLAUDE_PLUGIN_OPTION_API_KEY`) is a
+ * headless install — the operator explicitly configured the plugin to capture
+ * with a fixed key/space, and the machine-wide opt-in (a per-user setting)
+ * doesn't apply. A project `capture: false` still opts the project out.
+ */
+export function resolveCaptureEnabled(
+  env: NodeJS.ProcessEnv = process.env,
+  creds: HookFallbackCreds = {},
+  project: HookProjectConfig = {},
+): boolean {
+  if (project.capture !== undefined) return project.capture;
+  if (!blank(env.CLAUDE_PLUGIN_OPTION_API_KEY)) return true;
+  return creds.captureEnabled ?? false;
 }
 
 /**
@@ -132,11 +171,13 @@ export function resolveHookConfigFromEnv(
     : (env.CLAUDE_PLUGIN_OPTION_SERVER as string);
 
   // A plugin-pinned tree_root (parent+slug) wins; otherwise the project `.me`
-  // tree is the full project node (no slug), else the default parent+slug.
+  // tree is the full project node (no slug), else the PRIVATE default
+  // parent+slug (`~/projects/<slug>` — the shared `share.projects` layout is
+  // an explicit opt-in, never a default).
   const pinnedTreeRoot = blank(env.CLAUDE_PLUGIN_OPTION_TREE_ROOT)
     ? undefined
     : (env.CLAUDE_PLUGIN_OPTION_TREE_ROOT as string);
-  const treeRoot = pinnedTreeRoot ?? DEFAULT_TREE_ROOT;
+  const treeRoot = pinnedTreeRoot ?? DEFAULT_PRIVATE_TREE_ROOT;
   const projectTree = pinnedTreeRoot ? undefined : project.tree;
 
   const fullTranscript =

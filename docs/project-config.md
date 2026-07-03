@@ -16,6 +16,8 @@ under tree `Z`" once, and have every tool that touches the repo agree.
 server: https://api.memory.build   # pin the server
 space: xjjg3kmq6vvb                 # pin the space (slug)
 tree: /share/projects/acme          # optional: where integrations write (see below)
+agent: acme-agent                   # optional: the project's agent (see below)
+capture: true                       # optional: session capture on/off (see below)
 ```
 
 All fields are optional. A `.me` that sets only `tree` still inherits its
@@ -25,8 +27,10 @@ rather than silently ignoring the pins the project meant to apply. (The
 best-effort capture hooks are the exception — they log and skip, so a typo never
 breaks an agent session.)
 
-> `agent:` is reserved for a future "act as an agent" mode and currently has no
-> effect.
+> `agent:` names the project's default agent and is the value source for the
+> `.me` sentinel: `--as-agent .me` / `ME_AS_AGENT=.me` resolves to it and sends
+> `X-Me-As-Agent`. It never activates agent mode on its own — activation is
+> always explicit via the flag/env.
 
 ## Trusted servers (credential safety)
 
@@ -109,10 +113,11 @@ saved to.
 - Captured/imported agent sessions land under `/share/projects/acme/agent_sessions`
 - Imported git history lands under `/share/projects/acme/git_history`
 
-Contrast the default (no `.me`), where captures nest under
-`<share/projects>/<auto-slug>/…`. Pinning `tree` lets a project choose its own
-home — e.g. a team subtree (`/share/teams/backend`) or a private one
-(`~/projects/acme`, which resolves to your own home per user).
+Contrast the default (no `.me`), where captures nest **privately** under
+`~/projects/<auto-slug>/…` — your own home tree, visible only to you. Pinning
+`tree` is how a project chooses its own home — e.g. a **shared** team subtree
+(`/share/projects/acme`, so the whole team works off common memories) or a
+different private one.
 
 A leading `~` (your home) and `/`-separated paths are accepted; the path is
 normalized server-side. An explicit `me import git --project-tree <path>` still
@@ -122,3 +127,23 @@ project nests by slug — since they span many projects.)
 
 The Claude/OpenCode capture hooks resolve the `.me` for the **session's** project,
 so a single globally-installed plugin routes each project to its own tree.
+
+## The `capture` field (session capture on/off)
+
+Session capture is **off by default** — the Claude capture hook ships inert.
+Whether a session is captured resolves highest-first:
+
+1. the project's `.me/config.yaml` **`capture`** —
+   - `true`: capture this project's sessions **even if the member never opted
+     in globally**. A committed `capture: true` (+ a shared `tree`) is what
+     makes a team repo capture for everyone who clones it.
+   - `false`: never capture this project (e.g. a sensitive repo) — this
+     opt-out wins over every other setting.
+2. else the **machine-wide** setting in `~/.config/me/config.yaml`
+   (`capture: true`), written when you opt in at the `me claude install`
+   prompt;
+3. else **off**.
+
+When capture is off the hook exits silently — no error, nothing written. The
+OpenCode capture plugin is itself installed explicitly (`me opencode init`), so
+it captures unless the project pins `capture: false`.

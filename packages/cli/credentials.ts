@@ -22,6 +22,7 @@
  *     active_space: abc123def456
  * server_whitelist:            # extra servers trusted for a `.me` server pin
  *   - https://me.internal.example
+ * capture: true                # machine-wide session-capture opt-in (default off)
  * ```
  * credentials.yaml (0600):
  * ```yaml
@@ -77,6 +78,13 @@ export interface ConfigFile {
    * server pin. `me login --server` appends here; users may also hand-edit.
    */
   server_whitelist?: string[];
+  /**
+   * Machine-wide session-capture opt-in — whether the capture hooks collect
+   * agent sessions outside a project that pins its own `capture`. Written by
+   * the `me claude install` capture prompt; absent/false → the hooks stay
+   * inert (a project `.me/config.yaml` `capture: true` still overrides).
+   */
+  capture?: boolean;
 }
 
 /**
@@ -131,6 +139,18 @@ export interface ResolvedCredentials {
    * (activation is always explicit — a `.me` `agent` alone never enables it).
    */
   asAgent?: string;
+  /**
+   * Whether session capture is on, resolved highest-first: the `.me` project
+   * `capture` > the machine-wide config setting > off. The capture hooks stay
+   * inert when false.
+   */
+  captureEnabled: boolean;
+  /**
+   * The raw `.me/config.yaml` `capture` value, when a project in scope pins
+   * one. Lets integrations distinguish a project-level opt-out (`false`) from
+   * "no project preference" (undefined).
+   */
+  projectCapture?: boolean;
 }
 
 // =============================================================================
@@ -218,6 +238,7 @@ function readConfig(): ConfigFile {
         : DEFAULT_SERVER,
     servers: (data?.servers as ConfigFile["servers"]) ?? {},
     server_whitelist: rawWhitelist as string[] | undefined,
+    capture: typeof data?.capture === "boolean" ? data.capture : undefined,
   };
 }
 
@@ -446,6 +467,26 @@ export function resolveSpace(
 }
 
 // =============================================================================
+// Session capture (config)
+// =============================================================================
+
+/**
+ * Persist the machine-wide session-capture setting (see
+ * {@link ConfigFile.capture}). Written by the `me claude install` capture
+ * prompt; a project `.me/config.yaml` `capture` still overrides per project.
+ */
+export function setCaptureEnabled(enabled: boolean): void {
+  const config = readConfig();
+  config.capture = enabled;
+  writeConfig(config);
+}
+
+/** The machine-wide capture setting (config.yaml `capture`), default off. */
+export function getGlobalCaptureEnabled(): boolean {
+  return readConfig().capture === true;
+}
+
+// =============================================================================
 // Act-as-agent (X-Me-As-Agent)
 // =============================================================================
 
@@ -610,5 +651,7 @@ export function resolveCredentials(serverFlag?: string): ResolvedCredentials {
     activeSpace: process.env.ME_SPACE ?? project?.space ?? config.active_space,
     projectTree: project?.tree,
     asAgent: resolveAsAgent(),
+    captureEnabled: project?.capture ?? getGlobalCaptureEnabled(),
+    projectCapture: project?.capture,
   };
 }

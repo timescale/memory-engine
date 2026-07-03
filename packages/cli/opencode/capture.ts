@@ -17,8 +17,8 @@
  */
 import type { ResolvedCredentials } from "../credentials.ts";
 import {
+  DEFAULT_PRIVATE_TREE_ROOT,
   DEFAULT_SESSIONS_NODE_NAME,
-  DEFAULT_TREE_ROOT,
 } from "../importers/index.ts";
 
 export const DEFAULT_SERVER = "https://api.memory.build";
@@ -67,7 +67,13 @@ export interface HookConfig {
 /** The slice of resolved credentials the hook needs. */
 export type HookCreds = Pick<
   ResolvedCredentials,
-  "server" | "apiKey" | "activeSpace" | "loggedIn" | "projectTree" | "asAgent"
+  | "server"
+  | "apiKey"
+  | "activeSpace"
+  | "loggedIn"
+  | "projectTree"
+  | "asAgent"
+  | "projectCapture"
 >;
 
 /** Optional knobs the plugin/command passes through (default: shared layout). */
@@ -79,6 +85,17 @@ export interface HookConfigInput {
 /** Treat unset / empty / unsubstituted-placeholder values as missing. */
 function blank(v: string | undefined): boolean {
   return !v || /^\$\{.*\}$/.test(v);
+}
+
+/**
+ * Whether the hook should capture at all. Installing the generated OpenCode
+ * capture plugin (`me opencode init`) is itself the capture opt-in — unlike
+ * Claude's bundled always-installed hook — so absent any project preference,
+ * capture is ON. A project `.me/config.yaml` `capture: false` still opts the
+ * project out (the harness-agnostic per-project switch, e.g. a sensitive repo).
+ */
+export function captureOptedOut(creds: Pick<HookCreds, "projectCapture">) {
+  return creds.projectCapture === false;
 }
 
 /**
@@ -101,11 +118,12 @@ export function resolveHookConfig(
 
   const server = creds.server || DEFAULT_SERVER;
   // An explicit `--tree-root` flag (parent+slug) wins; otherwise a `.me` project
-  // tree is the full project node (no slug), else the default parent+slug.
+  // tree is the full project node (no slug), else the PRIVATE default
+  // parent+slug (`~/projects/<slug>` — shared layouts are explicit opt-ins).
   const pinnedTreeRoot = blank(input.treeRoot)
     ? undefined
     : (input.treeRoot as string);
-  const treeRoot = pinnedTreeRoot ?? DEFAULT_TREE_ROOT;
+  const treeRoot = pinnedTreeRoot ?? DEFAULT_PRIVATE_TREE_ROOT;
   const projectTree = pinnedTreeRoot ? undefined : creds.projectTree;
   const fullTranscript = input.fullTranscript ?? false;
 

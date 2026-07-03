@@ -219,6 +219,7 @@ const creds = (
 ): ResolvedCredentials => ({
   server: SERVER,
   loggedIn: false,
+  captureEnabled: false,
   ...over,
 });
 

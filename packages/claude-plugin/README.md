@@ -6,6 +6,12 @@ Captures your Claude Code conversations to [Memory Engine](https://memory.build)
 
 - **MCP server** (`me mcp`) — memory tools (search, create, get, update, delete, tree, import, export, etc.) available to the agent during sessions.
 - **Hooks** — capture the session transcript as memories, one per message:
+  - **Inert by default** — capture is opt-in. Turn it on machine-wide via the
+    `me claude install` prompt, or per project with `capture: true` in the
+    project's `.me/config.yaml` (a project can likewise opt *out* with
+    `capture: false`). With capture off the hooks exit silently.
+  - Once on, captures land **privately** under `~/projects/<slug>` (your own
+    home tree) unless the project's `.me/config.yaml` pins a shared `tree`.
   - `Stop` fires after each turn and imports the session-so-far.
   - `SessionEnd` does a final import when the session closes.
   - This is the **same parse + write as `me … import`** (incremental: each fire
@@ -76,10 +82,15 @@ claude                               # start a session
 # → space       (OPTIONAL — blank = your active space; pin for project/shared installs)
 # → api_key     (OPTIONAL, sensitive — blank = use your `me login` session)
 # → server       (default https://api.memory.build)
-# → tree_root    (default share.projects; captures nest at <root>.<project>.agent_sessions)
+# → tree_root    (default ~/projects — private; captures nest at <root>.<project>.agent_sessions)
 # → content_mode (default | full_transcript — see below)
 # → values take effect immediately; no restart required
 ```
+
+Setting `api_key` marks a **headless** install: the operator deliberately
+configured capture with a fixed key + space, so the hooks capture without the
+per-user machine-wide opt-in (a project `.me/config.yaml` `capture: false`
+still opts that project out).
 
 Leave `api_key` blank to use your `me login` session (captures attributed to you); set it to use a dedicated agent key (see above). Leave `space` blank to capture into your active space; pin it for unattended or project-scope installs (a blank space with no active space set means captures are silently skipped). `content_mode` is `default` (user + assistant text — recommended) or `full_transcript` (also stores reasoning and tool calls/results as their own memories — more complete, but larger/noisier and may include sensitive tool output). Sensitive values (the api_key) go to your system keychain; non-sensitive values go to the `settings.json` for the scope you installed in.
 
@@ -88,13 +99,13 @@ Leave `api_key` blank to use your `me login` session (captures attributed to you
 After a session (each turn's `Stop`, or `SessionEnd`), check that capture happened:
 
 ```bash
-me memory search --tree "share.projects.*" --limit 5
+me memory search --tree '~/projects.*' --limit 5
 ```
 
 Capture is the **same path as `me … import`** — one memory per message, with the
 identical layout and metadata, so live and imported sessions interleave cleanly:
 
-- **Tree**: `<tree_root>.<project>.agent_sessions` (default root `share.projects`) — one node per project.
+- **Tree**: `<tree_root>.<project>.agent_sessions` (default root `~/projects` — your private home tree) — one node per project. A project's `.me/config.yaml` `tree` (e.g. `/share/projects/<slug>`) overrides it for that project.
 - **Metadata**: the importer's `source_*` schema — `type: agent_session`, `source_tool: "claude"`, `source_session_id`, `source_message_id`, `source_message_role` (`user`/`assistant`), `source_project_slug` (from the git `origin` remote, else cwd basename), `content_mode`, `importer_version`, and (when available) `source_cwd` / `source_git_repo` / `source_model` / … See the full table in [agent session imports](https://docs.memory.build/cli/agent-session-imports).
 - **Temporal**: each memory's `start` is the **message** timestamp.
 
@@ -134,10 +145,13 @@ Claude Code handles the cleanup. Your captured memories and API keys are preserv
 
 ## Troubleshooting
 
+**Hook fires but nothing is captured, no error**
+Capture is **off by default** — the hooks exit silently until you opt in. Re-run `me claude install` and say yes at the capture prompt (or set `capture: true` in the project's `.me/config.yaml`). A project with `capture: false` is deliberately opted out.
+
 **`[memory-engine] no credentials` in stderr**
 The hook ran but found neither a `me login` session nor a configured api_key. Run `me login` (and `me space use <space>`), or open `/plugin → memory-engine → Configure` and set the api_key + space.
 
-**Hook fires but no memories appear, no error**
+**Capture is on but no memories appear, no error**
 With everything optional, a hook silently skips when it can't resolve a space — no `space` configured *and* no active space set (`me space use`). Either pin `space` in `/plugin → Configure` or run `me space use <space>`.
 
 **Hook fires but no memories appear**

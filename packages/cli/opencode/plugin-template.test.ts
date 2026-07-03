@@ -75,9 +75,15 @@ describe("renderPluginSource", () => {
     expect(src).not.toContain("--full-transcript");
   });
 
-  test("default tree root is not emitted as a flag", () => {
-    expect(renderPluginSource({ treeRoot: "share.projects" })).toContain(
+  test("default (private) tree root is not emitted as a flag", () => {
+    expect(renderPluginSource({ treeRoot: "~/projects" })).toContain(
       "const EXTRA_ARGS = []",
+    );
+  });
+
+  test("the shared share.projects layout is now an explicit (emitted) pin", () => {
+    expect(renderPluginSource({ treeRoot: "share.projects" })).toContain(
+      'const EXTRA_ARGS = ["--tree-root","share.projects"]',
     );
   });
 

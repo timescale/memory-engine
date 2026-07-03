@@ -95,13 +95,23 @@ function messageName(messageId: string): string {
 }
 
 /**
- * Default capture layout, shared by `me import claude` and the Claude Code capture
- * hook so live + imported sessions land in the same place:
- * `<DEFAULT_TREE_ROOT>.<project_slug>.<DEFAULT_SESSIONS_NODE_NAME>`. Under
- * `share` so a session-authenticated user (owner@share, not arbitrary top-level
- * paths) can write there.
+ * The SHARED projects parent (`share.projects`). No longer any command's
+ * default — captures and session/git imports default to the private
+ * {@link DEFAULT_PRIVATE_TREE_ROOT} instead. Kept for explicit opt-ins: a
+ * project whose `.me/config.yaml` pins a `/share/projects/<slug>` tree, or a
+ * headless plugin install that pins `tree_root` deliberately.
  */
 export const DEFAULT_TREE_ROOT = "share.projects";
+/**
+ * Default capture layout, shared by `me import <tool>`, `me import git`, and
+ * the capture hooks so live + imported sessions land in the same place:
+ * `<DEFAULT_PRIVATE_TREE_ROOT>.<project_slug>.<DEFAULT_SESSIONS_NODE_NAME>`.
+ * PRIVATE by default — `~` is the caller's home (`home.<id>`, expanded
+ * server-side by `normalizeTreePath`), so captures are visible only to the
+ * capturing user unless a project's `.me/config.yaml` explicitly points at a
+ * shared tree.
+ */
+export const DEFAULT_PRIVATE_TREE_ROOT = "~/projects";
 export const DEFAULT_SESSIONS_NODE_NAME = "agent_sessions";
 
 /** An importer's discovery interface — yields normalized sessions. */
@@ -153,8 +163,9 @@ export interface WriteOptions {
    * <tool>` sweep (walks many projects) and a global/headless plugin pin. The
    * per-project slug is appended: `<treeRoot>.<slug>.<sessionsNodeName>`. It is
    * NOT redundant with `projectTree` (below): this one nests many projects by
-   * slug; `projectTree` is a single project's full node. ltree-safe, no trailing
-   * dot; default `share.projects`.
+   * slug; `projectTree` is a single project's full node. Lenient wire form
+   * (`~`/`/` accepted, `~` only as the first segment); normalized server-side.
+   * Default: the private `~/projects` ({@link DEFAULT_PRIVATE_TREE_ROOT}).
    */
   treeRoot: string;
   /**

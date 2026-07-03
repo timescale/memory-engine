@@ -27,6 +27,7 @@ const creds = (
 ): ResolvedCredentials => ({
   server: "https://api.memory.build",
   loggedIn: true,
+  captureEnabled: false,
   ...over,
 });
 

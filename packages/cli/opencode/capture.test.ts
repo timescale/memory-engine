@@ -6,7 +6,11 @@
  * bearer/space/server/tree-root/content-mode resolution from credentials + flags.
  */
 import { describe, expect, test } from "bun:test";
-import { type HookConfig, resolveHookConfig } from "./capture.ts";
+import {
+  captureOptedOut,
+  type HookConfig,
+  resolveHookConfig,
+} from "./capture.ts";
 
 describe("resolveHookConfig", () => {
   test("returns null when no api key and no session", () => {
@@ -48,7 +52,7 @@ describe("resolveHookConfig", () => {
     } satisfies HookConfig);
   });
 
-  test("defaults: tree root + content mode when no flags passed", () => {
+  test("defaults: PRIVATE tree root + content mode when no flags passed", () => {
     const cfg = resolveHookConfig({
       server: "https://api.example.com",
       loggedIn: false,
@@ -59,7 +63,7 @@ describe("resolveHookConfig", () => {
       apiKey: "me.lookupid12345678.secret",
       space: "eng123def456",
       server: "https://api.example.com",
-      treeRoot: "share.projects",
+      treeRoot: "~/projects",
       fullTranscript: false,
     } satisfies HookConfig);
   });
@@ -93,7 +97,7 @@ describe("resolveHookConfig", () => {
       },
       { treeRoot: "${tree_root}" },
     );
-    expect(cfg?.treeRoot).toBe("share.projects");
+    expect(cfg?.treeRoot).toBe("~/projects");
   });
 
   test("a .me projectTree (from creds) sets projectTree, keeping the default parent", () => {
@@ -104,7 +108,7 @@ describe("resolveHookConfig", () => {
       projectTree: "share.projects.foo",
     });
     expect(cfg?.projectTree).toBe("share.projects.foo");
-    expect(cfg?.treeRoot).toBe("share.projects");
+    expect(cfg?.treeRoot).toBe("~/projects");
   });
 
   test("an explicit --tree-root flag overrides the .me projectTree", () => {
@@ -119,5 +123,20 @@ describe("resolveHookConfig", () => {
     );
     expect(cfg?.treeRoot).toBe("share.work");
     expect(cfg?.projectTree).toBeUndefined();
+  });
+});
+
+describe("captureOptedOut", () => {
+  test("no project preference → not opted out (plugin install is the opt-in)", () => {
+    expect(captureOptedOut({})).toBe(false);
+    expect(captureOptedOut({ projectCapture: undefined })).toBe(false);
+  });
+
+  test("project capture: true → not opted out", () => {
+    expect(captureOptedOut({ projectCapture: true })).toBe(false);
+  });
+
+  test("project capture: false → opted out", () => {
+    expect(captureOptedOut({ projectCapture: false })).toBe(true);
   });
 });
