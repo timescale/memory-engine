@@ -21,6 +21,7 @@ import {
   ProjectConfigError,
   resetProjectConfigCache,
   setConfigDirOverride,
+  writeProjectConfig,
   writeProjectSpace,
 } from "./project-config.ts";
 
@@ -266,4 +267,72 @@ test("writeProjectSpace surfaces a malformed target as ProjectConfigError", () =
   expect(() => writeProjectSpace(project, { space: "sp_new" })).toThrow(
     ProjectConfigError,
   );
+});
+
+// =============================================================================
+// writeProjectConfig — the create-or-update committed-file writer
+// =============================================================================
+
+test("writeProjectConfig creates .me/config.yaml (and the dir) from scratch", () => {
+  const path = writeProjectConfig(root, {
+    server: "https://api.example.com",
+    space: "sp_abc",
+    tree: "/share/projects/foo",
+    agent: "foo-agent",
+    capture: true,
+  });
+  expect(path).toBe(join(root, ".me", "config.yaml"));
+
+  const cfg = discoverProjectConfig(root);
+  expect(cfg?.server).toBe("https://api.example.com");
+  expect(cfg?.space).toBe("sp_abc");
+  expect(cfg?.tree).toBe("/share/projects/foo");
+  expect(cfg?.agent).toBe("foo-agent");
+  expect(cfg?.capture).toBe(true);
+  // Block style, not a flow map.
+  expect(readRaw(root)).toContain("space: sp_abc\n");
+});
+
+test("writeProjectConfig updates only the provided keys on an existing file", () => {
+  writeConfig(root, "server: https://old.example.com\nspace: sp_old\n");
+  writeProjectConfig(root, { space: "sp_new", capture: false });
+  const cfg = discoverProjectConfig(root);
+  expect(cfg?.space).toBe("sp_new");
+  expect(cfg?.capture).toBe(false);
+  expect(cfg?.server).toBe("https://old.example.com"); // untouched
+});
+
+test("writeProjectConfig preserves comments on an existing file", () => {
+  writeConfig(
+    root,
+    "# team config\nserver: https://api.example.com # prod\nspace: sp_old\n",
+  );
+  writeProjectConfig(root, { space: "sp_new", agent: "a1" });
+  const raw = readRaw(root);
+  expect(raw).toContain("# team config");
+  expect(raw).toContain("# prod");
+  expect(raw).toContain("space: sp_new");
+  expect(raw).toContain("agent: a1");
+});
+
+test("writeProjectConfig validates before writing (bad value → nothing written)", () => {
+  expect(() => writeProjectConfig(root, { tree: "has a space" })).toThrow(
+    ProjectConfigError,
+  );
+  expect(existsSync(join(root, ".me", "config.yaml"))).toBe(false);
+});
+
+test("writeProjectConfig refuses a malformed existing file", () => {
+  writeConfig(root, ":\n  - not: valid: yaml: {[}\n");
+  expect(() => writeProjectConfig(root, { space: "sp_x" })).toThrow(
+    ProjectConfigError,
+  );
+});
+
+test("writeProjectConfig invalidates the process-wide memo", () => {
+  writeConfig(root, "space: sp_before\n");
+  setConfigDirOverride(root);
+  expect(getProjectConfig()?.space).toBe("sp_before");
+  writeProjectConfig(root, { space: "sp_after" });
+  expect(getProjectConfig()?.space).toBe("sp_after");
 });
