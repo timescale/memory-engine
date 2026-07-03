@@ -109,6 +109,106 @@ export function initOutroLead(steps: Pick<InitStep, "kind">[]): string[] {
   return [];
 }
 
+/** What one {@link runInitSteps} pass covered. */
+export interface RunInitStepsResult {
+  /** Steps that ran (the picker selection / the non-interactive baseline). */
+  ran: InitStep[];
+  /** Steps reported already done. */
+  done: InitStep[];
+  /** Ids of every step offered (runnable + already-done rerun rows). */
+  offered: string[];
+}
+
+/**
+ * Probe availability, (interactively) present the grouped step picker, and
+ * run the selection — the engine behind every `init` command, shared so
+ * `me project init` can run the checklist after its own wizard phase.
+ * Interactive: a multiselect pre-checked with the baseline (every available
+ * step not `--skip-*`ed). Non-interactive: the baseline runs as-is, with
+ * already-done steps reported as ✓ lines. Exits the process on a picker
+ * cancel.
+ */
+export async function runInitSteps(
+  steps: InitStep[],
+  ctx: InitStepContext,
+  env: { interactive: boolean; fmt: string; cmdOpts: Record<string, unknown> },
+): Promise<RunInitStepsResult> {
+  const { interactive, fmt, cmdOpts } = env;
+
+  // Steps available in this environment. Already-done steps get a ✓ line
+  // instead of a row. The probe is skipped for steps already opted out
+  // non-interactively, so a `--skip-<step>` run never pays for that probe.
+  const candidates: InitStep[] = [];
+  const doneSteps: InitStep[] = [];
+  for (const step of steps) {
+    if (!interactive && cmdOpts[step.optionKey] === true) continue;
+    const availability = step.available
+      ? await step.available(ctx)
+      : "available";
+    if (availability === "hidden") continue;
+    if (availability === "done") {
+      doneSteps.push(step);
+      continue;
+    }
+    candidates.push(step);
+  }
+  if (fmt === "text" && !interactive) {
+    doneSteps.forEach((step, i) => {
+      clack.log.message(step.doneLabel ?? step.label, {
+        symbol: CHECK,
+        spacing: i === 0 ? 1 : 0,
+      });
+    });
+  }
+
+  // Baseline = every available step not turned off via its --skip-* flag.
+  const baseline = candidates.filter((s) => cmdOpts[s.optionKey] !== true);
+
+  const doneIds = new Set(doneSteps.map((s) => s.id));
+  // Picker rows: runnable steps plus already-done ones (offered unchecked, as
+  // idempotent re-runs), in step order so each row sits in its group section.
+  const rows = steps.filter((s) => candidates.includes(s) || doneIds.has(s.id));
+  const rowLabel = (step: InitStep): string =>
+    doneIds.has(step.id) ? (step.rerunLabel ?? step.label) : step.label;
+
+  let selectedIds: string[];
+  if (interactive) {
+    const grouped: Record<string, clack.Option<string>[]> = {};
+    for (const step of rows) {
+      const groupRows = grouped[step.group] ?? [];
+      groupRows.push({ value: step.id, label: rowLabel(step) });
+      grouped[step.group] = groupRows;
+    }
+    const picked = await clack.groupMultiselect<string>({
+      message: `Setup steps to run ${DIM}(all selected by default — ↑/↓ move, space to toggle off/on, enter to confirm)${DIM_OFF}`,
+      options: grouped,
+      initialValues: baseline.map((s) => s.id),
+      required: false,
+      selectableGroups: false,
+    });
+    if (clack.isCancel(picked)) {
+      clack.cancel("Cancelled.");
+      process.exit(0);
+    }
+    selectedIds = picked;
+  } else {
+    selectedIds = baseline.map((s) => s.id);
+  }
+
+  const selected = rows.filter((s) => selectedIds.includes(s.id));
+  const offered = rows.map((s) => s.id);
+  if (selected.length === 0) {
+    clack.log.info("No setup steps selected — nothing to do.");
+    return { ran: [], done: doneSteps, offered };
+  }
+
+  for (const step of selected) {
+    if (fmt === "text") clack.log.step(rowLabel(step));
+    await step.run(ctx);
+  }
+  return { ran: selected, done: doneSteps, offered };
+}
+
 /** Build an `init` Command from a per-agent step list + outro renderer. */
 export function buildInitCommand(opts: {
   description: string;
@@ -161,84 +261,18 @@ export function buildInitCommand(opts: {
       Boolean(process.stdin.isTTY) &&
       Boolean(process.stdout.isTTY);
 
-    // Steps available in this environment. Already-done steps get a ✓ line
-    // instead of a row. The probe is skipped for steps already opted out
-    // non-interactively, so a `--skip-<step>` run never pays for that probe.
     let ctx: InitStepContext = { globalOpts, server };
     if (opts.resolveContext) {
       ctx = await opts.resolveContext(ctx, cmdOpts, { interactive, fmt });
     }
-    const candidates: InitStep[] = [];
-    const doneSteps: InitStep[] = [];
-    for (const step of INIT_STEPS) {
-      if (!interactive && cmdOpts[step.optionKey] === true) continue;
-      const availability = step.available
-        ? await step.available(ctx)
-        : "available";
-      if (availability === "hidden") continue;
-      if (availability === "done") {
-        doneSteps.push(step);
-        continue;
-      }
-      candidates.push(step);
-    }
-    if (fmt === "text" && !interactive) {
-      doneSteps.forEach((step, i) => {
-        clack.log.message(step.doneLabel ?? step.label, {
-          symbol: CHECK,
-          spacing: i === 0 ? 1 : 0,
-        });
-      });
-    }
-
-    // Baseline = every available step not turned off via its --skip-* flag.
-    const baseline = candidates.filter((s) => cmdOpts[s.optionKey] !== true);
-
-    const doneIds = new Set(doneSteps.map((s) => s.id));
-    // Picker rows: runnable steps plus already-done ones (offered unchecked, as
-    // idempotent re-runs), in step order so each row sits in its group section.
-    const rows = INIT_STEPS.filter(
-      (s) => candidates.includes(s) || doneIds.has(s.id),
-    );
-    const rowLabel = (step: InitStep): string =>
-      doneIds.has(step.id) ? (step.rerunLabel ?? step.label) : step.label;
-
-    let selectedIds: string[];
-    if (interactive) {
-      const grouped: Record<string, clack.Option<string>[]> = {};
-      for (const step of rows) {
-        const groupRows = grouped[step.group] ?? [];
-        groupRows.push({ value: step.id, label: rowLabel(step) });
-        grouped[step.group] = groupRows;
-      }
-      const picked = await clack.groupMultiselect<string>({
-        message: `Setup steps to run ${DIM}(all selected by default — ↑/↓ move, space to toggle off/on, enter to confirm)${DIM_OFF}`,
-        options: grouped,
-        initialValues: baseline.map((s) => s.id),
-        required: false,
-        selectableGroups: false,
-      });
-      if (clack.isCancel(picked)) {
-        clack.cancel("Cancelled.");
-        process.exit(0);
-      }
-      selectedIds = picked;
-    } else {
-      selectedIds = baseline.map((s) => s.id);
-    }
-
-    const selected = rows.filter((s) => selectedIds.includes(s.id));
-    if (selected.length === 0) {
-      clack.log.info("No setup steps selected — nothing to do.");
-      return;
-    }
-
-    for (const step of selected) {
-      if (fmt === "text") clack.log.step(rowLabel(step));
-      await step.run(ctx);
-    }
+    const { ran, done } = await runInitSteps(INIT_STEPS, ctx, {
+      interactive,
+      fmt,
+      cmdOpts,
+    });
+    if (ran.length === 0) return;
     // The recap covers what just ran plus what was already in place.
-    if (fmt === "text") outro([...selected, ...doneSteps]);
+    if (fmt === "text") outro([...ran, ...done]);
   });
   return cmd;
 }

@@ -30,16 +30,17 @@ npm i -g @memory.build/cli
 # Authenticate
 me login
 
-# Set up Claude Code memory for a project — run at the project root
+# Set up a project's memory — run at the project root
 cd ~/code/your-project
-me claude init
+me project init
 ```
 
-`me claude init` does the whole setup in one shot: installs the Claude Code
-plugin (hooks + slash commands + MCP) if it isn't already, backfills the
-project's past Claude Code sessions and git commit history as searchable
-memories, and records the project's memory location in `CLAUDE.md` so agents
-consult it. From then on, new sessions are captured automatically.
+`me project init` does the whole setup in one shot: installs the Claude Code
+plugin (hooks + slash commands + MCP) if it isn't already, configures the
+project's `.me/config.yaml` (space, memory location, a dedicated agent),
+backfills the project's past Claude Code sessions and git commit history as
+searchable memories, and records the project's memory location in `CLAUDE.md`
+so agents consult it. From then on, new sessions are captured automatically.
 
 ## Usage
 
@@ -56,7 +57,7 @@ me import claude                 # all Claude Code sessions on this machine
 me import git                    # a repo's commit history
 me import git-hook               # keep it current via a post-commit hook
 
-# Connect other AI tools (Claude Code is covered by `me claude init`)
+# Connect other AI tools (Claude Code is covered by `me project init`)
 me opencode install
 me codex install
 me gemini install

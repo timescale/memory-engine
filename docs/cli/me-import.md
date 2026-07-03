@@ -309,6 +309,6 @@ me import git >/dev/null 2>&1 &
 
 ### Scope and failure mode
 
-The hook lives in `.git/hooks` — per clone, never committed, never pushed. CI checkouts and teammates' clones are unaffected; each clone opts in by running `me import git-hook` itself ([`me claude init`](me-claude.md#me-claude-init) offers it as a setup step).
+The hook lives in `.git/hooks` — per clone, never committed, never pushed. CI checkouts and teammates' clones are unaffected; each clone opts in by running `me import git-hook` itself ([`me project init`](me-project.md) offers it as a setup step).
 
 The import is deliberately silent and best-effort: it never blocks or fails a commit, which also means auth or connectivity problems won't surface at commit time. If history seems stale, run `me import git` manually to see the error — the next successful fire catches everything up.

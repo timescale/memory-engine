@@ -1134,11 +1134,7 @@ describe.skipIf(
     expect(await countBySession(sessionId)).toBe(0);
 
     // Run `init` FROM the project dir so its cwd → slug → CLAUDE.md location.
-    const init = await me(
-      ["claude", "init", "--skip-plugin-install"],
-      undefined,
-      projectDir,
-    );
+    const init = await me(["project", "init"], undefined, projectDir);
     expect(init.code, init.stderr).toBe(0);
 
     // Step 1: this project's session was backfilled; the foreign one wasn't.
@@ -1146,7 +1142,14 @@ describe.skipIf(
     expect(await countUnder(tree)).toBe(4);
     expect(await countBySession(foreignId)).toBe(0);
 
-    // Step 2: CLAUDE.md now points at this project's memories.
+    // Step 2: the capture-enable step wrote the committed per-project opt-in.
+    const meConfig = await readFile(
+      join(projectDir, ".me", "config.yaml"),
+      "utf8",
+    );
+    expect(meConfig).toContain("capture: true");
+
+    // Step 3: CLAUDE.md now points at this project's memories.
     const claudeMd = await readFile(join(projectDir, "CLAUDE.md"), "utf8");
     expect(claudeMd).toContain("memory-engine:start");
     expect(claudeMd).toContain("~/projects/initcwd");
@@ -1154,11 +1157,7 @@ describe.skipIf(
     expect(claudeMd).toContain("~/projects/initcwd/git_history");
 
     // Re-running is idempotent: still exactly one managed block.
-    const init2 = await me(
-      ["claude", "init", "--skip-plugin-install"],
-      undefined,
-      projectDir,
-    );
+    const init2 = await me(["project", "init"], undefined, projectDir);
     expect(init2.code, init2.stderr).toBe(0);
     const claudeMd2 = await readFile(join(projectDir, "CLAUDE.md"), "utf8");
     expect(claudeMd2.split("memory-engine:start").length - 1).toBe(1);
@@ -1221,11 +1220,14 @@ describe.skipIf(
     const a = await mkProject("skipimport");
     const sessionA = `skipa-${rand()}`;
     await writeTranscript(sessionA, await realpath(a.dir));
+    // Exercised via the deprecated `me claude init` alias (same command,
+    // plus a rename warning) so the alias path stays covered.
     const r1 = await me(
-      ["claude", "init", "--skip-transcript-import", "--skip-plugin-install"],
+      ["claude", "init", "--skip-transcript-import"],
       undefined,
       a.dir,
     );
+    expect(r1.stderr + r1.stdout).toContain("me project init");
     expect(r1.code, r1.stderr).toBe(0);
     expect(await countBySession(sessionA)).toBe(0);
     expect(existsSync(join(a.dir, "CLAUDE.md"))).toBe(true);
@@ -1235,7 +1237,7 @@ describe.skipIf(
     const sessionB = `skipb-${rand()}`;
     await writeTranscript(sessionB, await realpath(b.dir));
     const r2 = await me(
-      ["claude", "init", "--skip-claude-md", "--skip-plugin-install"],
+      ["project", "init", "--skip-claude-md"],
       undefined,
       b.dir,
     );
@@ -1453,7 +1455,7 @@ describe.skipIf(
 
     // --skip-git-import: no commit memories.
     const skipped = await me(
-      ["claude", "init", "--skip-git-import", "--skip-plugin-install"],
+      ["project", "init", "--skip-git-import"],
       undefined,
       repo,
     );
@@ -1462,11 +1464,7 @@ describe.skipIf(
 
     // Plain init (non-interactive baseline) imports the repo's history and
     // the CLAUDE.md pointer names the git_history node.
-    const init = await me(
-      ["claude", "init", "--skip-plugin-install"],
-      undefined,
-      repo,
-    );
+    const init = await me(["project", "init"], undefined, repo);
     expect(init.code, init.stderr).toBe(0);
     expect(await countUnder(tree)).toBe(1);
     const claudeMd = await readFile(join(repo, "CLAUDE.md"), "utf8");

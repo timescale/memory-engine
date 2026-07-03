@@ -27,18 +27,37 @@
 import * as clack from "@clack/prompts";
 import { accessLevelName } from "@memory.build/protocol/space";
 import { Command } from "commander";
+import {
+  DIM,
+  DIM_OFF,
+  type InitStep,
+  type InitStepContext,
+  initOutroLead,
+  runInitSteps,
+} from "../agent/init.ts";
+import {
+  type MemoryPointerSpec,
+  memoryPointerUpToDate,
+  writeMemoryPointer,
+} from "../agent/memory-pointer.ts";
 import { writeClaudeSettingsEnv } from "../claude/settings.ts";
 import {
   type ResolvedCredentials,
   resolveCredentials,
   setActiveSpace,
 } from "../credentials.ts";
+import { claudeImporter } from "../importers/claude.ts";
 import { SlugRegistry } from "../importers/slug.ts";
-import { getOutputFormat, output } from "../output.ts";
-import { writeProjectConfig } from "../project-config.ts";
+import { getOutputFormat } from "../output.ts";
+import {
+  discoverProjectConfig,
+  writeProjectConfig,
+} from "../project-config.ts";
 import { buildMemoryClient, buildUserClient, handleError } from "../util.ts";
 import { pluginInstallAvailable, runClaudeInstallFlow } from "./claude.ts";
-import { VALID_TREE_ROOT_RE } from "./import.ts";
+import { runAgentImport, VALID_TREE_ROOT_RE } from "./import.ts";
+import { runGitImport } from "./import-git.ts";
+import { gitHookStatus, runGitHookInstall } from "./import-git-hook.ts";
 
 /**
  * Sentinel option values for the selects. `create-space` cannot collide with
@@ -437,44 +456,246 @@ export async function runProjectInitWizard(
   return { creds, projectRoot, space, tree, agent: choice.name };
 }
 
-/** `me project init` — the interactive project-setup wizard. */
-function createProjectInitCommand(): Command {
-  return new Command("init")
-    .description(
-      "configure this project's .me/config.yaml (space, memory location, agent) — interactive",
-    )
-    .action(async (_opts: Record<string, unknown>, cmd: Command) => {
-      const globalOpts = cmd.optsWithGlobals();
-      const fmt = getOutputFormat(globalOpts);
-      const interactive =
-        fmt === "text" &&
-        Boolean(process.stdin.isTTY) &&
-        Boolean(process.stdout.isTTY);
-      if (!interactive) {
-        const msg =
-          "me project init is an interactive wizard — run it in a terminal.";
-        if (fmt === "text") clack.log.error(msg);
-        else output({ error: msg }, fmt, () => {});
-        process.exit(1);
+/** The managed CLAUDE.md memory-pointer block the checklist upserts. */
+const CLAUDE_MD_POINTER: MemoryPointerSpec = {
+  filename: "CLAUDE.md",
+  managedBy: "me project init",
+  agentLabel: "Claude Code",
+};
+
+/**
+ * The setup checklist (phase 3 of the wizard; the whole command when run
+ * non-interactively). Moved from the retired `me claude init` — minus its
+ * plugin-install step (now the wizard's preflight) and plus the
+ * capture-enable step, which writes the project's committed `capture` flag.
+ *
+ * > Harness-agnostic TODO: the session-backfill and CLAUDE.md rows are still
+ * > Claude-specific; a fuller `me project init` should gate them on the
+ * > harness in scope. Left for a follow-up (see CLAUDE_INTEGRATION_DESIGN.md).
+ */
+const PROJECT_INIT_STEPS: InitStep[] = [
+  {
+    id: "transcript-import",
+    group: "Claude Code sessions",
+    kind: "backfill",
+    optionKey: "skipTranscriptImport",
+    skipFlag: "--skip-transcript-import",
+    skipDescription: "do not import this project's Claude Code sessions",
+    label:
+      "Import this project's existing Claude Code sessions (one-time backfill)",
+    // Init is per-project setup, so scope the backfill to sessions recorded
+    // in this repo (cwd at or under the repo root) — `me import claude`
+    // remains the machine-wide sweep. A `--project`-scoped run reads the
+    // just-written `.me` tree, so the backfill lands exactly where live
+    // capture writes — that's why config is written before the checklist.
+    // The temp-cwd filter exists to keep throwaway sessions out of bulk
+    // sweeps; with the scope pinned to the project the user is standing in,
+    // it would only veto projects that happen to live under a temp dir, so
+    // include them.
+    run: async ({ globalOpts, projectRoot }) => {
+      await runAgentImport(
+        claudeImporter,
+        { project: projectRoot ?? process.cwd(), includeTempCwd: true },
+        globalOpts,
+      );
+    },
+  },
+  {
+    id: "capture-enable",
+    group: "Claude Code sessions",
+    kind: "ongoing",
+    optionKey: "skipCaptureEnable",
+    skipFlag: "--skip-capture-enable",
+    skipDescription:
+      "do not enable ongoing session capture for this project (capture: true)",
+    label:
+      "Enable ongoing capture of new Claude Code sessions for this project",
+    // ✓ when the project already pins capture: true. The capturing itself is
+    // done by the installed plugin's hooks; this writes the committed flag
+    // that turns them on for this project regardless of the member's global
+    // setting.
+    available: async ({ projectRoot }) =>
+      discoverProjectConfig(projectRoot ?? process.cwd())?.capture === true
+        ? "done"
+        : "available",
+    doneLabel: "Ongoing session capture already enabled for this project",
+    rerunLabel:
+      "Re-enable ongoing capture of new Claude Code sessions (already enabled)",
+    run: async ({ projectRoot }) => {
+      const path = writeProjectConfig(projectRoot ?? process.cwd(), {
+        capture: true,
+      });
+      clack.log.success(`Enabled session capture (capture: true) in ${path}`);
+    },
+  },
+  {
+    id: "git-import",
+    group: "Git history",
+    kind: "backfill",
+    optionKey: "skipGitImport",
+    skipFlag: "--skip-git-import",
+    skipDescription: "do not import the repo's git commit history",
+    label: "Import existing git commit history (one-time backfill)",
+    run: ({ globalOpts }) => runGitImport({ skipIfNotRepo: true }, globalOpts),
+  },
+  {
+    id: "git-hook",
+    group: "Git history",
+    kind: "ongoing",
+    optionKey: "skipGitHook",
+    skipFlag: "--skip-git-hook",
+    skipDescription: "do not install the git post-commit capture hook",
+    label:
+      "Install a git post-commit hook — captures new commits going forward",
+    // Hidden outside a git repo or when a committed hooks manager owns the
+    // hook path; ✓ when the managed block is already installed.
+    available: async () => {
+      const status = await gitHookStatus(process.cwd());
+      if (status === "installed") return "done";
+      return status === "installable" ? "available" : "hidden";
+    },
+    doneLabel: "Git post-commit hook already installed",
+    rerunLabel:
+      "Reinstall the git post-commit hook — captures new commits going forward (already installed)",
+    run: ({ globalOpts }) =>
+      runGitHookInstall({ skipIfNotRepo: true }, globalOpts),
+  },
+  {
+    id: "claude-md",
+    group: "Project config",
+    kind: "config",
+    optionKey: "skipClaudeMd",
+    skipFlag: "--skip-claude-md",
+    skipDescription:
+      "do not write the memory pointer into the project's CLAUDE.md",
+    label: "Add a memory pointer to CLAUDE.md",
+    // ✓ when CLAUDE.md already carries the exact block this run would write;
+    // a stale block (template or tree/space change) keeps the step offered
+    // so the re-run refreshes it.
+    available: async ({ server }) =>
+      (await memoryPointerUpToDate(CLAUDE_MD_POINTER, server))
+        ? "done"
+        : "available",
+    doneLabel: "Memory pointer already in CLAUDE.md",
+    rerunLabel: "Rewrite the memory pointer in CLAUDE.md (already present)",
+    run: ({ server }) => writeMemoryPointer(CLAUDE_MD_POINTER, server),
+  },
+];
+
+/**
+ * Closing guidance after init: a recap of what setup covered (historical
+ * backfill, ongoing capture), what having project memories wired up actually
+ * buys the user, and how to invoke them deliberately. `steps` is everything
+ * covered — the steps that just ran plus any reported already done.
+ */
+function printInitOutro(steps: InitStep[]): void {
+  clack.note(
+    [
+      ...initOutroLead(steps),
+      "Ask Claude about this project's history or architecture — it now",
+      "draws on the project's memories automatically, and consults them",
+      "when exploring the code for new features.",
+      "",
+      "You can also point Claude at them explicitly, e.g.:",
+      `${DIM}"Search memory engine: why did we structure the database this way?"${DIM_OFF}`,
+      `${DIM}"Check me memories for past work on this area before we start"${DIM_OFF}`,
+      `${DIM}"What do my me memories say about how deploys work here?"${DIM_OFF}`,
+    ].join("\n"),
+    "Your project now has memory",
+  );
+}
+
+/**
+ * `me project init` — interactively, the full wizard (preflight → prompts →
+ * provisioning → config/settings writes) followed by the setup checklist;
+ * non-interactively, just the checklist (every step minus its `--skip-*`
+ * flag), matching the retired `me claude init`'s scripted behavior — an
+ * existing `.me/config.yaml` (or the private defaults) governs where things
+ * land.
+ *
+ * Pass `deprecatedAlias` to register the same command under a legacy name
+ * (`me claude init`) that warns before running.
+ */
+export function createProjectInitCommand(opts?: {
+  deprecatedAlias?: string;
+}): Command {
+  const cmd = new Command("init").description(
+    opts?.deprecatedAlias
+      ? `deprecated alias of 'me project init'`
+      : "set up this project: space, memory location, agent (interactive wizard) + backfill/capture steps",
+  );
+  for (const step of PROJECT_INIT_STEPS) {
+    cmd.option(step.skipFlag, step.skipDescription);
+  }
+  cmd.action(async (cmdOpts: Record<string, unknown>, cmdRef: Command) => {
+    const globalOpts = cmdRef.optsWithGlobals();
+    const fmt = getOutputFormat(globalOpts);
+    const server =
+      typeof globalOpts.server === "string" ? globalOpts.server : undefined;
+    const interactive =
+      fmt === "text" &&
+      Boolean(process.stdin.isTTY) &&
+      Boolean(process.stdout.isTTY);
+
+    if (opts?.deprecatedAlias) {
+      clack.log.warn(
+        `'${opts.deprecatedAlias}' is now 'me project init' — this alias will be removed in a future release.`,
+      );
+    }
+
+    try {
+      let ctx: InitStepContext;
+      if (interactive) {
+        clack.intro("me project init");
+        const wiz = await runProjectInitWizard(globalOpts);
+        ctx = { globalOpts, server, projectRoot: wiz.projectRoot };
+      } else {
+        // Non-interactive: run the checklist only — no prompts, no config
+        // write. An existing `.me/config.yaml` (or the private defaults)
+        // governs where the steps land.
+        const { gitRoot } = await new SlugRegistry().resolve(process.cwd());
+        ctx = { globalOpts, server, projectRoot: gitRoot ?? process.cwd() };
       }
 
-      clack.intro("me project init");
-      try {
-        const result = await runProjectInitWizard(globalOpts);
-        clack.outro(
-          `Project configured — space '${result.space.name}', memories at ${result.tree}, agent '${result.agent}'.`,
+      const result = await runInitSteps(PROJECT_INIT_STEPS, ctx, {
+        interactive,
+        fmt,
+        cmdOpts,
+      });
+
+      // Interactively DESELECTING the capture row is an explicit opt-out:
+      // write `capture: false` so the committed config is deterministic for
+      // the team (absent would fall back to each member's global setting).
+      // Leave it alone when the step is already done (capture already true)
+      // or when running non-interactively (a --skip is "don't touch", not
+      // "turn off").
+      const captureTouched =
+        result.ran.some((s) => s.id === "capture-enable") ||
+        result.done.some((s) => s.id === "capture-enable");
+      if (
+        interactive &&
+        result.offered.includes("capture-enable") &&
+        !captureTouched &&
+        ctx.projectRoot
+      ) {
+        const path = writeProjectConfig(ctx.projectRoot, { capture: false });
+        clack.log.info(
+          `Ongoing session capture disabled for this project (capture: false) in ${path}`,
         );
-      } catch (error) {
-        handleError(error, fmt, {
-          creds: resolveCredentials(
-            typeof globalOpts.server === "string"
-              ? globalOpts.server
-              : undefined,
-          ),
-          scope: "space",
-        });
       }
-    });
+
+      if (fmt === "text" && result.ran.length > 0) {
+        printInitOutro([...result.ran, ...result.done]);
+      }
+      if (interactive) clack.outro("Done!");
+    } catch (error) {
+      handleError(error, fmt, {
+        creds: resolveCredentials(server),
+        scope: "space",
+      });
+    }
+  });
+  return cmd;
 }
 
 /** `me project` — the harness-agnostic project command group. */

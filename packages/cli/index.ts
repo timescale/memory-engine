@@ -27,7 +27,10 @@ import {
 } from "./commands/memory.ts";
 import { createOpenCodeCommand } from "./commands/opencode.ts";
 import { createPackCommand } from "./commands/pack.ts";
-import { createProjectCommand } from "./commands/project.ts";
+import {
+  createProjectCommand,
+  createProjectInitCommand,
+} from "./commands/project.ts";
 import { createServeCommand } from "./commands/serve.ts";
 import { createSpaceCommand } from "./commands/space.ts";
 import { createUpgradeCommand } from "./commands/upgrade.ts";
@@ -102,7 +105,13 @@ program.addCommand(createImportCommand());
 program.addCommand(createMcpCommand());
 
 // Agent integration commands (install MCP, import sessions, capture hooks)
-program.addCommand(createClaudeCommand());
+const claude = createClaudeCommand();
+// Deprecated alias: `me claude init` → `me project init` (warns; removed in a
+// future release). Registered here so claude.ts and project.ts don't cycle.
+claude.addCommand(
+  createProjectInitCommand({ deprecatedAlias: "me claude init" }),
+);
+program.addCommand(claude);
 program.addCommand(createOpenCodeCommand());
 program.addCommand(createGeminiCommand());
 program.addCommand(createCodexCommand());
