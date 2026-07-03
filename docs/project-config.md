@@ -120,13 +120,30 @@ Contrast the default (no `.me`), where captures nest **privately** under
 different private one.
 
 A leading `~` (your home) and `/`-separated paths are accepted; the path is
-normalized server-side. An explicit `me import git --project-tree <path>` still
-overrides the `.me` tree for that run. (The bulk `me import <tool>` sweep and the
-capture-plugin pins use `--tree-root` instead — a *parent* under which each
-project nests by slug — since they span many projects.)
+normalized server-side. An explicit `me import git --tree <path>` still
+overrides the `.me` tree for that run. (The bulk `me import <tool>` sweep uses
+`--tree-root` instead — a *parent* under which each project nests by slug —
+since it spans many projects.)
 
 The Claude/OpenCode capture hooks resolve the `.me` for the **session's** project,
 so a single globally-installed plugin routes each project to its own tree.
+
+## Changing the default tree root (`tree_root`)
+
+Without a `.me` `tree`, captures and imports nest per project under a **tree
+root** — `<tree_root>/<slug>/…` — which defaults to the private `~/projects`.
+To change that default machine-wide, set `tree_root` in your **global**
+`~/.config/me/config.yaml` (no command writes this; edit it by hand):
+
+```yaml
+# ~/.config/me/config.yaml
+tree_root: ~/work        # captures now nest at ~/work/<slug>/…
+```
+
+Resolution, highest-first: an explicit `--tree-root` flag → the project's
+`.me` `tree` (a full node — no slug appended) → the global `tree_root` →
+`~/projects`. A leading `~` and `/`-separators are accepted; the path is
+normalized server-side.
 
 ## The `capture` field (session capture on/off)
 

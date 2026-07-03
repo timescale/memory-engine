@@ -100,29 +100,42 @@ describe("resolveHookConfig", () => {
     expect(cfg?.treeRoot).toBe("~/projects");
   });
 
-  test("a .me projectTree (from creds) sets projectTree, keeping the default parent", () => {
+  test("a .me tree (from creds) sets tree, keeping the default parent", () => {
     const cfg = resolveHookConfig({
       server: "https://api.example.com",
       loggedIn: true,
       activeSpace: "eng123def456",
-      projectTree: "share.projects.foo",
+      tree: "share.projects.foo",
     });
-    expect(cfg?.projectTree).toBe("share.projects.foo");
+    expect(cfg?.tree).toBe("share.projects.foo");
     expect(cfg?.treeRoot).toBe("~/projects");
   });
 
-  test("an explicit --tree-root flag overrides the .me projectTree", () => {
+  test("a machine-wide tree_root (creds.treeRoot) replaces the default parent; the flag still wins", () => {
+    const base = {
+      server: "https://api.example.com",
+      loggedIn: true,
+      activeSpace: "eng123def456",
+      treeRoot: "~/work",
+    };
+    expect(resolveHookConfig(base)?.treeRoot).toBe("~/work");
+    expect(resolveHookConfig(base, { treeRoot: "share.work" })?.treeRoot).toBe(
+      "share.work",
+    );
+  });
+
+  test("an explicit --tree-root flag overrides the .me tree", () => {
     const cfg = resolveHookConfig(
       {
         server: "https://api.example.com",
         loggedIn: true,
         activeSpace: "eng123def456",
-        projectTree: "share.projects.foo",
+        tree: "share.projects.foo",
       },
       { treeRoot: "share.work" },
     );
     expect(cfg?.treeRoot).toBe("share.work");
-    expect(cfg?.projectTree).toBeUndefined();
+    expect(cfg?.tree).toBeUndefined();
   });
 });
 

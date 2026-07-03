@@ -106,7 +106,7 @@ me memory search --tree '~/projects.*' --limit 5
 Capture is the **same path as `me … import`** — one memory per message, with the
 identical layout and metadata, so live and imported sessions interleave cleanly:
 
-- **Tree**: the project's [`.me/config.yaml` `tree`](https://docs.memory.build/project-config) when set (`<tree>/agent_sessions` — e.g. `/share/projects/<slug>/agent_sessions` for a shared project), else the private `~/projects/<project>/agent_sessions` (your own home tree) — one node per project. There is no plugin-level tree setting: committed project config is the one routing surface.
+- **Tree**: the project's [`.me/config.yaml` `tree`](https://docs.memory.build/project-config) when set (`<tree>/agent_sessions` — e.g. `/share/projects/<slug>/agent_sessions` for a shared project), else `<tree_root>/<project>/agent_sessions` — your global `tree_root` override, default the private `~/projects` (your own home tree) — one node per project. There is no plugin-level tree setting: project routing is committed `.me` config; the machine-wide default is your own `~/.config/me/config.yaml`.
 - **Metadata**: the importer's `source_*` schema — `type: agent_session`, `source_tool: "claude"`, `source_session_id`, `source_message_id`, `source_message_role` (`user`/`assistant`), `source_project_slug` (from the git `origin` remote, else cwd basename), `content_mode`, `importer_version`, and (when available) `source_cwd` / `source_git_repo` / `source_model` / … See the full table in [agent session imports](https://docs.memory.build/cli/agent-session-imports).
 - **Temporal**: each memory's `start` is the **message** timestamp.
 

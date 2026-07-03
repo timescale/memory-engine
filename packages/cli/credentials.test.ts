@@ -188,9 +188,31 @@ test(".me space drives resolveSpace + resolveCredentials.activeSpace", () => {
   expect(creds.resolveCredentials().activeSpace).toBe("sp_from_me");
 });
 
-test(".me tree surfaces as resolveCredentials.projectTree", () => {
+test(".me tree surfaces as resolveCredentials.tree", () => {
   writeMe("tree: ~/projects/foo\n");
-  expect(creds.resolveCredentials().projectTree).toBe("~/projects/foo");
+  expect(creds.resolveCredentials().tree).toBe("~/projects/foo");
+});
+
+test("tree_root: unset by default; a config value surfaces as treeRoot", () => {
+  expect(creds.resolveCredentials().treeRoot).toBeUndefined();
+
+  mkdirSync(join(configDir, "me"), { recursive: true });
+  writeFileSync(join(configDir, "me", "config.yaml"), "tree_root: ~/work\n");
+  expect(creds.resolveCredentials().treeRoot).toBe("~/work");
+  // Independent axes: a .me `tree` (full node) rides alongside the parent.
+  writeMe("tree: /share/projects/foo\n");
+  const r = creds.resolveCredentials();
+  expect(r.treeRoot).toBe("~/work");
+  expect(r.tree).toBe("/share/projects/foo");
+});
+
+test("a malformed tree_root is a fatal config error", () => {
+  mkdirSync(join(configDir, "me"), { recursive: true });
+  writeFileSync(
+    join(configDir, "me", "config.yaml"),
+    "tree_root: 'has spaces!'\n",
+  );
+  expect(() => creds.resolveCredentials()).toThrow(/Invalid tree_root/);
 });
 
 // =============================================================================

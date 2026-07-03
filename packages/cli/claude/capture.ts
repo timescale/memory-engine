@@ -55,19 +55,20 @@ export interface HookConfig {
   space: string;
   /**
    * Tree root (parent + slug layout); captures nest as
-   * `<treeRoot>.<project>.agent_sessions`. Always the private `~/projects` —
-   * tree routing has exactly two levels: the `.me` `tree` (below), else this
-   * default. There is deliberately NO plugin-level tree pin (the retired
-   * `tree_root` userConfig): committed project config is the one routing
-   * surface, so a forgotten plugin value can never override a repo's `.me`.
+   * `<treeRoot>.<project>.agent_sessions`. The machine-wide `tree_root`
+   * config override when set, else the private `~/projects`. There is
+   * deliberately NO plugin-level tree pin (the retired `tree_root`
+   * userConfig): a forgotten plugin value could silently override a repo's
+   * committed `.me`.
    */
   treeRoot: string;
   /**
-   * The full project tree from a `.me/config.yaml` in the session's project, if
-   * any. When set, captures nest directly under it (`<projectTree>.agent_sessions`,
-   * NO slug) — it takes precedence over `<treeRoot>.<slug>`.
+   * The full project TREE from a `.me/config.yaml` in the session's project,
+   * if any. When set, captures nest directly under it
+   * (`<tree>.agent_sessions`, NO slug) — it takes precedence over
+   * `<treeRoot>.<slug>`.
    */
-  projectTree?: string;
+  tree?: string;
   /** content_mode=full_transcript → also store reasoning + tool calls/results. */
   fullTranscript: boolean;
   /**
@@ -91,6 +92,8 @@ export interface HookFallbackCreds {
    * project `.me` `capture` > machine-wide config > off.
    */
   captureEnabled?: boolean;
+  /** Machine-wide `tree_root` override (config.yaml); default `~/projects`. */
+  treeRoot?: string;
 }
 
 /**
@@ -147,9 +150,10 @@ export function resolveCaptureEnabled(
  * caller's fallback creds. The TREE has no plugin pin (the `tree_root`
  * userConfig is retired — a plugin-level value would silently override
  * committed project config): the `.me` `tree` (the full project node,
- * no-slug layout) wins, else the private `~/projects` parent+slug default —
- * the shared `share.projects` layout is a `.me` opt-in, never a default.
- * Returns null when no bearer or no space is available.
+ * no-slug layout) wins, else the parent+slug layout under the machine-wide
+ * `tree_root` config override, else the private `~/projects` — the shared
+ * `share.projects` layout is an explicit opt-in, never a default. Returns
+ * null when no bearer or no space is available.
  */
 export function resolveHookConfigFromEnv(
   env: NodeJS.ProcessEnv = process.env,
@@ -183,8 +187,8 @@ export function resolveHookConfigFromEnv(
     server,
     apiKey,
     space,
-    treeRoot: DEFAULT_PRIVATE_TREE_ROOT,
-    projectTree: project.tree,
+    treeRoot: creds.treeRoot ?? DEFAULT_PRIVATE_TREE_ROOT,
+    tree: project.tree,
     fullTranscript,
     asAgent: creds.asAgent,
   };

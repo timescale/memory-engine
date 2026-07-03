@@ -33,7 +33,7 @@ The marketplace step is idempotent (skipped if already configured). **By default
 
 A session (non-headless) install then:
 
-1. **Persists global defaults** into `~/.config/me` — the resolved server (`default_server`) and active space. The private `~/projects` tree root and "no agent" are code defaults, not written keys.
+1. **Persists global defaults** into `~/.config/me` — the resolved server (`default_server`) and active space. The private `~/projects` tree root and "no agent" are code defaults — install never writes them; to change the default tree root machine-wide, set [`tree_root`](../project-config.md#changing-the-default-tree-root-tree_root) in `~/.config/me/config.yaml` by hand.
 2. **Asks whether to turn on session capture** (default **no** — the capture hook ships inert). Say **yes** and it enables the machine-wide `capture: true` and runs a one-time machine-wide [`me import claude`](me-import.md) backfill — everything lands **privately** under `~/projects/<slug>`, per project. Say no and you get the tools only. Re-run `me claude install` any time to change the answer; a project's [`.me/config.yaml` `capture`](../project-config.md#the-capture-field-session-capture-onoff) overrides per project either way. (Non-interactive runs skip the prompt and leave the setting untouched.)
 
 Pass `--mcp-only` to skip the plugin and register just the `me` MCP server (no hooks, no slash commands -- the previous default behavior).

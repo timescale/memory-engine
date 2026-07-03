@@ -60,7 +60,7 @@ const projectConfigSchema = z
     /** Pins the space slug (the X-Me-Space). */
     space: z.string().min(1).optional(),
     /**
-     * The full project-tree root for integrations (capture hooks, `me import
+     * The full project TREE for integrations (capture hooks, `me import
      * git`). Integrations nest UNDER it without appending a project slug — so
      * `/share/projects/foo` yields `…/foo/agent_sessions`, not `…/foo/<slug>/…`.
      */

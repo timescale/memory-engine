@@ -16,7 +16,7 @@ describe("buildGitImportOptions", () => {
       full: false,
       merges: true,
       fileList: true,
-      projectTree: undefined,
+      tree: undefined,
       dryRun: false,
       verbose: false,
       skipIfNotRepo: false,
@@ -33,7 +33,7 @@ describe("buildGitImportOptions", () => {
         full: true,
         merges: false,
         fileList: false,
-        projectTree: "~/work",
+        tree: "~/work",
         dryRun: true,
         verbose: true,
         skipIfNotRepo: true,
@@ -48,15 +48,15 @@ describe("buildGitImportOptions", () => {
     expect(opts.full).toBe(true);
     expect(opts.merges).toBe(false);
     expect(opts.fileList).toBe(false);
-    expect(opts.projectTree).toBe("~/work");
+    expect(opts.tree).toBe("~/work");
     expect(opts.dryRun).toBe(true);
     expect(opts.verbose).toBe(true);
     expect(opts.skipIfNotRepo).toBe(true);
   });
 
-  test("rejects an invalid --project-tree", () => {
-    expect(() => buildGitImportOptions({ projectTree: "bad path!" })).toThrow(
-      /Invalid --project-tree/,
+  test("rejects an invalid --tree", () => {
+    expect(() => buildGitImportOptions({ tree: "bad path!" })).toThrow(
+      /Invalid --tree/,
     );
   });
 });

@@ -59,7 +59,7 @@ const MESSAGE_NAME_BODY_MAX = 128 - "msg_".length;
 /**
  * The ltree node for one session:
  * `<root>.<slug>.<sessionsNode>.<sessionLabel>` — or, when a `.me` project tree
- * is in effect, `<projectTree>.<sessionsNode>.<sessionLabel>` (no slug).
+ * is in effect, `<tree>.<sessionsNode>.<sessionLabel>` (no slug).
  * The session id is mapped to a valid, collision-free ltree label via
  * `boundedUniqueLabel` — `normalizeSlug` alone is lossy (e.g. it merges a UUID's
  * dashes), so distinct session ids could otherwise share one node. Each session
@@ -73,7 +73,7 @@ function sessionTree(
   const label = boundedUniqueLabel(sessionId, normalizeSlug, SESSION_LABEL_MAX);
   // A `.me` project tree is the full project node — nest sessions directly under
   // it (no slug). Otherwise the slug is the per-project node under `treeRoot`.
-  const projectNode = options.projectTree ?? `${options.treeRoot}.${slug}`;
+  const projectNode = options.tree ?? `${options.treeRoot}.${slug}`;
   return `${projectNode}.${options.sessionsNodeName}.${label}`;
 }
 
@@ -162,20 +162,21 @@ export interface WriteOptions {
    * The PARENT tree for the multi-project consumers — the bulk `me import
    * <tool>` sweep (walks many projects) and a global/headless plugin pin. The
    * per-project slug is appended: `<treeRoot>.<slug>.<sessionsNodeName>`. It is
-   * NOT redundant with `projectTree` (below): this one nests many projects by
-   * slug; `projectTree` is a single project's full node. Lenient wire form
+   * NOT redundant with `tree` (below): this one nests many projects by
+   * slug; `tree` is a single project's full node. Lenient wire form
    * (`~`/`/` accepted, `~` only as the first segment); normalized server-side.
    * Default: the private `~/projects` ({@link DEFAULT_PRIVATE_TREE_ROOT}).
    */
   treeRoot: string;
   /**
-   * A single project's full tree (e.g. from a `.me/config.yaml`). When set it is
-   * used verbatim as the project node and the per-project slug is NOT appended —
-   * sessions nest as `<projectTree>.<sessionsNodeName>.<label>` rather than
-   * `<treeRoot>.<slug>.<sessionsNodeName>.<label>`. Lenient wire form (`~`/`/`
-   * accepted); normalized server-side. Wins over `treeRoot` when present.
+   * A single project's full TREE (e.g. from a `.me/config.yaml` `tree`). When
+   * set it is used verbatim as the project node and the per-project slug is
+   * NOT appended — sessions nest as `<tree>.<sessionsNodeName>.<label>` rather
+   * than `<treeRoot>.<slug>.<sessionsNodeName>.<label>`. Lenient wire form
+   * (`~`/`/` accepted); normalized server-side. Wins over `treeRoot` when
+   * present.
    */
-  projectTree?: string;
+  tree?: string;
   /** Per-project node name for imported agent sessions. */
   sessionsNodeName: string;
   /** Include full transcript (reasoning/tool calls) in message memories. */

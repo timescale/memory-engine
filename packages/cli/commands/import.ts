@@ -118,17 +118,18 @@ function addCommonOptions(
  * Validates --tree-root syntax and the ISO filter bounds.
  *
  * Tree resolution mirrors the capture hook, highest-first: an explicit
- * `--tree-root` (parent + slug) > the `.me/config.yaml` `tree`
- * (`projectTree` — the full project node, no slug) > the private
- * `~/projects` default (parent + slug). The `.me` tree applies only to a run
- * scoped to one project (`--project`): it is a single project's node, so a
- * bare multi-project sweep must keep the parent+slug fallback (per-session
- * `.me` resolution for bare sweeps is future work) — this way a scoped
- * backfill lands exactly where live capture does, with no flags.
+ * `--tree-root` (parent + slug) > the `.me/config.yaml` `tree` (the full
+ * project node, no slug) > the parent+slug layout under the machine-wide
+ * `tree_root` config override, else the private `~/projects`. The `.me`
+ * tree applies only to a run scoped to one project (`--project`): it is a
+ * single project's node, so a bare multi-project sweep must keep the
+ * parent+slug fallback (per-session `.me` resolution for bare sweeps is
+ * future work) — this way a scoped backfill lands exactly where live
+ * capture does, with no flags.
  */
 export function buildOptions(
   opts: Record<string, unknown>,
-  creds?: { projectTree?: string },
+  creds?: { tree?: string; treeRoot?: string },
 ): {
   importer: ImporterOptions;
   write: WriteOptions;
@@ -136,11 +137,11 @@ export function buildOptions(
   const explicitTreeRoot = typeof opts.treeRoot === "string";
   const treeRoot = explicitTreeRoot
     ? (opts.treeRoot as string)
-    : DEFAULT_PRIVATE_TREE_ROOT;
-  const projectTree =
+    : (creds?.treeRoot ?? DEFAULT_PRIVATE_TREE_ROOT);
+  const tree =
     explicitTreeRoot || typeof opts.project !== "string"
       ? undefined
-      : creds?.projectTree;
+      : creds?.tree;
   const sessionsNodeName =
     typeof opts.sessionsNodeName === "string"
       ? opts.sessionsNodeName
@@ -176,7 +177,7 @@ export function buildOptions(
   };
   const write: WriteOptions = {
     treeRoot,
-    projectTree,
+    tree,
     sessionsNodeName,
     fullTranscript: opts.fullTranscript === true,
     dryRun: opts.dryRun === true,
@@ -276,7 +277,7 @@ function renderResult(
     tool,
     dryRun: write.dryRun,
     treeRoot: write.treeRoot,
-    projectTree: write.projectTree ?? null,
+    tree: write.tree ?? null,
     sessionsNodeName: write.sessionsNodeName,
     fullTranscript: write.fullTranscript,
     totalFiles: result.discovery.totalFiles,

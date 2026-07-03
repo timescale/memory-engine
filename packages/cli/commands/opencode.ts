@@ -292,7 +292,7 @@ function createOpenCodeHookCommand(): Command {
           });
           await importTranscriptFile(client, opencodeImporter, sessionFile, {
             treeRoot: config.treeRoot,
-            projectTree: config.projectTree,
+            tree: config.tree,
             sessionsNodeName: SESSIONS_NODE,
             fullTranscript: config.fullTranscript,
             dryRun: false,
