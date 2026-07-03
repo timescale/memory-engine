@@ -90,14 +90,14 @@ For OpenCode, `me opencode init` goes further — it backfills existing sessions
 me opencode init             # guided per-project setup
 ```
 
-For Claude Code, `me claude install` installs the full Memory Engine plugin (hooks + slash commands + MCP):
+For Claude Code, `me claude install` installs the one user-scoped Memory Engine plugin (hooks + slash commands + MCP) — run it once, it applies to every project:
 
 ```bash
-me claude install            # full plugin
+me claude install            # full plugin (once, user scope)
 me claude install --mcp-only # or just the MCP server
 ```
 
-This drives Claude Code's native plugin flow for you (`claude plugin marketplace add` + `claude plugin install`), passing your resolved server/space/api_key through `--config`. Afterwards, restart Claude Code (or run `/plugin`) to load the hooks and slash commands; you can re-run `/plugin` → `memory-engine` → Configure to adjust options. All are optional except `server`: leave `api_key` blank to use your `me login` session, leave `space` blank to use your active space, and `tree_root` defaults to `/share/projects`.
+This drives Claude Code's native plugin flow for you (`claude plugin marketplace add` + `claude plugin install`), then persists your resolved server + active space as global defaults and **asks whether to capture your Claude Code sessions as memories**. Capture is **off by default**; opt in and new sessions (plus a one-time backfill of your existing ones) are captured **privately** under `~/projects/<repo>` — sharing with a team is a separate, per-project choice via [`.me/config.yaml`](project-config.md). Afterwards, restart Claude Code (or run `/plugin`) to load the hooks and slash commands; re-run `/plugin` → `memory-engine` → Configure to adjust options, or re-run `me claude install` to change the capture answer.
 
 After installation, your AI agent has access to memory tools -- create, search, get, update, delete, and more.
 

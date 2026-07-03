@@ -3,9 +3,9 @@
  *
  * `me claude install` has two modes:
  *
- *   1. Full plugin (default) — installs the Memory Engine plugin (hooks +
- *      slash commands + MCP) via Claude Code's native plugin marketplace,
- *      driving the same commands you'd otherwise run by hand:
+ *   1. Full plugin (default) — installs the ONE user-scoped Memory Engine
+ *      plugin (hooks + slash commands + MCP) via Claude Code's native plugin
+ *      marketplace, driving the same commands you'd otherwise run by hand:
  *
  *        claude plugin marketplace add timescale/memory-engine
  *        claude plugin install memory-engine@memory-engine \
@@ -20,6 +20,13 @@
  *      (`--api-key` / ME_API_KEY) marks a headless install — no session to fall
  *      back to — so it bakes in a fixed server + space + key together.
  *
+ *      A session (non-headless) install then persists global defaults into
+ *      `~/.config/me` — the resolved server + active space — and ASKS whether
+ *      to turn on session capture (default no; the hook ships inert). Opting
+ *      in writes the machine-wide `capture: true` and runs a one-time
+ *      machine-wide `me import claude` backfill; per-project `.me/config.yaml`
+ *      `capture` still overrides either way.
+ *
  *      Pass --dev (run from inside the repo) to install the plugin from your
  *      local checkout — the repo's .claude-plugin/marketplace.json — instead of
  *      the published marketplace. The two share the marketplace name
@@ -33,7 +40,7 @@
 import { existsSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import * as clack from "@clack/prompts";
-import { Command, InvalidArgumentError } from "commander";
+import { Command } from "commander";
 import {
   buildInitCommand,
   DIM,
@@ -59,7 +66,13 @@ import {
   SESSIONS_NODE,
 } from "../claude/capture.ts";
 import { createMemoryClient } from "../client.ts";
-import { resolveCredentials } from "../credentials.ts";
+import {
+  getGlobalCaptureEnabled,
+  resolveCredentials,
+  setActiveSpace,
+  setCaptureEnabled,
+  setDefaultServer,
+} from "../credentials.ts";
 import { claudeImporter } from "../importers/claude.ts";
 import { importTranscriptFile } from "../importers/index.ts";
 import { SlugRegistry } from "../importers/slug.ts";
@@ -83,24 +96,21 @@ const PLUGIN_MARKETPLACE_NAME = "memory-engine";
 /** `<plugin>@<marketplace>` ref for `claude plugin install`. */
 const PLUGIN_REF = `memory-engine@${PLUGIN_MARKETPLACE_NAME}`;
 
-const CLAUDE_SCOPES = ["local", "user", "project"] as const;
-type ClaudeScope = (typeof CLAUDE_SCOPES)[number];
-
-function parseClaudeScope(value: string): ClaudeScope {
-  if (!CLAUDE_SCOPES.includes(value as ClaudeScope)) {
-    throw new InvalidArgumentError(
-      `must be one of: ${CLAUDE_SCOPES.join(", ")}`,
-    );
-  }
-  return value as ClaudeScope;
-}
+/**
+ * The one plugin install is user-scoped — there is no `--scope` choice.
+ * Per-project behavior comes from committed config (`.me/config.yaml`), not
+ * from a second project-scope plugin.
+ */
+const PLUGIN_SCOPE = "user";
 
 /**
  * me claude install — install the Memory Engine plugin for Claude Code.
  *
- * Default: the full plugin (hooks + slash commands + MCP), installed via
- * Claude Code's native plugin marketplace. `--mcp-only` falls back to
- * registering just the `me` MCP server (no hooks, no slash commands).
+ * Default: the full plugin (hooks + slash commands + MCP), installed once at
+ * user scope via Claude Code's native plugin marketplace, then persist global
+ * defaults + the capture opt-in (see {@link runClaudeInstallFlow}).
+ * `--mcp-only` falls back to registering just the `me` MCP server (no hooks,
+ * no slash commands).
  */
 function createClaudeInstallCommand(): Command {
   return new Command("install")
@@ -121,19 +131,12 @@ function createClaudeInstallCommand(): Command {
       "pin a space (default: resolve ME_SPACE / active space at runtime)",
     )
     .option(
-      "-s, --scope <scope>",
-      `Claude Code config scope (${CLAUDE_SCOPES.join(", ")})`,
-      parseClaudeScope,
-      "user",
-    )
-    .option(
       "--dev",
       "install the plugin from the local checkout instead of the published marketplace (run from inside the repo)",
     )
     .action(
       async (
         opts: AgentInstallOptions & {
-          scope: ClaudeScope;
           mcpOnly?: boolean;
           dev?: boolean;
         },
@@ -151,17 +154,19 @@ function createClaudeInstallCommand(): Command {
             apiKey: opts.apiKey,
             server,
             space: opts.space,
-            scope: opts.scope,
+            scope: PLUGIN_SCOPE,
           });
           return;
         }
-        await runClaudePluginInstall({
-          apiKey: opts.apiKey,
-          server,
-          space: opts.space,
-          scope: opts.scope,
-          dev: opts.dev,
-        });
+        await runClaudeInstallFlow(
+          {
+            apiKey: opts.apiKey,
+            server,
+            space: opts.space,
+            dev: opts.dev,
+          },
+          globalOpts,
+        );
       },
     );
 }
@@ -264,7 +269,8 @@ export function buildPluginConfig(
 }
 
 /**
- * Install the full Memory Engine plugin for Claude Code.
+ * Install the full Memory Engine plugin for Claude Code (user scope, the one
+ * plugin — see {@link PLUGIN_SCOPE}).
  *
  * Drives Claude Code's plugin CLI: registers the marketplace (idempotent — a
  * no-op if it's already configured) and installs the plugin, baking in only the
@@ -273,9 +279,13 @@ export function buildPluginConfig(
  * (`--space`, `ME_SPACE`, or your active space — it gets baked in), since a
  * global key has no active space to fall back to at runtime; otherwise the
  * plugin uses your `me login` session.
+ *
+ * Install only — persisting global defaults and the capture prompt live in
+ * {@link runClaudeInstallFlow} (so callers like the init step can install
+ * without prompting).
  */
-async function runClaudePluginInstall(
-  opts: AgentInstallOptions & { scope: ClaudeScope; dev?: boolean },
+export async function runClaudePluginInstall(
+  opts: AgentInstallOptions & { dev?: boolean },
 ): Promise<void> {
   if (Bun.which("claude") === null) {
     clack.log.error(
@@ -331,7 +341,7 @@ async function runClaudePluginInstall(
       "uninstall",
       "-y",
       "-s",
-      opts.scope,
+      PLUGIN_SCOPE,
       PLUGIN_REF,
     ]);
     await runCommand([
@@ -347,7 +357,7 @@ async function runClaudePluginInstall(
       "marketplace",
       "add",
       "--scope",
-      opts.scope,
+      PLUGIN_SCOPE,
       marketplaceSource,
     ]);
     if (add.exitCode !== 0 && !/already/i.test(add.stderr + add.stdout)) {
@@ -370,7 +380,7 @@ async function runClaudePluginInstall(
         "marketplace",
         "add",
         "--scope",
-        opts.scope,
+        PLUGIN_SCOPE,
         marketplaceSource,
       ]);
       if (add.exitCode !== 0 && !/already/i.test(add.stderr + add.stdout)) {
@@ -393,7 +403,7 @@ async function runClaudePluginInstall(
     "plugin",
     "install",
     "--scope",
-    opts.scope,
+    PLUGIN_SCOPE,
     ...config,
     PLUGIN_REF,
   ];
@@ -422,6 +432,93 @@ async function runClaudePluginInstall(
   clack.log.info(
     "Restart Claude Code (or run '/plugin') to load the hooks + slash commands.",
   );
+}
+
+/**
+ * The full `me claude install` flow: install the plugin, then — for a session
+ * (non-headless) install — persist global defaults and ask about capture.
+ *
+ *   1. {@link runClaudePluginInstall} (a re-run of an already-installed plugin
+ *      is fine — the flow continues, so re-running `me claude install` is how
+ *      you change the capture setting later).
+ *   2. Persist the resolved server + active space into `~/.config/me`
+ *      (`setDefaultServer` / `setActiveSpace`) so the plugin's runtime
+ *      fallbacks are deterministic. The private `~/projects` tree root and
+ *      "no agent" are code defaults — nothing else is written.
+ *   3. Ask (interactive TTY only; default = the current setting, initially
+ *      off) whether to capture sessions. Yes → `setCaptureEnabled(true)` +
+ *      a one-time machine-wide `me import claude` backfill (each project's
+ *      sessions land under the same private `~/projects/<slug>` node live
+ *      capture uses). No → `setCaptureEnabled(false)`; the hook stays inert.
+ *
+ * A headless install (api key) skips 2–3: the config is baked into the plugin
+ * for whatever machine it runs on, and this machine's `~/.config/me` — the
+ * operator's — is not the agent's.
+ */
+export async function runClaudeInstallFlow(
+  opts: AgentInstallOptions & { dev?: boolean },
+  globalOpts: Record<string, unknown>,
+): Promise<void> {
+  await runClaudePluginInstall(opts);
+
+  const creds = resolveCredentials(opts.server);
+  const headless = Boolean(opts.apiKey ?? creds.apiKey);
+  if (headless) return;
+
+  // Persist global defaults: the server + space this install resolved.
+  setDefaultServer(creds.server);
+  const space = opts.space ?? creds.activeSpace;
+  if (space) setActiveSpace(creds.server, space);
+
+  // Capture opt-in. Non-interactive runs leave the setting untouched (no
+  // prompt to answer); the hook then stays inert unless previously enabled.
+  const interactive =
+    Boolean(process.stdin.isTTY) && Boolean(process.stdout.isTTY);
+  if (!interactive) {
+    if (!getGlobalCaptureEnabled()) {
+      clack.log.info(
+        "Session capture is off — the plugin provides the memory tools only. " +
+          "Re-run 'me claude install' in a terminal to enable capture.",
+      );
+    }
+    return;
+  }
+
+  const wasEnabled = getGlobalCaptureEnabled();
+  const answer = await clack.confirm({
+    message:
+      "Capture your Claude Code sessions as memories? They stay private to " +
+      "you (under ~/projects/<repo>) unless a project explicitly shares them.",
+    initialValue: wasEnabled,
+  });
+  if (clack.isCancel(answer)) {
+    clack.log.info(
+      `Capture left ${wasEnabled ? "on" : "off"} — re-run 'me claude install' to change it.`,
+    );
+    return;
+  }
+  setCaptureEnabled(answer);
+  if (!answer) {
+    clack.log.info(
+      "Capture is off — the plugin provides the memory tools only. " +
+        "Re-run 'me claude install' to enable it later.",
+    );
+    return;
+  }
+
+  clack.log.success(
+    "Capture is on. New sessions are captured privately to ~/projects/<repo>.",
+  );
+  if (!space) {
+    clack.log.warn(
+      "No active space — skipping the session backfill. Run 'me space use <space>', then 'me import claude'.",
+    );
+    return;
+  }
+  // One-time machine-wide backfill of existing sessions, landing per-project
+  // under the same private `~/projects/<slug>` nodes live capture uses.
+  clack.log.step("Backfilling your existing Claude Code sessions...");
+  await runAgentImport(claudeImporter, {}, globalOpts);
 }
 
 /**
@@ -626,7 +723,13 @@ const INIT_STEPS: InitStep[] = [
     doneLabel: "Claude Code plugin already installed",
     rerunLabel:
       "Reinstall the Claude Code plugin — captures new sessions going forward (already installed)",
-    run: ({ server }) => runClaudePluginInstall({ server, scope: "user" }),
+    run: async ({ server }) => {
+      await runClaudePluginInstall({ server });
+      // The step's promise is ongoing capture, so selecting it is the opt-in:
+      // enable the machine-wide capture setting (the hook ships inert without
+      // it). Destination stays private (~/projects/<slug>) per the defaults.
+      setCaptureEnabled(true);
+    },
   },
   {
     id: "git-import",

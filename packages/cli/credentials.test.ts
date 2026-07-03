@@ -297,6 +297,14 @@ test("logout clears the secret but keeps the active space", () => {
   expect(r.activeSpace).toBe("abc123def456"); // non-secret config survives logout
 });
 
+test("setDefaultServer persists the default server without touching secrets", () => {
+  creds.setDefaultServer("https://picked.example.com/");
+  expect(creds.getDefaultServer()).toBe("https://picked.example.com");
+  // No secrets side effects: nothing stored, still logged out.
+  expect(creds.resolveCredentials().loggedIn).toBe(false);
+  expect(creds.resolveCredentials().server).toBe("https://picked.example.com");
+});
+
 test("capture: off by default; setCaptureEnabled persists the machine-wide flag", () => {
   expect(creds.getGlobalCaptureEnabled()).toBe(false);
   expect(creds.resolveCredentials(SERVER).captureEnabled).toBe(false);

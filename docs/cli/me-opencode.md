@@ -86,7 +86,7 @@ me opencode hook --event <idle|deleted> --session <id> [options]
 | `--event <name>` | hook event name (`idle`, `deleted`) |
 | `--session <id>` | OpenCode session id (e.g. `ses_abc123`) |
 | `--storage <dir>` | OpenCode storage dir (default: standard location) |
-| `--tree-root <ltree>` | tree root for captures (default: `share.projects`) |
+| `--tree-root <ltree>` | tree root for captures (default: the private `~/projects`) |
 | `--full-transcript` | also store reasoning + tool calls/results |
 
 Best-effort: it logs failures to stderr but always exits 0, so a capture failure never blocks an OpenCode session.

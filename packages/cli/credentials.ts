@@ -432,6 +432,18 @@ export function clearServerCredentials(server: string): void {
 // Active space (config)
 // =============================================================================
 
+/**
+ * Persist the default server (config.yaml `default_server`) without touching
+ * secrets. `me login` (storeTokens) does this as part of storing a token set;
+ * this is the standalone writer for flows that pin the currently-resolved
+ * server as a global default (e.g. `me claude install`).
+ */
+export function setDefaultServer(server: string): void {
+  const config = readConfig();
+  config.default_server = normalizeOrigin(server);
+  writeConfig(config);
+}
+
 /** Set the active space (the X-Me-Space) for a server. */
 export function setActiveSpace(server: string, spaceSlug: string): void {
   const config = readConfig();
