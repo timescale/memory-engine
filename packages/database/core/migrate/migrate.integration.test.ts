@@ -58,6 +58,7 @@ const EXPECTED_MIGRATIONS = [
   "011_group_member_space_fk",
   "012_default_groups",
   "013_invite_groups",
+  "014_space_access_defaults",
 ];
 
 const EXPECTED_FUNCTIONS = [
@@ -746,6 +747,116 @@ describe("control-plane functions", () => {
       expect(agentTa?.ta as Grant[]).toEqual([
         { tree_path: agentHomePath(userId, agentId), access: 3 },
       ]);
+    });
+  });
+
+  test("add_principal_to_space suppresses owner@home when the space has auto_grant_home=false", async () => {
+    await withTestCore(sql, {}, async (core) => {
+      const s = core.schema;
+      // custom space: auto_grant_home = false (4th create_space arg)
+      const [sp] = await sql.unsafe(
+        `select ${s}.create_space($1, $2, $3, $4) as id`,
+        [randomSlug(), "Custom", "english", false],
+      );
+      const spaceId = sp?.id as string;
+
+      const userId = await v7();
+      await sql.unsafe(`select ${s}.create_user($1, $2)`, [userId, "no-home"]);
+      const agentId = await v7();
+      await sql.unsafe(`select ${s}.create_agent($1, $2, $3)`, [
+        userId,
+        `agent_${randomSlug()}`,
+        agentId,
+      ]);
+
+      for (const id of [userId, agentId]) {
+        await sql.unsafe(`select ${s}.add_principal_to_space($1, $2, $3)`, [
+          spaceId,
+          id,
+          false,
+        ]);
+      }
+
+      const grants = async (id: string): Promise<Grant[]> => {
+        const rows = await sql.unsafe(
+          `select tree_path::text, access from ${s}.tree_access
+           where space_id = $1 and principal_id = $2`,
+          [spaceId, id],
+        );
+        return rows as unknown as Grant[];
+      };
+      // neither the user nor the agent gets an owner@home grant
+      expect(await grants(userId)).toEqual([]);
+      expect(await grants(agentId)).toEqual([]);
+    });
+  });
+
+  test("014 backfill semantics: flags each space's existing 'team' group as its default", async () => {
+    await withTestCore(sql, {}, async (core) => {
+      const s = core.schema;
+      // a space with a 'team' group NOT yet flagged (the pre-014 state;
+      // create_group defaults is_default_group=false)
+      const [sp] = await sql.unsafe(`select ${s}.create_space($1, $2) as id`, [
+        randomSlug(),
+        "Backfill",
+      ]);
+      const spaceId = sp?.id as string;
+      const [g] = await sql.unsafe(
+        `select ${s}.create_group($1, $2, false) as id`,
+        [spaceId, "team"],
+      );
+      const teamId = g?.id as string;
+      // and a non-team group that must NOT be flagged
+      const [og] = await sql.unsafe(
+        `select ${s}.create_group($1, $2, false) as id`,
+        [spaceId, `other_${randomSlug()}`],
+      );
+      const otherId = og?.id as string;
+
+      const isDefault = async (id: string) => {
+        const [row] = await sql.unsafe(
+          `select is_default_group from ${s}.principal where id = $1`,
+          [id],
+        );
+        return Boolean(row?.is_default_group);
+      };
+      expect(await isDefault(teamId)).toBe(false);
+
+      // the backfill's data step (the DDL from 014 already ran in migrateCore)
+      await sql.unsafe(
+        `update ${s}.principal set is_default_group = true
+         where group_id is not null and name = 'team'`,
+      );
+
+      expect(await isDefault(teamId)).toBe(true);
+      expect(await isDefault(otherId)).toBe(false);
+
+      // the partial-unique index (from 014) rejects a second default group
+      await expectReject(() =>
+        sql.unsafe(
+          `select ${s}.create_group($1, $2, false, null, true) as id`,
+          [spaceId, `dup_${randomSlug()}`],
+        ),
+      );
+    });
+  });
+
+  test("principal.is_default_group is restricted to groups (check constraint)", async () => {
+    await withTestCore(sql, {}, async (core) => {
+      const s = core.schema;
+      const userId = await v7();
+      await sql.unsafe(`select ${s}.create_user($1, $2)`, [
+        userId,
+        "not-a-grp",
+      ]);
+
+      // flagging a non-group principal violates principal_default_group_is_group_check
+      await expectReject(() =>
+        sql.unsafe(
+          `update ${s}.principal set is_default_group = true where id = $1`,
+          [userId],
+        ),
+      );
     });
   });
 

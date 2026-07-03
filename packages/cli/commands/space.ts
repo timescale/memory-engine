@@ -18,7 +18,6 @@
  * immutable 12-char routing key; the name is the renamable display label.
  */
 import * as clack from "@clack/prompts";
-import { DEFAULT_GROUP_NAME } from "@memory.build/protocol";
 import type { MemberSpaceResponse } from "@memory.build/protocol/user";
 import { Command } from "commander";
 import {
@@ -26,6 +25,7 @@ import {
   getDefaultServer,
   getServerConfig,
   normalizeOrigin,
+  type ResolvedCredentials,
   resolveCredentials,
   setActiveSpace,
 } from "../credentials.ts";
@@ -209,29 +209,90 @@ function createSpaceUseCommand(): Command {
 }
 
 function createSpaceCreateCommand(): Command {
-  return new Command("create")
-    .description("create a new space and make it active")
-    .argument("<name>", "space display name")
-    .action(async (name: string, _opts, cmd) => {
-      const globalOpts = cmd.optsWithGlobals();
-      const creds = resolveCredentials(globalOpts.server);
-      const fmt = getOutputFormat(globalOpts);
-      requireAuth(creds, fmt);
+  return (
+    new Command("create")
+      .description("create a new space and make it active")
+      .argument("<name>", "space display name")
+      // Custom-space flags. All optional; with none, today's
+      // conventions apply (home grants on, a granted "team" default group).
+      .option(
+        "--no-home-grants",
+        "joiners get no owner@~; you get god mode (admin + owner@/)",
+      )
+      .option(
+        "--default-group <name>",
+        "name the default/invite group (default: team)",
+      )
+      .option(
+        "--no-default-group-grants",
+        "create the default group without read@/share + write@/share/projects",
+      )
+      .option("--no-default-group", "don't create a default group at all")
+      .option(
+        "--custom",
+        "fully manual: implies --no-home-grants and --no-default-group",
+      )
+      .action(async (name: string, opts, cmd) => {
+        const globalOpts = cmd.optsWithGlobals();
+        const creds = resolveCredentials(globalOpts.server);
+        const fmt = getOutputFormat(globalOpts);
+        requireAuth(creds, fmt);
 
-      const user = buildUserClient(creds);
+        // Commander dests: --no-home-grants → homeGrants:false;
+        // --no-default-group-grants → defaultGroupGrants:false;
+        // --default-group <name> / --no-default-group share `defaultGroup`
+        // (string | false | undefined).
+        const custom = opts.custom === true;
+        const namedGroup =
+          typeof opts.defaultGroup === "string" ? opts.defaultGroup : undefined;
+        const noDefaultGroup = opts.defaultGroup === false;
+        const noGroupGrants = opts.defaultGroupGrants === false;
 
-      try {
-        const created = await user.space.create({ name });
-        // A new space's creator is its admin + owner@root — make it active.
-        setActiveSpace(creds.server, created.slug);
-        output({ ...created, name, active: true }, fmt, () => {
-          clack.log.success(`Created space '${name}' (${created.slug})`);
-          clack.log.info("It is now your active space.");
-        });
-      } catch (error) {
-        handleError(error, fmt, { creds });
-      }
-    });
+        // Conflicts: contradictory flag combinations.
+        if (custom && namedGroup !== undefined) {
+          failWith(
+            "--custom implies --no-default-group; drop --default-group.",
+            fmt,
+          );
+        }
+        if (custom && noGroupGrants) {
+          failWith(
+            "--custom implies --no-default-group; drop --no-default-group-grants.",
+            fmt,
+          );
+        }
+        if (noDefaultGroup && noGroupGrants) {
+          failWith(
+            "--no-default-group and --no-default-group-grants conflict (no group vs. a grantless group).",
+            fmt,
+          );
+        }
+
+        const params: {
+          name: string;
+          autoGrantHome?: boolean;
+          defaultGroupName?: string | null;
+          defaultGroupGrants?: boolean;
+        } = { name };
+        if (opts.homeGrants === false || custom) params.autoGrantHome = false;
+        if (custom || noDefaultGroup) params.defaultGroupName = null;
+        else if (namedGroup !== undefined) params.defaultGroupName = namedGroup;
+        if (noGroupGrants) params.defaultGroupGrants = false;
+
+        const user = buildUserClient(creds);
+
+        try {
+          const created = await user.space.create(params);
+          setActiveSpace(creds.server, created.slug);
+          output({ ...created, name, active: true }, fmt, () => {
+            clack.log.success(`Created space '${name}' (${created.slug})`);
+            clack.log.info("It is now your active space.");
+          });
+        } catch (error) {
+          handleError(error, fmt, { creds });
+        }
+      })
+  );
 }
 
 function createSpaceRenameCommand(): Command {
@@ -423,7 +484,7 @@ function createSpaceInviteRevokeCommand(): Command {
 function parseExpires(raw: string, fmt: OutputFormat): string {
   const m = /^(\d+)([dhm])$/.exec(raw.trim());
   if (!m) {
-    inviteFail(
+    failWith(
       `Invalid --expires '${raw}'. Use <n>d | <n>h | <n>m (e.g. 7d).`,
       fmt,
     );
@@ -439,7 +500,26 @@ function inviteUrl(server: string, token: string): string {
 }
 
 /** Print an invite-command error per output mode and exit. Never returns. */
-function inviteFail(msg: string, fmt: OutputFormat): never {
+/**
+ * The active space's default group name (is_default_group), or null if it has
+ * none. Read from `space.list` (which surfaces `defaultGroup`) so `me space
+ * invite` targets the space's own default instead of a hardcoded "team".
+ */
+async function resolveActiveSpaceDefaultGroup(
+  creds: ResolvedCredentials,
+  fmt: OutputFormat,
+): Promise<string | null> {
+  const user = buildUserClient(creds);
+  try {
+    const { spaces } = await user.space.list();
+    const active = spaces.find((s) => s.slug === creds.activeSpace);
+    return active?.defaultGroup?.name ?? null;
+  } catch (error) {
+    handleError(error, fmt, { creds, scope: "space" });
+  }
+}
+
+function failWith(msg: string, fmt: OutputFormat): never {
   if (fmt === "text") {
     clack.log.error(msg);
   } else {
@@ -481,13 +561,13 @@ function createSpaceInviteCommand(): Command {
       const anyone = opts.anyone === true;
       // Exactly one audience: a specific --email, or --anyone (an open link).
       if (!email && !anyone) {
-        inviteFail(
+        failWith(
           "Choose an audience: --email <addr> for one person, or --anyone for an open link.",
           fmt,
         );
       }
       if (email && anyone) {
-        inviteFail("Use either --email or --anyone, not both.", fmt);
+        failWith("Use either --email or --anyone, not both.", fmt);
       }
 
       const expiresAt = opts.expires
@@ -497,18 +577,28 @@ function createSpaceInviteCommand(): Command {
       if (opts.maxUses !== undefined) {
         const n = Number.parseInt(opts.maxUses as string, 10);
         if (!Number.isInteger(n) || n <= 0) {
-          inviteFail("--max-uses must be a positive integer.", fmt);
+          failWith("--max-uses must be a positive integer.", fmt);
         }
         maxUses = n;
       }
 
       const memory = buildMemoryClient(creds);
-      // --group is repeatable and defaults to just "team"; resolve each name/id to
-      // a group id (errors if the space has no such group). The joiner's access is
-      // the union of these groups' grants.
-      const groupNames = (opts.group as string[]).length
-        ? (opts.group as string[])
-        : [DEFAULT_GROUP_NAME];
+      // --group is repeatable; resolve each name/id to a group id (errors if the
+      // space has no such group). The joiner's access is the union of these
+      // groups' grants. When omitted, default to THIS space's default group
+      // (is_default_group) rather than a hardcoded "team" — a custom space may
+      // have renamed it or have none (then --group is required).
+      let groupNames = opts.group as string[];
+      if (groupNames.length === 0) {
+        const defaultGroup = await resolveActiveSpaceDefaultGroup(creds, fmt);
+        if (!defaultGroup) {
+          failWith(
+            "This space has no default group; pass --group <name-or-id>.",
+            fmt,
+          );
+        }
+        groupNames = [defaultGroup];
+      }
       const groupsLabel = groupNames.join(", ");
       try {
         const groupIds = await resolveGroupIds(memory, groupNames, fmt);

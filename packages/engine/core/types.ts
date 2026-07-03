@@ -38,6 +38,10 @@ export interface Space {
 /** A space a principal is a direct member of, with the principal's effective admin flag. */
 export interface MemberSpace extends Space {
   admin: boolean;
+  /** Whether joining users/agents automatically get owner@~ (custom spaces set false). */
+  autoGrantHome: boolean;
+  /** The space's default/invite group (is_default_group), or null if it has none. */
+  defaultGroup: { id: string; name: string } | null;
 }
 
 export interface Principal {

@@ -58,15 +58,28 @@ still overrides whatever was saved.
 
 ## me space create
 
-Create a new space and make it active. As the creator you become a space **admin** and receive `owner@home` and `owner@share` (not `owner@root`).
+Create a new space and make it active. As the creator you always become a space **admin** (so you can reshape access however you like); the flags below only set the space's **default** access. With no flags you get today's conventions: `owner@home` + `owner@share` (not `owner@root`), joining users/agents automatically get `owner@~`, and a default `team` group is created with `read@/share` + `write@/share/projects`.
 
 ```
-me space create <name>
+me space create <name> [--no-home-grants] [--default-group <name>]
+                       [--no-default-group-grants] [--no-default-group] [--custom]
 ```
 
 | Argument | Required | Description |
 |----------|----------|-------------|
 | `name` | yes | Display name for the space. |
+
+| Option | Description |
+|--------|-------------|
+| `--no-home-grants` | Joining users **and** agents get no `owner@~`. You (the creator) get **god mode** instead: `admin` + `owner@/` (the whole space). |
+| `--default-group <name>` | Name the default/invite group (default `team`). |
+| `--no-default-group-grants` | Create the default group **without** `read@/share` + `write@/share/projects` — a grantless group you configure by hand. |
+| `--no-default-group` | Don't create a default group at all. |
+| `--custom` | Shortcut for `--no-home-grants --no-default-group` (a fully manual, god-mode space). |
+
+The name, grants, and existence of the default group are independent axes, so `--default-group team` behaves exactly like the bare default. Conflicting combinations error (e.g. `--no-default-group` with `--default-group`/`--no-default-group-grants`, or `--custom` with either group flag).
+
+> **Note:** in a space where members get no automatic access (`--no-home-grants` and no granted default group), a fresh joiner holds **zero grants and is locked out** until you grant them access — grant a default group `read@/share` once and invite through it (see [`me space invite`](#me-space-invite)) so joiners land read-only.
 
 ---
 
@@ -105,7 +118,7 @@ me space delete <space> [--force]
 
 ## me space invite
 
-Invite someone to the active space, or create an open shareable link. Every invite adds its redeemer to one or more **groups** (default `team`) — the union of those groups' grants becomes the joiner's shared access. Every invite is **pending** until the invitee accepts (email invite) or redeems the link; nothing auto-enrolls. **Admin only.**
+Invite someone to the active space, or create an open shareable link. Every invite adds its redeemer to one or more **groups** — the union of those groups' grants becomes the joiner's shared access. When `--group` is omitted it defaults to the space's own **default group** (usually `team`, but a custom space may have renamed it or have none — then `--group` is required). Every invite is **pending** until the invitee accepts (email invite) or redeems the link; nothing auto-enrolls. **Admin only.**
 
 ```
 me space invite --email <addr> [--admin] [--group <name-or-id> ...]

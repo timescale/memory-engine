@@ -14,6 +14,7 @@ import {
   type MemberSpace,
   type Space,
 } from "@memory.build/engine/core";
+import { DEFAULT_GROUP_NAME } from "@memory.build/protocol";
 import type {
   MemberSpaceResponse,
   SpaceCreateParams,
@@ -35,7 +36,11 @@ import {
   spaceRenameParams,
 } from "@memory.build/protocol/user";
 import type { Sql } from "postgres";
-import { addSpaceCreator } from "../../provision";
+import {
+  addSpaceCreator,
+  DEFAULT_SPACE_CREATOR_OPTIONS,
+  type SpaceCreatorOptions,
+} from "../../provision";
 import { AppError } from "../errors";
 import { buildRegistry } from "../registry";
 import type { HandlerContext } from "../types";
@@ -63,6 +68,8 @@ export function toMemberSpaceResponse(s: MemberSpace): MemberSpaceResponse {
     name: s.name,
     language: s.language,
     admin: s.admin,
+    autoGrantHome: s.autoGrantHome,
+    defaultGroup: s.defaultGroup,
     createdAt: s.createdAt.toISOString(),
     updatedAt: s.updatedAt?.toISOString() ?? null,
   };
@@ -92,11 +99,16 @@ async function provisionSpaceWithCreator(
   userId: string,
   slug: string,
   name: string,
+  opts: SpaceCreatorOptions = DEFAULT_SPACE_CREATOR_OPTIONS,
 ): Promise<string> {
   const core = coreStore(tx as unknown as Sql, coreSchema);
-  const spaceId = await core.createSpace(slug, name);
+  // create_space must persist auto_grant_home BEFORE addSpaceCreator runs, since
+  // add_principal_to_space reads it off the space row.
+  const spaceId = await core.createSpace(slug, name, {
+    autoGrantHome: opts.autoGrantHome,
+  });
   await provisionSpace(tx, { slug }); // creates the me_<slug> data schema
-  await addSpaceCreator(core, spaceId, userId);
+  await addSpaceCreator(core, spaceId, userId, opts);
   return spaceId;
 }
 
@@ -113,6 +125,17 @@ async function spaceCreate(
   const ctx = context as UserRpcContext;
   const slug = generateSlug();
 
+  // Resolve the custom-space flags. Omitted defaultGroupName → the
+  // standard "team" group; explicit null → no default group.
+  const opts: SpaceCreatorOptions = {
+    autoGrantHome: params.autoGrantHome ?? true,
+    defaultGroupName:
+      params.defaultGroupName === undefined
+        ? DEFAULT_GROUP_NAME
+        : params.defaultGroupName,
+    defaultGroupGrants: params.defaultGroupGrants ?? true,
+  };
+
   const id = (await ctx.db.begin((tx) =>
     provisionSpaceWithCreator(
       tx as unknown as Sql,
@@ -120,6 +143,7 @@ async function spaceCreate(
       ctx.userId,
       slug,
       params.name,
+      opts,
     ),
   )) as string;
 

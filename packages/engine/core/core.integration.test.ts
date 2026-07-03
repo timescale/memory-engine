@@ -173,6 +173,70 @@ test("provisionDefaultGroup: idempotent, rostered 'team' group with read@share +
   });
 });
 
+test("custom space (autoGrantHome=false): joining users AND agents get no owner@~", async () => {
+  const sid = await core.createSpace(rand(12), "Custom", {
+    autoGrantHome: false,
+  });
+
+  // a joining user gets NO home grant, so build_tree_access is empty → locked out
+  const u = await v7();
+  await core.createUser(u, `cu_${rand(8)}@example.com`);
+  await core.addPrincipalToSpace(sid, u);
+  expect(await core.listTreeAccessGrants(sid, u)).toEqual([]);
+  expect(await core.buildTreeAccess(u, sid)).toEqual([]);
+
+  // a joining agent likewise gets no home grant
+  const agent = await core.createAgent(u, `a_${rand(6)}`);
+  await core.addPrincipalToSpace(sid, agent);
+  expect(await core.listTreeAccessGrants(sid, agent)).toEqual([]);
+
+  // contrast: a standard space DOES seed owner@~ for a joining user
+  const sid2 = await core.createSpace(rand(12), "Standard", {
+    autoGrantHome: true,
+  });
+  const u2 = await v7();
+  await core.createUser(u2, `su_${rand(8)}@example.com`);
+  await core.addPrincipalToSpace(sid2, u2);
+  const grants = await core.listTreeAccessGrants(sid2, u2);
+  expect(grants).toHaveLength(1);
+  expect(grants[0]?.access).toBe(ACCESS.owner);
+});
+
+test("provisionDefaultGroup: custom name + grant toggle, is_default_group surfaced + one-per-space", async () => {
+  // grantless, custom name (userId is the admin member from beforeEach)
+  const gid = await core.provisionDefaultGroup(spaceId, "readers", false);
+  expect((await core.listSpaceGroups(spaceId)).map((g) => g.name)).toEqual([
+    "readers",
+  ]);
+  expect(await core.listTreeAccessGrants(spaceId, gid)).toEqual([]);
+
+  // surfaced as the space's default group on the member space read
+  const s = (await core.listSpacesForMember(userId)).find(
+    (x) => x.id === spaceId,
+  );
+  expect(s?.defaultGroup).toEqual({ id: gid, name: "readers" });
+  expect(s?.autoGrantHome).toBe(true);
+
+  // idempotent + rename-proof: re-call finds the same group by the flag, even
+  // after the group is renamed (the lookup keys on is_default_group, not name)
+  expect(await core.renamePrincipal(gid, "viewers")).toBe(true);
+  expect(await core.provisionDefaultGroup(spaceId, "ignored", false)).toBe(gid);
+  const s2 = (await core.listSpacesForMember(userId)).find(
+    (x) => x.id === spaceId,
+  );
+  expect(s2?.defaultGroup).toEqual({ id: gid, name: "viewers" });
+
+  // a SECOND default group in the same space is rejected by the partial-unique
+  const sch = sql(coreSchema);
+  let err: unknown;
+  try {
+    await sql`select ${sch}.create_group(${spaceId}, ${"dup"}, ${false}, ${null}, ${true})`;
+  } catch (e) {
+    err = e;
+  }
+  expect(err).toBeDefined();
+});
+
 test("createGroup rosters the group into principal_space (admin=false, no home grant)", async () => {
   const groupId = await core.createGroup(spaceId, `roster_${rand(6)}`);
 

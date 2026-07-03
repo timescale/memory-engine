@@ -47,6 +47,11 @@ begin
   -- effective (a bare home.<agent_id> would be clamped to nothing — the owner
   -- holds no access there). Groups have no home. Idempotent and non-clobbering:
   -- an existing home grant is left untouched.
+  --
+  -- Custom spaces: the home grant is suppressed when the space has
+  -- auto_grant_home = false, so a joiner gets NO owner@~ (the operator sets up
+  -- access manually). Read off the space row so every join path — provisioning,
+  -- invite redeem, direct add — honors it without threading a param.
   insert into {{schema}}.tree_access (space_id, principal_id, tree_path, access)
   select _space_id, _principal_id
        , case
@@ -56,8 +61,10 @@ begin
          end
        , 3 -- owner
   from {{schema}}.principal p
+  join {{schema}}.space s on s.id = _space_id
   where p.id = _principal_id
   and p.kind in ('u', 'a')
+  and s.auto_grant_home
   on conflict (space_id, principal_id, tree_path) do nothing;
 end;
 $func$ language plpgsql volatile security invoker
