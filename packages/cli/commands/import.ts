@@ -118,14 +118,14 @@ function addCommonOptions(
  * Validates --tree-root syntax and the ISO filter bounds.
  *
  * Tree resolution mirrors the capture hook, highest-first: an explicit
- * `--tree-root` (parent + slug) > the `.me/config.yaml` `tree` (the full
- * project node, no slug) > the parent+slug layout under the machine-wide
- * `tree_root` config override, else the private `~/projects`. The `.me`
- * tree applies only to a run scoped to one project (`--project`): it is a
- * single project's node, so a bare multi-project sweep must keep the
- * parent+slug fallback (per-session `.me` resolution for bare sweeps is
- * future work) — this way a scoped backfill lands exactly where live
- * capture does, with no flags.
+ * `--tree-root` (a slug-free parent — each project's slug is appended under
+ * it) > the `.me/config.yaml` `tree` (the full project node — nothing
+ * appended) > the machine-wide `tree_root` config override, else the private
+ * `~/projects` (slug appended likewise). The `.me` tree applies only to a
+ * run scoped to one project (`--project`): it is a single project's node, so
+ * a bare multi-project sweep must keep the per-slug fallback (per-session
+ * `.me` resolution for bare sweeps is future work) — this way a scoped
+ * backfill lands exactly where live capture does, with no flags.
  */
 export function buildOptions(
   opts: Record<string, unknown>,

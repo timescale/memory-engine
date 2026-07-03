@@ -118,10 +118,11 @@ export function resolveHookConfig(
   if (!space) return null;
 
   const server = creds.server || DEFAULT_SERVER;
-  // An explicit `--tree-root` flag (parent+slug) wins; otherwise a `.me`
-  // project `tree` is the full project node (no slug), else the parent+slug
-  // layout under the machine-wide `tree_root` override, else the PRIVATE
-  // default (`~/projects/<slug>` — shared layouts are explicit opt-ins).
+  // An explicit `--tree-root` flag (a slug-free parent; the project slug is
+  // appended under it) wins; otherwise a `.me` project `tree` is the full
+  // project node (nothing appended), else the slug nests under the
+  // machine-wide `tree_root` override, else under the PRIVATE default
+  // (`~/projects/<slug>` — shared layouts are explicit opt-ins).
   const pinnedTreeRoot = blank(input.treeRoot)
     ? undefined
     : (input.treeRoot as string);

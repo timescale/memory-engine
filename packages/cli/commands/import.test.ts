@@ -42,12 +42,12 @@ describe("buildOptions", () => {
       { tree: "/share/projects/foo" },
     );
     expect(config.write.tree).toBe("/share/projects/foo");
-    // The parent+slug fallback is still the private default (unused when
+    // The per-slug parent fallback is still the private default (unused when
     // tree wins, but reported/available for sessions outside the tree).
     expect(config.write.treeRoot).toBe("~/projects");
   });
 
-  test("a bare (multi-project) sweep ignores the .me tree — parent+slug fallback", () => {
+  test("a bare (multi-project) sweep ignores the .me tree — per-slug parent fallback", () => {
     const config = buildOptions({}, { tree: "/share/projects/foo" });
     expect(config.write.tree).toBeUndefined();
     expect(config.write.treeRoot).toBe("~/projects");
