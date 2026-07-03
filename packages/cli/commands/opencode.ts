@@ -211,10 +211,6 @@ function createOpenCodeHookCommand(): Command {
       "OpenCode storage dir (default: standard location)",
     )
     .option(
-      "--tree-root <ltree>",
-      "tree root for captures (default: ~/projects — private)",
-    )
-    .option(
       "--full-transcript",
       "also store reasoning + tool calls/results (default: prompts + responses)",
     )
@@ -224,7 +220,6 @@ function createOpenCodeHookCommand(): Command {
           event: string;
           session: string;
           storage?: string;
-          treeRoot?: string;
           fullTranscript?: boolean;
         },
         cmd: Command,
@@ -253,7 +248,6 @@ function createOpenCodeHookCommand(): Command {
           // preference the hook captures.
           if (captureOptedOut(creds)) process.exit(0);
           config = resolveHookConfig(creds, {
-            treeRoot: opts.treeRoot,
             fullTranscript: opts.fullTranscript,
           });
         } catch (error) {
