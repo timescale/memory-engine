@@ -98,8 +98,8 @@ function messageName(messageId: string): string {
  * The SHARED projects parent (`share.projects`). No longer any command's
  * default — captures and session/git imports default to the private
  * {@link DEFAULT_PRIVATE_TREE_ROOT} instead. Kept for explicit opt-ins: a
- * project whose `.me/config.yaml` pins a `/share/projects/<slug>` tree, or a
- * headless plugin install that pins `tree_root` deliberately.
+ * project whose `.me/config.yaml` pins a `/share/projects/<slug>` tree, or an
+ * explicit `--tree-root share.projects` on the import commands.
  */
 export const DEFAULT_TREE_ROOT = "share.projects";
 /**

@@ -395,7 +395,7 @@ export async function runClaudePluginInstall(
 
   // 2. Install the plugin, baking in only the config we chose to pin above
   //    (none by default — the plugin then tracks your live `me` config). Leave
-  //    tree_root / content_mode at the plugin defaults (reconfigure later via
+  //    content_mode at the plugin default (reconfigure later via
   //    `/plugin` if needed).
   spin.message("Installing the memory-engine plugin...");
   const install = [

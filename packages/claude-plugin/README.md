@@ -82,7 +82,6 @@ claude                               # start a session
 # → space       (OPTIONAL — blank = your active space; pin for project/shared installs)
 # → api_key     (OPTIONAL, sensitive — blank = use your `me login` session)
 # → server       (default https://api.memory.build)
-# → tree_root    (default ~/projects — private; captures nest at <root>.<project>.agent_sessions)
 # → content_mode (default | full_transcript — see below)
 # → values take effect immediately; no restart required
 ```
@@ -105,7 +104,7 @@ me memory search --tree '~/projects.*' --limit 5
 Capture is the **same path as `me … import`** — one memory per message, with the
 identical layout and metadata, so live and imported sessions interleave cleanly:
 
-- **Tree**: `<tree_root>.<project>.agent_sessions` (default root `~/projects` — your private home tree) — one node per project. A project's `.me/config.yaml` `tree` (e.g. `/share/projects/<slug>`) overrides it for that project.
+- **Tree**: the project's [`.me/config.yaml` `tree`](https://docs.memory.build/project-config) when set (`<tree>/agent_sessions` — e.g. `/share/projects/<slug>/agent_sessions` for a shared project), else the private `~/projects/<project>/agent_sessions` (your own home tree) — one node per project. There is no plugin-level tree setting: committed project config is the one routing surface.
 - **Metadata**: the importer's `source_*` schema — `type: agent_session`, `source_tool: "claude"`, `source_session_id`, `source_message_id`, `source_message_role` (`user`/`assistant`), `source_project_slug` (from the git `origin` remote, else cwd basename), `content_mode`, `importer_version`, and (when available) `source_cwd` / `source_git_repo` / `source_model` / … See the full table in [agent session imports](https://docs.memory.build/cli/agent-session-imports).
 - **Temporal**: each memory's `start` is the **message** timestamp.
 

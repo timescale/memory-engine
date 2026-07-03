@@ -29,12 +29,6 @@
       "description": "Space slug to capture into (the X-Me-Space). Leave blank to use your active space (`me space use` / ME_SPACE). Pin it for unattended or project-scope installs so captures always land in the same space; if blank and no active space is set, captures are skipped.",
       "required": false
     },
-    "tree_root": {
-      "type": "string",
-      "title": "Tree root (optional)",
-      "description": "Optional. Ltree root under which captures are nested as `<root>.<project>.agent_sessions` (the same layout `me ... import` uses, so live and imported sessions share a node per project). Leave blank to track live config: the project's `.me/config.yaml` `tree` when set, else the private `~/projects` (your own home). Pin an explicit root (e.g. `share.projects`) to force one layout everywhere.",
-      "required": false
-    },
     "content_mode": {
       "type": "string",
       "title": "Content mode",
