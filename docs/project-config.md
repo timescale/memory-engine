@@ -129,13 +129,15 @@ Contrast the default (no `.me`), where captures nest **privately** under
 different private one.
 
 A leading `~` (your home) and `/`-separated paths are accepted; the path is
-normalized server-side. An explicit `me import git --tree <path>` still
-overrides the `.me` tree for that run. (The bulk `me import <tool>` sweep uses
-`--tree-root` instead — a *parent* under which each project nests by slug —
-since it spans many projects.)
+normalized server-side. An explicit `me import git --tree <path>` /
+`me import <tool> --tree-root <path>` still overrides the `.me` tree for that
+run.
 
-The Claude/OpenCode capture hooks resolve the `.me` for the **session's** project,
-so a single globally-installed plugin routes each project to its own tree.
+The Claude/OpenCode capture hooks resolve the `.me` for the **session's**
+project, so a single globally-installed plugin routes each project to its own
+tree — and the bulk `me import <tool>` sweep does the same per session
+(server/space/tree from each session's own project), so backfills and live
+capture always agree.
 
 ## Changing the default tree root (`tree_root`)
 
