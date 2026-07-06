@@ -206,9 +206,12 @@ export interface SessionRoute {
  * Per-session routing decision: a route to write through, or a skip — the
  * session is tallied under `discovery.skipped[reason]` and not written (e.g.
  * its project pins an untrusted server, or the caller holds no credentials
- * for that server).
+ * for that server). `detail` carries the underlying error message for
+ * verbose output.
  */
-export type SessionRouteDecision = { route: SessionRoute } | { skip: string };
+export type SessionRouteDecision =
+  | { route: SessionRoute }
+  | { skip: string; detail?: string };
 
 /** Resolves a session's cwd to its routing decision (memoized by the caller). */
 export type SessionRouter = (
@@ -261,7 +264,8 @@ export async function runImport(
       if ("skip" in decision) {
         stats.skipped[decision.skip] = (stats.skipped[decision.skip] ?? 0) + 1;
         if (writeOptions.verbose) {
-          progress?.log(`  skipped (${decision.skip}): ${title}`);
+          const detail = decision.detail ? ` — ${decision.detail}` : "";
+          progress?.log(`  skipped (${decision.skip}): ${title}${detail}`);
         }
         continue;
       }

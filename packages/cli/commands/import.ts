@@ -52,7 +52,6 @@ import type { ImporterOptions } from "../importers/types.ts";
 import { getOutputFormat, output } from "../output.ts";
 import {
   discoverProjectConfig,
-  ProjectConfigError,
   VALID_TREE_PATH_RE,
   withConfigDirOverride,
 } from "../project-config.ts";
@@ -210,11 +209,14 @@ export function buildOptions(
  * token/refresh state lives at module level keyed by server — so distinct
  * projects resolving to the same target just build equivalent ones.
  *
- * Per-project failures never kill the sweep — they become skip tallies
- * (`discovery.skipped[reason]`):
- *   - `invalid_me_config`         — the project's `.me` is malformed;
- *   - `untrusted_me_server`       — its `server` isn't whitelisted (the same
- *                                   credential-safety gate a local run applies);
+ * Per-project failures never kill the sweep — best-effort like the hook,
+ * they become skip tallies (`discovery.skipped[reason]`):
+ *   - `project_config_error`      — resolving the project threw: a malformed
+ *                                   `.me`, an untrusted `server` (the same
+ *                                   credential-safety gate a local run
+ *                                   applies), a `.me` agent sentinel with no
+ *                                   project agent, … (the message is carried
+ *                                   as the skip detail for verbose output);
  *   - `no_credentials_for_server` — no api key and no login session for the
  *                                   project's server;
  *   - `no_space_for_project`      — no space resolvable there.
@@ -245,54 +247,46 @@ export function createSessionRouter(opts: {
   };
 
   function computeRoute(cwd: string): SessionRouteDecision {
-    // The session project's `.me`, from ITS cwd — a malformed file skips the
-    // session (best-effort, like the hook) instead of killing the sweep.
-    let projectDir: string | undefined;
     try {
-      projectDir = discoverProjectConfig(cwd)?.dir;
-    } catch (error) {
-      if (error instanceof ProjectConfigError) {
-        return { skip: "invalid_me_config" };
-      }
-      throw error;
-    }
-
-    // Resolve AS IF running inside that project. When it has no `.me`, pin
-    // the override to the session cwd itself (an override skips the walk-up)
-    // so the sweep runner's own project config can't leak in.
-    let creds: ResolvedCredentials;
-    try {
-      creds = withConfigDirOverride(projectDir ?? cwd, () =>
+      // The session project's `.me`, from ITS cwd. Resolve AS IF running
+      // inside that project; when it has no `.me`, pin the override to the
+      // session cwd itself (an override skips the walk-up) so the sweep
+      // runner's own project config can't leak in.
+      const projectDir = discoverProjectConfig(cwd)?.dir;
+      const creds = withConfigDirOverride(projectDir ?? cwd, () =>
         resolveCredentials(opts.serverFlag),
       );
-    } catch (error) {
-      if (error instanceof ProjectConfigError) {
-        return { skip: "untrusted_me_server" };
+
+      if (!creds.apiKey && !creds.loggedIn) {
+        return { skip: "no_credentials_for_server" };
       }
-      throw error;
-    }
+      const space = creds.activeSpace;
+      if (!space) return { skip: "no_space_for_project" };
 
-    if (!creds.apiKey && !creds.loggedIn) {
-      return { skip: "no_credentials_for_server" };
+      // Always a client from THIS project's creds — the client carries the
+      // identity (asAgent header), which the `.me` agent sentinel makes
+      // per-project, so reusing another target's client could write as the
+      // wrong principal. Clients are cheap stateless wrappers, and the
+      // per-cwd memo above prevents rebuilds for the hot case of many
+      // sessions from one project.
+      return {
+        route: {
+          engine: buildClient({ ...creds, activeSpace: space }),
+          tree: opts.explicitTreeRoot ? undefined : creds.tree,
+          treeRoot: treeRootOf(creds),
+        },
+      };
+    } catch (error) {
+      // Best-effort like the hook: ANY per-project resolution failure —
+      // malformed/untrusted `.me`, the `.me` agent sentinel with no project
+      // agent, … — skips this project's sessions instead of killing the
+      // sweep. The message lands in the skip detail (verbose output); a
+      // local import inside the project reproduces the error loudly.
+      return {
+        skip: "project_config_error",
+        detail: error instanceof Error ? error.message : String(error),
+      };
     }
-    const space = creds.activeSpace;
-    if (!space) return { skip: "no_space_for_project" };
-
-    // Same target as the run → reuse its client; anything else gets its own
-    // (a cheap stateless wrapper; the per-cwd memo above prevents rebuilds
-    // for the hot case of many sessions from one project).
-    const engine =
-      creds.server === opts.base.creds.server &&
-      space === opts.base.creds.activeSpace
-        ? opts.base.engine
-        : buildClient({ ...creds, activeSpace: space });
-    return {
-      route: {
-        engine,
-        tree: opts.explicitTreeRoot ? undefined : creds.tree,
-        treeRoot: treeRootOf(creds),
-      },
-    };
   }
 
   return (cwd) => {
