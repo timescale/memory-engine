@@ -301,32 +301,6 @@ export function getProjectConfig(): ProjectConfig | undefined {
   return value;
 }
 
-/**
- * Run `fn` with the config-dir override temporarily pointed at `dir`, then
- * restore both the override and the memoized value. This is how a bulk import
- * resolves credentials AS IF it were running inside another project — the
- * exact same `resolveCredentials` stack (server whitelist gate, `.me`
- * precedence, agent sentinel) a local run uses, scoped to that project. Pass
- * the project's `.me`-containing dir, or any dir WITHOUT a `.me` to force
- * "no project config" (an override skips the walk-up, so the caller's own
- * ancestry can't leak in). Synchronous on purpose: the override is
- * process-global state, so `fn` must not yield to other work.
- */
-export function withConfigDirOverride<T>(
-  dir: string | undefined,
-  fn: () => T,
-): T {
-  const prevOverride = configDirOverride;
-  const prevCached = cached;
-  setConfigDirOverride(dir);
-  try {
-    return fn();
-  } finally {
-    configDirOverride = prevOverride;
-    cached = prevCached; // restore the memo — the caller's own view is intact
-  }
-}
-
 /** Reset the memoized config + config-dir override. Test-only. */
 export function resetProjectConfigCache(): void {
   configDirOverride = undefined;

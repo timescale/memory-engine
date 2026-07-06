@@ -45,6 +45,7 @@ import { parse, stringify } from "yaml";
 import { keychainDelete, keychainGet, keychainSet } from "./keychain.ts";
 import {
   getProjectConfig,
+  type ProjectConfig,
   ProjectConfigError,
   VALID_TREE_PATH_RE,
 } from "./project-config.ts";
@@ -533,6 +534,24 @@ export function getGlobalCaptureEnabled(): boolean {
 }
 
 // =============================================================================
+// --server flag (seeded)
+// =============================================================================
+
+/**
+ * The root `--server` flag, seeded once from the root `preAction` hook
+ * (mirrors {@link setAsAgentOverride} / `setConfigDirOverride`). Seeding lets
+ * {@link resolveCredentialsFor} — the explicit-project form — honor the flag
+ * without taking a bare-string server parameter that a repo-authored value
+ * could be mistakenly passed through.
+ */
+let serverFlagOverride: string | undefined;
+
+/** Seed the `--server` flag override (called once from `preAction`). */
+export function setServerFlagOverride(value: string | undefined): void {
+  serverFlagOverride = value;
+}
+
+// =============================================================================
 // Act-as-agent (X-Me-As-Agent)
 // =============================================================================
 
@@ -579,10 +598,18 @@ export function isAsAgentRequested(): boolean {
  * none is in scope); any other value is an explicit agent id/name, verbatim.
  */
 export function resolveAsAgent(): string | undefined {
+  return resolveAsAgentFor(getProjectConfig());
+}
+
+/** {@link resolveAsAgent} against an explicit project (the `.me` sentinel
+ * resolves to THAT project's `agent`). */
+function resolveAsAgentFor(
+  project: ProjectConfig | undefined,
+): string | undefined {
   const raw = asAgentOverride ?? process.env.ME_AS_AGENT;
   if (!raw) return undefined;
   if (raw === AS_AGENT_PROJECT_SENTINEL) {
-    const agent = getProjectConfig()?.agent;
+    const agent = project?.agent;
     if (!agent) {
       throw new Error(
         "--as-agent .me needs an 'agent:' in .me/config.yaml, but none is in scope",
@@ -657,9 +684,23 @@ function projectServerOrigin(raw: string): string {
  * branch returns a normalized origin.
  */
 export function resolveServer(flagValue?: string): string {
-  if (flagValue) return normalizeOrigin(flagValue);
+  return resolveServerFor(getProjectConfig(), flagValue);
+}
+
+/**
+ * {@link resolveServer} against an explicit project. Deliberately private:
+ * a repo-authored server may only enter resolution as `project.server`, where
+ * it is validated and whitelist-gated — there is no exported path that
+ * accepts one as a plain (trusted-position) string.
+ */
+function resolveServerFor(
+  project: ProjectConfig | undefined,
+  flagValue?: string,
+): string {
+  const flag = flagValue ?? serverFlagOverride;
+  if (flag) return normalizeOrigin(flag);
   if (process.env.ME_SERVER) return normalizeOrigin(process.env.ME_SERVER);
-  const projectServer = getProjectConfig()?.server;
+  const projectServer = project?.server;
   if (projectServer) {
     const origin = projectServerOrigin(projectServer);
     assertProjectServerAllowed(origin);
@@ -686,12 +727,39 @@ export function getDefaultServer(): string {
  * persisted — it only ever comes from ME_API_KEY.
  */
 export function resolveCredentials(serverFlag?: string): ResolvedCredentials {
-  const server = resolveServer(serverFlag);
+  return credentialsFor(getProjectConfig(), serverFlag);
+}
+
+/**
+ * Resolve credentials AS IF running inside `project` — the explicit-project
+ * form used by the bulk-import session router and `me import git` targeting
+ * a repo from outside it. Pass `undefined` for "no project config" (nothing
+ * ambient leaks in — the project is an argument here, never re-discovered).
+ *
+ * Same resolution as {@link resolveCredentials} in every respect: the
+ * documented precedence (--server flag, seeded via
+ * {@link setServerFlagOverride} > `ME_*` env > `project` > global config),
+ * the credential-safety whitelist gate on a project-sourced server, and the
+ * `.me` agent-sentinel resolution against THIS project. Deliberately takes
+ * no server string: repo-authored input can only enter through `project`,
+ * where it is always gated.
+ */
+export function resolveCredentialsFor(
+  project: ProjectConfig | undefined,
+): ResolvedCredentials {
+  return credentialsFor(project);
+}
+
+/** The shared core behind both resolution forms. */
+function credentialsFor(
+  project: ProjectConfig | undefined,
+  serverFlag?: string,
+): ResolvedCredentials {
+  const server = resolveServerFor(project, serverFlag);
   // One config.yaml read for every global field below (this runs on the
-  // hook/import hot paths); resolveServer keeps its own internal read for the
-  // no-flag/env/`.me` fallback branch.
+  // hook/import hot paths); resolveServerFor keeps its own internal read for
+  // the no-flag/env/`.me` fallback branch.
   const config = readConfig();
-  const project = getProjectConfig();
 
   return {
     server,
@@ -703,7 +771,7 @@ export function resolveCredentials(serverFlag?: string): ResolvedCredentials {
       config.servers[normalizeOrigin(server)]?.active_space,
     tree: project?.tree,
     treeRoot: config.tree_root,
-    asAgent: resolveAsAgent(),
+    asAgent: resolveAsAgentFor(project),
     captureEnabled: project?.capture ?? config.capture === true,
   };
 }
