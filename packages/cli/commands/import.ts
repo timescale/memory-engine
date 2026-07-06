@@ -29,7 +29,11 @@
  */
 import * as clack from "@clack/prompts";
 import { Command } from "commander";
-import { resolveCredentials } from "../credentials.ts";
+import type { MemoryClient } from "../client.ts";
+import {
+  type ResolvedCredentials,
+  resolveCredentials,
+} from "../credentials.ts";
 import { claudeImporter } from "../importers/claude.ts";
 import { codexImporter } from "../importers/codex.ts";
 import {
@@ -39,12 +43,19 @@ import {
   type Importer,
   type ImportResult,
   runImport,
+  type SessionRouteDecision,
+  type SessionRouter,
   type WriteOptions,
 } from "../importers/index.ts";
 import { opencodeImporter } from "../importers/opencode.ts";
 import type { ImporterOptions } from "../importers/types.ts";
 import { getOutputFormat, output } from "../output.ts";
-import { VALID_TREE_PATH_RE } from "../project-config.ts";
+import {
+  discoverProjectConfig,
+  ProjectConfigError,
+  VALID_TREE_PATH_RE,
+  withConfigDirOverride,
+} from "../project-config.ts";
 import {
   buildMemoryClient,
   handleError,
@@ -188,6 +199,121 @@ export function buildOptions(
 }
 
 /**
+ * Build the per-session router for a bulk import: each session's project is
+ * resolved through the REAL local resolution stack — `discoverProjectConfig`
+ * from the session's own cwd, then `resolveCredentials` scoped to that
+ * project via `withConfigDirOverride` — so a sweep mirrors the live hook
+ * exactly: per-project server (whitelist-gated), space, tree, and even the
+ * `ME_AS_AGENT=.me` sentinel, with the documented flag/env precedence intact
+ * because it IS the same code path a local run uses. Decisions are memoized
+ * per cwd; clients are cached per (server, space).
+ *
+ * Per-project failures never kill the sweep — they become skip tallies
+ * (`discovery.skipped[reason]`):
+ *   - `invalid_me_config`         — the project's `.me` is malformed;
+ *   - `untrusted_me_server`       — its `server` isn't whitelisted (the same
+ *                                   credential-safety gate a local run applies);
+ *   - `no_credentials_for_server` — no api key and no login session for the
+ *                                   project's server;
+ *   - `no_space_for_project`      — no space resolvable there.
+ */
+export function createSessionRouter(opts: {
+  /** The `--server` flag, forwarded so it keeps its precedence per project. */
+  serverFlag?: string;
+  /** An explicit `--tree-root`: wins over every project's `.me` tree. */
+  explicitTreeRoot?: string;
+  /** The run-level default route (sessions with no cwd / no `.me`). */
+  base: { creds: ResolvedCredentials; engine: MemoryClient };
+  /** Injectable client factory (tests). */
+  buildClient?: (
+    creds: ResolvedCredentials & { activeSpace: string },
+  ) => MemoryClient;
+}): SessionRouter {
+  const buildClient = opts.buildClient ?? buildMemoryClient;
+  const treeRootOf = (creds: ResolvedCredentials): string =>
+    opts.explicitTreeRoot ?? creds.treeRoot ?? DEFAULT_PRIVATE_TREE_ROOT;
+
+  const routeByCwd = new Map<string, SessionRouteDecision>();
+  // Client per (server, space); seeded with the base so same-target sessions
+  // reuse the run's client.
+  const clientByTarget = new Map<string, MemoryClient>();
+  const targetKey = (server: string, space: string): string =>
+    `${server} ${space}`;
+  const base: SessionRouteDecision = {
+    route: {
+      engine: opts.base.engine,
+      tree: undefined,
+      treeRoot: treeRootOf(opts.base.creds),
+    },
+  };
+  if (opts.base.creds.activeSpace) {
+    clientByTarget.set(
+      targetKey(opts.base.creds.server, opts.base.creds.activeSpace),
+      opts.base.engine,
+    );
+  }
+
+  function computeRoute(cwd: string): SessionRouteDecision {
+    // The session project's `.me`, from ITS cwd — a malformed file skips the
+    // session (best-effort, like the hook) instead of killing the sweep.
+    let projectDir: string | undefined;
+    try {
+      projectDir = discoverProjectConfig(cwd)?.dir;
+    } catch (error) {
+      if (error instanceof ProjectConfigError) {
+        return { skip: "invalid_me_config" };
+      }
+      throw error;
+    }
+
+    // Resolve AS IF running inside that project. When it has no `.me`, pin
+    // the override to the session cwd itself (an override skips the walk-up)
+    // so the sweep runner's own project config can't leak in.
+    let creds: ResolvedCredentials;
+    try {
+      creds = withConfigDirOverride(projectDir ?? cwd, () =>
+        resolveCredentials(opts.serverFlag),
+      );
+    } catch (error) {
+      if (error instanceof ProjectConfigError) {
+        return { skip: "untrusted_me_server" };
+      }
+      throw error;
+    }
+
+    if (!creds.apiKey && !creds.loggedIn) {
+      return { skip: "no_credentials_for_server" };
+    }
+    const space = creds.activeSpace;
+    if (!space) return { skip: "no_space_for_project" };
+
+    const key = targetKey(creds.server, space);
+    let engine = clientByTarget.get(key);
+    if (!engine) {
+      engine = buildClient({ ...creds, activeSpace: space });
+      clientByTarget.set(key, engine);
+    }
+    return {
+      route: {
+        engine,
+        tree: opts.explicitTreeRoot ? undefined : creds.tree,
+        treeRoot: treeRootOf(creds),
+      },
+    };
+  }
+
+  return (cwd) => {
+    if (!cwd) return base;
+    let decision = routeByCwd.get(cwd);
+    if (!decision) {
+      decision = computeRoute(cwd);
+      routeByCwd.set(cwd, decision);
+    }
+    return decision;
+  };
+}
+
+/**
  * Run one importer end-to-end and render the outcome in the selected format.
  *
  * Exported so higher-level commands (e.g. `me claude init`) can run an import
@@ -215,6 +341,15 @@ export async function runAgentImport(
   }
 
   const engine = buildMemoryClient(creds);
+  // Bulk imports route each session by ITS project's config — full
+  // per-project server/space/tree, mirroring the live hook.
+  const router = createSessionRouter({
+    serverFlag:
+      typeof globalOpts.server === "string" ? globalOpts.server : undefined,
+    explicitTreeRoot:
+      typeof opts.treeRoot === "string" ? opts.treeRoot : undefined,
+    base: { creds, engine },
+  });
 
   if (fmt === "text" && config.write.verbose) {
     const sourceNote = config.importer.source ?? importer.defaultSource;
@@ -237,6 +372,7 @@ export async function runAgentImport(
       config.importer,
       config.write,
       progress,
+      router,
     );
   } catch (error) {
     progress?.stop();

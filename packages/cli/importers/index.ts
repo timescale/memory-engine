@@ -187,13 +187,47 @@ export interface WriteOptions {
   verbose: boolean;
 }
 
-/** Run discovery + writes for a single importer. */
+/**
+ * Where one session's writes go — resolved per PROJECT by the caller
+ * (`createSessionRouter` in commands/import.ts), so a bulk sweep mirrors the
+ * live hook: each session lands on its project's server + space, under its
+ * project's tree.
+ */
+export interface SessionRoute {
+  /** Client bound to the session project's server + space. */
+  engine: MemoryClient;
+  /** The project's full tree (no slug appended) when its `.me` pins one. */
+  tree?: string;
+  /** Parent for the per-slug fallback layout (`<treeRoot>.<slug>.…`). */
+  treeRoot: string;
+}
+
+/**
+ * Per-session routing decision: a route to write through, or a skip — the
+ * session is tallied under `discovery.skipped[reason]` and not written (e.g.
+ * its project pins an untrusted server, or the caller holds no credentials
+ * for that server).
+ */
+export type SessionRouteDecision = { route: SessionRoute } | { skip: string };
+
+/** Resolves a session's cwd to its routing decision (memoized by the caller). */
+export type SessionRouter = (
+  cwd: string | undefined,
+) => SessionRouteDecision | Promise<SessionRouteDecision>;
+
+/**
+ * Run discovery + writes for a single importer. With a `router`, each
+ * session's engine/tree/treeRoot come from its own project's config
+ * (`writeOptions.tree`/`treeRoot` are superseded per session); without one,
+ * every session writes through `engine` under `writeOptions`.
+ */
 export async function runImport(
   engine: MemoryClient,
   importer: Importer,
   importerOptions: ImporterOptions,
   writeOptions: WriteOptions,
   progress?: ProgressReporter,
+  router?: SessionRouter,
 ): Promise<ImportResult> {
   const stats: ImporterStats = {
     totalFiles: 0,
@@ -216,20 +250,42 @@ export async function runImport(
   )) {
     const title = synthesizeTitle(session);
     progress?.process(title);
+
+    // Route the session to its project's client + tree. A skip (untrusted
+    // `.me` server, no credentials for that server, …) is tallied like a
+    // discovery skip and the session is not written.
+    let sessionEngine = engine;
+    let write = writeOptions;
+    if (router) {
+      const decision = await router(session.cwd);
+      if ("skip" in decision) {
+        stats.skipped[decision.skip] = (stats.skipped[decision.skip] ?? 0) + 1;
+        if (writeOptions.verbose) {
+          progress?.log(`  skipped (${decision.skip}): ${title}`);
+        }
+        continue;
+      }
+      sessionEngine = decision.route.engine;
+      write = {
+        ...writeOptions,
+        tree: decision.route.tree,
+        treeRoot: decision.route.treeRoot,
+      };
+    }
     sessionsProcessed++;
 
     const { slug, gitRoot, gitRemote } = await slugs.resolve(session.cwd);
-    const tree = sessionTree(writeOptions, slug, session.sessionId);
+    const tree = sessionTree(write, slug, session.sessionId);
 
     const outcome = await writeSession(
-      engine,
+      sessionEngine,
       session,
       title,
       tree,
       slug,
       gitRoot,
       gitRemote,
-      writeOptions,
+      write,
     );
     outcomes.push(outcome);
     inserted += outcome.inserted;
