@@ -19,10 +19,27 @@ describe("successPage", () => {
     expect(html).toContain("Open the Memory Engine UI");
   });
 
+  test("keeps the auth code out of the Referer via rel=noreferrer", async () => {
+    const html = await successPage("http://localhost:3000").text();
+    expect(html).toContain('rel="noreferrer"');
+  });
+
   test("omits the link when no uiUrl is provided", async () => {
     const html = await successPage().text();
     expect(html).not.toContain("<a href");
     expect(html).toContain("close this tab");
+  });
+
+  test("omits the link for non-http(s) schemes", async () => {
+    for (const bad of [
+      "javascript:alert(1)",
+      "data:text/html,<h1>x</h1>",
+      "not a url",
+    ]) {
+      const html = await successPage(bad).text();
+      expect(html).not.toContain("<a href");
+      expect(html).toContain("close this tab");
+    }
   });
 
   test("HTML-escapes the uiUrl", async () => {
