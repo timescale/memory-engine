@@ -357,8 +357,11 @@ export function buildCommitMemory(
   };
 }
 
-/** Truncate to a UTF-8 byte budget on a char boundary, marking the cut. */
-function truncateUtf8(text: string, maxBytes: number): string {
+/**
+ * Truncate to a UTF-8 byte budget on a char boundary, marking the cut.
+ * Shared with the docs importer's content cap.
+ */
+export function truncateUtf8(text: string, maxBytes: number): string {
   if (Buffer.byteLength(text, "utf8") <= maxBytes) return text;
   let end = text.length;
   while (end > 0 && Buffer.byteLength(text.slice(0, end), "utf8") > maxBytes) {
