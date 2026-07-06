@@ -24,7 +24,7 @@
  */
 
 import { existsSync, realpathSync, statSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { join, relative, resolve, sep } from "node:path";
 import * as clack from "@clack/prompts";
 import type { MemoryCreateParams } from "@memory.build/protocol/memory";
 import { Command } from "commander";
@@ -49,6 +49,7 @@ import {
   DEFAULT_PRIVATE_TREE_ROOT,
   dedupBy,
 } from "../importers/index.ts";
+import { normalizeTreeLabel } from "../importers/markdown-files.ts";
 import { SlugRegistry } from "../importers/slug.ts";
 import { getOutputFormat, output } from "../output.ts";
 import {
@@ -132,17 +133,34 @@ export function buildDocsImportOptions(
 export function subdirRootError(
   dir: string,
   gitRoot: string,
+  docsTree: string,
   allowSubdirRoot: boolean,
 ): string | undefined {
   if (allowSubdirRoot) return undefined;
   // git prints physical paths; the argument may travel through symlinks
   // (macOS /tmp → /private/tmp), so compare realpaths.
-  if (realpathSync(dir) === realpathSync(gitRoot)) return undefined;
+  const dirReal = realpathSync(dir);
+  const rootReal = realpathSync(gitRoot);
+  if (dirReal === rootReal) return undefined;
+
+  const rel = relative(rootReal, dirReal).split(sep).join("/");
+  // Display-form docs root for the example destinations (input form may mix
+  // `.`/`/`; labels cannot contain dots, so a straight swap is safe).
+  const shown = docsTree.replace(/\./g, "/");
+  const docsRoot =
+    shown.startsWith("~") || shown.startsWith("/") ? shown : `/${shown}`;
+  // Where a representative file would land under each root — the dirs are
+  // slugified to ltree labels exactly as the importer would.
+  const relLabels = rel.split("/").map(normalizeTreeLabel).join("/");
   return (
-    `${dir} is a subfolder of the git repo at ${gitRoot}. ` +
-    `Docs tree slots derive from the import root, so runs rooted at different directories ` +
-    `create parallel corpora (and a cross-root --prune deletes the other's). ` +
-    `Run from the repo root and scope with --include (e.g. --include 'docs/**'), ` +
+    `${dir} is a subfolder of the git repo at ${gitRoot}, and docs tree slots derive ` +
+    `from the import root — the same file lands in different places depending on where a run is rooted. ` +
+    `For example, ${rel}/setup.md would land at:\n` +
+    `  ${docsRoot}/setup.md  (rooted here)\n` +
+    `  ${docsRoot}/${relLabels}/setup.md  (rooted at the repo toplevel)\n` +
+    `Mixing roots therefore creates parallel corpora, and a cross-root --prune deletes ` +
+    `the other root's docs. Run from the repo root and scope with --include instead:\n` +
+    `  me import docs ${gitRoot} --include '${rel}/**'\n` +
     `or pass --allow-subdir-root to keep subfolder-relative slots.`
   );
 }
@@ -243,15 +261,6 @@ export async function runDocsImport(
   const { slug, gitRoot } = await new SlugRegistry().resolve(dir);
   const gitMode = gitRoot !== undefined;
 
-  // Refuse a subfolder import root in git mode (see subdirRootError) before
-  // any discovery or writes.
-  if (gitRoot !== undefined) {
-    const rootErr = subdirRootError(dir, gitRoot, opts.allowSubdirRoot);
-    if (rootErr !== undefined) {
-      handleError(new Error(rootErr), fmt);
-    }
-  }
-
   // The full project node docs nest under (no slug appended — same
   // resolution as `me import git`, so a project's docs, git_history, and
   // agent_sessions share one node): an explicit `--tree`, else the repo's
@@ -262,6 +271,20 @@ export async function runDocsImport(
     creds.tree ??
     `${creds.treeRoot ?? DEFAULT_PRIVATE_TREE_ROOT}.${slug}`;
   const docsTree = `${projectNode}.${DOCS_NODE_NAME}`;
+
+  // Refuse a subfolder import root in git mode (see subdirRootError) before
+  // any discovery or writes.
+  if (gitRoot !== undefined) {
+    const rootErr = subdirRootError(
+      dir,
+      gitRoot,
+      docsTree,
+      opts.allowSubdirRoot,
+    );
+    if (rootErr !== undefined) {
+      handleError(new Error(rootErr), fmt);
+    }
+  }
 
   const engine = buildMemoryClient(creds);
   const progress =
