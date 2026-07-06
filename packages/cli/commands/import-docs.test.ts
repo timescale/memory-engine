@@ -11,6 +11,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { MemoryCreateParams } from "@memory.build/protocol/memory";
 import { DEFAULT_DOC_PATTERNS } from "../importers/docs.ts";
+import { displayTreePath } from "../util.ts";
 import {
   buildDocsImportOptions,
   buildKeepList,
@@ -87,6 +88,19 @@ describe("buildDocsImportOptions", () => {
       buildDocsImportOptions(undefined, { allowSubdirRoot: true })
         .allowSubdirRoot,
     ).toBe(true);
+  });
+});
+
+describe("displayTreePath (CLI output form)", () => {
+  test("renders input-form trees canonically", () => {
+    expect(displayTreePath("~/projects.tiger_data_docs.docs")).toBe(
+      "~/projects/tiger_data_docs/docs",
+    );
+    expect(displayTreePath("share.projects.x.docs")).toBe(
+      "/share/projects/x/docs",
+    );
+    expect(displayTreePath("~/already/slashed")).toBe("~/already/slashed");
+    expect(displayTreePath("/share/mixed.form")).toBe("/share/mixed/form");
   });
 });
 
