@@ -190,26 +190,27 @@ describe("createSessionRouter", () => {
     expect(d.route.treeRoot).toBe("~/projects");
   });
 
-  test("a cwd without .me resolves to the base target (base client reused)", async () => {
+  test("a cwd without .me gets its own client for the base target", async () => {
     const base = makeBase();
     const { built, buildClient } = makeFactory();
     const router = createSessionRouter({ base, buildClient });
     const d = await router(project("plain"));
     if ("skip" in d) throw new Error("expected route");
-    expect(d.route.engine).toBe(base.engine); // same (server, space) → reuse
+    // Always a client from the project's own creds — never a reused one:
+    // the client carries the identity (asAgent), which can vary per project.
+    expect(d.route.engine).not.toBe(base.engine);
     expect(d.route.tree).toBeUndefined();
-    expect(built).toHaveLength(0);
+    expect(built).toEqual([{ server: DEFAULT_SERVER, space: "basespace0001" }]);
   });
 
-  test("a project .me tree routes the session under it (same target)", async () => {
+  test("a project .me tree routes the session under it", async () => {
     const base = makeBase();
     const { built, buildClient } = makeFactory();
     const router = createSessionRouter({ base, buildClient });
     const d = await router(project("treed", "tree: /share/projects/treed\n"));
     if ("skip" in d) throw new Error("expected route");
     expect(d.route.tree).toBe("/share/projects/treed");
-    expect(d.route.engine).toBe(base.engine);
-    expect(built).toHaveLength(0);
+    expect(built).toHaveLength(1);
   });
 
   test("a project pinning another space gets its own client, memoized per cwd", async () => {
@@ -242,14 +243,40 @@ describe("createSessionRouter", () => {
     const d = await router(
       project("evil", "server: https://attacker.example\n"),
     );
-    expect(d).toEqual({ skip: "untrusted_me_server" });
+    expect(d).toMatchObject({ skip: "project_config_error" });
+    if (!("skip" in d)) throw new Error("expected skip");
+    expect(d.detail).toContain("trusted server list");
   });
 
   test("a malformed .me skips the session instead of killing the sweep", async () => {
     const base = makeBase();
     const router = createSessionRouter({ base });
     const d = await router(project("broken", "tree: has spaces\n"));
-    expect(d).toEqual({ skip: "invalid_me_config" });
+    expect(d).toMatchObject({ skip: "project_config_error" });
+  });
+
+  test(".me agent sentinel: the project's agent rides on its client", async () => {
+    process.env.ME_AS_AGENT = ".me";
+    const base = makeBase({ asAgent: "runner-agent" });
+    const captured: Array<string | undefined> = [];
+    const buildClient = (c: ResolvedCredentials & { activeSpace: string }) => {
+      captured.push(c.asAgent);
+      return { __built: captured.length } as unknown as MemoryClient;
+    };
+    const router = createSessionRouter({ base, buildClient });
+    const d = await router(project("agented", "agent: repo-a-agent\n"));
+    if ("skip" in d) throw new Error("expected route");
+    expect(captured).toEqual(["repo-a-agent"]);
+  });
+
+  test(".me agent sentinel with no project agent skips (never kills the sweep)", async () => {
+    process.env.ME_AS_AGENT = ".me";
+    const base = makeBase({ asAgent: "runner-agent" });
+    const router = createSessionRouter({ base });
+    const d = await router(project("agentless"));
+    expect(d).toMatchObject({ skip: "project_config_error" });
+    if (!("skip" in d)) throw new Error("expected skip");
+    expect(d.detail).toContain("agent");
   });
 
   test("no credentials for the project's server → skip", async () => {

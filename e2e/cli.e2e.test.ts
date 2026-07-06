@@ -1746,7 +1746,7 @@ describe.skipIf(
     );
     // …and the untrusted-server project is skipped + tallied, never written.
     expect(await countBySession(sidEvil)).toBe(0);
-    expect(result.sessionSkipReasons.untrusted_me_server).toBe(1);
+    expect(result.sessionSkipReasons.project_config_error).toBe(1);
     expect(result.sessionsProcessed).toBe(2);
 
     await rm(root, { recursive: true, force: true });
