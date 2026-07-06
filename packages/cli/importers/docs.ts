@@ -55,6 +55,12 @@ import { uuidv7At } from "./uuid.ts";
 export const DOCS_NODE_NAME = "docs";
 
 /**
+ * `meta.source` stamp on every imported doc — the ownership scope `--prune`
+ * reconciles against (rows without it are never touched).
+ */
+export const DOCS_META_SOURCE = "docs";
+
+/**
  * Version tag stored in `meta.importer_version`. Bumping it makes meta
  * differ, so the server's content-aware `onConflict: "replace"` re-renders
  * every previously-imported doc on the next run.
@@ -240,7 +246,7 @@ export function buildDocMemory(
 
   const meta: Record<string, unknown> = {
     title,
-    source: "docs",
+    source: DOCS_META_SOURCE,
     repo_path: relPath.split(/[\\/]+/).join("/"),
     importer_version: DOCS_IMPORTER_VERSION,
   };

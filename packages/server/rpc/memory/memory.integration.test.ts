@@ -670,6 +670,113 @@ test("search: tree lquery wildcard matches descendants", async () => {
   });
   const trees = res.results.map((r) => r.tree).sort();
   expect(trees).toEqual(["/share/proj", "/share/proj/a", "/share/proj/a/deep"]);
+
+  // Exact-node lquery: `*{0}` matches zero extra labels, pinning the filter
+  // to the node itself — the form `me import docs --prune` enumerates with.
+  const exact = await call<{ results: { tree: string }[] }>("memory.search", {
+    tree: "share.proj.a/*{0}",
+  });
+  expect(exact.results.map((r) => r.tree)).toEqual(["/share/proj/a"]);
+});
+
+test("reconcileTree deletes stale slots; kept/foreign/unnamed survive; dryRun previews", async () => {
+  await call("memory.batchCreate", {
+    memories: [
+      {
+        content: "kept",
+        tree: "share.p.docs",
+        name: "kept.md",
+        meta: { source: "docs" },
+      },
+      {
+        content: "stale",
+        tree: "share.p.docs.old",
+        name: "stale.md",
+        meta: { source: "docs" },
+      },
+      {
+        content: "foreign",
+        tree: "share.p.docs",
+        name: "manual.md",
+        meta: { source: "human" },
+      },
+      { content: "unnamed", tree: "share.p.docs", meta: { source: "docs" } },
+    ],
+  });
+
+  const params = {
+    root: "share.p.docs",
+    metaContains: { source: "docs" },
+    keep: [{ tree: "share.p.docs", name: "kept.md" }],
+  };
+
+  // Dry run: exact would-delete list, nothing deleted.
+  const dry = await call<{ count: number; paths: string[] }>(
+    "memory.reconcileTree",
+    { ...params, dryRun: true },
+  );
+  expect(dry.count).toBe(1);
+  expect(dry.paths).toEqual(["/share/p/docs/old/stale.md"]);
+  const before = await call<{ count: number }>("memory.countTree", {
+    tree: "share.p.docs",
+  });
+  expect(before.count).toBe(4);
+
+  // Real run: exactly the stale slot goes.
+  const res = await call<{ count: number; paths: string[] }>(
+    "memory.reconcileTree",
+    params,
+  );
+  expect(res.count).toBe(1);
+  expect(res.paths).toEqual(["/share/p/docs/old/stale.md"]);
+  const after = await call<{ count: number }>("memory.countTree", {
+    tree: "share.p.docs",
+  });
+  expect(after.count).toBe(3);
+
+  // Idempotent: a second reconcile with the same keep-list is a no-op.
+  const again = await call<{ count: number }>("memory.reconcileTree", params);
+  expect(again.count).toBe(0);
+});
+
+test("reconcileTree normalizes ~ and / path spellings in root and keep", async () => {
+  await call("memory.batchCreate", {
+    memories: [
+      {
+        content: "kept",
+        tree: "~/proj/docs",
+        name: "a.md",
+        meta: { source: "docs" },
+      },
+      {
+        content: "stale",
+        tree: "~/proj/docs",
+        name: "b.md",
+        meta: { source: "docs" },
+      },
+    ],
+  });
+  const res = await call<{ count: number; paths: string[] }>(
+    "memory.reconcileTree",
+    {
+      root: "~/proj/docs",
+      metaContains: { source: "docs" },
+      keep: [{ tree: "~/proj/docs", name: "a.md" }],
+    },
+  );
+  expect(res.count).toBe(1);
+  expect(res.paths).toEqual(["~/proj/docs/b.md"]);
+});
+
+test("reconcileTree refuses an empty metaContains scope", async () => {
+  await expectAppError(
+    call("memory.reconcileTree", {
+      root: "share.p.docs",
+      metaContains: {},
+      keep: [],
+    }),
+    "VALIDATION_ERROR",
+  );
 });
 
 test("search: tree ltxtquery (label boolean) matches by label", async () => {

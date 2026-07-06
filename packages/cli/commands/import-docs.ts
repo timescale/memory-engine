@@ -28,11 +28,12 @@ import { join, resolve } from "node:path";
 import * as clack from "@clack/prompts";
 import type { MemoryCreateParams } from "@memory.build/protocol/memory";
 import { Command } from "commander";
-import { batchCreateChunked } from "../chunk.ts";
+import { BATCH_CREATE_BYTES_BUDGET, batchCreateChunked } from "../chunk.ts";
 import { resolveCredentials } from "../credentials.ts";
 import {
   buildDocMemory,
   DEFAULT_DOC_PATTERNS,
+  DOCS_META_SOURCE,
   DOCS_NODE_NAME,
   type DocsMemoryContext,
   discoverPlainFiles,
@@ -72,6 +73,8 @@ export interface DocsImportOptions {
   temporalKey?: string;
   /** False (via --no-temporal): no temporal, no date-seeded ids. */
   parseTemporal: boolean;
+  /** Delete previously-imported docs absent from this walk. */
+  prune: boolean;
   /** Report without writing. */
   dryRun: boolean;
   /** Per-file progress output. */
@@ -105,9 +108,42 @@ export function buildDocsImportOptions(
     temporalKey,
     // Commander sets `temporal` false when `--no-temporal` is passed.
     parseTemporal: opts.temporal !== false,
+    prune: opts.prune === true,
     dryRun: opts.dryRun === true,
     verbose: opts.verbose === true,
   };
+}
+
+/**
+ * Byte budget for the reconcile keep-list — the whole request must fit under
+ * the server's body cap, so this mirrors BATCH_CREATE_BYTES_BUDGET's
+ * headroom. In practice ~20k slots; beyond it prune refuses cleanly (a
+ * NOT-IN keep-list is fundamentally un-chunkable: splitting it would delete
+ * the union of "not in each chunk", i.e. nearly everything).
+ */
+export const PRUNE_KEEP_BYTES_BUDGET = BATCH_CREATE_BYTES_BUDGET;
+
+/** A keep-list slot for memory.reconcileTree. */
+export interface KeepSlot {
+  tree: string;
+  name: string;
+}
+
+/** The walked slot set, as the reconcile keep-list. */
+export function buildKeepList(
+  planned: Array<{ payload: MemoryCreateParams }>,
+): KeepSlot[] {
+  // Every doc payload is named (buildDocMemory always sets one); the fallback
+  // only satisfies the type.
+  return planned.map((p) => ({
+    tree: p.payload.tree,
+    name: p.payload.name ?? "",
+  }));
+}
+
+/** Approximate wire size of the keep-list (UTF-8 JSON bytes). */
+export function keepListBytes(keep: KeepSlot[]): number {
+  return Buffer.byteLength(JSON.stringify(keep), "utf8");
 }
 
 /** Structured result of one run (also the --json/--yaml output shape). */
@@ -129,6 +165,12 @@ interface DocsImportResult {
   updated: number;
   /** Unchanged server-side (idempotent re-import). */
   skipped: number;
+  /** Stale rows deleted by --prune (would-delete count in a dry run). */
+  pruned: number;
+  /** Display paths of the pruned rows. */
+  prunedPaths: string[];
+  /** Set when --prune was requested but refused; the reason. */
+  pruneRefused?: string;
   failed: number;
   errors: Array<{ source: string; error: string }>;
 }
@@ -247,7 +289,7 @@ export async function runDocsImport(
   // plus per-tree name registry already make these unique.
   const { unique } = dedupBy(
     planned,
-    (p) => `${p.payload.tree} ${p.payload.name}`,
+    (p) => `${p.payload.tree}\u0000${p.payload.name}`,
   );
 
   let inserted = 0;
@@ -275,6 +317,38 @@ export async function runDocsImport(
   } catch (error) {
     fail(error);
   }
+
+  // Prune: one set-based memory.reconcileTree call — delete importer-written
+  // rows (meta.source "docs") under the docs root whose (tree, name) slot the
+  // walk did not produce. Atomic and complete at any corpus size; with
+  // --dry-run the same predicate returns the exact would-delete list.
+  // Refusals (nothing deleted, exit 1): an empty walk — a wrong cwd or
+  // over-narrowed include set must not read as "delete the whole corpus" —
+  // and a keep-list too large for one request (it cannot be chunked: "not in
+  // chunk₁" ∪ "not in chunk₂" deletes nearly everything).
+  let prunedPaths: string[] = [];
+  let pruneRefused: string | undefined;
+  if (opts.prune) {
+    const keep = buildKeepList(unique);
+    if (unique.length === 0) {
+      pruneRefused =
+        "empty walk — a wrong directory or over-narrowed --include must not delete the whole corpus";
+    } else if (keepListBytes(keep) > PRUNE_KEEP_BYTES_BUDGET) {
+      pruneRefused = `keep-list too large for one reconcile request (${unique.length} docs)`;
+    } else {
+      try {
+        const res = await engine.memory.reconcileTree({
+          root: docsTree,
+          metaContains: { source: DOCS_META_SOURCE },
+          keep,
+          ...(opts.dryRun ? { dryRun: true } : {}),
+        });
+        prunedPaths = res.paths;
+      } catch (error) {
+        fail(error);
+      }
+    }
+  }
   progress?.stop();
 
   const failed = errors.length;
@@ -289,6 +363,9 @@ export async function runDocsImport(
     inserted,
     updated,
     skipped,
+    pruned: prunedPaths.length,
+    prunedPaths,
+    ...(pruneRefused !== undefined ? { pruneRefused } : {}),
     failed,
     errors,
   };
@@ -299,6 +376,9 @@ export async function runDocsImport(
         "Shallow clone: git last-modified dates dropped (history is truncated).",
       );
     }
+    if (pruneRefused !== undefined) {
+      clack.log.warn(`--prune refused: ${pruneRefused}. Nothing was deleted.`);
+    }
     const verb = opts.dryRun ? "Would import" : "Imported";
     clack.log.success(
       `${verb} ${inserted} new, ${updated} updated, ${skipped} unchanged, ${failed} failed ` +
@@ -307,13 +387,20 @@ export async function runDocsImport(
     if (skippedEmpty > 0) {
       console.log(`  Skipped ${skippedEmpty} empty file(s)`);
     }
+    if (opts.prune && pruneRefused === undefined) {
+      const pverb = opts.dryRun ? "Would prune" : "Pruned";
+      console.log(`  ${pverb} ${prunedPaths.length} stale doc(s)`);
+      if (opts.verbose || opts.dryRun) {
+        for (const p of prunedPaths) console.log(`    - ${p}`);
+      }
+    }
     for (const e of errors) {
       console.log(`    ✗ ${e.source}: ${e.error}`);
     }
   });
 
   if (failed > 0 && inserted + updated === 0) process.exit(2);
-  if (failed > 0) process.exit(1);
+  if (failed > 0 || pruneRefused !== undefined) process.exit(1);
 }
 
 /** `me import docs` subcommand factory. */
@@ -340,6 +427,10 @@ export function createDocsImportCommand(): Command {
     .option(
       "--no-temporal",
       "no temporal and no date-seeded ids (also skips the git log pass)",
+    )
+    .option(
+      "--prune",
+      "delete previously-imported docs absent from this walk (full-corpus runs only — a narrowed walk prunes everything outside it)",
     )
     .option(
       "--dry-run",

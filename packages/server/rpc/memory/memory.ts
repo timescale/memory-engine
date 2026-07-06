@@ -33,6 +33,8 @@ import type {
   MemoryGetParams,
   MemoryMoveParams,
   MemoryMoveResult,
+  MemoryReconcileTreeParams,
+  MemoryReconcileTreeResult,
   MemoryResponse,
   MemorySearchParams,
   MemorySearchResult,
@@ -52,6 +54,7 @@ import {
   memoryGetByPathParams,
   memoryGetParams,
   memoryMoveParams,
+  memoryReconcileTreeParams,
   memorySearchParams,
   memoryTreeParams,
   memoryUpdateParams,
@@ -616,6 +619,41 @@ async function memoryDeleteTree(
   return { count };
 }
 
+/**
+ * memory.reconcileTree — set-based reconcile-delete for importer-maintained
+ * subtrees. The SQL function owns the semantics (named rows under root,
+ * metaContains ownership scope, keep-list anti-join, up-front write gate);
+ * this handler only normalizes paths in and denormalizes the affected rows
+ * out.
+ */
+async function memoryReconcileTree(
+  params: MemoryReconcileTreeParams,
+  context: HandlerContext,
+): Promise<MemoryReconcileTreeResult> {
+  assertSpaceRpcContext(context);
+  const ctx = context as SpaceRpcContext;
+  const { store, treeAccess } = ctx;
+
+  const root = inputTreePath(ctx, params.root);
+  const keepTrees = params.keep.map((k) => inputTreePath(ctx, k.tree));
+  const keepNames = params.keep.map((k) => k.name);
+
+  const rows = await guard(() =>
+    store.reconcileTree(
+      treeAccess,
+      root,
+      params.metaContains,
+      keepTrees,
+      keepNames,
+      params.dryRun ?? false,
+    ),
+  );
+  return {
+    count: rows.length,
+    paths: rows.map((r) => `${displayTreePath(ctx, r.tree)}/${r.name}`),
+  };
+}
+
 /** memory.countTree */
 async function memoryCountTree(
   params: MemoryCountTreeParams,
@@ -687,6 +725,11 @@ export const memoryDataMethods = buildRegistry()
   .register("memory.copy", memoryCopyParams, memoryCopy)
   .register("memory.move", memoryMoveParams, memoryMove)
   .register("memory.deleteTree", memoryDeleteTreeParams, memoryDeleteTree)
+  .register(
+    "memory.reconcileTree",
+    memoryReconcileTreeParams,
+    memoryReconcileTree,
+  )
   .register("memory.countTree", memoryCountTreeParams, memoryCountTree)
   .register(
     "memory.embeddingStatus",

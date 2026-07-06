@@ -211,6 +211,34 @@ export type MemoryEmbeddingStatusParams = z.infer<
   typeof memoryEmbeddingStatusParams
 >;
 
+/**
+ * memory.reconcileTree params — set-based reconcile-delete for
+ * importer-maintained subtrees: delete every NAMED row under `root` matching
+ * `metaContains` whose `(tree, name)` slot is not in `keep`. `metaContains`
+ * must be a non-empty object (the ownership stamp, e.g. `{source: "docs"}`)
+ * so an unscoped "delete everything not in my list" cannot be expressed.
+ * `dryRun` returns the would-delete paths without deleting.
+ */
+export const memoryReconcileTreeParams = z.object({
+  root: treePathSchema.min(1, "root path is required"),
+  metaContains: metaSchema.refine((m) => Object.keys(m).length > 0, {
+    message: "metaContains must be a non-empty object",
+  }),
+  keep: z
+    .array(
+      z.object({
+        tree: treePathSchema.min(1, "tree path is required"),
+        name: memoryNameSchema,
+      }),
+    )
+    .max(100_000),
+  dryRun: z.boolean().optional(),
+});
+
+export type MemoryReconcileTreeParams = z.infer<
+  typeof memoryReconcileTreeParams
+>;
+
 // =============================================================================
 // Result Schemas
 // =============================================================================
@@ -342,6 +370,19 @@ export const memoryDeleteTreeResult = z.object({
 });
 
 export type MemoryDeleteTreeResult = z.infer<typeof memoryDeleteTreeResult>;
+
+/**
+ * memory.reconcileTree result — the affected (deleted, or with dryRun
+ * would-delete) rows as display paths, plus their count.
+ */
+export const memoryReconcileTreeResult = z.object({
+  count: z.number().int(),
+  paths: z.array(z.string()),
+});
+
+export type MemoryReconcileTreeResult = z.infer<
+  typeof memoryReconcileTreeResult
+>;
 
 /**
  * memory.countTree result.

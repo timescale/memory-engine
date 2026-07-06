@@ -218,7 +218,8 @@ me import docs [dir] [options]
 | `--exclude <globs...>` | Glob patterns to drop from the include set. |
 | `--temporal-key <key>` | Frontmatter key parsed as the memory's temporal start (e.g. `date` for blogs/ADRs). Falls back to git last-modified; works in plain directories and shallow clones too. |
 | `--no-temporal` | No temporal and no date-seeded ids (also skips the git log pass). |
-| `--dry-run` | Discover and report what would be imported without writing. |
+| `--prune` | Delete previously-imported docs under the docs root that are absent from this walk. **Full-corpus runs only** — see [Pruning](#pruning-deletions-and-renames). |
+| `--dry-run` | Discover and report what would be imported without writing (with `--prune`: lists what would be deleted). |
 | `-v, --verbose` | Per-file progress output (prints each `tree / name`). |
 
 ### Discovery: git-aware, git-optional
@@ -251,7 +252,13 @@ A dated doc seeds a date-prefixed UUIDv7 id, so docs sort by recency in default 
 
 ### Idempotency and re-runs
 
-Idempotency is keyed on `(tree, name)`. Docs are submitted with `onConflict: "replace"` and deterministic meta, so re-runs reconcile in place: an unchanged file is a no-op, an edited file updates its row, and an importer-version bump re-renders everything. The walk is sorted, so name disambiguation (`-2`, `-3` suffixes on collisions) is stable across runs. A file **deleted** (or renamed) in the source leaves its old row behind — nothing is pruned automatically.
+Idempotency is keyed on `(tree, name)`. Docs are submitted with `onConflict: "replace"` and deterministic meta, so re-runs reconcile in place: an unchanged file is a no-op, an edited file updates its row, and an importer-version bump re-renders everything. The walk is sorted, so name disambiguation (`-2`, `-3` suffixes on collisions) is stable across runs. A file **deleted** (or renamed) in the source leaves its old row behind — nothing is pruned unless you ask.
+
+### Pruning (deletions and renames)
+
+`--prune` reconciles deletions in **one atomic server-side pass** (`memory.reconcileTree`): every row under the docs root that carries the importer's stamp (`meta.source: "docs"` — rows this importer didn't write are never touched, so a manual note under the same tree is safe) and whose `(tree, name)` slot this walk didn't produce is deleted in a single set-based statement — complete at any corpus size, with no enumerate/delete race. `--dry-run --prune` runs the same predicate as a read and returns the **exact** would-delete list. The everyday reason to run it is **renames**: a renamed file gets a fresh `(tree, name)` slot, and without pruning the old slot lingers as a stale duplicate.
+
+> **Prune means "everything under the docs root not in *this* walk".** A narrowed invocation — a subdirectory argument, or `--include`/`--exclude` filters — makes the walk a slice, and pruning against a slice deletes the rest of the corpus. Only combine `--prune` with a full-corpus run (same `dir`, same filters as the original import), and preview with `--dry-run --prune` when unsure. Prune either reconciles completely or **refuses cleanly with nothing deleted** (exit 1): on an empty walk (a wrong cwd must not read as "delete everything"), and when the walked slot list is too large for a single reconcile request (roughly 20k docs — the keep-list cannot be split across requests).
 
 ### Metadata
 
@@ -271,6 +278,8 @@ me import docs --dry-run -v            # preview from the repo root
 me import docs                          # import into <project-tree>/docs
 me import docs docs/ --include '**/*.md'   # just one folder, .md only
 me import docs . --temporal-key date    # blog/ADR repos with date: frontmatter
+me import docs --prune --dry-run        # preview a full-corpus reconcile
+me import docs --prune                  # re-sync, deleting removed/renamed docs
 me memory tree ~/projects/acme/docs --levels 3   # browse the result
 ```
 
