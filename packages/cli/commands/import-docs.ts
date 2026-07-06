@@ -29,7 +29,7 @@ import * as clack from "@clack/prompts";
 import type { MemoryCreateParams } from "@memory.build/protocol/memory";
 import { Command } from "commander";
 import { BATCH_CREATE_BYTES_BUDGET, batchCreateChunked } from "../chunk.ts";
-import { resolveCredentials } from "../credentials.ts";
+import { resolveCredentials, resolveCredentialsFor } from "../credentials.ts";
 import {
   buildDocMemory,
   DEFAULT_DOC_PATTERNS,
@@ -52,6 +52,7 @@ import {
 import { normalizeTreeLabel } from "../importers/markdown-files.ts";
 import { SlugRegistry } from "../importers/slug.ts";
 import { getOutputFormat, output } from "../output.ts";
+import { discoverProjectConfig } from "../project-config.ts";
 import {
   buildMemoryClient,
   displayTreePath,
@@ -236,12 +237,7 @@ export async function runDocsImport(
   rawOpts: Record<string, unknown>,
   globalOpts: Record<string, unknown>,
 ): Promise<void> {
-  const creds = resolveCredentials(
-    typeof globalOpts.server === "string" ? globalOpts.server : undefined,
-  );
   const fmt = getOutputFormat(globalOpts);
-  requireAuth(creds, fmt);
-  requireSpace(creds, fmt);
 
   let opts: DocsImportOptions;
   try {
@@ -254,6 +250,28 @@ export async function runDocsImport(
   if (!existsSync(dir) || !statSync(dir).isDirectory()) {
     handleError(new Error(`Not a directory: ${opts.dir}`), fmt);
   }
+
+  // Per-project resolution follows the TARGET directory, not the cwd (the
+  // `me import git` pattern): the import root's own .me config supplies
+  // server/space/tree, so importing another project's docs from anywhere
+  // routes to that project. An explicit --config-dir/ME_CONFIG_DIR keeps the
+  // ambient resolution the caller asked for; `--server` reaches both forms
+  // (seeded).
+  const serverFlag =
+    typeof globalOpts.server === "string" ? globalOpts.server : undefined;
+  const explicitConfigDir =
+    typeof globalOpts.configDir === "string" ||
+    Boolean(process.env.ME_CONFIG_DIR);
+  let creds: ReturnType<typeof resolveCredentials>;
+  try {
+    creds = explicitConfigDir
+      ? resolveCredentials(serverFlag)
+      : resolveCredentialsFor(discoverProjectConfig(dir));
+  } catch (error) {
+    handleError(error, fmt);
+  }
+  requireAuth(creds, fmt);
+  requireSpace(creds, fmt);
 
   // Project slug + git detection in one resolve (plain dirs slug by basename).
   const { slug, gitRoot } = await new SlugRegistry().resolve(dir);
