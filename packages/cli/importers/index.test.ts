@@ -2,7 +2,15 @@
  * Tests for importer helpers in `index.ts`.
  */
 import { describe, expect, test } from "bun:test";
-import { dedupBy } from "./index.ts";
+import type { MemoryClient } from "../client.ts";
+import {
+  dedupBy,
+  type Importer,
+  runImport,
+  type SessionRouter,
+  type WriteOptions,
+} from "./index.ts";
+import type { ImportedSession, ImporterOptions } from "./types.ts";
 
 const byKey = (item: { key: string }) => item.key;
 
@@ -59,15 +67,6 @@ describe("dedupBy", () => {
 // =============================================================================
 // runImport + SessionRouter — per-session engine/tree routing mechanics
 // =============================================================================
-
-import type { MemoryClient } from "../client.ts";
-import {
-  type Importer,
-  runImport,
-  type SessionRouter,
-  type WriteOptions,
-} from "./index.ts";
-import type { ImportedSession, ImporterOptions } from "./types.ts";
 
 const IMPORTER_OPTS: ImporterOptions = {
   fullTranscript: false,
