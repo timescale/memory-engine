@@ -149,11 +149,8 @@ Claude Code handles the cleanup. Your captured memories and API keys are preserv
 **Hook fires but nothing is captured, no error**
 Capture is **off by default** — the hooks exit silently until you opt in. Re-run `me claude install` and say yes at the capture prompt (or set `capture: true` in the project's `.me/config.yaml`). A project with `capture: false` is deliberately opted out.
 
-**`[memory-engine] no credentials` in stderr**
-The hook ran but found neither a `me login` session nor a configured api_key. Run `me login` (and `me space use <space>`), or open `/plugin → memory-engine → Configure` and set the api_key + space.
-
-**Capture is on but no memories appear, no error**
-With everything optional, a hook silently skips when it can't resolve a space — no `space` configured *and* no active space set (`me space use`). Either pin `space` in `/plugin → Configure` or run `me space use <space>`.
+**`[memory-engine] missing credentials or space` in stderr**
+The hook ran (capture is on) but could not resolve a bearer or a space. With everything optional this covers two cases: no `me login` session and no configured api_key, or no `space` configured *and* no active space set. Run `me login` and `me space use <space>`, or open `/plugin → memory-engine → Configure` and set the api_key + space.
 
 **Hook fires but no memories appear**
 - Confirm the api_key is valid:

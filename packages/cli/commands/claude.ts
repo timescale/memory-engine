@@ -573,9 +573,12 @@ function createClaudeHookCommand(): Command {
         process.exit(0);
       }
       if (!config) {
+        // resolveHookConfigFromEnv returns null for a missing bearer OR a
+        // missing space — name both so the fix is actionable either way.
         console.error(
-          "[memory-engine] no credentials. Run `me login`, or set the plugin's " +
-            "api_key + space via `/plugin` in Claude Code.",
+          "[memory-engine] missing credentials or space. Run `me login` and " +
+            "`me space use <space>`, or configure api_key + space via " +
+            "`/plugin` in Claude Code.",
         );
         process.exit(0);
       }

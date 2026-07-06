@@ -43,7 +43,11 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { parse, stringify } from "yaml";
 import { keychainDelete, keychainGet, keychainSet } from "./keychain.ts";
-import { getProjectConfig, ProjectConfigError } from "./project-config.ts";
+import {
+  getProjectConfig,
+  ProjectConfigError,
+  VALID_TREE_PATH_RE,
+} from "./project-config.ts";
 
 // =============================================================================
 // Constants & types
@@ -63,13 +67,6 @@ export const DEV_SERVER = "https://me.dev-us-east-1.ops.dev.timescale.com";
  * are the user's own choice and are NOT gated.
  */
 const DEFAULT_TRUSTED_SERVERS = [DEFAULT_SERVER, DEV_SERVER];
-
-/**
- * Lenient tree-path shape for the `tree_root` config key (mirrors the
- * project-config `tree` gate): ltree labels separated by `.`/`/`, optional
- * leading `~`. Normalized server-side; this is only a cheap sanity gate.
- */
-const TREE_ROOT_RE = /^[A-Za-z0-9_~./-]+$/;
 
 /** Per-server non-secret config. */
 export interface ServerConfig {
@@ -254,7 +251,7 @@ function readConfig(): ConfigFile {
   const rawTreeRoot = data?.tree_root;
   if (
     rawTreeRoot !== undefined &&
-    (typeof rawTreeRoot !== "string" || !TREE_ROOT_RE.test(rawTreeRoot))
+    (typeof rawTreeRoot !== "string" || !VALID_TREE_PATH_RE.test(rawTreeRoot))
   ) {
     throw new Error(
       `Invalid tree_root in ${path}: use ltree labels ([A-Za-z0-9_-]) separated by '/' or '.', with an optional leading '~'.`,
@@ -683,17 +680,23 @@ export function getDefaultServer(): string {
  */
 export function resolveCredentials(serverFlag?: string): ResolvedCredentials {
   const server = resolveServer(serverFlag);
-  const config = getServerConfig(server);
+  // One config.yaml read for every global field below (this runs on the
+  // hook/import hot paths); resolveServer keeps its own internal read for the
+  // no-flag/env/`.me` fallback branch.
+  const config = readConfig();
   const project = getProjectConfig();
 
   return {
     server,
     loggedIn: Boolean(process.env.ME_SESSION_TOKEN) || hasStoredTokens(server),
     apiKey: process.env.ME_API_KEY,
-    activeSpace: process.env.ME_SPACE ?? project?.space ?? config.active_space,
+    activeSpace:
+      process.env.ME_SPACE ??
+      project?.space ??
+      config.servers[normalizeOrigin(server)]?.active_space,
     tree: project?.tree,
-    treeRoot: readConfig().tree_root,
+    treeRoot: config.tree_root,
     asAgent: resolveAsAgent(),
-    captureEnabled: project?.capture ?? getGlobalCaptureEnabled(),
+    captureEnabled: project?.capture ?? config.capture === true,
   };
 }
