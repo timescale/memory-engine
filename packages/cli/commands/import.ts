@@ -44,6 +44,7 @@ import {
 import { opencodeImporter } from "../importers/opencode.ts";
 import type { ImporterOptions } from "../importers/types.ts";
 import { getOutputFormat, output } from "../output.ts";
+import { VALID_TREE_PATH_RE } from "../project-config.ts";
 import {
   buildMemoryClient,
   handleError,
@@ -53,11 +54,11 @@ import {
 
 // Default capture layout (~/projects.<slug>.agent_sessions — private) lives in the
 // importers module so `me import <tool>` and the Claude Code hook share one source.
-// Lenient user-facing tree-path input (matches the protocol's treePathSchema):
-// labels [A-Za-z0-9_-], `.` or `/` separators, optional leading `~` (home). The
-// server normalizes + authoritatively validates; this is a fast pre-check so a
-// `--tree-root ~/work` or `~` lands in the caller's home instead of being rejected.
-export const VALID_TREE_ROOT_RE = /^[A-Za-z0-9_~./-]+$/;
+// User-facing tree-path input shares the strict client-side gate with the `.me`
+// `tree` / global `tree_root` (see VALID_TREE_PATH_RE): labels [A-Za-z0-9_-],
+// `.`/`/` separators, optional leading `~` (home) or `/`. The server still
+// normalizes + authoritatively validates.
+export const VALID_TREE_ROOT_RE = VALID_TREE_PATH_RE;
 const VALID_TREE_LABEL_RE = /^[a-z0-9_]+$/;
 
 /** Build a Commander option set shared by every subcommand. */

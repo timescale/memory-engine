@@ -206,13 +206,17 @@ test("tree_root: unset by default; a config value surfaces as treeRoot", () => {
   expect(r.tree).toBe("/share/projects/foo");
 });
 
-test("a malformed tree_root is a fatal config error", () => {
+test("a malformed tree_root is a fatal config error (strict shape)", () => {
   mkdirSync(join(configDir, "me"), { recursive: true });
-  writeFileSync(
-    join(configDir, "me", "config.yaml"),
-    "tree_root: 'has spaces!'\n",
-  );
-  expect(() => creds.resolveCredentials()).toThrow(/Invalid tree_root/);
+  for (const bad of [
+    "'has spaces!'",
+    "share..projects",
+    "share~oops",
+    "share.projects.",
+  ]) {
+    writeFileSync(join(configDir, "me", "config.yaml"), `tree_root: ${bad}\n`);
+    expect(() => creds.resolveCredentials()).toThrow(/Invalid tree_root/);
+  }
 });
 
 // =============================================================================

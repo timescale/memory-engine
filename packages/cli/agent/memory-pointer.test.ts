@@ -8,6 +8,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   buildMemoryPointerSection,
+  displayTree,
   type MemoryPointerSpec,
 } from "./memory-pointer.ts";
 
@@ -54,12 +55,34 @@ describe("buildMemoryPointerSection", () => {
     expect(out).toContain("`/share/projects/foo/git_history`");
   });
 
+  test("a dotted .me tree renders in clean slash form (no mixed separators)", () => {
+    const out = buildMemoryPointerSection(OPENCODE, "share.projects.foo");
+    expect(out).toContain("    /share/projects/foo");
+    expect(out).toContain("`/share/projects/foo/agent_sessions`");
+    expect(out).toContain("`/share/projects/foo/git_history`");
+    expect(out).not.toContain("share.projects.foo/");
+  });
+
+  test("stray separators are normalized away (no // in rendered paths)", () => {
+    const out = buildMemoryPointerSection(OPENCODE, "/share/projects/foo/");
+    expect(out).toContain("`/share/projects/foo/agent_sessions`");
+    expect(out).not.toContain("//");
+  });
+
   test("a private ~ tree renders with quoted shell usage", () => {
     const out = buildMemoryPointerSection(CLAUDE, "~/projects/foo");
     expect(out).toContain("    ~/projects/foo");
     expect(out).toContain("`~/projects/foo/agent_sessions`");
     // The shell example quotes the tree so `~` survives the user's shell.
     expect(out).toContain(`--tree '~/projects/foo'`);
+  });
+
+  test("displayTree canonicalizes lenient forms", () => {
+    expect(displayTree("share.projects.foo")).toBe("/share/projects/foo");
+    expect(displayTree("/share/projects/foo")).toBe("/share/projects/foo");
+    expect(displayTree("~/projects/foo")).toBe("~/projects/foo");
+    expect(displayTree("~.projects.foo")).toBe("~/projects/foo");
+    expect(displayTree("~")).toBe("~");
   });
 
   test("notes the space when provided", () => {

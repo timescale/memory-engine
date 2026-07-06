@@ -38,12 +38,17 @@ const CONFIG_FILENAME = "config.yaml";
 const LOCAL_CONFIG_FILENAME = "config.local.yaml";
 
 /**
- * Lenient tree-path shape (mirrors protocol `treePathInputPattern`, but
- * non-empty): ltree labels separated by `.`/`/`, an optional leading `~`. The
- * value is normalized server-side per caller (`normalizeTreePath`); this is only
- * a cheap gate so an obviously-bad value doesn't silently flow into a tree.
+ * Tree-path shape shared by every client-side tree gate (the `.me` `tree`,
+ * the global `tree_root`, the `--tree`/`--tree-root` flags): ltree labels
+ * (`[A-Za-z0-9_-]`) separated by `.` or `/`, with an optional leading `/` or
+ * `~` (bare `~` = your home root). Strict about the shape — `~` only at the
+ * start, no empty labels (`a..b`), no trailing separators — so a typo fails
+ * loudly here instead of surfacing as a confusing server error. The value is
+ * still normalized authoritatively server-side (`normalizeTreePath`).
  */
-const TREE_PATH_RE = /^[A-Za-z0-9_~./-]+$/;
+export const VALID_TREE_PATH_RE =
+  /^~$|^(?:~[./]|\/)?[A-Za-z0-9_-]+(?:[./][A-Za-z0-9_-]+)*$/;
+const TREE_PATH_RE = VALID_TREE_PATH_RE;
 
 /**
  * Schema for `.me/config.yaml`. Every field is optional — a `.me` may pin only a

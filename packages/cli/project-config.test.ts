@@ -125,6 +125,23 @@ test("an invalid field type is a fatal ProjectConfigError", () => {
   expect(() => discoverProjectConfig(root)).toThrow(ProjectConfigError);
 });
 
+test("the tree gate is strict: no empty labels, mid-~, or trailing separators", () => {
+  for (const bad of [
+    "share..projects",
+    "share~oops.projects",
+    "share.projects.",
+    "share/projects/",
+    "//share",
+  ]) {
+    writeConfig(root, `tree: '${bad}'\n`);
+    expect(() => discoverProjectConfig(root)).toThrow(ProjectConfigError);
+  }
+  for (const good of ["~", "~/work", "share.projects", "/share/projects/foo"]) {
+    writeConfig(root, `tree: '${good}'\n`);
+    expect(discoverProjectConfig(root)?.tree).toBe(good);
+  }
+});
+
 test("an unknown/misspelled key is a fatal ProjectConfigError (strict)", () => {
   // A typo'd key must fail loudly, not be silently stripped to a no-op pin.
   writeConfig(root, "serer: https://typo.example\n");

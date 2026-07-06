@@ -283,8 +283,11 @@ function createOpenCodeHookCommand(): Command {
           process.exit(0);
         }
         if (!config) {
+          // resolveHookConfig returns null for a missing bearer OR a missing
+          // space — name both so the fix is actionable either way.
           console.error(
-            "[memory-engine] no credentials. Run `me login`, or set ME_API_KEY + ME_SPACE.",
+            "[memory-engine] missing credentials or space. Run `me login` and " +
+              "`me space use <space>`, or set ME_API_KEY + ME_SPACE.",
           );
           process.exit(0);
         }

@@ -34,16 +34,31 @@ const startMarker = (managedBy: string): string =>
 const END_MARKER = "<!-- memory-engine:end -->";
 
 /**
+ * Normalize a tree (lenient wire form — dotted, slashed, or mixed, possibly
+ * with stray separators) to the canonical slash display form for the pointer
+ * block: `~`-rooted trees render as `~/a/b`, everything else as `/a/b`.
+ * Mirrors `memoryPath`'s segmentation (`@memory.build/protocol/meta`).
+ */
+export function displayTree(tree: string): string {
+  const segments = tree.split(/[/.]+/).filter((s) => s.length > 0);
+  if (segments[0] === "~") return ["~", ...segments.slice(1)].join("/");
+  return `/${segments.join("/")}`;
+}
+
+/**
  * Build the managed block that tells an agent where this project's memories
- * live and how to search them. `tree` is the project's tree in lenient wire
- * form (`/share/projects/foo`, `~/projects/foo`, or dotted); sub-nodes are
- * joined with `/`. `space` is the active space slug.
+ * live and how to search them. `tree` may arrive in any lenient wire form
+ * (`/share/projects/foo`, `share.projects.foo`, `~/projects/foo`) — it is
+ * normalized to the canonical slash display form ({@link displayTree}) so the
+ * rendered paths never mix separators; sub-nodes are joined with `/`. `space`
+ * is the active space slug.
  */
 export function buildMemoryPointerSection(
   spec: MemoryPointerSpec,
-  tree: string,
+  rawTree: string,
   space?: string,
 ): string {
+  const tree = displayTree(rawTree);
   const sessions = `${tree}/${DEFAULT_SESSIONS_NODE_NAME}`;
   const gitHistory = `${tree}/${GIT_HISTORY_NODE_NAME}`;
   const where = space ? `Memory Engine (space \`${space}\`)` : "Memory Engine";
