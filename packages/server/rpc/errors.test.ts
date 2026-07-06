@@ -1,13 +1,16 @@
 import { describe, expect, test } from "bun:test";
 import {
   APP_ERROR_CODES,
+  AppError,
   appErrors,
   applicationError,
   createErrorResponse,
   createRpcError,
+  EXPECTED_APP_ERROR_CODES,
   internalError,
   invalidParams,
   invalidRequest,
+  isExpectedAppError,
   methodNotFound,
   parseError,
   RPC_ERROR_CODES,
@@ -176,6 +179,44 @@ describe("errors", () => {
     test("validationError", () => {
       const response = appErrors.validationError(1, "Name too long");
       expect(response.error.data?.code).toBe(APP_ERROR_CODES.VALIDATION_ERROR);
+    });
+  });
+
+  describe("isExpectedAppError", () => {
+    test("expected business/validation/authorization codes are expected", () => {
+      for (const code of [
+        APP_ERROR_CODES.NOT_FOUND,
+        APP_ERROR_CODES.FORBIDDEN,
+        APP_ERROR_CODES.UNAUTHORIZED,
+        APP_ERROR_CODES.CONFLICT,
+        APP_ERROR_CODES.VALIDATION_ERROR,
+        APP_ERROR_CODES.RATE_LIMITED,
+        APP_ERROR_CODES.LAST_ADMIN,
+      ]) {
+        expect(isExpectedAppError(new AppError(code, "x"))).toBe(true);
+        expect(EXPECTED_APP_ERROR_CODES.has(code)).toBe(true);
+      }
+    });
+
+    test("real-failure codes are NOT expected (stay loud)", () => {
+      for (const code of [
+        APP_ERROR_CODES.QUERY_TIMEOUT,
+        APP_ERROR_CODES.LOCK_TIMEOUT,
+        APP_ERROR_CODES.TRANSACTION_TIMEOUT,
+        APP_ERROR_CODES.EMBEDDING_FAILED,
+        APP_ERROR_CODES.EMBEDDING_NOT_CONFIGURED,
+        APP_ERROR_CODES.INTERNAL_ERROR,
+      ]) {
+        expect(isExpectedAppError(new AppError(code, "x"))).toBe(false);
+        expect(EXPECTED_APP_ERROR_CODES.has(code)).toBe(false);
+      }
+    });
+
+    test("non-AppError values are not expected", () => {
+      expect(isExpectedAppError(new Error("NOT_FOUND"))).toBe(false);
+      expect(isExpectedAppError({ code: "NOT_FOUND" })).toBe(false);
+      expect(isExpectedAppError(null)).toBe(false);
+      expect(isExpectedAppError(undefined)).toBe(false);
     });
   });
 });

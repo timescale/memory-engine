@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { z } from "zod";
-import { APP_ERROR_CODES, RPC_ERROR_CODES } from "./errors";
+import { APP_ERROR_CODES, AppError, RPC_ERROR_CODES } from "./errors";
 import { createRpcHandler, handleRpcRequest } from "./handler";
 import { buildRegistry } from "./registry";
 
@@ -44,6 +44,16 @@ describe("handleRpcRequest", () => {
       throw Object.assign(new Error("canceling statement due to timeout"), {
         code: "57014",
       });
+    })
+    .register("test.notFound", z.object({}), () => {
+      // Expected business error: mapped to an application-error response, and
+      // NOT recorded as a span exception.
+      throw new AppError(APP_ERROR_CODES.NOT_FOUND, "memory not found");
+    })
+    .register("test.embeddingFailed", z.object({}), () => {
+      // AppError with a code that is NOT expected: still a real failure that
+      // maps to an application-error response and is recorded as an exception.
+      throw new AppError(APP_ERROR_CODES.EMBEDDING_FAILED, "embedding failed");
     })
     .register("test.noParams", z.undefined(), () => ({
       result: "no params needed",
@@ -257,6 +267,46 @@ describe("handleRpcRequest", () => {
 
       expect(body.error.code).toBe(RPC_ERROR_CODES.APPLICATION_ERROR);
       expect(body.error.data?.code).toBe(APP_ERROR_CODES.QUERY_TIMEOUT);
+    });
+  });
+
+  describe("application errors", () => {
+    test("expected business error maps to an application error response", async () => {
+      const request = createRequest({
+        jsonrpc: "2.0",
+        method: "test.notFound",
+        params: {},
+        id: 7,
+      });
+      const response = await handleRpcRequest(request, testRegistry);
+      const body = (await response.json()) as {
+        error: { code: number; message: string; data?: { code?: string } };
+        id: number;
+      };
+
+      expect(response.status).toBe(200);
+      expect(body.error.code).toBe(RPC_ERROR_CODES.APPLICATION_ERROR);
+      expect(body.error.data?.code).toBe(APP_ERROR_CODES.NOT_FOUND);
+      expect(body.error.message).toBe("memory not found");
+      expect(body.id).toBe(7);
+    });
+
+    test("non-expected AppError still maps to an application error response", async () => {
+      const request = createRequest({
+        jsonrpc: "2.0",
+        method: "test.embeddingFailed",
+        params: {},
+        id: 8,
+      });
+      const response = await handleRpcRequest(request, testRegistry);
+      const body = (await response.json()) as {
+        error: { code: number; data?: { code?: string } };
+        id: number;
+      };
+
+      expect(body.error.code).toBe(RPC_ERROR_CODES.APPLICATION_ERROR);
+      expect(body.error.data?.code).toBe(APP_ERROR_CODES.EMBEDDING_FAILED);
+      expect(body.id).toBe(8);
     });
   });
 
