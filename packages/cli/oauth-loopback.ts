@@ -40,7 +40,7 @@ h1{font-size:1.25rem}</style></head>
  */
 export function successPage(uiUrl?: string): Response {
   const link = uiUrl
-    ? ` <a href="${escapeHtml(uiUrl)}">Open the Memory Engine UI</a>.`
+    ? ` <a href="${escapeHtml(uiUrl)}" rel="noreferrer" referrerpolicy="no-referrer">Open the Memory Engine UI</a>.`
     : "";
   return resultPage(
     "Signed in",
