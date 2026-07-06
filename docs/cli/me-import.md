@@ -11,6 +11,7 @@ Get data into Memory Engine — one subcommand per source.
 - [me import granola](#me-import-granola) -- import Granola meeting notes and transcripts
 - [me import git](#me-import-git) -- import a repo's git commit history
 - [me import git-hook](#me-import-git-hook) -- install a post-commit hook that keeps git history memories current
+- [me import docs](#me-import-docs) -- import a directory's markdown docs (git-aware)
 - [me import slab](#me-import-slab) -- import a Slab knowledge-base export (a directory or `.zip`)
 
 There is no bare default: `me import <file>` does not parse — use `me import memories <file>`.
@@ -194,6 +195,83 @@ Backfill this repo's history, then keep it current with cheap re-runs:
 me import git --dry-run -v   # preview
 me import git                # full backfill (first run)
 me import git                # later: walks only commits since the last import
+```
+
+---
+
+## me import docs
+
+Import a directory's markdown docs as memories — one memory per file, with the directory layout mirrored as the tree path. Works on any folder of markdown; inside a git repo, discovery and dating get smarter (gitignore respected, git last-modified dates).
+
+```
+me import docs [dir] [options]
+```
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `dir` | no | Directory to import — the **import root**; tree paths derive relative to it (not the repo toplevel). Default: the current directory. |
+
+| Option | Description |
+|--------|-------------|
+| `--tree <path>` | Full project tree to place `docs` under (no slug appended). Default: the repo's [`.me` tree](../project-config.md), else `<tree_root>/<slug>` (your global [`tree_root`](../project-config.md#changing-the-default-tree-root-tree_root) override, default the private `~/projects`) — same resolution as [`me import git`](#me-import-git), so a project's docs sit next to its `git_history` and `agent_sessions` nodes. |
+| `--include <globs...>` | Glob patterns to import, **replacing** the default set (`**/*.md`, `**/*.markdown`, `**/*.mdx`). |
+| `--exclude <globs...>` | Glob patterns to drop from the include set. |
+| `--temporal-key <key>` | Frontmatter key parsed as the memory's temporal start (e.g. `date` for blogs/ADRs). Falls back to git last-modified; works in plain directories and shallow clones too. |
+| `--no-temporal` | No temporal and no date-seeded ids (also skips the git log pass). |
+| `--dry-run` | Discover and report what would be imported without writing. |
+| `-v, --verbose` | Per-file progress output (prints each `tree / name`). |
+
+### Discovery: git-aware, git-optional
+
+Git is an enhancer, not a requirement. When `dir` is inside a git work tree (**git mode**), files come from `git ls-files` — tracked **plus untracked-but-not-ignored**, so a doc you just wrote imports while gitignored build output stays out. In a plain directory (**plain mode**), the walk skips hidden files/dirs and `node_modules` (there is no gitignore to lean on). `--include`/`--exclude` are globs applied client-side in **both** modes, so they mean exactly the same thing with and without git. The output names the mode a run used.
+
+### Tree layout
+
+Each file is a named leaf under the project's `docs` node, mirroring its directory path **relative to `dir`**:
+
+```
+<tree>/docs/<sub>/<dirs>/<file-name>
+```
+
+Directory segments are normalized to ltree labels and the leaf name is a filename-derived slug keeping its (lowercased) extension, unique within its tree — e.g. `docs/guides/Getting Started.md` in repo `acme` lands at `~/projects/acme/docs/docs/guides/getting-started.md`. Files at the import root sit directly on the `docs` node. Note that pointing a later run at a different `dir` changes where files land.
+
+### Frontmatter is document data, never engine fields
+
+Unlike [`me import memories`](#me-import-memories) — where frontmatter *is* the memory record — this importer never reads engine fields (`id`, `name`, `tree`, `temporal`) from frontmatter: real-world docs own that vocabulary (Docusaurus `id:`, Hugo `slug:`), and the engine fields derive from the file path so idempotency keys stay stable. The parsed frontmatter object is preserved verbatim under **`meta.doc`**, and it is stripped from the content. Two exceptions use frontmatter *as data*: a string `title:` wins over the first-H1 heuristic for `meta.title`, and `--temporal-key` designates one key as the temporal source. A file whose frontmatter block is invalid YAML (or a non-object) imports with its content verbatim and no `meta.doc` — a broken header never fails the file.
+
+### Content shape
+
+The content is the markdown body with frontmatter stripped. `.mdx` files additionally drop top-level `import`/`export` statement lines (module wiring noise) — lines inside fenced code blocks are kept, since usage examples legitimately contain imports, and JSX component tags stay (the same tolerable noise as raw HTML in `.md`). Content past 64 KiB is truncated with a marker and flagged `meta.truncated`. Files that are empty after stripping are skipped — there is nothing to embed.
+
+### Temporal and ordering
+
+The temporal is a point-in-time answering "when is this content from": the `--temporal-key` frontmatter value when given and parseable, else the file's **git last-modified** date (author date of the newest commit touching the path, computed in one streamed `git log` pass — never per-file spawns). There is deliberately no filesystem-mtime fallback: mtime churns on clone/copy/checkout, which would make a byte-identical re-import rewrite every row. Per-file degradation, not per-run: an uncommitted file simply gets no git date. In a **shallow clone** every path's history collapses to the shallow boundary, so git dates are dropped with a warning (`--temporal-key` still applies).
+
+A dated doc seeds a date-prefixed UUIDv7 id, so docs sort by recency in default (id) order. On re-import the existing row — and its id — is kept, so id order reflects recency at first ingest while `temporal` tracks live recency.
+
+### Idempotency and re-runs
+
+Idempotency is keyed on `(tree, name)`. Docs are submitted with `onConflict: "replace"` and deterministic meta, so re-runs reconcile in place: an unchanged file is a no-op, an edited file updates its row, and an importer-version bump re-renders everything. The walk is sorted, so name disambiguation (`-2`, `-3` suffixes on collisions) is stable across runs. A file **deleted** (or renamed) in the source leaves its old row behind — nothing is pruned automatically.
+
+### Metadata
+
+| Key | Description |
+|-----|-------------|
+| `title` | Frontmatter `title:`, else first `# H1`, else the filename — human-readable, emoji/punctuation intact. |
+| `source` | Always `"docs"`. |
+| `repo_path` | The file's path relative to the import root (posix separators). |
+| `doc` | The parsed frontmatter object, verbatim (absent when the file has none). |
+| `truncated` | `true` when the content hit the 64 KiB cap (absent otherwise). |
+| `importer_version` | Version tag of the importer schema. |
+
+### Example
+
+```bash
+me import docs --dry-run -v            # preview from the repo root
+me import docs                          # import into <project-tree>/docs
+me import docs docs/ --include '**/*.md'   # just one folder, .md only
+me import docs . --temporal-key date    # blog/ADR repos with date: frontmatter
+me memory tree ~/projects/acme/docs --levels 3   # browse the result
 ```
 
 ---
