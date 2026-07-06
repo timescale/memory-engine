@@ -28,6 +28,7 @@ import type {
   MemoryDeleteResult,
   MemoryDeleteTreeParams,
   MemoryDeleteTreeResult,
+  MemoryEmbeddingStatusResult,
   MemoryGetByPathParams,
   MemoryGetParams,
   MemoryMoveParams,
@@ -47,6 +48,7 @@ import {
   memoryDeleteByPathParams,
   memoryDeleteParams,
   memoryDeleteTreeParams,
+  memoryEmbeddingStatusParams,
   memoryGetByPathParams,
   memoryGetParams,
   memoryMoveParams,
@@ -644,6 +646,30 @@ async function memoryCountTree(
   return { count };
 }
 
+/**
+ * memory.embeddingStatus — space-wide embedding backlog snapshot.
+ *
+ * Aggregate counts only (no content), space-wide by design, so any space member
+ * may call it; the memory-endpoint auth gate (a non-empty treeAccess) is
+ * sufficient. Surfaces async embedding progress after an import (TNT-188).
+ */
+async function memoryEmbeddingStatus(
+  _params: Record<string, never>,
+  context: HandlerContext,
+): Promise<MemoryEmbeddingStatusResult> {
+  assertSpaceRpcContext(context);
+  const { store } = context as SpaceRpcContext;
+
+  const stats = await guard(() => store.queueStats());
+  return {
+    pending: stats.pending,
+    inFlight: stats.inFlight,
+    waiting: stats.waiting,
+    failed: stats.failed,
+    oldestPendingAt: stats.oldestPendingAt?.toISOString() ?? null,
+  };
+}
+
 // =============================================================================
 // Registry
 // =============================================================================
@@ -662,4 +688,9 @@ export const memoryDataMethods = buildRegistry()
   .register("memory.move", memoryMoveParams, memoryMove)
   .register("memory.deleteTree", memoryDeleteTreeParams, memoryDeleteTree)
   .register("memory.countTree", memoryCountTreeParams, memoryCountTree)
+  .register(
+    "memory.embeddingStatus",
+    memoryEmbeddingStatusParams,
+    memoryEmbeddingStatus,
+  )
   .build();

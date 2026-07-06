@@ -710,3 +710,48 @@ test("create without write access → FORBIDDEN", async () => {
     "FORBIDDEN",
   );
 });
+
+test("memory.embeddingStatus reports the space embedding backlog", async () => {
+  type Status = {
+    pending: number;
+    inFlight: number;
+    waiting: number;
+    failed: number;
+    oldestPendingAt: string | null;
+  };
+
+  // Fresh space → empty backlog.
+  expect(await call<Status>("memory.embeddingStatus", {})).toEqual({
+    pending: 0,
+    inFlight: 0,
+    waiting: 0,
+    failed: 0,
+    oldestPendingAt: null,
+  });
+
+  // Creating memories enqueues them (embedding is null → enqueue trigger).
+  await call("memory.batchCreate", {
+    memories: [
+      { content: "one", tree: "share.a" },
+      { content: "two", tree: "share.b" },
+      { content: "three", tree: "share.c" },
+    ],
+  });
+
+  const seeded = await call<Status>("memory.embeddingStatus", {});
+  expect(seeded.pending).toBe(3);
+  expect(seeded.waiting).toBe(3);
+  expect(seeded.inFlight).toBe(0);
+  expect(seeded.failed).toBe(0);
+  // oldest_pending_at (a Date from the store) is serialized to an ISO string.
+  expect(seeded.oldestPendingAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+
+  // A terminal 'failed' row leaves pending and is counted under failed.
+  await sql.unsafe(
+    `update me_${space.slug}.embedding_queue set outcome = 'failed'
+     where id = (select id from me_${space.slug}.embedding_queue order by id limit 1)`,
+  );
+  const afterFail = await call<Status>("memory.embeddingStatus", {});
+  expect(afterFail.pending).toBe(2);
+  expect(afterFail.failed).toBe(1);
+});

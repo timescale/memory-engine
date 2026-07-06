@@ -202,6 +202,15 @@ export const memoryCountTreeParams = z.object({
 
 export type MemoryCountTreeParams = z.infer<typeof memoryCountTreeParams>;
 
+/**
+ * memory.embeddingStatus params — no arguments (space-wide backlog snapshot).
+ */
+export const memoryEmbeddingStatusParams = z.object({});
+
+export type MemoryEmbeddingStatusParams = z.infer<
+  typeof memoryEmbeddingStatusParams
+>;
+
 // =============================================================================
 // Result Schemas
 // =============================================================================
@@ -342,3 +351,27 @@ export const memoryCountTreeResult = z.object({
 });
 
 export type MemoryCountTreeResult = z.infer<typeof memoryCountTreeResult>;
+
+/**
+ * memory.embeddingStatus result — a space-wide embedding backlog snapshot.
+ *
+ * Embedding is fully async (creates write `embedding IS NULL`, a trigger
+ * enqueues, an in-process worker pool drains). These counts let a caller see
+ * progress after a large import. `pending` = `inFlight` + `waiting`.
+ */
+export const memoryEmbeddingStatusResult = z.object({
+  /** Rows awaiting embedding (in-flight + waiting). */
+  pending: z.number().int(),
+  /** Pending rows currently claimed by a worker. */
+  inFlight: z.number().int(),
+  /** Pending rows claimable now (not yet picked up). */
+  waiting: z.number().int(),
+  /** Terminal failures still within the prune retention window. */
+  failed: z.number().int(),
+  /** Enqueue time (ISO) of the oldest pending row; null when the queue is idle. */
+  oldestPendingAt: z.string().nullable(),
+});
+
+export type MemoryEmbeddingStatusResult = z.infer<
+  typeof memoryEmbeddingStatusResult
+>;

@@ -263,3 +263,50 @@ language sql volatile security invoker
 set search_path to pg_catalog, {{schema}}, pg_temp
 ;
 {{endfn}}
+
+-------------------------------------------------------------------------------
+-- queue stats
+-------------------------------------------------------------------------------
+-- Space-wide embedding backlog snapshot. Read-source for the status surfaces
+-- (the `memory.embeddingStatus` RPC / `me status`) and, later, a per-space
+-- queue-depth metric (TNT-193). Returns exactly one row.
+--
+-- Space-wide by design: unlike the memory read functions it takes no
+-- _tree_access. The embedding backlog is an operational property of the whole
+-- space, not tree-scoped content, and the caller is already gated to the space
+-- by build_tree_access — so aggregate counts leak nothing tree-specific.
+--
+-- pending   = rows awaiting embedding (outcome is null)
+-- in_flight = pending rows currently claimed by a worker. claim_embedding_batch
+--             pushes vt to now() + lock_duration, so a claimed row has vt in the
+--             future. A row orphaned by a crashed worker counts as in_flight
+--             until its lock lapses, then falls back to waiting — acceptable for
+--             a coarse status view.
+-- waiting   = pending rows claimable now (vt <= now())
+-- failed    = terminal failures still inside the prune retention window
+-- oldest_pending_at = enqueue time of the oldest pending row; null when idle
+--
+-- Aggregates over the whole queue table (bounded by prune_embedding_queue's
+-- retention window), so it is not index-only; fine for an on-demand status call.
+{{fn queue_stats() returns table (pending bigint, in_flight bigint, waiting bigint, failed bigint, oldest_pending_at timestamptz)}}
+create or replace function {{schema}}.queue_stats()
+returns table
+( pending bigint
+, in_flight bigint
+, waiting bigint
+, failed bigint
+, oldest_pending_at timestamptz
+)
+as $func$
+  select
+    count(*) filter (where outcome is null)                as pending
+  , count(*) filter (where outcome is null and vt > now()) as in_flight
+  , count(*) filter (where outcome is null and vt <= now()) as waiting
+  , count(*) filter (where outcome = 'failed')             as failed
+  , min(created_at) filter (where outcome is null)         as oldest_pending_at
+  from {{schema}}.embedding_queue
+$func$
+language sql stable security invoker
+set search_path to pg_catalog, {{schema}}, pg_temp
+;
+{{endfn}}

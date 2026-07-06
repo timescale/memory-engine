@@ -6,6 +6,7 @@ import type {
   Memory,
   MemoryPatch,
   OnConflict,
+  QueueStats,
   SearchOptions,
   SearchResultItem,
   TreeAccess,
@@ -97,6 +98,12 @@ export interface SpaceStore {
     treeAccess: TreeAccess,
     options: HybridSearchOptions,
   ): Promise<SearchResultItem[]>;
+
+  /**
+   * Space-wide embedding backlog snapshot (pending / in-flight / waiting /
+   * failed counts + oldest pending time). Not tree-scoped — see queue_stats().
+   */
+  queueStats(): Promise<QueueStats>;
 
   /** Run operations atomically against the same transaction. */
   withTransaction<T>(fn: (store: SpaceStore) => Promise<T>): Promise<T>;
@@ -320,6 +327,19 @@ export function spaceStore(sql: Sql, schema: string): SpaceStore {
           ${o.limit ?? 10}
         )`;
       return rows.map(mapSearchItem);
+    },
+
+    async queueStats() {
+      const [row] = await sql`
+        select pending, in_flight, waiting, failed, oldest_pending_at
+        from ${sch}.queue_stats()`;
+      return {
+        pending: Number(row?.pending ?? 0),
+        inFlight: Number(row?.in_flight ?? 0),
+        waiting: Number(row?.waiting ?? 0),
+        failed: Number(row?.failed ?? 0),
+        oldestPendingAt: (row?.oldest_pending_at as Date | null) ?? null,
+      };
     },
 
     async withTransaction<T>(
