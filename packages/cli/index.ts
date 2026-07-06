@@ -36,7 +36,7 @@ import { createSpaceCommand } from "./commands/space.ts";
 import { createUpgradeCommand } from "./commands/upgrade.ts";
 import { createVersionCommand } from "./commands/version.ts";
 import { createWhoamiCommand } from "./commands/whoami.ts";
-import { setAsAgentOverride } from "./credentials.ts";
+import { setAsAgentOverride, setServerFlagOverride } from "./credentials.ts";
 import { setExpanded } from "./output.ts";
 import { setConfigDirOverride } from "./project-config.ts";
 
@@ -74,6 +74,9 @@ program.hook("preAction", (thisCommand) => {
   );
   setAsAgentOverride(
     typeof opts.asAgent === "string" ? opts.asAgent : undefined,
+  );
+  setServerFlagOverride(
+    typeof opts.server === "string" ? opts.server : undefined,
   );
 });
 

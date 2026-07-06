@@ -33,6 +33,7 @@ import type { MemoryClient } from "../client.ts";
 import {
   type ResolvedCredentials,
   resolveCredentials,
+  resolveCredentialsFor,
 } from "../credentials.ts";
 import { claudeImporter } from "../importers/claude.ts";
 import { codexImporter } from "../importers/codex.ts";
@@ -53,7 +54,6 @@ import { getOutputFormat, output } from "../output.ts";
 import {
   discoverProjectConfig,
   VALID_TREE_PATH_RE,
-  withConfigDirOverride,
 } from "../project-config.ts";
 import {
   buildMemoryClient,
@@ -200,14 +200,15 @@ export function buildOptions(
 /**
  * Build the per-session router for a bulk import: each session's project is
  * resolved through the REAL local resolution stack — `discoverProjectConfig`
- * from the session's own cwd, then `resolveCredentials` scoped to that
- * project via `withConfigDirOverride` — so a sweep mirrors the live hook
- * exactly: per-project server (whitelist-gated), space, tree, and even the
- * `ME_AS_AGENT=.me` sentinel, with the documented flag/env precedence intact
- * because it IS the same code path a local run uses. Decisions (including
- * the client) are memoized per cwd; clients are cheap stateless wrappers —
- * token/refresh state lives at module level keyed by server — so distinct
- * projects resolving to the same target just build equivalent ones.
+ * from the session's own cwd, passed explicitly to `resolveCredentialsFor` —
+ * so a sweep mirrors the live hook exactly: per-project server
+ * (whitelist-gated), space, tree, and even the `ME_AS_AGENT=.me` sentinel,
+ * with the documented flag/env precedence intact because it IS the same code
+ * path a local run uses (the `--server` flag reaches it via the preAction
+ * seed). Decisions (including the client) are memoized per cwd; clients are
+ * cheap stateless wrappers — token/refresh state lives at module level keyed
+ * by server — so distinct projects resolving to the same target just build
+ * equivalent ones.
  *
  * Per-project failures never kill the sweep — best-effort like the hook,
  * they become skip tallies (`discovery.skipped[reason]`):
@@ -222,8 +223,6 @@ export function buildOptions(
  *   - `no_space_for_project`      — no space resolvable there.
  */
 export function createSessionRouter(opts: {
-  /** The `--server` flag, forwarded so it keeps its precedence per project. */
-  serverFlag?: string;
   /** An explicit `--tree-root`: wins over every project's `.me` tree. */
   explicitTreeRoot?: string;
   /** The run-level default route (sessions with no cwd / no `.me`). */
@@ -248,14 +247,10 @@ export function createSessionRouter(opts: {
 
   function computeRoute(cwd: string): SessionRouteDecision {
     try {
-      // The session project's `.me`, from ITS cwd. Resolve AS IF running
-      // inside that project; when it has no `.me`, pin the override to the
-      // session cwd itself (an override skips the walk-up) so the sweep
-      // runner's own project config can't leak in.
-      const projectDir = discoverProjectConfig(cwd)?.dir;
-      const creds = withConfigDirOverride(projectDir ?? cwd, () =>
-        resolveCredentials(opts.serverFlag),
-      );
+      // The session project's `.me`, from ITS cwd, passed EXPLICITLY —
+      // `resolveCredentialsFor(undefined)` means "no project config", so the
+      // sweep runner's own project can never leak in.
+      const creds = resolveCredentialsFor(discoverProjectConfig(cwd));
 
       if (!creds.apiKey && !creds.loggedIn) {
         return { skip: "no_credentials_for_server" };
@@ -331,8 +326,6 @@ export async function runAgentImport(
   // Bulk imports route each session by ITS project's config — full
   // per-project server/space/tree, mirroring the live hook.
   const router = createSessionRouter({
-    serverFlag:
-      typeof globalOpts.server === "string" ? globalOpts.server : undefined,
     explicitTreeRoot:
       typeof opts.treeRoot === "string" ? opts.treeRoot : undefined,
     base: { creds, engine },

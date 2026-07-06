@@ -21,6 +21,7 @@ import type { OAuthTokenSet } from "./credentials.ts";
 import * as creds from "./credentials.ts";
 import { resetKeychainForTests } from "./keychain.ts";
 import {
+  discoverProjectConfig,
   ProjectConfigError,
   resetProjectConfigCache,
   setConfigDirOverride,
@@ -68,6 +69,7 @@ beforeEach(() => {
   delete process.env.ME_CONFIG_DIR;
   delete process.env.ME_AS_AGENT;
   creds.setAsAgentOverride(undefined);
+  creds.setServerFlagOverride(undefined);
   resetKeychainForTests();
 
   // Pin the `.me` resolver at an empty throwaway dir so discovery is
@@ -86,9 +88,110 @@ afterEach(() => {
     else process.env[k] = v;
   }
   creds.setAsAgentOverride(undefined);
+  creds.setServerFlagOverride(undefined);
   resetKeychainForTests();
   resetProjectConfigCache();
   setConfigDirOverride(undefined);
+});
+
+// =============================================================================
+// resolveCredentialsFor — the explicit-project form (bulk-import router,
+// `me import git <repo>` from outside). Everything ambient resolution promises
+// must hold identically when the project is an argument.
+// =============================================================================
+
+/** A second, non-ambient project on disk, discovered explicitly. */
+function otherProject(body: string) {
+  const dir = mkdtempSync(join(tmpdir(), "me-other-proj-"));
+  mkdirSync(join(dir, ".me"), { recursive: true });
+  writeFileSync(join(dir, ".me", "config.yaml"), body);
+  const project = discoverProjectConfig(dir);
+  if (!project) throw new Error("expected a discovered project");
+  return { dir, project };
+}
+
+test("resolveCredentialsFor gates an untrusted project server (same gate as ambient)", () => {
+  const { dir, project } = otherProject("server: https://attacker.example\n");
+  try {
+    expect(() => creds.resolveCredentialsFor(project)).toThrow(
+      ProjectConfigError,
+    );
+    expect(() => creds.resolveCredentialsFor(project)).toThrow(
+      /not in your trusted server list/i,
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("resolveCredentialsFor resolves server/space/tree from THAT project, not the ambient one", () => {
+  writeMe("space: ambientspace1\ntree: /share/projects/ambient\n"); // ambient .me
+  const { dir, project } = otherProject(
+    `server: ${creds.DEV_SERVER}\nspace: explicitspace\ntree: /share/projects/explicit\n`,
+  );
+  try {
+    const r = creds.resolveCredentialsFor(project);
+    expect(r.server).toBe(creds.DEV_SERVER);
+    expect(r.activeSpace).toBe("explicitspace");
+    expect(r.tree).toBe("/share/projects/explicit");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("resolveCredentialsFor(undefined) means no project — the ambient .me does not leak", () => {
+  writeMe("space: ambientspace1\ntree: /share/projects/ambient\n");
+  const r = creds.resolveCredentialsFor(undefined);
+  expect(r.activeSpace).toBeUndefined();
+  expect(r.tree).toBeUndefined();
+});
+
+test("a seeded --server flag wins over env and the project (and bypasses the gate)", () => {
+  process.env.ME_SERVER = "https://env.example.com";
+  const { dir, project } = otherProject("server: https://attacker.example\n");
+  try {
+    creds.setServerFlagOverride("https://picked.example");
+    // The flag is the user's own choice: it outranks env + project and is
+    // ungated — the untrusted project server never enters resolution.
+    expect(creds.resolveCredentialsFor(project).server).toBe(
+      "https://picked.example",
+    );
+    // The same seed feeds the ambient form (preAction seeds it once).
+    expect(creds.resolveCredentials().server).toBe("https://picked.example");
+    // An explicit serverFlag argument still outranks the seed.
+    expect(creds.resolveCredentials(SERVER).server).toBe(SERVER);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("ME_SERVER env outranks the explicit project's server (documented precedence)", () => {
+  process.env.ME_SERVER = "https://env.example.com";
+  const { dir, project } = otherProject(`server: ${creds.DEV_SERVER}\n`);
+  try {
+    expect(creds.resolveCredentialsFor(project).server).toBe(
+      "https://env.example.com",
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("resolveCredentialsFor: the .me agent sentinel resolves against THAT project", () => {
+  writeMe("agent: ambient-agent\n"); // ambient project has a different agent
+  process.env.ME_AS_AGENT = ".me";
+  const { dir, project } = otherProject("agent: explicit-agent\n");
+  try {
+    expect(creds.resolveCredentialsFor(project).asAgent).toBe("explicit-agent");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("resolveCredentialsFor: the sentinel with no agent in the given project throws", () => {
+  writeMe("agent: ambient-agent\n"); // ambient one must NOT satisfy the sentinel
+  process.env.ME_AS_AGENT = ".me";
+  expect(() => creds.resolveCredentialsFor(undefined)).toThrow(/agent/);
 });
 
 test(".me server is used when no --server flag / ME_SERVER env (whitelisted)", () => {

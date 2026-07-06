@@ -23,7 +23,7 @@ import type { MemoryCreateParams } from "@memory.build/protocol/memory";
 import { Command, InvalidArgumentError } from "commander";
 import { batchCreateChunked } from "../chunk.ts";
 import type { MemoryClient } from "../client.ts";
-import { resolveCredentials } from "../credentials.ts";
+import { resolveCredentials, resolveCredentialsFor } from "../credentials.ts";
 import {
   buildCommitMemory,
   GIT_HISTORY_NODE_NAME,
@@ -39,10 +39,7 @@ import {
 import { SlugRegistry } from "../importers/slug.ts";
 import { stampGitPrevLinks } from "../importers/thread-links.ts";
 import { getOutputFormat, output } from "../output.ts";
-import {
-  discoverProjectConfig,
-  withConfigDirOverride,
-} from "../project-config.ts";
+import { discoverProjectConfig } from "../project-config.ts";
 import {
   buildMemoryClient,
   handleError,
@@ -171,10 +168,11 @@ export async function runGitImport(
 
   const repoPath = resolve(opts.repo ?? process.cwd());
   // Resolve credentials AS IF running inside the TARGET repo (mirrors the
-  // hook and the bulk-sweep router): its `.me` governs server
-  // (whitelist-gated, fatal here — this is a single explicit target), space,
-  // and tree — even when the command is invoked from elsewhere. An explicit
-  // `--config-dir` / ME_CONFIG_DIR keeps pointing wherever the caller said.
+  // hook and the bulk-sweep router): its `.me` — passed explicitly — governs
+  // server (whitelist-gated, fatal here — this is a single explicit target),
+  // space, and tree, even when the command is invoked from elsewhere. An
+  // explicit `--config-dir` / ME_CONFIG_DIR keeps pointing wherever the
+  // caller said; the `--server` flag reaches both forms (seeded).
   const serverFlag =
     typeof globalOpts.server === "string" ? globalOpts.server : undefined;
   const explicitConfigDir =
@@ -184,10 +182,7 @@ export async function runGitImport(
   try {
     creds = explicitConfigDir
       ? resolveCredentials(serverFlag)
-      : withConfigDirOverride(
-          discoverProjectConfig(repoPath)?.dir ?? repoPath,
-          () => resolveCredentials(serverFlag),
-        );
+      : resolveCredentialsFor(discoverProjectConfig(repoPath));
   } catch (error) {
     handleError(error, fmt);
   }
