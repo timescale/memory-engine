@@ -354,6 +354,35 @@ describe.skipIf(
     expect(who.auth).toBe("session");
   });
 
+  test("1b. status reports server, space, and embedding backlog", async () => {
+    const r = await me(["status"]);
+    expect(r.code).toBe(0);
+    expect(r.stdout).toContain(srv.url);
+    expect(r.stdout).toContain(spaceSlug);
+    expect(r.stdout).toContain("Embedding queue");
+
+    // JSON carries the server/space plus numeric embedding counts. Assert
+    // structure, not exact counts — the embedding worker may drain the queue
+    // between the create and this call.
+    const status = await meJson<{
+      server: string;
+      activeSpace: string;
+      embedding: {
+        pending: number;
+        inFlight: number;
+        waiting: number;
+        failed: number;
+        oldestPendingAt: string | null;
+      };
+    }>(["status"]);
+    expect(status.activeSpace).toBe(spaceSlug);
+    expect(typeof status.embedding.pending).toBe("number");
+    expect(typeof status.embedding.failed).toBe("number");
+    expect(status.embedding.pending).toBe(
+      status.embedding.inFlight + status.embedding.waiting,
+    );
+  });
+
   test("2. create + tree round-trip (share namespace)", async () => {
     const created = await meJson<{ id: string; tree?: string }>([
       "create",

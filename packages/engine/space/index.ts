@@ -5,6 +5,7 @@ export type {
   Memory,
   MemoryFilters,
   MemoryPatch,
+  QueueStats,
   SearchOptions,
   SearchResultItem,
   TemporalRange,

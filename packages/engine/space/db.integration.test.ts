@@ -349,3 +349,55 @@ test("copyTree preserves the name on copied memories", async () => {
   expect(dstId).not.toBeNull();
   expect(dstId).not.toBe(srcId); // distinct row, same name
 });
+
+test("queueStats reports pending / in_flight / waiting / failed", async () => {
+  // Isolate from other tests' enqueues: start from an empty queue.
+  await sql.unsafe(`delete from ${schema}.embedding_queue`);
+
+  expect(await db.queueStats()).toEqual({
+    pending: 0,
+    inFlight: 0,
+    waiting: 0,
+    failed: 0,
+    oldestPendingAt: null,
+  });
+
+  // Each createMemory fires enqueue_embedding (embedding is null), seeding a
+  // pending row that is claimable now (vt = now()).
+  const a = await mustCreate(FULL, { tree: "work.qs.a", content: "a" });
+  await mustCreate(FULL, { tree: "work.qs.b", content: "b" });
+  await mustCreate(FULL, { tree: "work.qs.c", content: "c" });
+
+  const seeded = await db.queueStats();
+  expect(seeded.pending).toBe(3);
+  expect(seeded.waiting).toBe(3);
+  expect(seeded.inFlight).toBe(0);
+  expect(seeded.failed).toBe(0);
+  expect(seeded.oldestPendingAt).toBeInstanceOf(Date);
+
+  // Simulate a worker claim on a's row: claim_embedding_batch pushes vt into the
+  // future, so the row is still pending but counts as in_flight, not waiting.
+  await sql.unsafe(
+    `update ${schema}.embedding_queue set vt = now() + interval '5 minutes' where memory_id = $1`,
+    [a],
+  );
+  const claimed = await db.queueStats();
+  expect(claimed.pending).toBe(3);
+  expect(claimed.inFlight).toBe(1);
+  expect(claimed.waiting).toBe(2);
+
+  // Terminal outcomes: 'failed' is counted; a 'completed' row leaves pending.
+  await sql.unsafe(
+    `update ${schema}.embedding_queue set outcome = 'failed' where memory_id = $1`,
+    [a],
+  );
+  await sql.unsafe(
+    `update ${schema}.embedding_queue set outcome = 'completed'
+     where id = (select id from ${schema}.embedding_queue where outcome is null limit 1)`,
+  );
+  const final = await db.queueStats();
+  expect(final.pending).toBe(1);
+  expect(final.waiting).toBe(1);
+  expect(final.inFlight).toBe(0);
+  expect(final.failed).toBe(1);
+});

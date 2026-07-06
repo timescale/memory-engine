@@ -33,6 +33,7 @@ import {
 } from "./commands/project.ts";
 import { createServeCommand } from "./commands/serve.ts";
 import { createSpaceCommand } from "./commands/space.ts";
+import { createStatusCommand } from "./commands/status.ts";
 import { createUpgradeCommand } from "./commands/upgrade.ts";
 import { createVersionCommand } from "./commands/version.ts";
 import { createWhoamiCommand } from "./commands/whoami.ts";
@@ -84,6 +85,7 @@ program.hook("preAction", (thisCommand) => {
 program.addCommand(createLoginCommand());
 program.addCommand(createLogoutCommand());
 program.addCommand(createWhoamiCommand());
+program.addCommand(createStatusCommand());
 
 // Version + compatibility check
 program.addCommand(createVersionCommand());

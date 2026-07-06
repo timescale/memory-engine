@@ -119,3 +119,22 @@ export interface TreeListEntry {
   tree: string;
   count: number;
 }
+
+/**
+ * Space-wide embedding backlog snapshot (see the space `queue_stats()` function).
+ *
+ * Not tree-scoped: the queue depth is an operational property of the whole
+ * space, so — unlike the memory read methods — `queueStats` takes no treeAccess.
+ */
+export interface QueueStats {
+  /** Rows awaiting embedding (outcome is null): waiting + inFlight. */
+  pending: number;
+  /** Pending rows currently claimed by a worker (visibility timeout in the future). */
+  inFlight: number;
+  /** Pending rows claimable now (visibility timeout elapsed). */
+  waiting: number;
+  /** Terminal failures still within the prune retention window. */
+  failed: number;
+  /** Enqueue time of the oldest pending row; null when the queue is idle. */
+  oldestPendingAt: Date | null;
+}

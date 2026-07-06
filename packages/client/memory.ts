@@ -28,6 +28,7 @@ import type {
   MemoryDeleteResult,
   MemoryDeleteTreeParams,
   MemoryDeleteTreeResult,
+  MemoryEmbeddingStatusResult,
   MemoryGetByPathParams,
   MemoryGetParams,
   MemoryMoveParams,
@@ -133,6 +134,8 @@ export interface MemoryNamespace {
   move(params: MemoryMoveParams): Promise<MemoryMoveResult>;
   deleteTree(params: MemoryDeleteTreeParams): Promise<MemoryDeleteTreeResult>;
   countTree(params: MemoryCountTreeParams): Promise<MemoryCountTreeResult>;
+  /** Space-wide embedding backlog snapshot (pending/failed/…). */
+  embeddingStatus(): Promise<MemoryEmbeddingStatusResult>;
 }
 
 export interface PrincipalNamespace {
@@ -251,6 +254,7 @@ export function createMemoryClient(
       move: (p) => writeRpc("memory.move", p),
       deleteTree: (p) => writeRpc("memory.deleteTree", p),
       countTree: (p) => readRpc("memory.countTree", p),
+      embeddingStatus: () => readRpc("memory.embeddingStatus", {}),
     },
     principal: {
       list: (p) => readRpc("principal.list", p ?? {}),
