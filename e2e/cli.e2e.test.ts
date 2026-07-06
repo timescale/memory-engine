@@ -140,11 +140,14 @@ describe.skipIf(
 
     tmpHome = await mkdtemp(join(tmpdir(), "me-e2e-"));
     // Opt into session capture machine-wide (the `me claude install` prompt
-    // would write this) — the capture hook ships inert without it.
+    // would write this) — the capture hook ships inert without it. Also store
+    // the default server + active space so tests that must NOT set ME_SPACE
+    // (per-project space routing) still resolve the base space like a real
+    // logged-in machine would.
     await mkdir(join(tmpHome, ".config", "me"), { recursive: true });
     await writeFile(
       join(tmpHome, ".config", "me", "config.yaml"),
-      "capture: true\n",
+      `capture: true\ndefault_server: ${srv.url}\nservers:\n  "${srv.url}":\n    active_space: ${spaceSlug}\n`,
     );
   });
 
@@ -262,8 +265,9 @@ describe.skipIf(
   async function meJson<T = unknown>(
     args: string[],
     extraEnv?: Record<string, string>,
+    cwd?: string,
   ): Promise<T> {
-    const r = await me([...args, "--json"], extraEnv);
+    const r = await me([...args, "--json"], extraEnv, cwd);
     expect(
       r.code,
       `expected exit 0 for \`me ${args.join(" ")}\`\nstdout: ${r.stdout}\nstderr: ${r.stderr}`,
@@ -1621,6 +1625,202 @@ describe.skipIf(
     expect(hook.code).toBe(0);
     expect(hook.stderr).toBe(""); // silent — a deliberate opt-out, not an error
     expect(await countBySession(sessionId)).toBe(0);
+
+    await rm(root, { recursive: true, force: true });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Per-project routing for bulk imports (PR 4)
+  // ---------------------------------------------------------------------------
+
+  /** Write a 4-message transcript into `<sourceRoot>/<dirName>/<sid>.jsonl`. */
+  async function writeRoutedTranscript(
+    sourceRoot: string,
+    dirName: string,
+    sid: string,
+    cwd: string,
+  ): Promise<void> {
+    const mk = (i: number, type: "user" | "assistant") => ({
+      type,
+      uuid: `${sid}-${type}-${i}`,
+      timestamp: `2026-06-01T00:00:0${i}.000Z`,
+      sessionId: sid,
+      cwd,
+      message:
+        type === "user"
+          ? { content: `q${i}` }
+          : { content: [{ type: "text", text: `a${i}` }], model: "claude-x" },
+    });
+    const dir = join(sourceRoot, dirName);
+    await mkdir(dir, { recursive: true });
+    await writeFile(
+      join(dir, `${sid}.jsonl`),
+      [mk(0, "user"), mk(1, "assistant"), mk(2, "user"), mk(3, "assistant")]
+        .map((l) => JSON.stringify(l))
+        .join("\n"),
+    );
+  }
+
+  /** Run `me` with some env vars REMOVED — for flows where an env override
+   *  would outrank the per-project `.me` under test (env > .me precedence). */
+  async function meWithout(
+    drop: string[],
+    args: string[],
+  ): Promise<{ stdout: string; stderr: string; code: number }> {
+    const env = cliEnv();
+    for (const k of drop) delete env[k];
+    const proc = Bun.spawn([process.execPath, CLI, ...args], {
+      env,
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const [stdout, stderr] = await Promise.all([
+      new Response(proc.stdout).text(),
+      new Response(proc.stderr).text(),
+    ]);
+    return { stdout, stderr, code: await proc.exited };
+  }
+
+  test("10. a bulk sweep routes each session by its own project's .me", async () => {
+    // Three projects on disk: one pinning a shared tree, one plain (private
+    // default), one pinning an UNTRUSTED server (skipped, tallied). The sweep
+    // runs from a neutral cwd — routing must come from each session's cwd.
+    const root = await mkdtemp(join(tmpdir(), "me-e2e-routed-"));
+    const source = join(root, "transcripts");
+
+    const treedDir = join(root, "treedproj");
+    await mkdir(join(treedDir, ".me"), { recursive: true });
+    await writeFile(
+      join(treedDir, ".me", "config.yaml"),
+      "tree: /share/projects/routedproj\n",
+    );
+    const plainDir = join(root, "plainproj");
+    await mkdir(plainDir, { recursive: true });
+    const evilDir = join(root, "evilproj");
+    await mkdir(join(evilDir, ".me"), { recursive: true });
+    await writeFile(
+      join(evilDir, ".me", "config.yaml"),
+      "server: https://attacker.example\n",
+    );
+
+    const sidTreed = `routed-treed-${rand()}`;
+    const sidPlain = `routed-plain-${rand()}`;
+    const sidEvil = `routed-evil-${rand()}`;
+    await writeRoutedTranscript(
+      source,
+      "a",
+      sidTreed,
+      await realpath(treedDir),
+    );
+    await writeRoutedTranscript(
+      source,
+      "b",
+      sidPlain,
+      await realpath(plainDir),
+    );
+    await writeRoutedTranscript(source, "c", sidEvil, await realpath(evilDir));
+
+    // Drop ME_SERVER: env outranks a `.me` server pin by design, so the
+    // untrusted-server gate only engages when the server comes from config
+    // (the stored default_server carries the base).
+    const sweep = await meWithout(
+      ["ME_SERVER"],
+      ["import", "claude", "--source", source, "--include-temp-cwd", "--json"],
+    );
+    expect(sweep.code, sweep.stderr).toBe(0);
+    const result = JSON.parse(sweep.stdout) as {
+      inserted: number;
+      sessionsProcessed: number;
+      sessionSkipReasons: Record<string, number>;
+    };
+
+    // The .me-pinned project lands under ITS tree (no slug appended)…
+    expect(await countBySession(sidTreed)).toBe(4);
+    expect(await countUnder("share.projects.routedproj.agent_sessions")).toBe(
+      4,
+    );
+    // …the plain project under the private per-slug default…
+    expect(await countBySession(sidPlain)).toBe(4);
+    expect(await countUnder(`${homeProjects}.plainproj.agent_sessions`)).toBe(
+      4,
+    );
+    // …and the untrusted-server project is skipped + tallied, never written.
+    expect(await countBySession(sidEvil)).toBe(0);
+    expect(result.sessionSkipReasons.untrusted_me_server).toBe(1);
+    expect(result.sessionsProcessed).toBe(2);
+
+    await rm(root, { recursive: true, force: true });
+  });
+
+  test("10b. a project pinning another space routes its sessions there", async () => {
+    // A second space, created through the CLI (the creator gets owner@share).
+    const created = await meJson<{ slug: string }>([
+      "space",
+      "create",
+      `routed-space-${rand()}`,
+    ]);
+    const slug2 = created.slug;
+
+    const root = await mkdtemp(join(tmpdir(), "me-e2e-xspace-"));
+    const source = join(root, "transcripts");
+    const projDir = join(root, "xspaceproj");
+    await mkdir(join(projDir, ".me"), { recursive: true });
+    await writeFile(
+      join(projDir, ".me", "config.yaml"),
+      `space: ${slug2}\ntree: /share/projects/xspaceproj\n`,
+    );
+    const sid = `xspace-${rand()}`;
+    await writeRoutedTranscript(source, "x", sid, await realpath(projDir));
+
+    // The sweep must run WITHOUT ME_SPACE (env would outrank every project's
+    // .me space, per the documented precedence) — the base space comes from
+    // the stored active_space instead.
+    const sweep = await meWithout(
+      ["ME_SPACE"],
+      ["import", "claude", "--source", source, "--include-temp-cwd"],
+    );
+    expect(sweep.code, sweep.stderr).toBe(0);
+
+    // Rows landed in the SECOND space's schema, under the project tree.
+    const [row] = await sql.unsafe(
+      `select count(*)::int as n from metest_${slug2}.memory
+         where meta->>'source_session_id' = $1`,
+      [sid],
+    );
+    expect(row?.n).toBe(4);
+    // …and not in the base space.
+    expect(await countBySession(sid)).toBe(0);
+
+    await rm(root, { recursive: true, force: true });
+  });
+
+  test("10c. `me import git <repo>` honors the TARGET repo's .me from any cwd", async () => {
+    const root = await mkdtemp(join(tmpdir(), "me-e2e-gitouter-"));
+    const name = `gitouter${rand()}`;
+    const repo = join(root, name);
+    await mkdir(join(repo, ".me"), { recursive: true });
+    await writeFile(
+      join(repo, ".me", "config.yaml"),
+      "tree: /share/projects/gitouterproj\n",
+    );
+    await git(repo, ["init", "-q", "-b", "main"]);
+    await writeFile(join(repo, "a.txt"), "a\n");
+    await git(repo, ["add", "."], "2026-06-01T10:00:00Z");
+    await git(
+      repo,
+      ["commit", "-q", "-m", "feat: outer"],
+      "2026-06-01T10:00:00Z",
+    );
+
+    // Run from a NEUTRAL cwd (tmpHome) — the target repo's .me must govern.
+    const result = await meJson<{ tree: string; inserted: number }>(
+      ["import", "git", repo],
+      undefined,
+      tmpHome,
+    );
+    expect(result.inserted).toBe(1);
+    expect(result.tree).toBe("/share/projects/gitouterproj.git_history");
+    expect(await countUnder("share.projects.gitouterproj.git_history")).toBe(1);
 
     await rm(root, { recursive: true, force: true });
   });

@@ -141,7 +141,7 @@ me import git [repo] [options]
 | `--full` | Walk the full history (skip the incremental high-water lookup). |
 | `--no-merges` | Drop all merge commits. |
 | `--no-file-list` | Omit the changed-file list from commit memories. |
-| `--tree <path>` | Full project tree to place `git_history` under (no slug appended — `me import git` is single-repo). Default: the repo's [`.me` tree](../project-config.md), else `<tree_root>/<slug>` (your global [`tree_root`](../project-config.md#changing-the-default-tree-root-tree_root) override, default the private `~/projects`). |
+| `--tree <path>` | Full project tree to place `git_history` under (no slug appended — `me import git` is single-repo). Default: the **target repo's** [`.me` tree](../project-config.md) (resolved from the repo path, so it works from any cwd; its `.me` server/space pins apply too, whitelist-gated), else `<tree_root>/<slug>` (your global [`tree_root`](../project-config.md#changing-the-default-tree-root-tree_root) override, default the private `~/projects`). |
 | `--dry-run` | Parse and report what would be imported without writing. |
 | `-v, --verbose` | Per-commit progress output. |
 
