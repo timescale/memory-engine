@@ -40,6 +40,10 @@ import { SlugRegistry } from "../importers/slug.ts";
 import { stampGitPrevLinks } from "../importers/thread-links.ts";
 import { getOutputFormat, output } from "../output.ts";
 import {
+  discoverProjectConfig,
+  withConfigDirOverride,
+} from "../project-config.ts";
+import {
   buildMemoryClient,
   handleError,
   requireAuth,
@@ -156,12 +160,7 @@ export async function runGitImport(
   globalOpts: Record<string, unknown>,
   repoArg?: string,
 ): Promise<void> {
-  const creds = resolveCredentials(
-    typeof globalOpts.server === "string" ? globalOpts.server : undefined,
-  );
   const fmt = getOutputFormat(globalOpts);
-  requireAuth(creds, fmt);
-  requireSpace(creds, fmt);
 
   let opts: GitImportOptions;
   try {
@@ -171,6 +170,29 @@ export async function runGitImport(
   }
 
   const repoPath = resolve(opts.repo ?? process.cwd());
+  // Resolve credentials AS IF running inside the TARGET repo (mirrors the
+  // hook and the bulk-sweep router): its `.me` governs server
+  // (whitelist-gated, fatal here — this is a single explicit target), space,
+  // and tree — even when the command is invoked from elsewhere. An explicit
+  // `--config-dir` / ME_CONFIG_DIR keeps pointing wherever the caller said.
+  const serverFlag =
+    typeof globalOpts.server === "string" ? globalOpts.server : undefined;
+  const explicitConfigDir =
+    typeof globalOpts.configDir === "string" ||
+    Boolean(process.env.ME_CONFIG_DIR);
+  let creds: ReturnType<typeof resolveCredentials>;
+  try {
+    creds = explicitConfigDir
+      ? resolveCredentials(serverFlag)
+      : withConfigDirOverride(
+          discoverProjectConfig(repoPath)?.dir ?? repoPath,
+          () => resolveCredentials(serverFlag),
+        );
+  } catch (error) {
+    handleError(error, fmt);
+  }
+  requireAuth(creds, fmt);
+  requireSpace(creds, fmt);
   const { slug, gitRoot, gitRemote } = await new SlugRegistry().resolve(
     repoPath,
   );
@@ -187,11 +209,11 @@ export async function runGitImport(
   }
 
   // The full project node git history nests under (no slug appended — git
-  // import is single-repo): an explicit `--tree`, else the repo's `.me` `tree`
-  // (`creds.tree`, resolved through the standard precedence so it honors
-  // `--config-dir`), else the slug nests under the machine-wide `tree_root`
-  // override or the PRIVATE default — so commits and captured sessions share
-  // the same private-by-default root.
+  // import is single-repo): an explicit `--tree`, else the TARGET repo's
+  // `.me` `tree` (`creds` above is scoped to the repo, so this works from any
+  // cwd), else the slug nests under the machine-wide `tree_root` override or
+  // the PRIVATE default — so commits and captured sessions share the same
+  // private-by-default root.
   const projectNode =
     opts.tree ??
     creds.tree ??
