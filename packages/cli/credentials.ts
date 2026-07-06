@@ -246,6 +246,13 @@ function readConfig(): ConfigFile {
       `Invalid server_whitelist in ${path}: it must be a list of server URL strings.`,
     );
   }
+  // A present capture must be a boolean — fail loudly on a mistyped value
+  // (it decides whether the hooks write anything at all, so silently
+  // ignoring a typo reads as "why is capture off?").
+  const rawCapture = data?.capture;
+  if (rawCapture !== undefined && typeof rawCapture !== "boolean") {
+    throw new Error(`Invalid capture in ${path}: it must be true or false.`);
+  }
   // A present tree_root must be a plausible tree path — fail loudly on a
   // mistyped one rather than letting it silently flow into every capture.
   const rawTreeRoot = data?.tree_root;
@@ -264,7 +271,7 @@ function readConfig(): ConfigFile {
         : DEFAULT_SERVER,
     servers: (data?.servers as ConfigFile["servers"]) ?? {},
     server_whitelist: rawWhitelist as string[] | undefined,
-    capture: typeof data?.capture === "boolean" ? data.capture : undefined,
+    capture: rawCapture as boolean | undefined,
     tree_root: rawTreeRoot as string | undefined,
   };
 }
