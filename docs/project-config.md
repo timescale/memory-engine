@@ -75,7 +75,10 @@ project (only a `.local` file, no committed one) is discovered too.
 
 To point at a specific project without being inside it, pass **`--config-dir <dir>`**
 (the directory that contains `.me/`) or set **`ME_CONFIG_DIR`**. Either skips the
-walk and uses that directory's `.me/` directly.
+walk and uses that directory's `.me/` directly. (The one exception is the bulk
+session sweep, `me import <tool>`: it routes every session by its *own* project's
+config, so it rejects an explicit pin — see
+[agent session imports](cli/agent-session-imports.md).)
 
 ## Committed vs. local (`.me/config.local.yaml`)
 

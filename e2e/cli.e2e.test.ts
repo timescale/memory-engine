@@ -1825,6 +1825,27 @@ describe.skipIf(
     await rm(root, { recursive: true, force: true });
   });
 
+  test("10d. a bulk sweep rejects an explicit --config-dir / ME_CONFIG_DIR", async () => {
+    // A config-dir pin is a single-project concept; sweeps route per session,
+    // so the combination is a loud error, not a silently ignored pin.
+    const proc = Bun.spawn(
+      [process.execPath, CLI, "import", "claude", "--source", tmpHome],
+      {
+        env: cliEnv({ ME_CONFIG_DIR: tmpHome }),
+        stdout: "pipe",
+        stderr: "pipe",
+      },
+    );
+    const code = await proc.exited;
+    const stdout = await new Response(proc.stdout).text();
+    const stderr = await new Response(proc.stderr).text();
+    expect(code).not.toBe(0);
+    // clack renders errors on stdout in text mode.
+    expect(stdout + stderr).toContain(
+      "ME_CONFIG_DIR does not apply to session imports",
+    );
+  });
+
   test("9b. a stale importer_version is re-rendered in place on re-import", async () => {
     // The server's conditional upsert: re-importing a session rewrites any
     // row whose stored meta.importer_version differs from the current
