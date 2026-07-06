@@ -82,6 +82,20 @@ export interface SpaceStore {
     tree: string,
     dryRun?: boolean,
   ): Promise<number>;
+  /**
+   * Set-based reconcile-delete: remove every named row under `root` whose
+   * meta contains `metaContains` and whose (tree, name) slot is not in the
+   * keep-list (parallel arrays). Returns the affected rows; `dryRun` returns
+   * them without deleting.
+   */
+  reconcileTree(
+    treeAccess: TreeAccess,
+    root: string,
+    metaContains: Record<string, unknown>,
+    keepTrees: string[],
+    keepNames: string[],
+    dryRun?: boolean,
+  ): Promise<Array<{ id: string; tree: string; name: string }>>;
   countTree(
     treeAccess: TreeAccess,
     query: { tree?: string; lquery?: string; ltxtquery?: string },
@@ -247,6 +261,31 @@ export function spaceStore(sql: Sql, schema: string): SpaceStore {
       const [row] = await sql`
         select ${sch}.delete_tree(${jb(treeAccess)}, ${tree}::ltree, ${dryRun}) as n`;
       return Number(row?.n);
+    },
+
+    async reconcileTree(
+      treeAccess,
+      root,
+      metaContains,
+      keepTrees,
+      keepNames,
+      dryRun = false,
+    ) {
+      const rows = await sql`
+        select id, tree, name
+        from ${sch}.reconcile_tree(
+          ${jb(treeAccess)},
+          ${root}::ltree,
+          ${jb(metaContains)},
+          ${keepTrees}::ltree[],
+          ${keepNames}::text[],
+          ${dryRun}
+        )`;
+      return rows.map((r) => ({
+        id: r.id as string,
+        tree: r.tree as string,
+        name: r.name as string,
+      }));
     },
 
     async countTree(treeAccess, query, access, maxCount) {

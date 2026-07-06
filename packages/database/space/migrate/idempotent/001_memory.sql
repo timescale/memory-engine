@@ -961,6 +961,104 @@ set search_path to pg_catalog, {{schema}}, public, pg_temp
 ;
 
 -------------------------------------------------------------------------------
+-- reconcile tree
+-------------------------------------------------------------------------------
+-- Set-based reconcile-delete for importer-maintained subtrees: delete every
+-- NAMED row under `_root` matching `_meta_contains` whose (tree, name) slot is
+-- not in the keep-list — one statement, one snapshot, so there is no
+-- enumerate/delete race and no page cap. The keep-list is the caller's walked
+-- slot set (parallel arrays, per batch_create_memory); `_meta_contains` is the
+-- ownership guard: only rows stamped by the calling importer (e.g.
+-- {"source": "docs"}) are candidates, so foreign rows under the same root are
+-- never touched. Unnamed rows are never candidates (no slot identity).
+--
+--   - Write access on `_root` is required up front, all-or-nothing (the
+--     batch_create rule) — no silent partial reconcile against whichever
+--     sub-branches the caller happens to own.
+--   - `_meta_contains` must be a non-empty object: an unscoped reconcile
+--     ("delete everything not in my list") is refused here, not left to
+--     caller policy.
+--   - `_dry_run` returns the would-delete rows from the same predicate
+--     without deleting, so a preview is exact at any corpus size.
+--
+-- Returns the affected (deleted, or would-delete) rows.
+{{fn reconcile_tree(_tree_access jsonb, _root ltree, _meta_contains jsonb, _keep_trees ltree[], _keep_names text[], _dry_run boolean) returns table(id uuid, tree ltree, name text)}}
+create or replace function {{schema}}.reconcile_tree
+( _tree_access jsonb
+, _root ltree                 -- subtree to reconcile under (e.g. a docs root)
+, _meta_contains jsonb        -- ownership scope, e.g. '{"source": "docs"}'
+, _keep_trees ltree[]         -- keep-list slots: trees ...
+, _keep_names text[]          -- ... and names, aligned by position
+, _dry_run boolean default false
+)
+returns table (id uuid, tree ltree, name text)
+as $func$
+-- The out columns shadow table columns inside the body; the body never reads
+-- them as variables, so resolve ambiguity to the columns.
+#variable_conflict use_column
+begin
+  if jsonb_typeof(_meta_contains) is distinct from 'object'
+     or _meta_contains = '{}'::jsonb
+  then
+    raise exception 'reconcile_tree requires a non-empty _meta_contains scope'
+      using errcode = 'invalid_parameter_value';
+  end if;
+
+  if cardinality(_keep_trees) is distinct from cardinality(_keep_names) then
+    raise exception 'keep-list arrays must have equal lengths'
+      using errcode = 'invalid_parameter_value';
+  end if;
+
+  -- A null slot component can never match a row (null = x is null), which
+  -- would silently turn "keep" into "delete" — reject it instead.
+  if exists (select 1 from unnest(_keep_trees) t(x) where t.x is null)
+     or exists (select 1 from unnest(_keep_names) n(x) where n.x is null)
+  then
+    raise exception 'keep-list entries must be non-null'
+      using errcode = 'invalid_parameter_value';
+  end if;
+
+  -- Write authority over the whole root, up front (all-or-nothing).
+  -- `is not true` so a null verdict can never slip past the gate.
+  if {{schema}}.has_tree_access(_tree_access, _root, 2) is not true then
+    raise exception 'insufficient tree access'
+      using errcode = 'insufficient_privilege';
+  end if;
+
+  if _dry_run then
+    return query
+      select m.id, m.tree, m.name
+      from {{schema}}.memory m
+      where m.tree <@ _root
+      and m.name is not null
+      and m.meta @> _meta_contains
+      and not exists
+      (
+        select 1
+        from unnest(_keep_trees, _keep_names) k(tree, name)
+        where k.tree = m.tree and k.name = m.name
+      );
+  else
+    return query
+      delete from {{schema}}.memory m
+      where m.tree <@ _root
+      and m.name is not null
+      and m.meta @> _meta_contains
+      and not exists
+      (
+        select 1
+        from unnest(_keep_trees, _keep_names) k(tree, name)
+        where k.tree = m.tree and k.name = m.name
+      )
+      returning m.id, m.tree, m.name;
+  end if;
+end;
+$func$ language plpgsql volatile security invoker
+set search_path to pg_catalog, {{schema}}, public, pg_temp
+;
+{{endfn}}
+
+-------------------------------------------------------------------------------
 -- count tree
 -------------------------------------------------------------------------------
 create or replace function {{schema}}.count_tree

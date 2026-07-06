@@ -61,6 +61,7 @@ const EXPECTED_MEMORY_FUNCTIONS = [
   "list_tree",
   "move_tree",
   "patch_memory",
+  "reconcile_tree",
   "resolve_memory_id",
   "search_memory",
   "tree_access",
@@ -481,6 +482,75 @@ describe("provisioned schema is functional", () => {
       `select ${canonical.schema}.count_tree(${OWNER}, 'a.count'::ltree, 1, 2) as n`,
     );
     expect(Number(capped?.n)).toBe(2);
+  });
+
+  test("reconcile_tree deletes stale importer rows; kept/foreign/unnamed survive", async () => {
+    // Importer-stamped: one kept slot, one stale slot, one unnamed row.
+    // Foreign: same root, different meta stamp — must never be touched.
+    await createMemory(
+      `${OWNER}, 'a.rec.docs'::ltree, 'kept', null, '{"source":"t"}'::jsonb, null, 'kept.md'`,
+    );
+    await createMemory(
+      `${OWNER}, 'a.rec.docs'::ltree, 'stale', null, '{"source":"t"}'::jsonb, null, 'stale.md'`,
+    );
+    await createMemory(
+      `${OWNER}, 'a.rec.docs'::ltree, 'foreign', null, '{"source":"other"}'::jsonb, null, 'foreign.md'`,
+    );
+    await createMemory(
+      `${OWNER}, 'a.rec.docs'::ltree, 'unnamed', null, '{"source":"t"}'::jsonb`,
+    );
+
+    const call = (dryRun: boolean) =>
+      sql.unsafe(
+        `select * from ${canonical.schema}.reconcile_tree(` +
+          `${OWNER}, 'a.rec'::ltree, '{"source":"t"}'::jsonb, ` +
+          `array['a.rec.docs']::ltree[], array['kept.md']::text[], ${dryRun})`,
+      );
+
+    // Dry run: lists the stale slot, deletes nothing.
+    const dry = await call(true);
+    expect(dry.map((r) => r.name)).toEqual(["stale.md"]);
+    const [before] = await sql.unsafe(
+      `select count(*)::int as n from ${canonical.schema}.memory where tree <@ 'a.rec'::ltree`,
+    );
+    expect(before?.n).toBe(4);
+
+    // Real run: exactly the stale slot goes; kept, foreign, unnamed survive.
+    const deleted = await call(false);
+    expect(deleted.map((r) => r.name)).toEqual(["stale.md"]);
+    const rest = await sql.unsafe(
+      `select content from ${canonical.schema}.memory where tree <@ 'a.rec'::ltree order by content`,
+    );
+    expect(rest.map((r) => r.content)).toEqual(["foreign", "kept", "unnamed"]);
+  });
+
+  test("reconcile_tree refuses empty scope, ragged arrays, nulls, weak access", async () => {
+    const good = `'{"source":"t"}'::jsonb, array[]::ltree[], array[]::text[], false`;
+    // Unscoped reconcile (empty meta) is refused at the SQL layer.
+    await expectReject(() =>
+      sql.unsafe(
+        `select * from ${canonical.schema}.reconcile_tree(${OWNER}, 'a.rec2'::ltree, '{}'::jsonb, array[]::ltree[], array[]::text[], false)`,
+      ),
+    );
+    // Ragged keep-list arrays.
+    await expectReject(() =>
+      sql.unsafe(
+        `select * from ${canonical.schema}.reconcile_tree(${OWNER}, 'a.rec2'::ltree, '{"source":"t"}'::jsonb, array['a.rec2']::ltree[], array[]::text[], false)`,
+      ),
+    );
+    // Null keep-list entries (a null slot would silently read as "delete").
+    await expectReject(() =>
+      sql.unsafe(
+        `select * from ${canonical.schema}.reconcile_tree(${OWNER}, 'a.rec2'::ltree, '{"source":"t"}'::jsonb, array['a.rec2']::ltree[], array[null]::text[], false)`,
+      ),
+    );
+    // Read-only grant: the up-front write gate refuses.
+    const reader = `'[{"tree_path": "", "access": 1}]'::jsonb`;
+    await expectReject(() =>
+      sql.unsafe(
+        `select * from ${canonical.schema}.reconcile_tree(${reader}, 'a.rec2'::ltree, ${good})`,
+      ),
+    );
   });
 
   test("create_memory raises on a bare duplicate explicit id", async () => {

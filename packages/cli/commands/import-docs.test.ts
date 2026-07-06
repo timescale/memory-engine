@@ -1,11 +1,19 @@
 /**
- * Tests for `me import docs` option assembly/validation. The build and
- * discovery paths are exercised by the importer's own tests
- * (importers/docs.test.ts, importers/git-files.test.ts); no engine RPC here.
+ * Tests for `me import docs` option assembly/validation and the --prune
+ * keep-list plumbing. The reconcile semantics live server-side
+ * (memory.reconcileTree — see the space migration and server RPC integration
+ * tests); the build and discovery paths are exercised by the importer's own
+ * tests.
  */
 import { describe, expect, test } from "bun:test";
+import type { MemoryCreateParams } from "@memory.build/protocol/memory";
 import { DEFAULT_DOC_PATTERNS } from "../importers/docs.ts";
-import { buildDocsImportOptions } from "./import-docs.ts";
+import {
+  buildDocsImportOptions,
+  buildKeepList,
+  keepListBytes,
+  PRUNE_KEEP_BYTES_BUDGET,
+} from "./import-docs.ts";
 
 describe("buildDocsImportOptions", () => {
   test("applies defaults", () => {
@@ -17,6 +25,7 @@ describe("buildDocsImportOptions", () => {
       exclude: [],
       temporalKey: undefined,
       parseTemporal: true,
+      prune: false,
       dryRun: false,
       verbose: false,
     });
@@ -60,5 +69,47 @@ describe("buildDocsImportOptions", () => {
     expect(
       buildDocsImportOptions(undefined, { tree: "share.projects.x" }).tree,
     ).toBe("share.projects.x");
+  });
+
+  test("maps --prune through (default off)", () => {
+    expect(buildDocsImportOptions(undefined, {}).prune).toBe(false);
+    expect(buildDocsImportOptions(undefined, { prune: true }).prune).toBe(true);
+  });
+});
+
+describe("prune keep-list plumbing", () => {
+  const payload = (
+    tree: string,
+    name: string,
+  ): { payload: MemoryCreateParams } => ({
+    payload: { content: "x", tree, name },
+  });
+
+  test("buildKeepList maps planned payloads to (tree, name) slots", () => {
+    const keep = buildKeepList([
+      payload("~/p.docs", "a.md"),
+      payload("~/p.docs.guides", "b.md"),
+    ]);
+    expect(keep).toEqual([
+      { tree: "~/p.docs", name: "a.md" },
+      { tree: "~/p.docs.guides", name: "b.md" },
+    ]);
+  });
+
+  test("keepListBytes tracks serialized size against the budget", () => {
+    const small = buildKeepList([payload("~/p.docs", "a.md")]);
+    expect(keepListBytes(small)).toBeLessThan(PRUNE_KEEP_BYTES_BUDGET);
+
+    // ~30k slots of ~60 bytes each overflows the 768 KiB budget — the run
+    // must refuse rather than chunk (a NOT-IN keep-list cannot be split).
+    const big = buildKeepList(
+      Array.from({ length: 30_000 }, (_, i) =>
+        payload(
+          "~/p.docs.some.nested.dir",
+          `doc-${String(i).padStart(6, "0")}.md`,
+        ),
+      ),
+    );
+    expect(keepListBytes(big)).toBeGreaterThan(PRUNE_KEEP_BYTES_BUDGET);
   });
 });
