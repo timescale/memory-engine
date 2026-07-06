@@ -11,6 +11,16 @@
  * 8252 — so we are free to bind an ephemeral one here.
  */
 
+/** Minimal HTML-escape for interpolating a (trusted) URL into the result page. */
+function escapeHtml(s: string): string {
+  return s
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
 /** A page the user lands on after authorizing — they return to the terminal. */
 function resultPage(title: string, body: string): Response {
   return new Response(
@@ -22,6 +32,22 @@ h1{font-size:1.25rem}</style></head>
   );
 }
 
+/**
+ * The page shown after a successful sign-in. When `uiUrl` is given (the web UI
+ * origin, i.e. API_BASE_URL), it links the user straight to the UI — the
+ * browser already holds a session cookie on that origin from the authorize
+ * step, so they land on an authenticated app.
+ */
+export function successPage(uiUrl?: string): Response {
+  const link = uiUrl
+    ? ` <a href="${escapeHtml(uiUrl)}">Open the Memory Engine UI</a>.`
+    : "";
+  return resultPage(
+    "Signed in",
+    `Authentication complete — you can close this tab and return to the terminal.${link}`,
+  );
+}
+
 export interface LoopbackOptions {
   /** Build the authorize URL for the bound redirect URI. */
   authorizeUrl: (redirectUri: string) => string;
@@ -29,6 +55,11 @@ export interface LoopbackOptions {
   openBrowser: (url: string) => Promise<void>;
   /** Invoked with the authorize URL (e.g. to print it as a manual fallback). */
   onAuthorizeUrl?: (url: string) => void;
+  /**
+   * Web UI origin (API_BASE_URL). When set, the success page links the user to
+   * the UI so they don't have to navigate there manually.
+   */
+  uiUrl?: string;
   /** Host to bind (default 127.0.0.1). */
   host?: string;
   /** How long to wait for the redirect before giving up (default 5 min). */
@@ -81,10 +112,7 @@ export function runLoopbackAuth(opts: LoopbackOptions): Promise<string> {
           );
         }
         resolve(url.toString());
-        return resultPage(
-          "Signed in",
-          "Authentication complete — you can close this tab and return to the terminal.",
-        );
+        return successPage(opts.uiUrl);
       },
       error() {
         return new Response("Internal error", { status: 500 });

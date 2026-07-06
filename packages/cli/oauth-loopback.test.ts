@@ -6,7 +6,33 @@
  * 127.0.0.1 port.
  */
 import { describe, expect, test } from "bun:test";
-import { LoopbackError, runLoopbackAuth } from "./oauth-loopback.ts";
+import {
+  LoopbackError,
+  runLoopbackAuth,
+  successPage,
+} from "./oauth-loopback.ts";
+
+describe("successPage", () => {
+  test("links to the UI when a uiUrl is provided", async () => {
+    const html = await successPage("http://localhost:3000").text();
+    expect(html).toContain('href="http://localhost:3000"');
+    expect(html).toContain("Open the Memory Engine UI");
+  });
+
+  test("omits the link when no uiUrl is provided", async () => {
+    const html = await successPage().text();
+    expect(html).not.toContain("<a href");
+    expect(html).toContain("close this tab");
+  });
+
+  test("HTML-escapes the uiUrl", async () => {
+    const html = await successPage(
+      'https://x.example/"><script>alert(1)</script>',
+    ).text();
+    expect(html).not.toContain("<script>alert(1)</script>");
+    expect(html).toContain("&lt;script&gt;");
+  });
+});
 
 describe("runLoopbackAuth", () => {
   test("resolves with the full callback URL on a successful redirect", async () => {
