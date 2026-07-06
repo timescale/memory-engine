@@ -4,6 +4,7 @@
  * Parses markdown files with optional YAML frontmatter.
  */
 import { parse as yamlParse } from "yaml";
+import { splitFrontmatterBlock } from "./frontmatter.ts";
 import type { ParsedMemory } from "./index.ts";
 import { parseTemporalInput, validateMemoryObject } from "./validation.ts";
 
@@ -14,24 +15,21 @@ export function parseMarkdown(
   input: string,
   filename?: string,
 ): ParsedMemory[] {
-  const frontmatterRegex = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/;
-  const match = input.match(frontmatterRegex);
+  const block = splitFrontmatterBlock(input);
 
   let frontmatter: Record<string, unknown> = {};
   let content: string;
 
-  if (match) {
-    const yamlPart = match[1] ?? "";
-    const contentPart = match[2] ?? "";
+  if (block) {
     try {
-      frontmatter = yamlParse(yamlPart) || {};
+      frontmatter = yamlParse(block.yaml) || {};
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);
       throw new Error(
         `Invalid YAML frontmatter${filename ? ` in ${filename}` : ""}: ${msg}`,
       );
     }
-    content = contentPart.trim();
+    content = block.body.trim();
   } else {
     content = input.trim();
   }

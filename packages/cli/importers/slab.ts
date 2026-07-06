@@ -27,10 +27,22 @@
  * (commands/import-slab.ts) does auth, walking, batching, and rendering.
  */
 
-import { basename, dirname, join, sep } from "node:path";
+import { basename, dirname, join } from "node:path";
 import type { MemoryCreateParams } from "@memory.build/protocol/memory";
-import { normalizeSlug } from "./slug.ts";
+import {
+  extractMarkdownTitle,
+  MAX_NAME_LEN,
+  makeUniqueName,
+  normalizeNameBase,
+  normalizeTreeLabel,
+  treeForRelativeDir,
+} from "./markdown-files.ts";
 import { uuidv7At } from "./uuid.ts";
+
+// Re-exported so existing consumers (tests, slab-zip) keep importing the
+// slot-arithmetic helpers from here; they now live in markdown-files.ts,
+// shared with `me import docs`.
+export { makeUniqueName, normalizeTreeLabel };
 
 /** Default tree root for an import run (kept isolated + reversible). */
 export const DEFAULT_SLAB_TREE_ROOT = "share.slab";
@@ -46,9 +58,6 @@ export const DEFAULT_UNCATEGORIZED_NODE = "uncategorized";
  */
 export const SLAB_IMPORTER_VERSION = "1";
 
-/** Memory-name length cap (mirrors the DB CHECK / memoryNameSchema). */
-const MAX_NAME_LEN = 128;
-
 /**
  * Extension kept on each post's leaf name (so `tree/name` reads like a path to
  * the source `.md` file, e.g. `/share/slab/.../cloud-faq.md`). Appended after
@@ -60,77 +69,19 @@ const NAME_EXT = ".md";
 const NAME_BASE_MAX = MAX_NAME_LEN - NAME_EXT.length;
 
 /**
- * Normalize a directory segment to a valid ltree label. Delegates to the shared
- * `normalizeSlug` (lowercase, non-alphanumeric runs -> `_`, collapse/trim, a
- * purely-numeric label gets a `p_` prefix) so the Slab tree labels follow the
- * same rule as the agent-session importers.
- */
-export function normalizeTreeLabel(raw: string): string {
-  return normalizeSlug(raw);
-}
-
-/**
  * Derive the extension-less base of a filename-like leaf name. The final name
  * is this base plus `NAME_EXT`, built in `buildSlabMemory` after collision
  * resolution; together they match `memoryNameSchema`
- * (`^[A-Za-z0-9][A-Za-z0-9._-]*$`, <= 128 chars).
- *
- * Lowercase, keep `[a-z0-9._-]`, replace other runs with `-`, strip leading
- * non-alphanumerics and trailing punctuation, collapse repeats, and truncate
- * (leaving room for the extension). Uniqueness within a tree is enforced
- * separately (see makeUniqueName).
+ * (`^[A-Za-z0-9][A-Za-z0-9._-]*$`, <= 128 chars). The normalization rules
+ * live in the shared `normalizeNameBase`.
  */
 export function normalizeName(rawFilename: string): string {
-  const base = rawFilename.replace(/\.md$/i, "");
-  let s = base.toLowerCase();
-  s = s.replace(/[^a-z0-9._-]+/g, "-"); // illegal runs -> single dash
-  s = s.replace(/-+/g, "-"); // collapse dashes
-  s = s.replace(/^[^a-z0-9]+/, ""); // must start alphanumeric
-  s = s.replace(/[-._]+$/, ""); // tidy trailing punctuation
-  if (s.length > NAME_BASE_MAX) {
-    s = s.slice(0, NAME_BASE_MAX).replace(/[-._]+$/, "");
-  }
-  return s.length > 0 ? s : "untitled";
-}
-
-/**
- * Ensure a name is unique within its tree, appending `-2`, `-3`, ... on clash.
- * Deterministic given a stable (sorted) walk order, so re-imports keep the same
- * `(tree, name)` slots. `used` maps a tree to the names already taken in it.
- * `maxLen` caps the result (default the full name cap; the Slab builder passes
- * a smaller cap so the later `.md` extension still fits).
- */
-export function makeUniqueName(
-  tree: string,
-  name: string,
-  used: Map<string, Set<string>>,
-  maxLen: number = MAX_NAME_LEN,
-): string {
-  let seen = used.get(tree);
-  if (!seen) {
-    seen = new Set<string>();
-    used.set(tree, seen);
-  }
-  if (!seen.has(name)) {
-    seen.add(name);
-    return name;
-  }
-  for (let i = 2; ; i++) {
-    const suffix = `-${i}`;
-    const head = name.slice(0, maxLen - suffix.length).replace(/[-._]+$/, "");
-    const candidate = `${head}${suffix}`;
-    if (!seen.has(candidate)) {
-      seen.add(candidate);
-      return candidate;
-    }
-  }
+  return normalizeNameBase(rawFilename.replace(/\.md$/i, ""), NAME_BASE_MAX);
 }
 
 /** First `# H1` heading, else the filename without extension (emoji/case intact). */
 export function extractTitle(content: string, rawFilename: string): string {
-  const m = content.match(/^#\s+(.+)$/m);
-  if (m?.[1]) return m[1].trim();
-  return rawFilename.replace(/\.md$/i, "");
+  return extractMarkdownTitle(content, rawFilename.replace(/\.md$/i, ""));
 }
 
 /**
@@ -183,11 +134,7 @@ export function treeForDir(relDir: string, ctx: SlabMemoryContext): string {
   if (relDir === "" || relDir === ".") {
     return `${ctx.treeRoot}.${ctx.uncategorizedNode}`;
   }
-  const labels = relDir
-    .split(/[\\/]+/)
-    .filter(Boolean)
-    .map(normalizeTreeLabel);
-  return [ctx.treeRoot, ...labels].join(".");
+  return treeForRelativeDir(ctx.treeRoot, relDir);
 }
 
 /**
