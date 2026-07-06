@@ -54,6 +54,7 @@ import { SlugRegistry } from "../importers/slug.ts";
 import { getOutputFormat, output } from "../output.ts";
 import {
   buildMemoryClient,
+  displayTreePath,
   handleError,
   requireAuth,
   requireSpace,
@@ -144,11 +145,8 @@ export function subdirRootError(
   if (dirReal === rootReal) return undefined;
 
   const rel = relative(rootReal, dirReal).split(sep).join("/");
-  // Display-form docs root for the example destinations (input form may mix
-  // `.`/`/`; labels cannot contain dots, so a straight swap is safe).
-  const shown = docsTree.replace(/\./g, "/");
-  const docsRoot =
-    shown.startsWith("~") || shown.startsWith("/") ? shown : `/${shown}`;
+  // Display-form docs root for the example destinations.
+  const docsRoot = displayTreePath(docsTree);
   // Where a representative file would land under each root — the dirs are
   // slugified to ltree labels exactly as the importer would.
   const relLabels = rel.split("/").map(normalizeTreeLabel).join("/");
@@ -350,7 +348,7 @@ export async function runDocsImport(
     }
     planned.push({ payload });
     if (opts.verbose && fmt === "text") {
-      const line = `  ${payload.tree} / ${payload.name}`;
+      const line = `  ${displayTreePath(payload.tree)} / ${payload.name}`;
       if (progress) progress.log(line);
       else console.log(line);
     }
@@ -427,7 +425,7 @@ export async function runDocsImport(
   const failed = errors.length;
   const structured: DocsImportResult = {
     dir: opts.dir,
-    tree: docsTree,
+    tree: displayTreePath(docsTree),
     mode: gitMode ? "git" : "plain",
     ...(shallow ? { shallow } : {}),
     dryRun: opts.dryRun,
@@ -456,13 +454,13 @@ export async function runDocsImport(
       // No server classification without submitting — don't imply a
       // new/updated/unchanged split that was never computed.
       clack.log.success(
-        `Would import ${inserted} of ${relPaths.length} scanned docs into ${docsTree} ` +
+        `Would import ${inserted} of ${relPaths.length} scanned docs into ${structured.tree} ` +
           `(${structured.mode} mode)${failed > 0 ? `, ${failed} failed` : ""}`,
       );
     } else {
       clack.log.success(
         `Imported ${inserted} new, ${updated} updated, ${skipped} unchanged, ${failed} failed ` +
-          `from ${relPaths.length} docs into ${docsTree} (${structured.mode} mode)`,
+          `from ${relPaths.length} docs into ${structured.tree} (${structured.mode} mode)`,
       );
     }
     if (skippedEmpty > 0) {

@@ -285,6 +285,19 @@ export function isAppErrorCode(error: unknown, code: string): boolean {
   return error.appCode === code || (error.code as unknown) === code;
 }
 
+/**
+ * Render an INPUT-form tree path (mixed `.`/`/` separators, optional leading
+ * `~`) in the canonical display form the server uses: `/`-separated, anchored
+ * by `~` (home) or a leading `/`. Purely cosmetic — labels cannot contain
+ * dots, so the swap is lossless — for CLI output that surfaces a tree the
+ * user supplied or the client assembled (server responses already arrive in
+ * display form).
+ */
+export function displayTreePath(tree: string): string {
+  const s = tree.replace(/\./g, "/").replace(/\/{2,}/g, "/");
+  return s.startsWith("~") || s.startsWith("/") ? s : `/${s}`;
+}
+
 /** POSIX-quote a single argv token unless it is already a shell-safe bareword. */
 function shellQuoteArg(token: string): string {
   if (/^[A-Za-z0-9_,.:/=@%+-]+$/.test(token)) return token;
