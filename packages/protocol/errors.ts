@@ -92,6 +92,36 @@ export function isAppError(error: unknown): error is AppError {
   return error instanceof AppError;
 }
 
+/**
+ * Application error codes that represent *expected* business, validation, or
+ * authorization outcomes rather than genuine failures. These are still returned
+ * to callers as normal JSON-RPC application errors, but they should NOT be
+ * recorded as span exceptions — doing so pollutes error-rate signals (e.g. every
+ * idempotent `deleteByPath` of a missing path raises `NOT_FOUND`).
+ *
+ * Codes intentionally absent — they indicate real trouble and stay loud (recorded
+ * as span exceptions): `QUERY_TIMEOUT`, `LOCK_TIMEOUT`, `TRANSACTION_TIMEOUT`
+ * (database), `EMBEDDING_FAILED`, `EMBEDDING_NOT_CONFIGURED`, `INTERNAL_ERROR`,
+ * and the client/server version-incompatibility codes.
+ */
+export const EXPECTED_APP_ERROR_CODES: ReadonlySet<AppErrorCode> = new Set([
+  APP_ERROR_CODES.NOT_FOUND,
+  APP_ERROR_CODES.FORBIDDEN,
+  APP_ERROR_CODES.UNAUTHORIZED,
+  APP_ERROR_CODES.CONFLICT,
+  APP_ERROR_CODES.VALIDATION_ERROR,
+  APP_ERROR_CODES.RATE_LIMITED,
+  APP_ERROR_CODES.LAST_ADMIN,
+]);
+
+/**
+ * Type guard for an {@link AppError} whose code is an expected business,
+ * validation, or authorization outcome (see {@link EXPECTED_APP_ERROR_CODES}).
+ */
+export function isExpectedAppError(error: unknown): error is AppError {
+  return isAppError(error) && EXPECTED_APP_ERROR_CODES.has(error.code);
+}
+
 // =============================================================================
 // Error Response Helpers
 // =============================================================================

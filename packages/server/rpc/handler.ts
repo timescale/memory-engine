@@ -3,11 +3,13 @@ import type { ZodError } from "zod";
 import { json } from "../util/response";
 import { mapDbTimeoutError } from "./db-errors";
 import {
+  type AppError,
   applicationError,
   internalError,
   invalidParams,
   invalidRequest,
   isAppError,
+  isExpectedAppError,
   methodNotFound,
   parseError,
 } from "./errors";
@@ -175,17 +177,49 @@ export async function handleRpcRequest(
       if (identity.id) identityAttrs["identity.id"] = identity.id;
     }
 
-    // Execute handler in a span
-    const result = await span(`rpc.${rpcRequest.method}`, {
+    // Execute the handler in a span. Expected business / validation /
+    // authorization errors (NOT_FOUND, FORBIDDEN, CONFLICT, …) are caught
+    // *inside* the callback so they never propagate as a throw — that keeps the
+    // span helper from recording them as exceptions (they're normal outcomes,
+    // not failures). They're tagged on the span so they stay queryable, then
+    // surfaced out-of-band and mapped to the same JSON-RPC error response below.
+    // Genuine failures (including DB timeouts) still throw and are recorded by
+    // the span helper as exceptions.
+    const outcome = await span(`rpc.${rpcRequest.method}`, {
       attributes: {
         "rpc.method": rpcRequest.method,
         "rpc.request_id": String(requestId),
         ...identityAttrs,
       },
-      callback: async () => method.handler(paramsResult.data, handlerContext),
+      callback: async (
+        activeSpan,
+      ): Promise<
+        { ok: true; value: unknown } | { ok: false; error: AppError }
+      > => {
+        try {
+          const value = await method.handler(paramsResult.data, handlerContext);
+          return { ok: true, value };
+        } catch (err) {
+          if (isExpectedAppError(err)) {
+            activeSpan.setAttribute("rpc.outcome", "business_error");
+            activeSpan.setAttribute("rpc.error_code", err.code);
+            activeSpan.setAttribute("error.expected", true);
+            return { ok: false, error: err };
+          }
+          throw err;
+        }
+      },
     });
 
-    return json(createSuccessResponse(result, requestId ?? 0));
+    if (!outcome.ok) {
+      // Expected business error: already tagged on the span (not an exception).
+      return (
+        appErrorResponse(outcome.error, requestId) ??
+        json(internalError(requestId))
+      );
+    }
+
+    return json(createSuccessResponse(outcome.value, requestId ?? 0));
   } catch (error: unknown) {
     const response = appErrorResponse(error, requestId ?? 0);
     if (response) return response;
