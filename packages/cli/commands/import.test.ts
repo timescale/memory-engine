@@ -47,30 +47,12 @@ describe("buildOptions", () => {
     );
   });
 
-  test("a --project run picks up the .me tree as tree (matches the hook)", () => {
-    const config = buildOptions(
-      { project: "/repo" },
-      { tree: "/share/projects/foo" },
-    );
-    expect(config.write.tree).toBe("/share/projects/foo");
-    // The per-slug parent fallback is still the private default (unused when
-    // tree wins, but reported/available for sessions outside the tree).
-    expect(config.write.treeRoot).toBe("~/projects");
-  });
-
-  test("a bare (multi-project) sweep ignores the .me tree — per-slug parent fallback", () => {
-    const config = buildOptions({}, { tree: "/share/projects/foo" });
-    expect(config.write.tree).toBeUndefined();
-    expect(config.write.treeRoot).toBe("~/projects");
-  });
-
-  test("an explicit --tree-root overrides the .me tree even for a --project run", () => {
-    const config = buildOptions(
-      { project: "/repo", treeRoot: "share.work" },
-      { tree: "/share/projects/foo" },
-    );
-    expect(config.write.tree).toBeUndefined();
-    expect(config.write.treeRoot).toBe("share.work");
+  test("never sets a run-level tree — per-session routing owns .me trees", () => {
+    // Even a --project-scoped run leaves write.tree unset: the router
+    // resolves each session's own project `.me` (see createSessionRouter
+    // tests below), so buildOptions only computes the run-level parent.
+    expect(buildOptions({ project: "/repo" }).write.tree).toBeUndefined();
+    expect(buildOptions({}).write.tree).toBeUndefined();
   });
 
   test("a machine-wide tree_root (creds.treeRoot) replaces the default parent", () => {
@@ -81,12 +63,6 @@ describe("buildOptions", () => {
       buildOptions({ treeRoot: "share.work" }, { treeRoot: "~/work" }).write
         .treeRoot,
     ).toBe("share.work");
-  });
-
-  test("no creds → no tree (private default governs)", () => {
-    const config = buildOptions({ project: "/repo" });
-    expect(config.write.tree).toBeUndefined();
-    expect(config.write.treeRoot).toBe("~/projects");
   });
 });
 

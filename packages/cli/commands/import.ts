@@ -128,19 +128,17 @@ function addCommonOptions(
  * Assemble importer + write options from Commander parsed opts.
  * Validates --tree-root syntax and the ISO filter bounds.
  *
- * Tree resolution mirrors the capture hook, highest-first: an explicit
- * `--tree-root` (a slug-free parent — each project's slug is appended under
- * it) > the `.me/config.yaml` `tree` (the full project node — nothing
- * appended) > the machine-wide `tree_root` config override, else the private
- * `~/projects` (slug appended likewise). The `.me` tree applies only to a
- * run scoped to one project (`--project`): it is a single project's node, so
- * a bare multi-project sweep must keep the per-slug fallback (per-session
- * `.me` resolution for bare sweeps is future work) — this way a scoped
- * backfill lands exactly where live capture does, with no flags.
+ * This computes only the RUN-LEVEL parent (`treeRoot`); per-session trees
+ * come from the router (`createSessionRouter`), which resolves each session's
+ * own project `.me` — so `write.tree` is left unset here and superseded per
+ * session. The parent, highest-first: an explicit `--tree-root` (a slug-free
+ * parent — each project's slug is appended under it; it also overrides every
+ * project's `.me` tree, via the router) > the machine-wide `tree_root` config
+ * override > the private `~/projects`.
  */
 export function buildOptions(
   opts: Record<string, unknown>,
-  creds?: { tree?: string; treeRoot?: string },
+  creds?: { treeRoot?: string },
 ): {
   importer: ImporterOptions;
   write: WriteOptions;
@@ -149,10 +147,6 @@ export function buildOptions(
   const treeRoot = explicitTreeRoot
     ? (opts.treeRoot as string)
     : (creds?.treeRoot ?? DEFAULT_PRIVATE_TREE_ROOT);
-  const tree =
-    explicitTreeRoot || typeof opts.project !== "string"
-      ? undefined
-      : creds?.tree;
   const sessionsNodeName =
     typeof opts.sessionsNodeName === "string"
       ? opts.sessionsNodeName
@@ -188,7 +182,6 @@ export function buildOptions(
   };
   const write: WriteOptions = {
     treeRoot,
-    tree,
     sessionsNodeName,
     fullTranscript: opts.fullTranscript === true,
     dryRun: opts.dryRun === true,
@@ -308,10 +301,26 @@ export async function runAgentImport(
   opts: Record<string, unknown>,
   globalOpts: Record<string, unknown>,
 ): Promise<void> {
+  const fmt = getOutputFormat(globalOpts);
+  // A config-dir pin means "use exactly this .me" — a single-project concept
+  // that contradicts per-session routing (every session resolves its OWN
+  // project's config). Reject the combination loudly rather than silently
+  // ignoring the pin for routing; single-target commands (`me import git`,
+  // the capture hooks, `me mcp`) keep honoring it.
+  if (typeof globalOpts.configDir === "string" || process.env.ME_CONFIG_DIR) {
+    handleError(
+      new Error(
+        "--config-dir / ME_CONFIG_DIR does not apply to session imports: " +
+          "every session routes by its own project's .me. Scope the sweep " +
+          "with --project <path>, or force a target with ME_SERVER / " +
+          "ME_SPACE / --tree-root.",
+      ),
+      fmt,
+    );
+  }
   const creds = resolveCredentials(
     typeof globalOpts.server === "string" ? globalOpts.server : undefined,
   );
-  const fmt = getOutputFormat(globalOpts);
   requireAuth(creds, fmt);
   requireSpace(creds, fmt);
 
@@ -394,7 +403,6 @@ function renderResult(
     tool,
     dryRun: write.dryRun,
     treeRoot: write.treeRoot,
-    tree: write.tree ?? null,
     sessionsNodeName: write.sessionsNodeName,
     fullTranscript: write.fullTranscript,
     totalFiles: result.discovery.totalFiles,
