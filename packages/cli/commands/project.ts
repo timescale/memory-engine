@@ -28,6 +28,10 @@ import * as clack from "@clack/prompts";
 import { accessLevelName } from "@memory.build/protocol/space";
 import { Command } from "commander";
 import {
+  applyCaptureDeselection,
+  captureEnableStep,
+} from "../agent/capture-step.ts";
+import {
   DIM,
   DIM_OFF,
   type InitStep,
@@ -49,10 +53,7 @@ import {
 import { claudeImporter } from "../importers/claude.ts";
 import { SlugRegistry } from "../importers/slug.ts";
 import { getOutputFormat } from "../output.ts";
-import {
-  discoverProjectConfig,
-  writeProjectConfig,
-} from "../project-config.ts";
+import { writeProjectConfig } from "../project-config.ts";
 import { buildMemoryClient, buildUserClient, handleError } from "../util.ts";
 import { pluginInstallAvailable, runClaudeInstallFlow } from "./claude.ts";
 import { runAgentImport, VALID_TREE_ROOT_RE } from "./import.ts";
@@ -500,34 +501,10 @@ const PROJECT_INIT_STEPS: InitStep[] = [
       );
     },
   },
-  {
-    id: "capture-enable",
+  captureEnableStep({
     group: "Claude Code sessions",
-    kind: "ongoing",
-    optionKey: "skipCaptureEnable",
-    skipFlag: "--skip-capture-enable",
-    skipDescription:
-      "do not enable ongoing session capture for this project (capture: true)",
-    label:
-      "Enable ongoing capture of new Claude Code sessions for this project",
-    // ✓ when the project already pins capture: true. The capturing itself is
-    // done by the installed plugin's hooks; this writes the committed flag
-    // that turns them on for this project regardless of the member's global
-    // setting.
-    available: async ({ projectRoot }) =>
-      discoverProjectConfig(projectRoot ?? process.cwd())?.capture === true
-        ? "done"
-        : "available",
-    doneLabel: "Ongoing session capture already enabled for this project",
-    rerunLabel:
-      "Re-enable ongoing capture of new Claude Code sessions (already enabled)",
-    run: async ({ projectRoot }) => {
-      const path = writeProjectConfig(projectRoot ?? process.cwd(), {
-        capture: true,
-      });
-      clack.log.success(`Enabled session capture (capture: true) in ${path}`);
-    },
-  },
+    toolLabel: "Claude Code",
+  }),
   {
     id: "git-import",
     group: "Git history",
@@ -663,26 +640,12 @@ export function createProjectInitCommand(opts?: {
         cmdOpts,
       });
 
-      // Interactively DESELECTING the capture row is an explicit opt-out:
-      // write `capture: false` so the committed config is deterministic for
-      // the team (absent would fall back to each member's global setting).
-      // Leave it alone when the step is already done (capture already true)
-      // or when running non-interactively (a --skip is "don't touch", not
-      // "turn off").
-      const captureTouched =
-        result.ran.some((s) => s.id === "capture-enable") ||
-        result.done.some((s) => s.id === "capture-enable");
-      if (
-        interactive &&
-        result.offered.includes("capture-enable") &&
-        !captureTouched &&
-        ctx.projectRoot
-      ) {
-        const path = writeProjectConfig(ctx.projectRoot, { capture: false });
-        clack.log.info(
-          `Ongoing session capture disabled for this project (capture: false) in ${path}`,
-        );
-      }
+      // Interactively deselecting the capture row is an explicit opt-out —
+      // write `capture: false` (see applyCaptureDeselection).
+      applyCaptureDeselection(result, {
+        interactive,
+        projectRoot: ctx.projectRoot,
+      });
 
       if (fmt === "text" && result.ran.length > 0) {
         printInitOutro([...result.ran, ...result.done]);
