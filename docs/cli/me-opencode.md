@@ -49,7 +49,8 @@ Steps:
 | Step | Kind | What it does |
 |------|------|--------------|
 | Import OpenCode sessions | backfill | Import this project's existing sessions (one-time) |
-| Install the capture plugin | ongoing | Write a small plugin into `~/.config/opencode/plugins/memory-engine.ts` that captures new sessions on `session.idle` / `session.deleted` |
+| Install the capture plugin | ongoing | Write a small plugin into `~/.config/opencode/plugins/memory-engine.ts` that captures new sessions on `session.idle` / `session.deleted` — inert until capture is enabled |
+| Enable ongoing capture for this project | ongoing | Write `capture: true` to the project's committed [`.me/config.yaml`](../project-config.md#the-capture-field-session-capture-onoff) — the per-project opt-in the hooks honor (wins over each member's global setting). Interactively **deselecting** this row writes an explicit `capture: false`; `--skip-capture-enable` just leaves the file untouched. |
 | Register the MCP server | config | Same as `me opencode install` -- gives OpenCode the memory tools |
 | Install `/memory-recall` | config | A custom command that searches Memory Engine |
 | Install the `memory-engine` skill | config | A `SKILL.md` teaching the agent when/how to use memory |
@@ -62,6 +63,7 @@ Steps:
 | `--scope <scope>` | `project` (`.opencode/` + `opencode.json` in the repo) or `user` (`~/.config/opencode/`). Default: `project`; prompted interactively when unset in a TTY. |
 | `--skip-session-import` | do not import this project's OpenCode sessions |
 | `--skip-plugin-install` | do not install the OpenCode capture plugin |
+| `--skip-capture-enable` | do not enable ongoing session capture for this project (`capture: true`) |
 | `--skip-mcp-install` | do not register `me` as an MCP server |
 | `--skip-recall-command` | do not install the `/memory-recall` command |
 | `--skip-skill` | do not install the `memory-engine` skill |

@@ -232,6 +232,16 @@ export function buildInitCommand(opts: {
     cmdOpts: Record<string, unknown>,
     env: { interactive: boolean; fmt: string },
   ) => Promise<InitStepContext>;
+  /**
+   * Optional hook invoked right after the steps ran (even when nothing was
+   * selected), before the outro — e.g. to react to a deliberately deselected
+   * row ({@link applyCaptureDeselection}).
+   */
+  afterRun?: (
+    result: RunInitStepsResult,
+    ctx: InitStepContext,
+    env: { interactive: boolean; fmt: string },
+  ) => Promise<void> | void;
 }): Command {
   const { steps: INIT_STEPS, outro } = opts;
   const cmd = new Command("init").description(opts.description);
@@ -265,14 +275,15 @@ export function buildInitCommand(opts: {
     if (opts.resolveContext) {
       ctx = await opts.resolveContext(ctx, cmdOpts, { interactive, fmt });
     }
-    const { ran, done } = await runInitSteps(INIT_STEPS, ctx, {
+    const result = await runInitSteps(INIT_STEPS, ctx, {
       interactive,
       fmt,
       cmdOpts,
     });
-    if (ran.length === 0) return;
+    await opts.afterRun?.(result, ctx, { interactive, fmt });
+    if (result.ran.length === 0) return;
     // The recap covers what just ran plus what was already in place.
-    if (fmt === "text") outro([...ran, ...done]);
+    if (fmt === "text") outro([...result.ran, ...result.done]);
   });
   return cmd;
 }
