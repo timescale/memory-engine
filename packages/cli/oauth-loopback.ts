@@ -32,14 +32,29 @@ h1{font-size:1.25rem}</style></head>
   );
 }
 
+/** True only for http(s) URLs — the sole schemes safe to render as a link. */
+function isHttpUrl(s: string | undefined): s is string {
+  if (!s) return false;
+  try {
+    const { protocol } = new URL(s);
+    return protocol === "http:" || protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
 /**
- * The page shown after a successful sign-in. When `uiUrl` is given (the web UI
- * origin, i.e. API_BASE_URL), it links the user straight to the UI — the
- * browser already holds a session cookie on that origin from the authorize
- * step, so they land on an authenticated app.
+ * The page shown after a successful sign-in. When `uiUrl` is a valid http(s)
+ * URL (the web UI origin, i.e. API_BASE_URL), it links the user straight to the
+ * UI — the browser already holds a session cookie on that origin from the
+ * authorize step, so they land on an authenticated app.
+ *
+ * `rel="noreferrer"` keeps the loopback URL (which carries the auth `code`) out
+ * of the Referer header sent to the UI origin. Non-http(s) schemes (e.g. a
+ * misconfigured `javascript:`/`data:` server value) fall back to no link.
  */
 export function successPage(uiUrl?: string): Response {
-  const link = uiUrl
+  const link = isHttpUrl(uiUrl)
     ? ` <a href="${escapeHtml(uiUrl)}" rel="noreferrer" referrerpolicy="no-referrer">Open the Memory Engine UI</a>.`
     : "";
   return resultPage(
