@@ -209,7 +209,7 @@ me import docs [dir] [options]
 
 | Argument | Required | Description |
 |----------|----------|-------------|
-| `dir` | no | Directory to import — the **import root**; tree paths derive relative to it (not the repo toplevel). Default: the current directory. |
+| `dir` | no | Directory to import — the **import root**; tree paths derive relative to it. In git mode this must be the repo toplevel unless `--allow-subdir-root` is passed (scope with `--include` instead). Default: the current directory. |
 
 | Option | Description |
 |--------|-------------|
@@ -219,6 +219,7 @@ me import docs [dir] [options]
 | `--temporal-key <key>` | Frontmatter key parsed as the memory's temporal start (e.g. `date` for blogs/ADRs). Falls back to git last-modified; works in plain directories and shallow clones too. |
 | `--no-temporal` | No temporal and no date-seeded ids (also skips the git log pass). |
 | `--prune` | Delete previously-imported docs under the docs root that are absent from this walk. **Full-corpus runs only** — see [Pruning](#pruning-deletions-and-renames). |
+| `--allow-subdir-root` | Allow a git-mode import root below the repo toplevel — see [Tree layout](#tree-layout). Prefer `--include` scoping from the toplevel, which narrows without re-rooting. |
 | `--dry-run` | Discover and report what would be imported without writing (with `--prune`: lists what would be deleted). |
 | `-v, --verbose` | Per-file progress output (prints each `tree / name`). |
 
@@ -234,7 +235,9 @@ Each file is a named leaf under the project's `docs` node, mirroring its directo
 <tree>/docs/<sub>/<dirs>/<file-name>
 ```
 
-Directory segments are normalized to ltree labels and the leaf name is a filename-derived slug keeping its (lowercased) extension, unique within its tree — e.g. `docs/guides/Getting Started.md` in repo `acme` lands at `~/projects/acme/docs/docs/guides/getting-started.md`. Files at the import root sit directly on the `docs` node. Note that pointing a later run at a different `dir` changes where files land.
+Directory segments are normalized to ltree labels and the leaf name is a filename-derived slug keeping its (lowercased) extension, unique within its tree — e.g. `docs/guides/Getting Started.md` in repo `acme` lands at `~/projects/acme/docs/docs/guides/getting-started.md`. Files at the import root sit directly on the `docs` node.
+
+Because slots derive from the import root while the project identity (slug, [`.me` tree](../project-config.md)) stays repo-level, runs rooted at different directories of the same repo would mint parallel corpora under one docs root — and a cross-root `--prune` would delete the other root's slots. So in git mode an import root below the repo toplevel is **refused** unless `--allow-subdir-root` is passed; scope with `--include` from the toplevel instead, and if you do opt into a subfolder root, always use the same one. Plain directories need no guard: their project identity derives from the argument directory itself, so a different root is a different project node.
 
 ### Frontmatter is document data, never engine fields
 
@@ -276,7 +279,7 @@ Idempotency is keyed on `(tree, name)`. Docs are submitted with `onConflict: "re
 ```bash
 me import docs --dry-run -v            # preview from the repo root
 me import docs                          # import into <project-tree>/docs
-me import docs docs/ --include '**/*.md'   # just one folder, .md only
+me import docs --include 'docs/**/*.md'    # just one folder, .md only
 me import docs . --temporal-key date    # blog/ADR repos with date: frontmatter
 me import docs --prune --dry-run        # preview a full-corpus reconcile
 me import docs --prune                  # re-sync, deleting removed/renamed docs

@@ -23,7 +23,7 @@
  * importer_version bump re-renders everything.
  */
 
-import { existsSync, statSync } from "node:fs";
+import { existsSync, realpathSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
 import * as clack from "@clack/prompts";
 import type { MemoryCreateParams } from "@memory.build/protocol/memory";
@@ -75,6 +75,8 @@ export interface DocsImportOptions {
   parseTemporal: boolean;
   /** Delete previously-imported docs absent from this walk. */
   prune: boolean;
+  /** Allow a git-mode import root below the repo toplevel. */
+  allowSubdirRoot: boolean;
   /** Report without writing. */
   dryRun: boolean;
   /** Per-file progress output. */
@@ -109,9 +111,40 @@ export function buildDocsImportOptions(
     // Commander sets `temporal` false when `--no-temporal` is passed.
     parseTemporal: opts.temporal !== false,
     prune: opts.prune === true,
+    allowSubdirRoot: opts.allowSubdirRoot === true,
     dryRun: opts.dryRun === true,
     verbose: opts.verbose === true,
   };
+}
+
+/**
+ * In git mode, an import root below the repo toplevel is refused unless
+ * explicitly allowed: tree slots derive from the import root while the
+ * project identity (slug, .me tree) stays repo-level, so runs rooted at
+ * different directories mint parallel corpora under one docs root — and a
+ * cross-root --prune deletes the other root's slots. `--include` scoping
+ * from the toplevel achieves the same narrowing without re-rooting. Returns
+ * the refusal message, or undefined when the root is fine.
+ *
+ * Plain mode needs no guard: the slug derives from the argument directory
+ * itself, so a different root is a different project node entirely.
+ */
+export function subdirRootError(
+  dir: string,
+  gitRoot: string,
+  allowSubdirRoot: boolean,
+): string | undefined {
+  if (allowSubdirRoot) return undefined;
+  // git prints physical paths; the argument may travel through symlinks
+  // (macOS /tmp → /private/tmp), so compare realpaths.
+  if (realpathSync(dir) === realpathSync(gitRoot)) return undefined;
+  return (
+    `${dir} is a subfolder of the git repo at ${gitRoot}. ` +
+    `Docs tree slots derive from the import root, so runs rooted at different directories ` +
+    `create parallel corpora (and a cross-root --prune deletes the other's). ` +
+    `Run from the repo root and scope with --include (e.g. --include 'docs/**'), ` +
+    `or pass --allow-subdir-root to keep subfolder-relative slots.`
+  );
 }
 
 /**
@@ -209,6 +242,15 @@ export async function runDocsImport(
   // Project slug + git detection in one resolve (plain dirs slug by basename).
   const { slug, gitRoot } = await new SlugRegistry().resolve(dir);
   const gitMode = gitRoot !== undefined;
+
+  // Refuse a subfolder import root in git mode (see subdirRootError) before
+  // any discovery or writes.
+  if (gitRoot !== undefined) {
+    const rootErr = subdirRootError(dir, gitRoot, opts.allowSubdirRoot);
+    if (rootErr !== undefined) {
+      handleError(new Error(rootErr), fmt);
+    }
+  }
 
   // The full project node docs nest under (no slug appended — same
   // resolution as `me import git`, so a project's docs, git_history, and
@@ -447,6 +489,10 @@ export function createDocsImportCommand(): Command {
     .option(
       "--prune",
       "delete previously-imported docs absent from this walk (full-corpus runs only — a narrowed walk prunes everything outside it)",
+    )
+    .option(
+      "--allow-subdir-root",
+      "allow an import root below the repo toplevel (slots become subfolder-relative — prefer --include scoping from the root)",
     )
     .option(
       "--dry-run",
