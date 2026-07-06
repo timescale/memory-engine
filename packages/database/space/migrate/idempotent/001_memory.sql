@@ -1025,6 +1025,9 @@ begin
       using errcode = 'insufficient_privilege';
   end if;
 
+  -- Both arms order by (tree, name) so the affected-rows list (and a CLI
+  -- dry-run preview) is deterministic across plans; delete ... returning has
+  -- no order by, hence the CTE.
   if _dry_run then
     return query
       select m.id, m.tree, m.name
@@ -1037,20 +1040,25 @@ begin
         select 1
         from unnest(_keep_trees, _keep_names) k(tree, name)
         where k.tree = m.tree and k.name = m.name
-      );
+      )
+      order by m.tree, m.name;
   else
     return query
-      delete from {{schema}}.memory m
-      where m.tree <@ _root
-      and m.name is not null
-      and m.meta @> _meta_contains
-      and not exists
+      with d as
       (
-        select 1
-        from unnest(_keep_trees, _keep_names) k(tree, name)
-        where k.tree = m.tree and k.name = m.name
+        delete from {{schema}}.memory m
+        where m.tree <@ _root
+        and m.name is not null
+        and m.meta @> _meta_contains
+        and not exists
+        (
+          select 1
+          from unnest(_keep_trees, _keep_names) k(tree, name)
+          where k.tree = m.tree and k.name = m.name
+        )
+        returning m.id, m.tree, m.name
       )
-      returning m.id, m.tree, m.name;
+      select d.id, d.tree, d.name from d order by d.tree, d.name;
   end if;
 end;
 $func$ language plpgsql volatile security invoker

@@ -24,7 +24,8 @@ const FRONTMATTER_RE = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/;
 
 /**
  * Split a leading `---`-fenced YAML frontmatter block from a document.
- * Returns null when the input doesn't open with a frontmatter fence.
+ * Returns null unless the input begins with a COMPLETE block — an
+ * unterminated opening fence is not a block, so it stays in the body.
  */
 export function splitFrontmatterBlock(input: string): FrontmatterBlock | null {
   const m = input.match(FRONTMATTER_RE);

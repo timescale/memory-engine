@@ -64,7 +64,10 @@ export async function listGitFiles(dir: string): Promise<string[]> {
     ["-C", dir, "ls-files", "-z", "--cached", "--others", "--exclude-standard"],
     { timeout: 60_000, encoding: "utf8", maxBuffer: LS_FILES_MAX_BUFFER },
   );
-  return stdout.split("\0").filter((p) => p.length > 0);
+  return stdout
+    .split("\0")
+    .filter((p) => p.length > 0)
+    .sort();
 }
 
 /**

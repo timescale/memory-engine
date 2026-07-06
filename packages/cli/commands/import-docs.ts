@@ -133,12 +133,18 @@ export interface KeepSlot {
 export function buildKeepList(
   planned: Array<{ payload: MemoryCreateParams }>,
 ): KeepSlot[] {
-  // Every doc payload is named (buildDocMemory always sets one); the fallback
-  // only satisfies the type.
-  return planned.map((p) => ({
-    tree: p.payload.tree,
-    name: p.payload.name ?? "",
-  }));
+  return planned.map((p) => {
+    // Every doc payload is named (buildDocMemory always sets one). A nameless
+    // payload would silently shrink the keep-set — fail fast instead: the
+    // protocol would reject an empty name anyway, but with a far less
+    // pointed error.
+    if (p.payload.name == null || p.payload.name.length === 0) {
+      throw new Error(
+        `invariant violated: doc payload missing a name under ${p.payload.tree}`,
+      );
+    }
+    return { tree: p.payload.tree, name: p.payload.name };
+  });
 }
 
 /** Approximate wire size of the keep-list (UTF-8 JSON bytes). */
@@ -329,21 +335,23 @@ export async function runDocsImport(
   let prunedPaths: string[] = [];
   let pruneRefused: string | undefined;
   if (opts.prune) {
-    const keep = buildKeepList(unique);
     if (unique.length === 0) {
       pruneRefused =
         "empty walk — a wrong directory or over-narrowed --include must not delete the whole corpus";
-    } else if (keepListBytes(keep) > PRUNE_KEEP_BYTES_BUDGET) {
-      pruneRefused = `keep-list too large for one reconcile request (${unique.length} docs)`;
     } else {
       try {
-        const res = await engine.memory.reconcileTree({
-          root: docsTree,
-          metaContains: { source: DOCS_META_SOURCE },
-          keep,
-          ...(opts.dryRun ? { dryRun: true } : {}),
-        });
-        prunedPaths = res.paths;
+        const keep = buildKeepList(unique);
+        if (keepListBytes(keep) > PRUNE_KEEP_BYTES_BUDGET) {
+          pruneRefused = `keep-list too large for one reconcile request (${unique.length} docs)`;
+        } else {
+          const res = await engine.memory.reconcileTree({
+            root: docsTree,
+            metaContains: { source: DOCS_META_SOURCE },
+            keep,
+            ...(opts.dryRun ? { dryRun: true } : {}),
+          });
+          prunedPaths = res.paths;
+        }
       } catch (error) {
         fail(error);
       }
@@ -379,11 +387,19 @@ export async function runDocsImport(
     if (pruneRefused !== undefined) {
       clack.log.warn(`--prune refused: ${pruneRefused}. Nothing was deleted.`);
     }
-    const verb = opts.dryRun ? "Would import" : "Imported";
-    clack.log.success(
-      `${verb} ${inserted} new, ${updated} updated, ${skipped} unchanged, ${failed} failed ` +
-        `from ${relPaths.length} docs into ${docsTree} (${structured.mode} mode)`,
-    );
+    if (opts.dryRun) {
+      // No server classification without submitting — don't imply a
+      // new/updated/unchanged split that was never computed.
+      clack.log.success(
+        `Would import ${inserted} of ${relPaths.length} scanned docs into ${docsTree} ` +
+          `(${structured.mode} mode)${failed > 0 ? `, ${failed} failed` : ""}`,
+      );
+    } else {
+      clack.log.success(
+        `Imported ${inserted} new, ${updated} updated, ${skipped} unchanged, ${failed} failed ` +
+          `from ${relPaths.length} docs into ${docsTree} (${structured.mode} mode)`,
+      );
+    }
     if (skippedEmpty > 0) {
       console.log(`  Skipped ${skippedEmpty} empty file(s)`);
     }
