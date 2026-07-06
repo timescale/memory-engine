@@ -96,6 +96,14 @@ describe("prune keep-list plumbing", () => {
     ]);
   });
 
+  test("buildKeepList fails fast on a nameless payload (invariant)", () => {
+    // A nameless slot would silently shrink the keep-set (over-delete risk);
+    // the invariant violation must surface as a pointed error instead.
+    expect(() =>
+      buildKeepList([{ payload: { content: "x", tree: "~/p.docs" } }]),
+    ).toThrow(/missing a name/);
+  });
+
   test("keepListBytes tracks serialized size against the budget", () => {
     const small = buildKeepList([payload("~/p.docs", "a.md")]);
     expect(keepListBytes(small)).toBeLessThan(PRUNE_KEEP_BYTES_BUDGET);

@@ -493,6 +493,11 @@ describe("provisioned schema is functional", () => {
     await createMemory(
       `${OWNER}, 'a.rec.docs'::ltree, 'stale', null, '{"source":"t"}'::jsonb, null, 'stale.md'`,
     );
+    // A second stale slot in a LATER tree, created before the run — proves the
+    // affected-rows list comes back ordered by (tree, name), not plan order.
+    await createMemory(
+      `${OWNER}, 'a.rec.docs.zz'::ltree, 'stale nested', null, '{"source":"t"}'::jsonb, null, 'aaa.md'`,
+    );
     await createMemory(
       `${OWNER}, 'a.rec.docs'::ltree, 'foreign', null, '{"source":"other"}'::jsonb, null, 'foreign.md'`,
     );
@@ -507,17 +512,17 @@ describe("provisioned schema is functional", () => {
           `array['a.rec.docs']::ltree[], array['kept.md']::text[], ${dryRun})`,
       );
 
-    // Dry run: lists the stale slot, deletes nothing.
+    // Dry run: lists the stale slots (tree, name)-ordered, deletes nothing.
     const dry = await call(true);
-    expect(dry.map((r) => r.name)).toEqual(["stale.md"]);
+    expect(dry.map((r) => r.name)).toEqual(["stale.md", "aaa.md"]);
     const [before] = await sql.unsafe(
       `select count(*)::int as n from ${canonical.schema}.memory where tree <@ 'a.rec'::ltree`,
     );
-    expect(before?.n).toBe(4);
+    expect(before?.n).toBe(5);
 
-    // Real run: exactly the stale slot goes; kept, foreign, unnamed survive.
+    // Real run: exactly the stale slots go; kept, foreign, unnamed survive.
     const deleted = await call(false);
-    expect(deleted.map((r) => r.name)).toEqual(["stale.md"]);
+    expect(deleted.map((r) => r.name)).toEqual(["stale.md", "aaa.md"]);
     const rest = await sql.unsafe(
       `select content from ${canonical.schema}.memory where tree <@ 'a.rec'::ltree order by content`,
     );

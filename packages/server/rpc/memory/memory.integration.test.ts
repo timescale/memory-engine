@@ -768,6 +768,33 @@ test("reconcileTree normalizes ~ and / path spellings in root and keep", async (
   expect(res.paths).toEqual(["~/proj/docs/b.md"]);
 });
 
+test("reconcileTree renders a root-level row as /name, not //name", async () => {
+  // Root-level rows display their tree as "/" — the path join must not
+  // double the separator. Needs owner@root (the seeded owner only holds
+  // home + share).
+  const core = engineCore.coreStore(sql, coreSchema);
+  await core.grantTreeAccess(
+    space.id,
+    principalId,
+    engineCore.ROOT_PATH,
+    engineCore.ACCESS.owner,
+  );
+  treeAccess = await core.buildTreeAccess(principalId, space.id);
+
+  await call("memory.create", {
+    content: "root doc",
+    tree: "/",
+    name: "root.md",
+    meta: { source: "docs" },
+  });
+  const res = await call<{ count: number; paths: string[] }>(
+    "memory.reconcileTree",
+    { root: "/", metaContains: { source: "docs" }, keep: [], dryRun: true },
+  );
+  expect(res.count).toBe(1);
+  expect(res.paths).toEqual(["/root.md"]);
+});
+
 test("reconcileTree refuses an empty metaContains scope", async () => {
   await expectAppError(
     call("memory.reconcileTree", {

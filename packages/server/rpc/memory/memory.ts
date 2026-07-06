@@ -650,7 +650,12 @@ async function memoryReconcileTree(
   );
   return {
     count: rows.length,
-    paths: rows.map((r) => `${displayTreePath(ctx, r.tree)}/${r.name}`),
+    paths: rows.map((r) => {
+      // The empty root displays as "/" — don't double the separator for a
+      // root-level named row.
+      const dir = displayTreePath(ctx, r.tree);
+      return dir === "/" ? `/${r.name}` : `${dir}/${r.name}`;
+    }),
   };
 }
 
