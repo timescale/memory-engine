@@ -13,11 +13,13 @@ OpenCode integration commands.
 
 ## me opencode install
 
-Register `me` as an MCP server with OpenCode by editing `~/.config/opencode/opencode.json`.
+Set up OpenCode: register `me` as an MCP server (editing `~/.config/opencode/opencode.json`), install the user-scope capture plugin (inert until you opt in), and ask whether to capture your OpenCode sessions — mirroring [`me claude install`](me-claude.md#me-claude-install)'s one-install model.
 
 ```
 me opencode install [options]
 ```
+
+A session (non-headless) install ends with the shared **capture prompt** (default **no**): say yes and it enables the machine-wide `capture: true` and runs a one-time machine-wide [`me import opencode`](me-import.md) backfill — everything lands privately under `~/projects/<slug>`. Say no and you get the tools only; the capture plugin stays inert. Re-run `me opencode install` to change the answer; a project's [`.me/config.yaml` `capture`](../project-config.md#the-capture-field-session-capture-onoff) overrides per project. A headless (`--api-key`) install skips the plugin + prompt — capture is credential-agnostic, so a headless deployment opts in via a committed `.me` `capture: true` or the target machine's config.
 
 | Option | Description |
 |--------|-------------|
@@ -69,7 +71,7 @@ Steps:
 
 **Scope.** `init` is per-project, so it defaults to `project` scope: the plugin, MCP entry, command, and skill are written under the repo (`.opencode/plugins/`, `.opencode/commands/`, `.opencode/skills/`, and `opencode.json`), so you can commit them and the whole team gets memory integration. This is safe to commit because no API key is embedded — each teammate's own `me login` (or `ME_API_KEY`/`ME_SPACE`) resolves at runtime. Pass `--scope user` to install into your global `~/.config/opencode/` instead. The AGENTS.md memory pointer is always written at the repo root regardless of scope.
 
-The capture plugin shells out to `me opencode hook`, which reuses your `me login` session (or `ME_API_KEY` + `ME_SPACE`) -- no API key needs to be embedded in the plugin. The `me` CLI must be on `PATH` where OpenCode runs.
+The capture plugin shells out to `me opencode hook`, which reuses your `me login` session (or `ME_API_KEY` + `ME_SPACE`) -- no API key needs to be embedded in the plugin. The `me` CLI must be on `PATH` where OpenCode runs. Like the Claude hook, it is **inert unless capture is enabled** (project [`.me` `capture`](../project-config.md#the-capture-field-session-capture-onoff) → the machine-wide flag → off); the init step above and the install prompt are the opt-in writers.
 
 ---
 

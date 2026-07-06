@@ -161,6 +161,7 @@ Whether a session is captured resolves highest-first:
    prompt;
 3. else **off**.
 
-When capture is off the hook exits silently — no error, nothing written. The
-OpenCode capture plugin is itself installed explicitly (`me opencode init`), so
-it captures unless the project pins `capture: false`.
+When capture is off the hooks exit silently — no error, nothing written. The
+same resolution applies to **every** harness's hooks (Claude and OpenCode
+alike); `me claude install` and `me opencode install` both ask the capture
+question and write the machine-wide flag.
