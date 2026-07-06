@@ -346,20 +346,14 @@ test("capture: off by default; setCaptureEnabled persists the machine-wide flag"
 test("capture: a .me project capture overrides the machine-wide flag per project", () => {
   creds.setCaptureEnabled(true);
   writeMe("capture: false\n");
-  let r = creds.resolveCredentials(SERVER);
-  expect(r.captureEnabled).toBe(false); // project opt-out wins
-  expect(r.projectCapture).toBe(false);
+  expect(creds.resolveCredentials(SERVER).captureEnabled).toBe(false); // project opt-out wins
 
   creds.setCaptureEnabled(false);
   writeMe("capture: true\n");
-  r = creds.resolveCredentials(SERVER);
-  expect(r.captureEnabled).toBe(true); // committed team opt-in wins
-  expect(r.projectCapture).toBe(true);
+  expect(creds.resolveCredentials(SERVER).captureEnabled).toBe(true); // committed team opt-in wins
 
   writeMe("space: abc123def456\n"); // no capture key → global (off) governs
-  r = creds.resolveCredentials(SERVER);
-  expect(r.captureEnabled).toBe(false);
-  expect(r.projectCapture).toBeUndefined();
+  expect(creds.resolveCredentials(SERVER).captureEnabled).toBe(false);
 });
 
 test("secrets and config live in separate files", () => {

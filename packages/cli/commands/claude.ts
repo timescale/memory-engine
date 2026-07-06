@@ -67,7 +67,6 @@ import {
 } from "../claude/capture.ts";
 import { createMemoryClient } from "../client.ts";
 import {
-  getGlobalCaptureEnabled,
   resolveCredentials,
   setActiveSpace,
   setCaptureEnabled,
@@ -85,6 +84,7 @@ import {
   setConfigDirOverride,
 } from "../project-config.ts";
 import { memoryBearer } from "../session.ts";
+import { runCapturePrompt } from "./capture-prompt.ts";
 import { createClaudeImportCommand, runAgentImport } from "./import.ts";
 import { runGitImport } from "./import-git.ts";
 import { gitHookStatus, runGitHookInstall } from "./import-git-hook.ts";
@@ -445,11 +445,11 @@ export async function runClaudePluginInstall(
  *      (`setDefaultServer` / `setActiveSpace`) so the plugin's runtime
  *      fallbacks are deterministic. The private `~/projects` tree root and
  *      "no agent" are code defaults — nothing else is written.
- *   3. Ask (interactive TTY only; default = the current setting, initially
- *      off) whether to capture sessions. Yes → `setCaptureEnabled(true)` +
- *      a one-time machine-wide `me import claude` backfill (each project's
- *      sessions land under the same private `~/projects/<slug>` node live
- *      capture uses). No → `setCaptureEnabled(false)`; the hook stays inert.
+ *   3. The shared capture opt-in ({@link runCapturePrompt}): ask (interactive
+ *      TTY only; default = the current setting, initially off), persist the
+ *      machine-wide flag, and on yes run a one-time machine-wide `me import
+ *      claude` backfill (each project's sessions land under the same private
+ *      `~/projects/<slug>` node live capture uses).
  *
  * A headless install (api key) skips 2–3: the config is baked into the plugin
  * for whatever machine it runs on, and this machine's `~/.config/me` — the
@@ -473,55 +473,13 @@ export async function runClaudeInstallFlow(
   const space = opts.space ?? creds.activeSpace;
   if (space) setActiveSpace(creds.server, space);
 
-  // Capture opt-in. Non-interactive runs leave the setting untouched (no
-  // prompt to answer); the hook then stays inert unless previously enabled.
-  const interactive =
-    Boolean(process.stdin.isTTY) && Boolean(process.stdout.isTTY);
-  if (!interactive) {
-    if (!getGlobalCaptureEnabled()) {
-      clack.log.info(
-        "Session capture is off — the plugin provides the memory tools only. " +
-          "Re-run 'me claude install' in a terminal to enable capture.",
-      );
-    }
-    return;
-  }
-
-  const wasEnabled = getGlobalCaptureEnabled();
-  const answer = await clack.confirm({
-    message:
-      "Capture your Claude Code sessions as memories? They stay private to " +
-      "you (under ~/projects/<repo>) unless a project explicitly shares them.",
-    initialValue: wasEnabled,
+  // Capture opt-in (shared with `me opencode install`): prompt, persist the
+  // machine-wide flag, and backfill existing sessions on yes.
+  await runCapturePrompt(claudeImporter, globalOpts, {
+    space,
+    toolLabel: "Claude Code",
+    installCmd: "me claude install",
   });
-  if (clack.isCancel(answer)) {
-    clack.log.info(
-      `Capture left ${wasEnabled ? "on" : "off"} — re-run 'me claude install' to change it.`,
-    );
-    return;
-  }
-  setCaptureEnabled(answer);
-  if (!answer) {
-    clack.log.info(
-      "Capture is off — the plugin provides the memory tools only. " +
-        "Re-run 'me claude install' to enable it later.",
-    );
-    return;
-  }
-
-  clack.log.success(
-    "Capture is on. New sessions are captured privately to ~/projects/<repo>.",
-  );
-  if (!space) {
-    clack.log.warn(
-      "No active space — skipping the session backfill. Run 'me space use <space>', then 'me import claude'.",
-    );
-    return;
-  }
-  // One-time machine-wide backfill of existing sessions, landing per-project
-  // under the same private `~/projects/<slug>` nodes live capture uses.
-  clack.log.step("Backfilling your existing Claude Code sessions...");
-  await runAgentImport(claudeImporter, {}, globalOpts);
 }
 
 /**

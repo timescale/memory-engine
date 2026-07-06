@@ -169,12 +169,6 @@ export interface ResolvedCredentials {
    * inert when false.
    */
   captureEnabled: boolean;
-  /**
-   * The raw `.me/config.yaml` `capture` value, when a project in scope pins
-   * one. Lets integrations distinguish a project-level opt-out (`false`) from
-   * "no project preference" (undefined).
-   */
-  projectCapture?: boolean;
 }
 
 // =============================================================================
@@ -701,6 +695,5 @@ export function resolveCredentials(serverFlag?: string): ResolvedCredentials {
     treeRoot: readConfig().tree_root,
     asAgent: resolveAsAgent(),
     captureEnabled: project?.capture ?? getGlobalCaptureEnabled(),
-    projectCapture: project?.capture,
   };
 }

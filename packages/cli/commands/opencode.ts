@@ -25,7 +25,7 @@ import {
   writeMemoryPointer,
 } from "../agent/memory-pointer.ts";
 import { createMemoryClient } from "../client.ts";
-import { resolveCredentials } from "../credentials.ts";
+import { resolveCredentials, setCaptureEnabled } from "../credentials.ts";
 import { importTranscriptFile } from "../importers/index.ts";
 import { opencodeImporter, resolveSessionFile } from "../importers/opencode.ts";
 import { SlugRegistry } from "../importers/slug.ts";
@@ -42,7 +42,6 @@ import {
   SKILL_NAME,
 } from "../opencode/assets.ts";
 import {
-  captureOptedOut,
   HOOK_EVENT_NAMES,
   type HookEventName,
   resolveHookConfig,
@@ -61,6 +60,7 @@ import {
   parseScope,
 } from "../opencode/scope.ts";
 import { memoryBearer } from "../session.ts";
+import { runCapturePrompt } from "./capture-prompt.ts";
 import { createOpenCodeImportCommand, runAgentImport } from "./import.ts";
 import { runGitImport } from "./import-git.ts";
 import { gitHookStatus, runGitHookInstall } from "./import-git-hook.ts";
@@ -150,9 +150,18 @@ async function resolveProjectRoot(): Promise<string> {
   return gitRoot ?? process.cwd();
 }
 
+/**
+ * me opencode install — register the MCP server, install the (inert) capture
+ * plugin, and run the shared capture opt-in — mirroring `me claude install`'s
+ * one-install model. A headless (api-key) install stops after the MCP
+ * registration: capture is credential-agnostic, so a headless deployment opts
+ * in via a committed `.me` `capture: true` or the target machine's config.
+ */
 function createOpenCodeInstallCommand(): Command {
   return new Command("install")
-    .description("register me as an MCP server with OpenCode")
+    .description(
+      "set up OpenCode: MCP server + capture plugin (asks about capture)",
+    )
     .option(
       "--api-key <key>",
       "API key for a headless agent (default: use your login session at runtime)",
@@ -181,6 +190,22 @@ function createOpenCodeInstallCommand(): Command {
           scope,
           projectDir:
             scope === "project" ? await resolveProjectRoot() : undefined,
+        });
+
+        const creds = resolveCredentials(globalOpts.server ?? opts.server);
+        const headless = Boolean(opts.apiKey ?? creds.apiKey);
+        if (headless) return;
+
+        // The one user-scoped capture plugin — inert until capture is enabled
+        // (the flag below, or a project's `.me` `capture: true`).
+        await installOpenCodePlugin("user", process.cwd());
+
+        // Capture opt-in (shared with `me claude install`): prompt, persist
+        // the machine-wide flag, and backfill existing sessions on yes.
+        await runCapturePrompt(opencodeImporter, globalOpts, {
+          space: opts.space ?? creds.activeSpace,
+          toolLabel: "OpenCode",
+          installCmd: "me opencode install",
         });
       },
     );
@@ -242,11 +267,12 @@ function createOpenCodeHookCommand(): Command {
         let config: ReturnType<typeof resolveHookConfig>;
         try {
           const creds = resolveCredentials(globalOpts.server);
-          // A project `.me` `capture: false` opts this project out — exit 0
-          // SILENTLY (a deliberate opt-out, distinct from "no credentials").
-          // Installing this plugin was the capture opt-in, so absent a project
-          // preference the hook captures.
-          if (captureOptedOut(creds)) process.exit(0);
+          // The hook ships inert — the ONE capture model shared with Claude:
+          // project `.me` `capture` > the machine-wide flag > off (both folded
+          // into `captureEnabled`; the plugin shells out from the project dir,
+          // so the cwd walk-up finds the right `.me`). A deliberate opt-out
+          // exits 0 SILENTLY, distinct from the "no credentials" error below.
+          if (!creds.captureEnabled) process.exit(0);
           config = resolveHookConfig(creds, {
             fullTranscript: opts.fullTranscript,
           });
@@ -364,9 +390,13 @@ const INIT_STEPS: InitStep[] = [
     doneLabel: "OpenCode capture plugin already installed",
     rerunLabel:
       "Reinstall the OpenCode capture plugin — captures new sessions going forward (already installed)",
-    run: (ctx) => {
+    run: async (ctx) => {
       const { scope, projectRoot } = scopeOf(ctx);
-      return installOpenCodePlugin(scope, projectRoot);
+      await installOpenCodePlugin(scope, projectRoot);
+      // The step's promise is ongoing capture, so selecting it is the opt-in:
+      // enable the machine-wide capture setting (the hook ships inert without
+      // it). Destination stays private (~/projects/<slug>) per the defaults.
+      setCaptureEnabled(true);
     },
   },
   {

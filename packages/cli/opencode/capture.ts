@@ -79,23 +79,11 @@ export type HookCreds = Pick<
   | "tree"
   | "treeRoot"
   | "asAgent"
-  | "projectCapture"
 >;
 
 /** Optional knobs the plugin/command passes through. */
 export interface HookConfigInput {
   fullTranscript?: boolean;
-}
-
-/**
- * Whether the hook should capture at all. Installing the generated OpenCode
- * capture plugin (`me opencode init`) is itself the capture opt-in — unlike
- * Claude's bundled always-installed hook — so absent any project preference,
- * capture is ON. A project `.me/config.yaml` `capture: false` still opts the
- * project out (the harness-agnostic per-project switch, e.g. a sensitive repo).
- */
-export function captureOptedOut(creds: Pick<HookCreds, "projectCapture">) {
-  return creds.projectCapture === false;
 }
 
 /**

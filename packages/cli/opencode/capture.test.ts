@@ -6,11 +6,7 @@
  * bearer/space/server/tree-root/content-mode resolution from credentials + flags.
  */
 import { describe, expect, test } from "bun:test";
-import {
-  captureOptedOut,
-  type HookConfig,
-  resolveHookConfig,
-} from "./capture.ts";
+import { type HookConfig, resolveHookConfig } from "./capture.ts";
 
 describe("resolveHookConfig", () => {
   test("returns null when no api key and no session", () => {
@@ -107,20 +103,5 @@ describe("resolveHookConfig", () => {
       treeRoot: "~/work",
     });
     expect(cfg?.treeRoot).toBe("~/work");
-  });
-});
-
-describe("captureOptedOut", () => {
-  test("no project preference → not opted out (plugin install is the opt-in)", () => {
-    expect(captureOptedOut({})).toBe(false);
-    expect(captureOptedOut({ projectCapture: undefined })).toBe(false);
-  });
-
-  test("project capture: true → not opted out", () => {
-    expect(captureOptedOut({ projectCapture: true })).toBe(false);
-  });
-
-  test("project capture: false → opted out", () => {
-    expect(captureOptedOut({ projectCapture: false })).toBe(true);
   });
 });
