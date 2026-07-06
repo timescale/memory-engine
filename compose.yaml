@@ -19,7 +19,11 @@ services:
       POSTGRES_DB: postgres
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      # PostgreSQL 18 moved PGDATA to /var/lib/postgresql/<major>/docker and the
+      # image VOLUME to /var/lib/postgresql (docker-library/postgres#1259). Mount
+      # the named volume at that parent so data actually persists to `pgdata`;
+      # the pre-18 /var/lib/postgresql/data path would miss the data dir.
+      - pgdata:/var/lib/postgresql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d postgres"]
       interval: 5s
