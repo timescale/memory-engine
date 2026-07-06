@@ -116,7 +116,8 @@ The provisioning defaults above are for a standard space. `me space create` flag
 - `--default-group <name>` — name the default/invite group (default `team`).
 - `--no-default-group-grants` — create the default group **grantless** (no `read@/share` + `write@/share/projects`); you grant it by hand.
 - `--no-default-group` — don't create a default group at all.
-- `--custom` — shortcut for `--no-home-grants --no-default-group`.
+
+A fully manual, god-mode space is just `--no-home-grants --no-default-group`.
 
 The default group is surfaced on `me space list` and is what `me space invite` targets when `--group` is omitted. Because a member needs **≥1 grant** to use a space at all (see below), a space with no home grants **and** no granted default group leaves fresh joiners locked out until you grant them access. The ergonomic pattern for "I write, others read": create with `--no-home-grants --no-default-group-grants`, grant the default group `read@/share` once, then invite through it — every joiner lands read-only, and the grant applies retroactively to anyone already in the group.
 

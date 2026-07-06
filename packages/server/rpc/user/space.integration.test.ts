@@ -122,7 +122,7 @@ test("space.create (defaults): creator gets admin + owner@~ + owner@/share; a gr
   expect(entry?.defaultGroup?.name).toBe("team");
 });
 
-test("space.create --custom (autoGrantHome=false, no default group): creator god mode; a joiner is locked out", async () => {
+test("space.create (autoGrantHome=false, no default group): creator god mode; a joiner is locked out", async () => {
   const core = coreStore(sql, coreSchema);
   const { id: spaceId } = await createSpace({
     name: "Custom",

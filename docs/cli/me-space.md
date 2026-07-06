@@ -64,7 +64,7 @@ Create a new space and make it active. As the creator you always become a space 
 
 ```
 me space create <name> [--no-home-grants] [--default-group <name>]
-                       [--no-default-group-grants] [--no-default-group] [--custom]
+                       [--no-default-group-grants] [--no-default-group]
 ```
 
 | Argument | Required | Description |
@@ -77,9 +77,8 @@ me space create <name> [--no-home-grants] [--default-group <name>]
 | `--default-group <name>` | Name the default/invite group (default `team`). |
 | `--no-default-group-grants` | Create the default group **without** `read@/share` + `write@/share/projects` — a grantless group you configure by hand. |
 | `--no-default-group` | Don't create a default group at all. |
-| `--custom` | Shortcut for `--no-home-grants --no-default-group` (a fully manual, god-mode space). |
 
-The name, grants, and existence of the default group are independent axes, so `--default-group team` behaves exactly like the bare default. Conflicting combinations error (e.g. `--no-default-group` with `--default-group`/`--no-default-group-grants`, or `--custom` with either group flag).
+The name, grants, and existence of the default group are independent axes, so `--default-group team` behaves exactly like the bare default. A fully manual, god-mode space is just `--no-home-grants --no-default-group`. Conflicting combinations error (e.g. `--no-default-group` with `--default-group` or `--no-default-group-grants`).
 
 > **Note:** in a space where members get no automatic access (`--no-home-grants` and no granted default group), a fresh joiner holds **zero grants and is locked out** until you grant them access — grant a default group `read@/share` once and invite through it (see [`me space invite`](#me-space-invite)) so joiners land read-only.
 
