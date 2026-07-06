@@ -60,6 +60,9 @@ Set the required values:
   string. `compose.yaml` refuses to start if this is unset.
 - `API_BASE_URL=http://localhost:3000` — keep this consistent with the
   published port (see [Notes](#notes--troubleshooting)).
+- `BETTER_AUTH_SECRET` — signing secret for session cookies and the JWKS keys.
+  The server refuses to boot without it, and `compose.yaml` refuses to start if
+  it's unset. Generate one with `openssl rand -base64 32`.
 - At least one OAuth provider (`GITHUB_CLIENT_ID`/`GITHUB_CLIENT_SECRET` and/or
   `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET`). When creating the app, set the
   authorized callback URL to match `API_BASE_URL`:
