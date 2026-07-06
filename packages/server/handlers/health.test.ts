@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, spyOn, test } from "bun:test";
+import { afterEach, describe, expect, mock, spyOn, test } from "bun:test";
 import * as logfire from "@pydantic/logfire-node";
 import type { Sql } from "postgres";
 import { healthHandler, readyHandler } from "./health";
@@ -14,8 +14,8 @@ const downDb = (message: string) =>
   fakeDb(() => Promise.reject(new Error(message)));
 
 afterEach(() => {
-  // Restore any spies installed in a test.
-  (logfire.error as ReturnType<typeof spyOn>).mockRestore?.();
+  // Restore any spies installed in a test to their real implementations.
+  mock.restore();
 });
 
 describe("healthHandler", () => {
