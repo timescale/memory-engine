@@ -44,6 +44,10 @@ services:
     environment:
       DATABASE_URL: postgres://postgres:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/postgres
       WORKER_DATABASE_URL: postgres://postgres:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/postgres
+      # Fail fast with a clear message if the required signing secret is missing,
+      # rather than letting the server boot and crash. Generate one with
+      # `openssl rand -base64 32`. See SELF_HOST.md / .env.sample.
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?set BETTER_AUTH_SECRET in .env}
     ports:
       - "3000:3000"
     depends_on:
