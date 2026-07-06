@@ -110,6 +110,9 @@ export function createLoginCommand(): Command {
               state,
             }),
           openBrowser,
+          // The web UI is served at the server origin; link the user there from
+          // the success page (their browser already has a session cookie there).
+          uiUrl: server,
           onAuthorizeUrl: (url) => {
             if (fmt === "text") {
               clack.note(
@@ -185,6 +188,7 @@ export function createLoginCommand(): Command {
             );
             clack.log.info("Auth:   session");
             clack.log.info(`Server: ${server}`);
+            clack.log.info(`Web UI: ${server}`);
             if (active) {
               clack.log.info(`Space:  ${formatSpaceLabel(active)}`);
               clack.note(
