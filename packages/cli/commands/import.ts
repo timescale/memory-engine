@@ -205,8 +205,10 @@ export function buildOptions(
  * project via `withConfigDirOverride` — so a sweep mirrors the live hook
  * exactly: per-project server (whitelist-gated), space, tree, and even the
  * `ME_AS_AGENT=.me` sentinel, with the documented flag/env precedence intact
- * because it IS the same code path a local run uses. Decisions are memoized
- * per cwd; clients are cached per (server, space).
+ * because it IS the same code path a local run uses. Decisions (including
+ * the client) are memoized per cwd; clients are cheap stateless wrappers —
+ * token/refresh state lives at module level keyed by server — so distinct
+ * projects resolving to the same target just build equivalent ones.
  *
  * Per-project failures never kill the sweep — they become skip tallies
  * (`discovery.skipped[reason]`):
@@ -234,11 +236,6 @@ export function createSessionRouter(opts: {
     opts.explicitTreeRoot ?? creds.treeRoot ?? DEFAULT_PRIVATE_TREE_ROOT;
 
   const routeByCwd = new Map<string, SessionRouteDecision>();
-  // Client per (server, space); seeded with the base so same-target sessions
-  // reuse the run's client.
-  const clientByTarget = new Map<string, MemoryClient>();
-  const targetKey = (server: string, space: string): string =>
-    `${server} ${space}`;
   const base: SessionRouteDecision = {
     route: {
       engine: opts.base.engine,
@@ -246,12 +243,6 @@ export function createSessionRouter(opts: {
       treeRoot: treeRootOf(opts.base.creds),
     },
   };
-  if (opts.base.creds.activeSpace) {
-    clientByTarget.set(
-      targetKey(opts.base.creds.server, opts.base.creds.activeSpace),
-      opts.base.engine,
-    );
-  }
 
   function computeRoute(cwd: string): SessionRouteDecision {
     // The session project's `.me`, from ITS cwd — a malformed file skips the
@@ -287,12 +278,14 @@ export function createSessionRouter(opts: {
     const space = creds.activeSpace;
     if (!space) return { skip: "no_space_for_project" };
 
-    const key = targetKey(creds.server, space);
-    let engine = clientByTarget.get(key);
-    if (!engine) {
-      engine = buildClient({ ...creds, activeSpace: space });
-      clientByTarget.set(key, engine);
-    }
+    // Same target as the run → reuse its client; anything else gets its own
+    // (a cheap stateless wrapper; the per-cwd memo above prevents rebuilds
+    // for the hot case of many sessions from one project).
+    const engine =
+      creds.server === opts.base.creds.server &&
+      space === opts.base.creds.activeSpace
+        ? opts.base.engine
+        : buildClient({ ...creds, activeSpace: space });
     return {
       route: {
         engine,
