@@ -5,7 +5,10 @@
  * tests); the build and discovery paths are exercised by the importer's own
  * tests.
  */
-import { describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { mkdir, mkdtemp, rm, symlink } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { MemoryCreateParams } from "@memory.build/protocol/memory";
 import { DEFAULT_DOC_PATTERNS } from "../importers/docs.ts";
 import {
@@ -13,6 +16,7 @@ import {
   buildKeepList,
   keepListBytes,
   PRUNE_KEEP_BYTES_BUDGET,
+  subdirRootError,
 } from "./import-docs.ts";
 
 describe("buildDocsImportOptions", () => {
@@ -26,6 +30,7 @@ describe("buildDocsImportOptions", () => {
       temporalKey: undefined,
       parseTemporal: true,
       prune: false,
+      allowSubdirRoot: false,
       dryRun: false,
       verbose: false,
     });
@@ -74,6 +79,51 @@ describe("buildDocsImportOptions", () => {
   test("maps --prune through (default off)", () => {
     expect(buildDocsImportOptions(undefined, {}).prune).toBe(false);
     expect(buildDocsImportOptions(undefined, { prune: true }).prune).toBe(true);
+  });
+
+  test("maps --allow-subdir-root through (default off)", () => {
+    expect(buildDocsImportOptions(undefined, {}).allowSubdirRoot).toBe(false);
+    expect(
+      buildDocsImportOptions(undefined, { allowSubdirRoot: true })
+        .allowSubdirRoot,
+    ).toBe(true);
+  });
+});
+
+describe("subdirRootError", () => {
+  let root: string;
+
+  beforeAll(async () => {
+    root = await mkdtemp(join(tmpdir(), "me-subdir-root-"));
+    await mkdir(join(root, "docs"));
+    await symlink(root, join(root, "self-link"));
+  });
+
+  afterAll(async () => {
+    await rm(root, { recursive: true, force: true });
+  });
+
+  test("refuses a subfolder root, names both paths and the escape hatches", () => {
+    const err = subdirRootError(join(root, "docs"), root, false);
+    expect(err).toContain("subfolder of the git repo");
+    expect(err).toContain("--include");
+    expect(err).toContain("--allow-subdir-root");
+  });
+
+  test("the toplevel itself needs no flag", () => {
+    expect(subdirRootError(root, root, false)).toBeUndefined();
+  });
+
+  test("--allow-subdir-root suppresses the refusal", () => {
+    expect(subdirRootError(join(root, "docs"), root, true)).toBeUndefined();
+  });
+
+  test("compares realpaths, so a symlinked spelling of the toplevel passes", () => {
+    // git prints physical paths (macOS /tmp → /private/tmp); an argument
+    // that reaches the same directory through a symlink is not a subfolder.
+    expect(
+      subdirRootError(join(root, "self-link"), root, false),
+    ).toBeUndefined();
   });
 });
 
