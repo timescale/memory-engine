@@ -96,6 +96,7 @@ describe("subdirRootError", () => {
   beforeAll(async () => {
     root = await mkdtemp(join(tmpdir(), "me-subdir-root-"));
     await mkdir(join(root, "docs"));
+    await mkdir(join(root, "docs", "guides"));
     await symlink(root, join(root, "self-link"));
   });
 
@@ -103,26 +104,46 @@ describe("subdirRootError", () => {
     await rm(root, { recursive: true, force: true });
   });
 
-  test("refuses a subfolder root, names both paths and the escape hatches", () => {
-    const err = subdirRootError(join(root, "docs"), root, false);
+  const DOCS_TREE = "~/projects.acme.docs";
+
+  test("refuses a subfolder root, showing where the same file would land under each root", () => {
+    const err = subdirRootError(join(root, "docs"), root, DOCS_TREE, false);
     expect(err).toContain("subfolder of the git repo");
-    expect(err).toContain("--include");
+    // The example destinations use the run's real docs root (display form)
+    // and the actual relative prefix, slugified as the importer would.
+    expect(err).toContain("~/projects/acme/docs/setup.md");
+    expect(err).toContain("~/projects/acme/docs/docs/setup.md");
+    // Plus the paste-able root-rooted alternative and the opt-in flag.
+    expect(err).toContain(`--include 'docs/**'`);
     expect(err).toContain("--allow-subdir-root");
   });
 
+  test("the example and glob reflect nesting depth", () => {
+    const err = subdirRootError(
+      join(root, "docs", "guides"),
+      root,
+      DOCS_TREE,
+      false,
+    );
+    expect(err).toContain("~/projects/acme/docs/docs/guides/setup.md");
+    expect(err).toContain(`--include 'docs/guides/**'`);
+  });
+
   test("the toplevel itself needs no flag", () => {
-    expect(subdirRootError(root, root, false)).toBeUndefined();
+    expect(subdirRootError(root, root, DOCS_TREE, false)).toBeUndefined();
   });
 
   test("--allow-subdir-root suppresses the refusal", () => {
-    expect(subdirRootError(join(root, "docs"), root, true)).toBeUndefined();
+    expect(
+      subdirRootError(join(root, "docs"), root, DOCS_TREE, true),
+    ).toBeUndefined();
   });
 
   test("compares realpaths, so a symlinked spelling of the toplevel passes", () => {
     // git prints physical paths (macOS /tmp → /private/tmp); an argument
     // that reaches the same directory through a symlink is not a subfolder.
     expect(
-      subdirRootError(join(root, "self-link"), root, false),
+      subdirRootError(join(root, "self-link"), root, DOCS_TREE, false),
     ).toBeUndefined();
   });
 });
