@@ -206,6 +206,17 @@ test("tree_root: unset by default; a config value surfaces as treeRoot", () => {
   expect(r.tree).toBe("/share/projects/foo");
 });
 
+test("a non-boolean capture in the global config is a fatal error", () => {
+  mkdirSync(join(configDir, "me"), { recursive: true });
+  // YAML 1.2: `yes` parses as the string "yes", not a boolean — must fail
+  // loudly rather than silently leaving capture off.
+  writeFileSync(join(configDir, "me", "config.yaml"), "capture: yes\n");
+  expect(() => creds.resolveCredentials()).toThrow(/Invalid capture/);
+
+  writeFileSync(join(configDir, "me", "config.yaml"), "capture: true\n");
+  expect(creds.resolveCredentials().captureEnabled).toBe(true);
+});
+
 test("a malformed tree_root is a fatal config error (strict shape)", () => {
   mkdirSync(join(configDir, "me"), { recursive: true });
   for (const bad of [
