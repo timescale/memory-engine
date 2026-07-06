@@ -228,10 +228,6 @@ function createSpaceCreateCommand(): Command {
         "create the default group without read@/share + write@/share/projects",
       )
       .option("--no-default-group", "don't create a default group at all")
-      .option(
-        "--custom",
-        "fully manual: implies --no-home-grants and --no-default-group",
-      )
       .action(async (name: string, opts, cmd) => {
         const globalOpts = cmd.optsWithGlobals();
         const creds = resolveCredentials(globalOpts.server);
@@ -242,25 +238,12 @@ function createSpaceCreateCommand(): Command {
         // --no-default-group-grants → defaultGroupGrants:false;
         // --default-group <name> / --no-default-group share `defaultGroup`
         // (string | false | undefined).
-        const custom = opts.custom === true;
         const namedGroup =
           typeof opts.defaultGroup === "string" ? opts.defaultGroup : undefined;
         const noDefaultGroup = opts.defaultGroup === false;
         const noGroupGrants = opts.defaultGroupGrants === false;
 
         // Conflicts: contradictory flag combinations.
-        if (custom && namedGroup !== undefined) {
-          failWith(
-            "--custom implies --no-default-group; drop --default-group.",
-            fmt,
-          );
-        }
-        if (custom && noGroupGrants) {
-          failWith(
-            "--custom implies --no-default-group; drop --no-default-group-grants.",
-            fmt,
-          );
-        }
         if (noDefaultGroup && noGroupGrants) {
           failWith(
             "--no-default-group and --no-default-group-grants conflict (no group vs. a grantless group).",
@@ -274,8 +257,8 @@ function createSpaceCreateCommand(): Command {
           defaultGroupName?: string | null;
           defaultGroupGrants?: boolean;
         } = { name };
-        if (opts.homeGrants === false || custom) params.autoGrantHome = false;
-        if (custom || noDefaultGroup) params.defaultGroupName = null;
+        if (opts.homeGrants === false) params.autoGrantHome = false;
+        if (noDefaultGroup) params.defaultGroupName = null;
         else if (namedGroup !== undefined) params.defaultGroupName = namedGroup;
         if (noGroupGrants) params.defaultGroupGrants = false;
 
