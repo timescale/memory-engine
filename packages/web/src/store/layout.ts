@@ -23,6 +23,12 @@ interface LayoutState {
   searchCollapsed: boolean;
   /** Width in pixels of the relevance-results column between tree and editor. */
   searchColumnWidth: number;
+  /**
+   * When true (and a search is active), the preview/editor pane is hidden
+   * and the results column grows to fill the space. Selecting a result
+   * reveals the preview again.
+   */
+  searchPreviewCollapsed: boolean;
 }
 
 interface LayoutActions {
@@ -30,6 +36,7 @@ interface LayoutActions {
   setSearchCollapsed(collapsed: boolean): void;
   toggleSearchCollapsed(): void;
   setSearchColumnWidth(width: number): void;
+  setSearchPreviewCollapsed(collapsed: boolean): void;
 }
 
 export function clampSidebarWidth(width: number): number {
@@ -68,6 +75,7 @@ export const useLayout = create<LayoutState & LayoutActions>()(
       sidebarWidth: DEFAULT_SIDEBAR_WIDTH,
       searchCollapsed: false,
       searchColumnWidth: DEFAULT_SEARCH_COLUMN_WIDTH,
+      searchPreviewCollapsed: false,
       setSidebarWidth(width) {
         set({ sidebarWidth: clampSidebarWidth(width) });
       },
@@ -79,6 +87,9 @@ export const useLayout = create<LayoutState & LayoutActions>()(
       },
       setSearchColumnWidth(width) {
         set({ searchColumnWidth: clampSearchColumnWidth(width) });
+      },
+      setSearchPreviewCollapsed(collapsed) {
+        set({ searchPreviewCollapsed: collapsed });
       },
     }),
     {

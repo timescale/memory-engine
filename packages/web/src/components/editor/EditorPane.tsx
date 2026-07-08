@@ -40,6 +40,7 @@ import { confirmDiscardChangesIfDirty, useEditor } from "../../store/editor.ts";
 import { useFilter } from "../../store/filter.ts";
 import { useLayout } from "../../store/layout.ts";
 import { useSelection } from "../../store/selection.ts";
+import { CloseIcon } from "../icons.tsx";
 import { pushToast } from "../toast/Toast.tsx";
 import { FrontmatterBlock } from "../viewer/FrontmatterBlock.tsx";
 import { MarkdownViewer } from "../viewer/MarkdownViewer.tsx";
@@ -57,6 +58,8 @@ type Mode = "view" | "edit";
 interface Props {
   memory: MemoryResponse;
   onRequestDelete?: () => void;
+  /** Hide the preview pane (search layout). Rendered as an X in the toolbar. */
+  onClose?: () => void;
 }
 
 function EditorLoading() {
@@ -67,7 +70,7 @@ function EditorLoading() {
   );
 }
 
-export function EditorPane({ memory, onRequestDelete }: Props) {
+export function EditorPane({ memory, onRequestDelete, onClose }: Props) {
   const queryClient = useQueryClient();
   const update = useUpdateMemory(queryClient);
 
@@ -158,6 +161,7 @@ export function EditorPane({ memory, onRequestDelete }: Props) {
         onEdit={toggleMode}
         onCopy={handleCopy}
         onDelete={onRequestDelete}
+        onClose={onClose}
       />
     );
   }
@@ -189,6 +193,11 @@ export function EditorPane({ memory, onRequestDelete }: Props) {
           >
             Delete
           </GhostButton>
+          {onClose && (
+            <IconButton title="Hide preview" onClick={onClose}>
+              <CloseIcon className="h-4 w-4" />
+            </IconButton>
+          )}
         </div>
       </header>
 
@@ -212,11 +221,13 @@ function ReadingView({
   onEdit,
   onCopy,
   onDelete,
+  onClose,
 }: {
   memory: MemoryResponse;
   onEdit: () => void;
   onCopy: () => void;
   onDelete?: () => void;
+  onClose?: () => void;
 }) {
   const { title, body } = useMemo(
     () => deriveTitleAndBody(memory.content, memory.name),
@@ -249,6 +260,11 @@ function ReadingView({
             >
               <TrashIcon />
             </IconButton>
+            {onClose && (
+              <IconButton title="Hide preview" onClick={onClose}>
+                <CloseIcon className="h-4 w-4" />
+              </IconButton>
+            )}
           </div>
         </div>
 

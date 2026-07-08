@@ -15,13 +15,15 @@
  * path; search mode renders matching memories from `memory.search`.
  *
  * Middle column (only while the filter has at least one criterion — text
- * or tree/meta/temporal): relevance-sorted search results, resizable. When
- * a result set arrives, the top result is auto-selected so the preview
- * reflects the search (see SearchResultsPane); selecting another result
- * opens it without losing the list.
+ * or tree/meta/temporal): relevance-sorted search results. A new search
+ * starts as a full-width list with the top result selected; clicking a
+ * result opens the preview beside it (see SearchResultsPane), after which
+ * the column is resizable.
  *
  * Right pane: the editor/viewer for the currently selected memory, fetched
- * by id. URL state carries the selection + filter for shareable links.
+ * by id. While searching it can be hidden (the X in its toolbar) to let the
+ * results column fill the space; selecting a result reveals it again. URL
+ * state carries the selection + filter for shareable links.
  */
 
 import type { MemoryResponse } from "@memory.build/client";
@@ -32,6 +34,7 @@ import { ContextMenu } from "./components/ContextMenu.tsx";
 import { DeleteMemoryDialog } from "./components/dialogs/DeleteMemoryDialog.tsx";
 import { DeleteTreeDialog } from "./components/dialogs/DeleteTreeDialog.tsx";
 import { EditorPane } from "./components/editor/EditorPane.tsx";
+import { CloseIcon } from "./components/icons.tsx";
 import { ColumnResizer } from "./components/layout/ColumnResizer.tsx";
 import { ExplorerHeader } from "./components/layout/ExplorerHeader.tsx";
 import { HeaderBar } from "./components/layout/HeaderBar.tsx";
@@ -43,6 +46,7 @@ import { ToastStack } from "./components/toast/Toast.tsx";
 import { expansionPathsForMemoryTree } from "./lib/tree-build.ts";
 import { useActiveSearch } from "./lib/useActiveSearch.ts";
 import { useUrlSync } from "./lib/useUrlSync.ts";
+import { confirmDiscardChangesIfDirty } from "./store/editor.ts";
 import { useFilter } from "./store/filter.ts";
 import {
   MAX_SEARCH_COLUMN_WIDTH,
@@ -67,7 +71,21 @@ export function App() {
   const setSidebarWidth = useLayout((s) => s.setSidebarWidth);
   const searchColumnWidth = useLayout((s) => s.searchColumnWidth);
   const setSearchColumnWidth = useLayout((s) => s.setSearchColumnWidth);
+  const searchPreviewCollapsed = useLayout((s) => s.searchPreviewCollapsed);
+  const setSearchPreviewCollapsed = useLayout(
+    (s) => s.setSearchPreviewCollapsed,
+  );
   const { searchActive } = useActiveSearch();
+
+  // The preview collapse only applies to the search layout — in browse mode
+  // the editor is the main content and always shows.
+  const previewVisible = !searchActive || !searchPreviewCollapsed;
+  const closePreview = () => {
+    // Hiding the pane unmounts the editor, so unsaved edits need the same
+    // confirm as navigating away.
+    if (!confirmDiscardChangesIfDirty()) return;
+    setSearchPreviewCollapsed(true);
+  };
 
   useEffect(() => {
     if (!selectedMemory) return;
@@ -114,23 +132,34 @@ export function App() {
         {searchActive && (
           <>
             <SearchResultsPane />
-            <ColumnResizer
-              label="Resize search results"
-              min={MIN_SEARCH_COLUMN_WIDTH}
-              max={MAX_SEARCH_COLUMN_WIDTH}
-              value={searchColumnWidth}
-              onChange={setSearchColumnWidth}
-            />
+            {previewVisible && (
+              <ColumnResizer
+                label="Resize search results"
+                min={MIN_SEARCH_COLUMN_WIDTH}
+                max={MAX_SEARCH_COLUMN_WIDTH}
+                value={searchColumnWidth}
+                onChange={setSearchColumnWidth}
+              />
+            )}
           </>
         )}
 
-        <main className="min-w-0 flex-1 overflow-hidden">
-          {selectedMemory ? (
-            <SelectedMemoryPane memory={selectedMemory} />
-          ) : (
-            <EmptyPane selectedId={selectedId} searching={searchActive} />
-          )}
-        </main>
+        {previewVisible && (
+          <main className="min-w-0 flex-1 overflow-hidden">
+            {selectedMemory ? (
+              <SelectedMemoryPane
+                memory={selectedMemory}
+                onClose={searchActive ? closePreview : undefined}
+              />
+            ) : (
+              <EmptyPane
+                selectedId={selectedId}
+                searching={searchActive}
+                onClose={searchActive ? closePreview : undefined}
+              />
+            )}
+          </main>
+        )}
       </div>
 
       <ContextMenu />
@@ -142,14 +171,27 @@ export function App() {
 }
 
 function EmptyPane({
+  onClose,
   searching,
   selectedId,
 }: {
+  onClose?: () => void;
   searching: boolean;
   selectedId: string | null;
 }) {
   return (
-    <div className="flex h-full items-center justify-center px-6">
+    <div className="relative flex h-full items-center justify-center px-6">
+      {onClose && (
+        <button
+          type="button"
+          onClick={onClose}
+          title="Hide preview"
+          aria-label="Hide preview"
+          className="absolute right-3 top-3 inline-flex h-8 w-8 items-center justify-center rounded-md border border-ink/[0.18] text-ink/70 transition-colors hover:border-ink hover:text-ink"
+        >
+          <CloseIcon className="h-4 w-4" />
+        </button>
+      )}
       <p className="text-[13px] text-ink/50">
         {selectedId
           ? "Loading memory…"
@@ -161,7 +203,13 @@ function EmptyPane({
   );
 }
 
-function SelectedMemoryPane({ memory }: { memory: MemoryResponse }) {
+function SelectedMemoryPane({
+  memory,
+  onClose,
+}: {
+  memory: MemoryResponse;
+  onClose?: () => void;
+}) {
   const askDeleteMemory = useUi((s) => s.askDeleteMemory);
   const firstLine =
     memory.content
@@ -174,6 +222,7 @@ function SelectedMemoryPane({ memory }: { memory: MemoryResponse }) {
       onRequestDelete={() =>
         askDeleteMemory({ id: memory.id, title: firstLine })
       }
+      onClose={onClose}
     />
   );
 }

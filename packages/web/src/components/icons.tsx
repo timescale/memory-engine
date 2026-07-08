@@ -89,3 +89,24 @@ export function RefreshIcon({ className }: { className?: string }) {
     </svg>
   );
 }
+
+/** X glyph for close/hide controls (e.g. hiding the search preview pane). */
+export function CloseIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.7"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      className={className}
+    >
+      <path d="M18 6 6 18" />
+      <path d="m6 6 12 12" />
+    </svg>
+  );
+}
