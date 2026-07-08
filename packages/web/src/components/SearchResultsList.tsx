@@ -61,6 +61,7 @@ export function SearchResultsList({
               key={memory.id}
               memory={memory}
               fragment={contentFragment(memory.content, textMatchers)}
+              matchers={textMatchers}
             />
           ))}
         </ol>

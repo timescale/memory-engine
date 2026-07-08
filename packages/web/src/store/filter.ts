@@ -15,6 +15,7 @@
  */
 import type { MemorySearchParams, TemporalFilter } from "@memory.build/client";
 import { create } from "zustand";
+import { useSelection } from "./selection.ts";
 
 export type FilterMode = "simple" | "advanced";
 
@@ -85,18 +86,22 @@ export const useFilter = create<FilterState & FilterActions>((set) => ({
   ...EMPTY_FILTER,
 
   setMode(mode) {
+    userEditedFilter();
     set({ mode });
   },
 
   setSimple(value) {
+    userEditedFilter();
     set({ simple: value });
   },
 
   setAdvanced(patch) {
+    userEditedFilter();
     set((state) => ({ advanced: { ...state.advanced, ...patch } }));
   },
 
   applyMetaJsonFilter(filter) {
+    userEditedFilter();
     set((state) => ({
       mode: "advanced",
       advanced: {
@@ -107,13 +112,25 @@ export const useFilter = create<FilterState & FilterActions>((set) => ({
   },
 
   clear() {
+    userEditedFilter();
     set(EMPTY_FILTER);
   },
 
+  // No userEditedFilter(): hydration (initial load / popstate) carries a
+  // URL's filter+selection pair, whose link protection must survive it.
   hydrate(state) {
     set(state);
   },
 }));
+
+/**
+ * A user-initiated filter edit consumes a shared link's claim on the
+ * selection (see `SelectionSource`), so search auto-select can follow the
+ * new query.
+ */
+function userEditedFilter(): void {
+  useSelection.getState().demoteLinkSelection();
+}
 
 /**
  * Project the filter state into `memory.search` RPC params.

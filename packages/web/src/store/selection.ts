@@ -19,9 +19,23 @@ import { create } from "zustand";
 
 export type TreeContext = "browse" | "search";
 
+/**
+ * How the current selection was made. "link" (URL hydration / back-forward)
+ * marks a selection carried by a shareable URL — search auto-select doesn't
+ * replace it, so a shared `?selected=…` link keeps showing its memory even
+ * when the link also carries a filter the memory doesn't match. The
+ * protection lasts only until the user edits the filter themselves (the
+ * filter store then calls `demoteLinkSelection`): the URL writer puts
+ * `selected` in every URL, so without the demotion a plain reload would
+ * permanently disable auto-select.
+ */
+export type SelectionSource = "user" | "link";
+
 interface SelectionState {
   /** Currently-selected memory id, or null when nothing is selected. */
   selectedId: string | null;
+  /** Source of the current selection (meaningful only when selectedId is set). */
+  selectedVia: SelectionSource;
   /** Paths explicitly expanded in browse mode (default: collapsed). */
   expandedBrowse: Set<string>;
   /** Paths explicitly collapsed in search mode (default: expanded). */
@@ -29,7 +43,13 @@ interface SelectionState {
 }
 
 interface SelectionActions {
-  select(id: string | null): void;
+  select(id: string | null, via?: SelectionSource): void;
+  /**
+   * Downgrade a link-sourced selection to a user one — the user editing the
+   * filter consumes a shared link's claim on the selection, re-enabling
+   * search auto-select.
+   */
+  demoteLinkSelection(): void;
   toggleExpanded(context: TreeContext, path: string): void;
   setExpanded(context: TreeContext, path: string, expanded: boolean): void;
   /**
@@ -43,11 +63,18 @@ interface SelectionActions {
 export const useSelection = create<SelectionState & SelectionActions>(
   (set) => ({
     selectedId: null,
+    selectedVia: "user",
     expandedBrowse: new Set<string>(),
     collapsedSearch: new Set<string>(),
 
-    select(id) {
-      set({ selectedId: id });
+    select(id, via = "user") {
+      set({ selectedId: id, selectedVia: via });
+    },
+
+    demoteLinkSelection() {
+      set((state) =>
+        state.selectedVia === "link" ? { selectedVia: "user" } : state,
+      );
     },
 
     toggleExpanded(context, path) {

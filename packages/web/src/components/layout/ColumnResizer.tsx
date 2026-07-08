@@ -1,29 +1,34 @@
 /**
- * Vertical drag handle that resizes the sidebar.
+ * Vertical drag handle that resizes the column to its left.
  *
- * The handle sits between the tree (`<aside>`) and the editor (`<main>`).
- * Pointer drag updates the persisted `sidebarWidth` in the layout store;
- * keyboard users can also step the width with arrow keys (Shift for a
- * larger step) or jump to the min/max with Home/End.
+ * Used between the tree sidebar and the main area, and between the
+ * search-results column and the editor. Pointer drag reports the new width
+ * through `onChange` (the layout store clamps and persists it); keyboard
+ * users can step the width with arrow keys (Shift for a larger step) or
+ * jump to the min/max with Home/End.
  *
  * While dragging we set `cursor: col-resize` and `user-select: none` on
  * the body so the cursor stays consistent and text doesn't get selected
  * mid-drag.
  */
 import { useCallback, useRef } from "react";
-import {
-  MAX_SIDEBAR_WIDTH,
-  MIN_SIDEBAR_WIDTH,
-  useLayout,
-} from "../../store/layout.ts";
 
 const KEYBOARD_STEP_PX = 16;
 const KEYBOARD_STEP_PX_LARGE = 64;
 
-export function SidebarResizer() {
-  const sidebarWidth = useLayout((s) => s.sidebarWidth);
-  const setSidebarWidth = useLayout((s) => s.setSidebarWidth);
-
+export function ColumnResizer({
+  label,
+  max,
+  min,
+  onChange,
+  value,
+}: {
+  label: string;
+  max: number;
+  min: number;
+  onChange(width: number): void;
+  value: number;
+}) {
   // Keep drag-start coordinates in a ref so the move/up listeners don't
   // have to rebind on every mouse event.
   const dragStartRef = useRef<{ clientX: number; width: number } | null>(null);
@@ -34,14 +39,14 @@ export function SidebarResizer() {
       event.preventDefault();
       dragStartRef.current = {
         clientX: event.clientX,
-        width: sidebarWidth,
+        width: value,
       };
 
       const handleMove = (moveEvent: PointerEvent) => {
         const start = dragStartRef.current;
         if (!start) return;
         const nextWidth = start.width + (moveEvent.clientX - start.clientX);
-        setSidebarWidth(nextWidth);
+        onChange(nextWidth);
       };
 
       const handleUp = () => {
@@ -57,7 +62,7 @@ export function SidebarResizer() {
       window.addEventListener("pointermove", handleMove);
       window.addEventListener("pointerup", handleUp);
     },
-    [sidebarWidth, setSidebarWidth],
+    [value, onChange],
   );
 
   const handleKeyDown = useCallback(
@@ -65,19 +70,19 @@ export function SidebarResizer() {
       const step = event.shiftKey ? KEYBOARD_STEP_PX_LARGE : KEYBOARD_STEP_PX;
       if (event.key === "ArrowLeft") {
         event.preventDefault();
-        setSidebarWidth(sidebarWidth - step);
+        onChange(value - step);
       } else if (event.key === "ArrowRight") {
         event.preventDefault();
-        setSidebarWidth(sidebarWidth + step);
+        onChange(value + step);
       } else if (event.key === "Home") {
         event.preventDefault();
-        setSidebarWidth(MIN_SIDEBAR_WIDTH);
+        onChange(min);
       } else if (event.key === "End") {
         event.preventDefault();
-        setSidebarWidth(MAX_SIDEBAR_WIDTH);
+        onChange(max);
       }
     },
-    [sidebarWidth, setSidebarWidth],
+    [value, onChange, min, max],
   );
 
   return (
@@ -85,10 +90,10 @@ export function SidebarResizer() {
     <div
       role="separator"
       aria-orientation="vertical"
-      aria-valuenow={sidebarWidth}
-      aria-valuemin={MIN_SIDEBAR_WIDTH}
-      aria-valuemax={MAX_SIDEBAR_WIDTH}
-      aria-label="Resize sidebar"
+      aria-valuenow={value}
+      aria-valuemin={min}
+      aria-valuemax={max}
+      aria-label={label}
       tabIndex={0}
       onPointerDown={handlePointerDown}
       onKeyDown={handleKeyDown}

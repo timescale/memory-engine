@@ -4,52 +4,27 @@
  * Browse mode (no active search filter): fetches the full path hierarchy
  * from `memory.tree` and lazy-loads leaves per expanded path.
  *
- * Search mode (filter has at least one criterion): runs `memory.search` and
- * builds a matching tree from the results. When a text filter is present,
- * the sidebar splits vertically and shows relevance-sorted flat results
- * above that matching tree.
+ * Search mode (filter has at least one criterion): runs `memory.search`
+ * (shared with the main-pane results column via `useActiveSearch`) and
+ * builds a matching tree from the results.
  */
 import { useEffect, useMemo, useRef } from "react";
-import { useShallow } from "zustand/shallow";
-import {
-  useMemories,
-  useMemoriesAtExactPath,
-  useTree,
-} from "../api/queries.ts";
-import { hasTextFilter } from "../lib/search-results.ts";
+import { useMemoriesAtExactPath, useTree } from "../api/queries.ts";
 import {
   buildPathTree,
   buildSearchTree,
   collectPaths,
 } from "../lib/tree-build.ts";
-import { useDebounced } from "../lib/useDebounced.ts";
-import { selectSearchParams, useFilter } from "../store/filter.ts";
+import { useActiveSearch } from "../lib/useActiveSearch.ts";
 import { useSelection } from "../store/selection.ts";
-import { SearchSplitPane } from "./SearchSplitPane.tsx";
 import { TreeContent } from "./TreeContent.tsx";
 
 export function TreeView() {
-  const filterState = useFilter(
-    useShallow((s) => ({
-      mode: s.mode,
-      simple: s.simple,
-      advanced: s.advanced,
-    })),
-  );
-  const debouncedFilter = useDebounced(filterState, 250);
-  const searchParams = useMemo(
-    () => selectSearchParams(debouncedFilter),
-    [debouncedFilter],
-  );
-  const searchActive = Object.keys(searchParams).length > 0;
-  const textFilterActive = hasTextFilter(debouncedFilter);
+  const { search, searchActive } = useActiveSearch();
 
   // Browse-mode queries — fire only when search is inactive.
   const tree = useTree();
   const rootLeaves = useMemoriesAtExactPath("", !searchActive);
-
-  // Search-mode query — fires only when search is active.
-  const search = useMemories(searchParams, searchActive);
 
   const browseRoots = useMemo(() => {
     const treeNodes = tree.data?.nodes ?? [];
@@ -94,28 +69,15 @@ export function TreeView() {
 
   const activeError = searchActive ? search.error : tree.error;
   const activeLoading = searchActive ? search.isLoading : tree.isLoading;
-  const treeContent = (
-    <TreeContent
-      activeError={activeError}
-      activeLoading={activeLoading}
-      context={context}
-      roots={roots}
-      searchActive={searchActive}
-    />
-  );
-
-  if (!textFilterActive) {
-    return <div className="h-full overflow-auto">{treeContent}</div>;
-  }
-
   return (
-    <SearchSplitPane
-      results={searchResults}
-      loading={search.isLoading}
-      error={search.error}
-      filter={debouncedFilter}
-    >
-      {treeContent}
-    </SearchSplitPane>
+    <div className="h-full overflow-auto">
+      <TreeContent
+        activeError={activeError}
+        activeLoading={activeLoading}
+        context={context}
+        roots={roots}
+        searchActive={searchActive}
+      />
+    </div>
   );
 }

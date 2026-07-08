@@ -5,15 +5,19 @@
  *   - Header bar: logo + product name, space switcher + account.
  *   - Search/controls bar: search field + Simple/Advanced toggle + Clear +
  *     refresh.
- *   - Body: a fixed-width "explorer" sidebar (tree) and a flex-grow main pane
- *     showing the selected memory.
+ *   - Body: a fixed-width "explorer" sidebar (tree), an optional
+ *     search-results column, and a flex-grow main pane showing the selected
+ *     memory. Three-pane while searching, two-pane otherwise.
  *
  * Left pane: the `TreeView`, which runs in one of two modes depending on
  * whether the filter has any active criteria. Browse mode renders the full
  * path hierarchy from `memory.tree` with leaves loaded lazily per expanded
- * path; search mode renders matching memories from `memory.search`. When a
- * text filter is active, the left pane splits into relevance-sorted results
- * above the matching tree.
+ * path; search mode renders matching memories from `memory.search`.
+ *
+ * Middle column (only while a text filter is active): relevance-sorted
+ * search results, resizable. When a result set arrives, the top result is
+ * auto-selected so the preview reflects the search (see SearchResultsPane);
+ * selecting another result opens it without losing the list.
  *
  * Right pane: the editor/viewer for the currently selected memory, fetched
  * by id. URL state carries the selection + filter for shareable links.
@@ -27,17 +31,25 @@ import { ContextMenu } from "./components/ContextMenu.tsx";
 import { DeleteMemoryDialog } from "./components/dialogs/DeleteMemoryDialog.tsx";
 import { DeleteTreeDialog } from "./components/dialogs/DeleteTreeDialog.tsx";
 import { EditorPane } from "./components/editor/EditorPane.tsx";
+import { ColumnResizer } from "./components/layout/ColumnResizer.tsx";
 import { ExplorerHeader } from "./components/layout/ExplorerHeader.tsx";
 import { HeaderBar } from "./components/layout/HeaderBar.tsx";
-import { SidebarResizer } from "./components/layout/SidebarResizer.tsx";
 import { AdvancedSearchSection } from "./components/search/AdvancedSearchSection.tsx";
+import { SearchResultsPane } from "./components/search/SearchResultsPane.tsx";
 import { SimpleSearchBar } from "./components/search/SimpleSearchBar.tsx";
 import { TreeView } from "./components/TreeView.tsx";
 import { ToastStack } from "./components/toast/Toast.tsx";
 import { expansionPathsForMemoryTree } from "./lib/tree-build.ts";
+import { useActiveSearch } from "./lib/useActiveSearch.ts";
 import { useUrlSync } from "./lib/useUrlSync.ts";
 import { useFilter } from "./store/filter.ts";
-import { useLayout } from "./store/layout.ts";
+import {
+  MAX_SEARCH_COLUMN_WIDTH,
+  MAX_SIDEBAR_WIDTH,
+  MIN_SEARCH_COLUMN_WIDTH,
+  MIN_SIDEBAR_WIDTH,
+  useLayout,
+} from "./store/layout.ts";
 import { useSelection } from "./store/selection.ts";
 import { useUi } from "./store/ui.ts";
 
@@ -51,6 +63,10 @@ export function App() {
   const setExpanded = useSelection((s) => s.setExpanded);
   const { data: selectedMemory } = useMemory(selectedId);
   const sidebarWidth = useLayout((s) => s.sidebarWidth);
+  const setSidebarWidth = useLayout((s) => s.setSidebarWidth);
+  const searchColumnWidth = useLayout((s) => s.searchColumnWidth);
+  const setSearchColumnWidth = useLayout((s) => s.setSearchColumnWidth);
+  const { textFilterActive } = useActiveSearch();
 
   useEffect(() => {
     if (!selectedMemory) return;
@@ -86,13 +102,32 @@ export function App() {
             <TreeView />
           </div>
         </aside>
-        <SidebarResizer />
+        <ColumnResizer
+          label="Resize sidebar"
+          min={MIN_SIDEBAR_WIDTH}
+          max={MAX_SIDEBAR_WIDTH}
+          value={sidebarWidth}
+          onChange={setSidebarWidth}
+        />
+
+        {textFilterActive && (
+          <>
+            <SearchResultsPane />
+            <ColumnResizer
+              label="Resize search results"
+              min={MIN_SEARCH_COLUMN_WIDTH}
+              max={MAX_SEARCH_COLUMN_WIDTH}
+              value={searchColumnWidth}
+              onChange={setSearchColumnWidth}
+            />
+          </>
+        )}
 
         <main className="min-w-0 flex-1 overflow-hidden">
           {selectedMemory ? (
             <SelectedMemoryPane memory={selectedMemory} />
           ) : (
-            <EmptyPane selectedId={selectedId} />
+            <EmptyPane selectedId={selectedId} searching={textFilterActive} />
           )}
         </main>
       </div>
@@ -105,13 +140,21 @@ export function App() {
   );
 }
 
-function EmptyPane({ selectedId }: { selectedId: string | null }) {
+function EmptyPane({
+  searching,
+  selectedId,
+}: {
+  searching: boolean;
+  selectedId: string | null;
+}) {
   return (
     <div className="flex h-full items-center justify-center px-6">
       <p className="text-[13px] text-ink/50">
         {selectedId
           ? "Loading memory…"
-          : "Select a memory from the tree to view its contents."}
+          : searching
+            ? "Select a search result to preview it."
+            : "Select a memory from the tree to view its contents."}
       </p>
     </div>
   );
