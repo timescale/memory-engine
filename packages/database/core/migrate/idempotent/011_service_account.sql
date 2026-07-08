@@ -1,0 +1,268 @@
+-------------------------------------------------------------------------------
+-- service_account_for_admin_group
+-- Returns the service-account id bound to an admin group, or null for an
+-- ordinary group.
+-------------------------------------------------------------------------------
+create or replace function {{schema}}.service_account_for_admin_group
+( _group_id uuid
+)
+returns uuid
+as $func$
+  select p.id
+  from {{schema}}.principal p
+  where p.kind = 's'
+  and p.admin_id = _group_id
+$func$ language sql stable strict security invoker
+;
+
+-------------------------------------------------------------------------------
+-- create_service_account
+-- Creates a service account plus its bound users-only admin group atomically.
+-- The service account is rostered into the space with no tree grants and is not
+-- added to the default group. _group_admin_member_ids is a subset-or-extension of
+-- _member_ids: ids present there are inserted with group_member.admin=true.
+-------------------------------------------------------------------------------
+create or replace function {{schema}}.create_service_account
+( _space_id uuid
+, _name text
+, _member_ids uuid[] default '{}'::uuid[]
+, _group_admin_member_ids uuid[] default '{}'::uuid[]
+, _id uuid default null
+, _admin_group_id uuid default null
+)
+returns table
+( id uuid
+, admin_id uuid
+)
+as $func$
+declare
+  _service_id uuid;
+  _admin_name text;
+begin
+  _admin_name := left(_name, 94) || '-admin';
+
+  select {{schema}}.create_group
+  ( _space_id
+  , _admin_name
+  , false
+  , _admin_group_id
+  , false
+  ) into _admin_group_id;
+
+  insert into {{schema}}.principal as p (id, kind, name, space_id, admin_id)
+  values (coalesce(_id, uuidv7()), 's', _name, _space_id, _admin_group_id)
+  returning p.id into _service_id;
+
+  perform {{schema}}.add_principal_to_space(_space_id, _service_id, false);
+
+  insert into {{schema}}.group_member (space_id, group_id, member_id, admin)
+  select _space_id, _admin_group_id, initial.member_id
+       , initial.member_id = any(coalesce(_group_admin_member_ids, '{}'::uuid[]))
+  from
+  (
+    select distinct member_id
+    from unnest
+    (
+      coalesce(_member_ids, '{}'::uuid[])
+      || coalesce(_group_admin_member_ids, '{}'::uuid[])
+    ) as members(member_id)
+  ) initial
+  on conflict (space_id, member_id, group_id) do update set
+    admin = excluded.admin;
+
+  return query select _service_id, _admin_group_id;
+end;
+$func$ language plpgsql volatile security invoker
+set search_path to pg_catalog, {{schema}}, public, pg_temp
+;
+
+-------------------------------------------------------------------------------
+-- _enforce_service_account_principal_invariants
+-- Table-level backstop for bound admin groups:
+--   * a service account's admin group must belong to the same space;
+--   * it cannot be the default group;
+--   * it cannot already be a space-admin group;
+--   * it cannot be deleted directly while its service account still exists.
+-------------------------------------------------------------------------------
+create or replace function {{schema}}._enforce_service_account_principal_invariants()
+returns trigger
+as $func$
+begin
+  if tg_op = 'DELETE' then
+    if old.kind = 'g'
+      and exists (select 1 from {{schema}}.space s where s.id = old.space_id)
+      and {{schema}}.service_account_for_admin_group(old.id) is not null
+    then
+      raise exception
+        'cannot delete service-account admin group % directly', old.id
+        using errcode = '23514'
+        , hint = 'delete the owning service account instead';
+    end if;
+
+    return old;
+  end if;
+
+  if new.kind = 's' then
+    if not exists
+    (
+      select 1
+      from {{schema}}.principal g
+      where g.group_id = new.admin_id
+      and g.space_id = new.space_id
+      and not g.is_default_group
+    ) then
+      raise exception
+        'service account % must reference a non-default admin group in the same space', new.id
+        using errcode = '23514';
+    end if;
+
+    if exists
+    (
+      select 1
+      from {{schema}}.principal_space ps
+      where ps.principal_id = new.admin_id
+      and ps.space_id = new.space_id
+      and ps.admin
+    ) then
+      raise exception
+        'service-account admin group % cannot be a space-admin group', new.admin_id
+        using errcode = '23514';
+    end if;
+  end if;
+
+  if new.kind = 'g'
+    and new.is_default_group
+    and {{schema}}.service_account_for_admin_group(new.id) is not null
+  then
+    raise exception
+      'service-account admin group % cannot be the default group', new.id
+      using errcode = '23514';
+  end if;
+
+  return new;
+end;
+$func$ language plpgsql
+set search_path to pg_catalog, {{schema}}, public, pg_temp
+;
+
+-------------------------------------------------------------------------------
+-- _delete_service_account_admin_group
+-- Direct table-delete backstop: deleting an SA deletes its bound admin group.
+-------------------------------------------------------------------------------
+create or replace function {{schema}}._delete_service_account_admin_group()
+returns trigger
+as $func$
+begin
+  delete from {{schema}}.principal
+  where id = old.admin_id;
+
+  return null;
+end;
+$func$ language plpgsql
+set search_path to pg_catalog, {{schema}}, public, pg_temp
+;
+
+-------------------------------------------------------------------------------
+-- _enforce_service_account_admin_group_not_space_admin
+-------------------------------------------------------------------------------
+create or replace function {{schema}}._enforce_service_account_admin_group_not_space_admin()
+returns trigger
+as $func$
+begin
+  if new.admin
+    and {{schema}}.service_account_for_admin_group(new.principal_id) is not null
+  then
+    raise exception
+      'service-account admin group % cannot be a space-admin group', new.principal_id
+      using errcode = '23514';
+  end if;
+
+  return new;
+end;
+$func$ language plpgsql
+set search_path to pg_catalog, {{schema}}, public, pg_temp
+;
+
+-------------------------------------------------------------------------------
+-- _enforce_service_account_admin_group_users_only
+-------------------------------------------------------------------------------
+create or replace function {{schema}}._enforce_service_account_admin_group_users_only()
+returns trigger
+as $func$
+begin
+  if {{schema}}.service_account_for_admin_group(new.group_id) is not null
+    and not exists
+    (
+      select 1
+      from {{schema}}.principal p
+      where p.id = new.member_id
+      and p.kind = 'u'
+    )
+  then
+    raise exception
+      'service-account admin group % accepts only user members', new.group_id
+      using errcode = '23514'
+      , hint = 'service-account administration is a human trust relationship';
+  end if;
+
+  return new;
+end;
+$func$ language plpgsql
+set search_path to pg_catalog, {{schema}}, public, pg_temp
+;
+
+do $$ begin
+  if not exists
+  (
+    select 1 from pg_trigger
+    where tgrelid = '{{schema}}.principal'::regclass
+    and tgname = 'principal_service_account_invariants'
+  ) then
+    create trigger principal_service_account_invariants
+    before insert or update or delete on {{schema}}.principal
+    for each row
+    execute function {{schema}}._enforce_service_account_principal_invariants();
+  end if;
+end $$;
+
+do $$ begin
+  if not exists
+  (
+    select 1 from pg_trigger
+    where tgrelid = '{{schema}}.principal'::regclass
+    and tgname = 'principal_service_account_delete_admin_group'
+  ) then
+    create trigger principal_service_account_delete_admin_group
+    after delete on {{schema}}.principal
+    for each row when (old.kind = 's')
+    execute function {{schema}}._delete_service_account_admin_group();
+  end if;
+end $$;
+
+do $$ begin
+  if not exists
+  (
+    select 1 from pg_trigger
+    where tgrelid = '{{schema}}.principal_space'::regclass
+    and tgname = 'principal_space_service_account_admin_group_not_admin'
+  ) then
+    create trigger principal_space_service_account_admin_group_not_admin
+    before insert or update on {{schema}}.principal_space
+    for each row
+    execute function {{schema}}._enforce_service_account_admin_group_not_space_admin();
+  end if;
+end $$;
+
+do $$ begin
+  if not exists
+  (
+    select 1 from pg_trigger
+    where tgrelid = '{{schema}}.group_member'::regclass
+    and tgname = 'group_member_service_account_admin_group_users_only'
+  ) then
+    create trigger group_member_service_account_admin_group_users_only
+    before insert or update on {{schema}}.group_member
+    for each row
+    execute function {{schema}}._enforce_service_account_admin_group_users_only();
+  end if;
+end $$;

@@ -23,7 +23,8 @@ $func$ language sql stable security invoker
 -- direct member of the space (a principal_space row) who also belongs to a group
 -- whose own space-membership is admin. Admin via a group requires direct
 -- membership — group membership alone never confers space access. Agents are
--- never space admins.
+-- never space admins, and service accounts only become space admins through a
+-- direct admin row.
 -------------------------------------------------------------------------------
 create or replace function {{schema}}.is_principal_space_admin
 ( _principal_id uuid
@@ -61,6 +62,7 @@ as $func$
           on (mps.principal_id = gm.member_id and mps.space_id = _space_id)
         where gm.member_id = p.id
         and gm.space_id = _space_id
+        and p.kind = 'u'
       )
     )
   )

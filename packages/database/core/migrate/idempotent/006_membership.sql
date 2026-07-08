@@ -3,8 +3,9 @@
 -- Adds (or updates the admin flag of) a principal's membership in a space, and
 -- grants a joining user/agent owner over its home directory. The single
 -- chokepoint every join path goes through (provisioning, invite redemption,
--- direct add), so a member's membership always implies home ownership — and the
--- one place that enforces a group can only be rostered into its own space.
+-- direct add), so a user/agent membership implies home ownership — service
+-- accounts intentionally get no home — and the one place that enforces a
+-- space-scoped principal can only be rostered into its own space.
 -------------------------------------------------------------------------------
 create or replace function {{schema}}.add_principal_to_space
 ( _space_id uuid
@@ -14,22 +15,21 @@ create or replace function {{schema}}.add_principal_to_space
 returns void
 as $func$
 begin
-  -- A group belongs to exactly one space (principal.space_id, fixed at creation
-  -- and non-null for groups), so it can only be a member of that space; reject
-  -- adding it to a different one. Users and agents are global (space_id null),
-  -- so this constrains groups only.
+  -- Groups and service accounts belong to exactly one space (principal.space_id,
+  -- fixed at creation), so they can only be members of that space. Users and
+  -- agents are global (space_id null), so this constrains space-scoped kinds.
   if exists
   (
     select 1
     from {{schema}}.principal p
     where p.id = _principal_id
-    and p.kind = 'g'
+    and p.kind in ('g', 's')
     and p.space_id is distinct from _space_id
   ) then
     raise exception
-      'group % cannot be added to space %: it belongs to a different space', _principal_id, _space_id
+      'principal % cannot be added to space %: it belongs to a different space', _principal_id, _space_id
       using errcode = '23514'
-      , hint = 'a group can only be a member of the space it was created in';
+      , hint = 'a group or service account can only be a member of the space it was created in';
   end if;
 
   insert into {{schema}}.principal_space (space_id, principal_id, admin)
@@ -63,7 +63,7 @@ begin
   from {{schema}}.principal p
   join {{schema}}.space s on s.id = _space_id
   where p.id = _principal_id
-  and p.kind in ('u', 'a')
+  and p.kind in ('u', 'a') -- service accounts do not get a home directory by default
   and s.auto_grant_home
   on conflict (space_id, principal_id, tree_path) do nothing;
 end;
@@ -73,7 +73,7 @@ set search_path to pg_catalog, {{schema}}, public, pg_temp
 
 -------------------------------------------------------------------------------
 -- add_group_member
--- Adds a user/agent member to a group within a space. Groups are NOT nestable:
+-- Adds a user/agent/service-account member to a group within a space. Groups are NOT nestable:
 -- a group can never be a group member. This is already structurally impossible
 -- (group_member.member_id references principal(member_id), which is null for
 -- groups, so a group id can't be inserted), but we reject it explicitly first so
@@ -98,7 +98,26 @@ begin
     raise exception
       'cannot add group % as a member of group %: groups are not nestable', _member_id, _group_id
       using errcode = '23514'
-      , hint = 'group members must be users or agents, not groups';
+      , hint = 'group members cannot be groups';
+  end if;
+
+  if exists
+  (
+    select 1
+    from {{schema}}.principal sa
+    where sa.kind = 's'
+    and sa.admin_id = _group_id
+  ) and not exists
+  (
+    select 1
+    from {{schema}}.principal p
+    where p.id = _member_id
+    and p.kind = 'u'
+  ) then
+    raise exception
+      'service-account admin group % accepts only user members', _group_id
+      using errcode = '23514'
+      , hint = 'service-account administration is a human trust relationship';
   end if;
 
   insert into {{schema}}.group_member (space_id, group_id, member_id, admin)

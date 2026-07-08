@@ -42,6 +42,9 @@ import idempotent009 from "./idempotent/009_invitation.sql" with {
 import idempotent010 from "./idempotent/010_default_group.sql" with {
   type: "text",
 };
+import idempotent011 from "./idempotent/011_service_account.sql" with {
+  type: "text",
+};
 import incremental001 from "./incremental/001_space.sql" with { type: "text" };
 import incremental002 from "./incremental/002_principal.sql" with {
   type: "text",
@@ -83,6 +86,9 @@ import incremental014 from "./incremental/014_space_access_defaults.sql" with {
   type: "text",
 };
 import incremental015 from "./incremental/015_service_accounts.sql" with {
+  type: "text",
+};
+import incremental016 from "./incremental/016_service_account_admin_groups.sql" with {
   type: "text",
 };
 import provisionSql from "./provision.sql" with { type: "text" };
@@ -161,6 +167,11 @@ const incrementals: Migration[] = [
     file: "incremental/015_service_accounts.sql",
     sql: incremental015,
   },
+  {
+    name: "016_service_account_admin_groups",
+    file: "incremental/016_service_account_admin_groups.sql",
+    sql: incremental016,
+  },
 ];
 
 const idempotents: Migration[] = [
@@ -206,6 +217,11 @@ const idempotents: Migration[] = [
     name: "010_default_group",
     file: "idempotent/010_default_group.sql",
     sql: idempotent010,
+  },
+  {
+    name: "011_service_account",
+    file: "idempotent/011_service_account.sql",
+    sql: idempotent011,
   },
 ];
 
