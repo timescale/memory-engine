@@ -124,15 +124,20 @@ next section):
   (activation — resolve the agent from that config or die). A human's own
   terminal has neither, so a plain `me` there stays the human (goal 2). The
   failsafe covers the integration not being live (untrusted Codex hooks,
-  uninstalled plugin, an un-integrated harness): if these two variables are
-  **not** set but `me` detects it is being run by an agent (detect-agent
-  plus our extra env-var checks), it **errors** — it does not guess an
-  identity or a config. Open sub-question: should that failsafe fire
-  unconditionally (strictest — an agent-run `me` errors anywhere the
-  integration isn't live, with an actionable "run `me <harness> install`"
-  message), or only when a walk-up-discoverable config defines an agent
-  (respects the goals' boundary in non-me projects, but leaves the
-  cd-elsewhere case unguarded exactly when the integration is missing)?
+  uninstalled plugin, an un-integrated harness): if the injection's liveness
+  marker is **not** present but `me` detects it is being run by an agent
+  (detect-agent plus our extra env-var checks), it **errors** — it does not
+  guess an identity or a config. **Decided: the failsafe is unconditional on
+  detection** — an agent-run `me` without live injection errors everywhere,
+  even with no `.me` config in scope, with an actionable "run
+  `me <harness> install`" message. Exemptions: an explicit
+  `--as-agent`/`ME_AS_AGENT` (any value), an agent `ME_API_KEY` (the
+  sanctioned sandbox mode — the bearer already *is* the agent), the harness
+  surfaces themselves (`me mcp`, `me <harness> hook` — they enforce the
+  stronger agent-by-config rule and may run without shell injection, e.g. an
+  MCP server env carries `CLAUDECODE=1` but never the injected vars), and a
+  small diagnostic/setup allowlist (`doctor`, `help`, `--version`, the
+  install flows; exact list settled in implementation).
 
 ### Enforcement by harness
 
@@ -169,10 +174,11 @@ process; it must work out two independent facts from its environment:
    silently didn't run (Codex's hook trust-gate, an uninstalled plugin, a
    harness we never integrated with, like Cursor), is the harness's own
    native marker — detect-agent wrapped with our `OPENCODE=1`/`AGENT=1`
-   checks. Either form of evidence + a config that defines an agent ⇒ act as
-   that agent or fail closed. Detection is one-directional: evidence forces
-   agent-or-die, but the absence of all evidence proves nothing — `me` then
-   runs as the human (goal 2). The native markers stay the backstop rather
+   checks. Injected evidence activates agent-by-config (resolve the agent or
+   die); native-marker evidence *without* the injection's liveness var is a
+   hard error (the failsafe — see the surface sketch above). Detection is
+   one-directional: evidence forces agent-or-die, but the absence of all
+   evidence proves nothing — `me` then runs as the human (goal 2). The native markers stay the backstop rather
    than the primary because they are undocumented internals (Codex's and
    opencode's are source-verified, not contractual), while the injected
    signal is ours: versioned, uniform, and testable. False positives (a
@@ -343,9 +349,9 @@ matters:
    definition hash (skipped until approved, re-approval after updates), and
    the agent-env design is deliberately fail-open. A failed injection turns a
    harness `me` call into a user-credential call — a goal-3 violation. The
-   mechanism needs a fail-closed backstop that doesn't depend on injection
-   (e.g. the CLI treating a detected native marker + config-with-agent as
-   "agent or die").
+   mechanism's answer is the failsafe: a detected native marker without the
+   injection's `ME_INJECT_V` liveness var is a hard error (see the mechanism
+   section).
 3. **Human-inside-harness terminals.** IDE integrated terminals set
    `CLAUDECODE=1`, and injected env reaches opencode's built-in terminal — a
    human typing `me` there is indistinguishable from the agent and will act as
@@ -361,22 +367,155 @@ matters:
 
 ## Mechanism for (c): the harness-injected environment
 
-_To be designed — an adaptation of the `me/agent-env` bundled-hooks design
-that injects `ME_CONFIG_DIR` (and the activation signal) into every
-harness-executed shell command, computed per session, with no per-project
-files. Constraints the verification imposes:_
+An adaptation of the `me/agent-env` bundled-hooks design: thin per-harness
+adapters, all policy in the CLI. Each harness's dynamic channel invokes a
+`me`-owned subcommand that computes the exports at runtime; the adapter
+itself is static and person-less.
 
-- _Values must be computed at runtime (worktrees, clones, N checkouts — no
-  stored absolute paths)._
-- _Var names must survive Codex's default KEY/SECRET/TOKEN env filter —
-  `ME_CONFIG_DIR` / `ME_AS_AGENT` are safe._
-- _All four injection channels are code, so injection can be gated on the
-  config actually defining an agent (no-agent projects stay untouched)._
-- _Injection alone cannot satisfy goal 3 (it can silently not run — Codex
-  trust gate, disabled plugin); a CLI-side fail-closed backstop is needed.
-  `@vercel/detect-agent`, wrapped with our own `OPENCODE=1`/`AGENT=1` checks,
-  supplies the backstop signal: detected agent + config-with-agent + no
-  injection ⇒ act as agent or die. Setting `AI_AGENT=<harness>` in our own
-  injection makes both signals resolve through the same detection path._
+**The injected contract** (all names pass Codex's KEY/SECRET/TOKEN filter):
+
+| Variable | When injected | Meaning |
+|---|---|---|
+| `ME_INJECT_V=<version>` | always (integration live) | liveness + version marker; what the failsafe and `me doctor` key on |
+| `AI_AGENT=<harness>` | always | identity, per the detect-agent convention (innermost harness wins) |
+| `ME_CONFIG_DIR=<project dir>` | when a `.me/` is in scope for the session | discovery — pins config resolution regardless of cwd |
+| `ME_AS_AGENT=.me` | when that config defines an agent | activation — resolve the agent from config or die |
+
+The tiering is what makes the unconditional failsafe compose with the goals'
+boundary: in a **non-me project with the integration installed**,
+`ME_INJECT_V` is present but `ME_AS_AGENT` is not, so `me` runs as the human
+and the failsafe stays quiet. In a **me-project whose injection silently
+didn't run** (untrusted Codex hooks, disabled plugin), detection sees a
+marker without `ME_INJECT_V` and errors (goal 3). In a **non-me project
+without the integration**, an agent-run `me` also errors — the decided
+unconditional posture, with the install hint as the error message.
+
+**Failure directions are deliberately opposite.** Injection is fail-open — a
+broken adapter must never break the harness; worst case the vars are absent.
+The CLI-side failsafe is fail-closed. The pair is what makes fail-open
+injection safe: any silent injection failure lands in the failsafe's error,
+never in the user's credentials.
+
+**Constraints carried from verification**: values computed at runtime, never
+stored (worktrees, clones, N checkouts); adapters are code on all four
+harnesses, so the `.me`-presence / agent-defined gating is computable
+everywhere; MCP needs no injection (surface (a) discovers independently, and
+Codex MCP couldn't receive env anyway).
+
+## Implementation Plan
+
+Decisions locked before planning: failsafe is **unconditional on detection**;
+Codex/Gemini get **injection + agent-by-config MCP now, capture hooks
+deferred**; agent identity stays the `agent:` **name** in committed
+`.me/config.yaml` (each teammate owns an agent by that name; TNT-182) with
+`.me/config.local.yaml` as the per-user override; opencode's built-in
+terminal is treated as the agent in v1 (`OPENCODE_TERMINAL` exemption
+deferred).
+
+### PR 1 — CLI core: detection, failsafe, agent-by-config
+
+No harness files touched; everything unit/integration-testable.
+
+1. **`packages/cli/harness-detect.ts`** (new): `detectHarness()` wrapping
+   `@vercel/detect-agent` plus our extra checks (`OPENCODE=1`, `AGENT=1`,
+   `OPENCODE_CLIENT`). Take the dependency; keep the wrapper so signals can
+   be added without waiting on upstream.
+2. **Resolver upgrade** (`packages/cli/project-config.ts`): project-dir
+   order becomes `--config-dir` > `ME_CONFIG_DIR` > **validated**
+   `CLAUDE_PROJECT_DIR` (accepted only if the dir contains `.me/`) > cwd
+   walk-up. Safe to apply globally: the env var only exists in hook/MCP
+   processes.
+3. **Agent-by-config for harness surfaces**: a helper in
+   `packages/cli/credentials.ts` that, for surface commands (`me mcp`,
+   `me <harness> hook`), activates the configured agent as if
+   `--as-agent .me` were passed (reusing `resolveAsAgentFor`). MCP: fatal on
+   resolution failure. Hooks: skip capture (never capture as the user).
+4. **The failsafe** (root `preAction` in `packages/cli/index.ts`): error
+   when `detectHarness()` fires ∧ no `ME_INJECT_V` ∧ no explicit
+   `--as-agent`/`ME_AS_AGENT` ∧ credential is not an agent api key ∧ command
+   not on the surface/diagnostic allowlist (`mcp`, `* hook`, `doctor`,
+   `help`, `--version`, install/init flows). Error message names the
+   detected harness and the `me <harness> install` fix.
+5. Tests: detect wrapper matrix, resolver precedence + validation, failsafe
+   truth table (incl. agent-key and allowlist exemptions), `me mcp`
+   agent-by-config against local Postgres.
+
+### PR 2 — Claude adapter
+
+1. **`me claude env`** (new subcommand): reads the SessionStart payload,
+   resolves the project from payload `cwd`, and appends the contract block
+   to `$CLAUDE_ENV_FILE` — idempotent block replacement (SessionStart
+   refires on resume and `/clear`).
+2. **`packages/claude-plugin/hooks/hooks.json`**: add the SessionStart hook
+   invoking it. Existing Stop/SessionEnd hooks stay; their handler picks up
+   agent-by-config from PR 1.
+3. **`me project init`** (`packages/cli/commands/project.ts`): stop writing
+   `ME_AS_AGENT` into committed `.claude/settings.json`
+   (`writeClaudeSettingsEnv` call removed; add cleanup of the stale managed
+   key). Keep writing `agent:` to `.me/config.yaml`. Existing checkouts
+   with the old env keep working (explicit `ME_AS_AGENT` is still honored).
+4. Docs: `docs/project-config.md`, `docs/mcp-integration.md`, CLI reference.
+
+### PR 3 — opencode adapter
+
+1. **`packages/cli/opencode/plugin-template.ts`**: add the `shell.env` hook
+   — root = `worktree ?? directory`; cheap `.me/` presence + `agent:` check
+   (file read + regex, cached per root); sets the contract vars. Also pass
+   `--config-dir <worktree>` on the `me opencode hook` shell-out (today it
+   leans on `process.cwd()`).
+2. Bump the plugin template version/marker so `me opencode install`
+   refreshes existing installs.
+
+### PR 4 — Codex: injection + MCP
+
+1. **`me codex env-hook`** (new): stdin PreToolUse payload → `updatedInput`
+   with the `export …; ` prefix prepended (shlex-quoted, prefix-only);
+   empty stdout on any internal error (fail-open). Vendor the tested payload
+   shape; treat parse mismatch as fail-open.
+2. **`me codex install`**: additionally write the user-scope
+   `~/.codex/hooks.json` PreToolUse entry. Document the trust/hash-approval
+   flow (`/hooks`) and that re-approval follows `me` upgrades — `me doctor`
+   is the post-upgrade check. Verify user-scope hook trust semantics during
+   implementation.
+3. Document the Desktop/VS Code MCP limitation + the per-server `cwd`
+   workaround (goal-3 gap; doctor check in PR 6).
+
+### PR 5 — Gemini: injection + MCP
+
+1. **`me gemini env-hook`** (new): stdin BeforeTool payload →
+   `hookSpecificOutput.tool_input` with the same prepended exports;
+   fail-open on mismatch.
+2. **`me gemini install`**: additionally write the user-scope
+   `~/.gemini/settings.json` hooks entry (BeforeTool, matcher
+   `run_shell_command`). Gating on `.me/` presence keeps non-me projects
+   uninjected-but-live (`ME_INJECT_V` still set).
+
+### PR 6 — `me doctor`
+
+Per-harness probes via the non-interactive modes (`claude -p`, `codex exec`,
+`opencode run`, `gemini -p`): assert the contract vars are present and
+`ME_INJECT_V` matches the CLI version; check the Codex MCP cwd (flag
+Desktop/VS Code hosts); check `.me` gitignore state and whether
+`config.local.yaml` exists where `agent:` is expected.
+
+### Verification (whole effort)
+
+- `./bun run check` per PR; `./bun run check:full` before merge (local
+  Postgres).
+- Manual matrix (scripted where possible, checklist in the PR): for each
+  harness — MCP call runs as agent; capture attributes to agent
+  (Claude/opencode); `cd /tmp && me whoami` from the agent shell acts as
+  agent (injection) ; with the adapter disabled, the same call **errors**
+  (failsafe); human terminal `me whoami` stays the human; non-me project
+  with integration: `me` runs as human, no failsafe error.
+- The nested-harness case (Claude → `codex exec`): inner markers win where
+  present; at minimum no crash and no user-credential fallback.
+
+### Deferred (tracked, not in this push)
+
+Codex/Gemini capture hooks; the opencode built-in-terminal human exemption
+(`OPENCODE_TERMINAL=1`); worktree fallback to the main checkout's
+`config.local.yaml`; upstream PRs (detect-agent `OPENCODE`/`AGENT` checks,
+Codex MCP roots/workspace-cwd).
 - _MCP needs no injection (surface (a) has its own discovery), and on Codex
   it couldn't receive env anyway (`env_clear()`)._
