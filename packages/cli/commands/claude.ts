@@ -41,6 +41,7 @@ import { existsSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import * as clack from "@clack/prompts";
 import { Command } from "commander";
+import { ensureDefaultAgent } from "../agent/default-agent.ts";
 import type { StepAvailability } from "../agent/init.ts";
 import {
   HOOK_EVENT_NAMES,
@@ -57,6 +58,11 @@ import {
   setCaptureEnabled,
   setDefaultServer,
 } from "../credentials.ts";
+import {
+  buildContractVars,
+  isInjectionLive,
+  upsertContractBlock,
+} from "../harness-contract.ts";
 import { claudeImporter } from "../importers/claude.ts";
 import { importTranscriptFile } from "../importers/index.ts";
 import {
@@ -116,11 +122,16 @@ function createClaudeInstallCommand(): Command {
       "--dev",
       "install the plugin from the local checkout instead of the published marketplace (run from inside the repo)",
     )
+    .option(
+      "--no-default-agent",
+      "skip provisioning a default agent (agent: coder) for this install",
+    )
     .action(
       async (
         opts: AgentInstallOptions & {
           mcpOnly?: boolean;
           dev?: boolean;
+          defaultAgent?: boolean;
         },
         cmd: Command,
       ) => {
@@ -146,6 +157,7 @@ function createClaudeInstallCommand(): Command {
             server,
             space: opts.space,
             dev: opts.dev,
+            defaultAgent: opts.defaultAgent,
           },
           globalOpts,
         );
@@ -427,21 +439,25 @@ export async function runClaudePluginInstall(
  *      (`setDefaultServer` / `setActiveSpace`) so the plugin's runtime
  *      fallbacks are deterministic. The private `~/projects` tree root and
  *      "no agent" are code defaults — nothing else is written.
- *   3. The shared capture opt-in ({@link runCapturePrompt}): ask (interactive
+ *   3. {@link ensureDefaultAgent} — provisions-or-adopts the machine-wide
+ *      default agent (`coder`) so harness surfaces have an agent in scope by
+ *      default (skippable with `--no-default-agent`).
+ *   4. The shared capture opt-in ({@link runCapturePrompt}): ask (interactive
  *      TTY only; default = the current setting, initially off), persist the
  *      machine-wide flag, and on yes run a one-time machine-wide `me import
  *      claude` backfill (each project's sessions land under the same private
  *      `~/projects/<slug>` node live capture uses).
  *
- * A headless install (api key) skips 2–3: the config is baked into the plugin
+ * A headless install (api key) skips 2–4: the config is baked into the plugin
  * for whatever machine it runs on, and this machine's `~/.config/me` — the
- * operator's — is not necessarily the agent's. Capture is credential-agnostic
+ * operator's — is not necessarily the agent's (and the api key already IS an
+ * agent — see {@link ensureDefaultAgent}). Capture is credential-agnostic
  * (`resolveCaptureEnabled`), so a headless deployment opts in via the same
  * flags as everyone else: a committed `.me` `capture: true` per project, or
  * `capture: true` in the target machine's `~/.config/me/config.yaml`.
  */
 export async function runClaudeInstallFlow(
-  opts: AgentInstallOptions & { dev?: boolean },
+  opts: AgentInstallOptions & { dev?: boolean; defaultAgent?: boolean },
   globalOpts: Record<string, unknown>,
 ): Promise<void> {
   await runClaudePluginInstall(opts);
@@ -455,6 +471,10 @@ export async function runClaudeInstallFlow(
   const space = opts.space ?? creds.activeSpace;
   if (space) setActiveSpace(creds.server, space);
 
+  if (opts.defaultAgent !== false) {
+    await ensureDefaultAgent({ ...creds, activeSpace: space });
+  }
+
   // Capture opt-in (shared with `me opencode install`): prompt, persist the
   // machine-wide flag, and backfill existing sessions on yes.
   await runCapturePrompt(claudeImporter, globalOpts, {
@@ -462,6 +482,47 @@ export async function runClaudeInstallFlow(
     toolLabel: "Claude Code",
     installCmd: "me claude install",
   });
+}
+
+/**
+ * me claude env — invoked by the Claude Code plugin's SessionStart hook to
+ * inject the harness contract (HARNESS_DESIGN.md) into `$CLAUDE_ENV_FILE`,
+ * which Claude Code sources before every Bash tool command — so a plain `me`
+ * call from the agent's shell always resolves the right project
+ * (`ME_PROJECT_DIR`, the discovery anchor) and always runs as the configured
+ * agent (`ME_AS_AGENT=.me`, the ordinary sentinel).
+ *
+ * First-writer-wins: if a live `ME_INJECT_V` is already in THIS process's own
+ * inherited env, this Claude session was itself spawned inside another
+ * session's contract (a nested harness) — emit nothing rather than
+ * clobbering it. Idempotent otherwise: SessionStart refires on resume and
+ * `/clear`, and {@link upsertContractBlock} replaces its own block in place.
+ *
+ * Fails open (silently) on anything unexpected — a missing `$CLAUDE_ENV_FILE`
+ * or an unparseable/cwd-less event payload — since a broken injection must
+ * degrade to "no contract" (caught by the failsafe), never break the session.
+ */
+function createClaudeEnvCommand(): Command {
+  return new Command("env")
+    .description(
+      "invoked by Claude Code's SessionStart hook to inject the harness contract into $CLAUDE_ENV_FILE",
+    )
+    .action(async () => {
+      if (isInjectionLive()) process.exit(0);
+
+      let event: HookEvent = {};
+      try {
+        event = JSON.parse(await Bun.stdin.text()) as HookEvent;
+      } catch {
+        // Malformed/empty payload — nothing to anchor on.
+      }
+
+      const envFile = process.env.CLAUDE_ENV_FILE;
+      if (!envFile || !event.cwd) process.exit(0);
+
+      upsertContractBlock(envFile, buildContractVars("claude", event.cwd));
+      process.exit(0);
+    });
 }
 
 /**
@@ -630,6 +691,7 @@ export function createClaudeCommand(): Command {
   // `me claude init` is retired in favor of the harness-agnostic
   // `me project init`; a deprecated alias (registered by index.ts to avoid a
   // module cycle with project.ts) warns and delegates for one release.
+  claude.addCommand(createClaudeEnvCommand());
   claude.addCommand(createClaudeHookCommand());
   claude.addCommand(createClaudeImportCommand());
   return claude;
