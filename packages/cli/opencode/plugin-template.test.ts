@@ -37,18 +37,27 @@ function makeShell() {
 }
 
 // biome-ignore lint/suspicious/noExplicitAny: test harness for the dynamic module
-type Hooks = { event: (input: { event: any }) => Promise<void> };
+type Hooks = {
+  event: (input: { event: any }) => Promise<void>;
+  "shell.env": (
+    input: unknown,
+    output: { env?: Record<string, string> },
+  ) => Promise<void>;
+};
+
+const TEST_DIRECTORY = "/repo/project";
 
 async function loadPlugin(
   source: string,
   shell: ReturnType<typeof makeShell>,
+  directory: string = TEST_DIRECTORY,
 ): Promise<Hooks> {
   const file = join(tmp, `plugin-${Math.random().toString(36).slice(2)}.ts`);
   writeFileSync(file, source);
   const mod = (await import(file)) as {
-    MemoryEngine: (ctx: { $: unknown }) => Promise<Hooks>;
+    MemoryEngine: (ctx: { $: unknown; directory: string }) => Promise<Hooks>;
   };
-  return mod.MemoryEngine({ $: shell.$ });
+  return mod.MemoryEngine({ $: shell.$, directory });
 }
 
 describe("renderPluginSource", () => {
@@ -80,7 +89,7 @@ describe("generated plugin behavior", () => {
     });
     expect(shell.commands).toHaveLength(1);
     expect(shell.commands[0]).toBe(
-      "me opencode hook --event idle --session ses_abc",
+      `me opencode hook --event idle --session ses_abc --project-dir ${TEST_DIRECTORY}`,
     );
   });
 
@@ -94,7 +103,7 @@ describe("generated plugin behavior", () => {
       },
     });
     expect(shell.commands[0]).toBe(
-      "me opencode hook --event deleted --session ses_xyz",
+      `me opencode hook --event deleted --session ses_xyz --project-dir ${TEST_DIRECTORY}`,
     );
   });
 
@@ -118,7 +127,7 @@ describe("generated plugin behavior", () => {
       event: { type: "session.idle", properties: { sessionID: "ses_abc" } },
     });
     expect(shell.commands[0]).toBe(
-      "me opencode hook --event idle --session ses_abc --full-transcript",
+      `me opencode hook --event idle --session ses_abc --project-dir ${TEST_DIRECTORY} --full-transcript`,
     );
   });
 
@@ -130,5 +139,44 @@ describe("generated plugin behavior", () => {
     await hooks["experimental.session.compacting"]({}, output);
     expect(output.context).toHaveLength(1);
     expect(output.context[0]).toContain("me_memory_search");
+  });
+});
+
+describe("shell.env — the harness-injected environment contract", () => {
+  test("injects all four contract vars, anchored to the session directory", async () => {
+    const shell = makeShell();
+    const hooks = await loadPlugin(renderPluginSource(), shell, "/my/proj");
+    const output: { env?: Record<string, string> } = {};
+    await hooks["shell.env"]({}, output);
+    expect(output.env).toEqual({
+      ME_INJECT_V: "1",
+      AI_AGENT: "opencode",
+      ME_AS_AGENT: ".me",
+      ME_PROJECT_DIR: "/my/proj",
+    });
+  });
+
+  test("preserves any env output already set by another hook", async () => {
+    const shell = makeShell();
+    const hooks = await loadPlugin(renderPluginSource(), shell);
+    const output: { env?: Record<string, string> } = { env: { KEPT: "1" } };
+    await hooks["shell.env"]({}, output);
+    expect(output.env?.KEPT).toBe("1");
+    expect(output.env?.ME_AS_AGENT).toBe(".me");
+  });
+
+  test("first-writer-wins: emits nothing when ME_INJECT_V is already live in this process", async () => {
+    const shell = makeShell();
+    const hooks = await loadPlugin(renderPluginSource(), shell);
+    const saved = process.env.ME_INJECT_V;
+    process.env.ME_INJECT_V = "1";
+    try {
+      const output: { env?: Record<string, string> } = {};
+      await hooks["shell.env"]({}, output);
+      expect(output.env).toBeUndefined();
+    } finally {
+      if (saved === undefined) delete process.env.ME_INJECT_V;
+      else process.env.ME_INJECT_V = saved;
+    }
   });
 });

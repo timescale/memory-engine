@@ -19,7 +19,7 @@ Set up OpenCode: register `me` as an MCP server (editing `~/.config/opencode/ope
 me opencode install [options]
 ```
 
-A session (non-headless) install ends with the shared **capture prompt** (default **no**): say yes and it enables the machine-wide `capture: true` and runs a one-time machine-wide [`me import opencode`](me-import.md) backfill — everything lands privately under `~/projects/<slug>`. Say no and you get the tools only; the capture plugin stays inert. Re-run `me opencode install` to change the answer; a project's [`.me/config.yaml` `capture`](../project-config.md#the-capture-field-session-capture-onoff) overrides per project. A headless (`--api-key`) install skips the plugin + prompt — capture is credential-agnostic, so a headless deployment opts in via a committed `.me` `capture: true` or the target machine's config.
+A session (non-headless) install provisions a default agent (see [Agent-by-config](../project-config.md#agent-by-config-and-the-agent-field); no-op if a global `agent:` is already set, or with `--api-key`; skip with `--no-default-agent`), then ends with the shared **capture prompt** (default **no**): say yes and it enables the machine-wide `capture: true` and runs a one-time machine-wide [`me import opencode`](me-import.md) backfill — everything lands privately under `~/projects/<slug>`. Say no and you get the tools only; the capture plugin stays inert. Re-run `me opencode install` to change the answer; a project's [`.me/config.yaml` `capture`](../project-config.md#the-capture-field-session-capture-onoff) overrides per project. A headless (`--api-key`) install skips the default agent + prompt — capture is credential-agnostic, so a headless deployment opts in via a committed `.me` `capture: true` or the target machine's config.
 
 | Option | Description |
 |--------|-------------|
@@ -27,6 +27,7 @@ A session (non-headless) install ends with the shared **capture prompt** (defaul
 | `--space <slug>` | Pin a space. Default: resolve `ME_SPACE` / active space at runtime. |
 | `--server <url>` | Server URL to embed in the MCP config. |
 | `--scope <scope>` | Where to write the config: `project` (`./opencode.json` at the repo root) or `user` (`~/.config/opencode/opencode.json`). Default: `user`. |
+| `--no-default-agent` | Skip provisioning the default agent. |
 
 By default only the server URL is baked into the config: at runtime `me mcp` uses your `me login` session (resolved from the OS keychain / `~/.config/me` each run, so it survives re-login) and your active space (set by `me space use` / `ME_SPACE`). Pass `--api-key` (mint one with `me apikey create --agent <agent>`, or `me apikey create` for a personal access token) for a headless agent that cannot reach your keychain; that bakes the key and requires a pinned `--space`.
 
@@ -49,7 +50,7 @@ Steps:
 | Step | Kind | What it does |
 |------|------|--------------|
 | Import OpenCode sessions | backfill | Import this project's existing sessions (one-time) |
-| Install the capture plugin | ongoing | Write a small plugin into `~/.config/opencode/plugins/memory-engine.ts` that captures new sessions on `session.idle` / `session.deleted` — inert until capture is enabled |
+| Install the capture plugin | ongoing | Write a small plugin into `~/.config/opencode/plugins/memory-engine.ts` that captures new sessions on `session.idle` / `session.deleted` (inert until capture is enabled) and injects the harness-agent environment contract into every shell command via a `shell.env` hook (see below) |
 | Enable ongoing capture for this project | ongoing | Write `capture: true` to the project's committed [`.me/config.yaml`](../project-config.md#the-capture-field-session-capture-onoff) — the per-project opt-in the hooks honor (wins over each member's global setting). Interactively **deselecting** this row writes an explicit `capture: false`; `--skip-capture-enable` just leaves the file untouched. |
 | Register the MCP server | config | Same as `me opencode install` -- gives OpenCode the memory tools |
 | Install `/memory-recall` | config | A custom command that searches Memory Engine |
@@ -75,6 +76,8 @@ Steps:
 
 The capture plugin shells out to `me opencode hook`, which reuses your `me login` session (or `ME_API_KEY` + `ME_SPACE`) -- no API key needs to be embedded in the plugin. The `me` CLI must be on `PATH` where OpenCode runs. Like the Claude hook, it is **inert unless capture is enabled** (project [`.me` `capture`](../project-config.md#the-capture-field-session-capture-onoff) → the machine-wide flag → off); the init step above and the install prompt are the opt-in writers.
 
+The same plugin also carries the **harness-agent environment contract** ([Agent-by-config](../project-config.md#agent-by-config-and-the-agent-field)): a `shell.env` hook injects `ME_PROJECT_DIR` (the session directory, so a `cd`'d Bash command still discovers the right project), `AI_AGENT=opencode`, and `ME_AS_AGENT=.me` into every shell command OpenCode runs, so a plain `me` call from OpenCode's own shell resolves and runs as the configured agent automatically — no manual env setup. If OpenCode itself was launched inside another session's live contract (a nested harness), the hook emits nothing rather than overwriting it.
+
 ---
 
 ## me opencode hook
@@ -90,6 +93,7 @@ me opencode hook --event <idle|deleted> --session <id> [options]
 | `--event <name>` | hook event name (`idle`, `deleted`) |
 | `--session <id>` | OpenCode session id (e.g. `ses_abc123`) |
 | `--storage <dir>` | OpenCode storage dir (default: standard location) |
+| `--project-dir <dir>` | the session's project dir — anchors `.me/config.yaml` discovery; passed by the generated plugin |
 | `--full-transcript` | also store reasoning + tool calls/results |
 
 Best-effort: it logs failures to stderr but always exits 0, so a capture failure never blocks an OpenCode session.
