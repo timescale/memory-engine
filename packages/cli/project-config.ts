@@ -51,6 +51,20 @@ export const VALID_TREE_PATH_RE =
 const TREE_PATH_RE = VALID_TREE_PATH_RE;
 
 /**
+ * The `.user` sentinel for `agent:` — "run as the user, deliberately" (the
+ * human escape hatch from the config side; see credentials.ts for the
+ * `--as-agent .user` / `ME_AS_AGENT=.user` flag/env form). Valid in
+ * `.me/config.local.yaml` and the global `~/.config/me/config.yaml`; a
+ * committed `agent: .user` is a fatal {@link ProjectConfigError} (see
+ * {@link readConfigFile}) — a repo author writing it into the tracked
+ * `.me/config.yaml` would silently flip every cloning teammate's harness
+ * surfaces to their own full user credentials, which is the one committed
+ * value that *raises* effective privilege (a committed `agent: <name>` can at
+ * worst 403, since names resolve against the caller's own agents).
+ */
+export const PROJECT_USER_SENTINEL = ".user";
+
+/**
  * Schema for `.me/config.yaml`. Every field is optional — a `.me` may pin only a
  * `tree`, inheriting server/space from the global config. A present-but-invalid
  * field, an unparseable YAML, OR an unknown/misspelled key is a fatal
@@ -111,11 +125,13 @@ export class ProjectConfigError extends Error {
 
 /**
  * Read + validate one `.me` config file. Returns undefined when the file is
- * absent; throws {@link ProjectConfigError} when it exists but is invalid YAML
- * or fails schema validation.
+ * absent; throws {@link ProjectConfigError} when it exists but is invalid
+ * YAML, fails schema validation, or — for the **committed** file only — pins
+ * the fatal `agent: .user` sentinel (see {@link PROJECT_USER_SENTINEL}).
  */
 function readConfigFile(
   path: string,
+  opts: { allowUserSentinel: boolean },
 ): z.infer<typeof projectConfigSchema> | undefined {
   if (!existsSync(path)) return undefined;
   let raw: unknown;
@@ -127,12 +143,23 @@ function readConfigFile(
     );
   }
   const parsed = projectConfigSchema.safeParse(raw);
-  if (parsed.success) return parsed.data;
-  const issue = parsed.error.issues[0];
-  const where = issue?.path.length ? ` (field '${issue.path.join(".")}')` : "";
-  throw new ProjectConfigError(
-    `${path} is invalid${where}: ${issue?.message ?? "does not match the .me/config.yaml schema"}`,
-  );
+  if (!parsed.success) {
+    const issue = parsed.error.issues[0];
+    const where = issue?.path.length
+      ? ` (field '${issue.path.join(".")}')`
+      : "";
+    throw new ProjectConfigError(
+      `${path} is invalid${where}: ${issue?.message ?? "does not match the .me/config.yaml schema"}`,
+    );
+  }
+  if (!opts.allowUserSentinel && parsed.data.agent === PROJECT_USER_SENTINEL) {
+    throw new ProjectConfigError(
+      `${path}: "agent: ${PROJECT_USER_SENTINEL}" is not allowed in the committed .me/config.yaml — it would silently switch every ` +
+        `cloning teammate's harness surfaces to their own full user credentials. Use .me/config.local.yaml, the global ` +
+        `~/.config/me/config.yaml, or an explicit --as-agent ${PROJECT_USER_SENTINEL} / ME_AS_AGENT=${PROJECT_USER_SENTINEL} instead.`,
+    );
+  }
+  return parsed.data;
 }
 
 /**
@@ -168,9 +195,14 @@ export function discoverProjectConfig(
 ): ProjectConfig | undefined {
   const dir = configDir ? resolve(configDir) : findConfigRoot(startDir);
   if (!dir) return undefined;
-  const committed = readConfigFile(join(dir, CONFIG_DIRNAME, CONFIG_FILENAME));
+  const committed = readConfigFile(join(dir, CONFIG_DIRNAME, CONFIG_FILENAME), {
+    allowUserSentinel: false,
+  });
   const local = readConfigFile(
     join(dir, CONFIG_DIRNAME, LOCAL_CONFIG_FILENAME),
+    {
+      allowUserSentinel: true,
+    },
   );
   if (!committed && !local) return undefined;
   return { ...committed, ...local, dir };
@@ -202,9 +234,10 @@ export function writeProjectSpace(
   // readConfigFile re-validates; a malformed file throws ProjectConfigError
   // here just as it does on read.
   const target =
-    readConfigFile(localPath)?.space !== undefined
+    readConfigFile(localPath, { allowUserSentinel: true })?.space !== undefined
       ? localPath
-      : readConfigFile(committedPath)?.space !== undefined
+      : readConfigFile(committedPath, { allowUserSentinel: false })?.space !==
+          undefined
         ? committedPath
         : undefined;
   if (!target) return undefined;
@@ -242,8 +275,9 @@ export function writeProjectConfig(
   const dir = join(projectRoot, CONFIG_DIRNAME);
   const path = join(dir, CONFIG_FILENAME);
   // A malformed existing file throws here (same error as on read) rather
-  // than being silently replaced.
-  readConfigFile(path);
+  // than being silently replaced. This targets the committed file, so the
+  // fatal `.user` gate applies.
+  readConfigFile(path, { allowUserSentinel: false });
 
   // An empty seed yields block style ("key: value" lines) once keys are set.
   const doc = existsSync(path)
@@ -263,6 +297,13 @@ export function writeProjectConfig(
       `refusing to write ${path}${where}: ${issue?.message ?? "does not match the .me/config.yaml schema"}`,
     );
   }
+  if (merged.data.agent === PROJECT_USER_SENTINEL) {
+    throw new ProjectConfigError(
+      `refusing to write ${path}: "agent: ${PROJECT_USER_SENTINEL}" is not allowed in the committed .me/config.yaml — it would ` +
+        `silently switch every cloning teammate's harness surfaces to their own full user credentials. Use ` +
+        `.me/config.local.yaml, the global ~/.config/me/config.yaml, or an explicit --as-agent ${PROJECT_USER_SENTINEL} instead.`,
+    );
+  }
 
   mkdirSync(dir, { recursive: true });
   writeFileSync(path, doc.toString());
@@ -275,6 +316,7 @@ export function writeProjectConfig(
 // =============================================================================
 
 let configDirOverride: string | undefined;
+let projectDirOverride: string | undefined;
 let cached: { value: ProjectConfig | undefined } | undefined;
 
 /**
@@ -288,21 +330,71 @@ export function setConfigDirOverride(dir: string | undefined): void {
 }
 
 /**
- * The resolved project config for the current process (discovered from
- * `process.cwd()`, honoring `--config-dir` / `ME_CONFIG_DIR`), memoized so the
+ * Seed the `--project-dir` override (called once from the root `preAction`
+ * hook) — the harness-injected discovery **anchor**, distinct from
+ * `--config-dir`'s exact location: `me` still walks up from it. Invalidates
+ * the memoized value.
+ */
+export function setProjectDirOverride(dir: string | undefined): void {
+  if (dir === projectDirOverride) return;
+  projectDirOverride = dir;
+  cached = undefined;
+}
+
+/**
+ * The validated last-resort backstop: `CLAUDE_PROJECT_DIR` (documented as set
+ * in the stdio MCP server's env), consulted only when the anchor/cwd walk-up
+ * finds nothing. Accepted only if the directory actually contains `.me/` — so
+ * an unrelated value (Claude's desktop-Linux `$HOME` spawn bug) is silently
+ * ignored rather than adopting the wrong project. It sits BELOW cwd walk-up
+ * deliberately: under `claude -w` it names the MAIN checkout, not the
+ * worktree, and this existence check can't tell the difference (the main
+ * checkout legitimately contains `.me/` too).
+ */
+function validatedHarnessProjectDir(): string | undefined {
+  const dir = process.env.CLAUDE_PROJECT_DIR;
+  if (!dir) return undefined;
+  const resolved = resolve(dir);
+  return existsSync(join(resolved, CONFIG_DIRNAME)) ? resolved : undefined;
+}
+
+/**
+ * The resolved project config for the current process, memoized so the
  * walk-up runs once even though `resolveServer`/`resolveSpace` call it per
  * command. Returns undefined when there is no `.me` in scope.
+ *
+ * Resolution order — see HARNESS_DESIGN.md "Enforcement by harness":
+ *   1. `--config-dir` / `ME_CONFIG_DIR` — an EXACT location, no walk-up.
+ *   2. `--project-dir` / `ME_PROJECT_DIR` — the injected session ANCHOR: walk
+ *      up from it instead of cwd (replaces cwd as the walk-up origin; no
+ *      fall-through below it when it resolves to nothing).
+ *   3. cwd walk-up.
+ *   4. The validated harness backstop ({@link validatedHarnessProjectDir}),
+ *      consulted only when walk-up from the anchor/cwd found nothing.
  */
 export function getProjectConfig(): ProjectConfig | undefined {
   if (cached) return cached.value;
+
   const configDir = configDirOverride ?? process.env.ME_CONFIG_DIR ?? undefined;
-  const value = discoverProjectConfig(process.cwd(), configDir);
+  if (configDir) {
+    const value = discoverProjectConfig(process.cwd(), configDir);
+    cached = { value };
+    return value;
+  }
+
+  const anchor = projectDirOverride ?? process.env.ME_PROJECT_DIR ?? undefined;
+  let value = discoverProjectConfig(anchor ?? process.cwd());
+  if (!value) {
+    const backstop = validatedHarnessProjectDir();
+    if (backstop) value = discoverProjectConfig(backstop);
+  }
   cached = { value };
   return value;
 }
 
-/** Reset the memoized config + config-dir override. Test-only. */
+/** Reset the memoized config + config-dir/project-dir overrides. Test-only. */
 export function resetProjectConfigCache(): void {
   configDirOverride = undefined;
+  projectDirOverride = undefined;
   cached = undefined;
 }

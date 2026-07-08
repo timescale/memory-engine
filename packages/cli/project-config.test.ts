@@ -21,6 +21,7 @@ import {
   ProjectConfigError,
   resetProjectConfigCache,
   setConfigDirOverride,
+  setProjectDirOverride,
   writeProjectConfig,
   writeProjectSpace,
 } from "./project-config.ts";
@@ -38,12 +39,16 @@ beforeEach(() => {
   root = mkdtempSync(join(tmpdir(), "me-projcfg-"));
   resetProjectConfigCache();
   delete process.env.ME_CONFIG_DIR;
+  delete process.env.ME_PROJECT_DIR;
+  delete process.env.CLAUDE_PROJECT_DIR;
 });
 
 afterEach(() => {
   rmSync(root, { recursive: true, force: true });
   resetProjectConfigCache();
   delete process.env.ME_CONFIG_DIR;
+  delete process.env.ME_PROJECT_DIR;
+  delete process.env.CLAUDE_PROJECT_DIR;
 });
 
 test("returns undefined when there is no .me in scope", () => {
@@ -335,4 +340,110 @@ test("writeProjectConfig invalidates the process-wide memo", () => {
   expect(getProjectConfig()?.space).toBe("sp_before");
   writeProjectConfig(root, { space: "sp_after" });
   expect(getProjectConfig()?.space).toBe("sp_after");
+});
+
+// =============================================================================
+// The committed `agent: .user` fatal gate
+// =============================================================================
+
+test("a committed agent: .user is a fatal ProjectConfigError", () => {
+  writeConfig(root, "agent: .user\n");
+  expect(() => discoverProjectConfig(root)).toThrow(ProjectConfigError);
+});
+
+test("agent: .user IS allowed in .me/config.local.yaml", () => {
+  writeConfig(root, "space: sp_abc\n");
+  writeConfig(root, "agent: .user\n", true);
+  expect(discoverProjectConfig(root)?.agent).toBe(".user");
+});
+
+test("writeProjectConfig refuses to write a committed agent: .user", () => {
+  expect(() => writeProjectConfig(root, { agent: ".user" })).toThrow(
+    ProjectConfigError,
+  );
+  expect(existsSync(join(root, ".me", "config.yaml"))).toBe(false);
+});
+
+// =============================================================================
+// getProjectConfig — the `--project-dir` / `ME_PROJECT_DIR` anchor + the
+// validated `CLAUDE_PROJECT_DIR` backstop
+// =============================================================================
+
+test("the project-dir anchor replaces cwd as the walk-up origin", () => {
+  writeConfig(root, "space: sp_anchor\n");
+  const sub = join(root, "nested");
+  mkdirSync(sub, { recursive: true });
+  setProjectDirOverride(sub);
+  expect(getProjectConfig()?.space).toBe("sp_anchor");
+});
+
+test("ME_PROJECT_DIR env is honored when no override is set", () => {
+  writeConfig(root, "space: sp_env_anchor\n");
+  process.env.ME_PROJECT_DIR = root;
+  expect(getProjectConfig()?.space).toBe("sp_env_anchor");
+});
+
+test("--config-dir wins over the project-dir anchor", () => {
+  writeConfig(root, "space: sp_exact\n");
+  const other = mkdtempSync(join(tmpdir(), "me-projcfg-anchor-"));
+  writeConfig(other, "space: sp_anchor\n");
+  try {
+    setConfigDirOverride(root);
+    setProjectDirOverride(other);
+    expect(getProjectConfig()?.space).toBe("sp_exact");
+  } finally {
+    rmSync(other, { recursive: true, force: true });
+  }
+});
+
+test("an anchor that resolves to nothing does not fall through to cwd", () => {
+  // `root` (the real process.cwd() is elsewhere entirely) has a `.me`, but the
+  // anchor points at an unrelated dir with none above it — the anchor REPLACES
+  // cwd as the walk-up origin, so this must resolve to nothing, not `root`.
+  writeConfig(root, "space: sp_cwd\n");
+  const elsewhere = mkdtempSync(join(tmpdir(), "me-projcfg-elsewhere-"));
+  try {
+    setProjectDirOverride(elsewhere);
+    expect(getProjectConfig()).toBeUndefined();
+  } finally {
+    rmSync(elsewhere, { recursive: true, force: true });
+  }
+});
+
+test("CLAUDE_PROJECT_DIR backstop is used only when walk-up finds nothing", () => {
+  writeConfig(root, "space: sp_backstop\n");
+  const elsewhere = mkdtempSync(join(tmpdir(), "me-projcfg-backstop-"));
+  try {
+    setProjectDirOverride(elsewhere); // walk-up from here finds nothing
+    process.env.CLAUDE_PROJECT_DIR = root;
+    expect(getProjectConfig()?.space).toBe("sp_backstop");
+  } finally {
+    rmSync(elsewhere, { recursive: true, force: true });
+  }
+});
+
+test("CLAUDE_PROJECT_DIR backstop is ignored (not validated) when it has no .me/", () => {
+  const noMe = mkdtempSync(join(tmpdir(), "me-projcfg-nome-"));
+  const elsewhere = mkdtempSync(join(tmpdir(), "me-projcfg-elsewhere2-"));
+  try {
+    setProjectDirOverride(elsewhere);
+    process.env.CLAUDE_PROJECT_DIR = noMe;
+    expect(getProjectConfig()).toBeUndefined();
+  } finally {
+    rmSync(noMe, { recursive: true, force: true });
+    rmSync(elsewhere, { recursive: true, force: true });
+  }
+});
+
+test("CLAUDE_PROJECT_DIR backstop is not consulted when the anchor/cwd walk-up already found something", () => {
+  writeConfig(root, "space: sp_found\n");
+  const other = mkdtempSync(join(tmpdir(), "me-projcfg-other2-"));
+  writeConfig(other, "space: sp_backstop_unused\n");
+  try {
+    setProjectDirOverride(root);
+    process.env.CLAUDE_PROJECT_DIR = other;
+    expect(getProjectConfig()?.space).toBe("sp_found");
+  } finally {
+    rmSync(other, { recursive: true, force: true });
+  }
 });

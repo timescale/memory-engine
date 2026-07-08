@@ -31,6 +31,8 @@ Resolution order:
 
 A logged-in developer needs no key or space — the active session and active space are used automatically. For an unattended/headless agent, pass `--api-key` and `--space` (or set `ME_API_KEY` / `ME_SPACE`).
 
+**Agent-by-config**: unless `--api-key`/`ME_API_KEY` is already an agent key, `me mcp` resolves an agent from the project's [`.me/config.yaml`](../project-config.md#agent-by-config-and-the-agent-field) `agent`, else your global config's `agent`, and sends every request as that agent (`X-Me-As-Agent`) — validated eagerly at startup with one `whoami` round trip, so a misconfigured agent fails the server at launch instead of every tool call 403ing. With no agent in scope anywhere, `me mcp` refuses to start (see the linked section for the `.user` opt-out).
+
 This command is typically not run directly -- it is invoked by AI tools based on their MCP configuration.
 
 ---

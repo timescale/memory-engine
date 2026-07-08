@@ -15,9 +15,10 @@
  * Claude Code uses the Memory Engine plugin instead of a CLI installer.
  */
 import { Command } from "commander";
-import { resolveCredentials } from "../credentials.ts";
+import { resolveCredentials, resolveHarnessAgent } from "../credentials.ts";
 import { runMcpServer } from "../mcp/server.ts";
 import { memoryBearer } from "../session.ts";
+import { buildUserClient } from "../util.ts";
 
 /**
  * True if the token is a legacy 4-part api key (`me.<slug>.<lookup>.<secret>`),
@@ -87,11 +88,45 @@ function createMcpRunAction() {
       process.exit(1);
     }
 
+    // Agent-by-config: MCP is a harness surface by construction, so it
+    // activates unconditionally — as if `--as-agent .me` were passed — unless
+    // the resolved credential is ALREADY an agent api key (the sandboxed
+    // ME_API_KEY mode already IS the agent; X-Me-As-Agent would be ignored
+    // server-side anyway, so there is nothing to resolve or validate). A
+    // failure to resolve (no project/global agent in scope, or an explicit
+    // agent name) is fatal here — never a silent fallback to the user.
+    let asAgent = creds.asAgent;
+    if (!apiKey) {
+      try {
+        asAgent = resolveHarnessAgent();
+      } catch (error) {
+        console.error(
+          `Error: ${error instanceof Error ? error.message : String(error)}`,
+        );
+        process.exit(1);
+      }
+    }
+
+    // Eager identity round trip: validate the resolved agent NOW (one
+    // whoami call) so the harness sees a dead MCP server at startup instead
+    // of every tool call 403ing.
+    if (asAgent) {
+      try {
+        await buildUserClient({ ...creds, apiKey, asAgent }).whoami();
+      } catch (error) {
+        console.error(
+          `Error: could not act as agent '${asAgent}': ${error instanceof Error ? error.message : String(error)}. ` +
+            `Run 'me agent create ${asAgent}' if it doesn't exist yet, and make sure it's admitted to this space ('me agent add ${asAgent}').`,
+        );
+        process.exit(1);
+      }
+    }
+
     await runMcpServer({
       server: creds.server,
       bearer: memoryBearer(creds.server, apiKey),
       space,
-      asAgent: creds.asAgent,
+      asAgent,
     });
   };
 }

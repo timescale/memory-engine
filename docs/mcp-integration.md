@@ -16,6 +16,10 @@ The AI agent never sees or handles credentials — it just calls MCP tools and g
 
 Each `me mcp` instance is locked to a single **space**, carried as the `X-Me-Space` header. The space is resolved from `--space` > `ME_SPACE` > your stored active space. Authentication is **either** an agent API key (`--api-key` or `ME_API_KEY`) **or**, if no key is given, your stored `me login` session token — so a developer install needs no key at all. The server URL defaults to `https://api.memory.build` but can be overridden with `--server` or `ME_SERVER`.
 
+### Agent-by-config
+
+`me mcp` is a harness surface, so it acts as a configured **agent** automatically — no `--as-agent` flag needed. It resolves the project's [`.me/config.yaml`](project-config.md) `agent`, else your global `~/.config/me/config.yaml` `agent`, and sends every request as that agent (`X-Me-As-Agent`) — so an agent's memory work is attributable and scoped to its own grants, not yours. It validates the resolved agent eagerly at startup (one `whoami` round trip): a name that doesn't exist yet, or isn't admitted to the space, fails the server at launch with an actionable message rather than 403ing on every tool call. If neither config defines an `agent`, `me mcp` refuses to start — see [Project config](project-config.md#agent-by-config-and-the-agent-field) for the `.user` opt-out and how the default agent gets provisioned. This doesn't apply when you pass `--api-key`/`ME_API_KEY` for a dedicated agent key — the key already *is* the agent.
+
 ## Setup
 
 ### Prerequisites
