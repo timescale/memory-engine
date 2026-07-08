@@ -1,7 +1,8 @@
 # Service Accounts (`kind='s'`)
 
 > **Status**: Draft / active design. Core shape is now decided (see §3
-> Decisions); remaining unknowns live in §8 Open questions and §9 Future work.
+> Decisions); remaining unknowns live in §8 Open questions and §9.7 Remaining
+> questions.
 
 ## 1. Motivation
 
@@ -104,9 +105,10 @@ user's.
   inert (D11). Once granted authority, its key may exercise that authority like
   any other principal: `tree_access` for memory access, `owner@P` for grant
   management under *P*, `group_member.admin` for managing that group's roster,
-  `can_invite` for invitation creation (§9), and `principal_space.admin` if the
-  operator explicitly makes the SA a space admin (D14). Key mint/revoke stays
-  human-administered: an SA key can never mint keys.
+  `can_invite` for invitation creation (§9), `can_deprovision` for space
+  offboarding (§9), and `principal_space.admin` if the operator explicitly makes
+  the SA a space admin (D14). Key mint/revoke stays human-administered: an SA
+  key can never mint keys.
 - **D9 — Admin group membership is flexible.** The space admin adds the first
   member(s). Each member may or may not get the group's `group_member.admin`
   flag; with **zero** group-admins, only space admins can change membership. The
@@ -133,8 +135,9 @@ user's.
   operator from explicitly giving an SA `principal_space.admin`; some traditional
   deterministic integrations may legitimately need broad structural authority.
   This is reckless for LLM-held keys and should not be the normal provisioning
-  path. Open: whether an SA key should be barred from `space.delete` even when
-  the SA is a space admin (§8).
+  path. If an SA is made a space admin, `principal_space.admin` should mean the
+  same thing it means for users, except for the still-open `space.delete` carve-
+  out (§8).
 
 ### Accepted limitation (by design)
 
@@ -197,8 +200,15 @@ group` / space-admin). Impl detail — §8.
   helper.
 - The space data-plane functions (`search_memory`, `get_memory`, …) need **no
   change** — they still consume the `_tree_access` jsonb.
-- Auth gate unchanged: empty effective access ⇒ denied (so D11's zero-grant SA
-  is inert until granted).
+- **Endpoint admission must be based on `principal_space`, not
+  `build_tree_access`.** The current memory RPC auth gate incorrectly denies the
+  entire `/api/v1/memory/rpc` endpoint when `build_tree_access` is empty. That is
+  a pre-existing bug, not a service-account design constraint. Tracked as
+  [TNT-200](https://linear.app/tigerdata/issue/TNT-200/fix-memory-rpc-auth-gate-space-membership-must-come-from-principal).
+  The intended model is: `principal_space` decides whether a principal belongs
+  to a space; `tree_access` decides whether it can access a tree path. A freshly
+  created SA with zero tree grants is a valid space member but has no data
+  access until granted.
 
 ## 7. Surface area (sketch)
 
@@ -291,8 +301,8 @@ are distinct and should be granted independently:
   may add/remove/list members of G. This does **not** imply it can invite new
   people into the space.
 - **Invitation creation**: a separate **space-admin-set** `can_invite` flag lets
-  an SA create invitations. This is the only new capability bit; it exists
-  because invitation creation otherwise has only an all-space-admin gate.
+  an SA create invitations. This is a new capability bit because invitation
+  creation otherwise has only an all-space-admin gate.
 - **Space offboarding**: a separate **space-admin-set** `can_deprovision` (name
   TBD) flag may let an SA remove users from the space. This is distinct from
   `can_invite`; adding people and removing people have different blast radii.
@@ -315,12 +325,14 @@ So the grants/memberships/capability bits are the leash. Examples:
 
 ### 9.5 Hard guardrails
 
-- **Invites forced `admin=false`.** An SA can never issue an admin invite — the
-  escalation stopper (no minting space admins).
-- **Invite `group_ids` ⊆ groups the SA admins.** No inviting into groups outside
-  its leash. (Alternative: an explicit per-SA provisioning-group whitelist;
-  `group_member.admin` is preferred as it reuses an existing primitive and keeps
-  "can invite into G" ≡ "can manage G".)
+- **Non-space-admin `can_invite` invites forced `admin=false`.** A
+  non-space-admin SA using `can_invite` can never issue an admin invite — the
+  escalation stopper for scoped provisioning. If the operator explicitly makes
+  the SA a space admin (D14), normal space-admin invitation semantics apply.
+- **Non-space-admin `can_invite` `group_ids` ⊆ groups the SA admins.** No
+  inviting into groups outside its leash. (Alternative: an explicit per-SA
+  provisioning-group whitelist; `group_member.admin` is preferred as it reuses
+  an existing primitive and keeps "can invite into G" ≡ "can manage G".)
 - **`can_invite` is space-admin-only to set.** Admin-group members — who can
   already grant the SA `owner@P` they hold (D4) and manage its keys (D7) —
   **cannot** flip `can_invite`. Letting an SA admit new people into the space is
@@ -328,8 +340,8 @@ So the grants/memberships/capability bits are the leash. Examples:
 - **`can_deprovision` is space-admin-only to set.** Letting an SA remove users
   from the space is at least as sensitive as admitting them. Initial lean: a
   non-space-admin SA with `can_deprovision` may remove non-admin users, but not
-  admins; removing admins remains space-admin-only unless the SA itself has
-  explicit `principal_space.admin` (D14). `enforce_last_admin` is still the DB
+  admins; if the operator explicitly makes the SA a space admin (D14), normal
+  space-admin removal semantics apply. `enforce_last_admin` is still the DB
   backstop either way.
 - **`enforce_last_admin` still applies** for any path that can remove or demote
   admins. A non-space-admin provisioning SA is not counted as an admin.
@@ -362,12 +374,6 @@ redemptions are logged (`space_invitation_redemption`).
   or only users matching an external identity-domain/policy? The useful HR-sync
   version likely needs broad non-admin removal, but provenance-bounded removal is
   safer.
-- **Structural-only auth gate**: the memory RPC currently uses non-empty
-  `build_tree_access` as the space access gate. An SA that is only
-  `group_member.admin` for a group with no grants may have structural authority
-  but no effective `tree_access`, so it could be denied before reaching
-  `group.*`. Options: require at least one data grant for such SAs, or widen the
-  membership gate to admit explicit structural authority.
 
 ## 10. Glossary / docs touch-ups on ship
 
