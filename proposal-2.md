@@ -523,29 +523,33 @@ No harness files touched; everything unit/integration-testable.
    `ensureDefaultAgent()` step (reused by the PR 3–5 installs). Skipped
    when a global `agent:` is already set — including `.user`, a recorded
    choice never re-prompts — or when the credential is an agent api key
-   (headless sandbox mode). The prompt (clack select; first option is the
-   default):
+   (headless sandbox mode). Behavior depends on what the user already owns:
 
-   ```
-   Memory-engine work done by coding harnesses (MCP tools, session capture)
-   runs as an agent you own — constrainable and attributable — not as you.
+   - **No agents at all** (the beginner path): no prompt, no choice to
+     misunderstand — create the `coder` agent with full permissions (the
+     standard `write@/` grant, clamped by the owner's own access), admit it
+     to the active space, write global `agent: coder`, and announce it:
 
-   ? Which agent should harnesses use by default?
-   ❯ Create an agent named "coder" (recommended)
-     Pick a different agent…
-     Always run as me — writes carry your full access (agent: .user)
-   ```
+     ```
+     Created agent "coder" — coding harnesses will act as it, so their
+     work is attributable and you can restrict its access later
+     (`me agent --help`).
+     ```
+
+   - **Owns agents already**: one clack select. First option (the default)
+     is "Use my existing \"coder\" agent (recommended)" when a `coder`
+     exists, else "Create a \"coder\" agent with full permissions
+     (recommended)"; "Pick a different agent…" appears only when other
+     agents exist. **No `.user` option** — that escape hatch is
+     config-only, so the wizard never steers a beginner into user-mode.
 
    The default name is harness-neutral (`coder`, not `claude`) because the
    global fallback is shared by all harnesses — and since `agent:` holds a
    *name* resolved against the caller's own agents, a second machine's
-   install finds the existing `coder` and offers "Use your existing agent
-   'coder'" instead of creating one (users with several agents get a
-   picker). Creation admits the agent to the active space with the
-   standard `write@/` grant (clamped); other spaces are admitted on demand
-   — the `me mcp` eager-validation error names the fix command. Every path
-   writes the choice into the global config (`agent: <name>` or
-   `agent: .user`). Non-interactive installs apply the default and log it;
+   install finds the existing `coder` and lands on the use-existing path.
+   Other spaces are admitted on demand — the `me mcp` eager-validation
+   error names the fix command. Every path writes global `agent: <name>`.
+   Non-interactive installs apply the default and log it;
    `--no-default-agent` opts out.
 5. Docs: `docs/project-config.md`, `docs/mcp-integration.md`, CLI reference.
 
