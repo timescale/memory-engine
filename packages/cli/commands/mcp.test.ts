@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { describeMcpSpaceProblem, isSpaceSlug } from "../mcp/space.ts";
 import { blankFlag, isLegacyApiKey } from "./mcp.ts";
 
 // blankFlag normalizes the plugin's `--server/--api-key/--space ${user_config.X}`
@@ -49,5 +50,44 @@ describe("isLegacyApiKey", () => {
     expect(
       isLegacyApiKey(`me.BADSLUG78901.lookupid12345678.${"s".repeat(32)}`),
     ).toBe(false);
+  });
+});
+
+describe("space slug validation", () => {
+  const spaces = [
+    { slug: "abc123def456", name: "default" },
+    { slug: "def456abc123", name: "prod" },
+    { slug: "aaa111bbb222", name: "dupe" },
+    { slug: "ccc333ddd444", name: "dupe" },
+  ];
+
+  test("accepts immutable 12-character slugs", () => {
+    expect(isSpaceSlug("abc123def456")).toBe(true);
+    expect(describeMcpSpaceProblem("abc123def456", spaces)).toBeUndefined();
+  });
+
+  test("suggests the slug for a unique display-name match", () => {
+    expect(isSpaceSlug("default")).toBe(false);
+    expect(describeMcpSpaceProblem("default", spaces)).toBe(
+      "Space 'default' is a display name, not a slug. Did you mean 'abc123def456'?",
+    );
+  });
+
+  test("lists candidates for duplicate display-name matches", () => {
+    expect(describeMcpSpaceProblem("dupe", spaces)).toBe(
+      "Space 'dupe' is a display name used by multiple spaces. Use one of these slugs: dupe (aaa111bbb222), dupe (ccc333ddd444).",
+    );
+  });
+
+  test("valid-looking unknown slug reports inaccessible or missing", () => {
+    expect(describeMcpSpaceProblem("default12345", spaces)).toBe(
+      "Space slug 'default12345' was not found or is not accessible with this credential. Run 'me space list' to see available slugs.",
+    );
+  });
+
+  test("unknown non-slug asks for a valid slug, not a name", () => {
+    expect(describeMcpSpaceProblem("missing", spaces)).toBe(
+      "--space must refer to a valid space slug, not a space name. Run 'me space list' to see available slugs.",
+    );
   });
 });

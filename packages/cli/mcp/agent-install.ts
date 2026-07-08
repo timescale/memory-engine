@@ -7,6 +7,7 @@
 import * as clack from "@clack/prompts";
 import { resolveCredentials } from "../credentials.ts";
 import { buildMeCommand, installMcpServer, MCP_TOOLS } from "./install.ts";
+import { validateMcpSpace } from "./space.ts";
 
 export interface AgentInstallOptions {
   apiKey?: string;
@@ -64,6 +65,11 @@ export async function runAgentMcpInstall(
       );
       process.exit(1);
     }
+    const spaceProblem = await validateMcpSpace({ server, apiKey, space });
+    if (spaceProblem) {
+      clack.log.error(spaceProblem);
+      process.exit(1);
+    }
     meCmd = buildMeCommand({ server, apiKey, space });
   } else {
     if (!creds.loggedIn) {
@@ -71,6 +77,16 @@ export async function runAgentMcpInstall(
         "Not logged in. Run 'me login' (the MCP server will use your session), or pass --api-key / set ME_API_KEY for a headless agent.",
       );
       process.exit(1);
+    }
+    if (opts.space) {
+      const spaceProblem = await validateMcpSpace({
+        server,
+        space: opts.space,
+      });
+      if (spaceProblem) {
+        clack.log.error(spaceProblem);
+        process.exit(1);
+      }
     }
     // Bake only --server (+ an explicit --space pin if given); the session token
     // and space resolve at runtime.

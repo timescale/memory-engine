@@ -17,6 +17,7 @@
 import { Command } from "commander";
 import { resolveCredentials, resolveHarnessAgent } from "../credentials.ts";
 import { runMcpServer } from "../mcp/server.ts";
+import { validateMcpSpace } from "../mcp/space.ts";
 import { memoryBearer } from "../session.ts";
 import { buildUserClient } from "../util.ts";
 
@@ -85,6 +86,15 @@ function createMcpRunAction() {
       console.error(
         "Error: no active space. Run 'me space use <space>', or pass --space / set ME_SPACE.",
       );
+      process.exit(1);
+    }
+    const spaceProblem = await validateMcpSpace({
+      server: creds.server,
+      apiKey,
+      space,
+    });
+    if (spaceProblem) {
+      console.error(`Error: ${spaceProblem}`);
       process.exit(1);
     }
 
