@@ -99,7 +99,50 @@ Likely files:
 - `packages/database/core/migrate/idempotent/*.sql`
 - migration integration tests
 
-## Phase 2: Protocol Types And Contracts
+## Phase 2: Core SQL Functions And Constraints
+
+Goal: create service accounts atomically and protect their bound admin groups.
+
+- [x] Add helper function to identify bound admin groups. Prefer a helper that
+  returns the owning service account id or null, e.g.
+  `service_account_for_admin_group(_group_id uuid) returns uuid`.
+- [x] Add `create_service_account` SQL function that atomically:
+  - [x] creates the bound admin group (`kind='g'`, same `space_id`);
+  - [x] creates the service-account principal (`kind='s'`, same `space_id`,
+    `admin_id = group.id`);
+  - [x] rosters the service account into `principal_space` with `admin=false` by
+    default;
+  - [x] rosters the bound admin group into `principal_space` through existing
+    group creation behavior;
+  - [x] adds optional initial user admins to the bound admin group;
+  - [x] optionally marks those initial members as `group_member.admin` based on
+    input.
+- [x] Ensure service-account creation gives no tree grants.
+- [x] Ensure service-account creation does not add the service account to the
+  default group.
+- [x] Add deletion behavior:
+  - [x] deleting the service account deletes the bound admin group;
+  - [x] group-member rows, tree grants, and roster rows cascade/clean up.
+- [x] Add constraint trigger preventing direct deletion of a bound admin group.
+- [x] Add constraint trigger preventing a bound admin group from being made a
+  space-admin group.
+- [x] Add constraint trigger preventing a bound admin group from becoming the
+  default group.
+- [x] Add constraint trigger or function guard preventing non-users from being
+  added to a bound admin group.
+- [x] Allow service accounts to be ordinary group members.
+- [x] Allow service accounts to hold `group_member.admin` on ordinary groups.
+- [x] Keep agents barred from effective group-admin authority.
+
+Likely SQL areas:
+
+- principal functions
+- membership functions
+- group-member functions
+- principal-space admin trigger functions
+- default-group constraints
+
+## Phase 3: Protocol Types And Contracts
 
 Goal: expose service-account concepts in shared schemas before wiring handlers.
 
@@ -128,49 +171,6 @@ Likely packages:
 
 - `packages/protocol`
 - `packages/client`
-
-## Phase 3: Core SQL Functions And Constraints
-
-Goal: create service accounts atomically and protect their bound admin groups.
-
-- [ ] Add helper function to identify bound admin groups. Prefer a helper that
-  returns the owning service account id or null, e.g.
-  `service_account_for_admin_group(_group_id uuid) returns uuid`.
-- [ ] Add `create_service_account` SQL function that atomically:
-  - [ ] creates the bound admin group (`kind='g'`, same `space_id`);
-  - [ ] creates the service-account principal (`kind='s'`, same `space_id`,
-    `admin_id = group.id`);
-  - [ ] rosters the service account into `principal_space` with `admin=false` by
-    default;
-  - [ ] rosters the bound admin group into `principal_space` through existing
-    group creation behavior;
-  - [ ] adds optional initial user admins to the bound admin group;
-  - [ ] optionally marks those initial members as `group_member.admin` based on
-    input.
-- [ ] Ensure service-account creation gives no tree grants.
-- [ ] Ensure service-account creation does not add the service account to the
-  default group.
-- [ ] Add deletion behavior:
-  - [ ] deleting the service account deletes the bound admin group;
-  - [ ] group-member rows, tree grants, and roster rows cascade/clean up.
-- [ ] Add constraint trigger preventing direct deletion of a bound admin group.
-- [ ] Add constraint trigger preventing a bound admin group from being made a
-  space-admin group.
-- [ ] Add constraint trigger preventing a bound admin group from becoming the
-  default group.
-- [ ] Add constraint trigger or function guard preventing non-users from being
-  added to a bound admin group.
-- [ ] Allow service accounts to be ordinary group members.
-- [ ] Allow service accounts to hold `group_member.admin` on ordinary groups.
-- [ ] Keep agents barred from effective group-admin authority.
-
-Likely SQL areas:
-
-- principal functions
-- membership functions
-- group-member functions
-- principal-space admin trigger functions
-- default-group constraints
 
 ## Phase 4: Effective Access
 

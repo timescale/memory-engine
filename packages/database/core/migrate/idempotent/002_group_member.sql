@@ -16,10 +16,10 @@ as $func$
   -- the member is also a direct space member (gated in member_tree_access), so a
   -- member can be pre-staged into a group before joining the space. This just
   -- lists the member's groups; the FKs constrain group_id to a group and
-  -- member_id to a user/agent.
+  -- member_id to a user/agent/service account.
   select
     gm.group_id
-  , gm.admin and (not m.kind = 'a') -- agents cannot be group admins
+  , gm.admin and (not m.kind = 'a') -- agents cannot be group admins; service accounts can
   from {{schema}}.group_member gm
   inner join {{schema}}.principal m on (m.member_id = gm.member_id)
   where gm.member_id = _member_id
@@ -30,7 +30,7 @@ $func$ language sql stable security invoker
 -------------------------------------------------------------------------------
 -- is_group_admin
 -- Whether a member is an admin of a specific group in a space. (Agents are
--- never group admins — enforced by member_groups.)
+-- never group admins; service accounts may be admins of ordinary groups.)
 -------------------------------------------------------------------------------
 create or replace function {{schema}}.is_group_admin
 ( _member_id uuid

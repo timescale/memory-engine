@@ -60,6 +60,7 @@ const EXPECTED_MIGRATIONS = [
   "013_invite_groups",
   "014_space_access_defaults",
   "015_service_accounts",
+  "016_service_account_admin_groups",
 ];
 
 const EXPECTED_FUNCTIONS = [
@@ -280,6 +281,14 @@ describe("schema constraints enforce", () => {
 
     await expectReject(() =>
       sql.unsafe(
+        `insert into ${s}.principal (kind, name, space_id, admin_id)
+         values ('s', 'same-admin-group', $1, $2)`,
+        [spaceId, adminGroupId],
+      ),
+    );
+
+    await expectReject(() =>
+      sql.unsafe(
         `insert into ${s}.principal (kind, name, space_id)
          values ('s', 'missing-admin', $1)`,
         [spaceId],
@@ -328,6 +337,10 @@ describe("schema constraints enforce", () => {
       `select ${s}.create_group($1, $2) as id`,
       [spaceId2, "ci-admins"],
     );
+    const [adminGroup3] = await sql.unsafe(
+      `select ${s}.create_group($1, $2) as id`,
+      [spaceId1, "same-cross-space-admins"],
+    );
 
     await sql.unsafe(
       `insert into ${s}.principal (kind, name, space_id, admin_id)
@@ -351,7 +364,7 @@ describe("schema constraints enforce", () => {
     await sql.unsafe(
       `insert into ${s}.principal (kind, name, space_id, admin_id)
        values ('s', 'same-cross-space', $1, $2)`,
-      [spaceId1, adminGroup1?.id],
+      [spaceId1, adminGroup3?.id],
     );
     await sql.unsafe(
       `insert into ${s}.principal (kind, name, space_id, admin_id)
@@ -847,7 +860,7 @@ describe("control-plane functions", () => {
     });
   });
 
-  test("add_principal_to_space grants owner@home to users and agents (nested), idempotently; not groups", async () => {
+  test("add_principal_to_space grants owner@home to users and agents (nested), idempotently; not groups or service accounts", async () => {
     await withTestCore(sql, {}, async (core) => {
       const s = core.schema;
       const [sp] = await sql.unsafe(`select ${s}.create_space($1, $2) as id`, [
@@ -869,9 +882,14 @@ describe("control-plane functions", () => {
         `grp_${randomSlug()}`,
       ]);
       const groupId = grp?.id as string;
+      const [svc] = await sql.unsafe(
+        `select id from ${s}.create_service_account($1, $2)`,
+        [spaceId, `svc_${randomSlug()}`],
+      );
+      const serviceId = svc?.id as string;
 
       // add each twice to prove the home grant is idempotent
-      for (const id of [userId, agentId, groupId]) {
+      for (const id of [userId, agentId, groupId, serviceId]) {
         await sql.unsafe(`select ${s}.add_principal_to_space($1, $2, $3)`, [
           spaceId,
           id,
@@ -897,11 +915,13 @@ describe("control-plane functions", () => {
         { tree_path: homePath(userId), access: 3 },
       ]);
       // the agent gets owner@home nested under its owner (covered by the owner's
-      // home grant, so agent_tree_access keeps it); groups have no home
+      // home grant, so agent_tree_access keeps it); groups and service accounts
+      // have no home
       expect(await grants(agentId)).toEqual([
         { tree_path: agentHomePath(userId, agentId), access: 3 },
       ]);
       expect(await grants(groupId)).toEqual([]);
+      expect(await grants(serviceId)).toEqual([]);
 
       // the agent's nested home is EFFECTIVE (not clamped to nothing): the
       // owner holds owner@home.<owner>, which covers home.<owner>.<agent>.
@@ -953,6 +973,283 @@ describe("control-plane functions", () => {
       // neither the user nor the agent gets an owner@home grant
       expect(await grants(userId)).toEqual([]);
       expect(await grants(agentId)).toEqual([]);
+    });
+  });
+
+  test("create_service_account creates an inert service account and users-only admin group", async () => {
+    await withTestCore(sql, {}, async (core) => {
+      const s = core.schema;
+      const [sp] = await sql.unsafe(`select ${s}.create_space($1, $2) as id`, [
+        randomSlug(),
+        "Service Create",
+      ]);
+      const spaceId = sp?.id as string;
+      const memberId = await v7();
+      const groupAdminId = await v7();
+      await sql.unsafe(`select ${s}.create_user($1, $2)`, [
+        memberId,
+        "svc-member@example.com",
+      ]);
+      await sql.unsafe(`select ${s}.create_user($1, $2)`, [
+        groupAdminId,
+        "svc-group-admin@example.com",
+      ]);
+
+      const [svc] = await sql.unsafe(
+        `select * from ${s}.create_service_account($1, $2, $3::uuid[], $4::uuid[])`,
+        [spaceId, "eon", [memberId], [groupAdminId]],
+      );
+      const serviceId = svc?.id as string;
+      const adminGroupId = svc?.admin_id as string;
+      expect(serviceId).toBeTruthy();
+      expect(adminGroupId).toBeTruthy();
+
+      const [service] = await sql.unsafe(
+        `select kind, name::text, space_id, admin_id, member_id from ${s}.principal where id = $1`,
+        [serviceId],
+      );
+      expect(service).toMatchObject({
+        kind: "s",
+        name: "eon",
+        space_id: spaceId,
+        admin_id: adminGroupId,
+        member_id: serviceId,
+      });
+      const [adminGroup] = await sql.unsafe(
+        `select kind, name::text, space_id, is_default_group from ${s}.principal where id = $1`,
+        [adminGroupId],
+      );
+      expect(adminGroup).toMatchObject({
+        kind: "g",
+        name: "eon-admin",
+        space_id: spaceId,
+        is_default_group: false,
+      });
+
+      const roster = await sql.unsafe(
+        `select principal_id, admin from ${s}.principal_space
+         where space_id = $1 and principal_id in ($2, $3)
+         order by principal_id`,
+        [spaceId, serviceId, adminGroupId],
+      );
+      expect(roster).toHaveLength(2);
+      expect(roster.every((r) => r.admin === false)).toBe(true);
+
+      const members = await sql.unsafe(
+        `select member_id, admin from ${s}.group_member
+         where space_id = $1 and group_id = $2 order by member_id`,
+        [spaceId, adminGroupId],
+      );
+      const normalizedMembers = members.map((r) => ({
+        member_id: r.member_id as string,
+        admin: r.admin as boolean,
+      }));
+      expect(normalizedMembers).toContainEqual({
+        member_id: memberId,
+        admin: false,
+      });
+      expect(normalizedMembers).toContainEqual({
+        member_id: groupAdminId,
+        admin: true,
+      });
+
+      const [helper] = await sql.unsafe(
+        `select ${s}.service_account_for_admin_group($1) as id`,
+        [adminGroupId],
+      );
+      expect(helper?.id).toBe(serviceId);
+
+      const [grantCount] = await sql.unsafe(
+        `select count(*)::int as n from ${s}.tree_access where principal_id = $1`,
+        [serviceId],
+      );
+      expect(grantCount?.n).toBe(0);
+      const [defaultMembership] = await sql.unsafe(
+        `select count(*)::int as n from ${s}.group_member where member_id = $1`,
+        [serviceId],
+      );
+      expect(defaultMembership?.n).toBe(0);
+
+      await sql.unsafe(`select ${s}.create_api_key($1, $2, $3, $4)`, [
+        serviceId,
+        "lookupservice002",
+        "hashed-secret",
+        "service-key",
+      ]);
+      const [validated] = await sql.unsafe(
+        `select * from ${s}.validate_api_key($1, $2)`,
+        ["lookupservice002", "hashed-secret"],
+      );
+      expect(validated?.member_id).toBe(serviceId);
+      expect(validated?.owner_id).toBeNull();
+    });
+  });
+
+  test("service-account admin groups are protected and deleted with the service account", async () => {
+    await withTestCore(sql, {}, async (core) => {
+      const s = core.schema;
+      const [sp] = await sql.unsafe(`select ${s}.create_space($1, $2) as id`, [
+        randomSlug(),
+        "Service Protect",
+      ]);
+      const spaceId = sp?.id as string;
+      const userId = await v7();
+      await sql.unsafe(`select ${s}.create_user($1, $2)`, [
+        userId,
+        "svc-admin@example.com",
+      ]);
+      const [agent] = await sql.unsafe(
+        `select ${s}.create_agent($1, $2) as id`,
+        [userId, `svc_agent_${randomSlug()}`],
+      );
+      const agentId = agent?.id as string;
+      const [svc] = await sql.unsafe(
+        `select * from ${s}.create_service_account($1, $2, $3::uuid[], $4::uuid[])`,
+        [spaceId, "ci", [userId], []],
+      );
+      const serviceId = svc?.id as string;
+      const adminGroupId = svc?.admin_id as string;
+
+      await expectReject(() =>
+        sql.unsafe(`select ${s}.add_group_member($1, $2, $3, false)`, [
+          spaceId,
+          adminGroupId,
+          agentId,
+        ]),
+      );
+      await expectReject(() =>
+        sql.unsafe(`select ${s}.add_group_member($1, $2, $3, false)`, [
+          spaceId,
+          adminGroupId,
+          serviceId,
+        ]),
+      );
+      await expectReject(() =>
+        sql.unsafe(`select ${s}.set_group_is_space_admin($1, $2, true)`, [
+          spaceId,
+          adminGroupId,
+        ]),
+      );
+      await expectReject(() =>
+        sql.unsafe(
+          `update ${s}.principal_space set admin = true where principal_id = $1 and space_id = $2`,
+          [adminGroupId, spaceId],
+        ),
+      );
+      await expectReject(() =>
+        sql.unsafe(
+          `update ${s}.principal set is_default_group = true where id = $1`,
+          [adminGroupId],
+        ),
+      );
+      await expectReject(() =>
+        sql.unsafe(`select ${s}.delete_principal($1)`, [adminGroupId]),
+      );
+
+      await sql.unsafe(
+        `select ${s}.grant_tree_access($1, $2, 'share'::ltree, 1)`,
+        [spaceId, adminGroupId],
+      );
+      const [deleted] = await sql.unsafe(
+        `select ${s}.delete_principal($1) as ok`,
+        [serviceId],
+      );
+      expect(deleted?.ok).toBe(true);
+
+      for (const id of [serviceId, adminGroupId]) {
+        const [principal] = await sql.unsafe(
+          `select count(*)::int as n from ${s}.principal where id = $1`,
+          [id],
+        );
+        expect(principal?.n).toBe(0);
+        const [roster] = await sql.unsafe(
+          `select count(*)::int as n from ${s}.principal_space where principal_id = $1`,
+          [id],
+        );
+        expect(roster?.n).toBe(0);
+        const [grants] = await sql.unsafe(
+          `select count(*)::int as n from ${s}.tree_access where principal_id = $1`,
+          [id],
+        );
+        expect(grants?.n).toBe(0);
+      }
+      const [groupMembers] = await sql.unsafe(
+        `select count(*)::int as n from ${s}.group_member where group_id = $1`,
+        [adminGroupId],
+      );
+      expect(groupMembers?.n).toBe(0);
+    });
+  });
+
+  test("service accounts can administer ordinary groups but do not inherit space admin via groups", async () => {
+    await withTestCore(sql, {}, async (core) => {
+      const s = core.schema;
+      const [sp] = await sql.unsafe(`select ${s}.create_space($1, $2) as id`, [
+        randomSlug(),
+        "Service Group Admin",
+      ]);
+      const spaceId = sp?.id as string;
+      const userId = await v7();
+      await sql.unsafe(`select ${s}.create_user($1, $2)`, [
+        userId,
+        "ordinary-admin@example.com",
+      ]);
+      await sql.unsafe(`select ${s}.add_principal_to_space($1, $2, false)`, [
+        spaceId,
+        userId,
+      ]);
+      const [svc] = await sql.unsafe(
+        `select id from ${s}.create_service_account($1, $2)`,
+        [spaceId, "provisioner"],
+      );
+      const serviceId = svc?.id as string;
+      const [grp] = await sql.unsafe(`select ${s}.create_group($1, $2) as id`, [
+        spaceId,
+        "operators",
+      ]);
+      const groupId = grp?.id as string;
+
+      await sql.unsafe(`select ${s}.add_group_member($1, $2, $3, true)`, [
+        spaceId,
+        groupId,
+        serviceId,
+      ]);
+      const [groupAdmin] = await sql.unsafe(
+        `select ${s}.is_group_admin($1, $2, $3) as ok`,
+        [serviceId, groupId, spaceId],
+      );
+      expect(groupAdmin?.ok).toBe(true);
+
+      await sql.unsafe(`select ${s}.set_group_is_space_admin($1, $2, true)`, [
+        spaceId,
+        groupId,
+      ]);
+      await sql.unsafe(`select ${s}.add_group_member($1, $2, $3, false)`, [
+        spaceId,
+        groupId,
+        userId,
+      ]);
+
+      const [userSpaceAdmin] = await sql.unsafe(
+        `select ${s}.is_principal_space_admin($1, $2) as ok`,
+        [userId, spaceId],
+      );
+      expect(userSpaceAdmin?.ok).toBe(true);
+      const [serviceInheritedAdmin] = await sql.unsafe(
+        `select ${s}.is_principal_space_admin($1, $2) as ok`,
+        [serviceId, spaceId],
+      );
+      expect(serviceInheritedAdmin?.ok).toBe(false);
+
+      await sql.unsafe(`select ${s}.add_principal_to_space($1, $2, true)`, [
+        spaceId,
+        serviceId,
+      ]);
+      const [serviceDirectAdmin] = await sql.unsafe(
+        `select ${s}.is_principal_space_admin($1, $2) as ok`,
+        [serviceId, spaceId],
+      );
+      expect(serviceDirectAdmin?.ok).toBe(true);
     });
   });
 
