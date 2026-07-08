@@ -19,10 +19,12 @@
  *   - 2. agent — ALWAYS configures a dedicated agent (new whole-space, new
  *     this-project-only, or an existing one; there is no run-as-your-own-user
  *     option) and grants a new agent write access at the chosen scope;
- *   - write — `.me/config.yaml` (server/space/tree/agent) plus Claude's
- *     `.claude/settings.json` `env.ME_AS_AGENT=<agent name>` (the literal
- *     name, not the `.me` sentinel — Claude's Bash tool runs from arbitrary
- *     cwds where a `.me` walk-up wouldn't resolve).
+ *   - write — `.me/config.yaml` (server/space/tree/agent). Harness surfaces
+ *     (MCP, hooks, the injected shell contract) resolve this agent by
+ *     config automatically (agent-by-config, HARNESS_DESIGN.md); a stale
+ *     `ME_AS_AGENT` pin in `.claude/settings.json`, written by an older `me
+ *     project init`, is removed if present (it would otherwise silently
+ *     override the injected `.me` sentinel).
  */
 import * as clack from "@clack/prompts";
 import { accessLevelName } from "@memory.build/protocol/space";
@@ -44,7 +46,11 @@ import {
   memoryPointerUpToDate,
   writeMemoryPointer,
 } from "../agent/memory-pointer.ts";
-import { writeClaudeSettingsEnv } from "../claude/settings.ts";
+import {
+  type AgentProvisioningClients,
+  provisionNewAgent,
+} from "../agent/provision.ts";
+import { removeClaudeSettingsEnvKey } from "../claude/settings.ts";
 import {
   type ResolvedCredentials,
   resolveCredentials,
@@ -333,39 +339,11 @@ export function freeAgentName(slug: string, taken: Set<string>): string {
   return candidate;
 }
 
-/** The client slices {@link provisionNewAgent} needs (injectable for tests). */
-export interface AgentProvisioningClients {
-  user: { agent: { create(p: { name: string }): Promise<{ id: string }> } };
-  memory: {
-    principal: { add(p: { principalId: string }): Promise<unknown> };
-    grant: {
-      set(p: {
-        principalId: string;
-        treePath: string;
-        access: 1 | 2 | 3;
-      }): Promise<unknown>;
-    };
-  };
-}
-
-/**
- * Provision a new project agent: create it, add it to the space (the memory
- * client is pinned to the chosen space), and grant WRITE (2) at `treePath` —
- * `""` for the whole space, else the project tree. Write, not owner: a coding
- * agent reads/writes memories but shouldn't manage access; the server clamps
- * an agent to least(agent, owner) per path, so a root grant gives it exactly
- * what the caller can reach. Returns the new agent's id.
- */
-export async function provisionNewAgent(
-  clients: AgentProvisioningClients,
-  name: string,
-  treePath: string,
-): Promise<string> {
-  const { id } = await clients.user.agent.create({ name });
-  await clients.memory.principal.add({ principalId: id });
-  await clients.memory.grant.set({ principalId: id, treePath, access: 2 });
-  return id;
-}
+// Re-exported for backward compatibility — `provisionNewAgent` moved to its
+// own leaf module (`agent/provision.ts`, imported above) so
+// `ensureDefaultAgent()` can reuse it without importing this file (which
+// pulls in the Claude install flow).
+export { type AgentProvisioningClients, provisionNewAgent };
 
 /** Step 2b — pick one of the caller's agents already in the space. */
 async function pickExistingAgent(existing: OwnedAgent[]): Promise<string> {
@@ -439,9 +417,10 @@ export async function runProjectInitWizard(
     );
   }
 
-  // Write the committed project config + Claude's settings.json env. The
-  // writers invalidate the process-wide `.me` memo, so later phases resolve
-  // the fresh pin.
+  // Write the committed project config. The writer invalidates the
+  // process-wide `.me` memo, so later phases resolve the fresh pin. Harness
+  // surfaces resolve this `agent:` automatically (agent-by-config) — no
+  // Claude settings.json pin needed.
   const configPath = writeProjectConfig(projectRoot, {
     server: creds.server,
     space: space.slug,
@@ -449,10 +428,14 @@ export async function runProjectInitWizard(
     agent: choice.name,
   });
   clack.log.success(`Wrote ${configPath}`);
-  const settingsPath = writeClaudeSettingsEnv(projectRoot, {
-    ME_AS_AGENT: choice.name,
-  });
-  clack.log.success(`Pinned ME_AS_AGENT=${choice.name} in ${settingsPath}`);
+
+  // Clean up a stale ME_AS_AGENT pin from an older `me project init` — it
+  // would otherwise silently override the injected `.me` sentinel.
+  if (removeClaudeSettingsEnvKey(projectRoot, "ME_AS_AGENT")) {
+    clack.log.success(
+      "Removed the stale ME_AS_AGENT pin from .claude/settings.json (agent-by-config now resolves it from .me/config.yaml).",
+    );
+  }
 
   return { creds, projectRoot, space, tree, agent: choice.name };
 }

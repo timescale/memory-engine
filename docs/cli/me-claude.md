@@ -6,6 +6,7 @@ Claude Code integration commands.
 
 - [me claude install](#me-claude-install) -- install the Memory Engine plugin for Claude Code (full plugin by default, `--mcp-only` for just the MCP server)
 - [me claude init](#me-claude-init) -- **deprecated** alias of [`me project init`](me-project.md)
+- [me claude env](#me-claude-env) -- invoked by the plugin's `SessionStart` hook to inject the harness-agent environment contract
 - [me claude hook](#me-claude-hook) -- invoked by the Claude Code plugin to capture events as memories
 - [me claude import](#me-claude-import) -- import Claude Code sessions from `~/.claude/projects`
 
@@ -33,8 +34,9 @@ The marketplace step is idempotent (skipped if already configured). **By default
 
 A session (non-headless) install then:
 
-1. **Persists global defaults** into `~/.config/me` — the resolved server (`default_server`) and active space. The private `~/projects` tree root and "no agent" are code defaults — install never writes them; to change the default tree root machine-wide, set [`tree_root`](../project-config.md#changing-the-default-tree-root-tree_root) in `~/.config/me/config.yaml` by hand.
-2. **Asks whether to turn on session capture** (default **no** — the capture hook ships inert). Say **yes** and it enables the machine-wide `capture: true` and runs a one-time machine-wide [`me import claude`](me-import.md) backfill — everything lands **privately** under `~/projects/<slug>`, per project. Say no and you get the tools only. Re-run `me claude install` any time to change the answer; a project's [`.me/config.yaml` `capture`](../project-config.md#the-capture-field-session-capture-onoff) overrides per project either way. (Non-interactive runs skip the prompt and leave the setting untouched.)
+1. **Persists global defaults** into `~/.config/me` — the resolved server (`default_server`) and active space. The private `~/projects` tree root is a code default — install never writes it; to change it machine-wide, set [`tree_root`](../project-config.md#changing-the-default-tree-root-tree_root) in `~/.config/me/config.yaml` by hand.
+2. **Provisions a default agent** (see [Agent-by-config](../project-config.md#agent-by-config-and-the-agent-field)): no-op if a global `agent:` is already set, or you're installing with `--api-key` (the key already IS an agent). Otherwise adopts your existing `coder` agent if you have one, or creates it with write access to your whole space, and writes it as the global `agent:` — so harness surfaces (MCP, hooks, a plain `me` call from Claude's own shell) have an agent to run as by default. Skip with `--no-default-agent`.
+3. **Asks whether to turn on session capture** (default **no** — the capture hook ships inert). Say **yes** and it enables the machine-wide `capture: true` and runs a one-time machine-wide [`me import claude`](me-import.md) backfill — everything lands **privately** under `~/projects/<slug>`, per project. Say no and you get the tools only. Re-run `me claude install` any time to change the answer; a project's [`.me/config.yaml` `capture`](../project-config.md#the-capture-field-session-capture-onoff) overrides per project either way. (Non-interactive runs skip the prompt and leave the setting untouched.)
 
 Pass `--mcp-only` to skip the plugin and register just the `me` MCP server (no hooks, no slash commands -- the previous default behavior).
 
@@ -44,6 +46,7 @@ Pass `--mcp-only` to skip the plugin and register just the `me` MCP server (no h
 | `--api-key <key>` | API key for a headless agent. Default: the plugin/MCP server uses your `me login` session, resolved at runtime. |
 | `--space <slug>` | Pin a space. Default: resolve `ME_SPACE` / active space at runtime. |
 | `--server <url>` | Pin a server. Default: use your `me login` server at runtime. |
+| `--no-default-agent` | Skip provisioning the default agent (step 2 above). |
 
 Credential handling: by default (a personal install) nothing is pinned, so the plugin (and the MCP server) uses your `me login` session, server, and active space, resolved from the OS keychain / `~/.config/me` at runtime — so it follows `me login` / `me space use` and survives re-login. Pass `--server` / `--space` to pin either. Pass `--api-key` (mint one with `me apikey create` for a personal access token, or `me apikey create --agent <agent>` for an agent) for a **headless** install that can't reach your keychain — since there's no session to fall back to, an api key bakes in a fixed server + space + key together (and skips the defaults/capture steps above — the operator's `~/.config/me` is not necessarily the agent's; capture is credential-agnostic, so a headless deployment opts in via a committed `.me` `capture: true` or `capture: true` in the target machine's config). The space is resolved from `--space`, `ME_SPACE`, or your active space (whichever is set — install errors if none, since a global key has no active space to fall back to at runtime), and `--server` defaults to your resolved server.
 
@@ -65,6 +68,23 @@ For manual MCP client configuration, see [MCP Integration](../mcp-integration.md
 | Project config | Add a memory pointer to CLAUDE.md | `--skip-claude-md` | Upserts a managed block into the project's CLAUDE.md naming the project tree (the [`.me/config.yaml` `tree`](../project-config.md) when set, else the private `~/projects/<slug>`), its `agent_sessions` and `git_history` nodes, and how to search them. Idempotent — re-runs replace the block in place. When the block is already present and up to date, the picker offers it unchecked as "Rewrite … (already present)" (non-interactive runs report it as a ✓ line and skip it); a stale block (e.g. the active space changed) keeps the step pre-checked so the re-run refreshes it. |
 
 Re-running `init` is safe: both imports are incremental/idempotent and the CLAUDE.md block is replaced, not duplicated. After the steps run, `init` closes with a recap of what is now covered — historical data imported, hooks keeping it updated going forward.
+
+---
+
+## me claude env
+
+Invoked by the plugin's `SessionStart` hook (fires on session start, resume, and `/clear`). Reads the event JSON on stdin for `cwd` and appends a small block of `export` lines to `$CLAUDE_ENV_FILE` — the file Claude Code sources before every Bash tool command:
+
+```
+ME_INJECT_V=<version>   # liveness marker
+AI_AGENT=claude         # harness identity
+ME_AS_AGENT=.me         # activation — the ordinary .me sentinel
+ME_PROJECT_DIR=<cwd>    # discovery anchor — me walks up from here
+```
+
+This is what makes a plain `me` call from Claude's Bash tool always resolve the right project (even after `cd /tmp`) and always run as the agent configured in [`.me/config.yaml` or your global config](../project-config.md#agent-by-config-and-the-agent-field) — no per-project `.claude/settings.json` pin needed. If Claude Code itself was launched inside another session's live contract (a nested harness), this command emits nothing rather than overwriting it (first-writer-wins). Idempotent otherwise — a re-run replaces its own block in place. Fails open (does nothing) if `$CLAUDE_ENV_FILE` is unset or the event payload has no `cwd`.
+
+You never run this by hand — it's wired into the plugin's `hooks.json` and installed by [`me claude install`](#me-claude-install).
 
 ---
 

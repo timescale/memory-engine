@@ -49,9 +49,9 @@ The wizard always sets the project up with a dedicated agent (there's no "run as
 - **Create a new agent with access to only this project** — same, but the write grant lands on the step-1 tree.
 - **Use an existing agent** — pick one of your agents already in the chosen space; its existing grants apply unchanged. (Hidden when you have none there.)
 
-New-agent names prefill `<slug>-agent`, bumped to a free variant. The agent's name is written as `agent:` in `.me/config.yaml` (the value source for the `--as-agent .me` / `ME_AS_AGENT=.me` sentinel) **and** as `ME_AS_AGENT=<agent name>` in the project's committed `.claude/settings.json` `env` — the **literal name**, not the sentinel, so ad-hoc `me` calls from Claude's Bash tool (which run from arbitrary directories) act as the agent too. Personal overrides belong in Claude's own `settings.local.json`.
+New-agent names prefill `<slug>-agent`, bumped to a free variant. The agent's name is written as `agent:` in `.me/config.yaml` — every harness surface (MCP, the capture hooks, a plain `me` call from an agent's own shell) resolves and acts as this agent automatically, no separate settings pin needed (see [Agent-by-config](../project-config.md#agent-by-config-and-the-agent-field)). If an older `me project init` had pinned a literal `ME_AS_AGENT=<name>` into the project's `.claude/settings.json`, this run removes it — a leftover value there would otherwise silently override the injected `.me` sentinel.
 
-> **Team caveat**: act-as-agent resolves only against the caller's **own** agents, so a committed `ME_AS_AGENT` works for the teammate who created the agent. Other teammates should run `me project init` themselves (choosing "use an existing agent" or creating their own) — see the design notes for the open team-agent-identity question.
+> **Team caveat**: `agent:` resolves only against the caller's **own** agents, so a committed `agent:` works for the teammate who created it. Other teammates should run `me project init` themselves (choosing "use an existing agent" or creating their own) — see the design notes for the open team-agent-identity question.
 
 ### 3. Setup checklist
 
@@ -82,7 +82,7 @@ agent: acme-api-agent
 capture: true
 ```
 
-plus `.claude/settings.json` gaining `"env": { "ME_AS_AGENT": "acme-api-agent" }`, the backfills, the git hook, and the CLAUDE.md pointer.
+plus the backfills, the git hook, and the CLAUDE.md pointer.
 
 ### Deprecated alias
 

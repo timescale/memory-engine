@@ -1,6 +1,17 @@
 {
-  "description": "Memory Engine capture hooks",
+  "description": "Memory Engine harness contract + capture hooks",
   "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "me claude env",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
     "Stop": [
       {
         "hooks": [
