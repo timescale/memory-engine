@@ -520,9 +520,33 @@ No harness files touched; everything unit/integration-testable.
    key). Keep writing `agent:` to `.me/config.yaml`. Existing checkouts
    with the old env keep working (explicit `ME_AS_AGENT` is still honored).
 4. **Install-time default agent**: `me claude install` runs the shared
-   `ensureDefaultAgent()` step (prompt, default yes) — provisions the
-   user's default agent and writes the global `agent:`, so fresh installs
-   never hit the no-agent fatal. (The PR 3–5 installs reuse the same step.)
+   `ensureDefaultAgent()` step (reused by the PR 3–5 installs). Skipped
+   when a global `agent:` is already set — including `.user`, a recorded
+   choice never re-prompts — or when the credential is an agent api key
+   (headless sandbox mode). The prompt (clack select; first option is the
+   default):
+
+   ```
+   Memory-engine work done by coding harnesses (MCP tools, session capture)
+   runs as an agent you own — constrainable and attributable — not as you.
+
+   ? Which agent should harnesses use by default?
+   ❯ Create an agent named "coder" (recommended)
+     Pick a different agent…
+     Always run as me — writes carry your full access (agent: .user)
+   ```
+
+   The default name is harness-neutral (`coder`, not `claude`) because the
+   global fallback is shared by all harnesses — and since `agent:` holds a
+   *name* resolved against the caller's own agents, a second machine's
+   install finds the existing `coder` and offers "Use your existing agent
+   'coder'" instead of creating one (users with several agents get a
+   picker). Creation admits the agent to the active space with the
+   standard `write@/` grant (clamped); other spaces are admitted on demand
+   — the `me mcp` eager-validation error names the fix command. Every path
+   writes the choice into the global config (`agent: <name>` or
+   `agent: .user`). Non-interactive installs apply the default and log it;
+   `--no-default-agent` opts out.
 5. Docs: `docs/project-config.md`, `docs/mcp-integration.md`, CLI reference.
 
 ### PR 3 — opencode adapter
