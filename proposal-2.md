@@ -25,6 +25,22 @@ truth, and `me`'s own code paths (MCP server, hook handlers, CLI) decide how to
 authenticate by reading it. Harness-side files carry as little as possible —
 ideally nothing project-specific at all.
 
+That inversion buys two concrete advantages:
+
+1. **No per-harness config in the project dir.** The project carries only
+   `.me/` — no generated `.mcp.json`, `.claude/settings.json`,
+   `opencode.json`, `.codex/config.toml`, or `.gemini/settings.json` to
+   create, keep in sync, or drift. Harness integrations are installed once
+   per machine, at user scope.
+2. **A checkout works without special post-checkout setup.** Everything
+   per-checkout is computed at runtime (the injection derives the project
+   dir from the live session; activation derives from the config's content),
+   so a fresh clone or a new git worktree needs no generated files. The
+   prior design needed per-checkout artifacts — an absolute `ME_CONFIG_DIR`
+   baked into `.claude/settings.local.json`, a gitignored per-user
+   `.codex/config.toml` — that had to be regenerated for every checkout of
+   every project.
+
 ## Goals
 
 1. **Agent-by-config.** If a harness (Claude Code, Codex, Gemini CLI,
