@@ -428,8 +428,20 @@ No harness files touched; everything unit/integration-testable.
 3. **Agent-by-config for harness surfaces**: a helper in
    `packages/cli/credentials.ts` that, for surface commands (`me mcp`,
    `me <harness> hook`), activates the configured agent as if
-   `--as-agent .me` were passed (reusing `resolveAsAgentFor`). MCP: fatal on
-   resolution failure. Hooks: skip capture (never capture as the user).
+   `--as-agent .me` were passed (reusing `resolveAsAgentFor`).
+   "Resolution failure" means any failure to turn the configured `agent:`
+   into a working identity: a malformed config (`ProjectConfigError`), or —
+   since the server resolves the name against the caller's **own** agents —
+   a name the caller doesn't own or that matches ambiguously (403
+   `INVALID_AGENT`; the canonical case is a teammate who cloned a repo whose
+   committed config names `coder` but hasn't created *their* `coder` agent
+   yet). Behavior: `me mcp` validates **eagerly at startup** with one
+   act-as-agent round trip (`whoami`) and exits non-zero with an actionable
+   message ("run `me agent create <name>`"), so the harness reports a dead
+   MCP server instead of every tool call 403ing; a failure after startup
+   (agent deleted mid-session) surfaces as a per-request tool error. Hooks:
+   the same failures skip capture. In every case the invariant holds: never
+   drop the agent header and retry as the user.
 4. **The failsafe** (root `preAction` in `packages/cli/index.ts`): error
    when `detectHarness()` fires ∧ no `ME_INJECT_V` ∧ no explicit
    `--as-agent`/`ME_AS_AGENT` ∧ credential is not an agent api key ∧ command
