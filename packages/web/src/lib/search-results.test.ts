@@ -1,9 +1,14 @@
 import { describe, expect, test } from "bun:test";
-import { EMPTY_ADVANCED, type FilterState } from "../store/filter.ts";
+import {
+  EMPTY_ADVANCED,
+  EMPTY_FILTER,
+  type FilterState,
+} from "../store/filter.ts";
 import {
   autoSelectTarget,
   buildTextMatchers,
   contentFragment,
+  displayResults,
   fragmentSegments,
   type TextMatchers,
 } from "./search-results.ts";
@@ -78,13 +83,69 @@ describe("fragmentSegments", () => {
   });
 });
 
-describe("autoSelectTarget", () => {
+describe("displayResults", () => {
   // Deliberately unsorted: relevance order is c (0.9), a (0.5), b (0.1).
   const results = [
     { id: "a", score: 0.5, createdAt: "2026-01-02" },
     { id: "b", score: 0.1, createdAt: "2026-01-03" },
     { id: "c", score: 0.9, createdAt: "2026-01-01" },
   ];
+  const textFilter: FilterState = {
+    ...EMPTY_FILTER,
+    mode: "simple",
+    simple: "q",
+  };
+  const orderedFilter: FilterState = {
+    ...EMPTY_FILTER,
+    mode: "advanced",
+    advanced: {
+      ...EMPTY_ADVANCED,
+      metaJson: '{"$thread":"t"}',
+      orderBy: "asc",
+    },
+  };
+
+  test("text filter → relevance order (score desc)", () => {
+    expect(displayResults(results, textFilter).map((r) => r.id)).toEqual([
+      "c",
+      "a",
+      "b",
+    ]);
+  });
+
+  test("equal scores tie-break on newest createdAt", () => {
+    const tied = results.map((r) => ({ ...r, score: 1 }));
+    expect(displayResults(tied, textFilter).map((r) => r.id)).toEqual([
+      "b",
+      "a",
+      "c",
+    ]);
+  });
+
+  test("explicit orderBy with no text criterion preserves server order", () => {
+    expect(displayResults(results, orderedFilter).map((r) => r.id)).toEqual([
+      "a",
+      "b",
+      "c",
+    ]);
+  });
+
+  test("orderBy plus a text criterion still sorts by relevance (engine ignores orderBy)", () => {
+    const withText: FilterState = {
+      ...orderedFilter,
+      advanced: { ...orderedFilter.advanced, fulltext: "q" },
+    };
+    expect(displayResults(results, withText).map((r) => r.id)).toEqual([
+      "c",
+      "a",
+      "b",
+    ]);
+  });
+});
+
+describe("autoSelectTarget", () => {
+  // Already in display order — the function picks the first entry as top.
+  const results = [{ id: "c" }, { id: "a" }, { id: "b" }];
   const base = {
     results,
     selectedId: null,
@@ -93,13 +154,8 @@ describe("autoSelectTarget", () => {
     filterChanged: true,
   };
 
-  test("no selection → picks the top result by relevance", () => {
+  test("no selection → picks the first (top) result", () => {
     expect(autoSelectTarget(base)).toBe("c");
-  });
-
-  test("equal scores tie-break on newest createdAt", () => {
-    const tied = results.map((r) => ({ ...r, score: 1 }));
-    expect(autoSelectTarget({ ...base, results: tied })).toBe("b");
   });
 
   test("empty results → leaves selection alone", () => {
