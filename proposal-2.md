@@ -145,10 +145,12 @@ next section):
   (`me doctor` flags it).
 
 - **(c) Shell — injected env, with a fail-closed detection failsafe.** The
-  harness integration injects two variables into every shell command:
-  `ME_CONFIG_DIR=<project dir>` (discovery) and `ME_AS_AGENT=.me`
-  (activation — resolve the agent from that config or die). A human's own
-  terminal has neither, so a plain `me` there stays the human (goal 2). The
+  harness integration injects the contract vars into every shell command:
+  `ME_CONFIG_DIR=<.me root>` (discovery) plus `ME_INJECT_V`/`AI_AGENT`
+  (harness-context markers). On seeing `ME_INJECT_V`, `me` applies the same
+  agent-by-config resolution as MCP and hooks (project → global → `.user` →
+  none). A human's own terminal has none of these, so a plain `me` there
+  stays the human (goal 2). The
   failsafe covers the integration not being live (untrusted Codex hooks,
   uninstalled plugin, an un-integrated harness): if the injection's liveness
   marker is **not** present but `me` detects it is being run by an agent
@@ -194,15 +196,15 @@ process; it must work out two independent facts from its environment:
 
 2. **Is a harness invoking me, or the human?** (activation — goals 1(c), 2,
    and 3). Answered by **detection**: `me` looks for evidence of a harness
-   in its environment. The primary evidence is the activation signal the
-   same injection carries (`ME_AS_AGENT=.me`, plus `AI_AGENT=<harness>` per
-   the emerging convention). The backstop evidence, for when injection
-   silently didn't run (Codex's hook trust-gate, an uninstalled plugin, a
-   harness we never integrated with, like Cursor), is the harness's own
-   native marker — detect-agent wrapped with our `OPENCODE=1`/`AGENT=1`
-   checks. Injected evidence activates agent-by-config (resolve the agent or
-   die); native-marker evidence *without* the injection's liveness var is a
-   hard error (the failsafe — see the surface sketch above). Detection is
+   in its environment. The primary evidence is the context markers the same
+   injection carries (`ME_INJECT_V`, plus `AI_AGENT=<harness>` per the
+   emerging convention). The backstop evidence, for when injection silently
+   didn't run (Codex's hook trust-gate, an uninstalled plugin, a harness we
+   never integrated with, like Cursor), is the harness's own native marker
+   — detect-agent wrapped with our `OPENCODE=1`/`AGENT=1` checks. Injected
+   evidence activates agent-by-config (project → global → `.user` → none);
+   native-marker evidence *without* the injection's liveness var is a hard
+   error (the failsafe — see the surface sketch above). Detection is
    one-directional: evidence forces agent-or-die, but the absence of all
    evidence proves nothing — `me` then runs as the human (goal 2). The native markers stay the backstop rather
    than the primary because they are undocumented internals (Codex's and
@@ -213,10 +215,10 @@ process; it must work out two independent facts from its environment:
 
 | Harness | (a) MCP server | (b) capture hooks | (c) shell: config path — how `ME_CONFIG_DIR` gets injected | (c) shell: harness detection — native backstop marker | Worktree sessions: worktree or original dir? |
 |---|---|---|---|---|---|
-| **Claude Code** | `CLAUDE_PROJECT_DIR` (set in the server's env), validated; fallback cwd walk-up | payload `cwd` walk-up (worktree-correct; what the hook code does today); `CLAUDE_PROJECT_DIR` (validated) as fallback | SessionStart hook writes `ME_CONFIG_DIR` + activation to `$CLAUDE_ENV_FILE` (sourced before each Bash command); computed from payload `cwd`, not `CLAUDE_PROJECT_DIR` | `CLAUDECODE=1` (documented; also set in IDE terminals) | Plain launch inside a worktree: **worktree** on all signals. Under `claude -w`: `CLAUDE_PROJECT_DIR` = the **original** repo root ([#27343](https://github.com/anthropics/claude-code/issues/27343)), and validation can't catch it — hence hooks/injection prefer payload `cwd` (**worktree**); the MCP spawn cwd under `-w` is unverified, so MCP may resolve the **original** |
-| **opencode** | cwd walk-up (server spawns at project dir) | plugin passes the discovered `.me` root (walk-up from its session `directory`) as `--config-dir` | `shell.env` plugin hook sets `ME_CONFIG_DIR` (+ the activation vars) directly in every shell command's env — the value is the discovered `.me` root, walked up from the session-scoped `directory` (memoized; deliberately **not** the per-command `input.cwd`, so a `workdir=/tmp` excursion keeps discovery) | `OPENCODE=1` / `AGENT=1` (CLI/TUI path); `OPENCODE_CLIENT=desktop` (desktop app) — needs our wrapper; stock detect-agent checks only `OPENCODE_CLIENT` | **Worktree** by construction: the session `directory` lives inside the checkout the session was opened in, and MCP and shell children spawn at the instance dir |
-| **Codex** | cwd walk-up (source-verified: child cwd defaults to the **session cwd** under the CLI; gap only in Desktop/VS Code hosts — env unreachable (`env_clear()`), no MCP `roots`, no pre-spawn hook; per-server `cwd` config is the only fix) | payload `cwd` passed as `--config-dir` (hook runs at session cwd) | PreToolUse rewrite prepends `export ME_CONFIG_DIR=… ME_AS_AGENT=…` to the command | `CODEX_THREAD_ID` (always injected, survives `include_only`) — covers the window where hooks are untrusted | **Worktree**: no stored project-dir signal to go stale — everything derives from the session cwd, i.e. the checkout the session started in (Desktop caveat: cwd not rebound when switching project chats, [#20725](https://github.com/openai/codex/issues/20725)) |
-| **Gemini CLI** | cwd walk-up (server spawns at launch dir) | `--config-dir "$GEMINI_PROJECT_DIR"` substituted into the hook command | BeforeTool hook rewrites `run_shell_command`'s `tool_input`, prepending `export ME_CONFIG_DIR=… ME_AS_AGENT=…` to the command | `GEMINI_CLI=1` (documented) | **Worktree**: `GEMINI_PROJECT_DIR` is literally the session cwd (no git-root resolution), so every surface follows the launch dir |
+| **Claude Code** | `CLAUDE_PROJECT_DIR` (set in the server's env), validated; fallback cwd walk-up | payload `cwd` walk-up (worktree-correct; what the hook code does today); `CLAUDE_PROJECT_DIR` (validated) as fallback | SessionStart hook writes the contract vars (`ME_INJECT_V`, `AI_AGENT`, `ME_CONFIG_DIR`) to `$CLAUDE_ENV_FILE` (sourced before each Bash command); computed from payload `cwd`, not `CLAUDE_PROJECT_DIR` | `CLAUDECODE=1` (documented; also set in IDE terminals) | Plain launch inside a worktree: **worktree** on all signals. Under `claude -w`: `CLAUDE_PROJECT_DIR` = the **original** repo root ([#27343](https://github.com/anthropics/claude-code/issues/27343)), and validation can't catch it — hence hooks/injection prefer payload `cwd` (**worktree**); the MCP spawn cwd under `-w` is unverified, so MCP may resolve the **original** |
+| **opencode** | cwd walk-up (server spawns at project dir) | plugin passes the discovered `.me` root (walk-up from its session `directory`) as `--config-dir` | `shell.env` plugin hook sets the contract vars directly in every shell command's env — `ME_CONFIG_DIR` is the discovered `.me` root, walked up from the session-scoped `directory` (memoized; deliberately **not** the per-command `input.cwd`, so a `workdir=/tmp` excursion keeps discovery) | `OPENCODE=1` / `AGENT=1` (CLI/TUI path); `OPENCODE_CLIENT=desktop` (desktop app) — needs our wrapper; stock detect-agent checks only `OPENCODE_CLIENT` | **Worktree** by construction: the session `directory` lives inside the checkout the session was opened in, and MCP and shell children spawn at the instance dir |
+| **Codex** | cwd walk-up (source-verified: child cwd defaults to the **session cwd** under the CLI; gap only in Desktop/VS Code hosts — env unreachable (`env_clear()`), no MCP `roots`, no pre-spawn hook; per-server `cwd` config is the only fix) | payload `cwd` passed as `--config-dir` (hook runs at session cwd) | PreToolUse rewrite prepends `export ME_INJECT_V=… AI_AGENT=codex ME_CONFIG_DIR=…` to the command | `CODEX_THREAD_ID` (always injected, survives `include_only`) — covers the window where hooks are untrusted | **Worktree**: no stored project-dir signal to go stale — everything derives from the session cwd, i.e. the checkout the session started in (Desktop caveat: cwd not rebound when switching project chats, [#20725](https://github.com/openai/codex/issues/20725)) |
+| **Gemini CLI** | cwd walk-up (server spawns at launch dir) | `--config-dir "$GEMINI_PROJECT_DIR"` substituted into the hook command | BeforeTool hook rewrites `run_shell_command`'s `tool_input`, prepending `export ME_INJECT_V=… AI_AGENT=gemini-cli ME_CONFIG_DIR=…` to the command | `GEMINI_CLI=1` (documented) | **Worktree**: `GEMINI_PROJECT_DIR` is literally the session cwd (no git-root resolution), so every surface follows the launch dir |
 
 Getting the *worktree* is the right answer for discovery, but it has a
 consequence: the committed `.me/config.yaml` travels with the worktree (it's
@@ -231,8 +233,8 @@ One asymmetry worth naming: **Codex MCP in IDE/desktop hosts** is the only
 surface where no signal reaches us at all. It degrades to "runs as the user",
 which is goal-3-relevant only when the config defines an agent — the
 doctor/install flow should check for exactly this condition. Every shell
-surface, by contrast, has both an injection channel (config path +
-activation signal) and a native-marker detection backstop — provided our
+surface, by contrast, has both an injection channel (config path + context
+markers) and a native-marker detection backstop — provided our
 detection wrapper adds opencode's `OPENCODE=1` / `AGENT=1` itself (stock
 detect-agent misses the opencode terminal path).
 
@@ -402,19 +404,31 @@ itself is static and person-less.
 
 | Variable | When injected | Meaning |
 |---|---|---|
-| `ME_INJECT_V=<version>` | always (integration live) | liveness + version marker; what the failsafe and `me doctor` key on |
+| `ME_INJECT_V=<version>` | always (integration live) | harness-context marker: liveness + version — what the failsafe, `me doctor`, and the shell's agent-by-config key on |
 | `AI_AGENT=<harness>` | always | identity, per the detect-agent convention (innermost harness wins) |
-| `ME_CONFIG_DIR=<project dir>` | when a `.me/` is in scope for the session | discovery — pins config resolution regardless of cwd |
-| `ME_AS_AGENT=.me` | when an agent is in scope (project config, else the global config's fallback `agent:`; `agent: .user` opts out) | activation — resolve the agent from config scope or die |
+| `ME_CONFIG_DIR=<.me root>` | when the session's walk-up finds a `.me/` | discovery — pins config resolution regardless of cwd |
 
-The tiering is what makes the unconditional failsafe compose with the goals'
-boundary: in a **non-me project with the integration installed**,
-`ME_INJECT_V` is present but `ME_AS_AGENT` is not, so `me` runs as the human
-and the failsafe stays quiet. In a **me-project whose injection silently
-didn't run** (untrusted Codex hooks, disabled plugin), detection sees a
-marker without `ME_INJECT_V` and errors (goal 3). In a **non-me project
-without the integration**, an agent-run `me` also errors — the decided
-unconditional posture, with the install hint as the error message.
+**Activation is deliberately not injected.** `ME_INJECT_V` already tells the
+CLI "this invocation is harness context", so on seeing it `me` applies the
+*same* agent-by-config resolution as MCP and hooks — project `agent:` →
+global `agent:` → `.user` → none — in the one place that owns the precedence
+logic. Injecting `ME_AS_AGENT=.me` instead would force every adapter to
+replicate that precedence just to gate the variable (a project-file check
+alone would wrongly skip the global fallback), and an ungated injection
+would hard-throw in no-agent projects where the boundary says "run as the
+user". `ME_AS_AGENT` therefore stays what it is today: the explicit human
+override (flag/env), never ambient — the `.me` sentinel keeps its hard-throw
+semantics for someone who explicitly requests agent mode with nothing
+configured, and an explicit value always beats the ambient context.
+
+How the cases fall out: **non-me project, integration installed** — with a
+global `agent:` the shell acts as that agent (matching MCP); with none, or
+with `.user`, it runs as the human, and the failsafe stays quiet
+(`ME_INJECT_V` is present). **Me-project whose injection silently didn't
+run** (untrusted Codex hooks, disabled plugin) — detection sees a native
+marker without `ME_INJECT_V` and errors (goal 3). **No integration at all**
+— an agent-run `me` errors, the decided unconditional posture, with the
+install hint as the message.
 
 **Failure directions are deliberately opposite.** Injection is fail-open — a
 broken adapter must never break the harness; worst case the vars are absent.
@@ -454,10 +468,16 @@ No harness files touched; everything unit/integration-testable.
    `CLAUDE_PROJECT_DIR` (accepted only if the dir contains `.me/`) > cwd
    walk-up. Safe to apply globally: the env var only exists in hook/MCP
    processes.
-3. **Agent-by-config for harness surfaces**: a helper in
-   `packages/cli/credentials.ts` that, for surface commands (`me mcp`,
-   `me <harness> hook`), activates the configured agent as if
-   `--as-agent .me` were passed (reusing `resolveAsAgentFor`).
+3. **Agent-by-config for harness contexts**: a helper in
+   `packages/cli/credentials.ts` that activates the configured agent
+   (project `agent:` → global `agent:` → `.user` → none, reusing
+   `resolveAsAgentFor`) for the surface commands (`me mcp`,
+   `me <harness> hook`) **and** for any command running with `ME_INJECT_V`
+   in its env (the injected harness-shell context). An explicit
+   `--as-agent`/`ME_AS_AGENT` always wins over the ambient context, and the
+   explicit `.me` sentinel keeps its hard-throw semantics. The no-agent
+   case differs by surface: fatal for MCP, skip for hooks, run-as-user for
+   the shell (the shared surface's boundary).
    "Resolution failure" means any failure to turn the configured `agent:`
    into a working identity: a malformed config (`ProjectConfigError`), or —
    since the server resolves the name against the caller's **own** agents —
@@ -557,11 +577,11 @@ No harness files touched; everything unit/integration-testable.
    harness anchors on a git-root concept — they all inject the `.me` root
    discovered from the session cwd. Likewise the per-command `input.cwd` is
    not the anchor (a `workdir=/tmp` excursion would lose discovery exactly
-   when injection matters). Cheap `.me/` presence + `agent:` check (file
-   read + regex, cached per root) gates the activation var; the contract
-   vars are set on every command. Also pass the same discovered root as
-   `--config-dir` on the `me opencode hook` shell-out (today it leans on
-   `process.cwd()`).
+   when injection matters). The plugin parses no config at all: the
+   filesystem walk-up gates only `ME_CONFIG_DIR`; the context markers are
+   set unconditionally and the CLI owns all agent resolution. Also pass the
+   same discovered root as `--config-dir` on the `me opencode hook`
+   shell-out (today it leans on `process.cwd()`).
 2. Bump the plugin template version/marker so `me opencode install`
    refreshes existing installs.
 
