@@ -305,8 +305,9 @@ function shellQuoteArg(token: string): string {
  * caller to quote `~`, but only when the value is the caller's filesystem home
  * or a child of it (the tell-tale of `~` expansion). A real memory tree path is
  * never an absolute filesystem path, so this never fires on a legitimate filter.
- * Returns null otherwise. Call it only on a zero-result path: a non-null return
- * then means "no matches AND the filter looks shell-expanded".
+ * Returns null otherwise. Call it only when the path produced nothing useful —
+ * a zero-result response, or an access denial (via {@link forbiddenTreeHint}):
+ * a non-null return then means the filter looks shell-expanded.
  *
  * The suggestion is the *full command* as typed, with the shell-expanded home
  * token swapped for the quoted `~` form (and any other arg quoted as needed) so
@@ -420,6 +421,32 @@ export function describeForbiddenError(
 }
 
 /**
+ * The shell-tilde hint for an access denial. Commands whose SQL function
+ * *raises* on insufficient access (`delete_tree`, `move_tree`, `copy_tree`,
+ * `create_memory`, `patch_memory`) fail with `FORBIDDEN` before any zero-count
+ * feedback, so a shell-expanded `~` path surfaces as "Insufficient tree access"
+ * and the zero-result hint path never runs. Given the tree value(s) as they
+ * arrived in argv, return {@link shellTildeExpansionHint}'s nudge for the first
+ * one that looks shell-expanded — but only for a `FORBIDDEN` error, so the hint
+ * never muddies an unrelated failure (e.g. an auth error). `argv`/`home` are
+ * injectable for testing.
+ */
+export function forbiddenTreeHint(
+  error: unknown,
+  tree: string | readonly (string | undefined)[] | undefined,
+  argv?: readonly string[],
+  home?: string,
+): string | null {
+  if (tree === undefined || !isForbidden(error)) return null;
+  const candidates = typeof tree === "string" ? [tree] : tree;
+  for (const candidate of candidates) {
+    const hint = shellTildeExpansionHint(candidate, argv, home);
+    if (hint) return hint;
+  }
+  return null;
+}
+
+/**
  * Handle an error from an RPC call. Formats per output mode and exits.
  *
  * Pass `opts.creds` for commands that authenticate (every RPC command). On an
@@ -428,11 +455,19 @@ export function describeForbiddenError(
  * (account-scoped, session auth) clears the stored token so the next command
  * says "Not logged in"; api-key auth and ambiguous space-scoped 401s leave it
  * intact.
+ *
+ * Pass `opts.tree` (the raw tree-path argv value(s)) for commands whose server
+ * call denies access at a bad path: on a `FORBIDDEN` error a shell-expanded `~`
+ * gets the quoting hint appended — see {@link forbiddenTreeHint}.
  */
 export function handleError(
   error: unknown,
   fmt: OutputFormat,
-  opts?: { creds?: ResolvedCredentials; scope?: AuthScope },
+  opts?: {
+    creds?: ResolvedCredentials;
+    scope?: AuthScope;
+    tree?: string | readonly (string | undefined)[];
+  },
 ): never {
   let msg =
     error instanceof RpcError
@@ -461,8 +496,10 @@ export function handleError(
     }
   }
 
+  const hint = forbiddenTreeHint(error, opts?.tree);
+
   if (fmt === "text") {
-    clack.log.error(msg);
+    clack.log.error(hint ? `${msg}\n${hint}` : msg);
   } else {
     output(code ? { error: msg, code } : { error: msg }, fmt, () => {});
   }

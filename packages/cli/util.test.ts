@@ -20,6 +20,7 @@ const {
   shellTildeExpansionHint,
   describeAuthError,
   describeForbiddenError,
+  forbiddenTreeHint,
 } = await import("./util.ts");
 
 const UUID = "019d694f-79f6-7595-8faf-b70b01c11f98";
@@ -325,5 +326,85 @@ describe("describeForbiddenError", () => {
         "space",
       ),
     ).toBeNull();
+  });
+});
+
+// =============================================================================
+// forbiddenTreeHint
+// =============================================================================
+
+describe("forbiddenTreeHint", () => {
+  test("FORBIDDEN + shell-expanded tree returns the quoting hint", () => {
+    // `me rmtree ~/projects` — the shell expands `~`, the path lands outside
+    // every grant, and delete_tree denies access before returning any count.
+    expect(
+      forbiddenTreeHint(
+        forbidden(),
+        `${HOME}/projects`,
+        argv("rmtree", `${HOME}/projects`),
+        HOME,
+      ),
+    ).toBe(
+      "Hint: your shell may have expanded '~'. Try: me rmtree '~/projects'",
+    );
+  });
+
+  test("returns null for a non-FORBIDDEN error", () => {
+    expect(
+      forbiddenTreeHint(
+        unauthorized(),
+        `${HOME}/projects`,
+        argv("rmtree", `${HOME}/projects`),
+        HOME,
+      ),
+    ).toBeNull();
+    expect(
+      forbiddenTreeHint(
+        new Error("boom"),
+        `${HOME}/projects`,
+        argv("rmtree", `${HOME}/projects`),
+        HOME,
+      ),
+    ).toBeNull();
+  });
+
+  test("returns null for a legitimate tree path or no tree at all", () => {
+    expect(
+      forbiddenTreeHint(
+        forbidden(),
+        "share/notes",
+        argv("rmtree", "share/notes"),
+        HOME,
+      ),
+    ).toBeNull();
+    expect(
+      forbiddenTreeHint(forbidden(), undefined, argv("rmtree"), HOME),
+    ).toBeNull();
+  });
+
+  test("scans candidates in order, hinting the first shell-expanded one", () => {
+    // `me memory move share/notes ~/archive` — only the destination was
+    // expanded; the source is a real tree path.
+    expect(
+      forbiddenTreeHint(
+        forbidden(),
+        ["share/notes", `${HOME}/archive`],
+        argv("memory", "move", "share/notes", `${HOME}/archive`),
+        HOME,
+      ),
+    ).toBe(
+      "Hint: your shell may have expanded '~'. Try: me memory move share/notes '~/archive'",
+    );
+    // An undefined candidate (an omitted option) is skipped, not an error.
+    expect(
+      forbiddenTreeHint(
+        forbidden(),
+        [undefined, `${HOME}/archive`],
+        argv("update", UUID, "--tree", `${HOME}/archive`),
+        HOME,
+      ),
+    ).toBe(
+      `Hint: your shell may have expanded '~'. Try: me update ${UUID} --tree '~/archive'`,
+    );
   });
 });
