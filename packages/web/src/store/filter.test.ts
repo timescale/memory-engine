@@ -8,6 +8,7 @@ import {
   summarizeFilter,
   useFilter,
 } from "./filter.ts";
+import { useSelection } from "./selection.ts";
 
 function withSimple(q: string): FilterState {
   return { ...EMPTY_FILTER, mode: "simple", simple: q };
@@ -273,5 +274,44 @@ describe("summarizeFilter (advanced mode)", () => {
         withAdvanced({ weightsSemantic: "0.7", weightsFulltext: "0.3" }),
       ).chips,
     ).toEqual(["weights: sem=0.7, full=0.3"]);
+  });
+});
+
+describe("filter edits demote a link-sourced selection", () => {
+  function resetStores() {
+    useFilter.getState().hydrate(EMPTY_FILTER);
+    useSelection.getState().select(null);
+  }
+
+  test("hydrate (URL load / popstate) keeps link protection", () => {
+    resetStores();
+    useSelection.getState().select("m1", "link");
+    useFilter.getState().hydrate(withSimple("from-url"));
+    expect(useSelection.getState().selectedVia).toBe("link");
+  });
+
+  test("each user-driven mutation demotes to user", () => {
+    const mutations: ((f: ReturnType<typeof useFilter.getState>) => void)[] = [
+      (f) => f.setSimple("typed"),
+      (f) => f.setAdvanced({ semantic: "typed" }),
+      (f) => f.setMode("advanced"),
+      (f) => f.applyMetaJsonFilter({ kind: "note" }),
+      (f) => f.clear(),
+    ];
+    for (const mutate of mutations) {
+      resetStores();
+      useSelection.getState().select("m1", "link");
+      mutate(useFilter.getState());
+      expect(useSelection.getState().selectedVia).toBe("user");
+      expect(useSelection.getState().selectedId).toBe("m1");
+    }
+  });
+
+  test("a user-sourced selection is left as-is", () => {
+    resetStores();
+    useSelection.getState().select("m1");
+    useFilter.getState().setSimple("typed");
+    expect(useSelection.getState().selectedVia).toBe("user");
+    expect(useSelection.getState().selectedId).toBe("m1");
   });
 });

@@ -23,13 +23,13 @@ export function useUrlSync(): void {
   useEffect(() => {
     const decoded = decodeUrlState(window.location.search);
     useFilter.getState().hydrate(decoded.filter);
-    useSelection.getState().select(decoded.selectedId);
+    useSelection.getState().select(decoded.selectedId, "link");
     setHasHydratedUrlState(true);
 
     const onPop = () => {
       const next = decodeUrlState(window.location.search);
       useFilter.getState().hydrate(next.filter);
-      useSelection.getState().select(next.selectedId);
+      useSelection.getState().select(next.selectedId, "link");
     };
     window.addEventListener("popstate", onPop);
     return () => window.removeEventListener("popstate", onPop);

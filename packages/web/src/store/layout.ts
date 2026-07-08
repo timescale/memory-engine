@@ -1,40 +1,64 @@
 /**
- * Persisted UI layout state — sidebar width (and room for more later).
+ * Persisted UI layout state — sidebar width, search-results column width
+ * (and room for more later).
  *
- * Width is stored in localStorage via zustand's `persist` middleware so
- * the user's chosen sidebar width survives reloads as well as normal
+ * Widths are stored in localStorage via zustand's `persist` middleware so
+ * the user's chosen pane sizes survive reloads as well as normal
  * in-session navigation.
  */
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
-import {
-  clampSearchResultsHeight,
-  DEFAULT_SEARCH_RESULTS_HEIGHT,
-} from "../lib/split-pane.ts";
 
 export const MIN_SIDEBAR_WIDTH = 200;
 export const MAX_SIDEBAR_WIDTH = 720;
 export const DEFAULT_SIDEBAR_WIDTH = 300;
 
+export const MIN_SEARCH_COLUMN_WIDTH = 280;
+export const MAX_SEARCH_COLUMN_WIDTH = 640;
+export const DEFAULT_SEARCH_COLUMN_WIDTH = 380;
+
 interface LayoutState {
   sidebarWidth: number;
   /** When true, the header's search pane is hidden and only the summary is shown. */
   searchCollapsed: boolean;
-  /** Height in pixels of the relevance-results pane above the tree. */
-  searchResultsHeight: number;
+  /** Width in pixels of the relevance-results column between tree and editor. */
+  searchColumnWidth: number;
 }
 
 interface LayoutActions {
   setSidebarWidth(width: number): void;
   setSearchCollapsed(collapsed: boolean): void;
   toggleSearchCollapsed(): void;
-  setSearchResultsHeight(height: number): void;
+  setSearchColumnWidth(width: number): void;
 }
 
 export function clampSidebarWidth(width: number): number {
-  if (!Number.isFinite(width)) return DEFAULT_SIDEBAR_WIDTH;
-  if (width < MIN_SIDEBAR_WIDTH) return MIN_SIDEBAR_WIDTH;
-  if (width > MAX_SIDEBAR_WIDTH) return MAX_SIDEBAR_WIDTH;
+  return clampWidth(
+    width,
+    MIN_SIDEBAR_WIDTH,
+    MAX_SIDEBAR_WIDTH,
+    DEFAULT_SIDEBAR_WIDTH,
+  );
+}
+
+export function clampSearchColumnWidth(width: number): number {
+  return clampWidth(
+    width,
+    MIN_SEARCH_COLUMN_WIDTH,
+    MAX_SEARCH_COLUMN_WIDTH,
+    DEFAULT_SEARCH_COLUMN_WIDTH,
+  );
+}
+
+function clampWidth(
+  width: number,
+  min: number,
+  max: number,
+  fallback: number,
+): number {
+  if (!Number.isFinite(width)) return fallback;
+  if (width < min) return min;
+  if (width > max) return max;
   return Math.round(width);
 }
 
@@ -43,7 +67,7 @@ export const useLayout = create<LayoutState & LayoutActions>()(
     (set) => ({
       sidebarWidth: DEFAULT_SIDEBAR_WIDTH,
       searchCollapsed: false,
-      searchResultsHeight: DEFAULT_SEARCH_RESULTS_HEIGHT,
+      searchColumnWidth: DEFAULT_SEARCH_COLUMN_WIDTH,
       setSidebarWidth(width) {
         set({ sidebarWidth: clampSidebarWidth(width) });
       },
@@ -53,13 +77,21 @@ export const useLayout = create<LayoutState & LayoutActions>()(
       toggleSearchCollapsed() {
         set((state) => ({ searchCollapsed: !state.searchCollapsed }));
       },
-      setSearchResultsHeight(height) {
-        set({ searchResultsHeight: clampSearchResultsHeight(height) });
+      setSearchColumnWidth(width) {
+        set({ searchColumnWidth: clampSearchColumnWidth(width) });
       },
     }),
     {
       name: "me-web:layout",
-      version: 1,
+      // v2: `searchResultsHeight` (results pane stacked above the tree in the
+      // sidebar) replaced by `searchColumnWidth` (results column in the main
+      // pane).
+      version: 2,
+      migrate(persisted) {
+        const { searchResultsHeight: _dropped, ...rest } = (persisted ??
+          {}) as Record<string, unknown>;
+        return rest;
+      },
     },
   ),
 );

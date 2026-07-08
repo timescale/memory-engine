@@ -1,4 +1,3 @@
-import type { MemoryWithScoreResponse } from "@memory.build/client";
 import type { FilterState } from "../store/filter.ts";
 
 const RESULT_FRAGMENT_MAX_CHARS = 180;
@@ -18,12 +17,54 @@ export function hasTextFilter(state: FilterState): boolean {
 }
 
 export function compareResultsByRelevance(
-  a: MemoryWithScoreResponse,
-  b: MemoryWithScoreResponse,
+  a: { score: number; createdAt: string },
+  b: { score: number; createdAt: string },
 ): number {
   const scoreCmp = b.score - a.score;
   if (scoreCmp !== 0) return scoreCmp;
   return b.createdAt.localeCompare(a.createdAt);
+}
+
+/**
+ * Decide which memory (if any) the search-results pane should auto-select
+ * when a result set arrives, so the preview pane reflects the search
+ * instead of sitting idle. Returns the id to select, or null to leave the
+ * selection alone.
+ *
+ * Selects the top result by relevance. A changed query (`filterChanged`)
+ * always re-selects — "is the old selection among the results" is no
+ * signal to keep it, because semantic search matches nearly everything —
+ * while a refetch of the same query keeps a still-matching selection (the
+ * user's place). Two guards always win:
+ *   - a selection from a shared link (`selectedVia === "link"`) — a
+ *     `?selected=…` URL may deliberately pair a memory with a filter it
+ *     doesn't match. The protection lasts until the user edits the filter
+ *     (the filter store demotes the selection to "user");
+ *   - unsaved editor changes (never discard them from a passive effect).
+ */
+export function autoSelectTarget(args: {
+  results: { id: string; score: number; createdAt: string }[];
+  selectedId: string | null;
+  selectedVia: "user" | "link";
+  editorDirty: boolean;
+  /** True when the result set belongs to a different query than the last one handled. */
+  filterChanged: boolean;
+}): string | null {
+  const { results, selectedId, selectedVia, editorDirty, filterChanged } = args;
+  if (results.length === 0) return null;
+  if (selectedId !== null && selectedVia === "link") return null;
+  if (editorDirty) return null;
+  if (
+    !filterChanged &&
+    selectedId !== null &&
+    results.some((r) => r.id === selectedId)
+  ) {
+    return null;
+  }
+  const top = results.reduce((best, r) =>
+    compareResultsByRelevance(r, best) < 0 ? r : best,
+  );
+  return top.id === selectedId ? null : top.id;
 }
 
 export function buildTextMatchers(filter: FilterState): TextMatchers {
@@ -69,6 +110,79 @@ export function contentFragment(
   const end = Math.min(compact.length, start + RESULT_FRAGMENT_MAX_CHARS);
   const adjustedStart = Math.max(0, end - RESULT_FRAGMENT_MAX_CHARS);
   return `${adjustedStart > 0 ? "…" : ""}${compact.slice(adjustedStart, end)}${end < compact.length ? "…" : ""}`;
+}
+
+export interface FragmentSegment {
+  text: string;
+  match: boolean;
+}
+
+/**
+ * Split a fragment into alternating plain/matched segments so the view can
+ * highlight the parts that matched the text filter. Term matches are
+ * case-insensitive; a grep regex is applied globally. Overlapping or
+ * adjacent match ranges are merged.
+ */
+export function fragmentSegments(
+  fragment: string,
+  matchers: TextMatchers,
+): FragmentSegment[] {
+  const ranges: [number, number][] = [];
+
+  const lower = fragment.toLowerCase();
+  for (const term of matchers.terms) {
+    let from = 0;
+    for (
+      let index = lower.indexOf(term, from);
+      index !== -1;
+      index = lower.indexOf(term, from)
+    ) {
+      ranges.push([index, index + term.length]);
+      from = index + term.length;
+    }
+  }
+
+  if (matchers.regex) {
+    const global = new RegExp(matchers.regex.source, "gi");
+    for (
+      let match = global.exec(fragment);
+      match !== null;
+      match = global.exec(fragment)
+    ) {
+      // A zero-width match would loop forever at the same lastIndex.
+      if (match[0].length === 0) {
+        global.lastIndex += 1;
+        continue;
+      }
+      ranges.push([match.index, match.index + match[0].length]);
+    }
+  }
+
+  if (ranges.length === 0) return [{ text: fragment, match: false }];
+
+  ranges.sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+  const merged: [number, number][] = [];
+  for (const range of ranges) {
+    const last = merged[merged.length - 1];
+    if (last && range[0] <= last[1]) {
+      last[1] = Math.max(last[1], range[1]);
+    } else {
+      merged.push([range[0], range[1]]);
+    }
+  }
+
+  const segments: FragmentSegment[] = [];
+  let pos = 0;
+  for (const [start, end] of merged) {
+    if (start > pos)
+      segments.push({ text: fragment.slice(pos, start), match: false });
+    segments.push({ text: fragment.slice(start, end), match: true });
+    pos = end;
+  }
+  if (pos < fragment.length) {
+    segments.push({ text: fragment.slice(pos), match: false });
+  }
+  return segments;
 }
 
 export function formatScore(score: number): string {

@@ -1,19 +1,30 @@
 import type { MemoryWithScoreResponse } from "@memory.build/client";
-import { useEffect, useRef } from "react";
-import { formatScore } from "../lib/search-results.ts";
+import { useEffect, useMemo, useRef } from "react";
+import {
+  type FragmentSegment,
+  formatScore,
+  fragmentSegments,
+  type TextMatchers,
+} from "../lib/search-results.ts";
 import { useMemorySelection } from "../lib/useMemorySelection.ts";
 import { useUi } from "../store/ui.ts";
 
 export function SearchResultRow({
   fragment,
+  matchers,
   memory,
 }: {
   fragment: string;
+  matchers: TextMatchers;
   memory: MemoryWithScoreResponse;
 }) {
   const { selected, selectMemory } = useMemorySelection(memory.id);
   const openContextMenu = useUi((s) => s.openContextMenu);
   const rowRef = useRef<HTMLLIElement>(null);
+  const segments = useMemo(
+    () => fragmentSegments(fragment, matchers),
+    [fragment, matchers],
+  );
 
   useEffect(() => {
     if (!selected) return;
@@ -61,8 +72,31 @@ export function SearchResultRow({
             {formatScore(memory.score)}
           </span>
         </div>
-        <div className="line-clamp-2 text-[13px] leading-snug">{fragment}</div>
+        <div className="line-clamp-3 text-[13px] leading-snug">
+          {segmentsWithKeys(segments).map(({ key, segment }) =>
+            segment.match ? (
+              <mark key={key} className="rounded-[2px] bg-solar/60 text-ink">
+                {segment.text}
+              </mark>
+            ) : (
+              <span key={key}>{segment.text}</span>
+            ),
+          )}
+        </div>
       </button>
     </li>
   );
+}
+
+/**
+ * Key each segment by its character offset — stable for a given fragment,
+ * unlike an array index shared between text and mark nodes.
+ */
+function segmentsWithKeys(segments: FragmentSegment[]) {
+  let offset = 0;
+  return segments.map((segment) => {
+    const key = offset;
+    offset += segment.text.length;
+    return { key, segment };
+  });
 }
