@@ -519,38 +519,32 @@ No harness files touched; everything unit/integration-testable.
    (`writeClaudeSettingsEnv` call removed; add cleanup of the stale managed
    key). Keep writing `agent:` to `.me/config.yaml`. Existing checkouts
    with the old env keep working (explicit `ME_AS_AGENT` is still honored).
-4. **Install-time default agent**: `me claude install` runs the shared
-   `ensureDefaultAgent()` step (reused by the PR 3–5 installs). Skipped
-   when a global `agent:` is already set — including `.user`, a recorded
-   choice never re-prompts — or when the credential is an agent api key
-   (headless sandbox mode). Behavior depends on what the user already owns:
+4. **Install-time default agent — no prompt, always `coder`**:
+   `me claude install` runs the shared `ensureDefaultAgent()` step (reused
+   by the PR 3–5 installs). No-op when a global `agent:` is already set
+   (including `.user`) or the credential is an agent api key (headless
+   sandbox mode). Otherwise: adopt the user's existing `coder` agent if one
+   exists, else create it with full permissions (the standard `write@/`
+   grant, clamped by the owner's own access) and admit it to the active
+   space; write global `agent: coder`; announce:
 
-   - **No agents at all** (the beginner path): no prompt, no choice to
-     misunderstand — create the `coder` agent with full permissions (the
-     standard `write@/` grant, clamped by the owner's own access), admit it
-     to the active space, write global `agent: coder`, and announce it:
+   ```
+   Coding harnesses will act as your agent "coder" — their work is
+   attributable, and you can restrict its access at any time. To use a
+   different agent, set `agent:` in ~/.config/me/config.yaml or run
+   `me project init` for a per-project choice.
+   ```
 
-     ```
-     Created agent "coder" — coding harnesses will act as it, so their
-     work is attributable and you can restrict its access later
-     (`me agent --help`).
-     ```
-
-   - **Owns agents already**: one clack select. First option (the default)
-     is "Use my existing \"coder\" agent (recommended)" when a `coder`
-     exists, else "Create a \"coder\" agent with full permissions
-     (recommended)"; "Pick a different agent…" appears only when other
-     agents exist. **No `.user` option** — that escape hatch is
-     config-only, so the wizard never steers a beginner into user-mode.
-
-   The default name is harness-neutral (`coder`, not `claude`) because the
-   global fallback is shared by all harnesses — and since `agent:` holds a
-   *name* resolved against the caller's own agents, a second machine's
-   install finds the existing `coder` and lands on the use-existing path.
-   Other spaces are admitted on demand — the `me mcp` eager-validation
-   error names the fix command. Every path writes global `agent: <name>`.
-   Non-interactive installs apply the default and log it;
-   `--no-default-agent` opts out.
+   Rationale for a default instead of a wizard question: the choice is one
+   reversible config line, so prompting front-loads a decision beginners
+   can't yet evaluate — and the agents an expert already owns are typically
+   project-scoped, i.e. wrong for the *global* default anyway. A fixed name
+   keeps docs and errors concrete, and — since `agent:` resolves by name
+   against the caller's own agents — a second machine's install adopts the
+   same agent automatically. Other spaces are admitted on demand (the
+   `me mcp` eager-validation error names the fix). Deliberate per-project
+   agent choice stays in `me project init`; `--no-default-agent` skips the
+   step for scripted installs.
 5. Docs: `docs/project-config.md`, `docs/mcp-integration.md`, CLI reference.
 
 ### PR 3 — opencode adapter
