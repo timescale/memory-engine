@@ -11,12 +11,11 @@ under tree `Z`" once, and have every tool that touches the repo agree.
 
 The interactive [`me project init`](cli/me-project.md) wizard writes this file
 for you — `server` + `space` (pinned together, so a committed config is
-self-contained), the `tree`, a dedicated `agent`, and the `capture` flag — and
-also pins `ME_AS_AGENT=<agent name>` into the project's committed
-`.claude/settings.json` `env` so ad-hoc `me` calls from Claude's Bash tool act
-as the project agent too (the literal name, not the `.me` sentinel — the Bash
-tool runs from arbitrary directories where a `.me` walk-up wouldn't resolve;
-personal overrides belong in Claude's own `settings.local.json`).
+self-contained), the `tree`, a dedicated `agent`, and the `capture` flag.
+Every harness surface (MCP, the Claude/OpenCode capture hooks, and a plain
+`me` call from an agent's own shell) then resolves that `agent` automatically
+— see [Agent-by-config](#agent-by-config-and-the-agent-field) below — so
+there's no separate `.claude/settings.json` pin to keep in sync.
 
 ## The file
 
@@ -38,8 +37,11 @@ breaks an agent session.)
 
 > `agent:` names the project's default agent and is the value source for the
 > `.me` sentinel: `--as-agent .me` / `ME_AS_AGENT=.me` resolves to it and sends
-> `X-Me-As-Agent`. It never activates agent mode on its own — activation is
-> always explicit via the flag/env.
+> `X-Me-As-Agent`. A harness surface (MCP, the capture hooks, a harness's own
+> shell) activates this automatically — see
+> [Agent-by-config](#agent-by-config-and-the-agent-field). A committed
+> `agent: .user` is a fatal error (see below); it's valid only in
+> `.me/config.local.yaml` or your global config.
 
 ## Trusted servers (credential safety)
 
@@ -79,6 +81,17 @@ walk and uses that directory's `.me/` directly. (The one exception is the bulk
 session sweep, `me import <tool>`: it routes every session by its *own* project's
 config, so it rejects an explicit pin — see
 [agent session imports](cli/agent-session-imports.md).)
+
+There's also **`--project-dir <dir>`** / **`ME_PROJECT_DIR`** — an ANCHOR
+rather than an exact location: `me` still walks up from it, it just replaces
+`cwd` as the walk-up's starting point. This is what the harness-injected
+shell contract sets on every command an agent's tool shell runs (see
+[MCP Integration](mcp-integration.md)), so a `cd /tmp && me …` from an
+agent's shell still discovers the right project. You won't usually set this
+by hand. Precedence, highest first: `--config-dir`/`ME_CONFIG_DIR` (exact) >
+`--project-dir`/`ME_PROJECT_DIR` (anchor) > cwd walk-up > a validated
+harness-provided fallback (today: Claude's `CLAUDE_PROJECT_DIR`, accepted
+only if it actually contains a `.me/`).
 
 ## Committed vs. local (`.me/config.local.yaml`)
 
@@ -179,3 +192,43 @@ When capture is off the hooks exit silently — no error, nothing written. The
 same resolution applies to **every** harness's hooks (Claude and OpenCode
 alike); `me claude install` and `me opencode install` both ask the capture
 question and write the machine-wide flag.
+
+## Agent-by-config and the `agent` field
+
+A harness surface — the MCP server (`me mcp`), the capture hooks, and a plain
+`me` call from an agent's own tool shell (Claude, OpenCode, and — soon — Codex
+and Gemini CLI) — resolves and acts as the configured agent automatically,
+with no `--as-agent` flag needed. This is what makes an agent's work
+attributable (it shows up as that agent, not as you) and access-scoped (the
+server clamps the agent to its own grants, whatever your own access is).
+
+Resolution, per harness invocation:
+
+1. the project's `.me/config.yaml` **`agent`**, else
+2. the **global** `agent` in `~/.config/me/config.yaml`, else
+3. **nothing in scope** — `me mcp` fails to start with an actionable error;
+   the capture hooks silently skip (never captures as you); a harness's own
+   shell errors rather than falling back to your credentials.
+
+Case 3 is rare in practice: every `me claude install` / `me opencode install`
+provisions-or-adopts a default agent (named `coder`) and writes it as the
+global fallback the first time you install (skip with `--no-default-agent`).
+
+### The `.user` sentinel — opting a project (or machine) out
+
+Sometimes you deliberately want harness work to run as **you** — a personal
+project, a script you trust. Set `agent: .user` in `.me/config.local.yaml`
+(never the committed `.me/config.yaml` — see below) or in your global
+`~/.config/me/config.yaml`, or pass `--as-agent .user` / `ME_AS_AGENT=.user`
+on a one-off invocation.
+
+A **committed** `agent: .user` is a fatal `ProjectConfigError` — a repo author
+writing it into the tracked `.me/config.yaml` would silently switch every
+cloning teammate's harness surfaces to their own full user credentials, which
+is a bigger blast radius than a committed `agent: <name>` (that can at worst
+403, since names resolve against the caller's own agents). Put it in
+`.me/config.local.yaml` (gitignored, personal) instead.
+
+See [MCP Integration](mcp-integration.md) for how this plays out for `me
+mcp`, and the harness-injected shell contract that makes a plain `me` call
+from an agent's own tool shell resolve the same way.

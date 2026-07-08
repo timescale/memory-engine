@@ -58,6 +58,14 @@ function writeMe(body: string): void {
   setConfigDirOverride(projectDir);
 }
 
+/** Write a `.me/config.local.yaml` into the pinned project dir + refresh the cache. */
+function writeMeLocal(body: string): void {
+  mkdirSync(join(projectDir, ".me"), { recursive: true });
+  writeFileSync(join(projectDir, ".me", "config.local.yaml"), body);
+  resetProjectConfigCache();
+  setConfigDirOverride(projectDir);
+}
+
 beforeEach(() => {
   savedEnv = {};
   for (const k of ENV_KEYS) savedEnv[k] = process.env[k];
@@ -381,6 +389,92 @@ test("resolveAsAgent: env .me sentinel also resolves via the project agent", () 
   process.env.ME_AS_AGENT = ".me";
   expect(creds.resolveAsAgent()).toBe("my-project-agent");
   expect(creds.resolveCredentials().asAgent).toBe("my-project-agent");
+});
+
+// =============================================================================
+// Global default agent + the `.user` sentinel
+// =============================================================================
+
+test("the .me sentinel falls back to the global agent when no project agent is in scope", () => {
+  writeMe("space: sp_no_agent\n");
+  creds.setGlobalAgent("global-coder");
+  creds.setAsAgentOverride(".me");
+  expect(creds.resolveAsAgent()).toBe("global-coder");
+});
+
+test("a project agent wins over the global agent", () => {
+  writeMe("agent: project-agent\n");
+  creds.setGlobalAgent("global-coder");
+  creds.setAsAgentOverride(".me");
+  expect(creds.resolveAsAgent()).toBe("project-agent");
+});
+
+test("explicit --as-agent .user resolves to undefined (deliberate user-mode)", () => {
+  creds.setAsAgentOverride(".user");
+  expect(creds.isAsAgentRequested()).toBe(true);
+  expect(creds.resolveAsAgent()).toBeUndefined();
+  expect(creds.resolveCredentials().asAgent).toBeUndefined();
+});
+
+test("agent: .user in the global config resolves .me to undefined", () => {
+  writeMe("space: sp_no_agent\n");
+  creds.setGlobalAgent(".user");
+  creds.setAsAgentOverride(".me");
+  expect(creds.resolveAsAgent()).toBeUndefined();
+});
+
+test("agent: .user in .me/config.local.yaml resolves .me to undefined", () => {
+  writeMe("space: sp_committed\n");
+  writeMeLocal("agent: .user\n");
+  creds.setAsAgentOverride(".me");
+  expect(creds.resolveAsAgent()).toBeUndefined();
+});
+
+test("getGlobalAgent/setGlobalAgent round-trip", () => {
+  expect(creds.getGlobalAgent()).toBeUndefined();
+  creds.setGlobalAgent("coder");
+  expect(creds.getGlobalAgent()).toBe("coder");
+});
+
+// =============================================================================
+// resolveHarnessAgent — ambient agent-by-config for harness surfaces (MCP,
+// hooks). Unlike resolveAsAgent, activates the `.me` sentinel WITHOUT
+// requiring an explicit flag/env.
+// =============================================================================
+
+test("resolveHarnessAgent: ambient activation uses the project agent with no flag/env", () => {
+  writeMe("agent: project-agent\n");
+  expect(creds.isAsAgentRequested()).toBe(false); // not explicitly requested
+  expect(creds.resolveHarnessAgent()).toBe("project-agent");
+});
+
+test("resolveHarnessAgent: falls back to the global agent when no project agent", () => {
+  writeMe("space: sp_no_agent\n");
+  creds.setGlobalAgent("global-coder");
+  expect(creds.resolveHarnessAgent()).toBe("global-coder");
+});
+
+test("resolveHarnessAgent: throws when nothing is in scope anywhere", () => {
+  writeMe("space: sp_no_agent\n");
+  expect(() => creds.resolveHarnessAgent()).toThrow(/none is in scope/);
+});
+
+test("resolveHarnessAgent: an explicit --as-agent overrides ambient resolution", () => {
+  writeMe("agent: project-agent\n");
+  creds.setAsAgentOverride("explicit-agent");
+  expect(creds.resolveHarnessAgent()).toBe("explicit-agent");
+});
+
+test("resolveHarnessAgent: explicit --as-agent .user opts out even with a project agent", () => {
+  writeMe("agent: project-agent\n");
+  creds.setAsAgentOverride(".user");
+  expect(creds.resolveHarnessAgent()).toBeUndefined();
+});
+
+test("resolveHarnessAgent: global agent: .user opts out ambiently (no project agent)", () => {
+  writeMe("space: sp_no_agent\n");
+  creds.setGlobalAgent(".user");
+  expect(creds.resolveHarnessAgent()).toBeUndefined();
 });
 
 test("store + read an OAuth token set (file fallback)", () => {
