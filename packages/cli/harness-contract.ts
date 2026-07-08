@@ -16,10 +16,13 @@
  *                       anchor `me` walks up from at invocation time
  *
  * This module centralizes the names + version so adapters and the
- * failsafe/detection code can't drift, plus a shared shell-file writer for
- * adapters (like Claude's) that inject via a sourced env file rather than an
- * in-process object (opencode, Codex, Gemini mutate a JS/JSON value directly
- * and don't need the block-text form).
+ * failsafe/detection code can't drift. Three render forms cover the three
+ * injection mechanisms: a marker-delimited shell-file block for adapters
+ * that inject via a sourced env file (Claude's `$CLAUDE_ENV_FILE`), an
+ * in-process env object for adapters that mutate one directly (opencode's
+ * `shell.env` hook), and a single-line `export …; ` command prefix for
+ * adapters that rewrite a command STRING rather than touch env at all
+ * (Codex/Gemini's PreToolUse/BeforeTool rewrites).
  *
  * The single gate every adapter must apply is **first-writer-wins**: when a
  * live `ME_INJECT_V` is already in the *adapter's own* inherited env, emit
@@ -95,6 +98,20 @@ const BLOCK_END = "# <<< memory-engine (harness contract) <<<";
 /** Shell-quote a value for a POSIX `export NAME="value"` line. */
 function shellQuote(value: string): string {
   return `"${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/\$/g, "\\$").replace(/`/g, "\\`")}"`;
+}
+
+/**
+ * Render `vars` as a single-line `export NAME="value" ...; ` prefix (trailing
+ * space, so it reads naturally prepended to a command string) — used by the
+ * Codex/Gemini rewrite hooks, which mutate a tool-input command string rather
+ * than a real process env (Claude/opencode inject via
+ * {@link upsertContractBlock} / a `shell.env` hook instead).
+ */
+export function renderExportPrefix(vars: Record<string, string>): string {
+  const assignments = Object.entries(vars)
+    .map(([name, value]) => `${name}=${shellQuote(value)}`)
+    .join(" ");
+  return `export ${assignments}; `;
 }
 
 /** Render `vars` as a marker-delimited block of POSIX `export` lines. */
