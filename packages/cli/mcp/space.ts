@@ -44,11 +44,13 @@ export function describeMcpSpaceProblem(
 export async function validateMcpSpace(options: {
   server: string;
   apiKey?: string;
+  asAgent?: string;
   space: string;
 }): Promise<string | undefined> {
   const user = createUserClient({
     url: options.server,
     ...userBearer(options.server, options.apiKey),
+    asAgent: options.asAgent,
   });
 
   try {

@@ -91,6 +91,7 @@ function createMcpRunAction() {
     const spaceProblem = await validateMcpSpace({
       server: creds.server,
       apiKey,
+      asAgent: creds.asAgent,
       space,
     });
     if (spaceProblem) {

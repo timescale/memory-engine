@@ -65,7 +65,12 @@ export async function runAgentMcpInstall(
       );
       process.exit(1);
     }
-    const spaceProblem = await validateMcpSpace({ server, apiKey, space });
+    const spaceProblem = await validateMcpSpace({
+      server,
+      apiKey,
+      asAgent: creds.asAgent,
+      space,
+    });
     if (spaceProblem) {
       clack.log.error(spaceProblem);
       process.exit(1);
@@ -81,6 +86,7 @@ export async function runAgentMcpInstall(
     if (opts.space) {
       const spaceProblem = await validateMcpSpace({
         server,
+        asAgent: creds.asAgent,
         space: opts.space,
       });
       if (spaceProblem) {
