@@ -4,6 +4,7 @@ import {
   buildTextMatchers,
   compareResultsByRelevance,
   contentFragment,
+  hasTextFilter,
 } from "../lib/search-results.ts";
 import type { FilterState } from "../store/filter.ts";
 import { SearchResultRow } from "./SearchResultRow.tsx";
@@ -24,6 +25,9 @@ export function SearchResultsList({
     () => [...results].sort(compareResultsByRelevance),
     [results],
   );
+  // Without a text criterion (pure tree/meta/temporal filter) there is no
+  // relevance signal — hide the meaningless score badges.
+  const showScore = hasTextFilter(filter);
 
   return (
     <div className="min-h-full">
@@ -52,7 +56,7 @@ export function SearchResultsList({
         <div className="p-3 text-[13px] text-ink/50">Searching…</div>
       ) : sortedResults.length === 0 ? (
         <div className="p-3 text-[13px] text-ink/50">
-          No memories match the current text filter.
+          No memories match the current filter.
         </div>
       ) : (
         <ol className="divide-y divide-ink/[0.08]">
@@ -62,6 +66,7 @@ export function SearchResultsList({
               memory={memory}
               fragment={contentFragment(memory.content, textMatchers)}
               matchers={textMatchers}
+              showScore={showScore}
             />
           ))}
         </ol>
