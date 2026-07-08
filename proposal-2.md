@@ -476,9 +476,14 @@ no-agent-anywhere is fatal for `me mcp` and a skip for hooks — offset by
 install-time default-agent provisioning, with `agent: .user` as the
 explicit user-mode opt-out.
 
-### PR 1 — CLI core: detection, failsafe, agent-by-config
+### PR 1 — end-to-end: CLI core + Claude + opencode
 
-No harness files touched; everything unit/integration-testable.
+One PR shipping the complete design for the two harnesses that already have
+integrations, structured as three reviewable commit groups in this order —
+**core** (no harness files touched; fully unit/integration-testable on its
+own), then **Claude**, then **opencode**.
+
+#### Core
 
 1. **`packages/cli/harness-detect.ts`** (new): `detectHarness()` wrapping
    `@vercel/detect-agent` plus our extra checks (`OPENCODE=1`, `AGENT=1`,
@@ -533,9 +538,9 @@ No harness files touched; everything unit/integration-testable.
    names so sentinels can never collide with a real agent. Add
    a shared `ensureDefaultAgent()` helper (reusing the `provisionNewAgent`
    machinery from `me project init`) that provisions-or-finds the user's
-   default agent and writes it as the global `agent:` — wired into each
-   `me <harness> install` in PRs 2–5, and named by the `me mcp` fatal error
-   and `me doctor` as the one-command fix. Migration: existing installs hit
+   default agent and writes it as the global `agent:` — wired into the
+   Claude/opencode installs below and the PR 2–3 installs, and named by the
+   `me mcp` fatal error and `me doctor` as the one-command fix. Migration: existing installs hit
    the fatal on upgrade until they run it — the error message *is* the
    migration path.
 5. **The failsafe** (root `preAction` in `packages/cli/index.ts`): error
@@ -551,7 +556,7 @@ No harness files touched; everything unit/integration-testable.
    agent-key and allowlist exemptions), `me mcp` agent-by-config + eager
    startup validation against local Postgres.
 
-### PR 2 — Claude adapter
+#### Claude adapter
 
 1. **`me claude env`** (new subcommand): reads the SessionStart payload and
    appends the contract block to `$CLAUDE_ENV_FILE` — idempotent block
@@ -562,7 +567,7 @@ No harness files touched; everything unit/integration-testable.
    omission case in the subcommand.
 2. **`packages/claude-plugin/hooks/hooks.json`**: add the SessionStart hook
    invoking it. Existing Stop/SessionEnd hooks stay; their handler picks up
-   agent-by-config from PR 1.
+   agent-by-config from the core commits.
 3. **`me project init`** (`packages/cli/commands/project.ts`): stop writing
    `ME_AS_AGENT` into committed `.claude/settings.json`
    (`writeClaudeSettingsEnv` call removed; add cleanup of the stale managed
@@ -570,7 +575,8 @@ No harness files touched; everything unit/integration-testable.
    with the old env keep working (explicit `ME_AS_AGENT` is still honored).
 4. **Install-time default agent — no prompt, always `coder`**:
    `me claude install` runs the shared `ensureDefaultAgent()` step (reused
-   by the PR 3–5 installs). No-op when a global `agent:` is already set
+   by the opencode install below and the PR 2–3 installs). No-op when a
+   global `agent:` is already set
    (including `.user`) or the credential is an agent api key (headless
    sandbox mode). Otherwise: adopt the user's existing `coder` agent if one
    exists, else create it with full permissions (the standard `write@/`
@@ -596,7 +602,7 @@ No harness files touched; everything unit/integration-testable.
    step for scripted installs.
 5. Docs: `docs/project-config.md`, `docs/mcp-integration.md`, CLI reference.
 
-### PR 3 — opencode adapter
+#### opencode adapter
 
 1. **`packages/cli/opencode/plugin-template.ts`**: add the `shell.env` hook
    — it sets the four contract vars unconditionally, all literals:
@@ -612,7 +618,7 @@ No harness files touched; everything unit/integration-testable.
 2. Bump the plugin template version/marker so `me opencode install`
    refreshes existing installs.
 
-### PR 4 — Codex: injection + MCP
+### PR 2 — Codex: injection + MCP
 
 1. **`me codex env-hook`** (new): stdin PreToolUse payload → `updatedInput`
    with the `export …; ` prefix prepended (shlex-quoted, prefix-only);
@@ -625,9 +631,9 @@ No harness files touched; everything unit/integration-testable.
    is the post-upgrade check. Verify user-scope hook trust semantics during
    implementation.
 3. Document the Desktop/VS Code MCP limitation + the per-server `cwd`
-   workaround (goal-3 gap; doctor check in PR 6).
+   workaround (goal-3 gap; doctor check in PR 4).
 
-### PR 5 — Gemini: injection + MCP
+### PR 3 — Gemini: injection + MCP
 
 1. **`me gemini env-hook`** (new): stdin BeforeTool payload →
    `hookSpecificOutput.tool_input` with the same prepended exports;
@@ -638,7 +644,7 @@ No harness files touched; everything unit/integration-testable.
    `run_shell_command`). Gating on `.me/` presence keeps non-me projects
    uninjected-but-live (`ME_INJECT_V` still set).
 
-### PR 6 — `me doctor` (lightweight — no harness spawning)
+### PR 4 — `me doctor` (lightweight — no harness spawning)
 
 A read-only diagnosis, on the failsafe allowlist by necessity (its job is to
 run in states where other commands fail closed). Exit code non-zero on any
