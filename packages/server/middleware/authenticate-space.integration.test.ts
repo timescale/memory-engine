@@ -20,6 +20,7 @@ import { AS_AGENT_HEADER } from "@memory.build/protocol/headers";
 import postgres, { type Sql } from "postgres";
 import { createBetterAuth } from "../auth/betterauth";
 import { addSpaceCreator } from "../provision";
+import { memoryMethods } from "../rpc/memory";
 import { seedUserSpace } from "../test-support";
 import { authenticateSpace, SPACE_HEADER } from "./authenticate-space";
 
@@ -105,6 +106,28 @@ async function mintAccessToken(userId: string): Promise<string> {
     [hash, userId],
   );
   return raw;
+}
+
+async function createAuthUser(emailAddress = email()): Promise<string> {
+  const [row] = await sql`select uuidv7() as id`;
+  const userId = row?.id as string;
+  await sql.unsafe(
+    `insert into ${authSchema}.users (id, name, email, email_verified)
+     values ($1, $2, $3, true)`,
+    [userId, "Tester", emailAddress],
+  );
+  await engineCore.coreStore(sql, coreSchema).createUser(userId, emailAddress);
+  return userId;
+}
+
+async function removeHomeGrant(spaceId: string, principalId: string) {
+  await engineCore
+    .coreStore(sql, coreSchema)
+    .removeTreeAccessGrant(
+      spaceId,
+      principalId,
+      `home.${principalId.replaceAll("-", "")}`,
+    );
 }
 
 // Provision a user + space and return its slug, the user id, and a bearer (a
@@ -220,6 +243,55 @@ test("api key: a user's own key (PAT) resolves as the user with full grants", as
   }
 });
 
+test("session: direct member with zero tree grants authenticates", async () => {
+  const p = await provision();
+  const core = engineCore.coreStore(sql, coreSchema);
+  const memberId = await createAuthUser();
+  await core.addPrincipalToSpace(p.spaceId, memberId);
+  await removeHomeGrant(p.spaceId, memberId);
+  expect(await core.buildTreeAccess(memberId, p.spaceId)).toEqual([]);
+  const token = await mintAccessToken(memberId);
+
+  const result = await authenticateSpace(
+    req({ token, space: p.spaceSlug }),
+    deps(),
+  );
+  expect(result.ok).toBe(true);
+  if (result.ok) {
+    expect(result.context.principalId).toBe(memberId);
+    expect(result.context.admin).toBe(false);
+    expect(result.context.treeAccess).toEqual([]);
+  }
+});
+
+test("session: last admin with zero tree grants can still authenticate and manage structure", async () => {
+  const p = await provision();
+  const core = engineCore.coreStore(sql, coreSchema);
+  await core.removeTreeAccessGrant(p.spaceId, p.userId, "share");
+  await removeHomeGrant(p.spaceId, p.userId);
+  expect(await core.buildTreeAccess(p.userId, p.spaceId)).toEqual([]);
+
+  const result = await authenticateSpace(
+    req({ token: p.token, space: p.spaceSlug }),
+    deps(),
+  );
+  expect(result.ok).toBe(true);
+  if (result.ok) {
+    expect(result.context.admin).toBe(true);
+    expect(result.context.treeAccess).toEqual([]);
+    const registered = memoryMethods.get("principal.list");
+    if (!registered) throw new Error("principal.list not registered");
+    const listed = (await registered.handler(
+      {},
+      {
+        request: new Request("http://localhost/api/v1/memory/rpc"),
+        ...result.context,
+      },
+    )) as { principals: { id: string }[] };
+    expect(listed.principals.some((m) => m.id === p.userId)).toBe(true);
+  }
+});
+
 test("api key is global: one key authenticates into every space the agent belongs to", async () => {
   const p = await provision();
   const core = engineCore.coreStore(sql, coreSchema);
@@ -305,7 +377,7 @@ test("invalid session token → 401", async () => {
   if (!result.ok) expect(result.error.status).toBe(401);
 });
 
-test("api key: agent with no access in the requested space → 403", async () => {
+test("api key: agent that is not a member of the requested space → 403", async () => {
   const p = await provision();
   const other = await provision();
   const core = engineCore.coreStore(sql, coreSchema);
@@ -318,8 +390,8 @@ test("api key: agent with no access in the requested space → 403", async () =>
     engineCore.ACCESS.read,
   );
   const key = await core.createApiKey(agentId, "ci");
-  // A valid global key, but the agent has no access in `other` — the access gate
-  // (build_tree_access empty) denies it rather than a parse-time rejection.
+  // A valid global key, but the agent has no principal_space membership in
+  // `other` — the membership gate denies it rather than a parse-time rejection.
   const fullKey = engineCore.formatApiKey(key.lookupId, key.secret);
   const result = await authenticateSpace(
     req({ token: fullKey, space: other.spaceSlug }),
@@ -329,10 +401,10 @@ test("api key: agent with no access in the requested space → 403", async () =>
   if (!result.ok) expect(result.error.status).toBe(403);
 });
 
-test("session: member of another space has no grant here → 403", async () => {
+test("session: member of another space is not a member here → 403", async () => {
   const a = await provision();
   const b = await provision();
-  // b's session against a's space — b has no grant in a's space.
+  // b's session against a's space — b has no membership in a's space.
   const result = await authenticateSpace(
     req({ token: b.token, space: a.spaceSlug }),
     deps(),
@@ -466,11 +538,11 @@ test("act-as: unknown/unowned/non-agent header → 403 INVALID_AGENT", async () 
   }
 });
 
-test("act-as: owned agent with no access in this space → 403", async () => {
+test("act-as: owned agent that is not a member of this space → 403", async () => {
   const p = await provision();
   const core = engineCore.coreStore(sql, coreSchema);
-  // An owned agent that is NOT a member of the space (no grant) — the access
-  // gate (empty build_tree_access) denies after the switch.
+  // An owned agent that is NOT a member of the space — the membership gate denies
+  // after the switch.
   const agentId = await core.createAgent(p.userId, `agent-${rand()}`);
 
   const result = await authenticateSpace(

@@ -711,6 +711,13 @@ test("create without write access → FORBIDDEN", async () => {
   );
 });
 
+test("create with no tree access → FORBIDDEN", async () => {
+  await expectAppError(
+    call("memory.create", { content: "nope", tree: "share.nope" }, []),
+    "FORBIDDEN",
+  );
+});
+
 test("memory.embeddingStatus reports the space embedding backlog", async () => {
   type Status = {
     pending: number;

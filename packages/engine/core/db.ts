@@ -90,6 +90,8 @@ export interface CoreStore {
   ): Promise<SpacePrincipal[]>;
   /** Whether a principal is an admin of a space (agents are never admins). */
   isSpaceAdmin(principalId: string, spaceId: string): Promise<boolean>;
+  /** Whether a principal has a direct principal_space membership row. */
+  isPrincipalInSpace(principalId: string, spaceId: string): Promise<boolean>;
   /** Whether a member is an admin of a group (agents are never group admins). */
   isGroupAdmin(
     memberId: string,
@@ -442,6 +444,13 @@ export function coreStore(sql: Sql, schema: string = CORE_SCHEMA): CoreStore {
     async isSpaceAdmin(principalId, spaceId) {
       const [row] = await sql`
         select ${sch}.is_principal_space_admin(${principalId}, ${spaceId}) as ok
+      `;
+      return Boolean(row?.ok);
+    },
+
+    async isPrincipalInSpace(principalId, spaceId) {
+      const [row] = await sql`
+        select ${sch}.is_principal_in_space(${principalId}, ${spaceId}) as ok
       `;
       return Boolean(row?.ok);
     },
