@@ -222,13 +222,25 @@ repos); locality-first would let any repo carrying a committed
 it — or hard-fail on the server trust gate in a way that reads as
 breakage. Config adoption happens once, at session start, in the directory
 the human opened. Deliberate cross-project operation stays explicit:
-`--config-dir` / `ME_CONFIG_DIR`. Nested harnesses stay correct per level
-because each *live* adapter re-injects its own session's anchor on every
-command; the residual gap is an inner harness whose injection is dead —
-its shells inherit the outer session's anchor *and* its `ME_INJECT_V`, so
-they resolve the outer project without tripping the failsafe (deferred;
-candidate fix: treat a native marker that mismatches `AI_AGENT` as
-injection-not-live).
+`--config-dir` / `ME_CONFIG_DIR`. The same principle applies recursively
+to **nested harnesses** (Claude spawning `codex exec`): the inner session
+was opened by an *agent*, not the human, so letting its spawn location
+pick the config would be config adoption by wandering — instead the
+initiating session's contract propagates down the process tree. Adapters
+are **first-writer-wins**: an env subcommand that finds a live
+`ME_INJECT_V` already in its inherited env emits nothing, so the outer
+contract survives whether or not the inner integration is live (without
+this, which project governs a nested session would flip on Codex's
+hook-trust state). Inheritance violates no goal — the inherited sentinel
+still resolves an agent, never the user. Three consequences, accepted:
+the inner session's MCP/hooks still resolve the *inner* dir (Codex MCP is
+unreachable by env — unavoidable under any framing; visible only when
+nesting across projects); `AI_AGENT` names the *initiating* harness, not
+the executing one (authorization is identical either way; `me doctor`
+reports both); and deliberate delegation to the inner project stays
+possible — launch the nested harness with the contract stripped
+(`env -u ME_INJECT_V -u ME_AS_AGENT -u ME_PROJECT_DIR codex …`) or use
+`--config-dir` per call.
 
 The shell surface (c) has two questions the other surfaces never need to
 ask. MCP and hook invocations are harness surfaces *by construction* — when
@@ -470,12 +482,15 @@ itself is static and person-less.
 | Variable | When injected | Meaning |
 |---|---|---|
 | `ME_INJECT_V=<version>` | always (integration live) | liveness + version marker — what the failsafe and `me doctor` key on |
-| `AI_AGENT=<harness>` | always | identity, per the detect-agent convention (innermost harness wins) |
+| `AI_AGENT=<harness>` | always | identity, per the detect-agent convention; names the **initiating** harness — a nested harness inherits the initiator's contract (first-writer-wins) |
 | `ME_AS_AGENT=.me` | always (integration live) | activation — the ordinary `.me` sentinel: resolve the agent from config scope, or fail |
 | `ME_PROJECT_DIR=<session dir>` | always (integration live) | discovery **anchor** — `me` walks up from here at invocation time, regardless of cwd |
 
-All four values are unconditional literals the harness already knows —
-adapters run no discovery, hold no gating, and have no omission cases.
+All four values are literals the harness already knows — adapters run no
+discovery and parse no config. The single gate is **first-writer-wins**:
+when a live `ME_INJECT_V` is already in the inherited env, the adapter
+emits nothing, so a nested harness preserves the initiating session's
+contract instead of clobbering it (see the anchor paragraph).
 `ME_CONFIG_DIR` / `--config-dir` keeps its existing exact-location,
 no-walk-up semantics as the explicit override (precedence: exact >
 anchor > cwd walk-up > validated harness var). Anchoring rather than
@@ -540,7 +555,10 @@ v1 (`OPENCODE_TERMINAL` exemption deferred); harness-only surfaces
 **require** an agent in scope — no-agent-anywhere is fatal for `me mcp`
 and a skip for hooks — offset by install-time default-agent provisioning,
 with `.user` (config `agent: .user`, or explicit `--as-agent .user` /
-`ME_AS_AGENT=.user`) as the deliberate user-mode opt-out.
+`ME_AS_AGENT=.user`) as the deliberate user-mode opt-out; **nested
+harnesses inherit the initiating session's contract** — adapters are
+first-writer-wins (emit nothing when a live `ME_INJECT_V` is already in
+the inherited env).
 
 ### PR 1 — end-to-end: CLI core + Claude + opencode
 
@@ -643,8 +661,11 @@ own), then **Claude**, then **opencode**.
    replacement (SessionStart refires on resume and `/clear`). All four vars
    are literals: `ME_PROJECT_DIR` is the payload `cwd` verbatim — the
    anchor `me` walks up from at each invocation, so a mid-session
-   `me project init` is picked up immediately. No discovery, no gating, no
-   omission case in the subcommand.
+   `me project init` is picked up immediately. One gate only:
+   **first-writer-wins** — if the hook's own env already carries a live
+   `ME_INJECT_V` (this Claude was spawned inside another session's
+   contract), write nothing. Otherwise no discovery and no config parsing
+   in the subcommand.
 2. **`packages/claude-plugin/hooks/hooks.json`**: add the SessionStart hook
    invoking it. Existing Stop/SessionEnd hooks stay; their handler picks up
    agent-by-config from the core commits.
@@ -685,9 +706,11 @@ own), then **Claude**, then **opencode**.
 #### opencode adapter
 
 1. **`packages/cli/opencode/plugin-template.ts`**: add the `shell.env` hook
-   — it sets the four contract vars unconditionally, all literals:
+   — it sets the four contract vars, all literals:
    `ME_PROJECT_DIR` is the session-scoped `directory`, verbatim. No
-   walk-up, no config parsing, no gating in the plugin at all — `me`
+   walk-up and no config parsing in the plugin; the one gate is
+   first-writer-wins (skip when `process.env.ME_INJECT_V` is already set —
+   opencode itself was launched inside another session's contract) — `me`
    resolves from the anchor at invocation time. `worktree` is deliberately
    unused (a git-root anchor would miss monorepo sub-project configs, and
    no other harness anchors on a git-root concept), and the per-command
@@ -704,7 +727,9 @@ The two rewrite-family adapters, structural twins: a `me`-owned env-hook
 reads the stdin payload and returns a tool-input override with the same
 `export …; ` prefix prepended (shlex-quoted, prefix-only); `ME_PROJECT_DIR`
 is the payload `cwd`, verbatim (the anchor); any internal error or payload
-mismatch is fail-open (emit nothing). Vendor the tested payload shapes.
+mismatch is fail-open (emit nothing); first-writer-wins applies here too —
+a live `ME_INJECT_V` in the hook's own env means emit nothing. Vendor the
+tested payload shapes.
 
 1. **`me codex env-hook`** (new): PreToolUse payload → `updatedInput`;
    empty stdout on error.
@@ -733,7 +758,9 @@ scripts. Four sections:
    closed here for agents — rerun `me <harness> install`", or "no
    integration exists for <harness> — file a GitHub issue" when there is no
    installer, noting an interactive terminal runs as the human via the TTY
-   exemption; nothing → human terminal);
+   exemption; nothing → human terminal; native markers naming a harness
+   other than `AI_AGENT` → informational nested note, "contract initiated
+   by claude, running under codex");
    which source won the project dir (exact / anchor / cwd walk-up /
    validated harness var) and the effective server/space/tree/agent with the layer
    each came from; bottom line: what memory operations here run as.
@@ -774,17 +801,17 @@ later if it earns its keep.
   visibly; non-me project with integration: `me` runs as the **global
   default agent** (or fails loudly with no agent in scope — never silently
   as the user).
-- The nested-harness case (Claude → `codex exec`): inner markers win where
-  present; at minimum no crash and no user-credential fallback.
+- The nested-harness case (Claude → `codex exec`): the outer contract wins
+  (first-writer) — the inner shell's `me whoami` acts as the initiating
+  session's agent whether or not the inner integration is live; stripping
+  the contract vars at launch hands the inner session its own; never a
+  user-credential fallback.
 
 ### Deferred (tracked, not in this push)
 
 Codex/Gemini capture hooks; the opencode built-in-terminal human exemption
 (`OPENCODE_TERMINAL=1`); worktree fallback to the main checkout's
-`config.local.yaml`; the nested-harness stale-anchor gap (an inner harness
-whose injection is dead inherits the outer session's anchor +
-`ME_INJECT_V` — candidate fix: a native marker mismatching `AI_AGENT`
-treated as injection-not-live); upstream PRs (detect-agent
-`OPENCODE`/`AGENT` checks, Codex MCP roots/workspace-cwd).
+`config.local.yaml`; upstream PRs (detect-agent `OPENCODE`/`AGENT` checks,
+Codex MCP roots/workspace-cwd).
 - _MCP needs no injection (surface (a) has its own discovery), and on Codex
   it couldn't receive env anyway (`env_clear()`)._
