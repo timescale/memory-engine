@@ -61,7 +61,7 @@ const EXPECTED_MEMORY_FUNCTIONS = [
   "list_tree",
   "move_tree",
   "patch_memory",
-  "reconcile_tree",
+  "delete_orphans_in_tree",
   "resolve_memory_id",
   "search_memory",
   "tree_access",
@@ -484,7 +484,7 @@ describe("provisioned schema is functional", () => {
     expect(Number(capped?.n)).toBe(2);
   });
 
-  test("reconcile_tree deletes stale importer rows; kept/foreign/unnamed survive", async () => {
+  test("delete_orphans_in_tree deletes stale importer rows; kept/foreign/unnamed survive", async () => {
     // Importer-stamped: one kept slot, one stale slot, one unnamed row.
     // Foreign: same root, different meta stamp — must never be touched.
     await createMemory(
@@ -507,7 +507,7 @@ describe("provisioned schema is functional", () => {
 
     const call = (dryRun: boolean) =>
       sql.unsafe(
-        `select * from ${canonical.schema}.reconcile_tree(` +
+        `select * from ${canonical.schema}.delete_orphans_in_tree(` +
           `${OWNER}, 'a.rec'::ltree, '{"source":"t"}'::jsonb, ` +
           `array['a.rec.docs']::ltree[], array['kept.md']::text[], ${dryRun})`,
       );
@@ -529,31 +529,31 @@ describe("provisioned schema is functional", () => {
     expect(rest.map((r) => r.content)).toEqual(["foreign", "kept", "unnamed"]);
   });
 
-  test("reconcile_tree refuses empty scope, ragged arrays, nulls, weak access", async () => {
+  test("delete_orphans_in_tree refuses empty scope, ragged arrays, nulls, weak access", async () => {
     const good = `'{"source":"t"}'::jsonb, array[]::ltree[], array[]::text[], false`;
     // Unscoped reconcile (empty meta) is refused at the SQL layer.
     await expectReject(() =>
       sql.unsafe(
-        `select * from ${canonical.schema}.reconcile_tree(${OWNER}, 'a.rec2'::ltree, '{}'::jsonb, array[]::ltree[], array[]::text[], false)`,
+        `select * from ${canonical.schema}.delete_orphans_in_tree(${OWNER}, 'a.rec2'::ltree, '{}'::jsonb, array[]::ltree[], array[]::text[], false)`,
       ),
     );
     // Ragged keep-list arrays.
     await expectReject(() =>
       sql.unsafe(
-        `select * from ${canonical.schema}.reconcile_tree(${OWNER}, 'a.rec2'::ltree, '{"source":"t"}'::jsonb, array['a.rec2']::ltree[], array[]::text[], false)`,
+        `select * from ${canonical.schema}.delete_orphans_in_tree(${OWNER}, 'a.rec2'::ltree, '{"source":"t"}'::jsonb, array['a.rec2']::ltree[], array[]::text[], false)`,
       ),
     );
     // Null keep-list entries (a null slot would silently read as "delete").
     await expectReject(() =>
       sql.unsafe(
-        `select * from ${canonical.schema}.reconcile_tree(${OWNER}, 'a.rec2'::ltree, '{"source":"t"}'::jsonb, array['a.rec2']::ltree[], array[null]::text[], false)`,
+        `select * from ${canonical.schema}.delete_orphans_in_tree(${OWNER}, 'a.rec2'::ltree, '{"source":"t"}'::jsonb, array['a.rec2']::ltree[], array[null]::text[], false)`,
       ),
     );
     // Read-only grant: the up-front write gate refuses.
     const reader = `'[{"tree_path": "", "access": 1}]'::jsonb`;
     await expectReject(() =>
       sql.unsafe(
-        `select * from ${canonical.schema}.reconcile_tree(${reader}, 'a.rec2'::ltree, ${good})`,
+        `select * from ${canonical.schema}.delete_orphans_in_tree(${reader}, 'a.rec2'::ltree, ${good})`,
       ),
     );
   });

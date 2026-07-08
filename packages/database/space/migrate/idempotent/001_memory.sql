@@ -961,11 +961,11 @@ set search_path to pg_catalog, {{schema}}, public, pg_temp
 ;
 
 -------------------------------------------------------------------------------
--- reconcile tree
+-- delete orphans in tree
 -------------------------------------------------------------------------------
--- Set-based reconcile-delete for importer-maintained subtrees: delete every
--- NAMED row under `_root` matching `_meta_contains` whose (tree, name) slot is
--- not in the keep-list — one statement, one snapshot, so there is no
+-- Delete the ORPHANS of an importer-maintained subtree: every NAMED row
+-- under `_root` matching `_meta_contains` whose (tree, name) slot is not in
+-- the keep-list — one statement, one snapshot, so there is no
 -- enumerate/delete race and no page cap. The keep-list is the caller's walked
 -- slot set (parallel arrays, per batch_create_memory); `_meta_contains` is the
 -- ownership guard: only rows stamped by the calling importer (e.g.
@@ -973,19 +973,19 @@ set search_path to pg_catalog, {{schema}}, public, pg_temp
 -- never touched. Unnamed rows are never candidates (no slot identity).
 --
 --   - Write access on `_root` is required up front, all-or-nothing (the
---     batch_create rule) — no silent partial reconcile against whichever
+--     batch_create rule) — no silent partial deletion against whichever
 --     sub-branches the caller happens to own.
---   - `_meta_contains` must be a non-empty object: an unscoped reconcile
---     ("delete everything not in my list") is refused here, not left to
+--   - `_meta_contains` must be a non-empty object: an unscoped
+--     "delete everything not in my list" is refused here, not left to
 --     caller policy.
 --   - `_dry_run` returns the would-delete rows from the same predicate
 --     without deleting, so a preview is exact at any corpus size.
 --
 -- Returns the affected (deleted, or would-delete) rows.
-{{fn reconcile_tree(_tree_access jsonb, _root ltree, _meta_contains jsonb, _keep_trees ltree[], _keep_names text[], _dry_run boolean) returns table(id uuid, tree ltree, name text)}}
-create or replace function {{schema}}.reconcile_tree
+{{fn delete_orphans_in_tree(_tree_access jsonb, _root ltree, _meta_contains jsonb, _keep_trees ltree[], _keep_names text[], _dry_run boolean) returns table(id uuid, tree ltree, name text)}}
+create or replace function {{schema}}.delete_orphans_in_tree
 ( _tree_access jsonb
-, _root ltree                 -- subtree to reconcile under (e.g. a docs root)
+, _root ltree                 -- subtree to delete orphans under (e.g. a docs root)
 , _meta_contains jsonb        -- ownership scope, e.g. '{"source": "docs"}'
 , _keep_trees ltree[]         -- keep-list slots: trees ...
 , _keep_names text[]          -- ... and names, aligned by position
@@ -1000,7 +1000,7 @@ begin
   if jsonb_typeof(_meta_contains) is distinct from 'object'
      or _meta_contains = '{}'::jsonb
   then
-    raise exception 'reconcile_tree requires a non-empty _meta_contains scope'
+    raise exception 'delete_orphans_in_tree requires a non-empty _meta_contains scope'
       using errcode = 'invalid_parameter_value';
   end if;
 
@@ -1032,7 +1032,7 @@ begin
     return query
       select m.id, m.tree, m.name
       from {{schema}}.memory m
-      where m.tree <@ _root
+      where _root @> m.tree
       and m.name is not null
       and m.meta @> _meta_contains
       and not exists
@@ -1047,7 +1047,7 @@ begin
       with d as
       (
         delete from {{schema}}.memory m
-        where m.tree <@ _root
+        where _root @> m.tree
         and m.name is not null
         and m.meta @> _meta_contains
         and not exists

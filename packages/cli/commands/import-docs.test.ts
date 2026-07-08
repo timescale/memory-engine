@@ -1,7 +1,7 @@
 /**
  * Tests for `me import docs` option assembly/validation and the --prune
  * keep-list plumbing. The reconcile semantics live server-side
- * (memory.reconcileTree — see the space migration and server RPC integration
+ * (memory.deleteOrphansInTree — see the space migration and server RPC integration
  * tests); the build and discovery paths are exercised by the importer's own
  * tests.
  */

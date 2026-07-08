@@ -24,6 +24,8 @@ import type {
   MemoryCountTreeResult,
   MemoryCreateParams,
   MemoryDeleteByPathParams,
+  MemoryDeleteOrphansInTreeParams,
+  MemoryDeleteOrphansInTreeResult,
   MemoryDeleteParams,
   MemoryDeleteResult,
   MemoryDeleteTreeParams,
@@ -33,8 +35,6 @@ import type {
   MemoryGetParams,
   MemoryMoveParams,
   MemoryMoveResult,
-  MemoryReconcileTreeParams,
-  MemoryReconcileTreeResult,
   MemoryResponse,
   MemorySearchParams,
   MemorySearchResult,
@@ -48,13 +48,13 @@ import {
   memoryCountTreeParams,
   memoryCreateParams,
   memoryDeleteByPathParams,
+  memoryDeleteOrphansInTreeParams,
   memoryDeleteParams,
   memoryDeleteTreeParams,
   memoryEmbeddingStatusParams,
   memoryGetByPathParams,
   memoryGetParams,
   memoryMoveParams,
-  memoryReconcileTreeParams,
   memorySearchParams,
   memoryTreeParams,
   memoryUpdateParams,
@@ -620,16 +620,16 @@ async function memoryDeleteTree(
 }
 
 /**
- * memory.reconcileTree — set-based reconcile-delete for importer-maintained
- * subtrees. The SQL function owns the semantics (named rows under root,
+ * memory.deleteOrphansInTree — set-based orphan deletion for
+ * importer-maintained subtrees. The SQL function owns the semantics (named rows under root,
  * metaContains ownership scope, keep-list anti-join, up-front write gate);
  * this handler only normalizes paths in and denormalizes the affected rows
  * out.
  */
-async function memoryReconcileTree(
-  params: MemoryReconcileTreeParams,
+async function memoryDeleteOrphansInTree(
+  params: MemoryDeleteOrphansInTreeParams,
   context: HandlerContext,
-): Promise<MemoryReconcileTreeResult> {
+): Promise<MemoryDeleteOrphansInTreeResult> {
   assertSpaceRpcContext(context);
   const ctx = context as SpaceRpcContext;
   const { store, treeAccess } = ctx;
@@ -639,7 +639,7 @@ async function memoryReconcileTree(
   const keepNames = params.keep.map((k) => k.name);
 
   const rows = await guard(() =>
-    store.reconcileTree(
+    store.deleteOrphansInTree(
       treeAccess,
       root,
       params.metaContains,
@@ -731,9 +731,9 @@ export const memoryDataMethods = buildRegistry()
   .register("memory.move", memoryMoveParams, memoryMove)
   .register("memory.deleteTree", memoryDeleteTreeParams, memoryDeleteTree)
   .register(
-    "memory.reconcileTree",
-    memoryReconcileTreeParams,
-    memoryReconcileTree,
+    "memory.deleteOrphansInTree",
+    memoryDeleteOrphansInTreeParams,
+    memoryDeleteOrphansInTree,
   )
   .register("memory.countTree", memoryCountTreeParams, memoryCountTree)
   .register(

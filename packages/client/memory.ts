@@ -24,6 +24,8 @@ import type {
   MemoryCountTreeResult,
   MemoryCreateParams,
   MemoryDeleteByPathParams,
+  MemoryDeleteOrphansInTreeParams,
+  MemoryDeleteOrphansInTreeResult,
   MemoryDeleteParams,
   MemoryDeleteResult,
   MemoryDeleteTreeParams,
@@ -33,8 +35,6 @@ import type {
   MemoryGetParams,
   MemoryMoveParams,
   MemoryMoveResult,
-  MemoryReconcileTreeParams,
-  MemoryReconcileTreeResult,
   MemoryResponse,
   MemorySearchParams,
   MemorySearchResult,
@@ -135,9 +135,9 @@ export interface MemoryNamespace {
   copy(params: MemoryCopyParams): Promise<MemoryCopyResult>;
   move(params: MemoryMoveParams): Promise<MemoryMoveResult>;
   deleteTree(params: MemoryDeleteTreeParams): Promise<MemoryDeleteTreeResult>;
-  reconcileTree(
-    params: MemoryReconcileTreeParams,
-  ): Promise<MemoryReconcileTreeResult>;
+  deleteOrphansInTree(
+    params: MemoryDeleteOrphansInTreeParams,
+  ): Promise<MemoryDeleteOrphansInTreeResult>;
   countTree(params: MemoryCountTreeParams): Promise<MemoryCountTreeResult>;
   /** Space-wide embedding backlog snapshot (pending/failed/…). */
   embeddingStatus(): Promise<MemoryEmbeddingStatusResult>;
@@ -258,7 +258,7 @@ export function createMemoryClient(
       copy: (p) => writeRpc("memory.copy", p),
       move: (p) => writeRpc("memory.move", p),
       deleteTree: (p) => writeRpc("memory.deleteTree", p),
-      reconcileTree: (p) => writeRpc("memory.reconcileTree", p),
+      deleteOrphansInTree: (p) => writeRpc("memory.deleteOrphansInTree", p),
       countTree: (p) => readRpc("memory.countTree", p),
       embeddingStatus: () => readRpc("memory.embeddingStatus", {}),
     },
