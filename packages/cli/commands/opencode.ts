@@ -14,6 +14,7 @@ import {
   applyCaptureDeselection,
   captureEnableStep,
 } from "../agent/capture-step.ts";
+import { ensureDefaultAgent } from "../agent/default-agent.ts";
 import {
   buildInitCommand,
   DIM,
@@ -63,6 +64,10 @@ import {
   openCodeSkillsDir,
   parseScope,
 } from "../opencode/scope.ts";
+import {
+  discoverProjectConfig,
+  setConfigDirOverride,
+} from "../project-config.ts";
 import { memoryBearer } from "../session.ts";
 import { runCapturePrompt } from "./capture-prompt.ts";
 import { createOpenCodeImportCommand, runAgentImport } from "./import.ts";
@@ -180,9 +185,16 @@ function createOpenCodeInstallCommand(): Command {
       "where to write the MCP config: project (./opencode.json) or user (~/.config/opencode) [default: user]",
       (v) => parseScope(v),
     )
+    .option(
+      "--no-default-agent",
+      "skip provisioning a default agent (agent: coder) for this install",
+    )
     .action(
       async (
-        opts: AgentInstallOptions & { scope?: OpenCodeScope },
+        opts: AgentInstallOptions & {
+          scope?: OpenCodeScope;
+          defaultAgent?: boolean;
+        },
         cmd: Command,
       ) => {
         const globalOpts = cmd.optsWithGlobals();
@@ -200,6 +212,11 @@ function createOpenCodeInstallCommand(): Command {
         const headless = Boolean(opts.apiKey ?? creds.apiKey);
         if (headless) return;
 
+        const activeSpace = opts.space ?? creds.activeSpace;
+        if (opts.defaultAgent !== false) {
+          await ensureDefaultAgent({ ...creds, activeSpace });
+        }
+
         // The one user-scoped capture plugin — inert until capture is enabled
         // (the flag below, or a project's `.me` `capture: true`).
         await installOpenCodePlugin("user", process.cwd());
@@ -207,7 +224,7 @@ function createOpenCodeInstallCommand(): Command {
         // Capture opt-in (shared with `me claude install`): prompt, persist
         // the machine-wide flag, and backfill existing sessions on yes.
         await runCapturePrompt(opencodeImporter, globalOpts, {
-          space: opts.space ?? creds.activeSpace,
+          space: activeSpace,
           toolLabel: "OpenCode",
           installCmd: "me opencode install",
         });
@@ -240,6 +257,10 @@ function createOpenCodeHookCommand(): Command {
       "OpenCode storage dir (default: standard location)",
     )
     .option(
+      "--project-dir <dir>",
+      "the session's project dir (anchor for .me/config.yaml discovery; passed by the generated plugin)",
+    )
+    .option(
       "--full-transcript",
       "also store reasoning + tool calls/results (default: prompts + responses)",
     )
@@ -249,6 +270,7 @@ function createOpenCodeHookCommand(): Command {
           event: string;
           session: string;
           storage?: string;
+          projectDir?: string;
           fullTranscript?: boolean;
         },
         cmd: Command,
@@ -262,20 +284,23 @@ function createOpenCodeHookCommand(): Command {
         }
 
         const globalOpts = cmd.optsWithGlobals();
-        // `.me` server/space/tree come via cwd-based resolveCredentials (not an
-        // explicit discoverProjectConfig from the session's cwd like the Claude
-        // hook): OpenCode's hook event carries only a `--session <id>`, no cwd,
-        // and the plugin shells out from the project dir — so process.cwd() is
-        // already the project. A broken `.me` is fatal for direct CLI use, but
-        // the hook is best-effort: log + exit 0 so a typo never blocks capture.
+        // `.me` server/space/tree come via resolveCredentials, scoped to the
+        // session's own project dir (explicit --project-dir from the plugin,
+        // matching the Claude hook's explicit-anchor approach) — falling back
+        // to a cwd walk-up when absent (an older plugin, or a direct manual
+        // call). A broken `.me` is fatal for direct CLI use, but the hook is
+        // best-effort: log + exit 0 so a typo never blocks capture.
         let config: ReturnType<typeof resolveHookConfig>;
         try {
+          const project = opts.projectDir
+            ? discoverProjectConfig(opts.projectDir)
+            : undefined;
+          if (project) setConfigDirOverride(project.dir);
           const creds = resolveCredentials(globalOpts.server);
           // The hook ships inert — the ONE capture model shared with Claude:
           // project `.me` `capture` > the machine-wide flag > off (both folded
-          // into `captureEnabled`; the plugin shells out from the project dir,
-          // so the cwd walk-up finds the right `.me`). A deliberate opt-out
-          // exits 0 SILENTLY, distinct from the "no credentials" error below.
+          // into `captureEnabled`). A deliberate opt-out exits 0 SILENTLY,
+          // distinct from the "no credentials" error below.
           if (!creds.captureEnabled) process.exit(0);
           config = resolveHookConfig(creds, {
             fullTranscript: opts.fullTranscript,
