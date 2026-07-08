@@ -83,12 +83,12 @@ export interface SpaceStore {
     dryRun?: boolean,
   ): Promise<number>;
   /**
-   * Set-based reconcile-delete: remove every named row under `root` whose
+   * Set-based orphan deletion: remove every named row under `root` whose
    * meta contains `metaContains` and whose (tree, name) slot is not in the
    * keep-list (parallel arrays). Returns the affected rows; `dryRun` returns
    * them without deleting.
    */
-  reconcileTree(
+  deleteOrphansInTree(
     treeAccess: TreeAccess,
     root: string,
     metaContains: Record<string, unknown>,
@@ -263,7 +263,7 @@ export function spaceStore(sql: Sql, schema: string): SpaceStore {
       return Number(row?.n);
     },
 
-    async reconcileTree(
+    async deleteOrphansInTree(
       treeAccess,
       root,
       metaContains,
@@ -273,7 +273,7 @@ export function spaceStore(sql: Sql, schema: string): SpaceStore {
     ) {
       const rows = await sql`
         select id, tree, name
-        from ${sch}.reconcile_tree(
+        from ${sch}.delete_orphans_in_tree(
           ${jb(treeAccess)},
           ${root}::ltree,
           ${jb(metaContains)},

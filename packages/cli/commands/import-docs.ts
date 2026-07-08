@@ -165,7 +165,7 @@ export function subdirRootError(
 }
 
 /**
- * Byte budget for the reconcile keep-list — the whole request must fit under
+ * Byte budget for the delete-orphans keep-list — the whole request must fit under
  * the server's body cap, so this mirrors BATCH_CREATE_BYTES_BUDGET's
  * headroom. In practice ~20k slots; beyond it prune refuses cleanly (a
  * NOT-IN keep-list is fundamentally un-chunkable: splitting it would delete
@@ -173,13 +173,13 @@ export function subdirRootError(
  */
 export const PRUNE_KEEP_BYTES_BUDGET = BATCH_CREATE_BYTES_BUDGET;
 
-/** A keep-list slot for memory.reconcileTree. */
+/** A keep-list slot for memory.deleteOrphansInTree. */
 export interface KeepSlot {
   tree: string;
   name: string;
 }
 
-/** The walked slot set, as the reconcile keep-list. */
+/** The walked slot set, as the delete-orphans keep-list. */
 export function buildKeepList(
   planned: Array<{ payload: MemoryCreateParams }>,
 ): KeepSlot[] {
@@ -405,7 +405,7 @@ export async function runDocsImport(
     fail(error);
   }
 
-  // Prune: one set-based memory.reconcileTree call — delete importer-written
+  // Prune: one set-based memory.deleteOrphansInTree call — delete importer-written
   // rows (meta.source "docs") under the docs root whose (tree, name) slot the
   // walk did not produce. Atomic and complete at any corpus size; with
   // --dry-run the same predicate returns the exact would-delete list.
@@ -423,9 +423,9 @@ export async function runDocsImport(
       try {
         const keep = buildKeepList(unique);
         if (keepListBytes(keep) > PRUNE_KEEP_BYTES_BUDGET) {
-          pruneRefused = `keep-list too large for one reconcile request (${unique.length} docs)`;
+          pruneRefused = `keep-list too large for one delete-orphans request (${unique.length} docs)`;
         } else {
-          const res = await engine.memory.reconcileTree({
+          const res = await engine.memory.deleteOrphansInTree({
             root: docsTree,
             metaContains: { source: DOCS_META_SOURCE },
             keep,

@@ -679,7 +679,7 @@ test("search: tree lquery wildcard matches descendants", async () => {
   expect(exact.results.map((r) => r.tree)).toEqual(["/share/proj/a"]);
 });
 
-test("reconcileTree deletes stale slots; kept/foreign/unnamed survive; dryRun previews", async () => {
+test("deleteOrphansInTree deletes stale slots; kept/foreign/unnamed survive; dryRun previews", async () => {
   await call("memory.batchCreate", {
     memories: [
       {
@@ -712,7 +712,7 @@ test("reconcileTree deletes stale slots; kept/foreign/unnamed survive; dryRun pr
 
   // Dry run: exact would-delete list, nothing deleted.
   const dry = await call<{ count: number; paths: string[] }>(
-    "memory.reconcileTree",
+    "memory.deleteOrphansInTree",
     { ...params, dryRun: true },
   );
   expect(dry.count).toBe(1);
@@ -724,7 +724,7 @@ test("reconcileTree deletes stale slots; kept/foreign/unnamed survive; dryRun pr
 
   // Real run: exactly the stale slot goes.
   const res = await call<{ count: number; paths: string[] }>(
-    "memory.reconcileTree",
+    "memory.deleteOrphansInTree",
     params,
   );
   expect(res.count).toBe(1);
@@ -735,11 +735,14 @@ test("reconcileTree deletes stale slots; kept/foreign/unnamed survive; dryRun pr
   expect(after.count).toBe(3);
 
   // Idempotent: a second reconcile with the same keep-list is a no-op.
-  const again = await call<{ count: number }>("memory.reconcileTree", params);
+  const again = await call<{ count: number }>(
+    "memory.deleteOrphansInTree",
+    params,
+  );
   expect(again.count).toBe(0);
 });
 
-test("reconcileTree normalizes ~ and / path spellings in root and keep", async () => {
+test("deleteOrphansInTree normalizes ~ and / path spellings in root and keep", async () => {
   await call("memory.batchCreate", {
     memories: [
       {
@@ -757,7 +760,7 @@ test("reconcileTree normalizes ~ and / path spellings in root and keep", async (
     ],
   });
   const res = await call<{ count: number; paths: string[] }>(
-    "memory.reconcileTree",
+    "memory.deleteOrphansInTree",
     {
       root: "~/proj/docs",
       metaContains: { source: "docs" },
@@ -768,7 +771,7 @@ test("reconcileTree normalizes ~ and / path spellings in root and keep", async (
   expect(res.paths).toEqual(["~/proj/docs/b.md"]);
 });
 
-test("reconcileTree renders a root-level row as /name, not //name", async () => {
+test("deleteOrphansInTree renders a root-level row as /name, not //name", async () => {
   // Root-level rows display their tree as "/" — the path join must not
   // double the separator. Needs owner@root (the seeded owner only holds
   // home + share).
@@ -788,16 +791,16 @@ test("reconcileTree renders a root-level row as /name, not //name", async () => 
     meta: { source: "docs" },
   });
   const res = await call<{ count: number; paths: string[] }>(
-    "memory.reconcileTree",
+    "memory.deleteOrphansInTree",
     { root: "/", metaContains: { source: "docs" }, keep: [], dryRun: true },
   );
   expect(res.count).toBe(1);
   expect(res.paths).toEqual(["/root.md"]);
 });
 
-test("reconcileTree refuses an empty metaContains scope", async () => {
+test("deleteOrphansInTree refuses an empty metaContains scope", async () => {
   await expectAppError(
-    call("memory.reconcileTree", {
+    call("memory.deleteOrphansInTree", {
       root: "share.p.docs",
       metaContains: {},
       keep: [],
