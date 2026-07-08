@@ -76,9 +76,11 @@ That inversion buys two concrete advantages:
   than fall back: `me mcp` exits with an actionable error, capture hooks
   skip, and a harness-shell `me` call errors (the injected sentinel
   resolves nothing and throws). User-mode harness work must always trace
-  to a deliberate `.user` — a human-written `agent: .user` in config, or
-  an explicit `--as-agent .user` / `ME_AS_AGENT=.user` on the invocation
-  (the human escape hatch) — never to an accident. Two things keep the
+  to a deliberate `.user` — a human-written `agent: .user` in the global
+  config or `.me/config.local.yaml` (never the committed project file —
+  see the threat model), or an explicit `--as-agent .user` /
+  `ME_AS_AGENT=.user` on the invocation (the human escape hatch) — never
+  to an accident. Two things keep the
   strictness low-friction: every install flow provisions a **default
   agent** and writes it as the global fallback, so "no agent anywhere" is
   rare by construction, and the failure messages name the fix. Two
@@ -89,6 +91,46 @@ That inversion buys two concrete advantages:
   human). A global `agent:` never affects either, because config only
   supplies the *value* and activation always comes from the surface or
   the injected env.
+
+## Threat model
+
+Everything in this design is **accident prevention, not an adversarial
+boundary**. The harness's shell runs as the user's OS account: an agent
+(or a prompt-injected one) can unset the injected vars and the native
+markers, edit any config file this design reads — committed, `.local`, or
+global — pass `--as-agent .user` itself, or simply read the session token
+from the OS keychain / `credentials.yaml`. No client-side mechanism can
+bind an uncooperative process. What the goals' "never" means, therefore,
+is never *by accident*: no silent user-credential fallback, no
+wrong-identity default, no invisible mode switch. The visible artifacts —
+an explicit flag in the session transcript, a config line in a file, the
+failsafe error — are accountability mechanisms, not prevention.
+
+The real enforcement lives server-side and is unchanged by this design:
+the `agent_tree_access` clamp bounds an agent to `least(agent, owner)` at
+every path regardless of what the client claims, and `authenticatedAs`
+records the human credential behind an act-as-agent request. When the
+execution environment itself is untrusted, the sanctioned containment is
+the sandboxed **agent `ME_API_KEY`** mode: the environment holds only the
+agent's own key — no session token, no keychain — so no user credential is
+present to escalate to. That is a property of the deployment, not of this
+mechanism.
+
+One case deserves a hard client-side gate anyway, because it is
+cross-principal rather than self-inflicted: a **committed `agent: .user`**.
+A repo author writing `.user` into the tracked `.me/config.yaml` would
+silently flip *every cloning teammate's* harness surfaces to their own
+full user credentials — removing the clamp for people who never chose
+that. This is the same class the trusted-server gate exists for (untrusted
+committed input redirecting credentials), and `.user` is the only
+committed value that *raises* effective privilege — a committed
+`agent: <name>` can at worst 403, since names resolve against the caller's
+own agents. So `.user` is honored from the **global config,
+`.me/config.local.yaml`, or an explicit flag/env only**; `.user` in the
+committed `.me/config.yaml` is a fatal `ProjectConfigError` naming the
+allowed locations. (An agent can of course write `.local` itself — see the
+cooperative model above; this gate addresses the cross-user blast radius,
+not the local agent.)
 
 ## Premise: where each surface learns the project directory
 
@@ -129,8 +171,9 @@ next section):
   agent in scope anywhere is also fatal** — MCP has no human caller, so
   serving as the user is never right by accident; the error is actionable
   ("create an agent: rerun `me <harness> install`"). The explicit opt-out
-  is `agent: .user` in project or global config — a deliberate, visible
-  selection of user-credential operation. Install-time default-agent
+  is `agent: .user` in the local (`.me/config.local.yaml`) or global
+  config — a deliberate, visible selection of user-credential operation
+  (never the committed file — see the threat model). Install-time default-agent
   provisioning (see plan) makes the fatal path rare in practice.
 
 - **(b) Capture hooks — agent-by-config + explicit `--config-dir`.** Hook
@@ -509,15 +552,19 @@ CLI, adapters need no gating and parse no config — gating the injection on
 the project file would wrongly skip the global fallback, and adapters must
 never replicate precedence logic. Because the semantics are uniform, an
 explicit `--as-agent .me` behaves identically to the injected one. `.user`
-is honored from config **and** as an explicit `--as-agent .user` /
-`ME_AS_AGENT=.user` — the human escape hatch for false-positive detection
-and human-run scripts — so user-mode harness work always traces to
-something deliberate and visible: a config line or an explicit flag/env on
-the invocation, never a silent fallback.
+is honored from the global config or `.me/config.local.yaml` **and** as an
+explicit `--as-agent .user` / `ME_AS_AGENT=.user` — the human escape hatch
+for false-positive detection and human-run scripts — but **never from the
+committed `.me/config.yaml`** (fatal `ProjectConfigError`; a committed
+`.user` would unclamp every cloning teammate — see the threat model). So
+user-mode harness work always traces to something deliberate, visible, and
+chosen by *that* human: their own config file or an explicit flag/env on
+the invocation — never a silent fallback, never someone else's commit.
 
 How the cases fall out: **agent in scope** (project or global) — every
-surface acts as it. **`.user` in scope** (config, or explicit flag/env) —
-user-mode, visibly chosen. **Nothing anywhere** — MCP fatal, hook skip,
+surface acts as it. **`.user` in scope** (local/global config, or explicit
+flag/env — committed `.user` is fatal, see the threat model) — user-mode,
+visibly chosen. **Nothing anywhere** — MCP fatal, hook skip,
 shell sentinel error; rare after install-time default-agent provisioning,
 and every message names the fix. **Injection silently dead in a
 me-project** (untrusted Codex hooks, disabled plugin) — detection sees a
@@ -554,8 +601,9 @@ per-user override; opencode's built-in terminal is treated as the agent in
 v1 (`OPENCODE_TERMINAL` exemption deferred); harness-only surfaces
 **require** an agent in scope — no-agent-anywhere is fatal for `me mcp`
 and a skip for hooks — offset by install-time default-agent provisioning,
-with `.user` (config `agent: .user`, or explicit `--as-agent .user` /
-`ME_AS_AGENT=.user`) as the deliberate user-mode opt-out; **nested
+with `.user` (local/global config, or explicit `--as-agent .user` /
+`ME_AS_AGENT=.user` — fatal in the committed file) as the deliberate
+user-mode opt-out; **nested
 harnesses inherit the initiating session's contract** — adapters are
 first-writer-wins (emit nothing when a live `ME_INJECT_V` is already in
 the inherited env).
@@ -611,21 +659,25 @@ own), then **Claude**, then **opencode**.
    usual, and no project config at all just falls through to the global
    `agent:`. But **no agent in scope anywhere is also fatal for `me mcp`**
    — a skip for hooks, a sentinel error for the injected shell — unless
-   `.user` is chosen explicitly (config `agent: .user`, or an explicit
-   `--as-agent .user` / `ME_AS_AGENT=.user` on the invocation). In a
-   harness context, user-mode must be a visible choice, never a default.
+   `.user` is chosen explicitly (`agent: .user` in the local or global
+   file, or an explicit `--as-agent .user` / `ME_AS_AGENT=.user` on the
+   invocation). In a harness context, user-mode must be a visible choice,
+   never a default.
 4. **Global fallback agent + `.user` sentinel + default-agent helper**: add
    `agent:` to the global `~/.config/me/config.yaml` schema; the `.me`
    sentinel resolves the project `agent:` first, else the global one
    (`resolveAsAgentFor`). Harness surfaces outside any project then run as
    the user's designated agent; the human terminal is unaffected (config
    never activates by itself). `.user` is a reserved sentinel value
-   meaning "run as the user, deliberately" — valid in project and global
-   config (`agent: .user`) **and** as an explicit `--as-agent .user` /
-   `ME_AS_AGENT=.user` (the human escape hatch: false-positive detection,
-   human-run scripts), so user-mode always traces to a deliberate, visible
-   choice — and agent-name validation must reject leading-dot
-   names so sentinels can never collide with a real agent. Add
+   meaning "run as the user, deliberately" — valid in the global config
+   and `.me/config.local.yaml` (`agent: .user`) **and** as an explicit
+   `--as-agent .user` / `ME_AS_AGENT=.user` (the human escape hatch:
+   false-positive detection, human-run scripts), but **fatal in the
+   committed `.me/config.yaml`** (`ProjectConfigError` naming the allowed
+   locations — a committed `.user` would unclamp every cloning teammate;
+   see the threat model), so user-mode always traces to a deliberate,
+   visible choice by that human — and agent-name validation must reject
+   leading-dot names so sentinels can never collide with a real agent. Add
    a shared `ensureDefaultAgent()` helper (reusing the `provisionNewAgent`
    machinery from `me project init`) that provisions-or-finds the user's
    default agent and writes it as the global `agent:` — wired into the
@@ -647,8 +699,9 @@ own), then **Claude**, then **opencode**.
    workaround recipe (a static env setup can't supply the
    `ME_PROJECT_DIR` anchor, so it would mis-scope on excursions).
 6. Tests: detect wrapper matrix, resolver precedence + validation
-   (project > global agent; `.user` opt-out from config and as an
-   explicit flag/env value; no-agent-anywhere fatal for mcp / skip
+   (project > global agent; `.user` opt-out from local/global config and
+   as an explicit flag/env value, plus the committed-file fatal;
+   no-agent-anywhere fatal for mcp / skip
    for hooks / sentinel error for shell), failsafe truth table (incl.
    agent-key, allowlist, and TTY exemptions; both branches of the error
    message), `me mcp` agent-by-config + eager
@@ -775,7 +828,9 @@ scripts. Four sections:
    one); Gemini settings hooks + MCP entries.
 4. **Project hygiene** (inside a `.me` project): `config.local.yaml`
    gitignored; committed `agent:` names an agent the caller owns (the
-   cloned-repo teammate check); capture enabled but silently skipping (the
+   cloned-repo teammate check) and is not `.user` (fatal everywhere else —
+   doctor catches the `ProjectConfigError` and names the allowed
+   locations); capture enabled but silently skipping (the
    one failure the runtime never surfaces); linked-worktree warning when
    the main checkout has a `config.local.yaml` this worktree lacks.
 
