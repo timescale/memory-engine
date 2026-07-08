@@ -214,7 +214,7 @@ process; it must work out two independent facts from its environment:
 | Harness | (a) MCP server | (b) capture hooks | (c) shell: config path — how `ME_CONFIG_DIR` gets injected | (c) shell: harness detection — native backstop marker | Worktree sessions: worktree or original dir? |
 |---|---|---|---|---|---|
 | **Claude Code** | `CLAUDE_PROJECT_DIR` (set in the server's env), validated; fallback cwd walk-up | payload `cwd` walk-up (worktree-correct; what the hook code does today); `CLAUDE_PROJECT_DIR` (validated) as fallback | SessionStart hook writes `ME_CONFIG_DIR` + activation to `$CLAUDE_ENV_FILE` (sourced before each Bash command); computed from payload `cwd`, not `CLAUDE_PROJECT_DIR` | `CLAUDECODE=1` (documented; also set in IDE terminals) | Plain launch inside a worktree: **worktree** on all signals. Under `claude -w`: `CLAUDE_PROJECT_DIR` = the **original** repo root ([#27343](https://github.com/anthropics/claude-code/issues/27343)), and validation can't catch it — hence hooks/injection prefer payload `cwd` (**worktree**); the MCP spawn cwd under `-w` is unverified, so MCP may resolve the **original** |
-| **opencode** | cwd walk-up (server spawns at project dir) | plugin passes its `worktree`/`directory` as `--config-dir` | `shell.env` plugin hook sets `ME_CONFIG_DIR` (+ the activation vars) directly in every shell command's env, computed from `input.cwd`/`worktree` | `OPENCODE=1` / `AGENT=1` (CLI/TUI path); `OPENCODE_CLIENT=desktop` (desktop app) — needs our wrapper; stock detect-agent checks only `OPENCODE_CLIENT` | **Worktree** by construction: the plugin is handed the `worktree` path; MCP and shell children spawn at the instance dir — the checkout the session was opened in |
+| **opencode** | cwd walk-up (server spawns at project dir) | plugin passes the discovered `.me` root (walk-up from its session `directory`) as `--config-dir` | `shell.env` plugin hook sets `ME_CONFIG_DIR` (+ the activation vars) directly in every shell command's env — the value is the discovered `.me` root, walked up from the session-scoped `directory` (memoized; deliberately **not** the per-command `input.cwd`, so a `workdir=/tmp` excursion keeps discovery) | `OPENCODE=1` / `AGENT=1` (CLI/TUI path); `OPENCODE_CLIENT=desktop` (desktop app) — needs our wrapper; stock detect-agent checks only `OPENCODE_CLIENT` | **Worktree** by construction: the session `directory` lives inside the checkout the session was opened in, and MCP and shell children spawn at the instance dir |
 | **Codex** | cwd walk-up (source-verified: child cwd defaults to the **session cwd** under the CLI; gap only in Desktop/VS Code hosts — env unreachable (`env_clear()`), no MCP `roots`, no pre-spawn hook; per-server `cwd` config is the only fix) | payload `cwd` passed as `--config-dir` (hook runs at session cwd) | PreToolUse rewrite prepends `export ME_CONFIG_DIR=… ME_AS_AGENT=…` to the command | `CODEX_THREAD_ID` (always injected, survives `include_only`) — covers the window where hooks are untrusted | **Worktree**: no stored project-dir signal to go stale — everything derives from the session cwd, i.e. the checkout the session started in (Desktop caveat: cwd not rebound when switching project chats, [#20725](https://github.com/openai/codex/issues/20725)) |
 | **Gemini CLI** | cwd walk-up (server spawns at launch dir) | `--config-dir "$GEMINI_PROJECT_DIR"` substituted into the hook command | BeforeTool hook rewrites `run_shell_command`'s `tool_input`, prepending `export ME_CONFIG_DIR=… ME_AS_AGENT=…` to the command | `GEMINI_CLI=1` (documented) | **Worktree**: `GEMINI_PROJECT_DIR` is literally the session cwd (no git-root resolution), so every surface follows the launch dir |
 
@@ -550,10 +550,18 @@ No harness files touched; everything unit/integration-testable.
 ### PR 3 — opencode adapter
 
 1. **`packages/cli/opencode/plugin-template.ts`**: add the `shell.env` hook
-   — root = `worktree ?? directory`; cheap `.me/` presence + `agent:` check
-   (file read + regex, cached per root); sets the contract vars. Also pass
-   `--config-dir <worktree>` on the `me opencode hook` shell-out (today it
-   leans on `process.cwd()`).
+   — root = a small walk-up from the session-scoped `directory` looking for
+   `.me/` (mirroring `findConfigRoot`; memoized in the closure). `worktree`
+   is deliberately unused: `ME_CONFIG_DIR` disables `me`'s walk-up, so a
+   git-root anchor would miss monorepo sub-project configs, and no other
+   harness anchors on a git-root concept — they all inject the `.me` root
+   discovered from the session cwd. Likewise the per-command `input.cwd` is
+   not the anchor (a `workdir=/tmp` excursion would lose discovery exactly
+   when injection matters). Cheap `.me/` presence + `agent:` check (file
+   read + regex, cached per root) gates the activation var; the contract
+   vars are set on every command. Also pass the same discovered root as
+   `--config-dir` on the `me opencode hook` shell-out (today it leans on
+   `process.cwd()`).
 2. Bump the plugin template version/marker so `me opencode install`
    refreshes existing installs.
 
