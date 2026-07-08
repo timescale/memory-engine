@@ -11,6 +11,7 @@ import {
   isInjectionLive,
   ME_INJECT_VERSION,
   renderContractBlock,
+  renderExportPrefix,
   upsertContractBlock,
 } from "./harness-contract.ts";
 
@@ -47,6 +48,19 @@ test("isInjectionLive doesn't require AI_AGENT (identity/observability only)", (
       // no AI_AGENT
     }),
   ).toBe(true);
+});
+
+test("renderExportPrefix renders a single-line export prefix with a trailing space", () => {
+  const prefix = renderExportPrefix(buildContractVars("codex", "/repo"));
+  expect(prefix).toBe(
+    'export ME_INJECT_V="1" AI_AGENT="codex" ME_AS_AGENT=".me" ME_PROJECT_DIR="/repo"; ',
+  );
+  expect(prefix.includes("\n")).toBe(false);
+});
+
+test("renderExportPrefix escapes shell-special characters in values", () => {
+  const prefix = renderExportPrefix({ ME_PROJECT_DIR: `/tmp/$HOME "q"` });
+  expect(prefix).toBe('export ME_PROJECT_DIR="/tmp/\\$HOME \\"q\\""; ');
 });
 
 test("renderContractBlock escapes shell-special characters", () => {
