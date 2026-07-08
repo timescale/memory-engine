@@ -70,10 +70,13 @@ That inversion buys two concrete advantages:
   cannot be resolved (or the invoking context cannot be trusted to be the
   harness), the correct degradation for a harness surface is a hard failure,
   never the user's credentials.
-- When the `.me` config defines **no** agent (or there is no `.me` config at
-  all), these goals impose nothing: the harness operates as it does today.
-  (Whether that default should eventually push toward agent-by-default is out
-  of scope here.)
+- When no agent is in scope — the `.me` config defines none (or doesn't
+  exist) and the global `~/.config/me/config.yaml` defines no fallback
+  `agent:` — these goals impose nothing: the harness operates as it does
+  today. (A global `agent:` lets harness work outside any project still run
+  as an agent; it never affects the human's own terminal, because config
+  only supplies the *value* — activation always comes from the surface or
+  the injected env.)
 
 ## Premise: where each surface learns the project directory
 
@@ -101,10 +104,16 @@ next section):
   harness work by definition, so `me mcp` applies the agent unconditionally:
   it resolves the project config — `ME_CONFIG_DIR` if set, else a validated
   harness project-dir env var (today that's Claude's `CLAUDE_PROJECT_DIR`),
-  else cwd walk-up — and if that config defines an agent, every request runs
-  as that agent. A failure to resolve the configured agent is fatal (goal
-  3); it never falls back to the user. No agent in scope → today's behavior
-  (the goals' boundary).
+  else cwd walk-up (the launch dir itself needn't contain `.me/`; walking up
+  to a parent is the normal path) — and if the config in scope defines an
+  agent, every request runs as that agent. The `agent:` follows standard
+  per-field precedence, so with no project config at all it may come from
+  the global `~/.config/me/config.yaml` — a harness session outside any
+  project then still runs as the user's designated agent. Config only
+  supplies the *value*, never activation, so a global `agent:` leaves the
+  human's own terminal untouched (goal 2). A failure to resolve a
+  configured agent is fatal (goal 3); it never falls back to the user. No
+  agent in scope anywhere → today's behavior (the goals' boundary).
 
 - **(b) Capture hooks — agent-by-config + explicit `--config-dir`.** Hook
   handlers are likewise our own code invoked by the harness, so they always
@@ -379,7 +388,7 @@ itself is static and person-less.
 | `ME_INJECT_V=<version>` | always (integration live) | liveness + version marker; what the failsafe and `me doctor` key on |
 | `AI_AGENT=<harness>` | always | identity, per the detect-agent convention (innermost harness wins) |
 | `ME_CONFIG_DIR=<project dir>` | when a `.me/` is in scope for the session | discovery — pins config resolution regardless of cwd |
-| `ME_AS_AGENT=.me` | when that config defines an agent | activation — resolve the agent from config or die |
+| `ME_AS_AGENT=.me` | when an agent is in scope (project config, else the global config's fallback `agent:`) | activation — resolve the agent from config scope or die |
 
 The tiering is what makes the unconditional failsafe compose with the goals'
 boundary: in a **non-me project with the integration installed**,
@@ -441,14 +450,25 @@ No harness files touched; everything unit/integration-testable.
    MCP server instead of every tool call 403ing; a failure after startup
    (agent deleted mid-session) surfaces as a per-request tool error. Hooks:
    the same failures skip capture. In every case the invariant holds: never
-   drop the agent header and retry as the user.
-4. **The failsafe** (root `preAction` in `packages/cli/index.ts`): error
+   drop the agent header and retry as the user. Discovery non-failures, for
+   contrast: a launch dir without `.me/` walks up to parents as usual, and
+   no project config at all is not an error — the agent may come from the
+   global config, and with no agent in scope anywhere the surface runs as
+   the user (the goals' boundary).
+4. **Global fallback agent**: add `agent:` to the global
+   `~/.config/me/config.yaml` schema; the `.me` sentinel resolves the
+   project `agent:` first, else the global one (`resolveAsAgentFor`).
+   Harness surfaces outside any project then run as the user's designated
+   agent; the human terminal is unaffected (config never activates by
+   itself). Tests: precedence (project > global), boundary (no agent
+   anywhere → user).
+5. **The failsafe** (root `preAction` in `packages/cli/index.ts`): error
    when `detectHarness()` fires ∧ no `ME_INJECT_V` ∧ no explicit
    `--as-agent`/`ME_AS_AGENT` ∧ credential is not an agent api key ∧ command
    not on the surface/diagnostic allowlist (`mcp`, `* hook`, `doctor`,
    `help`, `--version`, install/init flows). Error message names the
    detected harness and the `me <harness> install` fix.
-5. Tests: detect wrapper matrix, resolver precedence + validation, failsafe
+6. Tests: detect wrapper matrix, resolver precedence + validation, failsafe
    truth table (incl. agent-key and allowlist exemptions), `me mcp`
    agent-by-config against local Postgres.
 
