@@ -70,22 +70,21 @@ That inversion buys two concrete advantages:
   cannot be resolved (or the invoking context cannot be trusted to be the
   harness), the correct degradation for a harness surface is a hard failure,
   never the user's credentials.
-- When no agent is in scope — the `.me` config defines none (or doesn't
-  exist) and the global `~/.config/me/config.yaml` defines no fallback
-  `agent:` — the *shared* surface stays lenient: a plain `me` (human, or an
-  agent under a live integration) runs as the user. The **harness-only**
-  surfaces do not: `me mcp` fails with an actionable error and capture
-  hooks skip, because MCP and hook work is agent work by definition — no
-  human ever invokes them — so serving them as the user is exactly the
-  silent fallback goal 3 exists to prevent. Two things keep that strictness
+- **Every harness context requires an agent in scope — or an explicit
+  `agent: .user`.** When neither exists (no project `agent:`, no global
+  fallback in `~/.config/me/config.yaml`), harness surfaces fail rather
+  than fall back: `me mcp` exits with an actionable error, capture hooks
+  skip, and a harness-shell `me` call errors (the injected sentinel
+  resolves nothing and throws). User-mode harness work must always trace
+  to a deliberate, human-written `agent: .user` (a reserved value, honored
+  from config only) — never to an accident. Two things keep the strictness
   low-friction: every install flow provisions a **default agent** and
-  writes it as the global fallback (so "no agent anywhere" is rare by
-  construction), and the explicit opt-out **`agent: .user`** (a reserved
-  sentinel, valid wherever `agent:` is) deliberately selects user-mode
-  harness surfaces — converting the forbidden *silent* fallback into a
-  visible choice. A global `agent:` never affects the human's own terminal:
-  config only supplies the *value*; activation always comes from the
-  surface or the injected env.
+  writes it as the global fallback, so "no agent anywhere" is rare by
+  construction, and the failure messages name the fix. Only the human's
+  own terminal — no harness context at all — runs as the user without any
+  of this applying; a global `agent:` never affects it, because config
+  only supplies the *value* and activation always comes from the surface
+  or the injected env.
 
 ## Premise: where each surface learns the project directory
 
@@ -146,11 +145,13 @@ next section):
 
 - **(c) Shell — injected env, with a fail-closed detection failsafe.** The
   harness integration injects the contract vars into every shell command:
-  `ME_CONFIG_DIR=<.me root>` (discovery) plus `ME_INJECT_V`/`AI_AGENT`
-  (harness-context markers). On seeing `ME_INJECT_V`, `me` applies the same
-  agent-by-config resolution as MCP and hooks (project → global → `.user` →
-  none). A human's own terminal has none of these, so a plain `me` there
-  stays the human (goal 2). The
+  `ME_CONFIG_DIR=<.me root>` (discovery), `ME_AS_AGENT=.me` (activation —
+  the ordinary sentinel, injected ungated), and `ME_INJECT_V`/`AI_AGENT`
+  (liveness/identity). The sentinel resolves project → global → `.user`;
+  with nothing in scope it hard-throws — so a harness shell is always the
+  agent, the explicitly-chosen user, or a loud failure. A human's own
+  terminal has none of these vars, so a plain `me` there stays the human
+  (goal 2). The
   failsafe covers the integration not being live (untrusted Codex hooks,
   uninstalled plugin, an un-integrated harness): if the injection's liveness
   marker is **not** present but `me` detects it is being run by an agent
@@ -196,15 +197,16 @@ process; it must work out two independent facts from its environment:
 
 2. **Is a harness invoking me, or the human?** (activation — goals 1(c), 2,
    and 3). Answered by **detection**: `me` looks for evidence of a harness
-   in its environment. The primary evidence is the context markers the same
-   injection carries (`ME_INJECT_V`, plus `AI_AGENT=<harness>` per the
-   emerging convention). The backstop evidence, for when injection silently
-   didn't run (Codex's hook trust-gate, an uninstalled plugin, a harness we
-   never integrated with, like Cursor), is the harness's own native marker
-   — detect-agent wrapped with our `OPENCODE=1`/`AGENT=1` checks. Injected
-   evidence activates agent-by-config (project → global → `.user` → none);
-   native-marker evidence *without* the injection's liveness var is a hard
-   error (the failsafe — see the surface sketch above). Detection is
+   in its environment. The primary evidence is the injected sentinel itself
+   (`ME_AS_AGENT=.me`, alongside `ME_INJECT_V` and `AI_AGENT=<harness>` per
+   the emerging convention). The backstop evidence, for when injection
+   silently didn't run (Codex's hook trust-gate, an uninstalled plugin, a
+   harness we never integrated with, like Cursor), is the harness's own
+   native marker — detect-agent wrapped with our `OPENCODE=1`/`AGENT=1`
+   checks. The injected sentinel resolves the agent from config scope
+   (project → global → `.user`; nothing → hard error); native-marker
+   evidence *without* the injection's liveness var is a hard error too
+   (the failsafe — see the surface sketch above). Detection is
    one-directional: evidence forces agent-or-die, but the absence of all
    evidence proves nothing — `me` then runs as the human (goal 2). The native markers stay the backstop rather
    than the primary because they are undocumented internals (Codex's and
@@ -215,10 +217,10 @@ process; it must work out two independent facts from its environment:
 
 | Harness | (a) MCP server | (b) capture hooks | (c) shell: config path — how `ME_CONFIG_DIR` gets injected | (c) shell: harness detection — native backstop marker | Worktree sessions: worktree or original dir? |
 |---|---|---|---|---|---|
-| **Claude Code** | `CLAUDE_PROJECT_DIR` (set in the server's env), validated; fallback cwd walk-up | payload `cwd` walk-up (worktree-correct; what the hook code does today); `CLAUDE_PROJECT_DIR` (validated) as fallback | SessionStart hook writes the contract vars (`ME_INJECT_V`, `AI_AGENT`, `ME_CONFIG_DIR`) to `$CLAUDE_ENV_FILE` (sourced before each Bash command); computed from payload `cwd`, not `CLAUDE_PROJECT_DIR` | `CLAUDECODE=1` (documented; also set in IDE terminals) | Plain launch inside a worktree: **worktree** on all signals. Under `claude -w`: `CLAUDE_PROJECT_DIR` = the **original** repo root ([#27343](https://github.com/anthropics/claude-code/issues/27343)), and validation can't catch it — hence hooks/injection prefer payload `cwd` (**worktree**); the MCP spawn cwd under `-w` is unverified, so MCP may resolve the **original** |
+| **Claude Code** | `CLAUDE_PROJECT_DIR` (set in the server's env), validated; fallback cwd walk-up | payload `cwd` walk-up (worktree-correct; what the hook code does today); `CLAUDE_PROJECT_DIR` (validated) as fallback | SessionStart hook writes the contract vars (`ME_INJECT_V`, `AI_AGENT`, `ME_AS_AGENT=.me`, `ME_CONFIG_DIR`) to `$CLAUDE_ENV_FILE` (sourced before each Bash command); computed from payload `cwd`, not `CLAUDE_PROJECT_DIR` | `CLAUDECODE=1` (documented; also set in IDE terminals) | Plain launch inside a worktree: **worktree** on all signals. Under `claude -w`: `CLAUDE_PROJECT_DIR` = the **original** repo root ([#27343](https://github.com/anthropics/claude-code/issues/27343)), and validation can't catch it — hence hooks/injection prefer payload `cwd` (**worktree**); the MCP spawn cwd under `-w` is unverified, so MCP may resolve the **original** |
 | **opencode** | cwd walk-up (server spawns at project dir) | plugin passes the discovered `.me` root (walk-up from its session `directory`) as `--config-dir` | `shell.env` plugin hook sets the contract vars directly in every shell command's env — `ME_CONFIG_DIR` is the discovered `.me` root, walked up from the session-scoped `directory` (memoized; deliberately **not** the per-command `input.cwd`, so a `workdir=/tmp` excursion keeps discovery) | `OPENCODE=1` / `AGENT=1` (CLI/TUI path); `OPENCODE_CLIENT=desktop` (desktop app) — needs our wrapper; stock detect-agent checks only `OPENCODE_CLIENT` | **Worktree** by construction: the session `directory` lives inside the checkout the session was opened in, and MCP and shell children spawn at the instance dir |
-| **Codex** | cwd walk-up (source-verified: child cwd defaults to the **session cwd** under the CLI; gap only in Desktop/VS Code hosts — env unreachable (`env_clear()`), no MCP `roots`, no pre-spawn hook; per-server `cwd` config is the only fix) | payload `cwd` passed as `--config-dir` (hook runs at session cwd) | PreToolUse rewrite prepends `export ME_INJECT_V=… AI_AGENT=codex ME_CONFIG_DIR=…` to the command | `CODEX_THREAD_ID` (always injected, survives `include_only`) — covers the window where hooks are untrusted | **Worktree**: no stored project-dir signal to go stale — everything derives from the session cwd, i.e. the checkout the session started in (Desktop caveat: cwd not rebound when switching project chats, [#20725](https://github.com/openai/codex/issues/20725)) |
-| **Gemini CLI** | cwd walk-up (server spawns at launch dir) | `--config-dir "$GEMINI_PROJECT_DIR"` substituted into the hook command | BeforeTool hook rewrites `run_shell_command`'s `tool_input`, prepending `export ME_INJECT_V=… AI_AGENT=gemini-cli ME_CONFIG_DIR=…` to the command | `GEMINI_CLI=1` (documented) | **Worktree**: `GEMINI_PROJECT_DIR` is literally the session cwd (no git-root resolution), so every surface follows the launch dir |
+| **Codex** | cwd walk-up (source-verified: child cwd defaults to the **session cwd** under the CLI; gap only in Desktop/VS Code hosts — env unreachable (`env_clear()`), no MCP `roots`, no pre-spawn hook; per-server `cwd` config is the only fix) | payload `cwd` passed as `--config-dir` (hook runs at session cwd) | PreToolUse rewrite prepends `export ME_INJECT_V=… AI_AGENT=codex ME_AS_AGENT=.me ME_CONFIG_DIR=…` to the command | `CODEX_THREAD_ID` (always injected, survives `include_only`) — covers the window where hooks are untrusted | **Worktree**: no stored project-dir signal to go stale — everything derives from the session cwd, i.e. the checkout the session started in (Desktop caveat: cwd not rebound when switching project chats, [#20725](https://github.com/openai/codex/issues/20725)) |
+| **Gemini CLI** | cwd walk-up (server spawns at launch dir) | `--config-dir "$GEMINI_PROJECT_DIR"` substituted into the hook command | BeforeTool hook rewrites `run_shell_command`'s `tool_input`, prepending `export ME_INJECT_V=… AI_AGENT=gemini-cli ME_AS_AGENT=.me ME_CONFIG_DIR=…` to the command | `GEMINI_CLI=1` (documented) | **Worktree**: `GEMINI_PROJECT_DIR` is literally the session cwd (no git-root resolution), so every surface follows the launch dir |
 
 Getting the *worktree* is the right answer for discovery, but it has a
 consequence: the committed `.me/config.yaml` travels with the worktree (it's
@@ -404,31 +406,33 @@ itself is static and person-less.
 
 | Variable | When injected | Meaning |
 |---|---|---|
-| `ME_INJECT_V=<version>` | always (integration live) | harness-context marker: liveness + version — what the failsafe, `me doctor`, and the shell's agent-by-config key on |
+| `ME_INJECT_V=<version>` | always (integration live) | liveness + version marker — what the failsafe and `me doctor` key on |
 | `AI_AGENT=<harness>` | always | identity, per the detect-agent convention (innermost harness wins) |
+| `ME_AS_AGENT=.me` | always (integration live) | activation — the ordinary `.me` sentinel: resolve the agent from config scope, or fail |
 | `ME_CONFIG_DIR=<.me root>` | when the session's walk-up finds a `.me/` | discovery — pins config resolution regardless of cwd |
 
-**Activation is deliberately not injected.** `ME_INJECT_V` already tells the
-CLI "this invocation is harness context", so on seeing it `me` applies the
-*same* agent-by-config resolution as MCP and hooks — project `agent:` →
-global `agent:` → `.user` → none — in the one place that owns the precedence
-logic. Injecting `ME_AS_AGENT=.me` instead would force every adapter to
-replicate that precedence just to gate the variable (a project-file check
-alone would wrongly skip the global fallback), and an ungated injection
-would hard-throw in no-agent projects where the boundary says "run as the
-user". `ME_AS_AGENT` therefore stays what it is today: the explicit human
-override (flag/env), never ambient — the `.me` sentinel keeps its hard-throw
-semantics for someone who explicitly requests agent mode with nothing
-configured, and an explicit value always beats the ambient context.
+**The sentinel is injected ungated, with uniform semantics.** `.me` resolves
+the agent from config scope — project `agent:` → global `agent:`; an
+effective `agent: .user` resolves to "the user, deliberately"; **nothing in
+scope is a hard error**, the sentinel's existing fail-closed behavior, which
+is exactly what a harness context requires (an agent, an explicit `.user`,
+or a loud failure — never silent user-mode). Because resolution lives in the
+CLI, adapters need no gating and parse no config — gating the injection on
+the project file would wrongly skip the global fallback, and adapters must
+never replicate precedence logic. Because the semantics are uniform, an
+explicit `--as-agent .me` behaves identically to the injected one. `.user`
+is honored **from config only** — it is not a valid `--as-agent` /
+`ME_AS_AGENT` value — so user-mode harness work always traces to a
+human-edited file.
 
-How the cases fall out: **non-me project, integration installed** — with a
-global `agent:` the shell acts as that agent (matching MCP); with none, or
-with `.user`, it runs as the human, and the failsafe stays quiet
-(`ME_INJECT_V` is present). **Me-project whose injection silently didn't
-run** (untrusted Codex hooks, disabled plugin) — detection sees a native
-marker without `ME_INJECT_V` and errors (goal 3). **No integration at all**
-— an agent-run `me` errors, the decided unconditional posture, with the
-install hint as the message.
+How the cases fall out: **agent in scope** (project or global) — every
+surface acts as it. **`.user` in scope** — user-mode, visibly chosen.
+**Nothing anywhere** — MCP fatal, hook skip, shell sentinel error; rare
+after install-time default-agent provisioning, and every message names the
+fix. **Injection silently dead in a me-project** (untrusted Codex hooks,
+disabled plugin) — detection sees a native marker without `ME_INJECT_V` and
+errors (goal 3). **No harness context at all** — the human's own terminal,
+running as the human (goal 2).
 
 **Failure directions are deliberately opposite.** Injection is fail-open — a
 broken adapter must never break the harness; worst case the vars are absent.
@@ -468,16 +472,17 @@ No harness files touched; everything unit/integration-testable.
    `CLAUDE_PROJECT_DIR` (accepted only if the dir contains `.me/`) > cwd
    walk-up. Safe to apply globally: the env var only exists in hook/MCP
    processes.
-3. **Agent-by-config for harness contexts**: a helper in
-   `packages/cli/credentials.ts` that activates the configured agent
-   (project `agent:` → global `agent:` → `.user` → none, reusing
-   `resolveAsAgentFor`) for the surface commands (`me mcp`,
-   `me <harness> hook`) **and** for any command running with `ME_INJECT_V`
-   in its env (the injected harness-shell context). An explicit
-   `--as-agent`/`ME_AS_AGENT` always wins over the ambient context, and the
-   explicit `.me` sentinel keeps its hard-throw semantics. The no-agent
-   case differs by surface: fatal for MCP, skip for hooks, run-as-user for
-   the shell (the shared surface's boundary).
+3. **Agent-by-config for harness contexts**: extend `resolveAsAgentFor`'s
+   `.me` sentinel to resolve project `agent:` → global `agent:` (with
+   `.user` resolving to deliberate user-mode), keeping its hard-throw when
+   nothing is in scope. The surface commands (`me mcp`,
+   `me <harness> hook`) activate it as if `--as-agent .me` were passed; the
+   shell gets the identical resolution because the adapters inject
+   `ME_AS_AGENT=.me` — the ordinary sentinel, whose existing hard-throw is
+   exactly the required harness-shell behavior. No-agent-anywhere: fatal
+   for MCP, skip for hooks, sentinel error for the shell — never silent
+   user-mode in a harness context. An explicit `--as-agent` flag always
+   beats the injected env.
    "Resolution failure" means any failure to turn the configured `agent:`
    into a working identity: a malformed config (`ProjectConfigError`), or —
    since the server resolves the name against the caller's **own** agents —
@@ -494,9 +499,9 @@ No harness files touched; everything unit/integration-testable.
    where failure lives: a launch dir without `.me/` walks up to parents as
    usual, and no project config at all just falls through to the global
    `agent:`. But **no agent in scope anywhere is also fatal for `me mcp`**
-   (and a skip for hooks) unless the config opts out explicitly with
-   `agent: .user` — MCP/hook work has no human caller, so user-mode there
-   must be a visible choice, never a default.
+   — a skip for hooks, a sentinel error for the injected shell — unless the
+   config opts out explicitly with `agent: .user`. In a harness context,
+   user-mode must be a visible choice, never a default.
 4. **Global fallback agent + `.user` sentinel + default-agent helper**: add
    `agent:` to the global `~/.config/me/config.yaml` schema; the `.me`
    sentinel resolves the project `agent:` first, else the global one
@@ -504,8 +509,10 @@ No harness files touched; everything unit/integration-testable.
    the user's designated agent; the human terminal is unaffected (config
    never activates by itself). `agent: .user` is a reserved sentinel value
    (valid in project and global config) meaning "harness surfaces run as
-   the user, deliberately" — and agent-name validation must reject
-   leading-dot names so sentinels can never collide with a real agent. Add
+   the user, deliberately" — honored from **config only** (`--as-agent
+   .user` / `ME_AS_AGENT=.user` are rejected, so user-mode always traces to
+   a human-edited file) — and agent-name validation must reject leading-dot
+   names so sentinels can never collide with a real agent. Add
    a shared `ensureDefaultAgent()` helper (reusing the `provisionNewAgent`
    machinery from `me project init`) that provisions-or-finds the user's
    default agent and writes it as the global `agent:` — wired into each
@@ -520,10 +527,11 @@ No harness files touched; everything unit/integration-testable.
    `help`, `--version`, install/init flows). Error message names the
    detected harness and the `me <harness> install` fix.
 6. Tests: detect wrapper matrix, resolver precedence + validation
-   (project > global agent; `.user` opt-out; no-agent-anywhere fatal for
-   mcp / skip for hooks), failsafe truth table (incl. agent-key and
-   allowlist exemptions), `me mcp` agent-by-config + eager startup
-   validation against local Postgres.
+   (project > global agent; `.user` opt-out incl. its config-only
+   rejection as a flag/env value; no-agent-anywhere fatal for mcp / skip
+   for hooks / sentinel error for shell), failsafe truth table (incl.
+   agent-key and allowlist exemptions), `me mcp` agent-by-config + eager
+   startup validation against local Postgres.
 
 ### PR 2 — Claude adapter
 
@@ -578,8 +586,9 @@ No harness files touched; everything unit/integration-testable.
    discovered from the session cwd. Likewise the per-command `input.cwd` is
    not the anchor (a `workdir=/tmp` excursion would lose discovery exactly
    when injection matters). The plugin parses no config at all: the
-   filesystem walk-up gates only `ME_CONFIG_DIR`; the context markers are
-   set unconditionally and the CLI owns all agent resolution. Also pass the
+   filesystem walk-up gates only `ME_CONFIG_DIR`; the other contract vars —
+   including the ungated `ME_AS_AGENT=.me` — are set unconditionally and
+   the CLI owns all agent resolution. Also pass the
    same discovered root as `--config-dir` on the `me opencode hook`
    shell-out (today it leans on `process.cwd()`).
 2. Bump the plugin template version/marker so `me opencode install`
