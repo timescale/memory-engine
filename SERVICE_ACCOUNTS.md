@@ -38,6 +38,14 @@ documentation and git commits into Memory Engine on merges to `main` needs an
 api key. Tying that key to an individual (or their agent) fails the same way:
 when that person leaves, the repo's team cannot administer the integration.
 
+**Example 3 — auto-provisioning service.** A company wants an integration wired
+to HR/SSO events that invites new employees to the right Memory Engine space and
+puts them in the right groups automatically. This integration needs durable
+structural authority (issuing invites, managing selected group rosters, perhaps
+granting access in bounded subtrees), but it is a traditional deterministic
+program owned by the workspace/team — not a human user and not one engineer's
+agent.
+
 ### What's needed
 
 A **top-level principal** that (1) authenticates with an **api key** and (2) is
@@ -61,7 +69,7 @@ integrations, bots, and CI/CD pipelines.
 | Access ceiling | its own grants | clamped to owner | — | **its own grants (no clamp)** |
 | Global vs space | global | global | space-scoped | **space-scoped** |
 | Default access | — | — | — | **none** (zero grants) |
-| Can be space admin | yes | no | yes | **no** |
+| Can be space admin | yes | no | yes | **allowed, discouraged** |
 
 The headline difference from an agent: administration is **detached from a
 single human and attached to a group of humans**, and there is **no owner
@@ -92,10 +100,13 @@ user's.
 - **D7 — Admin-group members manage the SA's api keys** (create / rotate /
   revoke), in addition to space admins. Key mint/revoke stays a
   session/OAuth/PAT operation — a key can never mint keys.
-- **D8 — The SA's own key is data-plane only.** Like an agent key: it reads/
-  writes memory subject to grants but cannot manage grants, keys, or the roster.
-  (This prevents an SA from becoming a grant-laundering vector — and see §9 for
-  the auto-provisioning use case that will want to revisit exactly this.)
+- **D8 — The SA's own key has no authority by default.** A freshly created SA is
+  inert (D11). Once granted authority, its key may exercise that authority like
+  any other principal: `tree_access` for memory access, `owner@P` for grant
+  management under *P*, `group_member.admin` for managing that group's roster,
+  `can_invite` for invitation creation (§9), and `principal_space.admin` if the
+  operator explicitly makes the SA a space admin (D14). Key mint/revoke stays
+  human-administered: an SA key can never mint keys.
 - **D9 — Admin group membership is flexible.** The space admin adds the first
   member(s). Each member may or may not get the group's `group_member.admin`
   flag; with **zero** group-admins, only space admins can change membership. The
@@ -111,13 +122,19 @@ user's.
 - **D12 — An SA *may* be a member of ordinary groups** (distinct from D10's
   admin group). This is a convenient way to grant many SAs access at once, and
   is consistent with agents being group members. An SA inherits an ordinary
-  group's grants like any member. (Group-*admin* flag for an SA: leaning no,
-  mirroring agents — see §8.)
+  group's grants like any member. It may also hold `group_member.admin` on
+  ordinary groups, which is useful for provisioning (§9).
 - **D13 — Lifecycle.** Deleting the SA deletes its bound admin group (and that
   group's `group_member` / `tree_access` / roster rows). The admin group
   **cannot be deleted directly** (delete the SA instead), **cannot be a
   space-admin group**, and **cannot be the space default group** — enforced by
   constraint triggers.
+- **D14 — Space-admin SAs are allowed but discouraged.** We should not block an
+  operator from explicitly giving an SA `principal_space.admin`; some traditional
+  deterministic integrations may legitimately need broad structural authority.
+  This is reckless for LLM-held keys and should not be the normal provisioning
+  path. Open: whether an SA key should be barred from `space.delete` even when
+  the SA is a space admin (§8).
 
 ### Accepted limitation (by design)
 
@@ -165,9 +182,11 @@ group` / space-admin). Impl detail — §8.
   only.
 - **Manage admin-group membership**: space admins always; group members holding
   `group_member.admin` (D9). Adding a non-user is rejected (D10).
-- **The SA acting**: its key is data-plane only (D8) — `memory.*` clamped to its
-  grants; management RPCs fail (same posture as agent keys on the user
-  endpoint).
+- **The SA acting**: its key may exercise explicit authorities assigned to the
+  SA (D8): memory access from `tree_access`, grant authority from `owner@P`,
+  group-roster management from `group_member.admin`, invitations from
+  `can_invite`, and broad structural authority from explicit space-admin status
+  (D14). It still cannot mint/revoke api keys.
 
 ## 6. Access model
 
@@ -196,36 +215,159 @@ group` / space-admin). Impl detail — §8.
    Current lean: **`admin_id`** with a clear column comment.
 2. **Bound-group marking**: back-reference check vs. explicit flag column
    (§4). Flag is cheaper and makes the D13 exclusions constraint-friendly.
-3. **SA as a *group admin***: D12 allows an SA as a group *member*; should it be
-   allowed the `group_member.admin` flag? Leaning **no** (mirror agents), but
-   the §9 auto-provisioning use case may want otherwise.
+3. **SA as a *group admin***: **resolved — yes.** D12 allows an SA as a group
+   *member*; it may also hold and exercise `group_member.admin` on ordinary
+   groups. This is distinct from inviting new users into the space: a service
+   account can manage an existing group's roster without being allowed to create
+   space invitations. (Requires allowing `kind='s'` in the group-admin logic
+   that currently strips agents: `gm.admin and not m.kind = 'a'`.)
 4. **Admin group naming/derivation** and whether it's user-visible/renamable.
-5. **`X-Me-As-Service`?** A `X-Me-As-Agent` analogue letting an admin-group
-   member act as the SA from their own human credential. Consistent with the
-   accepted escalation (they could mint a key anyway) and avoids key handling —
-   but scope creep. Deferred.
+5. **No `X-Me-As-Service`.** Rejected. Service accounts authenticate and
+   authorize with their own api key via `ME_API_KEY` or `--api-key`; there is no
+   human-credential "act as service" mode.
+6. **SA space-admin delete restriction**: if an SA is deliberately made a space
+   admin (D14), should its api key still be barred from `space.delete`? Current
+   lean: yes — space deletion is catastrophic and not a normal integration task.
 
-## 9. Future work
+## 9. Auto-provisioning service accounts
 
-### Auto-provisioning service accounts (needs deep design — todo)
+A compelling extension: an SA integration that **automatically adds new company
+members to a space and provisions their access** (e.g. wired to an HR/SSO
+event — new hire joins → they land in the right groups with the right grants).
+This *appears* to conflict with D8 (SA key has no authority by default), because
+it needs roster + grant management through an api key. The tension resolves
+cleanly once the actions are decomposed into existing, already-bounded
+primitives.
 
-There is a compelling use case for an SA integration that **automatically adds
-new company members to a space and provisions their access** (e.g. wired to an
-HR/SSO event). This is highly useful but **directly conflicts with D8** (SA key
-is data-plane only): such an SA needs **structural admin** (roster mutation) and
-**grant authority** through its api key.
+> Status: designed here, **not in scope for the initial feature**. Ships as a
+> follow-on capability once the base SA lands.
 
-Open sub-questions to resolve before committing:
+### 9.1 You cannot fabricate a human
 
-- What authority does such an SA hold, and how is it expressed (a structural-
-  admin bit on the SA? bounded grant authority?)?
-- Blast radius / guardrails: an SA that can add members and grant access is
-  close to a space-admin bot. How do we bound it (e.g. only grant within
-  specified subtrees, only add members to specified groups)?
-- Does this reopen D8 for a *class* of SAs, or is it a separate capability flag?
-- Audit / attribution for actions an SA takes on the roster.
+A user principal only exists **after** the human authenticates (OAuth login).
+So *nobody* — not even a space admin — conjures a member from nothing: new
+people are admitted via **invitations** that the invitee redeems on login. The
+SA is no different. Auto-provisioning is therefore:
 
-Tracked as a design todo; not in scope for the initial service-account feature.
+> the SA **issues an email invitation** (encoding the target groups) → the new
+> hire logs in and **redeems** it → they land provisioned.
+
+Human-in-the-loop is *inherent*, not a restriction we add. The invite row is the
+bounded carrier: privileges (admin flag, groups) are read from the row at
+redemption and "no caller can join a user with more access than the invitation
+specifies" (`_join_via_invitation`).
+
+### 9.2 Primitive decomposition
+
+| Action | Primitive today | Gate today | Natural bound |
+|---|---|---|---|
+| Admit a human | `invite.create` → redeem | space-admin | invite encodes groups/admin; human authenticates |
+| Put in groups | invite `group_ids`; `group.addMember` | space-admin **or** `group_member.admin` | `group_member.admin` is **per-group** |
+| Remove / offboard a human | `principal.remove`; `group.removeMember` | space-admin, or group-admin for group removal | group removal is per-group; full space removal is broad |
+| Grant access | `grant.set` | `owner@P` | **subtree-scoped** |
+
+Two of the four (`group_member.admin`, `owner@P`) are **already** scoped
+primitives. Invite-issuance and full space removal are broader structural acts,
+so those need explicit capability bits if exposed to a non-space-admin SA.
+
+### 9.3 Space admin is not the normal path
+
+Because two legs are already bounded, a provisioning SA **does not need
+`principal_space.admin`**. The normal supported path is **not** "make the SA a
+space admin"; it is "give the SA the exact scoped authorities it needs":
+subtree ownership, group-admin memberships, and (only if it must admit new
+people) `can_invite`. We do not categorically forbid `principal_space.admin` on
+an SA (D14), but it is an explicit operator choice with a much larger blast
+radius.
+
+### 9.4 The model: distinct authorities, not one provisioning flag
+
+Do **not** tie all provisioning behavior to one coarse flag. These operations
+are distinct and should be granted independently:
+
+- **Grant management**: an SA that holds `owner@P` may call `grant.set` /
+  `grant.remove` under *P*, using the ordinary `requireGrantAuthority` rule.
+- **Group roster management**: an SA that holds `group_member.admin` on group G
+  may add/remove/list members of G. This does **not** imply it can invite new
+  people into the space.
+- **Invitation creation**: a separate **space-admin-set** `can_invite` flag lets
+  an SA create invitations. This is the only new capability bit; it exists
+  because invitation creation otherwise has only an all-space-admin gate.
+- **Space offboarding**: a separate **space-admin-set** `can_deprovision` (name
+  TBD) flag may let an SA remove users from the space. This is distinct from
+  `can_invite`; adding people and removing people have different blast radii.
+  Group-level offboarding does not require this flag: `group_member.admin` is
+  enough to remove a member from that specific group.
+- **Key management**: still never. An SA key cannot mint/revoke api keys.
+
+So the grants/memberships/capability bits are the leash. Examples:
+
+- An SA with `group_member.admin` on `engineering` but `can_invite=false` can
+  maintain the `engineering` roster for already-admitted principals, but cannot
+  invite new users into the space.
+- An SA with `owner@share.eng` but no group-admin can grant/revoke access under
+  `share.eng`, but cannot manage any group roster or invite anyone.
+- An SA with both `can_invite=true` and group-admin on `engineering` can issue
+  non-admin invitations into `engineering`.
+- An SA with `can_deprovision=true` can offboard users from the space according
+  to the deprovisioning guardrails (§9.5). Without it, it can still remove users
+  from groups where it is group-admin, but cannot remove them from the space.
+
+### 9.5 Hard guardrails
+
+- **Invites forced `admin=false`.** An SA can never issue an admin invite — the
+  escalation stopper (no minting space admins).
+- **Invite `group_ids` ⊆ groups the SA admins.** No inviting into groups outside
+  its leash. (Alternative: an explicit per-SA provisioning-group whitelist;
+  `group_member.admin` is preferred as it reuses an existing primitive and keeps
+  "can invite into G" ≡ "can manage G".)
+- **`can_invite` is space-admin-only to set.** Admin-group members — who can
+  already grant the SA `owner@P` they hold (D4) and manage its keys (D7) —
+  **cannot** flip `can_invite`. Letting an SA admit new people into the space is
+  a deliberate space-admin decision.
+- **`can_deprovision` is space-admin-only to set.** Letting an SA remove users
+  from the space is at least as sensitive as admitting them. Initial lean: a
+  non-space-admin SA with `can_deprovision` may remove non-admin users, but not
+  admins; removing admins remains space-admin-only unless the SA itself has
+  explicit `principal_space.admin` (D14). `enforce_last_admin` is still the DB
+  backstop either way.
+- **`enforce_last_admin` still applies** for any path that can remove or demote
+  admins. A non-space-admin provisioning SA is not counted as an admin.
+
+### 9.6 Blast radius (leaked provisioning-SA key)
+
+For a non-space-admin provisioning SA, bounded to the independent authorities it
+holds: issuing non-admin invites into its admin-able groups (only if
+`can_invite=true`), churning groups where it is group-admin, and
+granting/revoking within its owned subtrees, and offboarding non-admin users
+only if `can_deprovision=true`. It **cannot** mint a space admin, exceed its
+owned subtrees, touch groups it doesn't admin, mint keys, or delete the space.
+Fully recoverable by revoking the key.
+Attribution is free: SA-issued invites carry `invited_by = <SA principal>` and
+redemptions are logged (`space_invitation_redemption`).
+
+### 9.7 Remaining questions
+
+- **Direct-add variant**: should `can_invite` also allow `principal.add`
+  of an *already-existing* user (skipping the redeem step) into admin-able
+  groups, non-admin? More convenient, less human-in-the-loop. Lean: invite-first
+  by default; consider as a separate sub-capability.
+- **Audit depth**: invites are attributed already; do we want an explicit audit
+  trail for SA-initiated `group.addMember` / `grant.set` given the elevated
+  capability?
+- **Invite management scope**: can an SA with `can_invite` list/revoke all
+  pending invitations into groups it admins, or only invitations it created?
+- **Deprovisioning scope**: if `can_deprovision` exists, should it remove any
+  non-admin user, only users invited by this SA, only users in groups it admins,
+  or only users matching an external identity-domain/policy? The useful HR-sync
+  version likely needs broad non-admin removal, but provenance-bounded removal is
+  safer.
+- **Structural-only auth gate**: the memory RPC currently uses non-empty
+  `build_tree_access` as the space access gate. An SA that is only
+  `group_member.admin` for a group with no grants may have structural authority
+  but no effective `tree_access`, so it could be denied before reaching
+  `group.*`. Options: require at least one data grant for such SAs, or widen the
+  membership gate to admit explicit structural authority.
 
 ## 10. Glossary / docs touch-ups on ship
 
