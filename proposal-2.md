@@ -638,13 +638,41 @@ No harness files touched; everything unit/integration-testable.
    `run_shell_command`). Gating on `.me/` presence keeps non-me projects
    uninjected-but-live (`ME_INJECT_V` still set).
 
-### PR 6 — `me doctor`
+### PR 6 — `me doctor` (lightweight — no harness spawning)
 
-Per-harness probes via the non-interactive modes (`claude -p`, `codex exec`,
-`opencode run`, `gemini -p`): assert the contract vars are present and
-`ME_INJECT_V` matches the CLI version; check the Codex MCP cwd (flag
-Desktop/VS Code hosts); check `.me` gitignore state and whether
-`config.local.yaml` exists where `agent:` is expected.
+A read-only diagnosis, on the failsafe allowlist by necessity (its job is to
+run in states where other commands fail closed). Exit code non-zero on any
+fail, so "run `me doctor` and fix what it says" works for agents and
+scripts. Four sections:
+
+1. **Context + resolution trace**: harness context (injected vars present,
+   `ME_INJECT_V` vs CLI version; native marker *without* injection → "fails
+   closed here, rerun `me <harness> install`"; nothing → human terminal);
+   which source won the project dir (exact / anchor / validated harness var
+   / cwd walk-up) and the effective server/space/tree/agent with the layer
+   each came from; bottom line: what memory operations here run as.
+2. **Identity round trip** (the same shared check `me mcp` runs eagerly at
+   startup): credential valid; resolved agent exists, is owned, is admitted
+   to the active space; grant summary. Warn when no global `agent:` is set.
+3. **Adapter installs**, file-level, per harness with a config dir present:
+   Claude plugin + SessionStart hook; opencode plugin file + version marker
+   ("stale — rerun `me opencode install`"); Codex `hooks.json` entry +
+   version, plus reminders for what we can't read (post-upgrade `/hooks`
+   re-approval; Desktop/VS Code per-server `cwd` when the MCP entry lacks
+   one); Gemini settings hooks + MCP entries.
+4. **Project hygiene** (inside a `.me` project): `config.local.yaml`
+   gitignored; committed `agent:` names an agent the caller owns (the
+   cloned-repo teammate check); capture enabled but silently skipping (the
+   one failure the runtime never surfaces); linked-worktree warning when
+   the main checkout has a `config.local.yaml` this worktree lacks.
+
+Deliberately dropped: the agent-env-style probe suite that launches each
+harness's non-interactive mode. It needed all four CLIs installed and
+authenticated, spent API tokens per run, and duplicated what the runtime
+failsafe + eager MCP validation already surface at use time. Running
+`me doctor` from inside a harness shell *is* the end-to-end injection test.
+The manual verification matrix covers development; a CI e2e can automate it
+later if it earns its keep.
 
 ### Verification (whole effort)
 
