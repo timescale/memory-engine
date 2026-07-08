@@ -1,19 +1,18 @@
 /**
  * Authentication for the space memory RPC (`/api/v1/memory/rpc`).
  *
- * Resolves an authenticated principal and a target space into the access set
- * (`treeAccess`) that the space SQL functions consume. Two credential modes,
- * discriminated by whether the bearer token parses as an api key:
+ * Resolves an authenticated principal and a target space into a member context,
+ * including the access set (`treeAccess`) that the space SQL functions consume.
+ * Two credential modes, discriminated by whether the bearer token parses as an
+ * api key:
  *
  *   - api key (agent): `me.<lookupId>.<secret>` — validated against core.
  *   - human: an OAuth access token (Bearer, CLI/MCP) or a better-auth cookie
  *     session — both opaque, validated against the auth schema.
  *
  * The space is always selected by the `X-Me-Space` header (uniform for both
- * modes). `core.buildTreeAccess(principalId, space.id)` is the single
- * authorization gate: a principal with no grants in the space resolves to an
- * empty set and is denied. Api keys are global, so a key whose principal isn't a
- * member of the requested space is denied here rather than at parse time.
+ * modes). Direct `principal_space` membership is the endpoint admission gate;
+ * tree grants are data authorization and may legitimately be empty.
  */
 import { slugToSchema } from "@memory.build/database";
 import {
@@ -55,7 +54,7 @@ export interface SpaceAuthContext {
   ownerId: string | null;
   /** Api key id when authenticated by api key; null for sessions. */
   apiKeyId: string | null;
-  /** The principal's effective grants in this space — the access gate. */
+  /** The principal's effective grants in this space. May be empty. */
   treeAccess: TreeAccess;
   /** Whether the principal is a space admin (principal_space.admin). */
   admin: boolean;
@@ -146,7 +145,7 @@ async function authenticateSpaceInner(
 
   if (parsed) {
     // Api keys are global; the space comes solely from the header. A key whose
-    // principal isn't a member of this space falls through to the empty-access
+    // principal isn't a member of this space falls through to the membership
     // gate below (403), not a parse-time rejection.
     const validated = await core.validateApiKey(parsed.lookupId, parsed.secret);
     if (!validated) {
@@ -199,8 +198,8 @@ async function authenticateSpaceInner(
   // 4b. Act-as-agent switch. A human credential (session / OAuth / user PAT,
   // signalled by a null owner) may send `X-Me-As-Agent` to run as one of their
   // own agents. An agent key already IS an agent (non-null owner) → the header
-  // is ignored. Done BEFORE the access gate (step 5) and the admin check (step
-  // 6) so `treeAccess`, `~`-home nesting, and `admin` all reflect the agent.
+  // is ignored. Done BEFORE the membership gate (step 5) and the admin check
+  // (step 6) so `treeAccess`, `~`-home nesting, and `admin` all reflect the agent.
   let authenticatedAs: string | null = null;
   const asAgent = request.headers.get(AS_AGENT_HEADER);
   if (asAgent && ownerId === null) {
@@ -232,20 +231,24 @@ async function authenticateSpaceInner(
     principalId = agent.id;
   }
 
-  // 5. The single membership / authorization gate. An empty set means the
-  // principal has no grants in this space (incl. a wrong-space api key) — deny.
-  // `buildTreeAccess(agentId, spaceId)` applies the `agent_tree_access` clamp
-  // internally, so an act-as request gets byte-identical access to the key path.
-  const treeAccess = await core.buildTreeAccess(principalId, space.id);
-  if (treeAccess.length === 0) {
-    debug("space auth failed: no access in space", { slug, principalId });
+  // 5. Endpoint admission is direct space membership (principal_space), not
+  // tree access. A member may legitimately have no tree grants; data-plane
+  // methods still enforce that later through the space SQL functions.
+  if (!(await core.isPrincipalInSpace(principalId, space.id))) {
+    debug("space auth failed: principal is not a space member", {
+      slug,
+      principalId,
+    });
     return { ok: false, error: forbidden("No access to this space") };
   }
 
-  // 6. Bind the data-plane store to this space's schema, and resolve whether
-  // the principal is a space admin (membership-level management authority).
+  // 6. Bind the data-plane store to this space's schema, resolve management
+  // authority, and eagerly compute the effective tree grants consumed by data
+  // handlers. `buildTreeAccess(agentId, spaceId)` applies the `agent_tree_access`
+  // clamp internally, so act-as remains byte-identical to the agent-key path.
   const store = spaceStore(db, slugToSchema(space.slug));
   const admin = await core.isSpaceAdmin(principalId, space.id);
+  const treeAccess = await core.buildTreeAccess(principalId, space.id);
 
   debug("space auth succeeded", {
     slug,

@@ -3,7 +3,8 @@
  *
  * The context for `/api/v1/memory/rpc` — populated by authenticateSpace. Memory
  * (data-plane) methods use `store` + `treeAccess`; management (control-plane)
- * methods use `core` + `space`.
+ * methods use `core` + `space`. Endpoint admission is direct space membership,
+ * so `treeAccess` may be empty.
  */
 import type { EmbeddingConfig } from "@memory.build/embedding";
 import type { CoreStore, Space, TreeAccess } from "@memory.build/engine/core";
@@ -26,7 +27,7 @@ export interface SpaceRpcContext extends HandlerContext {
   ownerId: string | null;
   /** Api key id when authenticated by api key; null for sessions. */
   apiKeyId: string | null;
-  /** The principal's effective grants in this space — the access gate. */
+  /** The principal's effective grants in this space. May be empty. */
   treeAccess: TreeAccess;
   /** Whether the principal is a space admin (principal_space.admin). */
   admin: boolean;

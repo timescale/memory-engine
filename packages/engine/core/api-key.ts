@@ -8,7 +8,8 @@
  *
  * Keys are global per-principal credentials, not space-bound: the same key
  * authenticates into any space the owning principal has been admitted to (the
- * space is selected by the X-Me-Space header, gated by core.build_tree_access).
+ * space is selected by the X-Me-Space header, gated by principal_space
+ * membership).
  *
  * The secret is high-entropy, so we store sha256(secret) and validate by
  * equality in SQL (core.validate_api_key) — no per-request argon2 verify. This

@@ -649,9 +649,9 @@ async function memoryCountTree(
 /**
  * memory.embeddingStatus — space-wide embedding backlog snapshot.
  *
- * Aggregate counts only (no content), space-wide by design, so any space member
- * may call it; the memory-endpoint auth gate (a non-empty treeAccess) is
- * sufficient. Surfaces async embedding progress after an import (TNT-188).
+ * Aggregate counts only (no content), space-wide by design, so any authenticated
+ * space member may call it. Surfaces async embedding progress after an import
+ * (TNT-188).
  */
 async function memoryEmbeddingStatus(
   _params: Record<string, never>,
