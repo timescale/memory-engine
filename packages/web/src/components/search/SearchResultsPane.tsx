@@ -18,7 +18,7 @@
  * selection changes.
  */
 import { useEffect, useRef } from "react";
-import { autoSelectTarget } from "../../lib/search-results.ts";
+import { autoSelectTarget, displayResults } from "../../lib/search-results.ts";
 import { useActiveSearch } from "../../lib/useActiveSearch.ts";
 import { useEditor } from "../../store/editor.ts";
 import { useLayout } from "../../store/layout.ts";
@@ -53,7 +53,7 @@ export function SearchResultsPane() {
     handledFilterRef.current = filter;
     const { selectedId, selectedVia } = useSelection.getState();
     const target = autoSelectTarget({
-      results,
+      results: displayResults(results, filter),
       selectedId,
       selectedVia,
       editorDirty: useEditor.getState().dirty,

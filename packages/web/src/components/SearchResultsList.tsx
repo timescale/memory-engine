@@ -2,8 +2,8 @@ import type { MemoryWithScoreResponse } from "@memory.build/client";
 import { useMemo } from "react";
 import {
   buildTextMatchers,
-  compareResultsByRelevance,
   contentFragment,
+  displayResults,
   hasTextFilter,
 } from "../lib/search-results.ts";
 import type { FilterState } from "../store/filter.ts";
@@ -22,8 +22,8 @@ export function SearchResultsList({
 }) {
   const textMatchers = useMemo(() => buildTextMatchers(filter), [filter]);
   const sortedResults = useMemo(
-    () => [...results].sort(compareResultsByRelevance),
-    [results],
+    () => displayResults(results, filter),
+    [results, filter],
   );
   // Without a text criterion (pure tree/meta/temporal filter) there is no
   // relevance signal — hide the meaningless score badges.

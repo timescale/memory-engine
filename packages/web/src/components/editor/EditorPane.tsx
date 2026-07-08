@@ -318,6 +318,7 @@ function ReadingView({
 function ThreadNav({ memory }: { memory: MemoryResponse }) {
   const select = useSelection((s) => s.select);
   const applyMetaJsonFilter = useFilter((s) => s.applyMetaJsonFilter);
+  const setAdvanced = useFilter((s) => s.setAdvanced);
   const setSearchCollapsed = useLayout((s) => s.setSearchCollapsed);
 
   const meta = memory.meta;
@@ -387,8 +388,11 @@ function ThreadNav({ memory }: { memory: MemoryResponse }) {
         {showThread && (
           <GhostButton
             onClick={() => {
+              // Filter to the thread, oldest-first (uuidv7 id order = message
+              // order for imported threads). No advanced-panel popup — the
+              // overlay would cover the very results this asks for.
               applyMetaJsonFilter({ [META_THREAD]: threadId });
-              setSearchCollapsed(false);
+              setAdvanced({ orderBy: "asc" });
             }}
           >
             Entire thread
