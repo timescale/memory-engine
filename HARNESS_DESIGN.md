@@ -71,20 +71,24 @@ That inversion buys two concrete advantages:
   harness), the correct degradation for a harness surface is a hard failure,
   never the user's credentials.
 - **Every harness context requires an agent in scope — or an explicit
-  `agent: .user`.** When neither exists (no project `agent:`, no global
+  `.user`.** When neither exists (no project `agent:`, no global
   fallback in `~/.config/me/config.yaml`), harness surfaces fail rather
   than fall back: `me mcp` exits with an actionable error, capture hooks
   skip, and a harness-shell `me` call errors (the injected sentinel
   resolves nothing and throws). User-mode harness work must always trace
-  to a deliberate, human-written `agent: .user` (a reserved value, honored
-  from config only) — never to an accident. Two things keep the strictness
-  low-friction: every install flow provisions a **default agent** and
-  writes it as the global fallback, so "no agent anywhere" is rare by
-  construction, and the failure messages name the fix. Only the human's
-  own terminal — no harness context at all — runs as the user without any
-  of this applying; a global `agent:` never affects it, because config
-  only supplies the *value* and activation always comes from the surface
-  or the injected env.
+  to a deliberate `.user` — a human-written `agent: .user` in config, or
+  an explicit `--as-agent .user` / `ME_AS_AGENT=.user` on the invocation
+  (the human escape hatch) — never to an accident. Two things keep the
+  strictness low-friction: every install flow provisions a **default
+  agent** and writes it as the global fallback, so "no agent anywhere" is
+  rare by construction, and the failure messages name the fix. Two
+  contexts run as the user without any of this applying: the human's own
+  terminal — no harness context at all — and an **interactive terminal
+  that merely carries a harness marker** (an IDE integrated terminal,
+  where the failsafe's TTY exemption treats an interactive stderr as the
+  human). A global `agent:` never affects either, because config only
+  supplies the *value* and activation always comes from the surface or
+  the injected env.
 
 ## Premise: where each surface learns the project directory
 
@@ -159,16 +163,29 @@ next section):
   marker is **not** present but `me` detects it is being run by an agent
   (detect-agent plus our extra env-var checks), it **errors** — it does not
   guess an identity or a config. **Decided: the failsafe is unconditional on
-  detection** — an agent-run `me` without live injection errors everywhere,
-  even with no `.me` config in scope, with an actionable "run
-  `me <harness> install`" message. Exemptions: an explicit
-  `--as-agent`/`ME_AS_AGENT` (any value), an agent `ME_API_KEY` (the
-  sanctioned sandbox mode — the bearer already *is* the agent), the harness
-  surfaces themselves (`me mcp`, `me <harness> hook` — they enforce the
-  stronger agent-by-config rule and may run without shell injection, e.g. an
-  MCP server env carries `CLAUDECODE=1` but never the injected vars), and a
-  small diagnostic/setup allowlist (`doctor`, `help`, `--version`, the
-  install flows; exact list settled in implementation).
+  detection in non-interactive contexts** — an agent-run `me` without live
+  injection errors everywhere, even with no `.me` config in scope. The
+  error is branched by harness: for an integrated harness it names the fix
+  ("run `me <harness> install`"); for a detected-but-unintegrated harness
+  (Cursor, Copilot, …) — where no installer exists — it says so and asks
+  the user to file a GitHub issue requesting the integration. Deliberately
+  **no workaround recipe**: a static `ME_AS_AGENT=.me` in the harness's
+  env would cover activation but not discovery — nothing supplies the
+  `ME_PROJECT_DIR` anchor dynamically, so excursions (`cd /tmp && me …`)
+  would silently mis-scope to the global config — and we'd rather learn
+  the demand and ship a real adapter than normalize a degraded one.
+  Exemptions: **an interactive terminal** (stderr is a TTY — a harness
+  marker without injection there means a human in an IDE integrated
+  terminal, not an agent: run as the user and print a one-line notice;
+  harness tool shells never allocate a TTY), an explicit
+  `--as-agent`/`ME_AS_AGENT` (any value, including `.user` — the universal
+  human override), an agent `ME_API_KEY` (the sanctioned sandbox mode —
+  the bearer already *is* the agent), the harness surfaces themselves
+  (`me mcp`, `me <harness> hook` — they enforce the stronger
+  agent-by-config rule and may run without shell injection, e.g. an MCP
+  server env carries `CLAUDECODE=1` but never the injected vars), and a
+  small diagnostic/setup allowlist (`doctor`, `help`, `--version`,
+  `login`, the install flows; exact list settled in implementation).
 
 ### Enforcement by harness
 
@@ -389,14 +406,23 @@ matters:
    mechanism's answer is the failsafe: a detected native marker without the
    injection's `ME_INJECT_V` liveness var is a hard error (see the mechanism
    section).
-3. **Human-inside-harness terminals.** IDE integrated terminals set
-   `CLAUDECODE=1`, and injected env reaches opencode's built-in terminal — a
-   human typing `me` there is indistinguishable from the agent and will act as
-   the agent. Accepted wrinkle (same as prior design), but goal 2 should be
-   worded as "the human's own terminal". Partial exception: opencode hard-sets
+3. **Human-inside-harness terminals.** Two distinct cases. Claude's IDE
+   integrated terminals set `CLAUDECODE=1` but never receive injection
+   (`$CLAUDE_ENV_FILE` is sourced only before Bash tool commands) — so an
+   unconditional failsafe would hard-error every human `me` there, with no
+   way back (config never activates, and rejecting `--as-agent .user`
+   would close the last exit). Hence the **TTY exemption**: the failsafe
+   treats an interactive stderr as the human (harness tool shells never
+   allocate a TTY) and runs as the user with a one-line notice;
+   `ME_AS_AGENT=.user` remains the explicit override where the heuristic
+   can't apply. opencode's built-in terminal is the opposite case: injected
+   env *does* reach it, so `ME_AS_AGENT=.me` is present and activation is
+   explicit — the TTY exemption lives only in the failsafe and doesn't
+   override explicit activation — so a human typing `me` there acts as the
+   agent. Accepted wrinkle, now confined to opencode: it hard-sets
    `OPENCODE_TERMINAL=1` on built-in-terminal children (unoverridable by
-   plugins), so there `me` *could* elect to stay human — a policy choice for
-   the mechanism design.
+   plugins), so the adapter *could* elect to skip injection there — a
+   deferred policy choice.
 4. **Worktrees.** `CLAUDE_PROJECT_DIR` mis-resolves under `claude -w`
    (main root, not worktree), and a gitignored `.me/config.local.yaml` is
    absent in a fresh worktree — if the agent identity lives only in the local
@@ -438,18 +464,25 @@ CLI, adapters need no gating and parse no config — gating the injection on
 the project file would wrongly skip the global fallback, and adapters must
 never replicate precedence logic. Because the semantics are uniform, an
 explicit `--as-agent .me` behaves identically to the injected one. `.user`
-is honored **from config only** — it is not a valid `--as-agent` /
-`ME_AS_AGENT` value — so user-mode harness work always traces to a
-human-edited file.
+is honored from config **and** as an explicit `--as-agent .user` /
+`ME_AS_AGENT=.user` — the human escape hatch for false-positive detection
+and human-run scripts — so user-mode harness work always traces to
+something deliberate and visible: a config line or an explicit flag/env on
+the invocation, never a silent fallback.
 
 How the cases fall out: **agent in scope** (project or global) — every
-surface acts as it. **`.user` in scope** — user-mode, visibly chosen.
-**Nothing anywhere** — MCP fatal, hook skip, shell sentinel error; rare
-after install-time default-agent provisioning, and every message names the
-fix. **Injection silently dead in a me-project** (untrusted Codex hooks,
-disabled plugin) — detection sees a native marker without `ME_INJECT_V` and
-errors (goal 3). **No harness context at all** — the human's own terminal,
-running as the human (goal 2).
+surface acts as it. **`.user` in scope** (config, or explicit flag/env) —
+user-mode, visibly chosen. **Nothing anywhere** — MCP fatal, hook skip,
+shell sentinel error; rare after install-time default-agent provisioning,
+and every message names the fix. **Injection silently dead in a
+me-project** (untrusted Codex hooks, disabled plugin) — detection sees a
+native marker without `ME_INJECT_V` and errors (goal 3). **Marker without
+injection, but stderr is a TTY** — a human in an IDE integrated terminal:
+runs as the human with a one-line notice (the TTY exemption). **Detected
+but unintegrated harness** (non-TTY) — the failsafe errors and asks for a
+GitHub issue; deliberately no workaround (see the failsafe sketch). **No
+harness context at all** — the human's own terminal, running as the human
+(goal 2).
 
 **Failure directions are deliberately opposite.** Injection is fail-open — a
 broken adapter must never break the harness; worst case the vars are absent.
@@ -465,16 +498,19 @@ Codex MCP couldn't receive env anyway).
 
 ## Implementation Plan
 
-Decisions locked before planning: failsafe is **unconditional on detection**;
-Codex/Gemini get **injection + agent-by-config MCP now, capture hooks
-deferred**; agent identity stays the `agent:` **name** in committed
-`.me/config.yaml` (each teammate owns an agent by that name; TNT-182) with
-`.me/config.local.yaml` as the per-user override; opencode's built-in
-terminal is treated as the agent in v1 (`OPENCODE_TERMINAL` exemption
-deferred); harness-only surfaces **require** an agent in scope —
-no-agent-anywhere is fatal for `me mcp` and a skip for hooks — offset by
-install-time default-agent provisioning, with `agent: .user` as the
-explicit user-mode opt-out.
+Decisions locked before planning: failsafe is **unconditional on detection
+in non-interactive contexts** (an interactive stderr TTY without injection
+is treated as the human — see the failsafe sketch; unintegrated harnesses
+get a file-an-issue error, no workaround); Codex/Gemini get **injection +
+agent-by-config MCP now, capture hooks deferred**; agent identity stays
+the `agent:` **name** in committed `.me/config.yaml` (each teammate owns
+an agent by that name; TNT-182) with `.me/config.local.yaml` as the
+per-user override; opencode's built-in terminal is treated as the agent in
+v1 (`OPENCODE_TERMINAL` exemption deferred); harness-only surfaces
+**require** an agent in scope — no-agent-anywhere is fatal for `me mcp`
+and a skip for hooks — offset by install-time default-agent provisioning,
+with `.user` (config `agent: .user`, or explicit `--as-agent .user` /
+`ME_AS_AGENT=.user`) as the deliberate user-mode opt-out.
 
 ### PR 1 — end-to-end: CLI core + Claude + opencode
 
@@ -522,19 +558,21 @@ own), then **Claude**, then **opencode**.
    where failure lives: a launch dir without `.me/` walks up to parents as
    usual, and no project config at all just falls through to the global
    `agent:`. But **no agent in scope anywhere is also fatal for `me mcp`**
-   — a skip for hooks, a sentinel error for the injected shell — unless the
-   config opts out explicitly with `agent: .user`. In a harness context,
-   user-mode must be a visible choice, never a default.
+   — a skip for hooks, a sentinel error for the injected shell — unless
+   `.user` is chosen explicitly (config `agent: .user`, or an explicit
+   `--as-agent .user` / `ME_AS_AGENT=.user` on the invocation). In a
+   harness context, user-mode must be a visible choice, never a default.
 4. **Global fallback agent + `.user` sentinel + default-agent helper**: add
    `agent:` to the global `~/.config/me/config.yaml` schema; the `.me`
    sentinel resolves the project `agent:` first, else the global one
    (`resolveAsAgentFor`). Harness surfaces outside any project then run as
    the user's designated agent; the human terminal is unaffected (config
-   never activates by itself). `agent: .user` is a reserved sentinel value
-   (valid in project and global config) meaning "harness surfaces run as
-   the user, deliberately" — honored from **config only** (`--as-agent
-   .user` / `ME_AS_AGENT=.user` are rejected, so user-mode always traces to
-   a human-edited file) — and agent-name validation must reject leading-dot
+   never activates by itself). `.user` is a reserved sentinel value
+   meaning "run as the user, deliberately" — valid in project and global
+   config (`agent: .user`) **and** as an explicit `--as-agent .user` /
+   `ME_AS_AGENT=.user` (the human escape hatch: false-positive detection,
+   human-run scripts), so user-mode always traces to a deliberate, visible
+   choice — and agent-name validation must reject leading-dot
    names so sentinels can never collide with a real agent. Add
    a shared `ensureDefaultAgent()` helper (reusing the `provisionNewAgent`
    machinery from `me project init`) that provisions-or-finds the user's
@@ -545,15 +583,23 @@ own), then **Claude**, then **opencode**.
    migration path.
 5. **The failsafe** (root `preAction` in `packages/cli/index.ts`): error
    when `detectHarness()` fires ∧ no `ME_INJECT_V` ∧ no explicit
-   `--as-agent`/`ME_AS_AGENT` ∧ credential is not an agent api key ∧ command
-   not on the surface/diagnostic allowlist (`mcp`, `* hook`, `doctor`,
-   `help`, `--version`, install/init flows). Error message names the
-   detected harness and the `me <harness> install` fix.
+   `--as-agent`/`ME_AS_AGENT` ∧ credential is not an agent api key ∧
+   stderr is **not** a TTY ∧ command not on the surface/diagnostic
+   allowlist (`mcp`, `* hook`, `doctor`, `help`, `--version`, `login`,
+   install/init flows). When stderr **is** a TTY (a human in an IDE
+   integrated terminal — tool shells never allocate one), run as the user
+   and print a one-line notice instead. The error message is branched:
+   integrated harness → names it and the `me <harness> install` fix;
+   detected-but-unintegrated harness (Cursor, Copilot, …) → names it and
+   asks the user to file a GitHub issue requesting the integration — no
+   workaround recipe (a static env setup can't supply the
+   `ME_PROJECT_DIR` anchor, so it would mis-scope on excursions).
 6. Tests: detect wrapper matrix, resolver precedence + validation
-   (project > global agent; `.user` opt-out incl. its config-only
-   rejection as a flag/env value; no-agent-anywhere fatal for mcp / skip
+   (project > global agent; `.user` opt-out from config and as an
+   explicit flag/env value; no-agent-anywhere fatal for mcp / skip
    for hooks / sentinel error for shell), failsafe truth table (incl.
-   agent-key and allowlist exemptions), `me mcp` agent-by-config + eager
+   agent-key, allowlist, and TTY exemptions; both branches of the error
+   message), `me mcp` agent-by-config + eager
    startup validation against local Postgres.
 
 #### Claude adapter
@@ -650,7 +696,10 @@ scripts. Four sections:
 
 1. **Context + resolution trace**: harness context (injected vars present,
    `ME_INJECT_V` vs CLI version; native marker *without* injection → "fails
-   closed here, rerun `me <harness> install`"; nothing → human terminal);
+   closed here for agents — rerun `me <harness> install`", or "no
+   integration exists for <harness> — file a GitHub issue" when there is no
+   installer, noting an interactive terminal runs as the human via the TTY
+   exemption; nothing → human terminal);
    which source won the project dir (exact / anchor / validated harness var
    / cwd walk-up) and the effective server/space/tree/agent with the layer
    each came from; bottom line: what memory operations here run as.
@@ -684,9 +733,13 @@ later if it earns its keep.
 - Manual matrix (scripted where possible, checklist in the PR): for each
   harness — MCP call runs as agent; capture attributes to agent
   (Claude/opencode); `cd /tmp && me whoami` from the agent shell acts as
-  agent (injection) ; with the adapter disabled, the same call **errors**
-  (failsafe); human terminal `me whoami` stays the human; non-me project
-  with integration: `me` runs as human, no failsafe error.
+  agent (injection); with the adapter disabled, the same call **errors**
+  (failsafe); human terminal `me whoami` stays the human; human `me whoami`
+  in an IDE integrated terminal (marker present, no injection, TTY) runs
+  as the human with the notice; `ME_AS_AGENT=.user` runs as the user,
+  visibly; non-me project with integration: `me` runs as the **global
+  default agent** (or fails loudly with no agent in scope — never silently
+  as the user).
 - The nested-harness case (Claude → `codex exec`): inner markers win where
   present; at minimum no crash and no user-credential fallback.
 
