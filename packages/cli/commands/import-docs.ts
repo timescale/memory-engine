@@ -313,10 +313,16 @@ export async function runDocsImport(
 
   // Discovery (mode-specific), then the mode-agnostic include/exclude filter.
   let relPaths: string[] = [];
+  let untracked: ReadonlySet<string> = new Set();
   try {
-    const candidates = gitMode
-      ? await listGitFiles(dir)
-      : await discoverPlainFiles(dir);
+    let candidates: string[];
+    if (gitMode) {
+      const listing = await listGitFiles(dir);
+      candidates = listing.files;
+      untracked = listing.untracked;
+    } else {
+      candidates = await discoverPlainFiles(dir);
+    }
     relPaths = filterDocPaths(candidates, opts.include, opts.exclude);
   } catch (error) {
     fail(error);
@@ -325,13 +331,19 @@ export async function runDocsImport(
   // Git last-modified dates — one streamed log pass. Skipped when the clone
   // is shallow (every path would collapse to the shallow boundary — wrong
   // dates are worse than absent ones); --temporal-key still applies.
+  // Untracked files are excluded from the walk targets: they have no commit
+  // to be dated by, and an undatable target would keep the log walk running
+  // to the root instead of stopping early.
   let shallow = false;
   let dates = new Map<string, string>();
   if (gitMode && opts.parseTemporal) {
     try {
       shallow = await isShallowRepository(dir);
       if (!shallow) {
-        dates = await lastModifiedByPath(dir, new Set(relPaths));
+        dates = await lastModifiedByPath(
+          dir,
+          new Set(relPaths.filter((p) => !untracked.has(p))),
+        );
       }
     } catch (error) {
       fail(error);

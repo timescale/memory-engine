@@ -231,7 +231,11 @@ export const memoryDeleteOrphansInTreeParams = z.object({
         name: memoryNameSchema,
       }),
     )
-    .max(100_000),
+    // The server's 1 MiB request-body cap is the binding limit — a realistic
+    // keep-list larger than this cannot fit under it anyway. The count
+    // ceiling exists so a tiny-slot overflow that DOES fit fails as a clear
+    // VALIDATION_ERROR rather than sailing through.
+    .max(25_000),
   dryRun: z.boolean().optional(),
 });
 

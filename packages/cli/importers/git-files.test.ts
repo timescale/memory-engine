@@ -85,18 +85,22 @@ afterAll(async () => {
 });
 
 describe("listGitFiles", () => {
-  test("lists tracked + untracked, respects gitignore", async () => {
-    const files = await listGitFiles(repo);
+  test("lists tracked + untracked, respects gitignore, tags the untracked", async () => {
+    const { files, untracked } = await listGitFiles(repo);
     expect(files).toContain("README.md");
     expect(files).toContain("docs/guide.md");
     expect(files).toContain("docs/new-name.md");
     expect(files).toContain("untracked.md");
     expect(files).not.toContain("docs/old-name.md");
     expect(files).not.toContain("dist/ignored.md");
+    // The untracked subset feeds the last-modified walk's exclusion list.
+    expect(untracked.has("untracked.md")).toBe(true);
+    expect(untracked.has("README.md")).toBe(false);
+    expect(untracked.has("docs/guide.md")).toBe(false);
   });
 
   test("scopes to a subdir with subdir-relative paths", async () => {
-    const files = await listGitFiles(join(repo, "docs"));
+    const { files } = await listGitFiles(join(repo, "docs"));
     expect(files.sort()).toEqual(["guide.md", "new-name.md"]);
   });
 });

@@ -107,8 +107,10 @@ export interface DocFrontmatter {
   /**
    * The content body. When frontmatter parsed cleanly this is everything
    * after the closing fence; when the block was invalid YAML or a
-   * non-object, the ORIGINAL input is returned verbatim (a broken header
-   * must never fail or silently mutate the file).
+   * non-object, it is the ORIGINAL input, fence included — a broken header
+   * stays part of the content rather than being dropped. Either way this is
+   * the PRE-processing body: buildDocMemory still trims it, strips mdx
+   * statements, and applies the byte cap before it becomes content.
    */
   body: string;
 }

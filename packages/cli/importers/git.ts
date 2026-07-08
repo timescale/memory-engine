@@ -358,8 +358,11 @@ export function buildCommitMemory(
 }
 
 /**
- * Truncate to a UTF-8 byte budget on a char boundary, marking the cut.
- * Shared with the docs importer's content cap.
+ * Truncate to a UTF-8 byte budget on a char boundary, marking the cut. The
+ * marker is appended AFTER the cut, so the result can exceed `maxBytes` by
+ * the marker's length — the budget is approximate, not a hard cap (nothing
+ * downstream relies on exactness: the batchCreate chunker measures real
+ * serialized bytes). Shared with the docs importer's content cap.
  */
 export function truncateUtf8(text: string, maxBytes: number): string {
   if (Buffer.byteLength(text, "utf8") <= maxBytes) return text;
