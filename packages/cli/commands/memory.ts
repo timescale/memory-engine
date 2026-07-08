@@ -248,7 +248,7 @@ function createMemoryCreateCommand(): Command {
           if (memory.name) console.log(`  Name: ${memory.name}`);
         });
       } catch (error) {
-        handleError(error, fmt, { creds, scope: "space" });
+        handleError(error, fmt, { creds, scope: "space", tree: opts.tree });
       }
     });
 }
@@ -543,7 +543,7 @@ function createMemoryUpdateCommand(): Command {
           clack.log.success(`Updated memory ${memory.id}`);
         });
       } catch (error) {
-        handleError(error, fmt, { creds, scope: "space" });
+        handleError(error, fmt, { creds, scope: "space", tree: opts.tree });
       }
     });
 }
@@ -656,7 +656,7 @@ function createMemoryDeltreeCommand(): Command {
           );
         });
       } catch (error) {
-        handleError(error, fmt, { creds, scope: "space" });
+        handleError(error, fmt, { creds, scope: "space", tree });
       }
     });
 }
@@ -821,7 +821,7 @@ function createMemoryMoveCommand(): Command {
           );
         });
       } catch (error) {
-        handleError(error, fmt, { creds, scope: "space" });
+        handleError(error, fmt, { creds, scope: "space", tree: [src, dst] });
       }
     });
 }
@@ -895,7 +895,7 @@ function createMemoryCopyCommand(): Command {
           );
         });
       } catch (error) {
-        handleError(error, fmt, { creds, scope: "space" });
+        handleError(error, fmt, { creds, scope: "space", tree: [src, dst] });
       }
     });
 }
