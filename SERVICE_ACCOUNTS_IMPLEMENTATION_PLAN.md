@@ -1,0 +1,366 @@
+# Service Accounts Implementation Plan
+
+> **Status**: Draft checklist. This tracks the base service-account feature so
+> implementation can proceed without losing the design intent in
+> `SERVICE_ACCOUNTS.md`.
+
+## Scope
+
+Implement base service accounts (`principal.kind = 's'`): space-scoped,
+api-key-authenticated principals administered by a bound users-only admin group.
+
+Base scope includes:
+
+- Creating/listing/renaming/deleting service accounts.
+- Creating a bound admin group at service-account creation time.
+- Admin-group members and space admins managing service-account api keys.
+- Service accounts participating in tree access and ordinary groups.
+- Service accounts optionally being granted `principal_space.admin`, while
+  blocking service-account api keys from deleting spaces.
+
+Base scope excludes:
+
+- `can_invite` / `can_deprovision` provisioning capabilities. Tracked by
+  [TNT-203](https://linear.app/tigerdata/issue/TNT-203/add-scoped-provisioning-capabilities-for-service-accounts).
+- Any `X-Me-As-Service` mode. Service accounts authenticate with `ME_API_KEY` or
+  `--api-key` only.
+
+Related parallel track:
+
+- [TNT-200](https://linear.app/tigerdata/issue/TNT-200/fix-memory-rpc-auth-gate-space-membership-must-come-from-principal)
+  fixes the memory RPC admission gate so `principal_space` membership, not
+  non-empty `build_tree_access`, controls endpoint admission. This is on a
+  separate PR and does not block starting the core schema work. Zero-tree-access
+  and structural-only service-account behavior should be tested after TNT-200 is
+  merged.
+
+## Locked Decisions
+
+- Service accounts use `kind = 's'`.
+- Service accounts are **space-scoped** (`principal.space_id` is non-null).
+- Service accounts are credential-bearing members (`member_id = id` for `s`).
+- Service accounts use api keys from the existing `core.api_key` table.
+- Service accounts have no owner and no owner clamp.
+- Service accounts have no home grant and are not added to the default group by
+  default.
+- Only space admins can create service accounts.
+- Creating a service account creates a bound admin group.
+- The service-account principal points to the admin group via `admin_id`, which
+  references `principal(group_id)`.
+- The bound admin group is users-only.
+- Deleting the service account deletes the bound admin group.
+- Directly deleting the bound admin group is forbidden.
+- The bound admin group cannot be a space-admin group.
+- The bound admin group cannot be the default group.
+- Admin-group grants do **not** accrue to the service account; they accrue to
+  the group's human members like any group grants.
+- Service accounts may be members of ordinary groups.
+- Service accounts may hold `group_member.admin` on ordinary groups.
+- Service accounts may be explicitly made `principal_space.admin`, but this is
+  discouraged.
+- Service-account api keys cannot mint/revoke api keys.
+- Service-account api keys cannot delete spaces, even if the service account is
+  a space admin.
+- Granting access to a service account uses normal grant authority: grantor must
+  be a space admin or hold `owner@P` for path `P`.
+- Revoking access from a service account is allowed for space admins and members
+  of the service account's admin group.
+
+## Phase 1: Core Schema Migration
+
+Goal: make service accounts representable and enforce core invariants in the DB.
+
+- [x] Update `core.principal.kind` check to include `'s'`.
+- [x] Update generated `member_id` to include service accounts:
+  `kind in ('u', 'a', 's')`.
+- [x] Avoid generated `service_account_id`; not needed for Phase 1 constraints.
+- [x] Update `space_id` invariant:
+  - [x] `kind in ('g', 's')` requires `space_id is not null`.
+  - [x] other kinds require `space_id is null`.
+- [x] Add `admin_id uuid references principal(group_id)`.
+- [x] Add check constraint:
+  - [x] `kind = 's'` requires `admin_id is not null`.
+  - [x] `kind != 's'` requires `admin_id is null`.
+- [x] Add per-space service-account name uniqueness.
+- [x] Verify existing per-space group name uniqueness still handles bound admin
+  groups.
+- [x] Add a DB comment for `admin_id` explaining it points to the
+  bound admin group.
+
+Migration cautions:
+
+- [x] No function signatures changed; no `{{fn ...}}` wrapper needed.
+- [x] Audit existing `kind in ('u','a')`, `kind != 'a'`, `kind = 'a'`, and
+  `member_id` assumptions.
+
+Likely files:
+
+- `packages/database/core/migrate/incremental/002_principal.sql`
+- `packages/database/core/migrate/idempotent/*.sql`
+- migration integration tests
+
+## Phase 2: Protocol Types And Contracts
+
+Goal: expose service-account concepts in shared schemas before wiring handlers.
+
+- [ ] Add `kind: 's'` to shared principal-kind schemas/types.
+- [ ] Add service-account response types with at least:
+  - [ ] `id`
+  - [ ] `name`
+  - [ ] `adminId`
+  - [ ] `spaceId` or space slug as appropriate
+  - [ ] `createdAt`
+  - [ ] `updatedAt`
+- [ ] Add request/result schemas for service-account lifecycle methods:
+  - [ ] create
+  - [ ] list
+  - [ ] rename
+  - [ ] delete
+- [ ] Add request/result schemas for service-account admin group management if
+  the existing `group.*` surface is not sufficient.
+- [ ] Add request/result schemas for service-account api-key management if
+  existing api-key methods cannot be parameterized cleanly.
+- [ ] Decide whether `principal.list` includes service accounts by default or
+  requires `kind='s'` filter support. Prefer including by default because it is
+  the space roster.
+
+Likely packages:
+
+- `packages/protocol`
+- `packages/client`
+
+## Phase 3: Core SQL Functions And Constraints
+
+Goal: create service accounts atomically and protect their bound admin groups.
+
+- [ ] Add helper function to identify bound admin groups. Prefer a helper that
+  returns the owning service account id or null, e.g.
+  `service_account_for_admin_group(_group_id uuid) returns uuid`.
+- [ ] Add `create_service_account` SQL function that atomically:
+  - [ ] creates the bound admin group (`kind='g'`, same `space_id`);
+  - [ ] creates the service-account principal (`kind='s'`, same `space_id`,
+    `admin_id = group.id`);
+  - [ ] rosters the service account into `principal_space` with `admin=false` by
+    default;
+  - [ ] rosters the bound admin group into `principal_space` through existing
+    group creation behavior;
+  - [ ] adds optional initial user admins to the bound admin group;
+  - [ ] optionally marks those initial members as `group_member.admin` based on
+    input.
+- [ ] Ensure service-account creation gives no tree grants.
+- [ ] Ensure service-account creation does not add the service account to the
+  default group.
+- [ ] Add deletion behavior:
+  - [ ] deleting the service account deletes the bound admin group;
+  - [ ] group-member rows, tree grants, and roster rows cascade/clean up.
+- [ ] Add constraint trigger preventing direct deletion of a bound admin group.
+- [ ] Add constraint trigger preventing a bound admin group from being made a
+  space-admin group.
+- [ ] Add constraint trigger preventing a bound admin group from becoming the
+  default group.
+- [ ] Add constraint trigger or function guard preventing non-users from being
+  added to a bound admin group.
+- [ ] Allow service accounts to be ordinary group members.
+- [ ] Allow service accounts to hold `group_member.admin` on ordinary groups.
+- [ ] Keep agents barred from effective group-admin authority.
+
+Likely SQL areas:
+
+- principal functions
+- membership functions
+- group-member functions
+- principal-space admin trigger functions
+- default-group constraints
+
+## Phase 4: Effective Access
+
+Goal: make service accounts work with existing data-plane authorization.
+
+- [ ] Add `kind='s'` branch in `build_tree_access`.
+- [ ] Service-account effective access should be user-like:
+  - [ ] direct `tree_access` grants;
+  - [ ] grants inherited from ordinary groups where the SA is a member.
+- [ ] No owner clamp.
+- [ ] No home-path special casing.
+- [ ] Confirm `~` behavior for service accounts is either rejected or undefined
+  intentionally. Prefer rejecting `~` for service accounts unless there is a
+  concrete home-path design.
+- [ ] Verify data-plane SQL functions require no changes because they consume
+  `_tree_access` jsonb.
+
+Likely files:
+
+- `packages/database/core/migrate/idempotent/003_tree_access.sql`
+- `packages/database/space/path.ts` or equivalent path helpers if `~` handling
+  needs service-account-specific behavior
+
+## Phase 5: Core Store API
+
+Goal: expose the new SQL functions in TypeScript.
+
+- [ ] Add core-store methods for service-account lifecycle:
+  - [ ] create
+  - [ ] list
+  - [ ] get/lookup if needed
+  - [ ] rename
+  - [ ] delete
+- [ ] Add core-store method to check whether a user administers a service
+  account through the bound admin group.
+- [ ] Add core-store method to check whether a group is a bound SA admin group,
+  or expose the SQL helper from Phase 3.
+- [ ] Ensure api-key creation can target a service-account `member_id`.
+- [ ] Preserve existing user/agent api-key behavior.
+
+Likely files:
+
+- `packages/engine/core/db.ts`
+- `packages/engine/core/types.ts`
+- `packages/engine/core/api-key.ts`
+
+## Phase 6: Server RPC Authorization
+
+Goal: wire service-account management and avoid key privilege escalation.
+
+- [ ] Add dedicated `serviceAccount.*` methods unless a generalized principal
+  surface is clearly simpler.
+- [ ] `serviceAccount.create`:
+  - [ ] requires space admin;
+  - [ ] creates SA + bound admin group atomically;
+  - [ ] supports optional initial users and optional `group_member.admin` flags.
+- [ ] `serviceAccount.list`:
+  - [ ] space admins can list all;
+  - [ ] admin-group members can list service accounts they administer;
+  - [ ] decide whether ordinary members can see service accounts through
+    `principal.lookup` only.
+- [ ] `serviceAccount.rename`:
+  - [ ] space admin or admin-group member.
+- [ ] `serviceAccount.delete`:
+  - [ ] space admin or possibly admin-group member. Decide before implementing;
+    deletion is destructive and may be space-admin-only.
+- [ ] Key management:
+  - [ ] space admins can create/revoke/list keys for the SA;
+  - [ ] admin-group members can create/revoke/list keys for the SA;
+  - [ ] service-account api keys cannot create/revoke/list api keys.
+- [ ] Tree grants to service accounts:
+  - [ ] grant requires existing normal authority: space admin or `owner@P`;
+  - [ ] admin-group members get no special grant bypass;
+  - [ ] revoke allowed for space admins and admin-group members.
+- [ ] Group management:
+  - [ ] bound admin group accepts users only;
+  - [ ] ordinary groups accept service accounts;
+  - [ ] service accounts can exercise ordinary `group_member.admin` once TNT-200
+    permits structural-only endpoint access.
+- [ ] Space admin behavior:
+  - [ ] allow `principal.add(admin=true)` or equivalent for SAs if caller is a
+    space admin;
+  - [ ] bar service-account api keys from `space.delete` even if the SA is a
+    space admin.
+
+Likely files:
+
+- `packages/server/rpc/memory/*`
+- `packages/server/rpc/user/*`
+- `packages/server/middleware/authenticate-space.ts` only if TNT-200 changes are
+  not already merged
+
+## Phase 7: CLI
+
+Goal: provide an operator-friendly surface without exposing hidden sharp edges.
+
+- [ ] Add `me service` command group.
+- [ ] Add `me service create <name>`:
+  - [ ] optional initial admin users;
+  - [ ] optional group-admin flags for those initial users;
+  - [ ] prints created service account id and admin group name/id.
+- [ ] Add `me service list`.
+- [ ] Add `me service rename`.
+- [ ] Add `me service delete`.
+- [ ] Add api-key commands for service accounts, either:
+  - [ ] `me apikey create --service <idOrName>`; or
+  - [ ] `me service apikey create <idOrName>`.
+- [ ] Support `ME_API_KEY` / `--api-key` for service-account authentication.
+- [ ] Do **not** add `--as-service` or `X-Me-As-Service` support.
+- [ ] Make docs and help text clear that service-account keys are durable
+  operational credentials and should be handled like production secrets.
+
+Likely files:
+
+- `packages/cli/commands/*`
+- `packages/cli/config/*` if api-key resolution needs updates
+- CLI tests
+
+## Phase 8: Tests
+
+Goal: lock down invariants before relying on the feature.
+
+Database/core tests:
+
+- [ ] `kind='s'` can be inserted only with `space_id` and `admin_id`.
+- [ ] Service accounts get `member_id` and can own api keys.
+- [ ] Service-account names are unique per space.
+- [ ] Creating an SA creates a bound admin group.
+- [ ] Bound admin group is users-only.
+- [ ] Bound admin group cannot be deleted directly.
+- [ ] Bound admin group cannot be made a space-admin group.
+- [ ] Bound admin group cannot be the default group.
+- [ ] Deleting the SA deletes the bound admin group.
+- [ ] Service accounts can join ordinary groups.
+- [ ] Service accounts can be ordinary group admins.
+- [ ] `build_tree_access` for SAs includes direct grants and ordinary group
+  grants.
+
+Server/RPC tests:
+
+- [ ] Only space admins can create service accounts.
+- [ ] Admin-group members can manage SA keys.
+- [ ] SA api keys cannot manage keys.
+- [ ] Admin-group members can rename/delete if allowed by final policy.
+- [ ] Non-admin users cannot administer arbitrary SAs.
+- [ ] Service-account key can read/write memory according to `tree_access`.
+- [ ] Service-account key can exercise ordinary group admin on groups where it
+  has `group_member.admin` after TNT-200 is merged.
+- [ ] Service-account key cannot delete a space even when SA is space admin.
+- [ ] Last-admin protections still apply when SAs and SA admin groups are
+  involved.
+
+CLI tests:
+
+- [ ] `me service create/list/rename/delete`.
+- [ ] Service-account api-key creation and revocation.
+- [ ] `ME_API_KEY` / `--api-key` with a service-account key.
+- [ ] No accidental support for `--as-service`.
+
+## Phase 9: Documentation
+
+Goal: make the new model understandable to users and future maintainers.
+
+- [ ] Update `AGENTS.md` authoritative model summary.
+- [ ] Update `docs/concepts.md`.
+- [ ] Update `docs/access-control.md`.
+- [ ] Add CLI docs for `me service`.
+- [ ] Add MCP docs only if service-account operations become MCP-exposed.
+- [ ] Update API/client docs if applicable.
+- [ ] Mention TNT-203 as future provisioning work if docs discuss invitations or
+  HR/SSO sync.
+
+## Phase 10: Follow-Up / Deferred Work
+
+- [ ] Implement [TNT-203](https://linear.app/tigerdata/issue/TNT-203/add-scoped-provisioning-capabilities-for-service-accounts):
+  `can_invite` and `can_deprovision`.
+- [ ] Decide direct-add behavior for already-existing users.
+- [ ] Decide invite list/revoke scope for service accounts.
+- [ ] Decide deprovisioning scope.
+- [ ] Decide whether SA-initiated management actions need richer audit records.
+
+## High-Risk Areas To Watch
+
+- Function signature drift in migrations. Use `{{fn ...}}` wrappers when needed.
+- Existing `kind in ('u','a')` assumptions, especially around `member_id`, group
+  membership, and api keys.
+- Bound admin group delete/promotion/default-group constraints.
+- Distinguishing the bound admin group from ordinary groups.
+- Preventing api-key minting by service-account api keys.
+- Preventing `space.delete` by service-account api keys.
+- TNT-200 interaction: structural authority must not require unrelated tree
+  grants.
+- Cascades when deleting a service account or removing a principal from a space.
