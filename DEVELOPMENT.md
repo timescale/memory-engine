@@ -520,12 +520,14 @@ something must answer those paths. Two ways to supply that backend:
 - **Remote backend (e.g. production), no local server** — one command:
 
   ```bash
-  ./bun run web:remote          # defaults to https://api.memory.build
+  ./bun run web:remote          # your active server (production by default)
   ME_SERVER=https://… ./bun run web:remote   # or any other backend
   ```
 
-  Open `http://localhost:5173`. This is hot-reloading UI against **live**
-  production data — writes/deletes are real.
+  The backend is resolved like any `me` command (`ME_SERVER` env > `.me`
+  project config > global `default_server` > production). Open
+  `http://localhost:5173`. Against production this is hot-reloading UI over
+  **live** data — writes/deletes are real.
 
   `web:remote` (`scripts/web-remote.ts`) spawns `me serve` on an auto-picked
   free port, points the Vite dev server at it via `ME_DEV_RPC_TARGET`, and tears

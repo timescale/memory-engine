@@ -3,11 +3,14 @@
  * web:remote — one command for the web UI dev loop against a remote backend.
  *
  * Spawns two processes and wires them together:
- *   1. `me serve` — the credentialed `/rpc` proxy to the remote server (default
- *      production), on an auto-picked free port. Injects your OAuth token +
- *      active space; handles token refresh-on-401.
+ *   1. `me serve` — the credentialed `/rpc` proxy to the remote server, on an
+ *      auto-picked free port. Injects your OAuth token + active space; handles
+ *      token refresh-on-401.
  *   2. the Vite dev server (`packages/web`, hot reload) with `ME_DEV_RPC_TARGET`
  *      pointed at the `me serve` port.
+ *
+ * The backend is your active server, resolved exactly like any `me` command
+ * (ME_SERVER env > `.me` project config > global default_server > production).
  *
  * Open http://localhost:5173. Both processes are torn down together on Ctrl+C
  * or if either one exits. Override the backend with `ME_SERVER=…`.
@@ -16,10 +19,11 @@
  * DEVELOPMENT.md → "Developing the web UI (hot reload)".
  */
 import { join } from "node:path";
+import { resolveServer } from "../packages/cli/credentials.ts";
 import { findAvailablePort } from "../packages/cli/serve/http-server.ts";
 
 const REPO_ROOT = join(import.meta.dir, "..");
-const server = process.env.ME_SERVER ?? "https://api.memory.build";
+const server = resolveServer();
 const port = await findAvailablePort("127.0.0.1", 3100, 20);
 const target = `http://127.0.0.1:${port}`;
 
