@@ -47,10 +47,20 @@ let tamperedDef: string;
 let bootedDef: string;
 let prevSchemaPrefix: string | undefined;
 
-/** Current definition of a space schema's create_memory function. */
+/**
+ * Every definition of a space schema's create_memory, concatenated. Aggregated
+ * because the pre-boot tamper *adds* a stale-signatured overload (create or
+ * replace with different args doesn't replace) — and picking `rows[0]` from
+ * pg_proc without an order by returns whichever overload the plan visits
+ * first, a flake.
+ */
 async function createMemoryDef(schema: string): Promise<string> {
   const [row] = await sql`
-    select pg_get_functiondef(p.oid) as def
+    select string_agg(
+      pg_get_functiondef(p.oid),
+      e'\n---\n'
+      order by pg_get_function_identity_arguments(p.oid)
+    ) as def
     from pg_proc p
     join pg_namespace n on n.oid = p.pronamespace
     where n.nspname = ${schema} and p.proname = 'create_memory'`;
@@ -185,11 +195,13 @@ test("migrated the configured isolated schemas", async () => {
 });
 
 test("re-migrates existing space schemas on boot", async () => {
-  // The tampered function was in place just before boot…
+  // The tampered overload was in place just before boot…
   expect(tamperedDef).toContain("stale stand-in");
-  expect(tamperedDef).not.toContain("on conflict");
-  // …and boot's space sweep re-applied the idempotent SQL over it
-  // (create_memory is the one-row wrapper delegating to batch_create_memory).
+  // …and boot's space sweep re-applied the idempotent SQL: the {{fn}} guard
+  // dropped the stale-signatured overload (no aggregate separator = a single
+  // definition remains) and re-created the real one (the one-row wrapper
+  // delegating to batch_create_memory).
   expect(bootedDef).not.toContain("stale stand-in");
+  expect(bootedDef).not.toContain("\n---\n");
   expect(bootedDef).toContain("batch_create_memory");
 });
