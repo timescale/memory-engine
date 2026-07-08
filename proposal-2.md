@@ -539,7 +539,7 @@ own), then **Claude**, then **opencode**.
    a shared `ensureDefaultAgent()` helper (reusing the `provisionNewAgent`
    machinery from `me project init`) that provisions-or-finds the user's
    default agent and writes it as the global `agent:` — wired into the
-   Claude/opencode installs below and the PR 2–3 installs, and named by the
+   Claude/opencode installs below and the PR 2 installs, and named by the
    `me mcp` fatal error and `me doctor` as the one-command fix. Migration: existing installs hit
    the fatal on upgrade until they run it — the error message *is* the
    migration path.
@@ -575,7 +575,7 @@ own), then **Claude**, then **opencode**.
    with the old env keep working (explicit `ME_AS_AGENT` is still honored).
 4. **Install-time default agent — no prompt, always `coder`**:
    `me claude install` runs the shared `ensureDefaultAgent()` step (reused
-   by the opencode install below and the PR 2–3 installs). No-op when a
+   by the opencode install below and the PR 2 installs). No-op when a
    global `agent:` is already set
    (including `.user`) or the credential is an agent api key (headless
    sandbox mode). Otherwise: adopt the user's existing `coder` agent if one
@@ -618,33 +618,30 @@ own), then **Claude**, then **opencode**.
 2. Bump the plugin template version/marker so `me opencode install`
    refreshes existing installs.
 
-### PR 2 — Codex: injection + MCP
+### PR 2 — Codex + Gemini: injection + MCP
 
-1. **`me codex env-hook`** (new): stdin PreToolUse payload → `updatedInput`
-   with the `export …; ` prefix prepended (shlex-quoted, prefix-only);
-   `ME_PROJECT_DIR` is the payload `cwd`, verbatim (the anchor). Empty
-   stdout on any internal error (fail-open). Vendor the tested payload
-   shape; treat parse mismatch as fail-open.
+The two rewrite-family adapters, structural twins: a `me`-owned env-hook
+reads the stdin payload and returns a tool-input override with the same
+`export …; ` prefix prepended (shlex-quoted, prefix-only); `ME_PROJECT_DIR`
+is the payload `cwd`, verbatim (the anchor); any internal error or payload
+mismatch is fail-open (emit nothing). Vendor the tested payload shapes.
+
+1. **`me codex env-hook`** (new): PreToolUse payload → `updatedInput`;
+   empty stdout on error.
 2. **`me codex install`**: additionally write the user-scope
    `~/.codex/hooks.json` PreToolUse entry. Document the trust/hash-approval
    flow (`/hooks`) and that re-approval follows `me` upgrades — `me doctor`
    is the post-upgrade check. Verify user-scope hook trust semantics during
    implementation.
 3. Document the Desktop/VS Code MCP limitation + the per-server `cwd`
-   workaround (goal-3 gap; doctor check in PR 4).
-
-### PR 3 — Gemini: injection + MCP
-
-1. **`me gemini env-hook`** (new): stdin BeforeTool payload →
-   `hookSpecificOutput.tool_input` with the same prepended exports;
-   `ME_PROJECT_DIR` is likewise the payload `cwd`, verbatim; fail-open on
-   mismatch.
-2. **`me gemini install`**: additionally write the user-scope
+   workaround (goal-3 gap; doctor check in PR 3).
+4. **`me gemini env-hook`** (new): BeforeTool payload →
+   `hookSpecificOutput.tool_input` with the same prepended exports.
+5. **`me gemini install`**: additionally write the user-scope
    `~/.gemini/settings.json` hooks entry (BeforeTool, matcher
-   `run_shell_command`). Gating on `.me/` presence keeps non-me projects
-   uninjected-but-live (`ME_INJECT_V` still set).
+   `run_shell_command`).
 
-### PR 4 — `me doctor` (lightweight — no harness spawning)
+### PR 3 — `me doctor` (lightweight — no harness spawning)
 
 A read-only diagnosis, on the failsafe allowlist by necessity (its job is to
 run in states where other commands fail closed). Exit code non-zero on any
