@@ -1,11 +1,13 @@
 /**
- * Advanced search section — heading + collapsible panel.
+ * Advanced search section — heading + filter overlay.
  *
  * The heading is a single clickable control (caret + "Advanced filter")
- * that toggles the panel. When collapsed, the section renders a chip
- * summary of the active filters underneath the heading so the user can
- * see what's in effect without expanding. Clear and the Simple/Advanced
- * mode toggle stay visible in both states.
+ * that toggles the panel. The expanded panel floats as an overlay above
+ * the body (rather than pushing it down and leaving an awkward sliver of
+ * explorer/tree underneath); the Search button inside it closes the
+ * overlay. When collapsed, the section renders a chip summary of the
+ * active filters so the user can see what's in effect without expanding.
+ * Clear and the Simple/Advanced mode toggle stay visible in both states.
  */
 import { useRefreshMemories } from "../../api/queries.ts";
 import { summarizeFilter, useFilter } from "../../store/filter.ts";
@@ -20,13 +22,14 @@ export function AdvancedSearchSection() {
   const setMode = useFilter((s) => s.setMode);
   const clear = useFilter((s) => s.clear);
   const searchCollapsed = useLayout((s) => s.searchCollapsed);
+  const setSearchCollapsed = useLayout((s) => s.setSearchCollapsed);
   const toggleSearchCollapsed = useLayout((s) => s.toggleSearchCollapsed);
   const refresh = useRefreshMemories();
 
   const { chips, hasFilter } = summarizeFilter(filter);
 
   return (
-    <div>
+    <div className="relative">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
         <button
           type="button"
@@ -78,8 +81,8 @@ export function AdvancedSearchSection() {
       </div>
 
       {!searchCollapsed && (
-        <div className="mt-4">
-          <AdvancedSearchPanel />
+        <div className="absolute inset-x-0 top-full z-30 mt-3 max-h-[min(70vh,640px)] overflow-y-auto overflow-x-hidden rounded-lg border border-ink/[0.12] bg-white shadow-xl">
+          <AdvancedSearchPanel onSearch={() => setSearchCollapsed(true)} />
         </div>
       )}
     </div>

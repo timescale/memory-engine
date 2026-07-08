@@ -2,192 +2,244 @@
  * Advanced search panel.
  *
  * Exposes every `memory.search` parameter. Lives directly under the mode
- * toggle when advanced mode is active. JSON in the meta field is parsed
- * live; on parse error the field shows a red border + inline message and
- * the value is dropped from the RPC (see `selectSearchParams`).
+ * toggle when advanced mode is active. The everyday fields (semantic,
+ * fulltext, grep, tree, meta, temporal, limit, orderBy) are always
+ * visible; the hybrid-ranking internals (candidateLimit, threshold,
+ * weights) sit behind a "Ranking tuning" sub-disclosure, collapsed unless
+ * one of them is set. JSON in the meta field is parsed live; on
+ * parse error the field shows a red border + inline message and the value
+ * is dropped from the RPC (see `selectSearchParams`).
+ *
+ * Filters apply live (debounced), so the Search button doesn't submit
+ * anything — it confirms the filter and collapses the panel (`onSearch`),
+ * a far more obvious exit than the caret in the section heading.
  */
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import {
   formatDatetimeLocalInputValue,
   localOffsetTimestampFromDatetimeLocalValue,
 } from "../../lib/datetime.ts";
 import { useFilter } from "../../store/filter.ts";
+import { DisclosureCaret } from "../DisclosureCaret.tsx";
 
-export function AdvancedSearchPanel() {
+export function AdvancedSearchPanel({ onSearch }: { onSearch: () => void }) {
   const advanced = useFilter((s) => s.advanced);
   const setAdvanced = useFilter((s) => s.setAdvanced);
 
   const metaError = validateMetaJson(advanced.metaJson);
 
+  // Ranking/return knobs live behind a sub-disclosure, collapsed by default.
+  // Start expanded when any of them is set — active filters must never hide.
+  const [tuningOpen, setTuningOpen] = useState(() =>
+    Boolean(
+      advanced.candidateLimit ||
+        advanced.semanticThreshold ||
+        advanced.weightsSemantic ||
+        advanced.weightsFulltext,
+    ),
+  );
+
   return (
-    <div className="grid grid-cols-1 gap-4 rounded-lg border border-ink/[0.12] bg-ink/[0.02] p-4 sm:grid-cols-2">
-      <Field label="semantic (vector)">
-        <TextInput
-          value={advanced.semantic}
-          onChange={(v) => setAdvanced({ semantic: v })}
-          placeholder="e.g. when was TypeScript created"
-        />
-      </Field>
+    // The overlay container (AdvancedSearchSection) owns the card chrome —
+    // border, rounding, shadow, scrolling. This renders the scrollable
+    // fields plus a sticky footer so Search stays reachable while scrolled.
+    <div className="bg-ink/[0.02]">
+      <div className="grid grid-cols-1 gap-4 p-4 sm:grid-cols-2">
+        <Field label="semantic (vector)">
+          <TextInput
+            value={advanced.semantic}
+            onChange={(v) => setAdvanced({ semantic: v })}
+            placeholder="e.g. when was TypeScript created"
+          />
+        </Field>
 
-      <Field label="fulltext (BM25)">
-        <TextInput
-          value={advanced.fulltext}
-          onChange={(v) => setAdvanced({ fulltext: v })}
-          placeholder="keywords"
-        />
-      </Field>
+        <Field label="fulltext (BM25)">
+          <TextInput
+            value={advanced.fulltext}
+            onChange={(v) => setAdvanced({ fulltext: v })}
+            placeholder="keywords"
+          />
+        </Field>
 
-      <Field label="grep (regex)">
-        <TextInput
-          value={advanced.grep}
-          onChange={(v) => setAdvanced({ grep: v })}
-          placeholder="^def\\s+foo"
-        />
-      </Field>
+        <Field label="grep (regex)">
+          <TextInput
+            value={advanced.grep}
+            onChange={(v) => setAdvanced({ grep: v })}
+            placeholder="^def\\s+foo"
+          />
+        </Field>
 
-      <Field label="tree (ltree filter)">
-        <TextInput
-          value={advanced.tree}
-          onChange={(v) => setAdvanced({ tree: v })}
-          placeholder="work.* or work.projects"
-        />
-      </Field>
+        <Field label="tree (ltree filter)">
+          <TextInput
+            value={advanced.tree}
+            onChange={(v) => setAdvanced({ tree: v })}
+            placeholder="work.* or work.projects"
+          />
+        </Field>
 
-      <Field label="meta (JSON)" error={metaError} className="sm:col-span-2">
-        <textarea
-          value={advanced.metaJson}
-          onChange={(e) => setAdvanced({ metaJson: e.target.value })}
-          rows={3}
-          placeholder='{"priority":"high"}'
-          className={[
-            "w-full rounded-md border bg-white px-3 py-2 font-mono text-[12px] transition-colors focus:outline-none",
-            metaError
-              ? "border-red-500 focus:border-red-500"
-              : "border-ink/[0.18] focus:border-ink",
-          ].join(" ")}
-        />
-      </Field>
+        <Field label="meta (JSON)" error={metaError} className="sm:col-span-2">
+          <textarea
+            value={advanced.metaJson}
+            onChange={(e) => setAdvanced({ metaJson: e.target.value })}
+            rows={3}
+            placeholder='{"priority":"high"}'
+            className={[
+              "w-full rounded-md border bg-white px-3 py-2 font-mono text-[12px] transition-colors focus:outline-none",
+              metaError
+                ? "border-red-500 focus:border-red-500"
+                : "border-ink/[0.18] focus:border-ink",
+            ].join(" ")}
+          />
+        </Field>
 
-      <Field label="temporal" className="sm:col-span-2">
-        <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+        <Field label="temporal" className="sm:col-span-2">
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+            <select
+              value={advanced.temporal.mode}
+              onChange={(e) =>
+                setAdvanced({
+                  temporal: {
+                    ...advanced.temporal,
+                    mode: e.target.value as "contains" | "overlaps" | "within",
+                  },
+                })
+              }
+              className="rounded-md border border-ink/[0.18] bg-white px-2 py-2 text-[13px] transition-colors focus:border-ink focus:outline-none"
+            >
+              <option value="contains">contains</option>
+              <option value="overlaps">overlaps</option>
+              <option value="within">within</option>
+            </select>
+            <TemporalTimestampInput
+              value={advanced.temporal.start}
+              onChange={(value) =>
+                setAdvanced({
+                  temporal: { ...advanced.temporal, start: value },
+                })
+              }
+              placeholder="2026-02-17T12:23:11.570-08:00"
+              pickerLabel="Pick start timestamp"
+            />
+            <TemporalTimestampInput
+              value={advanced.temporal.end}
+              onChange={(value) =>
+                setAdvanced({
+                  temporal: { ...advanced.temporal, end: value },
+                })
+              }
+              disabled={advanced.temporal.mode === "contains"}
+              placeholder="end timestamp"
+              pickerLabel="Pick end timestamp"
+            />
+          </div>
+          <p className="mt-1 text-[11px] text-ink/50">
+            {advanced.temporal.mode === "contains"
+              ? "contains: the memory's range contains this single point"
+              : advanced.temporal.mode === "overlaps"
+                ? "overlaps: the memory's range overlaps [start, end]"
+                : "within: the memory's range is fully within [start, end]"}
+          </p>
+        </Field>
+
+        <Field label="limit (max results)">
+          <NumberInput
+            value={advanced.limit}
+            onChange={(v) => setAdvanced({ limit: v })}
+            placeholder="50 semantic-only; otherwise 1000"
+            min={1}
+            max={1000}
+          />
+        </Field>
+
+        <Field label="orderBy">
           <select
-            value={advanced.temporal.mode}
+            value={advanced.orderBy}
             onChange={(e) =>
               setAdvanced({
-                temporal: {
-                  ...advanced.temporal,
-                  mode: e.target.value as "contains" | "overlaps" | "within",
-                },
+                orderBy: e.target.value as "" | "asc" | "desc",
               })
             }
-            className="rounded-md border border-ink/[0.18] bg-white px-2 py-2 text-[13px] transition-colors focus:border-ink focus:outline-none"
+            className="rounded-md border border-slate-300 bg-white px-2 py-2 text-sm"
           >
-            <option value="contains">contains</option>
-            <option value="overlaps">overlaps</option>
-            <option value="within">within</option>
+            <option value="">(engine default)</option>
+            <option value="asc">asc</option>
+            <option value="desc">desc</option>
           </select>
-          <TemporalTimestampInput
-            value={advanced.temporal.start}
-            onChange={(value) =>
-              setAdvanced({
-                temporal: { ...advanced.temporal, start: value },
-              })
-            }
-            placeholder="2026-02-17T12:23:11.570-08:00"
-            pickerLabel="Pick start timestamp"
-          />
-          <TemporalTimestampInput
-            value={advanced.temporal.end}
-            onChange={(value) =>
-              setAdvanced({
-                temporal: { ...advanced.temporal, end: value },
-              })
-            }
-            disabled={advanced.temporal.mode === "contains"}
-            placeholder="end timestamp"
-            pickerLabel="Pick end timestamp"
-          />
-        </div>
-        <p className="mt-1 text-[11px] text-ink/50">
-          {advanced.temporal.mode === "contains"
-            ? "contains: the memory's range contains this single point"
-            : advanced.temporal.mode === "overlaps"
-              ? "overlaps: the memory's range overlaps [start, end]"
-              : "within: the memory's range is fully within [start, end]"}
-        </p>
-      </Field>
+        </Field>
+      </div>
 
-      <Field label="limit (max results)">
-        <NumberInput
-          value={advanced.limit}
-          onChange={(v) => setAdvanced({ limit: v })}
-          placeholder="50 semantic-only; otherwise 1000"
-          min={1}
-          max={1000}
-        />
-      </Field>
-
-      <Field label="candidateLimit">
-        <NumberInput
-          value={advanced.candidateLimit}
-          onChange={(v) => setAdvanced({ candidateLimit: v })}
-          placeholder="engine default"
-          min={1}
-          max={1000}
-        />
-      </Field>
-
-      <Field label="semantic threshold (0–1)">
-        <NumberInput
-          value={advanced.semanticThreshold}
-          onChange={(v) => setAdvanced({ semanticThreshold: v })}
-          placeholder="optional min score"
-          step="0.01"
-          min={0}
-          max={1}
-        />
-        <p className="mt-1 text-[11px] text-ink/50">
-          Filters semantic candidates before ranking. Higher is stricter.
-        </p>
-      </Field>
-
-      <Field label="weights.semantic (0–1)">
-        <NumberInput
-          value={advanced.weightsSemantic}
-          onChange={(v) => setAdvanced({ weightsSemantic: v })}
-          placeholder="0.5"
-          step="0.05"
-          min={0}
-          max={1}
-        />
-      </Field>
-
-      <Field label="weights.fulltext (0–1)">
-        <NumberInput
-          value={advanced.weightsFulltext}
-          onChange={(v) => setAdvanced({ weightsFulltext: v })}
-          placeholder="0.5"
-          step="0.05"
-          min={0}
-          max={1}
-        />
-      </Field>
-
-      <Field label="orderBy" className="sm:col-span-2">
-        <select
-          value={advanced.orderBy}
-          onChange={(e) =>
-            setAdvanced({
-              orderBy: e.target.value as "" | "asc" | "desc",
-            })
-          }
-          className="rounded-md border border-slate-300 bg-white px-2 py-2 text-sm"
+      <div className="border-t border-ink/[0.12] px-4 pb-4 pt-3">
+        <button
+          type="button"
+          onClick={() => setTuningOpen((open) => !open)}
+          aria-expanded={tuningOpen}
+          className="-ml-1 inline-flex items-center gap-1 rounded-md px-1 py-1 text-[12px] font-medium text-ink/70 hover:text-ink"
+          title={tuningOpen ? "Hide ranking tuning" : "Show ranking tuning"}
         >
-          <option value="">(engine default)</option>
-          <option value="asc">asc</option>
-          <option value="desc">desc</option>
-        </select>
-      </Field>
+          <DisclosureCaret expanded={tuningOpen} />
+          Ranking tuning
+        </button>
+
+        {tuningOpen && (
+          <div className="mt-3 grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <Field label="candidateLimit">
+              <NumberInput
+                value={advanced.candidateLimit}
+                onChange={(v) => setAdvanced({ candidateLimit: v })}
+                placeholder="engine default"
+                min={1}
+                max={1000}
+              />
+            </Field>
+
+            <Field label="semantic threshold (0–1)">
+              <NumberInput
+                value={advanced.semanticThreshold}
+                onChange={(v) => setAdvanced({ semanticThreshold: v })}
+                placeholder="optional min score"
+                step="0.01"
+                min={0}
+                max={1}
+              />
+              <p className="mt-1 text-[11px] text-ink/50">
+                Filters semantic candidates before ranking. Higher is stricter.
+              </p>
+            </Field>
+
+            <Field label="weights.semantic (0–1)">
+              <NumberInput
+                value={advanced.weightsSemantic}
+                onChange={(v) => setAdvanced({ weightsSemantic: v })}
+                placeholder="0.5"
+                step="0.05"
+                min={0}
+                max={1}
+              />
+            </Field>
+
+            <Field label="weights.fulltext (0–1)">
+              <NumberInput
+                value={advanced.weightsFulltext}
+                onChange={(v) => setAdvanced({ weightsFulltext: v })}
+                placeholder="0.5"
+                step="0.05"
+                min={0}
+                max={1}
+              />
+            </Field>
+          </div>
+        )}
+      </div>
+
+      <div className="sticky bottom-0 flex justify-end border-t border-ink/[0.12] bg-white px-4 py-3">
+        <button
+          type="button"
+          onClick={onSearch}
+          className="flex h-[42px] items-center rounded-lg bg-solar px-6 text-[13px] font-semibold text-ink transition-colors hover:bg-solar-hover"
+        >
+          Search
+        </button>
+      </div>
     </div>
   );
 }
