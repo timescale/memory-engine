@@ -209,7 +209,10 @@ next section):
   detection in non-interactive contexts** — an agent-run `me` without live
   injection errors everywhere, even with no `.me` config in scope. The
   error is branched by harness: for an integrated harness it names the fix
-  ("run `me <harness> install`"); for a detected-but-unintegrated harness
+  ("run `me <harness> install`" — Codex refines this further by reading
+  `~/.codex/hooks.json`: entry present means the hooks are likely awaiting
+  trust approval, so the fix is "run `/hooks` inside Codex" — see PR 2);
+  for a detected-but-unintegrated harness
   (Cursor, Copilot, …) — where no installer exists — it says so and asks
   the user to file a GitHub issue requesting the integration. Deliberately
   **no workaround recipe**: a static `ME_AS_AGENT=.me` in the harness's
@@ -697,7 +700,10 @@ own), then **Claude**, then **opencode**.
    detected-but-unintegrated harness (Cursor, Copilot, …) → names it and
    asks the user to file a GitHub issue requesting the integration — no
    workaround recipe (a static env setup can't supply the
-   `ME_PROJECT_DIR` anchor, so it would mis-scope on excursions).
+   `ME_PROJECT_DIR` anchor, so it would mis-scope on excursions). PR 2
+   refines the integrated branch for Codex: the error reads
+   `~/.codex/hooks.json` and prescribes the `/hooks` trust approval when
+   the entry is installed but injection didn't run.
 6. Tests: detect wrapper matrix, resolver precedence + validation
    (project > global agent; `.user` opt-out from local/global config and
    as an explicit flag/env value, plus the committed-file fatal;
@@ -781,20 +787,33 @@ reads the stdin payload and returns a tool-input override with the same
 `export …; ` prefix prepended (shlex-quoted, prefix-only); `ME_PROJECT_DIR`
 is the payload `cwd`, verbatim (the anchor); any internal error or payload
 mismatch is fail-open (emit nothing); first-writer-wins applies here too —
-a live `ME_INJECT_V` in the hook's own env means emit nothing. Vendor the
+a live `ME_INJECT_V` in the hook's own env means emit nothing. A fail-open
+on an *unrecognized payload shape* additionally logs the shape (structure
+only, never command content — commands can carry secrets) to the local
+state dir so `me doctor` can report it — otherwise a harness update that
+changes the payload surfaces as unexplained failsafe errors. Vendor the
 tested payload shapes.
 
 1. **`me codex env-hook`** (new): PreToolUse payload → `updatedInput`;
-   empty stdout on error.
+   empty stdout on error; unrecognized payload shapes logged per the
+   intro rule.
 2. **`me codex install`**: additionally write the user-scope
-   `~/.codex/hooks.json` PreToolUse entry. Document the trust/hash-approval
-   flow (`/hooks`) and that re-approval follows `me` upgrades — `me doctor`
-   is the post-upgrade check. Verify user-scope hook trust semantics during
-   implementation.
+   `~/.codex/hooks.json` PreToolUse entry. The definition must be
+   **upgrade-stable**: Codex trusts hooks per definition hash, so the
+   entry's text must not change across `me` versions — a bare
+   `me codex env-hook` command, no version strings, no versioned absolute
+   binary path (a Homebrew/mise-style `.../me/<version>/bin/me` would
+   invalidate trust on every upgrade). Re-approval then follows only
+   genuine definition changes, not releases. Verify during implementation
+   that Codex hashes the definition text only (not the resolved binary),
+   along with user-scope hook trust semantics. Document the one-time
+   `/hooks` approval flow; the failsafe error and `me doctor` both point
+   at it when the entry exists but injection isn't live.
 3. Document the Desktop/VS Code MCP limitation + the per-server `cwd`
    workaround (goal-3 gap; doctor check in PR 3).
 4. **`me gemini env-hook`** (new): BeforeTool payload →
-   `hookSpecificOutput.tool_input` with the same prepended exports.
+   `hookSpecificOutput.tool_input` with the same prepended exports; same
+   fail-open + shape-logging rules.
 5. **`me gemini install`**: additionally write the user-scope
    `~/.gemini/settings.json` hooks entry (BeforeTool, matcher
    `run_shell_command`).
@@ -823,9 +842,14 @@ scripts. Four sections:
 3. **Adapter installs**, file-level, per harness with a config dir present:
    Claude plugin + SessionStart hook; opencode plugin file + version marker
    ("stale — rerun `me opencode install`"); Codex `hooks.json` entry +
-   version, plus reminders for what we can't read (post-upgrade `/hooks`
-   re-approval; Desktop/VS Code per-server `cwd` when the MCP entry lacks
-   one); Gemini settings hooks + MCP entries.
+   definition-stability check (the entry's text matches what the current
+   installer would write — a drifted definition means trust was
+   invalidated), plus reminders for what we can't read from disk (whether
+   the `/hooks` trust approval has been granted; Desktop/VS Code
+   per-server `cwd` when the MCP entry lacks one); Gemini settings hooks +
+   MCP entries; the env-hook payload-miss log — "N unrecognized payload
+   shapes since <date>: a Codex/Gemini update likely changed the hook
+   payload; upgrade `me` or file an issue."
 4. **Project hygiene** (inside a `.me` project): `config.local.yaml`
    gitignored; committed `agent:` names an agent the caller owns (the
    cloned-repo teammate check) and is not `.user` (fatal everywhere else —
@@ -850,7 +874,9 @@ later if it earns its keep.
   harness — MCP call runs as agent; capture attributes to agent
   (Claude/opencode); `cd /tmp && me whoami` from the agent shell acts as
   agent (injection); with the adapter disabled, the same call **errors**
-  (failsafe); human terminal `me whoami` stays the human; human `me whoami`
+  (failsafe; on Codex, the installed-but-untrusted state must yield the
+  `/hooks` message, not the install one); human terminal `me whoami` stays
+  the human; human `me whoami`
   in an IDE integrated terminal (marker present, no injection, TTY) runs
   as the human with the notice; `ME_AS_AGENT=.user` runs as the user,
   visibly; non-me project with integration: `me` runs as the **global
