@@ -13,10 +13,12 @@ export function SearchResultRow({
   fragment,
   matchers,
   memory,
+  showScore,
 }: {
   fragment: string;
   matchers: TextMatchers;
   memory: MemoryWithScoreResponse;
+  showScore: boolean;
 }) {
   const { selected, selectMemory } = useMemorySelection(memory.id);
   const openContextMenu = useUi((s) => s.openContextMenu);
@@ -68,9 +70,11 @@ export function SearchResultRow({
               {memory.name}
             </span>
           )}
-          <span className="shrink-0 rounded bg-white px-1.5 py-0.5 text-ink/70 ring-1 ring-ink/[0.12]">
-            {formatScore(memory.score)}
-          </span>
+          {showScore && (
+            <span className="shrink-0 rounded bg-white px-1.5 py-0.5 text-ink/70 ring-1 ring-ink/[0.12]">
+              {formatScore(memory.score)}
+            </span>
+          )}
         </div>
         <div className="line-clamp-3 text-[13px] leading-snug">
           {segmentsWithKeys(segments).map(({ key, segment }) =>

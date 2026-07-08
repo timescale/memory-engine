@@ -11,7 +11,6 @@ import { useMemo } from "react";
 import { useShallow } from "zustand/shallow";
 import { useMemories } from "../api/queries.ts";
 import { selectSearchParams, useFilter } from "../store/filter.ts";
-import { hasTextFilter } from "./search-results.ts";
 import { useDebounced } from "./useDebounced.ts";
 
 export function useActiveSearch() {
@@ -24,11 +23,12 @@ export function useActiveSearch() {
   );
   const filter = useDebounced(filterState, 250);
   const searchParams = useMemo(() => selectSearchParams(filter), [filter]);
-  /** Any criterion set — the tree renders in search (matching-tree) mode. */
+  /**
+   * Any criterion set (text or tree/meta/temporal) — the tree renders in
+   * search (matching-tree) mode and the results column shows.
+   */
   const searchActive = Object.keys(searchParams).length > 0;
-  /** A text criterion set — relevance ordering exists, results pane shows. */
-  const textFilterActive = hasTextFilter(filter);
   const search = useMemories(searchParams, searchActive);
 
-  return { filter, searchActive, textFilterActive, search };
+  return { filter, searchActive, search };
 }

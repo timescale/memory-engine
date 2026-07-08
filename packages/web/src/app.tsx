@@ -14,10 +14,11 @@
  * path hierarchy from `memory.tree` with leaves loaded lazily per expanded
  * path; search mode renders matching memories from `memory.search`.
  *
- * Middle column (only while a text filter is active): relevance-sorted
- * search results, resizable. When a result set arrives, the top result is
- * auto-selected so the preview reflects the search (see SearchResultsPane);
- * selecting another result opens it without losing the list.
+ * Middle column (only while the filter has at least one criterion — text
+ * or tree/meta/temporal): relevance-sorted search results, resizable. When
+ * a result set arrives, the top result is auto-selected so the preview
+ * reflects the search (see SearchResultsPane); selecting another result
+ * opens it without losing the list.
  *
  * Right pane: the editor/viewer for the currently selected memory, fetched
  * by id. URL state carries the selection + filter for shareable links.
@@ -66,7 +67,7 @@ export function App() {
   const setSidebarWidth = useLayout((s) => s.setSidebarWidth);
   const searchColumnWidth = useLayout((s) => s.searchColumnWidth);
   const setSearchColumnWidth = useLayout((s) => s.setSearchColumnWidth);
-  const { textFilterActive } = useActiveSearch();
+  const { searchActive } = useActiveSearch();
 
   useEffect(() => {
     if (!selectedMemory) return;
@@ -110,7 +111,7 @@ export function App() {
           onChange={setSidebarWidth}
         />
 
-        {textFilterActive && (
+        {searchActive && (
           <>
             <SearchResultsPane />
             <ColumnResizer
@@ -127,7 +128,7 @@ export function App() {
           {selectedMemory ? (
             <SelectedMemoryPane memory={selectedMemory} />
           ) : (
-            <EmptyPane selectedId={selectedId} searching={textFilterActive} />
+            <EmptyPane selectedId={selectedId} searching={searchActive} />
           )}
         </main>
       </div>
