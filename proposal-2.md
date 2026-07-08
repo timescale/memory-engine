@@ -535,10 +535,15 @@ No harness files touched; everything unit/integration-testable.
 
 ### PR 2 — Claude adapter
 
-1. **`me claude env`** (new subcommand): reads the SessionStart payload,
-   resolves the project from payload `cwd`, and appends the contract block
-   to `$CLAUDE_ENV_FILE` — idempotent block replacement (SessionStart
-   refires on resume and `/clear`).
+1. **`me claude env`** (new subcommand): reads the SessionStart payload and
+   appends the contract block to `$CLAUDE_ENV_FILE` — idempotent block
+   replacement (SessionStart refires on resume and `/clear`). The payload
+   `cwd` is only the *anchor*: the subcommand walks up from it with the
+   real discovery code (`findConfigRoot`) and writes the found `.me` root
+   as `ME_CONFIG_DIR` — since that variable disables `me`'s own walk-up,
+   it must carry the resolved root, never the raw cwd. No `.me` found →
+   omit `ME_CONFIG_DIR` (the other vars are still written; a later `me`
+   walks up from its own cwd and falls through to the global `agent:`).
 2. **`packages/claude-plugin/hooks/hooks.json`**: add the SessionStart hook
    invoking it. Existing Stop/SessionEnd hooks stay; their handler picks up
    agent-by-config from PR 1.
@@ -598,8 +603,10 @@ No harness files touched; everything unit/integration-testable.
 
 1. **`me codex env-hook`** (new): stdin PreToolUse payload → `updatedInput`
    with the `export …; ` prefix prepended (shlex-quoted, prefix-only);
-   empty stdout on any internal error (fail-open). Vendor the tested payload
-   shape; treat parse mismatch as fail-open.
+   `ME_CONFIG_DIR` is the `.me` root found by walking up from the payload
+   `cwd` (shared discovery code; omitted when none). Empty stdout on any
+   internal error (fail-open). Vendor the tested payload shape; treat parse
+   mismatch as fail-open.
 2. **`me codex install`**: additionally write the user-scope
    `~/.codex/hooks.json` PreToolUse entry. Document the trust/hash-approval
    flow (`/hooks`) and that re-approval follows `me` upgrades — `me doctor`
@@ -612,7 +619,8 @@ No harness files touched; everything unit/integration-testable.
 
 1. **`me gemini env-hook`** (new): stdin BeforeTool payload →
    `hookSpecificOutput.tool_input` with the same prepended exports;
-   fail-open on mismatch.
+   `ME_CONFIG_DIR` is likewise the walk-up-discovered `.me` root from the
+   payload `cwd` (omitted when none); fail-open on mismatch.
 2. **`me gemini install`**: additionally write the user-scope
    `~/.gemini/settings.json` hooks entry (BeforeTool, matcher
    `run_shell_command`). Gating on `.me/` presence keeps non-me projects
