@@ -30,7 +30,7 @@ import {
   writeMemoryPointer,
 } from "../agent/memory-pointer.ts";
 import { createMemoryClient } from "../client.ts";
-import { resolveCredentials } from "../credentials.ts";
+import { resolveCredentials, resolveHarnessAgent } from "../credentials.ts";
 import { importTranscriptFile } from "../importers/index.ts";
 import { opencodeImporter, resolveSessionFile } from "../importers/opencode.ts";
 import { SlugRegistry } from "../importers/slug.ts";
@@ -300,11 +300,20 @@ function createOpenCodeHookCommand(): Command {
           // The hook ships inert — the ONE capture model shared with Claude:
           // project `.me` `capture` > the machine-wide flag > off (both folded
           // into `captureEnabled`). A deliberate opt-out exits 0 SILENTLY,
-          // distinct from the "no credentials" error below.
+          // distinct from the "no credentials" error below. Checked BEFORE
+          // resolving the agent below, so a project with capture off but no
+          // agent configured stays silent rather than logging a resolution
+          // error it doesn't need.
           if (!creds.captureEnabled) process.exit(0);
-          config = resolveHookConfig(creds, {
-            fullTranscript: opts.fullTranscript,
-          });
+          // Capture is a harness surface like MCP, so it resolves the agent
+          // ambiently (project agent: → global agent:) rather than the
+          // explicit-only `creds.asAgent` — an unresolvable agent throws
+          // here, into the catch below (capture skips), instead of silently
+          // writing as the human.
+          config = resolveHookConfig(
+            { ...creds, asAgent: resolveHarnessAgent() },
+            { fullTranscript: opts.fullTranscript },
+          );
         } catch (error) {
           console.error(
             `[memory-engine] ${eventName}: ${error instanceof Error ? error.message : String(error)}`,
