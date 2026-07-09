@@ -218,15 +218,21 @@ async function preflight(
           // they're shared with the standalone `me claude`/`me opencode
           // install` commands, so without this a question like "capture
           // your sessions?" reads as ambiguous mid-wizard: is it about this
-          // project, or the whole machine? It's the latter.
+          // project, or the whole machine? It's the latter. Indented a
+          // couple of spaces (clack has no cross-call nesting primitive
+          // that would let us truly indent the install flow's own prompts)
+          // so it at least reads as visually offset from the wizard's own.
           clack.log.step(
-            `Setting up ${offer.label} — a one-time, machine-wide install, not specific to this project:`,
+            `  Setting up ${offer.label} — a one-time, machine-wide install, not specific to this project:`,
           );
           await offer.install();
         } else {
-          clack.log.warn(offer.declinedWarning);
+          clack.log.warn(`  ${offer.declinedWarning}`);
         }
       }
+      // Close the digression — everything from here back down is this
+      // project's own setup again.
+      clack.log.step("Back to setting up this project:");
       creds = resolveCredentials(serverFlag);
     }
   }
