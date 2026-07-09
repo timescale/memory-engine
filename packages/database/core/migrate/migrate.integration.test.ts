@@ -1170,6 +1170,84 @@ describe("control-plane functions", () => {
     });
   });
 
+  test("create_service_account rejects a cross-space service-account member", async () => {
+    await withTestCore(sql, {}, async (core) => {
+      const s = core.schema;
+      const [spA] = await sql.unsafe(`select ${s}.create_space($1, $2) as id`, [
+        randomSlug(),
+        "Space A",
+      ]);
+      const [spB] = await sql.unsafe(`select ${s}.create_space($1, $2) as id`, [
+        randomSlug(),
+        "Space B",
+      ]);
+      const spaceA = spA?.id as string;
+      const spaceB = spB?.id as string;
+      // A service account that lives in space B.
+      const [foreign] = await sql.unsafe(
+        `select * from ${s}.create_service_account($1, $2, $3::uuid[], $4::uuid[])`,
+        [spaceB, "foreign", [], []],
+      );
+      const foreignId = foreign?.id as string;
+
+      let error: unknown;
+      try {
+        await sql.unsafe(
+          `select * from ${s}.create_service_account($1, $2, $3::uuid[], $4::uuid[])`,
+          [spaceA, "target", [foreignId], []],
+        );
+      } catch (e) {
+        error = e;
+      }
+      expect(error).toBeTruthy();
+      expect(String((error as Error).message)).toContain(
+        "different space",
+      );
+    });
+  });
+
+  test("add_group_member rejects a cross-space service-account member", async () => {
+    await withTestCore(sql, {}, async (core) => {
+      const s = core.schema;
+      const [spA] = await sql.unsafe(`select ${s}.create_space($1, $2) as id`, [
+        randomSlug(),
+        "Space A",
+      ]);
+      const [spB] = await sql.unsafe(`select ${s}.create_space($1, $2) as id`, [
+        randomSlug(),
+        "Space B",
+      ]);
+      const spaceA = spA?.id as string;
+      const spaceB = spB?.id as string;
+      const [grp] = await sql.unsafe(`select ${s}.create_group($1, $2) as id`, [
+        spaceA,
+        "bots",
+      ]);
+      const groupId = grp?.id as string;
+      const [foreign] = await sql.unsafe(
+        `select * from ${s}.create_service_account($1, $2, $3::uuid[], $4::uuid[])`,
+        [spaceB, "foreign", [], []],
+      );
+      const foreignId = foreign?.id as string;
+
+      let error: unknown;
+      try {
+        await sql.unsafe(`select ${s}.add_group_member($1, $2, $3, $4)`, [
+          spaceA,
+          groupId,
+          foreignId,
+          false,
+        ]);
+      } catch (e) {
+        error = e;
+      }
+      expect(error).toBeTruthy();
+      expect(String((error as Error).message)).toContain(
+        "belongs to a different space",
+      );
+    });
+  });
+
   test("service-account admin groups are protected and deleted with the service account", async () => {
     await withTestCore(sql, {}, async (core) => {
       const s = core.schema;
