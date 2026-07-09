@@ -3,8 +3,11 @@
  * source `$CLAUDE_ENV_FILE` before a Bash tool call, with our four contract
  * vars visible in that command's real environment?
  *
- * Not part of `check`/`check:full`/CI — see _shared.ts's module doc and
- * CLAUDE.md's "Harness smoke tests" section for how/why to run this.
+ * Verified live against Claude Code 2.1.205 — the SessionStart hook fires,
+ * `me claude env` writes the contract file, and it's sourced before the
+ * Bash tool call with all four vars visible. Not part of `check`/
+ * `check:full`/CI — see _shared.ts's module doc and CLAUDE.md's "Harness
+ * smoke tests" section for how/why to run this.
  *
  * Mechanism: passes a SessionStart hook inline via `--settings` (a JSON
  * string, not a file on disk) so Claude Code doesn't need any on-disk

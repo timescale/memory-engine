@@ -169,8 +169,8 @@ reset when nothing else is using the database.
 ### Harness smoke tests (manual only — never run automatically)
 
 `packages/cli/harness-smoke/*.smoke.ts` launch a real harness binary
-(`claude` verified live; `opencode` scaffolded but unverified — see each
-file's module doc; a stacked follow-on PR adds Gemini) non-interactively and
+(`claude` and `opencode` verified live; a stacked follow-on PR adds Gemini,
+scaffolded but unverified — see each file's module doc) non-interactively and
 check that the injected environment contract
 (`ME_INJECT_V`/`AI_AGENT`/`ME_AS_AGENT`/`ME_PROJECT_DIR`) actually lands in a
 real shell command's real environment. They exist because `./bun run
