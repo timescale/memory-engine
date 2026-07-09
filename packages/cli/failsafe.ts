@@ -1,6 +1,5 @@
 /**
- * The harness shell failsafe (HARNESS_DESIGN.md, "(c) Shell — injected env,
- * with a fail-closed detection failsafe").
+ * The harness shell failsafe.
  *
  * A plain `me` invocation from an agent's tool shell must never silently run
  * as the human — either the harness-injected contract is live (agent-by-config
@@ -23,10 +22,9 @@
  * {@link checkHarnessFailsafe} resolves the actual kind over the network,
  * and only pays for that round trip once a harness is actually detected (see
  * {@link ApiKeyKindResolver}). A live injected contract is itself an
- * exemption (nothing to fail over). And — decided in the design — an
- * INTERACTIVE stderr TTY is treated as a human in an IDE integrated terminal
- * (a harness tool shell never allocates one), not an error: run as the user
- * with a one-line notice.
+ * exemption (nothing to fail over). An INTERACTIVE stderr TTY is treated as
+ * a human in an IDE integrated terminal (a harness tool shell never
+ * allocates one), not an error: run as the user with a one-line notice.
  */
 
 import { isInjectionLive } from "./harness-contract.ts";

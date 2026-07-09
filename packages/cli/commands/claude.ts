@@ -487,8 +487,8 @@ export async function runClaudeInstallFlow(
 
 /**
  * me claude env — invoked by the Claude Code plugin's SessionStart hook to
- * inject the harness contract (HARNESS_DESIGN.md) into `$CLAUDE_ENV_FILE`,
- * which Claude Code sources before every Bash tool command — so a plain `me`
+ * inject the harness contract into `$CLAUDE_ENV_FILE`, which Claude Code
+ * sources before every Bash tool command — so a plain `me`
  * call from the agent's shell always resolves the right project
  * (`ME_PROJECT_DIR`, the discovery anchor) and always runs as the configured
  * agent (`ME_AS_AGENT=.me`, the ordinary sentinel).

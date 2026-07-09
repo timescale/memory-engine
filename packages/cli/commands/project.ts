@@ -21,10 +21,10 @@
  *     option) and grants a new agent write access at the chosen scope;
  *   - write — `.me/config.yaml` (server/space/tree/agent). Harness surfaces
  *     (MCP, hooks, the injected shell contract) resolve this agent by
- *     config automatically (agent-by-config, HARNESS_DESIGN.md); a stale
- *     `ME_AS_AGENT` pin in `.claude/settings.json`, written by an older `me
- *     project init`, is removed if present (it would otherwise silently
- *     override the injected `.me` sentinel).
+ *     config automatically; a stale `ME_AS_AGENT` pin in
+ *     `.claude/settings.json`, written by an older `me project init`, is
+ *     removed if present (it would otherwise silently override the
+ *     injected `.me` sentinel).
  */
 import * as clack from "@clack/prompts";
 import { accessLevelName } from "@memory.build/protocol/space";
