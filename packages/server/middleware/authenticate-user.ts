@@ -106,40 +106,40 @@ export async function authenticateUser(
             error: unauthorized("Invalid or expired token"),
           };
         }
-        const principal = await core.getPrincipal(validated.memberId);
-        // A key only ever resolves to a credential-bearing principal (groups
-        // hold no key); a missing principal means a member torn down under a
-        // live key.
-        if (!principal || principal.kind === "g") {
+        // validate_api_key already joined core.principal and returns the kind +
+        // name, so there's no second lookup. A key only ever resolves to a
+        // credential-bearing principal (groups hold no key); kind 'g' would mean
+        // a member torn down under a live key.
+        if (validated.kind === "g") {
           debug("user auth failed: api key resolves to no usable principal");
           return {
             ok: false,
             error: unauthorized("Invalid or expired token"),
           };
         }
-        const isUser = principal.kind === "u";
+        const isUser = validated.kind === "u";
         debug("user auth succeeded (api key)", {
-          userId: principal.id,
-          kind: principal.kind,
+          userId: validated.memberId,
+          kind: validated.kind,
         });
         return {
           ok: true,
           context: {
             type: "user",
-            kind: principal.kind,
-            userId: principal.id,
+            kind: validated.kind,
+            userId: validated.memberId,
             // For a user the core principal's name IS the email (the display
             // name lives on auth.users, not fetched on the key path); agents and
             // service accounts have no email — their names are display names.
-            email: isUser ? principal.name : null,
-            name: principal.name,
+            email: isUser ? validated.name : null,
+            name: validated.name,
             // For a user PAT, carry the real verified flag (the same fact a
             // session reports), so it behaves like any other credential —
             // including the email-keyed redemption step. An agent has no
             // email to verify. A key's only carve-out is that it can't
             // mint/revoke keys (enforced at the handler layer).
             emailVerified: isUser
-              ? await getUserEmailVerified(principal.id)
+              ? await getUserEmailVerified(validated.memberId)
               : false,
             viaApiKey: true,
             authenticatedAs: null,

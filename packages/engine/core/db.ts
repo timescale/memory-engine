@@ -672,7 +672,7 @@ export function coreStore(sql: Sql, schema: string = CORE_SCHEMA): CoreStore {
     async validateApiKey(lookupId, secret) {
       const secretHash = hashApiKeySecret(secret);
       const [row] = await sql`
-        select member_id, api_key_id, owner_id
+        select member_id, api_key_id, owner_id, kind, name
         from ${sch}.validate_api_key(${lookupId}, ${secretHash})
       `;
       if (!row) return null;
@@ -680,6 +680,8 @@ export function coreStore(sql: Sql, schema: string = CORE_SCHEMA): CoreStore {
         memberId: row.member_id as string,
         apiKeyId: row.api_key_id as string,
         ownerId: (row.owner_id as string | null) ?? null,
+        kind: row.kind as ValidatedApiKey["kind"],
+        name: row.name as string,
       };
     },
 

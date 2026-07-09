@@ -112,7 +112,8 @@ test("group access flows through buildTreeAccess; removeGroupMember revokes it",
 
 test("createApiKey + validateApiKey (good / wrong secret)", async () => {
   const userId = await newUserId();
-  await db.createUser(userId, `dave_${userId.slice(0, 8)}`);
+  const userName = `dave_${userId.slice(0, 8)}`;
+  await db.createUser(userId, userName);
 
   const key = await db.createApiKey(userId, "default");
   expect(key.lookupId).toMatch(/^[A-Za-z0-9_-]{16}$/);
@@ -122,6 +123,10 @@ test("createApiKey + validateApiKey (good / wrong secret)", async () => {
   expect(valid?.memberId).toBe(userId);
   expect(valid?.apiKeyId).toBe(key.id);
   expect(valid?.ownerId).toBeNull(); // a user key has no owner
+  // kind + name come back with validation, so the auth middleware needs no
+  // second principal lookup.
+  expect(valid?.kind).toBe("u");
+  expect(valid?.name).toBe(userName);
 
   expect(await db.validateApiKey(key.lookupId, "wrong-secret")).toBeNull();
 });

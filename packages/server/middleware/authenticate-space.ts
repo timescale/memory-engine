@@ -158,12 +158,14 @@ async function authenticateSpaceInner(
     principalId = validated.memberId;
     apiKeyId = validated.apiKeyId;
     ownerId = validated.ownerId;
-    const principal = await core.getPrincipal(principalId);
-    if (!principal || principal.kind === "g") {
+    // validate_api_key already joined core.principal, so the kind comes back with
+    // the validation — no second lookup. A group holds no key, so kind 'g' would
+    // only appear if a member were torn down under a live key.
+    if (validated.kind === "g") {
       debug("space auth failed: api key principal not found");
       return { ok: false, error: unauthorized("Invalid credentials") };
     }
-    principalKind = principal.kind;
+    principalKind = validated.kind;
   } else if (bearer && isLegacyApiKey(bearer)) {
     // A pre-global 4-part key (me.<slug>.<lookup>.<secret>). These no longer
     // authenticate; tell the operator to recreate the key rather than failing

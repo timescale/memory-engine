@@ -23,13 +23,15 @@ set search_path to pg_catalog, {{schema}}, public, pg_temp
 -- validate_api_key
 -- Looks a key up by lookup_id, compares the hashed secret, and enforces expiry.
 -- Returns the member_id + api_key id + the member's owner_id (non-null when the
--- key-holder is an agent, null for a user) when valid; no rows otherwise. The
--- owner_id drives `~` home nesting for agents at the RPC boundary.
+-- key-holder is an agent, null for a user) + the member's kind + name when valid;
+-- no rows otherwise. owner_id drives `~` home nesting for agents at the RPC
+-- boundary; kind/name let the auth middleware skip a second principal lookup per
+-- request (it already joins principal here).
 -------------------------------------------------------------------------------
--- validate_api_key gained an `owner_id` output column — a returns-table change
--- create-or-replace cannot make. The fn block drops a stale-signatured definition
--- before the create and asserts the result after.
-{{fn validate_api_key(_lookup_id text, _secret text) returns table(member_id uuid, api_key_id uuid, owner_id uuid)}}
+-- validate_api_key's returns-table has grown output columns (owner_id, then
+-- kind/name) — a change create-or-replace cannot make. The fn block drops a
+-- stale-signatured definition before the create and asserts the result after.
+{{fn validate_api_key(_lookup_id text, _secret text) returns table(member_id uuid, api_key_id uuid, owner_id uuid, kind text, name text)}}
 create or replace function {{schema}}.validate_api_key
 ( _lookup_id text
 , _secret text -- hashed
@@ -38,9 +40,11 @@ returns table
 ( member_id uuid
 , api_key_id uuid
 , owner_id uuid
+, kind text
+, name text
 )
 as $func$
-  select k.member_id, k.id, p.owner_id
+  select k.member_id, k.id, p.owner_id, p.kind, p.name::text
   from {{schema}}.api_key k
   inner join {{schema}}.principal p on p.id = k.member_id
   where k.lookup_id = _lookup_id
