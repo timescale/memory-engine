@@ -78,6 +78,17 @@ export interface ValidatedApiKey {
   apiKeyId: string;
   /** The member's owner — non-null when the key-holder is an agent, null for a user. */
   ownerId: string | null;
+  /**
+   * The member's kind — always one of u|a|s in practice (groups hold no key).
+   * Returned alongside the key so the auth middleware need not re-fetch the
+   * principal just to learn the kind.
+   */
+  kind: PrincipalKind;
+  /**
+   * The member's principal name (the user's email for a user PAT, else the
+   * agent/service-account handle). Saves the middleware a second lookup.
+   */
+  name: string;
 }
 
 /**
