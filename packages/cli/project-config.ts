@@ -384,7 +384,10 @@ export function getProjectConfig(): ProjectConfig | undefined {
 
   const anchor = projectDirOverride ?? process.env.ME_PROJECT_DIR ?? undefined;
   let value = discoverProjectConfig(anchor ?? process.cwd());
-  if (!value) {
+  // The backstop is a LAST resort below both the anchor and cwd walk-up — an
+  // explicit anchor that resolves to nothing must stay resolved to nothing,
+  // never quietly replaced by a different (harness-var-derived) project.
+  if (!value && anchor === undefined) {
     const backstop = validatedHarnessProjectDir();
     if (backstop) value = discoverProjectConfig(backstop);
   }
