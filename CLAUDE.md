@@ -169,17 +169,23 @@ reset when nothing else is using the database.
 ### Harness smoke tests (manual only — never run automatically)
 
 `packages/cli/harness-smoke/*.smoke.ts` launch a real harness binary
-(`claude` and `opencode` verified live; a stacked follow-on PR adds Gemini,
-scaffolded but unverified — see each file's module doc) non-interactively and
-check that the injected environment contract
+(`claude` and `opencode` verified live; `gemini` is scaffolded but
+unverified — see each file's module doc) non-interactively and check that
+the injected environment contract
 (`ME_INJECT_V`/`AI_AGENT`/`ME_AS_AGENT`/`ME_PROJECT_DIR`) actually lands in a
 real shell command's real environment. They exist because `./bun run
 check`/`check:full`/CI only exercise the decision logic (what a hook
-*should* output) — nothing runs an actual harness end-to-end. There is no
-Codex smoke test: Codex's hook-trust model (a new/changed hook needs an
-interactive `/hooks` approval, no known non-interactive bypass) has no safe
-way to test without either a guessed bypass flag or mutating the
-developer's real `~/.codex/hooks.json` as a test side effect.
+*should* output) — nothing runs an actual harness end-to-end.
+
+**No `codex.smoke.ts`, deliberately**: Codex trusts a hook by the hash of
+its definition text and gates a new/changed one behind an interactive
+`/hooks` approval, with no documented non-interactive bypass. Every design
+that avoids that gate either bakes in a guessed bypass flag or writes into
+the developer's real `~/.codex/hooks.json` as a test side effect — both
+rejected as too risky for a checked-in scaffold nobody has run for real. If
+you need to smoke-test Codex, do it manually: run `me codex install` for
+real, approve `/hooks` once, then invoke `codex exec` by hand with the
+`markerPrompt(REVEAL_COMMAND)` helper from `_shared.ts`.
 
 They are named `*.smoke.ts`, not `*.test.ts`, specifically so `bun test
 packages` (the full `test` suite) never discovers them — and even run
