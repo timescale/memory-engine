@@ -1,9 +1,8 @@
 /**
- * The harness-injected environment contract (HARNESS_DESIGN.md, "Mechanism for
- * (c): the harness-injected environment").
+ * The harness-injected environment contract.
  *
  * Every harness adapter (Claude's SessionStart hook, opencode's `shell.env`
- * plugin hook, and — PR 2 — Codex/Gemini's PreToolUse/BeforeTool rewrites)
+ * plugin hook, and eventually Codex/Gemini's PreToolUse/BeforeTool rewrites)
  * injects the same four env vars into every shell command a harness runs, so a
  * plain `me` invocation from an agent's tool shell always resolves the right
  * project and always runs as the configured agent:

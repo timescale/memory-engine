@@ -363,7 +363,7 @@ function validatedHarnessProjectDir(): string | undefined {
  * walk-up runs once even though `resolveServer`/`resolveSpace` call it per
  * command. Returns undefined when there is no `.me` in scope.
  *
- * Resolution order — see HARNESS_DESIGN.md "Enforcement by harness":
+ * Resolution order:
  *   1. `--config-dir` / `ME_CONFIG_DIR` — an EXACT location, no walk-up.
  *   2. `--project-dir` / `ME_PROJECT_DIR` — the injected session ANCHOR: walk
  *      up from it instead of cwd (replaces cwd as the walk-up origin; no

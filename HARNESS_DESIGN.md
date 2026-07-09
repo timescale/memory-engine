@@ -1,6 +1,6 @@
 # Config-First Harness Integration (Alternate Design)
 
-Alternate design to
+Alternative to
 [`proposal.md`](https://github.com/timescale/memory-engine/blob/9acf9f2549b8fcba4c5765bafb3bdb18b1e4c39b/proposal.md)
 (the sentinel-wiring design).
 

@@ -2,8 +2,7 @@
  * Harness detection — is a coding agent (Claude Code, opencode, Codex, Gemini
  * CLI, or an agent we have no integration for) invoking `me`, or a human?
  *
- * This is the shell surface's backstop signal (see HARNESS_DESIGN.md
- * "Enforcement by harness" / surface (c)): the injected `ME_INJECT_V`
+ * This is the shell surface's backstop signal: the injected `ME_INJECT_V`
  * liveness var is the primary evidence when our own adapters are live;
  * `detectHarness()` covers the case where injection silently didn't run
  * (untrusted Codex hooks, an uninstalled plugin, a harness we've never

@@ -4,8 +4,8 @@
  * Historically `me project init` wrote the project agent into this file's
  * `"env"` map (`ME_AS_AGENT=<agent name>`) because the Bash tool runs `me`
  * from arbitrary cwds where a `.me` walk-up wouldn't resolve the project's
- * agent. That's superseded by agent-by-config (HARNESS_DESIGN.md): the
- * SessionStart hook (`me claude env`) now injects `ME_PROJECT_DIR` (the
+ * agent. That's superseded by agent-by-config: the SessionStart hook
+ * (`me claude env`) now injects `ME_PROJECT_DIR` (the
  * discovery anchor) and `ME_AS_AGENT=.me` (the ordinary sentinel) into every
  * Bash command's env, so the same resolution works from any cwd without a
  * baked-in literal name. `me project init` now only *removes* a stale

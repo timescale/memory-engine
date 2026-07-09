@@ -11,11 +11,11 @@
  * resolution) lives in the `me` CLI, consistent with the "require `me` on PATH,
  * don't bundle the binary" decision.
  *
- * It also carries the harness-injected environment contract
- * (HARNESS_DESIGN.md, "Mechanism for (c)") via a `shell.env` hook: every
- * shell command OpenCode runs gets `ME_PROJECT_DIR` (the session-scoped
- * `directory`, verbatim — deliberately NOT the per-command `input.cwd`, so a
- * `workdir=/tmp` excursion keeps discovery) and `ME_AS_AGENT=.me` (the
+ * It also carries the harness-injected environment contract via a
+ * `shell.env` hook: every shell command OpenCode runs gets `ME_PROJECT_DIR`
+ * (the session-scoped `directory`, verbatim — deliberately NOT the
+ * per-command `input.cwd`, so a `workdir=/tmp` excursion keeps discovery)
+ * and `ME_AS_AGENT=.me` (the
  * ordinary sentinel), so a plain `me` call from OpenCode's shell tool always
  * resolves the right project and always runs as the configured agent. The
  * constants are baked in as literals at generation time (this file has no

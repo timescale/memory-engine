@@ -1,9 +1,9 @@
 /**
- * The install-time default-agent step (HARNESS_DESIGN.md PR 1, Claude adapter
- * item 4): every harness install (`me claude install`, `me opencode install`)
- * runs {@link ensureDefaultAgent} so "no agent anywhere" is rare in practice —
- * agent-by-config's fatal-on-nothing (`me mcp`) and skip-on-nothing (hooks)
- * degrade gracefully only because most machines have picked up a default here.
+ * The install-time default-agent step: every harness install (`me claude
+ * install`, `me opencode install`) runs {@link ensureDefaultAgent} so "no
+ * agent anywhere" is rare in practice — agent-by-config's fatal-on-nothing
+ * (`me mcp`) and skip-on-nothing (hooks) degrade gracefully only because
+ * most machines have picked up a default here.
  *
  * No-op when a global `agent:` is already set (including the `.user`
  * opt-out) or the credential is already an agent api key (the sandboxed
