@@ -54,6 +54,7 @@ function call<T = unknown>(
     core: engineCore.coreStore(sql, coreSchema),
     space,
     principalId,
+    principalKind: "u",
     ownerId: null, // user/session caller
     apiKeyId: null,
     treeAccess: ta,

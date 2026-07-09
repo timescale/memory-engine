@@ -22,7 +22,7 @@ grant access and confer admin.)
 
 Both credential holders are ultimately **tied to a single human**: an agent
 dies with its owner (removing a user deprovisions the agents it owns). That
-single-owner model is exactly wrong for **application / integration / CI-CD**
+single-owner model is exactly wrong for **application / integration / CI/CD**
 identities, where a *team* — not an individual — operates a long-lived
 automated identity.
 

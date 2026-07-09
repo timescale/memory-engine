@@ -44,6 +44,7 @@ export { guardCore };
  * `home.<ownerId>.<agentId>` for an agent (nested under its owner's home).
  */
 function homeOpts(ctx: SpaceRpcContext): TreePathOptions {
+  if (ctx.principalKind === "s") return {};
   return { home: ctx.principalId, homeOwner: ctx.ownerId ?? undefined };
 }
 
@@ -190,6 +191,15 @@ export async function callerOwnsAgentGlobal(
     principal.kind === "a" &&
     principal.ownerId === context.principalId
   );
+}
+
+/** True if the caller is a direct member of a service account's bound admin group. */
+export async function callerAdministersServiceAccount(
+  context: SpaceRpcContext,
+  principalId: string,
+): Promise<boolean> {
+  if (context.principalKind !== "u") return false;
+  return context.core.isServiceAccountAdmin(principalId, context.principalId);
 }
 
 // =============================================================================

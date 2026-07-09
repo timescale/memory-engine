@@ -82,16 +82,9 @@ async function principalRemove(
   // self-service exceptions that mirror `principal.add`'s own-agent carve-out:
   //   (a) a member removing THEIR OWN agent (inverse of `me agent add`), and
   //   (b) a USER removing THEMSELVES (`me space leave`).
-  // Kind detection uses `ctx.ownerId` as a discriminator on the AUTHENTICATED
-  // PRINCIPAL (not the credential): it is null when that principal is a user and
-  // non-null only when it is an agent. This holds after any X-Me-As-Agent
-  // switch — a human acting as their own agent has `ctx.principalId`/`ctx.ownerId`
-  // overwritten to the agent (owner non-null), so they are correctly treated as
-  // the agent (the parity invariant) and fall through to the admin gate, exactly
-  // as that agent's own key would. (ownerId's primary role is `~`-home nesting;
-  // it doubles as a user/agent signal because agents are the only owned principal
-  // and no principal authenticates as a group.) An agent removing itself is thus
-  // intentionally NOT covered here — its owner removes it via `me agent remove`.
+  // A user may remove themselves (`me space leave`), but agents and service
+  // accounts are managed by their owner/admins and must fall through to the
+  // structural gate even when `params.principalId === ctx.principalId`.
   // `LAST_ADMIN` still protects a sole admin (the deferred trigger, mapped by
   // guardCore).
   //
@@ -100,7 +93,7 @@ async function principalRemove(
   // `getPrincipal` round-trip — for a non-self, non-admin removal, so the common
   // admin remove-member and self-leave paths pay no extra query.
   const isSelfUser =
-    params.principalId === ctx.principalId && ctx.ownerId === null;
+    params.principalId === ctx.principalId && ctx.principalKind === "u";
   if (!isSelfUser && !ctx.admin) {
     const ownAgent = await callerOwnsAgentGlobal(ctx, params.principalId);
     // Not self, not admin, not the caller's own agent → structural, denied.

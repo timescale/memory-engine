@@ -41,7 +41,12 @@ let ownerEmail: string;
 function call<T = unknown>(
   method: string,
   params: unknown,
-  as: { principalId?: string; treeAccess?: TreeAccess; admin?: boolean } = {},
+  as: {
+    principalId?: string;
+    principalKind?: "u" | "a" | "s";
+    treeAccess?: TreeAccess;
+    admin?: boolean;
+  } = {},
 ): Promise<T> {
   const registered = memoryMethods.get(method);
   if (!registered) throw new Error(`no handler for ${method}`);
@@ -51,6 +56,7 @@ function call<T = unknown>(
     core: engineCore.coreStore(sql, coreSchema),
     space,
     principalId: as.principalId ?? ownerId,
+    principalKind: as.principalKind ?? "u",
     ownerId: null, // user/session caller
     apiKeyId: null,
     treeAccess: as.treeAccess ?? ownerTreeAccess,
@@ -707,6 +713,81 @@ test("grant.list: an agent's owner can list its grants", async () => {
       { principalId: stranger, treeAccess: [] as TreeAccess, admin: false },
     ),
     "FORBIDDEN",
+  );
+});
+
+test("grant.list/remove: a service-account admin can inspect and revoke its grants", async () => {
+  const core = engineCore.coreStore(sql, coreSchema);
+  const manager = await makeUser();
+  await call("principal.add", { principalId: manager });
+  const serviceAccount = await core.createServiceAccount(
+    space.id,
+    `sa_${rand(6)}`,
+    { adminMembers: [{ memberId: manager }] },
+  );
+  await call("grant.set", {
+    principalId: serviceAccount.id,
+    treePath: "robots",
+    access: 2,
+  });
+
+  const asManager = {
+    principalId: manager,
+    treeAccess: [] as TreeAccess,
+    admin: false,
+  };
+  const grants = await call<{
+    grants: { principalId: string; treePath: string }[];
+  }>("grant.list", { principalId: serviceAccount.id }, asManager);
+  expect(grants.grants).toContainEqual(
+    expect.objectContaining({
+      principalId: serviceAccount.id,
+      treePath: "/robots",
+    }),
+  );
+
+  await expectAppError(
+    call(
+      "grant.set",
+      { principalId: serviceAccount.id, treePath: "robots", access: 1 },
+      asManager,
+    ),
+    "FORBIDDEN",
+  );
+  expect(
+    (
+      await call<{ removed: boolean }>(
+        "grant.remove",
+        { principalId: serviceAccount.id, treePath: "robots" },
+        asManager,
+      )
+    ).removed,
+  ).toBe(true);
+});
+
+test("service-account callers do not get '~' home expansion", async () => {
+  const core = engineCore.coreStore(sql, coreSchema);
+  const serviceAccount = await core.createServiceAccount(
+    space.id,
+    `sa_${rand(6)}`,
+  );
+  await call("grant.set", {
+    principalId: serviceAccount.id,
+    treePath: "robots",
+    access: 2,
+  });
+  await expectAppError(
+    call(
+      "grant.set",
+      { principalId: serviceAccount.id, treePath: "~", access: 1 },
+      {
+        principalId: serviceAccount.id,
+        principalKind: "s",
+        treeAccess: await core.buildTreeAccess(serviceAccount.id, space.id),
+        admin: false,
+      },
+    ),
+    "VALIDATION_ERROR",
   );
 });
 
