@@ -3,12 +3,15 @@
  * actually rewrite a shell command with the harness contract, and does the
  * rewritten command really export working env vars when Gemini runs it?
  *
- * BEST-EFFORT / UNVERIFIED — the `gemini` binary is not installed on the
- * machine this was authored on, so the invocation below (`gemini -p
- * "<prompt>" --approval-mode yolo`) is built from Gemini CLI's public docs,
- * not a live run. See CLAUDE.md's "Harness smoke tests" section if this
- * fails on a first real run — `--approval-mode` is the flag most likely to
- * have moved.
+ * Flags verified live against gemini-cli 0.50.0 — `--skip-trust` is
+ * required or Gemini falls back to interactive approval and refuses to run
+ * ("Gemini CLI is not running in a trusted directory") since a freshly
+ * created scratch dir is never in its trusted-folders list. The actual
+ * hook-injection path itself is UNVERIFIED: the available Gemini account on
+ * this machine hits `IneligibleTierError` ("Gemini Code Assist for
+ * individuals" free tier no longer supported by this CLI client) before
+ * ever reaching a tool call, on any prompt at all — an account/product-tier
+ * issue with no code-level fix, not something in this file.
  *
  * Mechanism: writes the hook entry into a scratch project's
  * `.gemini/settings.json` (project scope — Gemini CLI loads and overrides
@@ -64,6 +67,7 @@ test.skipIf(!smokeTestsEnabled() || !GEMINI_BIN)(
           markerPrompt(REVEAL_COMMAND),
           "--approval-mode",
           "yolo",
+          "--skip-trust",
         ],
         {
           cwd: projectDir,
