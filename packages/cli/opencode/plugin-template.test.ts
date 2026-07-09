@@ -156,6 +156,37 @@ describe("shell.env — the harness-injected environment contract", () => {
     });
   });
 
+  test("the vars in output.env actually show up in a real subprocess's environment", async () => {
+    // OpenCode's own documented contract is merging shell.env's `output.env`
+    // into the env of the shell command it's about to run — we don't
+    // control or test THAT merge (it's OpenCode's own behavior), but we do
+    // control whether the object we hand back actually works as real
+    // process env when merged. Prove it by spawning a real process with it
+    // merged in and reading back its ACTUAL environment, not just the
+    // returned object's shape.
+    const shell = makeShell();
+    const hooks = await loadPlugin(renderPluginSource(), shell, "/my/proj");
+    const output: { env?: Record<string, string> } = {};
+    await hooks["shell.env"]({}, output);
+
+    const proc = Bun.spawn(["env"], {
+      env: { ...process.env, ...output.env },
+      stdout: "pipe",
+    });
+    const stdout = await new Response(proc.stdout).text();
+    await proc.exited;
+
+    const env: Record<string, string> = {};
+    for (const line of stdout.split("\n")) {
+      const idx = line.indexOf("=");
+      if (idx !== -1) env[line.slice(0, idx)] = line.slice(idx + 1);
+    }
+    expect(env.ME_INJECT_V).toBe("1");
+    expect(env.AI_AGENT).toBe("opencode");
+    expect(env.ME_AS_AGENT).toBe(".me");
+    expect(env.ME_PROJECT_DIR).toBe("/my/proj");
+  });
+
   test("preserves any env output already set by another hook", async () => {
     const shell = makeShell();
     const hooks = await loadPlugin(renderPluginSource(), shell);
