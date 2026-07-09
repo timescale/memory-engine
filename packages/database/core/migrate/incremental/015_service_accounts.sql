@@ -93,5 +93,9 @@ end $$;
 create unique index principal_space_handle_name
   on {{schema}}.principal (space_id, name) where kind in ('g', 's');
 
+-- Service-account admin groups are dedicated one-to-one bindings.
+create unique index principal_service_account_admin_id
+  on {{schema}}.principal (admin_id) where kind = 's';
+
 comment on column {{schema}}.principal.admin_id is
   'For service accounts (kind=s), points at the bound admin group via principal(group_id).';
