@@ -42,9 +42,9 @@ export async function runCapturePrompt(
   const wasEnabled = getGlobalCaptureEnabled();
   const answer = await clack.confirm({
     message:
-      `Capture your ${opts.toolLabel} sessions as memories? They stay ` +
-      "private to you (under ~/projects/<repo>) unless a project explicitly " +
-      "shares them.",
+      `Capture your ${opts.toolLabel} sessions as memories, machine-wide ` +
+      "(every project, not just this one)? They stay private to you (under " +
+      "~/projects/<repo>) unless a project explicitly shares them.",
     initialValue: wasEnabled,
   });
   if (clack.isCancel(answer)) {
