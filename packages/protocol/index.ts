@@ -8,8 +8,8 @@
  * RPC endpoints / contracts:
  *   - Memory RPC (POST /api/v1/memory/rpc) — session or api-key auth; the memory
  *     data plane (./memory) + the space management contract (./space).
- *   - User RPC (POST /api/v1/user/rpc) — session auth; whoami + agent + space
- *     discovery (./user).
+ *   - User RPC (POST /api/v1/user/rpc) — session auth; whoami + agent/service
+ *     account lifecycle + space discovery (./user).
  */
 
 // Error codes and AppError

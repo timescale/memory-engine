@@ -25,8 +25,8 @@ import { extractBearerToken, passesCsrfCheck } from "./authenticate";
 
 export interface UserAuthContext {
   type: "user";
-  /** The authenticated principal's kind: a user ("u") or an agent ("a"). */
-  kind: "u" | "a";
+  /** The authenticated principal's kind: user, agent, or service account. */
+  kind: "u" | "a" | "s";
   /** The authenticated principal id (a user-principal id, or an agent's). */
   userId: string;
   /** The user's email (powers whoami + lazy provisioning); null for an agent. */
@@ -88,9 +88,10 @@ export async function authenticateUser(
   async function resolvePrincipal(): Promise<UserAuthResult> {
     const bearer = extractBearerToken(request);
     if (bearer) {
-      // An api key — a user PAT (kind 'u') or an agent key (kind 'a'). Both
-      // are admitted; the per-method handlers authorize what each may do (an
-      // agent gets `whoami` / `space.list`, nothing that manages the account).
+      // An api key — a user PAT (kind 'u'), agent key (kind 'a'), or service
+      // account key (kind 's'). All are admitted; per-method handlers authorize
+      // what each may do (non-users get `whoami` / `space.list`, nothing that
+      // manages the account).
       // An api key is never an OAuth token, so this branch always returns.
       const parsed = parseApiKey(bearer);
       if (parsed) {
@@ -106,8 +107,9 @@ export async function authenticateUser(
           };
         }
         const principal = await core.getPrincipal(validated.memberId);
-        // A key only ever resolves to a user or an agent (groups hold no key);
-        // a missing principal means a member torn down under a live key.
+        // A key only ever resolves to a credential-bearing principal (groups
+        // hold no key); a missing principal means a member torn down under a
+        // live key.
         if (!principal || principal.kind === "g") {
           debug("user auth failed: api key resolves to no usable principal");
           return {
@@ -127,8 +129,8 @@ export async function authenticateUser(
             kind: principal.kind,
             userId: principal.id,
             // For a user the core principal's name IS the email (the display
-            // name lives on auth.users, not fetched on the key path); an agent
-            // has no email — its name is its display name.
+            // name lives on auth.users, not fetched on the key path); agents and
+            // service accounts have no email — their names are display names.
             email: isUser ? principal.name : null,
             name: principal.name,
             // For a user PAT, carry the real verified flag (the same fact a

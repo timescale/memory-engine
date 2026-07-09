@@ -12,22 +12,22 @@ import type { HandlerContext } from "../types";
 export interface UserRpcContext extends HandlerContext {
   /** Core control-plane store. */
   core: CoreStore;
-  /** The authenticated principal's kind: a user ("u") or an agent ("a"). */
-  kind: "u" | "a";
-  /** The authenticated principal id (a user-principal id, or an agent's). */
+  /** The authenticated principal's kind: user, agent, or service account. */
+  kind: "u" | "a" | "s";
+  /** The authenticated principal id (user, agent, or service account). */
   userId: string;
-  /** The caller's email (powers whoami); null for an agent (no email). */
+  /** The caller's email (powers whoami); null for non-users. */
   email: string | null;
   /**
    * Whether the identity provider verified the email. Gates the email-keyed
    * invitee methods (`invite.*`): a caller may only act on invitations addressed
-   * to their own verified address. Always false for an agent (no email).
+   * to their own verified address. Always false for non-users (no email).
    */
   emailVerified: boolean;
   /**
    * The caller's name: a human display name from a session / OAuth token, or
    * the core principal's name on the api-key path — the user's email for a user
-   * PAT, the agent's name for an agent.
+   * PAT, or the principal handle for an agent/service account.
    */
   name: string;
   /** New-model pool — for transactional provisioning (space.create). */
@@ -35,10 +35,10 @@ export interface UserRpcContext extends HandlerContext {
   /** The core control-plane schema name. */
   coreSchema: string;
   /**
-   * True when the caller authenticated with an api key (a user PAT or an agent
-   * key) rather than a session / OAuth token. Gates the credential-management
-   * ops: a key can't mint or revoke keys (preserves revocability), so
-   * apiKey.create/delete reject a key-authenticated caller.
+   * True when the caller authenticated with an api key (a user PAT, agent key,
+   * or service-account key) rather than a session / OAuth token. Gates the
+   * credential-management ops: a key can't mint or revoke keys (preserves
+   * revocability), so apiKey.create/delete reject a key-authenticated caller.
    */
   viaApiKey: boolean;
   /**
@@ -68,21 +68,20 @@ export function assertUserRpcContext(
 }
 
 /**
- * Reject a non-user (agent) caller from an account-management method.
+ * Reject a non-user (agent/service account) caller from an account-management method.
  *
- * The user RPC admits any authenticated principal so agent keys can run the
- * account-scoped *reads* (`whoami`, `space.list`) — but managing the account
- * (agents, api keys, space lifecycle) is user-only: an agent is owned by a user,
- * it doesn't own agents, spaces, or keys, and it is never an admin. The user-RPC
- * gate (`gateAgentAccess` in ./index) calls this for every method outside its
- * allow-list, so the denial is default-on and lives in one place rather than
- * relying on each handler to incidentally reject an agent.
+ * The user RPC admits any authenticated principal so non-user keys can run the
+ * account-scoped *reads* (`whoami`, `space.list`) — but managing the account is
+ * user-only. The user-RPC gate (`gateAgentAccess` in ./index) calls this for
+ * every method outside its allow-list, so the denial is default-on and lives in
+ * one place rather than relying on each handler to incidentally reject a
+ * non-user.
  */
 export function requireUserCaller(ctx: UserRpcContext): void {
   if (ctx.kind !== "u") {
     throw new AppError(
       "FORBIDDEN",
-      "This action is user-only; an agent can't manage the account.",
+      "This action is user-only; non-user principals can't manage the account.",
     );
   }
 }

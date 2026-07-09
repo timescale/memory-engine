@@ -2,9 +2,10 @@
  * User client — session-only, user-scoped operations.
  *
  * Talks to POST /api/v1/user/rpc, authenticated by a session token. Namespaces:
- * agent (a user's global service accounts), apiKey (those agents' global keys),
- * and space (discover/create/manage the user's spaces — used by the CLI to pick
- * the active X-Me-Space).
+ * agent (user-owned agents), serviceAccount (space-scoped integration
+ * identities), apiKey (keys for credential-bearing principals), and space
+ * (discover/create/manage the user's spaces — used by the CLI to pick the active
+ * X-Me-Space).
  */
 
 import { AS_AGENT_HEADER } from "@memory.build/protocol/headers";
@@ -35,6 +36,14 @@ import type {
   InvitePendingResult,
   InviteRedeemParams,
   InviteRedeemResult,
+  ServiceAccountCreateParams,
+  ServiceAccountCreateResult,
+  ServiceAccountDeleteParams,
+  ServiceAccountDeleteResult,
+  ServiceAccountListParams,
+  ServiceAccountListResult,
+  ServiceAccountRenameParams,
+  ServiceAccountRenameResult,
   SpaceCreateParams,
   SpaceCreateResult,
   SpaceDeleteParams,
@@ -88,6 +97,19 @@ export interface AgentNamespace {
   delete(params: AgentDeleteParams): Promise<AgentDeleteResult>;
 }
 
+export interface ServiceAccountNamespace {
+  create(
+    params: ServiceAccountCreateParams,
+  ): Promise<ServiceAccountCreateResult>;
+  list(params: ServiceAccountListParams): Promise<ServiceAccountListResult>;
+  rename(
+    params: ServiceAccountRenameParams,
+  ): Promise<ServiceAccountRenameResult>;
+  delete(
+    params: ServiceAccountDeleteParams,
+  ): Promise<ServiceAccountDeleteResult>;
+}
+
 export interface ApiKeyNamespace {
   create(params: ApiKeyCreateParams): Promise<ApiKeyCreateResult>;
   list(params: ApiKeyListParams): Promise<ApiKeyListResult>;
@@ -118,6 +140,7 @@ export interface UserClient {
   /** The identity behind the session token. */
   whoami(params?: WhoamiParams): Promise<WhoamiResult>;
   agent: AgentNamespace;
+  serviceAccount: ServiceAccountNamespace;
   apiKey: ApiKeyNamespace;
   space: SpaceNamespace;
   invite: InviteeNamespace;
@@ -172,6 +195,12 @@ export function createUserClient(options: UserClientOptions = {}): UserClient {
       spaces: (p) => readRpc("agent.spaces", p),
       rename: (p) => writeRpc("agent.rename", p),
       delete: (p) => writeRpc("agent.delete", p),
+    },
+    serviceAccount: {
+      create: (p) => writeRpc("serviceAccount.create", p),
+      list: (p) => readRpc("serviceAccount.list", p),
+      rename: (p) => writeRpc("serviceAccount.rename", p),
+      delete: (p) => writeRpc("serviceAccount.delete", p),
     },
     apiKey: {
       create: (p) => writeRpc("apiKey.create", p),

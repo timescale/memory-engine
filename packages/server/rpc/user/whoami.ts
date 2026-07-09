@@ -2,8 +2,9 @@
  * whoami handler for the user RPC — the identity behind the credential.
  *
  * Open to any authenticated principal (it manages nothing): a human reports
- * `kind: "u"` with their email; an agent acting with `ME_API_KEY` reports
- * `kind: "a"` with a null email, so the CLI can show whose context it's in.
+ * `kind: "u"` with their email; an agent/service account acting with
+ * `ME_API_KEY` reports `kind: "a"`/`kind: "s"` with a null email, so the CLI can
+ * show whose context it's in.
  */
 import type { WhoamiParams, WhoamiResult } from "@memory.build/protocol/user";
 import { whoamiParams } from "@memory.build/protocol/user";

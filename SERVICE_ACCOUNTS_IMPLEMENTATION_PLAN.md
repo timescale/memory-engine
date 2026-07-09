@@ -146,26 +146,28 @@ Likely SQL areas:
 
 Goal: expose service-account concepts in shared schemas before wiring handlers.
 
-- [ ] Add `kind: 's'` to shared principal-kind schemas/types.
-- [ ] Add service-account response types with at least:
-  - [ ] `id`
-  - [ ] `name`
-  - [ ] `adminId`
-  - [ ] `spaceId` or space slug as appropriate
-  - [ ] `createdAt`
-  - [ ] `updatedAt`
-- [ ] Add request/result schemas for service-account lifecycle methods:
-  - [ ] create
-  - [ ] list
-  - [ ] rename
-  - [ ] delete
-- [ ] Add request/result schemas for service-account admin group management if
-  the existing `group.*` surface is not sufficient.
-- [ ] Add request/result schemas for service-account api-key management if
-  existing api-key methods cannot be parameterized cleanly.
-- [ ] Decide whether `principal.list` includes service accounts by default or
-  requires `kind='s'` filter support. Prefer including by default because it is
-  the space roster.
+- [x] Add `kind: 's'` to shared principal-kind schemas/types.
+- [x] Add service-account response types with at least:
+  - [x] `id`
+  - [x] `name`
+  - [x] `adminId`
+  - [x] `spaceId` or space slug as appropriate
+  - [x] `createdAt`
+  - [x] `updatedAt`
+- [x] Add request/result schemas for service-account lifecycle methods:
+  - [x] create
+  - [x] list
+  - [x] rename
+  - [x] delete
+- [x] Add request/result schemas for service-account admin group management if
+  the existing `group.*` surface is not sufficient. Existing `group.*` contracts
+  are sufficient because callers manage the bound group by `adminId`.
+- [x] Add request/result schemas for service-account api-key management if
+  existing api-key methods cannot be parameterized cleanly. Existing `apiKey.*`
+  contracts are sufficient because they already take explicit `memberId`.
+- [x] Decide whether `principal.list` includes service accounts by default or
+  requires `kind='s'` filter support. It includes service accounts by default,
+  and the optional kind filter now accepts `s`.
 
 Likely packages:
 

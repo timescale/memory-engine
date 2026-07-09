@@ -3,26 +3,30 @@
  *
  * These pure helpers keep the two commands' output in lockstep — the space
  * label (`name (slug)` + an admin marker) and the auth-method descriptor
- * (session vs api key vs agent key) render identically wherever an identity is
- * shown.
+ * (session vs api key vs agent/service-account key) render identically wherever
+ * an identity is shown.
  */
 import type { MemberSpaceResponse } from "@memory.build/protocol/user";
 import type { ResolvedCredentials } from "./credentials.ts";
 
-/** How the caller authenticated: an OAuth/cookie session, a user PAT, or an agent key. */
-export type AuthMethod = "session" | "pat" | "agent";
+/** How the caller authenticated: session, user PAT, agent key, or service-account key. */
+export type AuthMethod = "session" | "pat" | "agent" | "service-account";
 
 /**
  * Derive the auth method from the resolved credentials and the identity kind.
  * The bearer precedence mirrors {@link buildUserClient}: an api key (ME_API_KEY)
- * wins when set — a user PAT (`kind: "u"`) or an agent key (`kind: "a"`) — else
- * the human's OAuth session.
+ * wins when set — a user PAT (`kind: "u"`), agent key (`kind: "a"`), or service
+ * account key (`kind: "s"`) — else the human's OAuth session.
  */
 export function authMethodOf(
   creds: ResolvedCredentials,
-  kind: "u" | "a",
+  kind: "u" | "a" | "s",
 ): AuthMethod {
-  if (creds.apiKey) return kind === "a" ? "agent" : "pat";
+  if (creds.apiKey) {
+    if (kind === "a") return "agent";
+    if (kind === "s") return "service-account";
+    return "pat";
+  }
   return "session";
 }
 
@@ -31,6 +35,8 @@ export function authLabel(method: AuthMethod): string {
   switch (method) {
     case "agent":
       return "agent key";
+    case "service-account":
+      return "service-account key";
     case "pat":
       return "api key (PAT)";
     default:
