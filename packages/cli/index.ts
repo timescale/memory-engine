@@ -39,6 +39,7 @@ import { createVersionCommand } from "./commands/version.ts";
 import { createWhoamiCommand } from "./commands/whoami.ts";
 import {
   isAsAgentRequested,
+  resolveCredentials,
   setAsAgentOverride,
   setServerFlagOverride,
 } from "./credentials.ts";
@@ -48,6 +49,7 @@ import {
   setConfigDirOverride,
   setProjectDirOverride,
 } from "./project-config.ts";
+import { buildUserClient } from "./util.ts";
 
 const SHELLS = ["zsh", "bash", "fish", "powershell"] as const;
 type Shell = (typeof SHELLS)[number];
@@ -107,13 +109,24 @@ program.hook("preAction", async (thisCommand, actionCommand) => {
     typeof opts.server === "string" ? opts.server : undefined,
   );
 
-  const verdict = await checkHarnessFailsafe({
-    commandPath: commandPathOf(actionCommand, thisCommand),
-    env: process.env,
-    hasExplicitAsAgent: isAsAgentRequested(),
-    hasAgentApiKey: Boolean(process.env.ME_API_KEY),
-    isStderrTTY: Boolean(process.stderr.isTTY),
-  });
+  const verdict = await checkHarnessFailsafe(
+    {
+      commandPath: commandPathOf(actionCommand, thisCommand),
+      env: process.env,
+      hasExplicitAsAgent: isAsAgentRequested(),
+      hasApiKeyClaim: Boolean(process.env.ME_API_KEY),
+      isStderrTTY: Boolean(process.stderr.isTTY),
+    },
+    async () => {
+      const apiKey = process.env.ME_API_KEY;
+      if (!apiKey) return false;
+      const identity = await buildUserClient({
+        ...resolveCredentials(),
+        apiKey,
+      }).whoami();
+      return identity.kind === "a";
+    },
+  );
   if (verdict.action === "notice") {
     console.error(verdict.message);
   } else if (verdict.action === "error") {

@@ -5,14 +5,18 @@
  * is covered separately in harness-detect.test.ts.
  */
 import { expect, test } from "bun:test";
-import { decideFailsafe, type FailsafeInputs } from "./failsafe.ts";
+import {
+  checkHarnessFailsafe,
+  decideFailsafe,
+  type FailsafeInputs,
+} from "./failsafe.ts";
 
 function inputs(overrides: Partial<FailsafeInputs> = {}): FailsafeInputs {
   return {
     commandPath: "memory search",
     env: {},
     hasExplicitAsAgent: false,
-    hasAgentApiKey: false,
+    hasApiKeyClaim: false,
     isStderrTTY: false,
     ...overrides,
   };
@@ -42,13 +46,23 @@ test("explicit --as-agent → ok even with a detected harness", () => {
   ).toEqual({ action: "ok" });
 });
 
-test("agent api key credential → ok even with a detected harness", () => {
+test("confirmed agent api key → ok even with a detected harness", () => {
   expect(
-    decideFailsafe(inputs({ hasAgentApiKey: true }), {
-      isAgent: true,
-      agent: "codex",
-    }),
+    decideFailsafe(
+      inputs({ hasApiKeyClaim: true }),
+      { isAgent: true, agent: "codex" },
+      /* confirmedAgentApiKey */ true,
+    ),
   ).toEqual({ action: "ok" });
+});
+
+test("an api-key CLAIM alone (unconfirmed — could be a user PAT) does NOT exempt", () => {
+  const verdict = decideFailsafe(
+    inputs({ hasApiKeyClaim: true }),
+    { isAgent: true, agent: "codex" },
+    /* confirmedAgentApiKey */ false,
+  );
+  expect(verdict.action).toBe("error");
 });
 
 test("live injected contract → ok even with a detected harness", () => {
@@ -140,4 +154,100 @@ test("TTY exemption applies even for an unintegrated harness", () => {
     agent: "cursor",
   });
   expect(verdict.action).toBe("notice");
+});
+
+// =============================================================================
+// checkHarnessFailsafe — the async wrapper, exercising the lazy
+// resolveIsAgentApiKey wiring against the REAL detectHarness(). Env vars are
+// saved/restored around each test since this process's own ambient
+// environment (e.g. this very session, if run under Claude Code) may carry
+// real harness markers.
+// =============================================================================
+
+const HARNESS_MARKER_ENV_VARS = [
+  "AI_AGENT",
+  "CLAUDECODE",
+  "CLAUDE_CODE",
+  "CODEX_THREAD_ID",
+  "CODEX_SANDBOX",
+  "CODEX_CI",
+  "GEMINI_CLI",
+  "OPENCODE_CLIENT",
+  "OPENCODE",
+  "AGENT",
+];
+
+async function withNoHarnessMarkers<T>(fn: () => Promise<T>): Promise<T> {
+  const saved: Record<string, string | undefined> = {};
+  for (const key of HARNESS_MARKER_ENV_VARS) {
+    saved[key] = process.env[key];
+    delete process.env[key];
+  }
+  try {
+    return await fn();
+  } finally {
+    for (const key of HARNESS_MARKER_ENV_VARS) {
+      const v = saved[key];
+      if (v === undefined) delete process.env[key];
+      else process.env[key] = v;
+    }
+  }
+}
+
+test("checkHarnessFailsafe: no harness detected → ok, resolver never called", async () => {
+  await withNoHarnessMarkers(async () => {
+    let called = false;
+    const verdict = await checkHarnessFailsafe(inputs(), async () => {
+      called = true;
+      return true;
+    });
+    expect(verdict).toEqual({ action: "ok" });
+    expect(called).toBe(false);
+  });
+});
+
+test("checkHarnessFailsafe: detected harness + unconfirmed api-key claim (no resolver) still errors", async () => {
+  await withNoHarnessMarkers(async () => {
+    process.env.CODEX_THREAD_ID = "t";
+    const verdict = await checkHarnessFailsafe(
+      inputs({ hasApiKeyClaim: true }),
+    );
+    expect(verdict.action).toBe("error");
+  });
+});
+
+test("checkHarnessFailsafe: resolver confirming an agent key exempts a detected harness", async () => {
+  await withNoHarnessMarkers(async () => {
+    process.env.CODEX_THREAD_ID = "t";
+    const verdict = await checkHarnessFailsafe(
+      inputs({ hasApiKeyClaim: true }),
+      async () => true,
+    );
+    expect(verdict).toEqual({ action: "ok" });
+  });
+});
+
+test("checkHarnessFailsafe: resolver is never called when there's no api-key claim", async () => {
+  await withNoHarnessMarkers(async () => {
+    process.env.CODEX_THREAD_ID = "t";
+    let called = false;
+    await checkHarnessFailsafe(inputs({ hasApiKeyClaim: false }), async () => {
+      called = true;
+      return true;
+    });
+    expect(called).toBe(false);
+  });
+});
+
+test("checkHarnessFailsafe: a resolver error is swallowed → fail closed, not exempted", async () => {
+  await withNoHarnessMarkers(async () => {
+    process.env.CODEX_THREAD_ID = "t";
+    const verdict = await checkHarnessFailsafe(
+      inputs({ hasApiKeyClaim: true }),
+      async () => {
+        throw new Error("network down");
+      },
+    );
+    expect(verdict.action).toBe("error");
+  });
 });

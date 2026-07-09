@@ -89,34 +89,38 @@ function createMcpRunAction() {
     }
 
     // Agent-by-config: MCP is a harness surface by construction, so it
-    // activates unconditionally — as if `--as-agent .me` were passed — unless
-    // the resolved credential is ALREADY an agent api key (the sandboxed
-    // ME_API_KEY mode already IS the agent; X-Me-As-Agent would be ignored
-    // server-side anyway, so there is nothing to resolve or validate). A
-    // failure to resolve (no project/global agent in scope, or an explicit
-    // agent name) is fatal here — never a silent fallback to the user.
+    // resolves and sends X-Me-As-Agent — unless the bearer already IS an
+    // agent (the sandboxed ME_API_KEY mode; X-Me-As-Agent would be ignored
+    // server-side anyway, and forcing ambient resolution there would wrongly
+    // hard-fail a legitimate deployment with no agent: configured, since the
+    // key's own identity already supplies one). A session is always a user,
+    // but an api key can be either a user PAT or an agent key — both are the
+    // identical me.<lookupId>.<secret> format, so the only way to tell them
+    // apart is to ask the server. A failure to resolve the agent (no
+    // project/global agent in scope) is fatal — never a silent fallback to
+    // the user. An unresolvable/unauthorized agent NAME is deliberately not
+    // validated here — it surfaces as an ordinary 403 on the first tool
+    // call, which the agent can see and act on (a startup failure would not
+    // be visible to it at all).
     let asAgent = creds.asAgent;
-    if (!apiKey) {
+    let isAgentKey = false;
+    if (apiKey) {
+      try {
+        isAgentKey =
+          (await buildUserClient({ ...creds, apiKey }).whoami()).kind === "a";
+      } catch (error) {
+        console.error(
+          `Error: could not authenticate: ${error instanceof Error ? error.message : String(error)}`,
+        );
+        process.exit(1);
+      }
+    }
+    if (!isAgentKey) {
       try {
         asAgent = resolveHarnessAgent();
       } catch (error) {
         console.error(
           `Error: ${error instanceof Error ? error.message : String(error)}`,
-        );
-        process.exit(1);
-      }
-    }
-
-    // Eager identity round trip: validate the resolved agent NOW (one
-    // whoami call) so the harness sees a dead MCP server at startup instead
-    // of every tool call 403ing.
-    if (asAgent) {
-      try {
-        await buildUserClient({ ...creds, apiKey, asAgent }).whoami();
-      } catch (error) {
-        console.error(
-          `Error: could not act as agent '${asAgent}': ${error instanceof Error ? error.message : String(error)}. ` +
-            `Run 'me agent create ${asAgent}' if it doesn't exist yet, and make sure it's admitted to this space ('me agent add ${asAgent}').`,
         );
         process.exit(1);
       }
