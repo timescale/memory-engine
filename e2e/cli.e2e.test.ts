@@ -23,6 +23,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import {
+  chmod,
   mkdir,
   mkdtemp,
   readFile,
@@ -216,6 +217,22 @@ describe.skipIf(
     ]);
     const code = await proc.exited;
     return { stdout, stderr, code };
+  }
+
+  // A scratch bin dir with trivial executable stubs for the named binaries —
+  // lets a test simulate "harness X is installed" (Bun.which(x) !== null,
+  // what `me project init`'s CLAUDE.md/AGENTS.md steps gate on) without
+  // depending on what's actually on PATH wherever this suite runs: a dev
+  // machine may have the real `claude` CLI; CI has none of these. Prepend the
+  // returned dir to PATH via `me(...)`'s extraEnv.
+  async function fakeHarnessBins(names: string[]): Promise<string> {
+    const dir = await mkdtemp(join(tmpdir(), "me-e2e-fakebin-"));
+    for (const name of names) {
+      const file = join(dir, name);
+      await writeFile(file, "#!/bin/sh\nexit 0\n");
+      await chmod(file, 0o755);
+    }
+    return dir;
   }
 
   // Like `me`, but pipes `input` to the process's stdin (for `me claude hook`,
@@ -1170,8 +1187,14 @@ describe.skipIf(
     // Pre-init: nothing captured, no CLAUDE.md.
     expect(await countBySession(sessionId)).toBe(0);
 
+    // The CLAUDE.md pointer step is gated on Claude Code being installed
+    // (Bun.which("claude")) — fake the binary so this test is deterministic
+    // regardless of whether the real CLI happens to be on PATH here.
+    const fakeBinDir = await fakeHarnessBins(["claude"]);
+    const initEnv = { PATH: `${fakeBinDir}:${process.env.PATH}` };
+
     // Run `init` FROM the project dir so its cwd → slug → CLAUDE.md location.
-    const init = await me(["project", "init"], undefined, projectDir);
+    const init = await me(["project", "init"], initEnv, projectDir);
     expect(init.code, init.stderr).toBe(0);
 
     // Step 1: this project's session was backfilled; the foreign one wasn't.
@@ -1194,11 +1217,12 @@ describe.skipIf(
     expect(claudeMd).toContain("~/projects/initcwd/git_history");
 
     // Re-running is idempotent: still exactly one managed block.
-    const init2 = await me(["project", "init"], undefined, projectDir);
+    const init2 = await me(["project", "init"], initEnv, projectDir);
     expect(init2.code, init2.stderr).toBe(0);
     const claudeMd2 = await readFile(join(projectDir, "CLAUDE.md"), "utf8");
     expect(claudeMd2.split("memory-engine:start").length - 1).toBe(1);
 
+    await rm(fakeBinDir, { recursive: true, force: true });
     for (const cwd of [projectCwd, "/work/other-proj"]) {
       await rm(join(tmpHome, ".claude", "projects", encodeProjectDir(cwd)), {
         recursive: true,
@@ -1208,7 +1232,7 @@ describe.skipIf(
     await rm(projectRoot, { recursive: true, force: true });
   });
 
-  test("8c. `me claude init` honors --skip-transcript-import / --skip-claude-md", async () => {
+  test("8c. `me claude init` honors --skip-transcript-import-claude / --skip-claude-md", async () => {
     // Non-interactive (piped) init runs every step except those turned off by
     // a --skip-<step> flag. Verify each flag suppresses exactly its step.
     // Each case gets its own project dir + a transcript recorded IN that dir
@@ -1252,16 +1276,23 @@ describe.skipIf(
       );
     };
 
-    // --skip-transcript-import: CLAUDE.md is written, but this project's
-    // session is NOT imported (it would have been without the flag).
+    // The CLAUDE.md pointer step is gated on Claude Code being installed —
+    // fake the binary so both cases below are deterministic regardless of
+    // what's actually on PATH wherever this suite runs.
+    const fakeBinDir = await fakeHarnessBins(["claude"]);
+    const initEnv = { PATH: `${fakeBinDir}:${process.env.PATH}` };
+
+    // --skip-transcript-import-claude: CLAUDE.md is written, but this
+    // project's session is NOT imported (it would have been without the
+    // flag).
     const a = await mkProject("skipimport");
     const sessionA = `skipa-${rand()}`;
     await writeTranscript(sessionA, await realpath(a.dir));
     // Exercised via the deprecated `me claude init` alias (same command,
     // plus a rename warning) so the alias path stays covered.
     const r1 = await me(
-      ["claude", "init", "--skip-transcript-import"],
-      undefined,
+      ["claude", "init", "--skip-transcript-import-claude"],
+      initEnv,
       a.dir,
     );
     expect(r1.stderr + r1.stdout).toContain("me project init");
@@ -1275,13 +1306,14 @@ describe.skipIf(
     await writeTranscript(sessionB, await realpath(b.dir));
     const r2 = await me(
       ["project", "init", "--skip-claude-md"],
-      undefined,
+      initEnv,
       b.dir,
     );
     expect(r2.code, r2.stderr).toBe(0);
     expect(await countBySession(sessionB)).toBe(4);
     expect(existsSync(join(b.dir, "CLAUDE.md"))).toBe(false);
 
+    await rm(fakeBinDir, { recursive: true, force: true });
     for (const dir of transcriptDirs) {
       await rm(dir, { recursive: true, force: true });
     }
@@ -1490,10 +1522,16 @@ describe.skipIf(
       "2026-05-01T10:00:00Z",
     );
 
+    // The CLAUDE.md pointer step is gated on Claude Code being installed —
+    // fake the binary so this test is deterministic regardless of what's
+    // actually on PATH wherever this suite runs.
+    const fakeBinDir = await fakeHarnessBins(["claude"]);
+    const initEnv = { PATH: `${fakeBinDir}:${process.env.PATH}` };
+
     // --skip-git-import: no commit memories.
     const skipped = await me(
       ["project", "init", "--skip-git-import"],
-      undefined,
+      initEnv,
       repo,
     );
     expect(skipped.code, skipped.stderr).toBe(0);
@@ -1501,12 +1539,86 @@ describe.skipIf(
 
     // Plain init (non-interactive baseline) imports the repo's history and
     // the CLAUDE.md pointer names the git_history node.
-    const init = await me(["project", "init"], undefined, repo);
+    const init = await me(["project", "init"], initEnv, repo);
     expect(init.code, init.stderr).toBe(0);
     expect(await countUnder(tree)).toBe(1);
     const claudeMd = await readFile(join(repo, "CLAUDE.md"), "utf8");
     expect(claudeMd).toContain(`~/projects/${name}/git_history\``);
 
+    await rm(fakeBinDir, { recursive: true, force: true });
+    await rm(root, { recursive: true, force: true });
+  });
+
+  test("8g. `me project init`'s transcript-import step is per-harness: only the tool with sessions runs", async () => {
+    // A project with a Codex session and no Claude/OpenCode session at all —
+    // only the Codex transcript-import step should find anything to
+    // backfill; skip the pointer steps entirely so this test doesn't depend
+    // on which harness binaries happen to be on PATH here (see 8b/8c/8e).
+    const root = await mkdtemp(join(tmpdir(), "me-e2e-perharness-"));
+    const name = `perharness${rand()}`;
+    const projectDir = join(root, name);
+    await mkdir(projectDir, { recursive: true });
+    const projectCwd = await realpath(projectDir);
+
+    const codexSessionId = "01234567-89ab-71de-9abc-def012345678";
+    const codexDir = join(tmpHome, ".codex", "sessions", "2026", "05", "01");
+    await mkdir(codexDir, { recursive: true });
+    await writeFile(
+      join(codexDir, `rollout-2026-05-01T10-00-00-${codexSessionId}.jsonl`),
+      [
+        JSON.stringify({
+          timestamp: "2026-05-01T10:00:00.000Z",
+          type: "session_meta",
+          payload: {
+            id: codexSessionId,
+            timestamp: "2026-05-01T10:00:00.000Z",
+            cwd: projectCwd,
+            originator: "codex_cli_rs",
+            cli_version: "0.107.0",
+          },
+        }),
+        JSON.stringify({
+          timestamp: "2026-05-01T10:00:01.000Z",
+          type: "response_item",
+          payload: {
+            type: "message",
+            id: "m-1",
+            role: "user",
+            content: [{ type: "input_text", text: "codex question" }],
+          },
+        }),
+        JSON.stringify({
+          timestamp: "2026-05-01T10:00:02.000Z",
+          type: "response_item",
+          payload: {
+            type: "message",
+            id: "m-2",
+            role: "assistant",
+            content: [{ type: "output_text", text: "codex answer" }],
+          },
+        }),
+      ].join("\n"),
+    );
+
+    const init = await me(
+      ["project", "init", "--skip-claude-md", "--skip-agents-md"],
+      undefined,
+      projectDir,
+    );
+    expect(init.code, init.stderr).toBe(0);
+    expect(await countBySession(codexSessionId)).toBe(2);
+
+    const [row] = await sql.unsafe(
+      `select distinct meta->>'source_tool' as tool from metest_${spaceSlug}.memory
+         where meta->>'source_session_id' = $1`,
+      [codexSessionId],
+    );
+    expect(row?.tool).toBe("codex");
+
+    await rm(join(tmpHome, ".codex", "sessions"), {
+      recursive: true,
+      force: true,
+    });
     await rm(root, { recursive: true, force: true });
   });
 
