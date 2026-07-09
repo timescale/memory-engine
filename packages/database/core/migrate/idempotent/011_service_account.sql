@@ -44,13 +44,31 @@ declare
 begin
   _admin_name := left(_name, 94) || '-admin';
 
-  select {{schema}}.create_group
-  ( _space_id
-  , _admin_name
-  , false
-  , _admin_group_id
-  , false
-  ) into _admin_group_id;
+  begin
+    select {{schema}}.create_group
+    ( _space_id
+    , _admin_name
+    , false
+    , _admin_group_id
+    , false
+    ) into _admin_group_id;
+  exception when unique_violation then
+    if exists
+    (
+      select 1
+      from {{schema}}.principal p
+      where p.space_id = _space_id
+      and p.name = _admin_name::citext
+      and p.kind in ('g', 's')
+    ) then
+      raise exception
+        'cannot create service account %: derived admin group name % already exists in this space', _name, _admin_name
+        using errcode = '23505'
+        , hint = 'choose a service-account name with a different first 94 characters, or rename the conflicting group/service account';
+    end if;
+
+    raise;
+  end;
 
   insert into {{schema}}.principal as p (id, kind, name, space_id, admin_id)
   values (coalesce(_id, uuidv7()), 's', _name, _space_id, _admin_group_id)
