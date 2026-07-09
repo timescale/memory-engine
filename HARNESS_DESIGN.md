@@ -744,10 +744,12 @@ own), then **Claude**, then **opencode**.
    space; write global `agent: coder`; announce:
 
    ```
-   Coding harnesses will act as your agent "coder" — their work is
-   attributable, and you can restrict its access at any time. To use a
-   different agent, set `agent:` in ~/.config/me/config.yaml or run
-   `me project init` for a per-project choice.
+   Coding harnesses will act as your Memory Engine agent "coder" —
+   a separate identity from you, with write access to everything you can
+   reach by default. Its work is attributable (not filed under your name),
+   and you can restrict its access at any time. To use a different agent,
+   set `agent:` in ~/.config/me/config.yaml or run `me project init` for a
+   per-project choice.
    ```
 
    Rationale for a default instead of a wizard question: the choice is one
