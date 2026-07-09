@@ -17,13 +17,13 @@
  * to reveal the vars its own BeforeTool hook should have rewritten in.
  */
 import { expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
-  cleanEnv,
+  envForCwd,
   extractContractVars,
   markerPrompt,
+  mkScratchDir,
   REVEAL_COMMAND,
   smokeTestsEnabled,
   writeMeWrapper,
@@ -34,7 +34,7 @@ const GEMINI_BIN = Bun.which("gemini");
 test.skipIf(!smokeTestsEnabled() || !GEMINI_BIN)(
   "real Gemini CLI: BeforeTool hook injects working env vars into a shell call",
   async () => {
-    const projectDir = mkdtempSync(join(tmpdir(), "me-gemini-smoke-"));
+    const projectDir = mkScratchDir("me-gemini-smoke-");
     const meBinDir = writeMeWrapper();
     try {
       const geminiDir = join(projectDir, ".gemini");
@@ -67,7 +67,9 @@ test.skipIf(!smokeTestsEnabled() || !GEMINI_BIN)(
         ],
         {
           cwd: projectDir,
-          env: { ...cleanEnv(), PATH: `${meBinDir}:${process.env.PATH}` },
+          env: envForCwd(projectDir, {
+            PATH: `${meBinDir}:${process.env.PATH}`,
+          }),
           stdout: "pipe",
           stderr: "pipe",
         },
