@@ -1,8 +1,9 @@
 /**
  * Api key method schemas (apiKey.*).
  *
- * A key is minted for a member the caller owns — either an agent, or the
- * caller's OWN user principal (a personal access token for headless/CLI use).
+ * A key is minted for a credential-bearing member the caller may administer:
+ * an agent, a service account, or the caller's OWN user principal (a personal
+ * access token for headless/CLI use).
  * Keys are global per-principal (not space-bound). The plaintext key is returned
  * exactly once, by apiKey.create. There is no soft-revoke state: apiKey.delete
  * is the only removal (revoke ≡ delete). Minting/deleting keys is session-only —
@@ -21,8 +22,9 @@ export const apiKeyInfoResponse = z.object({
 });
 export type ApiKeyInfoResponse = z.infer<typeof apiKeyInfoResponse>;
 
-// apiKey.create — mint a key for a member the caller owns: their own user
-// principal (a PAT) or an agent they own. `memberId` is always explicit.
+// apiKey.create — mint a key for a member the caller may administer: their own
+// user principal (a PAT), an owned agent, or a service account. `memberId` is
+// always explicit.
 export const apiKeyCreateParams = z.object({
   memberId: uuidv7Schema,
   name: nameSchema,

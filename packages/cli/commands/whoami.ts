@@ -8,6 +8,17 @@ import { authLabel, authMethodOf, formatSpaceLabel } from "../identity.ts";
 import { getOutputFormat, output } from "../output.ts";
 import { buildUserClient, handleError, requireAuth } from "../util.ts";
 
+function kindLabel(kind: "u" | "a" | "s"): string {
+  switch (kind) {
+    case "a":
+      return "agent";
+    case "s":
+      return "service account";
+    default:
+      return "user";
+  }
+}
+
 export function createWhoamiCommand(): Command {
   return new Command("whoami")
     .description("show current identity, server, and active space")
@@ -50,10 +61,8 @@ export function createWhoamiCommand(): Command {
           fmt,
           () => {
             console.log(`  Name:   ${identity.name}`);
-            console.log(
-              `  Kind:   ${identity.kind === "a" ? "agent" : "user"}`,
-            );
-            // Agents have no email (null); humans always have one.
+            console.log(`  Kind:   ${kindLabel(identity.kind)}`);
+            // Non-users have no email (null); humans always have one.
             if (identity.email !== null)
               console.log(`  Email:  ${identity.email}`);
             console.log(`  ID:     ${identity.id}`);

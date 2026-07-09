@@ -39,6 +39,16 @@ import {
   inviteRedeemResult,
 } from "./invitation.ts";
 import {
+  serviceAccountCreateParams,
+  serviceAccountCreateResult,
+  serviceAccountDeleteParams,
+  serviceAccountDeleteResult,
+  serviceAccountListParams,
+  serviceAccountListResult,
+  serviceAccountRenameParams,
+  serviceAccountRenameResult,
+} from "./service-account.ts";
+import {
   spaceCreateParams,
   spaceCreateResult,
   spaceDeleteParams,
@@ -55,6 +65,7 @@ import { whoamiParams, whoamiResult } from "./whoami.ts";
 export * from "./agent.ts";
 export * from "./api-key.ts";
 export * from "./invitation.ts";
+export * from "./service-account.ts";
 export * from "./space.ts";
 export * from "./whoami.ts";
 
@@ -77,6 +88,23 @@ export const userMethods = {
   "agent.spaces": method(agentSpacesParams, agentSpacesResult),
   "agent.rename": method(agentRenameParams, agentRenameResult),
   "agent.delete": method(agentDeleteParams, agentDeleteResult),
+
+  "serviceAccount.create": method(
+    serviceAccountCreateParams,
+    serviceAccountCreateResult,
+  ),
+  "serviceAccount.list": method(
+    serviceAccountListParams,
+    serviceAccountListResult,
+  ),
+  "serviceAccount.rename": method(
+    serviceAccountRenameParams,
+    serviceAccountRenameResult,
+  ),
+  "serviceAccount.delete": method(
+    serviceAccountDeleteParams,
+    serviceAccountDeleteResult,
+  ),
 
   "apiKey.create": method(apiKeyCreateParams, apiKeyCreateResult),
   "apiKey.list": method(apiKeyListParams, apiKeyListResult),

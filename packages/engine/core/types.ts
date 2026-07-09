@@ -6,7 +6,7 @@
  * core tables directly.
  */
 
-export type PrincipalKind = "u" | "g" | "a";
+export type PrincipalKind = "u" | "g" | "a" | "s";
 
 /** Access levels stored in core.tree_access: 1 = read, 2 = write, 3 = owner. */
 export type AccessLevel = 1 | 2 | 3;
@@ -72,7 +72,7 @@ export interface CreatedApiKey {
 }
 
 export interface ValidatedApiKey {
-  /** The principal (user or agent) the key belongs to. */
+  /** The principal (user, agent, or service account) the key belongs to. */
   memberId: string;
   /** The api_key row id. */
   apiKeyId: string;
@@ -82,12 +82,11 @@ export interface ValidatedApiKey {
 
 /**
  * A principal on a space's roster — i.e. with a direct principal_space row.
- * Users, agents, and groups (a group is rostered into its space on creation).
- * This is about the principal's own roster entry, not membership conferral: a
- * user/agent who is only in a group (no principal_space row of their own) is
- * still not a space member. `admin` is the effective space-admin status (a
- * direct admin row OR a direct member who belongs to an admin group, never an
- * agent; false for a group rostered admin=false).
+ * Users, agents, groups (a group is rostered into its space on creation), and
+ * service accounts. This is about the principal's own roster entry, not
+ * membership conferral: a member who is only in a group (no principal_space row
+ * of their own) is still not a space member. `admin` is the effective
+ * space-admin status.
  */
 export interface SpacePrincipal {
   id: string;
@@ -112,7 +111,7 @@ export interface Group {
   updatedAt: Date | null;
 }
 
-/** A member (user / agent) of a group, with the group admin flag. */
+/** A member (user / agent / service account) of a group, with the group admin flag. */
 export interface GroupMember {
   memberId: string;
   kind: PrincipalKind;

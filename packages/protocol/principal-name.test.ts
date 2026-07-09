@@ -1,7 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import { principalHandleNameSchema } from "./fields.ts";
 import { groupCreateParams, groupRenameParams } from "./space/group.ts";
+import { principalKindSchema } from "./space/principal.ts";
 import { agentCreateParams, agentRenameParams } from "./user/agent.ts";
+import {
+  serviceAccountCreateParams,
+  serviceAccountRenameParams,
+} from "./user/service-account.ts";
 
 const uuidv7 = "01900000-0000-7000-8000-000000000000";
 
@@ -28,7 +33,16 @@ describe("principalHandleNameSchema", () => {
   });
 });
 
-describe("agent/group params", () => {
+describe("principalKindSchema", () => {
+  test("accepts user, group, agent, and service account kinds", () => {
+    for (const kind of ["u", "g", "a", "s"]) {
+      expect(principalKindSchema.safeParse(kind).success).toBe(true);
+    }
+    expect(principalKindSchema.safeParse("x").success).toBe(false);
+  });
+});
+
+describe("agent/group/service-account params", () => {
   test("agent create/rename validate handle names", () => {
     expect(agentCreateParams.safeParse({ name: "bot.v2" }).success).toBe(true);
     expect(
@@ -54,6 +68,36 @@ describe("agent/group params", () => {
     );
     expect(
       groupRenameParams.safeParse({ id: uuidv7, name: "john+team" }).success,
+    ).toBe(false);
+  });
+
+  test("service account create/rename validate handle names", () => {
+    expect(
+      serviceAccountCreateParams.safeParse({
+        spaceId: uuidv7,
+        name: "docs-importer",
+      }).success,
+    ).toBe(true);
+    expect(
+      serviceAccountCreateParams.safeParse({
+        spaceId: uuidv7,
+        name: "eon",
+        adminMembers: [{ memberId: uuidv7, admin: true }],
+      }).success,
+    ).toBe(true);
+    expect(
+      serviceAccountRenameParams.safeParse({ id: uuidv7, name: "ci_bot" })
+        .success,
+    ).toBe(true);
+    expect(
+      serviceAccountCreateParams.safeParse({
+        spaceId: uuidv7,
+        name: "svc@example.com",
+      }).success,
+    ).toBe(false);
+    expect(
+      serviceAccountRenameParams.safeParse({ id: uuidv7, name: "bad/name" })
+        .success,
     ).toBe(false);
   });
 });

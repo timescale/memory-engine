@@ -8,7 +8,8 @@
  *   Memory CRUD/search plus principal/group/grant/invite management.
  *
  * - {@link createUserClient} — session-only, user-scoped.
- *   Talks to /api/v1/user/rpc: whoami, agent lifecycle, api keys, space discovery.
+ *   Talks to /api/v1/user/rpc: whoami, agent/service-account lifecycle, api keys,
+ *   space discovery.
  *
  * CLI login is handled out-of-band by the `me` binary (OAuth auth-code + PKCE
  * over a loopback redirect), not by this library.
@@ -67,6 +68,7 @@ export {
   type ApiKeyNamespace,
   createUserClient,
   type InviteeNamespace,
+  type ServiceAccountNamespace,
   type SpaceNamespace,
   type UserClient,
   type UserClientOptions,
