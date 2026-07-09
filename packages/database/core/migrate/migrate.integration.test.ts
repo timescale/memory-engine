@@ -60,7 +60,6 @@ const EXPECTED_MIGRATIONS = [
   "013_invite_groups",
   "014_space_access_defaults",
   "015_service_accounts",
-  "016_service_account_admin_groups",
 ];
 
 const EXPECTED_FUNCTIONS = [
