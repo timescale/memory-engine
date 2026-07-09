@@ -57,6 +57,37 @@ $func$ language sql stable security invoker
 ;
 
 -------------------------------------------------------------------------------
+-- service_account_tree_access
+-------------------------------------------------------------------------------
+create or replace function {{schema}}.service_account_tree_access
+( _service_account_id uuid
+, _space_id uuid
+)
+returns table
+( tree_path ltree
+, access int
+)
+as $func$
+  -- Service accounts are top-level space-scoped members: their effective access
+  -- is their direct grants plus grants inherited from ordinary groups they belong
+  -- to. Unlike agents, there is no owner clamp.
+  select
+    ta.tree_path
+  , ta.access
+  from {{schema}}.principal s
+  inner join {{schema}}.principal_space ps on (s.id = ps.principal_id and ps.space_id = _space_id)
+  inner join {{schema}}.tree_access ta on (s.id = ta.principal_id and ta.space_id = _space_id)
+  where s.kind = 's'
+  and s.id = _service_account_id
+  union
+  select
+    x.tree_path
+  , x.access
+  from {{schema}}.member_tree_access(_service_account_id, _space_id) x
+$func$ language sql stable security invoker
+;
+
+-------------------------------------------------------------------------------
 -- agent_tree_access
 -------------------------------------------------------------------------------
 create or replace function {{schema}}.agent_tree_access
@@ -134,9 +165,9 @@ $func$ language sql stable security invoker
 -- build_tree_access
 --
 -- The bridge from core's access model to the space data-plane functions:
--- resolves a member's (user or agent) effective grants in a space and returns
--- them as the jsonb array shape that space.search_memory / *_memory consume via
--- jsonb_to_recordset(...) x(tree_path ltree, access int).
+  -- resolves a member's (user, agent, or service account) effective grants in a
+  -- space and returns them as the jsonb array shape that space.search_memory /
+  -- *_memory consume via jsonb_to_recordset(...) x(tree_path ltree, access int).
 -------------------------------------------------------------------------------
 create or replace function {{schema}}.build_tree_access
 ( _member_id uuid
@@ -158,6 +189,10 @@ as $func$
       select ata.tree_path, ata.access
       from {{schema}}.agent_tree_access(p.agent_id, _space_id) ata
       where p.kind = 'a'
+      union all
+      select sta.tree_path, sta.access
+      from {{schema}}.service_account_tree_access(p.id, _space_id) sta
+      where p.kind = 's'
     ) ta
     where p.member_id = _member_id
   )

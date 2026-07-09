@@ -178,16 +178,17 @@ Likely packages:
 
 Goal: make service accounts work with existing data-plane authorization.
 
-- [ ] Add `kind='s'` branch in `build_tree_access`.
-- [ ] Service-account effective access should be user-like:
-  - [ ] direct `tree_access` grants;
-  - [ ] grants inherited from ordinary groups where the SA is a member.
-- [ ] No owner clamp.
-- [ ] No home-path special casing.
-- [ ] Confirm `~` behavior for service accounts is either rejected or undefined
-  intentionally. Prefer rejecting `~` for service accounts unless there is a
-  concrete home-path design.
-- [ ] Verify data-plane SQL functions require no changes because they consume
+- [x] Add `kind='s'` branch in `build_tree_access`.
+- [x] Service-account effective access should be user-like:
+  - [x] direct `tree_access` grants;
+  - [x] grants inherited from ordinary groups where the SA is a member.
+- [x] No owner clamp.
+- [x] No home-path special casing.
+- [x] Confirm `~` behavior for service accounts is either rejected or undefined
+  intentionally. Current behavior is intentionally undefined until the server
+  auth context carries principal kind; service accounts have no home grant, so
+  effective access does not include a home path.
+- [x] Verify data-plane SQL functions require no changes because they consume
   `_tree_access` jsonb.
 
 Likely files:
