@@ -142,7 +142,7 @@ export interface CoreStore {
     memberId: string,
   ): Promise<GroupMembership[]>;
 
-  /** Create an inert service account plus its bound users-only admin group. */
+  /** Create an inert service account plus its bound admin group. */
   createServiceAccount(
     spaceId: string,
     name: string,

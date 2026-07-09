@@ -247,6 +247,16 @@ test("service-account admins can manage service-account api keys", async () => {
   );
   expect(listed.apiKeys.map((k) => k.id)).toContain(key.id);
 
+  expect(
+    (
+      await call<{ deleted: boolean }>(
+        "apiKey.delete",
+        { id: key.id },
+        managerId,
+      )
+    ).deleted,
+  ).toBe(true);
+
   await expectAppError(
     call(
       "apiKey.create",
@@ -270,6 +280,27 @@ test("service-account admins can manage service-account api keys", async () => {
         viaApiKey: true,
       },
     ),
+    "FORBIDDEN",
+  );
+});
+
+test("service-account api key cannot delete a space even when the service account is space admin", async () => {
+  const core = coreStore(sql, coreSchema);
+  const slug = rand(12);
+  const spaceId = await core.createSpace(slug, "SA Admin Space");
+  await core.addPrincipalToSpace(spaceId, userId, true);
+  const serviceAccount = await core.createServiceAccount(
+    spaceId,
+    "space-admin",
+  );
+  await core.addPrincipalToSpace(spaceId, serviceAccount.id, true);
+  expect(await core.isSpaceAdmin(serviceAccount.id, spaceId)).toBe(true);
+
+  await expectAppError(
+    call("space.delete", { slug }, serviceAccount.id, {
+      kind: "s",
+      viaApiKey: true,
+    }),
     "FORBIDDEN",
   );
 });

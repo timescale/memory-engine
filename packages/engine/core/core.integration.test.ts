@@ -781,6 +781,20 @@ test("an empty admin group is not an effective admin (the brick is closed)", asy
   expect(admins).toEqual([direct, emptyGroup].sort());
 });
 
+test("a space-admin service account does not satisfy the last-user-admin guard", async () => {
+  const sid = await core.createSpace(rand(12), "Service Admin Guard");
+  const direct = await v7();
+  await core.createUser(direct, `svc_guard_${rand(8)}@example.com`);
+  await core.addPrincipalToSpace(sid, direct, true);
+
+  const serviceAccount = await core.createServiceAccount(sid, `svc_${rand(6)}`);
+  await core.addPrincipalToSpace(sid, serviceAccount.id, true);
+  expect(await core.isSpaceAdmin(serviceAccount.id, sid)).toBe(true);
+
+  await expectLastAdmin(core.removePrincipalFromSpace(sid, direct));
+  expect(await core.isSpaceAdmin(direct, sid)).toBe(true);
+});
+
 test("deleting the whole space is exempt from the guard (teardown)", async () => {
   // a fresh space with a single admin — deleting the space drops the roster via
   // FK cascade, which must NOT trip the last-admin guard.

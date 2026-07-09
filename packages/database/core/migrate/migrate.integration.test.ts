@@ -976,7 +976,7 @@ describe("control-plane functions", () => {
     });
   });
 
-  test("create_service_account creates an inert service account and users-only admin group", async () => {
+  test("create_service_account creates an inert service account and bound admin group", async () => {
     await withTestCore(sql, {}, async (core) => {
       const s = core.schema;
       const [sp] = await sql.unsafe(`select ${s}.create_space($1, $2) as id`, [
@@ -1110,20 +1110,20 @@ describe("control-plane functions", () => {
       const serviceId = svc?.id as string;
       const adminGroupId = svc?.admin_id as string;
 
-      await expectReject(() =>
-        sql.unsafe(`select ${s}.add_group_member($1, $2, $3, false)`, [
-          spaceId,
-          adminGroupId,
-          agentId,
-        ]),
-      );
-      await expectReject(() =>
-        sql.unsafe(`select ${s}.add_group_member($1, $2, $3, false)`, [
-          spaceId,
-          adminGroupId,
-          serviceId,
-        ]),
-      );
+      await sql.unsafe(`select ${s}.add_principal_to_space($1, $2, false)`, [
+        spaceId,
+        agentId,
+      ]);
+      await sql.unsafe(`select ${s}.add_group_member($1, $2, $3, false)`, [
+        spaceId,
+        adminGroupId,
+        agentId,
+      ]);
+      await sql.unsafe(`select ${s}.add_group_member($1, $2, $3, false)`, [
+        spaceId,
+        adminGroupId,
+        serviceId,
+      ]);
       await expectReject(() =>
         sql.unsafe(`select ${s}.set_group_is_space_admin($1, $2, true)`, [
           spaceId,
@@ -1472,7 +1472,7 @@ describe("control-plane functions", () => {
     });
   });
 
-  test("service-account admin-group grants do not accrue to the service account", async () => {
+  test("service-account admin-group grants accrue only after explicit membership", async () => {
     await withTestCore(sql, {}, async (core) => {
       const s = core.schema;
       const [sp] = await sql.unsafe(`select ${s}.create_space($1, $2) as id`, [
@@ -1499,6 +1499,20 @@ describe("control-plane functions", () => {
         [serviceId, spaceId],
       );
       expect(row?.ta).toEqual([]);
+
+      await sql.unsafe(`select ${s}.add_group_member($1, $2, $3, false)`, [
+        spaceId,
+        adminGroupId,
+        serviceId,
+      ]);
+      const [afterJoin] = await sql.unsafe(
+        `select ${s}.build_tree_access($1, $2) as ta`,
+        [serviceId, spaceId],
+      );
+      expect(afterJoin?.ta as Grant[]).toContainEqual({
+        tree_path: "admin.only",
+        access: 3,
+      });
     });
   });
 

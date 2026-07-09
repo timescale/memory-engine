@@ -101,25 +101,6 @@ begin
       , hint = 'group members cannot be groups';
   end if;
 
-  if exists
-  (
-    select 1
-    from {{schema}}.principal sa
-    where sa.kind = 's'
-    and sa.admin_id = _group_id
-  ) and not exists
-  (
-    select 1
-    from {{schema}}.principal p
-    where p.id = _member_id
-    and p.kind = 'u'
-  ) then
-    raise exception
-      'service-account admin group % accepts only user members', _group_id
-      using errcode = '23514'
-      , hint = 'service-account administration is a human trust relationship';
-  end if;
-
   insert into {{schema}}.group_member (space_id, group_id, member_id, admin)
   values (_space_id, _group_id, _member_id, _admin)
   on conflict (space_id, member_id, group_id) do update set
