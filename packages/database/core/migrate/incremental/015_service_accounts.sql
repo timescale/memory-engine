@@ -1,9 +1,10 @@
 -------------------------------------------------------------------------------
--- service accounts: schema representation only.
+-- service accounts: principal shape and durable constraints.
 --
--- This migration makes a service account representable in core.principal. The
--- lifecycle functions, bound-admin-group constraints, and effective-access
--- behavior land in later phases.
+-- This migration makes service accounts representable in core.principal and
+-- installs the schema-level constraints/indexes they need. The companion
+-- idempotent functions in this migration set add lifecycle operations,
+-- bound-admin-group enforcement, and effective-access behavior.
 -------------------------------------------------------------------------------
 
 -- Add the service-account admin-group pointer. The FK targets principal(group_id)
