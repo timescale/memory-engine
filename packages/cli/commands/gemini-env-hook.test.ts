@@ -72,7 +72,20 @@ describe("me gemini env-hook", () => {
     }
   });
 
-  test("first-writer-wins: prints nothing when ME_INJECT_V is already live", async () => {
+  test("first-writer-wins: prints nothing when the contract is already live", async () => {
+    const { exitCode, stdout } = await runGeminiEnvHook(
+      JSON.stringify({
+        cwd: "/repo",
+        tool_name: "run_shell_command",
+        tool_input: { command: "echo hi" },
+      }),
+      { ME_INJECT_V: "1", ME_AS_AGENT: ".me", ME_PROJECT_DIR: "/other" },
+    );
+    expect(exitCode).toBe(0);
+    expect(stdout.trim()).toBe("");
+  });
+
+  test("a PARTIALLY live contract (ME_INJECT_V alone) does NOT trigger first-writer-wins", async () => {
     const { exitCode, stdout } = await runGeminiEnvHook(
       JSON.stringify({
         cwd: "/repo",
@@ -82,6 +95,6 @@ describe("me gemini env-hook", () => {
       { ME_INJECT_V: "1" },
     );
     expect(exitCode).toBe(0);
-    expect(stdout.trim()).toBe("");
+    expect(stdout.trim()).not.toBe("");
   });
 });

@@ -11,10 +11,9 @@
  * definition change → replaced) while leaving every other, user-authored
  * entry in the array untouched.
  *
- * Codex trusts a hook by the hash of its definition text (see
- * HARNESS_DESIGN.md's install-flow notes), so keeping the entry's JSON
- * IDENTICAL across `me` versions matters — callers must pass a fixed,
- * version-free `entry` object.
+ * Codex trusts a hook by the hash of its definition text, so keeping the
+ * entry's JSON IDENTICAL across `me` versions matters — callers must pass a
+ * fixed, version-free `entry` object.
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";

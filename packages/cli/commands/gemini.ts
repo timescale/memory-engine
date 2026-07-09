@@ -2,8 +2,8 @@
  * me gemini — Gemini CLI integration commands.
  *
  * - me gemini install: register me as an MCP server with Gemini CLI, and
- *   (as of HARNESS_DESIGN.md PR 2) wire the harness-injected shell contract
- *   via a user-scope BeforeTool hook.
+ *   wire the harness-injected shell contract via a user-scope BeforeTool
+ *   hook.
  * - me gemini env-hook: invoked by that hook to rewrite shell commands.
  */
 import { homedir } from "node:os";
