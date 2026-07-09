@@ -1424,6 +1424,84 @@ describe("control-plane functions", () => {
     });
   });
 
+  test("build_tree_access resolves service-account direct and ordinary-group grants without an owner clamp", async () => {
+    await withTestCore(sql, {}, async (core) => {
+      const s = core.schema;
+      const [sp] = await sql.unsafe(`select ${s}.create_space($1, $2) as id`, [
+        randomSlug(),
+        "Service Access",
+      ]);
+      const spaceId = sp?.id as string;
+      const [svc] = await sql.unsafe(
+        `select * from ${s}.create_service_account($1, $2)`,
+        [spaceId, "importer"],
+      );
+      const serviceId = svc?.id as string;
+      const [grp] = await sql.unsafe(`select ${s}.create_group($1, $2) as id`, [
+        spaceId,
+        "automation",
+      ]);
+      const groupId = grp?.id as string;
+
+      await sql.unsafe(`select ${s}.grant_tree_access($1, $2, $3::ltree, $4)`, [
+        spaceId,
+        serviceId,
+        "private.docs",
+        3,
+      ]);
+      await sql.unsafe(`select ${s}.add_group_member($1, $2, $3, false)`, [
+        spaceId,
+        groupId,
+        serviceId,
+      ]);
+      await sql.unsafe(`select ${s}.grant_tree_access($1, $2, $3::ltree, $4)`, [
+        spaceId,
+        groupId,
+        "shared.docs",
+        1,
+      ]);
+
+      const [row] = await sql.unsafe(
+        `select ${s}.build_tree_access($1, $2) as ta`,
+        [serviceId, spaceId],
+      );
+      const ta = row?.ta as Grant[];
+      expect(ta).toContainEqual({ tree_path: "private.docs", access: 3 });
+      expect(ta).toContainEqual({ tree_path: "shared.docs", access: 1 });
+      expect(ta).toHaveLength(2);
+    });
+  });
+
+  test("service-account admin-group grants do not accrue to the service account", async () => {
+    await withTestCore(sql, {}, async (core) => {
+      const s = core.schema;
+      const [sp] = await sql.unsafe(`select ${s}.create_space($1, $2) as id`, [
+        randomSlug(),
+        "Service Admin Group Access",
+      ]);
+      const spaceId = sp?.id as string;
+      const [svc] = await sql.unsafe(
+        `select * from ${s}.create_service_account($1, $2)`,
+        [spaceId, "eon"],
+      );
+      const serviceId = svc?.id as string;
+      const adminGroupId = svc?.admin_id as string;
+
+      await sql.unsafe(`select ${s}.grant_tree_access($1, $2, $3::ltree, $4)`, [
+        spaceId,
+        adminGroupId,
+        "admin.only",
+        3,
+      ]);
+
+      const [row] = await sql.unsafe(
+        `select ${s}.build_tree_access($1, $2) as ta`,
+        [serviceId, spaceId],
+      );
+      expect(row?.ta).toEqual([]);
+    });
+  });
+
   test("remove_group_member revokes group-inherited access", async () => {
     await withTestCore(sql, {}, async (core) => {
       const s = core.schema;
