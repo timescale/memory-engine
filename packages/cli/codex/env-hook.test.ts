@@ -28,9 +28,18 @@ test("rewrites a Bash command with the export prefix", () => {
   });
 });
 
-test("first-writer-wins: emits nothing when ME_INJECT_V is already live", () => {
-  const result = buildCodexEnvHookOutput(VALID_PAYLOAD, { ME_INJECT_V: "1" });
+test("first-writer-wins: emits nothing when the contract is already live", () => {
+  const result = buildCodexEnvHookOutput(VALID_PAYLOAD, {
+    ME_INJECT_V: "1",
+    ME_AS_AGENT: ".me",
+    ME_PROJECT_DIR: "/other/project",
+  });
   expect(result).toEqual({});
+});
+
+test("a PARTIALLY live contract (ME_INJECT_V alone) does NOT trigger first-writer-wins", () => {
+  const result = buildCodexEnvHookOutput(VALID_PAYLOAD, { ME_INJECT_V: "1" });
+  expect(result.output).toBeDefined();
 });
 
 test("expected non-match: a non-Bash tool call emits nothing, no log", () => {

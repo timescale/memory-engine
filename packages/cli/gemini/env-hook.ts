@@ -1,7 +1,7 @@
 /**
- * Gemini CLI BeforeTool hook payload → env-injecting command rewrite
- * (HARNESS_DESIGN.md, PR 2). Structural twin of ../codex/env-hook.ts —
- * different payload/response field names, same decision shape.
+ * Gemini CLI BeforeTool hook payload → env-injecting command rewrite.
+ * Structural twin of ../codex/env-hook.ts — different payload/response
+ * field names, same decision shape.
  *
  * Vendored payload shape (confirmed against geminicli.com/docs/hooks/reference):
  * ```json

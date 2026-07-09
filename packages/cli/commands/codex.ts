@@ -1,9 +1,8 @@
 /**
  * me codex — Codex CLI integration commands.
  *
- * - me codex install: register me as an MCP server with Codex CLI, and (as
- *   of HARNESS_DESIGN.md PR 2) wire the harness-injected shell contract via
- *   a user-scope PreToolUse hook.
+ * - me codex install: register me as an MCP server with Codex CLI, and wire
+ *   the harness-injected shell contract via a user-scope PreToolUse hook.
  * - me codex env-hook: invoked by that hook to rewrite Bash commands.
  */
 import { homedir } from "node:os";

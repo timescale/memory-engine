@@ -25,9 +25,18 @@ test("rewrites a run_shell_command with the export prefix", () => {
   });
 });
 
-test("first-writer-wins: emits nothing when ME_INJECT_V is already live", () => {
-  const result = buildGeminiEnvHookOutput(VALID_PAYLOAD, { ME_INJECT_V: "1" });
+test("first-writer-wins: emits nothing when the contract is already live", () => {
+  const result = buildGeminiEnvHookOutput(VALID_PAYLOAD, {
+    ME_INJECT_V: "1",
+    ME_AS_AGENT: ".me",
+    ME_PROJECT_DIR: "/other/project",
+  });
   expect(result).toEqual({});
+});
+
+test("a PARTIALLY live contract (ME_INJECT_V alone) does NOT trigger first-writer-wins", () => {
+  const result = buildGeminiEnvHookOutput(VALID_PAYLOAD, { ME_INJECT_V: "1" });
+  expect(result.output).toBeDefined();
 });
 
 test("expected non-match: a non-shell tool call emits nothing, no log", () => {

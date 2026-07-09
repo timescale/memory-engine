@@ -1,6 +1,5 @@
 /**
- * Codex CLI PreToolUse hook payload → env-injecting command rewrite
- * (HARNESS_DESIGN.md, PR 2).
+ * Codex CLI PreToolUse hook payload → env-injecting command rewrite.
  *
  * Codex's PreToolUse hook receives the tool call on stdin and may return a
  * rewritten input. For the "Bash" tool this lets us prepend an

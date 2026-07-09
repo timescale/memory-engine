@@ -1,15 +1,14 @@
 /**
- * Best-effort logging of unrecognized harness hook payload shapes
- * (HARNESS_DESIGN.md, PR 2 intro): the Codex/Gemini rewrite hooks are
- * fail-open on anything they don't understand — an internal error or a
- * payload that doesn't match the vendored shape. A silent fail-open would
- * otherwise surface, much later, as an unexplained failsafe error ("why is
- * `me` refusing to run as me?") with no trail back to "Codex/Gemini shipped a
- * payload update". So every unrecognized-shape fail-open also appends one
- * line here — STRUCTURE only (top-level keys, sorted; never values, since a
- * command string can carry secrets) — for `me doctor` (a later PR) to
- * summarize as "N unrecognized payload shapes since <date>: upgrade `me` or
- * file an issue."
+ * Best-effort logging of unrecognized harness hook payload shapes: the
+ * Codex/Gemini rewrite hooks are fail-open on anything they don't
+ * understand — an internal error or a payload that doesn't match the
+ * vendored shape. A silent fail-open would otherwise surface, much later,
+ * as an unexplained failsafe error ("why is `me` refusing to run as me?")
+ * with no trail back to "Codex/Gemini shipped a payload update". So every
+ * unrecognized-shape fail-open also appends one line here — STRUCTURE only
+ * (top-level keys, sorted; never values, since a command string can carry
+ * secrets) — for a future diagnostic command to summarize as "N
+ * unrecognized payload shapes since <date>: upgrade `me` or file an issue."
  *
  * Logging failures (permission errors, a full disk) are swallowed — this is
  * diagnostics for an already-degraded path, never allowed to make it worse.
