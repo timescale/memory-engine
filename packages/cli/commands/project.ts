@@ -240,7 +240,7 @@ async function preflight(
       }
       // Close the digression — everything from here back down is this
       // project's own setup again.
-      clack.log.step("Back to setting up this project:");
+      clack.log.step(`  ${CYAN}Back to setting up this project:${CYAN_OFF}`);
       creds = resolveCredentials(serverFlag);
     }
   }
