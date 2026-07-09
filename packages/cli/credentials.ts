@@ -609,14 +609,14 @@ export function setServerFlagOverride(value: string | undefined): void {
  * DB-impossible agent name (agent names match `^[A-Za-z0-9]…`, so they can
  * never start with `.`), so it can't shadow a real agent.
  */
-const AS_AGENT_PROJECT_SENTINEL = ".me";
+const RUN_AS_AGENT_SENTINEL = ".me";
 
 /**
  * The `.user` sentinel — "run as the user, deliberately". Re-exported from
  * project-config.ts (the single source of truth for the committed-file gate)
  * so callers only need this module's import.
  */
-export const AS_AGENT_USER_SENTINEL = PROJECT_USER_SENTINEL;
+export const RUN_AS_USER_SENTINEL = PROJECT_USER_SENTINEL;
 
 /** The `--as-agent` global-flag value, seeded once from the root preAction hook. */
 let asAgentOverride: string | undefined;
@@ -653,19 +653,19 @@ function resolveSentinel(
   raw: string,
   project: ProjectConfig | undefined,
 ): string | undefined {
-  if (raw === AS_AGENT_USER_SENTINEL) return undefined;
-  if (raw !== AS_AGENT_PROJECT_SENTINEL) return raw;
+  if (raw === RUN_AS_USER_SENTINEL) return undefined;
+  if (raw !== RUN_AS_AGENT_SENTINEL) return raw;
 
   const projectAgent = project?.agent;
   if (projectAgent !== undefined) {
-    return projectAgent === AS_AGENT_USER_SENTINEL ? undefined : projectAgent;
+    return projectAgent === RUN_AS_USER_SENTINEL ? undefined : projectAgent;
   }
   const globalAgent = getGlobalAgent();
   if (globalAgent !== undefined) {
-    return globalAgent === AS_AGENT_USER_SENTINEL ? undefined : globalAgent;
+    return globalAgent === RUN_AS_USER_SENTINEL ? undefined : globalAgent;
   }
   throw new Error(
-    `--as-agent ${AS_AGENT_PROJECT_SENTINEL} needs an 'agent:' in .me/config.yaml or the global ~/.config/me/config.yaml, but none is in scope. ` +
+    `--as-agent ${RUN_AS_AGENT_SENTINEL} needs an 'agent:' in .me/config.yaml or the global ~/.config/me/config.yaml, but none is in scope. ` +
       `Run 'me agent create <name>' and set it as agent: in one of those files, or run 'me claude install' / 'me opencode install' to provision a default agent.`,
   );
 }
@@ -718,7 +718,7 @@ export function resolveHarnessAgentFor(
 ): string | undefined {
   const raw = asAgentOverride ?? process.env.ME_AS_AGENT;
   if (raw) return resolveSentinel(raw, project);
-  return resolveSentinel(AS_AGENT_PROJECT_SENTINEL, project);
+  return resolveSentinel(RUN_AS_AGENT_SENTINEL, project);
 }
 
 // =============================================================================

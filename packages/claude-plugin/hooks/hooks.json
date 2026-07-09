@@ -1,5 +1,5 @@
 {
-  "description": "Memory Engine harness contract + capture hooks",
+  "description": "Memory Engine hooks",
   "hooks": {
     "SessionStart": [
       {
