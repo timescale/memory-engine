@@ -4,7 +4,7 @@
  * Common patterns used across multiple command files:
  * - Session / active-space validation
  * - Memory / user client construction
- * - Principal / agent resolution
+ * - Principal / agent / service-account resolution
  * - Error handling
  */
 import { homedir } from "node:os";
@@ -154,8 +154,9 @@ export function buildMemoryClient(
 
 /**
  * Resolve a principal in the active space to its id. Accepts a UUIDv7 (used
- * as-is) or a name — for users the name is their email; for agents/groups it is
- * the display name. Optionally constrained to a kind ('u' | 'a' | 'g'). Uses
+ * as-is) or a name — for users the name is their email; for agents/groups/service
+ * accounts it is the display name. Optionally constrained to a kind
+ * ('u' | 'a' | 'g' | 's'). Uses
  * principal.resolve (a targeted lookup any space member may call). Exits with an
  * actionable error on miss / ambiguity.
  */
@@ -163,7 +164,7 @@ export async function resolveSpacePrincipalId(
   memory: MemoryClient,
   input: string,
   fmt: OutputFormat,
-  kind?: "u" | "a" | "g",
+  kind?: "u" | "a" | "g" | "s",
 ): Promise<string> {
   if (UUIDV7_RE.test(input)) return input;
 
@@ -174,7 +175,7 @@ export async function resolveSpacePrincipalId(
   if (principals.length === 1 && principals[0]) return principals[0].id;
 
   if (principals.length === 0) {
-    const msg = `No ${kind === "g" ? "group" : "principal"} named '${input}' in this space.`;
+    const msg = `No ${kind === "g" ? "group" : kind === "s" ? "service account" : "principal"} named '${input}' in this space.`;
     if (fmt === "text") {
       clack.log.error(msg);
     } else {
@@ -195,7 +196,7 @@ export async function resolveSpacePrincipalId(
 }
 
 /**
- * Resolve a space *member* (user or agent) to its id, by UUIDv7 or name. Like
+ * Resolve a space *member* (user, agent, or service account) to its id, by UUIDv7 or name. Like
  * {@link resolveSpacePrincipalId} but excludes groups — for call sites where a
  * group is never a valid target (group membership, which isn't nestable, and
  * space-roster removal, where a group leaves only via `me group delete`). A bare
@@ -221,10 +222,11 @@ export async function resolveSpaceMemberId(
     const onlyGroup = principals.some((p) => p.kind === "g");
     // Context-neutral wording: this helper backs both group-membership and
     // space-roster call sites, so it says only that a group isn't a valid
-    // user/agent target (the per-command remedy — `me group delete` vs. not a
-    // group member — differs and is documented on each command).
+    // user/agent/service-account target (the per-command remedy — `me group
+    // delete` vs. not a group member — differs and is documented on each
+    // command).
     const msg = onlyGroup
-      ? `'${input}' is a group, not a user or agent.`
+      ? `'${input}' is a group, not a user, agent, or service account.`
       : `No member named '${input}' in this space.`;
     if (fmt === "text") {
       clack.log.error(msg);
@@ -240,6 +242,52 @@ export async function resolveSpaceMemberId(
     for (const m of members) console.log(`  ${m.name} (${m.kind}) — ${m.id}`);
   } else {
     output({ error: msg, matches: members }, fmt, () => {});
+  }
+  process.exit(1);
+}
+
+/** Resolve the currently active space from `space.list`, returning its id/metadata. */
+export async function resolveActiveSpace(
+  user: UserClient,
+  activeSpace: string,
+  fmt: OutputFormat,
+) {
+  const { spaces } = await user.space.list();
+  const space = spaces.find((s) => s.slug === activeSpace);
+  if (space) return space;
+
+  const msg = `Active space '${activeSpace}' is not in your space list. Run 'me space use <space>' to select a valid space.`;
+  if (fmt === "text") {
+    clack.log.error(msg);
+  } else {
+    output({ error: msg, activeSpace, spaces }, fmt, () => {});
+  }
+  process.exit(1);
+}
+
+/** Resolve a service account in a space by UUIDv7 or by its per-space name. */
+export async function resolveServiceAccountId(
+  user: UserClient,
+  spaceId: string,
+  input: string,
+  fmt: OutputFormat,
+): Promise<string> {
+  if (UUIDV7_RE.test(input)) return input;
+  const { serviceAccounts } = await user.serviceAccount.list({ spaceId });
+  const lower = input.toLowerCase();
+  const matches = serviceAccounts.filter((a) => a.name.toLowerCase() === lower);
+  if (matches.length === 1 && matches[0]) return matches[0].id;
+
+  const msg =
+    matches.length === 0
+      ? `No service account named '${input}' in the active space.`
+      : `Multiple service accounts named '${input}'. Use the service account id instead.`;
+  if (fmt === "text") {
+    clack.log.error(msg);
+    if (matches.length > 1)
+      for (const a of matches) console.log(`  ${a.name} — ${a.id}`);
+  } else {
+    output({ error: msg, matches }, fmt, () => {});
   }
   process.exit(1);
 }

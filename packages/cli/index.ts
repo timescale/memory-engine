@@ -32,6 +32,7 @@ import {
   createRemovedCommand,
 } from "./commands/project.ts";
 import { createServeCommand } from "./commands/serve.ts";
+import { createServiceCommand } from "./commands/service.ts";
 import { createSpaceCommand } from "./commands/space.ts";
 import { createStatusCommand } from "./commands/status.ts";
 import { createUpgradeCommand } from "./commands/upgrade.ts";
@@ -151,6 +152,7 @@ program.addCommand(createInviteCommand());
 program.addCommand(createGroupCommand());
 program.addCommand(createAccessCommand());
 program.addCommand(createAgentCommand());
+program.addCommand(createServiceCommand());
 program.addCommand(createApiKeyCommand());
 
 // Memory commands — both as `me memory <cmd>` and top-level aliases (`me search`)

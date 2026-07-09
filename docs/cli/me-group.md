@@ -2,7 +2,7 @@
 
 Manage groups in the active space.
 
-A **group** is a named bundle of members (users and agents). Grant access to a group once and every member who is also a space member gets it. Group membership does **not** by itself make someone a space member: a group's grants (and its admin flag, if it's an admin group) apply to a member only once they've **also** joined the space directly — so you can add someone to a group before they join, and the access stays dormant until they do.
+A **group** is a named bundle of members (users, agents, and service accounts). Grant access to a group once and every member who is also a space member gets it. Group membership does **not** by itself make someone a space member: a group's grants (and its admin flag, if it's an admin group) apply to a member only once they've **also** joined the space directly — so you can add someone to a group before they join, and the access stays dormant until they do.
 
 Every space is auto-provisioned with a default group named **`team`** (`read` on `/share`, `write` on `/share/projects`). New members join it by default (`me space invite`), so it's the space's baseline shared access. Being a plain group, an admin can freely re-grant, rename, or delete it — see [Access Control](../access-control.md#the-default-team-group).
 
@@ -118,7 +118,7 @@ me group delete <group>
 
 ## me group add
 
-Add a member (user or agent) to a group. Groups are not nestable — a group
+Add a member (user, agent, or service account) to a group. Groups are not nestable — a group
 cannot be a member of another group; passing a group name or id is rejected.
 
 ```
@@ -128,7 +128,7 @@ me group add <group> <member> [--admin]
 | Argument | Required | Description |
 |----------|----------|-------------|
 | `group` | yes | Group id or name. |
-| `member` | yes | User or agent id or name. |
+| `member` | yes | User, agent, or service-account id or name. |
 
 | Option | Description |
 |--------|-------------|
@@ -147,7 +147,7 @@ me group remove <group> <member>
 | Argument | Required | Description |
 |----------|----------|-------------|
 | `group` | yes | Group id or name. |
-| `member` | yes | User or agent id or name. |
+| `member` | yes | User, agent, or service-account id or name. |
 
 ---
 
