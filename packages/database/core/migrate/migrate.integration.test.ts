@@ -75,6 +75,7 @@ const EXPECTED_FUNCTIONS = [
   "is_principal_in_space",
   "is_principal_space_admin",
   "list_service_accounts",
+  "list_service_accounts_for_admin",
   "member_groups",
   "member_tree_access",
   "provision_default_group",

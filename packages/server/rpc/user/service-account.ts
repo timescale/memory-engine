@@ -101,17 +101,12 @@ async function serviceAccountList(
 ): Promise<ServiceAccountListResult> {
   assertUserRpcContext(context);
   const ctx = context as UserRpcContext;
-  const accounts = await ctx.core.listServiceAccounts(params.spaceId);
-  if (await ctx.core.isSpaceAdmin(ctx.userId, params.spaceId)) {
-    return { serviceAccounts: accounts.map(toServiceAccountResponse) };
-  }
-  const administered: ServiceAccount[] = [];
-  for (const account of accounts) {
-    if (await ctx.core.isServiceAccountAdmin(account.id, ctx.userId)) {
-      administered.push(account);
-    }
-  }
-  return { serviceAccounts: administered.map(toServiceAccountResponse) };
+  // Space admins see all; everyone else sees only the accounts they administer.
+  // Both are a single DB round trip (no per-account isServiceAccountAdmin probe).
+  const accounts = (await ctx.core.isSpaceAdmin(ctx.userId, params.spaceId))
+    ? await ctx.core.listServiceAccounts(params.spaceId)
+    : await ctx.core.listServiceAccountsForAdmin(params.spaceId, ctx.userId);
+  return { serviceAccounts: accounts.map(toServiceAccountResponse) };
 }
 
 async function serviceAccountRename(
