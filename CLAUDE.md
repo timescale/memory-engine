@@ -166,6 +166,38 @@ a server test's leaked `me_<slug>` is therefore *not* auto-reclaimed, so drop it
 by hand if a run is killed mid-test. Use `test:db:clean:all` for a deliberate full
 reset when nothing else is using the database.
 
+### Harness smoke tests (manual only — never run automatically)
+
+`packages/cli/harness-smoke/*.smoke.ts` launch a real harness binary
+(`claude` today; `opencode`/`codex`/`gemini` are scaffolded but unverified —
+see each file's module doc) non-interactively and check that the injected
+environment contract (`ME_INJECT_V`/`AI_AGENT`/`ME_AS_AGENT`/`ME_PROJECT_DIR`)
+actually lands in a real shell command's real environment. They exist
+because `./bun run check`/`check:full`/CI only exercise the decision logic
+(what a hook *should* output) — nothing runs an actual harness end-to-end.
+
+They are named `*.smoke.ts`, not `*.test.ts`, specifically so `bun test
+packages` (the full `test` suite) never discovers them — and even run
+directly, each test also self-skips unless `ME_HARNESS_SMOKE=1` is set, since
+a live run makes a real model call under whatever account is authenticated
+on this machine and **spends real API tokens**. **Always ask the user
+before actually running one of these** — building/editing the script is
+free, executing it is not. Run them explicitly:
+
+```bash
+ME_HARNESS_SMOKE=1 ./bun run test:harness-smoke
+```
+
+A test silently skips (not fails) when its harness binary isn't installed
+(`Bun.which(...)` returns null) — run `claude --version` etc. first if a test
+you expected to run reports 0 tests exercised. Each test builds a scratch
+project dir and a scratch `me` binary (shadowing whatever `me` is actually
+installed on `PATH`, via `writeMeWrapper()` in `_shared.ts`) so it always
+exercises the CURRENT checkout's code, never a stale global install — and
+strips the four contract vars from its own process env before spawning
+(`cleanEnv()`), since this very test suite may itself be running inside a
+live-injected harness session.
+
 ## Style Guides
 
 **TypeScript**: Biome for linting and formatting. Config in `biome.json`.
