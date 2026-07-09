@@ -165,15 +165,38 @@ describe("shell.env — the harness-injected environment contract", () => {
     expect(output.env?.ME_AS_AGENT).toBe(".me");
   });
 
-  test("first-writer-wins: emits nothing when ME_INJECT_V is already live in this process", async () => {
+  test("first-writer-wins: emits nothing when the full contract is already live in this process", async () => {
     const shell = makeShell();
     const hooks = await loadPlugin(renderPluginSource(), shell);
+    const saved = {
+      ME_INJECT_V: process.env.ME_INJECT_V,
+      ME_AS_AGENT: process.env.ME_AS_AGENT,
+      ME_PROJECT_DIR: process.env.ME_PROJECT_DIR,
+    };
+    process.env.ME_INJECT_V = "1";
+    process.env.ME_AS_AGENT = ".me";
+    process.env.ME_PROJECT_DIR = "/other/project";
+    try {
+      const output: { env?: Record<string, string> } = {};
+      await hooks["shell.env"]({}, output);
+      expect(output.env).toBeUndefined();
+    } finally {
+      for (const [key, value] of Object.entries(saved)) {
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      }
+    }
+  });
+
+  test("a PARTIALLY live contract (ME_INJECT_V alone) does NOT trigger first-writer-wins", async () => {
+    const shell = makeShell();
+    const hooks = await loadPlugin(renderPluginSource(), shell, "/my/proj");
     const saved = process.env.ME_INJECT_V;
     process.env.ME_INJECT_V = "1";
     try {
       const output: { env?: Record<string, string> } = {};
       await hooks["shell.env"]({}, output);
-      expect(output.env).toBeUndefined();
+      expect(output.env?.ME_PROJECT_DIR).toBe("/my/proj");
     } finally {
       if (saved === undefined) delete process.env.ME_INJECT_V;
       else process.env.ME_INJECT_V = saved;

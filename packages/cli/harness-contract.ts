@@ -58,9 +58,20 @@ export const HARNESS_AS_AGENT_SENTINEL = ".me";
  */
 export const ME_INJECT_VERSION = "1";
 
-/** Whether a live injected contract is already present in `env`. */
+/**
+ * Whether a live injected contract is already present in `env`. Requires the
+ * liveness marker AND the two functionally load-bearing vars (activation,
+ * discovery) to all be present — not just `ME_INJECT_V` alone. A partially
+ * injected or stale env (e.g. `ME_INJECT_V` surviving in a subshell while
+ * `ME_AS_AGENT`/`ME_PROJECT_DIR` didn't) must not read as "live": that would
+ * let the failsafe wave it through, and let first-writer-wins skip an
+ * adapter that should have run. `AI_AGENT` is excluded on purpose — it's
+ * identity/observability only, never consulted for activation or discovery.
+ */
 export function isInjectionLive(env: NodeJS.ProcessEnv = process.env): boolean {
-  return Boolean(env[ME_INJECT_V_VAR]);
+  return Boolean(
+    env[ME_INJECT_V_VAR] && env[ME_AS_AGENT_VAR] && env[ME_PROJECT_DIR_VAR],
+  );
 }
 
 /**

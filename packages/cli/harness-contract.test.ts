@@ -22,9 +22,31 @@ test("buildContractVars sets all four vars", () => {
   expect(vars.ME_PROJECT_DIR).toBe("/repo/project");
 });
 
-test("isInjectionLive reflects ME_INJECT_V presence", () => {
+test("isInjectionLive requires the full contract, not just ME_INJECT_V", () => {
   expect(isInjectionLive({})).toBe(false);
-  expect(isInjectionLive({ ME_INJECT_V: "1" })).toBe(true);
+  expect(isInjectionLive({ ME_INJECT_V: "1" })).toBe(false);
+  expect(isInjectionLive({ ME_INJECT_V: "1", ME_AS_AGENT: ".me" })).toBe(false);
+  expect(isInjectionLive({ ME_INJECT_V: "1", ME_PROJECT_DIR: "/repo" })).toBe(
+    false,
+  );
+  expect(
+    isInjectionLive({
+      ME_INJECT_V: "1",
+      ME_AS_AGENT: ".me",
+      ME_PROJECT_DIR: "/repo",
+    }),
+  ).toBe(true);
+});
+
+test("isInjectionLive doesn't require AI_AGENT (identity/observability only)", () => {
+  expect(
+    isInjectionLive({
+      ME_INJECT_V: "1",
+      ME_AS_AGENT: ".me",
+      ME_PROJECT_DIR: "/repo",
+      // no AI_AGENT
+    }),
+  ).toBe(true);
 });
 
 test("renderContractBlock escapes shell-special characters", () => {
