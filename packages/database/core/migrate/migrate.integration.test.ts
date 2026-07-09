@@ -1084,6 +1084,40 @@ describe("control-plane functions", () => {
     });
   });
 
+  test("create_service_account reports derived admin-group name collisions clearly", async () => {
+    await withTestCore(sql, {}, async (core) => {
+      const s = core.schema;
+      const [sp] = await sql.unsafe(`select ${s}.create_space($1, $2) as id`, [
+        randomSlug(),
+        "Service Collision",
+      ]);
+      const spaceId = sp?.id as string;
+      const prefix = "a".repeat(94);
+      const firstName = `${prefix}111111`;
+      const secondName = `${prefix}222222`;
+
+      await sql.unsafe(
+        `select * from ${s}.create_service_account($1, $2, $3::uuid[], $4::uuid[])`,
+        [spaceId, firstName, [], []],
+      );
+
+      let error: unknown;
+      try {
+        await sql.unsafe(
+          `select * from ${s}.create_service_account($1, $2, $3::uuid[], $4::uuid[])`,
+          [spaceId, secondName, [], []],
+        );
+      } catch (e) {
+        error = e;
+      }
+
+      expect(error).toBeTruthy();
+      expect(String((error as Error).message)).toContain(
+        `derived admin group name ${prefix}-admin already exists in this space`,
+      );
+    });
+  });
+
   test("service-account admin groups are protected and deleted with the service account", async () => {
     await withTestCore(sql, {}, async (core) => {
       const s = core.schema;
