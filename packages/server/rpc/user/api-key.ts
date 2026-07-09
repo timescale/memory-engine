@@ -68,7 +68,12 @@ async function requireKeyAuthority(
     await requireServiceAccountManager(ctx, memberId);
     return;
   }
-  throw new AppError("NOT_FOUND", `Member not found: ${memberId}`);
+  // The principal exists (e.g. another user or a group) but the caller may not
+  // administer its keys — FORBIDDEN, not NOT_FOUND, so the error isn't misleading.
+  throw new AppError(
+    "FORBIDDEN",
+    `Not authorized to manage API keys for member: ${memberId}`,
+  );
 }
 
 function toApiKeyInfoResponse(k: ApiKeyInfo): ApiKeyInfoResponse {

@@ -65,15 +65,18 @@ export async function requireServiceAccountManager(
     );
   }
   if (await ctx.core.isSpaceAdmin(ctx.userId, account.spaceId)) return account;
+  const allowAdminGroup = opts.allowAdminGroup !== false;
   if (
-    opts.allowAdminGroup !== false &&
+    allowAdminGroup &&
     (await ctx.core.isServiceAccountAdmin(account.id, ctx.userId))
   ) {
     return account;
   }
   throw new AppError(
     "FORBIDDEN",
-    "This action requires being a space admin or service-account admin",
+    allowAdminGroup
+      ? "This action requires being a space admin or service-account admin"
+      : "This action requires being a space admin",
   );
 }
 
