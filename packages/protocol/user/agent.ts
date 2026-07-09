@@ -1,10 +1,10 @@
 /**
  * Agent method schemas (agent.*) for the user RPC.
  *
- * Agents are a user's global service accounts (owned by the user, names unique
- * per user, not scoped to a space). Their lifecycle lives on the session-only
- * user endpoint (POST /api/v1/user/rpc); bringing an agent into a space and
- * minting its (space-bound) api key are space-endpoint operations.
+ * Agents are user-owned non-human principals (names unique per user, not scoped
+ * to a space). Their lifecycle lives on the user endpoint
+ * (POST /api/v1/user/rpc); bringing an agent into a space is an in-space
+ * operation, and api keys are global per-principal credentials.
  */
 import { z } from "zod";
 import { principalHandleNameSchema, uuidv7Schema } from "../fields.ts";

@@ -66,7 +66,7 @@ Keep paths **2-4 levels deep**. Deeper nesting rarely helps findability.
 Every space has two conventional roots:
 
 - **`/share`** -- the shared root. Memories the rest of the space should see go here (`/share/work/projects`, etc.). The file importers default a tree-less record to `share`.
-- **`/home/<member_id>`** -- your private per-member root. The input shortcut **`~`** expands to your own home, so `~/notes` resolves to `/home/<your-id>/notes` and displays back as `~/notes`. An **agent**'s home nests under its owner's (`/home/<owner-id>/<agent-id>`), so the agent's `~` is visible to its owner.
+- **`/home/<member_id>`** -- your private per-member root. The input shortcut **`~`** expands to your own home, so `~/notes` resolves to `/home/<your-id>/notes` and displays back as `~/notes`. An **agent**'s home nests under its owner's (`/home/<owner-id>/<agent-id>`), so the agent's `~` is visible to its owner. **Service accounts** do not get a home grant; use `/share/...` or another explicitly granted tree for their memories.
 
 `me memory create` (and the `me_memory_create` MCP tool) **require** an explicit tree -- choose `share` for shared memories or `~` for private ones. See [Access Control](access-control.md) for how grants attach to these paths.
 
@@ -270,9 +270,9 @@ Search results include a `score` between 0 and 1, where 1 is the best match. For
 A **space** is an isolated collection of memories with its own roster, groups, and access grants. Each space has:
 
 - Its own memories (the `me_<slug>` table) and tree hierarchy.
-- A roster of **principals** -- users, agents, and groups.
+- A roster of **principals** -- users, agents, service accounts, and groups.
 - Tree-access grants that control who can read/write/own which paths.
 
-A space is identified by an immutable 12-character **slug** (also the `X-Me-Space` header value) and a renamable display **name**. A user can belong to many spaces; each memory lives in exactly one space. There are no organization, engine, or shard concepts above a space.
+A space is identified by an immutable 12-character **slug** (also the `X-Me-Space` header value) and a renamable display **name**. A user can belong to many spaces; service accounts are created inside one space; each memory lives in exactly one space. There are no organization, engine, or shard concepts above a space.
 
 Manage spaces with [`me space`](cli/me-space.md), and see [Access Control](access-control.md) for principals and grants.

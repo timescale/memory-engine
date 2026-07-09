@@ -1,8 +1,7 @@
 /**
- * User RPC contract — session-only, user-scoped methods served on
- * POST /api/v1/user/rpc. Covers the lifecycle of a user's global service
- * accounts (agents) and their global api keys; space membership lives on the
- * space endpoint.
+ * User RPC contract served on POST /api/v1/user/rpc. Covers user/account
+ * operations, user-owned agents, space-scoped service accounts, and global api
+ * keys; memory and in-space management live on the memory endpoint.
  */
 import type { z } from "zod";
 

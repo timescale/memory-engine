@@ -1,5 +1,5 @@
 /**
- * me agent — manage your agents (global service accounts).
+ * me agent — manage your user-owned agents.
  *
  * Agents are owned by you and live across spaces; their lifecycle is on the
  * user endpoint. Bringing an agent into the active space and minting its api

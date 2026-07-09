@@ -14,7 +14,7 @@ Calls the user endpoint (`whoami`) and displays your name, email, principal ID, 
 
 The active space is shown as its display name and slug (with an `[admin]` marker when you are an admin of it) — the slug is resolved to the full space via `space.list`. If the stored active-space slug no longer matches one of your spaces (for example, you were removed), the line flags it as `(not found — …)`.
 
-The **auth method** reflects how the current credential authenticates: `session` (a `me login` OAuth session), `api key (PAT)` (a personal access token acting as you, via `ME_API_KEY`), or `agent key` (a dedicated agent key).
+The **auth method** reflects how the current credential authenticates: `session` (a `me login` OAuth session), `api key (PAT)` (a personal access token acting as you, via `ME_API_KEY`), `agent key` (a dedicated agent key), or `service-account key` (a team-owned service-account key).
 
 ```
 me whoami

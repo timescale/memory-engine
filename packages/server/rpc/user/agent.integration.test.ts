@@ -1,5 +1,5 @@
 // Integration test for the user RPC agent handlers (agent.* lifecycle).
-// User-scoped (no space): a user manages their own global service accounts.
+// User-scoped (no space): a user manages their own agents.
 //   TEST_DATABASE_URL="postgresql://postgres@127.0.0.1:5432/postgres" \
 //     bun test --timeout 30000 \
 //     packages/server/rpc/user/agent.integration.test.ts

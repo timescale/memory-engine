@@ -14,7 +14,7 @@ When an AI tool launches `me mcp`, it spawns a child process that communicates o
 
 The AI agent never sees or handles credentials — it just calls MCP tools and gets results back.
 
-Each `me mcp` instance is locked to a single **space**, carried as the `X-Me-Space` header. The space is resolved from `--space` > `ME_SPACE` > your stored active space. Authentication is **either** an agent API key (`--api-key` or `ME_API_KEY`) **or**, if no key is given, your stored `me login` session token — so a developer install needs no key at all. The server URL defaults to `https://api.memory.build` but can be overridden with `--server` or `ME_SERVER`.
+Each `me mcp` instance is locked to a single **space**, carried as the `X-Me-Space` header. The space is resolved from `--space` > `ME_SPACE` > your stored active space. Authentication is **either** an API key (`--api-key` or `ME_API_KEY`: user PAT, agent key, or service-account key) **or**, if no key is given, your stored `me login` session token — so a developer install needs no key at all. The server URL defaults to `https://api.memory.build` but can be overridden with `--server` or `ME_SERVER`.
 
 ### Agent-by-config
 
@@ -24,7 +24,7 @@ Each `me mcp` instance is locked to a single **space**, carried as the `X-Me-Spa
 
 ### Prerequisites
 
-Log in with `me login` and select a space — `me whoami` shows your active space and identity. That session is enough to run the MCP server locally. For an unattended or dedicated-agent install, mint an API key — `me apikey create` for a personal access token (acts as you) or `me apikey create --agent <agent>` for a dedicated agent — and pass it with `--api-key`.
+Log in with `me login` and select a space — `me whoami` shows your active space and identity. That session is enough to run the MCP server locally. For an unattended install, mint an API key — `me apikey create` for a personal access token (acts as you), `me apikey create --agent <agent>` for a dedicated agent, or `me apikey create --service <service>` for a team-owned service account — and pass it with `--api-key`.
 
 The server defaults to `https://api.memory.build`. Pass `--server <url>` only if you're running a self-hosted server.
 
@@ -36,7 +36,7 @@ me codex install
 me gemini install
 ```
 
-These commands register Memory Engine with the named tool, writing a `me mcp` invocation into the tool's MCP configuration. By default they embed no key — the server uses your `me login` session at runtime. Pass `--api-key` to pin a dedicated agent key instead, `--space <slug>` to pin a space, and `--server <url>` to pin a non-default server.
+These commands register Memory Engine with the named tool, writing a `me mcp` invocation into the tool's MCP configuration. By default they embed no key — the server uses your `me login` session at runtime. Pass `--api-key` to pin a user PAT, dedicated agent key, or service-account key instead, `--space <slug>` to pin a space, and `--server <url>` to pin a non-default server.
 
 See the agent-specific command references for details: [`me opencode install`](cli/me-opencode.md#me-opencode-install), [`me codex install`](cli/me-codex.md#me-codex-install), and [`me gemini install`](cli/me-gemini.md#me-gemini-install).
 

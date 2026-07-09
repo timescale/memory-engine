@@ -1,7 +1,7 @@
 /**
  * Agent handlers (agent.*) for the user RPC.
  *
- * Agents are a user's global service accounts. The lifecycle here is purely
+ * Agents are user-owned non-human principals. The lifecycle here is purely
  * user-scoped: create / list / rename / delete the caller's own agents, and
  * mint their (global) api keys (apiKey.* — see ./api-key.ts). Bringing an agent
  * into a space (principal.add) is a space-endpoint operation.

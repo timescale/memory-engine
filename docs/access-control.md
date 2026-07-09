@@ -4,17 +4,26 @@ Memory Engine organizes knowledge into **spaces**. Access within a space is gran
 
 ## Principals
 
-A **principal** is anything that can be granted access. There are three kinds:
+A **principal** is anything that can be granted access. There are four kinds:
 
 | Kind | What it is |
 |------|------------|
 | **user** (`u`) | A human, authenticated by a session token (OAuth via GitHub or Google). |
-| **agent** (`a`) | A service account owned by a user, authenticated by an API key. |
-| **group** (`g`) | A named bundle of users and agents. |
+| **agent** (`a`) | A non-human agent owned by one user, authenticated by an API key. Its effective access is clamped to its owner's. |
+| **service account** (`s`) | A space-scoped operational identity for CI/CD, webhooks, and team-owned integrations. It authenticates by API key and has no owner clamp. |
+| **group** (`g`) | A named bundle of users, agents, and service accounts. |
 
-A **member** is the user/agent sense only — the things that can be put into a group or hold an API key. Group membership does **not** by itself confer space membership: a group's grants (and its admin, if it's an admin group) apply to you only once you have **also** joined the space directly. So an admin can add you to a group before you join — the group's access stays dormant until you do.
+A **member** is the user/agent/service-account sense only — the things that can be put into a group or hold an API key. Group membership does **not** by itself confer space membership: a group's grants (and its admin, if it's an admin group) apply to you only once you have **also** joined the space directly. So an admin can add you to a group before you join — the group's access stays dormant until you do.
 
-A group is itself part of its space's roster (it gets a roster entry when created), which is what lets you grant access to it or reference it **by name**. That roster entry is the group's own; it is separate from membership conferral, which still depends on each user/agent having joined the space directly.
+A group is itself part of its space's roster (it gets a roster entry when created), which is what lets you grant access to it or reference it **by name**. That roster entry is the group's own; it is separate from membership conferral, which still depends on each user/agent/service-account having joined the space directly.
+
+### Service accounts
+
+A **service account** is a durable operational identity administered by a team, not by one human owner. Create one with [`me service`](cli/me-service.md), then mint a key with `me apikey create --service <service>`. Service accounts are useful for CI/CD jobs, importers, webhooks, and other team-owned integrations.
+
+Each service account has a **bound admin group**. Space admins can manage all service accounts; direct user members of that bound admin group can administer that service account where policy allows, such as renaming it and managing its API keys. The service account is not automatically added to its own bound admin group, and grants to that group behave like ordinary group grants.
+
+Service accounts start with **zero tree access**: no home grant, no default-group membership, and no owner clamp. Grant access to the service account directly, or add it to ordinary groups. A service-account key can use the memory and group/grant authorities the service account actually holds, but it cannot mint/revoke API keys or delete spaces. Scoped provisioning capabilities such as invitation creation and deprovisioning are deferred to [TNT-203](https://linear.app/tigerdata/issue/TNT-203/add-scoped-provisioning-capabilities-for-service-accounts).
 
 ## Spaces
 
@@ -29,10 +38,10 @@ A user can belong to many spaces; each memory lives in exactly one space. There 
 
 Access splits into two independent axes:
 
-- **Structural authority** — `me space invite`, the roster (`me agent add`, `me group ...`), and invitations. This is the space **admin** flag. Admin transfers through an **admin group** to its members who are also direct space members. Designate one with `me group create <name> --space-admin` or `me group set-space-admin <group>` (revoke with `--off`); `me group list` shows which groups are admin groups. Agents are never admins.
+- **Structural authority** — `me space invite`, the roster (`me agent add`, `me service ...`, `me group ...`), and invitations. This is the space **admin** flag. Admin transfers through an **admin group** to its members who are also direct space members. Designate one with `me group create <name> --space-admin` or `me group set-space-admin <group>` (revoke with `--off`); `me group list` shows which groups are admin groups. Agents are never admins. Service accounts can be made space admins explicitly, but this is discouraged and they do not count toward the last-admin safeguard.
 - **Data authority** — who can read/write/own memories at a given tree path. This is a **tree-access grant**.
 
-A space must always keep at least one *effective* admin (a user who is a direct admin or a direct member of an admin group). The last-admin safeguard rejects any removal or demotion that would drop it (error code `LAST_ADMIN`).
+A space must always keep at least one *effective* human admin (a user who is a direct admin or a direct member of an admin group). The last-admin safeguard rejects any removal or demotion that would drop it (error code `LAST_ADMIN`).
 
 ## Tree-access grants
 
@@ -78,12 +87,14 @@ a higher level than you hold and it clamps down to yours; grant it a path you
 have no access to and the agent simply gets nothing. This lets you scope an
 agent to just the part of a subtree it needs, even on shared trees you don't own.
 
+Service accounts do **not** use this exception. They have no owner clamp, so granting access to a service account requires the normal authority: space admin or `owner` at the path. Revoking access from a service account is also allowed for space admins and members of that service account's bound admin group.
+
 ## Reserved tree roots
 
 Every space has two conventional roots:
 
 - **`/share`** — the shared root. Memories everyone in the space should see go here. This is where the file importers default a tree-less record, and where `me memory create` / `me_memory_create` callers usually place memories.
-- **`/home/<member_id>`** — a per-member private root. The input shortcut **`~`** expands to your own home, so `~/notes` means `/home/<your-id>/notes` and displays back as `~/notes`. An **agent**'s home nests under its owner's — `/home/<owner-id>/<agent-id>` — so its owner can see what the agent stores under `~` (an agent's access is capped at its owner's regardless).
+- **`/home/<member_id>`** — a per-member private root. The input shortcut **`~`** expands to your own home, so `~/notes` means `/home/<your-id>/notes` and displays back as `~/notes`. An **agent**'s home nests under its owner's — `/home/<owner-id>/<agent-id>` — so its owner can see what the agent stores under `~` (an agent's access is capped at its owner's regardless). Service accounts do not get a home grant; put their memories under an explicitly granted path such as `/share/...`.
 
 `/` is the canonical path separator (the leading slash is optional on input). Labels must match `[A-Za-z0-9_-]`.
 
@@ -91,6 +102,7 @@ Every space has two conventional roots:
 
 - A space **creator** gets `admin` + `owner@home` + `owner@share` — **not** `owner@root`. So the creator sees `share` and their own `~`, but not other members' homes. Because they're an admin, they can self-grant `owner@root` if they need the whole space.
 - A **user** who joins a space is granted `owner@home` (their own private root). An **agent** who joins is likewise granted owner over its home — nested under its owner's (`/home/<owner-id>/<agent-id>`) — so it's usable immediately and the grant isn't clamped away. Their **shared** access comes from the group they join (the default `team` group — see below), not from a per-invite grant.
+- A **service account** starts with no tree grants and is not added to the default group. Grant it access deliberately with `me access grant <service> <path> <level>` or by adding it to an ordinary group.
 
 ### The default `team` group
 
@@ -112,7 +124,7 @@ A **space admin** owns these defaults and can change them at any time:
 
 The provisioning defaults above are for a standard space. `me space create` flags let you shape a space's default access up front — e.g. a curated space you write to while others only read, or one where members can read without running up write (embedding) costs:
 
-- `--no-home-grants` — joining users **and** agents get no `owner@~`. You (the creator) get **god mode** instead of the standard grants: `admin` + `owner@/` (the whole space).
+- `--no-home-grants` — joining users **and** agents get no `owner@~`. Service accounts never get `owner@~`. You (the creator) get **god mode** instead of the standard grants: `admin` + `owner@/` (the whole space).
 - `--default-group <name>` — name the default/invite group (default `team`).
 - `--no-default-group-grants` — create the default group **grantless** (no `read@/share` + `write@/share/projects`); you grant it by hand.
 - `--no-default-group` — don't create a default group at all.
@@ -125,7 +137,7 @@ The default group is surfaced on `me space list` and is what `me space invite` t
 
 There is no Row-Level Security. For each request, the server calls `build_tree_access(principalId, spaceId)`, which collapses the principal's own grants and those from any groups it belongs to — but **only if the principal is a direct space member** — into a single set of `(tree_path, access)` rows. That set is passed as an argument into the space's SQL functions (`search_memory`, `get_memory`, …), which filter to the paths the caller may see.
 
-The authorization gate to use a space at all is holding **at least one** grant. A direct member always has one (`owner@home` at minimum); someone who is only in a group (never joined the space) resolves to an empty set and is denied.
+The current authorization gate to use a space at all is holding **at least one** grant. A direct user or agent normally has one (`owner@home` at minimum); a fresh service account intentionally has none until granted access. Someone who is only in a group (never joined the space) resolves to an empty set and is denied.
 
 :::warning[Quiet filtering]
 Access filtering happens inside the query. If you lack `read` on a memory's tree path, a search simply returns fewer rows and `me memory get` reports "not found" — you get no error distinguishing "doesn't exist" from "not visible to you." If you're missing results you expect, check your grants with `me access list <your-principal>`.
@@ -157,6 +169,11 @@ me access grant backend /share/work/backend w
 # Add one of your agents to the space and give it write access to share
 me agent add ci-bot
 me access grant ci-bot /share w
+
+# Or create a team-owned service account for CI and grant it write access
+me service create deploy-bot --admin ops@example.com
+me apikey create --service deploy-bot ci-key
+me access grant deploy-bot /share w
 ```
 
-See [`me access`](cli/me-access.md), [`me space`](cli/me-space.md), [`me group`](cli/me-group.md), and [`me agent`](cli/me-agent.md) for full command references.
+See [`me access`](cli/me-access.md), [`me space`](cli/me-space.md), [`me group`](cli/me-group.md), [`me agent`](cli/me-agent.md), and [`me service`](cli/me-service.md) for full command references.
