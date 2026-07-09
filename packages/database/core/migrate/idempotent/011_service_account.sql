@@ -15,9 +15,12 @@ as $func$
 $func$ language sql stable strict security invoker
 ;
 
+comment on column {{schema}}.principal.admin_id is
+  'For service accounts (kind=s), points at the bound admin group via principal(group_id).';
+
 -------------------------------------------------------------------------------
 -- create_service_account
--- Creates a service account plus its bound users-only admin group atomically.
+-- Creates a service account plus its bound admin group atomically.
 -- The service account is rostered into the space with no tree grants and is not
 -- added to the default group. _group_admin_member_ids is a subset-or-extension of
 -- _member_ids: ids present there are inserted with group_member.admin=true.
@@ -262,34 +265,6 @@ $func$ language plpgsql
 set search_path to pg_catalog, {{schema}}, public, pg_temp
 ;
 
--------------------------------------------------------------------------------
--- _enforce_service_account_admin_group_users_only
--------------------------------------------------------------------------------
-create or replace function {{schema}}._enforce_service_account_admin_group_users_only()
-returns trigger
-as $func$
-begin
-  if {{schema}}.service_account_for_admin_group(new.group_id) is not null
-    and not exists
-    (
-      select 1
-      from {{schema}}.principal p
-      where p.id = new.member_id
-      and p.kind = 'u'
-    )
-  then
-    raise exception
-      'service-account admin group % accepts only user members', new.group_id
-      using errcode = '23514'
-      , hint = 'service-account administration is a human trust relationship';
-  end if;
-
-  return new;
-end;
-$func$ language plpgsql
-set search_path to pg_catalog, {{schema}}, public, pg_temp
-;
-
 do $$ begin
   if not exists
   (
@@ -329,19 +304,5 @@ do $$ begin
     before insert or update on {{schema}}.principal_space
     for each row
     execute function {{schema}}._enforce_service_account_admin_group_not_space_admin();
-  end if;
-end $$;
-
-do $$ begin
-  if not exists
-  (
-    select 1 from pg_trigger
-    where tgrelid = '{{schema}}.group_member'::regclass
-    and tgname = 'group_member_service_account_admin_group_users_only'
-  ) then
-    create trigger group_member_service_account_admin_group_users_only
-    before insert or update on {{schema}}.group_member
-    for each row
-    execute function {{schema}}._enforce_service_account_admin_group_users_only();
   end if;
 end $$;

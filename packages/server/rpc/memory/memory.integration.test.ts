@@ -45,6 +45,7 @@ function call<T = unknown>(
   method: string,
   params: unknown,
   ta: TreeAccess = treeAccess,
+  as: { principalId?: string; principalKind?: "u" | "a" | "s" } = {},
 ): Promise<T> {
   const registered = memoryDataMethods.get(method);
   if (!registered) throw new Error(`no handler for ${method}`);
@@ -53,8 +54,8 @@ function call<T = unknown>(
     store,
     core: engineCore.coreStore(sql, coreSchema),
     space,
-    principalId,
-    principalKind: "u",
+    principalId: as.principalId ?? principalId,
+    principalKind: as.principalKind ?? "u",
     ownerId: null, // user/session caller
     apiKeyId: null,
     treeAccess: ta,
@@ -190,6 +191,53 @@ test("create → get round-trips content/tree/meta and createdBy is null", async
   expect(got.tree).toBe("/share/notes/work");
   expect(got.meta).toEqual({ tag: "a" });
   expect(got.hasEmbedding).toBe(false);
+});
+
+test("service-account caller can read/write only according to tree access", async () => {
+  const core = engineCore.coreStore(sql, coreSchema);
+  const serviceAccount = await core.createServiceAccount(
+    space.id,
+    `svc_${rand()}`,
+  );
+  await core.grantTreeAccess(
+    space.id,
+    serviceAccount.id,
+    "share.deploy",
+    engineCore.ACCESS.write,
+  );
+  const serviceAccess = await core.buildTreeAccess(serviceAccount.id, space.id);
+  const asService = {
+    principalId: serviceAccount.id,
+    principalKind: "s" as const,
+  };
+
+  const created = await call<{ id: string; tree: string }>(
+    "memory.create",
+    { content: "deployment note", tree: "share.deploy" },
+    serviceAccess,
+    asService,
+  );
+  expect(created.tree).toBe("/share/deploy");
+  expect(
+    (
+      await call<{ content: string }>(
+        "memory.get",
+        { id: created.id },
+        serviceAccess,
+        asService,
+      )
+    ).content,
+  ).toBe("deployment note");
+
+  await expectAppError(
+    call(
+      "memory.create",
+      { content: "outside", tree: "share.other" },
+      serviceAccess,
+      asService,
+    ),
+    "FORBIDDEN",
+  );
 });
 
 test("create with temporal round-trips as {start,end}", async () => {

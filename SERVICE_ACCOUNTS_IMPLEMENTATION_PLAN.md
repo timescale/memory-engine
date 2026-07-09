@@ -7,7 +7,8 @@
 ## Scope
 
 Implement base service accounts (`principal.kind = 's'`): space-scoped,
-api-key-authenticated principals administered by a bound users-only admin group.
+api-key-authenticated principals administered by user members of a bound admin
+group.
 
 Base scope includes:
 
@@ -34,14 +35,6 @@ Related parallel track:
   and structural-only service-account behavior should be tested after TNT-200 is
   merged.
 
-Implementation drift to reconcile before final release:
-
-- The accepted design now says explicitly adding an SA to its bound admin group
-  is not specially prevented, and grants to that group accrue normally to any
-  actual members. Earlier Phase 2 SQL/checklist wording used a stricter
-  "users-only bound admin group" rule; verify and update that enforcement in a
-  follow-up pass rather than hiding the mismatch.
-
 ## Locked Decisions
 
 - Service accounts use `kind = 's'`.
@@ -55,7 +48,9 @@ Implementation drift to reconcile before final release:
 - Creating a service account creates a bound admin group.
 - The service-account principal points to the admin group via `admin_id`, which
   references `principal(group_id)`.
-- The bound admin group is users-only.
+- The bound admin group behaves like an ordinary group for membership and data
+  grants; service-account administration authority is limited to its direct user
+  members by `is_service_account_admin`.
 - Deleting the service account deletes the bound admin group.
 - Directly deleting the bound admin group is forbidden.
 - The bound admin group cannot be a space-admin group.
@@ -138,8 +133,8 @@ Goal: create service accounts atomically and protect their bound admin groups.
   space-admin group.
 - [x] Add constraint trigger preventing a bound admin group from becoming the
   default group.
-- [x] Add constraint trigger or function guard preventing non-users from being
-  added to a bound admin group.
+- [x] Retire the earlier special non-user membership guard for bound admin
+  groups; explicit membership now follows ordinary group semantics.
 - [x] Allow service accounts to be ordinary group members.
 - [x] Allow service accounts to hold `group_member.admin` on ordinary groups.
 - [x] Keep agents barred from effective group-admin authority.
@@ -261,7 +256,7 @@ Goal: wire service-account management and avoid key privilege escalation.
   - [x] admin-group members get no special grant bypass;
   - [x] revoke allowed for space admins and admin-group members.
 - [ ] Group management:
-  - [x] bound admin group accepts users only;
+  - [x] bound admin group follows ordinary group membership semantics;
   - [x] ordinary groups accept service accounts;
   - [ ] service accounts can exercise ordinary `group_member.admin` once TNT-200
     permits structural-only endpoint access.
@@ -310,40 +305,40 @@ Goal: lock down invariants before relying on the feature.
 
 Database/core tests:
 
-- [ ] `kind='s'` can be inserted only with `space_id` and `admin_id`.
-- [ ] Service accounts get `member_id` and can own api keys.
-- [ ] Service-account names are unique per space.
-- [ ] Creating an SA creates a bound admin group.
-- [ ] Bound admin group is users-only.
-- [ ] Bound admin group cannot be deleted directly.
-- [ ] Bound admin group cannot be made a space-admin group.
-- [ ] Bound admin group cannot be the default group.
-- [ ] Deleting the SA deletes the bound admin group.
-- [ ] Service accounts can join ordinary groups.
-- [ ] Service accounts can be ordinary group admins.
-- [ ] `build_tree_access` for SAs includes direct grants and ordinary group
+- [x] `kind='s'` can be inserted only with `space_id` and `admin_id`.
+- [x] Service accounts get `member_id` and can own api keys.
+- [x] Service-account names are unique per space.
+- [x] Creating an SA creates a bound admin group.
+- [x] Bound admin group follows ordinary group membership/data-grant semantics.
+- [x] Bound admin group cannot be deleted directly.
+- [x] Bound admin group cannot be made a space-admin group.
+- [x] Bound admin group cannot be the default group.
+- [x] Deleting the SA deletes the bound admin group.
+- [x] Service accounts can join ordinary groups.
+- [x] Service accounts can be ordinary group admins.
+- [x] `build_tree_access` for SAs includes direct grants and ordinary group
   grants.
 
 Server/RPC tests:
 
-- [ ] Only space admins can create service accounts.
-- [ ] Admin-group members can manage SA keys.
-- [ ] SA api keys cannot manage keys.
-- [ ] Admin-group members can rename but not delete service accounts.
-- [ ] Non-admin users cannot administer arbitrary SAs.
-- [ ] Service-account key can read/write memory according to `tree_access`.
+- [x] Only space admins can create service accounts.
+- [x] Admin-group members can manage SA keys.
+- [x] SA api keys cannot manage keys.
+- [x] Admin-group members can rename but not delete service accounts.
+- [x] Non-admin users cannot administer arbitrary SAs.
+- [x] Service-account key can read/write memory according to `tree_access`.
 - [ ] Service-account key can exercise ordinary group admin on groups where it
   has `group_member.admin` after TNT-200 is merged.
-- [ ] Service-account key cannot delete a space even when SA is space admin.
-- [ ] Last-admin protections still apply when SAs and SA admin groups are
+- [x] Service-account key cannot delete a space even when SA is space admin.
+- [x] Last-admin protections still apply when SAs and SA admin groups are
   involved.
 
 CLI tests:
 
-- [ ] `me service create/list/rename/delete`.
-- [ ] Service-account api-key creation and revocation.
-- [ ] `ME_API_KEY` / `--api-key` with a service-account key.
-- [ ] No accidental support for `--as-service`.
+- [x] `me service create/list/rename/delete`.
+- [x] Service-account api-key creation and revocation.
+- [x] `ME_API_KEY` / `--api-key` with a service-account key.
+- [x] No accidental support for `--as-service`.
 
 ## Phase 9: Documentation
 

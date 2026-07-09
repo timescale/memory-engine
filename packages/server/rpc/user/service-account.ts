@@ -2,8 +2,9 @@
  * Service-account handlers (serviceAccount.*) for the user RPC.
  *
  * Service accounts are space-scoped API-key-bearing principals. They are created
- * by space admins and administered by a bound users-only admin group. Deletion is
- * intentionally stricter than rename/key management: space-admin only.
+ * by space admins and administered by user members of a bound admin group.
+ * Deletion is intentionally stricter than rename/key management: space-admin
+ * only.
  */
 import type { ServiceAccount } from "@memory.build/engine/core";
 import type {

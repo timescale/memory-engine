@@ -292,6 +292,39 @@ test("session: last admin with zero tree grants can still authenticate and manag
   }
 });
 
+test("api key: service account resolves with direct tree access and no owner", async () => {
+  const p = await provision();
+  const core = engineCore.coreStore(sql, coreSchema);
+  const serviceAccount = await core.createServiceAccount(
+    p.spaceId,
+    `svc-${rand()}`,
+  );
+  await core.grantTreeAccess(
+    p.spaceId,
+    serviceAccount.id,
+    "share.deploy",
+    engineCore.ACCESS.write,
+  );
+  const key = await core.createApiKey(serviceAccount.id, "ci");
+  const fullKey = engineCore.formatApiKey(key.lookupId, key.secret);
+
+  const result = await authenticateSpace(
+    req({ token: fullKey, space: p.spaceSlug }),
+    deps(),
+  );
+  expect(result.ok).toBe(true);
+  if (result.ok) {
+    expect(result.context.principalId).toBe(serviceAccount.id);
+    expect(result.context.principalKind).toBe("s");
+    expect(result.context.ownerId).toBeNull();
+    expect(result.context.apiKeyId).not.toBeNull();
+    expect(result.context.treeAccess).toContainEqual({
+      tree_path: "share.deploy",
+      access: engineCore.ACCESS.write,
+    });
+  }
+});
+
 test("api key is global: one key authenticates into every space the agent belongs to", async () => {
   const p = await provision();
   const core = engineCore.coreStore(sql, coreSchema);

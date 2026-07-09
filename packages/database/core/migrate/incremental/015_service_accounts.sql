@@ -94,4 +94,4 @@ create unique index principal_space_handle_name
   on {{schema}}.principal (space_id, name) where kind in ('g', 's');
 
 comment on column {{schema}}.principal.admin_id is
-  'For service accounts (kind=s), points at the bound users-only admin group via principal(group_id).';
+  'For service accounts (kind=s), points at the bound admin group via principal(group_id).';
