@@ -54,6 +54,7 @@ import {
 import { createMemoryClient } from "../client.ts";
 import {
   resolveCredentials,
+  resolveHarnessAgent,
   setActiveSpace,
   setCaptureEnabled,
   setDefaultServer,
@@ -600,6 +601,9 @@ function createClaudeHookCommand(): Command {
         const creds = resolveCredentials();
         // The hook ships inert: exit 0 SILENTLY when capture is off — a
         // deliberate opt-out, distinct from the "no credentials" error below.
+        // Checked BEFORE resolving the agent below, so a project with capture
+        // off but no agent configured stays silent rather than logging a
+        // resolution error it doesn't need.
         const projectConfig = {
           space: project?.space,
           tree: project?.tree,
@@ -608,7 +612,16 @@ function createClaudeHookCommand(): Command {
         if (!resolveCaptureEnabled(creds, projectConfig)) {
           process.exit(0);
         }
-        config = resolveHookConfigFromEnv(process.env, creds, projectConfig);
+        // Capture is a harness surface like MCP, so it resolves the agent
+        // ambiently (project agent: → global agent:) rather than the
+        // explicit-only `creds.asAgent` — an unresolvable agent throws here,
+        // into the catch below (capture skips), instead of silently writing
+        // as the human.
+        config = resolveHookConfigFromEnv(
+          process.env,
+          { ...creds, asAgent: resolveHarnessAgent() },
+          projectConfig,
+        );
       } catch (error) {
         console.error(
           `[memory-engine] ${eventName}: ${error instanceof Error ? error.message : String(error)}`,
