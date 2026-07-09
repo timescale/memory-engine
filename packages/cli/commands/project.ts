@@ -84,6 +84,13 @@ const CUSTOM_TREE = "custom-tree";
 /** Agent-name shape (mirrors the protocol's principalHandleNameSchema). */
 const AGENT_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 
+/** Cyan (resets only the foreground color), for the preflight's "setting up
+ * a harness" banners — visually distinct from clack's own green step symbol
+ * and yellow/red warn/error, marking them as a digression from the rest of
+ * the (uncolored) wizard. */
+const CYAN = "\x1b[36m";
+const CYAN_OFF = "\x1b[39m";
+
 /** Exit via clack's cancel outro. */
 function bail(): never {
   clack.cancel("Cancelled.");
@@ -224,7 +231,7 @@ async function preflight(
           // that would let us truly indent the install flow's own prompts)
           // so it at least reads as visually offset from the wizard's own.
           clack.log.step(
-            `  Setting up ${offer.label} — a one-time, machine-wide install, not specific to this project:`,
+            `  ${CYAN}Setting up ${offer.label} — a one-time, machine-wide install, not specific to this project:${CYAN_OFF}`,
           );
           await offer.install();
         } else {
