@@ -177,10 +177,20 @@ test("admin-group members can list and rename only administered service accounts
       )
     ).renamed,
   ).toBe(true);
-  await expectAppError(
-    call("serviceAccount.delete", { id: managed.serviceAccount.id }, managerId),
-    "FORBIDDEN",
-  );
+  // Delete is space-admin only, so the denial message must NOT mention the
+  // service-account-admin path (which delete does not accept).
+  try {
+    await call(
+      "serviceAccount.delete",
+      { id: managed.serviceAccount.id },
+      managerId,
+    );
+    throw new Error("expected serviceAccount.delete to reject");
+  } catch (e) {
+    if (!isAppError(e)) throw e;
+    expect(e.code).toBe("FORBIDDEN");
+    expect(e.message).toBe("This action requires being a space admin");
+  }
 });
 
 test("ordinary users cannot create or rename service accounts", async () => {

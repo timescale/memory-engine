@@ -183,6 +183,25 @@ test("cannot manage keys for another user's agent", async () => {
   );
 });
 
+test("managing keys for another user is FORBIDDEN, not NOT_FOUND", async () => {
+  // The target principal exists (another user), but the caller may not manage
+  // its keys — the error must be FORBIDDEN, not a misleading NOT_FOUND.
+  const other = await makeUser();
+  await expectAppError(
+    call("apiKey.create", { memberId: other, name: "x", expiresAt: null }),
+    "FORBIDDEN",
+  );
+  await expectAppError(call("apiKey.list", { memberId: other }), "FORBIDDEN");
+});
+
+test("managing keys for an unknown member is NOT_FOUND", async () => {
+  const [row] = await sql`select uuidv7() as id`;
+  await expectAppError(
+    call("apiKey.list", { memberId: row?.id as string }),
+    "NOT_FOUND",
+  );
+});
+
 test("apiKey.get is null for an unknown key id", async () => {
   const [row] = await sql`select uuidv7() as id`;
   const got = await call<{ apiKey: unknown }>("apiKey.get", {
