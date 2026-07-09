@@ -143,11 +143,15 @@ describe.skipIf(
     // would write this) — the capture hook ships inert without it. Also store
     // the default server + active space so tests that must NOT set ME_SPACE
     // (per-project space routing) still resolve the base space like a real
-    // logged-in machine would.
+    // logged-in machine would. `agent: .user` is the deliberate "run as the
+    // user, no agent identity" escape hatch — capture hooks resolve an agent
+    // ambiently now (agent-by-config) and SKIP silently when nothing is in
+    // scope at all; without this, every hook-based capture in this suite
+    // would silently no-op.
     await mkdir(join(tmpHome, ".config", "me"), { recursive: true });
     await writeFile(
       join(tmpHome, ".config", "me", "config.yaml"),
-      `capture: true\ndefault_server: ${srv.url}\nservers:\n  "${srv.url}":\n    active_space: ${spaceSlug}\n`,
+      `capture: true\nagent: .user\ndefault_server: ${srv.url}\nservers:\n  "${srv.url}":\n    active_space: ${spaceSlug}\n`,
     );
   });
 
