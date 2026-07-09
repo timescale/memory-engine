@@ -72,6 +72,36 @@ test("unrecognized shape: tool_input.command is not a string", () => {
   ).toEqual({ unrecognizedShape: true });
 });
 
+test("the rewritten command, when actually executed by a real shell, sets the env vars", async () => {
+  // Gemini CLI's own side of the contract is running the rewritten
+  // tool_input.command through its own shell exec — we don't control or
+  // test that (it's Gemini's own behavior), but the rewritten STRING is
+  // entirely ours, and there's no other harness-specific step left:
+  // running it via a real shell IS the mechanism. Use `env` as the
+  // "original command" so the executed process reveals its own environment.
+  const result = buildGeminiEnvHookOutput(
+    { ...VALID_PAYLOAD, tool_input: { command: "env" } },
+    {},
+  );
+  const command = (
+    result.output?.hookSpecificOutput as { tool_input: { command: string } }
+  ).tool_input.command;
+
+  const proc = Bun.spawn(["bash", "-c", command], { stdout: "pipe" });
+  const stdout = await new Response(proc.stdout).text();
+  expect(await proc.exited).toBe(0);
+
+  const env: Record<string, string> = {};
+  for (const line of stdout.split("\n")) {
+    const idx = line.indexOf("=");
+    if (idx !== -1) env[line.slice(0, idx)] = line.slice(idx + 1);
+  }
+  expect(env.ME_INJECT_V).toBe("1");
+  expect(env.AI_AGENT).toBe("gemini-cli");
+  expect(env.ME_AS_AGENT).toBe(".me");
+  expect(env.ME_PROJECT_DIR).toBe("/repo/project");
+});
+
 test("a command containing shell-special characters passes through unescaped after the prefix", () => {
   const result = buildGeminiEnvHookOutput(
     { ...VALID_PAYLOAD, tool_input: { command: `echo "$HOME"` } },
