@@ -138,6 +138,73 @@ test("api key string format round-trips with parseApiKey", async () => {
   });
 });
 
+test("service account lifecycle methods wrap the SQL functions", async () => {
+  const spaceId = await db.createSpace(randomSlug(), "SA Space");
+  const adminUserId = await newUserId();
+  const stagedUserId = await newUserId();
+  await db.createUser(adminUserId, `fran_${adminUserId.slice(0, 8)}`);
+  await db.createUser(stagedUserId, `grace_${stagedUserId.slice(0, 8)}`);
+  await db.addPrincipalToSpace(spaceId, adminUserId);
+
+  const account = await db.createServiceAccount(spaceId, "ci-bot", {
+    adminMembers: [
+      { memberId: adminUserId, admin: true },
+      { memberId: stagedUserId },
+    ],
+  });
+  expect(account.name).toBe("ci-bot");
+  expect(account.spaceId).toBe(spaceId);
+  expect(account.adminId).toBeTruthy();
+
+  expect(await db.getServiceAccount(account.id)).toMatchObject({
+    id: account.id,
+    adminId: account.adminId,
+    spaceId,
+  });
+  expect(await db.serviceAccountForAdminGroup(account.adminId)).toBe(
+    account.id,
+  );
+  expect(await db.listServiceAccounts(spaceId)).toContainEqual(account);
+  expect(await db.listSpacePrincipals(spaceId, "s")).toContainEqual(
+    expect.objectContaining({ id: account.id, kind: "s", name: "ci-bot" }),
+  );
+
+  expect(await db.listGroupMembers(spaceId, account.adminId)).toEqual([
+    expect.objectContaining({ memberId: adminUserId, kind: "u", admin: true }),
+    expect.objectContaining({
+      memberId: stagedUserId,
+      kind: "u",
+      admin: false,
+    }),
+  ]);
+  expect(await db.isServiceAccountAdmin(account.id, adminUserId)).toBe(true);
+  expect(await db.isServiceAccountAdmin(account.id, stagedUserId)).toBe(false);
+  await db.addPrincipalToSpace(spaceId, stagedUserId);
+  expect(await db.isServiceAccountAdmin(account.id, stagedUserId)).toBe(true);
+
+  await db.grantTreeAccess(spaceId, account.id, "robots", 2);
+  expect(await db.buildTreeAccess(account.id, spaceId)).toEqual([
+    { tree_path: "robots", access: 2 },
+  ]);
+
+  const key = await db.createApiKey(account.id, "robot-key");
+  expect(await db.validateApiKey(key.lookupId, key.secret)).toMatchObject({
+    memberId: account.id,
+    ownerId: null,
+  });
+
+  expect(
+    await db.renameServiceAccount(adminUserId, "not-a-service-account"),
+  ).toBe(false);
+  expect(await db.renameServiceAccount(account.id, "deploy-bot")).toBe(true);
+  expect((await db.getServiceAccount(account.id))?.name).toBe("deploy-bot");
+
+  expect(await db.deleteServiceAccount(adminUserId)).toBe(false);
+  expect(await db.deleteServiceAccount(account.id)).toBe(true);
+  expect(await db.getServiceAccount(account.id)).toBeNull();
+  expect(await db.getPrincipal(account.adminId)).toBeNull();
+});
+
 test("withTransaction rolls back on error", async () => {
   const slug = randomSlug();
   await expect(

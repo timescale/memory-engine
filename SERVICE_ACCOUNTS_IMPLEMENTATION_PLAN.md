@@ -201,24 +201,26 @@ Likely files:
 
 Goal: expose the new SQL functions in TypeScript.
 
-- [ ] Add core-store methods for service-account lifecycle:
-  - [ ] create
-  - [ ] list
-  - [ ] get/lookup if needed
-  - [ ] rename
-  - [ ] delete
-- [ ] Add core-store method to check whether a user administers a service
+- [x] Add core-store methods for service-account lifecycle:
+  - [x] create
+  - [x] list
+  - [x] get/lookup if needed
+  - [x] rename
+  - [x] delete
+- [x] Add core-store method to check whether a user administers a service
   account through the bound admin group.
-- [ ] Add core-store method to check whether a group is a bound SA admin group,
+- [x] Add core-store method to check whether a group is a bound SA admin group,
   or expose the SQL helper from Phase 3.
-- [ ] Ensure api-key creation can target a service-account `member_id`.
-- [ ] Preserve existing user/agent api-key behavior.
+- [x] Ensure api-key creation can target a service-account `member_id`.
+- [x] Preserve existing user/agent api-key behavior.
 
 Likely files:
 
 - `packages/engine/core/db.ts`
 - `packages/engine/core/types.ts`
 - `packages/engine/core/api-key.ts`
+- `packages/database/core/migrate/idempotent/005_principal.sql`
+- `packages/database/core/migrate/idempotent/011_service_account.sql`
 
 ## Phase 6: Server RPC Authorization
 

@@ -190,11 +190,11 @@ set search_path to pg_catalog, {{schema}}, public, pg_temp
 
 -------------------------------------------------------------------------------
 -- rename_principal
--- Rename an agent or group. Users are intentionally excluded: a user's name is
+-- Rename an agent, group, or service account. Users are intentionally excluded: a user's name is
 -- its email — the global identity handle that mirrors auth.users — so changing
 -- it is an account concern, not a space-management one. Returns true if an
--- agent/group with this id was renamed. Name uniqueness is enforced by the
--- principal table indexes.
+-- agent/group/service-account with this id was renamed. Name uniqueness is
+-- enforced by the principal table indexes.
 -------------------------------------------------------------------------------
 create or replace function {{schema}}.rename_principal
 ( _id uuid
@@ -207,7 +207,7 @@ as $func$
     update {{schema}}.principal
     set name = _name::citext
     where id = _id
-    and kind in ('a', 'g') -- never rename users (kind 'u')
+    and kind in ('a', 'g', 's') -- never rename users (kind 'u')
     returning 1
   )
   select exists (select 1 from u)

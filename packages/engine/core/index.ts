@@ -21,6 +21,7 @@ export type {
   Principal,
   PrincipalKind,
   RedeemedInvitation,
+  ServiceAccount,
   Space,
   SpaceInvitation,
   SpacePrincipal,

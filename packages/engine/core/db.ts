@@ -15,6 +15,7 @@ import type {
   Principal,
   PrincipalKind,
   RedeemedInvitation,
+  ServiceAccount,
   Space,
   SpaceInvitation,
   SpacePrincipal,
@@ -140,6 +141,27 @@ export interface CoreStore {
     spaceId: string,
     memberId: string,
   ): Promise<GroupMembership[]>;
+
+  /** Create an inert service account plus its bound users-only admin group. */
+  createServiceAccount(
+    spaceId: string,
+    name: string,
+    opts?: {
+      adminMembers?: { memberId: string; admin?: boolean }[];
+      id?: string;
+      adminGroupId?: string;
+    },
+  ): Promise<ServiceAccount>;
+  getServiceAccount(id: string): Promise<ServiceAccount | null>;
+  listServiceAccounts(spaceId: string): Promise<ServiceAccount[]>;
+  renameServiceAccount(id: string, name: string): Promise<boolean>;
+  deleteServiceAccount(id: string): Promise<boolean>;
+  serviceAccountForAdminGroup(groupId: string): Promise<string | null>;
+  /** Direct bound-admin-group membership; space-admin override is checked separately. */
+  isServiceAccountAdmin(
+    serviceAccountId: string,
+    userId: string,
+  ): Promise<boolean>;
 
   grantTreeAccess(
     spaceId: string,
@@ -288,6 +310,17 @@ function mapGroup(row: Record<string, unknown>): Group {
     id: row.id as string,
     name: row.name as string,
     isSpaceAdmin: Boolean(row.is_space_admin),
+    createdAt: row.created_at as Date,
+    updatedAt: (row.updated_at as Date | null) ?? null,
+  };
+}
+
+function mapServiceAccount(row: Record<string, unknown>): ServiceAccount {
+  return {
+    id: row.id as string,
+    name: row.name as string,
+    adminId: row.admin_id as string,
+    spaceId: row.space_id as string,
     createdAt: row.created_at as Date,
     updatedAt: (row.updated_at as Date | null) ?? null,
   };
@@ -511,6 +544,62 @@ export function coreStore(sql: Sql, schema: string = CORE_SCHEMA): CoreStore {
           createdAt: r.created_at as Date,
         }),
       );
+    },
+
+    async createServiceAccount(spaceId, name, opts) {
+      const adminMembers = opts?.adminMembers ?? [];
+      const memberIds = adminMembers.map((m) => m.memberId);
+      const groupAdminMemberIds = adminMembers
+        .filter((m) => m.admin)
+        .map((m) => m.memberId);
+      const [created] = await sql`
+        select * from ${sch}.create_service_account(
+          ${spaceId}, ${name}, ${memberIds}::uuid[], ${groupAdminMemberIds}::uuid[],
+          ${opts?.id ?? null}, ${opts?.adminGroupId ?? null}
+        )
+      `;
+      if (!created) throw new Error("create_service_account returned no row");
+
+      const account = await db.getServiceAccount(created.id as string);
+      if (!account)
+        throw new Error("created service account could not be loaded");
+      return account;
+    },
+
+    async getServiceAccount(id) {
+      const [row] = await sql`select * from ${sch}.get_service_account(${id})`;
+      return row ? mapServiceAccount(row) : null;
+    },
+
+    async listServiceAccounts(spaceId) {
+      const rows = await sql`
+        select * from ${sch}.list_service_accounts(${spaceId})
+      `;
+      return rows.map(mapServiceAccount);
+    },
+
+    async renameServiceAccount(id, name) {
+      if (!(await db.getServiceAccount(id))) return false;
+      return db.renamePrincipal(id, name);
+    },
+
+    async deleteServiceAccount(id) {
+      if (!(await db.getServiceAccount(id))) return false;
+      return db.deletePrincipal(id);
+    },
+
+    async serviceAccountForAdminGroup(groupId) {
+      const [row] = await sql`
+        select ${sch}.service_account_for_admin_group(${groupId}) as id
+      `;
+      return (row?.id as string | null) ?? null;
+    },
+
+    async isServiceAccountAdmin(serviceAccountId, userId) {
+      const [row] = await sql`
+        select ${sch}.is_service_account_admin(${serviceAccountId}, ${userId}) as ok
+      `;
+      return Boolean(row?.ok);
     },
 
     async grantTreeAccess(spaceId, principalId, treePath, access) {

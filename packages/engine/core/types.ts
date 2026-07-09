@@ -128,6 +128,16 @@ export interface GroupMembership {
   createdAt: Date;
 }
 
+/** A space-scoped service account and its bound admin group. */
+export interface ServiceAccount {
+  id: string;
+  name: string;
+  adminId: string;
+  spaceId: string;
+  createdAt: Date;
+  updatedAt: Date | null;
+}
+
 /** A tree-access grant row. */
 export interface TreeGrant {
   principalId: string;
