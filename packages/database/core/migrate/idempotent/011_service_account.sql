@@ -78,6 +78,27 @@ begin
 
   perform {{schema}}.add_principal_to_space(_space_id, _service_id, false);
 
+  -- Service accounts are space-scoped, so an initial member that is a service
+  -- account from a different space could never join _space_id — reject it rather
+  -- than seed a permanently dormant group_member row (mirrors add_group_member).
+  if exists
+  (
+    select 1
+    from unnest
+    (
+      coalesce(_member_ids, '{}'::uuid[])
+      || coalesce(_group_admin_member_ids, '{}'::uuid[])
+    ) as m(member_id)
+    join {{schema}}.principal p on p.id = m.member_id
+    where p.kind = 's'
+    and p.space_id is distinct from _space_id
+  ) then
+    raise exception
+      'cannot seed a service account from a different space into service account %''s admin group', _service_id
+      using errcode = '23514'
+      , hint = 'initial admin-group members must be users, agents, or service accounts in the same space';
+  end if;
+
   insert into {{schema}}.group_member (space_id, group_id, member_id, admin)
   select _space_id, _admin_group_id, initial.member_id
        , initial.member_id = any(coalesce(_group_admin_member_ids, '{}'::uuid[]))

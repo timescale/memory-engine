@@ -78,6 +78,11 @@ set search_path to pg_catalog, {{schema}}, public, pg_temp
 -- (group_member.member_id references principal(member_id), which is null for
 -- groups, so a group id can't be inserted), but we reject it explicitly first so
 -- the caller gets a clear message instead of an opaque foreign-key violation.
+--
+-- Service accounts are space-scoped, so a service account from a DIFFERENT space
+-- is rejected: it could never join _space_id, so the row would be a permanently
+-- dormant member that still shows up in listings. (Users/agents are global —
+-- their space_id is null — so this only bites cross-space service accounts.)
 -------------------------------------------------------------------------------
 create or replace function {{schema}}.add_group_member
 ( _space_id uuid
@@ -99,6 +104,20 @@ begin
       'cannot add group % as a member of group %: groups are not nestable', _member_id, _group_id
       using errcode = '23514'
       , hint = 'group members cannot be groups';
+  end if;
+
+  if exists
+  (
+    select 1
+    from {{schema}}.principal p
+    where p.id = _member_id
+    and p.kind = 's'
+    and p.space_id is distinct from _space_id
+  ) then
+    raise exception
+      'cannot add service account % to a group in space %: it belongs to a different space', _member_id, _space_id
+      using errcode = '23514'
+      , hint = 'a service account can only be a member of groups in its own space';
   end if;
 
   insert into {{schema}}.group_member (space_id, group_id, member_id, admin)
