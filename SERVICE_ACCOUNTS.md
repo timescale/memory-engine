@@ -114,9 +114,12 @@ user's.
   flag; with **zero** group-admins, only space admins can change membership. The
   group may be left **empty**, in which case space admins administer the SA
   directly.
-- **D10 — The admin group is users-only.** Only `kind='u'` may be added to an
-  SA's admin group. No agents (administration is a human trust relationship),
-  no SAs.
+- **D10 — The SA is not automatically added to its admin group.** Creating an
+  SA creates a bound admin group and may seed that group with initial human
+  administrators, but the SA itself is not added to the group by default.
+  Adding the SA to that group is also not specially prevented: if an operator
+  explicitly makes the SA a member, the group behaves like any other group for
+  that membership.
 - **D11 — SA gets zero access by default.** No auto-home grant, and it is
   **not** added to the space's default group. A freshly created SA can
   authenticate but is denied by the empty-`build_tree_access` gate until an
@@ -184,7 +187,13 @@ group` / space-admin). Impl detail — §8.
 - **Manage keys**: admin-group members + space admins (D7); session/OAuth/PAT
   only.
 - **Manage admin-group membership**: space admins always; group members holding
-  `group_member.admin` (D9). Adding a non-user is rejected (D10).
+  `group_member.admin` (D9).
+- **Admin-group grants**: the bound admin group is still a normal group for data
+  access. Any `tree_access` grants assigned to it work exactly like grants on an
+  ordinary group: they accrue to the group's members according to the normal
+  effective-access rules. There is no hidden special case where the SA receives
+  (or is denied) those grants merely because the group is its admin group; the
+  SA receives them only if it is actually a member of that group.
 - **The SA acting**: its key may exercise explicit authorities assigned to the
   SA (D8): memory access from `tree_access`, grant authority from `owner@P`,
   group-roster management from `group_member.admin`, invitations from
