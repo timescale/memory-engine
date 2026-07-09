@@ -16,16 +16,16 @@ Set up the current project's Memory Engine integration. Interactively it runs a 
 me project init [options]
 ```
 
-No plugin is installed per project: the single user-scoped plugin ([`me claude install`](me-claude.md#me-claude-install), run once) picks the configuration up from the committed `.me/config.yaml` this wizard writes. Teammates who have run `me claude install` get the project's behavior just by cloning — no per-repo install.
+No plugin is installed per project: a single user-scoped install per harness ([`me claude install`](me-claude.md#me-claude-install) / [`me opencode install`](me-opencode.md#me-opencode-install), each run once) picks the configuration up from the committed `.me/config.yaml` this wizard writes. Teammates who have already installed their harness get the project's behavior just by cloning — no per-repo install.
 
 ### Preflight
 
 Before any question, the wizard checks two prerequisites and offers to fix each:
 
 - **Not logged in** → offers to run `me login`. A session is required (the wizard lists your spaces and creates agents), so **declining stops**.
-- **Plugin not installed** (Claude Code on PATH, plugin missing) → offers to run the [`me claude install`](me-claude.md#me-claude-install) flow, which itself pins global defaults and asks about capture. Not required to write the config, so **declining continues with a warning**.
+- **No harness set up yet at all** → a multiselect offering to set up every harness detected as installed on this machine but not yet configured (today: Claude Code, OpenCode). Selecting one runs its install flow ([`me claude install`](me-claude.md#me-claude-install) / [`me opencode install`](me-opencode.md#me-opencode-install), always at OpenCode's default **user** scope here — run the standalone command yourself with `--scope project` if you want a team-committed OpenCode setup instead), which itself pins global defaults and asks about capture. Not required to write the config, so **declining any of them continues with a warning**. Once **any** harness is already set up, this whole step is skipped silently — per-project init doesn't nag about additional harnesses you may not use.
 
-When both are already in place, preflight is silent.
+When logged in and at least one harness is already set up, preflight is silent.
 
 ### 0. Space
 
@@ -55,19 +55,20 @@ New-agent names prefill `<slug>-agent`, bumped to a free variant. The agent's na
 
 ### 3. Setup checklist
 
-A grouped multiselect, everything pre-checked (non-interactive runs execute all of it minus the `--skip-*` flags):
+A grouped multiselect, everything pre-checked (non-interactive runs execute all of it minus the `--skip-*` flags). The transcript-import and memory-pointer rows are **harness-gated** — hidden automatically when they don't apply, rather than always assuming Claude:
 
 | Group | Step | Skip flag | What it does |
 |-------|------|-----------|--------------|
-| Claude Code sessions | Import this project's existing Claude Code sessions (one-time backfill) | `--skip-transcript-import` | Backfills sessions recorded in this repo. Reads the just-written `.me` `tree`, so the backfill lands exactly where live capture writes. |
-| Claude Code sessions | Enable ongoing capture of new Claude Code sessions | `--skip-capture-enable` | Writes `capture: true` to `.me/config.yaml` — the committed, per-project capture opt-in the installed plugin's hooks honor (it wins over each member's global setting). Interactively **deselecting** this row writes an explicit `capture: false`, so the committed config is deterministic for the team; non-interactively, `--skip-capture-enable` just leaves the file untouched. |
+| Claude Code sessions | Import this project's existing Claude Code sessions (one-time backfill) | `--skip-transcript-import-claude` | Backfills sessions recorded in this repo. Reads the just-written `.me` `tree`, so the backfill lands exactly where live capture writes. **Hidden** when this project has no Claude Code sessions at all. |
+| Codex sessions | Import this project's existing Codex sessions (one-time backfill) | `--skip-transcript-import-codex` | Same, for Codex. **Hidden** when this project has no Codex sessions. |
+| OpenCode sessions | Import this project's existing OpenCode sessions (one-time backfill) | `--skip-transcript-import-opencode` | Same, for OpenCode. **Hidden** when this project has no OpenCode sessions. |
+| Session capture | Enable ongoing capture of new agent sessions | `--skip-capture-enable` | Writes `capture: true` to `.me/config.yaml` — the committed, per-project capture opt-in every installed harness's hooks honor (it wins over each member's global setting). One flag covers every harness; interactively **deselecting** this row writes an explicit `capture: false`, so the committed config is deterministic for the team; non-interactively, `--skip-capture-enable` just leaves the file untouched. |
 | Git history | Import existing git commit history (one-time backfill) | `--skip-git-import` | Same import as [`me import git`](me-import.md#me-import-git). Hidden outside a git repo. |
 | Git history | Install a git post-commit hook | `--skip-git-hook` | The managed hook from [`me import git-hook`](me-import.md#me-import-git-hook). Hidden outside a git repo or when a hooks manager owns the hook path. |
-| Project config | Add a memory pointer to CLAUDE.md | `--skip-claude-md` | Upserts a managed block naming the project tree and how to search it. Replaces an existing block in place — including one written under the old `me claude init` name. |
+| Project config | Add a memory pointer to CLAUDE.md | `--skip-claude-md` | Upserts a managed block naming the project tree and how to search it. **Hidden** unless Claude Code is installed on this machine. |
+| Project config | Add a memory pointer to AGENTS.md | `--skip-agents-md` | Same, for `AGENTS.md` — the convention OpenCode and Codex both read. **Hidden** unless OpenCode or Codex is installed on this machine. |
 
 Steps already done are offered unchecked as idempotent re-runs (non-interactive runs report them as ✓ lines and skip them). Re-running `me project init` is safe throughout: the imports are incremental/idempotent and the config writes preserve comments.
-
-> **Harness-agnostic TODO**: the session-backfill and CLAUDE.md rows are still Claude-specific; a fuller `me project init` will gate them on the harness in scope.
 
 ### Example: the default flow
 
@@ -84,6 +85,6 @@ capture: true
 
 plus the backfills, the git hook, and the CLAUDE.md pointer.
 
-### Deprecated alias
+### Deprecated aliases
 
-`me claude init` now prints a rename notice and runs this command; the alias will be removed in a future release.
+`me claude init` and `me opencode init` both now print a rename notice and run this command; the aliases will be removed in a future release.

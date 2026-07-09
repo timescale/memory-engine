@@ -14,22 +14,22 @@ import {
 
 const CLAUDE: MemoryPointerSpec = {
   filename: "CLAUDE.md",
-  managedBy: "me claude init",
+  managedBy: "me project init",
   agentLabel: "Claude Code",
 };
 const OPENCODE: MemoryPointerSpec = {
   filename: "AGENTS.md",
-  managedBy: "me opencode init",
+  managedBy: "me project init",
   agentLabel: "OpenCode",
 };
 
 describe("buildMemoryPointerSection", () => {
   test("embeds the managing command in the start marker", () => {
     expect(buildMemoryPointerSection(CLAUDE, "share.projects.foo")).toContain(
-      "<!-- memory-engine:start (managed by `me claude init`) -->",
+      "<!-- memory-engine:start (managed by `me project init`) -->",
     );
     expect(buildMemoryPointerSection(OPENCODE, "share.projects.foo")).toContain(
-      "<!-- memory-engine:start (managed by `me opencode init`) -->",
+      "<!-- memory-engine:start (managed by `me project init`) -->",
     );
   });
 

@@ -84,10 +84,10 @@ me codex install
 me gemini install
 ```
 
-For OpenCode, `me opencode init` goes further — it backfills existing sessions, installs a capture plugin for automatic session capture going forward, registers the MCP server, and adds a memory pointer to `AGENTS.md`:
+For a guided, per-project setup that goes further than `install` — backfilling existing sessions, enabling automatic capture going forward, and adding a memory pointer to `CLAUDE.md`/`AGENTS.md` — run [`me project init`](cli/me-project.md) once per project. It's harness-agnostic: it detects whichever of Claude Code/OpenCode/Codex you actually have installed and have sessions for, and only offers the steps that apply:
 
 ```bash
-me opencode init             # guided per-project setup
+me project init              # guided per-project setup
 ```
 
 For Claude Code, `me claude install` installs the one user-scoped Memory Engine plugin (hooks + slash commands + MCP) — run it once, it applies to every project:
