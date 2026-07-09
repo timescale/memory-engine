@@ -7,9 +7,9 @@
 import { describe, expect, test } from "bun:test";
 import {
   type AgentProvisioningClients,
-  freeAgentName,
   provisionNewAgent,
-} from "./project.ts";
+} from "../agent/provision.ts";
+import { freeAgentName } from "./project.ts";
 
 describe("freeAgentName", () => {
   test("prefers <slug>-agent when free", () => {

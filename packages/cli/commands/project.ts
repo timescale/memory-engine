@@ -339,12 +339,6 @@ export function freeAgentName(slug: string, taken: Set<string>): string {
   return candidate;
 }
 
-// Re-exported for backward compatibility — `provisionNewAgent` moved to its
-// own leaf module (`agent/provision.ts`, imported above) so
-// `ensureDefaultAgent()` can reuse it without importing this file (which
-// pulls in the Claude install flow).
-export { type AgentProvisioningClients, provisionNewAgent };
-
 /** Step 2b — pick one of the caller's agents already in the space. */
 async function pickExistingAgent(existing: OwnedAgent[]): Promise<string> {
   const picked = unwrap(
