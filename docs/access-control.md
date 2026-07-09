@@ -21,7 +21,7 @@ A group is itself part of its space's roster (it gets a roster entry when create
 
 A **service account** is a durable operational identity administered by a team, not by one human owner. Create one with [`me service`](cli/me-service.md), then mint a key with `me apikey create --service <service>`. Service accounts are useful for CI/CD jobs, importers, webhooks, and other team-owned integrations.
 
-Each service account has a **bound admin group**. Space admins can manage all service accounts; direct user members of that bound admin group can administer that service account where policy allows, such as renaming it and managing its API keys. The service account is not automatically added to its own bound admin group, and grants to that group behave like ordinary group grants.
+Each service account has a **bound admin group**. Space admins can manage all service accounts; direct user members of that bound admin group can administer that service account where policy allows, such as renaming it and managing its API keys. Users, agents, and service accounts may all be members of the bound group, but only users count as service-account admins. The service account is not automatically added to its own bound admin group, and grants to that group behave like ordinary group grants.
 
 Service accounts start with **zero tree access**: no home grant, no default-group membership, and no owner clamp. Grant access to the service account directly, or add it to ordinary groups. A service-account key can use the memory and group/grant authorities the service account actually holds, but it cannot mint/revoke API keys or delete spaces. Scoped provisioning capabilities such as invitation creation and deprovisioning are deferred to [TNT-203](https://linear.app/tigerdata/issue/TNT-203/add-scoped-provisioning-capabilities-for-service-accounts).
 
@@ -87,7 +87,7 @@ a higher level than you hold and it clamps down to yours; grant it a path you
 have no access to and the agent simply gets nothing. This lets you scope an
 agent to just the part of a subtree it needs, even on shared trees you don't own.
 
-Service accounts do **not** use this exception. They have no owner clamp, so granting access to a service account requires the normal authority: space admin or `owner` at the path. Revoking access from a service account is also allowed for space admins and members of that service account's bound admin group.
+Service accounts do **not** use this exception. They have no owner clamp, so granting access to a service account requires the normal authority: space admin or `owner` at the path. Revoking access from a service account is also allowed for space admins and direct user members of that service account's bound admin group.
 
 ## Reserved tree roots
 

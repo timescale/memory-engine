@@ -2,7 +2,7 @@
  * Service-account handlers (serviceAccount.*) for the user RPC.
  *
  * Service accounts are space-scoped API-key-bearing principals. They are created
- * by space admins and administered by user members of a bound admin group.
+ * by space admins and administered by direct user members of a bound admin group.
  * Deletion is intentionally stricter than rename/key management: space-admin
  * only.
  */

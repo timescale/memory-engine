@@ -4,7 +4,7 @@ Manage service accounts in the active space.
 
 A **service account** is a space-scoped operational identity for CI/CD jobs, webhooks, and team-owned integrations. It authenticates with API keys minted through [`me apikey --service`](me-apikey.md), and those keys should be handled like production secrets.
 
-Each service account has a bound admin group. Space admins can manage all service accounts; members of a service account's bound admin group can administer that service account where allowed by policy. The service account is not automatically added to its bound admin group.
+Each service account has a bound admin group. Space admins can manage all service accounts; direct user members of a service account's bound admin group can administer that service account where allowed by policy. Users, agents, and service accounts may all be members of the bound group for normal group access. The service account is not automatically added to its bound admin group.
 
 ## Commands
 
@@ -30,7 +30,7 @@ me service list
 Create a service account in the active space. The command prints the service-account id and the bound admin group id.
 
 ```
-me service create <name> [--admin <user>] [--group-admin <user>]
+me service create <name> [--admin <member>] [--group-admin <member>]
 ```
 
 | Argument | Required | Description |
@@ -39,10 +39,10 @@ me service create <name> [--admin <user>] [--group-admin <user>]
 
 | Option | Description |
 |--------|-------------|
-| `--admin <user>` | Add an initial user to the bound admin group. Repeatable. |
-| `--group-admin <user>` | Add an initial user as an admin of the bound admin group. Repeatable. |
+| `--admin <member>` | Add an initial user, agent, or service account to the bound admin group. Repeatable. |
+| `--group-admin <member>` | Add an initial user, agent, or service account with the group's admin flag. Repeatable. |
 
-Users can be referenced by id, email, or resolvable name in the active space.
+Members can be referenced by id or resolvable name in the active space.
 
 ```bash
 me service create deploy-bot --admin ops@example.com

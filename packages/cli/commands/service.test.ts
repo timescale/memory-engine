@@ -14,6 +14,12 @@ function optionLongs(cmd: Command): string[] {
   return cmd.options.map((o) => o.long).filter((o): o is string => !!o);
 }
 
+function optionFlags(cmd: Command, long: string): string {
+  const option = cmd.options.find((o) => o.long === long);
+  if (!option) throw new Error(`missing option ${long}`);
+  return option.flags;
+}
+
 function allOptionLongs(cmd: Command): string[] {
   return [
     ...optionLongs(cmd),
@@ -35,6 +41,12 @@ describe("service command", () => {
       "--group-admin",
     ]);
     expect(optionLongs(subcommand(service, "delete"))).toContain("--yes");
+  });
+
+  test("service create accepts initial admin members, not only users", () => {
+    const create = subcommand(createServiceCommand(), "create");
+    expect(optionFlags(create, "--admin")).toContain("<member>");
+    expect(optionFlags(create, "--group-admin")).toContain("<member>");
   });
 
   test("does not introduce an act-as-service option", () => {

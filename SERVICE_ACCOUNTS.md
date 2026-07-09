@@ -66,7 +66,7 @@ integrations, bots, and CI/CD pipelines.
 |---|---|---|---|---|
 | Human | yes | no | — | no |
 | Authenticates with | OAuth session / PAT | api key | (none) | **api key** |
-| Governance | self | one owner user | space admins | **bound admin group of users** |
+| Governance | self | one owner user | space admins | **direct users in bound admin group** |
 | Access ceiling | its own grants | clamped to owner | — | **its own grants (no clamp)** |
 | Global vs space | global | global | space-scoped | **space-scoped** |
 | Default access | — | — | — | **none** (zero grants) |
@@ -83,7 +83,8 @@ user's.
   admin`, structural authority) can create a service account.
 - **D2 — Each SA is bound to a dedicated admin group.** Creating an SA
   atomically creates a `kind='g'` group in the same space and binds it to the
-  SA. The group's **members** are the users allowed to administer the SA.
+  SA. Direct **user** members of that group administer the SA; agent and service
+  account members are allowed but do not count as SA admins.
 - **D3 — The SA points at its admin group** via a new `principal` column
   (tentatively **`admin_id`**, referencing `principal(group_id)` so the FK
   guarantees it's a group). See §8 for the name bikeshed.
@@ -96,10 +97,11 @@ user's.
   durability win (integrations don't break when a human leaves) — and the reason
   an SA's access must be **audited like a top-level user's**, not assumed to be
   bounded by any current human.
-- **D6 — Revocation is broad.** Space admins **and** any admin-group member may
-  revoke access from the SA (revocation only reduces, so it's low-risk).
-- **D7 — Admin-group members manage the SA's api keys** (create / rotate /
-  revoke), in addition to space admins. Key mint/revoke stays a
+- **D6 — Revocation is broad.** Space admins **and** any direct user member of
+  the admin group may revoke access from the SA (revocation only reduces, so
+  it's low-risk).
+- **D7 — Direct user admin-group members manage the SA's api keys** (create /
+  rotate / revoke), in addition to space admins. Key mint/revoke stays a
   session/OAuth/PAT operation — a key can never mint keys.
 - **D8 — The SA's own key has no authority by default.** A freshly created SA is
   inert (D11). Once granted authority, its key may exercise that authority like
@@ -110,16 +112,17 @@ user's.
   the SA a space admin (D14). Key mint/revoke stays human-administered: an SA
   key can never mint keys.
 - **D9 — Admin group membership is flexible.** The space admin adds the first
-  member(s). Each member may or may not get the group's `group_member.admin`
-  flag; with **zero** group-admins, only space admins can change membership. The
-  group may be left **empty**, in which case space admins administer the SA
-  directly.
+  member(s), which may be users, agents, or service accounts. Only direct user
+  members administer the SA. Membership management of the bound group is limited
+  to space admins and direct user SA-admins; the group's `group_member.admin`
+  flag is ordinary group metadata, not SA-admin authority.
 - **D10 — The SA is not automatically added to its admin group.** Creating an
-  SA creates a bound admin group and may seed that group with initial human
-  administrators, but the SA itself is not added to the group by default.
+  SA creates a bound admin group and may seed that group with initial members,
+  but the SA itself is not added to the group by default.
   Adding the SA to that group is also not specially prevented: if an operator
   explicitly makes the SA a member, the group behaves like any other group for
-  that membership.
+  data access. The SA still does not become an SA admin, because only user
+  members count for SA administration.
 - **D11 — SA gets zero access by default.** No auto-home grant, and it is
   **not** added to the space's default group. A freshly created SA can
   authenticate as a direct space member, but data-plane reads/writes return no
@@ -184,10 +187,11 @@ group` / space-admin). Impl detail — §8.
 - **Grant / revoke access to the SA**: grant needs `owner@P` (D4); revoke is
   space-admin *or* any admin-group member (D6). These act on the SA's own
   `tree_access` rows.
-- **Manage keys**: admin-group members + space admins (D7); session/OAuth/PAT
-  only.
-- **Manage admin-group membership**: space admins always; group members holding
-  `group_member.admin` (D9).
+- **Manage keys**: direct user admin-group members + space admins (D7);
+  session/OAuth/PAT only.
+- **Manage admin-group membership**: space admins always; direct user
+  SA-admins for the bound admin group. The group's `group_member.admin` flag is
+  not SA-admin authority.
 - **Admin-group grants**: the bound admin group is still a normal group for data
   access. Any `tree_access` grants assigned to it work exactly like grants on an
   ordinary group: they accrue to the group's members according to the normal

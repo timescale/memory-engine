@@ -193,7 +193,7 @@ export async function callerOwnsAgentGlobal(
   );
 }
 
-/** True if the caller is a direct member of a service account's bound admin group. */
+/** True if the caller is a direct user member of an SA's bound admin group. */
 export async function callerAdministersServiceAccount(
   context: SpaceRpcContext,
   principalId: string,
