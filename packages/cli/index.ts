@@ -171,7 +171,14 @@ claude.addCommand(
   createProjectInitCommand({ deprecatedAlias: "me claude init" }),
 );
 program.addCommand(claude);
-program.addCommand(createOpenCodeCommand());
+const opencode = createOpenCodeCommand();
+// Deprecated alias: `me opencode init` → `me project init` (warns; removed
+// in a future release). Registered here so opencode.ts and project.ts don't
+// cycle, mirroring the claude alias above.
+opencode.addCommand(
+  createProjectInitCommand({ deprecatedAlias: "me opencode init" }),
+);
+program.addCommand(opencode);
 program.addCommand(createGeminiCommand());
 program.addCommand(createCodexCommand());
 
