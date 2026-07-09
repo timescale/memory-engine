@@ -19,7 +19,7 @@
  * (an existing `claude`/`codex`/`gemini`/`opencode` login), never a
  * memory-engine account.
  */
-import { chmodSync, mkdtempSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdtempSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -49,6 +49,18 @@ export function writeMeWrapper(): string {
   );
   chmodSync(wrapperPath, 0o755);
   return binDir;
+}
+
+/**
+ * A fresh scratch dir under a resolved (symlink-free) tmpdir. On macOS,
+ * `os.tmpdir()` returns a path through the `/tmp` -> `/private/tmp` symlink,
+ * but a harness process reports its own cwd/directory context already
+ * resolved (`/private/var/...`) — comparing the two without resolving first
+ * makes an otherwise-correct `ME_PROJECT_DIR` assertion fail on a path
+ * spelling difference, not a real mismatch.
+ */
+export function mkScratchDir(prefix: string): string {
+  return realpathSync(mkdtempSync(join(tmpdir(), prefix)));
 }
 
 /** The four contract vars every adapter injects (see harness-contract.ts). */
@@ -90,6 +102,23 @@ export function cleanEnv(): Record<string, string> {
   }
   for (const key of CONTRACT_VAR_NAMES) delete env[key];
   return env;
+}
+
+/**
+ * {@link cleanEnv} plus `PWD` pinned to `cwd`, merged with `extra` (e.g. a
+ * `PATH` override). `Bun.spawn`'s `cwd` option changes where the child
+ * process actually runs, but does NOT update the `PWD` env var it inherits
+ * — and OpenCode's project/plugin-directory resolution reads `PWD`, not the
+ * process's real cwd, so a stale `PWD` makes it silently load no plugin at
+ * all (confirmed live: it finds a `.opencode/plugins` dir at the OLD `PWD`
+ * — usually empty — instead of the scratch project). Build every smoke
+ * test's child env from this, never from `cleanEnv()` + a bare `cwd` option.
+ */
+export function envForCwd(
+  cwd: string,
+  extra: Record<string, string> = {},
+): Record<string, string> {
+  return { ...cleanEnv(), ...extra, PWD: cwd };
 }
 
 /** Parse `KEY=value` lines (as printed by `env`) out of arbitrary text —
