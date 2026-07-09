@@ -17,8 +17,12 @@
  * enforce the stronger agent-by-config rule themselves and may run without
  * shell injection; a small diagnostic/setup allowlist; an explicit
  * `--as-agent`/`ME_AS_AGENT` (any value, including `.user` — the universal
- * human override); an agent `ME_API_KEY` (the sanctioned sandbox mode — the
- * bearer already *is* the agent). A live injected contract is itself an
+ * human override); a CONFIRMED agent `ME_API_KEY` (the sanctioned sandbox
+ * mode — the bearer already *is* the agent). "Confirmed" matters: a user PAT
+ * uses the identical key format, so `ME_API_KEY` being set is only a claim —
+ * {@link checkHarnessFailsafe} resolves the actual kind over the network,
+ * and only pays for that round trip once a harness is actually detected (see
+ * {@link ApiKeyKindResolver}). A live injected contract is itself an
  * exemption (nothing to fail over). And — decided in the design — an
  * INTERACTIVE stderr TTY is treated as a human in an IDE integrated terminal
  * (a harness tool shell never allocates one), not an error: run as the user
@@ -106,35 +110,45 @@ export interface FailsafeInputs {
   env: NodeJS.ProcessEnv;
   /** Whether --as-agent / ME_AS_AGENT was explicitly given (any value). */
   hasExplicitAsAgent: boolean;
-  /** Whether the resolved credential is an agent api key (ME_API_KEY). */
-  hasAgentApiKey: boolean;
+  /**
+   * Whether `ME_API_KEY` / `--api-key` is set to *something* — this is only
+   * a claim, not proof it's an agent key: a user PAT is the identical
+   * `me.<lookupId>.<secret>` format, so confirming which one it is needs a
+   * network round trip (see {@link checkHarnessFailsafe}'s
+   * `resolveIsAgentApiKey`).
+   */
+  hasApiKeyClaim: boolean;
   /** Whether stderr is an interactive TTY. */
   isStderrTTY: boolean;
 }
 
-/** The cheap (sync, no detection) exemptions — checked before paying for
- * `detectHarness()`'s env scan (+ possible fs access). */
+/** The cheap (sync, no detection, no network) exemptions — checked before
+ * paying for `detectHarness()`'s env scan (+ possible fs access) or a
+ * network round trip. */
 function isCheaplyExempt(inputs: FailsafeInputs): boolean {
   return (
     ALLOWLISTED_COMMANDS.has(inputs.commandPath) ||
     inputs.hasExplicitAsAgent ||
-    inputs.hasAgentApiKey ||
     isInjectionLive(inputs.env)
   );
 }
 
 /**
- * Pure decision core: given the cheap inputs and an already-computed harness
- * detection, decide what the failsafe does. Split from
- * {@link checkHarnessFailsafe} so tests can supply a synthetic detection
- * result without faking the env vars `detectHarness()` itself reads (that
- * matrix is covered by harness-detect.test.ts).
+ * Pure decision core: given the cheap inputs, an already-computed harness
+ * detection, and whether an api-key claim has been CONFIRMED to belong to an
+ * agent (see {@link checkHarnessFailsafe}), decide what the failsafe does.
+ * Split from {@link checkHarnessFailsafe} so tests can supply a synthetic
+ * detection result without faking the env vars `detectHarness()` itself
+ * reads (that matrix is covered by harness-detect.test.ts), and can pass the
+ * confirmed-agent-key fact directly without a network call.
  */
 export function decideFailsafe(
   inputs: FailsafeInputs,
   detection: HarnessDetection,
+  confirmedAgentApiKey = false,
 ): FailsafeVerdict {
   if (isCheaplyExempt(inputs)) return { action: "ok" };
+  if (confirmedAgentApiKey) return { action: "ok" };
   if (!detection.isAgent) return { action: "ok" }; // no evidence → human (goal 2)
 
   if (inputs.isStderrTTY) {
@@ -168,12 +182,32 @@ export function decideFailsafe(
   };
 }
 
-/** Run the full failsafe check: skip harness detection when a cheap
- * exemption already applies, else detect and decide. */
+/**
+ * Confirms whether the current api-key claim actually belongs to an agent
+ * (vs a user PAT) — the two are byte-identical in shape, so only the server
+ * can tell them apart. Callers should swallow their own errors and resolve
+ * `false` (fail closed: an unconfirmed claim is never treated as an agent).
+ */
+export type ApiKeyKindResolver = () => Promise<boolean>;
+
+/**
+ * Run the full failsafe check: skip harness detection when a cheap
+ * exemption already applies; otherwise detect, and — only when a harness IS
+ * detected AND there's an api-key claim to confirm — pay for one network
+ * round trip (`resolveIsAgentApiKey`) before deciding. This keeps the common
+ * paths (no harness detected at all; no api key) free of any network call.
+ */
 export async function checkHarnessFailsafe(
   inputs: FailsafeInputs,
+  resolveIsAgentApiKey?: ApiKeyKindResolver,
 ): Promise<FailsafeVerdict> {
   if (isCheaplyExempt(inputs)) return { action: "ok" };
   const detection = await detectHarness();
-  return decideFailsafe(inputs, detection);
+  if (!detection.isAgent) return { action: "ok" };
+
+  const confirmedAgentApiKey =
+    inputs.hasApiKeyClaim && resolveIsAgentApiKey
+      ? await resolveIsAgentApiKey().catch(() => false)
+      : false;
+  return decideFailsafe(inputs, detection, confirmedAgentApiKey);
 }
