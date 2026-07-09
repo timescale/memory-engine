@@ -20,6 +20,8 @@ export interface SpaceRpcContext extends HandlerContext {
   space: Space;
   /** Authenticated principal id (user id for sessions, agent id for api keys). */
   principalId: string;
+  /** Authenticated principal kind after any act-as-agent switch. */
+  principalKind: "u" | "a" | "s";
   /**
    * The principal's owner — non-null when it is an agent, null for a user. Drives
    * `~` home nesting (an agent's home lives under its owner's home).
@@ -57,6 +59,10 @@ export function isSpaceRpcContext(ctx: HandlerContext): ctx is SpaceRpcContext {
     ctx.space !== null &&
     "principalId" in ctx &&
     typeof ctx.principalId === "string" &&
+    "principalKind" in ctx &&
+    (ctx.principalKind === "u" ||
+      ctx.principalKind === "a" ||
+      ctx.principalKind === "s") &&
     "treeAccess" in ctx &&
     Array.isArray(ctx.treeAccess)
   );

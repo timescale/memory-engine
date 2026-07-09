@@ -46,6 +46,8 @@ export interface SpaceAuthContext {
   space: Space;
   /** Authenticated principal id (user id for sessions, agent id for api keys). */
   principalId: string;
+  /** Authenticated principal kind after any act-as-agent switch. */
+  principalKind: "u" | "a" | "s";
   /**
    * The authenticated principal's owner — non-null when it is an agent, null for
    * a user/session. Drives `~` home nesting (an agent's home lives under its
@@ -139,6 +141,7 @@ async function authenticateSpaceInner(
   //    keys arrive only via the Bearer header (never a cookie).
   const parsed = bearer ? parseApiKey(bearer) : null;
   let principalId: string;
+  let principalKind: "u" | "a" | "s";
   let apiKeyId: string | null;
   // The principal's owner — set only for an agent key; drives `~` home nesting.
   let ownerId: string | null = null;
@@ -155,6 +158,12 @@ async function authenticateSpaceInner(
     principalId = validated.memberId;
     apiKeyId = validated.apiKeyId;
     ownerId = validated.ownerId;
+    const principal = await core.getPrincipal(principalId);
+    if (!principal || principal.kind === "g") {
+      debug("space auth failed: api key principal not found");
+      return { ok: false, error: unauthorized("Invalid credentials") };
+    }
+    principalKind = principal.kind;
   } else if (bearer && isLegacyApiKey(bearer)) {
     // A pre-global 4-part key (me.<slug>.<lookup>.<secret>). These no longer
     // authenticate; tell the operator to recreate the key rather than failing
@@ -177,6 +186,7 @@ async function authenticateSpaceInner(
       return { ok: false, error: unauthorized("Invalid credentials") };
     }
     principalId = verified.userId;
+    principalKind = "u";
     apiKeyId = null;
   } else {
     // Browser cookie session. CSRF gates the ambient cookie credential.
@@ -192,6 +202,7 @@ async function authenticateSpaceInner(
       return { ok: false, error: unauthorized("Invalid credentials") };
     }
     principalId = session.user.id;
+    principalKind = "u";
     apiKeyId = null;
   }
 
@@ -202,7 +213,7 @@ async function authenticateSpaceInner(
   // (step 6) so `treeAccess`, `~`-home nesting, and `admin` all reflect the agent.
   let authenticatedAs: string | null = null;
   const asAgent = request.headers.get(AS_AGENT_HEADER);
-  if (asAgent && ownerId === null) {
+  if (asAgent && principalKind === "u") {
     const agents = await core.listAgents(principalId);
     const resolved = resolveOwnedAgent(agents, asAgent);
     if (resolved.kind !== "found") {
@@ -229,6 +240,7 @@ async function authenticateSpaceInner(
     authenticatedAs = principalId;
     ownerId = principalId;
     principalId = agent.id;
+    principalKind = "a";
   }
 
   // 5. Endpoint admission is direct space membership (principal_space), not
@@ -263,6 +275,7 @@ async function authenticateSpaceInner(
       core,
       space,
       principalId,
+      principalKind,
       ownerId,
       apiKeyId,
       treeAccess,

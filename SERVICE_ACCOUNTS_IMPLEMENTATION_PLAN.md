@@ -226,39 +226,39 @@ Likely files:
 
 Goal: wire service-account management and avoid key privilege escalation.
 
-- [ ] Add dedicated `serviceAccount.*` methods unless a generalized principal
+- [x] Add dedicated `serviceAccount.*` methods unless a generalized principal
   surface is clearly simpler.
-- [ ] `serviceAccount.create`:
-  - [ ] requires space admin;
-  - [ ] creates SA + bound admin group atomically;
-  - [ ] supports optional initial users and optional `group_member.admin` flags.
-- [ ] `serviceAccount.list`:
-  - [ ] space admins can list all;
-  - [ ] admin-group members can list service accounts they administer;
-  - [ ] decide whether ordinary members can see service accounts through
+- [x] `serviceAccount.create`:
+  - [x] requires space admin;
+  - [x] creates SA + bound admin group atomically;
+  - [x] supports optional initial users and optional `group_member.admin` flags.
+- [x] `serviceAccount.list`:
+  - [x] space admins can list all;
+  - [x] admin-group members can list service accounts they administer;
+  - [x] decide whether ordinary members can see service accounts through
     `principal.lookup` only.
-- [ ] `serviceAccount.rename`:
-  - [ ] space admin or admin-group member.
-- [ ] `serviceAccount.delete`:
-  - [ ] space admin or possibly admin-group member. Decide before implementing;
-    deletion is destructive and may be space-admin-only.
-- [ ] Key management:
-  - [ ] space admins can create/revoke/list keys for the SA;
-  - [ ] admin-group members can create/revoke/list keys for the SA;
-  - [ ] service-account api keys cannot create/revoke/list api keys.
-- [ ] Tree grants to service accounts:
-  - [ ] grant requires existing normal authority: space admin or `owner@P`;
-  - [ ] admin-group members get no special grant bypass;
-  - [ ] revoke allowed for space admins and admin-group members.
+- [x] `serviceAccount.rename`:
+  - [x] space admin or admin-group member.
+- [x] `serviceAccount.delete`:
+  - [x] space admin only; deletion is destructive, so admin-group members cannot
+    delete service accounts.
+- [x] Key management:
+  - [x] space admins can create/revoke/list keys for the SA;
+  - [x] admin-group members can create/revoke/list keys for the SA;
+  - [x] service-account api keys cannot create/revoke/list api keys.
+- [x] Tree grants to service accounts:
+  - [x] grant requires existing normal authority: space admin or `owner@P`;
+  - [x] admin-group members get no special grant bypass;
+  - [x] revoke allowed for space admins and admin-group members.
 - [ ] Group management:
-  - [ ] bound admin group accepts users only;
-  - [ ] ordinary groups accept service accounts;
+  - [x] bound admin group accepts users only;
+  - [x] ordinary groups accept service accounts;
   - [ ] service accounts can exercise ordinary `group_member.admin` once TNT-200
     permits structural-only endpoint access.
-- [ ] Space admin behavior:
-  - [ ] allow `principal.add(admin=true)` or equivalent for SAs if caller is a
+- [x] Space admin behavior:
+  - [x] allow `principal.add(admin=true)` or equivalent for SAs if caller is a
     space admin;
-  - [ ] bar service-account api keys from `space.delete` even if the SA is a
+  - [x] bar service-account api keys from `space.delete` even if the SA is a
     space admin.
 
 Likely files:

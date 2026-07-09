@@ -7,6 +7,7 @@ import type { MethodRegistry } from "../types";
 import { agentMethods } from "./agent";
 import { apiKeyMethods } from "./api-key";
 import { inviteeMethods } from "./invitation";
+import { serviceAccountMethods } from "./service-account";
 import { spaceMethods } from "./space";
 import { assertUserRpcContext, requireUserCaller } from "./types";
 import { whoamiMethods } from "./whoami";
@@ -66,6 +67,7 @@ export const userMethods: MethodRegistry = gateAgentAccess(
   new Map([
     ...whoamiMethods,
     ...agentMethods,
+    ...serviceAccountMethods,
     ...apiKeyMethods,
     ...spaceMethods,
     ...inviteeMethods,

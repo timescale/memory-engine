@@ -19,6 +19,7 @@ import {
 import { buildRegistry } from "../registry";
 import type { HandlerContext } from "../types";
 import {
+  callerAdministersServiceAccount,
   callerOwnsAgent,
   guardCore,
   inputTreePath,
@@ -43,6 +44,15 @@ async function requireGrantAuthority(
   if (await callerOwnsAgent(ctx, principalId)) return;
   if (ctx.admin) return;
   requireTreeOwner(ctx, treePath);
+}
+
+async function requireGrantRemovalAuthority(
+  ctx: SpaceRpcContext,
+  principalId: string,
+  treePath: string,
+): Promise<void> {
+  if (await callerAdministersServiceAccount(ctx, principalId)) return;
+  await requireGrantAuthority(ctx, principalId, treePath);
 }
 
 async function grantSet(
@@ -71,7 +81,7 @@ async function grantRemove(
   assertSpaceRpcContext(context);
   const ctx = context as SpaceRpcContext;
   const treePath = inputTreePath(ctx, params.treePath);
-  await requireGrantAuthority(ctx, params.principalId, treePath);
+  await requireGrantRemovalAuthority(ctx, params.principalId, treePath);
   const removed = await guardCore(() =>
     ctx.core.removeTreeAccessGrant(ctx.space.id, params.principalId, treePath),
   );
@@ -102,7 +112,16 @@ async function grantList(
     params.principalId !== undefined &&
     params.principalId !== null &&
     (await callerOwnsAgent(ctx, params.principalId));
-  if (!ownSelf && !ownAgent && !ownsTreePath(ctx, under)) {
+  const ownServiceAccount =
+    params.principalId !== undefined &&
+    params.principalId !== null &&
+    (await callerAdministersServiceAccount(ctx, params.principalId));
+  if (
+    !ownSelf &&
+    !ownAgent &&
+    !ownServiceAccount &&
+    !ownsTreePath(ctx, under)
+  ) {
     requireSpaceAdmin(ctx);
   }
   const grants = await ctx.core.listTreeAccessGrants(

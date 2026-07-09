@@ -29,7 +29,8 @@ import { guardCore } from "../core-error";
 import { AppError } from "../errors";
 import { buildRegistry } from "../registry";
 import type { HandlerContext } from "../types";
-import { requireOwnMember } from "./agent";
+import { requireOwnAgent } from "./agent";
+import { requireServiceAccountManager } from "./service-account";
 import { assertUserRpcContext, type UserRpcContext } from "./types";
 
 /**
@@ -45,6 +46,27 @@ function denyApiKeyCaller(ctx: UserRpcContext): void {
       "API keys can't manage API keys — run `me login` (session) to mint or revoke keys.",
     );
   }
+}
+
+async function requireKeyAuthority(
+  ctx: UserRpcContext,
+  memberId: string,
+): Promise<void> {
+  if (memberId === ctx.userId) return; // the caller's own user principal (PAT)
+
+  const principal = await ctx.core.getPrincipal(memberId);
+  if (!principal) {
+    throw new AppError("NOT_FOUND", `Member not found: ${memberId}`);
+  }
+  if (principal.kind === "a") {
+    await requireOwnAgent(ctx, memberId);
+    return;
+  }
+  if (principal.kind === "s") {
+    await requireServiceAccountManager(ctx, memberId);
+    return;
+  }
+  throw new AppError("NOT_FOUND", `Member not found: ${memberId}`);
 }
 
 function toApiKeyInfoResponse(k: ApiKeyInfo): ApiKeyInfoResponse {
@@ -65,8 +87,7 @@ async function apiKeyCreate(
   assertUserRpcContext(context);
   const ctx = context as UserRpcContext;
   denyApiKeyCaller(ctx); // keys can't mint keys
-  // The member must be the caller's own user principal (a PAT) or an owned agent.
-  await requireOwnMember(ctx, params.memberId);
+  await requireKeyAuthority(ctx, params.memberId);
 
   const created = await guardCore(() =>
     ctx.core.createApiKey(params.memberId, params.name, {
@@ -84,7 +105,7 @@ async function apiKeyList(
 ): Promise<ApiKeyListResult> {
   assertUserRpcContext(context);
   const ctx = context as UserRpcContext;
-  await requireOwnMember(ctx, params.memberId);
+  await requireKeyAuthority(ctx, params.memberId);
   const keys = await ctx.core.listApiKeys(params.memberId);
   return { apiKeys: keys.map(toApiKeyInfoResponse) };
 }
@@ -97,8 +118,7 @@ async function apiKeyGet(
   const ctx = context as UserRpcContext;
   const key = await ctx.core.getApiKey(params.id);
   if (!key) return { apiKey: null };
-  // Only the member's owner may see it (the caller themselves, or an owned agent).
-  await requireOwnMember(ctx, key.memberId);
+  await requireKeyAuthority(ctx, key.memberId);
   return { apiKey: toApiKeyInfoResponse(key) };
 }
 
@@ -111,7 +131,7 @@ async function apiKeyDelete(
   denyApiKeyCaller(ctx); // keys can't revoke keys
   const key = await ctx.core.getApiKey(params.id);
   if (!key) return { deleted: false };
-  await requireOwnMember(ctx, key.memberId);
+  await requireKeyAuthority(ctx, key.memberId);
   const deleted = await guardCore(() => ctx.core.deleteApiKey(params.id));
   return { deleted };
 }
