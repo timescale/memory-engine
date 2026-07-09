@@ -30,6 +30,7 @@ import {
   realpath,
   rm,
   stat,
+  symlink,
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -1642,6 +1643,56 @@ describe.skipIf(
       recursive: true,
       force: true,
     });
+    await rm(root, { recursive: true, force: true });
+  });
+
+  test("8h. `me project init`'s CLAUDE.md/AGENTS.md pointer steps collapse into one write when the files are symlinked", async () => {
+    // A common convention for projects supporting multiple AI tools: symlink
+    // CLAUDE.md to AGENTS.md so there's only one file to maintain. Both
+    // pointer specs share the same start marker, so independently writing
+    // both into a symlinked pair wouldn't duplicate the block — but it WOULD
+    // silently clobber one write with the other's wording, non-
+    // deterministically depending on step order, absent the dedicated
+    // detection this test covers.
+    const root = await mkdtemp(join(tmpdir(), "me-e2e-symlinkmd-"));
+    const projectDir = join(root, "symlinkmd");
+    await mkdir(projectDir, { recursive: true });
+    await writeFile(join(projectDir, "AGENTS.md"), "# Existing notes\n");
+    await symlink(join(projectDir, "AGENTS.md"), join(projectDir, "CLAUDE.md"));
+
+    // Both Claude Code and OpenCode "installed" — both pointer steps would
+    // otherwise be independently available.
+    const fakeBinDir = await fakeHarnessBins(["claude", "opencode"]);
+    const initEnv = { PATH: `${fakeBinDir}:${process.env.PATH}` };
+
+    const init = await me(
+      [
+        "project",
+        "init",
+        "--skip-transcript-import-claude",
+        "--skip-transcript-import-codex",
+        "--skip-transcript-import-opencode",
+      ],
+      initEnv,
+      projectDir,
+    );
+    expect(init.code, init.stderr).toBe(0);
+
+    const agentsMd = await readFile(join(projectDir, "AGENTS.md"), "utf8");
+    const claudeMd = await readFile(join(projectDir, "CLAUDE.md"), "utf8");
+    expect(claudeMd).toBe(agentsMd); // still the same file, via the symlink
+
+    // Exactly one managed block — not duplicated, not clobbered-then-
+    // rewritten twice.
+    expect(agentsMd.split("memory-engine:start").length - 1).toBe(1);
+    // The neutral wording won, not the Claude-specific one — correct
+    // regardless of which of the two steps happened to run last.
+    expect(agentsMd).toContain("captured/imported your coding agent");
+    expect(agentsMd).not.toContain("captured/imported Claude Code");
+    // The pre-existing content survived the upsert.
+    expect(agentsMd).toContain("# Existing notes");
+
+    await rm(fakeBinDir, { recursive: true, force: true });
     await rm(root, { recursive: true, force: true });
   });
 

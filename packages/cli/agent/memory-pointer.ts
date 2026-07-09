@@ -8,7 +8,7 @@
  * in the marker, and the agent label in the copy differ — captured here as a
  * `MemoryPointerSpec` so there is one implementation.
  */
-import { readFile, writeFile } from "node:fs/promises";
+import { readFile, realpath, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import * as clack from "@clack/prompts";
 import { resolveCredentials } from "../credentials.ts";
@@ -85,8 +85,19 @@ export function buildMemoryPointerSection(
 }
 
 /**
- * Resolve the rules file the memory pointer lives in (the git repo root's when
- * in a repo, else the current directory's) and the managed section to write.
+ * The rules file's path for a given filename (the git repo root's when in a
+ * repo, else the current directory's) — shared by {@link resolveMemoryPointer}
+ * and {@link sameRulesFile} so both agree on where e.g. "CLAUDE.md" lives.
+ */
+export async function rulesFilePath(filename: string): Promise<string> {
+  const cwd = process.cwd();
+  const { gitRoot } = await new SlugRegistry().resolve(cwd);
+  return join(gitRoot ?? cwd, filename);
+}
+
+/**
+ * Resolve the rules file the memory pointer lives in and the managed section
+ * to write.
  *
  * The pointer's tree matches where the imports/hooks actually write: the
  * project's `.me/config.yaml` `tree` when one is in scope, else per-slug
@@ -106,6 +117,34 @@ export async function resolveMemoryPointer(
   const section = buildMemoryPointerSection(spec, tree, creds.activeSpace);
   const filePath = join(gitRoot ?? cwd, spec.filename);
   return { filePath, section };
+}
+
+/**
+ * Whether two rules filenames (e.g. "CLAUDE.md" and "AGENTS.md") currently
+ * resolve to the SAME underlying file — a common convention for projects
+ * supporting multiple AI tools is symlinking one to the other so they only
+ * maintain one set of instructions. Both specs share the exact same start
+ * marker (`managedBy` is now harness-agnostic — see `commands/project.ts`),
+ * so writing both independently into a symlinked pair wouldn't duplicate
+ * anything, but it WOULD silently clobber one write with the other's
+ * `agentLabel` wording, non-deterministically depending on step order.
+ * Callers should offer only one of the two steps when this is true. Returns
+ * `false` (not linked) when either file doesn't exist yet — nothing to
+ * detect a link *to* until at least one side is real.
+ */
+export async function sameRulesFile(
+  filenameA: string,
+  filenameB: string,
+): Promise<boolean> {
+  try {
+    const [a, b] = await Promise.all([
+      rulesFilePath(filenameA).then(realpath),
+      rulesFilePath(filenameB).then(realpath),
+    ]);
+    return a === b;
+  } catch {
+    return false;
+  }
 }
 
 /**
