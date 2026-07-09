@@ -12,9 +12,12 @@ import type { SourceTool } from "../importers/types.ts";
 import type { InitStep } from "./init.ts";
 
 /**
- * Whether `importer` has found ANY session for `projectRoot` — a cheap,
- * read-only probe (no network, no writes) that stops at the first match
- * instead of walking every source file.
+ * Whether `importer` would actually import at least one session for
+ * `projectRoot` — a cheap, read-only probe (no network, no writes) that
+ * stops at the first match instead of walking every source file. Mirrors
+ * `runAgentImport`'s own default filters exactly (`includeTrivial: false`,
+ * `includeSidechains: false`) — a step must never claim "available" for a
+ * session the actual backfill would then filter out and skip.
  */
 export async function projectHasSessions(
   importer: Importer,
@@ -26,7 +29,7 @@ export async function projectHasSessions(
       projectFilter: projectRoot,
       includeTempCwd: true,
       includeSidechains: false,
-      includeTrivial: true,
+      includeTrivial: false,
       fullTranscript: false,
     },
     stats,

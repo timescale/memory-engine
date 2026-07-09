@@ -1584,7 +1584,7 @@ describe.skipIf(
             type: "message",
             id: "m-1",
             role: "user",
-            content: [{ type: "input_text", text: "codex question" }],
+            content: [{ type: "input_text", text: "codex first question" }],
           },
         }),
         JSON.stringify({
@@ -1594,7 +1594,30 @@ describe.skipIf(
             type: "message",
             id: "m-2",
             role: "assistant",
-            content: [{ type: "output_text", text: "codex answer" }],
+            content: [{ type: "output_text", text: "codex first answer" }],
+          },
+        }),
+        // A second user message: importers default to skipping "trivial"
+        // sessions (fewer than 2 user messages, see filters.ts) — this
+        // session needs to survive that filter to actually get backfilled.
+        JSON.stringify({
+          timestamp: "2026-05-01T10:00:03.000Z",
+          type: "response_item",
+          payload: {
+            type: "message",
+            id: "m-3",
+            role: "user",
+            content: [{ type: "input_text", text: "codex second question" }],
+          },
+        }),
+        JSON.stringify({
+          timestamp: "2026-05-01T10:00:04.000Z",
+          type: "response_item",
+          payload: {
+            type: "message",
+            id: "m-4",
+            role: "assistant",
+            content: [{ type: "output_text", text: "codex second answer" }],
           },
         }),
       ].join("\n"),
@@ -1606,7 +1629,7 @@ describe.skipIf(
       projectDir,
     );
     expect(init.code, init.stderr).toBe(0);
-    expect(await countBySession(codexSessionId)).toBe(2);
+    expect(await countBySession(codexSessionId)).toBe(4);
 
     const [row] = await sql.unsafe(
       `select distinct meta->>'source_tool' as tool from metest_${spaceSlug}.memory
