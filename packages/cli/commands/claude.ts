@@ -499,9 +499,11 @@ export async function runClaudeInstallFlow(
  * clobbering it. Idempotent otherwise: SessionStart refires on resume and
  * `/clear`, and {@link upsertContractBlock} replaces its own block in place.
  *
- * Fails open (silently) on anything unexpected — a missing `$CLAUDE_ENV_FILE`
- * or an unparseable/cwd-less event payload — since a broken injection must
- * degrade to "no contract" (caught by the failsafe), never break the session.
+ * Fails open on anything unexpected — a missing `$CLAUDE_ENV_FILE`, an
+ * unparseable/cwd-less event payload, or a write error (permission denied,
+ * disk full) — since a broken injection must degrade to "no contract"
+ * (caught by the failsafe), never break the session. Always exits 0; a
+ * write error is logged to stderr but never propagates as a process failure.
  */
 function createClaudeEnvCommand(): Command {
   return new Command("env")
@@ -521,7 +523,13 @@ function createClaudeEnvCommand(): Command {
       const envFile = process.env.CLAUDE_ENV_FILE;
       if (!envFile || !event.cwd) process.exit(0);
 
-      upsertContractBlock(envFile, buildContractVars("claude", event.cwd));
+      try {
+        upsertContractBlock(envFile, buildContractVars("claude", event.cwd));
+      } catch (error) {
+        console.error(
+          `[memory-engine] failed to write the harness contract to ${envFile}: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
       process.exit(0);
     });
 }
