@@ -1,34 +1,23 @@
 /**
  * me opencode — OpenCode integration commands.
  *
- * - me opencode install: register me as an MCP server with OpenCode
- * - me opencode init:    one-shot per-project setup (backfill + plugin + MCP + AGENTS.md)
+ * - me opencode install: register me as an MCP server with OpenCode, and
+ *   install the capture plugin + /memory-recall command + memory-engine
+ *   skill (also offered from `me project init`'s preflight — see
+ *   `openCodeSetupAvailable`/`runOpenCodeInstallFlow`)
  * - me opencode hook:    invoked by the OpenCode plugin to capture a session
  * - me opencode import:  bulk-import OpenCode session history
+ *
+ * Per-project setup (session backfill, git history, memory pointers) is
+ * `me project init` — harness-agnostic, not duplicated here. `me opencode
+ * init` used to cover that; it's now a deprecated alias (wired in index.ts).
  */
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import * as clack from "@clack/prompts";
 import { Command } from "commander";
-import {
-  applyCaptureDeselection,
-  captureEnableStep,
-} from "../agent/capture-step.ts";
 import { ensureDefaultAgent } from "../agent/default-agent.ts";
-import {
-  buildInitCommand,
-  DIM,
-  DIM_OFF,
-  type InitStep,
-  type InitStepContext,
-  initOutroLead,
-  type StepAvailability,
-} from "../agent/init.ts";
-import {
-  type MemoryPointerSpec,
-  memoryPointerUpToDate,
-  writeMemoryPointer,
-} from "../agent/memory-pointer.ts";
+import type { StepAvailability } from "../agent/init.ts";
 import { createMemoryClient } from "../client.ts";
 import { resolveCredentials, resolveHarnessAgent } from "../credentials.ts";
 import { importTranscriptFile } from "../importers/index.ts";
@@ -39,7 +28,6 @@ import {
   runAgentMcpInstall,
 } from "../mcp/agent-install.ts";
 import {
-  ASSET_MARKER,
   RECALL_COMMAND_FILENAME,
   renderRecallCommand,
   renderSkill,
@@ -70,16 +58,7 @@ import {
 } from "../project-config.ts";
 import { memoryBearer } from "../session.ts";
 import { runCapturePrompt } from "./capture-prompt.ts";
-import { createOpenCodeImportCommand, runAgentImport } from "./import.ts";
-import { runGitImport } from "./import-git.ts";
-import { gitHookStatus, runGitHookInstall } from "./import-git-hook.ts";
-
-/** The managed AGENTS.md memory-pointer block `me opencode init` upserts. */
-const AGENTS_MD_POINTER: MemoryPointerSpec = {
-  filename: "AGENTS.md",
-  managedBy: "me opencode init",
-  agentLabel: "OpenCode",
-};
+import { createOpenCodeImportCommand } from "./import.ts";
 
 /** Absolute path of the generated capture plugin for a scope. */
 function openCodePluginPath(scope: OpenCodeScope, projectRoot: string): string {
@@ -112,15 +91,6 @@ async function installOpenCodePlugin(
   const file = openCodePluginPath(scope, projectRoot);
   await writeFile(file, renderPluginSource());
   clack.log.success(`Installed the OpenCode capture plugin → ${file}`);
-}
-
-/** Whether a managed asset file already carries our marker. */
-async function assetInstalled(path: string): Promise<boolean> {
-  try {
-    return (await readFile(path, "utf8")).includes(ASSET_MARKER);
-  } catch {
-    return false;
-  }
 }
 
 const recallCommandPath = (scope: OpenCodeScope, projectRoot: string): string =>
@@ -405,274 +375,9 @@ function createOpenCodeHookCommand(): Command {
     );
 }
 
-/**
- * me opencode init — one-shot setup of OpenCode memory integration.
- *
- * Mirrors `me claude init` on the shared init engine: a grouped, pre-checked
- * step picker (or, non-interactively, every step minus its `--skip-*` flag).
- * The steps differ from Claude's because OpenCode capture is a generated local
- * plugin (not a marketplace plugin) and MCP registration is a separate step.
- */
-/** Read the resolved scope + project root from the init context (defaults to
- * project / cwd if resolveContext somehow didn't run). */
-function scopeOf(ctx: InitStepContext): {
-  scope: OpenCodeScope;
-  projectRoot: string;
-} {
-  return {
-    scope: (ctx.scope as OpenCodeScope) ?? "project",
-    projectRoot: ctx.projectRoot ?? process.cwd(),
-  };
-}
-
-const INIT_STEPS: InitStep[] = [
-  {
-    id: "session-import",
-    group: "OpenCode sessions",
-    kind: "backfill",
-    optionKey: "skipSessionImport",
-    skipFlag: "--skip-session-import",
-    skipDescription: "do not import this project's OpenCode sessions",
-    label:
-      "Import this project's existing OpenCode sessions (one-time backfill)",
-    // Scope the backfill to sessions recorded in this repo (cwd at or under the
-    // repo root); `me import opencode` remains the machine-wide sweep. Include
-    // temp-cwd sessions since the scope is already pinned to this project.
-    run: async (ctx) => {
-      const { projectRoot } = scopeOf(ctx);
-      await runAgentImport(
-        opencodeImporter,
-        { project: projectRoot, includeTempCwd: true },
-        ctx.globalOpts,
-      );
-    },
-  },
-  {
-    id: "plugin-install",
-    group: "OpenCode sessions",
-    kind: "ongoing",
-    optionKey: "skipPluginInstall",
-    skipFlag: "--skip-plugin-install",
-    skipDescription: "do not install the OpenCode capture plugin",
-    label:
-      "Install the OpenCode capture plugin — captures new sessions going forward",
-    // ✓ when our managed plugin file is already present; a re-run refreshes it.
-    available: async (ctx) => {
-      const { scope, projectRoot } = scopeOf(ctx);
-      return (await openCodePluginInstalled(scope, projectRoot))
-        ? "done"
-        : "available";
-    },
-    doneLabel: "OpenCode capture plugin already installed",
-    rerunLabel:
-      "Reinstall the OpenCode capture plugin — captures new sessions going forward (already installed)",
-    // Plugin only — inert until capture is enabled; the capture-enable step
-    // below is the per-project opt-in.
-    run: (ctx) => {
-      const { scope, projectRoot } = scopeOf(ctx);
-      return installOpenCodePlugin(scope, projectRoot);
-    },
-  },
-  captureEnableStep({ group: "OpenCode sessions", toolLabel: "OpenCode" }),
-  {
-    id: "mcp-install",
-    group: "Memory tools",
-    kind: "config",
-    optionKey: "skipMcpInstall",
-    skipFlag: "--skip-mcp-install",
-    skipDescription: "do not register me as an MCP server with OpenCode",
-    label:
-      "Register me as an MCP server — gives OpenCode the memory search/create tools",
-    run: (ctx) => {
-      const { scope, projectRoot } = scopeOf(ctx);
-      return runAgentMcpInstall("opencode", {
-        server: ctx.server,
-        scope,
-        projectDir: scope === "project" ? projectRoot : undefined,
-      });
-    },
-  },
-  {
-    id: "recall-command",
-    group: "Memory tools",
-    kind: "config",
-    optionKey: "skipRecallCommand",
-    skipFlag: "--skip-recall-command",
-    skipDescription: "do not install the /memory-recall command",
-    label: "Install the /memory-recall command",
-    available: async (ctx) => {
-      const { scope, projectRoot } = scopeOf(ctx);
-      return (await assetInstalled(recallCommandPath(scope, projectRoot)))
-        ? "done"
-        : "available";
-    },
-    doneLabel: "/memory-recall command already installed",
-    rerunLabel: "Rewrite the /memory-recall command (already installed)",
-    run: (ctx) => {
-      const { scope, projectRoot } = scopeOf(ctx);
-      return installRecallCommand(scope, projectRoot);
-    },
-  },
-  {
-    id: "skill",
-    group: "Memory tools",
-    kind: "config",
-    optionKey: "skipSkill",
-    skipFlag: "--skip-skill",
-    skipDescription: "do not install the memory-engine skill",
-    label: "Install the memory-engine skill (teaches when/how to use memory)",
-    available: async (ctx) => {
-      const { scope, projectRoot } = scopeOf(ctx);
-      return (await assetInstalled(skillPath(scope, projectRoot)))
-        ? "done"
-        : "available";
-    },
-    doneLabel: "memory-engine skill already installed",
-    rerunLabel: "Rewrite the memory-engine skill (already installed)",
-    run: (ctx) => {
-      const { scope, projectRoot } = scopeOf(ctx);
-      return installSkill(scope, projectRoot);
-    },
-  },
-  {
-    id: "git-import",
-    group: "Git history",
-    kind: "backfill",
-    optionKey: "skipGitImport",
-    skipFlag: "--skip-git-import",
-    skipDescription: "do not import the repo's git commit history",
-    label: "Import existing git commit history (one-time backfill)",
-    run: ({ globalOpts }) => runGitImport({ skipIfNotRepo: true }, globalOpts),
-  },
-  {
-    id: "git-hook",
-    group: "Git history",
-    kind: "ongoing",
-    optionKey: "skipGitHook",
-    skipFlag: "--skip-git-hook",
-    skipDescription: "do not install the git post-commit capture hook",
-    label:
-      "Install a git post-commit hook — captures new commits going forward",
-    available: async () => {
-      const status = await gitHookStatus(process.cwd());
-      if (status === "installed") return "done";
-      return status === "installable" ? "available" : "hidden";
-    },
-    doneLabel: "Git post-commit hook already installed",
-    rerunLabel:
-      "Reinstall the git post-commit hook — captures new commits going forward (already installed)",
-    run: ({ globalOpts }) =>
-      runGitHookInstall({ skipIfNotRepo: true }, globalOpts),
-  },
-  {
-    id: "agents-md",
-    group: "Project config",
-    kind: "config",
-    optionKey: "skipAgentsMd",
-    skipFlag: "--skip-agents-md",
-    skipDescription:
-      "do not write the memory pointer into the project's AGENTS.md",
-    label: "Add a memory pointer to AGENTS.md",
-    available: async ({ server }) =>
-      (await memoryPointerUpToDate(AGENTS_MD_POINTER, server))
-        ? "done"
-        : ("available" satisfies StepAvailability),
-    doneLabel: "Memory pointer already in AGENTS.md",
-    rerunLabel: "Rewrite the memory pointer in AGENTS.md (already present)",
-    run: ({ server }) => writeMemoryPointer(AGENTS_MD_POINTER, server),
-  },
-];
-
-/** Closing guidance after `me opencode init` — recap + how to use memories. */
-function printInitOutro(steps: InitStep[]): void {
-  clack.note(
-    [
-      ...initOutroLead(steps),
-      "Ask OpenCode about this project's history or architecture — it now",
-      "draws on the project's memories through the `me_memory_search` tool,",
-      "and consults them when exploring the code for new features.",
-      "",
-      "You can also point OpenCode at them explicitly, e.g.:",
-      `${DIM}"Search memory engine: why did we structure the database this way?"${DIM_OFF}`,
-      `${DIM}"Check me memories for past work on this area before we start"${DIM_OFF}`,
-    ].join("\n"),
-    "Your project now has memory",
-  );
-}
-
-/**
- * Resolve the install scope for `me opencode init`: an explicit `--scope`
- * (validated by the option's arg parser) wins; otherwise prompt in an
- * interactive terminal (project preselected), and default to project when
- * non-interactive. Also resolves the project root once for project-scoped steps.
- */
-async function resolveOpenCodeInitContext(
-  base: InitStepContext,
-  cmdOpts: Record<string, unknown>,
-  { interactive }: { interactive: boolean },
-): Promise<InitStepContext> {
-  const projectRoot = await resolveProjectRoot();
-  // The --scope arg parser already validated + narrowed the value.
-  let scope = cmdOpts.scope as OpenCodeScope | undefined;
-  if (!scope) {
-    if (interactive) {
-      const picked = await clack.select<OpenCodeScope>({
-        message: "Install scope",
-        options: [
-          {
-            value: "project",
-            label: "Project",
-            hint: ".opencode/ + opencode.json — commit to share with your team",
-          },
-          {
-            value: "user",
-            label: "User (global)",
-            hint: "~/.config/opencode/ — just for you, across all projects",
-          },
-        ],
-        initialValue: "project",
-      });
-      if (clack.isCancel(picked)) {
-        clack.cancel("Cancelled.");
-        process.exit(0);
-      }
-      scope = picked;
-    } else {
-      scope = "project";
-    }
-  }
-  return { ...base, scope, projectRoot };
-}
-
-function createOpenCodeInitCommand(): Command {
-  return buildInitCommand({
-    description:
-      "set up OpenCode memory integration (interactive step picker; otherwise runs all steps)",
-    steps: INIT_STEPS,
-    outro: printInitOutro,
-    options: [
-      {
-        flags: "--scope <scope>",
-        description:
-          "install scope: project (.opencode/) or user (~/.config/opencode) [default: project; prompted in a TTY]",
-        argParser: (v) => parseScope(v),
-      },
-    ],
-    resolveContext: resolveOpenCodeInitContext,
-    // Interactively deselecting the capture row is an explicit per-project
-    // opt-out — write `capture: false` (see applyCaptureDeselection).
-    afterRun: (result, ctx, { interactive }) =>
-      applyCaptureDeselection(result, {
-        interactive,
-        projectRoot: ctx.projectRoot,
-      }),
-  });
-}
-
 export function createOpenCodeCommand(): Command {
   const opencode = new Command("opencode").description("OpenCode integration");
   opencode.addCommand(createOpenCodeInstallCommand());
-  opencode.addCommand(createOpenCodeInitCommand());
   opencode.addCommand(createOpenCodeHookCommand());
   opencode.addCommand(createOpenCodeImportCommand());
   return opencode;
