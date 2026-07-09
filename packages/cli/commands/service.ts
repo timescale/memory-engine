@@ -18,7 +18,6 @@ import {
   resolveActiveSpace,
   resolveServiceAccountId,
   resolveSpaceMemberId,
-  resolveSpacePrincipalId,
 } from "../util.ts";
 
 type InitialAdminMember = { memberId: string; admin?: boolean };
