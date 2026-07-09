@@ -77,6 +77,85 @@ set search_path to pg_catalog, {{schema}}, public, pg_temp
 ;
 
 -------------------------------------------------------------------------------
+-- get_service_account
+-------------------------------------------------------------------------------
+create or replace function {{schema}}.get_service_account
+( _id uuid
+)
+returns table
+( id uuid
+, name text
+, admin_id uuid
+, space_id uuid
+, created_at timestamptz
+, updated_at timestamptz
+)
+as $func$
+  select p.id, p.name::text, p.admin_id, p.space_id, p.created_at, p.updated_at
+  from {{schema}}.principal p
+  where p.kind = 's'
+  and p.id = _id
+$func$ language sql stable strict rows 1 security invoker
+set search_path to pg_catalog, {{schema}}, public, pg_temp
+;
+
+-------------------------------------------------------------------------------
+-- list_service_accounts
+-------------------------------------------------------------------------------
+create or replace function {{schema}}.list_service_accounts
+( _space_id uuid
+)
+returns table
+( id uuid
+, name text
+, admin_id uuid
+, space_id uuid
+, created_at timestamptz
+, updated_at timestamptz
+)
+as $func$
+  select p.id, p.name::text, p.admin_id, p.space_id, p.created_at, p.updated_at
+  from {{schema}}.principal p
+  where p.kind = 's'
+  and p.space_id = _space_id
+  order by p.name
+$func$ language sql stable strict security invoker
+set search_path to pg_catalog, {{schema}}, public, pg_temp
+;
+
+-------------------------------------------------------------------------------
+-- is_service_account_admin
+-- A user administers an SA when they are a direct member of the SA's space and a
+-- member of its bound admin group. Space-admin override is checked separately by
+-- callers via is_principal_space_admin.
+-------------------------------------------------------------------------------
+create or replace function {{schema}}.is_service_account_admin
+( _service_account_id uuid
+, _user_id uuid
+)
+returns bool
+as $func$
+  select exists
+  (
+    select 1
+    from {{schema}}.principal s
+    join {{schema}}.group_member gm
+      on gm.space_id = s.space_id
+     and gm.group_id = s.admin_id
+     and gm.member_id = _user_id
+    join {{schema}}.principal u
+      on u.user_id = gm.member_id
+    join {{schema}}.principal_space ups
+      on ups.space_id = s.space_id
+     and ups.principal_id = u.id
+    where s.kind = 's'
+    and s.id = _service_account_id
+  )
+$func$ language sql stable security invoker
+set search_path to pg_catalog, {{schema}}, public, pg_temp
+;
+
+-------------------------------------------------------------------------------
 -- _enforce_service_account_principal_invariants
 -- Table-level backstop for bound admin groups:
 --   * a service account's admin group must belong to the same space;
