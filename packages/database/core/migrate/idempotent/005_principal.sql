@@ -219,8 +219,8 @@ set search_path to pg_catalog, {{schema}}, public, pg_temp
 -- delete_principal
 -- Delete a principal row. Foreign keys cascade: a user's agents (owner_id),
 -- its space memberships, group memberships, tree-access grants, and api keys
--- all go with it. Service-account deletion additionally deletes its bound admin
--- group after the service-account row is gone. Returns true if a row was deleted.
+-- all go with it. Service-account bound-admin-group cleanup is handled by the
+-- service-account delete trigger. Returns true if a row was deleted.
 -------------------------------------------------------------------------------
 create or replace function {{schema}}.delete_principal
 ( _id uuid
@@ -228,15 +228,9 @@ create or replace function {{schema}}.delete_principal
 returns bool
 as $func$
 declare
-  _kind text;
-  _admin_id uuid;
   _removed bool;
 begin
-  select p.kind, p.admin_id into _kind, _admin_id
-  from {{schema}}.principal p
-  where p.id = _id;
-
-  if not found then
+  if not exists (select 1 from {{schema}}.principal p where p.id = _id) then
     return false;
   end if;
 
@@ -247,11 +241,6 @@ begin
     returning 1
   )
   select exists (select 1 from d) into _removed;
-
-  if _removed and _kind = 's' and _admin_id is not null then
-    delete from {{schema}}.principal
-    where id = _admin_id;
-  end if;
 
   return _removed;
 end;
