@@ -146,7 +146,7 @@ test("space.create (autoGrantHome=false, no default group): creator god mode; a 
   // no default group was provisioned
   expect(await core.listSpaceGroups(spaceId)).toHaveLength(0);
 
-  // a fresh joiner gets zero grants → auth gate would deny them
+  // a fresh joiner gets zero grants → they can authenticate but have no data access
   const joiner = await makeUser();
   await core.addPrincipalToSpace(spaceId, joiner);
   expect(await core.buildTreeAccess(joiner, spaceId)).toEqual([]);

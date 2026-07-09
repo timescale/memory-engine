@@ -969,6 +969,61 @@ test("group member management allows a group admin (not a space admin)", async (
   );
 });
 
+test("group member management allows a service-account group admin with zero tree grants", async () => {
+  const core = engineCore.coreStore(sql, coreSchema);
+  const { id: groupId } = await call<{ id: string }>("group.create", {
+    name: "robot-admins",
+  });
+  const serviceAccount = await core.createServiceAccount(
+    space.id,
+    `sa_${rand(6)}`,
+  );
+  await call("group.addMember", {
+    groupId,
+    memberId: serviceAccount.id,
+    admin: true,
+  });
+  const serviceAccess = await core.buildTreeAccess(serviceAccount.id, space.id);
+  expect(serviceAccess).toEqual([]);
+  const asService = {
+    principalId: serviceAccount.id,
+    principalKind: "s" as const,
+    treeAccess: serviceAccess,
+    admin: false,
+  };
+
+  const member = await makeUser();
+  expect(
+    (
+      await call<{ added: boolean }>(
+        "group.addMember",
+        { groupId, memberId: member },
+        asService,
+      )
+    ).added,
+  ).toBe(true);
+  const members = await call<{ members: { memberId: string }[] }>(
+    "group.listMembers",
+    { groupId },
+    asService,
+  );
+  expect(members.members.some((m) => m.memberId === member)).toBe(true);
+  expect(
+    (
+      await call<{ removed: boolean }>(
+        "group.removeMember",
+        { groupId, memberId: member },
+        asService,
+      )
+    ).removed,
+  ).toBe(true);
+
+  await expectAppError(
+    call("group.create", { name: "service-created" }, asService),
+    "FORBIDDEN",
+  );
+});
+
 test("group.listForMember: an agent's owner can list its groups", async () => {
   // owner sets up: a member who owns an agent, the agent is in a group
   const member = await makeUser();

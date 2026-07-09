@@ -26,14 +26,12 @@ Base scope excludes:
 - Any `X-Me-As-Service` mode. Service accounts authenticate with `ME_API_KEY` or
   `--api-key` only.
 
-Related parallel track:
+Related merged track:
 
 - [TNT-200](https://linear.app/tigerdata/issue/TNT-200/fix-memory-rpc-auth-gate-space-membership-must-come-from-principal)
-  fixes the memory RPC admission gate so `principal_space` membership, not
-  non-empty `build_tree_access`, controls endpoint admission. This is on a
-  separate PR and does not block starting the core schema work. Zero-tree-access
-  and structural-only service-account behavior should be tested after TNT-200 is
-  merged.
+  fixed the memory RPC admission gate so `principal_space` membership, not
+  non-empty `build_tree_access`, controls endpoint admission. Zero-tree-access
+  and structural-only service-account behavior are now covered by tests.
 
 ## Locked Decisions
 
@@ -255,11 +253,11 @@ Goal: wire service-account management and avoid key privilege escalation.
   - [x] grant requires existing normal authority: space admin or `owner@P`;
   - [x] admin-group members get no special grant bypass;
   - [x] revoke allowed for space admins and admin-group members.
-- [ ] Group management:
+- [x] Group management:
   - [x] bound admin group follows ordinary group membership semantics;
   - [x] ordinary groups accept service accounts;
-  - [ ] service accounts can exercise ordinary `group_member.admin` once TNT-200
-    permits structural-only endpoint access.
+  - [x] service accounts can exercise ordinary `group_member.admin` with no
+    unrelated tree grants.
 - [x] Space admin behavior:
   - [x] allow `principal.add(admin=true)` or equivalent for SAs if caller is a
     space admin;
@@ -270,8 +268,7 @@ Likely files:
 
 - `packages/server/rpc/memory/*`
 - `packages/server/rpc/user/*`
-- `packages/server/middleware/authenticate-space.ts` only if TNT-200 changes are
-  not already merged
+- `packages/server/middleware/authenticate-space.ts`
 
 ## Phase 7: CLI
 
@@ -327,8 +324,8 @@ Server/RPC tests:
 - [x] Admin-group members can rename but not delete service accounts.
 - [x] Non-admin users cannot administer arbitrary SAs.
 - [x] Service-account key can read/write memory according to `tree_access`.
-- [ ] Service-account key can exercise ordinary group admin on groups where it
-  has `group_member.admin` after TNT-200 is merged.
+- [x] Service-account key can exercise ordinary group admin on groups where it
+  has `group_member.admin`.
 - [x] Service-account key cannot delete a space even when SA is space admin.
 - [x] Last-admin protections still apply when SAs and SA admin groups are
   involved.
@@ -373,6 +370,5 @@ Goal: make the new model understandable to users and future maintainers.
 - Distinguishing the bound admin group from ordinary groups.
 - Preventing api-key minting by service-account api keys.
 - Preventing `space.delete` by service-account api keys.
-- TNT-200 interaction: structural authority must not require unrelated tree
-  grants.
+- Structural authority must not require unrelated tree grants.
 - Cascades when deleting a service account or removing a principal from a space.

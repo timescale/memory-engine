@@ -122,8 +122,8 @@ user's.
   that membership.
 - **D11 — SA gets zero access by default.** No auto-home grant, and it is
   **not** added to the space's default group. A freshly created SA can
-  authenticate but is denied by the empty-`build_tree_access` gate until an
-  admin/member grants it something.
+  authenticate as a direct space member, but data-plane reads/writes return no
+  memory access until an admin/member grants it something.
 - **D12 — An SA *may* be a member of ordinary groups** (distinct from D10's
   admin group). This is a convenient way to grant many SAs access at once, and
   is consistent with agents being group members. An SA inherits an ordinary
@@ -209,15 +209,12 @@ group` / space-admin). Impl detail — §8.
   helper.
 - The space data-plane functions (`search_memory`, `get_memory`, …) need **no
   change** — they still consume the `_tree_access` jsonb.
-- **Endpoint admission must be based on `principal_space`, not
-  `build_tree_access`.** The current memory RPC auth gate incorrectly denies the
-  entire `/api/v1/memory/rpc` endpoint when `build_tree_access` is empty. That is
-  a pre-existing bug, not a service-account design constraint. Tracked as
-  [TNT-200](https://linear.app/tigerdata/issue/TNT-200/fix-memory-rpc-auth-gate-space-membership-must-come-from-principal).
-  The intended model is: `principal_space` decides whether a principal belongs
-  to a space; `tree_access` decides whether it can access a tree path. A freshly
-  created SA with zero tree grants is a valid space member but has no data
-  access until granted.
+- **Endpoint admission is based on `principal_space`, not `build_tree_access`.**
+  [TNT-200](https://linear.app/tigerdata/issue/TNT-200/fix-memory-rpc-auth-gate-space-membership-must-come-from-principal)
+  fixed the memory RPC gate so `principal_space` decides whether a principal
+  belongs to a space; `tree_access` decides whether it can access a tree path. A
+  freshly created SA with zero tree grants is a valid space member but has no
+  data access until granted.
 
 ## 7. Surface area (sketch)
 

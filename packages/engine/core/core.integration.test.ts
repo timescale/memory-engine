@@ -429,7 +429,7 @@ test("group grants apply only to direct space members (no transitive membership)
 
   // a user who is ONLY a group member (no principal_space row) gets nothing —
   // group membership alone does not confer space access, so build_tree_access
-  // is empty (and the server auth gate would deny it).
+  // is empty until the user joins directly.
   const groupOnly = await v7();
   await core.createUser(groupOnly, `go_${rand(8)}@example.com`);
   await core.addGroupMember(spaceId, groupId, groupOnly);

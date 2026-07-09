@@ -14,10 +14,8 @@ as $func$
   -- member of the space (a principal_space row). Group membership alone never
   -- confers space access — joining the space is the single membership path — so
   -- a group_member row for a non-member yields nothing here (the group's grants
-  -- stay dormant until the member joins). The user/agent callers already require
-  -- a principal_space row for their direct grants, so gating the group branch
-  -- here makes ALL access — and thus the build_tree_access auth gate — require
-  -- direct membership.
+  -- stay dormant until the member joins). Endpoint admission is checked against
+  -- principal_space separately; this function only computes data access.
   select
     ta.tree_path
   , ta.access
