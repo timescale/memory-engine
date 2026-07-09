@@ -76,10 +76,12 @@ export async function ensureDefaultAgent(
 
   clack.note(
     [
-      `Coding harnesses will act as your agent "${DEFAULT_AGENT_NAME}" — their work is`,
-      "attributable, and you can restrict its access at any time. To use a",
-      "different agent, set `agent:` in ~/.config/me/config.yaml or run",
-      "`me project init` for a per-project choice.",
+      `Coding harnesses will act as your Memory Engine agent "${DEFAULT_AGENT_NAME}" —`,
+      "a separate identity from you, with write access to everything you can",
+      "reach by default. Its work is attributable (not filed under your name),",
+      "and you can restrict its access at any time. To use a different agent,",
+      "set `agent:` in ~/.config/me/config.yaml or run `me project init` for a",
+      "per-project choice.",
     ].join("\n"),
     "Default agent",
   );
