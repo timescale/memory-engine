@@ -1730,6 +1730,65 @@ describe("control-plane functions", () => {
     });
   });
 
+  test("remove_principal_from_space rejects service accounts", async () => {
+    await withTestCore(sql, {}, async (core) => {
+      const s = core.schema;
+      const [sp] = await sql.unsafe(`select ${s}.create_space($1, $2) as id`, [
+        randomSlug(),
+        "Service Remove",
+      ]);
+      const spaceId = sp?.id as string;
+      const [svc] = await sql.unsafe(
+        `select * from ${s}.create_service_account($1, $2, $3::uuid[], $4::uuid[])`,
+        [spaceId, "deploy", [], []],
+      );
+      const serviceId = svc?.id as string;
+      const [grp] = await sql.unsafe(`select ${s}.create_group($1, $2) as id`, [
+        spaceId,
+        "robots",
+      ]);
+      const groupId = grp?.id as string;
+      await sql.unsafe(`select ${s}.grant_tree_access($1, $2, $3::ltree, $4)`, [
+        spaceId,
+        serviceId,
+        "deploy.logs",
+        2,
+      ]);
+      await sql.unsafe(`select ${s}.add_group_member($1, $2, $3, $4)`, [
+        spaceId,
+        groupId,
+        serviceId,
+        false,
+      ]);
+
+      let error: unknown;
+      try {
+        await sql.unsafe(
+          `select ${s}.remove_principal_from_space($1, $2) as removed`,
+          [spaceId, serviceId],
+        );
+      } catch (e) {
+        error = e;
+      }
+
+      expect(error).toBeTruthy();
+      expect(String((error as Error).message)).toContain(
+        "delete the service account instead",
+      );
+
+      const count = async (table: string, col: string, id: string) => {
+        const [r] = await sql.unsafe(
+          `select count(*)::int as n from ${s}.${table} where space_id=$1 and ${col}=$2`,
+          [spaceId, id],
+        );
+        return Number(r?.n);
+      };
+      expect(await count("principal_space", "principal_id", serviceId)).toBe(1);
+      expect(await count("tree_access", "principal_id", serviceId)).toBe(1);
+      expect(await count("group_member", "member_id", serviceId)).toBe(1);
+    });
+  });
+
   test("remove_principal_from_space cascades a user's owned agents (space-scoped)", async () => {
     await withTestCore(sql, {}, async (core) => {
       const s = core.schema;

@@ -186,13 +186,10 @@ set search_path to pg_catalog, {{schema}}, public, pg_temp
 -- atomically; agents are never admins, so the agent-row deletes can't trip the
 -- deferred enforce_last_admin guard.
 --
--- Groups are rejected: a group is rostered into its space on creation
--- (create_group → add_principal_to_space) and leaves only when the group itself
--- is deleted (delete_principal, which cascades its principal_space / group_member
--- / tree_access rows). Removing just the roster row here would orphan the group —
--- it would still exist in `principal` (resolvable via list_space_groups) but
--- vanish from the roster (list_space_principals / principal.resolve) and lose its
--- grants, re-creating the TNT-160 "group not on the roster" state.
+-- Groups and service accounts are rejected: both are space-scoped principals
+-- whose lifecycle is delete-based. Removing just the roster row here would
+-- orphan the principal in a half-deprovisioned state while also wiping its
+-- grants and group memberships.
 -------------------------------------------------------------------------------
 create or replace function {{schema}}.remove_principal_from_space
 ( _space_id uuid
@@ -201,19 +198,22 @@ create or replace function {{schema}}.remove_principal_from_space
 returns bool
 as $func$
 declare
+  _kind text;
   _removed bool;
 begin
-  if exists
-  (
-    select 1
-    from {{schema}}.principal p
-    where p.id = _principal_id
-    and p.kind = 'g'
-  ) then
+  select p.kind into _kind
+  from {{schema}}.principal p
+  where p.id = _principal_id;
+
+  if _kind in ('g', 's') then
     raise exception
-      'cannot remove group % from space %: delete the group instead', _principal_id, _space_id
+      'cannot remove % % from space %: delete the % instead'
+      , case when _kind = 'g' then 'group' else 'service account' end
+      , _principal_id
+      , _space_id
+      , case when _kind = 'g' then 'group' else 'service account' end
       using errcode = '23514'
-      , hint = 'a group leaves a space only by being deleted (group delete / delete_principal)';
+      , hint = 'space-scoped group/service-account principals leave a space only by being deleted';
   end if;
 
   -- The data-modifying CTEs must sit at the top level of the statement (Postgres
