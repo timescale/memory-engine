@@ -7,11 +7,14 @@
  * required or Gemini falls back to interactive approval and refuses to run
  * ("Gemini CLI is not running in a trusted directory") since a freshly
  * created scratch dir is never in its trusted-folders list. The actual
- * hook-injection path itself is UNVERIFIED: the available Gemini account on
- * this machine hits `IneligibleTierError` ("Gemini Code Assist for
- * individuals" free tier no longer supported by this CLI client) before
- * ever reaching a tool call, on any prompt at all — an account/product-tier
- * issue with no code-level fix, not something in this file.
+ * hook-injection path itself is UNVERIFIED: an `oauth-personal` account on
+ * this machine intermittently hits `IneligibleTierError` ("Gemini Code
+ * Assist for individuals" free tier no longer supported by this CLI
+ * client) before ever reaching a tool call — confirmed flaky, not a hard
+ * block (the same bare `gemini -p "say hi"` failed several times in a row,
+ * then the developer got a real response running it themselves outside
+ * this test). If this test fails with `IneligibleTierError`, retry once or
+ * twice before assuming the mechanism itself is broken.
  *
  * Mechanism: writes the hook entry into a scratch project's
  * `.gemini/settings.json` (project scope — Gemini CLI loads and overrides
