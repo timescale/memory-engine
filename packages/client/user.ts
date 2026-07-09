@@ -1,11 +1,11 @@
 /**
- * User client — session-only, user-scoped operations.
+ * User client — user/account and service-account operations.
  *
- * Talks to POST /api/v1/user/rpc, authenticated by a session token. Namespaces:
- * agent (user-owned agents), serviceAccount (space-scoped integration
- * identities), apiKey (keys for credential-bearing principals), and space
- * (discover/create/manage the user's spaces — used by the CLI to pick the active
- * X-Me-Space).
+ * Talks to POST /api/v1/user/rpc, authenticated by a session/OAuth token or the
+ * user's own PAT for management operations. Namespaces: agent (user-owned
+ * agents), serviceAccount (space-scoped integration identities), apiKey (keys
+ * for credential-bearing principals), and space (discover/create/manage the
+ * user's spaces — used by the CLI to pick the active X-Me-Space).
  */
 
 import { AS_AGENT_HEADER } from "@memory.build/protocol/headers";

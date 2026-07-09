@@ -82,7 +82,7 @@ me access list [principal] [--path <path>]
 
 ## me access mine
 
-List the access grants **you** hold in the active space. Available to **any member** (no admin or path-owner rights required) — every member holds at least one grant, so this always shows something.
+List the access grants **you** hold in the active space. Available to **any member** (no admin or path-owner rights required). Fresh service accounts may have no grants until one is explicitly added.
 
 ```
 me access mine

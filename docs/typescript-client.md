@@ -12,8 +12,8 @@ npm install @memory.build/client
 
 The package exposes two clients, matching the two API endpoints:
 
-- **`createMemoryClient`** — the space data plane plus space management. Talks to `POST /api/v1/memory/rpc`, carrying the active space in the `X-Me-Space` header. Authenticates with **either** a session token **or** an agent API key. Namespaces: `memory`, `principal`, `group`, `grant`, `invite`.
-- **`createUserClient`** — session-only, user-scoped operations. Talks to `POST /api/v1/user/rpc`. Authenticates with a **session token only** (an API key can't manage agents). Methods: `whoami`, plus the `agent`, `apiKey`, and `space` namespaces.
+- **`createMemoryClient`** — the space data plane plus space management. Talks to `POST /api/v1/memory/rpc`, carrying the active space in the `X-Me-Space` header. Authenticates with a session token, OAuth token, user PAT, agent API key, or service-account API key. Namespaces: `memory`, `principal`, `group`, `grant`, `invite`.
+- **`createUserClient`** — user/account and service-account management. Talks to `POST /api/v1/user/rpc`. Authenticates with a session/OAuth token or the user's own PAT; agent and service-account keys are limited and cannot manage accounts or mint keys. Methods: `whoami`, plus the `agent`, `serviceAccount`, `apiKey`, and `space` namespaces.
 
 There is also `createAuthClient` for the OAuth device-flow login that produces a session token.
 
@@ -242,12 +242,12 @@ await me.invite.revoke({ email: "alice@example.com" });
 
 ## User-scoped operations
 
-Use `createUserClient` (session token only) for identity, agents, API keys, and space discovery.
+Use `createUserClient` for identity, agents, service accounts, API keys, and space discovery. API-key minting and revocation still require a human session/OAuth credential; keys cannot mint or revoke other keys.
 
 ```typescript
 import { createUserClient } from "@memory.build/client";
 
-const user = createUserClient({ token: sessionToken });
+const user = createUserClient({ token: sessionTokenOrUserPat });
 
 // Identity
 const me = await user.whoami();
@@ -258,15 +258,25 @@ const space = await user.space.create({ name: "My Space" });   // → { id, slug
 await user.space.rename({ slug: space.slug, name: "Renamed" });
 await user.space.delete({ slug: space.slug });
 
-// Agents — your global service accounts
+// Agents — non-human identities owned by you
 const agent = await user.agent.create({ name: "ci-bot" });     // → { id }
 const { agents } = await user.agent.list();
 await user.agent.rename({ id: agent.id, name: "ci-runner" });
 await user.agent.delete({ id: agent.id });
 
-// API keys — global per-agent credentials
+// Service accounts — team-owned operational identities in a space.
+// User RPC service-account methods use the space id, not the slug.
+const { serviceAccount: service } = await user.serviceAccount.create({
+  spaceId: space.id,
+  name: "deploy-bot",
+  adminMembers: [{ memberId: "019...", admin: true }],
+});
+const { serviceAccounts } = await user.serviceAccount.list({ spaceId: space.id });
+await user.serviceAccount.rename({ id: service.id, name: "deployer" });
+
+// API keys — global per-principal credentials
 const { id, key } = await user.apiKey.create({
-  agentId: agent.id,
+  memberId: agent.id,
   name: "ci-pipeline",
   expiresAt: "2026-01-01T00:00:00Z",  // optional
 });
@@ -274,9 +284,15 @@ console.log(key);  // "me.xxx.yyy" — full key returned once; only its hash is 
 const { apiKeys } = await user.apiKey.list({ memberId: agent.id });
 const apiKeyMeta = await user.apiKey.get({ id });
 await user.apiKey.delete({ id });
+
+// Service-account keys target the service account instead of an agent.
+const serviceKey = await user.apiKey.create({
+  memberId: service.id,
+  name: "production-deploy",
+});
 ```
 
-API keys are **global** per-agent credentials, not bound to a space: the same key works in any space the agent has been admitted to (the space comes from `X-Me-Space`).
+API keys are **global** per-principal credentials, not bound to a space: the same key works in any space its principal has been admitted to (the space comes from `X-Me-Space`). Service accounts are themselves space-scoped, so a service-account key is only useful in that service account's space.
 
 ## Error handling
 
@@ -317,4 +333,4 @@ try {
 
 ## Protocol
 
-Both clients speak JSON-RPC 2.0 over HTTP. The memory client uses `POST /api/v1/memory/rpc` with `Authorization: Bearer <token>` and a required `X-Me-Space: <slug>` header; the user client uses `POST /api/v1/user/rpc` with a session-token bearer. See the [Access Control](access-control.md) guide for the authority model behind the management namespaces.
+Both clients speak JSON-RPC 2.0 over HTTP. The memory client uses `POST /api/v1/memory/rpc` with `Authorization: Bearer <token>` and a required `X-Me-Space: <slug>` header; the user client uses `POST /api/v1/user/rpc` with a session/OAuth/PAT bearer for management operations. See the [Access Control](access-control.md) guide for the authority model behind the management namespaces.

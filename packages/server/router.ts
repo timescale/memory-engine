@@ -271,7 +271,7 @@ export function createRouter(ctx: ServerContext): Router {
       handler: withClientVersionCheck(memoryRpcHandler),
     },
 
-    // User RPC (new model: session-only, user-scoped agent lifecycle)
+    // User RPC: account, agent, service-account, key, and space management.
     {
       method: "POST",
       pattern: "/api/v1/user/rpc",

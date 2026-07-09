@@ -133,7 +133,7 @@ me space remove-member <principal> [-y]
 |--------|-------------|
 | `-y, --yes` | Skip the confirmation prompt. |
 
-Members only: a **group** cannot be removed this way — a group leaves a space only by being deleted (`me group delete`). Passing a group name errors clearly. Removing the space's **sole admin** is rejected (`LAST_ADMIN`) — promote another admin first. To remove yourself, use [`me space leave`](#me-space-leave); to remove your own agent, [`me agent remove`](me-agent.md#me-agent-remove) (neither needs admin).
+Members only: a **group** cannot be removed this way — a group leaves a space only by being deleted (`me group delete`). Service accounts are deleted with [`me service delete`](me-service.md#me-service-delete), which also deletes their bound admin group. Passing a group name errors clearly. Removing the space's **sole admin** is rejected (`LAST_ADMIN`) — promote another admin first. To remove yourself, use [`me space leave`](#me-space-leave); to remove your own agent, [`me agent remove`](me-agent.md#me-agent-remove) (neither needs admin).
 
 ---
 

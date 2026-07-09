@@ -7,7 +7,7 @@
  *   Talks to /api/v1/memory/rpc with the active space carried as X-Me-Space.
  *   Memory CRUD/search plus principal/group/grant/invite management.
  *
- * - {@link createUserClient} — session-only, user-scoped.
+ * - {@link createUserClient} — user/account and service-account management.
  *   Talks to /api/v1/user/rpc: whoami, agent/service-account lifecycle, api keys,
  *   space discovery.
  *
@@ -62,7 +62,7 @@ export {
   type MemoryNamespace,
   type PrincipalNamespace,
 } from "./memory.ts";
-// User client (session-only: whoami, agent lifecycle, api keys, space discovery)
+// User client (whoami, agent/service-account lifecycle, api keys, space discovery)
 export {
   type AgentNamespace,
   type ApiKeyNamespace,

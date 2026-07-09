@@ -344,13 +344,15 @@ CLI tests:
 
 Goal: make the new model understandable to users and future maintainers.
 
-- [ ] Update `AGENTS.md` authoritative model summary.
-- [ ] Update `docs/concepts.md`.
-- [ ] Update `docs/access-control.md`.
-- [ ] Add CLI docs for `me service`.
-- [ ] Add MCP docs only if service-account operations become MCP-exposed.
-- [ ] Update API/client docs if applicable.
-- [ ] Mention TNT-203 as future provisioning work if docs discuss invitations or
+- [x] Update `AGENTS.md` authoritative model summary.
+- [x] Update `docs/concepts.md`.
+- [x] Update `docs/access-control.md`.
+- [x] Add CLI docs for `me service`.
+- [x] Add MCP docs only if service-account operations become MCP-exposed. No MCP
+  management tools were added; MCP credential docs now mention service-account
+  keys.
+- [x] Update API/client docs if applicable.
+- [x] Mention TNT-203 as future provisioning work if docs discuss invitations or
   HR/SSO sync.
 
 ## Phase 10: Follow-Up / Deferred Work
