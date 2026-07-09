@@ -63,14 +63,23 @@ const EXPECTED_MIGRATIONS = [
 ];
 
 const EXPECTED_FUNCTIONS = [
+  "_delete_service_account_admin_group",
+  "_enforce_service_account_admin_group_not_space_admin",
+  "_enforce_service_account_principal_invariants",
   "agent_tree_access",
+  "create_service_account",
   "enforce_group_space_coherence",
   "enforce_invitation_groups_coherence",
+  "get_service_account",
+  "is_service_account_admin",
   "is_principal_in_space",
   "is_principal_space_admin",
+  "list_service_accounts",
   "member_groups",
   "member_tree_access",
   "provision_default_group",
+  "service_account_for_admin_group",
+  "service_account_tree_access",
   "set_group_is_space_admin",
   "update_updated_at",
   "user_tree_access",
