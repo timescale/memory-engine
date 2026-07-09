@@ -100,6 +100,26 @@ describe("me claude env", () => {
     expect(exitCode).toBe(0);
   });
 
+  test("fails open (exit 0) when the write itself fails", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "me-claude-env-"));
+    try {
+      // Point CLAUDE_ENV_FILE inside what is actually a FILE, not a
+      // directory — mkdirSync(dirname(...), { recursive: true }) then
+      // throws ENOTDIR, exercising upsertContractBlock's write failure.
+      const blockerFile = join(dir, "not-a-directory");
+      writeFileSync(blockerFile, "x");
+      const envFile = join(blockerFile, "claude-env.sh");
+      const { exitCode, stderr } = await runClaudeEnv(
+        { cwd: "/some/project" },
+        { CLAUDE_ENV_FILE: envFile, ME_INJECT_V: undefined },
+      );
+      expect(exitCode).toBe(0);
+      expect(stderr).toContain("failed to write the harness contract");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   test("fails open (exit 0, no write) on a malformed stdin payload", async () => {
     const dir = mkdtempSync(join(tmpdir(), "me-claude-env-"));
     const envFile = join(dir, "claude-env.sh");
