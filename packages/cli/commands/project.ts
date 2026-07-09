@@ -46,6 +46,7 @@ import {
 import {
   type MemoryPointerSpec,
   memoryPointerUpToDate,
+  sameRulesFile,
   writeMemoryPointer,
 } from "../agent/memory-pointer.ts";
 import {
@@ -507,6 +508,24 @@ const AGENTS_MD_POINTER: MemoryPointerSpec = {
 };
 
 /**
+ * CLAUDE_MD_POINTER, or its AGENTS_MD_POINTER-worded twin when CLAUDE.md and
+ * AGENTS.md are symlinked together — a common convention for projects
+ * supporting multiple AI tools with one shared instructions file. Both specs
+ * already share the same start marker (`managedBy`), so writing each
+ * independently into a symlinked pair wouldn't duplicate content — but it
+ * WOULD silently clobber one write with the other's `agentLabel` wording,
+ * non-deterministically depending on step order. Using the neutral wording
+ * whenever the files are linked sidesteps that regardless of order; the
+ * `agents-md` step below skips entirely in that case, since this step's
+ * write already covers the (shared) file.
+ */
+async function claudeMdSpec(): Promise<MemoryPointerSpec> {
+  return (await sameRulesFile("CLAUDE.md", "AGENTS.md"))
+    ? { ...CLAUDE_MD_POINTER, agentLabel: AGENTS_MD_POINTER.agentLabel }
+    : CLAUDE_MD_POINTER;
+}
+
+/**
  * The setup checklist (phase 3 of the wizard; the whole command when run
  * non-interactively). Moved from the retired `me claude init` — minus its
  * plugin-install step (now the wizard's preflight) and plus the
@@ -572,13 +591,13 @@ const PROJECT_INIT_STEPS: InitStep[] = [
     // the re-run refreshes it.
     available: async ({ server }) => {
       if (Bun.which("claude") === null) return "hidden";
-      return (await memoryPointerUpToDate(CLAUDE_MD_POINTER, server))
+      return (await memoryPointerUpToDate(await claudeMdSpec(), server))
         ? "done"
         : "available";
     },
     doneLabel: "Memory pointer already in CLAUDE.md",
     rerunLabel: "Rewrite the memory pointer in CLAUDE.md (already present)",
-    run: ({ server }) => writeMemoryPointer(CLAUDE_MD_POINTER, server),
+    run: async ({ server }) => writeMemoryPointer(await claudeMdSpec(), server),
   },
   {
     id: "agents-md",
@@ -590,10 +609,19 @@ const PROJECT_INIT_STEPS: InitStep[] = [
       "do not write the memory pointer into the project's AGENTS.md",
     label: "Add a memory pointer to AGENTS.md",
     // Hidden unless OpenCode or Codex is installed on this machine — both
-    // read AGENTS.md; ✓ when it already carries the exact block this run
-    // would write.
+    // read AGENTS.md; also hidden when Claude Code is ALSO installed and
+    // AGENTS.md is symlinked to CLAUDE.md, since the claude-md step's write
+    // (via claudeMdSpec) already covers this exact physical file — running
+    // this step too would just rewrite it a second time. ✓ when the file
+    // already carries the exact block this run would write.
     available: async ({ server }) => {
       if (Bun.which("opencode") === null && Bun.which("codex") === null) {
+        return "hidden";
+      }
+      if (
+        Bun.which("claude") !== null &&
+        (await sameRulesFile("CLAUDE.md", "AGENTS.md"))
+      ) {
         return "hidden";
       }
       return (await memoryPointerUpToDate(AGENTS_MD_POINTER, server))
