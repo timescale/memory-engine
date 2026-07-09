@@ -22,12 +22,27 @@ export interface AgentProvisioningClients {
 }
 
 /**
- * Provision a new agent: create it, add it to the space (the memory client is
- * pinned to the chosen space), and grant WRITE (2) at `treePath` — `""` for
+ * Ensure `principalId` is a member of the space (the memory client is pinned
+ * to the chosen space) and holds a WRITE (2) grant at `treePath` — `""` for
  * the whole space, else a project tree. Write, not owner: a coding agent
  * reads/writes memories but shouldn't manage access; the server clamps an
  * agent to least(agent, owner) per path, so a root grant gives it exactly
- * what the caller can reach. Returns the new agent's id.
+ * what the caller can reach. Both calls are idempotent server-side, so this
+ * is safe to call unconditionally — for a brand-new agent as much as for one
+ * that already has access here.
+ */
+export async function ensureAgentInSpace(
+  clients: Pick<AgentProvisioningClients, "memory">,
+  principalId: string,
+  treePath: string,
+): Promise<void> {
+  await clients.memory.principal.add({ principalId });
+  await clients.memory.grant.set({ principalId, treePath, access: 2 });
+}
+
+/**
+ * Provision a new agent: create it, then {@link ensureAgentInSpace}. Returns
+ * the new agent's id.
  */
 export async function provisionNewAgent(
   clients: AgentProvisioningClients,
@@ -35,7 +50,6 @@ export async function provisionNewAgent(
   treePath: string,
 ): Promise<string> {
   const { id } = await clients.user.agent.create({ name });
-  await clients.memory.principal.add({ principalId: id });
-  await clients.memory.grant.set({ principalId: id, treePath, access: 2 });
+  await ensureAgentInSpace(clients, id, treePath);
   return id;
 }

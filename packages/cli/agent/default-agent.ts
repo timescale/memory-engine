@@ -25,7 +25,7 @@ import {
   setGlobalAgent,
 } from "../credentials.ts";
 import { buildMemoryClient, buildUserClient } from "../util.ts";
-import { provisionNewAgent } from "./provision.ts";
+import { ensureAgentInSpace, provisionNewAgent } from "./provision.ts";
 
 /** The fixed default-agent name every install adopts-or-creates. */
 export const DEFAULT_AGENT_NAME = "coder";
@@ -45,18 +45,27 @@ export async function ensureDefaultAgent(
   if (!creds.loggedIn || !creds.activeSpace) return; // nothing to provision yet
 
   const user = buildUserClient(creds);
+  const memory = buildMemoryClient({
+    ...creds,
+    activeSpace: creds.activeSpace,
+  });
   const { agents } = await user.agent.list();
   const existing = agents.find(
     (a) => a.name.toLowerCase() === DEFAULT_AGENT_NAME,
   );
 
   if (existing) {
+    // `agent.list()` is global, not scoped to the active space — an existing
+    // "coder" could be from a different space, or have had its grant
+    // revoked. Ensure it actually has access HERE before adopting it;
+    // both calls are idempotent, so this is a no-op when it's already set up.
+    await ensureAgentInSpace(
+      { memory },
+      existing.id,
+      "", // whole-space WRITE grant, clamped by the owner's own access
+    );
     setGlobalAgent(existing.name);
   } else {
-    const memory = buildMemoryClient({
-      ...creds,
-      activeSpace: creds.activeSpace,
-    });
     await provisionNewAgent(
       { user, memory },
       DEFAULT_AGENT_NAME,
