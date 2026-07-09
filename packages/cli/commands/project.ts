@@ -213,6 +213,15 @@ async function preflight(
       const selected = clack.isCancel(picked) ? [] : picked;
       for (const offer of offers) {
         if (selected.includes(offer.id)) {
+          // Frame what follows before delegating — the install flow's own
+          // prompts (e.g. the capture opt-in) are worded generically since
+          // they're shared with the standalone `me claude`/`me opencode
+          // install` commands, so without this a question like "capture
+          // your sessions?" reads as ambiguous mid-wizard: is it about this
+          // project, or the whole machine? It's the latter.
+          clack.log.step(
+            `Setting up ${offer.label} — a one-time, machine-wide install, not specific to this project:`,
+          );
           await offer.install();
         } else {
           clack.log.warn(offer.declinedWarning);
