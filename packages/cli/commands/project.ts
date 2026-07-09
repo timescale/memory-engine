@@ -198,7 +198,8 @@ async function preflight(
     if (offers.length > 0) {
       const picked = await clack.multiselect({
         message:
-          "Set up Memory Engine for the harnesses you use in this project?",
+          "We noticed you haven't set up Memory Engine to work with your " +
+          "coding agents yet. Do so now?",
         options: offers.map((o) => ({
           value: o.id,
           label: o.label,
