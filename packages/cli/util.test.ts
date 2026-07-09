@@ -17,6 +17,8 @@ const {
   resolveSpacePrincipalId,
   resolveSpaceMemberId,
   resolveAgentId,
+  resolveActiveSpace,
+  resolveServiceAccountId,
   shellTildeExpansionHint,
   describeAuthError,
   describeForbiddenError,
@@ -121,6 +123,62 @@ describe("resolveAgentId", () => {
 
     expect(await resolveAgentId(user, "bot", "text")).toBe(UUID);
     expect(user.agent.list).toHaveBeenCalled();
+  });
+});
+
+// =============================================================================
+// resolveActiveSpace
+// =============================================================================
+
+describe("resolveActiveSpace", () => {
+  test("returns the active space metadata from space.list", async () => {
+    const user = {
+      space: {
+        list: mock(() =>
+          Promise.resolve({
+            spaces: [{ id: UUID, slug: "prod", name: "Production" }],
+          }),
+        ),
+      },
+    } as unknown as UserClient;
+
+    expect(await resolveActiveSpace(user, "prod", "text")).toMatchObject({
+      id: UUID,
+      slug: "prod",
+      name: "Production",
+    });
+    expect(user.space.list).toHaveBeenCalled();
+  });
+});
+
+// =============================================================================
+// resolveServiceAccountId
+// =============================================================================
+
+describe("resolveServiceAccountId", () => {
+  test("returns a UUIDv7 as-is without listing service accounts", async () => {
+    const user = {
+      serviceAccount: { list: mock(() => Promise.reject(new Error("unused"))) },
+    } as unknown as UserClient;
+    expect(await resolveServiceAccountId(user, UUID, UUID, "text")).toBe(UUID);
+    expect(user.serviceAccount.list).not.toHaveBeenCalled();
+  });
+
+  test("resolves a name via serviceAccount.list", async () => {
+    const user = {
+      serviceAccount: {
+        list: mock(() =>
+          Promise.resolve({
+            serviceAccounts: [{ id: UUID, name: "deploy", adminId: UUID }],
+          }),
+        ),
+      },
+    } as unknown as UserClient;
+
+    expect(await resolveServiceAccountId(user, UUID, "Deploy", "text")).toBe(
+      UUID,
+    );
+    expect(user.serviceAccount.list).toHaveBeenCalledWith({ spaceId: UUID });
   });
 });
 

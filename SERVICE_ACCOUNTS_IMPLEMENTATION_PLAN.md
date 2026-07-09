@@ -34,6 +34,14 @@ Related parallel track:
   and structural-only service-account behavior should be tested after TNT-200 is
   merged.
 
+Implementation drift to reconcile before final release:
+
+- The accepted design now says explicitly adding an SA to its bound admin group
+  is not specially prevented, and grants to that group accrue normally to any
+  actual members. Earlier Phase 2 SQL/checklist wording used a stricter
+  "users-only bound admin group" rule; verify and update that enforcement in a
+  follow-up pass rather than hiding the mismatch.
+
 ## Locked Decisions
 
 - Service accounts use `kind = 's'`.
@@ -52,8 +60,10 @@ Related parallel track:
 - Directly deleting the bound admin group is forbidden.
 - The bound admin group cannot be a space-admin group.
 - The bound admin group cannot be the default group.
-- Admin-group grants do **not** accrue to the service account; they accrue to
-  the group's human members like any group grants.
+- The service account is **not automatically added** to its bound admin group;
+  adding it later is not specially prevented.
+- Grants to the bound admin group work like any group grant: the service account
+  receives them only if it is actually a member of that group.
 - Service accounts may be members of ordinary groups.
 - Service accounts may hold `group_member.admin` on ordinary groups.
 - Service accounts may be explicitly made `principal_space.admin`, but this is
@@ -272,20 +282,20 @@ Likely files:
 
 Goal: provide an operator-friendly surface without exposing hidden sharp edges.
 
-- [ ] Add `me service` command group.
-- [ ] Add `me service create <name>`:
-  - [ ] optional initial admin users;
-  - [ ] optional group-admin flags for those initial users;
-  - [ ] prints created service account id and admin group name/id.
-- [ ] Add `me service list`.
-- [ ] Add `me service rename`.
-- [ ] Add `me service delete`.
-- [ ] Add api-key commands for service accounts, either:
-  - [ ] `me apikey create --service <idOrName>`; or
+- [x] Add `me service` command group.
+- [x] Add `me service create <name>`:
+  - [x] optional initial admin users;
+  - [x] optional group-admin flags for those initial users;
+  - [x] prints created service account id and admin group name/id.
+- [x] Add `me service list`.
+- [x] Add `me service rename`.
+- [x] Add `me service delete`.
+- [x] Add api-key commands for service accounts, either:
+  - [x] `me apikey create --service <idOrName>`; or
   - [ ] `me service apikey create <idOrName>`.
-- [ ] Support `ME_API_KEY` / `--api-key` for service-account authentication.
-- [ ] Do **not** add `--as-service` or `X-Me-As-Service` support.
-- [ ] Make docs and help text clear that service-account keys are durable
+- [x] Support `ME_API_KEY` / `--api-key` for service-account authentication.
+- [x] Do **not** add `--as-service` or `X-Me-As-Service` support.
+- [x] Make docs and help text clear that service-account keys are durable
   operational credentials and should be handled like production secrets.
 
 Likely files:
@@ -319,7 +329,7 @@ Server/RPC tests:
 - [ ] Only space admins can create service accounts.
 - [ ] Admin-group members can manage SA keys.
 - [ ] SA api keys cannot manage keys.
-- [ ] Admin-group members can rename/delete if allowed by final policy.
+- [ ] Admin-group members can rename but not delete service accounts.
 - [ ] Non-admin users cannot administer arbitrary SAs.
 - [ ] Service-account key can read/write memory according to `tree_access`.
 - [ ] Service-account key can exercise ordinary group admin on groups where it

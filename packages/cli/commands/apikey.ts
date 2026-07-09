@@ -1,6 +1,6 @@
 /**
- * me apikey — manage API keys, for yourself (a personal access token) or your
- * agents (`--agent`).
+ * me apikey — manage API keys, for yourself (a personal access token), your
+ * agents (`--agent`), or service accounts (`--service`).
  *
  * Keys are global: a key works in any space its principal has been admitted to.
  * The plaintext key is shown exactly once, by `create`. No revoke state — delete
@@ -8,8 +8,9 @@
  * use); minting/revoking always requires a `me login` session.
  *
  * - me apikey create [name] [--expires <ts>]: mint a personal access token (you)
- * - me apikey create --agent <agent> [name]: mint a key for one of your agents
- * - me apikey list [--agent <agent>]:        list your keys (or an agent's)
+ * - me apikey create --agent <agent> [name]:   mint a key for one of your agents
+ * - me apikey create --service <svc> [name]:   mint a service-account key
+ * - me apikey list [--agent <agent>|--service <svc>]
  * - me apikey get <id>:                      key metadata
  * - me apikey delete <id>:                   delete (revoke) a key
  *
@@ -25,7 +26,10 @@ import {
   handleError,
   requireAuth,
   requireSession,
+  requireSpace,
+  resolveActiveSpace,
   resolveAgentId,
+  resolveServiceAccountId,
 } from "../util.ts";
 
 /**
@@ -38,13 +42,60 @@ function defaultKeyName(): string {
   return `cli-${date}-${randomBytes(6).toString("hex")}`;
 }
 
+function assertSingleTarget(
+  agent: string | undefined,
+  service: string | undefined,
+  fmt: ReturnType<typeof getOutputFormat>,
+): void {
+  if (agent === undefined || service === undefined) return;
+  const msg = "Use only one key target: --agent or --service, not both.";
+  if (fmt === "text") clack.log.error(msg);
+  else output({ error: msg }, fmt, () => {});
+  process.exit(1);
+}
+
+async function resolveApiKeyTarget(
+  user: ReturnType<typeof buildUserClient>,
+  creds: ReturnType<typeof resolveCredentials>,
+  fmt: ReturnType<typeof getOutputFormat>,
+  opts: { agent?: string; service?: string },
+): Promise<{ memberId: string; targetKind: "user" | "agent" | "service" }> {
+  assertSingleTarget(opts.agent, opts.service, fmt);
+  if (opts.agent !== undefined) {
+    return {
+      memberId: await resolveAgentId(user, opts.agent, fmt),
+      targetKind: "agent",
+    };
+  }
+  if (opts.service !== undefined) {
+    requireSpace(creds, fmt);
+    const space = await resolveActiveSpace(user, creds.activeSpace, fmt);
+    return {
+      memberId: await resolveServiceAccountId(
+        user,
+        space.id,
+        opts.service,
+        fmt,
+      ),
+      targetKind: "service",
+    };
+  }
+  return { memberId: (await user.whoami()).id, targetKind: "user" };
+}
+
 function createApiKeyCreateCommand(): Command {
   return new Command("create")
-    .description("mint a personal access token (or an agent key with --agent)")
+    .description(
+      "mint a personal access token, agent key, or service-account key",
+    )
     .argument("[name]", "key name (auto-generated if omitted)")
     .option(
       "--agent <agent>",
       "mint a key for one of your agents instead of yourself (agent id or name)",
+    )
+    .option(
+      "--service <service>",
+      "mint a key for a service account in the active space (id or name)",
     )
     .option("--expires <timestamp>", "expiration timestamp (ISO 8601)")
     .action(async (name: string | undefined, opts, cmd) => {
@@ -57,11 +108,12 @@ function createApiKeyCreateCommand(): Command {
       const keyName = name ?? defaultKeyName();
 
       try {
-        // No --agent → the caller's own user principal (a PAT, resolved via
-        // whoami); --agent → the named agent.
-        const memberId = opts.agent
-          ? await resolveAgentId(user, opts.agent, fmt)
-          : (await user.whoami()).id;
+        const { memberId, targetKind } = await resolveApiKeyTarget(
+          user,
+          creds,
+          fmt,
+          opts,
+        );
         const result = await user.apiKey.create({
           memberId,
           name: keyName,
@@ -75,9 +127,11 @@ function createApiKeyCreateCommand(): Command {
             "API key — save it now; it won't be shown again",
           );
           clack.log.info(
-            opts.agent
+            targetKind === "agent"
               ? "Give it to the agent via ME_API_KEY or its MCP config. It works in any space the agent is a member of."
-              : "Personal access token — use it as ME_API_KEY for headless/CLI access as you (e.g. in a VM or over SSH). It works in any space you're a member of. Managing keys (create/revoke) still requires `me login`.",
+              : targetKind === "service"
+                ? "Service-account key — store it as a production secret (for example, ME_API_KEY in CI). It works only in spaces where the service account belongs and has access."
+                : "Personal access token — use it as ME_API_KEY for headless/CLI access as you (e.g. in a VM or over SSH). It works in any space you're a member of. Managing keys (create/revoke) still requires `me login`.",
           );
         });
       } catch (error) {
@@ -89,10 +143,14 @@ function createApiKeyCreateCommand(): Command {
 function createApiKeyListCommand(): Command {
   return new Command("list")
     .alias("ls")
-    .description("list your API keys (or an agent's with --agent)")
+    .description("list your API keys, an agent's, or a service account's")
     .option(
       "--agent <agent>",
       "list one of your agents' keys instead of your own (agent id or name)",
+    )
+    .option(
+      "--service <service>",
+      "list a service account's keys in the active space (id or name)",
     )
     .action(async (opts, cmd) => {
       const globalOpts = cmd.optsWithGlobals();
@@ -102,10 +160,7 @@ function createApiKeyListCommand(): Command {
 
       const user = buildUserClient(creds);
       try {
-        // No --agent → your own keys (resolved via whoami); --agent → the agent.
-        const memberId = opts.agent
-          ? await resolveAgentId(user, opts.agent, fmt)
-          : (await user.whoami()).id;
+        const { memberId } = await resolveApiKeyTarget(user, creds, fmt, opts);
         const { apiKeys } = await user.apiKey.list({ memberId });
         output({ apiKeys }, fmt, () => {
           if (apiKeys.length === 0) {
@@ -191,7 +246,7 @@ function createApiKeyDeleteCommand(): Command {
 
 export function createApiKeyCommand(): Command {
   const apikey = new Command("apikey").description(
-    "manage API keys (your own personal access token, or your agents' via --agent)",
+    "manage API keys (personal, agent, or service-account keys)",
   );
   apikey.addCommand(createApiKeyCreateCommand());
   apikey.addCommand(createApiKeyListCommand());

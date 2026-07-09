@@ -1,6 +1,6 @@
 # me apikey
 
-Manage API keys — your own **personal access token (PAT)**, or a key for one of your **agents** (`--agent`).
+Manage API keys — your own **personal access token (PAT)**, a key for one of your **agents** (`--agent`), or a key for a **service account** (`--service`).
 
 An API key is a global, per-principal credential — **not** bound to a space. The same key works in any space its principal has been admitted to; the space comes from the `X-Me-Space` header (`--space` / `ME_SPACE`). Keys are formatted `me.<lookupId>.<secret>`.
 
@@ -8,13 +8,14 @@ There are two kinds, distinguished only by who they act as:
 
 - **Personal access token** (default) — acts as **you**, for headless/CLI use (a VM, SSH, CI) where your `me login` session isn't available. Full access as you, but it **cannot** manage keys (minting/revoking always needs a session).
 - **Agent key** (`--agent <agent>`) — acts as one of your agents, for a dedicated/unattended agent install.
+- **Service-account key** (`--service <service>`) — acts as a space-scoped service account, for CI/CD jobs, webhooks, and other team-owned integrations. Treat it like a production secret.
 
 Minting and revoking keys authenticate with your **session** (`me login`); an API key can't mint or revoke keys. The CLI never persists API keys — a created key is printed **once** for you to place where it's used (typically the `ME_API_KEY` environment variable). The alias `me apikey revoke` is equivalent to `me apikey delete`.
 
 ## Commands
 
-- [me apikey create](#me-apikey-create) -- mint a personal access token (or an agent key)
-- [me apikey list](#me-apikey-list) -- list your keys (or an agent's)
+- [me apikey create](#me-apikey-create) -- mint a personal access token, agent key, or service-account key
+- [me apikey list](#me-apikey-list) -- list your keys, an agent's, or a service account's
 - [me apikey get](#me-apikey-get) -- show key metadata
 - [me apikey delete](#me-apikey-delete) -- delete (revoke) a key
 
@@ -22,10 +23,10 @@ Minting and revoking keys authenticate with your **session** (`me login`); an AP
 
 ## me apikey create
 
-Mint a new API key. With no `--agent`, mints a **personal access token** for yourself; with `--agent`, mints a key for that agent. The raw key is shown only once — store it securely.
+Mint a new API key. With no target option, mints a **personal access token** for yourself; with `--agent`, mints a key for that agent; with `--service`, mints a key for that service account in the active space. The raw key is shown only once — store it securely.
 
 ```
-me apikey create [name] [--agent <agent>] [--expires <timestamp>]
+me apikey create [name] [--agent <agent> | --service <service>] [--expires <timestamp>]
 ```
 
 | Argument | Required | Description |
@@ -35,6 +36,7 @@ me apikey create [name] [--agent <agent>] [--expires <timestamp>]
 | Option | Description |
 |--------|-------------|
 | `--agent <agent>` | Mint a key for one of your agents (id or name) instead of yourself. |
+| `--service <service>` | Mint a key for a service account (id or name) in the active space. |
 | `--expires <timestamp>` | Expiration timestamp (ISO 8601). |
 
 Names are unique per principal, so you can't mint two keys with the same name for the same target. The auto-generated default carries a random suffix, making repeated `me apikey create` calls extremely unlikely to collide.
@@ -46,21 +48,25 @@ me apikey create my-laptop          # …with a name
 
 # A key for one of your agents
 me apikey create --agent claude-code-agent plugin-key
+
+# A key for a service account in the active space
+me apikey create --service deploy-bot ci-key
 ```
 
 ---
 
 ## me apikey list
 
-List API keys (metadata only — never the secret). With no `--agent`, lists **your own** keys; with `--agent`, lists that agent's keys. Alias: `me apikey ls`.
+List API keys (metadata only — never the secret). With no target option, lists **your own** keys; with `--agent`, lists that agent's keys; with `--service`, lists that service account's keys in the active space. Alias: `me apikey ls`.
 
 ```
-me apikey list [--agent <agent>]
+me apikey list [--agent <agent> | --service <service>]
 ```
 
 | Option | Description |
 |--------|-------------|
 | `--agent <agent>` | List one of your agents' keys (id or name) instead of your own. |
+| `--service <service>` | List a service account's keys (id or name) in the active space. |
 
 Displays a table of keys with ID, name, created date, and expiry.
 
@@ -99,4 +105,5 @@ me apikey delete <id> [-y]
 ## See also
 
 - [`me agent`](me-agent.md) -- create the agents that hold `--agent` keys and add them to spaces.
+- [`me service`](me-service.md) -- create service accounts that hold `--service` keys.
 - [MCP Integration](../mcp-integration.md) -- supply a key to an MCP-connected agent via `--api-key` or `ME_API_KEY`.

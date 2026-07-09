@@ -2,7 +2,7 @@
 
 Manage tree-access grants in the active space.
 
-A grant attaches an access **level** to a principal (user, agent, or group) at a **tree path**. Levels are additive and hierarchical — a grant at `/share/work` also covers everything below it:
+A grant attaches an access **level** to a principal (user, agent, service account, or group) at a **tree path**. Levels are additive and hierarchical — a grant at `/share/work` also covers everything below it:
 
 | Level | Flag | Capabilities |
 |-------|------|--------------|
@@ -33,7 +33,7 @@ me access grant <principal> <path> <level>
 
 | Argument | Required | Description |
 |----------|----------|-------------|
-| `principal` | yes | Principal id or name (user email, agent name, or group name). |
+| `principal` | yes | Principal id or name (user email, agent name, service-account name, or group name). |
 | `path` | yes | Tree path; use an empty string `""` for the space root. |
 | `level` | yes | Access level: `r` (read), `w` (write), or `o` (owner). |
 
