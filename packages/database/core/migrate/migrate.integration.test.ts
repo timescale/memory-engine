@@ -1200,9 +1200,7 @@ describe("control-plane functions", () => {
         error = e;
       }
       expect(error).toBeTruthy();
-      expect(String((error as Error).message)).toContain(
-        "different space",
-      );
+      expect(String((error as Error).message)).toContain("different space");
     });
   });
 
