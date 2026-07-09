@@ -27,9 +27,9 @@ export interface UserAuthContext {
   type: "user";
   /** The authenticated principal's kind: user, agent, or service account. */
   kind: "u" | "a" | "s";
-  /** The authenticated principal id (a user-principal id, or an agent's). */
+  /** The authenticated principal id (a user-principal id, agent id, or service-account id). */
   userId: string;
-  /** The user's email (powers whoami + lazy provisioning); null for an agent. */
+  /** The user's email (powers whoami + lazy provisioning); null for non-users. */
   email: string | null;
   /**
    * The principal's name. From a session / OAuth token this is the human's
@@ -135,8 +135,8 @@ export async function authenticateUser(
             name: validated.name,
             // For a user PAT, carry the real verified flag (the same fact a
             // session reports), so it behaves like any other credential —
-            // including the email-keyed redemption step. An agent has no
-            // email to verify. A key's only carve-out is that it can't
+            // including the email-keyed redemption step. Non-user principals have
+            // no email to verify. A key's only carve-out is that it can't
             // mint/revoke keys (enforced at the handler layer).
             emailVerified: isUser
               ? await getUserEmailVerified(validated.memberId)
