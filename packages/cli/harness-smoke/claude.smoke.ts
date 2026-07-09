@@ -16,13 +16,12 @@
  * run isolated from any real marketplace-plugin install on this machine.
  */
 import { expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { rmSync } from "node:fs";
 import {
-  cleanEnv,
+  envForCwd,
   extractContractVars,
   markerPrompt,
+  mkScratchDir,
   REVEAL_COMMAND,
   smokeTestsEnabled,
   writeMeWrapper,
@@ -33,7 +32,7 @@ const CLAUDE_BIN = Bun.which("claude");
 test.skipIf(!smokeTestsEnabled() || !CLAUDE_BIN)(
   "real Claude Code session: SessionStart hook injects working env vars into a Bash call",
   async () => {
-    const projectDir = mkdtempSync(join(tmpdir(), "me-claude-smoke-"));
+    const projectDir = mkScratchDir("me-claude-smoke-");
     const meBinDir = writeMeWrapper();
     try {
       const hookSettings = JSON.stringify({
@@ -62,7 +61,9 @@ test.skipIf(!smokeTestsEnabled() || !CLAUDE_BIN)(
         ],
         {
           cwd: projectDir,
-          env: { ...cleanEnv(), PATH: `${meBinDir}:${process.env.PATH}` },
+          env: envForCwd(projectDir, {
+            PATH: `${meBinDir}:${process.env.PATH}`,
+          }),
           stdout: "pipe",
           stderr: "pipe",
         },

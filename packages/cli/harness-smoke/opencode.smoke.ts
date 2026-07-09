@@ -3,12 +3,12 @@
  * generated capture plugin's `shell.env` hook and inject the four contract
  * vars into a real shell-tool call's environment?
  *
- * BEST-EFFORT / UNVERIFIED — the `opencode` binary is not installed on the
- * machine this was authored on, so the invocation below is built from
- * OpenCode's public CLI docs (`opencode run [message..] --auto`, project-
- * scoped `.opencode/plugins/`), not a live run. If this fails when you first
- * run it with `opencode` actually installed, the flags are the first thing
- * to check — see CLAUDE.md's "Harness smoke tests" section.
+ * Verified live against opencode 1.17.16 (`opencode run --auto`, project-
+ * scoped `.opencode/plugins/`) — the `shell.env` hook fires and injects all
+ * four vars correctly. Note there is no `--quiet`/`-q` flag on `run` in this
+ * version (unlike some older CLI docs) — passing one makes yargs print
+ * usage and exit 1, so don't add it back without checking `opencode run
+ * --help` first.
  *
  * Mechanism: writes the real plugin source (`renderPluginSource()`, the
  * exact file `me opencode install`/`init` would write) into a scratch
@@ -18,15 +18,15 @@
  * shell.env hook should have merged in.
  */
 import { expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { renderPluginSource } from "../opencode/plugin-template.ts";
 import { openCodePluginsDir } from "../opencode/scope.ts";
 import {
-  cleanEnv,
+  envForCwd,
   extractContractVars,
   markerPrompt,
+  mkScratchDir,
   REVEAL_COMMAND,
   smokeTestsEnabled,
 } from "./_shared.ts";
@@ -36,23 +36,17 @@ const OPENCODE_BIN = Bun.which("opencode");
 test.skipIf(!smokeTestsEnabled() || !OPENCODE_BIN)(
   "real OpenCode run: the generated plugin's shell.env hook injects working env vars into a shell call",
   async () => {
-    const projectDir = mkdtempSync(join(tmpdir(), "me-opencode-smoke-"));
+    const projectDir = mkScratchDir("me-opencode-smoke-");
     try {
       const pluginsDir = openCodePluginsDir("project", projectDir);
       mkdirSync(pluginsDir, { recursive: true });
       writeFileSync(join(pluginsDir, "memory-engine.ts"), renderPluginSource());
 
       const proc = Bun.spawn(
-        [
-          OPENCODE_BIN as string,
-          "run",
-          "--auto",
-          "--quiet",
-          markerPrompt(REVEAL_COMMAND),
-        ],
+        [OPENCODE_BIN as string, "run", "--auto", markerPrompt(REVEAL_COMMAND)],
         {
           cwd: projectDir,
-          env: cleanEnv(),
+          env: envForCwd(projectDir),
           stdout: "pipe",
           stderr: "pipe",
         },
