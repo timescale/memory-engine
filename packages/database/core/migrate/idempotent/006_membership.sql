@@ -348,7 +348,8 @@ set search_path to pg_catalog, {{schema}}, public, pg_temp
 
 -------------------------------------------------------------------------------
 -- list_group_members
--- Members (users / agents) of a group within a space, with the admin flag.
+-- Members (users / agents / service accounts) of a group within a space, with
+-- the stored admin flag.
 -------------------------------------------------------------------------------
 create or replace function {{schema}}.list_group_members
 ( _space_id uuid
@@ -374,8 +375,8 @@ set search_path to pg_catalog, {{schema}}, public, pg_temp
 
 -------------------------------------------------------------------------------
 -- list_groups_for_member
--- Groups within a space that a member (user / agent) belongs to, with the
--- admin flag.
+-- Groups within a space that a member (user / agent / service account) belongs
+-- to, with the effective admin flag.
 -------------------------------------------------------------------------------
 create or replace function {{schema}}.list_groups_for_member
 ( _space_id uuid

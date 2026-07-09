@@ -47,6 +47,30 @@ import {
 } from "./support";
 import { assertSpaceRpcContext, type SpaceRpcContext } from "./types";
 
+async function requireGroupMembershipAuthority(
+  ctx: SpaceRpcContext,
+  groupId: string,
+): Promise<void> {
+  const serviceAccountId = await ctx.core.serviceAccountForAdminGroup(groupId);
+  if (!serviceAccountId) {
+    await requireGroupAdmin(ctx, groupId);
+    return;
+  }
+
+  if (ctx.admin) return;
+  if (
+    ctx.principalKind === "u" &&
+    (await ctx.core.isServiceAccountAdmin(serviceAccountId, ctx.principalId))
+  ) {
+    return;
+  }
+
+  throw new AppError(
+    "FORBIDDEN",
+    "Managing a service-account admin group requires being a space admin or a user member of that service account's admin group",
+  );
+}
+
 /** Guard that the group exists in this space. */
 async function assertGroupInSpace(
   ctx: SpaceRpcContext,
@@ -138,7 +162,7 @@ async function groupAddMember(
 ): Promise<GroupAddMemberResult> {
   assertSpaceRpcContext(context);
   const ctx = context as SpaceRpcContext;
-  await requireGroupAdmin(ctx, params.groupId);
+  await requireGroupMembershipAuthority(ctx, params.groupId);
   await assertGroupInSpace(ctx, params.groupId);
   await guardCore(() =>
     ctx.core.addGroupMember(
@@ -157,7 +181,7 @@ async function groupRemoveMember(
 ): Promise<GroupRemoveMemberResult> {
   assertSpaceRpcContext(context);
   const ctx = context as SpaceRpcContext;
-  await requireGroupAdmin(ctx, params.groupId);
+  await requireGroupMembershipAuthority(ctx, params.groupId);
   await assertGroupInSpace(ctx, params.groupId);
   const removed = await guardCore(() =>
     ctx.core.removeGroupMember(ctx.space.id, params.groupId, params.memberId),
@@ -171,7 +195,7 @@ async function groupListMembers(
 ): Promise<GroupListMembersResult> {
   assertSpaceRpcContext(context);
   const ctx = context as SpaceRpcContext;
-  await requireGroupAdmin(ctx, params.groupId);
+  await requireGroupMembershipAuthority(ctx, params.groupId);
   await assertGroupInSpace(ctx, params.groupId);
   const members = await ctx.core.listGroupMembers(ctx.space.id, params.groupId);
   return { members: members.map(toGroupMemberResponse) };

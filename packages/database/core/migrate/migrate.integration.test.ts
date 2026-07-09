@@ -993,10 +993,20 @@ describe("control-plane functions", () => {
         groupAdminId,
         "svc-group-admin@example.com",
       ]);
+      const [agent] = await sql.unsafe(
+        `select ${s}.create_agent($1, $2) as id`,
+        [memberId, `svc_agent_${randomSlug()}`],
+      );
+      const agentId = agent?.id as string;
+      const [memberService] = await sql.unsafe(
+        `select * from ${s}.create_service_account($1, $2, $3::uuid[], $4::uuid[])`,
+        [spaceId, "helper", [], []],
+      );
+      const memberServiceId = memberService?.id as string;
 
       const [svc] = await sql.unsafe(
         `select * from ${s}.create_service_account($1, $2, $3::uuid[], $4::uuid[])`,
-        [spaceId, "eon", [memberId], [groupAdminId]],
+        [spaceId, "eon", [memberId, agentId], [groupAdminId, memberServiceId]],
       );
       const serviceId = svc?.id as string;
       const adminGroupId = svc?.admin_id as string;
@@ -1051,6 +1061,38 @@ describe("control-plane functions", () => {
         member_id: groupAdminId,
         admin: true,
       });
+      expect(normalizedMembers).toContainEqual({
+        member_id: agentId,
+        admin: false,
+      });
+      expect(normalizedMembers).toContainEqual({
+        member_id: memberServiceId,
+        admin: true,
+      });
+
+      await sql.unsafe(`select ${s}.add_principal_to_space($1, $2, false)`, [
+        spaceId,
+        memberId,
+      ]);
+      await sql.unsafe(`select ${s}.add_principal_to_space($1, $2, false)`, [
+        spaceId,
+        agentId,
+      ]);
+      const [userAdmin] = await sql.unsafe(
+        `select ${s}.is_service_account_admin($1, $2) as ok`,
+        [serviceId, memberId],
+      );
+      const [agentAdmin] = await sql.unsafe(
+        `select ${s}.is_service_account_admin($1, $2) as ok`,
+        [serviceId, agentId],
+      );
+      const [serviceAdmin] = await sql.unsafe(
+        `select ${s}.is_service_account_admin($1, $2) as ok`,
+        [serviceId, memberServiceId],
+      );
+      expect(userAdmin?.ok).toBe(true);
+      expect(agentAdmin?.ok).toBe(false);
+      expect(serviceAdmin?.ok).toBe(false);
 
       const [helper] = await sql.unsafe(
         `select ${s}.service_account_for_admin_group($1) as id`,

@@ -7,8 +7,8 @@
 ## Scope
 
 Implement base service accounts (`principal.kind = 's'`): space-scoped,
-api-key-authenticated principals administered by user members of a bound admin
-group.
+api-key-authenticated principals administered by direct user members of a bound
+admin group.
 
 Base scope includes:
 
@@ -47,8 +47,9 @@ Related merged track:
 - The service-account principal points to the admin group via `admin_id`, which
   references `principal(group_id)`.
 - The bound admin group behaves like an ordinary group for membership and data
-  grants; service-account administration authority is limited to its direct user
-  members by `is_service_account_admin`.
+  grants; users, agents, and service accounts may be members. Service-account
+  administration authority is limited to its direct user members by
+  `is_service_account_admin`.
 - Deleting the service account deletes the bound admin group.
 - Directly deleting the bound admin group is forbidden.
 - The bound admin group cannot be a space-admin group.
@@ -66,8 +67,8 @@ Related merged track:
   a space admin.
 - Granting access to a service account uses normal grant authority: grantor must
   be a space admin or hold `owner@P` for path `P`.
-- Revoking access from a service account is allowed for space admins and members
-  of the service account's admin group.
+- Revoking access from a service account is allowed for space admins and direct
+  user members of the service account's admin group.
 
 ## Phase 1: Core Schema Migration
 
@@ -117,7 +118,7 @@ Goal: create service accounts atomically and protect their bound admin groups.
     default;
   - [x] rosters the bound admin group into `principal_space` through existing
     group creation behavior;
-  - [x] adds optional initial user admins to the bound admin group;
+  - [x] adds optional initial user/agent/service-account members to the bound admin group;
   - [x] optionally marks those initial members as `group_member.admin` based on
     input.
 - [x] Ensure service-account creation gives no tree grants.
@@ -234,7 +235,7 @@ Goal: wire service-account management and avoid key privilege escalation.
 - [x] `serviceAccount.create`:
   - [x] requires space admin;
   - [x] creates SA + bound admin group atomically;
-  - [x] supports optional initial users and optional `group_member.admin` flags.
+  - [x] supports optional initial members and optional `group_member.admin` flags.
 - [x] `serviceAccount.list`:
   - [x] space admins can list all;
   - [x] admin-group members can list service accounts they administer;
@@ -277,7 +278,7 @@ Goal: provide an operator-friendly surface without exposing hidden sharp edges.
 - [x] Add `me service` command group.
 - [x] Add `me service create <name>`:
   - [x] optional initial admin users;
-  - [x] optional group-admin flags for those initial users;
+  - [x] optional group-admin flags for those initial members;
   - [x] prints created service account id and admin group name/id.
 - [x] Add `me service list`.
 - [x] Add `me service rename`.

@@ -17,6 +17,7 @@ import {
   requireSpace,
   resolveActiveSpace,
   resolveServiceAccountId,
+  resolveSpaceMemberId,
   resolveSpacePrincipalId,
 } from "../util.ts";
 
@@ -88,13 +89,13 @@ function createServiceCreateCommand(): Command {
     .description("create a service account in the active space")
     .argument("<name>", "service account name")
     .option(
-      "--admin <user>",
-      "add an initial user to the bound admin group (repeatable; id or email/name in the active space)",
+      "--admin <member>",
+      "add an initial user, agent, or service account to the bound admin group (repeatable; id or name in the active space)",
       (v, prev: string[] = []) => [...prev, v],
     )
     .option(
-      "--group-admin <user>",
-      "add an initial user as an admin of the bound admin group (repeatable)",
+      "--group-admin <member>",
+      "add an initial user, agent, or service account with the group's admin flag (repeatable)",
       (v, prev: string[] = []) => [...prev, v],
     )
     .action(async (name: string, opts, cmd) => {
@@ -109,13 +110,11 @@ function createServiceCreateCommand(): Command {
       try {
         const space = await resolveActiveSpace(user, creds.activeSpace, fmt);
         const members = await Promise.all(
-          values(opts.admin).map((m) =>
-            resolveSpacePrincipalId(memory, m, fmt, "u"),
-          ),
+          values(opts.admin).map((m) => resolveSpaceMemberId(memory, m, fmt)),
         );
         const groupAdmins = await Promise.all(
           values(opts.groupAdmin).map((m) =>
-            resolveSpacePrincipalId(memory, m, fmt, "u"),
+            resolveSpaceMemberId(memory, m, fmt),
           ),
         );
         const { serviceAccount } = await user.serviceAccount.create({

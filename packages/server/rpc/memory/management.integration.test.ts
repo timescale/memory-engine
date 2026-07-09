@@ -1024,6 +1024,77 @@ test("group member management allows a service-account group admin with zero tre
   );
 });
 
+test("service-account admin group membership is managed only by space admins or user SA admins", async () => {
+  const core = engineCore.coreStore(sql, coreSchema);
+  const manager = await makeUser();
+  await core.addPrincipalToSpace(space.id, manager);
+  const target = await core.createServiceAccount(
+    space.id,
+    `target_${rand(6)}`,
+    {
+      adminMembers: [{ memberId: manager }],
+    },
+  );
+  const robot = await core.createServiceAccount(space.id, `robot_${rand(6)}`);
+  const member = await makeUser();
+
+  await call("group.addMember", {
+    groupId: target.adminId,
+    memberId: robot.id,
+    admin: true,
+  });
+
+  const asRobot = {
+    principalId: robot.id,
+    principalKind: "s" as const,
+    treeAccess: await core.buildTreeAccess(robot.id, space.id),
+    admin: false,
+  };
+  await expectAppError(
+    call(
+      "group.addMember",
+      { groupId: target.adminId, memberId: member },
+      asRobot,
+    ),
+    "FORBIDDEN",
+  );
+  await expectAppError(
+    call("group.listMembers", { groupId: target.adminId }, asRobot),
+    "FORBIDDEN",
+  );
+
+  const asManager = {
+    principalId: manager,
+    principalKind: "u" as const,
+    treeAccess: [] as TreeAccess,
+    admin: false,
+  };
+  expect(
+    (
+      await call<{ added: boolean }>(
+        "group.addMember",
+        { groupId: target.adminId, memberId: member },
+        asManager,
+      )
+    ).added,
+  ).toBe(true);
+  const members = await call<{ members: { memberId: string }[] }>(
+    "group.listMembers",
+    { groupId: target.adminId },
+    asManager,
+  );
+  expect(members.members.some((m) => m.memberId === member)).toBe(true);
+  expect(
+    (
+      await call<{ removed: boolean }>(
+        "group.removeMember",
+        { groupId: target.adminId, memberId: member },
+        asManager,
+      )
+    ).removed,
+  ).toBe(true);
+});
+
 test("group.listForMember: an agent's owner can list its groups", async () => {
   // owner sets up: a member who owns an agent, the agent is in a group
   const member = await makeUser();

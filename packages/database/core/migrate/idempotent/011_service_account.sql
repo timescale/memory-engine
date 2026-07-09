@@ -24,6 +24,8 @@ comment on column {{schema}}.principal.admin_id is
 -- The service account is rostered into the space with no tree grants and is not
 -- added to the default group. _group_admin_member_ids is a subset-or-extension of
 -- _member_ids: ids present there are inserted with group_member.admin=true.
+-- Initial bound-admin-group members may be users, agents, or service accounts;
+-- only direct user members are service-account admins (is_service_account_admin).
 -------------------------------------------------------------------------------
 create or replace function {{schema}}.create_service_account
 ( _space_id uuid
