@@ -169,6 +169,10 @@ relationship between the space admin and the admin-group members.
   ('g','s') and space_id is null)`.
 - **`admin_id`** (new) `uuid references principal(group_id)`, with
   `(kind = 's' and admin_id is not null) or (kind != 's' and admin_id is null)`.
+  The FK only guarantees "is a group"; the same-space invariant (the bound admin
+  group must live in the SA's own space, and cannot be the default or a
+  space-admin group) is enforced by the service-account invariant trigger
+  (`_enforce_service_account_principal_invariants`), not the FK.
 - **Name uniqueness**: per-space for `s` (like groups). The bound admin group's
   name is per-space too; likely auto-derived (e.g. `<sa-name>-admins`) — TBD.
 
@@ -239,8 +243,9 @@ group` / space-admin). Impl detail — §8.
    *member*; it may also hold and exercise `group_member.admin` on ordinary
    groups. This is distinct from inviting new users into the space: a service
    account can manage an existing group's roster without being allowed to create
-   space invitations. (Requires allowing `kind='s'` in the group-admin logic
-   that currently strips agents: `gm.admin and not m.kind = 'a'`.)
+   space invitations. The group-admin logic already allows `kind='s'` — it only
+   strips agents (`gm.admin and not m.kind = 'a'` in
+   `idempotent/002_group_member.sql`), so no further code change is needed.
 4. **Admin group naming/derivation** and whether it's user-visible/renamable.
 5. **No `X-Me-As-Service`.** Rejected. Service accounts authenticate and
    authorize with their own api key via `ME_API_KEY` or `--api-key`; there is no

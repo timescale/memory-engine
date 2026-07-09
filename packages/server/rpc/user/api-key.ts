@@ -1,10 +1,12 @@
 /**
  * Api key handlers (apiKey.*) for the user RPC.
  *
- * The caller manages keys for a member they own — an agent, or their OWN user
- * principal (a personal access token). Keys are global per-principal (not
- * space-bound). The plaintext key is returned once by create. Revoke ≡ delete.
- * Minting/revoking is session-only (`denyApiKeyCaller`): a key can't manage keys.
+ * The caller manages keys for a member they may administer — an agent they own,
+ * a service account they administer (a direct user member of its bound admin
+ * group, or a space admin), or their OWN user principal (a personal access
+ * token). Keys are global per-principal (not space-bound). The plaintext key is
+ * returned once by create. Revoke ≡ delete. Minting/revoking is session-only
+ * (`denyApiKeyCaller`): a key can't manage keys.
  */
 import type { ApiKeyInfo } from "@memory.build/engine/core";
 import { formatApiKey } from "@memory.build/engine/core";

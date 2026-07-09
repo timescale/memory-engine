@@ -2,9 +2,10 @@
  * Service-account method schemas (serviceAccount.*) for the user RPC.
  *
  * Service accounts are space-scoped, api-key-bearing principals administered by
- * a bound admin group. Their lifecycle uses the user endpoint because
- * key management is human-administered, but every lifecycle operation carries an
- * explicit space id instead of relying on X-Me-Space.
+ * a bound admin group. Their lifecycle uses the user endpoint because key
+ * management is human-administered. `create` and `list` carry an explicit
+ * `spaceId` (the user endpoint has no X-Me-Space); `rename` and `delete` take
+ * only the service-account `id` and resolve the space from it.
  */
 import { z } from "zod";
 import { principalHandleNameSchema, uuidv7Schema } from "../fields.ts";
