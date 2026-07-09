@@ -182,9 +182,8 @@ the weaker spec to be updated. Reasoning per axis:
 - **Return type `jsonb` (current) vs `table` (redesign) — `jsonb` fits this
   architecture; the table form's edge is unrealized.** The set always
   round-trips through the application layer: `build_tree_access` → TS array
-  (`packages/engine/core/db.ts:429`), where the app uses it for the **auth gate**
-  (`treeAccess.length === 0` → 403, `authenticate-space.ts`) and **owner checks**
-  (`rpc/memory/support.ts`), then passes it **back into every space function as a
+  (`packages/engine/core/db.ts:429`), where the app uses it for **owner checks**
+  (`rpc/memory/support.ts`) and data-plane filtering, then passes it **back into every space function as a
   jsonb argument** (`sql.json(treeAccess)::jsonb`,
   `packages/engine/space/db.ts:101`; consumed via `jsonb_to_recordset` in
   `space/migrate/idempotent/001_memory.sql:33`). The only advantage of a
@@ -203,7 +202,8 @@ the weaker spec to be updated. Reasoning per axis:
   more semantic public name is ever wanted, `effective_tree_access` (returning
   jsonb) is the one thing worth lifting from the redesign.
 
-Per CLAUDE.md the auth gate is "non-empty `build_tree_access`."
+Endpoint admission is now direct `principal_space` membership; `build_tree_access`
+remains the effective data-access set.
 
 ### E. Two RPC endpoints, plus REST auth — decision: **keep the current implementation**
 
