@@ -10,8 +10,20 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { ME_INJECT_VERSION } from "../harness-contract.ts";
 
 const CLI_ENTRY = join(import.meta.dir, "..", "index.ts");
+
+/** Parse `env`'s NAME=value output lines into a map. */
+function parseEnvOutput(text: string): Record<string, string> {
+  const map: Record<string, string> = {};
+  for (const line of text.split("\n")) {
+    const idx = line.indexOf("=");
+    if (idx === -1) continue;
+    map[line.slice(0, idx)] = line.slice(idx + 1);
+  }
+  return map;
+}
 
 async function runClaudeEnv(
   payload: unknown,
@@ -44,6 +56,39 @@ describe("me claude env", () => {
       expect(content).toContain('export AI_AGENT="claude"');
       expect(content).toContain('export ME_AS_AGENT=".me"');
       expect(content).toContain('export ME_PROJECT_DIR="/some/project"');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("the written contract, when sourced by a real shell, actually sets the env vars", async () => {
+    // Claude Code's own half of the contract is sourcing $CLAUDE_ENV_FILE
+    // before every Bash tool command — we don't control or test that part
+    // (it's Claude Code's own documented behavior), but we DO control
+    // whether the file we write is valid, sourceable shell that correctly
+    // sets these vars. Prove it by actually sourcing it in a real shell and
+    // reading back a real process's environment, not just the file's text.
+    const dir = mkdtempSync(join(tmpdir(), "me-claude-env-"));
+    const envFile = join(dir, "claude-env.sh");
+    try {
+      const { exitCode } = await runClaudeEnv(
+        { cwd: "/some/project" },
+        { CLAUDE_ENV_FILE: envFile, ME_INJECT_V: undefined },
+      );
+      expect(exitCode).toBe(0);
+
+      const proc = Bun.spawn(["bash", "-c", `source "${envFile}" && env`], {
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+      const stdout = await new Response(proc.stdout).text();
+      expect(await proc.exited).toBe(0);
+
+      const env = parseEnvOutput(stdout);
+      expect(env.ME_INJECT_V).toBe(ME_INJECT_VERSION);
+      expect(env.AI_AGENT).toBe("claude");
+      expect(env.ME_AS_AGENT).toBe(".me");
+      expect(env.ME_PROJECT_DIR).toBe("/some/project");
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
