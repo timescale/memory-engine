@@ -87,7 +87,7 @@ function openCodePluginPath(scope: OpenCodeScope, projectRoot: string): string {
 }
 
 /** Whether our managed capture plugin is already installed (by its marker). */
-async function openCodePluginInstalled(
+export async function openCodePluginInstalled(
   scope: OpenCodeScope,
   projectRoot: string,
 ): Promise<boolean> {
@@ -161,11 +161,72 @@ async function resolveProjectRoot(): Promise<string> {
 
 /**
  * me opencode install — register the MCP server, install the (inert) capture
- * plugin, and run the shared capture opt-in — mirroring `me claude install`'s
- * one-install model. A headless (api-key) install stops after the MCP
- * registration: capture is credential-agnostic, so a headless deployment opts
- * in via a committed `.me` `capture: true` or the target machine's config.
+ * plugin + `/memory-recall` command + `memory-engine` skill, and run the
+ * shared capture opt-in — mirroring `me claude install`'s one-install model.
+ * A headless (api-key) install stops after the MCP registration: capture is
+ * credential-agnostic, so a headless deployment opts in via a committed
+ * `.me` `capture: true` or the target machine's config.
+ *
+ * Exported so `me project init`'s preflight can offer this same flow — see
+ * `openCodeSetupAvailable()` below.
  */
+export async function runOpenCodeInstallFlow(
+  opts: AgentInstallOptions & {
+    scope?: OpenCodeScope;
+    defaultAgent?: boolean;
+  },
+  globalOpts: Record<string, unknown>,
+): Promise<void> {
+  const scope = opts.scope ?? "user";
+  const projectRoot =
+    scope === "project" ? await resolveProjectRoot() : process.cwd();
+  await runAgentMcpInstall("opencode", {
+    apiKey: opts.apiKey,
+    server: opts.server,
+    space: opts.space,
+    scope,
+    projectDir: scope === "project" ? projectRoot : undefined,
+  });
+
+  const creds = resolveCredentials(opts.server);
+  const headless = Boolean(opts.apiKey ?? creds.apiKey);
+  if (headless) return;
+
+  const activeSpace = opts.space ?? creds.activeSpace;
+  if (opts.defaultAgent !== false) {
+    await ensureDefaultAgent({ ...creds, activeSpace });
+  }
+
+  // The capture plugin — inert until capture is enabled (the flag below, or
+  // a project's `.me` `capture: true`) — alongside the /memory-recall
+  // command and the memory-engine skill, all at the same scope as the MCP
+  // registration above.
+  await installOpenCodePlugin(scope, projectRoot);
+  await installRecallCommand(scope, projectRoot);
+  await installSkill(scope, projectRoot);
+
+  // Capture opt-in (shared with `me claude install`): prompt, persist
+  // the machine-wide flag, and backfill existing sessions on yes.
+  await runCapturePrompt(opencodeImporter, globalOpts, {
+    space: activeSpace,
+    toolLabel: "OpenCode",
+    installCmd: "me opencode install",
+  });
+}
+
+/**
+ * Whether `me project init`'s preflight should offer to run
+ * {@link runOpenCodeInstallFlow}: hidden if OpenCode isn't installed on this
+ * machine at all, "done" if the user-scope capture plugin is already
+ * present (mirrors `pluginInstallAvailable()` in claude.ts).
+ */
+export async function openCodeSetupAvailable(): Promise<StepAvailability> {
+  if (Bun.which("opencode") === null) return "hidden";
+  return (await openCodePluginInstalled("user", process.cwd()))
+    ? "done"
+    : "available";
+}
+
 function createOpenCodeInstallCommand(): Command {
   return new Command("install")
     .description(
@@ -198,36 +259,10 @@ function createOpenCodeInstallCommand(): Command {
         cmd: Command,
       ) => {
         const globalOpts = cmd.optsWithGlobals();
-        const scope = opts.scope ?? "user";
-        await runAgentMcpInstall("opencode", {
-          apiKey: opts.apiKey,
-          server: globalOpts.server ?? opts.server,
-          space: opts.space,
-          scope,
-          projectDir:
-            scope === "project" ? await resolveProjectRoot() : undefined,
-        });
-
-        const creds = resolveCredentials(globalOpts.server ?? opts.server);
-        const headless = Boolean(opts.apiKey ?? creds.apiKey);
-        if (headless) return;
-
-        const activeSpace = opts.space ?? creds.activeSpace;
-        if (opts.defaultAgent !== false) {
-          await ensureDefaultAgent({ ...creds, activeSpace });
-        }
-
-        // The one user-scoped capture plugin — inert until capture is enabled
-        // (the flag below, or a project's `.me` `capture: true`).
-        await installOpenCodePlugin("user", process.cwd());
-
-        // Capture opt-in (shared with `me claude install`): prompt, persist
-        // the machine-wide flag, and backfill existing sessions on yes.
-        await runCapturePrompt(opencodeImporter, globalOpts, {
-          space: activeSpace,
-          toolLabel: "OpenCode",
-          installCmd: "me opencode install",
-        });
+        await runOpenCodeInstallFlow(
+          { ...opts, server: globalOpts.server ?? opts.server },
+          globalOpts,
+        );
       },
     );
 }
