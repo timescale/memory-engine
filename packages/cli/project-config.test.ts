@@ -410,27 +410,47 @@ test("an anchor that resolves to nothing does not fall through to cwd", () => {
   }
 });
 
-test("CLAUDE_PROJECT_DIR backstop is used only when walk-up finds nothing", () => {
+test("CLAUDE_PROJECT_DIR backstop is used only when walk-up finds nothing (no anchor set)", () => {
   writeConfig(root, "space: sp_backstop\n");
   const elsewhere = mkdtempSync(join(tmpdir(), "me-projcfg-backstop-"));
+  const originalCwd = process.cwd();
   try {
-    setProjectDirOverride(elsewhere); // walk-up from here finds nothing
+    process.chdir(elsewhere); // cwd walk-up from here finds nothing; NO anchor set
     process.env.CLAUDE_PROJECT_DIR = root;
     expect(getProjectConfig()?.space).toBe("sp_backstop");
   } finally {
+    process.chdir(originalCwd);
     rmSync(elsewhere, { recursive: true, force: true });
   }
 });
 
-test("CLAUDE_PROJECT_DIR backstop is ignored (not validated) when it has no .me/", () => {
+test("CLAUDE_PROJECT_DIR backstop is ignored (not validated) when it has no .me/ (no anchor set)", () => {
   const noMe = mkdtempSync(join(tmpdir(), "me-projcfg-nome-"));
   const elsewhere = mkdtempSync(join(tmpdir(), "me-projcfg-elsewhere2-"));
+  const originalCwd = process.cwd();
   try {
-    setProjectDirOverride(elsewhere);
+    process.chdir(elsewhere);
     process.env.CLAUDE_PROJECT_DIR = noMe;
     expect(getProjectConfig()).toBeUndefined();
   } finally {
+    process.chdir(originalCwd);
     rmSync(noMe, { recursive: true, force: true });
+    rmSync(elsewhere, { recursive: true, force: true });
+  }
+});
+
+test("an explicit anchor resolving to nothing forecloses the backstop entirely — even a VALID backstop is ignored", () => {
+  // Before the fix: an anchor set to a dir with no .me/ above it would still
+  // fall through to CLAUDE_PROJECT_DIR when it validated. The anchor's "no
+  // fall-through below it" guarantee must hold regardless of whether the
+  // backstop would otherwise have resolved.
+  writeConfig(root, "space: sp_backstop_must_be_ignored\n");
+  const elsewhere = mkdtempSync(join(tmpdir(), "me-projcfg-anchor-backstop-"));
+  try {
+    setProjectDirOverride(elsewhere); // explicit anchor, resolves to nothing
+    process.env.CLAUDE_PROJECT_DIR = root; // a backstop that WOULD otherwise resolve
+    expect(getProjectConfig()).toBeUndefined();
+  } finally {
     rmSync(elsewhere, { recursive: true, force: true });
   }
 });
