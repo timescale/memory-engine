@@ -147,6 +147,45 @@ set search_path to pg_catalog, {{schema}}, public, pg_temp
 ;
 
 -------------------------------------------------------------------------------
+-- list_service_accounts_for_admin
+-- Service accounts in a space that _user_id administers: a direct user member of
+-- the SA's bound admin group who is also a direct space member. Same predicate
+-- as is_service_account_admin, evaluated set-wise in one round trip so callers
+-- avoid an is_service_account_admin probe per account (the serviceAccount.list
+-- N+1). Space admins should call list_service_accounts (they see all).
+-------------------------------------------------------------------------------
+create or replace function {{schema}}.list_service_accounts_for_admin
+( _space_id uuid
+, _user_id uuid
+)
+returns table
+( id uuid
+, name text
+, admin_id uuid
+, space_id uuid
+, created_at timestamptz
+, updated_at timestamptz
+)
+as $func$
+  select s.id, s.name::text, s.admin_id, s.space_id, s.created_at, s.updated_at
+  from {{schema}}.principal s
+  join {{schema}}.group_member gm
+    on gm.space_id = s.space_id
+   and gm.group_id = s.admin_id
+   and gm.member_id = _user_id
+  join {{schema}}.principal u
+    on u.user_id = gm.member_id
+  join {{schema}}.principal_space ups
+    on ups.space_id = s.space_id
+   and ups.principal_id = u.id
+  where s.kind = 's'
+  and s.space_id = _space_id
+  order by s.name
+$func$ language sql stable strict security invoker
+set search_path to pg_catalog, {{schema}}, public, pg_temp
+;
+
+-------------------------------------------------------------------------------
 -- is_service_account_admin
 -- A user administers an SA when they are a direct member of the SA's space and a
 -- member of its bound admin group. Space-admin override is checked separately by

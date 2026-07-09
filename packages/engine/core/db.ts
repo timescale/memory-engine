@@ -154,6 +154,16 @@ export interface CoreStore {
   ): Promise<ServiceAccount>;
   getServiceAccount(id: string): Promise<ServiceAccount | null>;
   listServiceAccounts(spaceId: string): Promise<ServiceAccount[]>;
+  /**
+   * Service accounts in a space that `userId` administers (direct user member of
+   * the SA's bound admin group + direct space member). One round trip — avoids an
+   * isServiceAccountAdmin probe per account. Space admins should use
+   * listServiceAccounts (they see all).
+   */
+  listServiceAccountsForAdmin(
+    spaceId: string,
+    userId: string,
+  ): Promise<ServiceAccount[]>;
   renameServiceAccount(id: string, name: string): Promise<boolean>;
   deleteServiceAccount(id: string): Promise<boolean>;
   serviceAccountForAdminGroup(groupId: string): Promise<string | null>;
@@ -574,6 +584,13 @@ export function coreStore(sql: Sql, schema: string = CORE_SCHEMA): CoreStore {
     async listServiceAccounts(spaceId) {
       const rows = await sql`
         select * from ${sch}.list_service_accounts(${spaceId})
+      `;
+      return rows.map(mapServiceAccount);
+    },
+
+    async listServiceAccountsForAdmin(spaceId, userId) {
+      const rows = await sql`
+        select * from ${sch}.list_service_accounts_for_admin(${spaceId}, ${userId})
       `;
       return rows.map(mapServiceAccount);
     },

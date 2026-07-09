@@ -179,8 +179,23 @@ test("service account lifecycle methods wrap the SQL functions", async () => {
   ]);
   expect(await db.isServiceAccountAdmin(account.id, adminUserId)).toBe(true);
   expect(await db.isServiceAccountAdmin(account.id, stagedUserId)).toBe(false);
+  // A direct admin-group member + space member administers the SA (one query).
+  expect(
+    (await db.listServiceAccountsForAdmin(spaceId, adminUserId)).map(
+      (a) => a.id,
+    ),
+  ).toEqual([account.id]);
+  // stagedUserId is in the admin group but not yet a space member → not counted.
+  expect(await db.listServiceAccountsForAdmin(spaceId, stagedUserId)).toEqual(
+    [],
+  );
   await db.addPrincipalToSpace(spaceId, stagedUserId);
   expect(await db.isServiceAccountAdmin(account.id, stagedUserId)).toBe(true);
+  expect(
+    (await db.listServiceAccountsForAdmin(spaceId, stagedUserId)).map(
+      (a) => a.id,
+    ),
+  ).toEqual([account.id]);
 
   await db.grantTreeAccess(spaceId, account.id, "robots", 2);
   expect(await db.buildTreeAccess(account.id, spaceId)).toEqual([
