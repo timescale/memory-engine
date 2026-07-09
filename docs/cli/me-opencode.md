@@ -4,8 +4,8 @@ OpenCode integration commands.
 
 ## Commands
 
-- [me opencode install](#me-opencode-install) -- register `me` as an MCP server with OpenCode
-- [me opencode init](#me-opencode-init) -- one-shot per-project setup (backfill + capture plugin + MCP + AGENTS.md)
+- [me opencode install](#me-opencode-install) -- register `me` as an MCP server with OpenCode, install the capture plugin + `/memory-recall` command + `memory-engine` skill
+- [me opencode init](#me-opencode-init) -- **deprecated** alias of [`me project init`](me-project.md)
 - [me opencode hook](#me-opencode-hook) -- invoked by the capture plugin to import a session (not run by hand)
 - [me opencode import](#me-opencode-import) -- import OpenCode sessions from `~/.local/share/opencode/storage`
 
@@ -13,7 +13,7 @@ OpenCode integration commands.
 
 ## me opencode install
 
-Set up OpenCode: register `me` as an MCP server (editing `~/.config/opencode/opencode.json`), install the user-scope capture plugin (inert until you opt in), and ask whether to capture your OpenCode sessions — mirroring [`me claude install`](me-claude.md#me-claude-install)'s one-install model.
+Set up OpenCode: register `me` as an MCP server (editing `~/.config/opencode/opencode.json`), install the user-scope capture plugin (inert until you opt in) plus the `/memory-recall` command and the `memory-engine` skill, and ask whether to capture your OpenCode sessions — mirroring [`me claude install`](me-claude.md#me-claude-install)'s one-install model. This same flow is also what [`me project init`](me-project.md#preflight)'s preflight offers when it detects OpenCode installed but not yet set up.
 
 ```
 me opencode install [options]
@@ -39,42 +39,9 @@ For manual MCP client configuration, see [MCP Integration](../mcp-integration.md
 
 ## me opencode init
 
-One-shot setup of OpenCode memory integration for the current project. Interactive runs present a grouped, pre-checked step picker; non-interactive runs execute every step except those turned off by a `--skip-*` flag.
+**Deprecated** — renamed to [`me project init`](me-project.md), the harness-agnostic per-project setup wizard. This alias prints a rename notice, runs the same command, and will be removed in a future release. See [`me project init`](me-project.md#3-setup-checklist) for the current (harness-gated) checklist steps.
 
-```
-me opencode init [options]
-```
-
-Steps:
-
-| Step | Kind | What it does |
-|------|------|--------------|
-| Import OpenCode sessions | backfill | Import this project's existing sessions (one-time) |
-| Install the capture plugin | ongoing | Write a small plugin into `~/.config/opencode/plugins/memory-engine.ts` that captures new sessions on `session.idle` / `session.deleted` (inert until capture is enabled) and injects the harness-agent environment contract into every shell command via a `shell.env` hook (see below) |
-| Enable ongoing capture for this project | ongoing | Write `capture: true` to the project's committed [`.me/config.yaml`](../project-config.md#the-capture-field-session-capture-onoff) — the per-project opt-in the hooks honor (wins over each member's global setting). Interactively **deselecting** this row writes an explicit `capture: false`; `--skip-capture-enable` just leaves the file untouched. |
-| Register the MCP server | config | Same as `me opencode install` -- gives OpenCode the memory tools |
-| Install `/memory-recall` | config | A custom command that searches Memory Engine |
-| Install the `memory-engine` skill | config | A `SKILL.md` teaching the agent when/how to use memory |
-| Import git history | backfill | Import the repo's git commit history (one-time) |
-| Install the git post-commit hook | ongoing | Capture new commits going forward |
-| Add a memory pointer to AGENTS.md | config | Write a managed block telling the agent where this project's memories live |
-
-| Option | Description |
-|--------|-------------|
-| `--scope <scope>` | `project` (`.opencode/` + `opencode.json` in the repo) or `user` (`~/.config/opencode/`). Default: `project`; prompted interactively when unset in a TTY. |
-| `--skip-session-import` | do not import this project's OpenCode sessions |
-| `--skip-plugin-install` | do not install the OpenCode capture plugin |
-| `--skip-capture-enable` | do not enable ongoing session capture for this project (`capture: true`) |
-| `--skip-mcp-install` | do not register `me` as an MCP server |
-| `--skip-recall-command` | do not install the `/memory-recall` command |
-| `--skip-skill` | do not install the `memory-engine` skill |
-| `--skip-git-import` | do not import the repo's git commit history |
-| `--skip-git-hook` | do not install the git post-commit hook |
-| `--skip-agents-md` | do not write the memory pointer into AGENTS.md |
-
-**Scope.** `init` is per-project, so it defaults to `project` scope: the plugin, MCP entry, command, and skill are written under the repo (`.opencode/plugins/`, `.opencode/commands/`, `.opencode/skills/`, and `opencode.json`), so you can commit them and the whole team gets memory integration. This is safe to commit because no API key is embedded — each teammate's own `me login` (or `ME_API_KEY`/`ME_SPACE`) resolves at runtime. Pass `--scope user` to install into your global `~/.config/opencode/` instead. The AGENTS.md memory pointer is always written at the repo root regardless of scope.
-
-The capture plugin shells out to `me opencode hook`, which reuses your `me login` session (or `ME_API_KEY` + `ME_SPACE`) -- no API key needs to be embedded in the plugin. The `me` CLI must be on `PATH` where OpenCode runs. Like the Claude hook, it is **inert unless capture is enabled** (project [`.me` `capture`](../project-config.md#the-capture-field-session-capture-onoff) → the machine-wide flag → off); the init step above and the install prompt are the opt-in writers.
+The capture plugin (installed by [`me opencode install`](#me-opencode-install), not by `init`) shells out to `me opencode hook`, which reuses your `me login` session (or `ME_API_KEY` + `ME_SPACE`) -- no API key needs to be embedded in the plugin. The `me` CLI must be on `PATH` where OpenCode runs. Like the Claude hook, it is **inert unless capture is enabled** (project [`.me` `capture`](../project-config.md#the-capture-field-session-capture-onoff) → the machine-wide flag → off); the checklist's capture-enable step and the install prompt are the opt-in writers.
 
 The same plugin also carries the **harness-agent environment contract** ([Agent-by-config](../project-config.md#agent-by-config-and-the-agent-field)): a `shell.env` hook injects `ME_PROJECT_DIR` (the session directory, so a `cd`'d Bash command still discovers the right project), `AI_AGENT=opencode`, and `ME_AS_AGENT=.me` into every shell command OpenCode runs, so a plain `me` call from OpenCode's own shell resolves and runs as the configured agent automatically — no manual env setup. If OpenCode itself was launched inside another session's live contract (a nested harness), the hook emits nothing rather than overwriting it.
 

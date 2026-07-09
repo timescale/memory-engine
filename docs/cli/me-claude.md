@@ -58,16 +58,7 @@ For manual MCP client configuration, see [MCP Integration](../mcp-integration.md
 
 ## me claude init
 
-**Deprecated** — renamed to [`me project init`](me-project.md), the harness-agnostic per-project setup wizard. This alias prints a rename notice, runs the same command, and will be removed in a future release.
-
--------|------|-----------|--------------|
-| Claude Code sessions | Import existing sessions (one-time backfill) | `--skip-transcript-import` | Backfills sessions recorded in this project (cwd at/under the repo root, temp-dir projects included) from `~/.claude/projects`. For a machine-wide backfill across all projects, run [`me import claude`](me-import.md#me-import-claude--codex--opencode). |
-| Claude Code sessions | Install the Claude Code plugin (ongoing capture) | `--skip-plugin-install` | Installs the plugin (the same user-scoped install as [`me claude install`](#me-claude-install), login-session auth) **and enables the machine-wide capture setting** — selecting this step is the capture opt-in, so its hooks capture each new session as you work (privately, under `~/projects/<slug>`), plus slash commands and MCP tools. Hidden when the `claude` binary isn't on PATH; when `claude plugin list` already shows the plugin, the picker offers it unchecked as "Reinstall … (already installed)" (non-interactive runs report it as a ✓ line and skip it). |
-| Git history | Import existing commit history (one-time backfill) | `--skip-git-import` | Imports the repo's full commit history — the same import as [`me import git`](me-import.md#me-import-git). Skipped automatically when the current directory is not inside a git repo. |
-| Git history | Install a git post-commit hook (ongoing capture) | `--skip-git-hook` | Installs the managed hook from [`me import git-hook`](me-import.md#me-import-git-hook) so each new commit triggers a background incremental import. Hidden outside a git repo or when a `core.hooksPath` manager owns the hook path; when the hook is already installed, the picker offers it unchecked as "Reinstall … (already installed)" (non-interactive runs report it as a ✓ line and skip it). |
-| Project config | Add a memory pointer to CLAUDE.md | `--skip-claude-md` | Upserts a managed block into the project's CLAUDE.md naming the project tree (the [`.me/config.yaml` `tree`](../project-config.md) when set, else the private `~/projects/<slug>`), its `agent_sessions` and `git_history` nodes, and how to search them. Idempotent — re-runs replace the block in place. When the block is already present and up to date, the picker offers it unchecked as "Rewrite … (already present)" (non-interactive runs report it as a ✓ line and skip it); a stale block (e.g. the active space changed) keeps the step pre-checked so the re-run refreshes it. |
-
-Re-running `init` is safe: both imports are incremental/idempotent and the CLAUDE.md block is replaced, not duplicated. After the steps run, `init` closes with a recap of what is now covered — historical data imported, hooks keeping it updated going forward.
+**Deprecated** — renamed to [`me project init`](me-project.md), the harness-agnostic per-project setup wizard. This alias prints a rename notice, runs the same command, and will be removed in a future release. See [`me project init`](me-project.md#3-setup-checklist) for the current (harness-gated) checklist steps.
 
 ---
 
