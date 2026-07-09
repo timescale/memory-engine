@@ -2,15 +2,17 @@
  * me project — harness-agnostic per-project setup.
  *
  * `me project init` is the interactive wizard that configures a project's
- * `.me/config.yaml` (see CLAUDE_INIT_WIZARD.md for the target UX). It replaces
- * the plugin-scope decision with committed config: one user-scoped plugin
- * (`me claude install`, run once) reads this file per project, so a teammate
- * who clones the repo gets the project's behavior with no per-repo install.
+ * `.me/config.yaml`. It replaces the plugin-scope decision with committed
+ * config: one user-scoped plugin/install (run once per harness) reads this
+ * file per project, so a teammate who clones the repo gets the project's
+ * behavior with no per-repo install.
  *
  * The wizard:
  *   - preflight — offers `me login` when logged out (a session is required —
- *     declining stops), and the Claude plugin install when missing (declining
- *     continues with a warning);
+ *     declining stops), and — on a genuinely fresh machine (no harness set
+ *     up yet at all) — a multiselect offering to set up every harness
+ *     detected as installed but not configured; declining any of them
+ *     continues with a warning;
  *   - 0. space — pick (or create) the space this project's memories live in;
  *     server + space are pinned together (a committed config must be
  *     self-contained);
@@ -50,6 +52,7 @@ import {
   type AgentProvisioningClients,
   provisionNewAgent,
 } from "../agent/provision.ts";
+import { transcriptImportStep } from "../agent/transcript-import-step.ts";
 import { removeClaudeSettingsEnvKey } from "../claude/settings.ts";
 import {
   type ResolvedCredentials,
@@ -57,14 +60,17 @@ import {
   setActiveSpace,
 } from "../credentials.ts";
 import { claudeImporter } from "../importers/claude.ts";
+import { codexImporter } from "../importers/codex.ts";
+import { opencodeImporter } from "../importers/opencode.ts";
 import { SlugRegistry } from "../importers/slug.ts";
 import { getOutputFormat } from "../output.ts";
 import { writeProjectConfig } from "../project-config.ts";
 import { buildMemoryClient, buildUserClient, handleError } from "../util.ts";
 import { pluginInstallAvailable, runClaudeInstallFlow } from "./claude.ts";
-import { runAgentImport, VALID_TREE_ROOT_RE } from "./import.ts";
+import { VALID_TREE_ROOT_RE } from "./import.ts";
 import { runGitImport } from "./import-git.ts";
 import { gitHookStatus, runGitHookInstall } from "./import-git-hook.ts";
+import { openCodeSetupAvailable, runOpenCodeInstallFlow } from "./opencode.ts";
 
 /**
  * Sentinel option values for the selects. `create-space` cannot collide with
@@ -109,9 +115,19 @@ async function runLoginSubprocess(server?: string): Promise<boolean> {
   return (await proc.exited) === 0;
 }
 
+/** One harness offered by the preflight's setup multiselect. */
+interface HarnessOffer {
+  id: "claude" | "opencode";
+  label: string;
+  hint: string;
+  /** Printed when the harness was offered but the user deselected it. */
+  declinedWarning: string;
+  install: () => Promise<void>;
+}
+
 /**
  * Preflight: a login session (required — the wizard lists spaces and creates
- * agents) and the Claude plugin (recommended — capture/tools need it, but the
+ * agents) and harness setup (recommended — capture/tools need it, but the
  * config can be written without). Returns refreshed credentials.
  */
 async function preflight(
@@ -144,23 +160,64 @@ async function preflight(
     }
   }
 
-  // Plugin: offer the full install flow (it pins global defaults and asks
-  // about capture itself). Declining continues — the config can be written
-  // now and the plugin installed later.
-  if ((await pluginInstallAvailable()) === "available") {
-    const install = unwrap(
-      await clack.confirm({
+  // Harness setup: offer to install/configure every harness detected on this
+  // machine but not yet set up. Skipped entirely — no prompt, no warnings —
+  // once ANY harness is already configured, on the theory that once one is
+  // set up you're already a Memory Engine user and per-project init
+  // shouldn't nag about additional harnesses you may not use.
+  const [claudeAvailability, openCodeAvailability] = await Promise.all([
+    pluginInstallAvailable(),
+    openCodeSetupAvailable(),
+  ]);
+  const alreadySetUp =
+    claudeAvailability === "done" || openCodeAvailability === "done";
+  if (!alreadySetUp) {
+    const offers: HarnessOffer[] = [];
+    if (claudeAvailability === "available") {
+      offers.push({
+        id: "claude",
+        label: "Claude Code",
+        hint: "plugin: hooks + slash commands + MCP",
+        declinedWarning:
+          "Continuing without the Claude Code plugin — session capture and the memory tools won't work until you run 'me claude install'.",
+        install: () => runClaudeInstallFlow({ server: serverFlag }, globalOpts),
+      });
+    }
+    if (openCodeAvailability === "available") {
+      offers.push({
+        id: "opencode",
+        label: "OpenCode",
+        hint: "capture plugin + MCP",
+        declinedWarning:
+          "Continuing without OpenCode setup — session capture and the memory tools won't work until you run 'me opencode install'.",
+        install: () =>
+          runOpenCodeInstallFlow({ server: serverFlag }, globalOpts),
+      });
+    }
+    if (offers.length > 0) {
+      const picked = await clack.multiselect({
         message:
-          "The Memory Engine plugin isn't installed for Claude Code — install it now?",
-      }),
-    );
-    if (install) {
-      await runClaudeInstallFlow({ server: serverFlag }, globalOpts);
+          "Set up Memory Engine for the harnesses you use in this project?",
+        options: offers.map((o) => ({
+          value: o.id,
+          label: o.label,
+          hint: o.hint,
+        })),
+        initialValues: offers.map((o) => o.id),
+        required: false,
+      });
+      // A cancelled multiselect declines everything (warns per offer) rather
+      // than aborting the whole wizard — this step is recommended, not
+      // required, same as declining used to be with a single confirm.
+      const selected = clack.isCancel(picked) ? [] : picked;
+      for (const offer of offers) {
+        if (selected.includes(offer.id)) {
+          await offer.install();
+        } else {
+          clack.log.warn(offer.declinedWarning);
+        }
+      }
       creds = resolveCredentials(serverFlag);
-    } else {
-      clack.log.warn(
-        "Continuing without the plugin — session capture and the memory tools won't work until you run 'me claude install'.",
-      );
     }
   }
 
@@ -441,46 +498,32 @@ const CLAUDE_MD_POINTER: MemoryPointerSpec = {
   agentLabel: "Claude Code",
 };
 
+/** The managed AGENTS.md memory-pointer block the checklist upserts — the
+ * OpenCode/Codex-side counterpart to CLAUDE_MD_POINTER above. */
+const AGENTS_MD_POINTER: MemoryPointerSpec = {
+  filename: "AGENTS.md",
+  managedBy: "me project init",
+  agentLabel: "your coding agent",
+};
+
 /**
  * The setup checklist (phase 3 of the wizard; the whole command when run
  * non-interactively). Moved from the retired `me claude init` — minus its
  * plugin-install step (now the wizard's preflight) and plus the
  * capture-enable step, which writes the project's committed `capture` flag.
- *
- * > Harness-agnostic TODO: the session-backfill and CLAUDE.md rows are still
- * > Claude-specific; a fuller `me project init` should gate them on the
- * > harness in scope. Left for a follow-up (see CLAUDE_INTEGRATION_DESIGN.md).
+ * The transcript-import and memory-pointer rows are harness-gated: each
+ * transcript step (`transcriptImportStep`) hides itself when the project has
+ * no sessions for that harness, and each pointer step hides itself when its
+ * harness isn't installed on this machine at all — see `Bun.which` checks
+ * below and `agent/transcript-import-step.ts`.
  */
 const PROJECT_INIT_STEPS: InitStep[] = [
-  {
-    id: "transcript-import",
-    group: "Claude Code sessions",
-    kind: "backfill",
-    optionKey: "skipTranscriptImport",
-    skipFlag: "--skip-transcript-import",
-    skipDescription: "do not import this project's Claude Code sessions",
-    label:
-      "Import this project's existing Claude Code sessions (one-time backfill)",
-    // Init is per-project setup, so scope the backfill to sessions recorded
-    // in this repo (cwd at or under the repo root) — `me import claude`
-    // remains the machine-wide sweep. A `--project`-scoped run reads the
-    // just-written `.me` tree, so the backfill lands exactly where live
-    // capture writes — that's why config is written before the checklist.
-    // The temp-cwd filter exists to keep throwaway sessions out of bulk
-    // sweeps; with the scope pinned to the project the user is standing in,
-    // it would only veto projects that happen to live under a temp dir, so
-    // include them.
-    run: async ({ globalOpts, projectRoot }) => {
-      await runAgentImport(
-        claudeImporter,
-        { project: projectRoot ?? process.cwd(), includeTempCwd: true },
-        globalOpts,
-      );
-    },
-  },
+  transcriptImportStep("claude", claudeImporter, "Claude Code"),
+  transcriptImportStep("codex", codexImporter, "Codex"),
+  transcriptImportStep("opencode", opencodeImporter, "OpenCode"),
   captureEnableStep({
-    group: "Claude Code sessions",
-    toolLabel: "Claude Code",
+    group: "Session capture",
+    toolLabel: "agent",
   }),
   {
     id: "git-import",
@@ -523,16 +566,43 @@ const PROJECT_INIT_STEPS: InitStep[] = [
     skipDescription:
       "do not write the memory pointer into the project's CLAUDE.md",
     label: "Add a memory pointer to CLAUDE.md",
-    // ✓ when CLAUDE.md already carries the exact block this run would write;
-    // a stale block (template or tree/space change) keeps the step offered
-    // so the re-run refreshes it.
-    available: async ({ server }) =>
-      (await memoryPointerUpToDate(CLAUDE_MD_POINTER, server))
+    // Hidden when Claude Code isn't installed on this machine at all; ✓ when
+    // CLAUDE.md already carries the exact block this run would write — a
+    // stale block (template or tree/space change) keeps the step offered so
+    // the re-run refreshes it.
+    available: async ({ server }) => {
+      if (Bun.which("claude") === null) return "hidden";
+      return (await memoryPointerUpToDate(CLAUDE_MD_POINTER, server))
         ? "done"
-        : "available",
+        : "available";
+    },
     doneLabel: "Memory pointer already in CLAUDE.md",
     rerunLabel: "Rewrite the memory pointer in CLAUDE.md (already present)",
     run: ({ server }) => writeMemoryPointer(CLAUDE_MD_POINTER, server),
+  },
+  {
+    id: "agents-md",
+    group: "Project config",
+    kind: "config",
+    optionKey: "skipAgentsMd",
+    skipFlag: "--skip-agents-md",
+    skipDescription:
+      "do not write the memory pointer into the project's AGENTS.md",
+    label: "Add a memory pointer to AGENTS.md",
+    // Hidden unless OpenCode or Codex is installed on this machine — both
+    // read AGENTS.md; ✓ when it already carries the exact block this run
+    // would write.
+    available: async ({ server }) => {
+      if (Bun.which("opencode") === null && Bun.which("codex") === null) {
+        return "hidden";
+      }
+      return (await memoryPointerUpToDate(AGENTS_MD_POINTER, server))
+        ? "done"
+        : "available";
+    },
+    doneLabel: "Memory pointer already in AGENTS.md",
+    rerunLabel: "Rewrite the memory pointer in AGENTS.md (already present)",
+    run: ({ server }) => writeMemoryPointer(AGENTS_MD_POINTER, server),
   },
 ];
 
@@ -546,11 +616,11 @@ function printInitOutro(steps: InitStep[]): void {
   clack.note(
     [
       ...initOutroLead(steps),
-      "Ask Claude about this project's history or architecture — it now",
-      "draws on the project's memories automatically, and consults them",
-      "when exploring the code for new features.",
+      "Ask your coding agent about this project's history or architecture —",
+      "it now draws on the project's memories automatically, and consults",
+      "them when exploring the code for new features.",
       "",
-      "You can also point Claude at them explicitly, e.g.:",
+      "You can also point it at them explicitly, e.g.:",
       `${DIM}"Search memory engine: why did we structure the database this way?"${DIM_OFF}`,
       `${DIM}"Check me memories for past work on this area before we start"${DIM_OFF}`,
       `${DIM}"What do my me memories say about how deploys work here?"${DIM_OFF}`,
