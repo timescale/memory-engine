@@ -67,11 +67,25 @@ test("an api-key CLAIM alone (unconfirmed — could be a user PAT) does NOT exem
 
 test("live injected contract → ok even with a detected harness", () => {
   expect(
-    decideFailsafe(inputs({ env: { ME_INJECT_V: "1" } }), {
-      isAgent: true,
-      agent: "codex",
-    }),
+    decideFailsafe(
+      inputs({
+        env: {
+          ME_INJECT_V: "1",
+          ME_AS_AGENT: ".me",
+          ME_PROJECT_DIR: "/repo",
+        },
+      }),
+      { isAgent: true, agent: "codex" },
+    ),
   ).toEqual({ action: "ok" });
+});
+
+test("a PARTIALLY injected contract (ME_INJECT_V alone) does NOT exempt", () => {
+  const verdict = decideFailsafe(inputs({ env: { ME_INJECT_V: "1" } }), {
+    isAgent: true,
+    agent: "codex",
+  });
+  expect(verdict.action).toBe("error");
 });
 
 test("detected harness, non-TTY, no injection → error naming the integrated install fix", () => {

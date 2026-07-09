@@ -39,7 +39,7 @@ import {
  * step report "available" again instead of "done".
  */
 export const PLUGIN_MARKER =
-  "// memory-engine: OpenCode capture plugin (managed by `me opencode init`) v2";
+  "// memory-engine: OpenCode capture plugin (managed by `me opencode init`) v3";
 
 /** Default filename for the generated plugin. */
 export const PLUGIN_FILENAME = "memory-engine.ts";
@@ -103,7 +103,7 @@ export const MemoryEngine = async ({ $, directory }) => {
     // itself launched inside another session's live contract (nested
     // harnesses), so we never clobber it.
     "shell.env": async (_input, output) => {
-      if (process.env.${ME_INJECT_V_VAR}) return
+      if (process.env.${ME_INJECT_V_VAR} && process.env.${ME_AS_AGENT_VAR} && process.env.${ME_PROJECT_DIR_VAR}) return
       output.env = {
         ...output.env,
         ${ME_INJECT_V_VAR}: ${JSON.stringify(ME_INJECT_VERSION)},

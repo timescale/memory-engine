@@ -49,17 +49,44 @@ describe("me claude env", () => {
     }
   });
 
-  test("first-writer-wins: emits nothing when ME_INJECT_V is already live", async () => {
+  test("first-writer-wins: emits nothing when the contract is already live", async () => {
     const dir = mkdtempSync(join(tmpdir(), "me-claude-env-"));
     const envFile = join(dir, "claude-env.sh");
     writeFileSync(envFile, "export SOME_VAR=1\n");
     try {
       const { exitCode } = await runClaudeEnv(
         { cwd: "/some/project" },
-        { CLAUDE_ENV_FILE: envFile, ME_INJECT_V: "1" },
+        {
+          CLAUDE_ENV_FILE: envFile,
+          ME_INJECT_V: "1",
+          ME_AS_AGENT: ".me",
+          ME_PROJECT_DIR: "/other/project",
+        },
       );
       expect(exitCode).toBe(0);
       expect(readFileSync(envFile, "utf-8")).toBe("export SOME_VAR=1\n");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("a PARTIALLY live contract (ME_INJECT_V alone) does NOT trigger first-writer-wins", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "me-claude-env-"));
+    const envFile = join(dir, "claude-env.sh");
+    try {
+      const { exitCode } = await runClaudeEnv(
+        { cwd: "/some/project" },
+        {
+          CLAUDE_ENV_FILE: envFile,
+          ME_INJECT_V: "1",
+          ME_AS_AGENT: undefined,
+          ME_PROJECT_DIR: undefined,
+        },
+      );
+      expect(exitCode).toBe(0);
+      expect(readFileSync(envFile, "utf-8")).toContain(
+        'export ME_PROJECT_DIR="/some/project"',
+      );
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
