@@ -188,6 +188,10 @@ group` / space-admin). Impl detail — §8.
   creates the SA principal (`kind='s'`, `space_id`, `admin_id`), creates + binds
   the admin group, rosters both into the space (`principal_space`), and adds any
   initial member(s) to the group with chosen `group_member.admin` flags.
+- **Rename / delete** (`serviceAccount.rename` / `serviceAccount.delete`): space
+  admin *or* any direct user admin-group member (`is_service_account_admin`) —
+  the same single management authority as key management. Only *create* is
+  space-admin-only; deletion cascades the bound admin group.
 - **Grant / revoke access to the SA**: grant needs `owner@P` (D4); revoke is
   space-admin *or* any admin-group member (D6). These act on the SA's own
   `tree_access` rows.

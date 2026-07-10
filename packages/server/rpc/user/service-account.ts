@@ -2,9 +2,10 @@
  * Service-account handlers (serviceAccount.*) for the user RPC.
  *
  * Service accounts are space-scoped API-key-bearing principals. They are created
- * by space admins and administered by direct user members of a bound admin group.
- * Deletion is intentionally stricter than rename/key management: space-admin
- * only.
+ * by space admins; once created, they are administered by space admins and by
+ * direct user members of the bound admin group (`is_service_account_admin`).
+ * All post-creation management — rename, delete, and api-key mint/revoke — shares
+ * that single authority; only `create` is space-admin-only.
  */
 import type { ServiceAccount } from "@memory.build/engine/core";
 import type {
@@ -52,10 +53,15 @@ async function requireSpaceAdminById(
   }
 }
 
+/**
+ * Authorize a caller to manage an existing service account (rename, delete, or
+ * api-key mint/revoke). Allowed for a space admin, or a direct user member of the
+ * service account's bound admin group (`is_service_account_admin`). Returns the
+ * loaded account so callers avoid a second fetch.
+ */
 export async function requireServiceAccountManager(
   ctx: UserRpcContext,
   serviceAccountId: string,
-  opts: { allowAdminGroup?: boolean } = {},
 ): Promise<ServiceAccount> {
   const account = await ctx.core.getServiceAccount(serviceAccountId);
   if (!account) {
@@ -65,18 +71,12 @@ export async function requireServiceAccountManager(
     );
   }
   if (await ctx.core.isSpaceAdmin(ctx.userId, account.spaceId)) return account;
-  const allowAdminGroup = opts.allowAdminGroup !== false;
-  if (
-    allowAdminGroup &&
-    (await ctx.core.isServiceAccountAdmin(account.id, ctx.userId))
-  ) {
+  if (await ctx.core.isServiceAccountAdmin(account.id, ctx.userId)) {
     return account;
   }
   throw new AppError(
     "FORBIDDEN",
-    allowAdminGroup
-      ? "This action requires being a space admin or service-account admin"
-      : "This action requires being a space admin",
+    "This action requires being a space admin or a service-account admin",
   );
 }
 
@@ -128,9 +128,7 @@ async function serviceAccountDelete(
 ): Promise<ServiceAccountDeleteResult> {
   assertUserRpcContext(context);
   const ctx = context as UserRpcContext;
-  await requireServiceAccountManager(ctx, params.id, {
-    allowAdminGroup: false,
-  });
+  await requireServiceAccountManager(ctx, params.id);
   const deleted = await guardCore(() =>
     ctx.core.deleteServiceAccount(params.id),
   );

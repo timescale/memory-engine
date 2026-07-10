@@ -140,24 +140,22 @@ test("space admin can create, list, rename, and delete service accounts", async 
   ).toBeNull();
 });
 
-test("admin-group members can list and rename only administered service accounts", async () => {
+test("admin-group members can list, rename, and delete administered service accounts", async () => {
   const spaceId = await makeSpace();
   const managerId = await makeUser();
   await coreStore(sql, coreSchema).addPrincipalToSpace(spaceId, managerId);
 
-  const managed = await call<{ serviceAccount: { id: string; name: string } }>(
-    "serviceAccount.create",
-    {
-      spaceId,
-      name: "managed-bot",
-      adminMembers: [{ memberId: managerId }],
-    },
-  );
-  await call("serviceAccount.create", {
+  const managed = await call<{
+    serviceAccount: { id: string; name: string; adminId: string };
+  }>("serviceAccount.create", {
     spaceId,
-    name: "other-bot",
-    adminMembers: [],
+    name: "managed-bot",
+    adminMembers: [{ memberId: managerId }],
   });
+  const other = await call<{ serviceAccount: { id: string } }>(
+    "serviceAccount.create",
+    { spaceId, name: "other-bot", adminMembers: [] },
+  );
 
   const listed = await call<{ serviceAccounts: { id: string }[] }>(
     "serviceAccount.list",
@@ -177,20 +175,39 @@ test("admin-group members can list and rename only administered service accounts
       )
     ).renamed,
   ).toBe(true);
-  // Delete is space-admin only, so the denial message must NOT mention the
-  // service-account-admin path (which delete does not accept).
+
+  // Cannot manage a service account it does not administer.
   try {
     await call(
       "serviceAccount.delete",
-      { id: managed.serviceAccount.id },
+      { id: other.serviceAccount.id },
       managerId,
     );
     throw new Error("expected serviceAccount.delete to reject");
   } catch (e) {
     if (!isAppError(e)) throw e;
     expect(e.code).toBe("FORBIDDEN");
-    expect(e.message).toBe("This action requires being a space admin");
+    expect(e.message).toBe(
+      "This action requires being a space admin or a service-account admin",
+    );
   }
+
+  // A direct user member of the bound admin group may delete the account it
+  // administers; the bound admin group goes with it.
+  expect(
+    (
+      await call<{ deleted: boolean }>(
+        "serviceAccount.delete",
+        { id: managed.serviceAccount.id },
+        managerId,
+      )
+    ).deleted,
+  ).toBe(true);
+  expect(
+    await coreStore(sql, coreSchema).getPrincipal(
+      managed.serviceAccount.adminId,
+    ),
+  ).toBeNull();
 });
 
 test("ordinary users cannot create or rename service accounts", async () => {
