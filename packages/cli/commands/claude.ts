@@ -491,6 +491,7 @@ export async function runClaudeInstallFlow(
     space,
     toolLabel: "Claude Code",
     installCmd: "me claude install",
+    perProjectStepFollows: opts.perProjectStepFollows,
   });
 }
 

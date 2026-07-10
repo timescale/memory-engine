@@ -187,6 +187,7 @@ export async function runOpenCodeInstallFlow(
     space: activeSpace,
     toolLabel: "OpenCode",
     installCmd: "me opencode install",
+    perProjectStepFollows: opts.perProjectStepFollows,
   });
 }
 
