@@ -39,4 +39,4 @@ export const CLIENT_VERSION: string = rootPkg.version;
 export const SERVER_VERSION: string = serverPkg.version;
 
 export const MIN_CLIENT_VERSION = "0.4.0";
-export const MIN_SERVER_VERSION = "0.4.0";
+export const MIN_SERVER_VERSION = "0.5.0";
