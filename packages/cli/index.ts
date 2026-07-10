@@ -29,7 +29,7 @@ import { createOpenCodeCommand } from "./commands/opencode.ts";
 import { createPackCommand } from "./commands/pack.ts";
 import {
   createProjectCommand,
-  createProjectInitCommand,
+  createRemovedCommand,
 } from "./commands/project.ts";
 import { createServeCommand } from "./commands/serve.ts";
 import { createSpaceCommand } from "./commands/space.ts";
@@ -165,19 +165,14 @@ program.addCommand(createMcpCommand());
 
 // Agent integration commands (install MCP, import sessions, capture hooks)
 const claude = createClaudeCommand();
-// Deprecated alias: `me claude init` → `me project init` (warns; removed in a
-// future release). Registered here so claude.ts and project.ts don't cycle.
-claude.addCommand(
-  createProjectInitCommand({ deprecatedAlias: "me claude init" }),
-);
+// `me claude init` is retired — redirect to `me project init` (registered
+// here so claude.ts and project.ts don't cycle).
+claude.addCommand(createRemovedCommand("me claude init"));
 program.addCommand(claude);
 const opencode = createOpenCodeCommand();
-// Deprecated alias: `me opencode init` → `me project init` (warns; removed
-// in a future release). Registered here so opencode.ts and project.ts don't
-// cycle, mirroring the claude alias above.
-opencode.addCommand(
-  createProjectInitCommand({ deprecatedAlias: "me opencode init" }),
-);
+// `me opencode init` is retired — redirect to `me project init`, mirroring
+// the claude alias above.
+opencode.addCommand(createRemovedCommand("me opencode init"));
 program.addCommand(opencode);
 program.addCommand(createGeminiCommand());
 program.addCommand(createCodexCommand());
