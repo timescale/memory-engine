@@ -216,10 +216,12 @@ async function authenticateSpaceInner(
   }
 
   // 4b. Act-as-agent switch. A human credential (session / OAuth / user PAT,
-  // signalled by a null owner) may send `X-Me-As-Agent` to run as one of their
-  // own agents. An agent key already IS an agent (non-null owner) → the header
-  // is ignored. Done BEFORE the membership gate (step 5) and the admin check
-  // (step 6) so `treeAccess`, `~`-home nesting, and `admin` all reflect the agent.
+  // i.e. `principalKind === "u"`) may send `X-Me-As-Agent` to run as one of their
+  // own agents. Gated on the user kind specifically — an agent key already IS an
+  // agent, and a service-account key (also owner-less) must not be able to
+  // act-as-agent — so the header is ignored for both. Done BEFORE the membership
+  // gate (step 5) and the admin check (step 6) so `treeAccess`, `~`-home nesting,
+  // and `admin` all reflect the agent.
   let authenticatedAs: string | null = null;
   const asAgent = request.headers.get(AS_AGENT_HEADER);
   if (asAgent && principalKind === "u") {
