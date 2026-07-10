@@ -40,11 +40,24 @@ jobs:
       - name: Build @memory.build/client
         run: ./bun run --filter '@memory.build/client' build
 
+      # Publish with a real npm, not `bun x npm`: npm ships `sigstore` as a
+      # bundled dependency, and bunx does not install bundledDependencies, so
+      # provenance generation under OIDC trusted publishing fails with
+      # "Cannot find module 'sigstore'". A globally installed npm@latest keeps
+      # its bundled deps intact and satisfies the >=11.5.1 OIDC requirement.
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Upgrade npm (OIDC trusted publishing, bundled sigstore)
+        run: npm install -g npm@latest
+
       - name: Publish @memory.build/protocol
-        run: cd packages/protocol && ../../bun x 'npm@>=11.5.1' publish --access public
+        run: cd packages/protocol && npm publish --access public
 
       - name: Publish @memory.build/client
-        run: cd packages/client && ../../bun x 'npm@>=11.5.1' publish --access public
+        run: cd packages/client && npm publish --access public
 
   build-cli:
     # Build on macOS so the darwin binary can be ad-hoc signed.
@@ -70,7 +83,7 @@ jobs:
           done
 
       - name: Upload CLI artifacts
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: me-binaries
           path: dist/me-*
@@ -85,7 +98,7 @@ jobs:
       - uses: actions/checkout@v6
 
       - name: Download CLI artifacts
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v8
         with:
           name: me-binaries
           path: ./dist
@@ -110,13 +123,23 @@ jobs:
       - uses: actions/checkout@v6
 
       - name: Download CLI artifacts
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v8
         with:
           name: me-binaries
           path: ./dist
 
       - name: List artifacts
         run: ls -la ./dist
+
+      # publish.ts shells out to a real npm (see its NPM_CMD). Provide one with
+      # its bundled sigstore intact for OIDC trusted publishing + provenance.
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Upgrade npm (OIDC trusted publishing, bundled sigstore)
+        run: npm install -g npm@latest
 
       - name: Publish to npm
         run: |
@@ -136,7 +159,7 @@ jobs:
       - uses: actions/checkout@v6
 
       - name: Download CLI artifacts
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v8
         with:
           name: me-binaries
           path: ./dist

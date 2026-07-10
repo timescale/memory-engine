@@ -12,20 +12,18 @@
 //   ./bun scripts/npm/publish.ts --version 0.13.0 --binaries-dir ./binaries [--dry-run]
 
 import { chmod, cp, mkdir } from "node:fs/promises";
-import { dirname, join, resolve } from "node:path";
+import { join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 
 const SCOPE = "@memory.build";
 const MAIN_PACKAGE = `${SCOPE}/cli`;
 
-// Resolve the project-root `./bun` wrapper to an absolute path so it works
-// regardless of the cwd we pass to Bun.spawn when publishing packages.
-const PROJECT_ROOT = resolve(dirname(import.meta.dir), "..");
-const BUN = join(PROJECT_ROOT, "bun");
-
 // npm 11.5.1+ is required for OIDC authentication to npm trusted publishers.
-// Use `./bun x` to run a recent npm without requiring it to be globally installed.
-const NPM_CMD = [BUN, "x", "npm@>=11.5.1"];
+// Use the ambient `npm` (the CI workflow installs `npm@latest` globally) rather
+// than `bun x npm`: bunx does not install npm's bundledDependencies, so the
+// bundled `sigstore` module is missing and provenance generation under trusted
+// publishing fails with "Cannot find module 'sigstore'".
+const NPM_CMD = ["npm"];
 
 interface PlatformTarget {
   os: string;
