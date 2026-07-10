@@ -274,6 +274,45 @@ test("memory client retries read-only calls", async () => {
   expect(captured.calls).toBe(2);
 });
 
+test("memory client retries memory.append (the one retryable mutation)", async () => {
+  const captured = captureStatusFetch([500, 200]);
+  const client = createMemoryClient({
+    url: "https://api.example.com",
+    space: "abc123def456",
+    retries: 1,
+  });
+
+  // append carries an operation-scoped idempotency key, so a transport retry
+  // replays rather than double-appends — the client retries it (unlike update).
+  await client.memory.append({
+    id: "018f1138-7f07-7c48-8bd1-c9a6b1095978",
+    content: "more",
+    idempotencyKey: "op-key-1",
+  });
+
+  expect(captured.calls).toBe(2);
+});
+
+test("memory client does not retry memory.update", async () => {
+  const captured = captureStatusFetch([500, 200]);
+  const client = createMemoryClient({
+    url: "https://api.example.com",
+    space: "abc123def456",
+    retries: 1,
+  });
+
+  const error = await captureError(() =>
+    client.memory.update({
+      id: "018f1138-7f07-7c48-8bd1-c9a6b1095978",
+      versionHash: "0".repeat(32),
+      content: "x",
+    }),
+  );
+
+  expect(error).toBeInstanceOf(Error);
+  expect(captured.calls).toBe(1);
+});
+
 test("user client does not retry mutating calls", async () => {
   const captured = captureStatusFetch([500, 200]);
   const client = createUserClient({

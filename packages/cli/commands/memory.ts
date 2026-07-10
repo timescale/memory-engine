@@ -548,6 +548,121 @@ function createMemoryUpdateCommand(): Command {
     });
 }
 
+/**
+ * `me append` treats empty or whitespace-only input as a no-op (no write, no
+ * version bump) — there is no `--allow-empty` in v1. Exported for unit tests.
+ */
+export function isBlankAppend(content: string | undefined): boolean {
+  return content === undefined || content.trim() === "";
+}
+
+function createMemoryAppendCommand(): Command {
+  return new Command("append")
+    .description("append text to a memory's content (by ID or tree/name path)")
+    .argument("<id-or-path>", "memory ID (UUIDv7) or tree/name path")
+    .argument(
+      "[content]",
+      "text to append (or use --content, or --content - for stdin)",
+    )
+    .option("--content <text>", "text to append (use - for stdin)")
+    .option(
+      "--separator <str>",
+      'string inserted between existing and appended content (default: "\\n\\n")',
+    )
+    .option(
+      "--version-hash <hash>",
+      "optional optimistic-concurrency hash; when omitted the append is unconditional",
+    )
+    .option(
+      "--idempotency-key <key>",
+      "operation key so a retried append is applied at most once (random per invocation if omitted)",
+    )
+    .option("--dry-run", "preview the resulting size/version without writing")
+    .action(
+      async (ref: string, positionalContent: string | undefined, opts, cmd) => {
+        const globalOpts = cmd.optsWithGlobals();
+        const creds = resolveCredentials(globalOpts.server);
+        const fmt = getOutputFormat(globalOpts);
+        requireAuth(creds, fmt);
+        requireSpace(creds, fmt);
+
+        // Resolve content: positional > --content flag; "-" reads stdin.
+        let content = positionalContent ?? opts.content;
+        if (content === "-") {
+          content = (await Bun.stdin.text()).trimEnd();
+        }
+
+        // Empty / whitespace-only input is a no-op (no version bump).
+        if (isBlankAppend(content)) {
+          output({ appended: false, reason: "empty input" }, fmt, () => {
+            clack.log.info(
+              "Nothing to append (empty input); memory unchanged.",
+            );
+          });
+          return;
+        }
+        const text = content as string;
+        const separator = opts.separator ?? "\n\n";
+
+        const client = buildMemoryClient(creds);
+
+        try {
+          // append is id-addressed; resolve a tree/name ref to its id first.
+          const id = UUIDV7_RE.test(ref)
+            ? ref
+            : (await client.memory.getByPath({ path: ref })).id;
+
+          if (opts.dryRun) {
+            // Project the result from the current content; write nothing.
+            const current = await client.memory.get({ id });
+            const joiner =
+              current.content === "" || current.content.endsWith(separator)
+                ? ""
+                : separator;
+            const appended = joiner + text;
+            const appendedBytes = new TextEncoder().encode(appended).length;
+            output(
+              {
+                dryRun: true,
+                id,
+                currentVersion: current.version,
+                appendedBytes,
+                projectedContentLength:
+                  current.content.length + appended.length,
+              },
+              fmt,
+              () => {
+                clack.log.info(
+                  `Dry run: would append ${appendedBytes} bytes to memory ${id} (no write).`,
+                );
+              },
+            );
+            return;
+          }
+
+          const result = await client.memory.append({
+            id,
+            content: text,
+            separator,
+            versionHash: opts.versionHash,
+            idempotencyKey: opts.idempotencyKey ?? crypto.randomUUID(),
+          });
+
+          // Compact, secret-safe: never echoes the appended text or the body.
+          output(result, fmt, () => {
+            clack.log.success(
+              `Appended to memory ${result.id} (version ${result.version}${
+                result.replayed ? ", replayed" : ""
+              })`,
+            );
+          });
+        } catch (error) {
+          handleError(error, fmt, { creds, scope: "space" });
+        }
+      },
+    );
+}
+
 function createMemoryDeleteCommand(): Command {
   return new Command("delete")
     .alias("rm")
@@ -1197,6 +1312,7 @@ function memorySubcommands(): Command[] {
     createMemoryGetCommand(),
     createMemorySearchCommand(),
     createMemoryUpdateCommand(),
+    createMemoryAppendCommand(),
     createMemoryDeleteCommand(),
     createMemoryDeltreeCommand(),
     createMemoryEditCommand(),

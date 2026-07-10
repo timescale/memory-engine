@@ -36,7 +36,13 @@ import {
   withTestSpace,
 } from "./test-utils";
 
-const EXPECTED_TABLES = ["embedding_queue", "memory", "migration", "version"];
+const EXPECTED_TABLES = [
+  "append_receipt",
+  "embedding_queue",
+  "memory",
+  "migration",
+  "version",
+];
 
 const EXPECTED_MIGRATIONS = [
   "001_memory",
@@ -46,6 +52,7 @@ const EXPECTED_MIGRATIONS = [
   "005_memory_name",
   "006_content_version",
   "007_memory_version",
+  "008_append_receipt",
 ];
 
 const EXPECTED_MEMORY_FUNCTIONS = [
@@ -61,6 +68,7 @@ const EXPECTED_MEMORY_FUNCTIONS = [
   "list_tree",
   "move_tree",
   "patch_memory",
+  "append_memory",
   "delete_orphans_in_tree",
   "resolve_memory_id",
   "search_memory",
@@ -201,6 +209,46 @@ describe("provisioned space schema", () => {
     expect(await columnType(sql, canonical.schema, "memory", "embedding")).toBe(
       "halfvec(1536)",
     );
+  });
+
+  test("append_receipt has a memory_id FK index and cascades on memory delete", async () => {
+    await withTestSpace(sql, {}, async (space) => {
+      const s = sql(space.schema);
+
+      // The FK to memory(id) is backed by an index (so delete_tree cascades
+      // don't seq-scan the receipts table).
+      const indexes = await listIndexes(sql, space.schema, "append_receipt");
+      expect(indexes).toContain("append_receipt_memory_id_idx");
+      const def = await getIndexDef(
+        sql,
+        space.schema,
+        "append_receipt_memory_id_idx",
+      );
+      expect(def).toContain("(memory_id)");
+
+      // Insert a memory (before-insert trigger stamps version/version_hash),
+      // then a receipt referencing it.
+      const [mem] = await sql`
+        insert into ${s}.memory (tree, content)
+        values ('share'::ltree, 'body')
+        returning id, version, version_hash`;
+      const memId = (mem as { id: string }).id;
+      await sql`
+        insert into ${s}.append_receipt
+          (op_key, memory_id, request_fingerprint, version, version_hash, appended_bytes, content_length)
+        values ('op-1', ${memId}, 'fp',
+                ${(mem as { version: number }).version},
+                ${(mem as { version_hash: string }).version_hash}, 5, 4)`;
+      const [before] =
+        await sql`select count(*)::int as n from ${s}.append_receipt where memory_id = ${memId}`;
+      expect(Number((before as { n: number }).n)).toBe(1);
+
+      // Deleting the memory cascades to its receipts.
+      await sql`delete from ${s}.memory where id = ${memId}`;
+      const [after] =
+        await sql`select count(*)::int as n from ${s}.append_receipt where memory_id = ${memId}`;
+      expect(Number((after as { n: number }).n)).toBe(0);
+    });
   });
 
   // The 006_content_version migration renamed embedding_version → content_version

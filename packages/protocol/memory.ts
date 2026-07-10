@@ -111,6 +111,41 @@ export const memoryUpdateParams = z.object({
 export type MemoryUpdateParams = z.infer<typeof memoryUpdateParams>;
 
 /**
+ * memory.append params — append to a memory's content by id.
+ *
+ * The append is one atomic server-side update; the body is never round-tripped.
+ * `separator` (default "\n\n") joins the existing content and `content`, and is
+ * omitted for empty existing content or when it already ends with the separator
+ * — existing content is never trimmed. `idempotencyKey` is an operation-scoped,
+ * random-per-invocation key: a retried/raced append with the same key replays
+ * its prior result rather than concatenating twice, and the same key with a
+ * different request is a CONFLICT. `versionHash` is OPTIONAL optimistic
+ * concurrency — when supplied it must match (else CONFLICT, no write); when
+ * omitted the append is unconditional. (Address by `tree/name` path from the
+ * CLI/MCP, which resolve it to the immutable id before calling.)
+ */
+export const memoryAppendParams = z.object({
+  id: uuidv7Schema,
+  content: z.string().min(1, "content is required"),
+  separator: z
+    .string()
+    .max(64, "separator must be at most 64 characters")
+    .optional()
+    .nullable(),
+  versionHash: z
+    .string()
+    .length(32, "versionHash must be an md5 hex string")
+    .optional()
+    .nullable(),
+  idempotencyKey: z
+    .string()
+    .min(1, "idempotencyKey is required")
+    .max(255, "idempotencyKey must be at most 255 characters"),
+});
+
+export type MemoryAppendParams = z.infer<typeof memoryAppendParams>;
+
+/**
  * memory.delete params — delete one memory by id. (Address a named memory by
  * its path with memory.deleteByPath; delete a whole subtree with deleteTree.)
  */
@@ -292,6 +327,23 @@ export const memoryWriteResult = z.object({
 });
 
 export type MemoryWriteResult = z.infer<typeof memoryWriteResult>;
+
+/**
+ * memory.append result — compact; never carries the memory body. `appendedBytes`
+ * is the UTF-8 size of the separator + appended text; `contentLength` is the
+ * character length after the append; `replayed` is true when an operation-key
+ * match replayed a prior append instead of writing again.
+ */
+export const memoryAppendResult = z.object({
+  id: z.string(),
+  version: z.number().int().positive(),
+  versionHash: z.string().length(32),
+  appendedBytes: z.number().int().nonnegative(),
+  contentLength: z.number().int().nonnegative(),
+  replayed: z.boolean(),
+});
+
+export type MemoryAppendResult = z.infer<typeof memoryAppendResult>;
 
 /**
  * memory.batchCreate result.

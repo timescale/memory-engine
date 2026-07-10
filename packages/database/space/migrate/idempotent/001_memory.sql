@@ -702,6 +702,177 @@ set search_path to pg_catalog, {{schema}}, public, pg_temp
 {{endfn}}
 
 -------------------------------------------------------------------------------
+-- append memory
+-------------------------------------------------------------------------------
+-- Atomic content append with operation-scoped idempotency.
+--
+-- The existing content is read and rewritten inside ONE update (no client
+-- read-modify-write): the BEFORE UPDATE trigger recomputes version_hash, bumps
+-- version, and resets the embedding for re-embedding. `_op_key` is a random,
+-- operation-scoped idempotency key supplied by the caller; a receipt keyed by
+-- it makes a retried/raced append land exactly once. The server-computed
+-- fingerprint (md5 of id + separator + content) rejects the same key reused for
+-- a materially different append. Returns the compact result (never the body).
+{{fn append_memory(_tree_access jsonb, _id uuid, _content text, _separator text, _op_key text, _prior_version_hash text) returns table(id uuid, version bigint, version_hash text, appended_bytes int, content_length int, replayed bool)}}
+create or replace function {{schema}}.append_memory
+( _tree_access jsonb
+, _id uuid
+, _content text
+, _separator text
+, _op_key text
+, _prior_version_hash text default null
+)
+returns table
+( id uuid
+, version bigint
+, version_hash text
+, appended_bytes int
+, content_length int
+, replayed bool
+)
+as $func$
+#variable_conflict use_column
+declare
+  _fingerprint text;
+  _tree ltree;
+  _old_hash text;
+  _old_bytes int;
+  _r {{schema}}.append_receipt;
+begin
+  -- Request fingerprint: a key reused for a DIFFERENT target/separator/content
+  -- must conflict rather than replay. Content-derived is fine for the
+  -- FINGERPRINT; only the op_key itself must be random / operation-scoped.
+  _fingerprint = pg_catalog.md5(
+    _id::text || E'\n' || pg_catalog.coalesce(_separator, '') || E'\n' || _content
+  );
+
+  -- Idempotent replay: a receipt for this op_key means the append already
+  -- landed. Same request -> replay the stored compact result (no second
+  -- concat); different request -> conflict.
+  select r.* into _r
+  from {{schema}}.append_receipt r
+  where r.op_key = _op_key
+  ;
+
+  if found then
+    -- Check write permission before returning a replay: a caller who has lost
+    -- write access must not learn the prior result. A found receipt implies the
+    -- memory still exists (FK to memory(id) on delete cascade).
+    select m.tree into _tree
+    from {{schema}}.memory m
+    where m.id = _r.memory_id
+    ;
+
+    if not found then
+      return; -- memory vanished -> NOT_FOUND at the store/RPC boundary
+    end if;
+
+    if not {{schema}}.has_tree_access(_tree_access, _tree, 2) then
+      raise exception 'insufficient tree access'
+        using errcode = 'insufficient_privilege';
+    end if;
+
+    if _r.request_fingerprint is distinct from _fingerprint then
+      raise exception 'idempotency key reused with a different append request'
+        using errcode = 'ME003';
+    end if;
+
+    return query
+      select _r.memory_id, _r.version, _r.version_hash,
+             _r.appended_bytes, _r.content_length, true
+    ;
+    return;
+  end if;
+
+  -- Lock the target row (patch/delete convention: lock, then authorize, then
+  -- version-check -- access is checked before the version so existence is not
+  -- leaked to a non-writer).
+  select m.tree, m.version_hash, pg_catalog.octet_length(m.content)
+  into _tree, _old_hash, _old_bytes
+  from {{schema}}.memory m
+  where m.id = _id
+  for update
+  ;
+
+  if not found then
+    return; -- 0 rows -> NOT_FOUND at the store/RPC boundary
+  end if;
+
+  if not {{schema}}.has_tree_access(_tree_access, _tree, 2) then
+    raise exception 'insufficient tree access'
+      using errcode = 'insufficient_privilege';
+  end if;
+
+  -- Optional optimistic concurrency: when supplied, the version_hash must match
+  -- (fail without writing); when omitted, append is unconditional -- the
+  -- operation-scoped key, not the version, makes a retry safe.
+  if _prior_version_hash is not null and _old_hash is distinct from _prior_version_hash then
+    raise exception 'stale version hash'
+      using errcode = 'ME002';
+  end if;
+
+  -- Atomic append. Separator omitted for empty existing content or when the
+  -- content already ends with the separator; existing content is never trimmed.
+  begin
+    return query
+    with upd as
+    (
+      update {{schema}}.memory m set
+        content = m.content
+          || case
+               when m.content = '' then ''
+               when _separator = '' then ''
+               when pg_catalog.right(m.content, pg_catalog.length(_separator)) = _separator then ''
+               else _separator
+             end
+          || _content
+      where m.id = _id
+      returning
+        m.id as id
+      , m.version as version
+      , m.version_hash as version_hash
+      , pg_catalog.octet_length(m.content) as new_bytes
+      , pg_catalog.length(m.content) as char_len
+    )
+    , rcpt as
+    (
+      insert into {{schema}}.append_receipt
+        (op_key, memory_id, request_fingerprint, version, version_hash, appended_bytes, content_length)
+      select _op_key, upd.id, _fingerprint, upd.version, upd.version_hash,
+             upd.new_bytes - _old_bytes, upd.char_len
+      from upd
+    )
+    select upd.id, upd.version, upd.version_hash,
+           upd.new_bytes - _old_bytes, upd.char_len, false
+    from upd
+    ;
+  exception when unique_violation then
+    -- A concurrent append with the same op_key committed first. The
+    -- subtransaction rolls back this duplicate concat; replay the winner's
+    -- receipt so a retried/raced append lands exactly once.
+    select r.* into _r
+    from {{schema}}.append_receipt r
+    where r.op_key = _op_key
+    ;
+    if not found then
+      raise; -- not the op_key race we expected -> re-raise
+    end if;
+    if _r.request_fingerprint is distinct from _fingerprint then
+      raise exception 'idempotency key reused with a different append request'
+        using errcode = 'ME003';
+    end if;
+    return query
+      select _r.memory_id, _r.version, _r.version_hash,
+             _r.appended_bytes, _r.content_length, true
+    ;
+  end;
+end;
+$func$ language plpgsql volatile security invoker
+set search_path to pg_catalog, {{schema}}, public, pg_temp
+;
+{{endfn}}
+
+-------------------------------------------------------------------------------
 -- move tree
 -------------------------------------------------------------------------------
 create or replace function {{schema}}.move_tree

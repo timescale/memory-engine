@@ -401,6 +401,196 @@ test("update patches fields", async () => {
   );
 });
 
+type AppendRes = {
+  id: string;
+  version: number;
+  versionHash: string;
+  appendedBytes: number;
+  contentLength: number;
+  replayed: boolean;
+};
+
+const READ_ONLY: TreeAccess = [
+  { tree_path: "share", access: engineCore.ACCESS.read },
+];
+
+test("append: by id, default separator, meta unchanged, compact result", async () => {
+  const created = await call<{
+    id: string;
+    version: number;
+    versionHash: string;
+  }>("memory.create", {
+    content: "line one",
+    tree: "share.ap",
+    name: "log",
+    meta: { kind: "log" },
+  });
+
+  const res = await call<AppendRes>("memory.append", {
+    id: created.id,
+    content: "line two",
+    idempotencyKey: crypto.randomUUID(),
+  });
+  expect(res.version).toBe(2);
+  expect(res.versionHash).toMatch(/^[0-9a-f]{32}$/);
+  expect(res.versionHash).not.toBe(created.versionHash);
+  expect(res.appendedBytes).toBe(10); // "\n\n" (2) + "line two" (8)
+  expect(res.replayed).toBe(false);
+  // Compact result never carries the body.
+  expect((res as Record<string, unknown>).content).toBeUndefined();
+
+  const got = await call<{
+    content: string;
+    meta: Record<string, unknown>;
+    name: string;
+  }>("memory.get", { id: created.id });
+  expect(got.content).toBe("line one\n\nline two");
+  expect(got.meta).toEqual({ kind: "log" }); // meta never touched
+  expect(got.name).toBe("log");
+  expect(res.contentLength).toBe(got.content.length);
+});
+
+test("append: two concurrent appends with distinct keys both land", async () => {
+  const created = await call<{ id: string }>("memory.create", {
+    content: "base",
+    tree: "share.cc",
+  });
+  await Promise.all([
+    call("memory.append", {
+      id: created.id,
+      content: "AAA",
+      idempotencyKey: crypto.randomUUID(),
+    }),
+    call("memory.append", {
+      id: created.id,
+      content: "BBB",
+      idempotencyKey: crypto.randomUUID(),
+    }),
+  ]);
+  const got = await call<{ content: string; version: number }>("memory.get", {
+    id: created.id,
+  });
+  expect(got.content).toContain("AAA");
+  expect(got.content).toContain("BBB");
+  expect(got.version).toBe(3); // base(1) + two appends
+});
+
+test("append: same idempotencyKey replays exactly once", async () => {
+  const created = await call<{ id: string }>("memory.create", {
+    content: "base",
+    tree: "share.idem",
+  });
+  const key = crypto.randomUUID();
+  const first = await call<AppendRes>("memory.append", {
+    id: created.id,
+    content: "+x",
+    idempotencyKey: key,
+  });
+  expect(first.replayed).toBe(false);
+  const replay = await call<AppendRes>("memory.append", {
+    id: created.id,
+    content: "+x",
+    idempotencyKey: key,
+  });
+  expect(replay.replayed).toBe(true);
+  expect(replay.version).toBe(first.version);
+  const got = await call<{ content: string }>("memory.get", { id: created.id });
+  expect(got.content).toBe("base\n\n+x"); // appended once
+});
+
+test("append: same idempotencyKey with a different request → CONFLICT", async () => {
+  const created = await call<{ id: string }>("memory.create", {
+    content: "base",
+    tree: "share.idem2",
+  });
+  const key = crypto.randomUUID();
+  await call("memory.append", {
+    id: created.id,
+    content: "+x",
+    idempotencyKey: key,
+  });
+  await expectAppError(
+    call("memory.append", {
+      id: created.id,
+      content: "+different",
+      idempotencyKey: key,
+    }),
+    "CONFLICT",
+  );
+});
+
+test("append: a stale supplied versionHash → CONFLICT; omitted succeeds", async () => {
+  const created = await call<{ id: string; versionHash: string }>(
+    "memory.create",
+    { content: "base", tree: "share.vh" },
+  );
+  // One append makes created.versionHash stale.
+  await call("memory.append", {
+    id: created.id,
+    content: "one",
+    idempotencyKey: crypto.randomUUID(),
+  });
+  await expectAppError(
+    call("memory.append", {
+      id: created.id,
+      content: "two",
+      versionHash: created.versionHash,
+      idempotencyKey: crypto.randomUUID(),
+    }),
+    "CONFLICT",
+  );
+  // Omitting the hash appends unconditionally.
+  const ok = await call<AppendRes>("memory.append", {
+    id: created.id,
+    content: "two",
+    idempotencyKey: crypto.randomUUID(),
+  });
+  expect(ok.replayed).toBe(false);
+});
+
+test("append: read-only caller → FORBIDDEN (and cannot replay a prior receipt)", async () => {
+  const created = await call<{ id: string }>("memory.create", {
+    content: "base",
+    tree: "share.ro",
+  });
+  const key = crypto.randomUUID();
+  // A read-only caller is rejected before any write.
+  await expectAppError(
+    call(
+      "memory.append",
+      { id: created.id, content: "x", idempotencyKey: key },
+      READ_ONLY,
+    ),
+    "FORBIDDEN",
+  );
+  // The owner performs the append (writes a receipt).
+  await call("memory.append", {
+    id: created.id,
+    content: "x",
+    idempotencyKey: key,
+  });
+  // A read-only caller cannot even replay that receipt — write is checked first.
+  await expectAppError(
+    call(
+      "memory.append",
+      { id: created.id, content: "x", idempotencyKey: key },
+      READ_ONLY,
+    ),
+    "FORBIDDEN",
+  );
+});
+
+test("append: missing memory → NOT_FOUND", async () => {
+  await expectAppError(
+    call("memory.append", {
+      id: "0194a000-0000-7000-8000-000000000000",
+      content: "x",
+      idempotencyKey: crypto.randomUUID(),
+    }),
+    "NOT_FOUND",
+  );
+});
+
 test("delete removes; get then NOT_FOUND", async () => {
   const created = await call<{ id: string }>("memory.create", {
     content: "doomed",

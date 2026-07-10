@@ -10,6 +10,7 @@ Memories are the core data type in Memory Engine. Each memory has content, an op
 - [me memory get](#me-memory-get) -- get a memory by ID or path
 - [me memory search](#me-memory-search) -- search memories
 - [me memory update](#me-memory-update) -- update a memory
+- [me memory append](#me-memory-append) -- append text to a memory's content
 - [me memory delete](#me-memory-delete) -- delete a single memory
 - [me memory deltree](#me-memory-deltree) -- delete a subtree
 - [me memory edit](#me-memory-edit) -- open a memory in your editor
@@ -142,6 +143,36 @@ me memory update <id-or-path> --version-hash <hash> [options]
 | `--temporal <range>` | New temporal range as `start[,end]`. |
 
 At least one update field is required. Metadata is fully replaced, not merged. Update is id-addressed; you can pass a `tree/name` path as the `<id-or-path>` argument and the CLI resolves it to an id first. `me memory edit` handles `--version-hash` automatically — it fetches the memory before opening the editor and submits the captured hash on save.
+
+---
+
+## me memory append
+
+Append text to a memory's content in one atomic operation. Unlike `update`, the existing content is never fetched and rewritten and **metadata is never touched**; the server concatenates server-side and recomputes the `versionHash`.
+
+```
+me memory append <id-or-path> [content] [options]
+```
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `id-or-path` | yes | A memory ID (UUIDv7), or a memory's `tree/name` path (resolved to an id first). |
+| `content` | no | Text to append (or use `--content`, or `--content -` for stdin). |
+
+| Option | Description |
+|--------|-------------|
+| `--content <text>` | Text to append (use `-` for stdin). |
+| `--separator <str>` | String inserted between the existing content and the appended text. Default `\n\n`; omitted for empty existing content or when the content already ends with it (existing content is never trimmed). |
+| `--version-hash <hash>` | **Optional** optimistic-concurrency guard. When supplied it must match the memory's current `versionHash`, or the append is rejected with `CONFLICT` and nothing is written. When omitted, the append is unconditional. |
+| `--idempotency-key <key>` | Operation-scoped key so a retried append is applied at most once. A random key is generated per invocation when omitted; reusing a key for a different append is a `CONFLICT`. |
+| `--dry-run` | Preview the resulting size/version without writing. |
+
+Empty or whitespace-only input is a no-op (no version bump). Output is compact and never echoes the appended text or the memory body — text mode prints only the id and new version; `--json`/`--yaml` return `{ id, version, versionHash, appendedBytes, contentLength, replayed }`. `append` is the one mutation the client retries on transient transport failures, made safe by the idempotency key.
+
+```
+# append a line to a running log, by path, via stdin
+echo "2025-04-15 14:02 deploy healthy" | me append share/status/deploy-log --content -
+```
 
 ---
 

@@ -450,6 +450,90 @@ Docs: ${docUrl("me_memory_update")}`,
     },
   );
 
+  // me_memory_append
+  server.registerTool(
+    "me_memory_append",
+    {
+      title: "Append to Memory",
+      description: `Append text to an existing memory's content in one atomic operation — the body is never fetched and rewritten, and metadata is left untouched.
+
+Target by "id" or by "path" (tree/name). "separator" (default two newlines) joins the existing content and the appended text; it is omitted for empty existing content or when the content already ends with it, and existing content is never trimmed. Pass "idempotency_key" to make a retried append land at most once (a fresh key is generated per call when omitted; the same key reused with different content is a conflict). "version_hash" is optional optimistic concurrency — when supplied it must match. Returns the compact result (id, new version/versionHash, sizes, replayed), never the body.
+
+Docs: ${docUrl("me_memory_append")}`,
+      inputSchema: {
+        id: z
+          .string()
+          .optional()
+          .nullable()
+          .describe("The UUID of the memory to append to (or use path)"),
+        path: z
+          .string()
+          .optional()
+          .nullable()
+          .describe(
+            'Address the memory by its tree/name path (e.g. "share/notes/log") instead of id',
+          ),
+        content: z
+          .string()
+          .min(1)
+          .describe("Text to append to the memory's content"),
+        separator: z
+          .string()
+          .optional()
+          .nullable()
+          .describe(
+            'String inserted between the existing content and the appended text (default: two newlines "\\n\\n")',
+          ),
+        version_hash: z
+          .string()
+          .length(32)
+          .optional()
+          .nullable()
+          .describe(
+            "Optional optimistic-concurrency hash; when supplied it must match the current version_hash or the append is rejected",
+          ),
+        idempotency_key: z
+          .string()
+          .optional()
+          .nullable()
+          .describe(
+            "Operation key so a retried append is applied at most once; a random key is generated when omitted",
+          ),
+      },
+      annotations: {
+        title: "Append to Memory",
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+      },
+    },
+    async (args) => {
+      if (args.id && args.path) {
+        throw new Error("Provide either id or path, not both");
+      }
+      const id = args.id
+        ? args.id
+        : args.path
+          ? (await client.memory.getByPath({ path: args.path })).id
+          : undefined;
+      if (!id) {
+        throw new Error("Provide either id or path");
+      }
+      const result = await client.memory.append({
+        id,
+        content: args.content,
+        separator: args.separator ?? undefined,
+        versionHash: args.version_hash ?? undefined,
+        idempotencyKey: args.idempotency_key ?? crypto.randomUUID(),
+      });
+      return {
+        content: [
+          { type: "text" as const, text: JSON.stringify(result, null, 2) },
+        ],
+      };
+    },
+  );
+
   // me_memory_delete
   server.registerTool(
     "me_memory_delete",

@@ -16,6 +16,8 @@ import type {
   Memory as SpaceMemory,
 } from "@memory.build/engine/space";
 import type {
+  MemoryAppendParams,
+  MemoryAppendResult,
   MemoryBatchCreateParams,
   MemoryBatchCreateResult,
   MemoryCopyParams,
@@ -43,6 +45,7 @@ import type {
   MemoryUpdateParams,
 } from "@memory.build/protocol/memory";
 import {
+  memoryAppendParams,
   memoryBatchCreateParams,
   memoryCopyParams,
   memoryCountTreeParams,
@@ -110,6 +113,13 @@ function mapSpaceError(e: unknown): never {
     throw new AppError(
       "CONFLICT",
       "Memory was modified; the version_hash is stale. Fetch the memory again to get the latest version_hash, re-apply your changes over the latest vesion, and retry",
+    );
+  }
+  // append idempotency key reused for a materially different request.
+  if (code === "ME003") {
+    throw new AppError(
+      "CONFLICT",
+      "idempotencyKey was already used for a different append request. Use a fresh key for a new append.",
     );
   }
   throw e instanceof Error ? e : new Error(String(e));
@@ -388,6 +398,29 @@ async function memoryUpdate(
     throw new AppError("NOT_FOUND", `Memory not found: ${params.id}`);
   }
   return toMemoryResponse(memory, ctx);
+}
+
+/** memory.append — atomic content append; returns the compact result (no body). */
+async function memoryAppend(
+  params: MemoryAppendParams,
+  context: HandlerContext,
+): Promise<MemoryAppendResult> {
+  assertSpaceRpcContext(context);
+  const ctx = context as SpaceRpcContext;
+  const { store, treeAccess } = ctx;
+
+  const result = await guard(() =>
+    store.appendMemory(treeAccess, params.id, {
+      content: params.content,
+      separator: params.separator ?? "\n\n",
+      opKey: params.idempotencyKey,
+      priorVersionHash: params.versionHash ?? undefined,
+    }),
+  );
+  if (!result) {
+    throw new AppError("NOT_FOUND", `Memory not found: ${params.id}`);
+  }
+  return result;
 }
 
 /** memory.delete */
@@ -723,6 +756,7 @@ export const memoryDataMethods = buildRegistry()
   .register("memory.get", memoryGetParams, memoryGet)
   .register("memory.getByPath", memoryGetByPathParams, memoryGetByPath)
   .register("memory.update", memoryUpdateParams, memoryUpdate)
+  .register("memory.append", memoryAppendParams, memoryAppend)
   .register("memory.delete", memoryDeleteParams, memoryDelete)
   .register("memory.deleteByPath", memoryDeleteByPathParams, memoryDeleteByPath)
   .register("memory.search", memorySearchParams, memorySearch)

@@ -1,6 +1,8 @@
 import type { Sql } from "postgres";
 import type { AccessLevel } from "../core/types";
 import type {
+  AppendMemoryParams,
+  AppendResult,
   CreateMemoryParams,
   HybridSearchOptions,
   Memory,
@@ -63,6 +65,17 @@ export interface SpaceStore {
     versionHash: string,
     patch: MemoryPatch,
   ): Promise<boolean>;
+  /**
+   * Append text to a memory's content in one atomic UPDATE (no read-modify-
+   * write; the version_hash is recomputed in-database by the update trigger).
+   * `params.opKey` makes a retried/raced append land exactly once. Returns the
+   * compact result, or null when the memory does not exist.
+   */
+  appendMemory(
+    treeAccess: TreeAccess,
+    id: string,
+    params: AppendMemoryParams,
+  ): Promise<AppendResult | null>;
   deleteMemory(treeAccess: TreeAccess, id: string): Promise<boolean>;
 
   moveTree(
@@ -237,6 +250,29 @@ export function spaceStore(sql: Sql, schema: string): SpaceStore {
       const [row] = await sql`
         select ${sch}.patch_memory(${jb(treeAccess)}, ${id}, ${versionHash}, ${jb(obj)}) as ok`;
       return Boolean(row?.ok);
+    },
+
+    async appendMemory(treeAccess, id, params) {
+      const [row] = await sql`
+        select id, version, version_hash, appended_bytes, content_length, replayed
+        from ${sch}.append_memory(
+          ${jb(treeAccess)},
+          ${id},
+          ${params.content},
+          ${params.separator ?? "\n\n"},
+          ${params.opKey},
+          ${params.priorVersionHash ?? null}
+        )`;
+      return row
+        ? {
+            id: row.id as string,
+            version: Number(row.version),
+            versionHash: row.version_hash as string,
+            appendedBytes: Number(row.appended_bytes),
+            contentLength: Number(row.content_length),
+            replayed: Boolean(row.replayed),
+          }
+        : null;
     },
 
     async deleteMemory(treeAccess, id) {

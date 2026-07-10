@@ -229,6 +229,116 @@ test("patchMemory updates fields; deleteMemory removes", async () => {
   expect(await db.getMemory(FULL, id)).toBeNull();
 });
 
+test("appendMemory: bumps version, preserves meta/name, resets embedding", async () => {
+  const id = await mustCreate(FULL, {
+    tree: "work.ap",
+    content: "line one",
+    name: "log.md",
+    meta: { kind: "log" },
+  });
+  await setEmbedding(id, [1, 2, 3, 4]);
+  const before = await db.getMemory(FULL, id);
+  expect(before?.hasEmbedding).toBe(true);
+
+  const r = await db.appendMemory(FULL, id, {
+    content: "line two",
+    opKey: crypto.randomUUID(),
+  });
+  expect(r).not.toBeNull();
+  expect(r?.replayed).toBe(false);
+  expect(r?.version).toBe((before?.version as number) + 1);
+  expect(r?.appendedBytes).toBe(10); // "\n\n" (2) + "line two" (8)
+
+  const after = await db.getMemory(FULL, id);
+  expect(after?.content).toBe("line one\n\nline two");
+  expect(after?.name).toBe("log.md"); // unchanged
+  expect(after?.meta).toEqual({ kind: "log" }); // meta never touched
+  expect(after?.hasEmbedding).toBe(false); // reset for re-embedding
+  expect(after?.versionHash).toBe(r?.versionHash);
+});
+
+test("appendMemory: separator omitted for empty content and an existing trailing separator", async () => {
+  const key = () => crypto.randomUUID();
+
+  // Empty existing content → no leading separator.
+  const a = await mustCreate(FULL, { tree: "work.sep1", content: "" });
+  await db.appendMemory(FULL, a, { content: "start", opKey: key() });
+  expect((await db.getMemory(FULL, a))?.content).toBe("start");
+  // Default "\n\n" between non-empty content and the new text.
+  await db.appendMemory(FULL, a, { content: "next", opKey: key() });
+  expect((await db.getMemory(FULL, a))?.content).toBe("start\n\nnext");
+
+  // Content already ending with the separator is not doubled (never trimmed).
+  const b = await mustCreate(FULL, { tree: "work.sep2", content: "x\n\n" });
+  await db.appendMemory(FULL, b, {
+    content: "y",
+    separator: "\n\n",
+    opKey: key(),
+  });
+  expect((await db.getMemory(FULL, b))?.content).toBe("x\n\ny");
+});
+
+test("appendMemory: same opKey replays once; a different request conflicts", async () => {
+  const id = await mustCreate(FULL, { tree: "work.idem", content: "base" });
+  const opKey = crypto.randomUUID();
+
+  const first = await db.appendMemory(FULL, id, { content: "+add", opKey });
+  expect(first?.replayed).toBe(false);
+
+  // Same key + same request → replay; content appended exactly once.
+  const replay = await db.appendMemory(FULL, id, { content: "+add", opKey });
+  expect(replay?.replayed).toBe(true);
+  expect(replay?.version).toBe(first?.version);
+  expect((await db.getMemory(FULL, id))?.content).toBe("base\n\n+add");
+
+  // Same key + different request → conflict (ME003).
+  await expect(
+    db.appendMemory(FULL, id, { content: "+different", opKey }),
+  ).rejects.toThrow();
+});
+
+test("appendMemory: read-only caller is rejected", async () => {
+  const id = await mustCreate(FULL, { tree: "work.ro", content: "base" });
+  await expect(
+    db.appendMemory(READONLY, id, { content: "x", opKey: crypto.randomUUID() }),
+  ).rejects.toThrow();
+});
+
+test("appendMemory: optional versionHash — stale fails, omitted succeeds; missing → null", async () => {
+  const id = await mustCreate(FULL, { tree: "work.vh", content: "base" });
+  const stale = (await db.getMemory(FULL, id))?.versionHash;
+
+  // Advance the version so the captured hash becomes stale.
+  await db.appendMemory(FULL, id, {
+    content: "one",
+    opKey: crypto.randomUUID(),
+  });
+
+  // A supplied-but-stale versionHash is rejected without writing.
+  await expect(
+    db.appendMemory(FULL, id, {
+      content: "two",
+      opKey: crypto.randomUUID(),
+      priorVersionHash: stale,
+    }),
+  ).rejects.toThrow();
+
+  // Omitting the hash appends unconditionally.
+  const ok = await db.appendMemory(FULL, id, {
+    content: "two",
+    opKey: crypto.randomUUID(),
+  });
+  expect(ok).not.toBeNull();
+
+  // A missing memory returns null (→ NOT_FOUND at the RPC layer).
+  const missing = await db.appendMemory(
+    FULL,
+    "0194a000-0000-7000-8000-000000000000",
+    { content: "x", opKey: crypto.randomUUID() },
+  );
+  expect(missing).toBeNull();
+});
+
 test("bm25 search ranks by full-text relevance", async () => {
   await db.createMemory(FULL, {
     tree: "work.a",

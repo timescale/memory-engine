@@ -66,6 +66,42 @@ export interface MemoryPatch {
   content?: string;
 }
 
+export interface AppendMemoryParams {
+  /** Text appended to the existing content (never empty at this layer). */
+  content: string;
+  /**
+   * String inserted between the existing content and the appended text. Omitted
+   * for empty existing content or when the content already ends with it;
+   * existing content is never trimmed. Defaults to "\n\n" at the RPC boundary.
+   */
+  separator?: string;
+  /**
+   * Operation-scoped idempotency key. A retried/raced append carrying the same
+   * key replays the stored result instead of concatenating twice. Must be
+   * random per invocation — never derived from the content.
+   */
+  opKey: string;
+  /**
+   * Optional optimistic-concurrency guard: when supplied it must match the
+   * current version_hash (else CONFLICT, no write); when omitted the append is
+   * unconditional (the opKey, not the version, makes a retry safe).
+   */
+  priorVersionHash?: string;
+}
+
+/** Compact result of an append — never carries the memory body. */
+export interface AppendResult {
+  id: string;
+  version: number;
+  versionHash: string;
+  /** Bytes added (separator + content), UTF-8. */
+  appendedBytes: number;
+  /** Character length of the memory content after the append. */
+  contentLength: number;
+  /** True when this call replayed a prior receipt rather than appending. */
+  replayed: boolean;
+}
+
 /** Filters shared by search (and the count/list tree helpers where relevant). */
 export interface MemoryFilters {
   /** ancestor-or-self match: only memories at/under this path. */

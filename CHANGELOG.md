@@ -4,6 +4,23 @@ All notable changes to the memory engine are documented here. The client
 (`v<x.y.z>`) and server (`server/v<x.y.z>`) release independently but are
 versioned in lockstep for coordinated breaking changes.
 
+## Unreleased
+
+### Added
+- **`memory.append`** — append text to a memory's content in one atomic
+  server-side operation: the existing body is never fetched and rewritten, and
+  metadata is never touched. Exposed as the `memory.append` RPC, the
+  `me append` / `me memory append` CLI command, and the `me_memory_append` MCP
+  tool. Targets a memory by id or `tree/name` path, joins with a configurable
+  `--separator` (default `\n\n`, omitted for empty existing content or an
+  existing trailing separator), and supports an optional `versionHash`
+  optimistic-concurrency guard. Each append carries an operation-scoped
+  `idempotencyKey` (generated per invocation) so a retried or raced append
+  lands exactly once — reusing a key for a different request is a `CONFLICT`.
+  `append` is the one client mutation transport-retried on transient failures,
+  made safe by that key. Adds the per-space `append_receipt` table and
+  `append_memory` function (space schema bumped to `0.0.7`).
+
 ## 0.5.0
 
 Server `server/v0.5.0` · Client `v0.5.0`.

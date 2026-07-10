@@ -1,5 +1,7 @@
 export { type SpaceStore, spaceStore } from "./db";
 export type {
+  AppendMemoryParams,
+  AppendResult,
   CreateMemoryParams,
   HybridSearchOptions,
   Memory,

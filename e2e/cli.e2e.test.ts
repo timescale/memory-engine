@@ -613,6 +613,76 @@ describe.skipIf(
     expect(get.code).not.toBe(0);
   });
 
+  test("6d. append: by id, by path, stdin, dry-run, empty no-op, compact output", async () => {
+    // Self-contained: own memory under a unique subtree so no shared-state
+    // count assertions are affected; cleaned up at the end.
+    const created = await meJson<{ id: string }>([
+      "create",
+      "first line",
+      "--tree",
+      "share.append_e2e",
+      "--name",
+      "log",
+    ]);
+
+    // append by id (positional content) — compact JSON result, no body field.
+    const app1 = await meJson<{
+      id: string;
+      version: number;
+      appendedBytes: number;
+      replayed: boolean;
+      content?: string;
+    }>(["append", created.id, "second line"]);
+    expect(app1.version).toBe(2);
+    expect(app1.replayed).toBe(false);
+    expect(app1.content).toBeUndefined();
+
+    // append by tree/name path, content via stdin (--content -).
+    const app2 = await meStdin(
+      ["append", "share/append_e2e/log", "--content", "-", "--json"],
+      "third line",
+    );
+    expect(app2.code).toBe(0);
+
+    const got = await meJson<{ content: string; version: number }>([
+      "memory",
+      "get",
+      created.id,
+    ]);
+    expect(got.content).toBe("first line\n\nsecond line\n\nthird line");
+
+    // dry-run writes nothing.
+    const dry = await meJson<{ dryRun: boolean }>([
+      "append",
+      created.id,
+      "not written",
+      "--dry-run",
+    ]);
+    expect(dry.dryRun).toBe(true);
+    expect(
+      (await meJson<{ version: number }>(["memory", "get", created.id]))
+        .version,
+    ).toBe(got.version);
+
+    // empty/whitespace input is a no-op (exit 0, no version bump).
+    const noop = await me(["append", created.id, "   "]);
+    expect(noop.code).toBe(0);
+    expect(
+      (await meJson<{ version: number }>(["memory", "get", created.id]))
+        .version,
+    ).toBe(got.version);
+
+    // text-mode success is compact — never echoes the appended text or body.
+    const textOut = await me(["append", created.id, "SENSITIVE-BODY-TEXT"]);
+    expect(textOut.code).toBe(0);
+    expect(textOut.stdout + textOut.stderr).not.toContain(
+      "SENSITIVE-BODY-TEXT",
+    );
+    expect(textOut.stdout + textOut.stderr).toContain(created.id);
+
+    await me(["memory", "delete", created.id]);
+  });
+
   test("6b. name: create --name, get by path, conflict modes, rename, delete --name", async () => {
     const created = await meJson<{ id: string; name: string | null }>([
       "create",

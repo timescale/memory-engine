@@ -16,6 +16,8 @@
 
 import { AS_AGENT_HEADER, SPACE_HEADER } from "@memory.build/protocol/headers";
 import type {
+  MemoryAppendParams,
+  MemoryAppendResult,
   MemoryBatchCreateParams,
   MemoryBatchCreateResult,
   MemoryCopyParams,
@@ -128,6 +130,12 @@ export interface MemoryNamespace {
   get(params: MemoryGetParams): Promise<MemoryResponse>;
   getByPath(params: MemoryGetByPathParams): Promise<MemoryResponse>;
   update(params: MemoryUpdateParams): Promise<MemoryResponse>;
+  /**
+   * Append text to a memory's content. Unlike other mutations this call is
+   * transport-retried: its operation-scoped `idempotencyKey` makes a retry
+   * replay rather than double-append, so a dropped response is safe.
+   */
+  append(params: MemoryAppendParams): Promise<MemoryAppendResult>;
   delete(params: MemoryDeleteParams): Promise<MemoryDeleteResult>;
   deleteByPath(params: MemoryDeleteByPathParams): Promise<MemoryDeleteResult>;
   search(params: MemorySearchParams): Promise<MemorySearchResult>;
@@ -244,6 +252,17 @@ export function createMemoryClient(
     return rpcCall<TResult>(config, method, params, { retries: 0 });
   }
 
+  // memory.append is the one mutation that is safe to transport-retry: it
+  // carries an operation-scoped idempotency key, so the server replays the
+  // original result on a retry instead of appending twice. Ordinary mutations
+  // stay on writeRpc (retries: 0).
+  function retryableWriteRpc<TResult>(
+    method: string,
+    params: unknown,
+  ): Promise<TResult> {
+    return rpcCall<TResult>(config, method, params);
+  }
+
   return {
     memory: {
       create: (p) => writeRpc("memory.create", p),
@@ -251,6 +270,7 @@ export function createMemoryClient(
       get: (p) => readRpc("memory.get", p),
       getByPath: (p) => readRpc("memory.getByPath", p),
       update: (p) => writeRpc("memory.update", p),
+      append: (p) => retryableWriteRpc("memory.append", p),
       delete: (p) => writeRpc("memory.delete", p),
       deleteByPath: (p) => writeRpc("memory.deleteByPath", p),
       search: (p) => readRpc("memory.search", p),
