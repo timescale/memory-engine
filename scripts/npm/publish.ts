@@ -19,10 +19,11 @@ const SCOPE = "@memory.build";
 const MAIN_PACKAGE = `${SCOPE}/cli`;
 
 // npm 11.5.1+ is required for OIDC authentication to npm trusted publishers.
-// Use the ambient `npm` (the CI workflow installs `npm@latest` globally) rather
-// than `bun x npm`: bunx does not install npm's bundledDependencies, so the
-// bundled `sigstore` module is missing and provenance generation under trusted
-// publishing fails with "Cannot find module 'sigstore'".
+// Use the ambient `npm`, which the CI workflow pins to the 11.x line. Avoid
+// `bun x 'npm@>=11.5.1'` and `npm@latest`: both float to npm 12.0.0, which no
+// longer hoists the unscoped `sigstore` module to npm's top-level node_modules,
+// so provenance generation under trusted publishing fails with "Cannot find
+// module 'sigstore'".
 const NPM_CMD = ["npm"];
 
 interface PlatformTarget {

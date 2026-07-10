@@ -40,18 +40,19 @@ jobs:
       - name: Build @memory.build/client
         run: ./bun run --filter '@memory.build/client' build
 
-      # Publish with a real npm, not `bun x npm`: npm ships `sigstore` as a
-      # bundled dependency, and bunx does not install bundledDependencies, so
-      # provenance generation under OIDC trusted publishing fails with
-      # "Cannot find module 'sigstore'". A globally installed npm@latest keeps
-      # its bundled deps intact and satisfies the >=11.5.1 OIDC requirement.
+      # OIDC trusted publishing requires npm >= 11.5.1 and generates provenance,
+      # whose libnpmpublish/provenance.js does `require('sigstore')`. npm 12.0.0
+      # regressed: it no longer hoists the unscoped `sigstore` module to npm's
+      # top-level node_modules (it's buried under pacote), so publish dies with
+      # "Cannot find module 'sigstore'". Pin the 11.x line, which bundles a
+      # top-level sigstore and satisfies the >=11.5.1 OIDC requirement.
       - uses: actions/setup-node@v6
         with:
           node-version: 24
           registry-url: "https://registry.npmjs.org"
 
-      - name: Upgrade npm (OIDC trusted publishing, bundled sigstore)
-        run: npm install -g npm@latest
+      - name: Install npm 11.x (OIDC trusted publishing; 12.0.0 breaks provenance)
+        run: npm install -g 'npm@^11.5.1'
 
       - name: Publish @memory.build/protocol
         run: cd packages/protocol && npm publish --access public
@@ -131,15 +132,16 @@ jobs:
       - name: List artifacts
         run: ls -la ./dist
 
-      # publish.ts shells out to a real npm (see its NPM_CMD). Provide one with
-      # its bundled sigstore intact for OIDC trusted publishing + provenance.
+      # publish.ts shells out to a real npm (see its NPM_CMD). Pin npm 11.x:
+      # 12.0.0 fails provenance with "Cannot find module 'sigstore'" (it no
+      # longer hoists the module to npm's top-level node_modules).
       - uses: actions/setup-node@v6
         with:
           node-version: 24
           registry-url: "https://registry.npmjs.org"
 
-      - name: Upgrade npm (OIDC trusted publishing, bundled sigstore)
-        run: npm install -g npm@latest
+      - name: Install npm 11.x (OIDC trusted publishing; 12.0.0 breaks provenance)
+        run: npm install -g 'npm@^11.5.1'
 
       - name: Publish to npm
         run: |
