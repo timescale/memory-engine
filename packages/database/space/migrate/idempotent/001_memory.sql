@@ -711,8 +711,9 @@ set search_path to pg_catalog, {{schema}}, public, pg_temp
 -- version, and resets the embedding for re-embedding. `_op_key` is a random,
 -- operation-scoped idempotency key supplied by the caller; a receipt keyed by
 -- it makes a retried/raced append land exactly once. The server-computed
--- fingerprint (md5 of id + separator + content) rejects the same key reused for
--- a materially different append. Returns the compact result (never the body).
+-- fingerprint (md5 of a canonical JSON array of id, separator, content, and the
+-- expected prior version hash) rejects the same key reused for a materially
+-- different append. Returns the compact result (never the body).
 {{fn append_memory(_tree_access jsonb, _id uuid, _content text, _separator text, _op_key text, _prior_version_hash text) returns table(id uuid, version bigint, version_hash text, appended_bytes int, content_length int, replayed bool)}}
 create or replace function {{schema}}.append_memory
 ( _tree_access jsonb
@@ -739,11 +740,19 @@ declare
   _old_bytes int;
   _r {{schema}}.append_receipt;
 begin
-  -- Request fingerprint: a key reused for a DIFFERENT target/separator/content
-  -- must conflict rather than replay. Content-derived is fine for the
-  -- FINGERPRINT; only the op_key itself must be random / operation-scoped.
+  -- Request fingerprint over a canonical, unambiguous JSON array so a key reused
+  -- for a materially different append (different target, separator, content, or
+  -- expected prior version hash) conflicts rather than replays. A plain
+  -- delimiter-joined string is ambiguous: separator 'a'||chr(10) + content 'b'
+  -- and separator 'a' + content chr(10)||'b' would hash identically. A JSON
+  -- array quotes and escapes each element, so its boundaries cannot be shifted;
+  -- _prior_version_hash is included so the same key with a changed versionHash
+  -- conflicts. Content-derived is fine for the FINGERPRINT; only the op_key
+  -- itself must be random / operation-scoped.
   _fingerprint = pg_catalog.md5(
-    _id::text || E'\n' || coalesce(_separator, '') || E'\n' || _content
+    pg_catalog.jsonb_build_array(
+      _id, _separator, _content, _prior_version_hash
+    )::text
   );
 
   -- Idempotent replay: a receipt for this op_key means the append already

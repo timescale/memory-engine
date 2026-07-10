@@ -297,6 +297,41 @@ test("appendMemory: same opKey replays once; a different request conflicts", asy
   ).rejects.toThrow();
 });
 
+test("appendMemory: fingerprint disambiguates the separator/content boundary", async () => {
+  const id = await mustCreate(FULL, { tree: "work.fp", content: "base" });
+  const opKey = crypto.randomUUID();
+  // (separator "a\n", content "b") and (separator "a", content "\nb")
+  // concatenate to identical characters; a delimiter-joined fingerprint would
+  // collide and wrongly replay. The canonical JSON fingerprint distinguishes
+  // them, so the reused key conflicts.
+  await db.appendMemory(FULL, id, { content: "b", separator: "a\n", opKey });
+  await expect(
+    db.appendMemory(FULL, id, { content: "\nb", separator: "a", opKey }),
+  ).rejects.toThrow();
+});
+
+test("appendMemory: same opKey with a changed priorVersionHash conflicts", async () => {
+  const id = await mustCreate(FULL, { tree: "work.vhkey", content: "base" });
+  const hash = (await db.getMemory(FULL, id))?.versionHash;
+  const opKey = crypto.randomUUID();
+  // The first append pins the expected prior hash into the receipt fingerprint.
+  const first = await db.appendMemory(FULL, id, {
+    content: "+x",
+    opKey,
+    priorVersionHash: hash,
+  });
+  expect(first?.replayed).toBe(false);
+  // Same key + same content but a different expected hash is a materially
+  // different request → conflict (proves priorVersionHash is in the fingerprint).
+  await expect(
+    db.appendMemory(FULL, id, {
+      content: "+x",
+      opKey,
+      priorVersionHash: "0".repeat(32),
+    }),
+  ).rejects.toThrow();
+});
+
 test("appendMemory: read-only caller is rejected", async () => {
   const id = await mustCreate(FULL, { tree: "work.ro", content: "base" });
   await expect(

@@ -112,7 +112,7 @@ function mapSpaceError(e: unknown): never {
   if (code === "ME002") {
     throw new AppError(
       "CONFLICT",
-      "Memory was modified; the version_hash is stale. Fetch the memory again to get the latest version_hash, re-apply your changes over the latest vesion, and retry",
+      "Memory was modified; the version_hash is stale. Fetch the memory again to get the latest version_hash, re-apply your changes over the latest version, and retry",
     );
   }
   // append idempotency key reused for a materially different request.

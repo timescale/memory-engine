@@ -331,8 +331,11 @@ export type MemoryWriteResult = z.infer<typeof memoryWriteResult>;
 /**
  * memory.append result — compact; never carries the memory body. `appendedBytes`
  * is the UTF-8 size of the separator + appended text; `contentLength` is the
- * character length after the append; `replayed` is true when an operation-key
- * match replayed a prior append instead of writing again.
+ * character length (Unicode code points, matching PostgreSQL `length(text)`)
+ * after the append; `replayed` is true when an operation-key match replayed a
+ * prior append instead of writing again. Like the sibling result schemas this
+ * is a plain (non-strict) object — an unexpected key is stripped, not rejected —
+ * so an accidental body field cannot survive into the compact result.
  */
 export const memoryAppendResult = z.object({
   id: z.string(),

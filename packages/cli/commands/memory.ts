@@ -19,8 +19,10 @@
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import * as clack from "@clack/prompts";
+import { RPC_ERROR_CODES } from "@memory.build/protocol/errors";
 import { Command } from "commander";
 import { stringify as yamlStringify } from "yaml";
+import { RpcError } from "../client.ts";
 import { resolveCredentials } from "../credentials.ts";
 import { getOutputFormat, output, table } from "../output.ts";
 import {
@@ -615,25 +617,40 @@ function createMemoryAppendCommand(): Command {
           if (opts.dryRun) {
             // Project the result from the current content; write nothing.
             const current = await client.memory.get({ id });
+            // A supplied --version-hash must fail on a stale hash exactly as the
+            // real append would (CONFLICT, nothing written): the append enforces
+            // the hash in SQL, so mirror that gate here before projecting.
+            if (opts.versionHash && opts.versionHash !== current.versionHash) {
+              throw new RpcError(
+                RPC_ERROR_CODES.APPLICATION_ERROR,
+                "Memory was modified; the supplied version_hash is stale. Fetch the memory again and retry.",
+                { code: "CONFLICT" },
+              );
+            }
             const joiner =
               current.content === "" || current.content.endsWith(separator)
                 ? ""
                 : separator;
             const appended = joiner + text;
             const appendedBytes = new TextEncoder().encode(appended).length;
+            // Count Unicode code points (not UTF-16 code units) so the
+            // projection matches the server's PostgreSQL length(text); spreading
+            // a string iterates by code point.
+            const projectedContentLength = [...(current.content + appended)]
+              .length;
             output(
               {
                 dryRun: true,
                 id,
                 currentVersion: current.version,
+                projectedVersion: current.version + 1,
                 appendedBytes,
-                projectedContentLength:
-                  current.content.length + appended.length,
+                projectedContentLength,
               },
               fmt,
               () => {
                 clack.log.info(
-                  `Dry run: would append ${appendedBytes} bytes to memory ${id} (no write).`,
+                  `Dry run: would append ${appendedBytes} bytes to memory ${id} (version ${current.version} → ${current.version + 1}, no write).`,
                 );
               },
             );

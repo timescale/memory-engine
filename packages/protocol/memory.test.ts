@@ -174,7 +174,7 @@ describe("memoryAppendParams", () => {
 });
 
 describe("memoryAppendResult", () => {
-  test("accepts a compact result and rejects a body field", () => {
+  test("accepts a compact result and strips an unknown body field", () => {
     expect(
       memoryAppendResult.safeParse({
         id: "m1",
@@ -185,6 +185,31 @@ describe("memoryAppendResult", () => {
         replayed: false,
       }).success,
     ).toBe(true);
+    // An accidental body/content field must never survive into the compact
+    // result. Like the sibling result schemas, memoryAppendResult is a plain
+    // (non-strict) z.object, so an unknown key parses successfully but is
+    // stripped from the output — it is not rejected.
+    const parsed = memoryAppendResult.safeParse({
+      id: "m1",
+      version: 3,
+      versionHash: "0".repeat(32),
+      appendedBytes: 12,
+      contentLength: 40,
+      replayed: false,
+      content: "SECRET BODY",
+    });
+    expect(parsed.success).toBe(true);
+    if (parsed.success) {
+      expect(parsed.data).not.toHaveProperty("content");
+      expect(Object.keys(parsed.data).sort()).toEqual([
+        "appendedBytes",
+        "contentLength",
+        "id",
+        "replayed",
+        "version",
+        "versionHash",
+      ]);
+    }
     // The compact result must never carry a version < 1.
     expect(
       memoryAppendResult.safeParse({

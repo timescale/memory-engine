@@ -651,14 +651,31 @@ describe.skipIf(
     ]);
     expect(got.content).toBe("first line\n\nsecond line\n\nthird line");
 
-    // dry-run writes nothing.
-    const dry = await meJson<{ dryRun: boolean }>([
+    // dry-run writes nothing and projects the next version.
+    const dry = await meJson<{
+      dryRun: boolean;
+      currentVersion: number;
+      projectedVersion: number;
+    }>(["append", created.id, "not written", "--dry-run"]);
+    expect(dry.dryRun).toBe(true);
+    expect(dry.currentVersion).toBe(got.version);
+    expect(dry.projectedVersion).toBe(got.version + 1);
+    expect(
+      (await meJson<{ version: number }>(["memory", "get", created.id]))
+        .version,
+    ).toBe(got.version);
+
+    // dry-run with a stale --version-hash fails exactly as a real append would
+    // (non-zero exit, CONFLICT) and still writes nothing.
+    const staleDry = await me([
       "append",
       created.id,
       "not written",
       "--dry-run",
+      "--version-hash",
+      "0".repeat(32),
     ]);
-    expect(dry.dryRun).toBe(true);
+    expect(staleDry.code).not.toBe(0);
     expect(
       (await meJson<{ version: number }>(["memory", "get", created.id]))
         .version,

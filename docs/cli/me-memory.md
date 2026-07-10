@@ -165,7 +165,7 @@ me memory append <id-or-path> [content] [options]
 | `--separator <str>` | String inserted between the existing content and the appended text. Default `\n\n`; omitted for empty existing content or when the content already ends with it (existing content is never trimmed). |
 | `--version-hash <hash>` | **Optional** optimistic-concurrency guard. When supplied it must match the memory's current `versionHash`, or the append is rejected with `CONFLICT` and nothing is written. When omitted, the append is unconditional. |
 | `--idempotency-key <key>` | Operation-scoped key so a retried append is applied at most once. A random key is generated per invocation when omitted; reusing a key for a different append is a `CONFLICT`. |
-| `--dry-run` | Preview the resulting size/version without writing. |
+| `--dry-run` | Preview the projected size and next version (`projectedVersion`) without writing. Still honors `--version-hash`: a stale hash fails with `CONFLICT` exactly as a real append would. |
 
 Empty or whitespace-only input is a no-op (no version bump). Output is compact and never echoes the appended text or the memory body — text mode prints only the id and new version; `--json`/`--yaml` return `{ id, version, versionHash, appendedBytes, contentLength, replayed }`. `append` is the one mutation the client retries on transient transport failures, made safe by the idempotency key.
 

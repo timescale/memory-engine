@@ -447,7 +447,9 @@ test("append: by id, default separator, meta unchanged, compact result", async (
   expect(got.content).toBe("line one\n\nline two");
   expect(got.meta).toEqual({ kind: "log" }); // meta never touched
   expect(got.name).toBe("log");
-  expect(res.contentLength).toBe(got.content.length);
+  // contentLength is PostgreSQL length(text) (code points); compare against the
+  // code-point count, not JS string.length (UTF-16 units).
+  expect(res.contentLength).toBe([...got.content].length);
 });
 
 test("append: two concurrent appends with distinct keys both land", async () => {
@@ -589,6 +591,108 @@ test("append: missing memory → NOT_FOUND", async () => {
     }),
     "NOT_FOUND",
   );
+});
+
+test("append: fingerprint disambiguates the separator/content boundary (shifted newline, same key → CONFLICT)", async () => {
+  const created = await call<{ id: string }>("memory.create", {
+    content: "base",
+    tree: "share.fp",
+  });
+  const key = crypto.randomUUID();
+  // (separator "a\n", content "b") and (separator "a", content "\nb")
+  // concatenate to the same characters. A plain delimiter-joined fingerprint
+  // would collide and wrongly REPLAY the first append; the canonical JSON
+  // fingerprint keeps them distinct, so the reused key CONFLICTs.
+  await call("memory.append", {
+    id: created.id,
+    separator: "a\n",
+    content: "b",
+    idempotencyKey: key,
+  });
+  await expectAppError(
+    call("memory.append", {
+      id: created.id,
+      separator: "a",
+      content: "\nb",
+      idempotencyKey: key,
+    }),
+    "CONFLICT",
+  );
+});
+
+test("append: same idempotencyKey with a changed versionHash → CONFLICT", async () => {
+  const created = await call<{ id: string; versionHash: string }>(
+    "memory.create",
+    { content: "base", tree: "share.vhkey" },
+  );
+  const key = crypto.randomUUID();
+  // The expected prior hash is part of the fingerprint, so the first append
+  // pins it into the receipt.
+  await call("memory.append", {
+    id: created.id,
+    content: "+x",
+    versionHash: created.versionHash,
+    idempotencyKey: key,
+  });
+  // Same key, same content, but a different expected versionHash is a
+  // materially different request → CONFLICT (never a replay of the first).
+  await expectAppError(
+    call("memory.append", {
+      id: created.id,
+      content: "+x",
+      versionHash: "0".repeat(32),
+      idempotencyKey: key,
+    }),
+    "CONFLICT",
+  );
+});
+
+test("append: exact retry with the same versionHash replays once", async () => {
+  const created = await call<{ id: string; versionHash: string }>(
+    "memory.create",
+    { content: "base", tree: "share.vhreplay" },
+  );
+  const key = crypto.randomUUID();
+  const first = await call<AppendRes>("memory.append", {
+    id: created.id,
+    content: "+x",
+    versionHash: created.versionHash,
+    idempotencyKey: key,
+  });
+  expect(first.replayed).toBe(false);
+  // Identical request (same key AND same versionHash) → replay, not a second
+  // concat.
+  const replay = await call<AppendRes>("memory.append", {
+    id: created.id,
+    content: "+x",
+    versionHash: created.versionHash,
+    idempotencyKey: key,
+  });
+  expect(replay.replayed).toBe(true);
+  expect(replay.version).toBe(first.version);
+  const got = await call<{ content: string }>("memory.get", { id: created.id });
+  expect(got.content).toBe("base\n\n+x"); // appended exactly once
+});
+
+test("append: contentLength counts Unicode code points, not UTF-16 units", async () => {
+  const created = await call<{ id: string }>("memory.create", {
+    content: "a",
+    tree: "share.cp",
+  });
+  // "😀" is one code point but two UTF-16 code units. The server computes
+  // contentLength with PostgreSQL length(text) (code points), so it must match
+  // the code-point count — never JS string.length.
+  const res = await call<AppendRes>("memory.append", {
+    id: created.id,
+    content: "😀",
+    idempotencyKey: crypto.randomUUID(),
+  });
+  const got = await call<{ content: string }>("memory.get", { id: created.id });
+  const codePoints = [...got.content].length;
+  expect(res.contentLength).toBe(codePoints);
+  // A non-BMP char makes UTF-16 length strictly larger — guards the regression.
+  expect(got.content.length).toBeGreaterThan(codePoints);
+  expect(res.contentLength).not.toBe(got.content.length);
 });
 
 test("delete removes; get then NOT_FOUND", async () => {
