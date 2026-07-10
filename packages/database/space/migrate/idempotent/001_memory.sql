@@ -743,7 +743,7 @@ begin
   -- must conflict rather than replay. Content-derived is fine for the
   -- FINGERPRINT; only the op_key itself must be random / operation-scoped.
   _fingerprint = pg_catalog.md5(
-    _id::text || E'\n' || pg_catalog.coalesce(_separator, '') || E'\n' || _content
+    _id::text || E'\n' || coalesce(_separator, '') || E'\n' || _content
   );
 
   -- Idempotent replay: a receipt for this op_key means the append already
