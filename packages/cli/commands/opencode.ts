@@ -144,6 +144,9 @@ export async function runOpenCodeInstallFlow(
   opts: AgentInstallOptions & {
     scope?: OpenCodeScope;
     defaultAgent?: boolean;
+    /** Set when called from `me project init`'s preflight — see
+     * {@link ensureDefaultAgent}'s matching option. */
+    perProjectStepFollows?: boolean;
   },
   globalOpts: Record<string, unknown>,
 ): Promise<void> {
@@ -164,7 +167,10 @@ export async function runOpenCodeInstallFlow(
 
   const activeSpace = opts.space ?? creds.activeSpace;
   if (opts.defaultAgent !== false) {
-    await ensureDefaultAgent({ ...creds, activeSpace });
+    await ensureDefaultAgent(
+      { ...creds, activeSpace },
+      { perProjectStepFollows: opts.perProjectStepFollows },
+    );
   }
 
   // The capture plugin — inert until capture is enabled (the flag below, or

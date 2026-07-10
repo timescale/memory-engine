@@ -36,9 +36,17 @@ export const DEFAULT_AGENT_NAME = "coder";
  * install's business (headless, not logged in, no active space to admit
  * into) — the harness-surface fatal errors (`me mcp`) name the fix later
  * rather than this step guessing at one.
+ *
+ * Set `perProjectStepFollows` when calling this from inside `me project
+ * init` (its preflight delegates to `me claude install`/`me opencode
+ * install`, which call this) — the closing note's "or run `me project
+ * init` for a per-project choice" line is genuinely useful advice for a
+ * standalone install, but confusing and redundant when it fires from
+ * *inside* that exact command, moments before its own agent-choice step.
  */
 export async function ensureDefaultAgent(
   creds: ResolvedCredentials,
+  opts?: { perProjectStepFollows?: boolean },
 ): Promise<void> {
   if (creds.apiKey) return; // sandboxed agent-key mode — already IS an agent
   if (getGlobalAgent() !== undefined) return; // already decided (incl. .user)
@@ -74,14 +82,23 @@ export async function ensureDefaultAgent(
     setGlobalAgent(DEFAULT_AGENT_NAME);
   }
 
+  const closingLines = opts?.perProjectStepFollows
+    ? [
+        "and you can restrict its access at any time. To use a different agent",
+        "globally, set `agent:` in ~/.config/me/config.yaml — this project's own",
+        "agent choice comes up next.",
+      ]
+    : [
+        "and you can restrict its access at any time. To use a different agent,",
+        "set `agent:` in ~/.config/me/config.yaml or run `me project init` for a",
+        "per-project choice.",
+      ];
   clack.note(
     [
       `Coding harnesses will act as your Memory Engine agent "${DEFAULT_AGENT_NAME}" —`,
       "a separate identity from you, with write access to everything you can",
       "reach by default. Its work is attributable (not filed under your name),",
-      "and you can restrict its access at any time. To use a different agent,",
-      "set `agent:` in ~/.config/me/config.yaml or run `me project init` for a",
-      "per-project choice.",
+      ...closingLines,
     ].join("\n"),
     "Default agent",
   );

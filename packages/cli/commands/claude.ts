@@ -458,7 +458,13 @@ export async function runClaudePluginInstall(
  * `capture: true` in the target machine's `~/.config/me/config.yaml`.
  */
 export async function runClaudeInstallFlow(
-  opts: AgentInstallOptions & { dev?: boolean; defaultAgent?: boolean },
+  opts: AgentInstallOptions & {
+    dev?: boolean;
+    defaultAgent?: boolean;
+    /** Set when called from `me project init`'s preflight — see
+     * {@link ensureDefaultAgent}'s matching option. */
+    perProjectStepFollows?: boolean;
+  },
   globalOpts: Record<string, unknown>,
 ): Promise<void> {
   await runClaudePluginInstall(opts);
@@ -473,7 +479,10 @@ export async function runClaudeInstallFlow(
   if (space) setActiveSpace(creds.server, space);
 
   if (opts.defaultAgent !== false) {
-    await ensureDefaultAgent({ ...creds, activeSpace: space });
+    await ensureDefaultAgent(
+      { ...creds, activeSpace: space },
+      { perProjectStepFollows: opts.perProjectStepFollows },
+    );
   }
 
   // Capture opt-in (shared with `me opencode install`): prompt, persist the
