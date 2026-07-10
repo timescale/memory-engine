@@ -1233,7 +1233,7 @@ describe.skipIf(
     await rm(projectRoot, { recursive: true, force: true });
   });
 
-  test("8c. `me claude init` honors --skip-transcript-import-claude / --skip-claude-md", async () => {
+  test("8c. `me project init` honors --skip-transcript-import-claude / --skip-claude-md", async () => {
     // Non-interactive (piped) init runs every step except those turned off by
     // a --skip-<step> flag. Verify each flag suppresses exactly its step.
     // Each case gets its own project dir + a transcript recorded IN that dir
@@ -1289,14 +1289,11 @@ describe.skipIf(
     const a = await mkProject("skipimport");
     const sessionA = `skipa-${rand()}`;
     await writeTranscript(sessionA, await realpath(a.dir));
-    // Exercised via the deprecated `me claude init` alias (same command,
-    // plus a rename warning) so the alias path stays covered.
     const r1 = await me(
-      ["claude", "init", "--skip-transcript-import-claude"],
+      ["project", "init", "--skip-transcript-import-claude"],
       initEnv,
       a.dir,
     );
-    expect(r1.stderr + r1.stdout).toContain("me project init");
     expect(r1.code, r1.stderr).toBe(0);
     expect(await countBySession(sessionA)).toBe(0);
     expect(existsSync(join(a.dir, "CLAUDE.md"))).toBe(true);
@@ -1320,6 +1317,64 @@ describe.skipIf(
     }
     await rm(a.root, { recursive: true, force: true });
     await rm(b.root, { recursive: true, force: true });
+  });
+
+  test("8i. `me claude init`/`me opencode init` are retired — error and redirect, run nothing", async () => {
+    const root = await mkdtemp(join(tmpdir(), "me-e2e-retired-init-"));
+    const projectDir = join(root, "retired");
+    await mkdir(projectDir, { recursive: true });
+    const sessionId = `retired-${rand()}`;
+    const cwd = await realpath(projectDir);
+    const dir = join(tmpHome, ".claude", "projects", encodeProjectDir(cwd));
+    await mkdir(dir, { recursive: true });
+    await writeFile(
+      join(dir, `${sessionId}.jsonl`),
+      [
+        {
+          type: "user",
+          uuid: `${sessionId}-user-0`,
+          timestamp: "2026-06-01T00:00:00.000Z",
+          sessionId,
+          cwd,
+          message: { content: "q0" },
+        },
+        {
+          type: "assistant",
+          uuid: `${sessionId}-assistant-1`,
+          timestamp: "2026-06-01T00:00:01.000Z",
+          sessionId,
+          cwd,
+          message: {
+            content: [{ type: "text", text: "a1" }],
+            model: "claude-x",
+          },
+        },
+      ]
+        .map((l) => JSON.stringify(l))
+        .join("\n"),
+    );
+
+    for (const args of [
+      ["claude", "init"],
+      // Old flags from both retired commands must not trip a Commander
+      // parse error — they're accepted and ignored, never read.
+      ["claude", "init", "--skip-transcript-import"],
+      ["opencode", "init"],
+      ["opencode", "init", "--scope", "project", "--skip-mcp-install"],
+    ]) {
+      const r = await me(args, undefined, projectDir);
+      expect(r.code, r.stderr).toBe(1);
+      expect(r.stderr).toContain("has been removed");
+      expect(r.stderr).toContain("me project init");
+    }
+
+    // None of the above ran anything — no import, no CLAUDE.md/AGENTS.md.
+    expect(await countBySession(sessionId)).toBe(0);
+    expect(existsSync(join(projectDir, "CLAUDE.md"))).toBe(false);
+    expect(existsSync(join(projectDir, "AGENTS.md"))).toBe(false);
+
+    await rm(dir, { recursive: true, force: true });
+    await rm(root, { recursive: true, force: true });
   });
 
   // Run git in `dir`, isolated from the developer's git config (gpg

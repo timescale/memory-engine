@@ -687,17 +687,10 @@ function printInitOutro(steps: InitStep[]): void {
  * flag), matching the retired `me claude init`'s scripted behavior — an
  * existing `.me/config.yaml` (or the private defaults) governs where things
  * land.
- *
- * Pass `deprecatedAlias` to register the same command under a legacy name
- * (`me claude init`) that warns before running.
  */
-export function createProjectInitCommand(opts?: {
-  deprecatedAlias?: string;
-}): Command {
+export function createProjectInitCommand(): Command {
   const cmd = new Command("init").description(
-    opts?.deprecatedAlias
-      ? `deprecated alias of 'me project init'`
-      : "set up this project: space, memory location, agent (interactive wizard) + backfill/capture steps",
+    "set up this project: space, memory location, agent (interactive wizard) + backfill/capture steps",
   );
   for (const step of PROJECT_INIT_STEPS) {
     cmd.option(step.skipFlag, step.skipDescription);
@@ -711,12 +704,6 @@ export function createProjectInitCommand(opts?: {
       fmt === "text" &&
       Boolean(process.stdin.isTTY) &&
       Boolean(process.stdout.isTTY);
-
-    if (opts?.deprecatedAlias) {
-      clack.log.warn(
-        `'${opts.deprecatedAlias}' is now 'me project init' — this alias will be removed in a future release.`,
-      );
-    }
 
     try {
       let ctx: InitStepContext;
@@ -757,6 +744,30 @@ export function createProjectInitCommand(opts?: {
     }
   });
   return cmd;
+}
+
+/**
+ * A retired command name (`me claude init`, `me opencode init`) that now
+ * just errors, redirecting to `me project init` — the harness-agnostic
+ * wizard both were folded into. `allowUnknownOption`/`allowExcessArguments`
+ * accept any of the old command's flags without Commander's own parse-time
+ * "unknown option" rejection, so this message is what actually prints
+ * instead — there's no attempt to keep old flags working (both commands'
+ * flag sets diverged too far from the harness-agnostic checklist's to
+ * translate cleanly), just a clear, immediate redirect.
+ */
+export function createRemovedCommand(oldName: string): Command {
+  return new Command("init")
+    .description("removed — run 'me project init' instead")
+    .allowUnknownOption()
+    .allowExcessArguments()
+    .action(() => {
+      console.error(
+        `error: '${oldName}' has been removed. Run 'me project init' instead ` +
+          "(see 'me project init --help' for its --skip-* flags).",
+      );
+      process.exit(1);
+    });
 }
 
 /** `me project` — the harness-agnostic project command group. */
