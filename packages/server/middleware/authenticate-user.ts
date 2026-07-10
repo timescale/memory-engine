@@ -34,20 +34,21 @@ export interface UserAuthContext {
   /**
    * The principal's name. From a session / OAuth token this is the human's
    * display name; on the api-key path it's the core principal's name — which is
-   * the user's email for a user PAT, or the agent's name for an agent.
+   * the user's email for a user PAT, or the handle for an agent or service
+   * account.
    */
   name: string;
   /**
    * Whether the identity provider verified the email. Gates email-keyed
    * provisioning steps (invitation redemption) — invitations are addressed by
    * email, so an unverified address must not auto-join its invited spaces.
-   * Always false for an agent (no email).
+   * Always false for non-users (agents and service accounts have no email).
    */
   emailVerified: boolean;
   /**
-   * True when authenticated by an api key (a user PAT or an agent key) rather
-   * than a session / OAuth token. The handler layer uses this to keep key
-   * mint/revoke session-only (a key can't manage keys).
+   * True when authenticated by an api key (a user PAT, an agent key, or a
+   * service-account key) rather than a session / OAuth token. The handler layer
+   * uses this to keep key mint/revoke session-only (a key can't manage keys).
    */
   viaApiKey: boolean;
   /**
