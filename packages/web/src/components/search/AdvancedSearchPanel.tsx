@@ -14,7 +14,7 @@
  * anything — it confirms the filter and collapses the panel (`onSearch`),
  * a far more obvious exit than the caret in the section heading.
  */
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   formatDatetimeLocalInputValue,
   localOffsetTimestampFromDatetimeLocalValue,
@@ -29,15 +29,20 @@ export function AdvancedSearchPanel({ onSearch }: { onSearch: () => void }) {
   const metaError = validateMetaJson(advanced.metaJson);
 
   // Ranking/return knobs live behind a sub-disclosure, collapsed by default.
-  // Start expanded when any of them is set — active filters must never hide.
-  const [tuningOpen, setTuningOpen] = useState(() =>
-    Boolean(
-      advanced.candidateLimit ||
-        advanced.semanticThreshold ||
-        advanced.weightsSemantic ||
-        advanced.weightsFulltext,
-    ),
+  // Expanded whenever any of them is set — active filters must never hide.
+  // The effect covers fields becoming set while the panel is already open
+  // (e.g. back/forward hydration), not just mount; a manual collapse sticks
+  // until the set-state next transitions to true.
+  const anyTuningSet = Boolean(
+    advanced.candidateLimit ||
+      advanced.semanticThreshold ||
+      advanced.weightsSemantic ||
+      advanced.weightsFulltext,
   );
+  const [tuningOpen, setTuningOpen] = useState(anyTuningSet);
+  useEffect(() => {
+    if (anyTuningSet) setTuningOpen(true);
+  }, [anyTuningSet]);
 
   return (
     // The overlay container (AdvancedSearchSection) owns the card chrome —
