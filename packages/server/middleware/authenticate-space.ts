@@ -159,10 +159,17 @@ async function authenticateSpaceInner(
     apiKeyId = validated.apiKeyId;
     ownerId = validated.ownerId;
     // validate_api_key already joined core.principal, so the kind comes back with
-    // the validation — no second lookup. A group holds no key, so kind 'g' would
-    // only appear if a member were torn down under a live key.
-    if (validated.kind === "g") {
-      debug("space auth failed: api key principal not found");
+    // the validation — no second lookup. An api key only ever belongs to a member
+    // principal (user, agent, or service account); accept those explicitly and
+    // reject anything else rather than trusting the DB's text `kind`.
+    if (
+      validated.kind !== "u" &&
+      validated.kind !== "a" &&
+      validated.kind !== "s"
+    ) {
+      debug("space auth failed: api key principal is not a member kind", {
+        kind: validated.kind,
+      });
       return { ok: false, error: unauthorized("Invalid credentials") };
     }
     principalKind = validated.kind;

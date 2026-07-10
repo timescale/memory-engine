@@ -107,11 +107,18 @@ export async function authenticateUser(
           };
         }
         // validate_api_key already joined core.principal and returns the kind +
-        // name, so there's no second lookup. A key only ever resolves to a
-        // credential-bearing principal (groups hold no key); kind 'g' would mean
-        // a member torn down under a live key.
-        if (validated.kind === "g") {
-          debug("user auth failed: api key resolves to no usable principal");
+        // name, so there's no second lookup. An api key only ever belongs to a
+        // member principal (user, agent, or service account); accept those
+        // explicitly and reject anything else rather than trusting the DB's text
+        // `kind`.
+        if (
+          validated.kind !== "u" &&
+          validated.kind !== "a" &&
+          validated.kind !== "s"
+        ) {
+          debug("user auth failed: api key principal is not a member kind", {
+            kind: validated.kind,
+          });
           return {
             ok: false,
             error: unauthorized("Invalid or expired token"),
