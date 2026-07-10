@@ -244,8 +244,8 @@ Goal: wire service-account management and avoid key privilege escalation.
 - [x] `serviceAccount.rename`:
   - [x] space admin or admin-group member.
 - [x] `serviceAccount.delete`:
-  - [x] space admin only; deletion is destructive, so admin-group members cannot
-    delete service accounts.
+  - [x] space admin or admin-group member (same authority as rename / key
+    management).
 - [x] Key management:
   - [x] space admins can create/revoke/list keys for the SA;
   - [x] admin-group members can create/revoke/list keys for the SA;
@@ -322,7 +322,7 @@ Server/RPC tests:
 - [x] Only space admins can create service accounts.
 - [x] Admin-group members can manage SA keys.
 - [x] SA api keys cannot manage keys.
-- [x] Admin-group members can rename but not delete service accounts.
+- [x] Admin-group members can rename and delete administered service accounts.
 - [x] Non-admin users cannot administer arbitrary SAs.
 - [x] Service-account key can read/write memory according to `tree_access`.
 - [x] Service-account key can exercise ordinary group admin on groups where it
