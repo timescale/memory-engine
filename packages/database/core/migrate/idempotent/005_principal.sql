@@ -227,23 +227,13 @@ create or replace function {{schema}}.delete_principal
 )
 returns bool
 as $func$
-declare
-  _removed bool;
-begin
-  if not exists (select 1 from {{schema}}.principal p where p.id = _id) then
-    return false;
-  end if;
-
   with d as
   (
     delete from {{schema}}.principal
     where id = _id
     returning 1
   )
-  select exists (select 1 from d) into _removed;
-
-  return _removed;
-end;
-$func$ language plpgsql volatile security invoker
+  select exists (select 1 from d)
+$func$ language sql volatile security invoker
 set search_path to pg_catalog, {{schema}}, public, pg_temp
 ;
