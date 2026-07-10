@@ -22,25 +22,32 @@ export function authMethodOf(
   creds: ResolvedCredentials,
   kind: "u" | "a" | "s",
 ): AuthMethod {
-  if (creds.apiKey) {
-    if (kind === "a") return "agent";
-    if (kind === "s") return "service-account";
-    return "pat";
+  if (!creds.apiKey) return "session";
+  switch (kind) {
+    case "u":
+      return "pat"; // the user's own personal access token
+    case "a":
+      return "agent";
+    case "s":
+      return "service-account";
+    default:
+      throw new Error(`unexpected principal kind: ${kind}`);
   }
-  return "session";
 }
 
 /** Human-readable label for an {@link AuthMethod}. */
 export function authLabel(method: AuthMethod): string {
   switch (method) {
+    case "session":
+      return "session";
+    case "pat":
+      return "api key (PAT)";
     case "agent":
       return "agent key";
     case "service-account":
       return "service-account key";
-    case "pat":
-      return "api key (PAT)";
     default:
-      return "session";
+      throw new Error(`unexpected auth method: ${method}`);
   }
 }
 

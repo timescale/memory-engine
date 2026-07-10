@@ -10,12 +10,14 @@ import { buildUserClient, handleError, requireAuth } from "../util.ts";
 
 function kindLabel(kind: "u" | "a" | "s"): string {
   switch (kind) {
+    case "u":
+      return "user";
     case "a":
       return "agent";
     case "s":
       return "service account";
     default:
-      return "user";
+      throw new Error(`unexpected principal kind: ${kind}`);
   }
 }
 
