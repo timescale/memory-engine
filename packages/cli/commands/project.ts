@@ -134,9 +134,10 @@ interface HarnessOffer {
 }
 
 /**
- * Preflight: a login session (required — the wizard lists spaces and creates
- * agents) and harness setup (recommended — capture/tools need it, but the
- * config can be written without). Returns refreshed credentials.
+ * Preflight: a login session or API key (one is required — the wizard lists
+ * spaces and creates agents) and harness setup (recommended — capture/tools
+ * need it, but the config can be written without). Returns refreshed
+ * credentials.
  */
 async function preflight(
   globalOpts: Record<string, unknown>,
@@ -145,7 +146,13 @@ async function preflight(
     typeof globalOpts.server === "string" ? globalOpts.server : undefined;
   let creds = resolveCredentials(serverFlag);
 
-  if (!creds.loggedIn) {
+  // `loggedIn` only reflects a browser-OAuth session — an already-set API
+  // key (a user PAT, resolved independently by buildUserClient/
+  // buildMemoryClient regardless of `loggedIn`) is just as authenticated,
+  // and offering a browser-based `me login` here is actively harmful in a
+  // sandbox with no browser and no device-code fallback: saying yes hangs
+  // or fails outright, when the session was already usable as-is.
+  if (!creds.loggedIn && !creds.apiKey) {
     const login = unwrap(
       await clack.confirm({
         message: "You're not logged in to Memory Engine — log in now?",
