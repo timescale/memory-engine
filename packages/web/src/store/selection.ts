@@ -68,7 +68,9 @@ export const useSelection = create<SelectionState & SelectionActions>(
     collapsedSearch: new Set<string>(),
 
     select(id, via = "user") {
-      set({ selectedId: id, selectedVia: via });
+      // Invariant: selectedVia is only meaningful with a selection — a null
+      // select resets it so a stale "link" can't linger.
+      set({ selectedId: id, selectedVia: id === null ? "user" : via });
     },
 
     demoteLinkSelection() {

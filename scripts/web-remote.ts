@@ -23,6 +23,10 @@ import { resolveServer } from "../packages/cli/credentials.ts";
 import { findAvailablePort } from "../packages/cli/serve/http-server.ts";
 
 const REPO_ROOT = join(import.meta.dir, "..");
+// Resolve from the repo root regardless of the invoking cwd, so the `.me`
+// project config consulted here is the same one the spawned `me serve`
+// (cwd: REPO_ROOT) would see.
+process.chdir(REPO_ROOT);
 const server = resolveServer();
 const port = await findAvailablePort("127.0.0.1", 3100, 20);
 const target = `http://127.0.0.1:${port}`;
