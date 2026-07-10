@@ -195,7 +195,11 @@ async function preflight(
         hint: "plugin: hooks + slash commands + MCP",
         declinedWarning:
           "Continuing without the Claude Code plugin — session capture and the memory tools won't work until you run 'me claude install'.",
-        install: () => runClaudeInstallFlow({ server: serverFlag }, globalOpts),
+        install: () =>
+          runClaudeInstallFlow(
+            { server: serverFlag, perProjectStepFollows: true },
+            globalOpts,
+          ),
       });
     }
     if (openCodeAvailability === "available") {
@@ -206,7 +210,10 @@ async function preflight(
         declinedWarning:
           "Continuing without OpenCode setup — session capture and the memory tools won't work until you run 'me opencode install'.",
         install: () =>
-          runOpenCodeInstallFlow({ server: serverFlag }, globalOpts),
+          runOpenCodeInstallFlow(
+            { server: serverFlag, perProjectStepFollows: true },
+            globalOpts,
+          ),
       });
     }
     if (offers.length > 0) {
