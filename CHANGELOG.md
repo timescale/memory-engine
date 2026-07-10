@@ -4,6 +4,44 @@ All notable changes to the memory engine are documented here. The client
 (`v<x.y.z>`) and server (`server/v<x.y.z>`) release independently but are
 versioned in lockstep for coordinated breaking changes.
 
+## 0.5.0
+
+Server `server/v0.5.0` · Client `v0.5.0`.
+
+### Added
+- **Service accounts** (`principal.kind = 's'`): space-scoped, credential-bearing
+  principals for production integrations that shouldn't be tied to a human or an
+  agent's owner-clamp.
+  - CLI: `me service create | list | rename | delete`, and
+    `me apikey create --service <idOrName>` (plus `me apikey list --service`) to
+    mint/list service-account keys. Keys come only from `ME_API_KEY` / `--api-key`
+    — there is no `--as-service` mode.
+  - RPC (user endpoint): `serviceAccount.create | list | rename | delete`;
+    `principal.list` accepts kind `s` and `whoami` reports it.
+  - Creating a service account also creates a **bound admin group**; its direct
+    user members (and space admins) manage the service account's api keys.
+  - Access model: service accounts take direct + ordinary-group tree grants with
+    **no owner-clamp and no `~` home** — they start with zero tree access until
+    explicitly granted. They may be made a direct space admin, but a
+    service-account key can never mint keys or run `space.delete`.
+
+### Changed
+- **Memory RPC admission is now gated on direct `principal_space` membership**
+  rather than a non-empty computed tree-access set. A rostered member with zero
+  grants can now authenticate (data is still filtered by tree access); a
+  principal with no membership row is rejected regardless of group-staged grants.
+
+### Unchanged
+- The `memory.*` data plane is wire-compatible with 0.4.x — search / create /
+  get are unaffected.
+- `MIN_CLIENT_VERSION` / `MIN_SERVER_VERSION` stay at 0.4.0 (this release is
+  additive; older 0.4.0 clients remain compatible).
+
+### Database
+- core schema -> 0.0.4, space schema -> 0.0.6 (auth unchanged at 0.0.1).
+  Migrations auto-apply on server boot; rolling back to a pre-0.5.0 server image
+  is refused by the downgrade guard on core/space.
+
 ## 0.4.0
 
 Server `server/v0.4.0` · Client `v0.4.0`.
