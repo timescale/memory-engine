@@ -28,6 +28,7 @@ import {
 
 const EXPECTED_TABLES = [
   "accounts",
+  "device_code",
   "jwks",
   "migration",
   "oauth_access_token",
@@ -93,6 +94,19 @@ const EXPECTED_COLUMNS: Record<string, string[]> = {
     "updated_at",
   ],
   jwks: ["id", "public_key", "private_key", "created_at", "expires_at"],
+  // better-auth device-authorization plugin's `deviceCode` model (007).
+  device_code: [
+    "id",
+    "device_code",
+    "user_code",
+    "user_id",
+    "expires_at",
+    "status",
+    "last_polled_at",
+    "polling_interval",
+    "client_id",
+    "scope",
+  ],
   oauth_client: [
     "id",
     "client_id",
@@ -162,7 +176,9 @@ const EXPECTED_COLUMNS: Record<string, string[]> = {
 };
 
 // 004_device_authorization stays in the log (it ran historically); 006 dropped
-// its tables/functions and added the better-auth OAuth-provider + jwks schema.
+// its tables/functions and added the better-auth OAuth-provider + jwks schema;
+// 007_device_code re-adds device flow via the better-auth device-authorization
+// plugin's `device_code` table.
 const EXPECTED_MIGRATIONS = [
   "001_users",
   "002_accounts",
@@ -170,11 +186,14 @@ const EXPECTED_MIGRATIONS = [
   "004_device_authorization",
   "005_verifications",
   "006_betterauth",
+  "007_device_code",
 ];
 
-// The functions the schema still owns after 006: the updated_at trigger fn, the
-// user/account helpers, and the cron cleanup sweeps. (Session validation + the
-// device flow moved to better-auth / were dropped.)
+// The functions the schema still owns after 006/007: the updated_at trigger fn,
+// the user/account helpers, and the cron cleanup sweeps (sessions, verifications,
+// oauth tokens, and device codes). Session validation is owned by better-auth;
+// the bespoke device-flow functions were dropped in 006 (device flow is now the
+// better-auth plugin, whose only schema-owned function is the expiry sweep).
 const EXPECTED_FUNCTIONS = [
   "update_updated_at",
   "create_user",
@@ -185,6 +204,7 @@ const EXPECTED_FUNCTIONS = [
   "cleanup_expired_sessions",
   "cleanup_expired_verifications",
   "cleanup_expired_oauth_tokens",
+  "cleanup_expired_device_codes",
 ];
 
 // The auth schema deliberately requires only citext — not the engine extensions.
