@@ -1,13 +1,18 @@
 /**
- * me login [space] — authenticate via OAuth 2.1 (auth-code + PKCE + loopback),
- * then pick the active space.
+ * me login [space] — authenticate, then pick the active space. Two flows:
  *
- * 1. Compatibility check (fail fast before the browser round-trip)
- * 2. Bind a 127.0.0.1 loopback redirect, open the browser to the authorize URL
- * 3. The browser redirects back with an auth code; exchange it (PKCE) for tokens
- * 4. Store the OAuth token set (access + refresh) for the server
- * 5. Fetch identity (whoami) and the caller's spaces
- * 6. Select the active space (the X-Me-Space the rest of the CLI is scoped to):
+ *   - default: OAuth 2.1 auth-code + PKCE over a 127.0.0.1 loopback redirect
+ *     (needs a browser on this machine).
+ *   - `--device`: OAuth 2.0 Device Authorization Grant (RFC 8628) — show a URL +
+ *     code to open on any device and poll for approval. For headless sandboxes
+ *     (an agent harness with no local browser). Yields a better-auth session
+ *     token (no refresh token) rather than an access/refresh pair.
+ *
+ * 1. Compatibility check (fail fast before the auth round-trip)
+ * 2. Acquire tokens via the chosen flow (loopback or device)
+ * 3. Store the token set for the server
+ * 4. Fetch identity (whoami) and the caller's spaces
+ * 5. Select the active space (the X-Me-Space the rest of the CLI is scoped to):
  *      - a [space] argument (slug or name) is honored if it matches
  *      - otherwise auto-select when the user has exactly one space
  *      - multiple → prompt (text) / report (json); zero → suggest `me space create`
@@ -21,6 +26,7 @@ import { Command } from "commander";
 import { CLIENT_VERSION, MIN_SERVER_VERSION } from "../../../version";
 import { checkServerVersion, createUserClient, RpcError } from "../client.ts";
 import { resolveServer, setActiveSpace, storeTokens } from "../credentials.ts";
+import { pollDeviceToken, startDeviceAuthorization } from "../device.ts";
 import { formatSpaceLabel } from "../identity.ts";
 import {
   buildAuthorizeUrl,
@@ -28,6 +34,7 @@ import {
   generatePkce,
   generateState,
   OAuthError,
+  type OAuthTokens,
 } from "../oauth.ts";
 import { LoopbackError, runLoopbackAuth } from "../oauth-loopback.ts";
 import { getOutputFormat, type OutputFormat, output } from "../output.ts";
@@ -69,6 +76,15 @@ function matchSpace(
   return byName.length === 1 ? (byName[0] ?? null) : null;
 }
 
+interface LoginOptions {
+  /** Force the browser to re-show the sign-in page (to switch accounts). */
+  switch?: boolean;
+  /** Use the device authorization grant (headless — no local browser needed). */
+  device?: boolean;
+  /** commander `--no-browser` → false; whether to auto-open a browser. */
+  browser?: boolean;
+}
+
 export function createLoginCommand(): Command {
   return new Command("login")
     .description("authenticate with Memory Engine and select the active space")
@@ -77,7 +93,15 @@ export function createLoginCommand(): Command {
       "--switch",
       "force the browser to re-show the sign-in page (to switch accounts), even if it already has a session",
     )
-    .action(async (spaceArg: string | undefined, opts, cmd) => {
+    .option(
+      "--device",
+      "log in without a local browser (device authorization grant) — for headless sandboxes",
+    )
+    .option(
+      "--no-browser",
+      "don't open a browser automatically (device login); just print the URL and code",
+    )
+    .action(async (spaceArg: string | undefined, opts: LoginOptions, cmd) => {
       const globalOpts = cmd.optsWithGlobals();
       const server = resolveServer(globalOpts.server);
       const fmt = getOutputFormat(globalOpts);
@@ -105,46 +129,16 @@ export function createLoginCommand(): Command {
         fail(error, fmt, server);
       }
 
-      // --- Authorization-code + PKCE over a loopback redirect ---
-      const pkce = await generatePkce();
-      const state = generateState();
-      const spin = fmt === "text" ? clack.spinner() : null;
-
       try {
-        const callbackUrl = await runLoopbackAuth({
-          authorizeUrl: (redirectUri) =>
-            buildAuthorizeUrl({
+        // Acquire tokens via the chosen flow. `--device` polls a device code
+        // (headless, no local browser); otherwise the auth-code + PKCE loopback.
+        const tokens = opts.device
+          ? await authorizeViaDevice({
               server,
-              redirectUri,
-              codeChallenge: pkce.challenge,
-              state,
-              // Force the AS sign-in page so the user can pick a different
-              // account/provider instead of the silently-reused session.
-              ...(forceSwitch ? { prompt: "login" } : {}),
-            }),
-          openBrowser,
-          // The web UI is served at the server origin; link the user there from
-          // the success page (their browser already has a session cookie there).
-          uiUrl: server,
-          onAuthorizeUrl: (url) => {
-            if (fmt === "text") {
-              clack.note(
-                url,
-                "Opening your browser to sign in. If it doesn't open, visit:",
-              );
-              spin?.start("Waiting for authorization...");
-            }
-          },
-        });
-
-        // Exchange the auth code for tokens (openid-client checks state + iss).
-        const tokens = await exchangeCode({
-          server,
-          callbackUrl,
-          codeVerifier: pkce.verifier,
-          expectedState: state,
-        });
-        spin?.stop("Authorized!");
+              fmt,
+              openBrowser: opts.browser !== false,
+            })
+          : await authorizeViaLoopback({ server, fmt, forceSwitch });
 
         storeTokens(server, {
           access_token: tokens.accessToken,
@@ -222,10 +216,115 @@ export function createLoginCommand(): Command {
           },
         );
       } catch (error) {
-        spin?.stop("Authorization failed.");
         fail(error, fmt, server);
       }
     });
+}
+
+/**
+ * Authorization-code + PKCE over a 127.0.0.1 loopback redirect (RFC 8252): bind
+ * a loopback server, open the browser to the authorize URL, and exchange the
+ * returned code for tokens. Manages its own spinner; throws on failure.
+ */
+async function authorizeViaLoopback(p: {
+  server: string;
+  fmt: OutputFormat;
+  /** Force the AS sign-in page (account switch) via `prompt=login`. */
+  forceSwitch: boolean;
+}): Promise<OAuthTokens> {
+  const pkce = await generatePkce();
+  const state = generateState();
+  const spin = p.fmt === "text" ? clack.spinner() : null;
+  try {
+    const callbackUrl = await runLoopbackAuth({
+      authorizeUrl: (redirectUri) =>
+        buildAuthorizeUrl({
+          server: p.server,
+          redirectUri,
+          codeChallenge: pkce.challenge,
+          state,
+          // Force the AS sign-in page so the user can pick a different
+          // account/provider instead of the silently-reused session.
+          ...(p.forceSwitch ? { prompt: "login" } : {}),
+        }),
+      openBrowser,
+      // The web UI is served at the server origin; link the user there from the
+      // success page (their browser already has a session cookie there).
+      uiUrl: p.server,
+      onAuthorizeUrl: (url) => {
+        if (p.fmt === "text") {
+          clack.note(
+            url,
+            "Opening your browser to sign in. If it doesn't open, visit:",
+          );
+          spin?.start("Waiting for authorization...");
+        }
+      },
+    });
+    // Exchange the auth code for tokens (openid-client checks state + iss).
+    const tokens = await exchangeCode({
+      server: p.server,
+      callbackUrl,
+      codeVerifier: pkce.verifier,
+      expectedState: state,
+    });
+    spin?.stop("Authorized!");
+    return tokens;
+  } catch (error) {
+    spin?.stop("Authorization failed.");
+    throw error;
+  }
+}
+
+/**
+ * Device Authorization Grant (RFC 8628) — the headless path. Request a device +
+ * user code, show the verification URL + code (and open a browser unless
+ * suppressed), then poll until the user approves. Manages its own spinner;
+ * throws on denial / expiry / timeout.
+ */
+async function authorizeViaDevice(p: {
+  server: string;
+  fmt: OutputFormat;
+  openBrowser: boolean;
+}): Promise<OAuthTokens> {
+  const auth = await startDeviceAuthorization({ server: p.server });
+  const openUrl = auth.verificationUriComplete ?? auth.verificationUri;
+
+  if (p.fmt === "text") {
+    clack.note(
+      `${auth.verificationUri}\n\nCode: ${auth.userCode}`,
+      "To sign in, open this URL on any device and enter the code:",
+    );
+    // Best-effort convenience open (harmless if there's no browser here).
+    if (p.openBrowser) await openBrowser(openUrl);
+  } else {
+    // Structured modes: emit the verification details on stderr so automation
+    // can surface them, while stdout stays reserved for the final result object.
+    process.stderr.write(
+      `${JSON.stringify({
+        verification_uri: auth.verificationUri,
+        verification_uri_complete: auth.verificationUriComplete,
+        user_code: auth.userCode,
+        expires_in: auth.expiresIn,
+      })}\n`,
+    );
+  }
+
+  const spin = p.fmt === "text" ? clack.spinner() : null;
+  spin?.start("Waiting for you to approve in the browser...");
+  try {
+    const tokens = await pollDeviceToken({
+      server: p.server,
+      deviceCode: auth.deviceCode,
+      interval: auth.interval,
+      expiresIn: auth.expiresIn,
+    });
+    spin?.stop("Authorized!");
+    return tokens;
+  } catch (error) {
+    spin?.stop("Authorization failed.");
+    throw error;
+  }
 }
 
 /** Print an error per output mode and exit. Never returns. */

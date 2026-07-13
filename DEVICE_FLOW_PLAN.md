@@ -68,19 +68,26 @@ the existing `/api/v1/auth/*` catch-all — no new server routes.
   `POST /device/deny`) rather than the generated client plugin — no dependency
   on the plugin's generated method shape.
 
-## Step 4 — CLI (`packages/cli`)
+## Step 4 — CLI (`packages/cli`) ✅
 
-- `commands/login.ts`: add `--device` (and `--no-browser`); branch before the
-  loopback block into the device path.
-- New `device.ts`: `POST /api/v1/auth/device/code`, print `user_code` +
-  `verification_uri_complete`, poll `/api/v1/auth/device/token` respecting
-  `interval`/`slow_down` and handling `authorization_pending` / `access_denied` /
-  `expired_token`. (Plain `fetch` poller; evaluate `openid-client`'s
-  `pollDeviceAuthorizationGrant` during impl, but its token-endpoint assumption
-  likely doesn't fit `/device/token`.)
-- Store the session token via `storeTokens(server, { access_token, expires_at,
-  scope })` with **no** `refresh_token`. `session.ts` / `util.ts` / transport
-  unchanged.
+- `commands/login.ts`: added `--device` and `--no-browser`; the action branches
+  into `authorizeViaDevice` vs `authorizeViaLoopback` (the loopback path was
+  extracted into its own helper). The post-auth code (storeTokens → whoami →
+  space selection → output) is shared.
+- New `device.ts`: `startDeviceAuthorization` (`POST /api/v1/auth/device/code`)
+  and `pollDeviceToken` (`POST /api/v1/auth/device/token`), a plain-`fetch`
+  poller respecting `interval`/`slow_down` and handling `authorization_pending` /
+  `access_denied` / `expired_token` / timeout. (Plain fetch, not `openid-client`,
+  because better-auth's device endpoints aren't the standard `token_endpoint`.)
+  `sleep` is injectable for tests.
+- Device login prints the verification URL + code (text mode; opens a browser
+  unless `--no-browser`) or emits them as JSON on stderr (structured modes),
+  then stores the session token via `storeTokens` with **no** `refresh_token` —
+  `session.ts` already treats a missing refresh token as "re-login when it
+  lapses" (and the session slides server-side on use meanwhile). No change to
+  `session.ts` / `util.ts` / transport.
+- Tests: `device.test.ts` covers the poller (pending→approve, slow_down,
+  denied, expired, timeout, unexpected error) and code-request parsing.
 
 ## Step 5 — Docs & tests
 
