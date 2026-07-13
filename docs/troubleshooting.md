@@ -2,6 +2,16 @@
 
 ## Common issues
 
+### I logged in but don't see my space or invitation
+
+1. **Check which account you're using** -- run `me whoami` and confirm the email matches the one that was invited. If it doesn't, run `me login --switch` and sign in with the invited GitHub or Google account.
+2. **Check pending invitations** -- run `me invite list`. If the invitation appears, accept it with `me invite accept <invitation-id>`.
+3. **Redeem invite links directly** -- if you received a link, run `me invite redeem <invite-url>` while signed in as the invited account.
+4. **Select the space** -- after accepting, run `me space list` and `me space use <slug-or-name>` if the new space is not active.
+5. **Headless environment?** -- use `me login --device` on SSH, remote VMs, containers, or other environments where the browser-based login cannot open locally.
+
+See [Joining a Space](joining-a-space.md) for the full invitee walkthrough.
+
 ### Search returns no results
 
 1. **Check embedding status** -- semantic search requires embeddings. New memories take ~10-30 seconds to get embeddings. Use `me memory get <id>` and check `hasEmbedding`.

@@ -24,10 +24,13 @@ me login
 
 This opens your browser to sign in with GitHub or Google. **Use the account that
 matches the email you were invited with** — your invite is tied to that identity.
-See [`me login`](cli/me-login.md) for details.
+If your browser signs in with the wrong account, run `me login --switch` and
+choose the invited account. If you're on SSH, a remote VM, or another
+browserless environment, use `me login --device` instead. See
+[`me login`](cli/me-login.md) for details.
 
 **Prefer not to use the terminal?** You don't have to. Open
-[**app.memory.build**](https://app.memory.build) and sign in with the same
+[**api.memory.build**](https://api.memory.build/) and sign in with the same
 GitHub/Google account — you can browse, search, and add memories entirely in the
 browser. The rest of this guide shows the CLI, but each step has an equivalent in
 the web UI. See [Browse in the web UI](#6-browse-in-the-web-ui).
@@ -123,7 +126,7 @@ by path later — `me get /share/auth/jwt-rotation`.
 For a visual experience — a tree explorer, search, and a Markdown viewer/editor —
 use the web UI:
 
-- **Hosted (no install):** [**app.memory.build**](https://app.memory.build), signed
+- **Hosted (no install):** [**api.memory.build**](https://api.memory.build/), signed
   in with your GitHub/Google account. Pick this space from the switcher and you're in.
 - **Local:** run `me serve` to open the same UI against your CLI session on
   `http://127.0.0.1:3000`. See [`me serve`](cli/me-serve.md).

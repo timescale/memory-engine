@@ -111,7 +111,7 @@ Every space is auto-provisioned with a group named **`team`** (created with the 
 - **read** on `/share`
 - **write** on `/share/projects`
 
-Invitations default to adding their redeemer to `team` (`me space invite … ` without `--group`), so a new member's out-of-the-box shared access is exactly the group's grants. The group starts memberless, so it changes no one's access until members join.
+Invitations default to adding their redeemer to `team` (`me space invite … ` without `--group`), so a new member's out-of-the-box shared access is exactly the group's grants. The group starts memberless, so it changes no one's access until members join. Invitees accept pending invitations with [`me invite`](cli/me-invite.md); see [Joining a Space](joining-a-space.md) for the full invitee walkthrough.
 
 A **space admin** owns these defaults and can change them at any time:
 

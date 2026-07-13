@@ -3,7 +3,7 @@
 Run a local web UI for viewing and managing memories.
 
 > Prefer a hosted option with nothing to install? The same web UI is available at
-> [app.memory.build](https://app.memory.build) — sign in with GitHub or Google.
+> [api.memory.build](https://api.memory.build/) — sign in with GitHub or Google.
 > `me serve` runs that UI locally against your CLI session instead.
 
 ## Usage
