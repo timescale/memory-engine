@@ -12,7 +12,7 @@ me completions [shell]
 |----------|----------|-------------|
 | `shell` | no | Shell type: `zsh`, `bash`, `fish`, or `powershell`. |
 
-If no shell is specified, lists the available shells.
+If no shell is specified, lists the available shells. `me completions <shell>` prints the line to add to your shell config; that line calls `me complete <shell>`, which emits the actual completion script your shell loads.
 
 ## Setup
 

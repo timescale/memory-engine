@@ -23,13 +23,13 @@ A **service account** is a durable operational identity administered by a team, 
 
 Each service account has a **bound admin group**. Space admins can manage all service accounts; direct user members of that bound admin group can administer that service account — renaming it, deleting it, and managing its API keys. Users, agents, and service accounts may all be members of the bound group, but only users count as service-account admins. The service account is not automatically added to its own bound admin group, and grants to that group behave like ordinary group grants.
 
-Service accounts start with **zero tree access**: no home grant, no default-group membership, and no owner clamp. Grant access to the service account directly, or add it to ordinary groups. A service-account key can use the memory and group/grant authorities the service account actually holds, but it cannot mint/revoke API keys or delete spaces. Scoped provisioning capabilities such as invitation creation and deprovisioning are deferred to [TNT-203](https://linear.app/tigerdata/issue/TNT-203/add-scoped-provisioning-capabilities-for-service-accounts).
+Service accounts start with **zero tree access**: no home grant, no default-group membership, and no owner clamp. Grant access to the service account directly, or add it to ordinary groups. A service-account key can use the memory and group/grant authorities the service account actually holds, but it cannot mint or revoke API keys, create invitations, or delete spaces.
 
 ## Spaces
 
 A **space** is an isolated collection of memories with its own roster, groups, and access grants. Each space has:
 
-- An immutable 12-character **slug** — also the `X-Me-Space` header value and the `me_<slug>` database schema name.
+- An immutable 12-character **slug** — also the `X-Me-Space` header value that identifies the space on every request.
 - A renamable display **name** (`me space rename` changes only this).
 
 A user can belong to many spaces; each memory lives in exactly one space. There are no organization, engine, or shard concepts above a space.

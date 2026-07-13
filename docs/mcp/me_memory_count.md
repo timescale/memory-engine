@@ -2,13 +2,13 @@
 
 Count memories matching a tree filter.
 
-The `tree` input is required and supports a path prefix (`ltree`), an `lquery` pattern, or an `ltxtquery` label search.
+The `tree` input is required and supports an exact path prefix, a wildcard pattern, or a label search. See [Tree filter syntax](../concepts.md#tree-filter-syntax) for the full reference.
 
 ## Parameters
 
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
-| `tree` | `string` | yes | Tree filter: path prefix (for example, `work.projects`), `lquery` pattern (for example, `*.api.*`), or `ltxtquery` label search (for example, `api & v2`). |
+| `tree` | `string` | yes | Tree filter: an exact path prefix (for example, `/share/projects`), a wildcard pattern (for example, `*/api/*`), or a label search (for example, `api & v2`). |
 | `max_count` | `integer \| null` | no | Stop counting after this many matches. If the returned `count` equals `max_count`, treat the result as "at least `max_count`" rather than an exact total. |
 
 ## Returns
@@ -29,7 +29,7 @@ The `tree` input is required and supports a path prefix (`ltree`), an `lquery` p
 
 ```json
 {
-  "tree": "share.projects"
+  "tree": "/share/projects"
 }
 ```
 
@@ -37,7 +37,7 @@ The `tree` input is required and supports a path prefix (`ltree`), an `lquery` p
 
 ```json
 {
-  "tree": "share.projects.*",
+  "tree": "/share/projects/*",
   "max_count": 100
 }
 ```

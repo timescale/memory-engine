@@ -107,7 +107,7 @@ See [Tree filter syntax](../concepts.md#tree-filter-syntax) for the full referen
 {
   "semantic": "embedding performance",
   "fulltext": "nomic ollama",
-  "tree": "/me/design/*",
+  "tree": "/share/design/*",
   "limit": 5
 }
 ```
@@ -117,7 +117,7 @@ See [Tree filter syntax](../concepts.md#tree-filter-syntax) for the full referen
 ```json
 {
   "meta": { "type": "decision" },
-  "tree": "/me/strategy/*",
+  "tree": "/share/strategy/*",
   "limit": 20,
   "order_by": "desc"
 }

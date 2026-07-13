@@ -55,4 +55,4 @@ claude plugin marketplace add timescale/memory-engine
 claude plugin install memory-engine@memory-engine [--scope user|project|local]
 ```
 
-Then start Claude Code, run `/plugin`, select `memory-engine`, and configure the options (all optional except `server`): leave `api_key` blank to use your `me login` session, leave `space` blank to use your active space, and `tree_root` defaults to `/share/projects`.
+Then start Claude Code, run `/plugin`, select `memory-engine`, and configure the options (all optional): leave `api_key`, `server`, and `space` blank to fall back to your `me login` session, server, and active space; set `content_mode` to control how much of each message is captured. The plugin has no tree setting — where captured sessions are stored is controlled by your project's [`.me/config.yaml`](../project-config.md) `tree` (or the private `~/projects` default). See [`me claude`](me-claude.md) for the full plugin reference.

@@ -6,8 +6,8 @@ Claude Code integration commands.
 
 - [me claude install](#me-claude-install) -- install the Memory Engine plugin for Claude Code (full plugin by default, `--mcp-only` for just the MCP server)
 - [me claude init](#me-claude-init) -- **deprecated** alias of [`me project init`](me-project.md)
-- [me claude env](#me-claude-env) -- invoked by the plugin's `SessionStart` hook to inject the harness-agent environment contract
-- [me claude hook](#me-claude-hook) -- invoked by the Claude Code plugin to capture events as memories
+- [me claude env](#me-claude-env) -- internal helper (you never run this directly)
+- [me claude hook](#me-claude-hook) -- internal helper the plugin uses to capture sessions (you never run this directly)
 - [me claude import](#me-claude-import) -- import Claude Code sessions from `~/.claude/projects`
 
 ---
@@ -38,7 +38,7 @@ A session (non-headless) install then:
 2. **Provisions a default agent** (see [Agent-by-config](../project-config.md#agent-by-config-and-the-agent-field)): no-op if a global `agent:` is already set, or you're installing with `--api-key` (the key already IS an agent). Otherwise adopts your existing `coder` agent if you have one, or creates it with write access to your whole space, and writes it as the global `agent:` — so harness surfaces (MCP, hooks, a plain `me` call from Claude's own shell) have an agent to run as by default. Skip with `--no-default-agent`.
 3. **Asks whether to turn on session capture** (default **no** — the capture hook ships inert). Say **yes** and it enables the machine-wide `capture: true` and runs a one-time machine-wide [`me import claude`](me-import.md) backfill — everything lands **privately** under `~/projects/<slug>`, per project. Say no and you get the tools only. Re-run `me claude install` any time to change the answer; a project's [`.me/config.yaml` `capture`](../project-config.md#the-capture-field-session-capture-onoff) overrides per project either way. (Non-interactive runs skip the prompt and leave the setting untouched.)
 
-Pass `--mcp-only` to skip the plugin and register just the `me` MCP server (no hooks, no slash commands -- the previous default behavior).
+Pass `--mcp-only` to skip the plugin and register just the `me` MCP server (no hooks, no slash commands).
 
 | Option | Description |
 |--------|-------------|
@@ -64,36 +64,17 @@ For manual MCP client configuration, see [MCP Integration](../mcp-integration.md
 
 ## me claude env
 
-Invoked by the plugin's `SessionStart` hook (fires on session start, resume, and `/clear`). Reads the event JSON on stdin for `cwd` and appends a small block of `export` lines to `$CLAUDE_ENV_FILE` — the file Claude Code sources before every Bash tool command:
-
-```
-ME_INJECT_V=<version>   # liveness marker
-AI_AGENT=claude         # harness identity
-ME_AS_AGENT=.me         # activation — the ordinary .me sentinel
-ME_PROJECT_DIR=<cwd>    # discovery anchor — me walks up from here
-```
-
-This is what makes a plain `me` call from Claude's Bash tool always resolve the right project (even after `cd /tmp`) and always run as the agent configured in [`.me/config.yaml` or your global config](../project-config.md#agent-by-config-and-the-agent-field) — no per-project `.claude/settings.json` pin needed. If Claude Code itself was launched inside another session's live contract (a nested harness), this command emits nothing rather than overwriting it (first-writer-wins). Idempotent otherwise — a re-run replaces its own block in place. Fails open (does nothing) if `$CLAUDE_ENV_FILE` is unset or the event payload has no `cwd`.
-
-You never run this by hand — it's wired into the plugin's `hooks.json` and installed by [`me claude install`](#me-claude-install).
+An internal helper the Memory Engine plugin runs automatically at the start of each Claude Code session. It's what makes a plain `me` call from Claude's Bash tool always resolve the right project (even after `cd`) and run as the agent configured in [`.me/config.yaml` or your global config](../project-config.md#agent-by-config-and-the-agent-field). **You never run this by hand** — it's installed by [`me claude install`](#me-claude-install).
 
 ---
 
 ## me claude hook
 
-Invoked by the Claude Code plugin on `Stop` (each turn) and `SessionEnd`. Reads the `transcript_path` from the event JSON on stdin, resolves config from `CLAUDE_PLUGIN_OPTION_*` env vars (falling back to your `me login` session), and imports the session transcript — the same parse + write as [`me … import`](agent-session-imports.md), incremental so each call only writes messages new since the last.
+An internal helper the Memory Engine plugin runs automatically as a Claude Code session progresses. When session capture is on, it saves the conversation as memories, incrementally (each call only writes what's new). **You never run this by hand.**
 
-**Inert unless capture is enabled**: capture resolves project [`.me/config.yaml` `capture`](../project-config.md#the-capture-field-session-capture-onoff) → the machine-wide setting (the [`me claude install`](#me-claude-install) prompt) → off. With capture off the hook exits 0 silently. Once on, captures land privately under `~/projects/<slug>` unless the project's `.me` `tree` says otherwise.
+**Inert unless capture is enabled**: capture resolves from the project's [`.me/config.yaml` `capture`](../project-config.md#the-capture-field-session-capture-onoff) → your machine-wide setting (the [`me claude install`](#me-claude-install) prompt) → off. With capture off, nothing is written. Once on, captures land privately under `~/projects/<slug>` unless the project's `.me` `tree` says otherwise.
 
-```
-me claude hook --event <name>
-```
-
-| Option | Description |
-|--------|-------------|
-| `--event <name>` | Hook event name (required). |
-
-This command is not run directly -- the Claude Code plugin calls it. The plugin (which includes hooks, slash commands, and MCP) is installed by [me claude install](#me-claude-install), which drives Claude Code's native plugin flow for you. You can also run that flow by hand:
+The plugin (hooks, slash commands, and MCP) is installed by [`me claude install`](#me-claude-install), which drives Claude Code's native plugin flow for you. You can also run that flow by hand:
 
 ```bash
 claude plugin marketplace add timescale/memory-engine

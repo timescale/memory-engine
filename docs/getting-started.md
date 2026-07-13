@@ -2,6 +2,10 @@
 
 Memory Engine is permanent memory for AI agents. Store, search, and organize knowledge that persists across conversations.
 
+> **Were you invited to a shared space?** Head to [Joining a Space](joining-a-space.md) for a
+> teammate-focused walkthrough — logging in, selecting the space, and searching what's
+> already there.
+
 ## Install
 
 ```bash
@@ -68,13 +72,10 @@ me memory tree
 
 ## Browse in the web UI
 
-For a richer, visual experience:
+For a richer, visual experience there's a web UI with a tree explorer, hybrid / advanced search, a rendered Markdown viewer, and an editor for content + metadata.
 
-```bash
-me serve
-```
-
-Starts a local web UI on `http://127.0.0.1:3000` (or the next free port) with a tree explorer, hybrid / advanced search, rendered Markdown viewer, and a Monaco-based editor for content + metadata. See [`me serve`](cli/me-serve.md) for details.
+- **Hosted (no install):** open [**app.memory.build**](https://app.memory.build) and sign in with GitHub or Google — the same account you'd use for `me login`. This is the quickest way in if you don't want to touch the CLI.
+- **Local:** run `me serve` to start the same UI against your CLI session on `http://127.0.0.1:3000` (or the next free port). See [`me serve`](cli/me-serve.md).
 
 ## Connect to AI tools
 
@@ -112,4 +113,4 @@ See [MCP Integration](mcp-integration.md) for details.
 - [Memory Packs](memory-packs.md) -- install pre-built knowledge collections
 - [MCP Integration](mcp-integration.md) -- how AI agents use Memory Engine
 - [CLI Reference](cli/me-memory.md) -- full command reference
-- [MCP Tool Reference](mcp/me_memory_search.md) -- full MCP tool reference
+- [MCP Tool Reference](mcp/index.md) -- full MCP tool reference
