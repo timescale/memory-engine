@@ -20,9 +20,9 @@
  *  - HOME is left untouched so the OAuth browser launch keeps working.
  *
  * Auth:
- *  - Phase 0 invokes `me login` interactively (browser device flow). After
- *    that, every command inherits the session token written to the temp
- *    creds file.
+ *  - Phase 0 invokes `me login` interactively (browser auth-code + PKCE
+ *    loopback flow). After that, every command inherits the token set written
+ *    to the temp creds file.
  *
  * Usage:
  *   ./bun run scripts/integration-test.ts
@@ -403,7 +403,7 @@ async function phase0_bootstrap(): Promise<void> {
   );
   console.log(`  Server: ${baseEnv.ME_SERVER}`);
   console.log(`  XDG_CONFIG_HOME: ${configDir}`);
-  console.log("  Complete the OAuth device flow in your browser.");
+  console.log("  Complete the OAuth sign-in flow in your browser.");
   console.log();
 
   await step("me login (interactive)", async () => {
