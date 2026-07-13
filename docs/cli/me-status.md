@@ -29,7 +29,7 @@ me status
     In flight: 4
     Waiting:   0
     Failed:    0
-  Oldest pending queued 2m ago.
+  Oldest pending item was queued 2m ago.
 ```
 
 | Field | Meaning |
