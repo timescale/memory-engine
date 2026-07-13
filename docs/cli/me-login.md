@@ -32,7 +32,7 @@ Login also runs the same version compatibility check as `me version` before star
 |--------|-------------|
 | `--switch` | Force the browser to re-show the sign-in page, even if it already has a session (use to switch accounts). |
 | `--device` | Log in without a local browser (device authorization grant). Prints a URL + code to approve on any device. |
-| `--no-browser` | With `--device`, don't try to open a browser automatically — just print the URL and code (useful over SSH). |
+| `--no-browser` | Don't open a browser automatically — just print the URL (and the code, with `--device`) to open yourself. Applies to both flows (useful over SSH). |
 
 ## Switching accounts
 
