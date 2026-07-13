@@ -23,7 +23,7 @@ A **service account** is a durable operational identity administered by a team, 
 
 Each service account has a **bound admin group**. Space admins can manage all service accounts; direct user members of that bound admin group can administer that service account — renaming it, deleting it, and managing its API keys. Users, agents, and service accounts may all be members of the bound group, but only users count as service-account admins. The service account is not automatically added to its own bound admin group, and grants to that group behave like ordinary group grants.
 
-Service accounts start with **zero tree access**: no home grant, no default-group membership, and no owner clamp. Grant access to the service account directly, or add it to ordinary groups. A service-account key can use the memory and group/grant authorities the service account actually holds, but it cannot mint or revoke API keys, create invitations, or delete spaces.
+Service accounts start with **zero tree access**: no home grant, no default-group membership, and no owner clamp. Grant access to the service account directly, or add it to ordinary groups. A service-account key can use the memory and group/grant authorities the service account actually holds. By default it cannot create invitations; if you explicitly make the service account a space admin, it can use admin-gated invitation operations. It still cannot mint or revoke API keys or delete spaces.
 
 ## Spaces
 
