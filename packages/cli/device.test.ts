@@ -15,18 +15,21 @@ afterEach(() => {
 });
 
 /** Stub `fetch` with a queue; each call returns the next response in order. */
-function queueFetch(responses: { status: number; body: unknown }[]): {
-  calls: { url: string; body: unknown }[];
+function queueFetch(responses: ({ status: number; body: unknown } | Error)[]): {
+  calls: { url: string; body: unknown; signal?: AbortSignal | null }[];
 } {
-  const calls: { url: string; body: unknown }[] = [];
+  const calls: { url: string; body: unknown; signal?: AbortSignal | null }[] =
+    [];
   let i = 0;
   globalThis.fetch = (async (url: string, init?: RequestInit) => {
     calls.push({
       url: String(url),
       body: init?.body ? JSON.parse(String(init.body)) : undefined,
+      signal: init?.signal,
     });
     const next = responses[i++] ?? responses[responses.length - 1];
     if (!next) throw new Error("no queued response");
+    if (next instanceof Error) throw next;
     return new Response(JSON.stringify(next.body), { status: next.status });
   }) as typeof fetch;
   return { calls };
@@ -144,6 +147,57 @@ describe("pollDeviceToken", () => {
     });
 
     expect(sleeps).toEqual([10000]); // 5s + 5s slow_down increment
+  });
+
+  test("retries rejected fetches with reduced polling frequency", async () => {
+    const sleeps: number[] = [];
+    queueFetch([
+      new TypeError("network down"),
+      { status: 200, body: { access_token: "sess-token" } },
+    ]);
+
+    const tokens = await pollDeviceToken({
+      server: "https://api.example.com",
+      deviceCode: "dev-123",
+      interval: 5,
+      expiresIn: 900,
+      sleep: async (ms) => {
+        sleeps.push(ms);
+      },
+    });
+
+    expect(tokens.accessToken).toBe("sess-token");
+    expect(sleeps).toEqual([10000]);
+  });
+
+  test("passes an abort signal bounded by the device-code lifetime", async () => {
+    const { calls } = queueFetch([
+      { status: 200, body: { access_token: "sess-token" } },
+    ]);
+
+    await pollDeviceToken({
+      server: "https://api.example.com",
+      deviceCode: "dev-123",
+      interval: 5,
+      expiresIn: 900,
+      sleep: noSleep,
+    });
+
+    expect(calls[0]?.signal).toBeInstanceOf(AbortSignal);
+  });
+
+  test("rejected fetches time out before oversleeping the deadline", async () => {
+    queueFetch([new TypeError("network down")]);
+
+    await expect(
+      pollDeviceToken({
+        server: "https://api.example.com",
+        deviceCode: "dev-123",
+        interval: 5,
+        expiresIn: 1,
+        sleep: noSleep,
+      }),
+    ).rejects.toThrow(/timed out/i);
   });
 
   test("throws a clear error when the user denies", async () => {
