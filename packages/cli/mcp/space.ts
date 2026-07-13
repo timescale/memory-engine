@@ -1,11 +1,67 @@
-import { createUserClient } from "../client.ts";
+import { createUserClient, isRpcError } from "../client.ts";
 import { userBearer } from "../session.ts";
 
 const SPACE_SLUG_RE = /^[a-z0-9]{12}$/;
 
-interface ListedSpace {
+export interface ListedSpace {
   slug: string;
   name: string;
+}
+
+/**
+ * Server error codes that can mean "the X-Me-Space is wrong". The space auth
+ * middleware answers a bad/inaccessible/missing space with one of these:
+ *   - MISSING_SPACE — no X-Me-Space header (400)
+ *   - UNAUTHORIZED  — slug doesn't exist (401, deliberately generic to avoid
+ *     space enumeration — so it's indistinguishable from a bad/expired token)
+ *   - FORBIDDEN     — slug exists but this credential isn't a member (403)
+ * These arrive as an HTTP-error body, not a JSON-RPC envelope, so the string
+ * code lands in RpcError.code (not .data.code / .appCode). We only ever treat
+ * this as a *candidate*: `spaceErrorHint` cross-checks with `space.list` and the
+ * message is rewritten only when a concrete space problem is actually found.
+ */
+const SPACE_SHAPED_CODES = new Set([
+  "MISSING_SPACE",
+  "UNAUTHORIZED",
+  "FORBIDDEN",
+]);
+
+/** True if `error` could be a wrong-space failure (see {@link SPACE_SHAPED_CODES}). */
+export function isSpaceShapedError(error: unknown): boolean {
+  if (!isRpcError(error)) return false;
+  // Auth-layer failures carry the code in `.code` (a string, despite the
+  // numeric type); genuine JSON-RPC app errors carry it in `.appCode`.
+  return (
+    (error.appCode !== undefined && SPACE_SHAPED_CODES.has(error.appCode)) ||
+    SPACE_SHAPED_CODES.has(String(error.code))
+  );
+}
+
+/**
+ * Turn a failed tool-call error into a helpful space-specific message, or
+ * `undefined` to leave the original error untouched.
+ *
+ * Only fires for a space-shaped error. It then probes `listSpaces` (the user
+ * endpoint's `space.list`, allowed for every credential — user, PAT, or agent):
+ *   - probe throws  → the credential itself is bad/expired, not the space →
+ *     `undefined` (keep the original "Invalid credentials" message).
+ *   - probe succeeds → `describeMcpSpaceProblem` pinpoints the problem, and
+ *     returns `undefined` when the space is actually valid (so a genuine
+ *     credential/tree-permission FORBIDDEN is never mislabelled as a space bug).
+ */
+export async function spaceErrorHint(options: {
+  error: unknown;
+  space: string;
+  listSpaces: () => Promise<ListedSpace[]>;
+}): Promise<string | undefined> {
+  if (!isSpaceShapedError(options.error)) return undefined;
+  let spaces: ListedSpace[];
+  try {
+    spaces = await options.listSpaces();
+  } catch {
+    return undefined;
+  }
+  return describeMcpSpaceProblem(options.space, spaces);
 }
 
 export function isSpaceSlug(space: string): boolean {

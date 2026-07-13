@@ -1,6 +1,20 @@
 import { describe, expect, test } from "bun:test";
-import { describeMcpSpaceProblem, isSpaceSlug } from "../mcp/space.ts";
+import { RpcError } from "../client.ts";
+import {
+  describeMcpSpaceProblem,
+  isSpaceShapedError,
+  isSpaceSlug,
+  type ListedSpace,
+  spaceErrorHint,
+} from "../mcp/space.ts";
 import { blankFlag, isLegacyApiKey } from "./mcp.ts";
+
+// The auth layer answers a bad space with an HTTP-error body (not a JSON-RPC
+// envelope), so the string code lands in RpcError.code (typed number). Model
+// that shape here.
+function authError(code: string, message: string): RpcError {
+  return new RpcError(code as unknown as number, message);
+}
 
 // blankFlag normalizes the plugin's `--server/--api-key/--space ${user_config.X}`
 // args: blank (or an unsubstituted placeholder) → undefined, so resolution falls
@@ -89,5 +103,86 @@ describe("space slug validation", () => {
     expect(describeMcpSpaceProblem("missing", spaces)).toBe(
       "--space must refer to a valid space slug, not a space name. Run 'me space list' to see available slugs.",
     );
+  });
+});
+
+describe("isSpaceShapedError", () => {
+  test("true for the auth-layer space codes (string code in .code)", () => {
+    expect(isSpaceShapedError(authError("MISSING_SPACE", "no header"))).toBe(
+      true,
+    );
+    expect(
+      isSpaceShapedError(authError("UNAUTHORIZED", "Invalid credentials")),
+    ).toBe(true);
+    expect(
+      isSpaceShapedError(authError("FORBIDDEN", "No access to this space")),
+    ).toBe(true);
+  });
+
+  test("false for a genuine JSON-RPC app error (code in .data)", () => {
+    expect(
+      isSpaceShapedError(
+        new RpcError(-32000, "not found", { code: "NOT_FOUND" }),
+      ),
+    ).toBe(false);
+  });
+
+  test("false for non-RpcError values", () => {
+    expect(isSpaceShapedError(new Error("boom"))).toBe(false);
+    expect(isSpaceShapedError("nope")).toBe(false);
+    expect(isSpaceShapedError(undefined)).toBe(false);
+  });
+});
+
+describe("spaceErrorHint", () => {
+  const spaces: ListedSpace[] = [
+    { slug: "abc123def456", name: "default" },
+    { slug: "def456abc123", name: "prod" },
+  ];
+
+  test("rewrites a display-name space into a slug suggestion", async () => {
+    const hint = await spaceErrorHint({
+      error: authError("UNAUTHORIZED", "Invalid credentials"),
+      space: "default",
+      listSpaces: async () => spaces,
+    });
+    expect(hint).toBe(
+      "Space 'default' is a display name, not a slug. Did you mean 'abc123def456'?",
+    );
+  });
+
+  test("valid space + space-shaped error → undefined (keep original)", async () => {
+    // e.g. a tree-permission FORBIDDEN on a space the caller is a member of.
+    const hint = await spaceErrorHint({
+      error: authError("FORBIDDEN", "No access to this space"),
+      space: "abc123def456",
+      listSpaces: async () => spaces,
+    });
+    expect(hint).toBeUndefined();
+  });
+
+  test("probe failure (bad/expired credential) → undefined", async () => {
+    const hint = await spaceErrorHint({
+      error: authError("UNAUTHORIZED", "Invalid credentials"),
+      space: "default",
+      listSpaces: async () => {
+        throw new Error("token expired");
+      },
+    });
+    expect(hint).toBeUndefined();
+  });
+
+  test("non-space error → undefined, no probe", async () => {
+    let probed = false;
+    const hint = await spaceErrorHint({
+      error: new RpcError(-32000, "not found", { code: "NOT_FOUND" }),
+      space: "default",
+      listSpaces: async () => {
+        probed = true;
+        return spaces;
+      },
+    });
+    expect(hint).toBeUndefined();
+    expect(probed).toBe(false);
   });
 });

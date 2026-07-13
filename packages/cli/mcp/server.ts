@@ -15,8 +15,8 @@ import { stringify as yamlStringify } from "yaml";
 import { z } from "zod";
 import { CLIENT_VERSION } from "../../../version";
 import { batchCreateChunked } from "../chunk.ts";
-import type { MemoryClient } from "../client.ts";
-import { createMemoryClient } from "../client.ts";
+import type { MemoryClient, MemoryNamespace } from "../client.ts";
+import { createMemoryClient, createUserClient } from "../client.ts";
 import {
   formatMemoryAsMarkdown,
   uniqueExportFilename,
@@ -27,6 +27,7 @@ import {
   parseContent,
 } from "../parsers/index.ts";
 import type { BearerSource } from "../session.ts";
+import { type ListedSpace, spaceErrorHint } from "./space.ts";
 
 // Exported so docs-links.test.ts can resolve the `${DOCS_BASE}/...` template
 // literals embedded in tool descriptions back into concrete URLs.
@@ -1209,6 +1210,36 @@ export interface McpServerOptions {
 }
 
 /**
+ * Wrap a memory namespace so a wrong-space failure on any tool call is rewritten
+ * into a helpful, agent-visible message (e.g. "'default' is a display name, did
+ * you mean 'abc123def456'?") instead of the raw "Invalid credentials" the auth
+ * layer returns. This is the deliberate counterpart to NOT validating the space
+ * at startup (`me mcp` in commands/mcp.ts): the error surfaces here, on the first
+ * tool call, where the calling agent actually sees it. The `space.list` probe
+ * runs only on the error path, so the success path pays no extra round trip.
+ */
+export function wrapMemoryForSpaceHints(
+  memory: MemoryNamespace,
+  space: string,
+  listSpaces: () => Promise<ListedSpace[]>,
+): MemoryNamespace {
+  const onError = async (error: unknown): Promise<never> => {
+    const hint = await spaceErrorHint({ error, space, listSpaces });
+    throw hint ? new Error(hint) : error;
+  };
+  return new Proxy(memory, {
+    get(target, prop, receiver) {
+      const value = Reflect.get(target, prop, receiver);
+      if (typeof value !== "function") return value;
+      return (...args: unknown[]) =>
+        (value as (...a: unknown[]) => Promise<unknown>)
+          .apply(target, args)
+          .catch(onError);
+    },
+  }) as MemoryNamespace;
+}
+
+/**
  * Run MCP server over stdio.
  */
 export async function runMcpServer(options: McpServerOptions): Promise<void> {
@@ -1219,6 +1250,25 @@ export async function runMcpServer(options: McpServerOptions): Promise<void> {
     space: options.space,
     asAgent: options.asAgent,
   });
+
+  // Lazily list the caller's spaces (user endpoint; allowed for user, PAT, and
+  // agent credentials alike) to turn a wrong-space tool-call failure into a
+  // precise hint. Only invoked on the error path.
+  const listSpaces = async (): Promise<ListedSpace[]> => {
+    const user = createUserClient({
+      url: options.server,
+      getToken: options.bearer.getToken,
+      onUnauthorized: options.bearer.onUnauthorized,
+      asAgent: options.asAgent,
+    });
+    const { spaces } = await user.space.list();
+    return spaces;
+  };
+  client.memory = wrapMemoryForSpaceHints(
+    client.memory,
+    options.space,
+    listSpaces,
+  );
 
   const mcpServer = new McpServer(
     {

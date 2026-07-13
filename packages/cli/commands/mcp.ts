@@ -17,7 +17,6 @@
 import { Command } from "commander";
 import { resolveCredentials, resolveHarnessAgent } from "../credentials.ts";
 import { runMcpServer } from "../mcp/server.ts";
-import { validateMcpSpace } from "../mcp/space.ts";
 import { memoryBearer } from "../session.ts";
 import { buildUserClient } from "../util.ts";
 
@@ -88,16 +87,14 @@ function createMcpRunAction() {
       );
       process.exit(1);
     }
-    const spaceProblem = await validateMcpSpace({
-      server: creds.server,
-      apiKey,
-      asAgent: creds.asAgent,
-      space,
-    });
-    if (spaceProblem) {
-      console.error(`Error: ${spaceProblem}`);
-      process.exit(1);
-    }
+    // The space value is deliberately NOT validated here. A bad --space (a
+    // display name, an unknown/inaccessible slug) surfaces as an enriched,
+    // agent-visible error on the first tool call (see runMcpServer's space-hint
+    // wrapper), not an invisible dead-server-at-startup exit — a client like
+    // Claude Code discards a server that dies during init and shows a bare
+    // "failed", so the helpful message would never reach the user. Same
+    // rationale as the agent-name resolution below. `me <tool> install` still
+    // validates the pin up front, where the message is visible to the human.
 
     // Agent-by-config: MCP is a harness surface by construction, so it
     // resolves and sends X-Me-As-Agent — unless the bearer already IS an

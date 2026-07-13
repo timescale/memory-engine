@@ -43,6 +43,7 @@ export {
   isRpcError,
   type MemoryClient,
   type MemoryClientOptions,
+  type MemoryNamespace,
   RpcError,
   type UserClient,
   type UserClientOptions,
