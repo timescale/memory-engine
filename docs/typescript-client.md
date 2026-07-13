@@ -15,7 +15,7 @@ The package exposes two clients, matching the two API endpoints:
 - **`createMemoryClient`** — the space data plane plus space management. Talks to `POST /api/v1/memory/rpc`, carrying the active space in the `X-Me-Space` header. Authenticates with a session token, OAuth token, user PAT, agent API key, or service-account API key. Namespaces: `memory`, `principal`, `group`, `grant`, `invite`.
 - **`createUserClient`** — user/account and service-account management. Talks to `POST /api/v1/user/rpc`. Authenticates with a session/OAuth token or the user's own PAT; agent and service-account keys are limited and cannot manage accounts or mint keys. Methods: `whoami`, plus the `agent`, `serviceAccount`, `apiKey`, and `space` namespaces.
 
-There is also `createAuthClient` (from `better-auth/react`) — a browser helper that drives social sign-in/sign-out and establishes the httpOnly cookie session the web UI authenticates with.
+This package does not provide login helpers — obtain a credential out of band (`me login` for a session/OAuth token, or `me apikey create` for a PAT/agent/service-account key) and pass it to the client. (The web app signs in separately via `better-auth/react`'s `createAuthClient`, which establishes an httpOnly cookie session.)
 
 ## Quick start
 
