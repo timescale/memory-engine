@@ -88,6 +88,24 @@ interface LoginOptions {
   browser?: boolean;
 }
 
+/**
+ * Validate option combinations, returning an error message for an invalid combo
+ * (or null when OK). Pure + exported so it's unit-testable without running the
+ * whole command.
+ *
+ * `--switch` only works in the browser (loopback) flow, where the CLI drives the
+ * authorize URL and can force the sign-in page via `prompt=login`. The device
+ * flow can't: it authorizes whichever account is already signed in to the
+ * browser, so honoring `--switch` there would silently do nothing (or authorize
+ * the wrong account). Reject the combination rather than change its meaning.
+ */
+export function validateLoginOptions(opts: LoginOptions): string | null {
+  if (opts.device && opts.switch) {
+    return "--switch isn't supported with --device. The device flow authorizes whichever account is signed in to your browser — sign out there first (or use the default browser login) to switch accounts.";
+  }
+  return null;
+}
+
 export function createLoginCommand(): Command {
   return new Command("login")
     .description("authenticate with Memory Engine and select the active space")
@@ -111,6 +129,13 @@ export function createLoginCommand(): Command {
       const forceSwitch = opts.switch === true;
 
       await rejectActAsAgentForSessionCommand("login", fmt);
+
+      // Reject invalid option combos (e.g. --device --switch) before printing
+      // any flow-specific messaging, so we never promise a switch we can't do.
+      const optionError = validateLoginOptions(opts);
+      if (optionError) {
+        fail(new Error(optionError), fmt, server);
+      }
 
       if (fmt === "text") {
         clack.intro("me login");

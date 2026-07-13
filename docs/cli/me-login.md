@@ -46,6 +46,8 @@ me login --switch
 
 `--switch` forces the server to re-show its sign-in page even when the browser already has a session, so you can pick a different provider or account.
 
+`--switch` only applies to the browser flow — it's **not** supported with `--device` (the device flow authorizes whichever account is signed in to your browser, so `me login --device --switch` is rejected). To switch accounts on a headless login, sign out in the browser you'll approve from first.
+
 ## Global Options
 
 | Option | Description |
