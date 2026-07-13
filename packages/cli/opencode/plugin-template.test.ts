@@ -6,11 +6,32 @@
  * Bun `$` — so the test catches event-shape mistakes (e.g. the `session.deleted`
  * payload nests the id under `properties.info.id`).
  */
-import { afterAll, describe, expect, test } from "bun:test";
+import {
+  afterAll,
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  test,
+} from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import {
+  AI_AGENT_VAR,
+  ME_AS_AGENT_VAR,
+  ME_INJECT_V_VAR,
+  ME_PROJECT_DIR_VAR,
+} from "../harness-contract.ts";
 import { PLUGIN_MARKER, renderPluginSource } from "./plugin-template.ts";
+
+/** The four harness-contract env vars the injection logic keys on. */
+const CONTRACT_VARS = [
+  ME_INJECT_V_VAR,
+  AI_AGENT_VAR,
+  ME_AS_AGENT_VAR,
+  ME_PROJECT_DIR_VAR,
+] as const;
 
 const tmp = mkdtempSync(join(tmpdir(), "me-oc-plugin-"));
 afterAll(() => rmSync(tmp, { recursive: true, force: true }));
@@ -143,6 +164,27 @@ describe("generated plugin behavior", () => {
 });
 
 describe("shell.env — the harness-injected environment contract", () => {
+  // These tests assert on first-writer-wins, which reads the real process.env.
+  // Neutralize any ambient contract (e.g. when the suite is itself run from
+  // inside a live opencode/Claude session, whose adapter injects the contract
+  // into every command — including this test runner) so each test controls the
+  // env it sees. Restored afterward so nothing leaks to concurrent files.
+  let savedContract: Record<string, string | undefined>;
+  beforeEach(() => {
+    savedContract = {};
+    for (const k of CONTRACT_VARS) {
+      savedContract[k] = process.env[k];
+      delete process.env[k];
+    }
+  });
+  afterEach(() => {
+    for (const k of CONTRACT_VARS) {
+      const v = savedContract[k];
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
+  });
+
   test("injects all four contract vars, anchored to the session directory", async () => {
     const shell = makeShell();
     const hooks = await loadPlugin(renderPluginSource(), shell, "/my/proj");
@@ -199,38 +241,22 @@ describe("shell.env — the harness-injected environment contract", () => {
   test("first-writer-wins: emits nothing when the full contract is already live in this process", async () => {
     const shell = makeShell();
     const hooks = await loadPlugin(renderPluginSource(), shell);
-    const saved = {
-      ME_INJECT_V: process.env.ME_INJECT_V,
-      ME_AS_AGENT: process.env.ME_AS_AGENT,
-      ME_PROJECT_DIR: process.env.ME_PROJECT_DIR,
-    };
+    // beforeEach cleared the contract; set a full live one (restored by afterEach).
     process.env.ME_INJECT_V = "1";
     process.env.ME_AS_AGENT = ".me";
     process.env.ME_PROJECT_DIR = "/other/project";
-    try {
-      const output: { env?: Record<string, string> } = {};
-      await hooks["shell.env"]({}, output);
-      expect(output.env).toBeUndefined();
-    } finally {
-      for (const [key, value] of Object.entries(saved)) {
-        if (value === undefined) delete process.env[key];
-        else process.env[key] = value;
-      }
-    }
+    const output: { env?: Record<string, string> } = {};
+    await hooks["shell.env"]({}, output);
+    expect(output.env).toBeUndefined();
   });
 
   test("a PARTIALLY live contract (ME_INJECT_V alone) does NOT trigger first-writer-wins", async () => {
     const shell = makeShell();
     const hooks = await loadPlugin(renderPluginSource(), shell, "/my/proj");
-    const saved = process.env.ME_INJECT_V;
+    // beforeEach cleared the contract; only ME_INJECT_V is live (restored by afterEach).
     process.env.ME_INJECT_V = "1";
-    try {
-      const output: { env?: Record<string, string> } = {};
-      await hooks["shell.env"]({}, output);
-      expect(output.env?.ME_PROJECT_DIR).toBe("/my/proj");
-    } finally {
-      if (saved === undefined) delete process.env.ME_INJECT_V;
-      else process.env.ME_INJECT_V = saved;
-    }
+    const output: { env?: Record<string, string> } = {};
+    await hooks["shell.env"]({}, output);
+    expect(output.env?.ME_PROJECT_DIR).toBe("/my/proj");
   });
 });

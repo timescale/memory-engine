@@ -7,6 +7,12 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import {
+  AI_AGENT_VAR,
+  ME_AS_AGENT_VAR,
+  ME_INJECT_V_VAR,
+  ME_PROJECT_DIR_VAR,
+} from "../harness-contract.ts";
 
 const CLI_ENTRY = join(import.meta.dir, "..", "index.ts");
 
@@ -15,7 +21,18 @@ async function runCodexEnvHook(
   env: Record<string, string | undefined> = {},
 ): Promise<{ exitCode: number; stdout: string; stderr: string }> {
   const proc = Bun.spawn([process.execPath, CLI_ENTRY, "codex", "env-hook"], {
-    env: { ...process.env, ME_INJECT_V: undefined, ...env },
+    // Start from a clean contract so an ambient one in the runner's own env
+    // (e.g. running this suite from inside a live harness session, which injects
+    // the contract into every command) can't complete a live contract and skew
+    // first-writer-wins. Tests that need contract vars pass them via `env`.
+    env: {
+      ...process.env,
+      [ME_INJECT_V_VAR]: undefined,
+      [AI_AGENT_VAR]: undefined,
+      [ME_AS_AGENT_VAR]: undefined,
+      [ME_PROJECT_DIR_VAR]: undefined,
+      ...env,
+    },
     stdin: "pipe",
     stdout: "pipe",
     stderr: "pipe",
