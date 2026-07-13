@@ -74,7 +74,7 @@ me memory tree
 
 For a richer, visual experience there's a web UI with a tree explorer, hybrid / advanced search, a rendered Markdown viewer, and an editor for content + metadata.
 
-- **Hosted (no install):** open [**app.memory.build**](https://app.memory.build) and sign in with GitHub or Google — the same account you'd use for `me login`. This is the quickest way in if you don't want to touch the CLI.
+- **Hosted (no install):** open [**api.memory.build**](https://api.memory.build/) and sign in with GitHub or Google — the same account you'd use for `me login`. This is the quickest way in if you don't want to touch the CLI.
 - **Local:** run `me serve` to start the same UI against your CLI session on `http://127.0.0.1:3000` (or the next free port). See [`me serve`](cli/me-serve.md).
 
 ## Connect to AI tools
