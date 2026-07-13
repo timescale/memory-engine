@@ -13,6 +13,7 @@ import { HOSTED } from "./api/bootstrap.ts";
 import { App } from "./app.tsx";
 import { AuthGate } from "./components/AuthGate.tsx";
 import { LocalAccountGate } from "./components/account/LocalAccountGate.tsx";
+import { DeviceVerificationPage } from "./components/DeviceVerificationPage.tsx";
 import { InviteLandingPage } from "./components/InviteLandingPage.tsx";
 import { LoginPage } from "./components/LoginPage.tsx";
 import "./styles.css";
@@ -23,6 +24,11 @@ import "./styles.css";
 // stray /login must fall through to the SPA rather than render a page whose
 // sign-in calls would 404.
 const isLoginPage = HOSTED && window.location.pathname === "/login";
+
+// Device Authorization Grant verification page (`me login --device` shows this
+// URL). Hosted-only for the same reason as /login — it calls the better-auth
+// device endpoints, which only the API server serves.
+const isDevicePage = HOSTED && window.location.pathname === "/device";
 
 // Magic-link redeem landing (`/invite/<token>`). Hosted-only: it signs the
 // visitor in (cookie session) and redeems against the user RPC. Under local
@@ -61,6 +67,8 @@ createRoot(rootElement).render(
     <QueryClientProvider client={queryClient}>
       {isLoginPage ? (
         <LoginPage />
+      ) : isDevicePage ? (
+        <DeviceVerificationPage />
       ) : inviteToken ? (
         <InviteLandingPage token={inviteToken} />
       ) : HOSTED ? (

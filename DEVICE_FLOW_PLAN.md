@@ -58,10 +58,15 @@ the existing `/api/v1/auth/*` catch-all — no new server routes.
 
 ## Step 3 — Web (`packages/web`)
 
-- `api/auth-client.ts`: add the `deviceAuthorizationClient()` plugin.
-- New `/device` verification page (served via existing SPA fallback): reads
-  `?user_code=`; requires login (reuse `AuthGate`/social sign-in); claims via
-  `GET /device`, then approve/deny with confirm + success/denied states.
+- New `/device` verification page (`components/DeviceVerificationPage.tsx`,
+  routed in `main.tsx`, hosted-only like `/login`): probes the session via
+  `whoami`, reuses `SignInCard` for anonymous visitors (OAuth returns to the
+  same URL with `user_code` preserved), reads `?user_code=` (or prompts for it),
+  claims via `GET /device`, then approve/deny with success/denied states. It
+  calls the better-auth device endpoints directly with same-origin
+  cookie-authenticated `fetch` (`GET /device`, `POST /device/approve`,
+  `POST /device/deny`) rather than the generated client plugin — no dependency
+  on the plugin's generated method shape.
 
 ## Step 4 — CLI (`packages/cli`)
 
