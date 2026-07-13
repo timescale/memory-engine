@@ -2062,6 +2062,26 @@ describe.skipIf(
     expect(vr.verified).toBe(true);
     expect(vr.workflow).toBe("unchanged");
 
+    // 4b. A NON-admin member verifying the same committed identity:
+    //     existence resolves via the any-member principal.resolve
+    //     (serviceAccount.list is silently filtered for non-admins and would
+    //     read as a false "does not exist"), and the admin-gated grant check
+    //     DEGRADES — verified:false, exit 0 — rather than failing a setup
+    //     that is perfectly correct.
+    const { env2 } = await seedSecondMember();
+    const memberVerify = await me(
+      ["project", "ci", "--json"],
+      { ...env2, PATH: env.PATH, ME_E2E_FAKE_GH: fakeDir },
+      repo,
+    );
+    expect(memberVerify.code, memberVerify.stderr + memberVerify.stdout).toBe(
+      0,
+    );
+    const mv = JSON.parse(memberVerify.stdout);
+    expect(mv.serviceAccount).toBe(saName);
+    expect(mv.verified).toBe(false);
+    expect(JSON.stringify(mv.notes)).toContain("Couldn't verify");
+
     // 5. --rotate-key mints a new key for the existing SA into the secret.
     const rotated = await me(["project", "ci", "--rotate-key"], env, repo);
     expect(rotated.code, rotated.stderr + rotated.stdout).toBe(0);

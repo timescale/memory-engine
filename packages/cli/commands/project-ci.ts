@@ -708,20 +708,17 @@ async function runProjectCiBody(
     }
     requireAuth(creds, fmt);
     requireSpace(creds, fmt);
-    const user = buildUserClient(creds);
     const memory = buildMemoryClient(creds);
     try {
-      const space = await resolveActiveSpace(
-        user,
-        creds.activeSpace ?? "",
-        fmt,
-      );
-      const { serviceAccounts } = await user.serviceAccount.list({
-        spaceId: space.id,
+      // Existence via principal.resolve — the targeted, ANY-MEMBER lookup.
+      // serviceAccount.list would be silently FILTERED for a non-admin (only
+      // accounts they administer), which would read here as a false
+      // "does not exist" for a shared org SA the caller doesn't manage.
+      const { principals } = await memory.principal.resolve({
+        name: saName,
+        kind: "s",
       });
-      const sa = serviceAccounts.find(
-        (a) => a.name.toLowerCase() === saName.toLowerCase(),
-      );
+      const sa = principals[0];
       if (!sa) {
         throw fail(
           `Service account '${saName}' does not exist — but the ${keyName} secret is set, so it can't be holding ` +
@@ -853,10 +850,15 @@ async function runProjectCiBody(
 
   let saId = "";
   try {
-    const { serviceAccounts } = await user.serviceAccount.list({ spaceId });
-    const existingSa = serviceAccounts.find(
-      (a) => a.name.toLowerCase() === finalName.toLowerCase(),
-    );
+    // Existence via the any-member lookup (see the verify-phase note):
+    // serviceAccount.list is silently filtered for non-admins, and
+    // provisioning must FIND an SA someone else created (then proceed to the
+    // grant/key steps) rather than re-attempt a doomed creation.
+    const { principals } = await memory.principal.resolve({
+      name: finalName,
+      kind: "s",
+    });
+    const existingSa = principals[0];
     if (existingSa) {
       saId = existingSa.id;
       step(`Service account '${finalName}' already exists`);
