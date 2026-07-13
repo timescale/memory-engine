@@ -127,8 +127,12 @@ export function DeviceVerificationPage() {
     void start();
   }, [start]);
 
-  const decide = async (approve: boolean, userCode: string) => {
-    setState({ status: "submitting", userCode, email: null });
+  const decide = async (
+    approve: boolean,
+    userCode: string,
+    email: string | null,
+  ) => {
+    setState({ status: "submitting", userCode, email });
     try {
       await deviceCall(`/device/${approve ? "approve" : "deny"}`, {
         method: "POST",
@@ -242,7 +246,7 @@ export function DeviceVerificationPage() {
           <button
             type="button"
             disabled={busy}
-            onClick={() => void decide(true, state.userCode)}
+            onClick={() => void decide(true, state.userCode, state.email)}
             className="inline-flex h-10 flex-1 items-center justify-center rounded-lg bg-solar text-[13px] font-semibold text-ink transition-colors hover:bg-solar-hover disabled:cursor-not-allowed disabled:opacity-50"
           >
             {busy ? "Authorizing…" : "Approve"}
@@ -250,7 +254,7 @@ export function DeviceVerificationPage() {
           <button
             type="button"
             disabled={busy}
-            onClick={() => void decide(false, state.userCode)}
+            onClick={() => void decide(false, state.userCode, state.email)}
             className="inline-flex h-10 flex-1 items-center justify-center rounded-lg border border-ink/[0.18] text-[13px] font-medium text-ink transition-colors hover:border-ink disabled:cursor-not-allowed disabled:opacity-50"
           >
             Deny
