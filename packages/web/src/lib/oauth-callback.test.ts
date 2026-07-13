@@ -57,4 +57,32 @@ describe("buildAuthorizeCallbackURL", () => {
     expect(url.searchParams.has("state")).toBe(false);
     expect(url.searchParams.get("client_id")).toBe("me-cli");
   });
+
+  test("a non-login prompt (e.g. consent) is preserved verbatim", () => {
+    // Only `login` loops through this page; other prompts keep their signed
+    // query so better-auth resolves them (e.g. via its consent page).
+    const search =
+      "?response_type=code&client_id=me-cli&redirect_uri=http%3A%2F%2F127.0.0.1%3A54321%2Fcallback&prompt=consent&sig=deadbeef";
+    expect(buildAuthorizeCallbackURL(search)).toBe(
+      `${AUTHORIZE_PATH}${search}`,
+    );
+  });
+
+  test("a space-delimited prompt set containing login triggers the rebuild", () => {
+    const search =
+      "?response_type=code&client_id=me-cli&redirect_uri=http%3A%2F%2F127.0.0.1%3A54321%2Fcallback&prompt=login+consent&sig=x";
+    const url = new URL(
+      buildAuthorizeCallbackURL(search),
+      "https://api.example.com",
+    );
+    expect(url.searchParams.has("prompt")).toBe(false);
+    expect(url.searchParams.has("sig")).toBe(false);
+    expect(url.searchParams.get("client_id")).toBe("me-cli");
+  });
+
+  test("prompt=login with no OAuth params yields the bare path (no trailing '?')", () => {
+    expect(buildAuthorizeCallbackURL("?prompt=login&sig=x")).toBe(
+      AUTHORIZE_PATH,
+    );
+  });
 });
