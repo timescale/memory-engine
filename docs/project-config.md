@@ -26,6 +26,8 @@ space: xjjg3kmq6vvb                 # pin the space (slug)
 tree: /share/projects/acme          # optional: where integrations write (see below)
 agent: acme-agent                   # optional: the project's agent (see below)
 capture: true                       # optional: session capture on/off (see below)
+import:                             # optional: the CI import run (see below)
+  docs_include: ["docs/**"]
 ```
 
 All fields are optional. A `.me` that sets only `tree` still inherits its
@@ -192,6 +194,35 @@ When capture is off the hooks exit silently — no error, nothing written. The
 same resolution applies to **every** harness's hooks (Claude and OpenCode
 alike); `me claude install` and `me opencode install` both ask the capture
 question and write the machine-wide flag.
+
+## The `import` block (CI imports)
+
+The optional `import:` block shapes the orchestrated CI run —
+[`me import ci`](cli/me-import.md#me-import-ci), the command the scaffolded
+GitHub workflow calls on every push to the default branch. Targeting
+(server/space/tree) stays in the top-level fields; this block only controls
+WHAT the run imports and which identity is expected to run it:
+
+```yaml
+import:
+  git: true                       # run the git-history phase (default true)
+  docs: true                      # run the docs phase (default true)
+  docs_include: ["docs/**"]       # docs globs, replacing the default markdown set
+  docs_exclude: ["docs/internal/**"]
+  service_account: github-import  # the SA expected to hold the CI credentials
+```
+
+Like the rest of the schema it is **strict** — a typo'd key (`docs_includes:`)
+is a fatal error, never a silently-widened walk.
+
+`service_account` is read by [`me project ci`](cli/me-project.md#me-project-ci)
+(setup/verify), **not** at import time — in CI the `ME_API_KEY` bearer *is* the
+identity. The name is not a secret (any space member can resolve it).
+Committing it is how an org using **per-project grants** makes onboarding
+self-documenting: plain `me project ci` then verifies the shared account and
+extends its grant to this repo's tree without anyone remembering a flag. Orgs
+using a single parent-level grant (`write@/share/projects`) don't need it at
+all.
 
 ## Agent-by-config and the `agent` field
 
