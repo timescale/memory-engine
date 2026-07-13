@@ -10,7 +10,7 @@
       public `me-cli` client id — no rate limiting → sustained DB/WAL load. Add
       per-IP/client rate limiting via `onDeviceAuthRequest` or route middleware.
       (betterauth.ts:279)
-- [ ] 3. `bearer()` with default `requireSignature: false` makes every plaintext
+- [x] 3. `bearer()` with default `requireSignature: false` makes every plaintext
       `auth.sessions.token` usable directly as an API bearer (not just device
       sessions) → a sessions-table/backup disclosure becomes sufficient to
       authenticate. Avoid accepting unsigned session tokens globally (signed

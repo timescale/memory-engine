@@ -111,9 +111,10 @@ async function authenticateSpaceInner(
 ): Promise<SpaceAuthResult> {
   const { core, betterAuth, db } = deps;
 
-  // 1. A credential must be present: an Authorization Bearer (session token or
-  //    api key) or any cookie (better-auth reads its own session cookie). The
-  //    CSRF gate for the cookie case is applied in the session branch below.
+  // 1. A credential must be present: an Authorization Bearer (signed session
+  //    token or api key) or any cookie (better-auth reads its own session
+  //    cookie). The CSRF gate for the cookie case is applied in the session
+  //    branch below.
   const bearer = extractBearerToken(request);
   const hasCookie = request.headers.get("cookie") !== null;
   if (!bearer && !hasCookie) {
@@ -195,17 +196,17 @@ async function authenticateSpaceInner(
   } else if (bearer) {
     // A Bearer that isn't an api key is one of two opaque human credentials,
     // tried in order: an OAuth access token (auth-code flow — CLI/MCP, hashed
-    // lookup in oauth_access_token) or a better-auth session token (the device
-    // flow's credential, resolved via the `bearer` plugin's getSession). Both are
-    // explicit, non-ambient credentials, so neither is subject to the cookie CSRF
-    // gate below.
+    // lookup in oauth_access_token) or a signed better-auth session token (the
+    // device flow's credential, resolved via the `bearer` plugin's getSession).
+    // Both are explicit, non-ambient credentials, so neither is subject to the
+    // cookie CSRF gate below.
     const verified = await deps.verifyOAuthToken(bearer);
     if (verified) {
       principalId = verified.userId;
       principalKind = "u";
       apiKeyId = null;
     } else {
-      // Authorization-only headers so a session-token bearer can't fall back to
+      // Authorization-only headers so a signed-session bearer can't fall back to
       // an ambient cookie (which would skip the CSRF gate below).
       const session = await betterAuth.api.getSession({
         headers: bearerOnlyHeaders(request),

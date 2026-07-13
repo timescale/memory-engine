@@ -1,3 +1,4 @@
+import { handleBetterAuthRequest } from "./auth/betterauth";
 import type { ServerContext } from "./context";
 import { healthHandler, readyHandler } from "./handlers/health";
 import { versionHandler } from "./handlers/version";
@@ -261,7 +262,7 @@ export function createRouter(ctx: ServerContext): Router {
     {
       method: "*",
       pattern: "/api/v1/auth/*",
-      handler: (req) => betterAuth.handler(req),
+      handler: (req) => handleBetterAuthRequest(betterAuth, req),
     },
 
     // Memory RPC (new model: space data-plane + management)

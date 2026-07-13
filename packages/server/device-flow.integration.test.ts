@@ -1,10 +1,10 @@
 // End-to-end integration test for the device authorization grant (RFC 8628).
 //
 // Drives the full better-auth device flow through the real auth handler — code
-// request → claim → approve/deny → token — then asserts the minted session token
-// authenticates on BOTH resource-server endpoints (user + space) via the bearer
-// plugin. This is the whole point of the feature: a headless CLI logs in and its
-// session token works as an API bearer.
+// request → claim → approve/deny → token — then asserts the minted signed
+// session token authenticates on BOTH resource-server endpoints (user + space)
+// via the bearer plugin. This is the whole point of the feature: a headless CLI
+// logs in and its signed session token works as an API bearer.
 //   TEST_DATABASE_URL="postgresql://postgres@127.0.0.1:5432/postgres" \
 //     bun test --timeout 30000 \
 //     packages/server/device-flow.integration.test.ts
@@ -17,7 +17,11 @@ import {
 import * as engineCore from "@memory.build/engine/core";
 import { SPACE_HEADER } from "@memory.build/protocol/headers";
 import postgres, { type Sql } from "postgres";
-import { createBetterAuth } from "./auth/betterauth";
+import {
+  createBetterAuth,
+  handleBetterAuthRequest,
+  signSessionTokenForBearer,
+} from "./auth/betterauth";
 import { authenticateSpace } from "./middleware/authenticate-space";
 import { authenticateUser } from "./middleware/authenticate-user";
 import { seedUserSpace } from "./test-support";
@@ -29,6 +33,7 @@ const BASE = "http://localhost:3000";
 const AUTH = "/api/v1/auth";
 const ALLOWED = ["https://test.example.com"];
 const DEVICE_GRANT = "urn:ietf:params:oauth:grant-type:device_code";
+const BETTER_AUTH_SECRET = "test-secret-betterauth-0123456789";
 
 const rand = () => {
   const a = "abcdefghijklmnopqrstuvwxyz0123456789";
@@ -65,17 +70,22 @@ async function authFetch(
     headers,
     body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
   });
-  const res = await (opts.auth ?? betterAuth.auth).handler(req);
+  const res = await handleBetterAuthRequest(opts.auth ?? betterAuth.auth, req);
   const json = (await res.json().catch(() => ({}))) as Record<string, unknown>;
   return { status: res.status, json };
 }
 
-/** A verified user's session token (drives the browser-approval side). */
-async function sessionTokenFor(userId: string): Promise<string> {
+/** A verified user's session tokens (drive the browser-approval side). */
+async function sessionTokensFor(
+  userId: string,
+): Promise<{ raw: string; signed: string }> {
   const ctx = await betterAuth.auth.$context;
   const session = await ctx.internalAdapter.createSession(userId, false);
   if (!session?.token) throw new Error("failed to create session");
-  return session.token;
+  return {
+    raw: session.token,
+    signed: await signSessionTokenForBearer(session.token, BETTER_AUTH_SECRET),
+  };
 }
 
 async function seedUser(): Promise<{ userId: string; spaceSlug: string }> {
@@ -116,7 +126,7 @@ beforeAll(async () => {
     databaseUrl: URL,
     authSchema,
     baseURL: BASE,
-    secret: "test-secret-betterauth-0123456789",
+    secret: BETTER_AUTH_SECRET,
     trustedOrigins: ALLOWED,
   });
 });
@@ -159,7 +169,7 @@ describe("device authorization grant", () => {
       databaseUrl: URL,
       authSchema,
       baseURL: BASE,
-      secret: "test-secret-betterauth-0123456789",
+      secret: BETTER_AUTH_SECRET,
       trustedOrigins: ALLOWED,
       rateLimitEnabled: true,
     });
@@ -201,13 +211,13 @@ describe("device authorization grant", () => {
 
   test("approve → token mints a session that authenticates on both RPCs", async () => {
     const { userId, spaceSlug } = await seedUser();
-    const token = await sessionTokenFor(userId);
+    const browserSession = await sessionTokensFor(userId);
     const { deviceCode, userCode } = await requestDeviceCode();
 
     // Browser side: claim the code to this user, then approve it.
     const claim = await authFetch(
       `/device?user_code=${encodeURIComponent(userCode)}`,
-      { method: "GET", token },
+      { method: "GET", token: browserSession.signed },
     );
     expect(claim.status).toBe(200);
     expect(claim.json.status).toBe("pending");
@@ -215,12 +225,12 @@ describe("device authorization grant", () => {
     const approve = await authFetch("/device/approve", {
       method: "POST",
       body: { userCode },
-      token,
+      token: browserSession.signed,
     });
     expect(approve.status).toBe(200);
     expect(approve.json.success).toBe(true);
 
-    // CLI side: poll succeeds and returns the session token.
+    // CLI side: poll succeeds and returns the signed session token.
     const tok = await authFetch("/device/token", {
       method: "POST",
       body: {
@@ -232,8 +242,9 @@ describe("device authorization grant", () => {
     expect(tok.status).toBe(200);
     const accessToken = tok.json.access_token as string;
     expect(typeof accessToken).toBe("string");
+    expect(accessToken).toContain(".");
 
-    // The minted session token authenticates on the user RPC as the user.
+    // The signed minted session token authenticates on the user RPC as the user.
     const userReq = new Request(`${BASE}/api/v1/user/rpc`, {
       method: "POST",
       headers: { Authorization: `Bearer ${accessToken}` },
@@ -273,11 +284,44 @@ describe("device authorization grant", () => {
       expect(spaceResult.context.principalId).toBe(userId);
       expect(spaceResult.context.principalKind).toBe("u");
     }
+
+    // Raw auth.sessions.token values from the DB are deliberately not accepted
+    // as API bearers; only signed session bearer values are.
+    const rawUserResult = await authenticateUser(
+      new Request(`${BASE}/api/v1/user/rpc`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${browserSession.raw}` },
+      }),
+      betterAuth.auth,
+      betterAuth.verifyOAuthAccessToken,
+      betterAuth.getUserEmailVerified,
+      core,
+      ALLOWED,
+    );
+    expect(rawUserResult.ok).toBe(false);
+
+    const rawSpaceResult = await authenticateSpace(
+      new Request(`${BASE}/api/v1/memory/rpc`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${browserSession.raw}`,
+          [SPACE_HEADER]: spaceSlug,
+        },
+      }),
+      {
+        core,
+        betterAuth: betterAuth.auth,
+        verifyOAuthToken: betterAuth.verifyOAuthAccessToken,
+        db: sql,
+        allowedOrigins: ALLOWED,
+      },
+    );
+    expect(rawSpaceResult.ok).toBe(false);
   });
 
   test("token is single-use (consumed on first success)", async () => {
     const { userId } = await seedUser();
-    const token = await sessionTokenFor(userId);
+    const token = (await sessionTokensFor(userId)).signed;
     const { deviceCode, userCode } = await requestDeviceCode();
 
     await authFetch(`/device?user_code=${encodeURIComponent(userCode)}`, {
@@ -313,7 +357,7 @@ describe("device authorization grant", () => {
 
   test("deny → token returns access_denied", async () => {
     const { userId } = await seedUser();
-    const token = await sessionTokenFor(userId);
+    const token = (await sessionTokensFor(userId)).signed;
     const { deviceCode, userCode } = await requestDeviceCode();
 
     await authFetch(`/device?user_code=${encodeURIComponent(userCode)}`, {
@@ -342,8 +386,8 @@ describe("device authorization grant", () => {
   test("a user cannot approve a code claimed by another user", async () => {
     const owner = await seedUser();
     const stranger = await seedUser();
-    const ownerToken = await sessionTokenFor(owner.userId);
-    const strangerToken = await sessionTokenFor(stranger.userId);
+    const ownerToken = (await sessionTokensFor(owner.userId)).signed;
+    const strangerToken = (await sessionTokensFor(stranger.userId)).signed;
     const { userCode } = await requestDeviceCode();
 
     // Owner claims the code.
