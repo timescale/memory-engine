@@ -23,7 +23,11 @@ import type {
 } from "../auth/betterauth";
 import { error, forbidden, unauthorized } from "../util/response";
 import { resolveOwnedAgent } from "./act-as-agent";
-import { extractBearerToken, passesCsrfCheck } from "./authenticate";
+import {
+  bearerOnlyHeaders,
+  extractBearerToken,
+  passesCsrfCheck,
+} from "./authenticate";
 
 export interface UserAuthContext {
   type: "user";
@@ -180,8 +184,11 @@ export async function authenticateUser(
       // bearer (the device-authorization flow's credential, resolved via the
       // `bearer` plugin). A bearer is an explicit, non-ambient credential, so
       // this deliberately skips the cookie CSRF gate (same as the OAuth path).
+      // Pass Authorization-only headers so this can ONLY succeed via the bearer
+      // token — never fall back to an ambient cookie session (which would skip
+      // CSRF and blur bearer-vs-cookie precedence).
       const bearerSession = await betterAuth.api.getSession({
-        headers: request.headers,
+        headers: bearerOnlyHeaders(request),
       });
       if (!bearerSession) {
         debug(
