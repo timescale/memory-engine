@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { extractBearerToken, passesCsrfCheck } from "./authenticate";
+import {
+  bearerOnlyHeaders,
+  extractBearerToken,
+  passesCsrfCheck,
+} from "./authenticate";
 
 describe("extractBearerToken", () => {
   test("extracts token from valid Authorization header", () => {
@@ -33,6 +37,31 @@ describe("extractBearerToken", () => {
       headers: { Cookie: "me_session=cookietoken" },
     });
     expect(extractBearerToken(request)).toBeNull();
+  });
+});
+
+describe("bearerOnlyHeaders", () => {
+  test("keeps Authorization and drops the cookie", () => {
+    // The security-relevant property: a session-token bearer resolved via
+    // getSession must not be able to fall back to an ambient cookie session.
+    const request = new Request("http://localhost/test", {
+      headers: {
+        Authorization: "Bearer session-token",
+        Cookie: "me.session_token=valid-cookie-session",
+      },
+    });
+    const headers = bearerOnlyHeaders(request);
+    expect(headers.get("Authorization")).toBe("Bearer session-token");
+    expect(headers.get("Cookie")).toBeNull();
+  });
+
+  test("is empty when there is no Authorization header", () => {
+    const request = new Request("http://localhost/test", {
+      headers: { Cookie: "me.session_token=valid-cookie-session" },
+    });
+    const headers = bearerOnlyHeaders(request);
+    expect(headers.get("Authorization")).toBeNull();
+    expect(headers.get("Cookie")).toBeNull();
   });
 });
 

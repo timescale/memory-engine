@@ -36,6 +36,23 @@ export function extractBearerToken(request: Request): string | null {
 }
 
 /**
+ * A header set carrying ONLY the request's `Authorization` header (no cookie).
+ *
+ * Used when resolving a session token presented as a bearer (the device-flow
+ * credential) via `betterAuth.api.getSession`: passing the raw request headers
+ * would let `getSession` fall back to an ambient cookie session — authenticating
+ * a request whose bearer is invalid, and bypassing the cookie CSRF gate. Feeding
+ * getSession these headers means the bearer path can only succeed via the
+ * bearer's own session token (the `bearer` plugin reads it from Authorization).
+ */
+export function bearerOnlyHeaders(request: Request): Headers {
+  const headers = new Headers();
+  const authHeader = request.headers.get("Authorization");
+  if (authHeader) headers.set("Authorization", authHeader);
+  return headers;
+}
+
+/**
  * CSRF gate for ambient (cookie) credentials. A browser auto-attaches the
  * session cookie, so a cookie-authenticated state-changing request must prove it
  * originates from an allowed origin. Header credentials (Bearer / api key) are

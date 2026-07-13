@@ -31,7 +31,11 @@ import type { Sql } from "postgres";
 import type { Auth, VerifyOAuthAccessToken } from "../auth/betterauth";
 import { error, forbidden, unauthorized } from "../util/response";
 import { resolveOwnedAgent } from "./act-as-agent";
-import { extractBearerToken, passesCsrfCheck } from "./authenticate";
+import {
+  bearerOnlyHeaders,
+  extractBearerToken,
+  passesCsrfCheck,
+} from "./authenticate";
 
 export { SPACE_HEADER };
 
@@ -201,8 +205,10 @@ async function authenticateSpaceInner(
       principalKind = "u";
       apiKeyId = null;
     } else {
+      // Authorization-only headers so a session-token bearer can't fall back to
+      // an ambient cookie (which would skip the CSRF gate below).
       const session = await betterAuth.api.getSession({
-        headers: request.headers,
+        headers: bearerOnlyHeaders(request),
       });
       if (!session) {
         debug(
