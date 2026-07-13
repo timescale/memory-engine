@@ -6,7 +6,7 @@
       existing browser session, so it can authorize the wrong account. Implement
       switching for device flow, or reject the `--device --switch` combo.
       (login.ts:139)
-- [ ] 2. The device-code endpoint is an unauthenticated DB-write gated only by the
+- [x] 2. The device-code endpoint is an unauthenticated DB-write gated only by the
       public `me-cli` client id — no rate limiting → sustained DB/WAL load. Add
       per-IP/client rate limiting via `onDeviceAuthRequest` or route middleware.
       (betterauth.ts:279)

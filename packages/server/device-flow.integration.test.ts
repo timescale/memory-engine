@@ -48,7 +48,12 @@ const createdSpaceSchemas: string[] = [];
 /** Call a better-auth endpoint through the real handler. */
 async function authFetch(
   path: string,
-  opts: { method: string; body?: unknown; token?: string } = { method: "GET" },
+  opts: {
+    method: string;
+    body?: unknown;
+    token?: string;
+    auth?: ReturnType<typeof createBetterAuth>["auth"];
+  } = { method: "GET" },
 ): Promise<{ status: number; json: Record<string, unknown> }> {
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
@@ -60,7 +65,7 @@ async function authFetch(
     headers,
     body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
   });
-  const res = await betterAuth.auth.handler(req);
+  const res = await (opts.auth ?? betterAuth.auth).handler(req);
   const json = (await res.json().catch(() => ({}))) as Record<string, unknown>;
   return { status: res.status, json };
 }
@@ -147,6 +152,37 @@ describe("device authorization grant", () => {
     });
     expect(status).toBe(400);
     expect(json.error).toBe("invalid_client");
+  });
+
+  test("device-code requests are rate limited", async () => {
+    const limitedAuth = createBetterAuth({
+      databaseUrl: URL,
+      authSchema,
+      baseURL: BASE,
+      secret: "test-secret-betterauth-0123456789",
+      trustedOrigins: ALLOWED,
+      rateLimitEnabled: true,
+    });
+    try {
+      for (let i = 0; i < 10; i++) {
+        const { status } = await authFetch("/device/code", {
+          method: "POST",
+          body: { client_id: "me-cli" },
+          auth: limitedAuth.auth,
+        });
+        expect(status).toBe(200);
+      }
+
+      const { status, json } = await authFetch("/device/code", {
+        method: "POST",
+        body: { client_id: "me-cli" },
+        auth: limitedAuth.auth,
+      });
+      expect(status).toBe(429);
+      expect(json.message).toBe("Too many requests. Please try again later.");
+    } finally {
+      await limitedAuth.pool.end();
+    }
   });
 
   test("polling before approval returns authorization_pending", async () => {
