@@ -105,7 +105,7 @@ At least one search criterion is required. A positional `query` runs hybrid sear
 ### Examples
 
 ```bash
-# Hybrid search (recommended default)
+# Hybrid search
 me memory search "how does authentication work"
 
 # Keyword search

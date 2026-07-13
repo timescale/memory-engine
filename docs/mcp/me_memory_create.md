@@ -10,7 +10,7 @@ Store a new memory.
 | `content` | `string` | yes | The content of the memory. Must be non-empty. |
 | `name` | `string \| null` | no | Optional filename-like leaf slug, unique within the tree (e.g. `jwt-rotation`). Matches `^[A-Za-z0-9][A-Za-z0-9._-]*$`, ≤128 chars -- dots allowed, no slashes. Lets the memory be addressed as `/share/auth/jwt-rotation`. Omit or pass `null` for an unnamed memory. |
 | `meta` | `object \| null` | no | Key-value metadata pairs. Omit or pass `null` to skip. |
-| `tree` | `string` | yes | Hierarchical path where the memory is stored (e.g., `/share/work/projects`). The canonical form is `/`-separated with a leading slash (the leading slash is optional on input). Choose deliberately: most memories should go under `/share` so the rest of the space can see them; use `~` (your private home, e.g. `~/notes`) only for memories that must stay private to you. |
+| `tree` | `string` | yes | Hierarchical path where the memory is stored (e.g., `/share/work/projects`). The canonical form is `/`-separated with a leading slash (the leading slash is optional on input). Choose deliberately from project/user instructions, prior memories, visible tree structure, and your write access; do not assume every space uses the same shared/private layout. |
 | `temporal` | `object \| null` | no | Time range for the memory. Omit or pass `null` to skip. |
 | `on_conflict` | `string \| null` | no | What to do when the idempotency key (a named memory's `(tree, name)` slot, which takes precedence over any `id`; else the explicit `id`) already exists: `"error"` (default -- raise CONFLICT), `"replace"` (overwrite in place when content/meta/temporal differ; a no-op when identical), or `"ignore"` (skip and return the existing memory). |
 

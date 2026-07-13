@@ -62,6 +62,7 @@ export const NAV: NavSection[] = [
     title: "MCP Tools",
     items: [
       { label: "Overview", slug: "mcp/index" },
+      { label: "Agent Instructions", slug: "mcp/agent-instructions" },
       { label: "me_memory_create", slug: "mcp/me_memory_create" },
       { label: "me_memory_get", slug: "mcp/me_memory_get" },
       { label: "me_memory_get_by_path", slug: "mcp/me_memory_get_by_path" },

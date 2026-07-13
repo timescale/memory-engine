@@ -94,7 +94,7 @@ The first thing to do in a populated space is **look around** — both to find w
 you need and to avoid duplicating knowledge that's already there.
 
 ```bash
-# Hybrid search (recommended: matches meaning + keywords)
+# Hybrid search (matches meaning + keywords)
 me search "how do we handle auth token rotation"
 
 # See the shape of what's stored

@@ -248,7 +248,7 @@ me memory search "embedding performance"
 me memory search --semantic "embedding performance" --fulltext "nomic ollama"
 ```
 
-Good when you want both meaning-based and keyword-based relevance. The positional CLI query uses hybrid search and is the recommended default.
+Good when you want both meaning-based and keyword-based relevance. The positional CLI query uses hybrid search; use `--semantic` or `--fulltext` when you want only one search mode.
 
 ### Filters
 
