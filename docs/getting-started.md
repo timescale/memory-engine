@@ -54,7 +54,7 @@ A `--tree` is required. Put memories the rest of your space should see under `sh
 ## Search
 
 ```bash
-# Hybrid search (recommended default: meaning + keywords)
+# Hybrid search (meaning + keywords)
 me memory search "UUID generation in Postgres"
 
 # Keyword search

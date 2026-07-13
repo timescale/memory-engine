@@ -83,9 +83,9 @@ describe("MCP doc-link integrity", () => {
   });
 
   test("every docs/mcp/*.md file is referenced by a registered tool", () => {
-    // `index.md` is the hand-written MCP Tool Reference overview page, not a
-    // tool doc — exclude it from the tool-parity check.
-    const NON_TOOL_DOCS = new Set(["index"]);
+    // These are hand-written MCP overview/instruction pages, not tool docs —
+    // exclude them from the tool-parity check.
+    const NON_TOOL_DOCS = new Set(["index", "agent-instructions"]);
     const docFiles = readdirSync(DOCS_MCP)
       .filter((f) => f.endsWith(".md"))
       .map((f) => f.replace(/\.md$/, ""))

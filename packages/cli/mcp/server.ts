@@ -41,12 +41,23 @@ export function docUrl(tool: string): string {
 /**
  * MCP instructions — sent to the client during initialization.
  *
- * Points at the integration guide as raw Markdown (more token-efficient
- * for agents than parsing the rendered HTML page).
+ * Operational guidance for agents after the MCP server is already connected.
+ * Keep this concise and self-contained: some agents won't fetch the linked docs.
  */
-const MCP_INSTRUCTIONS = `memory engine — permanent memory for AI agents. Store, search, and organize knowledge across conversations.
+const MCP_INSTRUCTIONS = `Memory Engine is persistent memory for this workspace.
 
-Integration guide: ${DOCS_BASE}/mcp-integration.md`;
+Use it proactively:
+- Before nontrivial work, search for prior decisions, project context, and conventions with me_memory_search.
+- Choose the search mode deliberately: semantic for meaning/concepts, fulltext for exact words/identifiers, or both when you need both kinds of match.
+- Use me_memory_tree and tree filters to understand what is visible, but remember that access is grant-based: missing access can look like empty search results or not found.
+- Store durable facts, decisions, conventions, runbooks, and workarounds with me_memory_create when they will help future work.
+- Choose the tree from project/user instructions or visible context. Do not assume every space uses the same tree layout or that shared paths are writable.
+- Write one concise, self-contained idea per memory. Include useful metadata for later filtering.
+- Do not store secrets, credentials, or short-lived chatter.
+- Prefer updating an existing named memory over creating duplicates when the memory is clearly the same fact.
+- Use delete, move, and copy tools only when the user asks or the intent is clear.
+
+Detailed agent instructions: ${DOCS_BASE}/mcp/agent-instructions.md`;
 
 // =============================================================================
 // Tool Registration
@@ -78,7 +89,7 @@ Docs: ${docUrl("me_memory_create")}`,
         tree: z
           .string()
           .describe(
-            "Hierarchical path where the memory is stored (required — choose deliberately). Most memories should go under `share` (e.g. `/share/work/projects`) so the rest of the space can see them. Use `~` — your private home (e.g. `~/notes`) — only for memories that must stay private to you.",
+            "Hierarchical path where the memory is stored (required). Choose deliberately from project/user instructions, prior memories, visible tree structure, and your write access; do not assume every space uses the same shared/private layout.",
           ),
         name: z
           .string()
@@ -146,7 +157,7 @@ Docs: ${docUrl("me_memory_create")}`,
       title: "Search Memories",
       description: `Search and browse memories using text matching and/or filters.
 
-Search modes: semantic (meaning), fulltext (keywords), or both (hybrid). For ordinary queries, short terms, identifiers, or exact words, prefer hybrid by setting both semantic and fulltext to the query text. Combine with tree, meta, and temporal filters. Results scored 0-1.
+Search modes: semantic (meaning), fulltext (keywords/exact text), or both (hybrid). Choose deliberately: semantic for concepts, fulltext for identifiers/errors/literal text, or both when both kinds of matching are useful. Combine with tree, meta, and temporal filters. Results scored 0-1.
 
 Docs: ${docUrl("me_memory_search")}`,
       inputSchema: {
@@ -155,7 +166,7 @@ Docs: ${docUrl("me_memory_search")}`,
           .optional()
           .nullable()
           .describe(
-            "Natural language query for semantic/meaning search. For short or literal queries, also set fulltext to the same value.",
+            "Natural language query for semantic/meaning search. Use fulltext instead for exact words, identifiers, filenames, errors, or other literal text.",
           ),
         fulltext: z
           .string()

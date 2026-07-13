@@ -208,7 +208,7 @@ Search memory proactively:
 
 ## Search Examples
 
-# Hybrid search (recommended: meaning + keywords)
+# Hybrid search (meaning + keywords)
 me_memory_search({semantic: "database-generated identifiers", fulltext: "database-generated identifiers"})
 
 # Semantic search (by meaning)
