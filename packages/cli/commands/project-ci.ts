@@ -60,6 +60,7 @@ import {
   requireSpace,
   resolveActiveSpace,
 } from "../util.ts";
+import { installedHookFile, stripHookBlock } from "./import-git-hook.ts";
 
 const execFileAsync = promisify(execFile);
 
@@ -615,13 +616,60 @@ async function runProjectCiBody(
     secret: presence,
     notes,
   };
+  /** A text-mode progress line (structured modes keep stdout clean). */
+  const step = (msg: string): void => {
+    if (fmt === "text") clack.log.step(msg);
+  };
+
+  /**
+   * Migration from the retired `me import git-hook`: an installed hook keeps
+   * firing `me import git` on every local commit (importing unmerged work)
+   * until its managed block is stripped — and the `--remove` path is gone
+   * with the command, so this is the supported removal. Runs only once CI
+   * credentials are in place (`ready`): stripping earlier would open a
+   * capture gap between "hook gone" and "CI not yet importing".
+   */
+  const migrateInstalledHook = async (ready: boolean): Promise<void> => {
+    if (opts.dryRun) return;
+    const hooksFile = await installedHookFile(gitRoot);
+    if (hooksFile === undefined) return;
+    if (!ready) {
+      notes.push(
+        `A retired 'me import git-hook' block is still installed (${hooksFile}); it will be removed once CI credentials are set up.`,
+      );
+      return;
+    }
+    const strip = interactive
+      ? unwrap(
+          await clack.confirm({
+            message:
+              "A retired 'me import git-hook' post-commit hook is installed — remove it? (CI now owns git imports; the local hook also imports unmerged commits.)",
+            initialValue: true,
+          }),
+        )
+      : true;
+    if (strip) {
+      await stripHookBlock(hooksFile);
+      step(`Removed the retired post-commit hook block from ${hooksFile}`);
+    } else {
+      notes.push(
+        "Kept the local post-commit hook — it imports unmerged commits; remove its '>>> memory-engine' block when ready.",
+      );
+    }
+  };
+
   /**
    * Render the summary and end the run (unwinds via FinishSignal). MUST be
    * awaited: output()'s structured write is async, and the process exits
    * right after the command action resolves — an unawaited write is lost.
+   * `credentialsReady` gates the retired-hook migration (see above).
    */
-  const finish = async (extra?: Partial<ProjectCiResult>): Promise<never> => {
-    Object.assign(result, extra);
+  const finish = async (
+    extra?: Partial<ProjectCiResult> & { credentialsReady?: boolean },
+  ): Promise<never> => {
+    const { credentialsReady, ...rest } = extra ?? {};
+    await migrateInstalledHook(credentialsReady === true);
+    Object.assign(result, rest);
     await output(result, fmt, () => {
       for (const n of notes) clack.log.info(n);
       if (
@@ -634,10 +682,6 @@ async function runProjectCiBody(
       }
     });
     throw new FinishSignal();
-  };
-  /** A text-mode progress line (structured modes keep stdout clean). */
-  const step = (msg: string): void => {
-    if (fmt === "text") clack.log.step(msg);
   };
 
   if (opts.dryRun) {
@@ -660,7 +704,7 @@ async function runProjectCiBody(
       notes.push(
         "Using the existing secret. (A secret's contents can't be read back — the first workflow run verifies it, and fails loudly.)",
       );
-      throw await finish();
+      throw await finish({ credentialsReady: true });
     }
     requireAuth(creds, fmt);
     requireSpace(creds, fmt);
@@ -688,7 +732,11 @@ async function runProjectCiBody(
       const { grants } = await memory.grant.list({ principalId: sa.id });
       if (hasWriteAtTree(grants, tree)) {
         step(`Verified: '${saName}' holds write on ${tree}`);
-        throw await finish({ serviceAccount: saName, verified: true });
+        throw await finish({
+          serviceAccount: saName,
+          verified: true,
+          credentialsReady: true,
+        });
       }
       const applyGrant = interactive
         ? unwrap(
@@ -705,7 +753,11 @@ async function runProjectCiBody(
         });
         step(`Granted write on ${tree} to '${saName}'`);
       }
-      throw await finish({ serviceAccount: saName, verified: applyGrant });
+      throw await finish({
+        serviceAccount: saName,
+        verified: applyGrant,
+        credentialsReady: true,
+      });
     } catch (error) {
       if (isSignal(error)) throw error;
       if (isAppErrorCode(error, "FORBIDDEN")) {
@@ -714,7 +766,11 @@ async function runProjectCiBody(
         notes.push(
           `Couldn't verify '${saName}' (requires admin/owner authority). The first workflow run verifies end-to-end.`,
         );
-        throw await finish({ serviceAccount: saName, verified: false });
+        throw await finish({
+          serviceAccount: saName,
+          verified: false,
+          credentialsReady: true,
+        });
       }
       handleError(error, fmt, { creds, scope: "space" });
     }
@@ -877,7 +933,7 @@ async function runProjectCiBody(
       : false;
     if (!overwrite) {
       notes.push("Kept the existing secret; no key was minted.");
-      throw await finish({ serviceAccount: finalName });
+      throw await finish({ serviceAccount: finalName, credentialsReady: true });
     }
   }
   const setNow = interactive
@@ -917,7 +973,11 @@ async function runProjectCiBody(
     if (isSignal(error)) throw error;
     handleError(error, fmt, { creds, scope: "space" });
   }
-  throw await finish({ serviceAccount: finalName, secret: "set" });
+  throw await finish({
+    serviceAccount: finalName,
+    secret: "set",
+    credentialsReady: true,
+  });
 }
 
 /** `me project ci` subcommand factory. */

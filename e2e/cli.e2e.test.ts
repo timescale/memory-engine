@@ -1592,7 +1592,7 @@ describe.skipIf(
     await rm(root, { recursive: true, force: true });
   });
 
-  test("8e. `me claude init` runs the git step; --skip-git-import suppresses it", async () => {
+  test("8e. `me project init` no longer imports git locally — CI owns git history", async () => {
     const root = await mkdtemp(join(tmpdir(), "me-e2e-gitinit-"));
     const name = `gitinit${rand()}`;
     const repo = join(root, name);
@@ -1614,22 +1614,28 @@ describe.skipIf(
     const fakeBinDir = await fakeHarnessBins(["claude"]);
     const initEnv = { PATH: `${fakeBinDir}:${process.env.PATH}` };
 
-    // --skip-git-import: no commit memories.
-    const skipped = await me(
+    // Plain init (non-interactive baseline): the git-import/git-hook steps
+    // are gone — no commit memories, no post-commit hook. (This repo has no
+    // GitHub remote, so the ci-workflow step is hidden too.) The CLAUDE.md
+    // pointer still names the project's git_history node.
+    const init = await me(["project", "init"], initEnv, repo);
+    expect(init.code, init.stderr).toBe(0);
+    expect(await countUnder(tree)).toBe(0);
+    expect(existsSync(join(repo, ".git", "hooks", "post-commit"))).toBe(false);
+    expect(
+      existsSync(join(repo, ".github", "workflows", "me-import.yml")),
+    ).toBe(false);
+    const claudeMd = await readFile(join(repo, "CLAUDE.md"), "utf8");
+    expect(claudeMd).toContain(`~/projects/${name}/git_history\``);
+
+    // The retired flags are gone: passing one is a parse error, not a
+    // silent no-op.
+    const stale = await me(
       ["project", "init", "--skip-git-import"],
       initEnv,
       repo,
     );
-    expect(skipped.code, skipped.stderr).toBe(0);
-    expect(await countUnder(tree)).toBe(0);
-
-    // Plain init (non-interactive baseline) imports the repo's history and
-    // the CLAUDE.md pointer names the git_history node.
-    const init = await me(["project", "init"], initEnv, repo);
-    expect(init.code, init.stderr).toBe(0);
-    expect(await countUnder(tree)).toBe(1);
-    const claudeMd = await readFile(join(repo, "CLAUDE.md"), "utf8");
-    expect(claudeMd).toContain(`~/projects/${name}/git_history\``);
+    expect(stale.code).not.toBe(0);
 
     await rm(fakeBinDir, { recursive: true, force: true });
     await rm(root, { recursive: true, force: true });
@@ -1781,63 +1787,73 @@ describe.skipIf(
     await rm(root, { recursive: true, force: true });
   });
 
-  test("8f. `me import git-hook` captures new commits via post-commit", async () => {
-    const root = await mkdtemp(join(tmpdir(), "me-e2e-githook-"));
-    const name = `githook${rand()}`;
+  test("8f. `me import git-hook` is removed; `me project ci` strips a legacy hook", async () => {
+    // The removed-command stub: errors, pointing at the replacement — and
+    // accepts the old flags without a Commander parse error masking it.
+    const stub = await me(["import", "git-hook", "--remove"]);
+    expect(stub.code).not.toBe(0);
+    expect(stub.stdout + stub.stderr).toContain("me project ci");
+
+    // Migration: a hook block installed by an older version is stripped by
+    // `me project ci` once CI credentials are in place (secret present).
+    const root = await mkdtemp(join(tmpdir(), "me-e2e-hookmig-"));
+    const name = `hookmig${rand()}`;
     const repo = join(root, name);
-    await mkdir(repo, { recursive: true });
-    const tree = `${homeProjects}.${name}.git_history`;
-
+    await mkdir(join(repo, ".me"), { recursive: true });
     await git(repo, ["init", "-q", "-b", "main"]);
-    await writeFile(join(repo, "a.txt"), "a\n");
-    await git(repo, ["add", "."], "2026-05-01T10:00:00Z");
-    await git(
-      repo,
-      ["commit", "-q", "-m", "feat: first"],
-      "2026-05-01T10:00:00Z",
+    await git(repo, [
+      "remote",
+      "add",
+      "origin",
+      `git@github.com:acme/${name}.git`,
+    ]);
+    await writeFile(
+      join(repo, ".me", "config.yaml"),
+      `space: ${spaceSlug}\ntree: /share/projects/${name}\n`,
     );
-
-    // Install: managed block written, executable, embeds the source invocation.
-    const install = await me(["import", "git-hook", repo]);
-    expect(install.code, install.stderr).toBe(0);
     const hookFile = join(repo, ".git", "hooks", "post-commit");
-    const hook = await readFile(hookFile, "utf8");
-    expect(hook).toContain(">>> memory-engine");
-    expect(hook).toContain("import git");
-    expect(hook).toContain(process.execPath); // bun + index.ts invocation
-    const { mode } = await stat(hookFile);
-    expect(mode & 0o111).not.toBe(0);
-
-    // Re-install is idempotent: still exactly one managed block.
-    const again = await me(["import", "git-hook", repo]);
-    expect(again.code, again.stderr).toBe(0);
-    const hook2 = await readFile(hookFile, "utf8");
-    expect(hook2.split(">>> memory-engine").length - 1).toBe(1);
-
-    // A commit fires the hook; its background incremental import catches up
-    // the whole history (both commits). The hook child inherits the commit's
-    // env, so merge cliEnv() in.
-    await writeFile(join(repo, "b.txt"), "b\n");
-    await git(repo, ["add", "."], "2026-05-02T10:00:00Z", cliEnv());
-    await git(
-      repo,
-      ["commit", "-q", "-m", "feat: second"],
-      "2026-05-02T10:00:00Z",
-      cliEnv(),
+    await mkdir(join(repo, ".git", "hooks"), { recursive: true });
+    await writeFile(
+      hookFile,
+      [
+        "#!/bin/sh",
+        "# >>> memory-engine (managed by `me import git-hook`) >>>",
+        "# Best-effort and asynchronous: never blocks or fails the commit.",
+        '("/usr/local/bin/me" import git >/dev/null 2>&1 &)',
+        "# <<< memory-engine <<<",
+        "",
+      ].join("\n"),
     );
-    const deadline = Date.now() + 30000;
-    while ((await countUnder(tree)) < 2 && Date.now() < deadline) {
-      await Bun.sleep(250);
-    }
-    expect(await countUnder(tree)).toBe(2);
 
-    // --remove deletes the managed block (and here the whole file, since the
-    // block was its only content).
-    const removed = await me(["import", "git-hook", "--remove", repo]);
-    expect(removed.code, removed.stderr).toBe(0);
+    // Fake gh reporting the secret as present (same contract as test 8i).
+    const fakeDir = await mkdtemp(join(tmpdir(), "me-e2e-hookmig-gh-"));
+    const binDir = join(fakeDir, "bin");
+    await mkdir(binDir, { recursive: true });
+    await writeFile(
+      join(binDir, "gh"),
+      [
+        "#!/bin/sh",
+        'case "$1" in',
+        "  auth) exit 0 ;;",
+        '  secret) if [ "$2" = "list" ]; then printf "ME_API_KEY\\n"; exit 0; fi; exit 1 ;;',
+        "  api) exit 0 ;;",
+        "esac",
+        "exit 1",
+        "",
+      ].join("\n"),
+    );
+    await chmod(join(binDir, "gh"), 0o755);
+
+    const run = await me(
+      ["project", "ci"],
+      { PATH: `${binDir}:${process.env.PATH}` },
+      repo,
+    );
+    expect(run.code, run.stderr + run.stdout).toBe(0);
     expect(existsSync(hookFile)).toBe(false);
 
     await rm(root, { recursive: true, force: true });
+    await rm(fakeDir, { recursive: true, force: true });
   });
 
   test("8h. `me import ci` orchestrates git + docs from the repo toplevel", async () => {

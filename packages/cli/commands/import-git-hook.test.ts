@@ -1,76 +1,44 @@
 /**
- * Tests for the managed post-commit hook block helpers.
+ * Tests for the retired hook's surviving cleanup helpers: block removal and
+ * the on-disk detect/strip pair `me project ci` uses to migrate hooks
+ * installed by older versions.
  */
 import { describe, expect, test } from "bun:test";
+import { execFileSync } from "node:child_process";
 import {
-  buildHookBlock,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  realpathSync,
+  writeFileSync,
+} from "node:fs";
+import { readFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import {
+  installedHookFile,
   removeHookBlock,
-  upsertHookScript,
+  stripHookBlock,
 } from "./import-git-hook.ts";
 
-const BLOCK = buildHookBlock('"/usr/local/bin/me"');
 const START = "# >>> memory-engine";
 
-describe("buildHookBlock", () => {
-  test("embeds the invocation, backgrounded and silenced", () => {
-    expect(BLOCK).toContain(
-      '("/usr/local/bin/me" import git >/dev/null 2>&1 &)',
-    );
-    expect(BLOCK.startsWith(START)).toBe(true);
-    expect(BLOCK.endsWith("\n")).toBe(true);
-  });
-
-  test("supports a two-part source invocation", () => {
-    const block = buildHookBlock('"/opt/bun" "/repo/packages/cli/index.ts"');
-    expect(block).toContain(
-      '("/opt/bun" "/repo/packages/cli/index.ts" import git >/dev/null 2>&1 &)',
-    );
-  });
-});
-
-describe("upsertHookScript", () => {
-  test("creates a fresh script with a shebang", () => {
-    const script = upsertHookScript(null, BLOCK);
-    expect(script.startsWith("#!/bin/sh\n")).toBe(true);
-    expect(script.split(START).length - 1).toBe(1);
-  });
-
-  test("treats an empty file as fresh", () => {
-    expect(upsertHookScript("  \n", BLOCK).startsWith("#!/bin/sh\n")).toBe(
-      true,
-    );
-  });
-
-  test("appends once to a foreign hook, preserving it", () => {
-    const foreign = '#!/bin/sh\necho "their hook"\n';
-    const script = upsertHookScript(foreign, BLOCK);
-    expect(script).toContain('echo "their hook"');
-    expect(script.indexOf(START)).toBeGreaterThan(script.indexOf("their hook"));
-    expect(script.split(START).length - 1).toBe(1);
-  });
-
-  test("re-install replaces the managed block in place without growth", () => {
-    const v1 = upsertHookScript("#!/bin/sh\necho before\n", BLOCK);
-    const newBlock = buildHookBlock('"/new/path/me"');
-    const v2 = upsertHookScript(v1, newBlock);
-    expect(v2.split(START).length - 1).toBe(1);
-    expect(v2).toContain('"/new/path/me"');
-    expect(v2).not.toContain("/usr/local/bin/me");
-    expect(v2).toContain("echo before");
-    // Idempotent: applying the same block again changes nothing.
-    expect(upsertHookScript(v2, newBlock)).toBe(v2);
-  });
-});
+/** The exact block older versions wrote (see the retired installer). */
+const LEGACY_BLOCK = [
+  "# >>> memory-engine (managed by `me import git-hook`) >>>",
+  "# Best-effort and asynchronous: never blocks or fails the commit.",
+  '("/usr/local/bin/me" import git >/dev/null 2>&1 &)',
+  "# <<< memory-engine <<<",
+  "",
+].join("\n");
 
 describe("removeHookBlock", () => {
   test("returns null when only the shebang would remain", () => {
-    const script = upsertHookScript(null, BLOCK);
-    expect(removeHookBlock(script)).toBeNull();
+    expect(removeHookBlock(`#!/bin/sh\n${LEGACY_BLOCK}`)).toBeNull();
   });
 
   test("preserves foreign content", () => {
-    const foreign = '#!/bin/sh\necho "their hook"\n';
-    const script = upsertHookScript(foreign, BLOCK);
+    const script = `#!/bin/sh\necho "their hook"\n${LEGACY_BLOCK}`;
     const remaining = removeHookBlock(script);
     expect(remaining).toContain('echo "their hook"');
     expect(remaining).not.toContain(START);
@@ -79,5 +47,51 @@ describe("removeHookBlock", () => {
   test("is a no-op on a script without the block", () => {
     const foreign = '#!/bin/sh\necho "their hook"\n';
     expect(removeHookBlock(foreign)).toBe(foreign);
+  });
+});
+
+describe("installedHookFile / stripHookBlock", () => {
+  function makeRepo(): string {
+    // realpath: git prints physical paths (macOS /var → /private/var), and
+    // installedHookFile derives its result from git's answer.
+    const root = realpathSync(mkdtempSync(join(tmpdir(), "me-hookmig-")));
+    execFileSync("git", ["-C", root, "init", "-q", "-b", "main"]);
+    return root;
+  }
+
+  test("detects a legacy block and strips it (file deleted when block-only)", async () => {
+    const repo = makeRepo();
+    const hooksFile = join(repo, ".git", "hooks", "post-commit");
+    mkdirSync(join(repo, ".git", "hooks"), { recursive: true });
+    writeFileSync(hooksFile, `#!/bin/sh\n${LEGACY_BLOCK}`);
+
+    expect(await installedHookFile(repo)).toBe(hooksFile);
+    await stripHookBlock(hooksFile);
+    expect(existsSync(hooksFile)).toBe(false);
+    expect(await installedHookFile(repo)).toBeUndefined();
+  });
+
+  test("stripping preserves a foreign hook's own content", async () => {
+    const repo = makeRepo();
+    const hooksFile = join(repo, ".git", "hooks", "post-commit");
+    mkdirSync(join(repo, ".git", "hooks"), { recursive: true });
+    writeFileSync(hooksFile, `#!/bin/sh\necho "theirs"\n${LEGACY_BLOCK}`);
+
+    expect(await installedHookFile(repo)).toBe(hooksFile);
+    await stripHookBlock(hooksFile);
+    const remaining = await readFile(hooksFile, "utf8");
+    expect(remaining).toContain('echo "theirs"');
+    expect(remaining).not.toContain(START);
+    expect(await installedHookFile(repo)).toBeUndefined();
+  });
+
+  test("undefined outside a repo / without a block; strip is idempotent", async () => {
+    const plain = mkdtempSync(join(tmpdir(), "me-hookmig-plain-"));
+    expect(await installedHookFile(plain)).toBeUndefined();
+
+    const repo = makeRepo();
+    expect(await installedHookFile(repo)).toBeUndefined();
+    // Stripping a missing file is a clean no-op.
+    await stripHookBlock(join(repo, ".git", "hooks", "post-commit"));
   });
 });

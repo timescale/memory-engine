@@ -30,7 +30,7 @@ import {
 import { createCiImportCommand } from "./import-ci.ts";
 import { createDocsImportCommand } from "./import-docs.ts";
 import { createGitImportCommand } from "./import-git.ts";
-import { createGitHookCommand } from "./import-git-hook.ts";
+import { createRemovedGitHookCommand } from "./import-git-hook.ts";
 import { createGranolaImportCommand } from "./import-granola.ts";
 import { createSlabImportCommand } from "./import-slab.ts";
 import { createMemoryImportCommand } from "./memory-import.ts";
@@ -45,7 +45,8 @@ export function createImportCommand(): Command {
   imp.addCommand(createOpenCodeImportCommand("opencode"));
   imp.addCommand(createGranolaImportCommand());
   imp.addCommand(createGitImportCommand());
-  imp.addCommand(createGitHookCommand());
+  // Removed-command stub: local hooks were replaced by the CI import.
+  imp.addCommand(createRemovedGitHookCommand(), { hidden: true });
   imp.addCommand(createDocsImportCommand());
   imp.addCommand(createCiImportCommand());
   imp.addCommand(createSlabImportCommand());
