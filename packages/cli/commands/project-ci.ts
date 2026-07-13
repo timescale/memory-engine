@@ -761,7 +761,7 @@ async function runProjectCiBody(
         // grant.list on another principal is admin-gated: verify degrades to
         // a note rather than blocking a setup that may be perfectly fine.
         notes.push(
-          `Couldn't verify '${saName}' (requires admin/owner authority). The first workflow run verifies end-to-end.`,
+          `Couldn't verify '${saName}' locally (requires admin/owner authority). Run the workflow on GitHub to verify.`,
         );
         throw await finish({
           serviceAccount: saName,
