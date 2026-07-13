@@ -67,6 +67,10 @@ const SESSION_UPDATE_AGE_SECONDS = 60 * 60 * 24;
 const DEVICE_CODE_EXPIRES_IN = "15m";
 const DEVICE_CODE_POLL_INTERVAL = "5s";
 
+/** Per-IP cap for unauthenticated device-code issuance. */
+const DEVICE_CODE_RATE_WINDOW_SECONDS = 60;
+const DEVICE_CODE_RATE_MAX = 10;
+
 /**
  * Deterministic at-rest hash for OAuth access/refresh tokens. Used BOTH as the
  * provider's `storeTokens` hasher (so tokens are stored hashed) AND by the
@@ -99,6 +103,11 @@ export interface BetterAuthOptions {
   google?: OAuthProviderCredentials;
   /** Max connections for the dedicated auth pool. Default 5 (lookups are cheap). */
   poolMax?: number;
+  /**
+   * Override better-auth's rate-limit enabled flag. Undefined preserves its
+   * default behavior: enabled in production, disabled in development/test.
+   */
+  rateLimitEnabled?: boolean;
 }
 
 /**
@@ -126,6 +135,15 @@ export function createBetterAuth(opts: BetterAuthOptions) {
     basePath: AUTH_BASE_PATH,
     secret: opts.secret,
     trustedOrigins: opts.trustedOrigins,
+    rateLimit: {
+      enabled: opts.rateLimitEnabled,
+      customRules: {
+        "/device/code": {
+          window: DEVICE_CODE_RATE_WINDOW_SECONDS,
+          max: DEVICE_CODE_RATE_MAX,
+        },
+      },
+    },
     databaseHooks: {
       session: {
         create: {
@@ -269,9 +287,16 @@ export function createBetterAuth(opts: BetterAuthOptions) {
       // gates it) — NOT an OAuth token, so there is no refresh token; the session
       // slides on use. The resulting session token is accepted as a bearer by the
       // `bearer` plugin below. `validateClient` restricts code issuance to the
-      // first-party CLI. `verificationUri` points at the web page (same origin as
-      // the API). The `deviceCode` model is mapped to the snake_case device_code
-      // table (single-word fields status/scope keep their name).
+      // first-party CLI. Code issuance is also rate-limited by better-auth's
+      // per-IP limiter (10/min on /device/code). We intentionally keep the
+      // default memory backend: the cap is per process/pod and resets on restart,
+      // but it still bounds unauthenticated row/WAL amplification without adding
+      // another database write to every auth request. The key uses better-auth's
+      // default client-IP extraction (x-forwarded-for[0]), so the ingress must
+      // provide a trustworthy XFF value. `verificationUri` points at the web page
+      // (same origin as the API). The `deviceCode` model is mapped to the
+      // snake_case device_code table (single-word fields status/scope keep their
+      // name).
       deviceAuthorization({
         expiresIn: DEVICE_CODE_EXPIRES_IN,
         interval: DEVICE_CODE_POLL_INTERVAL,
