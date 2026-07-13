@@ -12,6 +12,7 @@ Get data into Memory Engine — one subcommand per source.
 - [me import git](#me-import-git) -- import a repo's git commit history
 - [me import git-hook](#me-import-git-hook-removed) -- removed; CI imports replaced the local hook (see [`me project ci`](me-project.md#me-project-ci))
 - [me import docs](#me-import-docs) -- import a directory's markdown docs (git-aware)
+- [me import ci](#me-import-ci) -- the orchestrated CI run: git history + docs from the repo toplevel
 - [me import slab](#me-import-slab) -- import a Slab knowledge-base export (a directory or `.zip`)
 
 There is no bare default: `me import <file>` does not parse — use `me import memories <file>`.
@@ -284,6 +285,45 @@ me import docs . --temporal-key date    # blog/ADR repos with date: frontmatter
 me import docs --prune --dry-run        # preview a full-corpus reconcile
 me import docs --prune                  # re-sync, deleting removed/renamed docs
 me memory tree ~/projects/acme/docs --levels 3   # browse the result
+```
+
+---
+
+## me import ci
+
+Run the project's configured imports — git history, then docs — from the repo toplevel with CI-appropriate defaults. This is the one command the scaffolded GitHub workflow calls (see [`me project ci`](me-project.md#me-project-ci)); the orchestration lives in the CLI so behavior ships with `me` releases and the committed workflow file stays frozen.
+
+```
+me import ci [--dry-run] [-v]
+```
+
+| Option | Description |
+|--------|-------------|
+| `--dry-run` | Report what each phase would import/prune without writing. Run it locally to preview **exactly** what CI will do. |
+| `-v, --verbose` | Per-item progress output. |
+
+Must run inside a git repository; everything anchors at the repo toplevel regardless of the invocation directory. Phases:
+
+1. **Git history** — [`me import git`](#me-import-git) on `HEAD`: incremental via the server-side high-water lookup, so the first CI run is automatically a full-history backfill and every later run imports only new commits.
+2. **Docs** — [`me import docs`](#me-import-docs) from the repo toplevel with the default markdown globs and **prune on**: the CI walk is the authoritative full corpus, so deleted/renamed docs are removed. A repo with no matching docs skips the phase cleanly.
+
+Phases are fail-fast and loud: any failure exits non-zero, so the workflow goes red instead of rotting silently.
+
+The optional `import:` block in `.me/config.yaml` shapes the run — phase toggles and docs scoping ([project config → the `import` block](../project-config.md#the-import-block-ci-imports)):
+
+```yaml
+import:
+  git: true                 # default true
+  docs: true                # default true
+  docs_include: ["docs/**"] # optional; default = all markdown in the repo
+  docs_exclude: []          # optional
+```
+
+In CI the identity is the `ME_API_KEY` bearer — a service account with a write grant at the project tree. Targeting (server/space/tree) resolves from the committed `.me/config.yaml` exactly as it does for the underlying importers. `--json`/`--yaml` are not supported (two phases can't render one structured document) — run the phases separately for structured output.
+
+```bash
+me import ci --dry-run     # locally: preview what the next CI run does
+me import ci               # what the workflow runs on push to the default branch
 ```
 
 ---

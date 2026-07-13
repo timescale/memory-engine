@@ -5,6 +5,7 @@ Harness-agnostic per-project setup.
 ## Commands
 
 - [me project init](#me-project-init) -- configure this project's memory: space, location, agent, and the setup checklist
+- [me project ci](#me-project-ci) -- set up the GitHub Actions import workflow (scaffold + service-account credentials)
 
 ---
 
@@ -63,8 +64,7 @@ A grouped multiselect, everything pre-checked (non-interactive runs execute all 
 | Codex sessions | Import this project's existing Codex sessions (one-time backfill) | `--skip-transcript-import-codex` | Same, for Codex. **Hidden** when this project has no Codex sessions. |
 | OpenCode sessions | Import this project's existing OpenCode sessions (one-time backfill) | `--skip-transcript-import-opencode` | Same, for OpenCode. **Hidden** when this project has no OpenCode sessions. |
 | Session capture | Enable ongoing capture of new agent sessions | `--skip-capture-enable` | Writes `capture: true` to `.me/config.yaml` — the committed, per-project capture opt-in every installed harness's hooks honor (it wins over each member's global setting). One flag covers every harness; interactively **deselecting** this row writes an explicit `capture: false`, so the committed config is deterministic for the team; non-interactively, `--skip-capture-enable` just leaves the file untouched. |
-| Git history | Import existing git commit history (one-time backfill) | `--skip-git-import` | Same import as [`me import git`](me-import.md#me-import-git). Hidden outside a git repo. |
-| Git history | Install a git post-commit hook | `--skip-git-hook` | The managed hook from [`me import git-hook`](me-import.md#me-import-git-hook). Hidden outside a git repo or when a hooks manager owns the hook path. |
+| CI import | Set up the GitHub Actions import workflow | `--skip-ci-workflow` | Runs [`me project ci`](#me-project-ci): scaffolds `.github/workflows/me-import.yml` and walks through service-account credentials. Imports (git history + docs) then run in CI on push to the default branch — the first run backfills the full history, so there is no local backfill step. **Hidden** outside a git repo or without a GitHub remote. A pending end-state (e.g. "ask your space admin") never aborts the rest of init. |
 | Project config | Add a memory pointer to CLAUDE.md | `--skip-claude-md` | Upserts a managed block naming the project tree and how to search it. **Hidden** unless Claude Code is installed on this machine. |
 | Project config | Add a memory pointer to AGENTS.md | `--skip-agents-md` | Same, for `AGENTS.md` — the convention OpenCode and Codex both read. **Hidden** unless OpenCode or Codex is installed on this machine. |
 
@@ -83,8 +83,52 @@ agent: acme-api-agent
 capture: true
 ```
 
-plus the backfills, the git hook, and the CLAUDE.md pointer.
+plus the session backfills, the CI import workflow, and the CLAUDE.md pointer.
 
 ### Deprecated aliases
 
 `me claude init` and `me opencode init` both now print a rename notice and run this command; the aliases will be removed in a future release.
+
+---
+
+## me project ci
+
+Set up (and maintain) the GitHub Actions workflow that imports this repo's git history and docs into Memory Engine on every push to the default branch. The workflow calls [`me import ci`](me-import.md#me-import-ci); this command owns everything around it: the workflow file, the service-account identity, and the key-in-a-secret.
+
+```
+me project ci [--create-service-account] [--service-account <name>]
+              [--key-name <secret-name>] [--rotate-key] [--dry-run]
+```
+
+Interactive on a TTY (prompts stand in for the flags); the flags are the headless spellings. Requires a committed `.me/config.yaml` pinning `space` and a **shared** (non-`~`) `tree` — the CI run authenticates as a service account, which has no home tree. Run [`me project init`](#me-project-init) first.
+
+| Option | Description |
+|--------|-------------|
+| `--create-service-account` | Provision repo-scoped credentials without prompting. Provisioning is **never** implicit — a missing secret alone only errors with the options. |
+| `--service-account <name>` | The service account expected to hold the CI credentials. Default: the committed `import.service_account`, else `<repo>-import`. |
+| `--key-name <secret-name>` | The GitHub secret's name (default `ME_API_KEY`). Baked into the workflow as `ME_API_KEY: ${{ secrets.<name> }}` — the env var `me` reads never changes — and recovered from the managed workflow on later runs. For orgs whose repos span multiple spaces (one org secret per space, distinct names). |
+| `--rotate-key` | Mint a new key for the (existing) service account and update the secret. Self-serve for the account's bound admin group. |
+| `--dry-run` | Report what would happen without writing anything. |
+
+### What it does
+
+1. **Workflow** — writes/updates `.github/workflows/me-import.yml` with managed-file semantics: a marker line identifies the scaffold; a hand-maintained file is never silently overwritten. The scaffold is **repo-agnostic** — the default branch is discovered at runtime by the workflow's own job gate (`github.event.repository.default_branch`), so it survives branch renames and an org can distribute the identical file to every repo.
+2. **Secret check** — is a secret named `<key-name>` already available to the repo? Checked via `gh`: repo secrets plus org-provided secrets (the org-secret setup, where an org admin provisions one shared service account + one org secret and per-repo setup collapses to the scaffold). GitHub secrets are write-only, so presence is the only signal — the contents are verified end-to-end by the first workflow run, which fails loudly if the key or grants are wrong.
+3. **Identity + key** (only when provisioning — explicit flag or interactive yes): ensure the service account exists (creating it with **you seeded into its bound admin group**, so rotation stays self-serve), ensure a **write** grant at the project tree, then mint a key **directly into** `gh secret set` — a key is minted only when it has an immediate destination, and is never displayed or stored. Without `gh`, nothing is minted; the exact commands to run together are printed instead.
+
+With the secret present and an identity named (`--service-account` or the committed `import.service_account`), the run instead **verifies**: the account exists and holds write at the project tree (a missing grant is offered/applied; a missing account is a hard inconsistency error pointing at `--create-service-account`).
+
+### When creation is denied (you're not a space admin)
+
+Creating a service account requires a space admin — the expected common case for a repo dev. The denial is not a dead end: the error names the space's admins (with emails) and the exact two commands to ask one of them to run:
+
+```
+me service create <repo>-import --admin you@example.com
+me access grant write /share/projects/<repo> <repo>-import
+```
+
+`--admin you@…` puts you in the account's bound admin group, so after re-running `me project ci`, key minting and future rotation are yours — no further admin involvement.
+
+### Migration from the retired git hook
+
+A post-commit hook installed by the removed [`me import git-hook`](me-import.md#me-import-git-hook-removed) keeps firing on every commit until its block is removed. `me project ci` detects the block and strips it **once CI credentials are in place** (never earlier — that would open a gap between "hook gone" and "CI not yet importing").
