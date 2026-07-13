@@ -20,7 +20,7 @@
       `window.location.pathname`), so a provider/verified-email error returns to
       `/device` without `user_code` — a retry can't resume. Preserve the full
       device URL (with code) on the error callback too. (DeviceVerificationPage.tsx:185)
-- [ ] 5. `pollDeviceToken` treats a rejected `fetch` as fatal and has no per-request
+- [x] 5. `pollDeviceToken` treats a rejected `fetch` as fatal and has no per-request
       abort deadline (RFC 8628 §3.5 wants transient failures retried with reduced
       frequency; a hung connection can outlive `expiresIn`). Retry transient
       failures with backoff; bound each request by the remaining lifetime.

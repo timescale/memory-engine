@@ -29,6 +29,28 @@ const DEFAULT_INTERVAL_SECONDS = 5;
 /** RFC 8628 §3.5: bump the poll interval by 5s on a `slow_down`. */
 const SLOW_DOWN_INCREMENT_MS = 5_000;
 
+function deviceTimeoutError(): OAuthError {
+  return new OAuthError(
+    "Device login timed out before it was approved. Run 'me login --device' again.",
+  );
+}
+
+function remainingMs(deadline: number): number {
+  return deadline - Date.now();
+}
+
+async function sleepBeforeRetry(
+  sleep: (ms: number) => Promise<void>,
+  intervalMs: number,
+  deadline: number,
+): Promise<void> {
+  // Stop before oversleeping past the code's expiry.
+  if (Date.now() + intervalMs >= deadline) {
+    throw deviceTimeoutError();
+  }
+  await sleep(intervalMs);
+}
+
 export interface DeviceAuthorization {
   /** The CLI's polling secret (kept local, sent to the token endpoint). */
   deviceCode: string;
@@ -144,9 +166,14 @@ export async function pollDeviceToken(p: {
 
   while (true) {
     let res: Response;
+    const requestTimeoutMs = remainingMs(deadline);
+    if (requestTimeoutMs <= 0) {
+      throw deviceTimeoutError();
+    }
     try {
       res = await fetch(`${base(p.server)}/device/token`, {
         method: "POST",
+        signal: AbortSignal.timeout(requestTimeoutMs),
         headers: {
           "Content-Type": "application/json",
           Accept: "application/json",
@@ -157,12 +184,14 @@ export async function pollDeviceToken(p: {
           client_id: OAUTH_CLIENT_ID,
         }),
       });
-    } catch (error) {
-      throw new OAuthError(
-        `Lost connection to ${p.server} while waiting for approval: ${
-          error instanceof Error ? error.message : String(error)
-        }`,
-      );
+    } catch {
+      // RFC 8628 §3.5: retry connection failures, but reduce polling frequency.
+      // A per-request AbortSignal bounds hung connections by the device-code TTL;
+      // other rejected fetches (e.g. transient network failures) follow the same
+      // backoff path.
+      intervalMs += SLOW_DOWN_INCREMENT_MS;
+      await sleepBeforeRetry(sleep, intervalMs, deadline);
+      continue;
     }
     const body = await readJson(res);
 
@@ -201,12 +230,6 @@ export async function pollDeviceToken(p: {
         );
     }
 
-    // Stop before oversleeping past the code's expiry.
-    if (Date.now() + intervalMs >= deadline) {
-      throw new OAuthError(
-        "Device login timed out before it was approved. Run 'me login --device' again.",
-      );
-    }
-    await sleep(intervalMs);
+    await sleepBeforeRetry(sleep, intervalMs, deadline);
   }
 }
