@@ -81,7 +81,10 @@ interface LoginOptions {
   switch?: boolean;
   /** Use the device authorization grant (headless — no local browser needed). */
   device?: boolean;
-  /** commander `--no-browser` → false; whether to auto-open a browser. */
+  /**
+   * commander `--no-browser` → false; whether to auto-open a browser. Applies to
+   * both flows (loopback and device).
+   */
   browser?: boolean;
 }
 
@@ -99,7 +102,7 @@ export function createLoginCommand(): Command {
     )
     .option(
       "--no-browser",
-      "don't open a browser automatically (device login); just print the URL and code",
+      "don't open a browser automatically; just print the URL (and code, for --device) to open yourself",
     )
     .action(async (spaceArg: string | undefined, opts: LoginOptions, cmd) => {
       const globalOpts = cmd.optsWithGlobals();
@@ -138,7 +141,12 @@ export function createLoginCommand(): Command {
               fmt,
               openBrowser: opts.browser !== false,
             })
-          : await authorizeViaLoopback({ server, fmt, forceSwitch });
+          : await authorizeViaLoopback({
+              server,
+              fmt,
+              forceSwitch,
+              openBrowser: opts.browser !== false,
+            });
 
         storeTokens(server, {
           access_token: tokens.accessToken,
@@ -231,6 +239,8 @@ async function authorizeViaLoopback(p: {
   fmt: OutputFormat;
   /** Force the AS sign-in page (account switch) via `prompt=login`. */
   forceSwitch: boolean;
+  /** Auto-open the browser (false for `--no-browser`: just print the URL). */
+  openBrowser: boolean;
 }): Promise<OAuthTokens> {
   const pkce = await generatePkce();
   const state = generateState();
@@ -247,7 +257,9 @@ async function authorizeViaLoopback(p: {
           // account/provider instead of the silently-reused session.
           ...(p.forceSwitch ? { prompt: "login" } : {}),
         }),
-      openBrowser,
+      // `--no-browser`: skip the auto-open; the user opens the printed URL in a
+      // local browser (the redirect still lands on this machine's loopback).
+      openBrowser: p.openBrowser ? openBrowser : async () => {},
       // The web UI is served at the server origin; link the user there from the
       // success page (their browser already has a session cookie there).
       uiUrl: p.server,
@@ -255,7 +267,9 @@ async function authorizeViaLoopback(p: {
         if (p.fmt === "text") {
           clack.note(
             url,
-            "Opening your browser to sign in. If it doesn't open, visit:",
+            p.openBrowser
+              ? "Opening your browser to sign in. If it doesn't open, visit:"
+              : "Open this URL in a browser on this machine to sign in:",
           );
           spin?.start("Waiting for authorization...");
         }
