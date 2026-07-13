@@ -14,6 +14,8 @@ Clears the stored **session token** for the active server — from the OS keycha
 
 Agent API keys are never persisted by the CLI (they only ever come from `ME_API_KEY`), so there is nothing to clear for agents.
 
+This clears the CLI's local credentials only — it does **not** sign your browser out of the server. Because the browser keeps its own session, a plain `me login` afterward re-authorizes the same account. To sign in as a different account, use [`me login --switch`](me-login.md#switching-accounts), which forces the sign-in page to appear again.
+
 ## Global Options
 
 | Option | Description |

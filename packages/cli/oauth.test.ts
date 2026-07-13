@@ -47,4 +47,29 @@ describe("buildAuthorizeUrl", () => {
     expect(q.get("state")).toBe("xyz");
     expect(q.get("scope")).toBe(OAUTH_SCOPE);
   });
+
+  test("omits prompt by default", () => {
+    const url = new URL(
+      buildAuthorizeUrl({
+        server: "https://api.example.com/",
+        redirectUri: "http://127.0.0.1:54321/callback",
+        codeChallenge: "abc123",
+        state: "xyz",
+      }),
+    );
+    expect(url.searchParams.has("prompt")).toBe(false);
+  });
+
+  test("includes prompt=login when passed (me login --switch)", () => {
+    const url = new URL(
+      buildAuthorizeUrl({
+        server: "https://api.example.com/",
+        redirectUri: "http://127.0.0.1:54321/callback",
+        codeChallenge: "abc123",
+        state: "xyz",
+        prompt: "login",
+      }),
+    );
+    expect(url.searchParams.get("prompt")).toBe("login");
+  });
 });
