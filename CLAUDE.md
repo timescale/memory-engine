@@ -7,16 +7,34 @@ Permanent memory for AI agents. Store, search, and organize knowledge across con
 All project documentation lives in `docs/`:
 
 - [Getting Started](docs/getting-started.md) -- install, login, first memory
+- [Joining a Space](docs/joining-a-space.md) -- onboarding for invited teammates + shared-space conventions
 - [Core Concepts](docs/concepts.md) -- memories, tree paths, metadata, search modes
 - [Project Config](docs/project-config.md) -- `.me/config.yaml`: per-project server/space/tree pinning
 - [File Formats](docs/formats.md) -- JSON, YAML, Markdown, NDJSON import/export schemas
 - [Access Control](docs/access-control.md) -- principals, groups, tree-access grants
 - [Memory Packs](docs/memory-packs.md) -- pre-built knowledge collections
 - [MCP Integration](docs/mcp-integration.md) -- connecting AI agents
+- [TypeScript Client](docs/typescript-client.md) -- programmatic access from TS/JS
+- [Troubleshooting](docs/troubleshooting.md) -- common issues and error codes
 - [CLI Reference](docs/cli/) -- full command reference
 - [MCP Tool Reference](docs/mcp/) -- full MCP tool reference
 
 Read the relevant docs before starting work on a subsystem.
+
+> **Audience — `docs/` is for _users_ of Memory Engine, not its developers.**
+> Everything under `docs/` is published to https://docs.memory.build/ (GitHub
+> Pages), so write it for people _using_ Memory Engine (developer-leaning, but not
+> restricted to developers) — not for people _building_ it. Keep user-relevant
+> terms (semantic/fulltext/hybrid search, tree paths, grant levels), but keep
+> ME-internal detail out: no source paths (`packages/…`), internal function or DB
+> schema names (e.g. `me_<slug>`, SQL/RPC function names), internal design docs
+> (`AUTH_DESIGN.md`, `HARNESS_DESIGN.md`), Linear links, CI/test mechanics, or
+> roadmap/unbuilt features. Contributor/build/design notes belong in this file and
+> the other root `*_DESIGN.md`/`DEVELOPMENT.md` docs instead. New CLI commands and
+> MCP tools need a matching page (enforced by `packages/cli/docs-cli-links.test.ts`
+> and `packages/cli/mcp/docs-links.test.ts`); new `docs/` pages must be added to
+> the sidebar in `packages/docs-site/lib/nav.ts` (enforced by
+> `packages/docs-site/lib/nav.test.ts`).
 
 > **Note**: the authoritative summary of the current model (principals / spaces /
 > the auth+core+space schemas) is in this file. Some `docs/` pages still describe
