@@ -1,8 +1,24 @@
 # Design sketch: optional email/password auth (no automated email)
 
-**Status:** exploratory sketch for discussion — not a committed plan.
+**Status:** design direction agreed on the core decisions; two sub-calls remain
+(see "Open decisions"). Not yet an implementation.
 **Scope:** add an *optional*, self-host-oriented email + password login method
 alongside the existing GitHub/Google OAuth, **without sending any email**.
+
+**Decisions locked in so far:**
+
+- **D1 — `email_verified` semantics:** keep its current meaning ("an identity
+  provider vouched for this address"); do **not** corrupt it. Go with **Option A**
+  (credential accounts stay `email_verified = false`; only the *login* gate learns
+  to trust a credential session).
+- **D4 — hosted policy:** memory.build stays **OAuth-only**. The feature is
+  self-host-only, achieved purely by leaving the flag off in the hosted deploy
+  config — no enforcement code.
+- **D2 / D3 direction:** closed (admin-created) registration *and* password reset
+  both require a **server-operator surface**, not an in-app RPC — because the
+  product has no global/server admin and space-admin is the wrong authority for
+  account-level actions (see "The authority problem" below). Whether that surface
+  lands in v1 or as an immediate fast-follow is still open.
 
 ## Goals & non-goals
 
@@ -28,8 +44,10 @@ email-constrained and open "magic links") mint a token that the **admin shares
 out-of-band** — the server never emails anyone (`me space invite` prints
 `Share this link: <url>`; the token is re-readable via `invite.list`). A
 no-email email/password design is therefore *consistent* with the existing
-model, not a workaround. Password reset, if built, follows the same pattern: a
-server-minted token an admin hands over out-of-band.
+model, not a workaround. Password reset follows the same pattern — a
+server-minted token handed over out-of-band — though minted by the **deployment
+operator**, not a space admin (see "The authority problem" for why account-level
+actions can't be space-admin-gated).
 
 ---
 
@@ -67,13 +85,20 @@ A single feature flag, env-var driven (matches the existing
 | Env var | Default | Meaning |
 |---|---|---|
 | `AUTH_EMAIL_PASSWORD` | `false` | Master switch for email/password login. |
-| `AUTH_EMAIL_PASSWORD_SIGNUP` | `true` when enabled | Allow open self-service sign-up. `false` = existing accounts only (created via CLI/admin). |
+| `AUTH_EMAIL_PASSWORD_SIGNUP` | `true` when enabled | Allow open self-service sign-up. `false` = closed registration; accounts are created only via the server-operator surface (see below). |
 | `AUTH_EMAIL_PASSWORD_MIN_LENGTH` | `8` | Minimum password length (passthrough to better-auth). |
 
 Notes:
 
 - Flag **off** ⇒ the server behaves exactly as today. No new UI, no new routes,
-  `provider_id='credential'` never occurs.
+  `provider_id='credential'` never occurs. **This is exactly how hosted
+  (memory.build) stays OAuth-only (D4): the hosted deploy config simply never
+  sets `AUTH_EMAIL_PASSWORD=true`.** No enforcement code — config discipline,
+  consistent with how the OAuth provider vars already work.
+- `AUTH_EMAIL_PASSWORD_SIGNUP` (the `disableSignUp` toggle) is an option *under*
+  better-auth's `emailAndPassword` block, which only exists when the master flag
+  is on. So it is inherently self-host-only and **inert on hosted** — no
+  interaction with the OAuth-only hosted deployment.
 - The existing startup warning ("No OAuth providers configured") is relaxed:
   having *either* a social provider *or* email/password enabled satisfies it;
   the warning fires only when **no** login method is configured.
@@ -95,83 +120,150 @@ emailAndPassword: opts.emailPassword?.enabled
   ? {
       enabled: true,
       minPasswordLength: opts.emailPassword.minPasswordLength ?? 8,
-      // Open registration toggle. When false, sign-up is refused (accounts are
-      // provisioned by an admin/CLI path instead).
+      // Open registration toggle. When false, sign-up is refused; accounts are
+      // provisioned only via the server-operator surface (see "The authority
+      // problem"). Self-host-only; inert on hosted (block absent when flag off).
       disableSignUp: !opts.emailPassword.allowSignUp,
       // No email sender is configured, so verification cannot be required.
+      // Credential accounts stay email_verified=false (Option A); the login gate
+      // trusts them instead of the row's flag.
       requireEmailVerification: false,
-      // We do NOT wire sendResetPassword — self-service email reset is not a
-      // feature in the no-email design (see "Password reset" below).
+      // We do NOT wire sendResetPassword — there is no email sender. Reset is an
+      // operator-minted out-of-band link instead (see "Password reset" below).
       autoSignIn: true,
     }
   : undefined,
 ```
 
-### 2. The `email_verified` question (the crux)
+### 2. The `email_verified` question (the crux) — DECIDED: Option A
 
-Decide what `email_verified` means for a `provider_id='credential'` account. In
-the no-email design the address is **unproven** (no one clicked a link), so the
-honest value is `false`. But `false` trips the login gate. Two viable options:
+**Decision:** keep `email_verified` meaning exactly what it means today — "an
+identity provider (GitHub/Google) vouched that this person controls this
+address." We do **not** corrupt it for credential accounts.
 
-**Option A — trust credential accounts at the gate (recommended for no-email).**
-Leave `email_verified = false` in the row (it's the truth — unverified), and make
-the `session.create.before` gate *pass* for credential-backed sessions. The gate
-becomes: "block only if the login came from a social provider whose email is
-unverified." Since GitHub/Google only release verified emails, the social branch
-is effectively unchanged; credential logins are admitted.
+In the no-email design a credential address is **unproven** (no one clicked a
+link), so the honest stored value is `false`. But `false` trips the
+`session.create.before` login gate (`betterauth.ts:130`). So the gate — and only
+the gate — learns to treat a credential-backed session as allowed:
 
-- Pro: honest data (`email_verified` still reflects "provider verified"), and a
-  later SMTP upgrade can flip real verification on without a data migration.
-- Con: the gate logic must learn how to tell "this session is credential-backed."
-  The hook receives the session; resolving the account's `provider_id` is an
-  extra lookup. Cleaner alternative: gate on a per-user fact instead (below).
-
-**Option B — set `email_verified = true` on credential sign-up.**
-Simplest: the gate is untouched; credential users pass because their row says
-verified.
-
-- Pro: trivial; no gate changes; invitation discovery "just works."
-- Con: `email_verified` now means two different things ("provider verified" for
-  social, "exists" for credential). A future SMTP upgrade that wants *real*
-  verification must distinguish them, likely needing a data migration or a
-  second column.
-
-**Recommendation:** Option A, expressed as a small helper the gate calls, e.g.
-`isLoginAllowed(user, accountProviderId)`:
+Expressed as a small helper the hook calls, e.g. `isLoginAllowed(user, accountProviderId)`:
 
 ```
-allow if provider is credential                    // no-email: trust it
+allow if provider is credential                    // no-email: trust it at login
 allow if user.email_verified                       // social, verified
 else block EMAIL_NOT_VERIFIED                       // social, unverified
 ```
 
-This keeps `email_verified` semantically clean ("an identity provider vouched
-for this address") and makes the future SMTP path a pure addition (require a
-verification click → set `email_verified = true` for credential accounts too).
+Since GitHub/Google only release verified emails, the social branch is
+effectively unchanged; credential logins are admitted **without** flipping
+`email_verified`. This keeps the flag semantically clean and makes a future SMTP
+upgrade a pure addition (require a verification click → set `email_verified =
+true` for credential accounts too — no data migration, no second column).
+
+**Rejected — Option B (`email_verified = true` on sign-up):** trivial (no gate
+change), but it makes `email_verified` mean two different things and, worse, lets
+a self-registered unproven address satisfy email-keyed authorization (invitation
+discovery — see below). Explicitly not chosen.
+
+Implementation note: the hook receives the session; telling a credential session
+from a social one needs a small `accounts` lookup for `provider_id='credential'`
+(login is infrequent, so the cost is negligible). To verify against the exact
+better-auth `databaseHooks.session.create.before` signature at build time.
 
 ### 3. Invitation implications
 
 Invitation **discovery** (`invite.pending` / `invite.accept`) is gated on
-`emailVerified` (`packages/server/rpc/user/invitation.ts:40`). With Option A,
+`emailVerified` (`packages/server/rpc/user/invitation.ts:40`). Under Option A,
 credential accounts have `emailVerified = false`, so:
 
 - They **cannot** use the "log in and see my pending invites" discovery path.
-- They **can** join via a shared **open link** (`invite.redeem`, email ignored).
+- They **can** join via a shared **open link** (`invite.redeem`, email ignored) —
+  which is exactly the "admin hands a link to a specific person out-of-band"
+  model. This is the intended onboarding path for credential users.
 - They **cannot** redeem an *email-constrained* link (redeem passes
   `emailVerified ? email : null`, so the SQL email check fails).
 
-If a self-hoster wants email-invited onboarding to work for credential users,
-that's a reason to prefer **Option B** (or to extend the invite gate to accept
-"the address I authenticated with, even if unverified"). Flagging this as an
-explicit sub-decision — it couples email/password to the invite UX.
+This is a **deliberate, safe consequence** of Option A, not a bug: since a
+credential email is unproven, honoring an email-addressed invitation for it would
+let anyone who self-registers `alice@corp.com` claim invitations meant for the
+real Alice. Open links avoid that because the token itself is the secret the
+admin delivered to the right person.
 
-### 4. Optional: admin/CLI account provisioning
+**Remaining sub-decision (open):** whether to let credential users redeem an
+*email-constrained* **link** (the token path, not discovery). That path already
+requires the token — a real secret shared with the intended person — so trusting
+an unverified credential email *there* is low-risk. Options: (a) **open-links
+only** for credential users (simplest, recommended for v1), or (b) also honor
+the credential user's own (unverified) email for email-constrained *redeem* while
+keeping *discovery* verified-only. Note the danger lives only in **discovery**
+(no token), which stays verified-only either way.
 
-When `AUTH_EMAIL_PASSWORD_SIGNUP=false` (closed registration), accounts must be
-created some other way. Minimal approach: a `me`-side admin command that calls
-better-auth's server API to create a user with a temporary password, printed
-once for the admin to hand over (out-of-band, mirroring invites). Deferrable to
-a later pass if v1 ships with open sign-up only.
+### 4. Closed registration & account provisioning — see "The authority problem"
+
+When `AUTH_EMAIL_PASSWORD_SIGNUP=false`, accounts can't be self-created, so they
+must be provisioned some other way. Critically, **this is not an in-app
+space-admin action** — see the dedicated section below for why, and for the
+server-operator surface that owns both account creation and password reset.
+
+---
+
+## The authority problem (drives D2 + D3)
+
+Both "admin-created accounts" (D2, closed registration) and "password reset" (D3)
+need an authority to perform them. **The product has no such authority today**,
+and this reshapes both decisions.
+
+**There is no global / server / instance admin.** Verified across the codebase:
+no `superuser` / `global-admin` / `is_superuser` concept exists. Every "admin" is
+**space-scoped** — `principal_space.admin`, structural authority over *one
+space's* roster. First-login provisioning (`provision.ts`) makes no user special;
+`core.createUser` is an internal store call, not an authorized RPC.
+
+**Space-admin is the *wrong* authority for these actions** — using it would be a
+privilege-escalation hole:
+
+- Account creation and password reset are **account-level, cross-space**
+  operations.
+- A space admin who could reset a shared member's password would take over that
+  user's **entire account** — including all of that user's *other* spaces (api
+  keys / PATs are global per-principal, working in any space the principal
+  belongs to). A space admin must never be able to do that.
+
+**Conclusion: these are server-operator actions.** The authority is "whoever
+controls the deployment" — the same person who holds `BETTER_AUTH_SECRET`, runs
+migrations, and can `docker compose exec`. Not an RPC gated by an app role.
+
+Two consequences for the implementation:
+
+1. **It must run inside the server process.** Account creation / reset-token
+   minting call `betterAuth.api.*` (e.g. `signUpEmail`, password/reset APIs),
+   which live on the server's better-auth instance + auth pool. The `me` CLI is a
+   separate *client* process and cannot call them directly — so this is a
+   **server-side** subcommand or route, not a `me` CLI command.
+2. **No global-admin role is invented.** We deliberately avoid adding a new authz
+   axis or the better-auth `admin` plugin (see rejected options below).
+
+### Operator surface — shape options
+
+- **Server-side subcommand (recommended).** A command shipped with the server
+  image, run by the operator in the container, e.g.
+  `docker compose exec server me-admin create-user <email>` and
+  `… reset-link <email>`. Calls `betterAuth.api.*` in-process. No network authz —
+  authority is shell/exec access to the deployment. Fits the Docker Compose
+  self-host story in `SELF_HOST.md`. **Zero hosted footprint.**
+- **Localhost/secret-gated admin HTTP route.** An alternative if a subcommand is
+  awkward; more surface area (a route + a shared operator secret) and easier to
+  misconfigure. Not preferred.
+
+### Rejected: the better-auth `admin` plugin
+
+better-auth ships an `admin` plugin (`role='admin'` on users, plus
+`createUser` / `listUsers` / `setPassword` / `ban` endpoints). Rejected because
+it adds `role`/`banned` columns to `auth.users` and an admin surface that would
+exist for **all** deployments **including hosted** (shared auth schema + shared
+better-auth config), plus a "who is the first admin?" bootstrapping problem. That
+violates D4's "self-host-only, no hosted footprint." A new global-admin concept
+in `core` is even heavier and is likewise rejected.
 
 ---
 
@@ -274,18 +366,30 @@ for tokens. The CLI never learns *how* the human authenticated. `me logout`,
 
 ## Password reset without email
 
-Self-service email reset is **out of scope** (no sender). Options, in order of
-effort:
+Self-service *email* reset is impossible (no sender), and — per "The authority
+problem" — reset **cannot be an in-app space-admin RPC** (cross-space account
+takeover). So reset is an **operator-minted out-of-band link**, landing on the
+same server-operator surface as closed-registration account creation:
 
-1. **v1: none.** A locked-out user is reset by an operator. Document the
-   `psql`/better-auth-API path. Acceptable for a small trusted self-host.
-2. **Admin/CLI reset link (recommended follow-up).** Mirror invitations: an admin
-   mints a one-time reset token server-side, the CLI prints
-   `<server>/reset/<token>`, the admin shares it out-of-band, the user sets a new
-   password on that page. Zero email, consistent with the invite model.
-3. **Later, optional SMTP.** If `SMTP_*` (or a transactional-API key) is
-   configured, wire better-auth's `sendResetPassword` to a real sender and expose
-   a normal "Forgot password?" link. Purely additive.
+- The operator runs the server-side surface (e.g.
+  `docker compose exec server me-admin reset-link <email>`), which mints a
+  one-time token and prints `<server>/reset/<token>`.
+- The operator hands that link to the user out-of-band (Slack/DM/paste), exactly
+  like an invite link.
+- The user opens it and sets a new password on a reset page (reuse the invite
+  token + page pattern in the web UI).
+
+**Direction (from the discussion):** if we enable email/password, we should ship
+reset too — a login method with no recovery path is a real UX cliff. So the
+operator surface (which brings *both* reset-links *and* closed-mode account
+creation) is the natural companion to the login feature. Whether it lands in the
+same v1 or as the immediate fast-follow is the remaining scope call (see Open
+decisions).
+
+**Later, optional SMTP (additive).** If `SMTP_*` (or a transactional-API key) is
+ever configured, wire better-auth's `sendResetPassword` to a real sender and
+expose a normal "Forgot password?" link. Purely additive; doesn't change the
+above.
 
 ---
 
@@ -297,8 +401,16 @@ effort:
 - **Open sign-up exposure.** With `AUTH_EMAIL_PASSWORD_SIGNUP=true` on an
   internet-exposed instance, anyone reachable can create an account. Membership is
   still explicit (a new user has no spaces and no grants until invited/added), so
-  the blast radius is limited, but doc guidance should steer public deployments to
-  closed sign-up or keep OAuth-only.
+  the blast radius is a user row that can see nothing. Note the product *already*
+  has open registration for OAuth (first-login provisioning), so this isn't a new
+  posture — but doc guidance should steer public deployments to closed sign-up
+  (operator-provisioned accounts) or OAuth-only. A truly closed self-host runs
+  email/password-only (no OAuth) with `AUTH_EMAIL_PASSWORD_SIGNUP=false`.
+- **Operator surface authority = deployment access.** Account creation and
+  reset-link minting are authorized by shell/`exec` access to the server, not an
+  app credential — the same trust boundary as holding `BETTER_AUTH_SECRET` or
+  running migrations. It must never be reachable as an ordinary
+  space-admin-gated RPC (cross-space account takeover).
 - **Unverified addresses.** In the no-email design an email is a *label*, not a
   proven fact. Don't let `email_verified=false` credential accounts satisfy
   email-keyed authorization beyond what's intended (see the invite discussion).
@@ -319,22 +431,49 @@ effort:
 - **Server integration:** email/password sign-up + sign-in produce a valid
   session; sign-up refused when `disableSignUp`; whoami/provisioning stand up the
   core principal for a credential user (same lazy path as social).
-- **Web:** `SignInCard` renders the right controls per bootstrap flags.
+- **Web:** `SignInCard` renders the right controls per bootstrap flags; the
+  `/reset/<token>` page sets a new password against a valid token and rejects an
+  invalid/expired/used one.
+- **Operator surface:** `create-user` provisions a credential account (and its
+  lazy core principal on first login); `reset-link` mints a single-use token that
+  updates the password and can't be replayed. Verify it's server-side only (no
+  RPC route, not reachable by a space admin).
 - **CLI:** e2e login still succeeds against a server with email/password on
   (guards the "CLI unchanged" claim). Likely a manual/harness check given the
   browser step.
 
 ---
 
-## Open decisions (need a call before building)
+## Open decisions
 
-1. **`email_verified` semantics for credential accounts** — Option A (gate trusts
-   credential) vs Option B (`email_verified=true` on sign-up). Drives whether
-   email-invite *discovery* works for password users.
-2. **Registration policy default** — open self-service vs closed (admin-created).
-3. **Password reset in v1** — none / admin-CLI-link / defer.
-4. **Hosted policy** — keep memory.build strictly OAuth-only (flag always off in
-   hosted config), or allow the flag everywhere.
+**Resolved:**
+
+1. ~~**`email_verified` semantics**~~ — **DECIDED: Option A.** Keep the flag's
+   meaning; the login gate trusts credential sessions; credential accounts stay
+   `email_verified = false`. (§Server 2.)
+2. ~~**Hosted policy**~~ — **DECIDED: OAuth-only.** Self-host-only via config
+   (flag off in hosted deploy); no enforcement code. (D4.)
+3. ~~**Registration & reset authority**~~ — **DECIDED: server-operator surface,**
+   not an in-app RPC (no global admin exists; space-admin would be cross-space
+   escalation). No better-auth admin plugin, no new global-admin role. (§The
+   authority problem.)
+
+**Still open:**
+
+A. **Scope of v1** — does the server-operator surface (closed-mode account
+   creation + reset-links) ship *in v1*, or does v1 land open-sign-up-only with
+   the operator surface as the immediate fast-follow? Leaning: since a login
+   method needs a recovery path, pull at least **reset-links** into v1; closed
+   mode can follow. Confirm.
+
+B. **Email-constrained-link redeem for credential users** — open-links-only
+   (simplest, recommended) vs also honoring the credential user's unverified
+   email for the *token* redeem path (discovery stays verified-only regardless).
+   (§Server 3.)
+
+C. **Operator surface shape** — server-side subcommand run via
+   `docker compose exec` (recommended) vs a localhost/secret-gated admin route.
+   (§The authority problem → Operator surface.)
 
 ---
 
@@ -348,7 +487,9 @@ effort:
 | DB test | `auth/migrate/migrate.integration.test.ts` | update drift snapshot; credential-account case |
 | Web bootstrap | `packages/server/router.ts`, `packages/web/src/api/bootstrap.ts` | carry enabled auth methods to the client |
 | Web UI | `packages/web/src/components/SignInCard.tsx`, `api/auth-client.ts` | password form + sign-up toggle; email sign-in/up calls |
-| CLI | — | none (browser-based OAuth loopback is method-agnostic) |
-| Docs | `SELF_HOST.md`, `.env.sample`, `AGENTS.md` auth summary | document the flag + no-email caveats |
+| Web UI (reset) | new `/reset/<token>` page (reuse invite page pattern) | set-new-password page the operator-minted link points at |
+| Operator surface | server-side subcommand (in `packages/server`), calling `betterAuth.api.*` | `create-user` (closed-mode provisioning) + `reset-link` minting; runs in-process via `docker compose exec` |
+| CLI | — | none (browser-based OAuth loopback is method-agnostic; operator surface is server-side, not the `me` client) |
+| Docs | `SELF_HOST.md`, `.env.sample`, `AGENTS.md` auth summary | document the flag, no-email caveats, and the operator commands |
 </content>
 </invoke>
