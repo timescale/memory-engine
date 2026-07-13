@@ -32,12 +32,14 @@ export function SignInCard({
   title = "Memory Engine",
   subtitle,
   callbackURL,
+  errorCallbackURL,
   banner,
   footer,
 }: {
   title?: string;
   subtitle: string;
   callbackURL: string;
+  errorCallbackURL?: string;
   /** Optional content rendered between the subtitle and the sign-in buttons. */
   banner?: ReactNode;
   footer?: ReactNode;
@@ -45,9 +47,11 @@ export function SignInCard({
   const start = (provider: SocialProvider) => {
     // The SDK redirects the browser to the provider; a failure (network/CSRF)
     // leaves us here to retry.
-    void signInWithProvider(provider, callbackURL).catch((err) => {
-      console.error("[me] social sign-in failed", err);
-    });
+    void signInWithProvider(provider, callbackURL, errorCallbackURL).catch(
+      (err) => {
+        console.error("[me] social sign-in failed", err);
+      },
+    );
   };
 
   const signInError = readSignInError();

@@ -16,7 +16,7 @@
       authenticate. Avoid accepting unsigned session tokens globally (signed
       device credential + `requireSignature: true`, or a narrower path).
       (betterauth.ts:300)
-- [ ] 4. `SignInCard` on /device leaves `errorCallbackURL` unset (defaults to
+- [x] 4. `SignInCard` on /device leaves `errorCallbackURL` unset (defaults to
       `window.location.pathname`), so a provider/verified-email error returns to
       `/device` without `user_code` — a retry can't resume. Preserve the full
       device URL (with code) on the error callback too. (DeviceVerificationPage.tsx:185)
