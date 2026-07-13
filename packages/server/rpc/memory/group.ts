@@ -91,7 +91,7 @@ async function groupCreate(
 ): Promise<GroupCreateResult> {
   assertSpaceRpcContext(context);
   const ctx = context as SpaceRpcContext;
-  requireSpaceAdmin(ctx);
+  await requireSpaceAdmin(ctx);
   const id = await guardCore(() =>
     ctx.core.createGroup(
       ctx.space.id,
@@ -111,7 +111,7 @@ async function groupSetIsSpaceAdmin(
   // Making a group an admin group is a structural authority change — space-admin
   // only (owner@root is not enough), like roster mutations. Demotion is further
   // guarded by the last-admin safeguard (enforce_last_admin → LAST_ADMIN).
-  requireSpaceAdmin(ctx);
+  await requireSpaceAdmin(ctx);
   await assertGroupInSpace(ctx, params.id);
   const updated = await guardCore(() =>
     ctx.core.setGroupIsSpaceAdmin(ctx.space.id, params.id, params.isSpaceAdmin),
@@ -125,7 +125,7 @@ async function groupList(
 ): Promise<GroupListResult> {
   assertSpaceRpcContext(context);
   const ctx = context as SpaceRpcContext;
-  requireSpaceAdmin(ctx);
+  await requireSpaceAdmin(ctx);
   const groups = await ctx.core.listSpaceGroups(ctx.space.id);
   return { groups: groups.map(toGroupResponse) };
 }
@@ -136,7 +136,7 @@ async function groupRename(
 ): Promise<GroupRenameResult> {
   assertSpaceRpcContext(context);
   const ctx = context as SpaceRpcContext;
-  requireSpaceAdmin(ctx);
+  await requireSpaceAdmin(ctx);
   await assertGroupInSpace(ctx, params.id);
   const renamed = await guardCore(() =>
     ctx.core.renamePrincipal(params.id, params.name),
@@ -150,7 +150,7 @@ async function groupDelete(
 ): Promise<GroupDeleteResult> {
   assertSpaceRpcContext(context);
   const ctx = context as SpaceRpcContext;
-  requireSpaceAdmin(ctx);
+  await requireSpaceAdmin(ctx);
   await assertGroupInSpace(ctx, params.id);
   const deleted = await guardCore(() => ctx.core.deletePrincipal(params.id));
   return { deleted };
@@ -213,7 +213,7 @@ async function groupListForMember(
     params.memberId !== ctx.principalId &&
     !(await callerOwnsAgent(ctx, params.memberId))
   ) {
-    requireSpaceAdmin(ctx);
+    await requireSpaceAdmin(ctx);
   }
   const groups = await ctx.core.listGroupsForMember(
     ctx.space.id,

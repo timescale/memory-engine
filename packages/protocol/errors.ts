@@ -61,6 +61,20 @@ export const APP_ERROR_CODES = {
 export type AppErrorCode =
   (typeof APP_ERROR_CODES)[keyof typeof APP_ERROR_CODES];
 
+/**
+ * One effective space admin, attached by the server to FORBIDDEN errors from
+ * admin-gated space-management operations as `data.admins` — so a denied
+ * caller learns WHOM to ask instead of hitting a dead end (a non-admin can't
+ * enumerate the roster to find out). Effective admins are direct-member users
+ * who are direct admins or direct members of an admin group — the same
+ * predicate the last-admin safeguard counts. The email is the user
+ * principal's name (users are named by their OAuth email); a display-name
+ * field can be added later without breaking consumers.
+ */
+export interface AdminContact {
+  email: string;
+}
+
 // =============================================================================
 // AppError Class
 // =============================================================================

@@ -558,11 +558,45 @@ export function handleError(
   }
 
   const hint = forbiddenTreeHint(error, opts?.tree);
+  const admins = adminContactsFrom(error);
 
   if (fmt === "text") {
     clack.log.error(hint ? `${msg}\n${hint}` : msg);
+    if (admins) {
+      clack.log.info(
+        `Space admins who can help:\n${admins.map((a) => `  ${a.email}`).join("\n")}`,
+      );
+    }
   } else {
-    output(code ? { error: msg, code } : { error: msg }, fmt, () => {});
+    output(
+      {
+        error: msg,
+        ...(code ? { code } : {}),
+        ...(admins ? { admins } : {}),
+      },
+      fmt,
+      () => {},
+    );
   }
   process.exit(1);
+}
+
+/**
+ * The `data.admins` contact list the server attaches to admin-gated FORBIDDEN
+ * denials (see AdminContact in @memory.build/protocol) — the escalation path
+ * rendered under the error. Undefined when absent or malformed.
+ */
+export function adminContactsFrom(
+  error: unknown,
+): Array<{ email: string }> | undefined {
+  if (!(error instanceof RpcError)) return undefined;
+  const raw = error.data?.admins;
+  if (!Array.isArray(raw)) return undefined;
+  const admins = raw.filter(
+    (a): a is { email: string } =>
+      typeof a === "object" &&
+      a !== null &&
+      typeof (a as { email?: unknown }).email === "string",
+  );
+  return admins.length > 0 ? admins : undefined;
 }

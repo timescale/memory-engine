@@ -2409,6 +2409,28 @@ describe.skipIf(
     expect(noAuth.code).not.toBe(0);
   });
 
+  test("10d. a non-admin's denied `me service create` names the space admins", async () => {
+    const { env2 } = await seedSecondMember();
+
+    // serviceAccount.create is space-admin-only; the denial must carry the
+    // escalation path — the effective admins' emails — rendered by the CLI.
+    const denied = await me(["service", "create", `nope-${rand()}`], env2);
+    expect(denied.code).not.toBe(0);
+    const combined = denied.stdout + denied.stderr;
+    expect(combined).toContain("space admin");
+    // The primary seeded identity is the space's sole effective admin.
+    expect(combined).toContain("e2e@example.test");
+
+    // Structured output carries the same contacts as data.
+    const deniedJson = await me(
+      ["service", "create", `nope-${rand()}`, "--json"],
+      env2,
+    );
+    expect(deniedJson.code).not.toBe(0);
+    const parsed = JSON.parse(deniedJson.stdout);
+    expect(parsed.admins).toEqual([{ email: "e2e@example.test" }]);
+  });
+
   test("11. space leave: a non-admin member self-removes, cascading their agent", async () => {
     const { env2 } = await seedSecondMember();
 
