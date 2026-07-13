@@ -43,8 +43,8 @@
       for screen readers. (DeviceVerificationPage.tsx:213)
 
 ## Verify (likely non-issue)
-- [ ] 10. Copilot: `React.ReactNode` used without importing the `React` namespace
+- [x] 10. Copilot: `React.ReactNode` used without importing the `React` namespace
       "will fail typechecking." In practice `web:typecheck` passes (global
       `@types/react`), and existing components (e.g. InviteLandingPage) use the
-      same pattern. Verify; optionally switch to `import type { ReactNode }` for
-      consistency with SignInCard. (DeviceVerificationPage.tsx:18)
+      same pattern. Verified with `./bun run typecheck`; no code fix needed.
+      (DeviceVerificationPage.tsx:18)
