@@ -32,11 +32,14 @@ export function SignInCard({
   title = "Memory Engine",
   subtitle,
   callbackURL,
+  banner,
   footer,
 }: {
   title?: string;
   subtitle: string;
   callbackURL: string;
+  /** Optional content rendered between the subtitle and the sign-in buttons. */
+  banner?: ReactNode;
   footer?: ReactNode;
 }) {
   const start = (provider: SocialProvider) => {
@@ -59,6 +62,7 @@ export function SignInCard({
           </h1>
         </div>
         <p className="mt-3 text-[13px] text-ink/55">{subtitle}</p>
+        {banner}
         {signInError && (
           <div className="mt-4 rounded-md border border-tiger-red/50 bg-tiger-red/10 px-3 py-2 text-[13px] text-ink/80">
             {signInError}

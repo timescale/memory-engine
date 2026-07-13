@@ -152,10 +152,27 @@ export function DeviceVerificationPage() {
 
   if (state.status === "anonymous") {
     // After OAuth the browser returns here (same path + user_code), the effect
-    // re-runs, and the now-present session lets us claim the code.
+    // re-runs, and the now-present session lets us claim the code. When a code
+    // is present, frame the whole card as "authorize THIS code" (title + a code
+    // banner) so the provider choice reads as a step toward that, not a bare
+    // login. A bare /device visit keeps the generic card (the code is entered
+    // after sign-in via the needCode step).
+    const pendingCode = readUserCode().trim();
     return (
       <SignInCard
-        subtitle="Sign in to authorize a device for the Memory Engine CLI."
+        title={pendingCode ? "Authorize a device" : undefined}
+        subtitle={
+          pendingCode
+            ? "Sign in to authorize this device for the Memory Engine CLI."
+            : "Sign in to authorize a device for the Memory Engine CLI."
+        }
+        banner={
+          pendingCode ? (
+            <div className="mt-5">
+              <CodeBox code={pendingCode} />
+            </div>
+          ) : undefined
+        }
         callbackURL={window.location.pathname + window.location.search}
       />
     );
@@ -217,13 +234,8 @@ export function DeviceVerificationPage() {
           in a terminal.
         </p>
 
-        <div className="mt-5 rounded-lg border border-ink/[0.12] bg-ink/[0.02] px-4 py-3 text-center">
-          <div className="text-[11px] uppercase tracking-wide text-ink/45">
-            Code
-          </div>
-          <div className="mt-1 font-mono text-[18px] tracking-[0.2em] text-ink">
-            {state.userCode}
-          </div>
+        <div className="mt-5">
+          <CodeBox code={state.userCode} />
         </div>
 
         <div className="mt-6 flex gap-3">
@@ -285,6 +297,20 @@ export function DeviceVerificationPage() {
         Try another code
       </button>
     </Card>
+  );
+}
+
+/** The user code, boxed — shown on the sign-in banner and the approve screen. */
+function CodeBox({ code }: { code: string }) {
+  return (
+    <div className="rounded-lg border border-ink/[0.12] bg-ink/[0.02] px-4 py-3 text-center">
+      <div className="text-[11px] uppercase tracking-wide text-ink/45">
+        Code
+      </div>
+      <div className="mt-1 font-mono text-[18px] tracking-[0.2em] text-ink">
+        {code}
+      </div>
+    </div>
   );
 }
 

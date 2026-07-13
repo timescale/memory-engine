@@ -291,10 +291,13 @@ async function authorizeViaDevice(p: {
   const openUrl = auth.verificationUriComplete ?? auth.verificationUri;
 
   if (p.fmt === "text") {
-    clack.note(
-      `${auth.verificationUri}\n\nCode: ${auth.userCode}`,
-      "To sign in, open this URL on any device and enter the code:",
-    );
+    // Lead with the complete URL (code embedded) so it can be opened/pasted
+    // directly; keep the bare URL + code for manual entry on a device that
+    // can't follow the link.
+    const message = auth.verificationUriComplete
+      ? `Open this URL on any device:\n\n  ${auth.verificationUriComplete}\n\nCan't use that link? Go to ${auth.verificationUri} and enter the code:\n\n  ${auth.userCode}`
+      : `Go to ${auth.verificationUri} and enter the code:\n\n  ${auth.userCode}`;
+    clack.note(message, "To sign in:");
     // Best-effort convenience open (harmless if there's no browser here).
     if (p.openBrowser) await openBrowser(openUrl);
   } else {
