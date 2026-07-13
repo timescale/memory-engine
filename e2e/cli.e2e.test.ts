@@ -186,6 +186,32 @@ describe.skipIf(
       "ME_SPACE",
       "ME_SESSION_TOKEN",
       "ME_AS_AGENT",
+      "ME_INJECT_V",
+      "ME_PROJECT_DIR",
+      "ME_CONFIG_DIR",
+    ]) {
+      delete env[k];
+    }
+    // Also drop harness markers: this suite may itself run inside a live
+    // agent session (Claude Code, opencode, …), and an inherited marker
+    // trips the spawned CLI's harness failsafe ("refusing to run as you") in
+    // every non-allowlisted test. The spawned `me` must behave as a plain
+    // human/CI invocation; tests that exercise harness behavior set their
+    // own markers via `extra` (merged after this strip). Same rationale as
+    // harness-smoke's cleanEnv().
+    for (const k of [
+      "AI_AGENT",
+      "CLAUDECODE",
+      "CLAUDE_CODE",
+      "CLAUDE_PROJECT_DIR",
+      "CLAUDE_ENV_FILE",
+      "OPENCODE",
+      "OPENCODE_CLIENT",
+      "AGENT",
+      "CODEX_SANDBOX",
+      "CODEX_CI",
+      "CODEX_THREAD_ID",
+      "GEMINI_CLI",
     ]) {
       delete env[k];
     }
@@ -1400,15 +1426,19 @@ describe.skipIf(
       ],
       {
         env: {
-          ...process.env,
+          // Spawned hooks inherit this env — the git-hook test passes
+          // cliEnv() here so the hook's `me import git` can reach the server.
+          // When given, extraEnv is a COMPLETE curated env, used as the BASE
+          // (not an overlay on process.env): overlaying would re-leak every
+          // key cliEnv() deliberately strips — the harness markers that trip
+          // the spawned CLI's failsafe when this suite itself runs inside an
+          // agent session.
+          ...(extraEnv ?? (process.env as Record<string, string>)),
           GIT_CONFIG_GLOBAL: "/dev/null",
           GIT_CONFIG_SYSTEM: "/dev/null",
           ...(dateIso
             ? { GIT_AUTHOR_DATE: dateIso, GIT_COMMITTER_DATE: dateIso }
             : {}),
-          // Spawned hooks inherit this env — the git-hook test merges
-          // cliEnv() here so the hook's `me import git` can reach the server.
-          ...(extraEnv ?? {}),
         },
         stdout: "pipe",
         stderr: "pipe",
@@ -1808,6 +1838,110 @@ describe.skipIf(
     expect(existsSync(hookFile)).toBe(false);
 
     await rm(root, { recursive: true, force: true });
+  });
+
+  test("8h. `me import ci` orchestrates git + docs from the repo toplevel", async () => {
+    const root = await mkdtemp(join(tmpdir(), "me-e2e-ci-"));
+    const name = `ciproj${rand()}`;
+    const repo = join(root, name);
+    await mkdir(join(repo, "docs"), { recursive: true });
+    const gitTree = `${homeProjects}.${name}.git_history`;
+    const docsTree = `${homeProjects}.${name}.docs`;
+
+    await git(repo, ["init", "-q", "-b", "main"]);
+    await writeFile(join(repo, "README.md"), "# CI project\n\nHello.\n");
+    await writeFile(join(repo, "docs", "guide.md"), "# Guide\n\nUse it.\n");
+    await git(repo, ["add", "."], "2026-06-01T10:00:00Z");
+    await git(
+      repo,
+      ["commit", "-q", "-m", "feat: initial"],
+      "2026-06-01T10:00:00Z",
+    );
+
+    // 1. --dry-run reports both phases and writes nothing.
+    const dry = await me(["import", "ci", "--dry-run"], undefined, repo);
+    expect(dry.code, dry.stderr).toBe(0);
+    expect(await countUnder(`${homeProjects}.${name}`)).toBe(0);
+
+    // 2. Real run — invoked from a SUBDIRECTORY to prove the toplevel anchor:
+    //    one commit lands under git_history, both docs under docs.
+    const run1 = await me(["import", "ci"], undefined, join(repo, "docs"));
+    expect(run1.code, run1.stderr).toBe(0);
+    expect(await countUnder(gitTree)).toBe(1);
+    expect(await countUnder(docsTree)).toBe(2);
+
+    // 3. Idempotent re-run: no new rows, exit 0.
+    const run2 = await me(["import", "ci"], undefined, repo);
+    expect(run2.code, run2.stderr).toBe(0);
+    expect(await countUnder(gitTree)).toBe(1);
+    expect(await countUnder(docsTree)).toBe(2);
+
+    // 4. Delete a doc and commit: the re-run imports the new commit and
+    //    PRUNES the deleted doc (the CI walk is the authoritative corpus).
+    await rm(join(repo, "docs", "guide.md"));
+    await git(repo, ["add", "-A"], "2026-06-02T10:00:00Z");
+    await git(
+      repo,
+      ["commit", "-q", "-m", "docs: drop guide"],
+      "2026-06-02T10:00:00Z",
+    );
+    const run3 = await me(["import", "ci"], undefined, repo);
+    expect(run3.code, run3.stderr).toBe(0);
+    expect(await countUnder(gitTree)).toBe(2);
+    expect(await countUnder(docsTree)).toBe(1);
+
+    // 5. The .me import: block gates phases — docs:false leaves docs alone
+    //    even after a doc edit (and git still runs).
+    await writeFile(join(repo, "README.md"), "# CI project\n\nEdited.\n");
+    await git(repo, ["add", "-A"], "2026-06-03T10:00:00Z");
+    await git(
+      repo,
+      ["commit", "-q", "-m", "docs: edit readme"],
+      "2026-06-03T10:00:00Z",
+    );
+    await mkdir(join(repo, ".me"), { recursive: true });
+    await writeFile(
+      join(repo, ".me", "config.yaml"),
+      "import:\n  docs: false\n",
+    );
+    const gated = await me(["import", "ci"], undefined, repo);
+    expect(gated.code, gated.stderr).toBe(0);
+    expect(await countUnder(gitTree)).toBe(3);
+    // README edit NOT re-imported: docs phase was disabled.
+    const [readmeRow] = await sql.unsafe(
+      `select content from metest_${spaceSlug}.memory
+         where tree = $1::ltree and name = 'readme.md'`,
+      [docsTree],
+    );
+    expect(readmeRow?.content).not.toContain("Edited.");
+
+    // 6. A repo with no markdown at all: docs phase skips cleanly, exit 0.
+    const bare = join(root, `bareci${rand()}`);
+    await mkdir(bare, { recursive: true });
+    await git(bare, ["init", "-q", "-b", "main"]);
+    await writeFile(join(bare, "code.txt"), "no docs here\n");
+    await git(bare, ["add", "."], "2026-06-01T10:00:00Z");
+    await git(
+      bare,
+      ["commit", "-q", "-m", "feat: no docs"],
+      "2026-06-01T10:00:00Z",
+    );
+    const bareRun = await me(["import", "ci"], undefined, bare);
+    expect(bareRun.code, bareRun.stderr).toBe(0);
+    expect(bareRun.stdout + bareRun.stderr).toContain("No matching docs");
+
+    // 7. Outside a git repo: a clear error, non-zero exit.
+    const plain = await mkdtemp(join(tmpdir(), "me-e2e-ci-plain-"));
+    const noRepo = await me(["import", "ci"], undefined, plain);
+    expect(noRepo.code).not.toBe(0);
+    expect(noRepo.stdout + noRepo.stderr).toContain("git repository");
+
+    // 8. --json is rejected (two phases can't render one structured doc).
+    const asJson = await me(["import", "ci", "--json"], undefined, repo);
+    expect(asJson.code).not.toBe(0);
+
+    await rm(root, { recursive: true, force: true });
+    await rm(plain, { recursive: true, force: true });
   });
 
   test("9. claude capture hook ↔ `me claude import` are cross-idempotent", async () => {

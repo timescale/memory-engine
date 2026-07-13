@@ -154,6 +154,41 @@ test("an unknown/misspelled key is a fatal ProjectConfigError (strict)", () => {
   expect(() => discoverProjectConfig(root)).toThrow(ProjectConfigError);
 });
 
+test("the import: block parses (phase toggles, docs globs, service_account)", () => {
+  writeConfig(
+    root,
+    [
+      "space: sp_ci",
+      "import:",
+      "  git: true",
+      "  docs: false",
+      "  docs_include:",
+      "    - 'docs/**'",
+      "    - README.md",
+      "  docs_exclude:",
+      "    - 'docs/internal/**'",
+      "  service_account: github-import",
+      "",
+    ].join("\n"),
+  );
+  const cfg = discoverProjectConfig(root);
+  expect(cfg?.import?.git).toBe(true);
+  expect(cfg?.import?.docs).toBe(false);
+  expect(cfg?.import?.docs_include).toEqual(["docs/**", "README.md"]);
+  expect(cfg?.import?.docs_exclude).toEqual(["docs/internal/**"]);
+  expect(cfg?.import?.service_account).toBe("github-import");
+});
+
+test("the import: block is strict — a typo'd subkey is fatal", () => {
+  // `docs_includes:` (plural) must not silently widen the docs walk to the
+  // default glob set.
+  writeConfig(root, "import:\n  docs_includes:\n    - 'docs/**'\n");
+  expect(() => discoverProjectConfig(root)).toThrow(ProjectConfigError);
+  // Wrong value types are fatal too, not coerced.
+  writeConfig(root, "import:\n  git: 'yes'\n");
+  expect(() => discoverProjectConfig(root)).toThrow(ProjectConfigError);
+});
+
 test("getProjectConfig honors --config-dir override and memoizes", () => {
   writeConfig(root, "space: sp_seed\n");
   setConfigDirOverride(root);

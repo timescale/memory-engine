@@ -32,6 +32,7 @@ describe("buildDocsImportOptions", () => {
       parseTemporal: true,
       prune: false,
       allowSubdirRoot: false,
+      skipIfEmpty: false,
       dryRun: false,
       verbose: false,
     });
