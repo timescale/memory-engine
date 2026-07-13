@@ -38,7 +38,7 @@ async function principalList(
   const ctx = context as SpaceRpcContext;
   // Enumerating the whole roster is structural — admin only. (Targeted name / id
   // lookups for any member are principal.resolve / principal.lookup.)
-  requireSpaceAdmin(ctx);
+  await requireSpaceAdmin(ctx);
   const principals = await ctx.core.listSpacePrincipals(
     ctx.space.id,
     params.kind ?? undefined,
@@ -60,7 +60,7 @@ async function principalAdd(
     params.admin !== true &&
     (await callerOwnsAgentGlobal(ctx, params.principalId));
   if (!ownAgent) {
-    requireSpaceAdmin(ctx);
+    await requireSpaceAdmin(ctx);
   }
   await guardCore(() =>
     ctx.core.addPrincipalToSpace(
@@ -97,7 +97,7 @@ async function principalRemove(
   if (!isSelfUser && !ctx.admin) {
     const ownAgent = await callerOwnsAgentGlobal(ctx, params.principalId);
     // Not self, not admin, not the caller's own agent → structural, denied.
-    if (!ownAgent) requireSpaceAdmin(ctx);
+    if (!ownAgent) await requireSpaceAdmin(ctx);
   }
   const removed = await guardCore(() =>
     ctx.core.removePrincipalFromSpace(ctx.space.id, params.principalId),

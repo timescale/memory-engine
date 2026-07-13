@@ -66,7 +66,7 @@ async function inviteCreate(
 ): Promise<InviteCreateResult> {
   assertSpaceRpcContext(context);
   const ctx = context as SpaceRpcContext;
-  requireSpaceAdmin(ctx);
+  await requireSpaceAdmin(ctx);
   const groupIds = await resolveInviteGroupIds(ctx, params.groupIds);
   const admin = params.admin ?? false;
   const email = params.email ?? null; // null → an open shareable link
@@ -92,7 +92,7 @@ async function inviteList(
 ): Promise<InviteListResult> {
   assertSpaceRpcContext(context);
   const ctx = context as SpaceRpcContext;
-  requireSpaceAdmin(ctx);
+  await requireSpaceAdmin(ctx);
   const invitations = await ctx.core.listSpaceInvitations(ctx.space.id);
   return { invitations: invitations.map(toSpaceInvitationResponse) };
 }
@@ -103,7 +103,7 @@ async function inviteRevoke(
 ): Promise<InviteRevokeResult> {
   assertSpaceRpcContext(context);
   const ctx = context as SpaceRpcContext;
-  requireSpaceAdmin(ctx);
+  await requireSpaceAdmin(ctx);
   const revoked = await guardCore(() =>
     ctx.core.revokeSpaceInvitation(ctx.space.id, params.email),
   );
@@ -116,7 +116,7 @@ async function inviteRevokeById(
 ): Promise<InviteRevokeByIdResult> {
   assertSpaceRpcContext(context);
   const ctx = context as SpaceRpcContext;
-  requireSpaceAdmin(ctx);
+  await requireSpaceAdmin(ctx);
   const revoked = await guardCore(() =>
     ctx.core.revokeInvitationById(ctx.space.id, params.invitationId),
   );

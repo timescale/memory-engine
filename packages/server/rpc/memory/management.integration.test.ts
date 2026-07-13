@@ -869,6 +869,41 @@ test("access.effective: rejects unrelated principals and groups", async () => {
   );
 });
 
+test("a denied grant/roster op names the effective admins on the error", async () => {
+  // A plain member: not an admin, owns no tree path, and the grant target is
+  // another user (not their own agent) — every self-service carve-out misses.
+  const member = await makeUser();
+  const other = await makeUserWithEmail(`target_${rand(6)}@example.com`);
+  await call("principal.add", { principalId: member });
+  await call("principal.add", { principalId: other });
+  const as = {
+    principalId: member,
+    treeAccess: [] as TreeAccess,
+    admin: false,
+  };
+
+  const expectAdminsOn = async (p: Promise<unknown>) => {
+    try {
+      await p;
+      throw new Error("expected FORBIDDEN, but it resolved");
+    } catch (e) {
+      if (!isAppError(e)) throw e;
+      expect(e.code).toBe("FORBIDDEN");
+      // The seeded owner is the space's sole effective admin; a user
+      // principal's name is its email — the contact carried on the denial.
+      expect(e.details?.admins).toEqual([{ email: ownerEmail }]);
+    }
+  };
+
+  // grant.set: needs admin or owner@path → enriched via requireTreeOwner.
+  await expectAdminsOn(
+    call("grant.set", { principalId: other, treePath: "docs", access: 1 }, as),
+  );
+  // principal.list: admin-only roster enumeration → enriched via
+  // requireSpaceAdmin (representative of the 14 admin-gated management ops).
+  await expectAdminsOn(call("principal.list", {}, as));
+});
+
 test("grant.list: an agent's owner can list its grants", async () => {
   // a member who owns an agent that holds a grant; the member is not an admin
   // and owns no tree path of their own

@@ -43,7 +43,7 @@ async function requireGrantAuthority(
 ): Promise<void> {
   if (await callerOwnsAgent(ctx, principalId)) return;
   if (ctx.admin) return;
-  requireTreeOwner(ctx, treePath);
+  await requireTreeOwner(ctx, treePath);
 }
 
 async function requireGrantRemovalAuthority(
@@ -122,7 +122,7 @@ async function grantList(
     !ownServiceAccount &&
     !ownsTreePath(ctx, under)
   ) {
-    requireSpaceAdmin(ctx);
+    await requireSpaceAdmin(ctx);
   }
   const grants = await ctx.core.listTreeAccessGrants(
     ctx.space.id,

@@ -25,6 +25,7 @@ import {
   serviceAccountListParams,
   serviceAccountRenameParams,
 } from "@memory.build/protocol/user";
+import { forbiddenNamingAdmins } from "../admin-contacts";
 import { guardCore } from "../core-error";
 import { AppError } from "../errors";
 import { buildRegistry } from "../registry";
@@ -49,7 +50,14 @@ async function requireSpaceAdminById(
   spaceId: string,
 ): Promise<void> {
   if (!(await ctx.core.isSpaceAdmin(ctx.userId, spaceId))) {
-    throw new AppError("FORBIDDEN", "This action requires being a space admin");
+    // Enriched with the effective admins' contacts: for a repo dev running
+    // `me project ci`, this denial is the expected common case — the error
+    // must carry whom to ask, not be a dead end.
+    throw await forbiddenNamingAdmins(
+      ctx.core,
+      spaceId,
+      "This action requires being a space admin",
+    );
   }
 }
 
@@ -74,8 +82,9 @@ export async function requireServiceAccountManager(
   if (await ctx.core.isServiceAccountAdmin(account.id, ctx.userId)) {
     return account;
   }
-  throw new AppError(
-    "FORBIDDEN",
+  throw await forbiddenNamingAdmins(
+    ctx.core,
+    account.spaceId,
     "This action requires being a space admin or a service-account admin",
   );
 }

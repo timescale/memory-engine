@@ -243,6 +243,52 @@ test("ordinary users cannot create or rename service accounts", async () => {
   expect(listed.serviceAccounts).toEqual([]);
 });
 
+test("a denied non-admin gets the effective admins' contacts on the error", async () => {
+  const spaceId = await makeSpace(); // userId is the sole (effective) admin
+  const memberId = await makeUser();
+  const core = coreStore(sql, coreSchema);
+  await core.addPrincipalToSpace(spaceId, memberId);
+  // A user principal's name IS its email — the contact the enrichment carries.
+  const [adminRow] = await sql.unsafe(
+    `select name from ${coreSchema}.principal where id = $1`,
+    [userId],
+  );
+  const adminEmail = adminRow?.name as string;
+  expect(adminEmail).toContain("@");
+
+  // serviceAccount.create: space-admin-only → FORBIDDEN + data.admins.
+  try {
+    await call(
+      "serviceAccount.create",
+      { spaceId, name: "denied-bot", adminMembers: [] },
+      memberId,
+    );
+    throw new Error("expected FORBIDDEN, but it resolved");
+  } catch (e) {
+    if (!isAppError(e)) throw e;
+    expect(e.code).toBe("FORBIDDEN");
+    expect(e.details?.admins).toEqual([{ email: adminEmail }]);
+  }
+
+  // The manager gate (rename) carries the same contacts.
+  const created = await call<{ serviceAccount: { id: string } }>(
+    "serviceAccount.create",
+    { spaceId, name: "named-bot", adminMembers: [] },
+  );
+  try {
+    await call(
+      "serviceAccount.rename",
+      { id: created.serviceAccount.id, name: "renamed" },
+      memberId,
+    );
+    throw new Error("expected FORBIDDEN, but it resolved");
+  } catch (e) {
+    if (!isAppError(e)) throw e;
+    expect(e.code).toBe("FORBIDDEN");
+    expect(e.details?.admins).toEqual([{ email: adminEmail }]);
+  }
+});
+
 test("service-account admins can manage service-account api keys", async () => {
   const spaceId = await makeSpace();
   const managerId = await makeUser();

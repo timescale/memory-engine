@@ -30,6 +30,7 @@ import type {
   SpacePrincipalResponse,
   TreeGrantResponse,
 } from "@memory.build/protocol/space";
+import { forbiddenNamingAdmins } from "../admin-contacts";
 import { guardCore } from "../core-error";
 import { AppError } from "../errors";
 import type { SpaceRpcContext } from "./types";
@@ -106,11 +107,20 @@ function asValidationError(e: unknown): AppError {
 /**
  * Structural authority over the space (principal_space.admin). Required for
  * managing groups — a structural construct of the space, distinct from data
- * ownership: owning the data tree (owner@root) is NOT sufficient.
+ * ownership: owning the data tree (owner@root) is NOT sufficient. Async
+ * because the denial is enriched with the effective admins' contacts
+ * (`data.admins`) — the escalation path for a caller who can't enumerate the
+ * roster to find whom to ask.
  */
-export function requireSpaceAdmin(context: SpaceRpcContext): void {
+export async function requireSpaceAdmin(
+  context: SpaceRpcContext,
+): Promise<void> {
   if (!context.admin) {
-    throw new AppError("FORBIDDEN", "This action requires being a space admin");
+    throw await forbiddenNamingAdmins(
+      context.core,
+      context.space.id,
+      "This action requires being a space admin",
+    );
   }
 }
 
@@ -130,8 +140,9 @@ export async function requireGroupAdmin(
     context.space.id,
   );
   if (!groupAdmin) {
-    throw new AppError(
-      "FORBIDDEN",
+    throw await forbiddenNamingAdmins(
+      context.core,
+      context.space.id,
       "Managing group members requires being a space admin or an admin of the group",
     );
   }
@@ -161,13 +172,17 @@ export function ownsTreePath(
   );
 }
 
-export function requireTreeOwner(
+export async function requireTreeOwner(
   context: SpaceRpcContext,
   treePath: string,
-): void {
+): Promise<void> {
   if (!ownsTreePath(context, treePath)) {
-    throw new AppError(
-      "FORBIDDEN",
+    // Enriched with the space admins: an owner at the path could also help,
+    // but owners aren't enumerable for the caller, and an admin is always an
+    // escalation of last resort (admins may self-grant owner@root).
+    throw await forbiddenNamingAdmins(
+      context.core,
+      context.space.id,
       `Granting access at "${treePath}" requires owner access on that path`,
     );
   }
