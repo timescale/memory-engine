@@ -69,6 +69,12 @@ import { VALID_TREE_ROOT_RE } from "./import.ts";
 import { runGitImport } from "./import-git.ts";
 import { gitHookStatus, runGitHookInstall } from "./import-git-hook.ts";
 import { openCodeSetupAvailable, runOpenCodeInstallFlow } from "./opencode.ts";
+import {
+  ciWorkflowStatus,
+  createProjectCiCommand,
+  PendingSetup,
+  runProjectCi,
+} from "./project-ci.ts";
 
 /**
  * Sentinel option values for the selects. `create-space` cannot collide with
@@ -611,6 +617,33 @@ const PROJECT_INIT_STEPS: InitStep[] = [
       runGitHookInstall({ skipIfNotRepo: true }, globalOpts),
   },
   {
+    id: "ci-workflow",
+    group: "CI import",
+    kind: "ongoing",
+    optionKey: "skipCiWorkflow",
+    skipFlag: "--skip-ci-workflow",
+    skipDescription: "do not set up the GitHub Actions import workflow",
+    label:
+      "Set up the GitHub Actions import workflow — imports merged commits + docs on push to the default branch",
+    // Hidden outside a git repo / without a GitHub remote; ✓ when the managed
+    // scaffold is already current (credentials may still be pending — the
+    // re-run is idempotent).
+    available: () => ciWorkflowStatus(process.cwd()),
+    doneLabel: "GitHub Actions import workflow already scaffolded",
+    rerunLabel:
+      "Re-run the CI import setup (workflow already scaffolded; checks credentials)",
+    run: async ({ globalOpts }) => {
+      try {
+        await runProjectCi({}, globalOpts, { fromInit: true });
+      } catch (e) {
+        // A pending end-state ("ask your admin", no secret yet) is not a
+        // failure: the scaffold landed, and setup completes on a later
+        // `me project ci` run — init keeps going.
+        if (!(e instanceof PendingSetup)) throw e;
+      }
+    },
+  },
+  {
     id: "claude-md",
     group: "Project config",
     kind: "config",
@@ -787,5 +820,6 @@ export function createProjectCommand(): Command {
     "per-project Memory Engine setup",
   );
   project.addCommand(createProjectInitCommand());
+  project.addCommand(createProjectCiCommand());
   return project;
 }

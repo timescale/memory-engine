@@ -1944,6 +1944,126 @@ describe.skipIf(
     await rm(plain, { recursive: true, force: true });
   });
 
+  test("8i. `me project ci` scaffolds the workflow and provisions credentials", async () => {
+    // A repo with a GitHub remote and a committed .me pinning space + a
+    // shared tree — the preconditions the CI flow requires.
+    const root = await mkdtemp(join(tmpdir(), "me-e2e-projci-"));
+    const name = `projci${rand()}`;
+    const repo = join(root, name);
+    await mkdir(join(repo, ".me"), { recursive: true });
+    await git(repo, ["init", "-q", "-b", "main"]);
+    await git(repo, [
+      "remote",
+      "add",
+      "origin",
+      `git@github.com:acme/${name}.git`,
+    ]);
+    const tree = `share.projects.${name}`;
+    await writeFile(
+      join(repo, ".me", "config.yaml"),
+      `space: ${spaceSlug}\ntree: /share/projects/${name}\n`,
+    );
+
+    // A FAKE `gh` on PATH: deterministic secret state regardless of whether
+    // the host has a real, authenticated gh. It reads/records state under
+    // $ME_E2E_FAKE_GH — `secret list` prints repo-secret names, `api …`
+    // prints org-secret names, `secret set <name>` records stdin.
+    const fakeDir = await mkdtemp(join(tmpdir(), "me-e2e-fakegh-"));
+    const ghScript = [
+      "#!/bin/sh",
+      'case "$1" in',
+      "  auth) exit 0 ;;",
+      "  secret)",
+      '    if [ "$2" = "list" ]; then cat "$ME_E2E_FAKE_GH/repo-secrets" 2>/dev/null || true; exit 0; fi',
+      '    if [ "$2" = "set" ]; then cat > "$ME_E2E_FAKE_GH/set-$3"; exit 0; fi',
+      "    exit 1 ;;",
+      '  api) cat "$ME_E2E_FAKE_GH/org-secrets" 2>/dev/null || true; exit 0 ;;',
+      "esac",
+      "exit 1",
+    ].join("\n");
+    const binDir = join(fakeDir, "bin");
+    await mkdir(binDir, { recursive: true });
+    await writeFile(join(binDir, "gh"), `${ghScript}\n`);
+    await chmod(join(binDir, "gh"), 0o755);
+    const env = {
+      PATH: `${binDir}:${process.env.PATH}`,
+      ME_E2E_FAKE_GH: fakeDir,
+    };
+
+    // 1. Headless, no secret, no --create-service-account: the workflow IS
+    //    scaffolded, but provisioning never happens implicitly — hard error
+    //    naming the two resolutions.
+    const denied = await me(["project", "ci"], env, repo);
+    expect(denied.code).not.toBe(0);
+    expect(denied.stdout + denied.stderr).toContain("--create-service-account");
+    const wfPath = join(repo, ".github", "workflows", "me-import.yml");
+    const wf = await readFile(wfPath, "utf8");
+    expect(wf).toContain("Managed by 'me project ci'");
+    expect(wf).toContain("github.event.repository.default_branch");
+    expect(wf).toContain("me import ci");
+
+    // 2. Explicit provisioning: creates the SA, grants write at the tree,
+    //    mints a key straight into `gh secret set`.
+    const saName = `${name}-import`;
+    const created = await me(
+      ["project", "ci", "--create-service-account"],
+      env,
+      repo,
+    );
+    expect(created.code, created.stderr + created.stdout).toBe(0);
+    const [saRow] = await sql.unsafe(
+      `select id from ${coreSchema}.principal where kind = 's' and name = $1`,
+      [saName],
+    );
+    expect(saRow?.id).toBeDefined();
+    const [grantRow] = await sql.unsafe(
+      `select access from ${coreSchema}.tree_access
+         where principal_id = $1 and tree_path = $2::ltree`,
+      [saRow?.id, tree],
+    );
+    expect(grantRow?.access).toBe(2);
+    const setKey = await readFile(join(fakeDir, "set-ME_API_KEY"), "utf8");
+    expect(setKey.startsWith("me.")).toBe(true);
+
+    // 3. Secret now present: a plain re-run is scaffold-only maintenance —
+    //    no prompts, no new keys.
+    await writeFile(join(fakeDir, "repo-secrets"), "ME_API_KEY\n");
+    await rm(join(fakeDir, "set-ME_API_KEY"));
+    const rerun = await me(["project", "ci"], env, repo);
+    expect(rerun.code, rerun.stderr + rerun.stdout).toBe(0);
+    expect(existsSync(join(fakeDir, "set-ME_API_KEY"))).toBe(false);
+
+    // 4. With the identity committed (import.service_account), the re-run
+    //    verifies the SA + grant.
+    await writeFile(
+      join(repo, ".me", "config.yaml"),
+      `space: ${spaceSlug}\ntree: /share/projects/${name}\nimport:\n  service_account: ${saName}\n`,
+    );
+    const verified = await me(["project", "ci", "--json"], env, repo);
+    expect(verified.code, verified.stderr + verified.stdout).toBe(0);
+    const vr = JSON.parse(verified.stdout);
+    expect(vr.serviceAccount).toBe(saName);
+    expect(vr.verified).toBe(true);
+    expect(vr.workflow).toBe("unchanged");
+
+    // 5. --rotate-key mints a new key for the existing SA into the secret.
+    const rotated = await me(["project", "ci", "--rotate-key"], env, repo);
+    expect(rotated.code, rotated.stderr + rotated.stdout).toBe(0);
+    const rotatedKey = await readFile(join(fakeDir, "set-ME_API_KEY"), "utf8");
+    expect(rotatedKey.startsWith("me.")).toBe(true);
+    expect(rotatedKey).not.toBe(setKey);
+
+    // 6. The minted keys really belong to the service account.
+    const keys = await meJson<{ apiKeys: { name: string }[] }>(
+      ["apikey", "list", "--service", saName],
+      env,
+    );
+    expect(keys.apiKeys.length).toBe(2);
+
+    await rm(root, { recursive: true, force: true });
+    await rm(fakeDir, { recursive: true, force: true });
+  });
+
   test("9. claude capture hook ↔ `me claude import` are cross-idempotent", async () => {
     // A minimal Claude Code session transcript on disk. The importer scans
     // <source>/<project-dir>/*.jsonl; the hook reads the file directly.
