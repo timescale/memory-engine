@@ -27,19 +27,19 @@
       (device.ts:158)
 
 ## Low
-- [ ] 6. `me login --device` awaits `openBrowser`, which can block until the
+- [x] 6. `me login --device` awaits `openBrowser`, which can block until the
       launcher/browser exits (some `xdg-open` combos), delaying polling until the
       code may expire. Make browser launch fire-and-forget / independently bounded.
       (login.ts:316)
-- [ ] 7. Verification URL is built by string concat (`${baseURL}/device`) → `//device`
+- [x] 7. Verification URL is built by string concat (`${baseURL}/device`) → `//device`
       when `API_BASE_URL` has a trailing slash, which the SPA won't match. Use
       `new URL("/device", baseURL)` / normalize. (betterauth.ts:278)
-- [ ] 8. Device-code input displays uppercase via CSS but `claim()` sends the raw
+- [x] 8. Device-code input displays uppercase via CSS but `claim()` sends the raw
       typed/pasted value; Better Auth strips dashes then does a case-sensitive
       lookup, so lowercase/mixed-case codes look right but fail. Normalize to
       uppercase before claim/approve/deny. (DeviceVerificationPage.tsx:83 / 85 —
       Copilot + human, same issue)
-- [ ] 9. Device-code input has only placeholder text — add a real label / `aria-label`
+- [x] 9. Device-code input has only placeholder text — add a real label / `aria-label`
       for screen readers. (DeviceVerificationPage.tsx:213)
 
 ## Verify (likely non-issue)

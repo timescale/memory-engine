@@ -164,6 +164,27 @@ describe("device authorization grant", () => {
     expect(json.error).toBe("invalid_client");
   });
 
+  test("verification URL is stable when the base URL has a trailing slash", async () => {
+    const trailingAuth = createBetterAuth({
+      databaseUrl: URL,
+      authSchema,
+      baseURL: `${BASE}/`,
+      secret: BETTER_AUTH_SECRET,
+      trustedOrigins: ALLOWED,
+    });
+    try {
+      const { status, json } = await authFetch("/device/code", {
+        method: "POST",
+        body: { client_id: "me-cli" },
+        auth: trailingAuth.auth,
+      });
+      expect(status).toBe(200);
+      expect(json.verification_uri).toBe(`${BASE}/device`);
+    } finally {
+      await trailingAuth.pool.end();
+    }
+  });
+
   test("device-code requests are rate limited", async () => {
     const limitedAuth = createBetterAuth({
       databaseUrl: URL,

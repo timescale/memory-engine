@@ -301,7 +301,7 @@ export function createBetterAuth(opts: BetterAuthOptions) {
       deviceAuthorization({
         expiresIn: DEVICE_CODE_EXPIRES_IN,
         interval: DEVICE_CODE_POLL_INTERVAL,
-        verificationUri: `${opts.baseURL}/device`,
+        verificationUri: new URL("/device", opts.baseURL).toString(),
         validateClient: (clientId) => clientId === CLI_CLIENT_ID,
         schema: {
           deviceCode: {
