@@ -80,6 +80,13 @@ export interface DocsImportOptions {
   prune: boolean;
   /** Allow a git-mode import root below the repo toplevel. */
   allowSubdirRoot: boolean;
+  /**
+   * An empty walk is a clean skip (info, exit 0) instead of a `--prune`
+   * refusal — for orchestrated runs (`me import ci`) whose import root is the
+   * repo toplevel by construction, where "no matching docs" means the repo
+   * has no docs corpus, not that the run is mis-rooted.
+   */
+  skipIfEmpty?: boolean;
   /** Report without writing. */
   dryRun: boolean;
   /** Per-file progress output. */
@@ -115,6 +122,7 @@ export function buildDocsImportOptions(
     parseTemporal: opts.temporal !== false,
     prune: opts.prune === true,
     allowSubdirRoot: opts.allowSubdirRoot === true,
+    skipIfEmpty: opts.skipIfEmpty === true,
     dryRun: opts.dryRun === true,
     verbose: opts.verbose === true,
   };
@@ -209,6 +217,8 @@ interface DocsImportResult {
   tree: string;
   /** Discovery mode: git ls-files vs plain directory walk. */
   mode: "git" | "plain";
+  /** Set when a skipIfEmpty run found no matching docs and skipped cleanly. */
+  skippedNoDocs?: boolean;
   /** Set when git dates were dropped because the clone is shallow. */
   shallow?: boolean;
   dryRun: boolean;
@@ -328,6 +338,32 @@ export async function runDocsImport(
     fail(error);
   }
 
+  // Orchestrated runs (`me import ci`): a repo with no matching docs is a
+  // clean skip — nothing to import, no prune attempted (see skipIfEmpty).
+  if (opts.skipIfEmpty === true && relPaths.length === 0) {
+    progress?.stop();
+    const structured: DocsImportResult = {
+      dir: opts.dir,
+      tree: displayTreePath(docsTree),
+      mode: gitMode ? "git" : "plain",
+      skippedNoDocs: true,
+      dryRun: opts.dryRun,
+      filesScanned: 0,
+      skippedEmpty: 0,
+      inserted: 0,
+      updated: 0,
+      skipped: 0,
+      pruned: 0,
+      prunedPaths: [],
+      failed: 0,
+      errors: [],
+    };
+    output(structured, fmt, () => {
+      clack.log.info("No matching docs — skipping the docs import");
+    });
+    return;
+  }
+
   // Git last-modified dates — one streamed log pass. Skipped when the clone
   // is shallow (every path would collapse to the shallow boundary — wrong
   // dates are worse than absent ones); --temporal-key still applies.
@@ -429,8 +465,13 @@ export async function runDocsImport(
   let pruneRefused: string | undefined;
   if (opts.prune) {
     if (unique.length === 0) {
-      pruneRefused =
-        "empty walk — a wrong directory or over-narrowed --include must not delete the whole corpus";
+      // Under skipIfEmpty (orchestrated runs) an all-empty walk skips the
+      // prune silently instead: deleting the whole previously-imported corpus
+      // because every file emptied out is exactly what the refusal guards.
+      if (opts.skipIfEmpty !== true) {
+        pruneRefused =
+          "empty walk — a wrong directory or over-narrowed --include must not delete the whole corpus";
+      }
     } else {
       try {
         const keep = buildKeepList(unique);

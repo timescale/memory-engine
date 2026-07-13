@@ -101,6 +101,33 @@ const projectConfigSchema = z
      * opted in at `me claude install`).
      */
     capture: z.boolean().optional(),
+    /**
+     * Per-project import configuration for the orchestrated CI run —
+     * `me import ci` reads the phase toggles and docs scoping; `me project ci`
+     * reads `service_account`. Targeting (server/space/tree) stays in the
+     * top-level fields; this block only shapes WHAT an orchestrated run
+     * imports. Absent → both phases run with their defaults.
+     */
+    import: z
+      .object({
+        /** Run the git-history phase (default true). */
+        git: z.boolean().optional(),
+        /** Run the docs phase (default true). */
+        docs: z.boolean().optional(),
+        /** Docs include globs, replacing the default markdown set. */
+        docs_include: z.array(z.string().min(1)).optional(),
+        /** Docs exclude globs, subtracted from the include set. */
+        docs_exclude: z.array(z.string().min(1)).optional(),
+        /**
+         * The service account expected to hold the CI credentials — read by
+         * `me project ci` for setup/verify. Never consulted at import time:
+         * the `ME_API_KEY` bearer IS the identity. Not a secret (any space
+         * member can resolve the name).
+         */
+        service_account: z.string().min(1).optional(),
+      })
+      .strict()
+      .optional(),
   })
   .strict();
 
