@@ -24,6 +24,7 @@ import idempotent004 from "./idempotent/004_oauth.sql" with { type: "text" };
 import idempotent005 from "./idempotent/005_verification.sql" with {
   type: "text",
 };
+import idempotent006 from "./idempotent/006_device.sql" with { type: "text" };
 import incremental001 from "./incremental/001_users.sql" with { type: "text" };
 import incremental002 from "./incremental/002_accounts.sql" with {
   type: "text",
@@ -38,6 +39,9 @@ import incremental005 from "./incremental/005_verifications.sql" with {
   type: "text",
 };
 import incremental006 from "./incremental/006_betterauth.sql" with {
+  type: "text",
+};
+import incremental007 from "./incremental/007_device_code.sql" with {
   type: "text",
 };
 import provisionSql from "./provision.sql" with { type: "text" };
@@ -78,6 +82,11 @@ const incrementals: Migration[] = [
     file: "incremental/006_betterauth.sql",
     sql: incremental006,
   },
+  {
+    name: "007_device_code",
+    file: "incremental/007_device_code.sql",
+    sql: incremental007,
+  },
 ];
 
 const idempotents: Migration[] = [
@@ -102,6 +111,11 @@ const idempotents: Migration[] = [
     name: "005_verification",
     file: "idempotent/005_verification.sql",
     sql: idempotent005,
+  },
+  {
+    name: "006_device",
+    file: "idempotent/006_device.sql",
+    sql: idempotent006,
   },
 ];
 
