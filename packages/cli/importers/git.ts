@@ -2,11 +2,14 @@
  * Git history importer — walks `git log` and turns each commit into one
  * memory under `<tree-root>.<project_slug>.git_history`.
  *
- * Identity: a deterministic UUIDv7 keyed by `git:<tree>:<sha>` with the
- * commit date as the timestamp half, so re-imports collide server-side
- * (`ON CONFLICT (id) DO NOTHING`) and become no-op skips — no cursor or
- * client-side state. Incremental runs (see commands/import-git.ts) only
- * narrow the walk; correctness never depends on them.
+ * Identity: the idempotency key is the `(tree, name)` slot where `name` is
+ * the commit sha; rows are submitted with `onConflict: "replace"`, so an
+ * unchanged commit re-imports as a no-op skip and a changed rendering
+ * (e.g. an importer-version bump) updates in place. Ids are `uuidv7At`
+ * values seeded from the commit date (random-tailed — recency ordering, not
+ * identity). No cursor or client-side state. Incremental runs (see
+ * commands/import-git.ts) only narrow the walk; correctness never depends
+ * on them.
  *
  * The walk is one streamed `git log` invocation with NUL-separated fields:
  *
