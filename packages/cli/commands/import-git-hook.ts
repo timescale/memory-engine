@@ -1,96 +1,34 @@
 /**
- * `me import git-hook` — install a managed git post-commit hook that keeps a
- * repo's git-history memories current.
+ * The RETIRED `me import git-hook` — a removed-command stub plus the
+ * marker-based cleanup helper for hooks installed by older versions.
  *
- * The hook runs `me import git` in the background after every commit:
- * best-effort, asynchronous, silent — it never blocks or fails a commit, and
- * the embedded invocation is absolute so GUI git clients (no shell PATH)
- * work. Because the import is high-water incremental, ANY fire catches up the
- * entire backlog (including commits that arrived via pull/rebase), so a
- * single post-commit hook suffices — no post-merge/post-rewrite matrix.
+ * The local post-commit hook imported whatever HEAD was: feature-branch and
+ * rebased commits landed in the tree keyed by `(tree, sha)` forever, it ran
+ * per-clone with the committing human's credentials, and it failed silently.
+ * CI imports replaced it (`me project ci` scaffolds a GitHub workflow that
+ * runs `me import ci` on push to the default branch — see
+ * CI_IMPORT_DESIGN.md). Anyone who truly wants local-commit capture can put
+ * `me import git >/dev/null 2>&1 &` in their own hook — the primitive stays.
  *
- * The hook lives in the repo's effective hooks directory as a
- * marker-delimited managed block (created, replaced in place, or appended to
- * a foreign hook — the same upsert discipline as the CLAUDE.md pointer).
- * Repos using a committed hooks manager (`core.hooksPath`, e.g. husky) are
- * refused with instructions instead of writing into committed files.
+ * What remains here: already-installed hooks keep firing on every commit
+ * until their managed block is deleted, so `me project ci` migrates them —
+ * it detects the block by its markers and strips it once CI credentials are
+ * in place. The stub's error names the same two options: run `me project
+ * ci`, or delete the block by hand.
  */
 import { execFile } from "node:child_process";
-import { chmod, mkdir, readFile, rm, writeFile } from "node:fs/promises";
-import { basename, isAbsolute, join } from "node:path";
+import { readFile, rm, writeFile } from "node:fs/promises";
+import { isAbsolute, join } from "node:path";
 import { promisify } from "node:util";
-import * as clack from "@clack/prompts";
 import { Command } from "commander";
-import { getOutputFormat, output } from "../output.ts";
-import { handleError } from "../util.ts";
 
 const execFileAsync = promisify(execFile);
 
-/** Markers delimiting the managed block inside the hook script. */
+/** Markers delimiting the managed block older versions wrote. */
 const HOOK_START = "# >>> memory-engine (managed by `me import git-hook`) >>>";
 const HOOK_END = "# <<< memory-engine <<<";
 
 const SHEBANG = "#!/bin/sh";
-
-/** Quote a path for /bin/sh (double quotes; escapes embedded `"` and `\`). */
-function shQuote(path: string): string {
-  return `"${path.replace(/([\\"$`])/g, "\\$1")}"`;
-}
-
-/**
- * The absolute invocation embedded into the hook, resolved from how this
- * process is running: the compiled `me` binary, a source run (`bun
- * packages/cli/index.ts` — dev and tests), or `me` on PATH.
- */
-export function resolveMeInvocation(): string {
-  if (basename(process.execPath) === "me") return shQuote(process.execPath);
-  const entry = process.argv[1];
-  if (entry && /\.(ts|js)$/.test(entry) && isAbsolute(entry)) {
-    return `${shQuote(process.execPath)} ${shQuote(entry)}`;
-  }
-  const onPath = Bun.which("me");
-  if (onPath) return shQuote(onPath);
-  throw new Error(
-    "Cannot resolve the `me` binary to embed in the hook — install it on PATH first.",
-  );
-}
-
-/** The managed block (ends with a newline). */
-export function buildHookBlock(invocation: string): string {
-  return [
-    HOOK_START,
-    "# Best-effort and asynchronous: never blocks or fails the commit.",
-    `(${invocation} import git >/dev/null 2>&1 &)`,
-    HOOK_END,
-    "",
-  ].join("\n");
-}
-
-/**
- * Upsert the managed block into an existing hook script (null = no file).
- * Fresh file → shebang + block; markers present → replaced in place;
- * foreign hook → block appended (a foreign script that exits early never
- * reaches it — documented limitation).
- */
-export function upsertHookScript(
-  existing: string | null,
-  block: string,
-): string {
-  if (existing === null || existing.trim().length === 0) {
-    return `${SHEBANG}\n${block}`;
-  }
-  const start = existing.indexOf(HOOK_START);
-  if (start !== -1) {
-    const endMarker = existing.indexOf(HOOK_END, start);
-    const end =
-      endMarker === -1 ? existing.length : endMarker + HOOK_END.length;
-    // Swallow a single trailing newline so re-installs don't grow the file.
-    const tail = existing[end] === "\n" ? end + 1 : end;
-    return existing.slice(0, start) + block + existing.slice(tail);
-  }
-  const sep = existing.endsWith("\n") ? "\n" : "\n\n";
-  return existing + sep + block;
-}
 
 /**
  * Remove the managed block. Returns the remaining script, or null when
@@ -121,25 +59,6 @@ async function git(repo: string, args: string[]): Promise<string | null> {
   }
 }
 
-/** Status of the git hook for `cwd`, driving the `me claude init` step. */
-export type GitHookStatus =
-  | "installable" // in a repo, no hooks manager, block not yet present
-  | "not-applicable" // not a git repo, or core.hooksPath owns the hook path
-  | "installed"; // the managed block is already there
-
-export async function gitHookStatus(cwd: string): Promise<GitHookStatus> {
-  const root = await git(cwd, ["rev-parse", "--show-toplevel"]);
-  if (!root) return "not-applicable";
-  if (await git(root, ["config", "core.hooksPath"])) return "not-applicable";
-  const hooksFile = await resolveHooksFile(root);
-  try {
-    const existing = await readFile(hooksFile, "utf8");
-    return existing.includes(HOOK_START) ? "installed" : "installable";
-  } catch {
-    return "installable"; // no hook file yet
-  }
-}
-
 /** The effective post-commit path (worktree-aware via --git-path). */
 async function resolveHooksFile(root: string): Promise<string> {
   const hooksDir =
@@ -148,121 +67,58 @@ async function resolveHooksFile(root: string): Promise<string> {
   return join(abs, "post-commit");
 }
 
-/** Options for one install/remove run. */
-export interface GitHookOptions {
-  repo?: string;
-  remove?: boolean;
-  /** Soft-skip when the target isn't a git repo (used by `me claude init`). */
-  skipIfNotRepo?: boolean;
+/**
+ * The hook file containing an installed managed block for the repo at `cwd`,
+ * or undefined when there is none (not a repo, no hook, no block).
+ */
+export async function installedHookFile(
+  cwd: string,
+): Promise<string | undefined> {
+  const root = await git(cwd, ["rev-parse", "--show-toplevel"]);
+  if (!root) return undefined;
+  const hooksFile = await resolveHooksFile(root);
+  try {
+    const existing = await readFile(hooksFile, "utf8");
+    return existing.includes(HOOK_START) ? hooksFile : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /**
- * Install (or remove) the managed post-commit hook. Exported so
- * `me claude init` can run it as a setup step. Purely local — no server
- * auth required.
+ * Strip the managed block from `hooksFile` (deleting the file when the block
+ * was its only content). Idempotent — a missing block is a no-op.
  */
-export async function runGitHookInstall(
-  opts: GitHookOptions,
-  globalOpts: Record<string, unknown>,
-): Promise<void> {
-  const fmt = getOutputFormat(globalOpts);
-  const repoPath = opts.repo ?? process.cwd();
-
-  const root = await git(repoPath, ["rev-parse", "--show-toplevel"]);
-  if (!root) {
-    if (opts.skipIfNotRepo) {
-      if (fmt === "text") {
-        clack.log.info(
-          `${repoPath} is not a git repository — skipping git hook install`,
-        );
-      }
-      return;
-    }
-    handleError(new Error(`${repoPath} is not a git repository`), fmt);
-  }
-
-  const hooksFile = await resolveHooksFile(root);
-
-  if (opts.remove) {
-    let existing: string;
-    try {
-      existing = await readFile(hooksFile, "utf8");
-    } catch {
-      output({ hooksFile, action: "absent" }, fmt, () =>
-        clack.log.info(`No hook installed at ${hooksFile}`),
-      );
-      return;
-    }
-    const remaining = removeHookBlock(existing);
-    if (remaining === existing) {
-      output({ hooksFile, action: "absent" }, fmt, () =>
-        clack.log.info(`No managed block found in ${hooksFile}`),
-      );
-      return;
-    }
-    if (remaining === null) await rm(hooksFile);
-    else await writeFile(hooksFile, remaining);
-    output({ hooksFile, action: "removed" }, fmt, () =>
-      clack.log.success(`Removed the memory-engine hook from ${hooksFile}`),
-    );
-    return;
-  }
-
-  // A committed hooks manager (husky, lefthook, …) owns the hook path —
-  // don't write into committed files; tell the user what to add instead.
-  const hooksPath = await git(root, ["config", "core.hooksPath"]);
-  if (hooksPath) {
-    handleError(
-      new Error(
-        `This repo routes hooks through core.hooksPath (${hooksPath}) — a committed hooks manager likely owns it.\n` +
-          `Add this line to its post-commit hook instead:\n` +
-          `  me import git >/dev/null 2>&1 &`,
-      ),
-      fmt,
-    );
-  }
-
-  let existing: string | null = null;
+export async function stripHookBlock(hooksFile: string): Promise<void> {
+  let existing: string;
   try {
     existing = await readFile(hooksFile, "utf8");
   } catch {
-    // no hook yet
+    return;
   }
-  const updated = existing?.includes(HOOK_START) ?? false;
-  const next = upsertHookScript(
-    existing,
-    buildHookBlock(resolveMeInvocation()),
-  );
-  await mkdir(join(hooksFile, ".."), { recursive: true });
-  await writeFile(hooksFile, next);
-  await chmod(hooksFile, 0o755);
-
-  output({ hooksFile, action: updated ? "updated" : "installed" }, fmt, () => {
-    clack.log.success(
-      `${updated ? "Updated" : "Installed"} the post-commit hook at ${hooksFile}`,
-    );
-    console.log(
-      "  Each commit now triggers a background `me import git` (incremental,",
-    );
-    console.log(
-      "  silent, never blocks the commit). Remove with: me import git-hook --remove",
-    );
-  });
+  const remaining = removeHookBlock(existing);
+  if (remaining === existing) return;
+  if (remaining === null) await rm(hooksFile);
+  else await writeFile(hooksFile, remaining);
 }
 
-/** `me import git-hook` subcommand factory. */
-export function createGitHookCommand(): Command {
+/**
+ * The removed-command stub (the `createRemovedCommand` pattern, cf. the
+ * retired `me claude init`): accepts any of the old flags without Commander's
+ * parse-time rejection so this message is what actually prints.
+ */
+export function createRemovedGitHookCommand(): Command {
   return new Command("git-hook")
-    .description(
-      "install a git post-commit hook that keeps git history memories current",
-    )
-    .argument("[repo]", "path inside the repo (default: cwd)")
-    .option("--remove", "remove the managed hook block")
-    .action(async (repoArg: string | undefined, opts, cmdRef) => {
-      const globalOpts = cmdRef.optsWithGlobals();
-      await runGitHookInstall(
-        { repo: repoArg, remove: opts.remove === true },
-        globalOpts,
+    .description("removed — CI imports replaced the local hook")
+    .allowUnknownOption()
+    .allowExcessArguments()
+    .action(() => {
+      console.error(
+        "error: 'me import git-hook' has been removed — a local hook imports unmerged and rebased " +
+          "commits, and imports now run from CI on push to the default branch instead. Run " +
+          "'me project ci' to set that up (it also strips an installed hook block), or delete the " +
+          "'>>> memory-engine' block from .git/hooks/post-commit by hand.",
       );
+      process.exit(1);
     });
 }

@@ -10,7 +10,7 @@ Get data into Memory Engine — one subcommand per source.
 - [me import opencode](#me-import-claude--codex--opencode) -- import OpenCode sessions
 - [me import granola](#me-import-granola) -- import Granola meeting notes and transcripts
 - [me import git](#me-import-git) -- import a repo's git commit history
-- [me import git-hook](#me-import-git-hook) -- install a post-commit hook that keeps git history memories current
+- [me import git-hook](#me-import-git-hook-removed) -- removed; CI imports replaced the local hook (see [`me project ci`](me-project.md#me-project-ci))
 - [me import docs](#me-import-docs) -- import a directory's markdown docs (git-aware)
 - [me import slab](#me-import-slab) -- import a Slab knowledge-base export (a directory or `.zip`)
 
@@ -357,48 +357,14 @@ Everything lands under one tree root, so the import is reversible — `me memory
 
 ---
 
-## me import git-hook
+## me import git-hook (removed)
 
-Install a managed git `post-commit` hook that re-runs [`me import git`](#me-import-git) in the background after every commit, keeping the repo's git history memories current without manual re-runs.
+`me import git-hook` has been **removed**. The local post-commit hook imported whatever HEAD was — feature-branch and rebased commits landed in the shared tree keyed by `(tree, sha)` forever — it ran per-clone with the committing human's credentials, and it failed silently. Imports now run from CI on push to the default branch instead: run [`me project ci`](me-project.md#me-project-ci) to set that up.
 
-```
-me import git-hook [repo]
-me import git-hook --remove
-```
+An already-installed hook keeps firing until its managed block is deleted. `me project ci` detects the block and removes it once CI credentials are in place; or delete the `# >>> memory-engine` block from `.git/hooks/post-commit` by hand.
 
-| Argument | Required | Description |
-|----------|----------|-------------|
-| `repo` | no | Path inside the repo. Default: the current directory. |
-
-| Option | Description |
-|--------|-------------|
-| `--remove` | Remove the managed block (and the hook file, if nothing else remains). |
-
-### What gets installed
-
-A marker-delimited managed block in the repo's effective `post-commit` hook (worktree-aware, resolved via `git rev-parse --git-path hooks`):
-
-```sh
-# >>> memory-engine (managed by `me import git-hook`) >>>
-# Best-effort and asynchronous: never blocks or fails the commit.
-("/path/to/me" import git >/dev/null 2>&1 &)
-# <<< memory-engine <<<
-```
-
-The embedded `me` path is absolute, so commits from GUI git clients (no shell PATH) still trigger the import. If a `post-commit` hook already exists, the block is appended once and the existing script is preserved; re-running `git-hook` replaces the block in place (idempotent, refreshes the embedded path). A foreign hook that exits early never reaches the appended block — move the block up manually in that case.
-
-Because [`me import git`](#me-import-git) is high-water incremental, **any** hook fire catches up the entire backlog — including commits that arrived via pull, merge, or rebase since the last fire. A single `post-commit` hook therefore suffices; there is no post-merge/post-rewrite matrix to install.
-
-### Hooks managers (core.hooksPath)
-
-When the repo routes hooks through `core.hooksPath` (husky, lefthook, and similar committed hooks managers), `git-hook` refuses rather than write into committed files. Add this line to the manager's `post-commit` hook instead:
+If you genuinely want local-commit capture (into a **private** tree), the primitive remains — add this line to your own `post-commit` hook, knowing it imports unmerged and rebased commits:
 
 ```sh
 me import git >/dev/null 2>&1 &
 ```
-
-### Scope and failure mode
-
-The hook lives in `.git/hooks` — per clone, never committed, never pushed. CI checkouts and teammates' clones are unaffected; each clone opts in by running `me import git-hook` itself ([`me project init`](me-project.md) offers it as a setup step).
-
-The import is deliberately silent and best-effort: it never blocks or fails a commit, which also means auth or connectivity problems won't surface at commit time. If history seems stale, run `me import git` manually to see the error — the next successful fire catches everything up.

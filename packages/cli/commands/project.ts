@@ -66,8 +66,6 @@ import { writeProjectConfig } from "../project-config.ts";
 import { buildMemoryClient, buildUserClient, handleError } from "../util.ts";
 import { pluginInstallAvailable, runClaudeInstallFlow } from "./claude.ts";
 import { VALID_TREE_ROOT_RE } from "./import.ts";
-import { runGitImport } from "./import-git.ts";
-import { gitHookStatus, runGitHookInstall } from "./import-git-hook.ts";
 import { openCodeSetupAvailable, runOpenCodeInstallFlow } from "./opencode.ts";
 import {
   ciWorkflowStatus,
@@ -584,38 +582,10 @@ const PROJECT_INIT_STEPS: InitStep[] = [
     group: "Session capture",
     toolLabel: "agent",
   }),
-  {
-    id: "git-import",
-    group: "Git history",
-    kind: "backfill",
-    optionKey: "skipGitImport",
-    skipFlag: "--skip-git-import",
-    skipDescription: "do not import the repo's git commit history",
-    label: "Import existing git commit history (one-time backfill)",
-    run: ({ globalOpts }) => runGitImport({ skipIfNotRepo: true }, globalOpts),
-  },
-  {
-    id: "git-hook",
-    group: "Git history",
-    kind: "ongoing",
-    optionKey: "skipGitHook",
-    skipFlag: "--skip-git-hook",
-    skipDescription: "do not install the git post-commit capture hook",
-    label:
-      "Install a git post-commit hook — captures new commits going forward",
-    // Hidden outside a git repo or when a committed hooks manager owns the
-    // hook path; ✓ when the managed block is already installed.
-    available: async () => {
-      const status = await gitHookStatus(process.cwd());
-      if (status === "installed") return "done";
-      return status === "installable" ? "available" : "hidden";
-    },
-    doneLabel: "Git post-commit hook already installed",
-    rerunLabel:
-      "Reinstall the git post-commit hook — captures new commits going forward (already installed)",
-    run: ({ globalOpts }) =>
-      runGitHookInstall({ skipIfNotRepo: true }, globalOpts),
-  },
+  // The former "Git history" steps (one-time local backfill + post-commit
+  // hook) are gone: the CI workflow below owns git history — its first run
+  // backfills main's full ancestry under the service account, and a local
+  // hook imported unmerged/rebased commits (the reason it was removed).
   {
     id: "ci-workflow",
     group: "CI import",
