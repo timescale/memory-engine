@@ -1,6 +1,6 @@
 # MCP Integration
 
-Memory Engine integrates with AI coding agents via the [Model Context Protocol](https://modelcontextprotocol.io/) (MCP). This gives agents 10 memory tools they can use to store and retrieve knowledge across conversations.
+Memory Engine integrates with AI coding agents via the [Model Context Protocol](https://modelcontextprotocol.io/) (MCP). This gives agents 14 memory tools they can use to store and retrieve knowledge across conversations.
 
 ## How it works
 
@@ -173,7 +173,7 @@ Once connected, the agent has access to:
 | `me_memory_import` | Bulk import from file or content |
 | `me_memory_export` | Bulk export with filters |
 
-See [MCP Tool Reference](mcp/me_memory_search.md) for detailed documentation on each tool.
+See the [MCP Tool Reference](mcp/index.md) for detailed documentation on each tool.
 
 ## The AGENTS.md pattern
 

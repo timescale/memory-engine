@@ -12,7 +12,7 @@ A memory is a single piece of knowledge. Every memory has:
 
 Every memory also has an immutable **id** (a UUIDv7) -- the stable identity that survives renames and moves. The server mints it; callers may supply one only to preserve identity across import/export.
 
-Each space stores its memories in a single PostgreSQL table (the `me_<slug>` schema). There are no separate tables for different "types" of memory -- the type is a convention in `meta`, not a schema distinction. This keeps queries simple and the data model flexible.
+All of a space's memories live together in one store. There are no separate stores for different "types" of memory -- the type is a convention in `meta`, not a structural distinction. This keeps the data model simple and flexible.
 
 ### Best practices
 
@@ -91,7 +91,7 @@ When filtering by tree (in search, export, or browse), the system auto-detects w
 | `*/api/*` | Any path containing the label `api` at any position |
 | `*/!draft/*` | Any path that does NOT contain the label `draft` |
 | `/work\|personal/*` | Paths starting with `work` or `personal`, then anything |
-| `/me/!archived/*{0,}` | Everything under `/me` except the `/me/archived` subtree |
+| `/work/!archived/*{0,}` | Everything under `/work` except the `/work/archived` subtree |
 
 **Label search (ltxtquery)** -- triggered when the pattern contains `&`. Boolean search over path labels.
 
@@ -269,7 +269,7 @@ Search results include a `score` between 0 and 1, where 1 is the best match. For
 
 A **space** is an isolated collection of memories with its own roster, groups, and access grants. Each space has:
 
-- Its own memories (the `me_<slug>` table) and tree hierarchy.
+- Its own memories and tree hierarchy.
 - A roster of **principals** -- users, agents, service accounts, and groups.
 - Tree-access grants that control who can read/write/own which paths.
 

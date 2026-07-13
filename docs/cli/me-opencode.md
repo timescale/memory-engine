@@ -6,7 +6,7 @@ OpenCode integration commands.
 
 - [me opencode install](#me-opencode-install) -- register `me` as an MCP server with OpenCode, install the capture plugin + `/memory-recall` command + `memory-engine` skill
 - [me opencode init](#me-opencode-init) -- **deprecated** alias of [`me project init`](me-project.md)
-- [me opencode hook](#me-opencode-hook) -- invoked by the capture plugin to import a session (not run by hand)
+- [me opencode hook](#me-opencode-hook) -- internal helper (you never run this directly)
 - [me opencode import](#me-opencode-import) -- import OpenCode sessions from `~/.local/share/opencode/storage`
 
 ---
@@ -41,29 +41,11 @@ For manual MCP client configuration, see [MCP Integration](../mcp-integration.md
 
 **Deprecated** — renamed to [`me project init`](me-project.md), the harness-agnostic per-project setup wizard. This alias prints a rename notice, runs the same command, and will be removed in a future release. See [`me project init`](me-project.md#3-setup-checklist) for the current (harness-gated) checklist steps.
 
-The capture plugin (installed by [`me opencode install`](#me-opencode-install), not by `init`) shells out to `me opencode hook`, which reuses your `me login` session (or `ME_API_KEY` + `ME_SPACE`) -- no API key needs to be embedded in the plugin. The `me` CLI must be on `PATH` where OpenCode runs. Like the Claude hook, it is **inert unless capture is enabled** (project [`.me` `capture`](../project-config.md#the-capture-field-session-capture-onoff) → the machine-wide flag → off); the checklist's capture-enable step and the install prompt are the opt-in writers.
-
-The same plugin also carries the **harness-agent environment contract** ([Agent-by-config](../project-config.md#agent-by-config-and-the-agent-field)): a `shell.env` hook injects `ME_PROJECT_DIR` (the session directory, so a `cd`'d Bash command still discovers the right project), `AI_AGENT=opencode`, and `ME_AS_AGENT=.me` into every shell command OpenCode runs, so a plain `me` call from OpenCode's own shell resolves and runs as the configured agent automatically — no manual env setup. If OpenCode itself was launched inside another session's live contract (a nested harness), the hook emits nothing rather than overwriting it.
-
 ---
 
 ## me opencode hook
 
-Invoked by the generated capture plugin on `session.idle` and `session.deleted`; not meant to be run by hand. It resolves the session id to its storage file and imports it via the same incremental path as `me import opencode`, so live captures and bulk imports reconcile onto the same memories.
-
-```
-me opencode hook --event <idle|deleted> --session <id> [options]
-```
-
-| Option | Description |
-|--------|-------------|
-| `--event <name>` | hook event name (`idle`, `deleted`) |
-| `--session <id>` | OpenCode session id (e.g. `ses_abc123`) |
-| `--storage <dir>` | OpenCode storage dir (default: standard location) |
-| `--project-dir <dir>` | the session's project dir — anchors `.me/config.yaml` discovery; passed by the generated plugin |
-| `--full-transcript` | also store reasoning + tool calls/results |
-
-Best-effort: it logs failures to stderr but always exits 0, so a capture failure never blocks an OpenCode session.
+An internal helper the OpenCode capture plugin runs automatically as a session progresses. When capture is on, it imports the session as memories via the same incremental path as `me import opencode`, so live captures and bulk imports reconcile onto the same memories. **You never run this by hand** — it's best-effort and never blocks an OpenCode session.
 
 ---
 

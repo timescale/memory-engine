@@ -27,7 +27,7 @@ me whoami
   Space:  Acme (6nnv8r3gz9jr) [admin]
 ```
 
-In `--json` / `--yaml` output the active space is available both as the `activeSpace` slug (unchanged) and a resolved `space` object (`null` when unset or unresolved), alongside an `auth` field (`session` | `pat` | `agent`).
+In `--json` / `--yaml` output the active space is available both as the `activeSpace` slug (unchanged) and a resolved `space` object (`null` when unset or unresolved), alongside an `auth` field (`session` | `pat` | `agent` | `service-account`).
 
 Returns an error if you are not logged in. Set or change the active space with [`me space use`](me-space.md#me-space-use).
 

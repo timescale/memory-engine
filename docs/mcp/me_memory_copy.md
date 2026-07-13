@@ -30,8 +30,8 @@ The source memories are preserved. Copied memories receive new IDs.
 
 ```json
 {
-  "source": "share.projects.old",
-  "destination": "share.projects.archive",
+  "source": "/share/projects/old",
+  "destination": "/share/projects/archive",
   "dry_run": true
 }
 ```
@@ -40,8 +40,8 @@ The source memories are preserved. Copied memories receive new IDs.
 
 ```json
 {
-  "source": "share.projects.old",
-  "destination": "share.projects.archive",
+  "source": "/share/projects/old",
+  "destination": "/share/projects/archive",
   "dry_run": false
 }
 ```

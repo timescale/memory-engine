@@ -112,7 +112,7 @@ me memory search "how does authentication work"
 me memory search --fulltext "pgvector ltree"
 
 # Hybrid with tree filter
-me memory search --semantic "embedding performance" --fulltext "nomic" --tree "/me/design/*"
+me memory search --semantic "embedding performance" --fulltext "nomic" --tree "/share/design/*"
 
 # Browse by metadata
 me memory search --meta '{"type": "decision"}' --limit 20
@@ -212,7 +212,7 @@ me memory count <tree> [options]
 
 | Argument | Required | Description |
 |----------|----------|-------------|
-| `tree` | yes | Tree filter: path prefix, `lquery` pattern, or `ltxtquery` label search. |
+| `tree` | yes | Tree filter: an exact path prefix, a wildcard pattern, or a label search (see [Tree filter syntax](../concepts.md#tree-filter-syntax)). |
 
 | Option | Description |
 |--------|-------------|
@@ -335,7 +335,7 @@ Skipped memories do not contribute to the exit code; only parse and server error
 
 Large imports are sliced into multiple `batchCreate` requests under the hood to fit under the server's request-body limit. Each chunk is sent sequentially. If a chunk fails (network error, server error), siblings are not affected -- the successful chunks still land. The failed chunk's items are reported as `failed`, and the chunk-level error message appears in the `errors` array (sourced as `chunk N (K items)`).
 
-This means partial failures are now possible: `imported > 0` and `failed > 0` can both be true in the same run. Re-running the import with the same input will pick up where the previous run left off (already-present rows are skipped via `onConflict: 'ignore'`, missing ones are inserted).
+This means partial failures are possible: `imported > 0` and `failed > 0` can both be true in the same run. Re-running the import with the same input will pick up where the previous run left off (already-present rows are skipped via `onConflict: 'ignore'`, missing ones are inserted).
 
 ---
 

@@ -16,10 +16,10 @@ Shows how memories are organized and how many exist at each level. Use this to u
 ```json
 {
   "nodes": [
-    { "path": "/me", "count": 45 },
-    { "path": "/me/design", "count": 30 },
-    { "path": "/me/design/auth", "count": 8 },
-    { "path": "/me/strategy", "count": 15 },
+    { "path": "/share", "count": 45 },
+    { "path": "/share/design", "count": 30 },
+    { "path": "/share/design/auth", "count": 8 },
+    { "path": "/share/strategy", "count": 15 },
     { "path": "/pack", "count": 120 }
   ]
 }
@@ -45,7 +45,7 @@ Shows how memories are organized and how many exist at each level. Use this to u
 
 ```json
 {
-  "tree": "/me/design"
+  "tree": "/share/design"
 }
 ```
 

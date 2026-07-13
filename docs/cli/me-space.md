@@ -2,7 +2,7 @@
 
 Manage spaces.
 
-A **space** is an isolated collection of memories with its own roster, groups, and access grants. It is identified by an immutable 12-character **slug** (also the `X-Me-Space` header value and the `me_<slug>` database schema) and a renamable display **name**. Your *active* space is the one carried on every memory command; set it with `me space use` (or `me login <space>`).
+A **space** is an isolated collection of memories with its own roster, groups, and access grants. It is identified by an immutable 12-character **slug** (also the `X-Me-Space` header value) and a renamable display **name**. Your *active* space is the one carried on every memory command; set it with `me space use` (or `me login <space>`).
 
 These commands authenticate with your **session** (humans only — `me login`). Invitations operate on the active space.
 
