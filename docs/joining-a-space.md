@@ -78,9 +78,10 @@ Every space has two conventional roots:
 
 - **`/share`** — shared knowledge. This is what the space is *for*: memories the
   whole team should see live here.
-- **`~`** — your own private home. Memories under `~` are visible only to you (a
-  scratchpad, personal notes). For example, `~/notes` is your personal `notes`
-  folder, separate from `/share/notes`.
+- **`~`** — your own private home. Memories under `~` are private by default (a
+  scratchpad, personal notes), unless you explicitly grant someone else access.
+  For example, `~/notes` is your personal `notes` folder, separate from
+  `/share/notes`.
 
 You'll see shared memories in `/share/...` and your own under `~/...`. What
 exactly you can read and write is controlled by grants — see
