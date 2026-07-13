@@ -71,6 +71,15 @@ export function buildAuthorizeUrl(p: {
   redirectUri: string;
   codeChallenge: string;
   state: string;
+  /**
+   * Optional OIDC `prompt`. `me login --switch` passes `login` to force the
+   * authorization server to re-show its sign-in page even when the browser
+   * already holds a session — otherwise a trusted client with a live session
+   * silently re-issues a code for the signed-in account, so you can never pick
+   * a different one. (`select_account` would need a select-account page the AS
+   * doesn't configure; `login` reuses the existing `/login` page.)
+   */
+  prompt?: string;
 }): string {
   return client.buildAuthorizationUrl(buildConfig(p.server), {
     redirect_uri: p.redirectUri,
@@ -78,6 +87,7 @@ export function buildAuthorizeUrl(p: {
     code_challenge: p.codeChallenge,
     code_challenge_method: "S256",
     state: p.state,
+    ...(p.prompt ? { prompt: p.prompt } : {}),
   }).href;
 }
 

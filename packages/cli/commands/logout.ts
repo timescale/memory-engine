@@ -21,6 +21,13 @@ export function createLogoutCommand(): Command {
 
       await output({ server, loggedOut: true }, fmt, () => {
         clack.log.success(`Logged out from ${server}`);
+        // logout only clears local CLI credentials — the browser may still hold
+        // a session for this account, so a plain re-login lands you right back
+        // in it. `me login --switch` forces the sign-in page to switch accounts.
+        // `outro` closes the clack run with the `└` end symbol.
+        clack.outro(
+          "To sign in as a different account, run 'me login --switch'.",
+        );
       });
     });
 }

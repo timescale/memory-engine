@@ -6,6 +6,7 @@ Authenticate with Memory Engine via OAuth.
 
 ```
 me login [space]
+me login --switch
 ```
 
 | Argument | Required | Description |
@@ -14,11 +15,29 @@ me login [space]
 
 ## Description
 
-Starts an OAuth device flow. You choose a provider (Google or GitHub), the CLI displays a device code and opens your browser, and once you approve it stores your **session token**. Sessions are rolling: valid for 7 days and refreshed as you keep using the CLI.
+Starts an OAuth 2.1 authorization-code flow with PKCE over a loopback redirect. The CLI opens your browser to the sign-in page, you choose a provider (Google or GitHub), and once you approve it stores your **session token**. Sessions are rolling: valid for 7 days and refreshed as you keep using the CLI.
 
 If you pass a `space` argument, it becomes the active space. Otherwise, if you belong to exactly one space it's selected automatically; if you belong to several, run `me space use` to pick one. The active space is carried as the `X-Me-Space` header on subsequent commands.
 
 Login also runs the same version compatibility check as `me version` before opening the browser, so an out-of-date CLI gets a clean upgrade prompt instead of failing mid-flow.
+
+## Switching accounts
+
+Your browser keeps its own session with the server, independent of the CLI. When that session is still valid, the sign-in page is skipped and the CLI is authorized for the account you're already signed in as — so a plain `me logout` followed by `me login` puts you right back in the same account (logout only clears the CLI's local credentials, not the browser session).
+
+To sign in as a different account (for example, switching from a personal GitHub identity to a work Google one), run:
+
+```
+me login --switch
+```
+
+`--switch` forces the server to re-show its sign-in page even when the browser already has a session, so you can pick a different provider or account.
+
+## Options
+
+| Option | Description |
+|--------|-------------|
+| `--switch` | Force the browser to re-show the sign-in page, even if it already has a session (use to switch accounts). |
 
 ## Global Options
 

@@ -73,15 +73,25 @@ export function createLoginCommand(): Command {
   return new Command("login")
     .description("authenticate with Memory Engine and select the active space")
     .argument("[space]", "space to activate after login (slug or name)")
-    .action(async (spaceArg: string | undefined, _opts, cmd) => {
+    .option(
+      "--switch",
+      "force the browser to re-show the sign-in page (to switch accounts), even if it already has a session",
+    )
+    .action(async (spaceArg: string | undefined, opts, cmd) => {
       const globalOpts = cmd.optsWithGlobals();
       const server = resolveServer(globalOpts.server);
       const fmt = getOutputFormat(globalOpts);
+      const forceSwitch = opts.switch === true;
 
       await rejectActAsAgentForSessionCommand("login", fmt);
 
       if (fmt === "text") {
         clack.intro("me login");
+        if (forceSwitch) {
+          clack.log.info(
+            "Switching accounts: you'll be asked to sign in again in the browser.",
+          );
+        }
       }
 
       // --- Compatibility check (before the OAuth round-trip) ---
@@ -108,6 +118,9 @@ export function createLoginCommand(): Command {
               redirectUri,
               codeChallenge: pkce.challenge,
               state,
+              // Force the AS sign-in page so the user can pick a different
+              // account/provider instead of the silently-reused session.
+              ...(forceSwitch ? { prompt: "login" } : {}),
             }),
           openBrowser,
           // The web UI is served at the server origin; link the user there from
