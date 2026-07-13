@@ -520,19 +520,21 @@ export async function startServer(
   // ---------------------------------------------------------------------------
 
   // Sweep expired auth rows on a cron schedule (UTC). better-auth + the OAuth
-  // provider own these tables (sessions, verifications, oauth tokens) but don't
-  // purge expired rows on their own, so this reclaims them.
+  // provider + the device-authorization plugin own these tables (sessions,
+  // verifications, oauth tokens, device codes) but don't purge expired rows on
+  // their own, so this reclaims them.
   const cleanupCron =
     (opts.enableCleanupCron ?? true)
       ? Bun.cron(authCleanupCron, async () => {
           try {
-            const { sessions, verifications, oauthTokens } =
+            const { sessions, verifications, oauthTokens, deviceCodes } =
               await cleanupExpiredAuth(runtimeDb, authSchema);
-            if (sessions || verifications || oauthTokens) {
+            if (sessions || verifications || oauthTokens || deviceCodes) {
               info("Cleaned up expired auth rows", {
                 sessions,
                 verifications,
                 oauthTokens,
+                deviceCodes,
               });
             }
           } catch (error) {

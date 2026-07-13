@@ -7,8 +7,10 @@
  * api key:
  *
  *   - api key (agent): `me.<lookupId>.<secret>` — validated against core.
- *   - human: an OAuth access token (Bearer, CLI/MCP) or a better-auth cookie
- *     session — both opaque, validated against the auth schema.
+ *   - human: an OAuth access token (Bearer, CLI/MCP), a better-auth session
+ *     token presented as a bearer (the device-authorization flow, via the
+ *     `bearer` plugin), or a better-auth cookie session — all opaque, validated
+ *     against the auth schema.
  *
  * The space is always selected by the `X-Me-Space` header (uniform for both
  * modes). Direct `principal_space` membership is the endpoint admission gate;
@@ -187,16 +189,31 @@ async function authenticateSpaceInner(
       ),
     };
   } else if (bearer) {
-    // OAuth access token (the CLI / MCP clients) — resource-server validation
-    // (hashed lookup in oauth_access_token).
+    // A Bearer that isn't an api key is one of two opaque human credentials,
+    // tried in order: an OAuth access token (auth-code flow — CLI/MCP, hashed
+    // lookup in oauth_access_token) or a better-auth session token (the device
+    // flow's credential, resolved via the `bearer` plugin's getSession). Both are
+    // explicit, non-ambient credentials, so neither is subject to the cookie CSRF
+    // gate below.
     const verified = await deps.verifyOAuthToken(bearer);
-    if (!verified) {
-      debug("space auth failed: invalid or expired OAuth access token");
-      return { ok: false, error: unauthorized("Invalid credentials") };
+    if (verified) {
+      principalId = verified.userId;
+      principalKind = "u";
+      apiKeyId = null;
+    } else {
+      const session = await betterAuth.api.getSession({
+        headers: request.headers,
+      });
+      if (!session) {
+        debug(
+          "space auth failed: bearer is neither a valid OAuth token nor session",
+        );
+        return { ok: false, error: unauthorized("Invalid credentials") };
+      }
+      principalId = session.user.id;
+      principalKind = "u";
+      apiKeyId = null;
     }
-    principalId = verified.userId;
-    principalKind = "u";
-    apiKeyId = null;
   } else {
     // Browser cookie session. CSRF gates the ambient cookie credential.
     if (!passesCsrfCheck(request, deps.allowedOrigins)) {

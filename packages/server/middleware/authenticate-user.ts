@@ -1,9 +1,11 @@
 /**
  * Authentication for the user RPC (`/api/v1/user/rpc`).
  *
- * Resolves the calling principal from one of three credentials — an OAuth access
- * token (CLI/MCP), the browser cookie session, or an api key (a user PAT or an
- * agent key, for headless/CLI use). Authentication establishes *who*; it no
+ * Resolves the calling principal from one of these credentials — an OAuth access
+ * token (CLI/MCP), a better-auth session token presented as a bearer (the
+ * device-authorization flow, via the `bearer` plugin), the browser cookie
+ * session, or an api key (a user PAT or an agent key, for headless/CLI use).
+ * Authentication establishes *who*; it no
  * longer doubles as the authorization gate. Any authenticated principal is
  * admitted here so the account-scoped *reads* (`whoami`, `space.list`) work for
  * an agent acting with `ME_API_KEY`; the account-*management* methods stay
@@ -157,23 +159,50 @@ export async function authenticateUser(
 
       // OAuth access token (CLI / MCP). One lookup yields user + identity.
       const verified = await verifyOAuthToken(bearer);
-      if (!verified) {
-        debug("user auth failed: invalid or expired OAuth access token");
+      if (verified) {
+        debug("user auth succeeded (oauth)", { userId: verified.userId });
+        return {
+          ok: true,
+          context: {
+            type: "user",
+            kind: "u",
+            userId: verified.userId,
+            email: verified.email,
+            name: verified.name,
+            emailVerified: verified.emailVerified,
+            viaApiKey: false,
+            authenticatedAs: null,
+          },
+        };
+      }
+
+      // Not an OAuth token — try a better-auth session token presented as a
+      // bearer (the device-authorization flow's credential, resolved via the
+      // `bearer` plugin). A bearer is an explicit, non-ambient credential, so
+      // this deliberately skips the cookie CSRF gate (same as the OAuth path).
+      const bearerSession = await betterAuth.api.getSession({
+        headers: request.headers,
+      });
+      if (!bearerSession) {
+        debug(
+          "user auth failed: bearer is neither a valid OAuth token nor session",
+        );
         return {
           ok: false,
           error: unauthorized("Invalid or expired token"),
         };
       }
-      debug("user auth succeeded (oauth)", { userId: verified.userId });
+      const bearerUser = bearerSession.user;
+      debug("user auth succeeded (session bearer)", { userId: bearerUser.id });
       return {
         ok: true,
         context: {
           type: "user",
           kind: "u",
-          userId: verified.userId,
-          email: verified.email,
-          name: verified.name,
-          emailVerified: verified.emailVerified,
+          userId: bearerUser.id,
+          email: bearerUser.email,
+          name: bearerUser.name,
+          emailVerified: bearerUser.emailVerified,
           viaApiKey: false,
           authenticatedAs: null,
         },

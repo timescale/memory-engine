@@ -1,8 +1,9 @@
 // Integration test for the periodic auth cleanup (cleanupExpiredAuth) — the
 // cron's only remaining auth dependency after AuthStore was retired. Migrates a
 // throwaway auth schema, seeds expired + fresh rows in sessions / verifications /
-// oauth_access_token / oauth_refresh_token, and asserts the sweep deletes the
-// expired rows (returning per-category counts) while the fresh ones survive.
+// oauth_access_token / oauth_refresh_token / device_code, and asserts the sweep
+// deletes the expired rows (returning per-category counts) while the fresh ones
+// survive.
 //   TEST_DATABASE_URL="postgresql://postgres@127.0.0.1:5432/postgres" \
 //     bun test --timeout 30000 \
 //     packages/server/auth/cleanup.integration.test.ts
@@ -51,7 +52,7 @@ afterAll(async () => {
   await sql.end();
 });
 
-test("sweeps expired sessions / verifications / oauth tokens, keeps fresh", async () => {
+test("sweeps expired sessions / verifications / oauth tokens / device codes, keeps fresh", async () => {
   // One expired + one fresh row in each swept table.
   await sql.unsafe(
     `insert into ${schema}.sessions (user_id, token, expires_at) values
@@ -76,21 +77,33 @@ test("sweeps expired sessions / verifications / oauth tokens, keeps fresh", asyn
        ('rt-fresh',   'me-cli', $1, '[]'::jsonb, now() + interval '1 hour')`,
     [userId],
   );
+  await sql.unsafe(
+    `insert into ${schema}.device_code (device_code, user_code, status, expires_at) values
+       ('dc-expired', 'uc-expired', 'pending', now() - interval '1 hour'),
+       ('dc-fresh',   'uc-fresh',   'pending', now() + interval '1 hour')`,
+  );
 
   const counts = await cleanupExpiredAuth(sql, schema);
 
   expect(counts.sessions).toBe(1);
   expect(counts.verifications).toBe(1);
   expect(counts.oauthTokens).toBe(2); // 1 access + 1 refresh
+  expect(counts.deviceCodes).toBe(1);
 
   // Fresh rows survive.
   expect(await count("sessions")).toBe(1);
   expect(await count("verifications")).toBe(1);
   expect(await count("oauth_access_token")).toBe(1);
   expect(await count("oauth_refresh_token")).toBe(1);
+  expect(await count("device_code")).toBe(1);
 });
 
 test("is a no-op when nothing is expired", async () => {
   const counts = await cleanupExpiredAuth(sql, schema);
-  expect(counts).toEqual({ sessions: 0, verifications: 0, oauthTokens: 0 });
+  expect(counts).toEqual({
+    sessions: 0,
+    verifications: 0,
+    oauthTokens: 0,
+    deviceCodes: 0,
+  });
 });

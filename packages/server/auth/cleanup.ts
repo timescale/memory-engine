@@ -15,6 +15,8 @@ export interface AuthCleanupCounts {
   verifications: number;
   /** Expired OAuth access + refresh tokens combined. */
   oauthTokens: number;
+  /** Expired device-authorization codes (RFC 8628 device flow). */
+  deviceCodes: number;
 }
 
 /** Reclaim expired auth rows; returns the per-category delete counts. */
@@ -27,9 +29,11 @@ export async function cleanupExpiredAuth(
   const [verifications] =
     await db`select ${sch}.cleanup_expired_verifications() as n`;
   const [oauth] = await db`select ${sch}.cleanup_expired_oauth_tokens() as n`;
+  const [device] = await db`select ${sch}.cleanup_expired_device_codes() as n`;
   return {
     sessions: Number(sessions?.n ?? 0),
     verifications: Number(verifications?.n ?? 0),
     oauthTokens: Number(oauth?.n ?? 0),
+    deviceCodes: Number(device?.n ?? 0),
   };
 }
