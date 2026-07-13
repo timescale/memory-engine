@@ -70,6 +70,21 @@ export const DEV_SERVER = "https://me.dev-us-east-1.ops.dev.timescale.com";
  */
 const DEFAULT_TRUSTED_SERVERS = [DEFAULT_SERVER, DEV_SERVER];
 
+/**
+ * Whether `server` is in the BUILT-IN trusted list (prod + dev) — the set a
+ * bare CI checkout honors for a `.me` server pin (CI has no global config, so
+ * `server_whitelist` extensions don't exist there). Used by `me project ci`
+ * to decide whether the scaffolded workflow must bake in an `ME_SERVER` env
+ * (env is the user's own choice and ungated).
+ */
+export function isDefaultTrustedServer(server: string): boolean {
+  try {
+    return DEFAULT_TRUSTED_SERVERS.includes(normalizeOrigin(server));
+  } catch {
+    return false;
+  }
+}
+
 /** Per-server non-secret config. */
 export interface ServerConfig {
   /** Active space slug (the X-Me-Space). */
