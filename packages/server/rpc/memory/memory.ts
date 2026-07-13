@@ -62,7 +62,12 @@ import {
 import { AppError } from "../errors";
 import { buildRegistry } from "../registry";
 import type { HandlerContext } from "../types";
-import { displayTreePath, inputTreeFilter, inputTreePath } from "./support";
+import {
+  callerHomePrefix,
+  displayTreePath,
+  inputTreeFilter,
+  inputTreePath,
+} from "./support";
 import { assertSpaceRpcContext, type SpaceRpcContext } from "./types";
 
 // =============================================================================
@@ -159,6 +164,45 @@ function parseTemporal(
 /** ltree depth (label count); root ("") is 0. */
 function nlevel(path: string): number {
   return path === "" ? 0 : path.split(".").length;
+}
+
+/**
+ * Remove the caller's own home from the aggregate counts of its ancestor
+ * prefixes, so the caller's home is counted only under `~` — never a second
+ * time under a literal `home` root.
+ *
+ * `list_tree` explodes every memory into all of its prefixes, so a memory at
+ * `home.<caller>.x` bumps the count of the bare `home` prefix (and, for an
+ * agent whose home nests under its owner's, `home.<owner>` too). Those ancestor
+ * prefixes are NOT reverse-mapped to `~` by `displayTreePath` — they render as a
+ * literal `home` root — so their counts double-count the caller's own home,
+ * which is already shown under `~`. We subtract the caller's own-home aggregate
+ * (the count at `homePrefix` itself) from each strict ancestor of `homePrefix`,
+ * dropping any ancestor that is left with nothing (e.g. the caller has access to
+ * no other member's home). Other members' homes are untouched, so the `home`
+ * root still shows them.
+ */
+export function dedupeOwnHome<T extends { tree: string; count: number }>(
+  entries: T[],
+  homePrefix: string | null,
+): T[] {
+  if (homePrefix === null) return entries;
+  const own = entries.find((e) => e.tree === homePrefix)?.count ?? 0;
+  if (own === 0) return entries;
+
+  const result: T[] = [];
+  for (const entry of entries) {
+    // A strict ancestor of the caller's home (`home`, and `home.<owner>` for an
+    // agent) — not the home prefix itself, nor any of its descendants.
+    if (homePrefix.startsWith(`${entry.tree}.`)) {
+      const adjusted = entry.count - own;
+      if (adjusted > 0) result.push({ ...entry, count: adjusted });
+      // else: nothing left after removing the caller's own home — drop it.
+    } else {
+      result.push(entry);
+    }
+  }
+  return result;
 }
 
 function toMemoryResponse(
@@ -542,7 +586,10 @@ async function memoryTree(
   const base = params.tree ? inputTreePath(ctx, params.tree) : "";
   // `a.b.*` matches a.b and everything under it; `*` matches all paths.
   const lquery = base === "" ? "*" : `${base}.*`;
-  const entries = await guard(() => store.listTree(treeAccess, lquery));
+  const raw = await guard(() => store.listTree(treeAccess, lquery));
+  // The caller's own home is shown under `~`; strip it from the literal `home`
+  // ancestor counts so it isn't counted a second time there.
+  const entries = dedupeOwnHome(raw, callerHomePrefix(ctx));
 
   const baseDepth = nlevel(base);
   const nodes = entries

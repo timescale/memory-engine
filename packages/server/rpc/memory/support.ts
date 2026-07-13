@@ -7,6 +7,7 @@
 import {
   classifyTreeFilter,
   denormalizeTreePath,
+  homePrefix,
   normalizeTreePath,
   type TreeFilter,
   TreePathError,
@@ -80,6 +81,17 @@ export function inputTreeFilter(
 /** Reverse the home expansion for display: the caller's home shows as `~/…`. */
 export function displayTreePath(ctx: SpaceRpcContext, stored: string): string {
   return denormalizeTreePath(stored, homeOpts(ctx));
+}
+
+/**
+ * The caller's own-home ltree prefix (`home.<id>` for a user, `home.<owner>.<id>`
+ * for an agent), or `null` when the caller has no `~` home (service accounts).
+ * This is the prefix that `displayTreePath` reverse-maps to `~`.
+ */
+export function callerHomePrefix(ctx: SpaceRpcContext): string | null {
+  const opts = homeOpts(ctx);
+  if (opts.home === undefined) return null;
+  return homePrefix(opts.home, opts.homeOwner);
 }
 
 function asValidationError(e: unknown): AppError {

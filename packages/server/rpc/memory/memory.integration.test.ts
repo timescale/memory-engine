@@ -566,6 +566,64 @@ test("tree respects levels depth limit", async () => {
   expect(paths).not.toContain("/share/t/a/b");
 });
 
+test("tree counts the caller's own home only under ~, never a second time under home", async () => {
+  const core = engineCore.coreStore(sql, coreSchema);
+  // Owner@root so the caller can write another member's home and read all of it.
+  await core.grantTreeAccess(
+    space.id,
+    principalId,
+    engineCore.ROOT_PATH,
+    engineCore.ACCESS.owner,
+  );
+  treeAccess = await core.buildTreeAccess(principalId, space.id);
+
+  const otherId = crypto.randomUUID().replace(/-/g, "");
+  await call("memory.batchCreate", {
+    memories: [
+      { content: "own a", tree: "~/a" }, // home.<caller>.a
+      { content: "own b", tree: "~/b" }, // home.<caller>.b
+      { content: "theirs", tree: `home/${otherId}/x` }, // another member's home
+    ],
+  });
+
+  const res = await call<{ nodes: { path: string; count: number }[] }>(
+    "memory.tree",
+    {},
+  );
+  const byPath = Object.fromEntries(res.nodes.map((n) => [n.path, n.count]));
+
+  // The caller's home shows under `~` (2), and the literal `home` root shows
+  // ONLY the other member's home (1) — not 3 (which would double-count `~`).
+  expect(byPath["~"]).toBe(2);
+  expect(byPath["/home"]).toBe(1);
+  expect(byPath[`/home/${otherId}`]).toBe(1);
+
+  // The badge total (sum of top-level aggregates) equals the true count of 3.
+  const topLevelTotal = res.nodes
+    .filter((n) => !n.path.slice(1).includes("/")) // top-level: one segment
+    .reduce((sum, n) => sum + n.count, 0);
+  expect(topLevelTotal).toBe(3);
+});
+
+test("tree drops the home root entirely when the caller has no other-home access", async () => {
+  await call("memory.batchCreate", {
+    memories: [
+      { content: "own a", tree: "~/a" },
+      { content: "own b", tree: "~/b" },
+    ],
+  });
+
+  const res = await call<{ nodes: { path: string; count: number }[] }>(
+    "memory.tree",
+    {},
+  );
+  const byPath = Object.fromEntries(res.nodes.map((n) => [n.path, n.count]));
+
+  expect(byPath["~"]).toBe(2);
+  // No literal `home` root when the caller's own home is the only home.
+  expect(res.nodes.some((n) => n.path === "/home")).toBe(false);
+});
+
 test("move relocates a subtree (dryRun counts without moving)", async () => {
   await call("memory.batchCreate", {
     memories: [
