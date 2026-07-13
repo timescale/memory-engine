@@ -167,6 +167,7 @@ export function DeviceVerificationPage() {
     // login. A bare /device visit keeps the generic card (the code is entered
     // after sign-in via the needCode step).
     const pendingCode = readUserCode().trim();
+    const deviceCallbackURL = window.location.pathname + window.location.search;
     return (
       <SignInCard
         title={pendingCode ? "Authorize a device" : undefined}
@@ -182,7 +183,8 @@ export function DeviceVerificationPage() {
             </div>
           ) : undefined
         }
-        callbackURL={window.location.pathname + window.location.search}
+        callbackURL={deviceCallbackURL}
+        errorCallbackURL={deviceCallbackURL}
       />
     );
   }
