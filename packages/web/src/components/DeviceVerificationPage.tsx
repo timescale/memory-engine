@@ -38,10 +38,16 @@ function isAuthFailure(err: unknown): boolean {
  * status on failure — surface the human-readable description.
  */
 async function deviceCall<T>(path: string, init?: RequestInit): Promise<T> {
+  // Normalize through Headers (init.headers is a HeadersInit union — spreading
+  // it silently drops entries when it's a Headers/array), then default the type.
+  const headers = new Headers(init?.headers);
+  if (!headers.has("Content-Type")) {
+    headers.set("Content-Type", "application/json");
+  }
   const res = await fetch(`${AUTH_BASE}${path}`, {
     credentials: "include",
     ...init,
-    headers: { "Content-Type": "application/json", ...init?.headers },
+    headers,
   });
   const body = (await res.json().catch(() => ({}))) as {
     error_description?: string;
