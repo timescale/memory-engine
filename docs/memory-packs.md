@@ -81,10 +81,10 @@ The `7` at position 14 is the UUIDv7 version nibble. The `8` at position 19 is t
 
 ### Tree conventions
 
-Packs typically use the `pack.*` tree prefix:
+Packs typically use the `/pack` tree prefix:
 
 ```
-pack.<pack-name>.<topic>
+/pack/<pack-name>/<topic>
 ```
 
 This keeps pack content organized separately from user-created memories.
