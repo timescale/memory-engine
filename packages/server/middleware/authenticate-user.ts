@@ -2,7 +2,7 @@
  * Authentication for the user RPC (`/api/v1/user/rpc`).
  *
  * Resolves the calling principal from one of these credentials — an OAuth access
- * token (CLI/MCP), a better-auth session token presented as a bearer (the
+ * token (CLI/MCP), a signed better-auth session token presented as a bearer (the
  * device-authorization flow, via the `bearer` plugin), the browser cookie
  * session, or an api key (a user PAT or an agent key, for headless/CLI use).
  * Authentication establishes *who*; it no
@@ -180,8 +180,8 @@ export async function authenticateUser(
         };
       }
 
-      // Not an OAuth token — try a better-auth session token presented as a
-      // bearer (the device-authorization flow's credential, resolved via the
+      // Not an OAuth token — try a signed better-auth session token presented as
+      // a bearer (the device-authorization flow's credential, resolved via the
       // `bearer` plugin). A bearer is an explicit, non-ambient credential, so
       // this deliberately skips the cookie CSRF gate (same as the OAuth path).
       // Pass Authorization-only headers so this can ONLY succeed via the bearer

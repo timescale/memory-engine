@@ -9,10 +9,11 @@
  * `/device/code` and `/device/token`. (That's why this uses plain `fetch`
  * rather than `openid-client`, whose device helpers assume the single standard
  * `token_endpoint`.) On approval the plugin mints a better-auth SESSION, so the
- * response carries an `access_token` (the session token) but NO refresh token —
+ * response carries an `access_token` (a signed session bearer) but NO refresh token —
  * the stored token set simply omits it (see `session.ts`, which treats a missing
  * refresh token as "re-login when it lapses"; the session slides server-side on
- * use in the meantime).
+ * use in the meantime). The server returns the signed session bearer form, not
+ * the raw session-table token.
  */
 import { OAUTH_CLIENT_ID, OAuthError, type OAuthTokens } from "./oauth.ts";
 
@@ -125,7 +126,8 @@ export async function startDeviceAuthorization(p: {
  * Poll the token endpoint until the user approves (RFC 8628 §3.4–3.5). Handles
  * `authorization_pending` (keep waiting) and `slow_down` (back off); throws on
  * `access_denied`, `expired_token`, timeout, or any other error. On success
- * returns the session token as an {@link OAuthTokens} with no refresh token.
+ * returns the signed session bearer as an {@link OAuthTokens} with no refresh
+ * token.
  *
  * `sleep` is injectable for tests (defaults to real time).
  */
@@ -173,6 +175,7 @@ export async function pollDeviceToken(p: {
       return {
         accessToken: body.access_token,
         // Device flow mints a session, not an OAuth token pair — no refresh token.
+        // The server rewrites this to the signed session bearer form.
         refreshToken: undefined,
         expiresIn:
           typeof body.expires_in === "number" ? body.expires_in : undefined,

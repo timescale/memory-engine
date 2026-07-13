@@ -13,7 +13,8 @@
 //   3. Device Authorization Grant (`deviceAuthorization` + `bearer` plugins):
 //      the headless CLI path (RFC 8628) for sandboxes with no browser. Unlike
 //      the auth-code flow it mints a better-auth SESSION (no refresh token),
-//      presented back as a bearer session token — hence the `bearer` plugin.
+//      presented back as a signed bearer session token — hence the `bearer`
+//      plugin.
 //
 // The api-key path (agents) stays entirely in `core` (core.validate_api_key).
 //
@@ -285,9 +286,9 @@ export function createBetterAuth(opts: BetterAuthOptions) {
       // `/device` page. On approval the plugin mints a normal better-auth SESSION
       // (via internalAdapter.createSession, so the verified-email hook above still
       // gates it) — NOT an OAuth token, so there is no refresh token; the session
-      // slides on use. The resulting session token is accepted as a bearer by the
-      // `bearer` plugin below. `validateClient` restricts code issuance to the
-      // first-party CLI. Code issuance is also rate-limited by better-auth's
+      // slides on use. The resulting signed session token is accepted as a bearer
+      // by the `bearer` plugin below. `validateClient` restricts code issuance to
+      // the first-party CLI. Code issuance is also rate-limited by better-auth's
       // per-IP limiter (10/min on /device/code). We intentionally keep the
       // default memory backend: the cap is per process/pod and resets on restart,
       // but it still bounds unauthenticated row/WAL amplification without adding
@@ -317,12 +318,13 @@ export function createBetterAuth(opts: BetterAuthOptions) {
           },
         },
       }),
-      // Accept a better-auth session token presented as `Authorization: Bearer
-      // <token>` (converted to a session lookup via getSession). This is what
-      // makes the device-flow session token usable as an API credential on the
-      // resource-server endpoints; the middleware falls through to getSession
-      // after the api-key / OAuth-token checks miss.
-      bearer(),
+      // Accept only SIGNED better-auth session tokens presented as
+      // `Authorization: Bearer <token>` (converted to a session lookup via
+      // getSession). The device-token handler below rewrites the plugin's raw
+      // `session.token` JSON response to the signed cookie-equivalent value, so
+      // CLI device credentials work while plaintext auth.sessions.token values
+      // from a DB/backup disclosure do not authenticate as API bearers.
+      bearer({ requireSignature: true }),
     ],
     advanced: {
       // Let the DB generate ids (`default uuidv7()`), read back via RETURNING.
@@ -452,3 +454,92 @@ export type VerifyOAuthAccessToken = ReturnType<
 export type GetUserEmailVerified = ReturnType<
   typeof createBetterAuth
 >["getUserEmailVerified"];
+
+function isDeviceTokenRequest(request: Request): boolean {
+  const url = new URL(request.url);
+  return (
+    request.method === "POST" &&
+    url.pathname === `${AUTH_BASE_PATH}/device/token`
+  );
+}
+
+function deviceTokenSigningFailure(): Response {
+  return Response.json(
+    {
+      error: "server_error",
+      error_description: "Failed to sign device session token.",
+    },
+    {
+      status: 500,
+      headers: {
+        "Cache-Control": "no-store",
+        Pragma: "no-cache",
+      },
+    },
+  );
+}
+
+export async function signSessionTokenForBearer(
+  token: string,
+  secret: string,
+): Promise<string> {
+  const key = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+  const sig = await crypto.subtle.sign(
+    "HMAC",
+    key,
+    new TextEncoder().encode(token),
+  );
+  const signature = btoa(String.fromCharCode(...new Uint8Array(sig)));
+  return encodeURIComponent(`${token}.${signature}`);
+}
+
+/**
+ * better-auth's device plugin returns the raw DB session token in JSON. Our
+ * resource-server bearer path requires the signed cookie-equivalent form, so
+ * rewrite only the successful `/device/token` response body to keep
+ * `access_token` usable without accepting plaintext `auth.sessions.token` values
+ * globally.
+ */
+export async function handleBetterAuthRequest(
+  auth: Auth,
+  request: Request,
+): Promise<Response> {
+  const response = await auth.handler(request);
+  if (!response.ok || !isDeviceTokenRequest(request)) return response;
+
+  const body = (await response.json().catch(() => null)) as Record<
+    string,
+    unknown
+  > | null;
+  if (!body || typeof body.access_token !== "string") {
+    return deviceTokenSigningFailure();
+  }
+
+  const ctx = await auth.$context;
+  const signedToken = await signSessionTokenForBearer(
+    body.access_token,
+    ctx.secret,
+  );
+
+  const headers = new Headers(response.headers);
+  headers.set("Content-Type", "application/json");
+  headers.delete("Content-Length");
+
+  return new Response(
+    JSON.stringify({
+      ...body,
+      access_token: signedToken,
+    }),
+    {
+      status: response.status,
+      statusText: response.statusText,
+      headers,
+    },
+  );
+}

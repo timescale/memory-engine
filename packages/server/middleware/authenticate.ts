@@ -38,12 +38,13 @@ export function extractBearerToken(request: Request): string | null {
 /**
  * A header set carrying ONLY the request's `Authorization` header (no cookie).
  *
- * Used when resolving a session token presented as a bearer (the device-flow
- * credential) via `betterAuth.api.getSession`: passing the raw request headers
- * would let `getSession` fall back to an ambient cookie session — authenticating
- * a request whose bearer is invalid, and bypassing the cookie CSRF gate. Feeding
- * getSession these headers means the bearer path can only succeed via the
- * bearer's own session token (the `bearer` plugin reads it from Authorization).
+ * Used when resolving a signed session token presented as a bearer (the
+ * device-flow credential) via `betterAuth.api.getSession`: passing the raw
+ * request headers would let `getSession` fall back to an ambient cookie session
+ * — authenticating a request whose bearer is invalid, and bypassing the cookie
+ * CSRF gate. Feeding getSession these headers means the bearer path can only
+ * succeed via the bearer's own signed session token (the `bearer` plugin reads it
+ * from Authorization).
  */
 export function bearerOnlyHeaders(request: Request): Headers {
   const headers = new Headers();
