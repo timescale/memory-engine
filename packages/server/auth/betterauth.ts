@@ -9,7 +9,11 @@
 //      tokens to OAuth clients — the first being the first-party `me` CLI (a
 //      public client doing auth-code + PKCE + loopback), and later hosted-MCP
 //      clients. Tokens are opaque and HASHED at rest by default (storeTokens),
-//      validated by introspection. The CLI no longer uses session tokens.
+//      validated by introspection.
+//   3. Device Authorization Grant (`deviceAuthorization` + `bearer` plugins):
+//      the headless CLI path (RFC 8628) for sandboxes with no browser. Unlike
+//      the auth-code flow it mints a better-auth SESSION (no refresh token),
+//      presented back as a bearer session token — hence the `bearer` plugin.
 //
 // The api-key path (agents) stays entirely in `core` (core.validate_api_key).
 //
@@ -37,7 +41,7 @@ import { createHash } from "node:crypto";
 import { oauthProvider } from "@better-auth/oauth-provider";
 import { betterAuth } from "better-auth";
 import { APIError } from "better-auth/api";
-import { jwt } from "better-auth/plugins";
+import { bearer, deviceAuthorization, jwt } from "better-auth/plugins";
 import { Pool } from "pg";
 
 /** Path prefix better-auth mounts its routes under (preserves our current URLs). */
@@ -54,6 +58,14 @@ export const CLI_CLIENT_ID = "me-cli";
 /** Rolling web-session window: 7-day lifetime, refreshed at most once/day. */
 const SESSION_EXPIRES_IN_SECONDS = 60 * 60 * 24 * 7;
 const SESSION_UPDATE_AGE_SECONDS = 60 * 60 * 24;
+
+/**
+ * Device Authorization Grant (RFC 8628) timing: how long a device/user code is
+ * valid, and the minimum interval the CLI must wait between polls. Short TTL —
+ * the human is expected to approve within minutes.
+ */
+const DEVICE_CODE_EXPIRES_IN = "15m";
+const DEVICE_CODE_POLL_INTERVAL = "5s";
 
 /**
  * Deterministic at-rest hash for OAuth access/refresh tokens. Used BOTH as the
@@ -249,6 +261,43 @@ export function createBetterAuth(opts: BetterAuthOptions) {
           },
         },
       }),
+      // Device Authorization Grant (RFC 8628): lets a headless CLI (an agent
+      // harness in a sandbox with no browser) log in — the CLI polls with a
+      // device_code while the human approves the paired user_code at the web
+      // `/device` page. On approval the plugin mints a normal better-auth SESSION
+      // (via internalAdapter.createSession, so the verified-email hook above still
+      // gates it) — NOT an OAuth token, so there is no refresh token; the session
+      // slides on use. The resulting session token is accepted as a bearer by the
+      // `bearer` plugin below. `validateClient` restricts code issuance to the
+      // first-party CLI. `verificationUri` points at the web page (same origin as
+      // the API). The `deviceCode` model is mapped to the snake_case device_code
+      // table (single-word fields status/scope keep their name).
+      deviceAuthorization({
+        expiresIn: DEVICE_CODE_EXPIRES_IN,
+        interval: DEVICE_CODE_POLL_INTERVAL,
+        verificationUri: `${opts.baseURL}/device`,
+        validateClient: (clientId) => clientId === CLI_CLIENT_ID,
+        schema: {
+          deviceCode: {
+            modelName: "device_code",
+            fields: {
+              deviceCode: "device_code",
+              userCode: "user_code",
+              userId: "user_id",
+              expiresAt: "expires_at",
+              lastPolledAt: "last_polled_at",
+              pollingInterval: "polling_interval",
+              clientId: "client_id",
+            },
+          },
+        },
+      }),
+      // Accept a better-auth session token presented as `Authorization: Bearer
+      // <token>` (converted to a session lookup via getSession). This is what
+      // makes the device-flow session token usable as an API credential on the
+      // resource-server endpoints; the middleware falls through to getSession
+      // after the api-key / OAuth-token checks miss.
+      bearer(),
     ],
     advanced: {
       // Let the DB generate ids (`default uuidv7()`), read back via RETURNING.
