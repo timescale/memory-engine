@@ -54,7 +54,9 @@ async function openBrowser(url: string): Promise<void> {
     const args = cmds[process.platform];
     if (args) {
       const proc = Bun.spawn(args, { stdout: "ignore", stderr: "ignore" });
-      await proc.exited;
+      // Fire-and-forget: some launchers (notably xdg-open/browser combos) stay
+      // attached until the browser exits, but login should continue immediately.
+      void proc.exited.catch(() => {});
     }
   } catch {
     // Ignore — user will see the URL in the terminal
@@ -338,7 +340,7 @@ async function authorizeViaDevice(p: {
       : `Go to ${auth.verificationUri} and enter the code:\n\n  ${auth.userCode}`;
     clack.note(message, "To sign in:");
     // Best-effort convenience open (harmless if there's no browser here).
-    if (p.openBrowser) await openBrowser(openUrl);
+    if (p.openBrowser) void openBrowser(openUrl);
   } else {
     // Structured modes: emit the verification details on stderr so automation
     // can surface them, while stdout stays reserved for the final result object.

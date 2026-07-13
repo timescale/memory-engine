@@ -26,6 +26,10 @@ function readUserCode(): string {
   return new URLSearchParams(window.location.search).get("user_code") ?? "";
 }
 
+function normalizeUserCode(code: string): string {
+  return code.trim().toUpperCase();
+}
+
 function isAuthFailure(err: unknown): boolean {
   // `code` is the numeric JSON-RPC code; the string app code lives in `data`
   // (use the RpcError.is helper rather than comparing the number to a string).
@@ -80,7 +84,7 @@ export function DeviceVerificationPage() {
   // Claim a user code against the current session and read its status. Called
   // once the visitor is known to be signed in.
   const claim = useCallback(async (userCode: string, email: string | null) => {
-    const code = userCode.trim();
+    const code = normalizeUserCode(userCode);
     if (!code) {
       setState({ status: "needCode", email });
       return;
@@ -166,7 +170,7 @@ export function DeviceVerificationPage() {
     // banner) so the provider choice reads as a step toward that, not a bare
     // login. A bare /device visit keeps the generic card (the code is entered
     // after sign-in via the needCode step).
-    const pendingCode = readUserCode().trim();
+    const pendingCode = normalizeUserCode(readUserCode());
     const deviceCallbackURL = window.location.pathname + window.location.search;
     return (
       <SignInCard
@@ -207,6 +211,7 @@ export function DeviceVerificationPage() {
             type="text"
             value={codeInput}
             onChange={(e) => setCodeInput(e.target.value)}
+            aria-label="Device code"
             placeholder="XXXX-XXXX"
             autoComplete="off"
             autoCapitalize="characters"
