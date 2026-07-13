@@ -16,7 +16,9 @@ This installs the `me` binary to `~/.local/bin`. Make sure it's on your PATH.
 me login
 ```
 
-This starts an OAuth device flow via GitHub or Google -- authorize in your browser and the CLI stores your session token (rolling 7-day, refreshed as you use it). On a host with a system keychain the token is stored there; otherwise it falls back to `~/.config/me/credentials.yaml` (mode 0600).
+This opens your browser to sign in via GitHub or Google (an OAuth 2.1 auth-code + PKCE flow over a `127.0.0.1` loopback redirect) and stores your credentials. On a host with a system keychain they're stored there; otherwise they fall back to `~/.config/me/credentials.yaml` (mode 0600).
+
+On a **headless** host with no local browser (an agent harness in a sandbox, a remote SSH session, a container), use `me login --device` instead: the CLI prints a short URL and code to approve on any device (the OAuth 2.0 device authorization grant), yielding a rolling 7-day session token. See [`me login`](cli/me-login.md).
 
 If you belong to more than one space, pick the active one (it's carried as the `X-Me-Space` on every request):
 

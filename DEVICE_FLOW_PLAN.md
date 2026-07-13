@@ -89,15 +89,23 @@ the existing `/api/v1/auth/*` catch-all — no new server routes.
 - Tests: `device.test.ts` covers the poller (pending→approve, slow_down,
   denied, expired, timeout, unexpected error) and code-request parsing.
 
-## Step 5 — Docs & tests
+## Step 5 — Docs & tests ✅
 
-- Fix stale "device flow" wording that actually means the loopback flow
-  (`scripts/integration-test.ts`, `docs/getting-started.md`,
-  `docs/cli/me-login.md`, `docs/typescript-client.md`); document the real device
-  flow in `docs/cli/me-login.md`.
-- Tests: server device integration test (code → claim → approve → token → bearer
-  validates on both RPCs; deny/expiry paths); migration drift-test update; CLI
-  device poller unit test (interval/slow_down/denied); a `check:full` run.
+- Rewrote `docs/cli/me-login.md` to describe both flows and document `--device` /
+  `--no-browser`; fixed stale "device flow" wording that actually meant the
+  loopback flow (`docs/getting-started.md`, `docs/typescript-client.md`,
+  `scripts/integration-test.ts`); updated the CLAUDE.md auth summary.
+- `packages/server/device-flow.integration.test.ts`: end-to-end via the real
+  better-auth handler — code → claim → approve → token, asserting the minted
+  session token authenticates on BOTH RPCs; plus deny, single-use, wrong-user,
+  non-me-cli-client, and pending paths.
+- `check:full` is green (unit 1195/0, DB integration 1591/0).
+
+> Note when running the suite from inside an opencode/Claude harness: the
+> injected contract vars (`ME_INJECT_V`/`ME_AS_AGENT`/`ME_PROJECT_DIR`/`AI_AGENT`)
+> leak into the env-hook tests' spawned CLIs and fail the first-writer-wins
+> cases. Run with those unset: `env -u ME_INJECT_V -u ME_AS_AGENT -u
+> ME_PROJECT_DIR -u AI_AGENT ./bun run check:full`.
 
 ## Risks / notes
 
