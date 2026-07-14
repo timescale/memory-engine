@@ -228,7 +228,7 @@ export async function runGitHookInstall(
   } catch {
     // no hook yet
   }
-  const updated = existing?.includes(HOOK_START);
+  const updated = existing?.includes(HOOK_START) ?? false;
   const next = upsertHookScript(
     existing,
     buildHookBlock(resolveMeInvocation()),

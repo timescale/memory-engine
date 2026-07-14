@@ -10,16 +10,22 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import {
+  AI_AGENT_VAR,
+  ME_AS_AGENT_VAR,
+  ME_INJECT_V_VAR,
+  ME_PROJECT_DIR_VAR,
+} from "../harness-contract.ts";
 import { PLUGIN_MARKER, renderPluginSource } from "./plugin-template.ts";
 
 const tmp = mkdtempSync(join(tmpdir(), "me-oc-plugin-"));
 afterAll(() => rmSync(tmp, { recursive: true, force: true }));
 
 const HARNESS_CONTRACT_ENV_KEYS = [
-  "ME_INJECT_V",
-  "AI_AGENT",
-  "ME_AS_AGENT",
-  "ME_PROJECT_DIR",
+  ME_INJECT_V_VAR,
+  AI_AGENT_VAR,
+  ME_AS_AGENT_VAR,
+  ME_PROJECT_DIR_VAR,
 ] as const;
 
 async function withHarnessContractEnv<T>(
