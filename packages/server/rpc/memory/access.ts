@@ -1,4 +1,9 @@
 /** Effective access introspection handlers (access.*). */
+
+import {
+  denormalizeTreePath,
+  type TreePathOptions,
+} from "@memory.build/database";
 import type {
   AccessEffectiveParams,
   AccessEffectiveResult,
@@ -14,23 +19,40 @@ import {
 import { AppError } from "../errors";
 import { buildRegistry } from "../registry";
 import type { HandlerContext } from "../types";
-import {
-  callerAdministersServiceAccount,
-  callerOwnsAgent,
-  displayTreePath,
-} from "./support";
+import { callerAdministersServiceAccount, callerOwnsAgent } from "./support";
 import { assertSpaceRpcContext, type SpaceRpcContext } from "./types";
 
+function principalTreePathOptions(
+  principal: EffectiveAccessPrincipal,
+): TreePathOptions {
+  if (principal.kind === "s") return {};
+  return {
+    home: principal.id,
+    homeOwner:
+      principal.kind === "a" ? (principal.ownerId ?? undefined) : undefined,
+  };
+}
+
 function toEffectiveAccessEntry(
-  ctx: SpaceRpcContext,
+  principal: EffectiveAccessPrincipal,
   row: { tree_path: string; access: number },
 ): EffectiveAccessEntry {
   const access = row.access as AccessLevel;
   return {
-    treePath: displayTreePath(ctx, row.tree_path),
+    treePath: denormalizeTreePath(
+      row.tree_path,
+      principalTreePathOptions(principal),
+    ),
     access,
     accessName: accessLevelName(access),
   };
+}
+
+function compareTreeAccess(
+  a: { tree_path: string; access: number },
+  b: { tree_path: string; access: number },
+): number {
+  return a.tree_path.localeCompare(b.tree_path) || b.access - a.access;
 }
 
 function assertExecutableKind(kind: string): asserts kind is "u" | "a" | "s" {
@@ -137,7 +159,9 @@ async function accessEffective(
     space: { id: ctx.space.id, slug: ctx.space.slug, name: ctx.space.name },
     principal,
     authenticatedAs: isCurrent ? await authenticatedAs(ctx) : null,
-    access: treeAccess.map((row) => toEffectiveAccessEntry(ctx, row)),
+    access: [...treeAccess]
+      .sort(compareTreeAccess)
+      .map((row) => toEffectiveAccessEntry(principal, row)),
   };
 }
 

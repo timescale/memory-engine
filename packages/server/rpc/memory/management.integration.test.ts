@@ -7,7 +7,11 @@
 //     bun test --timeout 30000 \
 //     packages/server/rpc/memory/management.integration.test.ts
 import { afterAll, beforeAll, beforeEach, expect, test } from "bun:test";
-import { bootstrapSpaceDatabase, migrateCore } from "@memory.build/database";
+import {
+  bootstrapSpaceDatabase,
+  homePrefix,
+  migrateCore,
+} from "@memory.build/database";
 import type { TreeAccess } from "@memory.build/engine/core";
 import * as engineCore from "@memory.build/engine/core";
 import * as engineSpace from "@memory.build/engine/space";
@@ -726,6 +730,11 @@ test("access.effective: admin can inspect another member's effective access", as
     treePath: "projects",
     access: 2,
   });
+  await call("grant.set", {
+    principalId: groupId,
+    treePath: `${homePrefix(ownerId)}.delegated`,
+    access: 1,
+  });
 
   const result = await call<{
     principal: { id: string };
@@ -740,6 +749,15 @@ test("access.effective: admin can inspect another member's effective access", as
   expect(result.authenticatedAs).toBeNull();
   expect(result.access).toContainEqual(
     expect.objectContaining({ treePath: "/projects", accessName: "write" }),
+  );
+  expect(result.access).toContainEqual(
+    expect.objectContaining({
+      treePath: `/${homePrefix(ownerId).replace(/\./g, "/")}/delegated`,
+      accessName: "read",
+    }),
+  );
+  expect(result.access).not.toContainEqual(
+    expect.objectContaining({ treePath: "~/delegated" }),
   );
 });
 
@@ -787,7 +805,12 @@ test("access.effective: service-account admin can inspect service-account group 
   await call("group.addMember", { groupId, memberId: serviceAccount.id });
   await call("grant.set", {
     principalId: groupId,
-    treePath: "robots",
+    treePath: "z_robots",
+    access: 2,
+  });
+  await call("grant.set", {
+    principalId: groupId,
+    treePath: "a_robots",
     access: 2,
   });
 
@@ -802,8 +825,15 @@ test("access.effective: service-account admin can inspect service-account group 
 
   expect(result.principal).toMatchObject({ id: serviceAccount.id, kind: "s" });
   expect(result.access).toContainEqual(
-    expect.objectContaining({ treePath: "/robots", accessName: "write" }),
+    expect.objectContaining({ treePath: "/a_robots", accessName: "write" }),
   );
+  expect(result.access).toContainEqual(
+    expect.objectContaining({ treePath: "/z_robots", accessName: "write" }),
+  );
+  expect(result.access.map((row) => row.treePath)).toEqual([
+    "/a_robots",
+    "/z_robots",
+  ]);
 });
 
 test("access.effective: rejects unrelated principals and groups", async () => {
