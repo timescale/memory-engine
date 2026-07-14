@@ -174,6 +174,9 @@ on:
   push: # all branches — the job itself gates on the default branch
   workflow_dispatch: {} # manual backfill / re-run
 
+permissions:
+  contents: read
+
 concurrency:
   group: me-import-\${{ github.ref }}
   cancel-in-progress: true # newest run on the same ref supersedes: every run is a full catch-up
@@ -189,11 +192,13 @@ jobs:
         with:
           fetch-depth: 0 # REQUIRED — the git walk and docs git-date temporals need full history
       - name: Install me
-        run: curl -fsSL https://install.memory.build | sh
+        run: |
+          mkdir -p "$HOME/.local/bin"
+          curl -fsSL https://install.memory.build | ME_INSTALL_DIR="$HOME/.local/bin" sh
       - name: Import
         env:
           ME_API_KEY: \${{ secrets.${opts.keyName} }}
-${serverLine}        run: ~/.local/bin/me import ci
+${serverLine}        run: "$HOME/.local/bin/me" import ci
 `;
 }
 

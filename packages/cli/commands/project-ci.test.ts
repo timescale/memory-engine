@@ -56,12 +56,18 @@ describe("renderWorkflow", () => {
       "github.ref == format('refs/heads/{0}', github.event.repository.default_branch)",
     );
     expect(wf).not.toContain("branches:");
+    // Least-privilege GITHUB_TOKEN permissions: checkout only needs contents.
+    expect(wf).toContain("permissions:\n  contents: read");
     expect(wf).toContain("group: me-import-${{ github.ref }}");
     // Full history is a correctness requirement (git walk + docs temporals).
     expect(wf).toContain("fetch-depth: 0");
+    // The installer path is pinned so the import step does not depend on the
+    // runner's pre-existing home directory layout.
+    expect(wf).toContain('ME_INSTALL_DIR="$HOME/.local/bin" sh');
+    expect(wf).toContain('run: "$HOME/.local/bin/me" import ci');
+    expect(wf).not.toContain("~/.local/bin/me import ci");
     // The env var `me` reads never varies; only the secret feeding it does.
     expect(wf).toContain("ME_API_KEY: ${{ secrets.ME_API_KEY }}");
-    expect(wf).toContain("me import ci");
     expect(wf).not.toContain("ME_SERVER");
   });
 
