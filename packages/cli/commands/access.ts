@@ -14,6 +14,7 @@
  */
 import * as clack from "@clack/prompts";
 import {
+  type AccessEffectiveResult,
   accessLevelName,
   parseAccessLevel,
 } from "@memory.build/protocol/space";
@@ -28,6 +29,17 @@ import {
   requireSpace,
   resolveSpacePrincipalId,
 } from "../util.ts";
+
+function printEffectiveAccess(result: AccessEffectiveResult): void {
+  if (result.access.length === 0) {
+    console.log("  No effective access in this space.");
+    return;
+  }
+  table(
+    ["tree_path", "access"],
+    result.access.map((g) => [g.treePath, g.accessName]),
+  );
+}
 
 function createAccessGrantCommand(): Command {
   return new Command("grant")
@@ -124,6 +136,7 @@ function createAccessListCommand(): Command {
     .description("list grants in the active space")
     .argument("[principal]", "filter by principal id or name")
     .option("--path <path>", "only grants at or below this tree path")
+    .option("--effective", "show effective access instead of raw grants")
     .action(async (principal: string | undefined, opts, cmd) => {
       const globalOpts = cmd.optsWithGlobals();
       const creds = resolveCredentials(globalOpts.server);
@@ -133,6 +146,23 @@ function createAccessListCommand(): Command {
 
       const memory = buildMemoryClient(creds);
       try {
+        if (opts.effective) {
+          if (opts.path) {
+            handleError(
+              new Error("--path cannot be combined with --effective"),
+              fmt,
+            );
+          }
+          const principalId = principal
+            ? await resolveSpacePrincipalId(memory, principal, fmt)
+            : undefined;
+          const result = await memory.access.effective({
+            principalId: principalId ?? null,
+          });
+          output(result, fmt, () => printEffectiveAccess(result));
+          return;
+        }
+
         const principalId = principal
           ? await resolveSpacePrincipalId(memory, principal, fmt)
           : undefined;
@@ -172,6 +202,7 @@ function createAccessListCommand(): Command {
 function createAccessMineCommand(): Command {
   return new Command("mine")
     .description("list your own access grants (in the active space)")
+    .option("--effective", "show effective access instead of raw grants")
     .action(async (_opts, cmd) => {
       const globalOpts = cmd.optsWithGlobals();
       const creds = resolveCredentials(globalOpts.server);
@@ -182,6 +213,12 @@ function createAccessMineCommand(): Command {
       const user = buildUserClient(creds);
       const memory = buildMemoryClient(creds);
       try {
+        if (_opts.effective) {
+          const result = await memory.access.effective({});
+          output(result, fmt, () => printEffectiveAccess(result));
+          return;
+        }
+
         const me = await user.whoami();
         const { grants } = await memory.grant.list({
           principalId: me.id,

@@ -158,6 +158,7 @@ Once connected, the agent has access to:
 
 | Tool | Purpose |
 |------|---------|
+| `me_memory_context` | Show current identity, active space, and effective access |
 | `me_memory_create` | Store a new memory |
 | `me_memory_search` | Search by meaning, keywords, or filters |
 | `me_memory_get` | Retrieve a memory by ID |
@@ -231,6 +232,7 @@ me_memory_search({tree: "/share/design/*"})
 
 ### Agent can't find memories
 
-1. Check that the correct space is active: `me whoami`
-2. Verify memories exist: `me memory search --fulltext "<keyword>"`
-3. Check that embeddings have been computed: `me memory get <id>` (look for `hasEmbedding: true`)
+1. Check the MCP execution context with `me_memory_context`.
+2. Check that the correct space is active: `me whoami`.
+3. Verify memories exist: `me memory search --fulltext "<keyword>"`.
+4. Check that embeddings have been computed: `me memory get <id>` (look for `hasEmbedding: true`).

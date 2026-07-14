@@ -49,6 +49,7 @@ const MCP_INSTRUCTIONS = `Memory Engine is persistent memory for this workspace.
 Use it proactively:
 - Before nontrivial work, search for prior decisions, project context, and conventions with me_memory_search.
 - Choose the search mode deliberately: semantic for meaning/concepts, fulltext for exact words/identifiers, or both when you need both kinds of match.
+- Use me_memory_context when you need to confirm which space/principal you are acting as, what paths you can read/write/own, or why a search/create may be empty or forbidden.
 - Use me_memory_tree and tree filters to understand what is visible, but remember that access is grant-based: missing access can look like empty search results or not found.
 - Store durable facts, decisions, conventions, runbooks, and workarounds with me_memory_create when they will help future work.
 - Choose the tree from project/user instructions or visible context. Do not assume every space uses the same tree layout or that shared paths are writable.
@@ -63,7 +64,67 @@ Detailed agent instructions: ${DOCS_BASE}/mcp/agent-instructions.md`;
 // Tool Registration
 // =============================================================================
 
-function registerTools(server: McpServer, client: MemoryClient): void {
+interface McpRuntimeContext {
+  server: string;
+  space: string;
+  asAgent?: string;
+}
+
+function registerTools(
+  server: McpServer,
+  client: MemoryClient,
+  runtime: McpRuntimeContext,
+): void {
+  // me_memory_context
+  server.registerTool(
+    "me_memory_context",
+    {
+      title: "Memory Context",
+      description: `Inspect the current Memory Engine execution context.
+
+Returns the active server and space, acting principal, authenticated-as identity when using act-as-agent mode, and effective tree access paths/levels.
+
+Call this before choosing where to store memories or when diagnosing empty search results and permission failures.
+
+Docs: ${docUrl("me_memory_context")}`,
+      inputSchema: {},
+      annotations: {
+        title: "Memory Context",
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+      },
+    },
+    async () => {
+      const result = await client.access.effective({});
+      const mode = result.authenticatedAs
+        ? "act-as-agent"
+        : result.principal.kind === "a"
+          ? "agent"
+          : result.principal.kind === "s"
+            ? "service-account"
+            : "user";
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: JSON.stringify(
+              {
+                server: runtime.server,
+                activeSpace: runtime.space,
+                asAgentConfigured: runtime.asAgent ?? null,
+                mode,
+                ...result,
+              },
+              null,
+              2,
+            ),
+          },
+        ],
+      };
+    },
+  );
+
   // me_memory_create
   server.registerTool(
     "me_memory_create",
@@ -1241,7 +1302,11 @@ export async function runMcpServer(options: McpServerOptions): Promise<void> {
     },
   );
 
-  registerTools(mcpServer, client);
+  registerTools(mcpServer, client, {
+    server: options.server,
+    space: options.space,
+    asAgent: options.asAgent,
+  });
 
   const transport = new StdioServerTransport();
   await mcpServer.connect(transport);

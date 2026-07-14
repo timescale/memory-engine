@@ -1,8 +1,14 @@
 # MCP Tool Reference
 
-Memory Engine exposes 14 tools to AI agents over the [Model Context Protocol](https://modelcontextprotocol.io/). Once an agent is connected (see [MCP Integration](../mcp-integration.md)), it can store, search, and organize memories with the tools below.
+Memory Engine exposes 15 tools to AI agents over the [Model Context Protocol](https://modelcontextprotocol.io/). Once an agent is connected (see [MCP Integration](../mcp-integration.md)), it can inspect its context, store, search, and organize memories with the tools below.
 
 If you are an agent using these tools, start with [MCP Agent Instructions](agent-instructions.md) for when to search, what to store, and how access control affects visible and writable trees.
+
+## Context
+
+| Tool | Purpose |
+|------|---------|
+| [`me_memory_context`](me_memory_context.md) | Show current identity, active space, and effective access |
 
 ## Storing and editing
 

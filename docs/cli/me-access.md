@@ -66,6 +66,8 @@ List grants in the active space, optionally scoped to one principal and/or a pat
 
 Listing the whole space or another principal's grants requires **space admin** or **owner** of the path being listed (an admin can self-grant `owner@root`). Listing your own grants (or an agent you own) is self-service; [`me access mine`](#me-access-mine) is a convenient shortcut.
 
+Pass `--effective` to show the resolved access a member actually executes with instead of raw grant rows. Effective access includes direct grants, inherited group grants, service-account group grants, and agent grants clamped by the owner's access. `--effective` cannot be combined with `--path`.
+
 ```
 me access list [principal] [--path <path>]
 ```
@@ -77,6 +79,7 @@ me access list [principal] [--path <path>]
 | Option | Description |
 |--------|-------------|
 | `--path <path>` | Only grants at or below this tree path. |
+| `--effective` | Show effective access instead of raw grants. |
 
 ---
 
@@ -84,9 +87,15 @@ me access list [principal] [--path <path>]
 
 List the access grants **you** hold in the active space. Available to **any member** (no admin or path-owner rights required). Fresh service accounts may have no grants until one is explicitly added.
 
+Pass `--effective` to show the paths you can actually read, write, or own after group inheritance and agent clamping are applied.
+
 ```
 me access mine
 ```
+
+| Option | Description |
+|--------|-------------|
+| `--effective` | Show effective access instead of raw grants. |
 
 ## See also
 

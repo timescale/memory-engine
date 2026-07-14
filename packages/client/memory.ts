@@ -43,6 +43,8 @@ import type {
   MemoryUpdateParams,
 } from "@memory.build/protocol/memory";
 import type {
+  AccessEffectiveParams,
+  AccessEffectiveResult,
   GrantListParams,
   GrantListResult,
   GrantRemoveParams,
@@ -177,6 +179,10 @@ export interface GrantNamespace {
   list(params?: GrantListParams): Promise<GrantListResult>;
 }
 
+export interface AccessNamespace {
+  effective(params?: AccessEffectiveParams): Promise<AccessEffectiveResult>;
+}
+
 export interface InviteNamespace {
   create(params: InviteCreateParams): Promise<InviteCreateResult>;
   list(params?: InviteListParams): Promise<InviteListResult>;
@@ -186,6 +192,7 @@ export interface InviteNamespace {
 
 export interface MemoryClient {
   memory: MemoryNamespace;
+  access: AccessNamespace;
   principal: PrincipalNamespace;
   group: GroupNamespace;
   grant: GrantNamespace;
@@ -261,6 +268,9 @@ export function createMemoryClient(
       deleteOrphansInTree: (p) => writeRpc("memory.deleteOrphansInTree", p),
       countTree: (p) => readRpc("memory.countTree", p),
       embeddingStatus: () => readRpc("memory.embeddingStatus", {}),
+    },
+    access: {
+      effective: (p) => readRpc("access.effective", p ?? {}),
     },
     principal: {
       list: (p) => readRpc("principal.list", p ?? {}),
