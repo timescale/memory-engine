@@ -22,27 +22,25 @@ import type { HandlerContext } from "../types";
 import { callerAdministersServiceAccount, callerOwnsAgent } from "./support";
 import { assertSpaceRpcContext, type SpaceRpcContext } from "./types";
 
-function principalTreePathOptions(
-  principal: EffectiveAccessPrincipal,
-): TreePathOptions {
-  if (principal.kind === "s") return {};
-  return {
-    home: principal.id,
-    homeOwner:
-      principal.kind === "a" ? (principal.ownerId ?? undefined) : undefined,
-  };
+/**
+ * The caller's own-home options, so `~` reverse-maps to the caller's home — the
+ * same convention as `displayTreePath` on the rest of the space surface. `~` is
+ * reserved for the caller: only used when a caller inspects their OWN access.
+ * When inspecting another principal we pass `{}` (absolute paths) so a `~` is
+ * never misattributed to the caller (or ambiguously to the target).
+ */
+function callerTreePathOptions(ctx: SpaceRpcContext): TreePathOptions {
+  if (ctx.principalKind === "s") return {};
+  return { home: ctx.principalId, homeOwner: ctx.ownerId ?? undefined };
 }
 
 function toEffectiveAccessEntry(
-  principal: EffectiveAccessPrincipal,
+  options: TreePathOptions,
   row: { tree_path: string; access: number },
 ): EffectiveAccessEntry {
   const access = row.access as AccessLevel;
   return {
-    treePath: denormalizeTreePath(
-      row.tree_path,
-      principalTreePathOptions(principal),
-    ),
+    treePath: denormalizeTreePath(row.tree_path, options),
     access,
     accessName: accessLevelName(access),
   };
@@ -151,6 +149,11 @@ async function accessEffective(
     ? ctx.treeAccess
     : await ctx.core.buildTreeAccess(principal.id, ctx.space.id);
 
+  // `~` is the caller's home only. When inspecting your OWN access, render it
+  // with the caller's home options; when inspecting another principal, render
+  // absolute paths so a `~` is never misattributed to the caller.
+  const pathOptions = isCurrent ? callerTreePathOptions(ctx) : {};
+
   // authenticatedAs is a property of the *caller's* session (the human behind
   // act-as-agent), so it only makes sense alongside the caller's own access.
   // When inspecting another principal it would misleadingly pair that
@@ -161,7 +164,7 @@ async function accessEffective(
     authenticatedAs: isCurrent ? await authenticatedAs(ctx) : null,
     access: [...treeAccess]
       .sort(compareTreeAccess)
-      .map((row) => toEffectiveAccessEntry(principal, row)),
+      .map((row) => toEffectiveAccessEntry(pathOptions, row)),
   };
 }
 
