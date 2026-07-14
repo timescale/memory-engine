@@ -22,8 +22,10 @@ jobs:
         with:
           fetch-depth: 0 # REQUIRED — the git walk and docs git-date temporals need full history
       - name: Install me
-        run: curl -fsSL https://install.memory.build | sh
+        run: |
+          mkdir -p "$HOME/.local/bin"
+          curl -fsSL https://install.memory.build | ME_INSTALL_DIR="$HOME/.local/bin" sh
       - name: Import
         env:
           ME_API_KEY: ${{ secrets.ME_API_KEY }}
-        run: ~/.local/bin/me import ci
+        run: "$HOME/.local/bin/me" import ci
