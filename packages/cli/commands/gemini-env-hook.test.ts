@@ -14,7 +14,14 @@ async function runGeminiEnvHook(
   env: Record<string, string | undefined> = {},
 ): Promise<{ exitCode: number; stdout: string; stderr: string }> {
   const proc = Bun.spawn([process.execPath, CLI_ENTRY, "gemini", "env-hook"], {
-    env: { ...process.env, ME_INJECT_V: undefined, ...env },
+    env: {
+      ...process.env,
+      ME_INJECT_V: undefined,
+      AI_AGENT: undefined,
+      ME_AS_AGENT: undefined,
+      ME_PROJECT_DIR: undefined,
+      ...env,
+    },
     stdin: "pipe",
     stdout: "pipe",
     stderr: "pipe",

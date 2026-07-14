@@ -15,6 +15,35 @@ import { PLUGIN_MARKER, renderPluginSource } from "./plugin-template.ts";
 const tmp = mkdtempSync(join(tmpdir(), "me-oc-plugin-"));
 afterAll(() => rmSync(tmp, { recursive: true, force: true }));
 
+const HARNESS_CONTRACT_ENV_KEYS = [
+  "ME_INJECT_V",
+  "AI_AGENT",
+  "ME_AS_AGENT",
+  "ME_PROJECT_DIR",
+] as const;
+
+async function withHarnessContractEnv<T>(
+  env: Record<string, string | undefined>,
+  fn: () => Promise<T>,
+): Promise<T> {
+  const saved: Record<string, string | undefined> = {};
+  for (const key of HARNESS_CONTRACT_ENV_KEYS) {
+    saved[key] = process.env[key];
+    const value = env[key];
+    if (value === undefined) delete process.env[key];
+    else process.env[key] = value;
+  }
+  try {
+    return await fn();
+  } finally {
+    for (const key of HARNESS_CONTRACT_ENV_KEYS) {
+      const value = saved[key];
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
+}
+
 /** A mock Bun `$` that records the reconstructed command and supports the
  * `.quiet().nothrow()` chain the plugin calls. Mirrors Bun `$` enough for our
  * assertions: array interpolations expand space-separated, and incidental
@@ -36,9 +65,12 @@ function makeShell() {
   return { $, commands };
 }
 
-// biome-ignore lint/suspicious/noExplicitAny: test harness for the dynamic module
 type Hooks = {
-  event: (input: { event: any }) => Promise<void>;
+  event: (input: { event: unknown }) => Promise<void>;
+  "experimental.session.compacting": (
+    input: unknown,
+    output: { context: string[] },
+  ) => Promise<void>;
   "shell.env": (
     input: unknown,
     output: { env?: Record<string, string> },
@@ -133,8 +165,7 @@ describe("generated plugin behavior", () => {
 
   test("compaction hook pushes a memory-recall nudge into the context", async () => {
     const shell = makeShell();
-    // biome-ignore lint/suspicious/noExplicitAny: dynamic test module
-    const hooks = (await loadPlugin(renderPluginSource(), shell)) as any;
+    const hooks = await loadPlugin(renderPluginSource(), shell);
     const output: { context: string[] } = { context: [] };
     await hooks["experimental.session.compacting"]({}, output);
     expect(output.context).toHaveLength(1);
@@ -144,15 +175,17 @@ describe("generated plugin behavior", () => {
 
 describe("shell.env — the harness-injected environment contract", () => {
   test("injects all four contract vars, anchored to the session directory", async () => {
-    const shell = makeShell();
-    const hooks = await loadPlugin(renderPluginSource(), shell, "/my/proj");
-    const output: { env?: Record<string, string> } = {};
-    await hooks["shell.env"]({}, output);
-    expect(output.env).toEqual({
-      ME_INJECT_V: "1",
-      AI_AGENT: "opencode",
-      ME_AS_AGENT: ".me",
-      ME_PROJECT_DIR: "/my/proj",
+    await withHarnessContractEnv({}, async () => {
+      const shell = makeShell();
+      const hooks = await loadPlugin(renderPluginSource(), shell, "/my/proj");
+      const output: { env?: Record<string, string> } = {};
+      await hooks["shell.env"]({}, output);
+      expect(output.env).toEqual({
+        ME_INJECT_V: "1",
+        AI_AGENT: "opencode",
+        ME_AS_AGENT: ".me",
+        ME_PROJECT_DIR: "/my/proj",
+      });
     });
   });
 
@@ -164,73 +197,66 @@ describe("shell.env — the harness-injected environment contract", () => {
     // process env when merged. Prove it by spawning a real process with it
     // merged in and reading back its ACTUAL environment, not just the
     // returned object's shape.
-    const shell = makeShell();
-    const hooks = await loadPlugin(renderPluginSource(), shell, "/my/proj");
-    const output: { env?: Record<string, string> } = {};
-    await hooks["shell.env"]({}, output);
+    await withHarnessContractEnv({}, async () => {
+      const shell = makeShell();
+      const hooks = await loadPlugin(renderPluginSource(), shell, "/my/proj");
+      const output: { env?: Record<string, string> } = {};
+      await hooks["shell.env"]({}, output);
 
-    const proc = Bun.spawn(["env"], {
-      env: { ...process.env, ...output.env },
-      stdout: "pipe",
+      const proc = Bun.spawn(["env"], {
+        env: { ...process.env, ...output.env },
+        stdout: "pipe",
+      });
+      const stdout = await new Response(proc.stdout).text();
+      await proc.exited;
+
+      const env: Record<string, string> = {};
+      for (const line of stdout.split("\n")) {
+        const idx = line.indexOf("=");
+        if (idx !== -1) env[line.slice(0, idx)] = line.slice(idx + 1);
+      }
+      expect(env.ME_INJECT_V).toBe("1");
+      expect(env.AI_AGENT).toBe("opencode");
+      expect(env.ME_AS_AGENT).toBe(".me");
+      expect(env.ME_PROJECT_DIR).toBe("/my/proj");
     });
-    const stdout = await new Response(proc.stdout).text();
-    await proc.exited;
-
-    const env: Record<string, string> = {};
-    for (const line of stdout.split("\n")) {
-      const idx = line.indexOf("=");
-      if (idx !== -1) env[line.slice(0, idx)] = line.slice(idx + 1);
-    }
-    expect(env.ME_INJECT_V).toBe("1");
-    expect(env.AI_AGENT).toBe("opencode");
-    expect(env.ME_AS_AGENT).toBe(".me");
-    expect(env.ME_PROJECT_DIR).toBe("/my/proj");
   });
 
   test("preserves any env output already set by another hook", async () => {
-    const shell = makeShell();
-    const hooks = await loadPlugin(renderPluginSource(), shell);
-    const output: { env?: Record<string, string> } = { env: { KEPT: "1" } };
-    await hooks["shell.env"]({}, output);
-    expect(output.env?.KEPT).toBe("1");
-    expect(output.env?.ME_AS_AGENT).toBe(".me");
+    await withHarnessContractEnv({}, async () => {
+      const shell = makeShell();
+      const hooks = await loadPlugin(renderPluginSource(), shell);
+      const output: { env?: Record<string, string> } = { env: { KEPT: "1" } };
+      await hooks["shell.env"]({}, output);
+      expect(output.env?.KEPT).toBe("1");
+      expect(output.env?.ME_AS_AGENT).toBe(".me");
+    });
   });
 
   test("first-writer-wins: emits nothing when the full contract is already live in this process", async () => {
-    const shell = makeShell();
-    const hooks = await loadPlugin(renderPluginSource(), shell);
-    const saved = {
-      ME_INJECT_V: process.env.ME_INJECT_V,
-      ME_AS_AGENT: process.env.ME_AS_AGENT,
-      ME_PROJECT_DIR: process.env.ME_PROJECT_DIR,
-    };
-    process.env.ME_INJECT_V = "1";
-    process.env.ME_AS_AGENT = ".me";
-    process.env.ME_PROJECT_DIR = "/other/project";
-    try {
-      const output: { env?: Record<string, string> } = {};
-      await hooks["shell.env"]({}, output);
-      expect(output.env).toBeUndefined();
-    } finally {
-      for (const [key, value] of Object.entries(saved)) {
-        if (value === undefined) delete process.env[key];
-        else process.env[key] = value;
-      }
-    }
+    await withHarnessContractEnv(
+      {
+        ME_INJECT_V: "1",
+        ME_AS_AGENT: ".me",
+        ME_PROJECT_DIR: "/other/project",
+      },
+      async () => {
+        const shell = makeShell();
+        const hooks = await loadPlugin(renderPluginSource(), shell);
+        const output: { env?: Record<string, string> } = {};
+        await hooks["shell.env"]({}, output);
+        expect(output.env).toBeUndefined();
+      },
+    );
   });
 
   test("a PARTIALLY live contract (ME_INJECT_V alone) does NOT trigger first-writer-wins", async () => {
-    const shell = makeShell();
-    const hooks = await loadPlugin(renderPluginSource(), shell, "/my/proj");
-    const saved = process.env.ME_INJECT_V;
-    process.env.ME_INJECT_V = "1";
-    try {
+    await withHarnessContractEnv({ ME_INJECT_V: "1" }, async () => {
+      const shell = makeShell();
+      const hooks = await loadPlugin(renderPluginSource(), shell, "/my/proj");
       const output: { env?: Record<string, string> } = {};
       await hooks["shell.env"]({}, output);
       expect(output.env?.ME_PROJECT_DIR).toBe("/my/proj");
-    } finally {
-      if (saved === undefined) delete process.env.ME_INJECT_V;
-      else process.env.ME_INJECT_V = saved;
-    }
+    });
   });
 });
