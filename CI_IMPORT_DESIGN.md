@@ -345,8 +345,16 @@ changes, and adding CI to a project that ran init before this feature existed.
 
 ```
 me project ci [--create-service-account] [--service-account <name>]
-              [--key-name <secret-name>] [--rotate-key] [--dry-run]
+              [--key-name <secret-name>] [--workflow-only]
+              [--rotate-key] [--dry-run]
 ```
+
+`--workflow-only` (added during implementation review) writes/updates the
+workflow file and stops — gh is never invoked, secrets never checked or
+touched. The explicit spelling of "credentials are managed elsewhere":
+Terraform/UI-managed secrets, an org whose admin already provisioned the
+shared SA + org secret, or a dev whose gh can't read this repo's secrets.
+Composes with `--key-name`; rejected with the credential flags.
 
 Like init, the command is **interactive on a TTY**: prompts stand in for the
 flags — the provisioning gate below becomes a yes/no with the org-secret
