@@ -49,10 +49,7 @@ import {
   sameRulesFile,
   writeMemoryPointer,
 } from "../agent/memory-pointer.ts";
-import {
-  type AgentProvisioningClients,
-  provisionNewAgent,
-} from "../agent/provision.ts";
+import { provisionNewAgent } from "../agent/provision.ts";
 import { transcriptImportStep } from "../agent/transcript-import-step.ts";
 import { removeClaudeSettingsEnvKey } from "../claude/settings.ts";
 import {

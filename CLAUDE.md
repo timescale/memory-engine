@@ -229,7 +229,11 @@ live-injected harness session.
 
 ## Style Guides
 
-**TypeScript**: Biome for linting and formatting. Config in `biome.json`.
+**TypeScript**: Biome for linting and formatting. Config in `biome.json`. Treat
+Biome warnings as defects to fix, not background noise to ignore. If `./bun run
+check` reports warnings, address them in the same change unless they are clearly
+unrelated and unsafe to touch; in that case, call them out explicitly rather than
+letting them silently linger.
 
 **SQL**: Lowercase keywords, leading-comma table definitions, inline comments after columns, native `uuid` with `uuidv7()`. Logic lives in SQL functions; the TS stores call functions rather than querying tables directly.
 

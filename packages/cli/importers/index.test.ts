@@ -125,7 +125,6 @@ function importerOf(sessions: ImportedSession[]): Importer {
   return {
     tool: "claude",
     defaultSource: "/src",
-    // biome-ignore lint/correctness/useYield: trivial generator
     async *discoverSessions() {
       for (const s of sessions) yield s;
     },
