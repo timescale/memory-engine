@@ -193,6 +193,7 @@ jobs:
           fetch-depth: 0 # REQUIRED — the git walk and docs git-date temporals need full history
       - name: Install me
         run: |
+          set -o pipefail
           mkdir -p "$HOME/.local/bin"
           curl -fsSL https://install.memory.build | ME_INSTALL_DIR="$HOME/.local/bin" sh
       - name: Import
