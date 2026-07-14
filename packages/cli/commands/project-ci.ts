@@ -169,8 +169,8 @@ on:
   workflow_dispatch: {} # manual backfill / re-run
 
 concurrency:
-  group: me-import
-  cancel-in-progress: true # newest run supersedes: every run is a full catch-up
+  group: me-import-\${{ github.ref }}
+  cancel-in-progress: true # newest run on the same ref supersedes: every run is a full catch-up
 
 jobs:
   import:

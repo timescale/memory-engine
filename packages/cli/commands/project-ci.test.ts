@@ -55,6 +55,7 @@ describe("renderWorkflow", () => {
       "github.ref == format('refs/heads/{0}', github.event.repository.default_branch)",
     );
     expect(wf).not.toContain("branches:");
+    expect(wf).toContain("group: me-import-${{ github.ref }}");
     // Full history is a correctness requirement (git walk + docs temporals).
     expect(wf).toContain("fetch-depth: 0");
     // The env var `me` reads never varies; only the secret feeding it does.

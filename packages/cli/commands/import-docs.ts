@@ -373,10 +373,10 @@ export async function runDocsImport(
     fail(error);
   }
 
-  // Orchestrated non-prune runs (`me import ci` uses prune) can skip a repo
-  // with no matching docs cleanly. Prune-enabled runs continue with an empty
-  // keep-list so deleting/renaming the final doc removes stale rows too.
-  if (opts.skipIfEmpty === true && relPaths.length === 0 && !opts.prune) {
+  // Orchestrated runs (`me import ci`) skip a repo with no matching docs
+  // cleanly, even though CI also asks for prune. An empty authoritative walk is
+  // more likely a non-docs repo than an instruction to delete an entire corpus.
+  if (opts.skipIfEmpty === true && relPaths.length === 0) {
     progress?.stop();
     const structured: DocsImportResult = {
       dir: opts.dir,
