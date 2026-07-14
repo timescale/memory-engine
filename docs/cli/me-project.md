@@ -97,7 +97,8 @@ Set up (and maintain) the GitHub Actions workflow that imports this repo's git h
 
 ```
 me project ci [--create-service-account] [--service-account <name>]
-              [--key-name <secret-name>] [--rotate-key] [--dry-run]
+              [--key-name <secret-name>] [--workflow-only]
+              [--rotate-key] [--dry-run]
 ```
 
 Interactive on a TTY (prompts stand in for the flags); the flags are the headless spellings. Requires a committed `.me/config.yaml` pinning `space` and a **shared** (non-`~`) `tree` — the CI run authenticates as a service account, which has no home tree. Run [`me project init`](#me-project-init) first.
@@ -107,6 +108,7 @@ Interactive on a TTY (prompts stand in for the flags); the flags are the headles
 | `--create-service-account` | Provision repo-scoped credentials without prompting. Provisioning is **never** implicit — a missing secret alone only errors with the options. |
 | `--service-account <name>` | The service account expected to hold the CI credentials. Default: the committed `import.service_account`, else `<repo>-import`. |
 | `--key-name <secret-name>` | The GitHub secret's name (default `ME_API_KEY`). Baked into the workflow as `ME_API_KEY: ${{ secrets.<name> }}` — the env var `me` reads never changes — and recovered from the managed workflow on later runs. For orgs whose repos span multiple spaces (one org secret per space, distinct names). |
+| `--workflow-only` | Write/update the workflow file and stop — `gh` is never invoked and secrets are never checked or touched. For credentials managed elsewhere: Terraform/UI-managed secrets, an org whose admin already provisioned everything, or a dev whose `gh` can't read this repo's secrets. Composes with `--key-name`; rejected with the credential flags. |
 | `--rotate-key` | Mint a new key for the (existing) service account and update the secret. Self-serve for the account's bound admin group. |
 | `--dry-run` | Report what would happen without writing anything. |
 

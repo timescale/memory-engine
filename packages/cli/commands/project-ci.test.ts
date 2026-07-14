@@ -158,6 +158,7 @@ describe("buildProjectCiOptions", () => {
       createServiceAccount: false,
       serviceAccount: undefined,
       keyName: undefined,
+      workflowOnly: false,
       rotateKey: false,
       dryRun: false,
     });
@@ -173,6 +174,7 @@ describe("buildProjectCiOptions", () => {
       createServiceAccount: true,
       serviceAccount: "github-import",
       keyName: "ME_API_KEY_2",
+      workflowOnly: false,
       rotateKey: true,
       dryRun: true,
     });
@@ -188,5 +190,19 @@ describe("buildProjectCiOptions", () => {
     expect(() => buildProjectCiOptions({ keyName: "BAD-DASH" })).toThrow(
       /key-name/,
     );
+  });
+
+  test("--workflow-only excludes the credential flags (never silently ignored)", () => {
+    expect(
+      buildProjectCiOptions({ workflowOnly: true, keyName: "ME_API_KEY_2" })
+        .workflowOnly,
+    ).toBe(true); // --key-name composes: it's baked into the file
+    for (const bad of [
+      { workflowOnly: true, createServiceAccount: true },
+      { workflowOnly: true, rotateKey: true },
+      { workflowOnly: true, serviceAccount: "github-import" },
+    ]) {
+      expect(() => buildProjectCiOptions(bad)).toThrow(/workflow-only/);
+    }
   });
 });

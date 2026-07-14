@@ -2144,6 +2144,20 @@ describe.skipIf(
     expect(orgFail.code).not.toBe(0);
     expect(orgFail.stdout + orgFail.stderr).toContain("Can't determine");
 
+    // 9. --workflow-only: the file is (re)written and NOTHING else runs —
+    //    exit 0 even though gh is in a failing state (never invoked), no
+    //    keys minted. The escape hatch for externally-managed credentials.
+    await rm(wfPath);
+    const wfOnly = await me(["project", "ci", "--workflow-only"], env, repo);
+    expect(wfOnly.code, wfOnly.stderr + wfOnly.stdout).toBe(0);
+    expect(await readFile(wfPath, "utf8")).toContain("me import ci");
+    expect(wfOnly.stdout + wfOnly.stderr).toContain("Credentials not checked");
+    const keysAfterWfOnly = await meJson<{ apiKeys: unknown[] }>(
+      ["apikey", "list", "--service", saName],
+      env,
+    );
+    expect(keysAfterWfOnly.apiKeys.length).toBe(2); // still unchanged
+
     await rm(root, { recursive: true, force: true });
     await rm(fakeDir, { recursive: true, force: true });
   });
