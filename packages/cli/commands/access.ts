@@ -23,7 +23,6 @@ import { resolveCredentials } from "../credentials.ts";
 import { getOutputFormat, output, table } from "../output.ts";
 import {
   buildMemoryClient,
-  buildUserClient,
   handleError,
   requireAuth,
   requireSpace,
@@ -210,7 +209,6 @@ function createAccessMineCommand(): Command {
       requireAuth(creds, fmt);
       requireSpace(creds, fmt);
 
-      const user = buildUserClient(creds);
       const memory = buildMemoryClient(creds);
       try {
         if (opts.effective) {
@@ -219,9 +217,9 @@ function createAccessMineCommand(): Command {
           return;
         }
 
-        const me = await user.whoami();
+        const me = await memory.access.effective({});
         const { grants } = await memory.grant.list({
-          principalId: me.id,
+          principalId: me.principal.id,
           treePath: null,
         });
         output({ grants }, fmt, () => {
@@ -238,7 +236,7 @@ function createAccessMineCommand(): Command {
           );
         });
       } catch (error) {
-        handleError(error, fmt, { creds });
+        handleError(error, fmt, { creds, scope: "space" });
       }
     });
 }
