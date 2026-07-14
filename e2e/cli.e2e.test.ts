@@ -2084,7 +2084,9 @@ describe.skipIf(
     const wf = await readFile(wfPath, "utf8");
     expect(wf).toContain("Managed by 'me project ci'");
     expect(wf).toContain("github.event.repository.default_branch");
-    expect(wf).toContain("me import ci");
+    expect(wf).toContain("permissions:\n  contents: read");
+    expect(wf).toContain('ME_INSTALL_DIR="$HOME/.local/bin" sh');
+    expect(wf).toContain('"$HOME/.local/bin/me" import ci');
 
     // 2. Explicit provisioning: creates the SA, grants write at the tree,
     //    mints a key straight into `gh secret set`.
