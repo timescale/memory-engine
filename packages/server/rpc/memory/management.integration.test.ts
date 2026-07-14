@@ -759,6 +759,16 @@ test("access.effective: admin can inspect another member's effective access", as
   expect(result.access).not.toContainEqual(
     expect.objectContaining({ treePath: "~/delegated" }),
   );
+  // `~` is the caller's home only. When inspecting another principal, their own
+  // home renders absolutely (never `~`), so a `~` is never misattributed.
+  expect(result.access).toContainEqual(
+    expect.objectContaining({
+      treePath: `/${homePrefix(member).replace(/\./g, "/")}`,
+    }),
+  );
+  expect(result.access.every((entry) => !entry.treePath.startsWith("~"))).toBe(
+    true,
+  );
 });
 
 test("access.effective: an agent owner can inspect clamped agent access", async () => {
