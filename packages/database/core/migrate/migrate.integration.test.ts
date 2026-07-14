@@ -74,6 +74,7 @@ const EXPECTED_FUNCTIONS = [
   "is_service_account_admin",
   "is_principal_in_space",
   "is_principal_space_admin",
+  "list_effective_space_admins",
   "list_service_accounts",
   "list_service_accounts_for_admin",
   "member_groups",
@@ -1411,6 +1412,89 @@ describe("control-plane functions", () => {
         [serviceId, spaceId],
       );
       expect(serviceDirectAdmin?.ok).toBe(true);
+    });
+  });
+
+  test("list_effective_space_admins returns only direct-member user admins", async () => {
+    await withTestCore(sql, {}, async (core) => {
+      const s = core.schema;
+      const [sp] = await sql.unsafe(`select ${s}.create_space($1, $2) as id`, [
+        randomSlug(),
+        "Admin Contacts",
+      ]);
+      const spaceId = sp?.id as string;
+      const directAdmin = await v7();
+      const groupAdmin = await v7();
+      const regular = await v7();
+      const groupOnly = await v7();
+      const agentOwner = await v7();
+      for (const [id, name] of [
+        [directAdmin, "direct@example.com"],
+        [groupAdmin, "group@example.com"],
+        [regular, "regular@example.com"],
+        [groupOnly, "group-only@example.com"],
+        [agentOwner, "owner@example.com"],
+      ] as const) {
+        await sql.unsafe(`select ${s}.create_user($1, $2)`, [id, name]);
+      }
+      await sql.unsafe(`select ${s}.add_principal_to_space($1, $2, true)`, [
+        spaceId,
+        directAdmin,
+      ]);
+      await sql.unsafe(`select ${s}.add_principal_to_space($1, $2, false)`, [
+        spaceId,
+        groupAdmin,
+      ]);
+      await sql.unsafe(`select ${s}.add_principal_to_space($1, $2, false)`, [
+        spaceId,
+        regular,
+      ]);
+      await sql.unsafe(`select ${s}.add_principal_to_space($1, $2, false)`, [
+        spaceId,
+        agentOwner,
+      ]);
+
+      const [groupRow] = await sql.unsafe(
+        `select ${s}.create_group($1, $2, true) as id`,
+        [spaceId, "admins"],
+      );
+      const groupId = groupRow?.id as string;
+      await sql.unsafe(`select ${s}.add_group_member($1, $2, $3, false)`, [
+        spaceId,
+        groupId,
+        groupAdmin,
+      ]);
+      await sql.unsafe(`select ${s}.add_group_member($1, $2, $3, false)`, [
+        spaceId,
+        groupId,
+        groupOnly,
+      ]);
+
+      const [agentRow] = await sql.unsafe(
+        `select ${s}.create_agent($1, $2) as id`,
+        [agentOwner, "agent-admin"],
+      );
+      await sql.unsafe(`select ${s}.add_principal_to_space($1, $2, true)`, [
+        spaceId,
+        agentRow?.id as string,
+      ]);
+      const [serviceRow] = await sql.unsafe(
+        `select id from ${s}.create_service_account($1, $2)`,
+        [spaceId, "service-admin"],
+      );
+      await sql.unsafe(`select ${s}.add_principal_to_space($1, $2, true)`, [
+        spaceId,
+        serviceRow?.id as string,
+      ]);
+
+      const rows = await sql.unsafe(
+        `select id, name from ${s}.list_effective_space_admins($1)`,
+        [spaceId],
+      );
+      expect(rows.map((r) => ({ id: r.id, name: r.name }))).toEqual([
+        { id: directAdmin, name: "direct@example.com" },
+        { id: groupAdmin, name: "group@example.com" },
+      ]);
     });
   });
 

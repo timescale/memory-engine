@@ -13,6 +13,7 @@ export type {
   ApiKeyInfo,
   CreatedApiKey,
   CreatedInvitation,
+  EffectiveSpaceAdmin,
   Group,
   GroupMember,
   GroupMembership,

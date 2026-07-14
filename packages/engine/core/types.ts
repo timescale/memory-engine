@@ -109,6 +109,12 @@ export interface SpacePrincipal {
   updatedAt: Date | null;
 }
 
+/** A direct-member user who is an effective space admin. */
+export interface EffectiveSpaceAdmin {
+  id: string;
+  name: string;
+}
+
 /** A group (kind 'g') belonging to a space. */
 export interface Group {
   id: string;

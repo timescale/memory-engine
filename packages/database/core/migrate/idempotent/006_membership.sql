@@ -366,6 +366,48 @@ set search_path to pg_catalog, {{schema}}, public, pg_temp
 {{endfn}}
 
 -------------------------------------------------------------------------------
+-- list_effective_space_admins
+-- The user admins a denied member can ask for help. This is intentionally
+-- narrower than list_space_principals: it returns only direct-member users who
+-- are effective space admins, so FORBIDDEN enrichment doesn't fetch the whole
+-- user roster and filter it in-process.
+-------------------------------------------------------------------------------
+{{fn list_effective_space_admins(_space_id uuid) returns table(id uuid, name text)}}
+create or replace function {{schema}}.list_effective_space_admins
+( _space_id uuid
+)
+returns table
+( id uuid
+, name text
+)
+as $func$
+  select p.id, p.name::text
+  from {{schema}}.principal_space ps
+  join {{schema}}.principal p on p.id = ps.principal_id
+  where ps.space_id = _space_id
+  and p.kind = 'u'
+  and
+  (
+    ps.admin
+    or exists
+    (
+      select 1
+      from {{schema}}.group_member gm
+      join {{schema}}.principal_space gps
+        on (gps.principal_id = gm.group_id
+            and gps.space_id = _space_id
+            and gps.admin)
+      where gm.space_id = _space_id
+      and gm.member_id = p.id
+    )
+  )
+  order by p.name
+$func$ language sql stable security invoker
+set search_path to pg_catalog, {{schema}}, public, pg_temp
+;
+{{endfn}}
+
+-------------------------------------------------------------------------------
 -- list_group_members
 -- Members (users / agents / service accounts) of a group within a space, with
 -- the stored admin flag.
