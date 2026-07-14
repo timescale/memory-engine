@@ -4,6 +4,9 @@ on:
   push: # all branches — the job itself gates on the default branch
   workflow_dispatch: {} # manual backfill / re-run
 
+permissions:
+  contents: read
+
 concurrency:
   group: me-import-${{ github.ref }}
   cancel-in-progress: true # newest run on the same ref supersedes: every run is a full catch-up
