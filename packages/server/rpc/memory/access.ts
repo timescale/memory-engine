@@ -129,10 +129,14 @@ async function accessEffective(
     ? ctx.treeAccess
     : await ctx.core.buildTreeAccess(principal.id, ctx.space.id);
 
+  // authenticatedAs is a property of the *caller's* session (the human behind
+  // act-as-agent), so it only makes sense alongside the caller's own access.
+  // When inspecting another principal it would misleadingly pair that
+  // principal's access with the caller's identity, so report null instead.
   return {
     space: { id: ctx.space.id, slug: ctx.space.slug, name: ctx.space.name },
     principal,
-    authenticatedAs: await authenticatedAs(ctx),
+    authenticatedAs: isCurrent ? await authenticatedAs(ctx) : null,
     access: treeAccess.map((row) => toEffectiveAccessEntry(ctx, row)),
   };
 }
