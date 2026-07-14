@@ -69,7 +69,7 @@ Listing the whole space or another principal's grants requires **space admin** o
 Pass `--effective` to show the resolved access a member actually executes with instead of raw grant rows. Effective access includes direct grants, inherited group grants, service-account group grants, and agent grants clamped by the owner's access. `--effective` cannot be combined with `--path`.
 
 ```
-me access list [principal] [--path <path>]
+me access list [principal] [--path <path>] [--effective]
 ```
 
 | Argument | Required | Description |
@@ -90,7 +90,7 @@ List the access grants **you** hold in the active space. Available to **any memb
 Pass `--effective` to show the paths you can actually read, write, or own after group inheritance and agent clamping are applied.
 
 ```
-me access mine
+me access mine [--effective]
 ```
 
 | Option | Description |
