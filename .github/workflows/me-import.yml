@@ -1,0 +1,26 @@
+# Managed by 'me project ci' — re-run it to update; remove this line to hand-maintain.
+name: Memory Engine import
+on:
+  push: # all branches — the job itself gates on the default branch
+  workflow_dispatch: {} # manual backfill / re-run
+
+concurrency:
+  group: me-import-${{ github.ref }}
+  cancel-in-progress: true # newest run on the same ref supersedes: every run is a full catch-up
+
+jobs:
+  import:
+    # Default branch only, discovered at runtime — survives a rename, and
+    # keeps this file identical across repos (no scaffold-time values).
+    if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0 # REQUIRED — the git walk and docs git-date temporals need full history
+      - name: Install me
+        run: curl -fsSL https://install.memory.build | sh
+      - name: Import
+        env:
+          ME_API_KEY: ${{ secrets.ME_API_KEY }}
+        run: ~/.local/bin/me import ci
