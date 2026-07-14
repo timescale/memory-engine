@@ -4,6 +4,45 @@ All notable changes to the memory engine are documented here. The client
 (`v<x.y.z>`) and server (`server/v<x.y.z>`) release independently but are
 versioned in lockstep for coordinated breaking changes.
 
+## 0.6.0
+
+Server `server/v0.6.0` · Client `v0.6.0`.
+
+### Breaking
+- **Removed `me import git-hook`.** Use the current project import workflow
+  instead (`me project ci` / `me import ci`).
+- **Minimum server version raised:** the client requires server >= 0.6.0
+  (`MIN_SERVER_VERSION`) because the new login and project-import workflows rely
+  on server support added in this release.
+
+### Added
+- **Device-flow login** for headless environments: `me login --device` now shows
+  a browser approval code and signs the CLI in through the web `/device` page.
+- **Account switching** with `me login --switch` for replacing the active CLI
+  session deliberately.
+- **Project CI import setup** via `me project ci`, including workflow-only setup,
+  service-account/key-placement hardening, and CI-friendly `me import ci`
+  orchestration.
+- **Effective access visibility** in the memory context, including caller-aware
+  rendering of `~`, root display, and target access lookups.
+
+### Changed
+- Server auth handling is stricter for bearer-session requests: signed session
+  bearers are required, cookie fallback is blocked for failed bearer lookups, and
+  device-code issuance is rate-limited.
+- Device-flow UX preserves the entered code and email across sign-in and approval
+  errors.
+
+### Unchanged
+- `MIN_CLIENT_VERSION` stays at 0.4.0; the 0.6.0 server still accepts compatible
+  older clients.
+
+### Database
+- auth schema -> 0.0.2 (adds the better-auth device-code table), core schema
+  remains 0.0.4, and space schema remains 0.0.6. Migrations auto-apply on server
+  boot; rolling back to a pre-0.6.0 server image is refused by the downgrade
+  guard on auth.
+
 ## 0.5.0
 
 Server `server/v0.5.0` · Client `v0.5.0`.
