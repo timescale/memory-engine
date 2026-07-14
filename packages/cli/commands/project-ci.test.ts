@@ -5,6 +5,7 @@
  * the write-grant ancestor check, and option validation.
  */
 import { describe, expect, test } from "bun:test";
+import { parse } from "yaml";
 import { DEFAULT_SERVER, DEV_SERVER } from "../credentials.ts";
 import {
   buildProjectCiOptions,
@@ -50,6 +51,7 @@ describe("parseGitHubRepo", () => {
 describe("renderWorkflow", () => {
   test("is repo-agnostic: runtime default-branch gate, no scaffold-time names", () => {
     const wf = renderWorkflow({ keyName: DEFAULT_KEY_NAME });
+    expect(() => parse(wf)).not.toThrow();
     expect(wf.startsWith(MANAGED_MARKER)).toBe(true);
     // The runtime gate — never a hardcoded branch filter.
     expect(wf).toContain(
@@ -64,7 +66,7 @@ describe("renderWorkflow", () => {
     // The installer path is pinned so the import step does not depend on the
     // runner's pre-existing home directory layout.
     expect(wf).toContain('ME_INSTALL_DIR="$HOME/.local/bin" sh');
-    expect(wf).toContain('run: "$HOME/.local/bin/me" import ci');
+    expect(wf).toContain('run: |\n          "$HOME/.local/bin/me" import ci');
     expect(wf).not.toContain("~/.local/bin/me import ci");
     // The env var `me` reads never varies; only the secret feeding it does.
     expect(wf).toContain("ME_API_KEY: ${{ secrets.ME_API_KEY }}");
