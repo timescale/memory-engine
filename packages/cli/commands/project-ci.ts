@@ -465,7 +465,6 @@ export async function runProjectCi(
   globalOpts: Record<string, unknown>,
   runCtx: { fromInit?: boolean } = {},
 ): Promise<void> {
-  const fmt = getOutputFormat(globalOpts);
   try {
     await runProjectCiBody(rawOpts, globalOpts, runCtx);
   } catch (e) {

@@ -29,7 +29,6 @@ import {
   readFile,
   realpath,
   rm,
-  stat,
   symlink,
   writeFile,
 } from "node:fs/promises";
