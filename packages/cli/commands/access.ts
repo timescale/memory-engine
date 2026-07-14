@@ -36,8 +36,7 @@ function printEffectiveAccess(result: AccessEffectiveResult): void {
   }
   table(
     ["tree_path", "access"],
-    result.access.map((g) => [g.treePath, g.accessName]),
-  );
+    result.access.map((g) => [g.treePath === "/" ? "(root)" : g.treePath, g.accessName]),
 }
 
 function createAccessGrantCommand(): Command {
