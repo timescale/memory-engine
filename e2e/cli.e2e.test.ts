@@ -1990,10 +1990,16 @@ describe.skipIf(
       'case "$1" in',
       "  auth) exit 0 ;;",
       "  secret)",
-      '    if [ "$2" = "list" ]; then cat "$ME_E2E_FAKE_GH/repo-secrets" 2>/dev/null || true; exit 0; fi',
+      '    if [ "$2" = "list" ]; then',
+      '      if [ -f "$ME_E2E_FAKE_GH/secrets-fail" ]; then echo "gh: Forbidden (HTTP 403)" >&2; exit 1; fi',
+      '      cat "$ME_E2E_FAKE_GH/repo-secrets" 2>/dev/null || true; exit 0',
+      "    fi",
       '    if [ "$2" = "set" ]; then cat > "$ME_E2E_FAKE_GH/set-$3"; exit 0; fi',
       "    exit 1 ;;",
-      '  api) cat "$ME_E2E_FAKE_GH/org-secrets" 2>/dev/null || true; exit 0 ;;',
+      "  api)",
+      '    if [ -f "$ME_E2E_FAKE_GH/org-404" ]; then echo "gh: Not Found (HTTP 404)" >&2; exit 1; fi',
+      '    if [ -f "$ME_E2E_FAKE_GH/org-fail" ]; then echo "gh: boom (HTTP 500)" >&2; exit 1; fi',
+      '    cat "$ME_E2E_FAKE_GH/org-secrets" 2>/dev/null || true; exit 0 ;;',
       "esac",
       "exit 1",
     ].join("\n");
@@ -2095,6 +2101,48 @@ describe.skipIf(
       env,
     );
     expect(keys.apiKeys.length).toBe(2);
+
+    // 7. Repo secrets unREADable (403 on `gh secret list`): presence is
+    //    "unknown" — the plain run errors with the access wording, and even
+    //    --create-service-account mints NOTHING (writing the secret needs
+    //    the same access, so a direct mint would orphan the key).
+    await writeFile(join(fakeDir, "secrets-fail"), "");
+    const unknownPlain = await me(["project", "ci"], env, repo);
+    expect(unknownPlain.code).not.toBe(0);
+    expect(unknownPlain.stdout + unknownPlain.stderr).toContain("repo-admin");
+    const unknownCreate = await me(
+      ["project", "ci", "--create-service-account"],
+      env,
+      repo,
+    );
+    expect(
+      unknownCreate.code,
+      unknownCreate.stderr + unknownCreate.stdout,
+    ).toBe(0);
+    expect(unknownCreate.stdout + unknownCreate.stderr).toContain(
+      "No key was minted",
+    );
+    const keysAfterUnknown = await meJson<{ apiKeys: unknown[] }>(
+      ["apikey", "list", "--service", saName],
+      env,
+    );
+    expect(keysAfterUnknown.apiKeys.length).toBe(2); // unchanged
+    await rm(join(fakeDir, "secrets-fail"));
+
+    // 8. Org-secrets endpoint failures: a 404 (personal account, no org)
+    //    reads as "no org secrets" → the ordinary absent error; anything
+    //    else (transient 500) must read as UNKNOWN, never absent — absent's
+    //    next step is the provisioning offer, which must not fire on a guess.
+    await rm(join(fakeDir, "repo-secrets"));
+    await writeFile(join(fakeDir, "org-404"), "");
+    const org404 = await me(["project", "ci"], env, repo);
+    expect(org404.code).not.toBe(0);
+    expect(org404.stdout + org404.stderr).toContain("visibility list");
+    await rm(join(fakeDir, "org-404"));
+    await writeFile(join(fakeDir, "org-fail"), "");
+    const orgFail = await me(["project", "ci"], env, repo);
+    expect(orgFail.code).not.toBe(0);
+    expect(orgFail.stdout + orgFail.stderr).toContain("Can't determine");
 
     await rm(root, { recursive: true, force: true });
     await rm(fakeDir, { recursive: true, force: true });

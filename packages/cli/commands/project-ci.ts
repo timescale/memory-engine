@@ -21,9 +21,12 @@
  *
  * Key-handling rule: a key is minted only when it has an immediate
  * destination — minted and piped straight into `gh secret set`, never
- * displayed or stored. Without `gh` (or on a decline) nothing is minted; the
- * exact commands are printed instead. This avoids orphan credentials: a
- * minted-but-unplaced key is live in scrollback with no home.
+ * displayed or stored. Without `gh`, on a decline, or when the repo's
+ * secrets couldn't be READ (writing needs the same repo-admin access, so
+ * placement would fail) nothing is minted; the exact commands are printed
+ * instead. If placement ever fails after a mint, the key is revoked on the
+ * spot. This avoids orphan credentials: a minted-but-unplaced key is live
+ * in scrollback with no home.
  *
  * An authority denial during provisioning is the expected common case (most
  * repo devs aren't space admins) and is not a dead end: the server enriches
@@ -293,9 +296,7 @@ async function secretPresence(
     return "unknown";
   }
   // Org-provided secrets are NOT in `gh secret list` — they come from the
-  // repo's organization-secrets endpoint. A failure here (404 for user-owned
-  // repos, 403 without access) means "no org secrets visible", not unknown —
-  // the repo-level check above already succeeded.
+  // repo's organization-secrets endpoint.
   try {
     const org = await execFileAsync("gh", [
       "api",
@@ -306,8 +307,17 @@ async function secretPresence(
     if (org.stdout.split("\n").some((n) => n.trim() === keyName)) {
       return "present";
     }
-  } catch {
-    // fall through — treated as no org secrets
+  } catch (e) {
+    // A 404 is the one failure that MEANS something: the repo belongs to a
+    // personal account (no org), so "no org secrets" is simply true. Any
+    // other failure (transient network, rate limit, an exotic 403 — a
+    // permissions 403 is near-impossible here since the repo-level call
+    // above succeeded with the same token and the same access requirement)
+    // is indistinguishable from "an org secret might exist that we can't
+    // see" → unknown, never absent (absent's next step is the provisioning
+    // offer, which must not fire on a guess).
+    const stderr = (e as { stderr?: string }).stderr ?? "";
+    if (!/HTTP 404/.test(stderr)) return "unknown";
   }
   return "absent";
 }
@@ -778,8 +788,13 @@ async function runProjectCiBody(
   if (!provision) {
     if (presence === "unknown") {
       throw fail(
-        `Can't check whether the ${keyName} secret exists ('gh' unavailable). Install and authenticate gh, ` +
-          "set the secret manually, or re-run with --create-service-account to provision.",
+        gh
+          ? `Can't determine whether the ${keyName} secret is available to ${nwo} — reading its secrets failed ` +
+              "(repo secrets need repo-admin access; org-secret checks can also fail transiently). " +
+              "Ask a repo admin to run this, set the secret yourself in the GitHub UI, or retry."
+          : `Can't check whether the ${keyName} secret exists — 'gh' is ${
+              Bun.which("gh") === null ? "not installed" : "not authenticated"
+            }. Install/authenticate gh, set the secret manually, or re-run with --create-service-account to provision.`,
       );
     }
     if (!interactive) {
@@ -913,10 +928,18 @@ async function runProjectCiBody(
   }
 
   // ---- Phase 6: key + secret — mint ONLY when piping into gh secret set ----
-  if (!gh) {
+  if (!gh || presence === "unknown") {
+    // presence "unknown" with gh working means the secrets couldn't be READ
+    // — and writing them needs the same repo-admin access, so a direct mint
+    // would fail at `gh secret set` and orphan the key. Same treatment as
+    // no-gh: print the pair, mint nothing.
     notes.push(
-      "No key was minted ('gh' unavailable — a key is minted only when it can go straight into the secret).",
-      "Run these together once gh is ready:",
+      gh
+        ? "No key was minted — this repo's secrets couldn't be read, and writing them would likely fail the same way (both need repo-admin access)."
+        : "No key was minted ('gh' unavailable — a key is minted only when it can go straight into the secret).",
+      gh
+        ? "Have someone with repo-admin access run these together:"
+        : "Run these together once gh is ready:",
       `  me apikey create --service ${finalName}`,
       `  gh secret set ${keyName} --repo ${nwo}   # paste the key`,
     );
@@ -962,13 +985,41 @@ async function runProjectCiBody(
       name,
       expiresAt: null,
     });
-    await ghSetSecret(nwo, keyName, minted.key);
+    try {
+      await ghSetSecret(nwo, keyName, minted.key);
+    } catch (setError) {
+      // Never leave an orphan credential: the key exists only to sit in this
+      // secret, so a failed placement revokes it on the spot (we hold the
+      // session key-deletion requires). Only if the revoke ALSO fails does
+      // the operator get manual instructions.
+      const msg =
+        setError instanceof Error ? setError.message : String(setError);
+      let revoked = false;
+      try {
+        const res = await user.apiKey.delete({ id: minted.id });
+        revoked = res.deleted;
+      } catch {
+        // fall through to manual guidance
+      }
+      handleError(
+        new Error(
+          revoked
+            ? `${msg}\nThe just-minted key was revoked — nothing was left behind. Fix gh's access to ${nwo} ` +
+                "(writing secrets needs repo-admin) and re-run, or set the secret via the GitHub UI and finish with " +
+                `\`me apikey create --service ${finalName}\`.`
+            : `${msg}\nA key named "${name}" was minted for '${finalName}' but could not be placed or revoked. ` +
+                `Revoke it with: me apikey delete ${minted.id}`,
+        ),
+        fmt,
+        { creds, scope: "space" },
+      );
+    }
     step(
       `Minted api key "${name}" → gh secret set ${keyName} (piped directly; never displayed or stored)`,
     );
     if (opts.rotateKey) {
       notes.push(
-        `Rotated. Revoke old keys: me apikey list --service ${finalName}, then me apikey delete --service ${finalName} <key>.`,
+        `Rotated. Revoke old keys: me apikey list --service ${finalName} (find the old id), then me apikey delete <id>.`,
       );
     }
   } catch (error) {
