@@ -203,7 +203,7 @@ function createAccessMineCommand(): Command {
   return new Command("mine")
     .description("list your own access grants (in the active space)")
     .option("--effective", "show effective access instead of raw grants")
-    .action(async (_opts, cmd) => {
+    .action(async (opts, cmd) => {
       const globalOpts = cmd.optsWithGlobals();
       const creds = resolveCredentials(globalOpts.server);
       const fmt = getOutputFormat(globalOpts);
@@ -213,7 +213,7 @@ function createAccessMineCommand(): Command {
       const user = buildUserClient(creds);
       const memory = buildMemoryClient(creds);
       try {
-        if (_opts.effective) {
+        if (opts.effective) {
           const result = await memory.access.effective({});
           output(result, fmt, () => printEffectiveAccess(result));
           return;

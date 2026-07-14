@@ -76,9 +76,11 @@ async function targetPrincipal(
   ctx: SpaceRpcContext,
   principalId: string,
 ): Promise<EffectiveAccessPrincipal> {
-  const principals = await ctx.core.listSpacePrincipals(ctx.space.id);
-  const principal = principals.find((p) => p.id === principalId);
-  if (!principal) {
+  const principal = await ctx.core.getPrincipal(principalId);
+  if (
+    !principal ||
+    !(await ctx.core.isPrincipalInSpace(principalId, ctx.space.id))
+  ) {
     throw new AppError(
       "NOT_FOUND",
       `Principal not found in this space: ${principalId}`,
@@ -90,7 +92,7 @@ async function targetPrincipal(
     kind: principal.kind,
     name: principal.name,
     ownerId: principal.ownerId,
-    admin: principal.admin,
+    admin: await ctx.core.isSpaceAdmin(principal.id, ctx.space.id),
   };
 }
 
@@ -117,10 +119,11 @@ async function accessEffective(
   const principalId = params.principalId ?? ctx.principalId;
   const isCurrent = principalId === ctx.principalId;
 
+  await requireEffectiveAccessInspection(ctx, principalId);
+
   const principal = isCurrent
     ? await currentPrincipal(ctx)
     : await targetPrincipal(ctx, principalId);
-  await requireEffectiveAccessInspection(ctx, principal.id);
 
   const treeAccess = isCurrent
     ? ctx.treeAccess
