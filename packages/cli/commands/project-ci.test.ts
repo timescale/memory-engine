@@ -83,6 +83,7 @@ describe("renderWorkflow", () => {
       keyName: DEFAULT_KEY_NAME,
       serverEnv: "https://me.acme.internal",
     });
+    expect(() => parse(wf)).not.toThrow();
     expect(wf).toContain("ME_SERVER: https://me.acme.internal");
   });
 });
