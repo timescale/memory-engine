@@ -65,6 +65,7 @@ describe("renderWorkflow", () => {
     expect(wf).toContain("fetch-depth: 0");
     // The installer path is pinned so the import step does not depend on the
     // runner's pre-existing home directory layout.
+    expect(wf).toContain("set -o pipefail");
     expect(wf).toContain('ME_INSTALL_DIR="$HOME/.local/bin" sh');
     expect(wf).toContain('run: |\n          "$HOME/.local/bin/me" import ci');
     expect(wf).not.toContain("~/.local/bin/me import ci");
