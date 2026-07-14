@@ -36,7 +36,7 @@ import {
   DEFAULT_PRIVATE_TREE_ROOT,
   dedupBy,
 } from "../importers/index.ts";
-import { SlugRegistry } from "../importers/slug.ts";
+import { detectGitContext, ProjectRegistry } from "../importers/project.ts";
 import { stampGitPrevLinks } from "../importers/thread-links.ts";
 import { getOutputFormat, output } from "../output.ts";
 import { discoverProjectConfig } from "../project-config.ts";
@@ -188,9 +188,7 @@ export async function runGitImport(
   }
   requireAuth(creds, fmt);
   requireSpace(creds, fmt);
-  const { slug, gitRoot, gitRemote } = await new SlugRegistry().resolve(
-    repoPath,
-  );
+  const { gitRoot, gitRemote } = await detectGitContext(repoPath);
   if (!gitRoot) {
     if (opts.skipIfNotRepo) {
       if (fmt === "text") {
@@ -203,15 +201,16 @@ export async function runGitImport(
     handleError(new Error(`${repoPath} is not a git repository`), fmt);
   }
 
+  const explicitProjectNode = opts.tree ?? creds.tree;
+  const slug = (await new ProjectRegistry().resolve(repoPath)).slug;
   // The full project node git history nests under (no slug appended — git
   // import is single-repo): an explicit `--tree`, else the TARGET repo's
   // `.me` `tree` (`creds` above is scoped to the repo, so this works from any
   // cwd), else the slug nests under the machine-wide `tree_root` override or
-  // the PRIVATE default — so commits and captured sessions share the same
-  // private-by-default root.
+  // the PRIVATE default. The slug is still retained as source metadata even
+  // when explicitProjectNode controls placement.
   const projectNode =
-    opts.tree ??
-    creds.tree ??
+    explicitProjectNode ??
     `${creds.treeRoot ?? DEFAULT_PRIVATE_TREE_ROOT}.${slug}`;
   const tree = `${projectNode}.${GIT_HISTORY_NODE_NAME}`;
   const rev = opts.branch ?? "HEAD";

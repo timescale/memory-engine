@@ -282,7 +282,7 @@ export function mergeSkipReason(commit: GitCommit): string | null {
 export interface CommitMemoryContext {
   /** Full target tree (e.g. `share.projects.foo.git_history`). */
   tree: string;
-  /** Project slug the tree was derived from. */
+  /** Project slug for source metadata. */
   projectSlug: string;
   /** Git remote URL, if the repo has one. */
   gitRemote?: string;

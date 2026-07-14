@@ -31,6 +31,8 @@ describe("buildDocsImportOptions", () => {
       temporalKey: undefined,
       parseTemporal: true,
       prune: false,
+      gitAware: false,
+      includeIgnored: false,
       allowSubdirRoot: false,
       skipIfEmpty: false,
       dryRun: false,
@@ -45,6 +47,8 @@ describe("buildDocsImportOptions", () => {
       exclude: ["docs/internal/**", "**/*.mdx"],
       temporalKey: "date",
       temporal: false, // --no-temporal
+      gitAware: true,
+      includeIgnored: true,
       dryRun: true,
       verbose: true,
     });
@@ -54,6 +58,8 @@ describe("buildDocsImportOptions", () => {
     expect(opts.exclude).toEqual(["docs/internal/**", "**/*.mdx"]);
     expect(opts.temporalKey).toBe("date");
     expect(opts.parseTemporal).toBe(false);
+    expect(opts.gitAware).toBe(true);
+    expect(opts.includeIgnored).toBe(true);
     expect(opts.dryRun).toBe(true);
     expect(opts.verbose).toBe(true);
   });
@@ -89,6 +95,12 @@ describe("buildDocsImportOptions", () => {
       buildDocsImportOptions(undefined, { allowSubdirRoot: true })
         .allowSubdirRoot,
     ).toBe(true);
+  });
+
+  test("rejects --include-ignored without --git-aware", () => {
+    expect(() =>
+      buildDocsImportOptions(undefined, { includeIgnored: true }),
+    ).toThrow(/--include-ignored requires --git-aware/);
   });
 });
 

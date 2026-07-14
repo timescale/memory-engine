@@ -1930,7 +1930,60 @@ describe.skipIf(
     );
     expect(readmeRow?.content).not.toContain("Edited.");
 
-    // 6. A repo with no markdown at all: docs phase skips cleanly, exit 0.
+    // 6. Direct docs import is plain by default (walks files on disk), while
+    //    --git-aware respects gitignore unless --include-ignored is explicit.
+    await writeFile(join(repo, ".gitignore"), "generated/\n");
+    await mkdir(join(repo, "generated"));
+    await writeFile(join(repo, "generated", "ignored.md"), "# Generated\n");
+    const plainTree = `${homeProjects}.${name}_plain_docs`;
+    const gitAwareTree = `${homeProjects}.${name}_git_docs`;
+    const withIgnoredTree = `${homeProjects}.${name}_ignored_docs`;
+
+    const plainDocs = await me(
+      ["import", "docs", repo, "--tree", plainTree],
+      undefined,
+      repo,
+    );
+    expect(plainDocs.code, plainDocs.stderr + plainDocs.stdout).toBe(0);
+    expect(await countUnder(`${plainTree}.docs`)).toBe(2);
+
+    const gitAwareDocs = await me(
+      ["import", "docs", repo, "--git-aware", "--tree", gitAwareTree],
+      undefined,
+      repo,
+    );
+    expect(gitAwareDocs.code, gitAwareDocs.stderr + gitAwareDocs.stdout).toBe(
+      0,
+    );
+    expect(await countUnder(`${gitAwareTree}.docs`)).toBe(1);
+
+    const ignoredDocs = await me(
+      [
+        "import",
+        "docs",
+        repo,
+        "--git-aware",
+        "--include-ignored",
+        "--tree",
+        withIgnoredTree,
+      ],
+      undefined,
+      repo,
+    );
+    expect(ignoredDocs.code, ignoredDocs.stderr + ignoredDocs.stdout).toBe(0);
+    expect(await countUnder(`${withIgnoredTree}.docs`)).toBe(2);
+
+    const includeIgnoredPlain = await me(
+      ["import", "docs", repo, "--include-ignored", "--tree", plainTree],
+      undefined,
+      repo,
+    );
+    expect(includeIgnoredPlain.code).not.toBe(0);
+    expect(includeIgnoredPlain.stdout + includeIgnoredPlain.stderr).toContain(
+      "--include-ignored requires --git-aware",
+    );
+
+    // 7. A repo with no markdown at all: docs phase skips cleanly, exit 0.
     const bare = join(root, `bareci${rand()}`);
     await mkdir(bare, { recursive: true });
     await git(bare, ["init", "-q", "-b", "main"]);
@@ -1945,13 +1998,23 @@ describe.skipIf(
     expect(bareRun.code, bareRun.stderr).toBe(0);
     expect(bareRun.stdout + bareRun.stderr).toContain("No matching docs");
 
-    // 7. Outside a git repo: a clear error, non-zero exit.
+    // 8. Outside a git repo: `me import ci` has a clear error, and direct
+    //    docs import only errors when git-aware behavior was requested.
     const plain = await mkdtemp(join(tmpdir(), "me-e2e-ci-plain-"));
     const noRepo = await me(["import", "ci"], undefined, plain);
     expect(noRepo.code).not.toBe(0);
     expect(noRepo.stdout + noRepo.stderr).toContain("git repository");
+    const gitAwareOutsideRepo = await me(
+      ["import", "docs", plain, "--git-aware", "--tree", plainTree],
+      undefined,
+      repo,
+    );
+    expect(gitAwareOutsideRepo.code).not.toBe(0);
+    expect(gitAwareOutsideRepo.stdout + gitAwareOutsideRepo.stderr).toContain(
+      "--git-aware requires dir to be inside a git repository",
+    );
 
-    // 8. --json is rejected (two phases can't render one structured doc).
+    // 9. --json is rejected (two phases can't render one structured doc).
     const asJson = await me(["import", "ci", "--json"], undefined, repo);
     expect(asJson.code).not.toBe(0);
 

@@ -9,20 +9,20 @@
  * importer.
  */
 
-import { normalizeSlug } from "./slug.ts";
+import { normalizeProjectSlug } from "./project.ts";
 
 /** Memory-name length cap (mirrors the DB CHECK / memoryNameSchema). */
 export const MAX_NAME_LEN = 128;
 
 /**
  * Normalize a directory segment to a valid ltree label. Delegates to the
- * shared `normalizeSlug` (lowercase, non-alphanumeric runs -> `_`,
+ * shared `normalizeProjectSlug` (lowercase, non-alphanumeric runs -> `_`,
  * collapse/trim, a purely-numeric label gets a `p_` prefix) so
  * filesystem-derived tree labels follow the same rule as the agent-session
  * importers.
  */
 export function normalizeTreeLabel(raw: string): string {
-  return normalizeSlug(raw);
+  return normalizeProjectSlug(raw);
 }
 
 /**

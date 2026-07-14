@@ -21,7 +21,7 @@ import { batchCreateChunked } from "../../chunk.ts";
 import type { MemoryClient } from "../../client.ts";
 import { IMPORTER_VERSION } from "../index.ts";
 import type { ProgressReporter } from "../progress.ts";
-import { boundedUniqueLabel } from "../slug.ts";
+import { boundedUniqueLabel } from "../project.ts";
 import { uuidv7At } from "../uuid.ts";
 import {
   GranolaClient,

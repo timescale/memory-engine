@@ -1,17 +1,38 @@
 /**
- * Tests for slug normalization and collision resolution.
+ * Tests for project identity normalization, git context detection, and
+ * collision resolution.
  *
  * Note: the registry calls out to git for root/remote detection. These tests
  * pass cwds that aren't real git repos, so the lookup silently returns
  * `undefined` and the fallback to `basename(cwd)` is exercised.
  */
 import { describe, expect, test } from "bun:test";
+import { mkdtemp, realpath, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   boundedUniqueLabel,
-  normalizeSlug,
+  detectGitContext,
+  normalizeProjectSlug,
+  ProjectRegistry,
   repoNameFromRemote,
-  SlugRegistry,
-} from "./slug.ts";
+} from "./project.ts";
+
+async function git(cwd: string, args: string[]): Promise<void> {
+  const proc = Bun.spawn(["git", ...args], {
+    cwd,
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  const [stdout, stderr, code] = await Promise.all([
+    new Response(proc.stdout).text(),
+    new Response(proc.stderr).text(),
+    proc.exited,
+  ]);
+  if (code !== 0) {
+    throw new Error(`git ${args.join(" ")} failed: ${stderr}${stdout}`);
+  }
+}
 
 describe("repoNameFromRemote", () => {
   test("extracts the repo name from https and ssh remotes (sans .git)", () => {
@@ -25,24 +46,65 @@ describe("repoNameFromRemote", () => {
   });
 });
 
-describe("normalizeSlug", () => {
+describe("normalizeProjectSlug", () => {
   test("lowercases and replaces non-alphanumeric with underscore", () => {
-    expect(normalizeSlug("Memory-Engine")).toBe("memory_engine");
-    expect(normalizeSlug("My Project!")).toBe("my_project");
+    expect(normalizeProjectSlug("Memory-Engine")).toBe("memory_engine");
+    expect(normalizeProjectSlug("My Project!")).toBe("my_project");
   });
 
   test("collapses underscores and trims edges", () => {
-    expect(normalizeSlug("---foo---bar---")).toBe("foo_bar");
-    expect(normalizeSlug("foo__bar")).toBe("foo_bar");
+    expect(normalizeProjectSlug("---foo---bar---")).toBe("foo_bar");
+    expect(normalizeProjectSlug("foo__bar")).toBe("foo_bar");
   });
 
   test("prefixes purely numeric labels", () => {
-    expect(normalizeSlug("12345")).toBe("p_12345");
+    expect(normalizeProjectSlug("12345")).toBe("p_12345");
   });
 
   test("returns 'unknown' for empty or all-symbol input", () => {
-    expect(normalizeSlug("")).toBe("unknown");
-    expect(normalizeSlug("!!!")).toBe("unknown");
+    expect(normalizeProjectSlug("")).toBe("unknown");
+    expect(normalizeProjectSlug("!!!")).toBe("unknown");
+  });
+});
+
+describe("detectGitContext", () => {
+  test("returns gitRoot and gitRemote inside a repo", async () => {
+    const root = await mkdtemp(join(tmpdir(), "me-project-registry-"));
+    try {
+      await git(root, ["init", "-q", "-b", "main"]);
+      await git(root, [
+        "remote",
+        "add",
+        "origin",
+        "git@github.com:acme/widgets.git",
+      ]);
+      const context = await detectGitContext(root);
+      expect(context.gitRoot).toBe(await realpath(root));
+      expect(context.gitRemote).toBe("git@github.com:acme/widgets.git");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("returns an empty context outside a repo", async () => {
+    const root = await mkdtemp(join(tmpdir(), "me-project-registry-"));
+    try {
+      expect(await detectGitContext(root)).toEqual({});
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("returns gitRoot without gitRemote for a repo with no origin", async () => {
+    const root = await mkdtemp(join(tmpdir(), "me-project-registry-"));
+    try {
+      await git(root, ["init", "-q", "-b", "main"]);
+      const context = await detectGitContext(root);
+      expect(context.gitRoot).toBe(await realpath(root));
+      expect(context.gitRemote).toBeUndefined();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 });
 
@@ -82,32 +144,32 @@ describe("boundedUniqueLabel", () => {
     );
   });
 
-  test("disambiguates a lossy ltree label via normalizeSlug", () => {
-    const dashed = boundedUniqueLabel("sess-1", normalizeSlug, 200);
-    const under = boundedUniqueLabel("sess_1", normalizeSlug, 200);
+  test("disambiguates a lossy ltree label via normalizeProjectSlug", () => {
+    const dashed = boundedUniqueLabel("sess-1", normalizeProjectSlug, 200);
+    const under = boundedUniqueLabel("sess_1", normalizeProjectSlug, 200);
     expect(under).toBe("sess_1"); // already a clean ltree label
     expect(dashed).not.toBe(under); // "sess-1" → sess_1, disambiguated
     expect(dashed.startsWith("sess_1_")).toBe(true);
   });
 });
 
-describe("SlugRegistry", () => {
+describe("ProjectRegistry", () => {
   test("returns unknown for undefined cwd", async () => {
-    const reg = new SlugRegistry();
+    const reg = new ProjectRegistry();
     const result = await reg.resolve(undefined);
     expect(result.slug).toBe("unknown");
     expect(result.baseSlug).toBe("unknown");
   });
 
   test("same cwd resolves to the same slug on repeated calls", async () => {
-    const reg = new SlugRegistry();
+    const reg = new ProjectRegistry();
     const a = await reg.resolve("/tmp/nonexistent-path-for-test/memory-engine");
     const b = await reg.resolve("/tmp/nonexistent-path-for-test/memory-engine");
     expect(a.slug).toBe(b.slug);
   });
 
   test("distinct cwds with the same basename get disambiguating suffix", async () => {
-    const reg = new SlugRegistry();
+    const reg = new ProjectRegistry();
     const a = await reg.resolve("/tmp/nonexistent-a-1234abcd/memory-engine");
     const b = await reg.resolve("/tmp/nonexistent-b-5678efgh/memory-engine");
     expect(a.baseSlug).toBe("memory_engine");
@@ -118,7 +180,7 @@ describe("SlugRegistry", () => {
   });
 
   test("collisions() reports all colliding base slugs", async () => {
-    const reg = new SlugRegistry();
+    const reg = new ProjectRegistry();
     await reg.resolve("/tmp/nonexistent-a-1234abcd/memory-engine");
     await reg.resolve("/tmp/nonexistent-b-5678efgh/memory-engine");
     await reg.resolve("/tmp/nonexistent-c-abcdefgh/other-project");

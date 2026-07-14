@@ -11,7 +11,8 @@
  * callers only ever see paths relative to the import root.
  *
  * Mode detection (is this a work tree at all?) happens upstream via
- * SlugRegistry's gitRoot, so these helpers are only called inside a repo;
+ * detectGitContext / the import command's git context, so these helpers are
+ * only called inside a repo;
  * isShallowRepository alone degrades to false on any failure, since its
  * answer gates dropping data (git dates) rather than an operation.
  */
@@ -53,7 +54,7 @@ export async function isShallowRepository(dir: string): Promise<boolean> {
 
 /** One ls-files pass: every discoverable file + which of them are untracked. */
 export interface GitFileListing {
-  /** Tracked plus untracked-but-not-ignored paths, relative to `dir`, sorted. */
+  /** Discoverable paths relative to `dir`, sorted. */
   files: string[];
   /**
    * The untracked subset — paths with no commit history, so callers exclude
@@ -65,14 +66,28 @@ export interface GitFileListing {
 
 /**
  * List files under `dir` (paths relative to `dir`, sorted): tracked plus
- * untracked-but-not-ignored — `git ls-files -t --cached --others
- * --exclude-standard`, one spawn; `-t` tags each entry (`H` cached /
- * `?` other) so the untracked subset comes out of the same pass. `-z`
- * output, so exotic filenames arrive unquoted. Tracked-only would silently
- * skip a doc someone wrote but hasn't committed; `--exclude-standard`
- * still keeps gitignored build output away.
+ * untracked-but-not-ignored by default. With `includeIgnored`, a second pass
+ * adds ignored untracked files as well; those paths are treated as untracked
+ * for temporal purposes because they have no commit history.
  */
-export async function listGitFiles(dir: string): Promise<GitFileListing> {
+export async function listGitFiles(
+  dir: string,
+  opts: { includeIgnored?: boolean } = {},
+): Promise<GitFileListing> {
+  const files = new Set<string>();
+  const untracked = new Set<string>();
+
+  const parse = (stdout: string) => {
+    for (const entry of stdout.split("\0")) {
+      // Each record is `<tag> <path>` — H = cached (tracked), ? = other.
+      if (entry.length < 3) continue;
+      const tag = entry[0];
+      const path = entry.slice(2);
+      files.add(path);
+      if (tag === "?") untracked.add(path);
+    }
+  };
+
   const { stdout } = await execFileAsync(
     "git",
     [
@@ -87,18 +102,27 @@ export async function listGitFiles(dir: string): Promise<GitFileListing> {
     ],
     { timeout: 60_000, encoding: "utf8", maxBuffer: LS_FILES_MAX_BUFFER },
   );
-  const files: string[] = [];
-  const untracked = new Set<string>();
-  for (const entry of stdout.split("\0")) {
-    // Each record is `<tag> <path>` — H = cached (tracked), ? = other.
-    if (entry.length < 3) continue;
-    const tag = entry[0];
-    const path = entry.slice(2);
-    files.push(path);
-    if (tag === "?") untracked.add(path);
+  parse(stdout);
+
+  if (opts.includeIgnored === true) {
+    const ignored = await execFileAsync(
+      "git",
+      [
+        "-C",
+        dir,
+        "ls-files",
+        "-z",
+        "-t",
+        "--others",
+        "--ignored",
+        "--exclude-standard",
+      ],
+      { timeout: 60_000, encoding: "utf8", maxBuffer: LS_FILES_MAX_BUFFER },
+    );
+    parse(ignored.stdout);
   }
-  files.sort();
-  return { files, untracked };
+
+  return { files: [...files].sort(), untracked };
 }
 
 /**

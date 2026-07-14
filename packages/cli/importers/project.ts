@@ -1,7 +1,7 @@
 /**
- * Project slug derivation for agent conversation imports.
+ * Project identity resolution for imports.
  *
- * A "slug" is an ltree-safe label derived from the session's cwd:
+ * A project `slug` is an ltree-safe label derived from a cwd:
  * - Prefer the git `origin` remote's repo name (stable across clone locations,
  *   and shared with the Claude Code capture hook via the import path
  *   (`importTranscriptFile`), so live + imported sessions for the same repo
@@ -22,18 +22,21 @@ import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
 
+export interface GitContext {
+  /** Detected git repo root (absolute path), if any. */
+  gitRoot?: string;
+  /** Git remote URL (first matching `origin` or fetch URL), if any. */
+  gitRemote?: string;
+}
+
 /** Resolved project context derived from a cwd. */
-export interface ProjectContext {
+export interface ProjectContext extends GitContext {
   /** ltree-safe slug, may include collision-resolution suffix. */
   slug: string;
   /** Canonical raw slug before any collision suffix. */
   baseSlug: string;
   /** The cwd that produced this slug (absolute, as given). */
   cwd: string;
-  /** Detected git repo root (absolute path), if any. */
-  gitRoot?: string;
-  /** Git remote URL (first matching `origin` or fetch URL), if any. */
-  gitRemote?: string;
 }
 
 const UNKNOWN_SLUG = "unknown";
@@ -45,7 +48,7 @@ const UNKNOWN_SLUG = "unknown";
  * no leading digit ambiguity (prefix numeric-only labels with `_` to keep
  * them readable as identifiers).
  */
-export function normalizeSlug(raw: string): string {
+export function normalizeProjectSlug(raw: string): string {
   const lowered = raw.toLowerCase();
   // Replace non-alphanumeric with underscore.
   const replaced = lowered.replace(/[^a-z0-9]+/g, "_");
@@ -107,26 +110,21 @@ async function detectGitRemote(root: string): Promise<string | undefined> {
 }
 
 /**
- * Cache of in-flight/completed git-info lookups keyed by absolute path.
+ * Cache of in-flight/completed git-context lookups keyed by absolute path.
  * Storing the promise (not the result) coalesces concurrent lookups for
  * the same cwd — a common case when a tool has many sessions per project.
  */
-const gitInfoCache = new Map<
-  string,
-  Promise<{ gitRoot?: string; gitRemote?: string }>
->();
+const gitContextCache = new Map<string, Promise<GitContext>>();
 
-function getGitInfo(
-  cwd: string,
-): Promise<{ gitRoot?: string; gitRemote?: string }> {
-  const cached = gitInfoCache.get(cwd);
+export function detectGitContext(cwd: string): Promise<GitContext> {
+  const cached = gitContextCache.get(cwd);
   if (cached) return cached;
   const pending = (async () => {
     const gitRoot = await detectGitRoot(cwd);
     const gitRemote = gitRoot ? await detectGitRemote(gitRoot) : undefined;
     return { gitRoot, gitRemote };
   })();
-  gitInfoCache.set(cwd, pending);
+  gitContextCache.set(cwd, pending);
   return pending;
 }
 
@@ -169,18 +167,18 @@ export function boundedUniqueLabel(
 async function deriveBaseSlug(
   cwd: string,
 ): Promise<{ baseSlug: string; gitRoot?: string; gitRemote?: string }> {
-  const { gitRoot, gitRemote } = await getGitInfo(cwd);
+  const { gitRoot, gitRemote } = await detectGitContext(cwd);
   const rawName =
     (gitRemote ? repoNameFromRemote(gitRemote) : undefined) ??
     basename(gitRoot ?? cwd);
-  return { baseSlug: normalizeSlug(rawName), gitRoot, gitRemote };
+  return { baseSlug: normalizeProjectSlug(rawName), gitRoot, gitRemote };
 }
 
 /**
- * Registry used to track slug assignments across a single import run so
+ * Registry used to track project assignments across a single import run so
  * colliding base slugs from different projects get distinct suffixes.
  */
-export class SlugRegistry {
+export class ProjectRegistry {
   /** Map of base slug → list of (cwd, assignedSlug) entries seen so far. */
   private readonly assignments = new Map<
     string,
