@@ -45,7 +45,7 @@ const UNKNOWN_SLUG = "unknown";
  * Normalize an arbitrary label to a valid ltree label.
  *
  * Rules (per docs/concepts.md): lowercase alphanumeric with underscores,
- * no leading digit ambiguity (prefix numeric-only labels with `_` to keep
+ * no leading digit ambiguity (prefix numeric-only labels with `p_` to keep
  * them readable as identifiers).
  */
 export function normalizeProjectSlug(raw: string): string {
