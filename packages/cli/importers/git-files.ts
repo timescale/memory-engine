@@ -77,14 +77,19 @@ export async function listGitFiles(
   const files = new Set<string>();
   const untracked = new Set<string>();
 
-  const parse = (stdout: string) => {
+  const parse = (stdout: string, allUntracked = false) => {
     for (const entry of stdout.split("\0")) {
       // Each record is `<tag> <path>` — H = cached (tracked), ? = other.
       if (entry.length < 3) continue;
       const tag = entry[0];
       const path = entry.slice(2);
       files.add(path);
-      if (tag === "?") untracked.add(path);
+      // The ignored pass (--others --ignored) returns only files with no commit
+      // history, so treat them ALL as untracked-for-temporal regardless of the
+      // tag git prints for them (it varies across versions/flags) — otherwise
+      // an ignored doc could enter the git-log target set and force a
+      // full-history walk that can never date it.
+      if (allUntracked || tag === "?") untracked.add(path);
     }
   };
 
@@ -119,7 +124,7 @@ export async function listGitFiles(
       ],
       { timeout: 60_000, encoding: "utf8", maxBuffer: LS_FILES_MAX_BUFFER },
     );
-    parse(ignored.stdout);
+    parse(ignored.stdout, true);
   }
 
   return { files: [...files].sort(), untracked };
