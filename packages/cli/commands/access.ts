@@ -29,6 +29,10 @@ import {
   resolveSpacePrincipalId,
 } from "../util.ts";
 
+function displayTreePath(treePath: string): string {
+  return treePath === "/" || treePath === "" ? "(root)" : treePath;
+}
+
 function printEffectiveAccess(result: AccessEffectiveResult): void {
   if (result.access.length === 0) {
     console.log("  No effective access in this space.");
@@ -36,7 +40,12 @@ function printEffectiveAccess(result: AccessEffectiveResult): void {
   }
   table(
     ["tree_path", "access"],
+<<<<<<< Updated upstream
     result.access.map((g) => [g.treePath === "/" ? "(root)" : g.treePath, g.accessName]),
+=======
+    result.access.map((g) => [displayTreePath(g.treePath), g.accessName]),
+  );
+>>>>>>> Stashed changes
 }
 
 function createAccessGrantCommand(): Command {
@@ -186,7 +195,7 @@ function createAccessListCommand(): Command {
             ["principal", "tree_path", "access"],
             grants.map((g) => [
               names.get(g.principalId) ?? g.principalId,
-              g.treePath === "" ? "(root)" : g.treePath,
+              displayTreePath(g.treePath),
               accessLevelName(g.access),
             ]),
           );
@@ -229,7 +238,7 @@ function createAccessMineCommand(): Command {
           table(
             ["tree_path", "access"],
             grants.map((g) => [
-              g.treePath === "/" || g.treePath === "" ? "(root)" : g.treePath,
+              displayTreePath(g.treePath),
               accessLevelName(g.access),
             ]),
           );
