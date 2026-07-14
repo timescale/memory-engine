@@ -198,7 +198,8 @@ jobs:
       - name: Import
         env:
           ME_API_KEY: \${{ secrets.${opts.keyName} }}
-${serverLine}        run: "$HOME/.local/bin/me" import ci
+${serverLine}        run: |
+          "$HOME/.local/bin/me" import ci
 `;
 }
 

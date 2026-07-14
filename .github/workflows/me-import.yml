@@ -28,4 +28,5 @@ jobs:
       - name: Import
         env:
           ME_API_KEY: ${{ secrets.ME_API_KEY }}
-        run: "$HOME/.local/bin/me" import ci
+        run: |
+          "$HOME/.local/bin/me" import ci
