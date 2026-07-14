@@ -423,6 +423,37 @@ test("space admin transfers through an admin group (only for direct members)", a
   expect(await core.isSpaceAdmin(stranger, spaceId)).toBe(false);
 });
 
+test("listEffectiveSpaceAdmins returns only direct-member user admins", async () => {
+  const groupId = await core.createGroup(spaceId, `admins_${rand(6)}`, true);
+
+  const groupAdmin = await v7();
+  const groupAdminName = `group_${rand(8)}@example.com`;
+  await core.createUser(groupAdmin, groupAdminName);
+  await core.addPrincipalToSpace(spaceId, groupAdmin);
+  await core.addGroupMember(spaceId, groupId, groupAdmin);
+
+  const regular = await v7();
+  await core.createUser(regular, `regular_${rand(8)}@example.com`);
+  await core.addPrincipalToSpace(spaceId, regular);
+
+  const groupOnly = await v7();
+  await core.createUser(groupOnly, `group_only_${rand(8)}@example.com`);
+  await core.addGroupMember(spaceId, groupId, groupOnly);
+
+  const agentId = await core.createAgent(userId, `agent_${rand(6)}`);
+  await core.addPrincipalToSpace(spaceId, agentId, true);
+  const serviceAccount = await core.createServiceAccount(
+    spaceId,
+    `svc_${rand(6)}`,
+  );
+  await core.addPrincipalToSpace(spaceId, serviceAccount.id, true);
+
+  expect(await core.listEffectiveSpaceAdmins(spaceId)).toEqual([
+    { id: groupAdmin, name: groupAdminName },
+    { id: userId, name: userName },
+  ]);
+});
+
 test("group grants apply only to direct space members (no transitive membership)", async () => {
   const groupId = await core.createGroup(spaceId, `grp_${rand(6)}`);
   await core.grantTreeAccess(spaceId, groupId, "shared", ACCESS.write);

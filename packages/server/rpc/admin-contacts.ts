@@ -26,8 +26,8 @@ export async function effectiveAdminContacts(
   spaceId: string,
 ): Promise<AdminContact[]> {
   try {
-    const principals = await core.listSpacePrincipals(spaceId, "u");
-    return principals.filter((p) => p.admin).map((p) => ({ email: p.name }));
+    const admins = await core.listEffectiveSpaceAdmins(spaceId);
+    return admins.map((p) => ({ email: p.name }));
   } catch {
     return [];
   }

@@ -7,6 +7,7 @@ import type {
   ApiKeyInfo,
   CreatedApiKey,
   CreatedInvitation,
+  EffectiveSpaceAdmin,
   Group,
   GroupMember,
   GroupMembership,
@@ -89,6 +90,8 @@ export interface CoreStore {
     spaceId: string,
     kind?: PrincipalKind,
   ): Promise<SpacePrincipal[]>;
+  /** Direct-member users who are effective admins of a space. */
+  listEffectiveSpaceAdmins(spaceId: string): Promise<EffectiveSpaceAdmin[]>;
   /** Whether a principal is an admin of a space (agents are never admins). */
   isSpaceAdmin(principalId: string, spaceId: string): Promise<boolean>;
   /** Whether a principal has a direct principal_space membership row. */
@@ -315,6 +318,15 @@ function mapSpacePrincipal(row: Record<string, unknown>): SpacePrincipal {
   };
 }
 
+function mapEffectiveSpaceAdmin(
+  row: Record<string, unknown>,
+): EffectiveSpaceAdmin {
+  return {
+    id: row.id as string,
+    name: row.name as string,
+  };
+}
+
 function mapGroup(row: Record<string, unknown>): Group {
   return {
     id: row.id as string,
@@ -462,6 +474,13 @@ export function coreStore(sql: Sql, schema: string = CORE_SCHEMA): CoreStore {
         select * from ${sch}.list_space_principals(${spaceId}, ${kind ?? null})
       `;
       return rows.map(mapSpacePrincipal);
+    },
+
+    async listEffectiveSpaceAdmins(spaceId) {
+      const rows = await sql`
+        select * from ${sch}.list_effective_space_admins(${spaceId})
+      `;
+      return rows.map(mapEffectiveSpaceAdmin);
     },
 
     async listSpaceGroups(spaceId) {
