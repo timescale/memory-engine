@@ -2214,7 +2214,10 @@ describe.skipIf(
     await rm(wfPath);
     const wfOnly = await me(["project", "ci", "--workflow-only"], env, repo);
     expect(wfOnly.code, wfOnly.stderr + wfOnly.stdout).toBe(0);
-    expect(await readFile(wfPath, "utf8")).toContain("me import ci");
+    const wfOnlyContent = await readFile(wfPath, "utf8");
+    expect(wfOnlyContent).toContain("permissions:\n  contents: read");
+    expect(wfOnlyContent).toContain('ME_INSTALL_DIR="$HOME/.local/bin" sh');
+    expect(wfOnlyContent).toContain('"$HOME/.local/bin/me" import ci');
     expect(wfOnly.stdout + wfOnly.stderr).toContain("Credentials not checked");
     const keysAfterWfOnly = await meJson<{ apiKeys: unknown[] }>(
       ["apikey", "list", "--service", saName],
