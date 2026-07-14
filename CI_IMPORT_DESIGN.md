@@ -220,8 +220,8 @@ on:
   workflow_dispatch: {}    # manual backfill / re-run
 
 concurrency:
-  group: me-import
-  cancel-in-progress: true # newest run supersedes: every run is a full catch-up
+  group: me-import-${{ github.ref }}
+  cancel-in-progress: true # newest run on the same ref supersedes: every run is a full catch-up
 
 jobs:
   import:
@@ -261,10 +261,13 @@ Design points:
   checks), and the docs importer drops git last-modified temporals on shallow
   repos — which would make each doc's temporal flap between full and shallow
   runs, defeating replace-no-op idempotency. Deterministic inputs or nothing.
-- **`cancel-in-progress: true`**: runs are stateless and any run catches up
-  everything, so the newest run strictly supersedes a running older one.
-  Cancellation mid-import is safe (idempotent replace; the docs prune is a
-  single atomic call).
+- **`cancel-in-progress: true` scoped by ref**: runs are stateless and any run
+  catches up everything, so the newest run on the same branch strictly
+  supersedes a running older one. The group includes `github.ref` because the
+  workflow intentionally triggers on every branch and then gates the job at
+  runtime; without the ref, a skipped feature-branch run could cancel an
+  in-progress default-branch import. Cancellation mid-import is safe
+  (idempotent replace; the docs prune is a single atomic call).
 - **Loud failure.** Unlike the hook, this fails the workflow on any error —
   auth rot, revoked grants, bad config become a red build, not silence.
 - **No pinned `me` version at launch.** The CLI is young and importer fixes
@@ -669,11 +672,11 @@ dependency order (each leaves the tree green):
    local-backfill steps dropped, docs section deleted.
 6. **`docs: CI import`** — `docs/cli/me-project.md`, `docs/cli/me-import.md`,
    `docs/project-config.md`.
-7. **`ci: adopt the me-import workflow in this repo`** — the dogfood
-   `.github/workflows/me-import.yml` (service account + secret set up
-   out-of-band by an operator).
+7. **Dogfood adoption deferred** — after cutting a release and provisioning an
+   appropriate production space + service-account secret, run `me project ci`
+   in this repo and commit the generated `.github/workflows/me-import.yml`.
 
 Ticket mapping: commits 2, 4, 5 close **TNT-208** (hook removed, replaced by
-the workflow); commits 2, 4, 7 deliver **TNT-209** (docs in the same
+the workflow); commits 2 and 4 deliver **TNT-209** (docs in the same
 workflow); commit 3 is supporting UX either ticket would want. The former
 "#147 service accounts" dependency is already discharged — #147 is merged.

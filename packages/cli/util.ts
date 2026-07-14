@@ -7,8 +7,10 @@
  * - Principal / agent / service-account resolution
  * - Error handling
  */
+import { writeSync } from "node:fs";
 import { homedir } from "node:os";
 import * as clack from "@clack/prompts";
+import { stringify as yamlStringify } from "yaml";
 import type { MemoryClient, UserClient } from "./client.ts";
 import { createMemoryClient, createUserClient, RpcError } from "./client.ts";
 import {
@@ -24,6 +26,14 @@ const UUIDV7_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 const ACT_AS_AGENT_UNSUPPORTED = "ACT_AS_AGENT_UNSUPPORTED";
+
+function outputSync(data: unknown, fmt: Exclude<OutputFormat, "text">): void {
+  const rendered =
+    fmt === "json"
+      ? JSON.stringify(data, null, 2)
+      : yamlStringify(data, { lineWidth: 0 }).trimEnd();
+  writeSync(1, `${rendered}\n`);
+}
 
 /**
  * `login` / `logout` mutate the local human session store, so they are explicit
@@ -66,7 +76,7 @@ export function requireSession(
     if (fmt === "text") {
       clack.log.error("Not logged in. Run 'me login' first.");
     } else {
-      output({ error: "Not logged in" }, fmt, () => {});
+      outputSync({ error: "Not logged in" }, fmt);
     }
     process.exit(1);
   }
@@ -90,7 +100,7 @@ export function requireAuth(
     if (fmt === "text") {
       clack.log.error(msg);
     } else {
-      output({ error: msg }, fmt, () => {});
+      outputSync({ error: msg }, fmt);
     }
     process.exit(1);
   }
@@ -110,7 +120,7 @@ export function requireSpace(
         "No active space. Run 'me space use <space>' to select one, or set ME_SPACE.",
       );
     } else {
-      output({ error: "No active space" }, fmt, () => {});
+      outputSync({ error: "No active space" }, fmt);
     }
     process.exit(1);
   }
@@ -179,7 +189,7 @@ export async function resolveSpacePrincipalId(
     if (fmt === "text") {
       clack.log.error(msg);
     } else {
-      output({ error: msg }, fmt, () => {});
+      outputSync({ error: msg }, fmt);
     }
     process.exit(1);
   }
@@ -190,7 +200,7 @@ export async function resolveSpacePrincipalId(
     for (const m of principals)
       console.log(`  ${m.name} (${m.kind}) — ${m.id}`);
   } else {
-    output({ error: msg, matches: principals }, fmt, () => {});
+    outputSync({ error: msg, matches: principals }, fmt);
   }
   process.exit(1);
 }
@@ -231,7 +241,7 @@ export async function resolveSpaceMemberId(
     if (fmt === "text") {
       clack.log.error(msg);
     } else {
-      output({ error: msg }, fmt, () => {});
+      outputSync({ error: msg }, fmt);
     }
     process.exit(1);
   }
@@ -241,7 +251,7 @@ export async function resolveSpaceMemberId(
     clack.log.error(msg);
     for (const m of members) console.log(`  ${m.name} (${m.kind}) — ${m.id}`);
   } else {
-    output({ error: msg, matches: members }, fmt, () => {});
+    outputSync({ error: msg, matches: members }, fmt);
   }
   process.exit(1);
 }
@@ -260,7 +270,7 @@ export async function resolveActiveSpace(
   if (fmt === "text") {
     clack.log.error(msg);
   } else {
-    output({ error: msg, activeSpace, spaces }, fmt, () => {});
+    outputSync({ error: msg, activeSpace, spaces }, fmt);
   }
   process.exit(1);
 }
@@ -287,7 +297,7 @@ export async function resolveServiceAccountId(
     if (matches.length > 1)
       for (const a of matches) console.log(`  ${a.name} — ${a.id}`);
   } else {
-    output({ error: msg, matches }, fmt, () => {});
+    outputSync({ error: msg, matches }, fmt);
   }
   process.exit(1);
 }
@@ -316,7 +326,7 @@ export async function resolveAgentId(
     if (matches.length > 1)
       for (const a of matches) console.log(`  ${a.name} — ${a.id}`);
   } else {
-    output({ error: msg, matches }, fmt, () => {});
+    outputSync({ error: msg, matches }, fmt);
   }
   process.exit(1);
 }
@@ -568,14 +578,13 @@ export function handleError(
       );
     }
   } else {
-    output(
+    outputSync(
       {
         error: msg,
         ...(code ? { code } : {}),
         ...(admins ? { admins } : {}),
       },
       fmt,
-      () => {},
     );
   }
   process.exit(1);
