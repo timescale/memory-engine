@@ -30,7 +30,14 @@ async function runClaudeEnv(
   env: Record<string, string | undefined>,
 ): Promise<{ exitCode: number; stderr: string }> {
   const proc = Bun.spawn([process.execPath, CLI_ENTRY, "claude", "env"], {
-    env: { ...process.env, ...env },
+    env: {
+      ...process.env,
+      ME_INJECT_V: undefined,
+      AI_AGENT: undefined,
+      ME_AS_AGENT: undefined,
+      ME_PROJECT_DIR: undefined,
+      ...env,
+    },
     stdin: "pipe",
     stdout: "pipe",
     stderr: "pipe",
@@ -174,6 +181,9 @@ describe("me claude env", () => {
           ...process.env,
           CLAUDE_ENV_FILE: envFile,
           ME_INJECT_V: undefined,
+          AI_AGENT: undefined,
+          ME_AS_AGENT: undefined,
+          ME_PROJECT_DIR: undefined,
         },
         stdin: "pipe",
         stdout: "pipe",
