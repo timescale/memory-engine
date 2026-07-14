@@ -73,6 +73,11 @@ Access filtering is quiet. If you lack `read` on a memory's tree path, search ma
 return fewer results and retrieval may report `not found`. If you lack `write`,
 creating or changing a memory in that tree fails even if the tree exists.
 
+Call `me_memory_context` when you need to confirm the current space, acting
+principal, or effective tree-access grants. The access list shows the paths you
+can actually read, write, or own, including inherited group access and agent
+owner-clamping.
+
 Do not assume every space has the same layout or grants. Some spaces use
 `/share/...` for team knowledge and `~/...` for private notes, but custom spaces
 may use different defaults or grant only selected paths. Choose a tree from the

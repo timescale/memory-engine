@@ -6,6 +6,7 @@
  * groups, tree-access grants, and invitations.
  */
 import type { MethodRegistry } from "../types";
+import { accessMethods } from "./access";
 import { grantMethods } from "./grant";
 import { groupMethods } from "./group";
 import { invitationMethods } from "./invitation";
@@ -24,6 +25,7 @@ export {
  */
 export const memoryMethods: MethodRegistry = new Map([
   ...memoryDataMethods,
+  ...accessMethods,
   ...principalMethods,
   ...groupMethods,
   ...grantMethods,

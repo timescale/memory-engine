@@ -680,6 +680,150 @@ test("grant.list: own grants are self-service, others/whole-space need admin", a
   await expectAppError(call("grant.list", {}, as), "FORBIDDEN");
 });
 
+test("access.effective: current caller sees effective group access", async () => {
+  const member = await makeUser();
+  await call("principal.add", { principalId: member });
+  const { id: groupId } = await call<{ id: string }>("group.create", {
+    name: `readers_${rand(6)}`,
+  });
+  await call("group.addMember", { groupId, memberId: member });
+  await call("grant.set", {
+    principalId: groupId,
+    treePath: "docs",
+    access: 1,
+  });
+
+  const core = engineCore.coreStore(sql, coreSchema);
+  const memberAccess = await core.buildTreeAccess(member, space.id);
+  const result = await call<{
+    principal: { id: string; kind: string; admin: boolean };
+    access: { treePath: string; accessName: string }[];
+  }>(
+    "access.effective",
+    {},
+    { principalId: member, treeAccess: memberAccess, admin: false },
+  );
+
+  expect(result.principal).toMatchObject({
+    id: member,
+    kind: "u",
+    admin: false,
+  });
+  expect(result.access).toContainEqual(
+    expect.objectContaining({ treePath: "/docs", accessName: "read" }),
+  );
+});
+
+test("access.effective: admin can inspect another member's effective access", async () => {
+  const member = await makeUser();
+  await call("principal.add", { principalId: member });
+  const { id: groupId } = await call<{ id: string }>("group.create", {
+    name: `writers_${rand(6)}`,
+  });
+  await call("group.addMember", { groupId, memberId: member });
+  await call("grant.set", {
+    principalId: groupId,
+    treePath: "projects",
+    access: 2,
+  });
+
+  const result = await call<{
+    principal: { id: string };
+    access: { treePath: string; accessName: string }[];
+  }>("access.effective", { principalId: member });
+
+  expect(result.principal.id).toBe(member);
+  expect(result.access).toContainEqual(
+    expect.objectContaining({ treePath: "/projects", accessName: "write" }),
+  );
+});
+
+test("access.effective: an agent owner can inspect clamped agent access", async () => {
+  const member = await makeUser();
+  const agentId = await makeAgent(member);
+  await call("principal.add", { principalId: member });
+  await call("principal.add", { principalId: agentId });
+  await call("grant.set", { principalId: member, treePath: "docs", access: 1 });
+  await call("grant.set", {
+    principalId: agentId,
+    treePath: "docs",
+    access: 2,
+  });
+
+  const core = engineCore.coreStore(sql, coreSchema);
+  const memberAccess = await core.buildTreeAccess(member, space.id);
+  const result = await call<{
+    principal: { id: string; kind: string };
+    access: { treePath: string; accessName: string }[];
+  }>(
+    "access.effective",
+    { principalId: agentId },
+    { principalId: member, treeAccess: memberAccess, admin: false },
+  );
+
+  expect(result.principal).toMatchObject({ id: agentId, kind: "a" });
+  expect(result.access).toContainEqual(
+    expect.objectContaining({ treePath: "/docs", accessName: "read" }),
+  );
+});
+
+test("access.effective: service-account admin can inspect service-account group access", async () => {
+  const core = engineCore.coreStore(sql, coreSchema);
+  const manager = await makeUser();
+  await call("principal.add", { principalId: manager });
+  const serviceAccount = await core.createServiceAccount(
+    space.id,
+    `sa_${rand(6)}`,
+    { adminMembers: [{ memberId: manager }] },
+  );
+  const { id: groupId } = await call<{ id: string }>("group.create", {
+    name: `robots_${rand(6)}`,
+  });
+  await call("group.addMember", { groupId, memberId: serviceAccount.id });
+  await call("grant.set", {
+    principalId: groupId,
+    treePath: "robots",
+    access: 2,
+  });
+
+  const result = await call<{
+    principal: { id: string; kind: string };
+    access: { treePath: string; accessName: string }[];
+  }>(
+    "access.effective",
+    { principalId: serviceAccount.id },
+    { principalId: manager, treeAccess: [], admin: false },
+  );
+
+  expect(result.principal).toMatchObject({ id: serviceAccount.id, kind: "s" });
+  expect(result.access).toContainEqual(
+    expect.objectContaining({ treePath: "/robots", accessName: "write" }),
+  );
+});
+
+test("access.effective: rejects unrelated principals and groups", async () => {
+  const member = await makeUser();
+  const other = await makeUser();
+  await call("principal.add", { principalId: member });
+  await call("principal.add", { principalId: other });
+  const { id: groupId } = await call<{ id: string }>("group.create", {
+    name: `group_${rand(6)}`,
+  });
+
+  await expectAppError(
+    call(
+      "access.effective",
+      { principalId: other },
+      { principalId: member, treeAccess: [], admin: false },
+    ),
+    "FORBIDDEN",
+  );
+  await expectAppError(
+    call("access.effective", { principalId: groupId }),
+    "VALIDATION_ERROR",
+  );
+});
+
 test("grant.list: an agent's owner can list its grants", async () => {
   // a member who owns an agent that holds a grant; the member is not an admin
   // and owns no tree path of their own

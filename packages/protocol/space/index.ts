@@ -8,6 +8,7 @@
  * referenced as members.)
  */
 import type { z } from "zod";
+import { accessEffectiveParams, accessEffectiveResult } from "./access.ts";
 import {
   grantListParams,
   grantListResult,
@@ -59,6 +60,7 @@ import {
   principalResolveResult,
 } from "./principal.ts";
 
+export * from "./access.ts";
 export * from "./grant.ts";
 export * from "./group.ts";
 export * from "./invitation.ts";
@@ -76,6 +78,9 @@ function method<TParams extends z.ZodType, TResult extends z.ZodType>(
  * Served on the memory endpoint together with the memory.* methods.
  */
 export const spaceMethods = {
+  // Effective access (1) — resolved executable access for a member principal.
+  "access.effective": method(accessEffectiveParams, accessEffectiveResult),
+
   // Membership (4) — the space roster holds principals (user | agent | group)
   "principal.list": method(principalListParams, principalListResult),
   "principal.add": method(principalAddParams, principalAddResult),

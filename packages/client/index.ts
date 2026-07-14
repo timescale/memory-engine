@@ -53,6 +53,7 @@ export {
 export { isRpcError, RpcError } from "./errors.ts";
 // Memory client (space data-plane + management)
 export {
+  type AccessNamespace,
   createMemoryClient,
   type GrantNamespace,
   type GroupNamespace,
