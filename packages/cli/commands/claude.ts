@@ -56,7 +56,6 @@ import {
   resolveCredentials,
   resolveHarnessAgent,
   setActiveSpace,
-  setCaptureEnabled,
   setDefaultServer,
 } from "../credentials.ts";
 import {
@@ -76,7 +75,7 @@ import {
 } from "../project-config.ts";
 import { memoryBearer } from "../session.ts";
 import { runCapturePrompt } from "./capture-prompt.ts";
-import { createClaudeImportCommand, runAgentImport } from "./import.ts";
+import { createClaudeImportCommand } from "./import.ts";
 
 /** GitHub source for `claude plugin marketplace add`. */
 const PLUGIN_MARKETPLACE_SOURCE = "timescale/memory-engine";
