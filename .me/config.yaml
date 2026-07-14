@@ -1,0 +1,5 @@
+server: https://api.memory.build
+space: ahkgk250pmzh
+tree: /share/projects/memory_engine
+import:
+  service_account: memory-engine-import
