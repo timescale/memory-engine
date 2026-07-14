@@ -15,6 +15,7 @@ import {
   recoverKeyNameFromWorkflow,
   renderWorkflow,
   workflowServerEnv,
+  workflowStateForScaffold,
 } from "./project-ci.ts";
 
 describe("parseGitHubRepo", () => {
@@ -89,6 +90,34 @@ describe("recoverKeyNameFromWorkflow", () => {
 
   test("undefined when no secrets reference exists", () => {
     expect(recoverKeyNameFromWorkflow("name: nope\n")).toBeUndefined();
+  });
+});
+
+describe("workflowStateForScaffold", () => {
+  const desired = renderWorkflow({ keyName: DEFAULT_KEY_NAME });
+
+  test("reports create/update states accurately under dry-run", () => {
+    expect(workflowStateForScaffold(undefined, false, desired, false)).toBe(
+      "created",
+    );
+    expect(workflowStateForScaffold(undefined, false, desired, true)).toBe(
+      "would-create",
+    );
+    expect(
+      workflowStateForScaffold(`${desired}\n# old\n`, true, desired, false),
+    ).toBe("updated");
+    expect(
+      workflowStateForScaffold(`${desired}\n# old\n`, true, desired, true),
+    ).toBe("would-update");
+  });
+
+  test("reports unchanged and foreign workflows without dry-run variants", () => {
+    expect(workflowStateForScaffold(desired, true, desired, true)).toBe(
+      "unchanged",
+    );
+    expect(
+      workflowStateForScaffold("name: custom\n", false, desired, true),
+    ).toBe("foreign");
   });
 });
 

@@ -119,7 +119,13 @@ interface ProjectCiOptions {
 /** Structured summary (the --json/--yaml output shape). */
 interface ProjectCiResult {
   repo: string;
-  workflow: "created" | "updated" | "unchanged" | "foreign" | "would-create";
+  workflow:
+    | "created"
+    | "updated"
+    | "unchanged"
+    | "foreign"
+    | "would-create"
+    | "would-update";
   keyName: string;
   /** Secret visibility for the repo ("unknown" without a working gh;
    * "unchecked" under --workflow-only). */
@@ -197,6 +203,19 @@ export function recoverKeyNameFromWorkflow(
 ): string | undefined {
   const m = /\$\{\{\s*secrets\.([A-Za-z_][A-Za-z0-9_]*)\s*\}\}/.exec(content);
   return m?.[1];
+}
+
+/** Classify how the workflow scaffold relates to the desired contents. */
+export function workflowStateForScaffold(
+  existing: string | undefined,
+  existingManaged: boolean,
+  desired: string,
+  dryRun: boolean,
+): ProjectCiResult["workflow"] {
+  if (existing === undefined) return dryRun ? "would-create" : "created";
+  if (!existingManaged) return "foreign";
+  if (existing === desired) return "unchanged";
+  return dryRun ? "would-update" : "updated";
 }
 
 /** Segments of a tree path (display or dotted form), for ancestor checks. */
@@ -569,14 +588,12 @@ async function runProjectCiBody(
     serverEnv: workflowServerEnv(creds.server, project),
   });
 
-  let workflowState: ProjectCiResult["workflow"];
-  if (existing === undefined) {
-    workflowState = opts.dryRun ? "would-create" : "created";
-  } else if (!existingManaged) {
-    workflowState = "foreign";
-  } else {
-    workflowState = existing === desired ? "unchanged" : "updated";
-  }
+  let workflowState = workflowStateForScaffold(
+    existing,
+    existingManaged,
+    desired,
+    opts.dryRun,
+  );
 
   if (workflowState === "foreign" && interactive && !opts.dryRun) {
     const overwrite = unwrap(
@@ -607,6 +624,7 @@ async function runProjectCiBody(
         unchanged: `${WORKFLOW_RELPATH} is up to date`,
         foreign: `${WORKFLOW_RELPATH} left untouched (not managed by me project ci)`,
         "would-create": `Would write ${WORKFLOW_RELPATH}`,
+        "would-update": `Would update ${WORKFLOW_RELPATH}`,
       }[workflowState],
     );
   }
