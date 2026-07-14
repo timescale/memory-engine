@@ -110,6 +110,8 @@ interface ProjectCiOptions {
   createServiceAccount: boolean;
   serviceAccount?: string;
   keyName?: string;
+  /** Write/update the workflow file and stop — never touch gh or secrets. */
+  workflowOnly: boolean;
   rotateKey: boolean;
   dryRun: boolean;
 }
@@ -119,8 +121,9 @@ interface ProjectCiResult {
   repo: string;
   workflow: "created" | "updated" | "unchanged" | "foreign" | "would-create";
   keyName: string;
-  /** Secret visibility for the repo ("unknown" without a working gh). */
-  secret: "present" | "absent" | "unknown" | "set" | "would-set";
+  /** Secret visibility for the repo ("unknown" without a working gh;
+   * "unchecked" under --workflow-only). */
+  secret: "present" | "absent" | "unknown" | "unchecked" | "set" | "would-set";
   serviceAccount?: string;
   verified?: boolean;
   notes: string[];
@@ -428,10 +431,23 @@ export function buildProjectCiOptions(
       `Invalid --key-name: '${keyName}' — GitHub secret names are [A-Za-z_][A-Za-z0-9_]*.`,
     );
   }
+  const workflowOnly = opts.workflowOnly === true;
+  if (
+    workflowOnly &&
+    (opts.createServiceAccount === true ||
+      opts.rotateKey === true ||
+      serviceAccount !== undefined)
+  ) {
+    throw new Error(
+      "--workflow-only writes only the workflow file — it can't be combined with " +
+        "--create-service-account, --service-account, or --rotate-key.",
+    );
+  }
   return {
     createServiceAccount: opts.createServiceAccount === true,
     serviceAccount,
     keyName,
+    workflowOnly,
     rotateKey: opts.rotateKey === true,
     dryRun: opts.dryRun === true,
   };
@@ -597,11 +613,17 @@ async function runProjectCiBody(
   }
 
   // ---- Phase 2: secret presence --------------------------------------------
-  const gh = await ghReady();
-  const presence: ProjectCiResult["secret"] = gh
-    ? await secretPresence(nwo, keyName)
-    : "unknown";
-  if (fmt === "text") {
+  // --workflow-only: credentials are somebody else's problem by explicit
+  // declaration (Terraform/UI-managed secrets, an org whose admin did the
+  // provisioning, a dev whose gh can't read this repo's secrets) — never
+  // invoke gh at all.
+  const gh = opts.workflowOnly ? false : await ghReady();
+  const presence: ProjectCiResult["secret"] = opts.workflowOnly
+    ? "unchecked"
+    : gh
+      ? await secretPresence(nwo, keyName)
+      : "unknown";
+  if (fmt === "text" && !opts.workflowOnly) {
     if (presence === "present") {
       clack.log.step(`Found ${keyName} — secret already available to ${nwo}`);
     } else if (presence === "absent") {
@@ -693,6 +715,14 @@ async function runProjectCiBody(
     });
     throw new FinishSignal();
   };
+
+  if (opts.workflowOnly) {
+    notes.push(
+      `Credentials not checked (--workflow-only) — make sure a ${keyName} secret reaching this repo holds a ` +
+        "service-account key with write access at the project tree.",
+    );
+    throw await finish();
+  }
 
   if (opts.dryRun) {
     if (opts.rotateKey) {
@@ -1050,6 +1080,10 @@ export function createProjectCiCommand(): Command {
     .option(
       "--key-name <secret-name>",
       `GitHub secret name (default: ${DEFAULT_KEY_NAME}; recovered from an existing managed workflow)`,
+    )
+    .option(
+      "--workflow-only",
+      "write/update the workflow file and stop — never check or touch secrets (credentials managed elsewhere)",
     )
     .option(
       "--rotate-key",
