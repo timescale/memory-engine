@@ -11,7 +11,7 @@ Get data into Memory Engine — one subcommand per source.
 - [me import granola](#me-import-granola) -- import Granola meeting notes and transcripts
 - [me import git](#me-import-git) -- import a repo's git commit history
 - [me import git-hook](#me-import-git-hook-removed) -- removed; CI imports replaced the local hook (see [`me project ci`](me-project.md#me-project-ci))
-- [me import docs](#me-import-docs) -- import a directory's markdown docs (git-aware)
+- [me import docs](#me-import-docs) -- import a directory's markdown docs
 - [me import ci](#me-import-ci) -- the orchestrated CI run: git history + docs from the repo toplevel
 - [me import slab](#me-import-slab) -- import a Slab knowledge-base export (a directory or `.zip`)
 
@@ -202,7 +202,7 @@ me import git                # later: walks only commits since the last import
 
 ## me import docs
 
-Import a directory's markdown docs as memories — one memory per file, with the directory layout mirrored as the tree path. Works on any folder of markdown; inside a git repo, discovery and dating get smarter (gitignore respected, git last-modified dates).
+Import a directory's markdown docs as memories — one memory per file, with the directory layout mirrored as the tree path. By default it imports the files on disk under the directory you point at, including generated or gitignored docs. Pass `--git-aware` when you want repo-managed behavior: git discovery, gitignore filtering, git last-modified dates, and repo-root safety.
 
 ```
 me import docs [dir] [options]
@@ -210,23 +210,29 @@ me import docs [dir] [options]
 
 | Argument | Required | Description |
 |----------|----------|-------------|
-| `dir` | no | Directory to import — the **import root**; tree paths derive relative to it. In git mode this must be the repo toplevel unless `--allow-subdir-root` is passed (scope with `--include` instead). Default: the current directory. |
+| `dir` | no | Directory to import — the **import root**; tree paths derive relative to it. With `--git-aware`, this must be inside a git repo and must be the repo toplevel unless `--allow-subdir-root` is passed (scope with `--include` instead). Default: the current directory. |
 
 | Option | Description |
 |--------|-------------|
-| `--tree <path>` | Full project tree to place `docs` under (no slug appended). Default: the repo's [`.me` tree](../project-config.md), else `<tree_root>/<slug>` (your global [`tree_root`](../project-config.md#changing-the-default-tree-root-tree_root) override, default the private `~/projects`) — same resolution as [`me import git`](#me-import-git), so a project's docs sit next to its `git_history` and `agent_sessions` nodes. |
+| `--tree <path>` | Full project tree to place `docs` under (no slug appended). Default: the repo/project [`.me` tree](../project-config.md), else `<tree_root>/<slug>` (your global [`tree_root`](../project-config.md#changing-the-default-tree-root-tree_root) override, default the private `~/projects`). An explicit `--tree` controls only the destination; it does not imply git-aware discovery. |
 | `--include <globs...>` | Glob patterns to import, **replacing** the default set (`**/*.md`, `**/*.markdown`, `**/*.mdx`). |
 | `--exclude <globs...>` | Glob patterns to drop from the include set. |
-| `--temporal-key <key>` | Frontmatter key parsed as the memory's temporal start (e.g. `date` for blogs/ADRs). Falls back to git last-modified; works in plain directories and shallow clones too. |
-| `--no-temporal` | No temporal and no date-seeded ids (also skips the git log pass). |
+| `--temporal-key <key>` | Frontmatter key parsed as the memory's temporal start (e.g. `date` for blogs/ADRs). In git-aware mode, falls back to git last-modified. |
+| `--no-temporal` | No temporal and no date-seeded ids (also skips the git-aware git log pass). |
+| `--git-aware` | Use repo-managed discovery: require a git repo, list files through git, respect gitignore by default, apply git last-modified dates, and enable the repo-root guard. |
+| `--include-ignored` | With `--git-aware`, include ignored/generated files too. Without `--git-aware`, this is invalid because plain mode already walks files on disk. |
 | `--prune` | Delete previously-imported docs under the docs root that are absent from this walk. **Full-corpus runs only** — see [Pruning](#pruning-deletions-and-renames). |
 | `--allow-subdir-root` | Allow a git-mode import root below the repo toplevel — see [Tree layout](#tree-layout). Prefer `--include` scoping from the toplevel, which narrows without re-rooting. |
 | `--dry-run` | Discover and report what would be imported without writing (with `--prune`: lists what would be deleted). |
 | `-v, --verbose` | Per-file progress output (prints each `tree / name`). |
 
-### Discovery: git-aware, git-optional
+### Discovery Modes
 
-Git is an enhancer, not a requirement. When `dir` is inside a git work tree (**git mode**), files come from `git ls-files` — tracked **plus untracked-but-not-ignored**, so a doc you just wrote imports while gitignored build output stays out. In a plain directory (**plain mode**), the walk skips hidden files/dirs and `node_modules` (there is no gitignore to lean on). `--include`/`--exclude` are globs applied client-side in **both** modes, so they mean exactly the same thing with and without git. The output names the mode a run used.
+Plain mode is the default and is intentionally literal: it walks the filesystem under `dir`, skips hidden files/dirs and `node_modules`, and imports matching markdown files even when they are generated or gitignored. It does not detect git, use git dates, or apply the subdir-root guard.
+
+`--git-aware` is explicit. It requires `dir` to be inside a git work tree and discovers files with `git ls-files`: tracked plus untracked-but-not-ignored, so a doc you just wrote imports while ignored build output stays out. It also uses git last-modified dates unless `--no-temporal` is passed. Add `--include-ignored` when you want repo context and git dates for tracked files, but also want ignored/generated markdown included; ignored and untracked files simply have no git date.
+
+`--include`/`--exclude` are globs applied client-side in both modes, so they mean exactly the same thing with and without git. The output names the mode a run used.
 
 ### Tree layout
 
@@ -238,7 +244,9 @@ Each file is a named leaf under the project's `docs` node, mirroring its directo
 
 Directory segments are normalized to ltree labels and the leaf name is a filename-derived slug keeping its (lowercased) extension, unique within its tree — e.g. `docs/guides/Getting Started.md` in repo `acme` lands at `~/projects/acme/docs/docs/guides/getting-started.md`. Files at the import root sit directly on the `docs` node.
 
-Because slots derive from the import root while the project identity (slug, [`.me` tree](../project-config.md)) stays repo-level, runs rooted at different directories of the same repo would mint parallel corpora under one docs root — and a cross-root `--prune` would delete the other root's slots. So in git mode an import root below the repo toplevel is **refused** unless `--allow-subdir-root` is passed; scope with `--include` from the toplevel instead, and if you do opt into a subfolder root, always use the same one. Plain directories need no guard: their project identity derives from the argument directory itself, so a different root is a different project node.
+In plain mode, the fallback project slug comes from the import directory basename. With `--git-aware`, the fallback project slug comes from the git remote/repo root, so docs, git history, and agent sessions naturally sit beside each other. An explicit `--tree` or `.me` `tree` bypasses slug-derived placement entirely.
+
+Because slots derive from the import root while a git-aware fallback identity or [`.me` tree](../project-config.md) stays repo-level, runs rooted at different directories of the same repo would mint parallel corpora under one docs root — and a cross-root `--prune` would delete the other root's slots. So with `--git-aware`, an import root below the repo toplevel is **refused** unless `--allow-subdir-root` is passed; scope with `--include` from the toplevel instead, and if you do opt into a subfolder root, always use the same one. Plain mode needs no guard: it means exactly "the files under this directory".
 
 ### Frontmatter is document data, never engine fields
 
@@ -262,7 +270,7 @@ Idempotency is keyed on `(tree, name)`. Docs are submitted with `onConflict: "re
 
 `--prune` reconciles deletions in **one atomic server-side pass**: every row under the docs root that carries the importer's stamp (`meta.source: "docs"` — rows this importer didn't write are never **pruned**, so a manual note under the same tree survives reconciliation; note the import phase itself still replaces any row whose `(tree, name)` slot collides with a walked file, whatever its meta) and whose `(tree, name)` slot this walk didn't produce is deleted in a single set-based statement — complete at any corpus size, with no enumerate/delete race. `--dry-run --prune` runs the same predicate as a read and returns the **exact** would-delete list. The everyday reason to run it is **renames**: a renamed file gets a fresh `(tree, name)` slot, and without pruning the old slot lingers as a stale duplicate.
 
-> **Prune means "everything under the docs root not in *this* walk".** A narrowed invocation — a subdirectory argument, or `--include`/`--exclude` filters — makes the walk a slice, and pruning against a slice deletes the rest of the corpus. Only combine `--prune` with a full-corpus run (same `dir`, same filters as the original import), and preview with `--dry-run --prune` when unsure. Prune either reconciles completely or **refuses cleanly with nothing deleted** (exit 1): on an empty walk (a wrong cwd must not read as "delete everything"), and when the walked slot list is too large for a single delete-orphans request (roughly 20k docs — the keep-list cannot be split across requests).
+> **Prune means "everything under the docs root not in *this* walk".** A narrowed invocation — a subdirectory argument, or `--include`/`--exclude` filters — makes the walk a slice, and pruning against a slice deletes the rest of the corpus. Only combine `--prune` with a full-corpus run (same `dir`, same mode, same filters as the original import), and preview with `--dry-run --prune` when unsure. Plain-mode prune is root-sensitive by design; use `--git-aware` when you want repo-root safety. Prune either reconciles completely or **refuses cleanly with nothing deleted** (exit 1): on an empty manual walk (a wrong cwd must not read as "delete everything"), and when the walked slot list is too large for a single delete-orphans request (roughly 20k docs — the keep-list cannot be split across requests).
 
 ### Metadata
 
@@ -278,12 +286,11 @@ Idempotency is keyed on `(tree, name)`. Docs are submitted with `onConflict: "re
 ### Example
 
 ```bash
-me import docs --dry-run -v            # preview from the repo root
-me import docs                          # import into <project-tree>/docs
-me import docs --include 'docs/**/*.md'    # just one folder, .md only
-me import docs . --temporal-key date    # blog/ADR repos with date: frontmatter
+me import docs ./markdown --tree /share/pg/18
+me import docs . --git-aware --tree /share/acme
+me import docs ./build/docs --git-aware --include-ignored --allow-subdir-root --tree /share/acme
 me import docs --prune --dry-run        # preview a full-corpus reconcile
-me import docs --prune                  # re-sync, deleting removed/renamed docs
+me import docs --git-aware --prune      # repo-root-safe re-sync
 me memory tree ~/projects/acme/docs --levels 3   # browse the result
 ```
 
@@ -305,7 +312,7 @@ me import ci [--dry-run] [-v]
 Must run inside a git repository; everything anchors at the repo toplevel regardless of the invocation directory. Phases:
 
 1. **Git history** — [`me import git`](#me-import-git) on `HEAD`: incremental via the server-side high-water lookup, so the first CI run is automatically a full-history backfill and every later run imports only new commits.
-2. **Docs** — [`me import docs`](#me-import-docs) from the repo toplevel with the default markdown globs and **prune on**: the CI walk is the authoritative full corpus, so deleted/renamed docs are removed. A repo with no matching docs skips the phase cleanly.
+2. **Docs** — [`me import docs --git-aware`](#me-import-docs) from the repo toplevel with the default markdown globs and **prune on**: the CI walk is the authoritative full corpus, so deleted/renamed docs are removed. A repo with no matching docs skips cleanly.
 
 Phases are fail-fast and loud: any failure exits non-zero, so the workflow goes red instead of rotting silently.
 

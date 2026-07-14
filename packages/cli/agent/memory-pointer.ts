@@ -17,7 +17,7 @@ import {
   DEFAULT_PRIVATE_TREE_ROOT,
   DEFAULT_SESSIONS_NODE_NAME,
 } from "../importers/index.ts";
-import { SlugRegistry } from "../importers/slug.ts";
+import { detectGitContext, ProjectRegistry } from "../importers/project.ts";
 
 /** What distinguishes one agent's memory pointer from another's. */
 export interface MemoryPointerSpec {
@@ -91,7 +91,7 @@ export function buildMemoryPointerSection(
  */
 export async function rulesFilePath(filename: string): Promise<string> {
   const cwd = process.cwd();
-  const { gitRoot } = await new SlugRegistry().resolve(cwd);
+  const { gitRoot } = await detectGitContext(cwd);
   return join(gitRoot ?? cwd, filename);
 }
 
@@ -110,8 +110,11 @@ export async function resolveMemoryPointer(
   server?: string,
 ): Promise<{ filePath: string; section: string }> {
   const cwd = process.cwd();
-  const { slug, gitRoot } = await new SlugRegistry().resolve(cwd);
   const creds = resolveCredentials(server);
+  const { gitRoot } = await detectGitContext(cwd);
+  const slug = creds.tree
+    ? undefined
+    : (await new ProjectRegistry().resolve(cwd)).slug;
   const tree =
     creds.tree ?? `${creds.treeRoot ?? DEFAULT_PRIVATE_TREE_ROOT}/${slug}`;
   const section = buildMemoryPointerSection(spec, tree, creds.activeSpace);

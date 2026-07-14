@@ -46,7 +46,7 @@ import {
   type ResolvedCredentials,
   resolveCredentialsFor,
 } from "../credentials.ts";
-import { SlugRegistry } from "../importers/slug.ts";
+import { detectGitContext } from "../importers/project.ts";
 import { getOutputFormat, output } from "../output.ts";
 import {
   discoverProjectConfig,
@@ -502,7 +502,7 @@ async function runProjectCiBody(
   }
 
   // ---- Resolve the repo, its GitHub identity, and the project config ------
-  const { gitRoot } = await new SlugRegistry().resolve(process.cwd());
+  const { gitRoot } = await detectGitContext(process.cwd());
   if (gitRoot === undefined) {
     throw fail("me project ci must run inside a git repository");
   }
@@ -1105,7 +1105,7 @@ export async function ciWorkflowStatus(
   cwd: string,
 ): Promise<"hidden" | "done" | "available"> {
   try {
-    const { gitRoot } = await new SlugRegistry().resolve(cwd);
+    const { gitRoot } = await detectGitContext(cwd);
     if (gitRoot === undefined) return "hidden";
     const nwo = await detectGitHubRepo(gitRoot);
     if (nwo === undefined) return "hidden";

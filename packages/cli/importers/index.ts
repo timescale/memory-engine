@@ -25,7 +25,11 @@ import type { MemoryCreateParams } from "@memory.build/protocol/memory";
 import { batchCreateChunked } from "../chunk.ts";
 import type { MemoryClient } from "../client.ts";
 import type { ProgressReporter } from "./progress.ts";
-import { boundedUniqueLabel, normalizeSlug, SlugRegistry } from "./slug.ts";
+import {
+  boundedUniqueLabel,
+  normalizeProjectSlug,
+  ProjectRegistry,
+} from "./project.ts";
 import { stampConversationLinks } from "./thread-links.ts";
 import { renderMessageContent, synthesizeTitle } from "./transcript.ts";
 import type {
@@ -61,7 +65,7 @@ const MESSAGE_NAME_BODY_MAX = 128 - "msg_".length;
  * `<root>.<slug>.<sessionsNode>.<sessionLabel>` — or, when a `.me` project tree
  * is in effect, `<tree>.<sessionsNode>.<sessionLabel>` (no slug).
  * The session id is mapped to a valid, collision-free ltree label via
- * `boundedUniqueLabel` — `normalizeSlug` alone is lossy (e.g. it merges a UUID's
+ * `boundedUniqueLabel` — `normalizeProjectSlug` alone is lossy (e.g. it merges a UUID's
  * dashes), so distinct session ids could otherwise share one node. Each session
  * is its own node so its messages are browsable as named leaves under it.
  */
@@ -70,7 +74,11 @@ function sessionTree(
   slug: string,
   sessionId: string,
 ): string {
-  const label = boundedUniqueLabel(sessionId, normalizeSlug, SESSION_LABEL_MAX);
+  const label = boundedUniqueLabel(
+    sessionId,
+    normalizeProjectSlug,
+    SESSION_LABEL_MAX,
+  );
   // A `.me` project tree is the full project node — nest sessions directly under
   // it (no slug). Otherwise the slug is the per-project node under `treeRoot`.
   const projectNode = options.tree ?? `${options.treeRoot}.${slug}`;
@@ -140,7 +148,7 @@ export interface ImportResult {
   failed: number;
   outcomes: Array<SessionOutcome>;
   discovery: ImporterStats;
-  slugCollisions: ReturnType<SlugRegistry["collisions"]>;
+  slugCollisions: ReturnType<ProjectRegistry["collisions"]>;
 }
 
 /** Per-session outcome aggregating per-message counts. */
@@ -238,7 +246,7 @@ export async function runImport(
     skipped: {},
     errors: [],
   };
-  const slugs = new SlugRegistry();
+  const projects = new ProjectRegistry();
   const outcomes: SessionOutcome[] = [];
   let sessionsProcessed = 0;
   let inserted = 0;
@@ -278,7 +286,7 @@ export async function runImport(
     }
     sessionsProcessed++;
 
-    const { slug, gitRoot, gitRemote } = await slugs.resolve(session.cwd);
+    const { slug, gitRoot, gitRemote } = await projects.resolve(session.cwd);
     const tree = sessionTree(write, slug, session.sessionId);
 
     const outcome = await writeSession(
@@ -309,7 +317,7 @@ export async function runImport(
     failed,
     outcomes,
     discovery: stats,
-    slugCollisions: slugs.collisions(),
+    slugCollisions: projects.collisions(),
   };
 }
 
@@ -341,7 +349,7 @@ export async function importTranscriptFile(
   const session = await importer.parseFile(filePath);
   if (!session) return null;
 
-  const { slug, gitRoot, gitRemote } = await new SlugRegistry().resolve(
+  const { slug, gitRoot, gitRemote } = await new ProjectRegistry().resolve(
     session.cwd,
   );
   const tree = sessionTree(options, slug, session.sessionId);
@@ -677,6 +685,10 @@ export function dedupBy<T>(
 
 export type { ProgressReporter } from "./progress.ts";
 export { createProgressReporter } from "./progress.ts";
-export { SlugRegistry } from "./slug.ts";
+export {
+  detectGitContext,
+  normalizeProjectSlug,
+  ProjectRegistry,
+} from "./project.ts";
 export { synthesizeTitle } from "./transcript.ts";
 export { uuidv7At } from "./uuid.ts";

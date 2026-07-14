@@ -22,7 +22,7 @@ import { createMemoryClient } from "../client.ts";
 import { resolveCredentials, resolveHarnessAgent } from "../credentials.ts";
 import { importTranscriptFile } from "../importers/index.ts";
 import { opencodeImporter, resolveSessionFile } from "../importers/opencode.ts";
-import { SlugRegistry } from "../importers/slug.ts";
+import { detectGitContext } from "../importers/project.ts";
 import {
   type AgentInstallOptions,
   runAgentMcpInstall,
@@ -125,7 +125,7 @@ async function installSkill(
 
 /** Resolve the project root (git root, else cwd) for `scope: "project"`. */
 async function resolveProjectRoot(): Promise<string> {
-  const { gitRoot } = await new SlugRegistry().resolve(process.cwd());
+  const { gitRoot } = await detectGitContext(process.cwd());
   return gitRoot ?? process.cwd();
 }
 

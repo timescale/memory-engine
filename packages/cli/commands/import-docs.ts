@@ -3,19 +3,15 @@
  *
  * One memory per markdown file under `<tree>.docs.<relative dirs>` — the
  * full project TREE from `--tree` or the repo's `.me` `tree`, else
- * `<tree_root ?? ~/projects>.<project_slug>` (private by default; same
- * resolution as `me import git`, so a project's docs sit next to its
- * git_history and agent_sessions nodes). The argument directory is the
- * import root: trees derive relative to IT, in both modes.
+ * `<tree_root ?? ~/projects>.<project_slug>` (private by default). The
+ * argument directory is the import root: trees derive relative to IT.
  *
- * Git-enhanced, git-optional: inside a work tree, discovery is
- * `git ls-files` (tracked + untracked-but-not-ignored) and each file's
- * temporal is its git last-modified date from one streamed log pass; in a
- * plain directory, discovery is a dot-pruned walk and there is no
- * filesystem-derived temporal (mtime churns on clone/copy and would break
- * replace-no-op idempotency). `--include`/`--exclude` are globs applied
- * client-side in both modes, so they mean exactly the same thing with and
- * without git.
+ * Plain mode is the default: discover markdown files by walking the filesystem
+ * under the argument directory, including generated or gitignored files, with
+ * no git dates or repo-root assumptions. `--git-aware` opts into repo-managed
+ * behavior: git discovery, gitignore filtering, git last-modified dates, and
+ * the subdir-root safety guard. `--git-aware --include-ignored` keeps repo
+ * context while also including ignored/generated files.
  *
  * Idempotency keys on `(tree, name)` and submits through
  * `onConflict: "replace"` with deterministic meta, so a re-run is a no-op
@@ -24,7 +20,7 @@
  */
 
 import { existsSync, realpathSync, statSync } from "node:fs";
-import { join, relative, resolve, sep } from "node:path";
+import { basename, join, relative, resolve, sep } from "node:path";
 import * as clack from "@clack/prompts";
 import type { MemoryCreateParams } from "@memory.build/protocol/memory";
 import { Command } from "commander";
@@ -50,7 +46,11 @@ import {
   dedupBy,
 } from "../importers/index.ts";
 import { normalizeTreeLabel } from "../importers/markdown-files.ts";
-import { SlugRegistry } from "../importers/slug.ts";
+import {
+  detectGitContext,
+  normalizeProjectSlug,
+  ProjectRegistry,
+} from "../importers/project.ts";
 import { getOutputFormat, output } from "../output.ts";
 import { discoverProjectConfig } from "../project-config.ts";
 import {
@@ -78,6 +78,10 @@ export interface DocsImportOptions {
   parseTemporal: boolean;
   /** Delete previously-imported docs absent from this walk. */
   prune: boolean;
+  /** Opt into repo-managed discovery/dates/root safety. */
+  gitAware: boolean;
+  /** Include ignored generated files while in git-aware mode. */
+  includeIgnored: boolean;
   /** Allow a git-mode import root below the repo toplevel. */
   allowSubdirRoot: boolean;
   /**
@@ -112,6 +116,13 @@ export function buildDocsImportOptions(
     typeof opts.temporalKey === "string" && opts.temporalKey.length > 0
       ? opts.temporalKey
       : undefined;
+  const gitAware = opts.gitAware === true;
+  const includeIgnored = opts.includeIgnored === true;
+  if (includeIgnored && !gitAware) {
+    throw new Error(
+      "--include-ignored requires --git-aware; plain mode already walks files on disk",
+    );
+  }
   return {
     dir: dirArg ?? ".",
     tree,
@@ -121,6 +132,8 @@ export function buildDocsImportOptions(
     // Commander sets `temporal` false when `--no-temporal` is passed.
     parseTemporal: opts.temporal !== false,
     prune: opts.prune === true,
+    gitAware,
+    includeIgnored,
     allowSubdirRoot: opts.allowSubdirRoot === true,
     skipIfEmpty: opts.skipIfEmpty === true,
     dryRun: opts.dryRun === true,
@@ -137,8 +150,8 @@ export function buildDocsImportOptions(
  * from the toplevel achieves the same narrowing without re-rooting. Returns
  * the refusal message, or undefined when the root is fine.
  *
- * Plain mode needs no guard: the slug derives from the argument directory
- * itself, so a different root is a different project node entirely.
+ * Plain mode has no implicit repo-root safety: it means "walk the files under
+ * this directory". A root-sensitive --prune is the caller's explicit choice.
  */
 export function subdirRootError(
   dir: string,
@@ -219,6 +232,8 @@ interface DocsImportResult {
   mode: "git" | "plain";
   /** Set when a skipIfEmpty run found no matching docs and skipped cleanly. */
   skippedNoDocs?: boolean;
+  /** Git-aware runs where git saw zero docs but a plain disk walk found docs. */
+  gitIgnoredDocsOnDisk?: number;
   /** Set when git dates were dropped because the clone is shallow. */
   shallow?: boolean;
   dryRun: boolean;
@@ -283,27 +298,36 @@ export async function runDocsImport(
   requireAuth(creds, fmt);
   requireSpace(creds, fmt);
 
-  // Project slug + git detection in one resolve (plain dirs slug by basename).
-  const { slug, gitRoot } = await new SlugRegistry().resolve(dir);
-  const gitMode = gitRoot !== undefined;
+  const explicitProjectNode = opts.tree ?? creds.tree;
+  let slug: string | undefined;
+  if (explicitProjectNode === undefined) {
+    slug = opts.gitAware
+      ? (await new ProjectRegistry().resolve(dir)).slug
+      : normalizeProjectSlug(basename(dir));
+  }
 
-  // The full project node docs nest under (no slug appended — same
-  // resolution as `me import git`, so a project's docs, git_history, and
-  // agent_sessions share one node): an explicit `--tree`, else the repo's
-  // `.me` `tree`, else the slug under the machine-wide `tree_root` override
-  // or the PRIVATE default.
+  // Destination is independent of source interpretation: an explicit `--tree`
+  // or `.me` tree is the full project node, with no slug resolution needed.
   const projectNode =
-    opts.tree ??
-    creds.tree ??
+    explicitProjectNode ??
     `${creds.treeRoot ?? DEFAULT_PRIVATE_TREE_ROOT}.${slug}`;
   const docsTree = `${projectNode}.${DOCS_NODE_NAME}`;
 
+  const gitContext = opts.gitAware ? await detectGitContext(dir) : {};
+  if (opts.gitAware && gitContext.gitRoot === undefined) {
+    handleError(
+      new Error("--git-aware requires dir to be inside a git repository"),
+      fmt,
+    );
+  }
+  const gitMode = gitContext.gitRoot !== undefined;
+
   // Refuse a subfolder import root in git mode (see subdirRootError) before
   // any discovery or writes.
-  if (gitRoot !== undefined) {
+  if (gitContext.gitRoot !== undefined) {
     const rootErr = subdirRootError(
       dir,
-      gitRoot,
+      gitContext.gitRoot,
       docsTree,
       opts.allowSubdirRoot,
     );
@@ -324,29 +348,42 @@ export async function runDocsImport(
   // Discovery (mode-specific), then the mode-agnostic include/exclude filter.
   let relPaths: string[] = [];
   let untracked: ReadonlySet<string> = new Set();
+  let gitIgnoredDocsOnDisk: number | undefined;
   try {
     let candidates: string[];
     if (gitMode) {
-      const listing = await listGitFiles(dir);
+      const listing = await listGitFiles(dir, {
+        includeIgnored: opts.includeIgnored,
+      });
       candidates = listing.files;
       untracked = listing.untracked;
     } else {
       candidates = await discoverPlainFiles(dir);
     }
     relPaths = filterDocPaths(candidates, opts.include, opts.exclude);
+    if (gitMode && !opts.includeIgnored && relPaths.length === 0) {
+      const onDisk = filterDocPaths(
+        await discoverPlainFiles(dir),
+        opts.include,
+        opts.exclude,
+      );
+      if (onDisk.length > 0) gitIgnoredDocsOnDisk = onDisk.length;
+    }
   } catch (error) {
     fail(error);
   }
 
-  // Orchestrated runs (`me import ci`): a repo with no matching docs is a
-  // clean skip — nothing to import, no prune attempted (see skipIfEmpty).
-  if (opts.skipIfEmpty === true && relPaths.length === 0) {
+  // Orchestrated non-prune runs (`me import ci` uses prune) can skip a repo
+  // with no matching docs cleanly. Prune-enabled runs continue with an empty
+  // keep-list so deleting/renaming the final doc removes stale rows too.
+  if (opts.skipIfEmpty === true && relPaths.length === 0 && !opts.prune) {
     progress?.stop();
     const structured: DocsImportResult = {
       dir: opts.dir,
       tree: displayTreePath(docsTree),
       mode: gitMode ? "git" : "plain",
       skippedNoDocs: true,
+      ...(gitIgnoredDocsOnDisk !== undefined ? { gitIgnoredDocsOnDisk } : {}),
       dryRun: opts.dryRun,
       filesScanned: 0,
       skippedEmpty: 0,
@@ -358,8 +395,13 @@ export async function runDocsImport(
       failed: 0,
       errors: [],
     };
-    output(structured, fmt, () => {
+    await output(structured, fmt, () => {
       clack.log.info("No matching docs — skipping the docs import");
+      if (gitIgnoredDocsOnDisk !== undefined) {
+        clack.log.warn(
+          `${gitIgnoredDocsOnDisk} matching doc(s) exist on disk but are ignored by git; pass --include-ignored with --git-aware to include them`,
+        );
+      }
     });
     return;
   }
@@ -464,14 +506,9 @@ export async function runDocsImport(
   let prunedPaths: string[] = [];
   let pruneRefused: string | undefined;
   if (opts.prune) {
-    if (unique.length === 0) {
-      // Under skipIfEmpty (orchestrated runs) an all-empty walk skips the
-      // prune silently instead: deleting the whole previously-imported corpus
-      // because every file emptied out is exactly what the refusal guards.
-      if (opts.skipIfEmpty !== true) {
-        pruneRefused =
-          "empty walk — a wrong directory or over-narrowed --include must not delete the whole corpus";
-      }
+    if (unique.length === 0 && opts.skipIfEmpty !== true) {
+      pruneRefused =
+        "empty walk — a wrong directory or over-narrowed --include must not delete the whole corpus";
     } else {
       try {
         const keep = buildKeepList(unique);
@@ -499,6 +536,7 @@ export async function runDocsImport(
     tree: displayTreePath(docsTree),
     mode: gitMode ? "git" : "plain",
     ...(shallow ? { shallow } : {}),
+    ...(gitIgnoredDocsOnDisk !== undefined ? { gitIgnoredDocsOnDisk } : {}),
     dryRun: opts.dryRun,
     filesScanned: relPaths.length,
     skippedEmpty,
@@ -512,7 +550,7 @@ export async function runDocsImport(
     errors,
   };
 
-  output(structured, fmt, () => {
+  await output(structured, fmt, () => {
     if (shallow) {
       clack.log.warn(
         "Shallow clone: git last-modified dates dropped (history is truncated).",
@@ -520,6 +558,11 @@ export async function runDocsImport(
     }
     if (pruneRefused !== undefined) {
       clack.log.warn(`--prune refused: ${pruneRefused}. Nothing was deleted.`);
+    }
+    if (gitIgnoredDocsOnDisk !== undefined) {
+      clack.log.warn(
+        `${gitIgnoredDocsOnDisk} matching doc(s) exist on disk but are ignored by git; pass --include-ignored with --git-aware to include them`,
+      );
     }
     if (opts.dryRun) {
       // No server classification without submitting — don't imply a
@@ -556,11 +599,11 @@ export async function runDocsImport(
 /** `me import docs` subcommand factory. */
 export function createDocsImportCommand(): Command {
   return new Command("docs")
-    .description("import a directory's markdown docs as memories (git-aware)")
+    .description("import a directory's markdown docs as memories")
     .argument("[dir]", "directory to import (default: cwd)")
     .option(
       "--tree <path>",
-      `full project tree to place '${DOCS_NODE_NAME}' under, no slug appended (default: the repo's .me tree, else <tree_root ?? ${DEFAULT_PRIVATE_TREE_ROOT}>.<slug> — private)`,
+      `full project tree to place '${DOCS_NODE_NAME}' under, no slug appended (default: .me tree, else <tree_root ?? ${DEFAULT_PRIVATE_TREE_ROOT}>.<slug> — private)`,
     )
     .option(
       "--include <globs...>",
@@ -572,11 +615,19 @@ export function createDocsImportCommand(): Command {
     )
     .option(
       "--temporal-key <key>",
-      "frontmatter key parsed as the temporal start (falls back to git last-modified)",
+      "frontmatter key parsed as the temporal start (falls back to git last-modified in --git-aware mode)",
     )
     .option(
       "--no-temporal",
-      "no temporal and no date-seeded ids (also skips the git log pass)",
+      "no temporal and no date-seeded ids (also skips the --git-aware git log pass)",
+    )
+    .option(
+      "--git-aware",
+      "use git discovery, gitignore filtering, git dates, and repo-root safety",
+    )
+    .option(
+      "--include-ignored",
+      "with --git-aware, include ignored/generated files too",
     )
     .option(
       "--prune",

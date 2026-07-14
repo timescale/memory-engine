@@ -99,6 +99,14 @@ describe("listGitFiles", () => {
     expect(untracked.has("docs/guide.md")).toBe(false);
   });
 
+  test("includeIgnored adds ignored build output as untracked", async () => {
+    const { files, untracked } = await listGitFiles(repo, {
+      includeIgnored: true,
+    });
+    expect(files).toContain("dist/ignored.md");
+    expect(untracked.has("dist/ignored.md")).toBe(true);
+  });
+
   test("scopes to a subdir with subdir-relative paths", async () => {
     const { files } = await listGitFiles(join(repo, "docs"));
     expect(files.sort()).toEqual(["guide.md", "new-name.md"]);

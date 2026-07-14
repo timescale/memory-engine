@@ -35,7 +35,7 @@
  */
 import * as clack from "@clack/prompts";
 import { Command } from "commander";
-import { SlugRegistry } from "../importers/slug.ts";
+import { detectGitContext } from "../importers/project.ts";
 import { getOutputFormat } from "../output.ts";
 import { discoverProjectConfig } from "../project-config.ts";
 import { handleError } from "../util.ts";
@@ -66,7 +66,7 @@ export async function runCiImport(
   // Anchor everything at the repo toplevel: docs tree slots and the prune
   // scope derive from the import root, so the orchestrated run must not
   // depend on where inside the repo it was invoked.
-  const { gitRoot } = await new SlugRegistry().resolve(process.cwd());
+  const { gitRoot } = await detectGitContext(process.cwd());
   if (gitRoot === undefined) {
     handleError(
       new Error(
@@ -105,6 +105,7 @@ export async function runCiImport(
       {
         include: importCfg.docs_include,
         exclude: importCfg.docs_exclude,
+        gitAware: true,
         prune: true,
         skipIfEmpty: true,
         dryRun,

@@ -60,7 +60,7 @@ import {
 import { claudeImporter } from "../importers/claude.ts";
 import { codexImporter } from "../importers/codex.ts";
 import { opencodeImporter } from "../importers/opencode.ts";
-import { SlugRegistry } from "../importers/slug.ts";
+import { detectGitContext, ProjectRegistry } from "../importers/project.ts";
 import { getOutputFormat } from "../output.ts";
 import { writeProjectConfig } from "../project-config.ts";
 import { buildMemoryClient, buildUserClient, handleError } from "../util.ts";
@@ -472,7 +472,7 @@ export async function runProjectInitWizard(
   // 1. Location — slug derived once from the project (git origin repo name →
   // git root dir name → basename(cwd)); the git root is the project root the
   // config lands in.
-  const { slug, gitRoot } = await new SlugRegistry().resolve(process.cwd());
+  const { slug, gitRoot } = await new ProjectRegistry().resolve(process.cwd());
   const projectRoot = gitRoot ?? process.cwd();
   const tree = await pickTree(slug);
 
@@ -729,7 +729,7 @@ export function createProjectInitCommand(): Command {
         // Non-interactive: run the checklist only — no prompts, no config
         // write. An existing `.me/config.yaml` (or the private defaults)
         // governs where the steps land.
-        const { gitRoot } = await new SlugRegistry().resolve(process.cwd());
+        const { gitRoot } = await detectGitContext(process.cwd());
         ctx = { globalOpts, server, projectRoot: gitRoot ?? process.cwd() };
       }
 
