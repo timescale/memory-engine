@@ -22,13 +22,15 @@ await $`./bun --cwd=packages/cli run build:web`;
 
 console.log("\nBuilding for all platforms...\n");
 
-await Promise.all(
-  targets.map(async ({ target, suffix, ext }) => {
-    const output = `me-${suffix}${ext ?? ""}`;
-    await $`./bun build --compile --target=${target} ./packages/cli/index.ts --outfile ${distDir}/${output}`;
-    console.log(`  done ${output}`);
-  }),
-);
+// Compile targets sequentially. Running `bun build --compile` concurrently
+// races on Bun's shared base-binary cache and temp files, intermittently
+// failing with "Error writing .bun section to ELF: error.InvalidElfFile" /
+// "failed to get path for fd: FileNotFound".
+for (const { target, suffix, ext } of targets) {
+  const output = `me-${suffix}${ext ?? ""}`;
+  await $`./bun build --compile --target=${target} ./packages/cli/index.ts --outfile ${distDir}/${output}`;
+  console.log(`  done ${output}`);
+}
 
 // macOS: strip Bun's broken signature, re-sign with JIT entitlements, remove quarantine
 if (process.platform === "darwin") {
