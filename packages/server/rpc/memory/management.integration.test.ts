@@ -729,10 +729,15 @@ test("access.effective: admin can inspect another member's effective access", as
 
   const result = await call<{
     principal: { id: string };
+    authenticatedAs: unknown;
     access: { treePath: string; accessName: string }[];
   }>("access.effective", { principalId: member });
 
   expect(result.principal.id).toBe(member);
+  // authenticatedAs describes the caller's session, not the target — it is null
+  // when inspecting another principal so the target's access is not paired with
+  // the caller's identity.
+  expect(result.authenticatedAs).toBeNull();
   expect(result.access).toContainEqual(
     expect.objectContaining({ treePath: "/projects", accessName: "write" }),
   );
