@@ -419,9 +419,11 @@ async function* discoverSqliteSessions(
   stats: ImporterStats,
   progress?: ProgressReporter,
 ): AsyncIterable<ImportedSession> {
-  const db = new Database(dbPath, { readonly: true, strict: true });
+  let db: Database | undefined;
+  let rows: SqliteSessionRow[];
   try {
-    const rows = db
+    db = new Database(dbPath, { readonly: true, strict: true });
+    rows = db
       .query<SqliteSessionRow, []>(
         `select s.id, s.project_id, p.worktree as project_worktree,
                 s.directory, s.title, s.version, s.agent, s.model,
@@ -431,6 +433,17 @@ async function* discoverSqliteSessions(
           order by s.time_created, s.id`,
       )
       .all();
+  } catch (error) {
+    db?.close();
+    stats.errors.push({
+      source: dbPath,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    recordSkip(stats, "parse_error");
+    return;
+  }
+
+  try {
     for (const row of rows) {
       stats.totalFiles++;
       const source = sqliteSourceFile(dbPath, row.id);
@@ -660,7 +673,11 @@ function normalizeRole(role: string): ConversationMessage["role"] {
 
 function modelId(raw: Record<string, unknown>): string | undefined {
   if (typeof raw.modelID === "string") return raw.modelID;
-  if (typeof raw.id === "string" && typeof raw.providerID === "string") {
+  if (
+    typeof raw.id === "string" &&
+    typeof raw.providerID === "string" &&
+    typeof raw.role !== "string"
+  ) {
     return raw.id;
   }
   const model = raw.model as Record<string, unknown> | undefined;
