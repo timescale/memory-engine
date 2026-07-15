@@ -5,7 +5,7 @@ OpenCode integration commands.
 ## Commands
 
 - [me opencode install](#me-opencode-install) -- register `me` as an MCP server with OpenCode, install the capture plugin + `/memory-recall` command + `memory-engine` skill
-- [me opencode init](#me-opencode-init) -- **deprecated** alias of [`me project init`](me-project.md)
+- [me opencode init](#me-opencode-init) -- removed; use [`me project init`](me-project.md)
 - [me opencode hook](#me-opencode-hook) -- internal helper (you never run this directly)
 - [me opencode import](#me-opencode-import) -- import OpenCode sessions from `~/.local/share/opencode/opencode.db` or legacy storage
 
@@ -39,7 +39,7 @@ For manual MCP client configuration, see [MCP Integration](../mcp-integration.md
 
 ## me opencode init
 
-**Deprecated** — renamed to [`me project init`](me-project.md), the harness-agnostic per-project setup wizard. This alias prints a rename notice, runs the same command, and will be removed in a future release. See [`me project init`](me-project.md#3-setup-checklist) for the current (harness-gated) checklist steps.
+**Removed** — run [`me project init`](me-project.md), the harness-agnostic per-project setup wizard. The retired command prints an error and exits without running the wizard.
 
 ---
 

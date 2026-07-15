@@ -18,7 +18,7 @@ Each `me mcp` instance is locked to a single **space**, carried as the `X-Me-Spa
 
 ### Agent-by-config
 
-`me mcp` is a harness surface, so it acts as a configured **agent** automatically — no `--as-agent` flag needed. It resolves the project's [`.me/config.yaml`](project-config.md) `agent`, else your global `~/.config/me/config.yaml` `agent`, and sends every request as that agent (`X-Me-As-Agent`) — so an agent's memory work is attributable and scoped to its own grants, not yours. It validates the resolved agent eagerly at startup (one `whoami` round trip): a name that doesn't exist yet, or isn't admitted to the space, fails the server at launch with an actionable message rather than 403ing on every tool call. If neither config defines an `agent`, `me mcp` refuses to start — see [Project config](project-config.md#agent-by-config-and-the-agent-field) for the `.user` opt-out and how the default agent gets provisioned. This doesn't apply when you pass `--api-key`/`ME_API_KEY` for a dedicated agent key — the key already *is* the agent.
+`me mcp` is a harness surface, so it acts as a configured **agent** automatically — no `--as-agent` flag needed. It resolves the project's [`.me/config.yaml`](project-config.md) `agent`, else your global `~/.config/me/config.yaml` `agent`, and sends every request as that agent (`X-Me-As-Agent`) — so an agent's memory work is attributable and scoped to its own grants, not yours. If neither config defines an `agent`, `me mcp` refuses to start. If the configured name is stale, ambiguous, or not admitted to the space, the server starts and the first tool call returns the authorization error so the agent can see and act on it. See [Project config](project-config.md#agent-by-config-and-the-agent-field) for the `.user` opt-out and how the default agent gets provisioned. This doesn't apply when you pass `--api-key`/`ME_API_KEY` for a dedicated agent key — the key already *is* the agent.
 
 ## Setup
 
@@ -40,7 +40,7 @@ These commands register Memory Engine with the named tool, writing a `me mcp` in
 
 See the agent-specific command references for details: [`me opencode install`](cli/me-opencode.md#me-opencode-install), [`me codex install`](cli/me-codex.md#me-codex-install), and [`me gemini install`](cli/me-gemini.md#me-gemini-install).
 
-[`me project init`](cli/me-project.md) goes further than any of the installers above: it's a harness-agnostic, per-project wizard that backfills existing sessions (for whichever of Claude Code/OpenCode/Codex actually has any), installs a capture plugin so new sessions are captured automatically, and writes a memory pointer into `CLAUDE.md`/`AGENTS.md`. Its preflight also offers to run `me claude install`/`me opencode install` for you if a harness is detected but not yet set up.
+[`me project init`](cli/me-project.md) goes further than any of the installers above: it's a harness-agnostic, per-project wizard that backfills existing sessions (for whichever of Claude Code/OpenCode/Codex actually has any), enables the per-project capture flag used by the Claude Code and OpenCode capture hooks, sets up the CI import workflow, and writes a memory pointer into `CLAUDE.md`/`AGENTS.md`. Its preflight also offers to run `me claude install`/`me opencode install` for you if a harness is detected but not yet set up.
 
 `me opencode install` takes `--scope project|user`. Project scope writes into the repo (`opencode.json` + `.opencode/`) so the integration can be committed and shared with a team (no key is embedded — credentials resolve from each teammate's `me login`); user scope (the default) writes the global `~/.config/opencode/` config instead. `me project init`'s preflight always installs OpenCode at user scope — run `me opencode install --scope project` directly for a team-committed setup.
 
@@ -58,7 +58,7 @@ me claude install            # full plugin: hooks + slash commands + MCP
 me claude install --mcp-only # or just the MCP server
 ```
 
-By default `me claude install` installs the Memory Engine plugin, driving Claude Code's native plugin flow for you (`claude plugin marketplace add` + `claude plugin install`) and passing your resolved `server` / `space` / `api_key` through `--config`. The plugin provides the MCP server and captures Claude Code session events as memories. After installing, restart Claude Code (or run `/plugin`) to load the hooks and slash commands; re-run `/plugin` → `memory-engine` → Configure to adjust options. To run the underlying flow by hand instead:
+By default `me claude install` installs the Memory Engine plugin, driving Claude Code's native plugin flow for you (`claude plugin marketplace add` + `claude plugin install`) without pinning `server`, `space`, or `api_key` into the plugin. The plugin resolves your live `me` login config at runtime. Pass `--server` / `--space` to pin those values, or `--api-key` for a headless install that bakes in a fixed key + space. The plugin provides the MCP server and captures Claude Code session events as memories. After installing, restart Claude Code (or run `/plugin`) to load the hooks and slash commands; re-run `/plugin` → `memory-engine` → Configure to adjust options. To run the underlying flow by hand instead:
 
 ```bash
 claude plugin marketplace add timescale/memory-engine
