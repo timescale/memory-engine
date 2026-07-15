@@ -5,6 +5,7 @@ Permanent memory for AI agents. Store, search, and organize knowledge across con
 - [Getting Started](getting-started.md) -- install, log in, store your first memory
 - [Joining a Space](joining-a-space.md) -- invited to a shared space? Start here
 - [Core Concepts](concepts.md) -- memories, tree paths, metadata, search modes
+- [Projects](projects.md) -- set up repository memory trees and project grants
 - [Access Control](access-control.md) -- spaces, principals, and tree-access grants
 - [Project config](project-config.md) -- pin a project's server, space, and tree in `.me/config.yaml`
 - [File Formats](formats.md) -- JSON, YAML, Markdown, and NDJSON import/export schemas

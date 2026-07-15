@@ -19,6 +19,7 @@ export const NAV: NavSection[] = [
       { label: "Getting Started", slug: "getting-started" },
       { label: "Joining a Space", slug: "joining-a-space" },
       { label: "Core Concepts", slug: "concepts" },
+      { label: "Projects", slug: "projects" },
       { label: "Project config (.me)", slug: "project-config" },
       { label: "File Formats", slug: "formats" },
       { label: "Access Control", slug: "access-control" },

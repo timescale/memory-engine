@@ -1,6 +1,9 @@
 # me project
 
-Harness-agnostic per-project setup.
+Harness-agnostic per-project setup. For guidance on choosing between
+team-writable layouts such as `/share/projects/<project>`, group-writable layouts
+such as `/share/<group>/<project>`, and private group layouts outside `/share`,
+see [Projects](../projects.md).
 
 ## Commands
 
@@ -41,6 +44,13 @@ One choice combining visibility with the tree root — `<slug>` is derived from 
 - **(custom)** — type any tree root.
 
 Written as `tree:` in `.me/config.yaml`; captures and imports nest under it (`<tree>/agent_sessions`, `<tree>/git_history` — no slug appended).
+
+In a default space, `/share/projects/<slug>` is writable by the default `team`
+group. Use a custom tree such as `/share/payments/<slug>` when the team should
+read but only a subgroup should write; use a path outside `/share` when the
+project should not be broadly readable. Grant the target group write access
+before or after running the wizard. Creating groups and granting group access are
+space-admin operations, so you may need a space admin's help for these patterns.
 
 ### 2. Agent
 
