@@ -4,7 +4,7 @@
 
 import { Database } from "bun:sqlite";
 import { describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -354,6 +354,57 @@ describe("opencode importer", () => {
       expect(s.agentMode).toBe("build");
       expect(s.sourceFile).toBe(`${dbPath}#session/ses_sqlite`);
     } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("reports invalid SQLite sources as parse errors", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "me-opencode-bad-sqlite-"));
+    try {
+      writeFileSync(join(dir, "opencode.db"), "not a sqlite database");
+      const { sessions, stats } = await collect(sqliteOptions(dir));
+      expect(sessions).toHaveLength(0);
+      expect(stats.errors).toHaveLength(1);
+      expect(stats.skipped.parse_error).toBe(1);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("does not treat message ids as SQLite model ids", async () => {
+    const { dir, dbPath } = createSqliteFixture();
+    const db = new Database(dbPath, { strict: true });
+    let closed = false;
+    try {
+      db.run("update session set model = null where id = ?", ["ses_sqlite"]);
+      db.run("update message set data = ? where id = ?", [
+        JSON.stringify({
+          id: "msg_user",
+          role: "user",
+          time: { created: SQLITE_TIMES.userMessage },
+          providerID: "anthropic",
+        }),
+        "msg_user",
+      ]);
+      db.run("update message set data = ? where id = ?", [
+        JSON.stringify({
+          id: "msg_assistant",
+          role: "assistant",
+          time: { created: SQLITE_TIMES.assistantMessage },
+          providerID: "anthropic",
+        }),
+        "msg_assistant",
+      ]);
+      db.close();
+      closed = true;
+
+      const { sessions } = await collect(sqliteOptions(dbPath));
+      const s = sessions[0];
+      if (!s) return;
+      expect(s.model).toBeUndefined();
+      expect(s.provider).toBe("anthropic");
+    } finally {
+      if (!closed) db.close(false);
       rmSync(dir, { recursive: true, force: true });
     }
   });
