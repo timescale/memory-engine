@@ -169,6 +169,7 @@ export async function ensureDefaultAgent(
     targetAgent.toLowerCase() === DEFAULT_AGENT_NAME
       ? existing.agent
       : undefined;
+  let noteAgent = targetAgent;
 
   if (defaultExisting) {
     // `agent.list()` is global, not scoped to the active space — an existing
@@ -181,6 +182,7 @@ export async function ensureDefaultAgent(
       "", // whole-space WRITE grant, clamped by the owner's own access
     );
     if (configuredAgent === undefined) setGlobalAgent(defaultExisting.name);
+    noteAgent = defaultExisting.name;
   } else {
     await provisionNewAgent(
       { user, memory },
@@ -191,8 +193,6 @@ export async function ensureDefaultAgent(
   }
 
   if (configuredAgent !== undefined && !createMissingConfiguredAgent) return;
-
-  const noteAgent = targetAgent;
 
   const closingLines = opts?.perProjectStepFollows
     ? [

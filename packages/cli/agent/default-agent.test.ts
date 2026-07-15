@@ -8,11 +8,13 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+const noteCalls: unknown[][] = [];
+
 mock.module("@clack/prompts", () => ({
   confirm: mock(async () => true),
   isCancel: () => false,
   log: { warn: mock() },
-  note: mock(),
+  note: (...args: unknown[]) => noteCalls.push(args),
 }));
 
 import {
@@ -81,6 +83,7 @@ beforeEach(() => {
   configDir = mkdtempSync(join(tmpdir(), "me-default-agent-"));
   process.env.XDG_CONFIG_HOME = configDir;
   process.env.ME_NO_KEYCHAIN = "1";
+  noteCalls.length = 0;
   resetKeychainForTests();
 });
 
@@ -157,6 +160,7 @@ test("first install adopts an existing coder agent and writes its actual name", 
     ["grant.set", { principalId: "agent-coder", treePath: "", access: 2 }],
   ]);
   expect(getGlobalAgent()).toBe("Coder");
+  expect(String(noteCalls.at(-1)?.[0])).toContain('agent "Coder"');
 });
 
 test("stale global coder fails clearly in non-interactive installs", async () => {
