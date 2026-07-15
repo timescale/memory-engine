@@ -8,9 +8,10 @@ Run [`me project init`](cli/me-project.md) from a repository to write the projec
 config, set up an agent, enable capture, and optionally configure CI imports.
 The main choice is where the project's tree should live.
 
-Some layouts need a **space admin** to set up the grants first. You can run the
+Some layouts need help from a **space admin** or a path owner. You can run the
 project wizard yourself for layouts that use access you already have, but
-creating groups and granting access to them are admin-gated operations.
+creating groups is admin-gated, and granting access requires owner access at the
+target path.
 
 ## Common Layouts
 
@@ -61,7 +62,8 @@ Use a group path when the whole team may read the project, but only a subgroup
 should write it. For example, a payments team might keep projects under
 `/share/payments/...`:
 
-Ask a space admin to create the group, add members, and grant it write access:
+Ask a space admin to create the group and add members. Then have someone with
+owner access at the target path grant the group write access:
 
 ```bash
 me group create payments
@@ -93,8 +95,9 @@ If the project should not be broadly visible, do not put it under `/share`.
 `/share` is the convention for space-wide shared knowledge, and in a default
 space the `team` group can read it.
 
-Instead, create a top-level tree for the group and grant only that group access:
-these setup steps require a space admin.
+Instead, create a top-level tree for the group and grant only that group access.
+A space admin can create the group and add members; granting write access at the
+target path requires owner access there.
 
 ```bash
 me group create group-x
@@ -111,10 +114,7 @@ tree: /group-x/secret-project
 ```
 
 A single write grant is enough when the same group should both read and write:
-
-```bash
-me access grant group-x /group-x w
-```
+`write` includes `read`.
 
 Put personal project notes under `~/projects/<project>` when they are only for
 you.

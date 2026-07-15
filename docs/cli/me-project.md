@@ -49,8 +49,9 @@ In a default space, `/share/projects/<slug>` is writable by the default `team`
 group. Use a custom tree such as `/share/payments/<slug>` when the team should
 read but only a subgroup should write; use a path outside `/share` when the
 project should not be broadly readable. Grant the target group write access
-before or after running the wizard. Creating groups and granting group access are
-space-admin operations, so you may need a space admin's help for these patterns.
+before or after running the wizard. Creating groups is space-admin-only;
+granting access requires owner access at the target path, so you may need help
+from a space admin or path owner for these patterns.
 
 ### 2. Agent
 
