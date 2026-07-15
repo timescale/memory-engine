@@ -74,7 +74,7 @@ A grouped multiselect, everything pre-checked (non-interactive runs execute all 
 | Claude Code sessions | Import this project's existing Claude Code sessions (one-time backfill) | `--skip-transcript-import-claude` | Backfills sessions recorded in this repo. Reads the just-written `.me` `tree`, so the backfill lands exactly where live capture writes. **Hidden** when this project has no Claude Code sessions at all. |
 | Codex sessions | Import this project's existing Codex sessions (one-time backfill) | `--skip-transcript-import-codex` | Same, for Codex. **Hidden** when this project has no Codex sessions. |
 | OpenCode sessions | Import this project's existing OpenCode sessions (one-time backfill) | `--skip-transcript-import-opencode` | Same, for OpenCode. **Hidden** when this project has no OpenCode sessions. |
-| Session capture | Enable ongoing capture of new agent sessions | `--skip-capture-enable` | Writes `capture: true` to `.me/config.yaml` — the committed, per-project capture opt-in every installed harness's hooks honor (it wins over each member's global setting). One flag covers every harness; interactively **deselecting** this row writes an explicit `capture: false`, so the committed config is deterministic for the team; non-interactively, `--skip-capture-enable` just leaves the file untouched. |
+| Session capture | Enable ongoing capture of new agent sessions | `--skip-capture-enable` | Writes `capture: true` to `.me/config.yaml` — the committed, per-project capture opt-in honored by the Claude Code and OpenCode capture hooks (it wins over each member's global setting). One flag covers the capture hooks that exist today; interactively **deselecting** this row writes an explicit `capture: false`, so the committed config is deterministic for the team; non-interactively, `--skip-capture-enable` just leaves the file untouched. |
 | CI import | Set up the GitHub Actions import workflow | `--skip-ci-workflow` | Runs [`me project ci`](#me-project-ci): scaffolds `.github/workflows/me-import.yml` and walks through service-account credentials. Imports (git history + docs) then run in CI on push to the default branch — the first run backfills the full history, so there is no local backfill step. **Hidden** outside a git repo or without a GitHub remote. A pending end-state (e.g. "ask your space admin") never aborts the rest of init. |
 | Project config | Add a memory pointer to CLAUDE.md | `--skip-claude-md` | Upserts a managed block naming the project tree and how to search it. **Hidden** unless Claude Code is installed on this machine. |
 | Project config | Add a memory pointer to AGENTS.md | `--skip-agents-md` | Same, for `AGENTS.md` — the convention OpenCode and Codex both read. **Hidden** unless OpenCode or Codex is installed on this machine. |
@@ -98,7 +98,7 @@ plus the session backfills, the CI import workflow, and the CLAUDE.md pointer.
 
 ### Deprecated aliases
 
-`me claude init` and `me opencode init` both now print a rename notice and run this command; the aliases will be removed in a future release.
+`me claude init` and `me opencode init` are removed. They print an error pointing at this command and exit without running the wizard.
 
 ---
 

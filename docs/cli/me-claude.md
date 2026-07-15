@@ -5,7 +5,7 @@ Claude Code integration commands.
 ## Commands
 
 - [me claude install](#me-claude-install) -- install the Memory Engine plugin for Claude Code (full plugin by default, `--mcp-only` for just the MCP server)
-- [me claude init](#me-claude-init) -- **deprecated** alias of [`me project init`](me-project.md)
+- [me claude init](#me-claude-init) -- removed; use [`me project init`](me-project.md)
 - [me claude env](#me-claude-env) -- internal helper (you never run this directly)
 - [me claude hook](#me-claude-hook) -- internal helper the plugin uses to capture sessions (you never run this directly)
 - [me claude import](#me-claude-import) -- import Claude Code sessions from `~/.claude/projects`
@@ -46,6 +46,7 @@ Pass `--mcp-only` to skip the plugin and register just the `me` MCP server (no h
 | `--api-key <key>` | API key for a headless agent. Default: the plugin/MCP server uses your `me login` session, resolved at runtime. |
 | `--space <slug>` | Pin a space. Default: resolve `ME_SPACE` / active space at runtime. |
 | `--server <url>` | Pin a server. Default: use your `me login` server at runtime. |
+| `--dev` | Install the plugin from the local checkout instead of the published marketplace (run from inside this repo). |
 | `--no-default-agent` | Skip provisioning the default agent (step 2 above). |
 
 Credential handling: by default (a personal install) nothing is pinned, so the plugin (and the MCP server) uses your `me login` session, server, and active space, resolved from the OS keychain / `~/.config/me` at runtime — so it follows `me login` / `me space use` and survives re-login. Pass `--server` / `--space` to pin either. Pass `--api-key` (mint one with `me apikey create` for a personal access token, or `me apikey create --agent <agent>` for an agent) for a **headless** install that can't reach your keychain — since there's no session to fall back to, an api key bakes in a fixed server + space + key together (and skips the defaults/capture steps above — the operator's `~/.config/me` is not necessarily the agent's; capture is credential-agnostic, so a headless deployment opts in via a committed `.me` `capture: true` or `capture: true` in the target machine's config). The space is resolved from `--space`, `ME_SPACE`, or your active space (whichever is set — install errors if none, since a global key has no active space to fall back to at runtime), and `--server` defaults to your resolved server.
@@ -58,7 +59,7 @@ For manual MCP client configuration, see [MCP Integration](../mcp-integration.md
 
 ## me claude init
 
-**Deprecated** — renamed to [`me project init`](me-project.md), the harness-agnostic per-project setup wizard. This alias prints a rename notice, runs the same command, and will be removed in a future release. See [`me project init`](me-project.md#3-setup-checklist) for the current (harness-gated) checklist steps.
+**Removed** — run [`me project init`](me-project.md), the harness-agnostic per-project setup wizard. The retired command prints an error and exits without running the wizard.
 
 ---
 

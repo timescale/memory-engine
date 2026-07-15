@@ -194,9 +194,10 @@ Whether a session is captured resolves highest-first:
 3. else **off**.
 
 When capture is off the hooks exit silently — no error, nothing written. The
-same resolution applies to **every** harness's hooks (Claude and OpenCode
-alike); `me claude install` and `me opencode install` both ask the capture
-question and write the machine-wide flag.
+same resolution applies to the capture hooks that exist today (Claude Code and
+OpenCode); `me claude install` and `me opencode install` both ask the capture
+question and write the machine-wide flag. Codex and Gemini currently install
+shell env hooks for agent-by-config, not session capture hooks.
 
 ## The `import` block (CI imports)
 
