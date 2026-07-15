@@ -1,8 +1,8 @@
 /**
  * Static web-UI serving for the hosted server.
  *
- * Serves the Vite build from disk (`webDist`) at the site root, with the same
- * single-page-app semantics `me serve` uses (the CLI's
+ * Serves the Vite build from disk (`webDist`) at the site root, with similar
+ * single-page-app semantics to `me serve` (the CLI's
  * `packages/cli/serve/web-assets.ts`): exact asset match → file, client-side
  * route → `index.html`, missing asset → 404. Most client routes are
  * extension-less, but invite tokens are `inv.<secret>`, so `/invite/...` must be
