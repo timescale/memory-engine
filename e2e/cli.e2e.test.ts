@@ -42,6 +42,7 @@ import {
 import type { EmbeddingConfig } from "@memory.build/embedding";
 import type { Sql } from "postgres";
 import { encodeProjectDir } from "../packages/cli/importers/claude.ts";
+import { IMPORTER_VERSION } from "../packages/cli/importers/index.ts";
 import {
   connect,
   resolveTestDatabaseUrl,
@@ -2608,7 +2609,7 @@ describe.skipIf(
       [stale?.id as string],
     );
     expect(row?.content).toBe("stale first question");
-    expect(row?.v).toBe("1");
+    expect(row?.v).toBe(IMPORTER_VERSION);
 
     await rm(root, { recursive: true, force: true });
   });
