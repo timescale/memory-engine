@@ -87,7 +87,7 @@ me codex install
 me gemini install
 ```
 
-For a guided, per-project setup that goes further than `install` — backfilling existing sessions, enabling automatic capture going forward, and adding a memory pointer to `CLAUDE.md`/`AGENTS.md` — run [`me project init`](cli/me-project.md) once per project. It's harness-agnostic: it detects whichever of Claude Code/OpenCode/Codex you actually have installed and have sessions for, and only offers the steps that apply:
+For a guided, per-project setup that goes further than `install` — choosing a shared or private project tree, backfilling existing sessions, enabling automatic capture going forward, and adding a memory pointer to `CLAUDE.md`/`AGENTS.md` — run [`me project init`](cli/me-project.md) once per project. It's harness-agnostic: it detects whichever of Claude Code/OpenCode/Codex you actually have installed and have sessions for, and only offers the steps that apply:
 
 ```bash
 me project init              # guided per-project setup
@@ -100,7 +100,7 @@ me claude install            # full plugin (once, user scope)
 me claude install --mcp-only # or just the MCP server
 ```
 
-This drives Claude Code's native plugin flow for you (`claude plugin marketplace add` + `claude plugin install`), then persists your resolved server + active space as global defaults and **asks whether to capture your Claude Code sessions as memories**. Capture is **off by default**; opt in and new sessions (plus a one-time backfill of your existing ones) are captured **privately** under `~/projects/<repo>` — sharing with a team is a separate, per-project choice via [`.me/config.yaml`](project-config.md). Afterwards, restart Claude Code (or run `/plugin`) to load the hooks and slash commands; re-run `/plugin` → `memory-engine` → Configure to adjust options, or re-run `me claude install` to change the capture answer.
+This drives Claude Code's native plugin flow for you (`claude plugin marketplace add` + `claude plugin install`), then persists your resolved server + active space as global defaults and **asks whether to capture your Claude Code sessions as memories**. Capture is **off by default**; opt in and new sessions (plus a one-time backfill of your existing ones) are captured **privately** under `~/projects/<repo>` — sharing with a team is a separate, per-project choice via [Projects](projects.md) and [`.me/config.yaml`](project-config.md). Afterwards, restart Claude Code (or run `/plugin`) to load the hooks and slash commands; re-run `/plugin` → `memory-engine` → Configure to adjust options, or re-run `me claude install` to change the capture answer.
 
 After installation, your AI agent has access to memory tools -- create, search, get, update, delete, and more.
 
@@ -109,6 +109,7 @@ See [MCP Integration](mcp-integration.md) for details.
 ## What's next
 
 - [Core Concepts](concepts.md) -- understand memories, tree paths, metadata, search modes
+- [Projects](projects.md) -- set up repository memory trees and project grants
 - [Access Control](access-control.md) -- spaces, principals, and tree-access grants
 - [Memory Packs](memory-packs.md) -- install pre-built knowledge collections
 - [MCP Integration](mcp-integration.md) -- how AI agents use Memory Engine

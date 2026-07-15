@@ -9,6 +9,7 @@ All project documentation lives in `docs/`:
 - [Getting Started](docs/getting-started.md) -- install, login, first memory
 - [Joining a Space](docs/joining-a-space.md) -- onboarding for invited teammates + shared-space conventions
 - [Core Concepts](docs/concepts.md) -- memories, tree paths, metadata, search modes
+- [Projects](docs/projects.md) -- repository memory trees and project grants
 - [Project Config](docs/project-config.md) -- `.me/config.yaml`: per-project server/space/tree pinning
 - [File Formats](docs/formats.md) -- JSON, YAML, Markdown, NDJSON import/export schemas
 - [Access Control](docs/access-control.md) -- principals, groups, tree-access grants

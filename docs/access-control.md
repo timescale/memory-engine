@@ -113,6 +113,11 @@ Every space is auto-provisioned with a group named **`team`** (created with the 
 
 Invitations default to adding their redeemer to `team` (`me space invite … ` without `--group`), so a new member's out-of-the-box shared access is exactly the group's grants. The group starts memberless, so it changes no one's access until members join. Invitees accept pending invitations with [`me invite`](cli/me-invite.md); see [Joining a Space](joining-a-space.md) for the full invitee walkthrough.
 
+The `write@/share/projects` grant is what makes the default project layout work:
+repositories configured under `/share/projects/<project>` are writable by the
+whole team. For group-writable alternatives such as `/share/<group>/<project>`,
+see [Projects](projects.md).
+
 A **space admin** owns these defaults and can change them at any time:
 
 - adjust the grants — `me access grant team /share/x w`, `me access rm-grant team /share`

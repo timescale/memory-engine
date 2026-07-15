@@ -6,7 +6,8 @@ your first search and your first shared memory, and covers the conventions that
 keep a shared space useful for everyone.
 
 New to the core ideas (memories, trees, search)? Skim [Core Concepts](concepts.md)
-first. To set Memory Engine up in a specific repo, see [Project config](project-config.md).
+first. To set Memory Engine up in a specific repo, see [Projects](projects.md)
+and [Project config](project-config.md).
 
 ## 1. Install and log in
 
@@ -147,6 +148,9 @@ A shared space stays valuable when everyone follows a few habits:
 - **Agree on a tree layout.** A little structure goes a long way — e.g.
   `/share/design/<area>`, `/share/runbooks/<system>`, `/share/decisions`. Keep
   paths 2–4 levels deep.
+- **Put repository memory under a project tree.** Use `/share/projects/<repo>`
+  when the whole team should write, or `/share/<group>/<repo>` when a subgroup
+  owns writes. See [Projects](projects.md).
 - **Use metadata for attributes.** Tag things like `{"type": "decision"}` or
   `{"status": "active"}` so they can be filtered later. See
   [Metadata](concepts.md#metadata).

@@ -7,7 +7,8 @@ Claude/OpenCode capture hooks, `me import git`) then targets that server and spa
 automatically, with no per-command flags or environment variables.
 
 This is what lets a project say "my memories live in space `X` on server `Y`,
-under tree `Z`" once, and have every tool that touches the repo agree.
+under tree `Z`" once, and have every tool that touches the repo agree. For how
+to choose that tree and its grants, see [Projects](projects.md).
 
 The interactive [`me project init`](cli/me-project.md) wizard writes this file
 for you — `server` + `space` (pinned together, so a committed config is
@@ -143,8 +144,10 @@ saved to.
 Contrast the default (no `.me`), where captures nest **privately** under
 `~/projects/<auto-slug>/…` — your own home tree, visible only to you. Pinning
 `tree` is how a project chooses its own home — e.g. a **shared** team subtree
-(`/share/projects/acme`, so the whole team works off common memories) or a
-different private one.
+(`/share/projects/acme`, so the whole team works off common memories), a
+group-writable subtree that the team can still read (`/share/payments/acme`), or
+a private group subtree outside `/share` (`/payments/acme`). See
+[Projects](projects.md) for common layouts.
 
 A leading `~` (your home) and `/`-separated paths are accepted; the path is
 normalized server-side. An explicit `me import git --tree <path>` /
