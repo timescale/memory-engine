@@ -7,7 +7,7 @@ OpenCode integration commands.
 - [me opencode install](#me-opencode-install) -- register `me` as an MCP server with OpenCode, install the capture plugin + `/memory-recall` command + `memory-engine` skill
 - [me opencode init](#me-opencode-init) -- **deprecated** alias of [`me project init`](me-project.md)
 - [me opencode hook](#me-opencode-hook) -- internal helper (you never run this directly)
-- [me opencode import](#me-opencode-import) -- import OpenCode sessions from `~/.local/share/opencode/storage`
+- [me opencode import](#me-opencode-import) -- import OpenCode sessions from `~/.local/share/opencode/opencode.db` or legacy storage
 
 ---
 
@@ -51,7 +51,7 @@ An internal helper the OpenCode capture plugin runs automatically as a session p
 
 ## me opencode import
 
-Import OpenCode sessions from `~/.local/share/opencode/storage/`. This is an alias of [`me import opencode`](me-import.md#me-import-claude--codex--opencode).
+Import OpenCode sessions from the current SQLite database at `~/.local/share/opencode/opencode.db`, falling back to the legacy JSON storage tree at `~/.local/share/opencode/storage/`. This is an alias of [`me import opencode`](me-import.md#me-import-claude--codex--opencode).
 
 ```
 me opencode import [options]
@@ -59,7 +59,7 @@ me opencode import [options]
 
 See [agent session imports](agent-session-imports.md) for the full option reference, tree layout, idempotency rules, content shape, and metadata schema.
 
-OpenCode stores data across four directories:
+Current OpenCode stores data in SQLite tables: `project`, `session`, `message`, and `part`. Older OpenCode releases stored the same logical data across four directories:
 
 - `project/<project-id>.json` -- project metadata
 - `session/<project-id>/ses_<id>.json` -- session metadata (title, directory, timestamps)

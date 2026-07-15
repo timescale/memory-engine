@@ -20,8 +20,8 @@ import { ensureDefaultAgent } from "../agent/default-agent.ts";
 import type { StepAvailability } from "../agent/init.ts";
 import { createMemoryClient } from "../client.ts";
 import { resolveCredentials, resolveHarnessAgent } from "../credentials.ts";
-import { importTranscriptFile } from "../importers/index.ts";
-import { opencodeImporter, resolveSessionFile } from "../importers/opencode.ts";
+import { importTranscriptSession } from "../importers/index.ts";
+import { opencodeImporter, parseSessionById } from "../importers/opencode.ts";
 import { detectGitContext } from "../importers/project.ts";
 import {
   type AgentInstallOptions,
@@ -249,9 +249,9 @@ function createOpenCodeInstallCommand(): Command {
  * session.deleted to capture the session.
  *
  * The plugin runs in-process JS and forwards the session id (not a transcript
- * path), so this command resolves the id to its storage file and runs it through
- * `importTranscriptFile` — the same parse + write as `me import opencode`,
- * incremental so each call only writes messages new since the last.
+ * path), so this command resolves the id from OpenCode's SQLite DB or legacy
+ * storage and runs it through the same incremental write path as
+ * `me import opencode`.
  *
  * Best-effort: logs failures to stderr but always exits 0 so a hook failure never
  * blocks an OpenCode session.
@@ -266,7 +266,7 @@ function createOpenCodeHookCommand(): Command {
     .requiredOption("--session <id>", "OpenCode session id (e.g. ses_abc123)")
     .option(
       "--storage <dir>",
-      "OpenCode storage dir (default: standard location)",
+      "OpenCode data dir, SQLite DB, or legacy storage dir (default: standard location)",
     )
     .option(
       "--project-dir <dir>",
@@ -342,15 +342,12 @@ function createOpenCodeHookCommand(): Command {
           process.exit(0);
         }
 
-        // Resolve the session id to its storage file (id alone needs a lookup
-        // across project dirs).
-        const sessionFile = await resolveSessionFile(
-          opts.session,
-          opts.storage,
-        );
-        if (!sessionFile) {
+        // Resolve the session id from SQLite when available, falling back to
+        // the legacy JSON storage tree.
+        const session = await parseSessionById(opts.session, opts.storage);
+        if (!session) {
           console.error(
-            `[memory-engine] ${eventName}: session '${opts.session}' not found in OpenCode storage`,
+            `[memory-engine] ${eventName}: session '${opts.session}' not found in OpenCode data`,
           );
           process.exit(0);
         }
@@ -363,7 +360,7 @@ function createOpenCodeHookCommand(): Command {
             space: config.space,
             asAgent: config.asAgent,
           });
-          await importTranscriptFile(client, opencodeImporter, sessionFile, {
+          await importTranscriptSession(client, session, {
             treeRoot: config.treeRoot,
             tree: config.tree,
             sessionsNodeName: SESSIONS_NODE,

@@ -1,9 +1,17 @@
 /**
  * OpenCode importer fixture tests.
  */
+
+import { Database } from "bun:sqlite";
 import { describe, expect, test } from "bun:test";
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { opencodeImporter, resolveSessionFile } from "./opencode.ts";
+import {
+  opencodeImporter,
+  parseSessionById,
+  resolveSessionFile,
+} from "./opencode.ts";
 import type {
   ImportedSession,
   ImporterOptions,
@@ -23,6 +31,16 @@ const NOISE_FIXTURE_DIR = join(
   "storage",
 );
 
+const SQLITE_TIMES = {
+  sessionStart: 1770500000000,
+  userMessage: 1770500001000,
+  assistantMessage: 1770500003000,
+  assistantTextPart: 1770500004000,
+  assistantReasoningPart: 1770500003500,
+  assistantToolPart: 1770500005000,
+  sessionEnd: 1770500009000,
+};
+
 function baseOptions(
   overrides: Partial<ImporterOptions> = {},
 ): ImporterOptions {
@@ -34,6 +52,13 @@ function baseOptions(
     includeTrivial: true,
     ...overrides,
   };
+}
+
+function sqliteOptions(
+  source: string,
+  overrides: Partial<ImporterOptions> = {},
+): ImporterOptions {
+  return baseOptions({ source, ...overrides });
 }
 
 async function collect(
@@ -50,6 +75,204 @@ async function collect(
     sessions.push(s);
   }
   return { sessions, stats };
+}
+
+function createSqliteFixture(): { dir: string; dbPath: string } {
+  const dir = mkdtempSync(join(tmpdir(), "me-opencode-sqlite-"));
+  const dbPath = join(dir, "opencode.db");
+  const db = new Database(dbPath, { create: true, strict: true });
+  try {
+    db.run(`create table project (
+      id text primary key,
+      worktree text not null,
+      vcs text,
+      name text,
+      icon_url text,
+      icon_color text,
+      time_created integer not null,
+      time_updated integer not null,
+      time_initialized integer,
+      sandboxes text not null
+    )`);
+    db.run(`create table session (
+      id text primary key,
+      project_id text not null,
+      parent_id text,
+      slug text not null,
+      directory text not null,
+      title text not null,
+      version text not null,
+      share_url text,
+      summary_additions integer,
+      summary_deletions integer,
+      summary_files integer,
+      summary_diffs text,
+      revert text,
+      permission text,
+      time_created integer not null,
+      time_updated integer not null,
+      time_compacting integer,
+      time_archived integer,
+      workspace_id text,
+      path text,
+      agent text,
+      model text,
+      cost real default 0 not null,
+      tokens_input integer default 0 not null,
+      tokens_output integer default 0 not null,
+      tokens_reasoning integer default 0 not null,
+      tokens_cache_read integer default 0 not null,
+      tokens_cache_write integer default 0 not null,
+      metadata text
+    )`);
+    db.run(`create table message (
+      id text primary key,
+      session_id text not null,
+      time_created integer not null,
+      time_updated integer not null,
+      data text not null
+    )`);
+    db.run(`create table part (
+      id text primary key,
+      message_id text not null,
+      session_id text not null,
+      time_created integer not null,
+      time_updated integer not null,
+      data text not null
+    )`);
+    db.run(
+      `insert into project (id, worktree, vcs, name, time_created, time_updated, sandboxes)
+       values (?, ?, ?, ?, ?, ?, ?)`,
+      [
+        "projSqlite",
+        "/Users/test/sqlite-project",
+        "git",
+        "SQLite Project",
+        SQLITE_TIMES.sessionStart,
+        SQLITE_TIMES.sessionEnd,
+        "[]",
+      ],
+    );
+    db.run(
+      `insert into session (id, project_id, slug, directory, title, version, time_created, time_updated, agent, model)
+       values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        "ses_sqlite",
+        "projSqlite",
+        "sqlite-lake",
+        "/Users/test/sqlite-project",
+        "SQLite-backed OpenCode session",
+        "1.18.1",
+        SQLITE_TIMES.sessionStart,
+        SQLITE_TIMES.sessionEnd,
+        "build",
+        JSON.stringify({ id: "claude-opus-4-7", providerID: "anthropic" }),
+      ],
+    );
+    db.run(
+      `insert into message (id, session_id, time_created, time_updated, data)
+       values (?, ?, ?, ?, ?)`,
+      [
+        "msg_user",
+        "ses_sqlite",
+        SQLITE_TIMES.userMessage,
+        SQLITE_TIMES.userMessage,
+        JSON.stringify({
+          role: "user",
+          time: { created: SQLITE_TIMES.userMessage },
+          agent: "build",
+          model: { providerID: "anthropic", modelID: "claude-opus-4-7" },
+        }),
+      ],
+    );
+    db.run(
+      `insert into message (id, session_id, time_created, time_updated, data)
+       values (?, ?, ?, ?, ?)`,
+      [
+        "msg_assistant",
+        "ses_sqlite",
+        SQLITE_TIMES.assistantMessage,
+        SQLITE_TIMES.assistantMessage,
+        JSON.stringify({
+          role: "assistant",
+          time: { created: SQLITE_TIMES.assistantMessage },
+          agent: "build",
+          model: { providerID: "anthropic", modelID: "claude-opus-4-7" },
+        }),
+      ],
+    );
+    db.run(
+      `insert into part (id, message_id, session_id, time_created, time_updated, data)
+       values (?, ?, ?, ?, ?, ?)`,
+      [
+        "prt_user",
+        "msg_user",
+        "ses_sqlite",
+        SQLITE_TIMES.userMessage,
+        SQLITE_TIMES.userMessage,
+        JSON.stringify({
+          type: "text",
+          text: "Import my current OpenCode sessions.",
+          time: { start: SQLITE_TIMES.userMessage },
+        }),
+      ],
+    );
+    db.run(
+      `insert into part (id, message_id, session_id, time_created, time_updated, data)
+       values (?, ?, ?, ?, ?, ?)`,
+      [
+        "prt_tool",
+        "msg_assistant",
+        "ses_sqlite",
+        SQLITE_TIMES.assistantToolPart,
+        SQLITE_TIMES.assistantToolPart,
+        JSON.stringify({
+          type: "tool",
+          tool: "bash",
+          time: { start: SQLITE_TIMES.assistantToolPart },
+          state: {
+            input: { command: "sqlite3 opencode.db '.tables'" },
+            output: "project session message part",
+          },
+        }),
+      ],
+    );
+    db.run(
+      `insert into part (id, message_id, session_id, time_created, time_updated, data)
+       values (?, ?, ?, ?, ?, ?)`,
+      [
+        "prt_reasoning",
+        "msg_assistant",
+        "ses_sqlite",
+        SQLITE_TIMES.assistantReasoningPart,
+        SQLITE_TIMES.assistantReasoningPart,
+        JSON.stringify({
+          type: "reasoning",
+          text: "Need to read the SQLite tables.",
+          time: { start: SQLITE_TIMES.assistantReasoningPart },
+        }),
+      ],
+    );
+    db.run(
+      `insert into part (id, message_id, session_id, time_created, time_updated, data)
+       values (?, ?, ?, ?, ?, ?)`,
+      [
+        "prt_text",
+        "msg_assistant",
+        "ses_sqlite",
+        SQLITE_TIMES.assistantTextPart,
+        SQLITE_TIMES.assistantTextPart,
+        JSON.stringify({
+          type: "text",
+          text: "I found the OpenCode SQLite tables.",
+          time: { start: SQLITE_TIMES.assistantTextPart },
+        }),
+      ],
+    );
+  } finally {
+    db.close();
+  }
+  return { dir, dbPath };
 }
 
 describe("opencode importer", () => {
@@ -113,6 +336,61 @@ describe("opencode importer", () => {
       "Explore DM image handling code.",
     );
   });
+
+  test("imports current SQLite-backed sessions", async () => {
+    const { dir, dbPath } = createSqliteFixture();
+    try {
+      const { sessions, stats } = await collect(sqliteOptions(dbPath));
+      expect(stats.totalFiles).toBe(1);
+      expect(sessions).toHaveLength(1);
+      const s = sessions[0];
+      if (!s) return;
+      expect(s.sessionId).toBe("ses_sqlite");
+      expect(s.title).toBe("SQLite-backed OpenCode session");
+      expect(s.cwd).toBe("/Users/test/sqlite-project");
+      expect(s.toolVersion).toBe("1.18.1");
+      expect(s.model).toBe("claude-opus-4-7");
+      expect(s.provider).toBe("anthropic");
+      expect(s.agentMode).toBe("build");
+      expect(s.sourceFile).toBe(`${dbPath}#session/ses_sqlite`);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("orders SQLite messages and parts by their creation times", async () => {
+    const { dir, dbPath } = createSqliteFixture();
+    try {
+      const { sessions } = await collect(sqliteOptions(dbPath));
+      const s = sessions[0];
+      if (!s) return;
+      expect(s.messages.map((m) => m.messageId)).toEqual([
+        "msg_user",
+        "msg_assistant",
+      ]);
+      const asst = s.messages[1];
+      expect(asst?.blocks.map((b) => b.kind)).toEqual([
+        "thinking",
+        "text",
+        "tool_use",
+        "tool_result",
+      ]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("prefers opencode.db when a data dir also contains legacy storage noise", async () => {
+    const { dir } = createSqliteFixture();
+    try {
+      mkdirSync(join(dir, "storage"), { recursive: true });
+      const { sessions, stats } = await collect(sqliteOptions(dir));
+      expect(stats.totalFiles).toBe(1);
+      expect(sessions.map((s) => s.sessionId)).toEqual(["ses_sqlite"]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
 });
 
 describe("opencode parseFile (live-capture path)", () => {
@@ -129,6 +407,22 @@ describe("opencode parseFile (live-capture path)", () => {
     // The live-capture parse must be byte-for-byte equivalent to bulk import,
     // so a hook capture and `me import opencode` reconcile onto the same rows.
     expect(parsed).toEqual(bulk);
+  });
+
+  test("parseSessionById reads one current SQLite session", async () => {
+    const { dir } = createSqliteFixture();
+    try {
+      const parsed = await parseSessionById("ses_sqlite", dir);
+      expect(parsed).not.toBeNull();
+      if (!parsed) return;
+      expect(parsed.sessionId).toBe("ses_sqlite");
+      expect(parsed.messages.map((m) => m.messageId)).toEqual([
+        "msg_user",
+        "msg_assistant",
+      ]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
 

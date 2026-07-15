@@ -133,8 +133,7 @@ export interface Importer {
   ): AsyncIterable<ImportedSession>;
   /**
    * Parse a single transcript file into one session (or null if empty / no
-   * messages). Used by the live capture hook (`importTranscriptFile`); only the
-   * Claude importer implements it for now.
+   * messages). Used by file-backed live capture hooks (`importTranscriptFile`).
    */
   parseFile?(path: string): Promise<ImportedSession | null>;
 }
@@ -348,7 +347,19 @@ export async function importTranscriptFile(
   }
   const session = await importer.parseFile(filePath);
   if (!session) return null;
+  return importTranscriptSession(engine, session, options);
+}
 
+/**
+ * Import one already-parsed session through the live-capture incremental path.
+ * This is shared by file-backed hooks and stores such as OpenCode's SQLite DB,
+ * where the plugin supplies a session id rather than a transcript path.
+ */
+export async function importTranscriptSession(
+  engine: MemoryClient,
+  session: ImportedSession,
+  options: WriteOptions,
+): Promise<SessionOutcome> {
   const { slug, gitRoot, gitRemote } = await new ProjectRegistry().resolve(
     session.cwd,
   );
