@@ -18,7 +18,9 @@
  * existing-state pre-fetch, so sessions of any size (including past the
  * 1000-row search page) reconcile exactly. Per session that is ceil(n/chunk)
  * `memory.batchCreate` calls; the live-capture hook adds one `memory.search`
- * to narrow the submission to the new suffix.
+ * to narrow the submission to the new suffix. Home-root (`~`) imports also add
+ * one cached `access.effective` call per client so thread links are stored as
+ * absolute `/home/...` paths rather than caller-relative `~` paths.
  */
 
 import type { MemoryCreateParams } from "@memory.build/protocol/memory";
@@ -47,10 +49,10 @@ import { uuidv7At } from "./uuid.ts";
  * rewrites every previously-imported row, propagating parser changes without
  * manual intervention.
  *
- * Locked at "1" during pre-release iteration — bump only after the first
- * real release so early adopters get parser fixes without a manual wipe.
+ * Bumped to "2" to rewrite pre-0.6.1 session links that stored caller-relative
+ * `/~/...` paths in `$prev` metadata for imports under `~`.
  */
-export const IMPORTER_VERSION = "1";
+export const IMPORTER_VERSION = "2";
 
 /** Meta key carrying the importer version (provenance; a bump re-renders via the meta diff). */
 const IMPORTER_VERSION_KEY = "importer_version";
@@ -192,6 +194,8 @@ export interface WriteOptions {
   dryRun: boolean;
   /** Verbose per-session logging. */
   verbose: boolean;
+  /** Canonical home ltree prefix for stable thread links under `~` trees. */
+  linkHomePrefix?: string;
 }
 
 /**
@@ -207,6 +211,8 @@ export interface SessionRoute {
   tree?: string;
   /** Parent for the per-slug fallback layout (`<treeRoot>.<slug>.…`). */
   treeRoot: string;
+  /** Canonical home ltree prefix for stable thread links under `~` trees. */
+  linkHomePrefix?: string;
 }
 
 /**
@@ -253,6 +259,8 @@ export async function runImport(
   let skipped = 0;
   let failed = 0;
 
+  const linkHomePrefixes = new WeakMap<MemoryClient, Promise<string>>();
+
   for await (const session of importer.discoverSessions(
     importerOptions,
     stats,
@@ -281,12 +289,19 @@ export async function runImport(
         ...writeOptions,
         tree: decision.route.tree,
         treeRoot: decision.route.treeRoot,
+        linkHomePrefix: decision.route.linkHomePrefix,
       };
     }
     sessionsProcessed++;
 
     const { slug, gitRoot, gitRemote } = await projects.resolve(session.cwd);
     const tree = sessionTree(write, slug, session.sessionId);
+    write = await withLinkHomePrefix(
+      sessionEngine,
+      write,
+      tree,
+      linkHomePrefixes,
+    );
 
     const outcome = await writeSession(
       sessionEngine,
@@ -364,8 +379,14 @@ export async function importTranscriptSession(
     session.cwd,
   );
   const tree = sessionTree(options, slug, session.sessionId);
+  const write = await withLinkHomePrefix(
+    engine,
+    options,
+    tree,
+    new WeakMap<MemoryClient, Promise<string>>(),
+  );
 
-  const plan = planSession(session, tree, slug, gitRoot, gitRemote, options);
+  const plan = planSession(session, tree, slug, gitRoot, gitRemote, write);
   const outcome: SessionOutcome = {
     sessionId: session.sessionId,
     title: synthesizeTitle(session),
@@ -395,8 +416,49 @@ export async function importTranscriptSession(
     }
   }
 
-  await submitPlanned(engine, planned, outcome, options);
+  await submitPlanned(engine, planned, outcome, write);
   return outcome;
+}
+
+function treeUsesHome(tree: string): boolean {
+  const normalized = tree
+    .replace(/\//g, ".")
+    .replace(/\.{2,}/g, ".")
+    .replace(/^\.+|\.+$/g, "");
+  return normalized === "~" || normalized.startsWith("~.");
+}
+
+function homeLabel(principalId: string): string {
+  return principalId.replace(/-/g, "");
+}
+
+async function resolveLinkHomePrefix(engine: MemoryClient): Promise<string> {
+  const { principal } = await engine.access.effective();
+  if (principal.kind === "s") {
+    throw new Error("Home tree '~' is not available to service accounts");
+  }
+  if (principal.kind === "a") {
+    if (!principal.ownerId) {
+      throw new Error("Agent home tree '~' requires an owner id");
+    }
+    return `home.${homeLabel(principal.ownerId)}.${homeLabel(principal.id)}`;
+  }
+  return `home.${homeLabel(principal.id)}`;
+}
+
+async function withLinkHomePrefix(
+  engine: MemoryClient,
+  options: WriteOptions,
+  tree: string,
+  cache: WeakMap<MemoryClient, Promise<string>>,
+): Promise<WriteOptions> {
+  if (!treeUsesHome(tree) || options.linkHomePrefix) return options;
+  let prefix = cache.get(engine);
+  if (!prefix) {
+    prefix = resolveLinkHomePrefix(engine);
+    cache.set(engine, prefix);
+  }
+  return { ...options, linkHomePrefix: await prefix };
 }
 
 /**
@@ -503,6 +565,7 @@ function planSession(
   stampConversationLinks(
     dedup.unique.map((p) => p.payload),
     session.sessionId,
+    { homePrefix: options.linkHomePrefix },
   );
   return {
     planned: dedup.unique,

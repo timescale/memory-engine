@@ -29,6 +29,19 @@ const WRITE: WriteOptions = {
   verbose: false,
 };
 
+const EFFECTIVE_ACCESS = {
+  space: { id: "space-1", slug: "space0000001", name: "Space" },
+  principal: {
+    id: "user-123",
+    kind: "u" as const,
+    name: "User",
+    ownerId: null,
+    admin: false,
+  },
+  authenticatedAs: null,
+  access: [],
+};
+
 /** A mock engine backed by an in-memory store keyed on (tree, name), mimicking
  *  the server: named rows dedup on (tree, name), keeping the existing row's id. */
 function mockEngine() {
@@ -43,6 +56,9 @@ function mockEngine() {
     }
   >();
   const client = {
+    access: {
+      effective: async () => EFFECTIVE_ACCESS,
+    },
     memory: {
       // Filter by source_session_id, order by id desc (server default for
       // filter-only — id encodes the message time), slice to limit.
@@ -305,7 +321,7 @@ describe("importTranscriptFile", () => {
     expect(out?.inserted).toBe(0);
     expect(out?.skipped).toBe(0);
     for (const row of store.values()) {
-      expect(row.meta.importer_version).toBe("1");
+      expect(row.meta.importer_version).toBe("2");
       expect(row.content).not.toBe("stale render");
     }
   });
@@ -366,5 +382,24 @@ describe("importTranscriptFile", () => {
     // incrementally-submitted "d" still points back at the already-stored "c".
     expect(d.meta.$prev).toBe(memoryPath(c.tree, c.name));
     expect(d.meta.$thread).toBe("sess-1");
+  });
+
+  test("a ~ tree root stamps absolute home paths in $prev", async () => {
+    const { client, store } = mockEngine();
+    await importTranscriptFile(
+      client,
+      importerFor(session(["a", "b"])),
+      "/x.jsonl",
+      { ...WRITE, treeRoot: "~" },
+    );
+    const rows = [...store.values()];
+    const a = rows.find((r) => r.meta.source_message_id === "a");
+    const b = rows.find((r) => r.meta.source_message_id === "b");
+    if (!a || !b) throw new Error("expected imported messages");
+    expect(String(b.meta.$prev)).toStartWith(
+      "/home/user123/myproj/agent_sessions/",
+    );
+    expect(String(b.meta.$prev)).toEndWith(`/${a.name}`);
+    expect(String(b.meta.$prev)).not.toContain("/~");
   });
 });

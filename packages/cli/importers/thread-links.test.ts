@@ -63,6 +63,32 @@ describe("stampConversationLinks", () => {
     );
   });
 
+  test("$prev under ~ uses an absolute home path, not caller-relative ~", () => {
+    const payloads = [
+      payload("~.memory_engine.agent_sessions.sess1", "msg_a"),
+      payload("~.memory_engine.agent_sessions.sess1", "msg_b"),
+    ];
+    stampConversationLinks(payloads, "sess1", {
+      homePrefix: "home.user123",
+    });
+    expect(payloads[1]?.meta?.$prev).toBe(
+      "/home/user123/memory_engine/agent_sessions/sess1/msg_a",
+    );
+  });
+
+  test("$prev under ~/ also uses an absolute home path", () => {
+    const payloads = [
+      payload("~/projects.memory_engine.agent_sessions.sess1", "msg_a"),
+      payload("~/projects.memory_engine.agent_sessions.sess1", "msg_b"),
+    ];
+    stampConversationLinks(payloads, "sess1", {
+      homePrefix: "home.user123.agent456",
+    });
+    expect(payloads[1]?.meta?.$prev).toBe(
+      "/home/user123/agent456/projects/memory_engine/agent_sessions/sess1/msg_a",
+    );
+  });
+
   test("is a no-op on an empty list", () => {
     expect(() => stampConversationLinks([], "sess1")).not.toThrow();
   });

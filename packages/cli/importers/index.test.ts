@@ -87,6 +87,20 @@ const WRITE: WriteOptions = {
 function capturingEngine() {
   const writes: Array<{ tree: string; name?: string }> = [];
   const engine = {
+    access: {
+      effective: async () => ({
+        space: { id: "space-1", slug: "space0000001", name: "Space" },
+        principal: {
+          id: "user-123",
+          kind: "u" as const,
+          name: "User",
+          ownerId: null,
+          admin: false,
+        },
+        authenticatedAs: null,
+        access: [],
+      }),
+    },
     memory: {
       batchCreate: async (p: {
         memories: Array<{ id: string; tree: string; name?: string }>;
