@@ -48,7 +48,9 @@ function contentTypeFor(path: string): string {
 }
 
 function isClientRoute(target: string): boolean {
-  return extname(target) === "" || target.startsWith("/invite/");
+  if (extname(target) === "") return true;
+  // Invite links are `/invite/inv.<secret>` (dot-bearing token).
+  return /^\/invite\/inv\.[^/]+$/.test(target);
 }
 
 const PLACEHOLDER_HTML = `<!doctype html>
