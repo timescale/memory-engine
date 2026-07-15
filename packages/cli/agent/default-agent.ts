@@ -21,6 +21,7 @@
 import * as clack from "@clack/prompts";
 import {
   getGlobalAgent,
+  getGlobalConfigPath,
   type ResolvedCredentials,
   RUN_AS_USER_SENTINEL,
   setGlobalAgent,
@@ -72,14 +73,14 @@ function staleConfiguredAgentMessage(agent: string): string {
   return (
     `Global config says harnesses should run as agent '${agent}', ` +
     "but you do not own an agent with that name or id. " +
-    `Create it, or change 'agent:' in ~/.config/me/config.yaml.`
+    `Create it, or change 'agent:' in ${getGlobalConfigPath()}.`
   );
 }
 
 function ambiguousConfiguredAgentMessage(agent: string): string {
   return (
     `Global config agent '${agent}' matches multiple agents you own. ` +
-    "Rename the conflicting agent, or change 'agent:' in ~/.config/me/config.yaml."
+    `Rename the conflicting agent, or change 'agent:' in ${getGlobalConfigPath()}.`
   );
 }
 
@@ -158,7 +159,7 @@ export async function ensureDefaultAgent(
     )(targetAgent);
     if (!shouldCreate) {
       clack.log.warn(
-        `Default agent not created. Harnesses configured with agent: ${targetAgent} will fail until you create that agent or change ~/.config/me/config.yaml.`,
+        `Default agent not created. Harnesses configured with agent: ${targetAgent} will fail until you create that agent or change ${getGlobalConfigPath()}.`,
       );
       return;
     }
@@ -197,12 +198,12 @@ export async function ensureDefaultAgent(
   const closingLines = opts?.perProjectStepFollows
     ? [
         "and you can restrict its access at any time. To use a different agent",
-        "globally, set `agent:` in ~/.config/me/config.yaml — this project's own",
+        `globally, set \`agent:\` in ${getGlobalConfigPath()} — this project's own`,
         "agent choice comes up next.",
       ]
     : [
         "and you can restrict its access at any time. To use a different agent,",
-        "set `agent:` in ~/.config/me/config.yaml or run `me project init` for a",
+        `set \`agent:\` in ${getGlobalConfigPath()} or run \`me project init\` for a`,
         "per-project choice.",
       ];
   clack.note(

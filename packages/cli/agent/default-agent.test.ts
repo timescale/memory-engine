@@ -9,11 +9,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 const noteCalls: unknown[][] = [];
+const warnCalls: unknown[][] = [];
 
 mock.module("@clack/prompts", () => ({
   confirm: mock(async () => true),
   isCancel: () => false,
-  log: { warn: mock() },
+  log: { warn: (...args: unknown[]) => warnCalls.push(args) },
   note: (...args: unknown[]) => noteCalls.push(args),
 }));
 
@@ -84,6 +85,7 @@ beforeEach(() => {
   process.env.XDG_CONFIG_HOME = configDir;
   process.env.ME_NO_KEYCHAIN = "1";
   noteCalls.length = 0;
+  warnCalls.length = 0;
   resetKeychainForTests();
 });
 
@@ -172,7 +174,7 @@ test("stale global coder fails clearly in non-interactive installs", async () =>
       clients,
       interactive: false,
     }),
-  ).rejects.toThrow("but you do not own an agent with that name or id");
+  ).rejects.toThrow(join(configDir, "me", "config.yaml"));
   expect(calls).toEqual([["agent.list"]]);
   expect(getGlobalAgent()).toBe("coder");
 });
@@ -213,6 +215,9 @@ test("stale global coder remains explicit when creation is declined", async () =
 
   expect(calls).toEqual([["agent.list"]]);
   expect(getGlobalAgent()).toBe("coder");
+  expect(String(warnCalls.at(-1)?.[0])).toContain(
+    join(configDir, "me", "config.yaml"),
+  );
 });
 
 test("stale custom global agent can be created when confirmed", async () => {
