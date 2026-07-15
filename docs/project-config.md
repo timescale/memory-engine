@@ -243,7 +243,10 @@ Resolution, per harness invocation:
 
 Case 3 is rare in practice: every `me claude install` / `me opencode install`
 provisions-or-adopts a default agent (named `coder`) and writes it as the
-global fallback the first time you install (skip with `--no-default-agent`).
+global fallback the first time you install (skip with `--no-default-agent`). If
+a global `agent:` is already set but does not resolve to an agent you own, an
+interactive install offers to create it; a non-interactive install fails with an
+actionable error instead of leaving harnesses broken.
 
 ### The `.user` sentinel — opting a project (or machine) out
 

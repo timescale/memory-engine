@@ -29,7 +29,7 @@ By default only the server URL is baked into the config: at runtime `me mcp` use
 
 `me codex install` also adds a hook to `~/.codex/hooks.json` so that a plain `me` call from Codex's shell automatically runs as your configured agent in the right project. Re-running install is safe and leaves any other hooks you've configured untouched. **One-time step**: Codex holds new hooks for review — run `/hooks` inside Codex once to approve it. Until you do, a plain `me` call from Codex's shell won't run as your agent; `me codex install` prints this reminder.
 
-Unless a session install already used `--no-default-agent` or a global `agent:` is already set, install also provisions a default agent (adopts-or-creates `coder`) — see [Agent-by-config](../project-config.md#agent-by-config-and-the-agent-field).
+Unless a session install already used `--no-default-agent` or a valid custom global `agent:` / `.user` opt-out is already set, install also provisions a default agent (adopts-or-creates `coder`) — see [Agent-by-config](../project-config.md#agent-by-config-and-the-agent-field). If a configured global agent is stale, install prompts to create it interactively or fails clearly non-interactively.
 
 For manual MCP client configuration, see [MCP Integration](../mcp-integration.md).
 
