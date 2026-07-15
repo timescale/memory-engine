@@ -1,13 +1,13 @@
 /**
  * OpenCode capture hook — config resolution + event shape.
  *
- * Capture itself is the import path: `me opencode hook` resolves a session id to
- * its storage file and runs it through `importTranscriptFile`
- * (packages/cli/importers), so live captures and `me import opencode` produce
- * identical memories (tree, ids, `source_*` metadata). This module only resolves
- * the runtime config (bearer + space + tree root + content mode) and types the
- * hook event names. The orchestration lives in `commands/opencode.ts`
- * (`me opencode hook`).
+ * Capture itself is the import path: `me opencode hook` resolves a session id
+ * from OpenCode's SQLite DB or legacy storage and runs it through the shared
+ * transcript writer (packages/cli/importers), so live captures and
+ * `me import opencode` produce identical memories (tree, ids, `source_*`
+ * metadata). This module only resolves the runtime config (bearer + space +
+ * tree root + content mode) and types the hook event names. The orchestration
+ * lives in `commands/opencode.ts` (`me opencode hook`).
  *
  * Unlike the Claude plugin, OpenCode has no declarative userConfig/keychain, so
  * there are no `*_PLUGIN_OPTION_*` env vars: credentials come from the user's

@@ -14,7 +14,7 @@ All three subcommands accept the same flags (with one extra flag on the Claude i
 
 | Option | Description |
 |--------|-------------|
-| `--source <dir>` | Override the default source directory for this tool. |
+| `--source <dir>` | Override the default source directory for this tool. For OpenCode, this may be the data directory, a direct `opencode.db` path, or a legacy `storage` directory. |
 | `--project <cwd>` | Only import sessions whose cwd equals or is below this path. |
 | `--since <iso>` | Only import sessions started at or after this ISO 8601 timestamp. |
 | `--until <iso>` | Only import sessions started at or before this ISO 8601 timestamp. |

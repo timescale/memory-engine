@@ -11,7 +11,7 @@
  * capture hook.
  *
  * Shared flags across every agent import subcommand:
- *   --source <dir>           override default source directory
+ *   --source <dir>           override default source directory / DB
  *   --project <cwd>          only import sessions with this cwd (or a child)
  *   --since <iso>            only sessions started at/after this timestamp
  *   --until <iso>            only sessions started at/before this timestamp
@@ -77,7 +77,7 @@ function addCommonOptions(
   includeSidechainsFlag: boolean,
 ): Command {
   cmd
-    .option("--source <dir>", "override default source directory")
+    .option("--source <dir>", "override default source directory or database")
     .option(
       "--project <cwd>",
       "only import sessions with this cwd (or a subdirectory of it)",
@@ -424,7 +424,7 @@ function renderResult(
         `${result.skipped} skipped, ${result.failed} failed messages ` +
         `across ${result.sessionsProcessed} sessions for ${tool}`,
     );
-    console.log(`  Scanned ${result.discovery.totalFiles} session files`);
+    console.log(`  Scanned ${result.discovery.totalFiles} session sources`);
     const sessionSkipTotal = Object.values(skippedBreakdown).reduce(
       (a, b) => a + b,
       0,
@@ -511,7 +511,7 @@ export function createCodexImportCommand(name = "import"): Command {
 
 export function createOpenCodeImportCommand(name = "import"): Command {
   return buildAgentImportSubcommand(
-    "import OpenCode sessions from ~/.local/share/opencode/storage",
+    "import OpenCode sessions from ~/.local/share/opencode/opencode.db or legacy storage",
     opencodeImporter,
     false,
     name,

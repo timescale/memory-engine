@@ -33,7 +33,7 @@ See [me memory import](me-memory.md#me-memory-import) for the full option refere
 
 ## me import claude / codex / opencode
 
-Import agent sessions from each tool's native storage. The per-agent spellings (`me claude import`, `me codex import`, `me opencode import`) are aliases of these commands.
+Import agent sessions from each tool's native storage. The per-agent spellings (`me claude import`, `me codex import`, `me opencode import`) are aliases of these commands. OpenCode imports prefer the current SQLite database at `~/.local/share/opencode/opencode.db` and fall back to the legacy JSON `storage/` layout.
 
 ```
 me import claude [options]
