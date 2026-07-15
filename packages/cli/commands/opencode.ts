@@ -344,7 +344,15 @@ function createOpenCodeHookCommand(): Command {
 
         // Resolve the session id from SQLite when available, falling back to
         // the legacy JSON storage tree.
-        const session = await parseSessionById(opts.session, opts.storage);
+        let session: Awaited<ReturnType<typeof parseSessionById>>;
+        try {
+          session = await parseSessionById(opts.session, opts.storage);
+        } catch (error) {
+          console.error(
+            `[memory-engine] ${eventName}: ${error instanceof Error ? error.message : String(error)}`,
+          );
+          process.exit(0);
+        }
         if (!session) {
           console.error(
             `[memory-engine] ${eventName}: session '${opts.session}' not found in OpenCode data`,
