@@ -3,8 +3,10 @@
  *
  * Serves the Vite build from disk (`webDist`) at the site root, with the same
  * single-page-app semantics `me serve` uses (the CLI's
- * `packages/cli/serve/web-assets.ts`): exact asset match → file, extension-less
- * path → `index.html` (client-side routing), missing asset → 404. The CLI
+ * `packages/cli/serve/web-assets.ts`): exact asset match → file, client-side
+ * route → `index.html`, missing asset → 404. Most client routes are
+ * extension-less, but invite tokens are `inv.<secret>`, so `/invite/...` must be
+ * treated as a route even though the final segment contains a dot. The CLI
  * embeds the build in its binary; the server reads it from the container
  * filesystem instead.
  *
@@ -43,6 +45,10 @@ const MIME: Record<string, string> = {
 
 function contentTypeFor(path: string): string {
   return MIME[extname(path).toLowerCase()] ?? "application/octet-stream";
+}
+
+function isClientRoute(target: string): boolean {
+  return extname(target) === "" || target.startsWith("/invite/");
 }
 
 const PLACEHOLDER_HTML = `<!doctype html>
@@ -185,8 +191,10 @@ export function createStaticHandler(opts: {
         }
       }
 
-      // SPA fallback: an extension-less path is a client-side route → index.html.
-      if (extname(target) === "") return serveIndex(request);
+      // SPA fallback: client-side routes → index.html. Invite tokens are
+      // dot-bearing (`inv.<secret>`), so extension checks alone would 404 them
+      // before React can redeem the token.
+      if (isClientRoute(target)) return serveIndex(request);
 
       return new Response("Not Found", {
         status: 404,

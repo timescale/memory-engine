@@ -94,6 +94,13 @@ describe("createStaticHandler", () => {
     expect(await res.text()).toContain("__ME_BOOTSTRAP__");
   });
 
+  test("falls back to index.html for invite routes with dot-bearing tokens", async () => {
+    const res = await get("/invite/inv.lM28XmqL7wjmsKBTQtP1EgiPeKFVLQ4Z");
+    expect(res.status).toBe(200);
+    expect(res.headers.get("Content-Type")).toContain("text/html");
+    expect(await res.text()).toContain("__ME_BOOTSTRAP__");
+  });
+
   test("404s a missing asset (has an extension)", async () => {
     const res = await get("/assets/missing.js");
     expect(res.status).toBe(404);
