@@ -25,6 +25,32 @@ import {
   memoryPath,
 } from "@memory.build/protocol/meta";
 
+export interface ThreadLinkOptions {
+  /**
+   * Canonical `home.<principal>` prefix used to make links under `~` stable
+   * across readers. Stored meta must not contain caller-relative `~` paths.
+   */
+  homePrefix?: string;
+}
+
+function linkedMemoryPath(
+  tree: string,
+  name: string,
+  opts: ThreadLinkOptions,
+): string {
+  const normalized = tree
+    .replace(/\//g, ".")
+    .replace(/\.{2,}/g, ".")
+    .replace(/^\.+|\.+$/g, "");
+  if (normalized === "~" || normalized.startsWith("~.")) {
+    const homeTree = opts.homePrefix
+      ? `${opts.homePrefix}${normalized.slice(1)}`
+      : normalized;
+    return memoryPath(homeTree, name);
+  }
+  return memoryPath(tree, name);
+}
+
 /**
  * Stamp `$thread` on every payload and `$prev` on all but the first, in the
  * given order. Mutates each payload's `meta` in place.
@@ -32,6 +58,7 @@ import {
 export function stampConversationLinks(
   payloads: MemoryCreateParams[],
   threadId: string,
+  opts: ThreadLinkOptions = {},
 ): void {
   let prevPath: string | undefined;
   for (const payload of payloads) {
@@ -43,7 +70,9 @@ export function stampConversationLinks(
     // has a name here (messageName); guard so a nameless row just breaks the
     // chain rather than emitting a malformed path.
     prevPath =
-      payload.name != null ? memoryPath(payload.tree, payload.name) : undefined;
+      payload.name != null
+        ? linkedMemoryPath(payload.tree, payload.name, opts)
+        : undefined;
   }
 }
 
