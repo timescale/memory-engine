@@ -211,6 +211,11 @@ function getConfigPath(): string {
   return join(getConfigDir(), "config.yaml");
 }
 
+/** User-facing path to the global non-secret config file. */
+export function getGlobalConfigPath(): string {
+  return getConfigPath();
+}
+
 function getCredentialsPath(): string {
   return join(getConfigDir(), "credentials.yaml");
 }
