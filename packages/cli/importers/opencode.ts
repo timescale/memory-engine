@@ -55,14 +55,10 @@ interface MessageMeta {
   agent?: string;
 }
 
-interface SqliteProjectRow {
-  id: string;
-  worktree: string | null;
-}
-
 interface SqliteSessionRow {
   id: string;
   project_id: string;
+  project_worktree: string | null;
   directory: string | null;
   title: string | null;
   version: string | null;
@@ -93,10 +89,10 @@ export const opencodeImporter: Importer = {
 };
 
 /**
- * Parse a single OpenCode session file into one session — the live-capture path
- * used by `me opencode hook`. The storage root is the `storage/` ancestor three
- * levels up from the session file (`<storageRoot>/session/<projectID>/ses_<id>.json`),
- * so the per-message/per-part directories resolve the same way bulk import does.
+ * Parse a single legacy OpenCode session JSON file into one session. The
+ * storage root is the `storage/` ancestor three levels up from the session file
+ * (`<storageRoot>/session/<projectID>/ses_<id>.json`), so the per-message and
+ * per-part directories resolve the same way legacy bulk import does.
  */
 async function parseSessionFile(file: string): Promise<ImportedSession | null> {
   const storageRoot = dirname(dirname(dirname(file)));
@@ -221,12 +217,6 @@ async function resolveOpenCodeSource(
   }
   if (await isDirectory(join(source, "storage", "session"))) {
     return { kind: "legacy", storageRoot: join(source, "storage") };
-  }
-  if (
-    source === DEFAULT_SOURCE &&
-    (await isDirectory(join(DEFAULT_LEGACY_STORAGE, "session")))
-  ) {
-    return { kind: "legacy", storageRoot: DEFAULT_LEGACY_STORAGE };
   }
   return null;
 }
@@ -433,10 +423,12 @@ async function* discoverSqliteSessions(
   try {
     const rows = db
       .query<SqliteSessionRow, []>(
-        `select id, project_id, directory, title, version, agent, model,
-                time_created, time_updated
-           from session
-          order by time_created, id`,
+        `select s.id, s.project_id, p.worktree as project_worktree,
+                s.directory, s.title, s.version, s.agent, s.model,
+                s.time_created, s.time_updated
+           from session s
+           left join project p on p.id = s.project_id
+          order by s.time_created, s.id`,
       )
       .all();
     for (const row of rows) {
@@ -479,10 +471,12 @@ function parseSqliteSessionById(
   try {
     const row = db
       .query<SqliteSessionRow, [string]>(
-        `select id, project_id, directory, title, version, agent, model,
-                time_created, time_updated
-           from session
-          where id = ?`,
+        `select s.id, s.project_id, p.worktree as project_worktree,
+                s.directory, s.title, s.version, s.agent, s.model,
+                s.time_created, s.time_updated
+           from session s
+           left join project p on p.id = s.project_id
+          where s.id = ?`,
       )
       .get(sessionId);
     return row ? parseSqliteSession(db, dbPath, row) : null;
@@ -496,11 +490,6 @@ function parseSqliteSession(
   dbPath: string,
   row: SqliteSessionRow,
 ): ImportedSession | null {
-  const project = db
-    .query<SqliteProjectRow, [string]>(
-      "select id, worktree from project where id = ?",
-    )
-    .get(row.project_id);
   const messageRows = db
     .query<SqliteMessageRow, [string]>(
       `select id, time_created, data
@@ -582,7 +571,7 @@ function parseSqliteSession(
     tool: "opencode",
     sessionId: row.id,
     title: row.title ?? undefined,
-    cwd: row.directory ?? project?.worktree ?? undefined,
+    cwd: row.directory ?? row.project_worktree ?? undefined,
     toolVersion: row.version ?? undefined,
     model,
     provider,
