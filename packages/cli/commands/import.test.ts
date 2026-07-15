@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import type { MemoryClient } from "../client.ts";
 import {
@@ -38,6 +38,12 @@ describe("buildOptions", () => {
     expect(buildOptions({ treeRoot: "~/work" }).write.treeRoot).toBe("~/work");
     expect(buildOptions({ treeRoot: "share.projects" }).write.treeRoot).toBe(
       "share.projects",
+    );
+  });
+
+  test("rejects a shell-expanded ~ tree root before writes start", () => {
+    expect(() => buildOptions({ treeRoot: homedir() })).toThrow(
+      "looks like your shell expanded '~'",
     );
   });
 

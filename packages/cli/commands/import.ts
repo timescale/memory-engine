@@ -60,6 +60,7 @@ import {
   handleError,
   requireAuth,
   requireSpace,
+  shellTildeExpansionHint,
 } from "../util.ts";
 
 // Default capture layout (~/projects.<slug>.agent_sessions — private) lives in the
@@ -151,6 +152,15 @@ export function buildOptions(
     typeof opts.sessionsNodeName === "string"
       ? opts.sessionsNodeName
       : DEFAULT_SESSIONS_NODE_NAME;
+  if (explicitTreeRoot) {
+    const hint = shellTildeExpansionHint(treeRoot);
+    if (hint) {
+      throw new Error(
+        `Invalid --tree-root: '${treeRoot}' looks like your shell expanded '~'.
+${hint}`,
+      );
+    }
+  }
   if (!VALID_TREE_ROOT_RE.test(treeRoot)) {
     throw new Error(
       `Invalid --tree-root: '${treeRoot}'. Use ltree labels ([A-Za-z0-9_-]) separated by '.' or '/', with an optional leading '~' for your home.`,
