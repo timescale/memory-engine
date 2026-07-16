@@ -11,8 +11,8 @@
  * surface tints are opacity-based so they hold on any near-white surface —
  * use them via Tailwind opacity modifiers, e.g. `border-ink/[0.12]`,
  * `bg-ink/[0.03]`, `text-ink/50`. Dark mode flips `--color-ink` /
- * `--color-surface` (see the `.dark` block below), so those tints — and
- * everything built on them — invert for free.
+ * `--color-surface` (see the `.dark` block below), so those tints (and
+ * everything built on them) invert for free.
  */
 @theme {
   --font-sans: "Geist", "Inter", system-ui, -apple-system, sans-serif;
@@ -43,7 +43,7 @@
   --color-tiger-red: #ff9b8e;
 }
 
-/* Dark theme overrides — ink and surface swap; links brighten for contrast.
+/* Dark theme overrides: ink and surface swap; links brighten for contrast.
  * `color-scheme` keeps native form controls (number spinners, selects, date
  * pickers, checkboxes) and default scrollbars on the active theme. */
 :root {

@@ -1,6 +1,6 @@
 /**
- * Top header bar — 54px, logo + product name (left), theme toggle + space
- * switcher + account (right). Matches the "Console" handoff: a single
+ * Top header bar (54px): logo + product name (left), space switcher +
+ * account + theme toggle (right). Matches the "Console" handoff: a single
  * bordered bar above the search/controls row.
  */
 import { useTheme } from "../../store/theme.ts";
@@ -38,6 +38,7 @@ function ThemeToggle() {
       onClick={toggle}
       title={label}
       aria-label={label}
+      aria-pressed={theme === "dark"}
       className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-ink/[0.16] text-ink/70 transition-colors hover:border-ink hover:text-ink"
     >
       {theme === "dark" ? (

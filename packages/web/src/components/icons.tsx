@@ -97,7 +97,7 @@ export function RefreshIcon({
   );
 }
 
-/** Sun glyph — theme toggle button while dark mode is active. */
+/** Sun glyph: theme toggle button while dark mode is active. */
 export function SunIcon({ className }: { className?: string }) {
   return (
     <svg
@@ -117,7 +117,7 @@ export function SunIcon({ className }: { className?: string }) {
   );
 }
 
-/** Moon glyph — theme toggle button while light mode is active. */
+/** Moon glyph: theme toggle button while light mode is active. */
 export function MoonIcon({ className }: { className?: string }) {
   return (
     <svg
