@@ -502,7 +502,7 @@ function PrimaryButton({
       type="button"
       onClick={onClick}
       disabled={disabled}
-      className="inline-flex h-8 items-center rounded-md bg-solar px-3 text-[12px] font-semibold text-ink transition-colors hover:bg-solar-hover disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-solar"
+      className="inline-flex h-8 items-center rounded-md bg-solar px-3 text-[12px] font-semibold text-solar-ink transition-colors hover:bg-solar-hover disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-solar"
     >
       {children}
     </button>

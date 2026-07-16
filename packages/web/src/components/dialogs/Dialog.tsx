@@ -47,7 +47,7 @@ export function Dialog({ open, onClose, title, children, footer }: Props) {
         tabIndex={-1}
         role="dialog"
         aria-modal="true"
-        className="relative w-full max-w-md rounded-xl border border-ink/[0.14] bg-white shadow-xl focus:outline-none"
+        className="relative w-full max-w-md rounded-xl border border-ink/[0.14] bg-surface shadow-xl focus:outline-none"
       >
         {title && (
           <header className="border-b border-ink/[0.12] px-5 py-3 text-[14px] font-semibold text-ink">

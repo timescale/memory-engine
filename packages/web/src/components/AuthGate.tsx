@@ -269,7 +269,7 @@ function CenteredMessage({ children }: { children: ReactNode }) {
 function Card({ children }: { children: ReactNode }) {
   return (
     <div className="flex h-full items-center justify-center p-6">
-      <div className="w-full max-w-sm rounded-xl border border-ink/[0.14] bg-white p-8">
+      <div className="w-full max-w-sm rounded-xl border border-ink/[0.14] bg-surface p-8">
         {children}
       </div>
     </div>
@@ -305,7 +305,7 @@ function ErrorScreen({ onRetry }: { onRetry: () => void }) {
       <button
         type="button"
         onClick={onRetry}
-        className="mt-6 inline-flex h-9 items-center rounded-md bg-solar px-4 text-[13px] font-semibold text-ink transition-colors hover:bg-solar-hover"
+        className="mt-6 inline-flex h-9 items-center rounded-md bg-solar px-4 text-[13px] font-semibold text-solar-ink transition-colors hover:bg-solar-hover"
       >
         Retry
       </button>
@@ -373,7 +373,7 @@ function OnboardingScreen({
         type="button"
         disabled={busy}
         onClick={createSpace}
-        className="mt-3 inline-flex h-9 items-center rounded-md bg-solar px-4 text-[13px] font-semibold text-ink transition-colors hover:bg-solar-hover disabled:opacity-50"
+        className="mt-3 inline-flex h-9 items-center rounded-md bg-solar px-4 text-[13px] font-semibold text-solar-ink transition-colors hover:bg-solar-hover disabled:opacity-50"
       >
         {busy ? "Creating…" : "Create a personal space"}
       </button>
@@ -416,7 +416,7 @@ function SpacePicker({
               key={s.slug}
               type="button"
               onClick={() => onChoose(s.slug)}
-              className="rounded-md border border-ink/[0.18] bg-white px-4 py-2 text-left text-[13px] font-medium text-ink transition-colors hover:border-ink"
+              className="rounded-md border border-ink/[0.18] bg-surface px-4 py-2 text-left text-[13px] font-medium text-ink transition-colors hover:border-ink"
             >
               {s.name}
             </button>

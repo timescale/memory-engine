@@ -81,7 +81,7 @@ export function AdvancedSearchSection() {
       </div>
 
       {!searchCollapsed && (
-        <div className="absolute inset-x-0 top-full z-30 mt-3 max-h-[min(70vh,640px)] overflow-y-auto overflow-x-hidden rounded-lg border border-ink/[0.12] bg-white shadow-xl">
+        <div className="absolute inset-x-0 top-full z-30 mt-3 max-h-[min(70vh,640px)] overflow-y-auto overflow-x-hidden rounded-lg border border-ink/[0.12] bg-surface shadow-xl">
           <AdvancedSearchPanel onSearch={() => setSearchCollapsed(true)} />
         </div>
       )}

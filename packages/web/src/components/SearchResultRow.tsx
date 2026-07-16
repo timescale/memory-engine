@@ -71,7 +71,7 @@ export function SearchResultRow({
             </span>
           )}
           {showScore && (
-            <span className="shrink-0 rounded bg-white px-1.5 py-0.5 text-ink/70 ring-1 ring-ink/[0.12]">
+            <span className="shrink-0 rounded bg-surface px-1.5 py-0.5 text-ink/70 ring-1 ring-ink/[0.12]">
               {formatScore(memory.score)}
             </span>
           )}
@@ -79,7 +79,10 @@ export function SearchResultRow({
         <div className="line-clamp-3 text-[13px] leading-snug">
           {segmentsWithKeys(segments).map(({ key, segment }) =>
             segment.match ? (
-              <mark key={key} className="rounded-[2px] bg-solar/60 text-ink">
+              <mark
+                key={key}
+                className="rounded-[2px] bg-solar/60 text-solar-ink"
+              >
                 {segment.text}
               </mark>
             ) : (

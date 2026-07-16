@@ -58,7 +58,7 @@ export function SignInCard({
 
   return (
     <div className="flex h-full items-center justify-center p-6">
-      <div className="w-full max-w-sm rounded-xl border border-ink/[0.14] bg-white p-8">
+      <div className="w-full max-w-sm rounded-xl border border-ink/[0.14] bg-surface p-8">
         <div className="flex items-center gap-[11px]">
           <Logo />
           <h1 className="text-[15px] font-semibold tracking-[-0.01em] text-ink">
@@ -76,7 +76,7 @@ export function SignInCard({
           <button
             type="button"
             onClick={() => start("github")}
-            className="inline-flex h-10 items-center justify-center rounded-lg bg-solar text-[13px] font-semibold text-ink transition-colors hover:bg-solar-hover"
+            className="inline-flex h-10 items-center justify-center rounded-lg bg-solar text-[13px] font-semibold text-solar-ink transition-colors hover:bg-solar-hover"
           >
             Sign in with GitHub
           </button>

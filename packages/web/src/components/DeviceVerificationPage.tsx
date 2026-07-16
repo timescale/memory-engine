@@ -221,7 +221,7 @@ export function DeviceVerificationPage() {
           <button
             type="submit"
             disabled={!codeInput.trim()}
-            className="inline-flex h-10 items-center justify-center rounded-lg bg-solar text-[13px] font-semibold text-ink transition-colors hover:bg-solar-hover disabled:cursor-not-allowed disabled:opacity-50"
+            className="inline-flex h-10 items-center justify-center rounded-lg bg-solar text-[13px] font-semibold text-solar-ink transition-colors hover:bg-solar-hover disabled:cursor-not-allowed disabled:opacity-50"
           >
             Continue
           </button>
@@ -259,7 +259,7 @@ export function DeviceVerificationPage() {
             type="button"
             disabled={busy}
             onClick={() => void decide(true, state.userCode, state.email)}
-            className="inline-flex h-10 flex-1 items-center justify-center rounded-lg bg-solar text-[13px] font-semibold text-ink transition-colors hover:bg-solar-hover disabled:cursor-not-allowed disabled:opacity-50"
+            className="inline-flex h-10 flex-1 items-center justify-center rounded-lg bg-solar text-[13px] font-semibold text-solar-ink transition-colors hover:bg-solar-hover disabled:cursor-not-allowed disabled:opacity-50"
           >
             {busy ? "Authorizing…" : "Approve"}
           </button>
@@ -352,7 +352,7 @@ function Centered({ children }: { children: React.ReactNode }) {
 function Card({ children }: { children: React.ReactNode }) {
   return (
     <div className="flex h-full items-center justify-center p-6">
-      <div className="w-full max-w-sm rounded-xl border border-ink/[0.14] bg-white p-8">
+      <div className="w-full max-w-sm rounded-xl border border-ink/[0.14] bg-surface p-8">
         {children}
       </div>
     </div>

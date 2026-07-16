@@ -66,7 +66,7 @@ export function ContextMenu() {
     <div
       ref={ref}
       role="menu"
-      className="fixed z-50 min-w-[12rem] rounded-md border border-ink/[0.12] bg-white py-1 text-[13px] shadow-lg"
+      className="fixed z-50 min-w-[12rem] rounded-md border border-ink/[0.12] bg-surface py-1 text-[13px] shadow-lg"
       style={{ top: state.y, left: state.x }}
     >
       {items.map((item) => (
@@ -78,7 +78,7 @@ export function ContextMenu() {
           className={[
             "block w-full px-3 py-1.5 text-left",
             item.danger
-              ? "text-red-600 hover:bg-red-50"
+              ? "text-red-600 hover:bg-red-500/10"
               : "text-ink/80 hover:bg-ink/[0.04]",
           ].join(" ")}
         >
