@@ -4,6 +4,51 @@ All notable changes to the memory engine are documented here. The client
 (`v<x.y.z>`) and server (`server/v<x.y.z>`) release independently but are
 versioned in lockstep for coordinated breaking changes.
 
+## 0.6.2
+
+Server `server/v0.6.2` · Client `v0.6.2`.
+
+### Added
+- **Member-visible space roster:** `space.listMembers` and `me space members`
+  let any space member list user, agent, and service-account members without
+  exposing admin-only roster metadata or groups.
+- **Hosted web UI dark mode** with a pre-paint theme initializer, persisted theme
+  selection, refreshed icons, and a favicon.
+- **Project documentation** covering repository memory trees, project setup, and
+  grant authority rules.
+
+### Changed
+- Web UI controls and dialogs were refined for the new theme system, including a
+  spinning refresh action and small visual fixes across search, editor, account,
+  toast, and invite views.
+- Harness and project-config documentation was updated to match the current
+  Claude, MCP, opencode, and project workflows.
+
+### Unchanged
+- `MIN_CLIENT_VERSION` stays at 0.4.0 and `MIN_SERVER_VERSION` stays at 0.6.0.
+- No database schema version changes.
+
+## 0.6.1
+
+Server `server/v0.6.1` · Client `v0.6.1`.
+
+### Fixed
+- **OpenCode import support** for SQLite-backed sessions, including safer import
+  tree handling, portable generated import workflows, best-effort hook
+  resolution, and absolute home thread links.
+- **Default-agent setup** now validates stale configured agents and reports the
+  adopted default agent name more clearly.
+- **Hosted invite links** now route through the SPA fallback, so invite URLs open
+  correctly in the hosted web UI.
+- Memory import GitHub Actions setup now uses a restricted workflow scope and
+  fails faster on installer download errors.
+
+### Changed
+- `MIN_SERVER_VERSION` was raised to 0.6.0 for the client release.
+
+### Database
+- No schema version changes.
+
 ## 0.6.0
 
 Server `server/v0.6.0` · Client `v0.6.0`.
