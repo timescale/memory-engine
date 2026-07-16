@@ -1,10 +1,11 @@
 /**
  * Light/dark theme state.
  *
- * The initial theme is resolved pre-paint by an inline script in index.html
- * (localStorage `me-theme`, else `prefers-color-scheme`) which stamps the
- * `dark` class on <html>; this store reads that class as its initial value so
- * the two never disagree. Toggling flips the class and persists the choice.
+ * The initial theme is resolved pre-paint by `public/theme-init.js` (a
+ * blocking script loaded from index.html's <head>: localStorage `me-theme`,
+ * else `prefers-color-scheme`) which stamps the `dark` class on <html>; this
+ * store reads that class as its initial value so the two never disagree.
+ * Toggling flips the class and persists the choice.
  */
 import { create } from "zustand";
 

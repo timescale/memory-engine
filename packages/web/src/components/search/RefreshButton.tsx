@@ -29,7 +29,6 @@ export function RefreshButton({ onClick }: { onClick: () => void }) {
             ? "animate-[spin_0.5s_cubic-bezier(0.22,1,0.36,1)]"
             : undefined
         }
-        onAnimationEnd={() => setSpin(0)}
       />
     </button>
   );
