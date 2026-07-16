@@ -1,12 +1,18 @@
 @import "tailwindcss";
 
+/* Class-based dark mode: `.dark` on <html> (set pre-paint in index.html,
+ * toggled via the theme store). */
+@custom-variant dark (&:where(.dark, .dark *));
+
 /**
- * Tiger Data design tokens (Memory Engine "Console" redesign, light mode).
+ * Tiger Data design tokens (Memory Engine "Console" redesign).
  *
  * Colors and type are straight from the Tiger Data design system; the ink
  * surface tints are opacity-based so they hold on any near-white surface —
  * use them via Tailwind opacity modifiers, e.g. `border-ink/[0.12]`,
- * `bg-ink/[0.03]`, `text-ink/50`.
+ * `bg-ink/[0.03]`, `text-ink/50`. Dark mode flips `--color-ink` /
+ * `--color-surface` (see the `.dark` block below), so those tints — and
+ * everything built on them — invert for free.
  */
 @theme {
   --font-sans: "Geist", "Inter", system-ui, -apple-system, sans-serif;
@@ -16,13 +22,16 @@
   --default-transition-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
   --default-transition-duration: 175ms;
 
-  /* Ink / near-black */
+  /* Ink / near-black (theme-flipped) + page surface. */
   --color-ink: #101013;
+  --color-surface: #ffffff;
 
-  /* Solar Flare — web accent yellow */
+  /* Solar Flare — web accent yellow. Solar surfaces keep dark text in both
+   * themes, so `--color-solar-ink` never flips. */
   --color-solar: #f1ff5c;
   --color-solar-hover: #d9e553;
   --color-solar-chip: #c1cc4a;
+  --color-solar-ink: #101013;
 
   /* Code card */
   --color-code: #0a0a0c;
@@ -34,6 +43,19 @@
   --color-tiger-red: #ff9b8e;
 }
 
+/* Dark theme overrides — ink and surface swap; links brighten for contrast.
+ * `color-scheme` keeps native form controls (number spinners, selects, date
+ * pickers, checkboxes) and default scrollbars on the active theme. */
+:root {
+  color-scheme: light;
+}
+.dark {
+  color-scheme: dark;
+  --color-ink: #ececef;
+  --color-surface: #121215;
+  --color-tiger-blue-strong: #8aa6ff;
+}
+
 html,
 body,
 #root {
@@ -42,7 +64,7 @@ body,
 
 body {
   font-family: var(--font-sans);
-  background: #ffffff;
+  background: var(--color-surface);
   color: var(--color-ink);
   -webkit-font-smoothing: antialiased;
 }
@@ -53,7 +75,7 @@ body {
   height: 9px;
 }
 ::-webkit-scrollbar-thumb {
-  background: rgba(16, 16, 19, 0.16);
+  background: color-mix(in srgb, var(--color-ink) 16%, transparent);
   border-radius: 999px;
 }
 ::-webkit-scrollbar-track {
@@ -71,7 +93,7 @@ body {
 /* Prose styles for react-markdown output — Tiger Data type ramp.
  * Body is Geist 15px / 1.7 at 86% ink; headings are full-ink Geist 700. */
 .prose {
-  color: rgba(16, 16, 19, 0.86);
+  color: color-mix(in srgb, var(--color-ink) 86%, transparent);
   font-size: 15px;
   line-height: 1.7;
   max-width: 100%;
@@ -83,7 +105,7 @@ body {
 .prose h2,
 .prose h3,
 .prose h4 {
-  color: #101013;
+  color: var(--color-ink);
   font-weight: 700;
   line-height: 1.2;
   letter-spacing: -0.02em;
@@ -108,10 +130,10 @@ body {
 }
 .prose strong {
   font-weight: 600;
-  color: #101013;
+  color: var(--color-ink);
 }
 .prose a {
-  color: #3c62cc;
+  color: var(--color-tiger-blue-strong);
   text-decoration: underline;
   text-underline-offset: 2px;
 }
@@ -129,13 +151,13 @@ body {
   margin-top: 0.25em;
 }
 .prose blockquote {
-  border-left: 2px solid rgba(16, 16, 19, 0.18);
+  border-left: 2px solid color-mix(in srgb, var(--color-ink) 18%, transparent);
   padding-left: 1em;
-  color: rgba(16, 16, 19, 0.6);
+  color: color-mix(in srgb, var(--color-ink) 60%, transparent);
 }
 .prose hr {
   border: 0;
-  border-top: 1px solid rgba(16, 16, 19, 0.12);
+  border-top: 1px solid color-mix(in srgb, var(--color-ink) 12%, transparent);
 }
 .prose table {
   width: 100%;
@@ -144,22 +166,22 @@ body {
 }
 .prose th,
 .prose td {
-  border: 1px solid rgba(16, 16, 19, 0.14);
+  border: 1px solid color-mix(in srgb, var(--color-ink) 14%, transparent);
   padding: 0.4em 0.6em;
   text-align: left;
 }
 .prose th {
-  background: rgba(16, 16, 19, 0.04);
+  background: color-mix(in srgb, var(--color-ink) 4%, transparent);
 }
 
 /* Inline code (anything not inside a <pre> code card). */
 .prose :not(pre) > code {
   font-family: var(--font-mono);
   font-size: 13px;
-  background: rgba(16, 16, 19, 0.07);
+  background: color-mix(in srgb, var(--color-ink) 7%, transparent);
   padding: 1px 5px;
   border-radius: 4px;
-  color: #101013;
+  color: var(--color-ink);
 }
 
 /* Code card body — dark surface (chrome supplied by the CodeCard component). */

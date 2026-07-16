@@ -9,7 +9,7 @@ export function ExplorerHeader({ count }: { count: number | null }) {
         explorer
       </span>
       {count !== null && (
-        <span className="rounded-full bg-solar px-2 py-0.5 font-mono text-[11px] font-semibold text-ink">
+        <span className="rounded-full bg-solar px-2 py-0.5 font-mono text-[11px] font-semibold text-solar-ink">
           {count.toLocaleString()}
         </span>
       )}

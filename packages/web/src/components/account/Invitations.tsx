@@ -58,7 +58,7 @@ export function InvitationList({
               type="button"
               disabled={busy !== null}
               onClick={() => run(inv.invitationId, onAccept)}
-              className="rounded-md bg-solar px-3 py-1 text-[12px] font-semibold text-ink transition-colors hover:bg-solar-hover disabled:opacity-50"
+              className="rounded-md bg-solar px-3 py-1 text-[12px] font-semibold text-solar-ink transition-colors hover:bg-solar-hover disabled:opacity-50"
             >
               {busy === inv.invitationId ? "…" : "Accept"}
             </button>
@@ -96,7 +96,7 @@ export function InvitationsButton() {
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="rounded-md bg-solar px-2.5 py-[5px] font-semibold text-ink transition-colors hover:bg-solar-hover"
+        className="rounded-md bg-solar px-2.5 py-[5px] font-semibold text-solar-ink transition-colors hover:bg-solar-hover"
       >
         Invitations ({invitations.length})
       </button>

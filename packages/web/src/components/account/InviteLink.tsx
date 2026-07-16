@@ -156,7 +156,7 @@ function InviteLinkPanel() {
               type="button"
               disabled={busy || groupIds.length === 0}
               onClick={create}
-              className="ml-auto rounded-md bg-solar px-3 py-1 text-[12px] font-semibold text-ink hover:bg-solar-hover disabled:opacity-50"
+              className="ml-auto rounded-md bg-solar px-3 py-1 text-[12px] font-semibold text-solar-ink hover:bg-solar-hover disabled:opacity-50"
             >
               Create link
             </button>

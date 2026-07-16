@@ -48,7 +48,7 @@ function ToggleButton({
       className={[
         "flex items-center px-4 text-[13px] transition-colors duration-150",
         active
-          ? "bg-solar font-semibold text-ink hover:bg-solar-hover"
+          ? "bg-solar font-semibold text-solar-ink hover:bg-solar-hover"
           : "text-ink/55 hover:text-ink",
       ].join(" ")}
     >

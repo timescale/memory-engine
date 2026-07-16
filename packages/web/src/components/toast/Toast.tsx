@@ -73,7 +73,7 @@ export function ToastStack() {
               ? "border-emerald-200 bg-emerald-50 text-emerald-900"
               : t.kind === "error"
                 ? "border-red-200 bg-red-50 text-red-900"
-                : "border-ink/[0.12] bg-white text-ink",
+                : "border-ink/[0.12] bg-surface text-ink",
           ].join(" ")}
         >
           {t.message}

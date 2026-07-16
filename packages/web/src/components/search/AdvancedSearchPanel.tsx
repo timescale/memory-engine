@@ -89,7 +89,7 @@ export function AdvancedSearchPanel({ onSearch }: { onSearch: () => void }) {
             rows={3}
             placeholder='{"priority":"high"}'
             className={[
-              "w-full rounded-md border bg-white px-3 py-2 font-mono text-[12px] transition-colors focus:outline-none",
+              "w-full rounded-md border bg-surface px-3 py-2 font-mono text-[12px] transition-colors focus:outline-none",
               metaError
                 ? "border-red-500 focus:border-red-500"
                 : "border-ink/[0.18] focus:border-ink",
@@ -109,7 +109,7 @@ export function AdvancedSearchPanel({ onSearch }: { onSearch: () => void }) {
                   },
                 })
               }
-              className="rounded-md border border-ink/[0.18] bg-white px-2 py-2 text-[13px] transition-colors focus:border-ink focus:outline-none"
+              className="rounded-md border border-ink/[0.18] bg-surface px-2 py-2 text-[13px] transition-colors focus:border-ink focus:outline-none"
             >
               <option value="contains">contains</option>
               <option value="overlaps">overlaps</option>
@@ -164,7 +164,7 @@ export function AdvancedSearchPanel({ onSearch }: { onSearch: () => void }) {
                 orderBy: e.target.value as "" | "asc" | "desc",
               })
             }
-            className="rounded-md border border-slate-300 bg-white px-2 py-2 text-sm"
+            className="rounded-md border border-ink/[0.18] bg-surface px-2 py-2 text-sm"
           >
             <option value="">(engine default)</option>
             <option value="asc">asc</option>
@@ -236,11 +236,11 @@ export function AdvancedSearchPanel({ onSearch }: { onSearch: () => void }) {
         )}
       </div>
 
-      <div className="sticky bottom-0 flex justify-end border-t border-ink/[0.12] bg-white px-4 py-3">
+      <div className="sticky bottom-0 flex justify-end border-t border-ink/[0.12] bg-surface px-4 py-3">
         <button
           type="button"
           onClick={onSearch}
-          className="flex h-[42px] items-center rounded-lg bg-solar px-6 text-[13px] font-semibold text-ink transition-colors hover:bg-solar-hover"
+          className="flex h-[42px] items-center rounded-lg bg-solar px-6 text-[13px] font-semibold text-solar-ink transition-colors hover:bg-solar-hover"
         >
           Search
         </button>
@@ -284,7 +284,7 @@ function TemporalTimestampInput({
         onChange={(e) => onChange(e.target.value)}
         disabled={disabled}
         placeholder={placeholder}
-        className="min-w-0 flex-1 rounded-md border border-ink/[0.18] bg-white px-2 py-2 font-mono text-[12px] transition-colors focus:border-ink focus:outline-none disabled:bg-ink/[0.04] disabled:text-ink/40"
+        className="min-w-0 flex-1 rounded-md border border-ink/[0.18] bg-surface px-2 py-2 font-mono text-[12px] transition-colors focus:border-ink focus:outline-none disabled:bg-ink/[0.04] disabled:text-ink/40"
       />
       <button
         type="button"
@@ -292,7 +292,7 @@ function TemporalTimestampInput({
         disabled={disabled}
         title={pickerLabel}
         aria-label={pickerLabel}
-        className="inline-flex w-9 shrink-0 items-center justify-center rounded-md border border-ink/[0.18] bg-white text-ink/50 transition-colors hover:border-ink hover:text-ink disabled:cursor-not-allowed disabled:bg-ink/[0.04] disabled:text-ink/40"
+        className="inline-flex w-9 shrink-0 items-center justify-center rounded-md border border-ink/[0.18] bg-surface text-ink/50 transition-colors hover:border-ink hover:text-ink disabled:cursor-not-allowed disabled:bg-ink/[0.04] disabled:text-ink/40"
       >
         <CalendarIcon />
       </button>
@@ -386,7 +386,7 @@ function TextInput({
       value={value}
       onChange={(e) => onChange(e.target.value)}
       placeholder={placeholder}
-      className="w-full rounded-md border border-ink/[0.18] bg-white px-3 py-2 text-[13px] transition-colors focus:border-ink focus:outline-none"
+      className="w-full rounded-md border border-ink/[0.18] bg-surface px-3 py-2 text-[13px] transition-colors focus:border-ink focus:outline-none"
     />
   );
 }
@@ -416,7 +416,7 @@ function NumberInput({
       min={min}
       max={max}
       step={step}
-      className="w-full rounded-md border border-ink/[0.18] bg-white px-3 py-2 text-[13px] transition-colors focus:border-ink focus:outline-none"
+      className="w-full rounded-md border border-ink/[0.18] bg-surface px-3 py-2 text-[13px] transition-colors focus:border-ink focus:outline-none"
     />
   );
 }

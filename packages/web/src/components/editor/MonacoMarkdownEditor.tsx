@@ -13,6 +13,7 @@ import * as monaco from "monaco-editor";
 import EditorWorker from "monaco-editor/esm/vs/editor/editor.worker?worker";
 import JsonWorker from "monaco-editor/esm/vs/language/json/json.worker?worker";
 import { useEffect } from "react";
+import { useTheme } from "../../store/theme.ts";
 
 type WorkerCtor = new () => Worker;
 
@@ -44,6 +45,8 @@ export function MonacoMarkdownEditor({
   onChange,
   height = "100%",
 }: Props) {
+  const theme = useTheme((s) => s.theme);
+
   // Keep Monaco sized to its container even when the split pane resizes.
   useEffect(() => {
     const handler = () => {
@@ -59,6 +62,7 @@ export function MonacoMarkdownEditor({
       onChange={(v) => onChange(v ?? "")}
       language="markdown"
       height={height}
+      theme={theme === "dark" ? "vs-dark" : "vs"}
       options={{
         minimap: { enabled: false },
         wordWrap: "on",

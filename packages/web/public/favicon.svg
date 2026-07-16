@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">
+  <!-- Memory-cell logo mark on an ink tile so it reads on any tab background. -->
+  <rect x="1" y="1" width="22" height="22" rx="5.5" fill="#101013" />
+  <rect x="6.4" y="6.4" width="4.6" height="4.6" rx="1.2" fill="#ececef" />
+  <rect x="13" y="6.4" width="4.6" height="4.6" rx="1.2" fill="#F1FF5C" />
+  <rect x="6.4" y="13" width="4.6" height="4.6" rx="1.2" fill="#F1FF5C" />
+  <rect x="13" y="13" width="4.6" height="4.6" rx="1.2" fill="#ececef" />
+</svg>

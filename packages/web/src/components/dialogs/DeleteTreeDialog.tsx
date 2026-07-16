@@ -65,7 +65,7 @@ export function DeleteTreeDialog() {
             type="button"
             onClick={close}
             disabled={del.isPending}
-            className="rounded-md border border-ink/[0.18] bg-white px-3 py-1.5 text-[12px] font-medium text-ink transition-colors hover:border-ink"
+            className="rounded-md border border-ink/[0.18] bg-surface px-3 py-1.5 text-[12px] font-medium text-ink transition-colors hover:border-ink"
           >
             Cancel
           </button>

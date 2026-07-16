@@ -31,7 +31,7 @@ export function SearchResultsList({
 
   return (
     <div className="min-h-full">
-      <div className="sticky top-0 z-10 border-b border-ink/[0.1] bg-white/90 px-3 py-2 backdrop-blur">
+      <div className="sticky top-0 z-10 border-b border-ink/[0.1] bg-surface/90 px-3 py-2 backdrop-blur">
         <div className="flex items-baseline justify-between gap-2">
           <h2 className="font-mono text-[11px] uppercase tracking-[0.08em] text-ink/50">
             search results
