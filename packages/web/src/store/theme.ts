@@ -13,7 +13,12 @@ export type Theme = "light" | "dark";
 const STORAGE_KEY = "me-theme";
 
 function currentTheme(): Theme {
-  return document.documentElement.classList.contains("dark") ? "dark" : "light";
+  // Guard `document` so importing the store outside a browser (tests,
+  // tooling) can't throw at module evaluation time.
+  return typeof document !== "undefined" &&
+    document.documentElement.classList.contains("dark")
+    ? "dark"
+    : "light";
 }
 
 interface ThemeState {
