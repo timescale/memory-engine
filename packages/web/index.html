@@ -5,21 +5,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Memory Engine</title>
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <script>
-      // Apply the saved (or OS-preferred) theme before first paint to avoid
-      // a light-mode flash. Kept inline and dependency-free on purpose.
-      (() => {
-        let theme = null;
-        try {
-          theme = localStorage.getItem("me-theme");
-        } catch {}
-        const dark =
-          theme === "dark" ||
-          (theme !== "light" &&
-            window.matchMedia("(prefers-color-scheme: dark)").matches);
-        document.documentElement.classList.toggle("dark", dark);
-      })();
-    </script>
+    <!-- Blocking on purpose: applies the saved/OS theme before first paint
+         (no light-mode flash). External so the hosted CSP covers it via
+         'self' with no inline-script hashing. -->
+    <script src="/theme-init.js"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link

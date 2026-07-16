@@ -70,9 +70,9 @@ export function ToastStack() {
           className={[
             "pointer-events-auto cursor-pointer rounded-lg border px-4 py-3 text-left text-[13px] shadow-md transition-opacity",
             t.kind === "success"
-              ? "border-emerald-200 bg-emerald-50 text-emerald-900"
+              ? "border-emerald-200 bg-emerald-50 text-emerald-900 dark:border-emerald-500/30 dark:bg-emerald-500/15 dark:text-emerald-200"
               : t.kind === "error"
-                ? "border-red-200 bg-red-50 text-red-900"
+                ? "border-red-200 bg-red-50 text-red-900 dark:border-red-500/30 dark:bg-red-500/15 dark:text-red-200"
                 : "border-ink/[0.12] bg-surface text-ink",
           ].join(" ")}
         >
