@@ -431,6 +431,43 @@ describe.skipIf(
     );
   });
 
+  test("1c. space members lists users in the active space", async () => {
+    const listed = await meJson<{
+      members: { id: string; kind: string; name: string }[];
+    }>(["space", "members"]);
+
+    expect(listed.members).toContainEqual(
+      expect.objectContaining({ kind: "u", name: "e2e@example.test" }),
+    );
+    expect(listed.members.every((m) => m.kind === "u")).toBe(true);
+
+    const text = await me(["space", "members"]);
+    expect(text.code).toBe(0);
+    expect(text.stdout).toContain("e2e@example.test");
+
+    // --kind accepts the full-word alias (equivalent to the default 'u').
+    const byWord = await meJson<{
+      members: { id: string; kind: string; name: string }[];
+    }>(["space", "members", "--kind", "user"]);
+    expect(byWord.members.every((m) => m.kind === "u")).toBe(true);
+    expect(byWord.members).toContainEqual(
+      expect.objectContaining({ kind: "u", name: "e2e@example.test" }),
+    );
+
+    // --kind all lists every member kind (u/a/s) but never groups.
+    const all = await meJson<{
+      members: { id: string; kind: string; name: string }[];
+    }>(["space", "members", "--kind", "all"]);
+    expect(all.members.some((m) => m.name === "e2e@example.test")).toBe(true);
+    expect(all.members.every((m) => ["u", "a", "s"].includes(m.kind))).toBe(
+      true,
+    );
+
+    // An unrecognized kind is rejected.
+    const bad = await me(["space", "members", "--kind", "group"]);
+    expect(bad.code).not.toBe(0);
+  });
+
   test("2. create + tree round-trip (share namespace)", async () => {
     const created = await meJson<{ id: string; tree?: string }>([
       "create",

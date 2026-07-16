@@ -59,12 +59,14 @@ import {
   principalResolveParams,
   principalResolveResult,
 } from "./principal.ts";
+import { spaceListMembersParams, spaceListMembersResult } from "./space.ts";
 
 export * from "./access.ts";
 export * from "./grant.ts";
 export * from "./group.ts";
 export * from "./invitation.ts";
 export * from "./principal.ts";
+export * from "./space.ts";
 
 function method<TParams extends z.ZodType, TResult extends z.ZodType>(
   params: TParams,
@@ -78,6 +80,9 @@ function method<TParams extends z.ZodType, TResult extends z.ZodType>(
  * Served on the memory endpoint together with the memory.* methods.
  */
 export const spaceMethods = {
+  // Active space (1) — current X-Me-Space scoped helpers.
+  "space.listMembers": method(spaceListMembersParams, spaceListMembersResult),
+
   // Effective access (1) — resolved executable access for a member principal.
   "access.effective": method(accessEffectiveParams, accessEffectiveResult),
 

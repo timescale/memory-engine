@@ -9,6 +9,7 @@ These commands authenticate with your **session** (humans only — `me login`). 
 ## Commands
 
 - [me space list](#me-space-list) -- list the spaces you belong to
+- [me space members](#me-space-members) -- list users in the active space
 - [me space use](#me-space-use) -- set the active space
 - [me space create](#me-space-create) -- create a space
 - [me space rename](#me-space-rename) -- rename a space
@@ -26,6 +27,25 @@ List the spaces you belong to. The active space is marked. Alias: `me space ls`.
 ```
 me space list
 ```
+
+---
+
+## me space members
+
+List members of the active space. Available to any space member — this is how
+you discover who you can add to a group (`me group add`) or grant a path to
+(`me access grant`). By default it lists human **users** only; use `--kind` to
+list agents or service accounts, or `all` for every member kind. **Groups are
+never listed** (a group is a roster entry, not a member), and pending
+invitations are not included (see `me space invite list`).
+
+```
+me space members [--kind <kind>]
+```
+
+| Option | Description |
+|--------|-------------|
+| `--kind` | Member kind to list: `u`/`user` (default), `a`/`agent`, `s`/`service` (`service-account`), or `all`. `all` adds a kind column. |
 
 ---
 

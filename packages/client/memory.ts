@@ -3,7 +3,8 @@
  *
  * Talks to POST /api/v1/memory/rpc, authenticated by a session token (human) or
  * an api key (agent), with the active space selected via the X-Me-Space header.
- * Namespaces: memory (data plane) + principal / group / grant / invite (management).
+ * Namespaces: memory (data plane) + space / principal / group / grant / invite
+ * (management).
  * (Agent lifecycle and api keys live on the user client.)
  *
  * @example
@@ -87,6 +88,8 @@ import type {
   PrincipalRemoveResult,
   PrincipalResolveParams,
   PrincipalResolveResult,
+  SpaceListMembersParams,
+  SpaceListMembersResult,
 } from "@memory.build/protocol/space";
 import { assertConcreteAsAgent } from "./as-agent";
 import { rpcCall, type TransportConfig } from "./transport.ts";
@@ -155,6 +158,11 @@ export interface PrincipalNamespace {
   lookup(params: PrincipalLookupParams): Promise<PrincipalLookupResult>;
 }
 
+export interface SpaceNamespace {
+  /** List direct user/agent/service-account members in the active space. */
+  listMembers(params?: SpaceListMembersParams): Promise<SpaceListMembersResult>;
+}
+
 export interface GroupNamespace {
   create(params: GroupCreateParams): Promise<GroupCreateResult>;
   list(params?: GroupListParams): Promise<GroupListResult>;
@@ -192,6 +200,7 @@ export interface InviteNamespace {
 
 export interface MemoryClient {
   memory: MemoryNamespace;
+  space: SpaceNamespace;
   access: AccessNamespace;
   principal: PrincipalNamespace;
   group: GroupNamespace;
@@ -268,6 +277,9 @@ export function createMemoryClient(
       deleteOrphansInTree: (p) => writeRpc("memory.deleteOrphansInTree", p),
       countTree: (p) => readRpc("memory.countTree", p),
       embeddingStatus: () => readRpc("memory.embeddingStatus", {}),
+    },
+    space: {
+      listMembers: (p) => readRpc("space.listMembers", p ?? {}),
     },
     access: {
       effective: (p) => readRpc("access.effective", p ?? {}),

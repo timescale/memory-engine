@@ -2,6 +2,8 @@
  * me space — manage the spaces you belong to and the active space.
  *
  * - me space list:                 list your spaces (marks the active one)
+ * - me space members [--kind <k>]: list members in the active space (users by
+ *     default; --kind u/user | a/agent | s/service | all — groups excluded)
  * - me space use <space>:          set the active space (the X-Me-Space)
  * - me space create <name>:        create a space and make it active
  * - me space rename <space> <name>: rename a space's display label
@@ -24,6 +26,7 @@
  * immutable 12-char routing key; the name is the renamable display label.
  */
 import * as clack from "@clack/prompts";
+import type { SpaceMemberKind } from "@memory.build/protocol/space";
 import type { MemberSpaceResponse } from "@memory.build/protocol/user";
 import { Command } from "commander";
 import {
@@ -157,6 +160,93 @@ function createSpaceListCommand(): Command {
         );
       } catch (error) {
         handleError(error, fmt, { creds });
+      }
+    });
+}
+
+/**
+ * Normalize a `--kind` filter, accepting both short codes and full words
+ * (case-insensitive): u/user, a/agent, s/service/service-account, all. Returns
+ * `undefined` for an unrecognized value so the caller can report it.
+ */
+const MEMBER_KIND_ALIASES: Record<string, SpaceMemberKind | "all"> = {
+  u: "u",
+  user: "u",
+  a: "a",
+  agent: "a",
+  s: "s",
+  service: "s",
+  "service-account": "s",
+  all: "all",
+};
+
+export function parseMemberKindFilter(
+  input: string,
+): SpaceMemberKind | "all" | undefined {
+  return MEMBER_KIND_ALIASES[input.trim().toLowerCase()];
+}
+
+function memberKindLabel(kind: SpaceMemberKind): string {
+  switch (kind) {
+    case "u":
+      return "user";
+    case "a":
+      return "agent";
+    case "s":
+      return "service account";
+  }
+}
+
+function createSpaceMembersCommand(): Command {
+  return new Command("members")
+    .description("list members in the active space (users by default)")
+    .option(
+      "--kind <kind>",
+      "filter by member kind: u/user, a/agent, s/service (service-account), or all",
+      "u",
+    )
+    .action(async (opts, cmd) => {
+      const globalOpts = cmd.optsWithGlobals();
+      const creds = resolveCredentials(globalOpts.server);
+      const fmt = getOutputFormat(globalOpts);
+      requireAuth(creds, fmt);
+      requireSpace(creds, fmt);
+
+      const kind = parseMemberKindFilter(String(opts.kind));
+      if (!kind) {
+        const msg = `Invalid --kind '${opts.kind}'. Use u/user, a/agent, s/service, or all.`;
+        if (fmt === "text") clack.log.error(msg);
+        else output({ error: msg }, fmt, () => {});
+        process.exit(1);
+      }
+
+      const memory = buildMemoryClient(creds);
+
+      try {
+        // `all` lists every member kind (u/a/s); the server excludes groups
+        // regardless. Otherwise filter to the single requested kind.
+        const { members } = await memory.space.listMembers(
+          kind === "all" ? {} : { kind },
+        );
+        output({ members }, fmt, () => {
+          if (members.length === 0) {
+            console.log("  No members.");
+            return;
+          }
+          if (kind === "all") {
+            table(
+              ["name", "kind", "id"],
+              members.map((m) => [m.name, memberKindLabel(m.kind), m.id]),
+            );
+          } else {
+            table(
+              ["name", "id"],
+              members.map((m) => [m.name, m.id]),
+            );
+          }
+        });
+      } catch (error) {
+        handleError(error, fmt, { creds, scope: "space" });
       }
     });
 }
@@ -752,6 +842,7 @@ function createSpaceInviteCommand(): Command {
 export function createSpaceCommand(): Command {
   const space = new Command("space").description("manage spaces");
   space.addCommand(createSpaceListCommand());
+  space.addCommand(createSpaceMembersCommand());
   space.addCommand(createSpaceUseCommand());
   space.addCommand(createSpaceCreateCommand());
   space.addCommand(createSpaceRenameCommand());
