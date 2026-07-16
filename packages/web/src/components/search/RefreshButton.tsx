@@ -7,13 +7,15 @@ import { useState } from "react";
 import { RefreshIcon } from "../icons.tsx";
 
 export function RefreshButton({ onClick }: { onClick: () => void }) {
-  const [spinning, setSpinning] = useState(false);
+  // Counter, not a boolean: bumping the icon's key remounts it, so a click
+  // mid-spin restarts the animation instead of being swallowed.
+  const [spin, setSpin] = useState(0);
 
   return (
     <button
       type="button"
       onClick={() => {
-        setSpinning(true);
+        setSpin((n) => n + 1);
         onClick();
       }}
       title="Re-run the query for the freshest results"
@@ -21,12 +23,13 @@ export function RefreshButton({ onClick }: { onClick: () => void }) {
       className="flex h-[42px] w-[42px] shrink-0 items-center justify-center rounded-lg border border-ink/[0.18] text-ink/70 transition-colors hover:border-ink hover:text-ink"
     >
       <RefreshIcon
+        key={spin}
         className={
-          spinning
+          spin > 0
             ? "animate-[spin_0.5s_cubic-bezier(0.22,1,0.36,1)]"
             : undefined
         }
-        onAnimationEnd={() => setSpinning(false)}
+        onAnimationEnd={() => setSpin(0)}
       />
     </button>
   );
