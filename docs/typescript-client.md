@@ -196,6 +196,12 @@ for (const { memory, score } of results) {
 
 The memory client also exposes the in-space management namespaces. These require the appropriate authority (admin for roster/groups/invites; `owner@path` for grants). See [Access Control](access-control.md).
 
+### space — the active space
+
+```typescript
+const { members } = await me.space.listMembers({ kind: "u" }); // any member
+```
+
 ### principal — the roster
 
 ```typescript

@@ -12,6 +12,7 @@ import { groupMethods } from "./group";
 import { invitationMethods } from "./invitation";
 import { memoryDataMethods } from "./memory";
 import { principalMethods } from "./principal";
+import { activeSpaceMethods } from "./space";
 
 export {
   assertSpaceRpcContext,
@@ -25,6 +26,7 @@ export {
  */
 export const memoryMethods: MethodRegistry = new Map([
   ...memoryDataMethods,
+  ...activeSpaceMethods,
   ...accessMethods,
   ...principalMethods,
   ...groupMethods,

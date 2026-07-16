@@ -310,6 +310,54 @@ test("principal.resolve / lookup are available to non-admin members (list is adm
   await expectAppError(call("principal.list", {}, asMember), "FORBIDDEN");
 });
 
+test("space.listMembers is available to non-admin members and can list users only", async () => {
+  const email = `member_${rand(8)}@example.com`;
+  const memberId = await makeUserWithEmail(email);
+  await call("principal.add", { principalId: memberId });
+
+  const agentId = await makeAgent(ownerId);
+  await call("principal.add", { principalId: agentId });
+  const { id: groupId } = await call<{ id: string }>("group.create", {
+    name: `group_${rand(6)}`,
+  });
+  const service = await engineCore
+    .coreStore(sql, coreSchema)
+    .createServiceAccount(space.id, `svc_${rand(6)}`);
+
+  const asMember = {
+    principalId: memberId,
+    treeAccess: [{ tree_path: "x", access: 1 }] as TreeAccess,
+    admin: false,
+  };
+
+  const listed = await call<{
+    members: { id: string; kind: string; name: string }[];
+  }>("space.listMembers", { kind: "u" }, asMember);
+
+  expect(listed.members).toContainEqual({
+    id: ownerId,
+    kind: "u",
+    name: ownerEmail,
+  });
+  expect(listed.members).toContainEqual({
+    id: memberId,
+    kind: "u",
+    name: email,
+  });
+  expect(listed.members.map((m) => m.id)).not.toContain(agentId);
+  expect(listed.members.map((m) => m.id)).not.toContain(service.id);
+  expect(listed.members.map((m) => m.id)).not.toContain(groupId);
+
+  const allMembers = await call<{ members: { id: string }[] }>(
+    "space.listMembers",
+    {},
+    asMember,
+  );
+  expect(allMembers.members.map((m) => m.id)).toContain(agentId);
+  expect(allMembers.members.map((m) => m.id)).toContain(service.id);
+  expect(allMembers.members.map((m) => m.id)).not.toContain(groupId);
+});
+
 test("group: create / list / members / rename / delete", async () => {
   const { id: groupId } = await call<{ id: string }>("group.create", {
     name: "eng",

@@ -36,8 +36,10 @@ async function principalList(
 ): Promise<PrincipalListResult> {
   assertSpaceRpcContext(context);
   const ctx = context as SpaceRpcContext;
-  // Enumerating the whole roster is structural — admin only. (Targeted name / id
-  // lookups for any member are principal.resolve / principal.lookup.)
+  // Enumerating the whole roster — including groups and each principal's admin /
+  // owner_id / timestamps — is structural, so admin only. (Targeted name / id
+  // lookups for any member are principal.resolve / principal.lookup; a minimal
+  // member listing without that metadata is space.listMembers, member-accessible.)
   await requireSpaceAdmin(ctx);
   const principals = await ctx.core.listSpacePrincipals(
     ctx.space.id,
