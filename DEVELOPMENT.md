@@ -331,6 +331,20 @@ If you forget to bump, nothing breaks per se — older counterparts will fail
 later with less helpful errors. Bumping is the difference between a clear
 upgrade prompt and "method not found" / "invalid params" mid-command.
 
+### Updating the changelog
+
+Update `CHANGELOG.md` before cutting a release. The release scripts require a
+clean working tree before they start, so the changelog entry should already be
+committed to `main` (usually in the same PR as the release-worthy changes) before
+running `./bun run release:server` or `./bun run release:client`.
+
+For a coordinated server + client release, add one section for the release
+version and list both tags (`server/v<x.y.z>` and `v<x.y.z>`). For a release of
+only one side, list the tag that is being cut and call out that the other side is
+unchanged. Include user-visible changes, compatibility minimum bumps
+(`MIN_CLIENT_VERSION` / `MIN_SERVER_VERSION`), and database migration versions or
+downgrade-guard implications when relevant.
+
 ### Two scripts
 
 **`./bun run release:client`** — bumps the version in:
@@ -418,9 +432,11 @@ Because the client and server release independently, the typical sequence
 for a change that spans both sides is:
 
 1. Land a backwards-compatible server change on `main`. Dev auto-deploys.
-2. `./bun run release:server` to tag `server/v<next>` and deploy prod.
-3. Land the client change on `main` that depends on the new server behavior.
-4. `./bun run release:client` to publish the CLI and npm packages.
+2. Update `CHANGELOG.md` for the server behavior and land it on `main`.
+3. `./bun run release:server` to tag `server/v<next>` and deploy prod.
+4. Land the client change on `main` that depends on the new server behavior,
+   including any final `CHANGELOG.md` updates for the client release.
+5. `./bun run release:client` to publish the CLI and npm packages.
 
 The server counter and the client counter will diverge over time — that's
 expected. They're not related after this split.
