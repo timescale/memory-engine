@@ -9,8 +9,9 @@
 import { useRefreshMemories } from "../../api/queries.ts";
 import { useFilter } from "../../store/filter.ts";
 import { useLayout } from "../../store/layout.ts";
-import { RefreshIcon, SearchIcon } from "../icons.tsx";
+import { SearchIcon } from "../icons.tsx";
 import { ModeToggle } from "./ModeToggle.tsx";
+import { RefreshButton } from "./RefreshButton.tsx";
 
 export function SimpleSearchBar() {
   const simple = useFilter((s) => s.simple);
@@ -53,15 +54,7 @@ export function SimpleSearchBar() {
         Clear
       </button>
 
-      <button
-        type="button"
-        onClick={refresh}
-        title="Re-run the query for the freshest results"
-        aria-label="Refresh"
-        className="flex h-[42px] w-[42px] shrink-0 items-center justify-center rounded-lg border border-ink/[0.18] text-ink/70 transition-colors hover:border-ink hover:text-ink"
-      >
-        <RefreshIcon />
-      </button>
+      <RefreshButton onClick={refresh} />
     </div>
   );
 }

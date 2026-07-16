@@ -70,7 +70,13 @@ export function SearchIcon({ className }: { className?: string }) {
 }
 
 /** Circular-arrow refresh glyph for the search bar's Refresh button. */
-export function RefreshIcon({ className }: { className?: string }) {
+export function RefreshIcon({
+  className,
+  onAnimationEnd,
+}: {
+  className?: string;
+  onAnimationEnd?: () => void;
+}) {
   return (
     <svg
       width="16"
@@ -83,6 +89,7 @@ export function RefreshIcon({ className }: { className?: string }) {
       strokeLinejoin="round"
       aria-hidden="true"
       className={className}
+      onAnimationEnd={onAnimationEnd}
     >
       <path d="M21 12a9 9 0 1 1-3-6.7" />
       <path d="M21 3v5h-5" />
