@@ -13,9 +13,9 @@ import { useRefreshMemories } from "../../api/queries.ts";
 import { summarizeFilter, useFilter } from "../../store/filter.ts";
 import { useLayout } from "../../store/layout.ts";
 import { DisclosureCaret } from "../DisclosureCaret.tsx";
-import { RefreshIcon } from "../icons.tsx";
 import { AdvancedSearchPanel } from "./AdvancedSearchPanel.tsx";
 import { ModeToggle } from "./ModeToggle.tsx";
+import { RefreshButton } from "./RefreshButton.tsx";
 
 export function AdvancedSearchSection() {
   const filter = useFilter();
@@ -68,15 +68,7 @@ export function AdvancedSearchSection() {
             Clear
           </button>
 
-          <button
-            type="button"
-            onClick={refresh}
-            title="Re-run the query for the freshest results"
-            aria-label="Refresh"
-            className="flex h-[42px] w-[42px] items-center justify-center rounded-lg border border-ink/[0.18] text-ink/70 transition-colors hover:border-ink hover:text-ink"
-          >
-            <RefreshIcon />
-          </button>
+          <RefreshButton onClick={refresh} />
         </div>
       </div>
 

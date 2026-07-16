@@ -7,7 +7,7 @@
   },
   "files": {
     "ignoreUnknown": false,
-    "includes": ["**", "!packages/web/design"]
+    "includes": ["**", "!packages/web/design", "!packages/web/index.html"]
   },
   "formatter": {
     "enabled": true,
