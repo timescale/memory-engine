@@ -2,10 +2,34 @@
  * Theme store: DOM class + localStorage interactions, exercised against
  * minimal stubs (bun test has no DOM).
  */
-import { beforeAll, expect, test } from "bun:test";
+import { afterAll, beforeAll, expect, test } from "bun:test";
 
 const classes = new Set<string>();
 const stored = new Map<string, string>();
+
+// bun runs test files in a shared process, so restore the stubbed globals
+// after this file to keep them from leaking into other tests.
+const originalDocument = Reflect.getOwnPropertyDescriptor(
+  globalThis,
+  "document",
+);
+const originalLocalStorage = Reflect.getOwnPropertyDescriptor(
+  globalThis,
+  "localStorage",
+);
+
+afterAll(() => {
+  restoreGlobal("document", originalDocument);
+  restoreGlobal("localStorage", originalLocalStorage);
+});
+
+function restoreGlobal(
+  name: string,
+  descriptor: PropertyDescriptor | undefined,
+) {
+  if (descriptor) Object.defineProperty(globalThis, name, descriptor);
+  else Reflect.deleteProperty(globalThis, name);
+}
 
 beforeAll(() => {
   globalThis.document = {
