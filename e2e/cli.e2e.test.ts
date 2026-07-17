@@ -1080,7 +1080,40 @@ describe.skipIf(
       `pat-${rand()}`,
     ]);
 
-    // `me apikey list` (no --agent) lists the caller's OWN keys — all three.
+    const ttlStart = Date.now();
+    const ttl = await meJson<{ id: string }>([
+      "apikey",
+      "create",
+      `ttl-${rand()}`,
+      "--ttl",
+      "30d",
+    ]);
+    const fetchedTtl = await meJson<{
+      apiKey: { id: string; expiresAt: string | null } | null;
+    }>(["apikey", "get", ttl.id]);
+    expect(fetchedTtl.apiKey?.id).toBe(ttl.id);
+    expect(fetchedTtl.apiKey?.expiresAt).toBeTruthy();
+    const expiresAt = Date.parse(fetchedTtl.apiKey?.expiresAt ?? "");
+    expect(expiresAt).toBeGreaterThanOrEqual(
+      ttlStart + 30 * 86_400_000 - 5_000,
+    );
+    expect(expiresAt).toBeLessThanOrEqual(Date.now() + 30 * 86_400_000 + 5_000);
+
+    const conflictingExpiry = await me([
+      "apikey",
+      "create",
+      `bad-expiry-${rand()}`,
+      "--ttl",
+      "30d",
+      "--expires",
+      "2099-01-01T00:00:00.000Z",
+    ]);
+    expect(conflictingExpiry.code).not.toBe(0);
+    expect(`${conflictingExpiry.stdout}${conflictingExpiry.stderr}`).toContain(
+      "Use only one expiration option",
+    );
+
+    // `me apikey list` (no --agent) lists the caller's OWN keys.
     const { apiKeys } = await meJson<{ apiKeys: { id: string }[] }>([
       "apikey",
       "list",
@@ -1089,6 +1122,7 @@ describe.skipIf(
     expect(ids.has(pat1.id)).toBe(true);
     expect(ids.has(pat2.id)).toBe(true);
     expect(ids.has(named.id)).toBe(true);
+    expect(ids.has(ttl.id)).toBe(true);
 
     // The PAT authenticates as the user themselves (kind "u"), no session.
     const patEnv = { ME_API_KEY: pat1.key, ME_SESSION_TOKEN: "" };

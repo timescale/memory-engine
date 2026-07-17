@@ -7,7 +7,7 @@
  * is the removal. A personal access token has full access as you (headless/CLI
  * use); minting/revoking always requires a `me login` session.
  *
- * - me apikey create [name] [--expires <ts>]: mint a personal access token (you)
+ * - me apikey create [name] [--expires <ts>|--ttl <duration>]: mint a PAT (you)
  * - me apikey create --agent <agent> [name]:   mint a key for one of your agents
  * - me apikey create --service <svc> [name]:   mint a service-account key
  * - me apikey list [--agent <agent>|--service <svc>]
@@ -20,7 +20,12 @@ import { randomBytes } from "node:crypto";
 import * as clack from "@clack/prompts";
 import { Command } from "commander";
 import { resolveCredentials } from "../credentials.ts";
-import { getOutputFormat, output, table } from "../output.ts";
+import {
+  getOutputFormat,
+  type OutputFormat,
+  output,
+  table,
+} from "../output.ts";
 import {
   buildUserClient,
   handleError,
@@ -45,19 +50,50 @@ function defaultKeyName(): string {
 function assertSingleTarget(
   agent: string | undefined,
   service: string | undefined,
-  fmt: ReturnType<typeof getOutputFormat>,
+  fmt: OutputFormat,
 ): void {
   if (agent === undefined || service === undefined) return;
-  const msg = "Use only one key target: --agent or --service, not both.";
-  if (fmt === "text") clack.log.error(msg);
-  else output({ error: msg }, fmt, () => {});
+  failWith("Use only one key target: --agent or --service, not both.", fmt);
+}
+
+function failWith(message: string, fmt: OutputFormat): never {
+  if (fmt === "text") clack.log.error(message);
+  else output({ error: message }, fmt, () => {});
   process.exit(1);
+}
+
+/** Parse a duration like "30d" / "24h" / "30m" into an ISO expiry timestamp. */
+function parseTtl(raw: string, fmt: OutputFormat): string {
+  const m = /^(\d+)([dhm])$/.exec(raw.trim());
+  if (!m) {
+    failWith(`Invalid --ttl '${raw}'. Use <n>d | <n>h | <n>m (e.g. 30d).`, fmt);
+  }
+  const n = Number(m?.[1]);
+  if (!Number.isSafeInteger(n) || n <= 0) {
+    failWith(`Invalid --ttl '${raw}'. Use a positive duration like 30d.`, fmt);
+  }
+  const unitMs = { d: 86_400_000, h: 3_600_000, m: 60_000 }[m?.[2] ?? "d"] ?? 0;
+  return new Date(Date.now() + n * unitMs).toISOString();
+}
+
+function resolveExpiresAt(
+  opts: { expires?: string; ttl?: string },
+  fmt: OutputFormat,
+): string | null {
+  if (opts.expires !== undefined && opts.ttl !== undefined) {
+    failWith(
+      "Use only one expiration option: --expires or --ttl, not both.",
+      fmt,
+    );
+  }
+  if (opts.ttl !== undefined) return parseTtl(opts.ttl, fmt);
+  return opts.expires ?? null;
 }
 
 async function resolveApiKeyTarget(
   user: ReturnType<typeof buildUserClient>,
   creds: ReturnType<typeof resolveCredentials>,
-  fmt: ReturnType<typeof getOutputFormat>,
+  fmt: OutputFormat,
   opts: { agent?: string; service?: string },
 ): Promise<{ memberId: string; targetKind: "user" | "agent" | "service" }> {
   assertSingleTarget(opts.agent, opts.service, fmt);
@@ -98,6 +134,7 @@ function createApiKeyCreateCommand(): Command {
       "mint a key for a service account in the active space (id or name)",
     )
     .option("--expires <timestamp>", "expiration timestamp (ISO 8601)")
+    .option("--ttl <duration>", "expiration from now, e.g. 30d | 24h | 30m")
     .action(async (name: string | undefined, opts, cmd) => {
       const globalOpts = cmd.optsWithGlobals();
       const creds = resolveCredentials(globalOpts.server);
@@ -108,6 +145,7 @@ function createApiKeyCreateCommand(): Command {
       const keyName = name ?? defaultKeyName();
 
       try {
+        const expiresAt = resolveExpiresAt(opts, fmt);
         const { memberId, targetKind } = await resolveApiKeyTarget(
           user,
           creds,
@@ -117,7 +155,7 @@ function createApiKeyCreateCommand(): Command {
         const result = await user.apiKey.create({
           memberId,
           name: keyName,
-          expiresAt: opts.expires ?? null,
+          expiresAt,
         });
         output(result, fmt, () => {
           clack.log.success(`Created API key '${keyName}'`);
