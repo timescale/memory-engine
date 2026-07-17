@@ -60,6 +60,7 @@ const EXPECTED_MIGRATIONS = [
   "013_invite_groups",
   "014_space_access_defaults",
   "015_service_accounts",
+  "016_api_key_last_used_on",
 ];
 
 const EXPECTED_FUNCTIONS = [
@@ -123,6 +124,16 @@ describe("provisioned core schema", () => {
     for (const table of EXPECTED_TABLES) {
       expect(tables).toContain(table);
     }
+  });
+
+  test("adds day-level api key usage metadata", async () => {
+    const [column] = await sql.unsafe(
+      `select data_type
+       from information_schema.columns
+       where table_schema = $1 and table_name = 'api_key' and column_name = 'last_used_on'`,
+      [canonical.schema],
+    );
+    expect(column?.data_type).toBe("date");
   });
 
   test("records every incremental migration exactly once", async () => {
@@ -2715,6 +2726,58 @@ describe("control-plane functions", () => {
       expect(valid[0]?.member_id).toBe(userId);
       // a user key has no owner
       expect(valid[0]?.owner_id).toBeNull();
+      const [afterValidate] = await sql.unsafe(
+        `select last_used_on from ${s}.api_key where lookup_id = $1`,
+        [lookup],
+      );
+      expect(afterValidate?.last_used_on).toBeNull();
+
+      const [firstTouch] = await sql.unsafe(
+        `select ${s}.touch_api_key(id, '2026-07-17'::date) as touched
+         from ${s}.api_key
+         where lookup_id = $1`,
+        [lookup],
+      );
+      expect(firstTouch?.touched).toBe(true);
+
+      const [sameDayTouch] = await sql.unsafe(
+        `select ${s}.touch_api_key(id, '2026-07-17'::date) as touched
+         from ${s}.api_key
+         where lookup_id = $1`,
+        [lookup],
+      );
+      expect(sameDayTouch?.touched).toBe(false);
+
+      const [earlierTouch] = await sql.unsafe(
+        `select ${s}.touch_api_key(id, '2026-07-16'::date) as touched
+         from ${s}.api_key
+         where lookup_id = $1`,
+        [lookup],
+      );
+      expect(earlierTouch?.touched).toBe(false);
+
+      const [laterTouch] = await sql.unsafe(
+        `select ${s}.touch_api_key(id, '2026-07-18'::date) as touched
+         from ${s}.api_key
+         where lookup_id = $1`,
+        [lookup],
+      );
+      expect(laterTouch?.touched).toBe(true);
+
+      const [got] = await sql.unsafe(
+        `select last_used_on::text as last_used_on
+         from ${s}.get_api_key((select id from ${s}.api_key where lookup_id = $1))`,
+        [lookup],
+      );
+      expect(got?.last_used_on).toBe("2026-07-18");
+
+      const [listed] = await sql.unsafe(
+        `select last_used_on::text as last_used_on
+         from ${s}.list_api_keys($1)
+         where lookup_id = $2`,
+        [userId, lookup],
+      );
+      expect(listed?.last_used_on).toBe("2026-07-18");
 
       // an agent key reports the agent's owner (drives `~` home nesting)
       const agentId = await v7();

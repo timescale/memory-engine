@@ -84,6 +84,7 @@ function toApiKeyInfoResponse(k: ApiKeyInfo): ApiKeyInfoResponse {
     name: k.name,
     createdAt: k.createdAt.toISOString(),
     expiresAt: k.expiresAt?.toISOString() ?? null,
+    lastUsedOn: k.lastUsedOn,
   };
 }
 

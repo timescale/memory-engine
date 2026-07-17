@@ -100,15 +100,21 @@ test("create (global, no space needed) / list / get / delete", async () => {
   // Global format: me.<lookupId>.<secret> — no space slug.
   expect(created.key).toMatch(/^me\.[A-Za-z0-9_-]{16}\.[A-Za-z0-9_-]{32}$/);
 
-  const list = await call<{ apiKeys: { id: string }[] }>("apiKey.list", {
+  const list = await call<{
+    apiKeys: { id: string; lastUsedOn: string | null }[];
+  }>("apiKey.list", {
     memberId: agentId,
   });
   expect(list.apiKeys.map((k) => k.id)).toContain(created.id);
+  expect(list.apiKeys.find((k) => k.id === created.id)?.lastUsedOn).toBeNull();
 
-  const got = await call<{ apiKey: { id: string } | null }>("apiKey.get", {
-    id: created.id,
-  });
+  await coreStore(sql, coreSchema).touchApiKey(created.id, "2026-07-17");
+
+  const got = await call<{
+    apiKey: { id: string; lastUsedOn: string | null } | null;
+  }>("apiKey.get", { id: created.id });
   expect(got.apiKey?.id).toBe(created.id);
+  expect(got.apiKey?.lastUsedOn).toBe("2026-07-17");
 
   expect(
     (await call<{ deleted: boolean }>("apiKey.delete", { id: created.id }))

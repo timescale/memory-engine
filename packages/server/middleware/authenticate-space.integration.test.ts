@@ -36,6 +36,7 @@ const rand = () => {
   return s;
 };
 const email = () => `space_${crypto.randomUUID().slice(0, 8)}@example.com`;
+const today = () => new Date().toISOString().slice(0, 10);
 
 let sql: Sql;
 let authSchema: string;
@@ -217,6 +218,7 @@ test("api key: agent of the space resolves with apiKeyId set", async () => {
     expect(result.context.apiKeyId).not.toBeNull();
     expect(result.context.treeAccess.length).toBeGreaterThan(0);
   }
+  expect((await core.getApiKey(key.id))?.lastUsedOn).toBe(today());
 });
 
 test("api key: a user's own key (PAT) resolves as the user with full grants", async () => {
@@ -457,6 +459,40 @@ test("api key: agent that is not a member of the requested space → 403", async
   );
   expect(result.ok).toBe(false);
   if (!result.ok) expect(result.error.status).toBe(403);
+  expect((await core.getApiKey(key.id))?.lastUsedOn).toBe(today());
+});
+
+test("api key: invalid secret does not record usage", async () => {
+  const p = await provision();
+  const core = engineCore.coreStore(sql, coreSchema);
+  const key = await core.createApiKey(p.userId, "bad-secret-test");
+  const invalid = engineCore.formatApiKey(key.lookupId, "s".repeat(32));
+
+  const result = await authenticateSpace(
+    req({ token: invalid, space: p.spaceSlug }),
+    deps(),
+  );
+
+  expect(result.ok).toBe(false);
+  expect((await core.getApiKey(key.id))?.lastUsedOn).toBeNull();
+});
+
+test("session: authenticating with a session does not touch the user's api keys", async () => {
+  // Same user has both a valid session (via provision) and an unrelated PAT.
+  // A session auth must not touch the PAT's last_used_on — usage recording is
+  // scoped to the credential that was actually presented.
+  const p = await provision();
+  const core = engineCore.coreStore(sql, coreSchema);
+  const key = await core.createApiKey(p.userId, `session-noop-${rand()}`);
+
+  const result = await authenticateSpace(
+    req({ token: p.token, space: p.spaceSlug }),
+    deps(),
+  );
+
+  expect(result.ok).toBe(true);
+  if (result.ok) expect(result.context.apiKeyId).toBeNull();
+  expect((await core.getApiKey(key.id))?.lastUsedOn).toBeNull();
 });
 
 test("session: member of another space is not a member here → 403", async () => {

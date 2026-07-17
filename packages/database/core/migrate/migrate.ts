@@ -88,6 +88,9 @@ import incremental014 from "./incremental/014_space_access_defaults.sql" with {
 import incremental015 from "./incremental/015_service_accounts.sql" with {
   type: "text",
 };
+import incremental016 from "./incremental/016_api_key_last_used_on.sql" with {
+  type: "text",
+};
 import provisionSql from "./provision.sql" with { type: "text" };
 
 const DIR = "packages/database/core/migrate";
@@ -163,6 +166,11 @@ const incrementals: Migration[] = [
     name: "015_service_accounts",
     file: "incremental/015_service_accounts.sql",
     sql: incremental015,
+  },
+  {
+    name: "016_api_key_last_used_on",
+    file: "incremental/016_api_key_last_used_on.sql",
+    sql: incremental016,
   },
 ];
 

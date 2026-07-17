@@ -70,7 +70,9 @@ me apikey list [--agent <agent> | --service <service>]
 | `--agent <agent>` | List one of your agents' keys (id or name) instead of your own. |
 | `--service <service>` | List a service account's keys (id or name) in the active space. |
 
-Displays a table of keys with ID, name, created date, and expiry.
+Displays a table of keys with ID, name, created date, expiry, and last-used date.
+
+Last used is tracked at day resolution (`YYYY-MM-DD`) in UTC. It updates at most once per key per UTC day per server process, so it is intended for operational visibility rather than precise audit logging.
 
 ---
 

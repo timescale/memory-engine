@@ -127,6 +127,13 @@ test("createApiKey + validateApiKey (good / wrong secret)", async () => {
   // second principal lookup.
   expect(valid?.kind).toBe("u");
   expect(valid?.name).toBe(userName);
+  expect((await db.getApiKey(key.id))?.lastUsedOn).toBeNull();
+
+  expect(await db.touchApiKey(key.id, "2026-07-17")).toBe(true);
+  expect(await db.touchApiKey(key.id, "2026-07-17")).toBe(false);
+  expect(await db.touchApiKey(key.id, "2026-07-16")).toBe(false);
+  expect(await db.touchApiKey(key.id, "2026-07-18")).toBe(true);
+  expect((await db.getApiKey(key.id))?.lastUsedOn).toBe("2026-07-18");
 
   expect(await db.validateApiKey(key.lookupId, "wrong-secret")).toBeNull();
 });

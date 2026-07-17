@@ -59,6 +59,7 @@ set search_path to pg_catalog, {{schema}}, public, pg_temp
 -- get_api_key
 -- Key metadata by id (never the secret).
 -------------------------------------------------------------------------------
+{{fn get_api_key(_id uuid) returns table(id uuid, member_id uuid, lookup_id text, name text, created_at timestamptz, expires_at timestamptz, last_used_on date)}}
 create or replace function {{schema}}.get_api_key
 ( _id uuid
 )
@@ -69,19 +70,22 @@ returns table
 , name text
 , created_at timestamptz
 , expires_at timestamptz
+, last_used_on date
 )
 as $func$
-  select k.id, k.member_id, k.lookup_id, k.name, k.created_at, k.expires_at
+  select k.id, k.member_id, k.lookup_id, k.name, k.created_at, k.expires_at, k.last_used_on
   from {{schema}}.api_key k
   where k.id = _id
 $func$ language sql stable strict rows 1 security invoker
 set search_path to pg_catalog, {{schema}}, public, pg_temp
 ;
+{{endfn}}
 
 -------------------------------------------------------------------------------
 -- list_api_keys
 -- A member's keys (never the secret), newest first.
 -------------------------------------------------------------------------------
+{{fn list_api_keys(_member_id uuid) returns table(id uuid, member_id uuid, lookup_id text, name text, created_at timestamptz, expires_at timestamptz, last_used_on date)}}
 create or replace function {{schema}}.list_api_keys
 ( _member_id uuid
 )
@@ -92,13 +96,39 @@ returns table
 , name text
 , created_at timestamptz
 , expires_at timestamptz
+, last_used_on date
 )
 as $func$
-  select k.id, k.member_id, k.lookup_id, k.name, k.created_at, k.expires_at
+  select k.id, k.member_id, k.lookup_id, k.name, k.created_at, k.expires_at, k.last_used_on
   from {{schema}}.api_key k
   where k.member_id = _member_id
   order by k.created_at desc
 $func$ language sql stable strict security invoker
+set search_path to pg_catalog, {{schema}}, public, pg_temp
+;
+{{endfn}}
+
+-------------------------------------------------------------------------------
+-- touch_api_key
+-- Best-effort day-level usage tracking. Validation stays read-only; callers touch
+-- after a key authenticates. The predicate keeps row churn to one update per day.
+-------------------------------------------------------------------------------
+create or replace function {{schema}}.touch_api_key
+( _id uuid
+, _used_on date
+)
+returns bool
+as $func$
+  with updated as
+  (
+    update {{schema}}.api_key
+    set last_used_on = _used_on
+    where id = _id
+      and (last_used_on is null or last_used_on < _used_on)
+    returning 1
+  )
+  select exists (select 1 from updated)
+$func$ language sql volatile strict security invoker
 set search_path to pg_catalog, {{schema}}, public, pg_temp
 ;
 

@@ -686,11 +686,18 @@ test("api keys: create, get, list, delete (no secret leaked)", async () => {
   expect(got?.memberId).toBe(userId);
   expect(got?.lookupId).toBe(key.lookupId);
   expect(got?.name).toBe("ci");
+  expect(got?.lastUsedOn).toBeNull();
   // metadata only — no secret field on ApiKeyInfo
   expect((got as unknown as Record<string, unknown>).secret).toBeUndefined();
 
+  expect(await core.touchApiKey(key.id, "2026-07-17")).toBe(true);
+  expect(await core.touchApiKey(key.id, "2026-07-17")).toBe(false);
+  expect(await core.touchApiKey(key.id, "2026-07-18")).toBe(true);
+  expect((await core.getApiKey(key.id))?.lastUsedOn).toBe("2026-07-18");
+
   const list = await core.listApiKeys(userId);
   expect(list.map((k) => k.id)).toContain(key.id);
+  expect(list.find((k) => k.id === key.id)?.lastUsedOn).toBe("2026-07-18");
 
   expect(await core.deleteApiKey(key.id)).toBe(true);
   expect(await core.getApiKey(key.id)).toBeNull();

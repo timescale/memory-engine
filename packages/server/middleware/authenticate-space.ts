@@ -31,6 +31,7 @@ import type { Sql } from "postgres";
 import type { Auth, VerifyOAuthAccessToken } from "../auth/betterauth";
 import { error, forbidden, unauthorized } from "../util/response";
 import { resolveOwnedAgent } from "./act-as-agent";
+import { recordApiKeyUse } from "./api-key-usage";
 import {
   bearerOnlyHeaders,
   extractBearerToken,
@@ -180,6 +181,7 @@ async function authenticateSpaceInner(
       return { ok: false, error: unauthorized("Invalid credentials") };
     }
     principalKind = validated.kind;
+    await recordApiKeyUse(core, validated.apiKeyId);
   } else if (bearer && isLegacyApiKey(bearer)) {
     // A pre-global 4-part key (me.<slug>.<lookup>.<secret>). These no longer
     // authenticate; tell the operator to recreate the key rather than failing

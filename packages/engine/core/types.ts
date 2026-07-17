@@ -172,6 +172,8 @@ export interface ApiKeyInfo {
   name: string;
   createdAt: Date;
   expiresAt: Date | null;
+  /** UTC date string (YYYY-MM-DD) of the last successful api-key auth. */
+  lastUsedOn: string | null;
 }
 
 /**
