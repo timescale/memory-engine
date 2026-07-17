@@ -26,7 +26,7 @@ Minting and revoking keys authenticate with your **session** (`me login`); an AP
 Mint a new API key. With no target option, mints a **personal access token** for yourself; with `--agent`, mints a key for that agent; with `--service`, mints a key for that service account in the active space. The raw key is shown only once — store it securely.
 
 ```
-me apikey create [name] [--agent <agent> | --service <service>] [--expires <timestamp>]
+me apikey create [name] [--agent <agent> | --service <service>] [--expires <timestamp> | --ttl <duration>]
 ```
 
 | Argument | Required | Description |
@@ -38,6 +38,7 @@ me apikey create [name] [--agent <agent> | --service <service>] [--expires <time
 | `--agent <agent>` | Mint a key for one of your agents (id or name) instead of yourself. |
 | `--service <service>` | Mint a key for a service account (id or name) in the active space. |
 | `--expires <timestamp>` | Expiration timestamp (ISO 8601). |
+| `--ttl <duration>` | Expiration from now, e.g. `30d`, `24h`, `30m`. |
 
 Names are unique per principal, so you can't mint two keys with the same name for the same target. The auto-generated default carries a random suffix, making repeated `me apikey create` calls extremely unlikely to collide.
 
@@ -45,6 +46,7 @@ Names are unique per principal, so you can't mint two keys with the same name fo
 # A personal access token for yourself (e.g. to use headlessly in a VM)
 me apikey create
 me apikey create my-laptop          # …with a name
+me apikey create vm-key --ttl 30d   # expires 30 days from now
 
 # A key for one of your agents
 me apikey create --agent claude-code-agent plugin-key
