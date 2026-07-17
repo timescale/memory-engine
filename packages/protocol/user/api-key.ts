@@ -19,6 +19,7 @@ export const apiKeyInfoResponse = z.object({
   name: z.string(),
   createdAt: z.string(),
   expiresAt: z.string().nullable(),
+  lastUsedOn: z.string().nullable(),
 });
 export type ApiKeyInfoResponse = z.infer<typeof apiKeyInfoResponse>;
 

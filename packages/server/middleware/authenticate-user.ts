@@ -23,6 +23,7 @@ import type {
 } from "../auth/betterauth";
 import { error, forbidden, unauthorized } from "../util/response";
 import { resolveOwnedAgent } from "./act-as-agent";
+import { recordApiKeyUse } from "./api-key-usage";
 import {
   bearerOnlyHeaders,
   extractBearerToken,
@@ -131,6 +132,7 @@ export async function authenticateUser(
             error: unauthorized("Invalid or expired token"),
           };
         }
+        await recordApiKeyUse(core, validated.apiKeyId);
         const isUser = validated.kind === "u";
         debug("user auth succeeded (api key)", {
           userId: validated.memberId,

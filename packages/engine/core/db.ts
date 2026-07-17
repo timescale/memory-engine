@@ -213,6 +213,8 @@ export interface CoreStore {
   ): Promise<ValidatedApiKey | null>;
   getApiKey(id: string): Promise<ApiKeyInfo | null>;
   listApiKeys(memberId: string): Promise<ApiKeyInfo[]>;
+  /** Best-effort day-level usage tracking. `usedOn` is UTC YYYY-MM-DD. */
+  touchApiKey(id: string, usedOn: string): Promise<boolean>;
   /** Hard-delete a key (revoke ≡ delete; there is no soft-revoke state). */
   deleteApiKey(id: string): Promise<boolean>;
 
@@ -356,7 +358,15 @@ function mapApiKeyInfo(row: Record<string, unknown>): ApiKeyInfo {
     name: row.name as string,
     createdAt: row.created_at as Date,
     expiresAt: (row.expires_at as Date | null) ?? null,
+    lastUsedOn: dateOnly(row.last_used_on),
   };
+}
+
+function dateOnly(value: unknown): string | null {
+  if (value === null || value === undefined) return null;
+  if (value instanceof Date) return value.toISOString().slice(0, 10);
+  if (typeof value === "string") return value.slice(0, 10);
+  return String(value).slice(0, 10);
 }
 
 export function coreStore(sql: Sql, schema: string = CORE_SCHEMA): CoreStore {
@@ -705,13 +715,26 @@ export function coreStore(sql: Sql, schema: string = CORE_SCHEMA): CoreStore {
     },
 
     async getApiKey(id) {
-      const [row] = await sql`select * from ${sch}.get_api_key(${id})`;
+      const [row] = await sql`
+        select id, member_id, lookup_id, name, created_at, expires_at, last_used_on::text as last_used_on
+        from ${sch}.get_api_key(${id})
+      `;
       return row ? mapApiKeyInfo(row) : null;
     },
 
     async listApiKeys(memberId) {
-      const rows = await sql`select * from ${sch}.list_api_keys(${memberId})`;
+      const rows = await sql`
+        select id, member_id, lookup_id, name, created_at, expires_at, last_used_on::text as last_used_on
+        from ${sch}.list_api_keys(${memberId})
+      `;
       return rows.map(mapApiKeyInfo);
+    },
+
+    async touchApiKey(id, usedOn) {
+      const [row] = await sql`
+        select ${sch}.touch_api_key(${id}, ${usedOn}::date) as touched
+      `;
+      return Boolean(row?.touched);
     },
 
     async deleteApiKey(id) {

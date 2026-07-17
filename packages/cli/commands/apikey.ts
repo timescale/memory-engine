@@ -206,8 +206,14 @@ function createApiKeyListCommand(): Command {
             return;
           }
           table(
-            ["id", "name", "created", "expires"],
-            apiKeys.map((k) => [k.id, k.name, k.createdAt, k.expiresAt ?? ""]),
+            ["id", "name", "created", "expires", "last used"],
+            apiKeys.map((k) => [
+              k.id,
+              k.name,
+              k.createdAt,
+              k.expiresAt ?? "",
+              k.lastUsedOn ?? "",
+            ]),
           );
         });
       } catch (error) {
@@ -239,6 +245,7 @@ function createApiKeyGetCommand(): Command {
           console.log(`  Member:  ${apiKey.memberId}`);
           console.log(`  Created: ${apiKey.createdAt}`);
           console.log(`  Expires: ${apiKey.expiresAt ?? "(never)"}`);
+          console.log(`  Last used: ${apiKey.lastUsedOn ?? "(never)"}`);
         });
       } catch (error) {
         handleError(error, fmt, { creds });

@@ -34,6 +34,7 @@ const rand = () => {
 };
 const email = () => `u_${crypto.randomUUID().slice(0, 8)}@example.com`;
 const ALLOWED = ["https://test.example.com"];
+const today = () => new Date().toISOString().slice(0, 10);
 
 let sql: Sql;
 let authSchema: string;
@@ -113,12 +114,18 @@ async function seedUser(): Promise<string> {
 
 test("OAuth access token authenticates as the user (not viaApiKey)", async () => {
   const userId = await seedUser();
+  // Mint a PAT for the same user so we can assert the session/OAuth path
+  // does NOT touch it — usage recording is scoped to the credential actually
+  // presented, not to every key the user owns.
+  const key = await core.createApiKey(userId, `oauth-noop-${rand()}`);
+
   const result = await auth(await mintAccessToken(userId));
   expect(result.ok).toBe(true);
   if (result.ok) {
     expect(result.context.userId).toBe(userId);
     expect(result.context.viaApiKey).toBe(false);
   }
+  expect((await core.getApiKey(key.id))?.lastUsedOn).toBeNull();
 });
 
 test("the user's own api key (PAT) authenticates as the user (viaApiKey), carrying the real emailVerified", async () => {
@@ -133,6 +140,7 @@ test("the user's own api key (PAT) authenticates as the user (viaApiKey), carryi
     // PAT behaves like a session (incl. the email-keyed redemption step).
     expect(result.context.emailVerified).toBe(true);
   }
+  expect((await core.getApiKey(key.id))?.lastUsedOn).toBe(today());
 });
 
 test("a PAT for an unverified user reports emailVerified=false (read from the DB, not faked)", async () => {
