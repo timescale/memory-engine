@@ -1,7 +1,7 @@
 /** Unit tests for service-account CLI command surfaces. */
 import { describe, expect, test } from "bun:test";
 import type { Command } from "commander";
-import { createApiKeyCommand } from "./apikey.ts";
+import { createApiKeyCommand, parseAllow } from "./apikey.ts";
 import { createServiceCommand } from "./service.ts";
 
 function subcommand(cmd: Command, name: string): Command {
@@ -62,5 +62,19 @@ describe("apikey command", () => {
     const apikey = createApiKeyCommand();
     expect(optionLongs(subcommand(apikey, "create"))).toContain("--service");
     expect(optionLongs(subcommand(apikey, "list"))).toContain("--service");
+  });
+
+  test("creates restricted keys with repeatable scope options", () => {
+    const create = subcommand(createApiKeyCommand(), "create");
+    expect(optionLongs(create)).toContain("--allow");
+    expect(optionLongs(create)).toContain("--space-admin");
+    expect(parseAllow("abc123def456:/share/deploy:w", "json")).toEqual({
+      space: "abc123def456",
+      treePath: "/share/deploy",
+      access: 2,
+    });
+    expect(parseAllow("abc123def456", "json")).toEqual({
+      space: "abc123def456",
+    });
   });
 });

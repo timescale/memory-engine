@@ -2,11 +2,13 @@
 
 Manage API keys — your own **personal access token (PAT)**, a key for one of your **agents** (`--agent`), or a key for a **service account** (`--service`).
 
-An API key is a global, per-principal credential — **not** bound to a space. The same key works in any space its principal has been admitted to; the space comes from the `X-Me-Space` header (`--space` / `ME_SPACE`). Keys are formatted `me.<lookupId>.<secret>`.
+An API key is a global, per-principal credential — **not** inherently bound to a space. An unrestricted key works in any space its principal has been admitted to. A restricted key works only in its declared spaces and is capped to any declared tree grants; the space comes from the `X-Me-Space` header (`--space` / `ME_SPACE`). Keys are formatted `me.<lookupId>.<secret>`.
 
-There are two kinds, distinguished only by who they act as:
+There are two access modes: an unrestricted key acts with all of its holder's
+current authority, while a restricted key is capped to declared spaces and
+optional tree grants. Both modes can be held by the following principals:
 
-- **Personal access token** (default) — acts as **you**, for headless/CLI use (a VM, SSH, CI) where your `me login` session isn't available. Full access as you, but it **cannot** manage keys (minting/revoking always needs a session).
+- **Personal access token** (default) — acts as **you**, for headless/CLI use (a VM, SSH, CI) where your `me login` session isn't available. It can be unrestricted or restricted with `--allow`, but it **cannot** manage keys (minting/revoking always needs a session).
 - **Agent key** (`--agent <agent>`) — acts as one of your agents, for a dedicated/unattended agent install.
 - **Service-account key** (`--service <service>`) — acts as a space-scoped service account, for CI/CD jobs, webhooks, and other team-owned integrations. Treat it like a production secret.
 
@@ -26,7 +28,7 @@ Minting and revoking keys authenticate with your **session** (`me login`); an AP
 Mint a new API key. With no target option, mints a **personal access token** for yourself; with `--agent`, mints a key for that agent; with `--service`, mints a key for that service account in the active space. The raw key is shown only once — store it securely.
 
 ```
-me apikey create [name] [--agent <agent> | --service <service>] [--expires <timestamp> | --ttl <duration>]
+me apikey create [name] [--agent <agent> | --service <service>] [--expires <timestamp> | --ttl <duration>] [--allow <scope>] [--space-admin <space>]
 ```
 
 | Argument | Required | Description |
@@ -39,6 +41,8 @@ me apikey create [name] [--agent <agent> | --service <service>] [--expires <time
 | `--service <service>` | Mint a key for a service account (id or name) in the active space. |
 | `--expires <timestamp>` | Expiration timestamp (ISO 8601). |
 | `--ttl <duration>` | Expiration from now, e.g. `30d`, `24h`, `30m`. |
+| `--allow <scope>` | Repeatable restricted-access declaration: `<space>` permits all of the holder's current effective access there; `<space>:<path>:<r\|w\|o>` sets a tree ceiling. Use `.` for the active space. |
+| `--space-admin <space>` | Repeatable: permit space-admin authority in a declared space, but only when the holder is actually an admin. |
 
 Names are unique per principal, so you can't mint two keys with the same name for the same target. The auto-generated default carries a random suffix, making repeated `me apikey create` calls extremely unlikely to collide.
 
@@ -53,7 +57,19 @@ me apikey create --agent claude-code-agent plugin-key
 
 # A key for a service account in the active space
 me apikey create --service deploy-bot ci-key
+
+# A PAT restricted to deployment writes in one space
+me apikey create deploy --allow .:/share/deploy:w
+
+# A key with all of the holder's current access in a declared space
+me apikey create ci --allow abc123def456
 ```
+
+`--allow` creates a restricted key and must appear at least once. A bare and a
+tree-specific declaration cannot be combined for the same space. Agent keys
+cannot be restricted. Service-account keys may declare only their native active
+space. Restricted scope is immutable: create a replacement key, deploy and
+verify it, then revoke the old key.
 
 ---
 
@@ -70,7 +86,8 @@ me apikey list [--agent <agent> | --service <service>]
 | `--agent <agent>` | List one of your agents' keys (id or name) instead of your own. |
 | `--service <service>` | List a service account's keys (id or name) in the active space. |
 
-Displays a table of keys with ID, name, created date, expiry, and last-used date.
+Displays a table of keys with ID, name, scope (`full` or `restricted`), created
+date, expiry, and last-used date.
 
 Last used is tracked at day resolution (`YYYY-MM-DD`) in UTC. It updates at most once per key per UTC day per server process, so it is intended for operational visibility rather than precise audit logging.
 
@@ -87,6 +104,10 @@ me apikey get <id>
 | Argument | Required | Description |
 |----------|----------|-------------|
 | `id` | yes | API key ID. |
+
+For restricted keys, this also shows every declared space, optional admin cap,
+and tree grant. A declaration with no tree grants is shown as `all holder
+access`: it follows the holder's live effective access in that space.
 
 ---
 

@@ -172,10 +172,27 @@ export interface ApiKeyInfo {
   memberId: string;
   lookupId: string;
   name: string;
+  /** Whether the key has explicit space/tree declarations. */
+  restricted: boolean;
   createdAt: Date;
   expiresAt: Date | null;
   /** UTC date string (YYYY-MM-DD) of the last successful api-key auth. */
   lastUsedOn: string | null;
+}
+
+/** A tree-access ceiling supplied when creating a restricted API key. */
+export interface ApiKeyAccessDeclaration {
+  spaceId: string;
+  spaceAdmin?: boolean;
+  grants: Array<{ treePath: string; access: AccessLevel }>;
+}
+
+/** A persisted API-key access declaration, with its displayable space slug. */
+export interface ApiKeyAccess {
+  spaceId: string;
+  slug: string;
+  spaceAdmin: boolean;
+  grants: Array<{ treePath: string; access: AccessLevel }>;
 }
 
 /**

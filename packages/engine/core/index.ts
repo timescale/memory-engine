@@ -10,6 +10,8 @@ export { type CoreStore, coreStore } from "./db";
 export { generateInviteToken } from "./invite-token";
 export type {
   AccessLevel,
+  ApiKeyAccess,
+  ApiKeyAccessDeclaration,
   ApiKeyInfo,
   CreatedApiKey,
   CreatedInvitation,
