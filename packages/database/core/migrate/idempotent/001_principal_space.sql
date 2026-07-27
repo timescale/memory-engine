@@ -32,6 +32,7 @@ as $func$
             select 1
             from {{schema}}.api_key_space_access a
             where a.api_key_id = k.id and a.space_id = _space_id
+          )
         )
       )
     )
