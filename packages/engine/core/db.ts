@@ -4,6 +4,8 @@ import { generateLookupId, generateSecret, hashApiKeySecret } from "./api-key";
 import { generateInviteToken } from "./invite-token";
 import type {
   AccessLevel,
+  ApiKeyAccess,
+  ApiKeyAccessDeclaration,
   ApiKeyInfo,
   CreatedApiKey,
   CreatedInvitation,
@@ -220,7 +222,7 @@ export interface CoreStore {
   createApiKey(
     memberId: string,
     name: string,
-    opts?: { expiresAt?: Date },
+    opts?: { expiresAt?: Date; access?: ApiKeyAccessDeclaration[] },
   ): Promise<CreatedApiKey>;
   validateApiKey(
     lookupId: string,
@@ -228,6 +230,8 @@ export interface CoreStore {
   ): Promise<ValidatedApiKey | null>;
   getApiKey(id: string): Promise<ApiKeyInfo | null>;
   listApiKeys(memberId: string): Promise<ApiKeyInfo[]>;
+  /** Restricted declarations for an API key; empty for unrestricted keys. */
+  listApiKeyAccess(id: string): Promise<ApiKeyAccess[]>;
   /** Best-effort day-level usage tracking. `usedOn` is UTC YYYY-MM-DD. */
   touchApiKey(id: string, usedOn: string): Promise<boolean>;
   /** Hard-delete a key (revoke ≡ delete; there is no soft-revoke state). */
@@ -371,6 +375,7 @@ function mapApiKeyInfo(row: Record<string, unknown>): ApiKeyInfo {
     memberId: row.member_id as string,
     lookupId: row.lookup_id as string,
     name: row.name as string,
+    restricted: Boolean(row.restricted),
     createdAt: row.created_at as Date,
     expiresAt: (row.expires_at as Date | null) ?? null,
     lastUsedOn: dateOnly(row.last_used_on),
@@ -704,9 +709,18 @@ export function coreStore(sql: Sql, schema: string = CORE_SCHEMA): CoreStore {
       const lookupId = generateLookupId();
       const secret = generateSecret();
       const secretHash = hashApiKeySecret(secret);
+      const access = opts?.access?.map((declaration) => ({
+        space_id: declaration.spaceId,
+        space_admin: declaration.spaceAdmin ?? false,
+        grants: declaration.grants.map((grant) => ({
+          tree_path: grant.treePath,
+          access: grant.access,
+        })),
+      }));
       const [row] = await sql`
         select ${sch}.create_api_key(
-          ${memberId}, ${lookupId}, ${secretHash}, ${name}, ${opts?.expiresAt ?? null}
+          ${memberId}, ${lookupId}, ${secretHash}, ${name}, ${opts?.expiresAt ?? null},
+          ${access === undefined ? null : sql.json(access)}
         ) as id
       `;
       if (!row) throw new Error("create_api_key returned no row");
@@ -732,7 +746,7 @@ export function coreStore(sql: Sql, schema: string = CORE_SCHEMA): CoreStore {
 
     async getApiKey(id) {
       const [row] = await sql`
-        select id, member_id, lookup_id, name, created_at, expires_at, last_used_on::text as last_used_on
+        select id, member_id, lookup_id, name, restricted, created_at, expires_at, last_used_on::text as last_used_on
         from ${sch}.get_api_key(${id})
       `;
       return row ? mapApiKeyInfo(row) : null;
@@ -740,10 +754,30 @@ export function coreStore(sql: Sql, schema: string = CORE_SCHEMA): CoreStore {
 
     async listApiKeys(memberId) {
       const rows = await sql`
-        select id, member_id, lookup_id, name, created_at, expires_at, last_used_on::text as last_used_on
+        select id, member_id, lookup_id, name, restricted, created_at, expires_at, last_used_on::text as last_used_on
         from ${sch}.list_api_keys(${memberId})
       `;
       return rows.map(mapApiKeyInfo);
+    },
+
+    async listApiKeyAccess(id) {
+      const rows = await sql`
+        select space_id, slug, space_admin, grants
+        from ${sch}.list_api_key_access(${id})
+      `;
+      return rows.map(
+        (row): ApiKeyAccess => ({
+          spaceId: row.space_id as string,
+          slug: row.slug as string,
+          spaceAdmin: Boolean(row.space_admin),
+          grants: (
+            row.grants as Array<{ tree_path: string; access: AccessLevel }>
+          ).map((grant) => ({
+            treePath: grant.tree_path,
+            access: grant.access,
+          })),
+        }),
+      );
     },
 
     async touchApiKey(id, usedOn) {

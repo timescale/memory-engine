@@ -139,6 +139,84 @@ test("mints a personal access token for the caller's own user principal", async 
   expect(list.apiKeys.map((k) => k.id)).toContain(created.id);
 });
 
+test("creates and inspects a scoped PAT", async () => {
+  const core = coreStore(sql, coreSchema);
+  const slug = rand(12);
+  const spaceId = await core.createSpace(slug, "Scoped");
+  await core.addPrincipalToSpace(spaceId, userId);
+
+  const created = await call<{ id: string }>("apiKey.create", {
+    memberId: userId,
+    name: "scoped-pat",
+    expiresAt: null,
+    access: [
+      {
+        spaceId,
+        spaceAdmin: false,
+        grants: [{ treePath: "/share/deploy", access: 2 }],
+      },
+    ],
+  });
+  const got = await call<{
+    apiKey: { restricted: boolean } | null;
+    access: Array<{
+      spaceId: string;
+      slug: string;
+      spaceAdmin: boolean;
+      grants: Array<{ treePath: string; access: number }>;
+    }>;
+  }>("apiKey.get", { id: created.id });
+  expect(got.apiKey?.restricted).toBe(true);
+  expect(got.access).toEqual([
+    {
+      spaceId,
+      slug,
+      spaceAdmin: false,
+      grants: [{ treePath: "share.deploy", access: 2 }],
+    },
+  ]);
+});
+
+test("rejects scoped declarations outside the holder's direct memberships", async () => {
+  const spaceId = await coreStore(sql, coreSchema).createSpace(
+    rand(12),
+    "Other",
+  );
+  await expectAppError(
+    call("apiKey.create", {
+      memberId: userId,
+      name: "invalid-scoped-pat",
+      expiresAt: null,
+      access: [{ spaceId, grants: [] }],
+    }),
+    "VALIDATION_ERROR",
+  );
+});
+
+test("rejects duplicate normalized scope paths", async () => {
+  const core = coreStore(sql, coreSchema);
+  const spaceId = await core.createSpace(rand(12), "Scoped");
+  await core.addPrincipalToSpace(spaceId, userId);
+
+  await expectAppError(
+    call("apiKey.create", {
+      memberId: userId,
+      name: "duplicate-scoped-pat",
+      expiresAt: null,
+      access: [
+        {
+          spaceId,
+          grants: [
+            { treePath: "/share/deploy", access: 1 },
+            { treePath: "share.deploy", access: 2 },
+          ],
+        },
+      ],
+    }),
+    "VALIDATION_ERROR",
+  );
+});
+
 test("a key-authenticated caller can't mint or revoke keys (keys can't manage keys)", async () => {
   // First mint a key as a session caller (viaApiKey defaults false).
   const created = await call<{ id: string }>("apiKey.create", {

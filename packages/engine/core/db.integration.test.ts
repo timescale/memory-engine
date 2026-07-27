@@ -138,6 +138,40 @@ test("createApiKey + validateApiKey (good / wrong secret)", async () => {
   expect(await db.validateApiKey(key.lookupId, "wrong-secret")).toBeNull();
 });
 
+test("createApiKey persists scoped declarations and rejects undeclared spaces", async () => {
+  const slug = randomSlug();
+  const spaceId = await db.createSpace(slug, "Scoped Key");
+  const userId = await newUserId();
+  await db.createUser(userId, `scoped_${userId.slice(0, 8)}`);
+  await db.addPrincipalToSpace(spaceId, userId);
+
+  const key = await db.createApiKey(userId, "scoped", {
+    access: [
+      {
+        spaceId,
+        spaceAdmin: true,
+        grants: [{ treePath: "share.deploy", access: 2 }],
+      },
+    ],
+  });
+  expect((await db.getApiKey(key.id))?.restricted).toBe(true);
+  expect(await db.listApiKeyAccess(key.id)).toEqual([
+    {
+      spaceId,
+      slug,
+      spaceAdmin: true,
+      grants: [{ treePath: "share.deploy", access: 2 }],
+    },
+  ]);
+
+  const otherSpaceId = await db.createSpace(randomSlug(), "Undeclared");
+  await expect(
+    db.createApiKey(userId, "invalid-scoped", {
+      access: [{ spaceId: otherSpaceId, grants: [] }],
+    }),
+  ).rejects.toThrow("not a direct member");
+});
+
 test("api key string format round-trips with parseApiKey", async () => {
   const userId = await newUserId();
   await db.createUser(userId, `erin_${userId.slice(0, 8)}`);

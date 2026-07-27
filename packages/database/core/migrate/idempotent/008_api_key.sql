@@ -88,6 +88,16 @@ as $func$
       end if;
 
       _space_id := (_declaration ->> 'space_id')::uuid;
+      if not exists
+      (
+        select 1
+        from {{schema}}.principal_space ps
+        where ps.principal_id = _member_id
+        and ps.space_id = _space_id
+      ) then
+        raise exception 'API key holder % is not a direct member of declared space %', _member_id, _space_id
+        using errcode = '23514';
+      end if;
       insert into {{schema}}.api_key_space_access
       ( api_key_id
       , space_id
