@@ -280,7 +280,7 @@ const { serviceAccount: service } = await user.serviceAccount.create({
 const { serviceAccounts } = await user.serviceAccount.list({ spaceId: space.id });
 await user.serviceAccount.rename({ id: service.id, name: "deployer" });
 
-// API keys — global per-principal credentials
+// API keys — unrestricted by default
 const { id, key } = await user.apiKey.create({
   memberId: agent.id,
   name: "ci-pipeline",
@@ -291,14 +291,26 @@ const { apiKeys } = await user.apiKey.list({ memberId: agent.id });
 const apiKeyMeta = await user.apiKey.get({ id });
 await user.apiKey.delete({ id });
 
-// Service-account keys target the service account instead of an agent.
+// A restricted user PAT is capped to declared spaces and tree paths.
+const scopedPat = await user.apiKey.create({
+  memberId: me.id,
+  name: "deployment-automation",
+  access: [{
+    spaceId: space.id,
+    grants: [{ treePath: "/share/deploy", access: 2 }], // write
+  }],
+});
+const scopedDetails = await user.apiKey.get({ id: scopedPat.id });
+
+// Service-account keys target the service account instead of an agent. A
+// restricted service-account key may declare only that account's native space.
 const serviceKey = await user.apiKey.create({
   memberId: service.id,
   name: "production-deploy",
 });
 ```
 
-API keys are **global** per-principal credentials, not bound to a space: the same key works in any space its principal has been admitted to (the space comes from `X-Me-Space`). Service accounts are themselves space-scoped, so a service-account key is only useful in that service account's space.
+API keys are **global** per-principal credentials. An unrestricted key works in any space its principal has been admitted to (the space comes from `X-Me-Space`). Pass a non-empty `access` array when creating a user PAT or service-account key to make it restricted: each declaration names a direct-member space, optional tree grants, and an optional `spaceAdmin` cap. An empty grant array permits the holder's full live effective access in that one declared space. `apiKey.get` returns the persisted declarations; `apiKey.list` reports whether each key is restricted. Agent keys cannot be restricted. Service accounts are themselves space-scoped, so a service-account key may declare only that service account's space.
 
 ## Error handling
 

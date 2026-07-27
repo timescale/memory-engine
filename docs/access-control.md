@@ -25,6 +25,18 @@ Each service account has a **bound admin group**. Space admins can manage all se
 
 Service accounts start with **zero tree access**: no home grant, no default-group membership, and no owner clamp. Grant access to the service account directly, or add it to ordinary groups. A service-account key can use the memory and group/grant authorities the service account actually holds. By default it cannot create invitations; if you explicitly make the service account a space admin, it can use admin-gated invitation operations. It still cannot mint or revoke API keys or delete spaces.
 
+### Restricted API keys
+
+An API key created with [`me apikey create --allow`](cli/me-apikey.md#me-apikey-create) is **restricted**: it is a credential-side ceiling on the authority its user or service-account holder has at request time. It never grants access the holder does not already have.
+
+- A restricted key works only in its declared spaces. The holder must be a direct member of each declared space.
+- A declaration with no tree grants permits the holder's full **current effective access** in that space. If their grants later shrink, the key shrinks with them.
+- Tree grants cap the key to the declared paths and read, write, or owner levels. The result is always clamped to the holder's live effective access.
+- `--space-admin <space>` permits space-admin authority only when the holder is also an effective admin in that space.
+- Restricted declarations are immutable. Rotate the key: create a replacement, deploy and verify it, then revoke the old key.
+
+Agent keys cannot be restricted; use an agent's regular grants to limit an agent. Restricted user PATs cannot manage the account, including minting, revoking, or inspecting API keys.
+
 ## Spaces
 
 A **space** is an isolated collection of memories with its own roster, groups, and access grants. Each space has:

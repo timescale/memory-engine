@@ -20,12 +20,12 @@ me codex install [options]
 
 | Option | Description |
 |--------|-------------|
-| `--api-key <key>` | API key for a headless agent. Default: the MCP server uses your `me login` session, resolved at runtime. |
+| `--api-key <key>` | API key for a headless install. Default: the MCP server uses your `me login` session, resolved at runtime. |
 | `--space <slug>` | Pin a space. Default: resolve `ME_SPACE` / active space at runtime. |
 | `--server <url>` | Server URL to embed in the MCP config. |
 | `--no-default-agent` | Skip provisioning the default agent (see [Agent-by-config](../project-config.md#agent-by-config-and-the-agent-field)). |
 
-By default only the server URL is baked into the config: at runtime `me mcp` uses your `me login` session (resolved from the OS keychain / `~/.config/me` each run, so it survives re-login) and your active space (set by `me space use` / `ME_SPACE`). Pass `--api-key` (mint one with `me apikey create --agent <agent>`, or `me apikey create` for a personal access token) for a headless agent that cannot reach your keychain; that bakes the key and requires a pinned `--space`.
+By default only the server URL is baked into the config: at runtime `me mcp` uses your `me login` session (resolved from the OS keychain / `~/.config/me` each run, so it survives re-login) and your active space (set by `me space use` / `ME_SPACE`). Pass `--api-key` for a headless install that cannot reach your keychain; that bakes the key and requires a pinned `--space`. For least privilege, mint a restricted PAT or service-account key with `me apikey create --allow <space>:<path>:<r|w|o>`; the pinned space must be declared by that key. An agent key remains an option when its regular agent grants are the intended boundary.
 
 `me codex install` also adds a hook to `~/.codex/hooks.json` so that a plain `me` call from Codex's shell automatically runs as your configured agent in the right project. Re-running install is safe and leaves any other hooks you've configured untouched. **One-time step**: Codex holds new hooks for review — run `/hooks` inside Codex once to approve it. Until you do, a plain `me` call from Codex's shell won't run as your agent; `me codex install` prints this reminder.
 
