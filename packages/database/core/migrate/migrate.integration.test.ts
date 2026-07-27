@@ -3035,6 +3035,310 @@ describe("control-plane functions", () => {
     });
   });
 
+  test("scoped API keys reject agent holders and empty access arrays", async () => {
+    await withTestCore(sql, {}, async (core) => {
+      const s = core.schema;
+      const [sp] = await sql.unsafe(`select ${s}.create_space($1, $2) as id`, [
+        randomSlug(),
+        "Agent Reject",
+      ]);
+      const spaceId = sp?.id as string;
+      const ownerId = await v7();
+      await sql.unsafe(`select ${s}.create_user($1, $2)`, [
+        ownerId,
+        "agent-owner",
+      ]);
+      await sql.unsafe(`select ${s}.add_principal_to_space($1, $2, $3)`, [
+        spaceId,
+        ownerId,
+        false,
+      ]);
+      const [agent] = await sql.unsafe(
+        `select ${s}.create_agent($1, $2) as id`,
+        [ownerId, `agent_${randomSlug()}`],
+      );
+      const agentId = agent?.id as string;
+      await sql.unsafe(`select ${s}.add_principal_to_space($1, $2, $3)`, [
+        spaceId,
+        agentId,
+        false,
+      ]);
+
+      // Agent keys cannot carry scope declarations — the space_access
+      // invariant trigger rejects kind='a'.
+      await expectReject(() =>
+        sql.unsafe(`select ${s}.create_api_key($1, $2, $3, $4, null, $5)`, [
+          agentId,
+          "scopeAgentKey001",
+          "secret",
+          "agent-scoped",
+          sql.json([{ space_id: spaceId, grants: [] }]),
+        ]),
+      );
+
+      // Empty and non-array _access payloads are rejected up-front (22023).
+      await expectReject(() =>
+        sql.unsafe(`select ${s}.create_api_key($1, $2, $3, $4, null, $5)`, [
+          ownerId,
+          "scopeEmptyArr001",
+          "secret",
+          "empty",
+          sql.json([]),
+        ]),
+      );
+      await expectReject(() =>
+        sql.unsafe(`select ${s}.create_api_key($1, $2, $3, $4, null, $5)`, [
+          ownerId,
+          "scopeBadShape001",
+          "secret",
+          "not-array",
+          sql.json({ space_id: spaceId }),
+        ]),
+      );
+
+      // An unrestricted agent key still works (no _access provided).
+      const [ok] = await sql.unsafe(
+        `select ${s}.create_api_key($1, $2, $3, $4) as id`,
+        [agentId, "scopeAgentPlain0", "secret", "plain-agent"],
+      );
+      expect(ok?.id).toBeTruthy();
+    });
+  });
+
+  test("scoped API keys support multi-space declarations", async () => {
+    await withTestCore(sql, {}, async (core) => {
+      const s = core.schema;
+      const [alpha] = await sql.unsafe(
+        `select ${s}.create_space($1, $2) as id`,
+        [randomSlug(), "Multi Alpha"],
+      );
+      const [beta] = await sql.unsafe(
+        `select ${s}.create_space($1, $2) as id`,
+        [randomSlug(), "Multi Beta"],
+      );
+      const [gamma] = await sql.unsafe(
+        `select ${s}.create_space($1, $2) as id`,
+        [randomSlug(), "Multi Gamma"],
+      );
+      const alphaId = alpha?.id as string;
+      const betaId = beta?.id as string;
+      const gammaId = gamma?.id as string;
+
+      const userId = await v7();
+      await sql.unsafe(`select ${s}.create_user($1, $2)`, [
+        userId,
+        "multi-space",
+      ]);
+      for (const sid of [alphaId, betaId, gammaId]) {
+        await sql.unsafe(`select ${s}.add_principal_to_space($1, $2, $3)`, [
+          sid,
+          userId,
+          false,
+        ]);
+        await sql.unsafe(
+          `select ${s}.grant_tree_access($1, $2, $3::ltree, $4)`,
+          [sid, userId, "share", 3],
+        );
+      }
+
+      // Two of three spaces declared: alpha with a narrow write grant, beta
+      // grantless (mirrors the user's live grants). Gamma is not in the
+      // declaration list at all.
+      const access = sql.json([
+        {
+          space_id: alphaId,
+          grants: [{ tree_path: "share.alpha", access: 2 }],
+        },
+        { space_id: betaId, grants: [] },
+      ]);
+      const [key] = await sql.unsafe(
+        `select ${s}.create_api_key($1, $2, $3, $4, null, $5) as id`,
+        [userId, "scopeMultiKey001", "secret", "multi", access],
+      );
+      const keyId = key?.id as string;
+
+      // list_spaces_for_member is filtered to the two declared spaces only.
+      const spaces = await sql.unsafe(
+        `select slug from ${s}.list_spaces_for_member($1, $2)`,
+        [userId, keyId],
+      );
+      expect(spaces.length).toBe(2);
+
+      // Alpha: clamped to the declared write@share.alpha.
+      const [alphaAccess] = await sql.unsafe(
+        `select ${s}.build_tree_access($1, $2, $3) as access`,
+        [userId, alphaId, keyId],
+      );
+      expect(alphaAccess?.access).toEqual([
+        { tree_path: "share.alpha", access: 2 },
+      ]);
+
+      // Beta: grantless declaration mirrors the user's owner@share.
+      const [betaAccess] = await sql.unsafe(
+        `select ${s}.build_tree_access($1, $2, $3) as access`,
+        [userId, betaId, keyId],
+      );
+      expect(betaAccess?.access as Grant[]).toContainEqual({
+        tree_path: "share",
+        access: 3,
+      });
+
+      // Gamma: undeclared → no access, and not a member for admission checks.
+      const [gammaAccess] = await sql.unsafe(
+        `select ${s}.build_tree_access($1, $2, $3) as access`,
+        [userId, gammaId, keyId],
+      );
+      expect(gammaAccess?.access).toEqual([]);
+      const [gammaMember] = await sql.unsafe(
+        `select ${s}.is_principal_in_space($1, $2, $3) as ok`,
+        [userId, gammaId, keyId],
+      );
+      expect(gammaMember?.ok).toBe(false);
+    });
+  });
+
+  test("scoped API key without space_admin downgrades a group-derived admin", async () => {
+    await withTestCore(sql, {}, async (core) => {
+      const s = core.schema;
+      const [sp] = await sql.unsafe(`select ${s}.create_space($1, $2) as id`, [
+        randomSlug(),
+        "Group Admin",
+      ]);
+      const spaceId = sp?.id as string;
+
+      // A user made space-admin *only* through an admin group (not directly).
+      const userId = await v7();
+      await sql.unsafe(`select ${s}.create_user($1, $2)`, [
+        userId,
+        "group-admin@example.com",
+      ]);
+      await sql.unsafe(`select ${s}.add_principal_to_space($1, $2, $3)`, [
+        spaceId,
+        userId,
+        false,
+      ]);
+      const [grp] = await sql.unsafe(`select ${s}.create_group($1, $2) as id`, [
+        spaceId,
+        "operators",
+      ]);
+      const groupId = grp?.id as string;
+      await sql.unsafe(`select ${s}.set_group_is_space_admin($1, $2, true)`, [
+        spaceId,
+        groupId,
+      ]);
+      await sql.unsafe(`select ${s}.add_group_member($1, $2, $3, false)`, [
+        spaceId,
+        groupId,
+        userId,
+      ]);
+
+      // Baseline: with no key, the user is admin via the group.
+      const [baseline] = await sql.unsafe(
+        `select ${s}.is_principal_space_admin($1, $2) as ok`,
+        [userId, spaceId],
+      );
+      expect(baseline?.ok).toBe(true);
+
+      // A scoped key that omits space_admin must NOT inherit group-derived
+      // admin authority: the key gates on its own declaration bit.
+      const [nonAdminKey] = await sql.unsafe(
+        `select ${s}.create_api_key($1, $2, $3, $4, null, $5) as id`,
+        [
+          userId,
+          "scopeGroupNoAdm1",
+          "secret",
+          "no-admin",
+          sql.json([{ space_id: spaceId, grants: [], space_admin: false }]),
+        ],
+      );
+      const [downgraded] = await sql.unsafe(
+        `select ${s}.is_principal_space_admin($1, $2, $3) as ok`,
+        [userId, spaceId, nonAdminKey?.id as string],
+      );
+      expect(downgraded?.ok).toBe(false);
+
+      // A scoped key with space_admin=true preserves the group-derived admin.
+      const [adminKey] = await sql.unsafe(
+        `select ${s}.create_api_key($1, $2, $3, $4, null, $5) as id`,
+        [
+          userId,
+          "scopeGroupAdm001",
+          "secret",
+          "yes-admin",
+          sql.json([{ space_id: spaceId, grants: [], space_admin: true }]),
+        ],
+      );
+      const [preserved] = await sql.unsafe(
+        `select ${s}.is_principal_space_admin($1, $2, $3) as ok`,
+        [userId, spaceId, adminKey?.id as string],
+      );
+      expect(preserved?.ok).toBe(true);
+    });
+  });
+
+  test("passing a key id that doesn't belong to the caller denies all access", async () => {
+    await withTestCore(sql, {}, async (core) => {
+      const s = core.schema;
+      const [sp] = await sql.unsafe(`select ${s}.create_space($1, $2) as id`, [
+        randomSlug(),
+        "Mismatch",
+      ]);
+      const spaceId = sp?.id as string;
+      const alice = await v7();
+      const bob = await v7();
+      await sql.unsafe(`select ${s}.create_user($1, $2)`, [alice, "alice"]);
+      await sql.unsafe(`select ${s}.create_user($1, $2)`, [bob, "bob"]);
+      for (const uid of [alice, bob]) {
+        await sql.unsafe(`select ${s}.add_principal_to_space($1, $2, $3)`, [
+          spaceId,
+          uid,
+          false,
+        ]);
+        await sql.unsafe(
+          `select ${s}.grant_tree_access($1, $2, $3::ltree, $4)`,
+          [spaceId, uid, "share", 3],
+        );
+      }
+
+      // Alice creates a scoped key that grants read@share in this space.
+      const [aliceKey] = await sql.unsafe(
+        `select ${s}.create_api_key($1, $2, $3, $4, null, $5) as id`,
+        [
+          alice,
+          "scopeMismatch001",
+          "secret",
+          "alice-key",
+          sql.json([
+            {
+              space_id: spaceId,
+              grants: [{ tree_path: "share", access: 1 }],
+            },
+          ]),
+        ],
+      );
+      const aliceKeyId = aliceKey?.id as string;
+
+      // Passing Alice's key while identifying as Bob is caller misuse. The
+      // auth middleware is expected to catch this — but if it doesn't, the
+      // DB layer's own check-and-clamp fails closed: the key CTE joins on
+      // (member_id = key.member_id), so Bob's row set is empty and the key
+      // ceiling is empty. `build_tree_access` therefore returns no grants
+      // for Bob even though he has owner@share in his own right.
+      const [access] = await sql.unsafe(
+        `select ${s}.build_tree_access($1, $2, $3) as access`,
+        [bob, spaceId, aliceKeyId],
+      );
+      expect(access?.access).toEqual([]);
+
+      // Admission checks fail closed for the same reason.
+      const [member] = await sql.unsafe(
+        `select ${s}.is_principal_in_space($1, $2, $3) as ok`,
+        [bob, spaceId, aliceKeyId],
+      );
+      expect(member?.ok).toBe(false);
+    });
+  });
+
   // The enforce_last_admin triggers are DEFERRABLE INITIALLY DEFERRED, so the
   // invariant is judged once at commit against the transaction's final state —
   // not per statement. A single txn can therefore pass through an intermediate

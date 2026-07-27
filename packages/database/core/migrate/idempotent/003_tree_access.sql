@@ -27,7 +27,22 @@ $func$ language sql stable security invoker
 
 -------------------------------------------------------------------------------
 -- api_key_declared_tree_access
+--
+-- Returns the *ceiling* on effective tree access implied by an api key — not
+-- the effective access itself. `build_tree_access` intersects this against the
+-- member's live grants (least(member, key) at the deeper of the two paths);
+-- an unrestricted key and a grantless declaration both return owner@/ as a
+-- sentinel meaning "no key-side restriction, so the ceiling is whatever the
+-- member has".
+--
+-- Deny-all on mismatch: if `_api_key_id` doesn't belong to `_member_id` — or
+-- the key/member/space triple is inconsistent in any way — the `key` CTE is
+-- empty and every branch returns zero rows. `build_tree_access` then produces
+-- an empty grant array (no access), which is the safe direction. Callers are
+-- expected to have already verified the credential-principal binding; this
+-- function does not raise on mismatch.
 -------------------------------------------------------------------------------
+{{fn api_key_declared_tree_access(_member_id uuid, _space_id uuid, _api_key_id uuid) returns table(tree_path ltree, access int)}}
 create or replace function {{schema}}.api_key_declared_tree_access
 ( _member_id uuid
 , _space_id uuid
@@ -87,6 +102,7 @@ as $func$
   ;
 $func$ language sql stable security invoker
 ;
+{{endfn}}
 
 -------------------------------------------------------------------------------
 -- user_tree_access
