@@ -33,6 +33,8 @@ import {
 
 const EXPECTED_TABLES = [
   "api_key",
+  "api_key_space_access",
+  "api_key_tree_access",
   "group_member",
   "migration",
   "principal",
@@ -69,6 +71,7 @@ const EXPECTED_FUNCTIONS = [
   "_enforce_service_account_admin_group_not_space_admin",
   "_enforce_service_account_principal_invariants",
   "agent_tree_access",
+  "api_key_declared_tree_access",
   "create_service_account",
   "enforce_group_space_coherence",
   "enforce_invitation_groups_coherence",
@@ -2818,6 +2821,217 @@ describe("control-plane functions", () => {
         [lookup2, "h2"],
       );
       expect(expired.length).toBe(0);
+    });
+  });
+
+  test("scoped user API keys restrict spaces, admin, and tree access dynamically", async () => {
+    await withTestCore(sql, {}, async (core) => {
+      const s = core.schema;
+      const alphaSlug = randomSlug();
+      const betaSlug = randomSlug();
+      const [alpha] = await sql.unsafe(
+        `select ${s}.create_space($1, $2) as id`,
+        [alphaSlug, "Alpha"],
+      );
+      const [beta] = await sql.unsafe(
+        `select ${s}.create_space($1, $2) as id`,
+        [betaSlug, "Beta"],
+      );
+      const alphaId = alpha?.id as string;
+      const betaId = beta?.id as string;
+
+      const userId = await v7();
+      await sql.unsafe(`select ${s}.create_user($1, $2)`, [
+        userId,
+        "scoped-user",
+      ]);
+      await sql.unsafe(`select ${s}.add_principal_to_space($1, $2, $3)`, [
+        alphaId,
+        userId,
+        true,
+      ]);
+      await sql.unsafe(`select ${s}.add_principal_to_space($1, $2, $3)`, [
+        betaId,
+        userId,
+        false,
+      ]);
+      await sql.unsafe(`select ${s}.grant_tree_access($1, $2, $3::ltree, $4)`, [
+        alphaId,
+        userId,
+        "share",
+        3,
+      ]);
+      await sql.unsafe(`select ${s}.grant_tree_access($1, $2, $3::ltree, $4)`, [
+        betaId,
+        userId,
+        "docs",
+        1,
+      ]);
+
+      const access = sql.json([
+        {
+          space_id: alphaId,
+          grants: [{ tree_path: "share.project", access: 2 }],
+          space_admin: false,
+        },
+      ]);
+      const [scoped] = await sql.unsafe(
+        `select ${s}.create_api_key($1, $2, $3, $4, null, $5) as id`,
+        [userId, "scopeUserKey0001", "secret", "scoped", access],
+      );
+      const scopedId = scoped?.id as string;
+
+      const [validated] = await sql.unsafe(
+        `select restricted from ${s}.validate_api_key($1, $2)`,
+        ["scopeUserKey0001", "secret"],
+      );
+      expect(validated?.restricted).toBe(true);
+
+      const [alphaMember] = await sql.unsafe(
+        `select ${s}.is_principal_in_space($1, $2, $3) as ok`,
+        [userId, alphaId, scopedId],
+      );
+      const [betaMember] = await sql.unsafe(
+        `select ${s}.is_principal_in_space($1, $2, $3) as ok`,
+        [userId, betaId, scopedId],
+      );
+      const [alphaAdmin] = await sql.unsafe(
+        `select ${s}.is_principal_space_admin($1, $2, $3) as ok`,
+        [userId, alphaId, scopedId],
+      );
+      expect(alphaMember?.ok).toBe(true);
+      expect(betaMember?.ok).toBe(false);
+      expect(alphaAdmin?.ok).toBe(false);
+
+      const [adminScoped] = await sql.unsafe(
+        `select ${s}.create_api_key($1, $2, $3, $4, null, $5) as id`,
+        [
+          userId,
+          "scopeAdminKey001",
+          "secret",
+          "scoped-admin",
+          sql.json([{ space_id: alphaId, grants: [], space_admin: true }]),
+        ],
+      );
+      const [declaredAdmin] = await sql.unsafe(
+        `select ${s}.is_principal_space_admin($1, $2, $3) as ok`,
+        [userId, alphaId, adminScoped?.id as string],
+      );
+      expect(declaredAdmin?.ok).toBe(true);
+
+      const [alphaAccess] = await sql.unsafe(
+        `select ${s}.build_tree_access($1, $2, $3) as access`,
+        [userId, alphaId, scopedId],
+      );
+      const [betaAccess] = await sql.unsafe(
+        `select ${s}.build_tree_access($1, $2, $3) as access`,
+        [userId, betaId, scopedId],
+      );
+      expect(alphaAccess?.access).toEqual([
+        { tree_path: "share.project", access: 2 },
+      ]);
+      expect(betaAccess?.access).toEqual([]);
+
+      const spaces = await sql.unsafe(
+        `select slug, admin from ${s}.list_spaces_for_member($1, $2) order by slug`,
+        [userId, scopedId],
+      );
+      expect(
+        spaces.map((row) => ({
+          slug: row.slug as string,
+          admin: row.admin as boolean,
+        })),
+      ).toEqual([{ slug: alphaSlug, admin: false }]);
+
+      // The declaration stays write@share.project, but lowering the user's live
+      // grant immediately lowers the key's effective access too.
+      await sql.unsafe(`select ${s}.grant_tree_access($1, $2, $3::ltree, $4)`, [
+        alphaId,
+        userId,
+        "share",
+        1,
+      ]);
+      const [lowered] = await sql.unsafe(
+        `select ${s}.build_tree_access($1, $2, $3) as access`,
+        [userId, alphaId, scopedId],
+      );
+      expect(lowered?.access).toEqual([
+        { tree_path: "share.project", access: 1 },
+      ]);
+
+      // A grantless declaration is implicit owner@/ and therefore mirrors the
+      // holder's current access in its one declared space.
+      const [grantless] = await sql.unsafe(
+        `select ${s}.create_api_key($1, $2, $3, $4, null, $5) as id`,
+        [
+          userId,
+          "scopeGrantless01",
+          "secret",
+          "grantless",
+          sql.json([{ space_id: betaId, grants: [] }]),
+        ],
+      );
+      const grantlessId = grantless?.id as string;
+      const [grantlessAccess] = await sql.unsafe(
+        `select ${s}.build_tree_access($1, $2, $3) as access`,
+        [userId, betaId, grantlessId],
+      );
+      expect(grantlessAccess?.access as Grant[]).toContainEqual({
+        tree_path: "docs",
+        access: 1,
+      });
+
+      // Existing unscoped keys remain compatible when callers supply their id.
+      const [unscoped] = await sql.unsafe(
+        `select ${s}.create_api_key($1, $2, $3, $4) as id`,
+        [userId, "scopeUnscoped000", "secret", "unscoped"],
+      );
+      const unscopedId = unscoped?.id as string;
+      const [unscopedMember] = await sql.unsafe(
+        `select ${s}.is_principal_in_space($1, $2, $3) as ok`,
+        [userId, betaId, unscopedId],
+      );
+      expect(unscopedMember?.ok).toBe(true);
+    });
+  });
+
+  test("scoped service-account keys can declare only their native space", async () => {
+    await withTestCore(sql, {}, async (core) => {
+      const s = core.schema;
+      const [native] = await sql.unsafe(
+        `select ${s}.create_space($1, $2) as id`,
+        [randomSlug(), "Native"],
+      );
+      const [other] = await sql.unsafe(
+        `select ${s}.create_space($1, $2) as id`,
+        [randomSlug(), "Other"],
+      );
+      const nativeId = native?.id as string;
+      const otherId = other?.id as string;
+      const [service] = await sql.unsafe(
+        `select * from ${s}.create_service_account($1, $2)`,
+        [nativeId, "scoped-importer"],
+      );
+      const serviceId = service?.id as string;
+
+      const nativeAccess = sql.json([{ space_id: nativeId, grants: [] }]);
+      await sql.unsafe(`select ${s}.create_api_key($1, $2, $3, $4, null, $5)`, [
+        serviceId,
+        "scopeServiceKey1",
+        "secret",
+        "native",
+        nativeAccess,
+      ]);
+
+      await expectReject(() =>
+        sql.unsafe(`select ${s}.create_api_key($1, $2, $3, $4, null, $5)`, [
+          serviceId,
+          "scopeServiceKey2",
+          "secret",
+          "foreign",
+          sql.json([{ space_id: otherId, grants: [] }]),
+        ]),
+      );
     });
   });
 
