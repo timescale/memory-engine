@@ -58,6 +58,10 @@ export interface UserAuthContext {
    * uses this to keep key mint/revoke session-only (a key can't manage keys).
    */
   viaApiKey: boolean;
+  /** API key id when authenticated by an API key; null for session/OAuth. */
+  apiKeyId: string | null;
+  /** Whether the authenticated API key carries access declarations. */
+  apiKeyRestricted: boolean;
   /**
    * When a human is acting as one of their own agents (via `X-Me-As-Agent`),
    * the human's principal id; null otherwise. Observability only — never gates
@@ -158,6 +162,8 @@ export async function authenticateUser(
               ? await getUserEmailVerified(validated.memberId)
               : false,
             viaApiKey: true,
+            apiKeyId: validated.apiKeyId,
+            apiKeyRestricted: validated.restricted,
             authenticatedAs: null,
           },
         };
@@ -177,6 +183,8 @@ export async function authenticateUser(
             name: verified.name,
             emailVerified: verified.emailVerified,
             viaApiKey: false,
+            apiKeyId: null,
+            apiKeyRestricted: false,
             authenticatedAs: null,
           },
         };
@@ -213,6 +221,8 @@ export async function authenticateUser(
           name: bearerUser.name,
           emailVerified: bearerUser.emailVerified,
           viaApiKey: false,
+          apiKeyId: null,
+          apiKeyRestricted: false,
           authenticatedAs: null,
         },
       };
@@ -251,6 +261,8 @@ export async function authenticateUser(
         name: user.name,
         emailVerified: user.emailVerified,
         viaApiKey: false,
+        apiKeyId: null,
+        apiKeyRestricted: false,
         authenticatedAs: null,
       },
     };
@@ -272,7 +284,13 @@ export async function authenticateUser(
     coreStore: CoreStore,
   ): Promise<UserAuthResult> {
     const asAgent = req.headers.get(AS_AGENT_HEADER);
-    if (!asAgent || result.context.kind !== "u") return result;
+    if (
+      !asAgent ||
+      result.context.kind !== "u" ||
+      result.context.apiKeyId !== null
+    ) {
+      return result;
+    }
 
     const human = result.context.userId;
     const agents = await coreStore.listAgents(human);

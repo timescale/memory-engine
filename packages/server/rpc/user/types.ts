@@ -41,6 +41,10 @@ export interface UserRpcContext extends HandlerContext {
    * revocability), so apiKey.create/delete reject a key-authenticated caller.
    */
   viaApiKey: boolean;
+  /** API key id when credential authentication used an API key; null otherwise. */
+  apiKeyId: string | null;
+  /** Whether the API key carries declarations that restrict its authority. */
+  apiKeyRestricted: boolean;
   /**
    * When a human is acting as one of their own agents (via `X-Me-As-Agent`),
    * the human's principal id; null otherwise. Observability only — authorization
@@ -82,6 +86,16 @@ export function requireUserCaller(ctx: UserRpcContext): void {
     throw new AppError(
       "FORBIDDEN",
       "This action is user-only; non-user principals can't manage the account.",
+    );
+  }
+}
+
+/** Restrict scoped API keys to identity and their filtered space discovery. */
+export function requireUnrestrictedApiKey(ctx: UserRpcContext): void {
+  if (ctx.apiKeyRestricted) {
+    throw new AppError(
+      "FORBIDDEN",
+      "This API key is restricted to its declared space access and cannot manage the account.",
     );
   }
 }

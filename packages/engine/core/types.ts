@@ -89,6 +89,8 @@ export interface ValidatedApiKey {
    * agent/service-account handle). Saves the middleware a second lookup.
    */
   name: string;
+  /** Whether this key carries space/tree access declarations. */
+  restricted: boolean;
 }
 
 /**

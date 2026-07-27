@@ -250,7 +250,7 @@ async function authenticateSpaceInner(
   // and `admin` all reflect the agent.
   let authenticatedAs: string | null = null;
   const asAgent = request.headers.get(AS_AGENT_HEADER);
-  if (asAgent && principalKind === "u") {
+  if (asAgent && principalKind === "u" && apiKeyId === null) {
     const agents = await core.listAgents(principalId);
     const resolved = resolveOwnedAgent(agents, asAgent);
     if (resolved.kind !== "found") {
@@ -283,7 +283,7 @@ async function authenticateSpaceInner(
   // 5. Endpoint admission is direct space membership (principal_space), not
   // tree access. A member may legitimately have no tree grants; data-plane
   // methods still enforce that later through the space SQL functions.
-  if (!(await core.isPrincipalInSpace(principalId, space.id))) {
+  if (!(await core.isPrincipalInSpace(principalId, space.id, apiKeyId))) {
     debug("space auth failed: principal is not a space member", {
       slug,
       principalId,
@@ -296,8 +296,12 @@ async function authenticateSpaceInner(
   // handlers. `buildTreeAccess(agentId, spaceId)` applies the `agent_tree_access`
   // clamp internally, so act-as remains byte-identical to the agent-key path.
   const store = spaceStore(db, slugToSchema(space.slug));
-  const admin = await core.isSpaceAdmin(principalId, space.id);
-  const treeAccess = await core.buildTreeAccess(principalId, space.id);
+  const admin = await core.isSpaceAdmin(principalId, space.id, apiKeyId);
+  const treeAccess = await core.buildTreeAccess(
+    principalId,
+    space.id,
+    apiKeyId,
+  );
 
   debug("space auth succeeded", {
     slug,

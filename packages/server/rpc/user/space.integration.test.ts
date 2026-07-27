@@ -37,6 +37,7 @@ async function call<T = unknown>(
   method: string,
   params: unknown,
   asUser: string = userId,
+  identity?: { apiKeyId?: string; apiKeyRestricted?: boolean },
 ): Promise<T> {
   const registered = userMethods.get(method);
   if (!registered) throw new Error(`no handler for ${method}`);
@@ -49,6 +50,8 @@ async function call<T = unknown>(
     name: "Test User",
     db: sql,
     coreSchema,
+    apiKeyId: identity?.apiKeyId ?? null,
+    apiKeyRestricted: identity?.apiKeyRestricted ?? false,
   } as unknown as HandlerContext;
   registered.authorize?.(context);
   return registered.handler(params, context) as Promise<T>;
@@ -120,6 +123,33 @@ test("space.create (defaults): creator gets admin + owner@~ + owner@/share; a gr
   expect(entry?.admin).toBe(true);
   expect(entry?.autoGrantHome).toBe(true);
   expect(entry?.defaultGroup?.name).toBe("team");
+});
+
+test("space.list filters a restricted PAT to declared spaces and admin", async () => {
+  const core = coreStore(sql, coreSchema);
+  const declared = await createSpace({ name: "Declared" });
+  await createSpace({ name: "Undeclared" });
+  const key = await core.createApiKey(userId, "scoped-pat");
+
+  await sql.unsafe(
+    `update ${coreSchema}.api_key set restricted = true where id = $1`,
+    [key.id],
+  );
+  await sql.unsafe(
+    `insert into ${coreSchema}.api_key_space_access (api_key_id, space_id, space_admin)
+     values ($1, $2, false)`,
+    [key.id, declared.id],
+  );
+
+  const result = await call<{ spaces: MemberSpaceResponse[] }>(
+    "space.list",
+    {},
+    userId,
+    { apiKeyId: key.id, apiKeyRestricted: true },
+  );
+  expect(result.spaces).toHaveLength(1);
+  expect(result.spaces[0]?.id).toBe(declared.id);
+  expect(result.spaces[0]?.admin).toBe(false);
 });
 
 test("space.create (autoGrantHome=false, no default group): creator god mode; a joiner is locked out", async () => {

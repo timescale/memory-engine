@@ -9,7 +9,11 @@ import { apiKeyMethods } from "./api-key";
 import { inviteeMethods } from "./invitation";
 import { serviceAccountMethods } from "./service-account";
 import { spaceMethods } from "./space";
-import { assertUserRpcContext, requireUserCaller } from "./types";
+import {
+  assertUserRpcContext,
+  requireUnrestrictedApiKey,
+  requireUserCaller,
+} from "./types";
 import { whoamiMethods } from "./whoami";
 
 export {
@@ -52,6 +56,7 @@ function gateAgentAccess(registry: MethodRegistry): MethodRegistry {
       ...registered,
       authorize: (ctx) => {
         assertUserRpcContext(ctx);
+        requireUnrestrictedApiKey(ctx);
         requireUserCaller(ctx);
       },
     });

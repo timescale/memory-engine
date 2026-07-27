@@ -136,6 +136,8 @@ test("the user's own api key (PAT) authenticates as the user (viaApiKey), carryi
   if (result.ok) {
     expect(result.context.userId).toBe(userId);
     expect(result.context.viaApiKey).toBe(true);
+    expect(result.context.apiKeyId).toBe(key.id);
+    expect(result.context.apiKeyRestricted).toBe(false);
     // Not a sentinel: the PAT path reads the real users.email_verified, so a
     // PAT behaves like a session (incl. the email-keyed redemption step).
     expect(result.context.emailVerified).toBe(true);
@@ -153,6 +155,22 @@ test("a PAT for an unverified user reports emailVerified=false (read from the DB
   const result = await auth(engineCore.formatApiKey(key.lookupId, key.secret));
   expect(result.ok).toBe(true);
   if (result.ok) expect(result.context.emailVerified).toBe(false);
+});
+
+test("a restricted PAT carries its key identity and restriction state", async () => {
+  const userId = await seedUser();
+  const key = await core.createApiKey(userId, "scoped-pat");
+  await sql.unsafe(
+    `update ${coreSchema}.api_key set restricted = true where id = $1`,
+    [key.id],
+  );
+
+  const result = await auth(engineCore.formatApiKey(key.lookupId, key.secret));
+  expect(result.ok).toBe(true);
+  if (result.ok) {
+    expect(result.context.apiKeyId).toBe(key.id);
+    expect(result.context.apiKeyRestricted).toBe(true);
+  }
 });
 
 test("an agent api key is admitted on the user RPC as kind 'a' (no email)", async () => {
@@ -251,6 +269,22 @@ test("act-as: agent-key bearer + X-Me-As-Agent → header ignored (key trumps)",
   if (result.ok) {
     // Stays the key's own agent; not switched to b.
     expect(result.context.userId).toBe(a);
+    expect(result.context.authenticatedAs).toBeNull();
+  }
+});
+
+test("act-as: user PAT + X-Me-As-Agent → header ignored, key stays the user", async () => {
+  const userId = await seedUser();
+  const agentId = await core.createAgent(userId, `agent-${rand()}`);
+  const key = await core.createApiKey(userId, "pat");
+  const result = await auth(
+    engineCore.formatApiKey(key.lookupId, key.secret),
+    agentId,
+  );
+  expect(result.ok).toBe(true);
+  if (result.ok) {
+    expect(result.context.kind).toBe("u");
+    expect(result.context.userId).toBe(userId);
     expect(result.context.authenticatedAs).toBeNull();
   }
 });
