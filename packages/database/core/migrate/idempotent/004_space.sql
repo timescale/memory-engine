@@ -118,9 +118,10 @@ set search_path to pg_catalog, {{schema}}, public, pg_temp
 -- admin group). Used by the user endpoint so a logged-in human can pick their
 -- space.
 -------------------------------------------------------------------------------
-{{fn list_spaces_for_member(_member_id uuid) returns table(id uuid, slug text, name text, language text, admin bool, auto_grant_home bool, default_group_id uuid, default_group_name text, created_at timestamptz, updated_at timestamptz)}}
+{{fn list_spaces_for_member(_member_id uuid, _api_key_id uuid) returns table(id uuid, slug text, name text, language text, admin bool, auto_grant_home bool, default_group_id uuid, default_group_name text, created_at timestamptz, updated_at timestamptz)}}
 create or replace function {{schema}}.list_spaces_for_member
 ( _member_id uuid
+, _api_key_id uuid default null
 )
 returns table
 ( id uuid
@@ -143,7 +144,7 @@ as $func$
   , s.language
   -- derived from is_principal_space_admin so it matches the authority gate
   -- (a direct member who belongs to an admin group shows admin=true)
-  , {{schema}}.is_principal_space_admin(_member_id, s.id) as admin
+  , {{schema}}.is_principal_space_admin(_member_id, s.id, _api_key_id) as admin
   , s.auto_grant_home
   , g.id
   , g.name::text
@@ -154,8 +155,9 @@ as $func$
   left join {{schema}}.principal g
     on g.space_id = s.id and g.is_default_group
   where ps.principal_id = _member_id
+  and {{schema}}.is_principal_in_space(_member_id, s.id, _api_key_id)
   order by s.created_at desc
-$func$ language sql stable strict security invoker
+$func$ language sql stable security invoker
 set search_path to pg_catalog, {{schema}}, public, pg_temp
 ;
 {{endfn}}

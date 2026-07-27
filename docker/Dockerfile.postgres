@@ -5,7 +5,7 @@ ADD https://github.com/timescale/pg_textsearch/releases/download/v1.1.0/pg-texts
 RUN unzip /tmp/pg_textsearch.zip -d /tmp/
 
 # Stage 2: PostgreSQL with pgvector + pg_textsearch
-FROM pgvector/pgvector:0.8.2-pg18-trixie
+FROM docker.io/pgvector/pgvector:0.8.2-pg18-trixie
 COPY --from=extract /tmp/pg-textsearch-*.deb /tmp/
 RUN dpkg -i /tmp/pg-textsearch-*.deb && rm /tmp/pg-textsearch-*.deb
 

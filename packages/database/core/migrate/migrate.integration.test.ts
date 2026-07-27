@@ -61,6 +61,7 @@ const EXPECTED_MIGRATIONS = [
   "014_space_access_defaults",
   "015_service_accounts",
   "016_api_key_last_used_on",
+  "017_scoped_api_keys",
 ];
 
 const EXPECTED_FUNCTIONS = [
