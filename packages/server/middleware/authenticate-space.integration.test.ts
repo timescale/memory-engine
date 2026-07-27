@@ -92,6 +92,30 @@ async function seedOwnedAgent(p: Awaited<ReturnType<typeof provision>>) {
   return { agentId, name, fullKey };
 }
 
+async function restrictApiKey(
+  keyId: string,
+  spaceId: string,
+  grants: [string, number][] = [],
+  spaceAdmin = false,
+) {
+  await sql.unsafe(
+    `update ${coreSchema}.api_key set restricted = true where id = $1`,
+    [keyId],
+  );
+  await sql.unsafe(
+    `insert into ${coreSchema}.api_key_space_access (api_key_id, space_id, space_admin)
+     values ($1, $2, $3)`,
+    [keyId, spaceId, spaceAdmin],
+  );
+  for (const [treePath, access] of grants) {
+    await sql.unsafe(
+      `insert into ${coreSchema}.api_key_tree_access (api_key_id, space_id, tree_path, access)
+       values ($1, $2, $3::ltree, $4)`,
+      [keyId, spaceId, treePath, access],
+    );
+  }
+}
+
 /**
  * Mint a real OAuth access token for `userId`: store sha256(raw) in
  * oauth_access_token (exactly what verifyOAuthAccessToken hashes + looks up) and
@@ -243,6 +267,41 @@ test("api key: a user's own key (PAT) resolves as the user with full grants", as
       access: engineCore.ACCESS.owner,
     });
   }
+});
+
+test("restricted PAT is limited to its declared space and tree grants", async () => {
+  const p = await provision();
+  const core = engineCore.coreStore(sql, coreSchema);
+  const key = await core.createApiKey(p.userId, "scoped-pat");
+  await restrictApiKey(key.id, p.spaceId, [
+    ["share.project", engineCore.ACCESS.write],
+  ]);
+  const fullKey = engineCore.formatApiKey(key.lookupId, key.secret);
+
+  const allowed = await authenticateSpace(
+    req({ token: fullKey, space: p.spaceSlug }),
+    deps(),
+  );
+  expect(allowed.ok).toBe(true);
+  if (allowed.ok) {
+    expect(allowed.context.admin).toBe(false);
+    expect(allowed.context.treeAccess).toEqual([
+      { tree_path: "share.project", access: engineCore.ACCESS.write },
+    ]);
+  }
+
+  const slug2 = generateSlug();
+  const spaceId2 = await core.createSpace(slug2, "undeclared");
+  await provisionSpace(sql, { slug: slug2 });
+  createdSpaceSchemas.push(`me_${slug2}`);
+  await addSpaceCreator(core, spaceId2, p.userId);
+
+  const denied = await authenticateSpace(
+    req({ token: fullKey, space: slug2 }),
+    deps(),
+  );
+  expect(denied.ok).toBe(false);
+  if (!denied.ok) expect(denied.error.status).toBe(403);
 });
 
 test("session: direct member with zero tree grants authenticates", async () => {
@@ -606,6 +665,27 @@ test("act-as: agent-key bearer + X-Me-As-Agent (a valid other owned agent) → h
   if (result.ok) {
     expect(result.context.principalId).toBe(a.agentId);
     expect(result.context.apiKeyId).not.toBeNull();
+    expect(result.context.authenticatedAs).toBeNull();
+  }
+});
+
+test("act-as: user PAT + X-Me-As-Agent → header ignored, key stays the user", async () => {
+  const p = await provision();
+  const agent = await seedOwnedAgent(p);
+  const core = engineCore.coreStore(sql, coreSchema);
+  const key = await core.createApiKey(p.userId, "user-pat");
+
+  const result = await authenticateSpace(
+    req({
+      token: engineCore.formatApiKey(key.lookupId, key.secret),
+      space: p.spaceSlug,
+      asAgent: agent.agentId,
+    }),
+    deps(),
+  );
+  expect(result.ok).toBe(true);
+  if (result.ok) {
+    expect(result.context.principalId).toBe(p.userId);
     expect(result.context.authenticatedAs).toBeNull();
   }
 });

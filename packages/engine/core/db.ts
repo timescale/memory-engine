@@ -42,7 +42,10 @@ export interface CoreStore {
   /** All spaces (e.g. for the embedding worker to discover me_<slug> schemas). */
   listSpaces(): Promise<Space[]>;
   /** Spaces a member is a direct member of (principal_space), with admin flag. */
-  listSpacesForMember(memberId: string): Promise<MemberSpace[]>;
+  listSpacesForMember(
+    memberId: string,
+    apiKeyId?: string | null,
+  ): Promise<MemberSpace[]>;
   /** Rename a space (by slug). Returns true if it existed. */
   renameSpace(slug: string, name: string): Promise<boolean>;
   /**
@@ -93,9 +96,17 @@ export interface CoreStore {
   /** Direct-member users who are effective admins of a space. */
   listEffectiveSpaceAdmins(spaceId: string): Promise<EffectiveSpaceAdmin[]>;
   /** Whether a principal is an admin of a space (agents are never admins). */
-  isSpaceAdmin(principalId: string, spaceId: string): Promise<boolean>;
+  isSpaceAdmin(
+    principalId: string,
+    spaceId: string,
+    apiKeyId?: string | null,
+  ): Promise<boolean>;
   /** Whether a principal has a direct principal_space membership row. */
-  isPrincipalInSpace(principalId: string, spaceId: string): Promise<boolean>;
+  isPrincipalInSpace(
+    principalId: string,
+    spaceId: string,
+    apiKeyId?: string | null,
+  ): Promise<boolean>;
   /** Whether a member is an admin of a group (agents are never group admins). */
   isGroupAdmin(
     memberId: string,
@@ -199,7 +210,11 @@ export interface CoreStore {
   ): Promise<TreeGrant[]>;
 
   /** Resolve a member's effective grants in a space (for the space functions). */
-  buildTreeAccess(memberId: string, spaceId: string): Promise<TreeAccess>;
+  buildTreeAccess(
+    memberId: string,
+    spaceId: string,
+    apiKeyId?: string | null,
+  ): Promise<TreeAccess>;
 
   /** Mint an api key for a member; returns the one-time plaintext secret. */
   createApiKey(
@@ -393,9 +408,9 @@ export function coreStore(sql: Sql, schema: string = CORE_SCHEMA): CoreStore {
       return rows.map(mapSpace);
     },
 
-    async listSpacesForMember(memberId) {
+    async listSpacesForMember(memberId, apiKeyId) {
       const rows = await sql`
-        select * from ${sch}.list_spaces_for_member(${memberId})
+        select * from ${sch}.list_spaces_for_member(${memberId}, ${apiKeyId ?? null})
       `;
       return rows.map(
         (r): MemberSpace => ({
@@ -513,16 +528,16 @@ export function coreStore(sql: Sql, schema: string = CORE_SCHEMA): CoreStore {
       return rows.map(mapPrincipal);
     },
 
-    async isSpaceAdmin(principalId, spaceId) {
+    async isSpaceAdmin(principalId, spaceId, apiKeyId) {
       const [row] = await sql`
-        select ${sch}.is_principal_space_admin(${principalId}, ${spaceId}) as ok
+        select ${sch}.is_principal_space_admin(${principalId}, ${spaceId}, ${apiKeyId ?? null}) as ok
       `;
       return Boolean(row?.ok);
     },
 
-    async isPrincipalInSpace(principalId, spaceId) {
+    async isPrincipalInSpace(principalId, spaceId, apiKeyId) {
       const [row] = await sql`
-        select ${sch}.is_principal_in_space(${principalId}, ${spaceId}) as ok
+        select ${sch}.is_principal_in_space(${principalId}, ${spaceId}, ${apiKeyId ?? null}) as ok
       `;
       return Boolean(row?.ok);
     },
@@ -678,9 +693,9 @@ export function coreStore(sql: Sql, schema: string = CORE_SCHEMA): CoreStore {
       );
     },
 
-    async buildTreeAccess(memberId, spaceId) {
+    async buildTreeAccess(memberId, spaceId, apiKeyId) {
       const [row] = await sql`
-        select ${sch}.build_tree_access(${memberId}, ${spaceId}) as ta
+        select ${sch}.build_tree_access(${memberId}, ${spaceId}, ${apiKeyId ?? null}) as ta
       `;
       return (row?.ta as TreeAccess) ?? [];
     },
@@ -701,7 +716,7 @@ export function coreStore(sql: Sql, schema: string = CORE_SCHEMA): CoreStore {
     async validateApiKey(lookupId, secret) {
       const secretHash = hashApiKeySecret(secret);
       const [row] = await sql`
-        select member_id, api_key_id, owner_id, kind, name
+        select member_id, api_key_id, owner_id, kind, name, restricted
         from ${sch}.validate_api_key(${lookupId}, ${secretHash})
       `;
       if (!row) return null;
@@ -711,6 +726,7 @@ export function coreStore(sql: Sql, schema: string = CORE_SCHEMA): CoreStore {
         ownerId: (row.owner_id as string | null) ?? null,
         kind: row.kind as ValidatedApiKey["kind"],
         name: row.name as string,
+        restricted: Boolean(row.restricted),
       };
     },
 

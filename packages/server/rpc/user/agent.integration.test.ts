@@ -33,7 +33,13 @@ async function call<T = unknown>(
   method: string,
   params: unknown,
   asUser: string = userId,
-  identity?: { email?: string; name?: string; kind?: "u" | "a" },
+  identity?: {
+    email?: string;
+    name?: string;
+    kind?: "u" | "a";
+    apiKeyId?: string;
+    apiKeyRestricted?: boolean;
+  },
 ): Promise<T> {
   const registered = userMethods.get(method);
   if (!registered) throw new Error(`no handler for ${method}`);
@@ -50,6 +56,8 @@ async function call<T = unknown>(
     name: identity?.name ?? "Test User",
     db: sql,
     coreSchema,
+    apiKeyId: identity?.apiKeyId ?? null,
+    apiKeyRestricted: identity?.apiKeyRestricted ?? false,
   } as unknown as HandlerContext;
   // Mirror the dispatcher: per-method authorization (the agent allow-list gate)
   // runs before the handler. async, so a denial surfaces as a rejected promise.
@@ -167,6 +175,21 @@ test("an agent caller is denied every account-management method (FORBIDDEN)", as
   ];
   for (const [method, params] of denied) {
     await expectAppError(call(method, params, agentId, asAgent), "FORBIDDEN");
+  }
+});
+
+test("a restricted user PAT is denied account-management methods", async () => {
+  const restricted = { apiKeyId: userId, apiKeyRestricted: true };
+  await call("whoami", {}, userId, restricted);
+  await call("space.list", {}, userId, restricted);
+
+  for (const [method, params] of [
+    ["agent.create", { name: "bot" }],
+    ["serviceAccount.list", { spaceId: userId }],
+    ["apiKey.list", { memberId: userId }],
+    ["space.create", { name: "blocked" }],
+  ] as const) {
+    await expectAppError(call(method, params, userId, restricted), "FORBIDDEN");
   }
 });
 

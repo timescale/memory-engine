@@ -81,7 +81,7 @@ async function spaceList(
 ): Promise<SpaceListResult> {
   assertUserRpcContext(context);
   const ctx = context as UserRpcContext;
-  const spaces = await ctx.core.listSpacesForMember(ctx.userId);
+  const spaces = await ctx.core.listSpacesForMember(ctx.userId, ctx.apiKeyId);
   return { spaces: spaces.map(toMemberSpaceResponse) };
 }
 
