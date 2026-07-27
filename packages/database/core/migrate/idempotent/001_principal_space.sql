@@ -1,9 +1,11 @@
 -------------------------------------------------------------------------------
 -- is_principal_in_space
 -------------------------------------------------------------------------------
+{{fn is_principal_in_space(_principal_id uuid, _space_id uuid, _api_key_id uuid) returns bool}}
 create or replace function {{schema}}.is_principal_in_space
 ( _principal_id uuid
 , _space_id uuid
+, _api_key_id uuid default null
 )
 returns bool
 as $func$
@@ -13,9 +15,30 @@ as $func$
     from {{schema}}.principal_space ps
     where ps.principal_id = _principal_id
     and ps.space_id = _space_id
+    and
+    (
+      _api_key_id is null
+      or exists
+      (
+        select 1
+        from {{schema}}.api_key k
+        where k.id = _api_key_id
+        and k.member_id = _principal_id
+        and
+        (
+          not k.restricted
+          or exists
+          (
+            select 1
+            from {{schema}}.api_key_space_access a
+            where a.api_key_id = k.id and a.space_id = _space_id
+        )
+      )
+    )
   )
 $func$ language sql stable security invoker
 ;
+{{endfn}}
 
 -------------------------------------------------------------------------------
 -- is_principal_space_admin
@@ -26,9 +49,11 @@ $func$ language sql stable security invoker
 -- never space admins, and service accounts only become space admins through a
 -- direct admin row.
 -------------------------------------------------------------------------------
+{{fn is_principal_space_admin(_principal_id uuid, _space_id uuid, _api_key_id uuid) returns bool}}
 create or replace function {{schema}}.is_principal_space_admin
 ( _principal_id uuid
 , _space_id uuid
+, _api_key_id uuid default null
 )
 returns bool
 as $func$
@@ -38,6 +63,28 @@ as $func$
     from {{schema}}.principal p
     where p.id = _principal_id
     and p.kind <> 'a' -- agents cannot be space admins
+    and
+    (
+      _api_key_id is null
+      or exists
+      (
+        select 1
+        from {{schema}}.api_key k
+        where k.id = _api_key_id
+        and k.member_id = p.id
+        and
+        (
+          not k.restricted
+          or exists
+          (
+            select 1
+            from {{schema}}.api_key_space_access a
+            where a.api_key_id = k.id and a.space_id = _space_id
+            and a.space_admin
+          )
+        )
+      )
+    )
     and
     (
       -- direct admin membership
@@ -68,6 +115,7 @@ as $func$
   )
 $func$ language sql stable security invoker
 ;
+{{endfn}}
 
 -------------------------------------------------------------------------------
 -- enforce_last_admin (trigger fn on principal_space + group_member)

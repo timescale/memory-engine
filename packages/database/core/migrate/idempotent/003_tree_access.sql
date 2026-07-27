@@ -26,6 +26,69 @@ $func$ language sql stable security invoker
 ;
 
 -------------------------------------------------------------------------------
+-- api_key_declared_tree_access
+-------------------------------------------------------------------------------
+create or replace function {{schema}}.api_key_declared_tree_access
+( _member_id uuid
+, _space_id uuid
+, _api_key_id uuid
+)
+returns table
+( tree_path ltree
+, access int
+)
+as $func$
+
+  with key as
+  (
+    select k.*
+    from {{schema}}.principal p
+    inner join {{schema}}.principal_space ps on (p.member_id = ps.principal_id and ps.space_id = _space_id)
+    inner join {{schema}}.api_key k on (p.member_id = k.member_id)
+    where p.member_id = _member_id
+    and k.id = _api_key_id
+  )
+  -- unrestricted token
+  -- effectively owner@/
+  select
+    ''::ltree
+  , 3
+  from key
+  where not key.restricted
+  union all
+  -- restricted to space but no further tree restrictions
+  -- effectively owner@/
+  select
+    ''::ltree
+  , 3
+  from key
+  inner join {{schema}}.api_key_space_access s on (key.id = s.api_key_id)
+  where key.restricted
+  and s.space_id = _space_id
+  and not exists
+  (
+    select 1
+    from {{schema}}.api_key_tree_access t
+    where s.api_key_id = t.api_key_id
+    and t.space_id = _space_id
+  )
+  union all
+  -- restricted to space with restrictions on tree access
+  -- explicit grants
+  select
+    t.tree_path
+  , t.access
+  from key
+  inner join {{schema}}.api_key_space_access s on (key.id = s.api_key_id)
+  inner join {{schema}}.api_key_tree_access t
+  on (s.api_key_id = t.api_key_id and t.space_id = _space_id)
+  where key.restricted
+  and s.space_id = _space_id
+  ;
+$func$ language sql stable security invoker
+;
+
+-------------------------------------------------------------------------------
 -- user_tree_access
 -------------------------------------------------------------------------------
 create or replace function {{schema}}.user_tree_access
@@ -164,16 +227,18 @@ $func$ language sql stable security invoker
 --
 -- The bridge from core's access model to the space data-plane functions:
   -- resolves a member's (user, agent, or service account) effective grants in a
-  -- space and returns them as the jsonb array shape that space.search_memory /
-  -- *_memory consume via jsonb_to_recordset(...) x(tree_path ltree, access int).
+-- space and returns them as the jsonb array shape that space.search_memory /
+-- *_memory consume via jsonb_to_recordset(...) x(tree_path ltree, access int).
 -------------------------------------------------------------------------------
+{{fn build_tree_access(_member_id uuid, _space_id uuid, _api_key_id uuid) returns jsonb}}
 create or replace function {{schema}}.build_tree_access
 ( _member_id uuid
 , _space_id uuid
+, _api_key_id uuid default null
 )
 returns jsonb
 as $func$
-  with access as
+  with member_access as
   (
     select ta.tree_path, ta.access
     from {{schema}}.principal p
@@ -194,12 +259,51 @@ as $func$
     ) ta
     where p.member_id = _member_id
   )
-  select coalesce
+  , key_access as
   (
-    jsonb_agg(jsonb_build_object('tree_path', a.tree_path::text, 'access', a.access))
-  , '[]'::jsonb
+    select ta.tree_path, ta.access
+    from {{schema}}.api_key_declared_tree_access(_member_id, _space_id, _api_key_id) ta
+    where _api_key_id is not null
   )
-  from access a
+  select coalesce(jsonb_agg
+  ( jsonb_build_object
+    ( 'tree_path', x.tree_path
+    , 'access', x.access
+    )
+  ), '[]'::jsonb)
+  from
+  (
+    -- no api key branch
+    select
+      ma.tree_path
+    , ma.access
+    from member_access ma
+    where _api_key_id is null
+    union all
+    -- branch if api key provided
+    select
+      x.tree_path
+    , max(x.access)
+    from
+    (
+      -- member grant is at-or-above the key's path: clamp the key's grant down
+      select
+        ka.tree_path
+      , least(ka.access, ma.access) as access
+      from key_access ka
+      inner join member_access ma on (ma.tree_path @> ka.tree_path)
+      union all
+      -- key's grant is at-or-above the member's (narrower) path: take min at the member's
+      select
+        ma.tree_path
+      , least(ka.access, ma.access) as access
+      from key_access ka
+      inner join member_access ma on (ka.tree_path @> ma.tree_path)
+    ) x
+    where _api_key_id is not null
+    group by x.tree_path
+  ) x
 $func$ language sql stable security invoker
 set search_path to pg_catalog, {{schema}}, public, pg_temp
 ;
+{{endfn}}
