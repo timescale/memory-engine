@@ -48,7 +48,6 @@ export const NAV: NavSection[] = [
       { label: "me opencode", slug: "cli/me-opencode" },
       { label: "me serve", slug: "cli/me-serve" },
       { label: "Agent session imports", slug: "cli/agent-session-imports" },
-      { label: "me agent", slug: "cli/me-agent" },
       { label: "me service", slug: "cli/me-service" },
       { label: "me apikey", slug: "cli/me-apikey" },
       { label: "me group", slug: "cli/me-group" },

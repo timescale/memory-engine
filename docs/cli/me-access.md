@@ -2,7 +2,7 @@
 
 Manage tree-access grants in the active space.
 
-A grant attaches an access **level** to a principal (user, agent, service account, or group) at a **tree path**. Levels are additive and hierarchical — a grant at `/share/work` also covers everything below it:
+A grant attaches an access **level** to a principal (user, service account, or group) at a **tree path**. Levels are additive and hierarchical — a grant at `/share/work` also covers everything below it:
 
 | Level | Flag | Capabilities |
 |-------|------|--------------|
@@ -33,7 +33,7 @@ me access grant <principal> <path> <level>
 
 | Argument | Required | Description |
 |----------|----------|-------------|
-| `principal` | yes | Principal id or name (user email, agent name, service-account name, or group name). |
+| `principal` | yes | Principal id or name (user email, service-account name, or group name). |
 | `path` | yes | Tree path; use an empty string `""` for the space root. |
 | `level` | yes | Access level: `r` (read), `w` (write), or `o` (owner). |
 
@@ -64,9 +64,9 @@ me access rm-grant <principal> <path>
 
 List grants in the active space, optionally scoped to one principal and/or a path subtree. Alias: `me access ls`.
 
-Listing the whole space or another principal's grants requires **space admin** or **owner** of the path being listed (an admin can self-grant `owner@root`). Listing your own grants (or an agent you own) is self-service; [`me access mine`](#me-access-mine) is a convenient shortcut.
+Listing the whole space or another principal's grants requires **space admin** or **owner** of the path being listed (an admin can self-grant `owner@root`). Listing your own grants is self-service; [`me access mine`](#me-access-mine) is a convenient shortcut.
 
-Pass `--effective` to show the resolved access a member actually executes with instead of raw grant rows. Effective access includes direct grants, inherited group grants, service-account group grants, and agent grants clamped by the owner's access. `--effective` cannot be combined with `--path`.
+Pass `--effective` to show the resolved access a member actually executes with instead of raw grant rows. Effective access includes direct grants and inherited group grants. `--effective` cannot be combined with `--path`.
 
 ```
 me access list [principal] [--path <path>] [--effective]
@@ -87,7 +87,7 @@ me access list [principal] [--path <path>] [--effective]
 
 List the access grants **you** hold in the active space. Available to **any member** (no admin or path-owner rights required). Fresh service accounts may have no grants until one is explicitly added.
 
-Pass `--effective` to show the paths you can actually read, write, or own after group inheritance and agent clamping are applied.
+Pass `--effective` to show the paths you can actually read, write, or own after group inheritance is applied.
 
 ```
 me access mine [--effective]

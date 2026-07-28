@@ -17,8 +17,6 @@
  * `ME_SESSION_TOKEN` is a raw bearer override (CI / scripting): it is returned
  * as-is and never refreshed.
  *
- * Agents do not use this module — they present a static `ME_API_KEY`; see
- * {@link memoryBearer}.
  */
 import {
   getStoredTokens,
@@ -133,10 +131,8 @@ export interface BearerSource {
 
 /**
  * Bearer source for the user endpoint (/api/v1/user/rpc). Both endpoints accept
- * either bearer: a static api key (a user PAT here, or an agent key on the
- * memory endpoint) is returned as-is and never refreshed; otherwise the human
- * OAuth access token with refresh. (The server still rejects an *agent* key on
- * the user RPC — agents can't manage agents — but the CLI sends what it has.)
+ * either bearer: a static API key is returned as-is and never refreshed;
+ * otherwise the human OAuth access token with refresh.
  */
 export function userBearer(server: string, apiKey?: string): BearerSource {
   if (apiKey) {

@@ -437,12 +437,6 @@ async function resolveLinkHomePrefix(engine: MemoryClient): Promise<string> {
   if (principal.kind === "s") {
     throw new Error("Home tree '~' is not available to service accounts");
   }
-  if (principal.kind === "a") {
-    if (!principal.ownerId) {
-      throw new Error("Agent home tree '~' requires an owner id");
-    }
-    return `home.${homeLabel(principal.ownerId)}.${homeLabel(principal.id)}`;
-  }
   return `home.${homeLabel(principal.id)}`;
 }
 

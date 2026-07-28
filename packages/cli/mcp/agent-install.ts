@@ -51,10 +51,10 @@ export async function runAgentMcpInstall(
 
   // Default path: no api key → the MCP server uses your login SESSION, resolved
   // from the keychain/config at runtime each time it starts (so it survives
-  // `me login`). Pass --api-key / ME_API_KEY only for a headless agent that
-  // can't reach your keychain; that bakes a long-lived global key and must pin a
-  // space. The `--space` flag pins the space either way; otherwise the session
-  // path resolves it at runtime from ME_SPACE / active space.
+  // `me login`). Pass --api-key / ME_API_KEY only for headless/CI use where the
+  // process can't reach your keychain; that bakes a long-lived global key and
+  // must pin a space. The `--space` flag pins the space either way; otherwise
+  // the session path resolves it at runtime from ME_SPACE / active space.
   let meCmd: string[];
   if (apiKey) {
     const space = opts.space ?? creds.activeSpace;
@@ -68,7 +68,7 @@ export async function runAgentMcpInstall(
   } else {
     if (!creds.loggedIn) {
       clack.log.error(
-        "Not logged in. Run 'me login' (the MCP server will use your session), or pass --api-key / set ME_API_KEY for a headless agent.",
+        "Not logged in. Run 'me login' (the MCP server will use your session), or pass --api-key / set ME_API_KEY for headless/CI use.",
       );
       process.exit(1);
     }

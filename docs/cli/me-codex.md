@@ -23,25 +23,22 @@ me codex install [options]
 | `--api-key <key>` | API key for a headless install. Default: the MCP server uses your `me login` session, resolved at runtime. |
 | `--space <slug>` | Pin a space. Default: resolve `ME_SPACE` / active space at runtime. |
 | `--server <url>` | Server URL to embed in the MCP config. |
-| `--no-default-agent` | Skip provisioning the default agent (see [Agent-by-config](../project-config.md#agent-by-config-and-the-agent-field)). |
 
-By default only the server URL is baked into the config: at runtime `me mcp` uses your `me login` session (resolved from the OS keychain / `~/.config/me` each run, so it survives re-login) and your active space (set by `me space use` / `ME_SPACE`). Pass `--api-key` for a headless install that cannot reach your keychain; that bakes the key and requires a pinned `--space`. For least privilege, mint a restricted PAT or service-account key with `me apikey create --allow <space>:<path>:<r|w|o>`; the pinned space must be declared by that key. An agent key remains an option when its regular agent grants are the intended boundary.
+By default only the server URL is baked into the config: at runtime `me mcp` uses your `me login` session (resolved from the OS keychain / `~/.config/me` each run, so it survives re-login) and your active space (set by `me space use` / `ME_SPACE`). Pass `--api-key` for a headless install that cannot reach your keychain; that bakes the key and requires a pinned `--space`. For least privilege, mint a restricted PAT or service-account key with `me apikey create --allow <space>:<path>:<r|w|o>`; the pinned space must be declared by that key.
 
-`me codex install` also adds a hook to `~/.codex/hooks.json` so that a plain `me` call from Codex's shell automatically runs as your configured agent in the right project. Re-running install is safe and leaves any other hooks you've configured untouched. **One-time step**: Codex holds new hooks for review — run `/hooks` inside Codex once to approve it. Until you do, a plain `me` call from Codex's shell won't run as your agent; `me codex install` prints this reminder.
-
-Unless a session install already used `--no-default-agent` or a valid custom global `agent:` / `.user` opt-out is already set, install also provisions a default agent (adopts-or-creates `coder`) — see [Agent-by-config](../project-config.md#agent-by-config-and-the-agent-field). If a configured global agent is stale, install prompts to create it interactively or fails clearly non-interactively.
+`me codex install` also adds a hook to `~/.codex/hooks.json` so that a plain `me` call from Codex's shell can discover the active project after a directory change. Re-running install is safe and leaves any other hooks you've configured untouched. **One-time step**: Codex holds new hooks for review — run `/hooks` inside Codex once to approve it.
 
 For manual MCP client configuration, see [MCP Integration](../mcp-integration.md).
 
 ### Known gap: Codex Desktop and the VS Code extension
 
-Under the Codex **terminal CLI**, `me mcp` resolves your project the ordinary way — no action needed. The Codex **Desktop app** and **VS Code extension** currently launch MCP servers from the wrong working directory, so `me mcp` can't tell which project you're in and falls back to your global config (your own session, active space, and global `agent:` if any) instead of the project's `.me/config.yaml`. The workaround is to set a per-server `cwd` pointing at your project directory in Codex's own MCP config. The terminal CLI is unaffected.
+Under the Codex **terminal CLI**, `me mcp` resolves your project the ordinary way — no action needed. The Codex **Desktop app** and **VS Code extension** currently launch MCP servers from the wrong working directory, so `me mcp` can't tell which project you're in and falls back to your global config (your own session and active space) instead of the project's `.me/config.yaml`. The workaround is to set a per-server `cwd` pointing at your project directory in Codex's own MCP config. The terminal CLI is unaffected.
 
 ---
 
 ## me codex env-hook
 
-An internal helper that Codex invokes automatically through the hook `me codex install` adds. It's what makes a plain `me` call from Codex's Bash tool resolve the right project and run as your configured agent. **You never run this by hand**, and it's designed to fail open — if it can't recognize a command it does nothing, so your commands always run.
+An internal helper that Codex invokes automatically through the hook `me codex install` adds. It makes a plain `me` call from Codex's Bash tool resolve the right project. **You never run this by hand**, and it's designed to fail open — if it can't recognize a command it does nothing, so your commands always run.
 
 ---
 

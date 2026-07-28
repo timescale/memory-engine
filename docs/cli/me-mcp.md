@@ -20,7 +20,7 @@ me mcp [options]
 
 | Option | Description |
 |--------|-------------|
-| `--api-key <key>` | Agent API key. If omitted, the server uses your stored `me login` session. |
+| `--api-key <key>` | API key. If omitted, the server uses your stored `me login` session. |
 | `--space <slug>` | Space to operate in (the `X-Me-Space`). |
 
 Resolution order:
@@ -29,9 +29,7 @@ Resolution order:
 - **Space**: `--space` > `ME_SPACE` > stored active space.
 - **Server URL**: `--server` (global option) > `ME_SERVER` > `https://api.memory.build`.
 
-A logged-in developer needs no key or space — the active session and active space are used automatically. For an unattended/headless agent, pass `--api-key` and `--space` (or set `ME_API_KEY` / `ME_SPACE`).
-
-**Agent-by-config**: unless `--api-key`/`ME_API_KEY` is already an agent key, `me mcp` resolves an agent from the project's [`.me/config.yaml`](../project-config.md#agent-by-config-and-the-agent-field) `agent`, else your global config's `agent`, and sends every request as that agent (`X-Me-As-Agent`). With no agent configured anywhere, `me mcp` refuses to start. If the configured name is stale, ambiguous, or not admitted to the space, the server starts and the first tool call returns the authorization error so the agent can see and act on it. See the linked section for the `.user` opt-out.
+A logged-in developer needs no key or space — the active session and active space are used automatically. For an unattended or restricted installation, pass `--api-key` and `--space` (or set `ME_API_KEY` / `ME_SPACE`). The server acts as the principal represented by that credential.
 
 This command is typically not run directly -- it is invoked by AI tools based on their MCP configuration.
 

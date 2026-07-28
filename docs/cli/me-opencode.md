@@ -19,7 +19,7 @@ Set up OpenCode: register `me` as an MCP server (editing `~/.config/opencode/ope
 me opencode install [options]
 ```
 
-A session (non-headless) install provisions a default agent (see [Agent-by-config](../project-config.md#agent-by-config-and-the-agent-field); no-op if a valid custom global `agent:` or `.user` opt-out is already set, or with `--api-key`; stale global agents prompt to be created interactively or fail clearly non-interactively; skip with `--no-default-agent`), then ends with the shared **capture prompt** (default **no**): say yes and it enables the machine-wide `capture: true` and runs a one-time machine-wide [`me import opencode`](me-import.md) backfill — everything lands privately under `~/projects/<slug>`. Say no and you get the tools only; the capture plugin stays inert. Re-run `me opencode install` to change the answer; a project's [`.me/config.yaml` `capture`](../project-config.md#the-capture-field-session-capture-onoff) overrides per project. A headless (`--api-key`) install skips the default agent + prompt — capture is credential-agnostic, so a headless deployment opts in via a committed `.me` `capture: true` or the target machine's config.
+A session (non-headless) install ends with the shared **capture prompt** (default **no**): say yes and it enables the machine-wide `capture: true` and runs a one-time machine-wide [`me import opencode`](me-import.md) backfill — everything lands privately under `~/projects/<slug>`. Say no and you get the tools only; the capture plugin stays inert. Re-run `me opencode install` to change the answer; a project's [`.me/config.yaml` `capture`](../project-config.md#the-capture-field-session-capture-onoff) overrides per project. A headless (`--api-key`) install skips the prompt — capture is credential-agnostic, so a headless deployment opts in via a committed `.me` `capture: true` or the target machine's config.
 
 | Option | Description |
 |--------|-------------|
@@ -27,9 +27,8 @@ A session (non-headless) install provisions a default agent (see [Agent-by-confi
 | `--space <slug>` | Pin a space. Default: resolve `ME_SPACE` / active space at runtime. |
 | `--server <url>` | Server URL to embed in the MCP config. |
 | `--scope <scope>` | Where to write the config: `project` (`./opencode.json` at the repo root) or `user` (`~/.config/opencode/opencode.json`). Default: `user`. |
-| `--no-default-agent` | Skip provisioning the default agent. |
 
-By default only the server URL is baked into the config: at runtime `me mcp` uses your `me login` session (resolved from the OS keychain / `~/.config/me` each run, so it survives re-login) and your active space (set by `me space use` / `ME_SPACE`). Pass `--api-key` for a headless install that cannot reach your keychain; that bakes the key and requires a pinned `--space`. For least privilege, mint a restricted PAT or service-account key with `me apikey create --allow <space>:<path>:<r|w|o>`; the pinned space must be declared by that key. An agent key remains an option when its regular agent grants are the intended boundary.
+By default only the server URL is baked into the config: at runtime `me mcp` uses your `me login` session (resolved from the OS keychain / `~/.config/me` each run, so it survives re-login) and your active space (set by `me space use` / `ME_SPACE`). Pass `--api-key` for a headless install that cannot reach your keychain; that bakes the key and requires a pinned `--space`. For least privilege, mint a restricted PAT or service-account key with `me apikey create --allow <space>:<path>:<r|w|o>`; the pinned space must be declared by that key.
 
 Use `--scope project` to write the `mcp.me` entry into the repo's `opencode.json` (instead of your global config) so it can be committed and shared with your team. Don't combine `--scope project` with a baked `--api-key` unless you intend to commit that key.
 

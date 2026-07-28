@@ -18,18 +18,9 @@
  *     self-contained);
  *   - 1. location — the project tree root: public `/share/projects/<slug>`
  *     (default), private `~/projects/<slug>`, or custom;
- *   - 2. agent — ALWAYS configures a dedicated agent (new whole-space, new
- *     this-project-only, or an existing one; there is no run-as-your-own-user
- *     option) and grants a new agent write access at the chosen scope;
- *   - write — `.me/config.yaml` (server/space/tree/agent). Harness surfaces
- *     (MCP, hooks, the injected shell contract) resolve this agent by
- *     config automatically; a stale `ME_AS_AGENT` pin in
- *     `.claude/settings.json`, written by an older `me project init`, is
- *     removed if present (it would otherwise silently override the
- *     injected `.me` sentinel).
+ *   - write — `.me/config.yaml` (server/space/tree).
  */
 import * as clack from "@clack/prompts";
-import { accessLevelName } from "@memory.build/protocol/space";
 import { Command } from "commander";
 import {
   applyCaptureDeselection,
@@ -49,9 +40,7 @@ import {
   sameRulesFile,
   writeMemoryPointer,
 } from "../agent/memory-pointer.ts";
-import { provisionNewAgent } from "../agent/provision.ts";
 import { transcriptImportStep } from "../agent/transcript-import-step.ts";
-import { removeClaudeSettingsEnvKey } from "../claude/settings.ts";
 import {
   type ResolvedCredentials,
   resolveCredentials,
@@ -63,7 +52,7 @@ import { opencodeImporter } from "../importers/opencode.ts";
 import { detectGitContext, ProjectRegistry } from "../importers/project.ts";
 import { getOutputFormat } from "../output.ts";
 import { writeProjectConfig } from "../project-config.ts";
-import { buildMemoryClient, buildUserClient, handleError } from "../util.ts";
+import { buildUserClient, handleError } from "../util.ts";
 import { pluginInstallAvailable, runClaudeInstallFlow } from "./claude.ts";
 import { VALID_TREE_ROOT_RE } from "./import.ts";
 import { openCodeSetupAvailable, runOpenCodeInstallFlow } from "./opencode.ts";
@@ -81,9 +70,6 @@ import {
  */
 const CREATE_SPACE = "create-space";
 const CUSTOM_TREE = "custom-tree";
-
-/** Agent-name shape (mirrors the protocol's principalHandleNameSchema). */
-const AGENT_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 
 /** Cyan (resets only the foreground color), for the preflight's "setting up
  * a harness" banners — visually distinct from clack's own green step symbol
@@ -104,26 +90,6 @@ function unwrap<T>(value: T | symbol): T {
   return value as T;
 }
 
-/**
- * Spawn `me login` as a child with inherited stdio (the login flow is its own
- * interactive browser round-trip). Resolves how this process is running the
- * same way the git hook does: the compiled `me` binary, else a source run
- * (`bun …/index.ts`). Returns whether login succeeded.
- */
-async function runLoginSubprocess(server?: string): Promise<boolean> {
-  const argv: string[] = [process.execPath];
-  const entry = process.argv[1];
-  if (entry && /\.(ts|js)$/.test(entry)) argv.push(entry);
-  argv.push("login");
-  if (server) argv.push("--server", server);
-  const proc = Bun.spawn(argv, {
-    stdin: "inherit",
-    stdout: "inherit",
-    stderr: "inherit",
-  });
-  return (await proc.exited) === 0;
-}
-
 /** One harness offered by the preflight's setup multiselect. */
 interface HarnessOffer {
   id: "claude" | "opencode";
@@ -135,8 +101,8 @@ interface HarnessOffer {
 }
 
 /**
- * Preflight: a login session or API key (one is required — the wizard lists
- * spaces and creates agents) and harness setup (recommended — capture/tools
+ * Preflight: existing credentials (the wizard never starts a login flow, so it
+ * never writes credentials) and harness setup (recommended — capture/tools
  * need it, but the config can be written without). Returns refreshed
  * credentials.
  */
@@ -147,33 +113,11 @@ async function preflight(
     typeof globalOpts.server === "string" ? globalOpts.server : undefined;
   let creds = resolveCredentials(serverFlag);
 
-  // `loggedIn` only reflects a browser-OAuth session — an already-set API
-  // key (a user PAT, resolved independently by buildUserClient/
-  // buildMemoryClient regardless of `loggedIn`) is just as authenticated,
-  // and offering a browser-based `me login` here is actively harmful in a
-  // sandbox with no browser and no device-code fallback: saying yes hangs
-  // or fails outright, when the session was already usable as-is.
   if (!creds.loggedIn && !creds.apiKey) {
-    const login = unwrap(
-      await clack.confirm({
-        message: "You're not logged in to Memory Engine — log in now?",
-      }),
+    clack.log.error(
+      "me project init needs existing authentication. Run 'me login' or set ME_API_KEY, then try again.",
     );
-    if (!login) {
-      clack.log.error(
-        "me project init needs a login session (to list spaces and create agents). Run 'me login' and try again.",
-      );
-      process.exit(1);
-    }
-    if (!(await runLoginSubprocess(serverFlag))) {
-      clack.log.error("Login failed — try again with 'me login'.");
-      process.exit(1);
-    }
-    creds = resolveCredentials(serverFlag);
-    if (!creds.loggedIn) {
-      clack.log.error("Still not logged in. Run 'me login' and try again.");
-      process.exit(1);
-    }
+    process.exit(1);
   }
 
   // Harness setup: offer to install/configure every harness detected on this
@@ -350,109 +294,9 @@ async function pickTree(slug: string): Promise<string> {
   );
 }
 
-/** One of the caller's agents, with its membership in the chosen space. */
-interface OwnedAgent {
-  id: string;
-  name: string;
-  inSpace: boolean;
-}
-
-/** The step-2 outcome: the agent's name (+ id when it already exists). */
-interface AgentChoice {
-  name: string;
-  /** "space" = whole-space grant, "project" = this project's tree, "existing" = grant nothing. */
-  scope: "space" | "project" | "existing";
-}
-
-/**
- * Step 2 — how this project's agent is set up. The wizard always configures
- * one (no run-as-your-own-user option); the `agent` field itself stays
- * optional in the schema.
- */
-async function pickAgent(
-  agents: OwnedAgent[],
-  slug: string,
-): Promise<AgentChoice> {
-  const existing = agents.filter((a) => a.inSpace);
-  const options: clack.Option<string>[] = [
-    {
-      value: "space",
-      label: "Create a new agent with access to the whole space",
-      hint: "default",
-    },
-    {
-      value: "project",
-      label: "Create a new agent with access to only this project",
-    },
-  ];
-  if (existing.length > 0) {
-    options.push({ value: "existing", label: "Use an existing agent" });
-  }
-  const scope = unwrap(
-    await clack.select({
-      message: "How should an agent for this project be set up?",
-      options,
-      initialValue: "space",
-    }),
-  ) as AgentChoice["scope"];
-
-  if (scope === "existing") {
-    return { name: await pickExistingAgent(existing), scope };
-  }
-
-  // 2a — name the new agent: prefill `<slug>-agent`, bumped to a free variant
-  // so confirming always creates rather than colliding.
-  const taken = new Set(agents.map((a) => a.name.toLowerCase()));
-  const name = unwrap(
-    await clack.text({
-      message: "Name for the new agent:",
-      initialValue: freeAgentName(slug, taken),
-      validate: (v) => {
-        if (!v || !AGENT_NAME_RE.test(v)) {
-          return "must start alphanumeric and contain only letters, numbers, '.', '_', or '-'";
-        }
-        if (taken.has(v.toLowerCase())) {
-          return `you already have an agent named '${v}'`;
-        }
-        return undefined;
-      },
-    }),
-  );
-  return { name, scope };
-}
-
-/**
- * The 2a prefill: `<slug>-agent`, bumped to the next free `-<n>` variant
- * against the caller's existing agent names (case-insensitive) so confirming
- * always creates a new agent rather than colliding.
- */
-export function freeAgentName(slug: string, taken: Set<string>): string {
-  const base = `${slug}-agent`;
-  let candidate = base;
-  for (let i = 2; taken.has(candidate.toLowerCase()); i++) {
-    candidate = `${base}-${i}`;
-  }
-  return candidate;
-}
-
-/** Step 2b — pick one of the caller's agents already in the space. */
-async function pickExistingAgent(existing: OwnedAgent[]): Promise<string> {
-  const picked = unwrap(
-    await clack.select({
-      message: "Which agent should this project use?",
-      options: existing.map((a) => ({
-        value: a.name,
-        label: a.name,
-        hint: a.id,
-      })),
-    }),
-  );
-  return picked;
-}
-
 /**
  * The interactive wizard behind `me project init` — preflight, the space /
- * location / agent prompts, provisioning, and the config + settings writes.
+ * location prompts and the config write.
  * Returns the context later phases (the setup checklist) need.
  */
 export async function runProjectInitWizard(
@@ -462,7 +306,6 @@ export async function runProjectInitWizard(
   projectRoot: string;
   space: { slug: string; name: string };
   tree: string;
-  agent: string;
 }> {
   const creds = await preflight(globalOpts);
 
@@ -476,58 +319,16 @@ export async function runProjectInitWizard(
   const projectRoot = gitRoot ?? process.cwd();
   const tree = await pickTree(slug);
 
-  // 2. Agent. Membership is checked per owned agent so "use an existing
-  // agent" only offers ones already usable in the chosen space.
-  const user = buildUserClient(creds);
-  const { agents } = await user.agent.list();
-  const owned: OwnedAgent[] = await Promise.all(
-    agents.map(async (a) => {
-      const { spaces } = await user.agent.spaces({ id: a.id });
-      return {
-        id: a.id,
-        name: a.name,
-        inSpace: spaces.some((s) => s.slug === space.slug),
-      };
-    }),
-  );
-  const choice = await pickAgent(owned, slug);
-
-  // Provision a new agent (see provisionNewAgent). An existing agent's
-  // grants apply unchanged — the wizard grants nothing.
-  const memory = buildMemoryClient({ ...creds, activeSpace: space.slug });
-  if (choice.scope !== "existing") {
-    const spin = clack.spinner();
-    spin.start(`Creating agent '${choice.name}'...`);
-    const treePath = choice.scope === "space" ? "" : tree;
-    await provisionNewAgent({ user, memory }, choice.name, treePath);
-    spin.stop(
-      `Created agent '${choice.name}' — ${accessLevelName(2)} on ${
-        choice.scope === "space" ? "the whole space" : tree
-      }`,
-    );
-  }
-
   // Write the committed project config. The writer invalidates the
-  // process-wide `.me` memo, so later phases resolve the fresh pin. Harness
-  // surfaces resolve this `agent:` automatically (agent-by-config) — no
-  // Claude settings.json pin needed.
+  // process-wide `.me` memo, so later phases resolve the fresh pin.
   const configPath = writeProjectConfig(projectRoot, {
     server: creds.server,
     space: space.slug,
     tree,
-    agent: choice.name,
   });
   clack.log.success(`Wrote ${configPath}`);
 
-  // Clean up a stale ME_AS_AGENT pin from an older `me project init` — it
-  // would otherwise silently override the injected `.me` sentinel.
-  if (removeClaudeSettingsEnvKey(projectRoot, "ME_AS_AGENT")) {
-    clack.log.success(
-      "Removed the stale ME_AS_AGENT pin from .claude/settings.json (agent-by-config now resolves it from .me/config.yaml).",
-    );
-  }
-
-  return { creds, projectRoot, space, tree, agent: choice.name };
+  return { creds, projectRoot, space, tree };
 }
 
 /** The managed CLAUDE.md memory-pointer block the checklist upserts. */
@@ -696,7 +497,7 @@ function printInitOutro(steps: InitStep[]): void {
 
 /**
  * `me project init` — interactively, the full wizard (preflight → prompts →
- * provisioning → config/settings writes) followed by the setup checklist;
+ * config write) followed by the setup checklist;
  * non-interactively, just the checklist (every step minus its `--skip-*`
  * flag), matching the retired `me claude init`'s scripted behavior — an
  * existing `.me/config.yaml` (or the private defaults) governs where things
@@ -704,7 +505,7 @@ function printInitOutro(steps: InitStep[]): void {
  */
 export function createProjectInitCommand(): Command {
   const cmd = new Command("init").description(
-    "set up this project: space, memory location, agent (interactive wizard) + backfill/capture steps",
+    "set up this project: space, memory location + backfill/capture steps",
   );
   for (const step of PROJECT_INIT_STEPS) {
     cmd.option(step.skipFlag, step.skipDescription);

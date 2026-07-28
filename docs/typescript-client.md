@@ -12,10 +12,10 @@ npm install @memory.build/client
 
 The package exposes two clients, matching the two API endpoints:
 
-- **`createMemoryClient`** — the space data plane plus space management. Talks to `POST /api/v1/memory/rpc`, carrying the active space in the `X-Me-Space` header. Authenticates with a session token, OAuth token, user PAT, agent API key, or service-account API key. Namespaces: `memory`, `principal`, `group`, `grant`, `invite`.
-- **`createUserClient`** — user/account and service-account management. Talks to `POST /api/v1/user/rpc`. Authenticates with a session/OAuth token or the user's own PAT; agent and service-account keys are limited and cannot manage accounts or mint keys. Methods: `whoami`, plus the `agent`, `serviceAccount`, `apiKey`, and `space` namespaces.
+- **`createMemoryClient`** — the space data plane plus space management. Talks to `POST /api/v1/memory/rpc`, carrying the active space in the `X-Me-Space` header. Authenticates with a session token, OAuth token, user PAT, or service-account API key. Namespaces: `memory`, `principal`, `group`, `grant`, `invite`.
+- **`createUserClient`** — user/account and service-account management. Talks to `POST /api/v1/user/rpc`. Authenticates with a session/OAuth token or the user's own PAT; service-account keys cannot manage accounts or mint keys. Methods: `whoami`, plus the `serviceAccount`, `apiKey`, and `space` namespaces.
 
-This package does not provide login helpers — obtain a credential out of band (`me login` for a session/OAuth token, or `me apikey create` for a PAT/agent/service-account key) and pass it to the client. (The web app signs in separately via `better-auth/react`'s `createAuthClient`, which establishes an httpOnly cookie session.)
+This package does not provide login helpers — obtain a credential out of band (`me login` for a session/OAuth token, or `me apikey create` for a PAT/service-account key) and pass it to the client. (The web app signs in separately via `better-auth/react`'s `createAuthClient`, which establishes an httpOnly cookie session.)
 
 ## Quick start
 
@@ -234,7 +234,7 @@ await me.grant.set({ principalId: "019...", treePath: "/share/work", access: 2 }
 await me.grant.remove({ principalId: "019...", treePath: "/share/work" });
 const { grants } = await me.grant.list();                         // optionally { principalId } / { treePath }
 // Enumerating others' grants needs admin / path owner; passing your own principalId
-// (or an agent you own) is self-service — any member can list their own grants.
+// is self-service — any member can list their own grants.
 ```
 
 ### invite
@@ -248,7 +248,7 @@ await me.invite.revoke({ email: "alice@example.com" });
 
 ## User-scoped operations
 
-Use `createUserClient` for identity, agents, service accounts, API keys, and space discovery. API-key minting and revocation still require a human session/OAuth credential; keys cannot mint or revoke other keys.
+Use `createUserClient` for identity, service accounts, API keys, and space discovery. API-key minting and revocation still require a human session/OAuth credential; keys cannot mint or revoke other keys.
 
 ```typescript
 import { createUserClient } from "@memory.build/client";
@@ -264,12 +264,6 @@ const space = await user.space.create({ name: "My Space" });   // → { id, slug
 await user.space.rename({ slug: space.slug, name: "Renamed" });
 await user.space.delete({ slug: space.slug });
 
-// Agents — non-human identities owned by you
-const agent = await user.agent.create({ name: "ci-bot" });     // → { id }
-const { agents } = await user.agent.list();
-await user.agent.rename({ id: agent.id, name: "ci-runner" });
-await user.agent.delete({ id: agent.id });
-
 // Service accounts — team-owned operational identities in a space.
 // User RPC service-account methods use the space id, not the slug.
 const { serviceAccount: service } = await user.serviceAccount.create({
@@ -282,12 +276,12 @@ await user.serviceAccount.rename({ id: service.id, name: "deployer" });
 
 // API keys — unrestricted by default
 const { id, key } = await user.apiKey.create({
-  memberId: agent.id,
-  name: "ci-pipeline",
+  memberId: me.id,
+  name: "developer-machine",
   expiresAt: "2026-01-01T00:00:00Z",  // optional
 });
 console.log(key);  // "me.xxx.yyy" — full key returned once; only its hash is stored
-const { apiKeys } = await user.apiKey.list({ memberId: agent.id });
+const { apiKeys } = await user.apiKey.list({ memberId: me.id });
 const apiKeyMeta = await user.apiKey.get({ id });
 await user.apiKey.delete({ id });
 
@@ -302,7 +296,7 @@ const scopedPat = await user.apiKey.create({
 });
 const scopedDetails = await user.apiKey.get({ id: scopedPat.id });
 
-// Service-account keys target the service account instead of an agent. A
+// Service-account keys target the service account. A
 // restricted service-account key may declare only that account's native space.
 const serviceKey = await user.apiKey.create({
   memberId: service.id,
@@ -310,7 +304,7 @@ const serviceKey = await user.apiKey.create({
 });
 ```
 
-API keys are **global** per-principal credentials. An unrestricted key works in any space its principal has been admitted to (the space comes from `X-Me-Space`). Pass a non-empty `access` array when creating a user PAT or service-account key to make it restricted: each declaration names a direct-member space, optional tree grants, and an optional `spaceAdmin` cap. An empty grant array permits the holder's full live effective access in that one declared space. `apiKey.get` returns the persisted declarations; `apiKey.list` reports whether each key is restricted. Agent keys cannot be restricted. Service accounts are themselves space-scoped, so a service-account key may declare only that service account's space.
+API keys are **global** per-principal credentials. An unrestricted key works in any space its principal has been admitted to (the space comes from `X-Me-Space`). Pass a non-empty `access` array when creating a user PAT or service-account key to make it restricted: each declaration names a direct-member space, optional tree grants, and an optional `spaceAdmin` cap. An empty grant array permits the holder's full live effective access in that one declared space. `apiKey.get` returns the persisted declarations; `apiKey.list` reports whether each key is restricted. Service accounts are themselves space-scoped, so a service-account key may declare only that service account's space.
 
 ## Error handling
 

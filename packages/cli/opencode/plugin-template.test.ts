@@ -10,23 +10,13 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import {
-  AI_AGENT_VAR,
-  ME_AS_AGENT_VAR,
-  ME_INJECT_V_VAR,
-  ME_PROJECT_DIR_VAR,
-} from "../harness-contract.ts";
+import { AI_AGENT_VAR, ME_PROJECT_DIR_VAR } from "../harness-contract.ts";
 import { PLUGIN_MARKER, renderPluginSource } from "./plugin-template.ts";
 
 const tmp = mkdtempSync(join(tmpdir(), "me-oc-plugin-"));
 afterAll(() => rmSync(tmp, { recursive: true, force: true }));
 
-const HARNESS_CONTRACT_ENV_KEYS = [
-  ME_INJECT_V_VAR,
-  AI_AGENT_VAR,
-  ME_AS_AGENT_VAR,
-  ME_PROJECT_DIR_VAR,
-] as const;
+const HARNESS_CONTRACT_ENV_KEYS = [AI_AGENT_VAR, ME_PROJECT_DIR_VAR] as const;
 
 async function withHarnessContractEnv<T>(
   env: Record<string, string | undefined>,
@@ -180,16 +170,14 @@ describe("generated plugin behavior", () => {
 });
 
 describe("shell.env — the harness-injected environment contract", () => {
-  test("injects all four contract vars, anchored to the session directory", async () => {
+  test("injects metadata and the project directory", async () => {
     await withHarnessContractEnv({}, async () => {
       const shell = makeShell();
       const hooks = await loadPlugin(renderPluginSource(), shell, "/my/proj");
       const output: { env?: Record<string, string> } = {};
       await hooks["shell.env"]({}, output);
       expect(output.env).toEqual({
-        ME_INJECT_V: "1",
         AI_AGENT: "opencode",
-        ME_AS_AGENT: ".me",
         ME_PROJECT_DIR: "/my/proj",
       });
     });
@@ -221,9 +209,7 @@ describe("shell.env — the harness-injected environment contract", () => {
         const idx = line.indexOf("=");
         if (idx !== -1) env[line.slice(0, idx)] = line.slice(idx + 1);
       }
-      expect(env.ME_INJECT_V).toBe("1");
       expect(env.AI_AGENT).toBe("opencode");
-      expect(env.ME_AS_AGENT).toBe(".me");
       expect(env.ME_PROJECT_DIR).toBe("/my/proj");
     });
   });
@@ -234,35 +220,10 @@ describe("shell.env — the harness-injected environment contract", () => {
       const hooks = await loadPlugin(renderPluginSource(), shell);
       const output: { env?: Record<string, string> } = { env: { KEPT: "1" } };
       await hooks["shell.env"]({}, output);
+      // The hook must not clobber a pre-existing env key — that's the point of
+      // this test. Injection itself is covered by the earlier "injects
+      // metadata and the project directory" case.
       expect(output.env?.KEPT).toBe("1");
-      expect(output.env?.ME_AS_AGENT).toBe(".me");
-    });
-  });
-
-  test("first-writer-wins: emits nothing when the full contract is already live in this process", async () => {
-    await withHarnessContractEnv(
-      {
-        ME_INJECT_V: "1",
-        ME_AS_AGENT: ".me",
-        ME_PROJECT_DIR: "/other/project",
-      },
-      async () => {
-        const shell = makeShell();
-        const hooks = await loadPlugin(renderPluginSource(), shell);
-        const output: { env?: Record<string, string> } = {};
-        await hooks["shell.env"]({}, output);
-        expect(output.env).toBeUndefined();
-      },
-    );
-  });
-
-  test("a PARTIALLY live contract (ME_INJECT_V alone) does NOT trigger first-writer-wins", async () => {
-    await withHarnessContractEnv({ ME_INJECT_V: "1" }, async () => {
-      const shell = makeShell();
-      const hooks = await loadPlugin(renderPluginSource(), shell, "/my/proj");
-      const output: { env?: Record<string, string> } = {};
-      await hooks["shell.env"]({}, output);
-      expect(output.env?.ME_PROJECT_DIR).toBe("/my/proj");
     });
   });
 });

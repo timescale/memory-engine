@@ -1,6 +1,6 @@
 /**
- * me apikey — manage API keys, for yourself (a personal access token), your
- * agents (`--agent`), or service accounts (`--service`).
+ * me apikey — manage API keys for yourself (a personal access token) or service
+ * accounts (`--service`).
  *
  * Unrestricted keys work in any space their principal has been admitted to;
  * restricted keys are capped to explicit declarations.
@@ -9,13 +9,12 @@
  * headless/CLI use; minting/revoking always requires a `me login` session.
  *
  * - me apikey create [name] [--expires <ts>|--ttl <duration>|--allow <scope>]: mint a PAT (you)
- * - me apikey create --agent <agent> [name]:   mint a key for one of your agents
  * - me apikey create --service <svc> [name]:   mint a service-account key
- * - me apikey list [--agent <agent>|--service <svc>]
+ * - me apikey list [--service <svc>]
  * - me apikey get <id>:                      key metadata
  * - me apikey delete <id>:                   delete (revoke) a key
  *
- * <agent> is an agent id or name; <id> is an api-key id.
+ * <id> is an API-key id.
  */
 import { randomBytes } from "node:crypto";
 import * as clack from "@clack/prompts";
@@ -35,13 +34,12 @@ import {
   requireSession,
   requireSpace,
   resolveActiveSpace,
-  resolveAgentId,
   resolveServiceAccountId,
 } from "../util.ts";
 
 type ApiKeyTarget = {
   memberId: string;
-  targetKind: "user" | "agent" | "service";
+  targetKind: "user" | "service";
   spaceId?: string;
 };
 
@@ -83,15 +81,6 @@ function defaultKeyName(): string {
   return `cli-${date}-${randomBytes(6).toString("hex")}`;
 }
 
-function assertSingleTarget(
-  agent: string | undefined,
-  service: string | undefined,
-  fmt: OutputFormat,
-): void {
-  if (agent === undefined || service === undefined) return;
-  failWith("Use only one key target: --agent or --service, not both.", fmt);
-}
-
 function failWith(message: string, fmt: OutputFormat): never {
   if (fmt === "text") clack.log.error(message);
   else output({ error: message }, fmt, () => {});
@@ -130,15 +119,8 @@ async function resolveApiKeyTarget(
   user: ReturnType<typeof buildUserClient>,
   creds: ReturnType<typeof resolveCredentials>,
   fmt: OutputFormat,
-  opts: { agent?: string; service?: string },
+  opts: { service?: string },
 ): Promise<ApiKeyTarget> {
-  assertSingleTarget(opts.agent, opts.service, fmt);
-  if (opts.agent !== undefined) {
-    return {
-      memberId: await resolveAgentId(user, opts.agent, fmt),
-      targetKind: "agent",
-    };
-  }
   if (opts.service !== undefined) {
     requireSpace(creds, fmt);
     const space = await resolveActiveSpace(user, creds.activeSpace, fmt);
@@ -166,12 +148,6 @@ async function resolveApiKeyAccess(
   const allows = opts.allow ?? [];
   const adminSpaces = opts.spaceAdmin ?? [];
   if (allows.length === 0 && adminSpaces.length === 0) return undefined;
-  if (target.targetKind === "agent") {
-    failWith(
-      "Restricted declarations are supported for personal and service-account keys, not agent keys.",
-      fmt,
-    );
-  }
   if (allows.length === 0) {
     failWith("A restricted key needs at least one --allow declaration.", fmt);
   }
@@ -270,14 +246,8 @@ function displayTreePath(treePath: string): string {
 
 function createApiKeyCreateCommand(): Command {
   return new Command("create")
-    .description(
-      "mint a personal access token, agent key, or service-account key",
-    )
+    .description("mint a personal access token or service-account key")
     .argument("[name]", "key name (auto-generated if omitted)")
-    .option(
-      "--agent <agent>",
-      "mint a key for one of your agents instead of yourself (agent id or name)",
-    )
     .option(
       "--service <service>",
       "mint a key for a service account in the active space (id or name)",
@@ -332,13 +302,11 @@ function createApiKeyCreateCommand(): Command {
             "API key — save it now; it won't be shown again",
           );
           clack.log.info(
-            targetKind === "agent"
-              ? "Give it to the agent via ME_API_KEY or its MCP config. It works in any space the agent is a member of."
-              : targetKind === "service"
-                ? "Service-account key — store it as a production secret (for example, ME_API_KEY in CI). It works only in spaces where the service account belongs and has access."
-                : access
-                  ? "Restricted personal access token — use it as ME_API_KEY only where its declared scope is intended. Managing keys still requires `me login`."
-                  : "Personal access token — use it as ME_API_KEY for headless/CLI access as you (e.g. in a VM or over SSH). It works in any space you're a member of. Managing keys (create/revoke) still requires `me login`.",
+            targetKind === "service"
+              ? "Service-account key — store it as a production secret (for example, ME_API_KEY in CI). It works only in spaces where the service account belongs and has access."
+              : access
+                ? "Restricted personal access token — use it as ME_API_KEY only where its declared scope is intended. Managing keys still requires `me login`."
+                : "Personal access token — use it as ME_API_KEY for headless/CLI access as you (e.g. in a VM or over SSH). It works in any space you're a member of. Managing keys (create/revoke) still requires `me login`.",
           );
         });
       } catch (error) {
@@ -350,11 +318,7 @@ function createApiKeyCreateCommand(): Command {
 function createApiKeyListCommand(): Command {
   return new Command("list")
     .alias("ls")
-    .description("list your API keys, an agent's, or a service account's")
-    .option(
-      "--agent <agent>",
-      "list one of your agents' keys instead of your own (agent id or name)",
-    )
+    .description("list your API keys or a service account's")
     .option(
       "--service <service>",
       "list a service account's keys in the active space (id or name)",
@@ -490,7 +454,7 @@ function createApiKeyDeleteCommand(): Command {
 
 export function createApiKeyCommand(): Command {
   const apikey = new Command("apikey").description(
-    "manage API keys (personal, agent, or service-account keys)",
+    "manage API keys (personal or service-account keys)",
   );
   apikey.addCommand(createApiKeyCreateCommand());
   apikey.addCommand(createApiKeyListCommand());

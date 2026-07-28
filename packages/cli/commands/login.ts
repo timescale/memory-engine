@@ -38,7 +38,6 @@ import {
 } from "../oauth.ts";
 import { LoopbackError, runLoopbackAuth } from "../oauth-loopback.ts";
 import { getOutputFormat, type OutputFormat, output } from "../output.ts";
-import { rejectActAsAgentForSessionCommand } from "../util.ts";
 
 /**
  * Attempt to open a URL in the user's default browser.
@@ -129,8 +128,6 @@ export function createLoginCommand(): Command {
       const server = resolveServer(globalOpts.server);
       const fmt = getOutputFormat(globalOpts);
       const forceSwitch = opts.switch === true;
-
-      await rejectActAsAgentForSessionCommand("login", fmt);
 
       // Reject invalid option combos (e.g. --device --switch) before printing
       // any flow-specific messaging, so we never promise a switch we can't do.
@@ -234,7 +231,7 @@ export function createLoginCommand(): Command {
             if (active) {
               clack.log.info(`Space:  ${formatSpaceLabel(active)}`);
               clack.note(
-                "Run 'me project init' at the root of a software development\nproject to set up its memory (space, capture, agent).",
+                "Run 'me project init' at the root of a software development\nproject to set up its memory (space and capture).",
                 "Next step",
               );
             } else if (spaces.length === 0) {

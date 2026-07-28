@@ -38,11 +38,12 @@ Example semantic search:
 }
 ```
 
-Example exact search:
+Example exact search (identifiers, error codes, and other literal strings
+are what fulltext is for):
 
 ```json
 {
-  "fulltext": "X-Me-As-Agent",
+  "fulltext": "UNAUTHORIZED",
   "limit": 10
 }
 ```
@@ -59,8 +60,8 @@ Example filtered browse:
 
 ## Understand Access
 
-Each MCP server runs in one active space as one authenticated principal: a user,
-agent, or service account. What you can see or change depends on that principal's
+Each MCP server runs in one active space as one authenticated principal: a user
+or service account. What you can see or change depends on that principal's
 tree-access grants in the active space.
 
 Access is path-based and hierarchical:
@@ -75,8 +76,7 @@ creating or changing a memory in that tree fails even if the tree exists.
 
 Call `me_memory_context` when you need to confirm the current space, acting
 principal, or effective tree-access grants. The access list shows the paths you
-can actually read, write, or own, including inherited group access and agent
-owner-clamping.
+can actually read, write, or own, including inherited group access.
 
 Do not assume every space has the same layout or grants. Some spaces use
 `/share/...` for team knowledge and `~/...` for private notes, but custom spaces

@@ -71,11 +71,6 @@ export interface HookConfig {
   tree?: string;
   /** content_mode=full_transcript → also store reasoning + tool calls/results. */
   fullTranscript: boolean;
-  /**
-   * Act-as-agent target (X-Me-As-Agent) — captures then write as that agent,
-   * constrained to its access. Undefined when not in agent mode.
-   */
-  asAgent?: string;
 }
 
 /** Credentials the hook falls back to when the plugin's api_key is unset. */
@@ -85,8 +80,6 @@ export interface HookFallbackCreds {
   loggedIn?: boolean;
   activeSpace?: string;
   server?: string;
-  /** Act-as-agent target resolved from `--as-agent` / `ME_AS_AGENT`. */
-  asAgent?: string;
   /**
    * The resolved capture setting (`ResolvedCredentials.captureEnabled`):
    * project `.me` `capture` > machine-wide config > off.
@@ -190,6 +183,5 @@ export function resolveHookConfigFromEnv(
     treeRoot: creds.treeRoot ?? DEFAULT_PRIVATE_TREE_ROOT,
     tree: project.tree,
     fullTranscript,
-    asAgent: creds.asAgent,
   };
 }

@@ -2,12 +2,12 @@
  * me mcp — run the MCP server over stdio.
  *
  * Authenticates to a space with either a human session (from `me login`) or an
- * agent api key, and targets the active space (the X-Me-Space). Resolution:
+ * API key, and targets the active space (the X-Me-Space). Resolution:
  *   - token: --api-key > ME_API_KEY > stored session token
  *   - space: --space > ME_SPACE > stored active space
  *
  * The common case is a logged-in human: `me mcp` just works against the active
- * space. Agents pass ME_API_KEY (keys are global, so a space must be given via
+ * space. API-key users must supply a space via
  * --space / ME_SPACE — the installers bake it in).
  *
  * MCP registration with individual AI tools lives in per-agent commands:
@@ -15,10 +15,9 @@
  * Claude Code uses the Memory Engine plugin instead of a CLI installer.
  */
 import { Command } from "commander";
-import { resolveCredentials, resolveHarnessAgent } from "../credentials.ts";
+import { resolveCredentials } from "../credentials.ts";
 import { runMcpServer } from "../mcp/server.ts";
 import { memoryBearer } from "../session.ts";
-import { buildUserClient } from "../util.ts";
 
 /**
  * True if the token is a legacy 4-part api key (`me.<slug>.<lookup>.<secret>`),
@@ -74,7 +73,7 @@ function createMcpRunAction() {
     // can take this shape; a session token never does.)
     if (apiKey && isLegacyApiKey(apiKey)) {
       console.error(
-        "Error: this API key uses the old space-scoped format (me.<slug>.<id>.<secret>) and no longer works. Recreate it with 'me apikey create --agent <agent>', then update ME_API_KEY or your MCP config.",
+        "Error: this API key uses the old space-scoped format (me.<slug>.<id>.<secret>) and no longer works. Recreate it with 'me apikey create', then update ME_API_KEY or your MCP config.",
       );
       process.exit(1);
     }
@@ -88,49 +87,10 @@ function createMcpRunAction() {
       process.exit(1);
     }
 
-    // Agent-by-config: MCP is a harness surface by construction, so it
-    // resolves and sends X-Me-As-Agent — unless the bearer already IS an
-    // agent (the sandboxed ME_API_KEY mode; X-Me-As-Agent would be ignored
-    // server-side anyway, and forcing ambient resolution there would wrongly
-    // hard-fail a legitimate deployment with no agent: configured, since the
-    // key's own identity already supplies one). A session is always a user,
-    // but an api key can be either a user PAT or an agent key — both are the
-    // identical me.<lookupId>.<secret> format, so the only way to tell them
-    // apart is to ask the server. A failure to resolve the agent (no
-    // project/global agent in scope) is fatal — never a silent fallback to
-    // the user. An unresolvable/unauthorized agent NAME is deliberately not
-    // validated here — it surfaces as an ordinary 403 on the first tool
-    // call, which the agent can see and act on (a startup failure would not
-    // be visible to it at all).
-    let asAgent = creds.asAgent;
-    let isAgentKey = false;
-    if (apiKey) {
-      try {
-        isAgentKey =
-          (await buildUserClient({ ...creds, apiKey }).whoami()).kind === "a";
-      } catch (error) {
-        console.error(
-          `Error: could not authenticate: ${error instanceof Error ? error.message : String(error)}`,
-        );
-        process.exit(1);
-      }
-    }
-    if (!isAgentKey) {
-      try {
-        asAgent = resolveHarnessAgent();
-      } catch (error) {
-        console.error(
-          `Error: ${error instanceof Error ? error.message : String(error)}`,
-        );
-        process.exit(1);
-      }
-    }
-
     await runMcpServer({
       server: creds.server,
       bearer: memoryBearer(creds.server, apiKey),
       space,
-      asAgent,
     });
   };
 }
@@ -138,7 +98,7 @@ function createMcpRunAction() {
 export function createMcpCommand(): Command {
   return new Command("mcp")
     .description("run MCP server over stdio")
-    .option("--api-key <key>", "agent api key (else uses the stored session)")
+    .option("--api-key <key>", "API key (else uses the stored session)")
     .option(
       "--space <slug>",
       "active space (else ME_SPACE / stored active space)",

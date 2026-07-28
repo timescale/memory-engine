@@ -1,7 +1,7 @@
 /**
  * Black-box tests for `me claude env` (the SessionStart hook handler) —
  * spawns the real CLI since the command's own logic is a thin wire-up of
- * already-unit-tested pieces (isInjectionLive/buildContractVars/
+ * already-unit-tested pieces (buildContractVars/
  * upsertContractBlock, see harness-contract.test.ts); what's worth verifying
  * here is the process-level wiring: stdin payload → env file, the
  * first-writer-wins gate, and fail-open behavior.
@@ -10,7 +10,6 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { ME_INJECT_VERSION } from "../harness-contract.ts";
 
 const CLI_ENTRY = join(import.meta.dir, "..", "index.ts");
 
@@ -32,9 +31,7 @@ async function runClaudeEnv(
   const proc = Bun.spawn([process.execPath, CLI_ENTRY, "claude", "env"], {
     env: {
       ...process.env,
-      ME_INJECT_V: undefined,
       AI_AGENT: undefined,
-      ME_AS_AGENT: undefined,
       ME_PROJECT_DIR: undefined,
       ...env,
     },
@@ -56,12 +53,11 @@ describe("me claude env", () => {
     try {
       const { exitCode } = await runClaudeEnv(
         { cwd: "/some/project" },
-        { CLAUDE_ENV_FILE: envFile, ME_INJECT_V: undefined },
+        { CLAUDE_ENV_FILE: envFile },
       );
       expect(exitCode).toBe(0);
       const content = readFileSync(envFile, "utf-8");
       expect(content).toContain('export AI_AGENT="claude"');
-      expect(content).toContain('export ME_AS_AGENT=".me"');
       expect(content).toContain('export ME_PROJECT_DIR="/some/project"');
     } finally {
       rmSync(dir, { recursive: true, force: true });
@@ -80,7 +76,7 @@ describe("me claude env", () => {
     try {
       const { exitCode } = await runClaudeEnv(
         { cwd: "/some/project" },
-        { CLAUDE_ENV_FILE: envFile, ME_INJECT_V: undefined },
+        { CLAUDE_ENV_FILE: envFile },
       );
       expect(exitCode).toBe(0);
 
@@ -92,53 +88,8 @@ describe("me claude env", () => {
       expect(await proc.exited).toBe(0);
 
       const env = parseEnvOutput(stdout);
-      expect(env.ME_INJECT_V).toBe(ME_INJECT_VERSION);
       expect(env.AI_AGENT).toBe("claude");
-      expect(env.ME_AS_AGENT).toBe(".me");
       expect(env.ME_PROJECT_DIR).toBe("/some/project");
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
-  });
-
-  test("first-writer-wins: emits nothing when the contract is already live", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "me-claude-env-"));
-    const envFile = join(dir, "claude-env.sh");
-    writeFileSync(envFile, "export SOME_VAR=1\n");
-    try {
-      const { exitCode } = await runClaudeEnv(
-        { cwd: "/some/project" },
-        {
-          CLAUDE_ENV_FILE: envFile,
-          ME_INJECT_V: "1",
-          ME_AS_AGENT: ".me",
-          ME_PROJECT_DIR: "/other/project",
-        },
-      );
-      expect(exitCode).toBe(0);
-      expect(readFileSync(envFile, "utf-8")).toBe("export SOME_VAR=1\n");
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
-  });
-
-  test("a PARTIALLY live contract (ME_INJECT_V alone) does NOT trigger first-writer-wins", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "me-claude-env-"));
-    const envFile = join(dir, "claude-env.sh");
-    try {
-      const { exitCode } = await runClaudeEnv(
-        { cwd: "/some/project" },
-        {
-          CLAUDE_ENV_FILE: envFile,
-          ME_INJECT_V: "1",
-          ME_AS_AGENT: undefined,
-          ME_PROJECT_DIR: undefined,
-        },
-      );
-      expect(exitCode).toBe(0);
-      expect(readFileSync(envFile, "utf-8")).toContain(
-        'export ME_PROJECT_DIR="/some/project"',
-      );
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -147,7 +98,7 @@ describe("me claude env", () => {
   test("fails open (exit 0) when CLAUDE_ENV_FILE is unset", async () => {
     const { exitCode } = await runClaudeEnv(
       { cwd: "/some/project" },
-      { CLAUDE_ENV_FILE: undefined, ME_INJECT_V: undefined },
+      { CLAUDE_ENV_FILE: undefined },
     );
     expect(exitCode).toBe(0);
   });
@@ -163,7 +114,7 @@ describe("me claude env", () => {
       const envFile = join(blockerFile, "claude-env.sh");
       const { exitCode, stderr } = await runClaudeEnv(
         { cwd: "/some/project" },
-        { CLAUDE_ENV_FILE: envFile, ME_INJECT_V: undefined },
+        { CLAUDE_ENV_FILE: envFile },
       );
       expect(exitCode).toBe(0);
       expect(stderr).toContain("failed to write the harness contract");
@@ -180,9 +131,7 @@ describe("me claude env", () => {
         env: {
           ...process.env,
           CLAUDE_ENV_FILE: envFile,
-          ME_INJECT_V: undefined,
           AI_AGENT: undefined,
-          ME_AS_AGENT: undefined,
           ME_PROJECT_DIR: undefined,
         },
         stdin: "pipe",

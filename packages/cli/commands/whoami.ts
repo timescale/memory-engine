@@ -8,12 +8,10 @@ import { authLabel, authMethodOf, formatSpaceLabel } from "../identity.ts";
 import { getOutputFormat, output } from "../output.ts";
 import { buildUserClient, handleError, requireAuth } from "../util.ts";
 
-function kindLabel(kind: "u" | "a" | "s"): string {
+function kindLabel(kind: "u" | "s"): string {
   switch (kind) {
     case "u":
       return "user";
-    case "a":
-      return "agent";
     case "s":
       return "service account";
     default:

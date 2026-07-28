@@ -4,7 +4,7 @@ Manage service accounts in the active space.
 
 A **service account** is a space-scoped operational identity for CI/CD jobs, webhooks, and team-owned integrations. It authenticates with API keys minted through [`me apikey create --service`](me-apikey.md), and those keys should be handled like production secrets.
 
-Each service account has a bound admin group. Space admins can manage all service accounts; direct user members of a service account's bound admin group can administer that service account — rename it, delete it, and manage its API keys. Users, agents, and service accounts may all be members of the bound group for normal group access. The service account is not automatically added to its bound admin group.
+Each service account has a bound admin group. Space admins can manage all service accounts; direct user members of a service account's bound admin group can administer that service account — rename it, delete it, and manage its API keys. Users and service accounts may be members of the bound group for normal group access. The service account is not automatically added to its bound admin group.
 
 ## Commands
 
@@ -39,8 +39,8 @@ me service create <name> [--admin <member>] [--group-admin <member>]
 
 | Option | Description |
 |--------|-------------|
-| `--admin <member>` | Add an initial user, agent, or service account to the bound admin group. Repeatable. |
-| `--group-admin <member>` | Add an initial user, agent, or service account with the group's admin flag. Repeatable. |
+| `--admin <member>` | Add an initial user or service account to the bound admin group. Repeatable. |
+| `--group-admin <member>` | Add an initial user or service account with the group's admin flag. Repeatable. |
 
 Members can be referenced by id or resolvable name in the active space.
 

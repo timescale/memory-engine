@@ -5,8 +5,7 @@
  * rewritten input. For the "Bash" tool this lets us prepend an
  * `export …; ` prefix (see harness-contract.ts) to the command string, so a
  * plain `me` invocation inside it resolves the right project
- * (`ME_PROJECT_DIR`, the session `cwd`, verbatim) and runs as the configured
- * agent (`ME_AS_AGENT=.me`).
+ * (`ME_PROJECT_DIR`, the session `cwd`, verbatim).
  *
  * Vendored payload shape (confirmed against developers.openai.com/codex/hooks):
  * ```json
@@ -34,11 +33,7 @@
  * output, but flagged for {@link logUnrecognizedPayloadShape} so a future
  * `me doctor` can surface "Codex changed its payload — upgrade `me`").
  */
-import {
-  buildContractVars,
-  isInjectionLive,
-  renderExportPrefix,
-} from "../harness-contract.ts";
+import { buildContractVars, renderExportPrefix } from "../harness-contract.ts";
 
 /** The Codex tool name we rewrite (a shell execution). */
 const BASH_TOOL_NAME = "Bash";
@@ -66,13 +61,8 @@ interface RawPreToolUsePayload {
  */
 export function buildCodexEnvHookOutput(
   payload: unknown,
-  env: NodeJS.ProcessEnv,
+  _env: NodeJS.ProcessEnv,
 ): CodexEnvHookResult {
-  // First-writer-wins: a live contract already in THIS hook process's env
-  // means Codex itself was launched inside another session's contract (a
-  // nested harness) — leave it untouched.
-  if (isInjectionLive(env)) return {};
-
   if (
     payload === null ||
     typeof payload !== "object" ||

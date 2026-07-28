@@ -89,12 +89,12 @@ function createServiceCreateCommand(): Command {
     .argument("<name>", "service account name")
     .option(
       "--admin <member>",
-      "add an initial user, agent, or service account to the bound admin group (repeatable; id or name in the active space)",
+      "add an initial user or service account to the bound admin group (repeatable; id or name in the active space)",
       (v, prev: string[] = []) => [...prev, v],
     )
     .option(
       "--group-admin <member>",
-      "add an initial user, agent, or service account with the group's admin flag (repeatable)",
+      "add an initial user or service account with the group's admin flag (repeatable)",
       (v, prev: string[] = []) => [...prev, v],
     )
     .action(async (name: string, opts, cmd) => {

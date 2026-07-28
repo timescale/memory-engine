@@ -18,7 +18,7 @@
  * byte-for-byte and streams responses back, so any `memory.*` (and management)
  * RPC methods work without backend changes here.
  */
-import { AS_AGENT_HEADER, SPACE_HEADER } from "@memory.build/protocol/headers";
+import { SPACE_HEADER } from "@memory.build/protocol/headers";
 import type { BearerSource } from "../session.ts";
 import { resolveAssetResponse } from "./web-assets.ts";
 
@@ -34,8 +34,6 @@ export interface ServeOptions {
   bearer: BearerSource;
   /** Active space slug. Forwarded as X-Me-Space. */
   space: string;
-  /** Act-as-agent target. Forwarded as X-Me-As-Agent when set. */
-  asAgent?: string;
   /** Hostname to bind (defaults to 127.0.0.1). */
   host: string;
   /** Port to bind. Use `findAvailablePort` first if you want auto-discovery. */
@@ -51,8 +49,6 @@ export const USER_RPC_PATH = "/api/v1/user/rpc";
 /** Local-only endpoint exposing the bound space to the browser. */
 export const SERVE_CONTEXT_PATH = "/api/serve-context";
 
-const AS_AGENT_PROJECT_SENTINEL = ".me";
-
 export interface RunningServer {
   /** The URL the server is listening on (e.g., http://127.0.0.1:3000). */
   url: string;
@@ -67,10 +63,6 @@ export interface RunningServer {
  * Throws if the port cannot be bound (e.g., EADDRINUSE).
  */
 export function startHttpServer(options: ServeOptions): RunningServer {
-  if (options.asAgent === AS_AGENT_PROJECT_SENTINEL) {
-    throw new Error("asAgent '.me' must be resolved before starting me serve");
-  }
-
   const server = Bun.serve({
     hostname: options.host,
     port: options.port,
@@ -174,7 +166,6 @@ async function proxyJsonRpc(
     if (contentType) outHeaders.set("Content-Type", contentType);
     if (token) outHeaders.set("Authorization", `Bearer ${token}`);
     if (space) outHeaders.set(SPACE_HEADER, space);
-    if (options.asAgent) outHeaders.set(AS_AGENT_HEADER, options.asAgent);
     outHeaders.set("Accept", "application/json");
     return fetch(targetUrl, { method: "POST", headers: outHeaders, body });
   };

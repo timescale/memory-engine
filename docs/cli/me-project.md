@@ -7,7 +7,7 @@ see [Projects](../projects.md).
 
 ## Commands
 
-- [me project init](#me-project-init) -- configure this project's memory: space, location, agent, and the setup checklist
+- [me project init](#me-project-init) -- configure this project's memory: space, location, and the setup checklist
 - [me project ci](#me-project-ci) -- set up the GitHub Actions import workflow (scaffold + service-account credentials)
 
 ---
@@ -26,7 +26,7 @@ No plugin is installed per project: a single user-scoped install per harness ([`
 
 Before any question, the wizard checks two prerequisites and offers to fix each:
 
-- **Not logged in** → offers to run `me login`. A session is required (the wizard lists your spaces and creates agents), so **declining stops**.
+- **Not logged in** → offers to run `me login`. A session is required (the wizard lists your spaces and may create one), so **declining stops**.
 - **No harness set up yet at all** → a multiselect offering to set up every harness detected as installed on this machine but not yet configured (today: Claude Code, OpenCode). Selecting one runs its install flow ([`me claude install`](me-claude.md#me-claude-install) / [`me opencode install`](me-opencode.md#me-opencode-install), always at OpenCode's default **user** scope here — run the standalone command yourself with `--scope project` if you want a team-committed OpenCode setup instead), which itself pins global defaults and asks about capture. Not required to write the config, so **declining any of them continues with a warning**. Once **any** harness is already set up, this whole step is skipped silently — per-project init doesn't nag about additional harnesses you may not use.
 
 When logged in and at least one harness is already set up, preflight is silent.
@@ -53,19 +53,7 @@ before or after running the wizard. Creating groups is space-admin-only;
 granting access requires owner access at the target path, so you may need help
 from a space admin or path owner for these patterns.
 
-### 2. Agent
-
-The wizard always sets the project up with a dedicated agent (there's no "run as my own user" option here — though the `agent` field itself is optional in the config schema):
-
-- **Create a new agent with access to the whole space** (default) — created, added to the space, and granted **write** at the space root. The server clamps an agent to `least(agent, owner)` per path, so a root grant gives it exactly what you can reach — never more.
-- **Create a new agent with access to only this project** — same, but the write grant lands on the step-1 tree.
-- **Use an existing agent** — pick one of your agents already in the chosen space; its existing grants apply unchanged. (Hidden when you have none there.)
-
-New-agent names prefill `<slug>-agent`, bumped to a free variant. The agent's name is written as `agent:` in `.me/config.yaml` — every harness surface (MCP, the capture hooks, a plain `me` call from an agent's own shell) resolves and acts as this agent automatically, no separate settings pin needed (see [Agent-by-config](../project-config.md#agent-by-config-and-the-agent-field)). If an older `me project init` had pinned a literal `ME_AS_AGENT=<name>` into the project's `.claude/settings.json`, this run removes it — a leftover value there would otherwise silently override the injected `.me` sentinel.
-
-> **Team caveat**: `agent:` resolves only against the caller's **own** agents, so a committed `agent:` works for the teammate who created it. Other teammates should run `me project init` themselves (choosing "use an existing agent" or creating their own).
-
-### 3. Setup checklist
+### 2. Setup checklist
 
 A grouped multiselect, everything pre-checked (non-interactive runs execute all of it minus the `--skip-*` flags). The transcript-import and memory-pointer rows are **harness-gated** — hidden automatically when they don't apply, rather than always assuming Claude:
 
@@ -83,14 +71,13 @@ Steps already done are offered unchecked as idempotent re-runs (non-interactive 
 
 ### Example: the default flow
 
-Already logged in, plugin installed, running in `~/dev/acme-api` (a git repo): preflight is silent and the happy path is five enters — active space, public location, a whole-space agent, its pre-filled name, run everything. Result:
+Already logged in, plugin installed, running in `~/dev/acme-api` (a git repo): preflight is silent and the happy path is three enters — active space, public location, run everything. Result:
 
 ```yaml
 # .me/config.yaml (committed)
 server: https://api.memory.build
 space: acme-eng
 tree: /share/projects/acme-api
-agent: acme-api-agent
 capture: true
 ```
 

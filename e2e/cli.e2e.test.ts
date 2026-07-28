@@ -145,15 +145,11 @@ describe.skipIf(
     // would write this) — the capture hook ships inert without it. Also store
     // the default server + active space so tests that must NOT set ME_SPACE
     // (per-project space routing) still resolve the base space like a real
-    // logged-in machine would. `agent: .user` is the deliberate "run as the
-    // user, no agent identity" escape hatch — capture hooks resolve an agent
-    // ambiently now (agent-by-config) and SKIP silently when nothing is in
-    // scope at all; without this, every hook-based capture in this suite
-    // would silently no-op.
+    // logged-in machine would.
     await mkdir(join(tmpHome, ".config", "me"), { recursive: true });
     await writeFile(
       join(tmpHome, ".config", "me", "config.yaml"),
-      `capture: true\nagent: .user\ndefault_server: ${srv.url}\nservers:\n  "${srv.url}":\n    active_space: ${spaceSlug}\n`,
+      `capture: true\ndefault_server: ${srv.url}\nservers:\n  "${srv.url}":\n    active_space: ${spaceSlug}\n`,
     );
   });
 
@@ -185,20 +181,13 @@ describe.skipIf(
       "ME_SERVER",
       "ME_SPACE",
       "ME_SESSION_TOKEN",
-      "ME_AS_AGENT",
-      "ME_INJECT_V",
       "ME_PROJECT_DIR",
       "ME_CONFIG_DIR",
     ]) {
       delete env[k];
     }
-    // Also drop harness markers: this suite may itself run inside a live
-    // agent session (Claude Code, opencode, …), and an inherited marker
-    // trips the spawned CLI's harness failsafe ("refusing to run as you") in
-    // every non-allowlisted test. The spawned `me` must behave as a plain
-    // human/CI invocation; tests that exercise harness behavior set their
-    // own markers via `extra` (merged after this strip). Same rationale as
-    // harness-smoke's cleanEnv().
+    // Also drop harness markers: this suite may itself run inside an AI coding
+    // tool session. The spawned `me` must behave as a plain human/CI invocation.
     for (const k of [
       "AI_AGENT",
       "CLAUDECODE",
@@ -831,158 +820,54 @@ describe.skipIf(
   // Extended scenarios
   // -------------------------------------------------------------------------
 
-  test("7. api-key auth works end-to-end (no session token)", async () => {
-    // Mint the key through the real CLI: create the agent, add it to the
-    // space, then mint a key for it.
-    const agent = await meJson<{ id: string }>([
-      "agent",
-      "create",
-      `bot-${rand()}`,
-    ]);
-    await me(["agent", "add", agent.id]); // bring the agent into the space
-    // An agent joins with owner over its own (nested) home, but the fox memory
-    // lives under `share`; grant read there so the agent can see it (its access
-    // is still clamped to the owner's, which here includes share).
-    await meJson(["access", "grant", agent.id, "share", "r"]);
-    const key = await meJson<{ id: string; key: string }>([
-      "apikey",
-      "create",
-      "--agent",
-      agent.id,
-    ]);
-    expect(key.key).toMatch(/^me\./);
+  test("7. PAT and service-account API keys work end-to-end without a session", async () => {
+    const pat = await meJson<{ key: string }>(["apikey", "create"]);
+    expect(pat.key).toMatch(/^me\./);
 
-    // Search with ONLY the api key — no session token. The agent's global key
-    // plus X-Me-Space (ME_SPACE) selects the space; this exercises the CLI's
-    // api-key auth path against the real server end-to-end.
-    const agentEnv = { ME_API_KEY: key.key, ME_SESSION_TOKEN: "" };
+    // A PAT acts as its user. The API key plus X-Me-Space selects the space,
+    // exercising the real CLI's API-key credential path.
+    const patEnv = { ME_API_KEY: pat.key, ME_SESSION_TOKEN: "" };
     const res = await meJson<{ total: number }>(
       ["search", "--fulltext", "fox"],
-      agentEnv,
+      patEnv,
     );
     expect(res.total).toBeGreaterThan(0);
 
-    // TNT-139: the same agent key now drives the account-scoped *reads* on the
-    // user RPC too — authn establishes *who*, the server authorizes per-method.
-    // whoami reports the agent's own identity (kind "a", no email).
+    // The user endpoint likewise identifies the principal represented by the
+    // presented credential.
     const who = await meJson<{
       identity: { id: string; kind: string; email: string | null };
       auth: string;
-    }>(["whoami"], agentEnv);
-    expect(who.identity.id).toBe(agent.id);
-    expect(who.identity.kind).toBe("a");
-    expect(who.identity.email).toBeNull();
-    // An agent authenticates with its api key.
-    expect(who.auth).toBe("agent");
+    }>(["whoami"], patEnv);
+    expect(who.identity.kind).toBe("u");
+    expect(who.identity.email).toBe("e2e@example.test");
+    expect(who.auth).toBe("pat");
 
-    // space.list returns the spaces the agent is admitted to.
+    // space.list returns the spaces the PAT's user is admitted to.
     const spaces = await meJson<{ spaces: { slug: string }[] }>(
       ["space", "list"],
-      agentEnv,
+      patEnv,
     );
     expect(spaces.spaces.some((s) => s.slug === spaceSlug)).toBe(true);
 
-    // …but account management stays user-only: the CLI no longer pre-empts with
-    // a session gate, so the server's FORBIDDEN surfaces instead (non-zero exit).
-    const denied = await me(["agent", "list"], agentEnv);
-    expect(denied.code).not.toBe(0);
-  });
-
-  test("7a1. act-as-agent (X-Me-As-Agent): a human session runs as one of its agents, constrained", async () => {
-    // Set up an owned agent that is a space member with read on `share`.
-    const agent = await meJson<{ id: string }>([
-      "agent",
-      "create",
-      `asbot-${rand()}`,
-    ]);
-    await me(["agent", "add", agent.id]);
-    await meJson(["access", "grant", agent.id, "share", "r"]);
-
-    // Something to find under `share` (created by the human, before switching).
-    const needle = `asagent${rand()}`;
-    await meJson(["create", `act-as probe ${needle}`, "--tree", "share"]);
-
-    // Agent mode: the SESSION token (no api key) + ME_AS_AGENT selects the agent
-    // on both endpoints. whoami reports the AGENT identity (kind "a", null email).
-    const asAgentEnv = { ME_AS_AGENT: agent.id };
-    const who = await meJson<{
-      identity: { id: string; kind: string; email: string | null };
-    }>(["whoami"], asAgentEnv);
-    expect(who.identity.id).toBe(agent.id);
-    expect(who.identity.kind).toBe("a");
-    expect(who.identity.email).toBeNull();
-
-    // space.list works in agent mode (an agent-allowed read) and shows the space.
-    const spaces = await meJson<{ spaces: { slug: string }[] }>(
-      ["space", "list"],
-      asAgentEnv,
-    );
-    expect(spaces.spaces.some((s) => s.slug === spaceSlug)).toBe(true);
-
-    // A memory op is constrained to the agent's access — read@share lets it find
-    // the probe, but not write a new memory there. The same write succeeds as
-    // the human, proving this would fail if X-Me-As-Agent were not forwarded.
-    const res = await meJson<{ total: number }>(
-      ["search", "--fulltext", needle],
-      asAgentEnv,
-    );
-    expect(res.total).toBeGreaterThan(0);
-    const deniedWrite = await me(
-      ["create", `agent write denied ${rand()}`, "--tree", "share", "--json"],
-      asAgentEnv,
-    );
-    expect(deniedWrite.code).not.toBe(0);
-    await meJson([
-      "create",
-      `human write allowed ${rand()}`,
-      "--tree",
-      "share",
-    ]);
-
-    // Management ops fail server-side in agent mode (FORBIDDEN → non-zero exit).
-    const deniedAgentList = await me(["agent", "list"], asAgentEnv);
-    expect(deniedAgentList.code).not.toBe(0);
-    const deniedKeyCreate = await me(["apikey", "create"], asAgentEnv);
-    expect(deniedKeyCreate.code).not.toBe(0);
-
-    // Local user-session management is the explicit client-side exception:
-    // login/logout refuse act-as mode rather than managing the human's session
-    // from an agent-marked shell.
-    const deniedLogin = await me(["login", "--json"], asAgentEnv);
-    expect(deniedLogin.code).not.toBe(0);
-    expect(JSON.parse(deniedLogin.stdout)).toMatchObject({
-      code: "ACT_AS_AGENT_UNSUPPORTED",
-    });
-    const deniedLogout = await me(["logout", "--json"], asAgentEnv);
-    expect(deniedLogout.code).not.toBe(0);
-    expect(JSON.parse(deniedLogout.stdout)).toMatchObject({
-      code: "ACT_AS_AGENT_UNSUPPORTED",
-    });
-    // Refused logout must not clear the stored human session.
-    const stillLoggedIn = await meJson<{ identity: { kind: string } }>([
-      "whoami",
-    ]);
-    expect(stillLoggedIn.identity.kind).toBe("u");
-
-    // The --as-agent global flag is required-value, so it does NOT eat the
-    // `search` subcommand nor its query.
-    const viaFlag = await meJson<{ total: number }>([
-      "--as-agent",
-      agent.id,
-      "search",
-      "--fulltext",
-      needle,
-    ]);
-    expect(viaFlag.total).toBeGreaterThan(0);
-
-    // apikey create --agent still works when NOT in agent mode (no flag clash).
-    const key = await meJson<{ key: string }>([
+    // Service-account keys likewise act as their own principal and use only the
+    // grants explicitly assigned to that service account.
+    const { serviceAccount: service } = await meJson<{
+      serviceAccount: { id: string };
+    }>(["service", "create", `reader-${rand()}`]);
+    await meJson(["access", "grant", service.id, "share", "r"]);
+    const serviceKey = await meJson<{ key: string }>([
       "apikey",
       "create",
-      "--agent",
-      agent.id,
+      "--service",
+      service.id,
     ]);
-    expect(key.key).toMatch(/^me\./);
+    const serviceEnv = { ME_API_KEY: serviceKey.key, ME_SESSION_TOKEN: "" };
+    const serviceSearch = await meJson<{ total: number }>(
+      ["search", "--fulltext", "fox"],
+      serviceEnv,
+    );
+    expect(serviceSearch.total).toBeGreaterThan(0);
   });
 
   test("7a2. groups resolve by name: grant by group name + groups are not nestable (TNT-160)", async () => {
@@ -1058,7 +943,7 @@ describe.skipIf(
   });
 
   test("7b. personal access tokens: self-default create/list, no same-day collision", async () => {
-    // `me apikey create` with no agent mints a PAT for the caller. Two unnamed
+    // `me apikey create` mints a PAT for the caller. Two unnamed
     // PATs minted back-to-back must NOT collide on `unique (member_id, name)` —
     // the default name carries a random suffix. (This is the bug TNT-145 fixes.)
     const pat1 = await meJson<{ id: string; key: string }>([
@@ -1113,7 +998,7 @@ describe.skipIf(
       "Use only one expiration option",
     );
 
-    // `me apikey list` (no --agent) lists the caller's OWN keys.
+    // `me apikey list` lists the caller's own keys.
     const { apiKeys } = await meJson<{ apiKeys: { id: string }[] }>([
       "apikey",
       "list",
@@ -1500,10 +1385,9 @@ describe.skipIf(
           // Spawned hooks inherit this env — the git-hook test passes
           // cliEnv() here so the hook's `me import git` can reach the server.
           // When given, extraEnv is a COMPLETE curated env, used as the BASE
-          // (not an overlay on process.env): overlaying would re-leak every
-          // key cliEnv() deliberately strips — the harness markers that trip
-          // the spawned CLI's failsafe when this suite itself runs inside an
-          // agent session.
+          // (not an overlay on process.env): overlaying would re-leak the
+          // AI-tool session markers cliEnv() deliberately strips, so a spawned
+          // `me` would falsely believe it was still inside the outer session.
           ...(extraEnv ?? (process.env as Record<string, string>)),
           GIT_CONFIG_GLOBAL: "/dev/null",
           GIT_CONFIG_SYSTEM: "/dev/null",
@@ -2788,7 +2672,7 @@ describe.skipIf(
     expect(parsed.admins).toEqual([{ email: "e2e@example.test" }]);
   });
 
-  test("11. space leave: a non-admin member self-removes, cascading their agent", async () => {
+  test("11. space leave: a non-admin member self-removes", async () => {
     const { env2 } = await seedSecondMember();
 
     // the member is in the space before leaving
@@ -2797,18 +2681,6 @@ describe.skipIf(
       env2,
     );
     expect(before.spaces.some((s) => s.slug === spaceSlug)).toBe(true);
-
-    // they bring one of their own agents into the space (self-service)
-    const agent = await meJson<{ id: string }>(
-      ["agent", "create", `leaver-${rand()}`],
-      env2,
-    );
-    await me(["agent", "add", agent.id], env2);
-    const agentSpaces = await meJson<{ spaces: { slug: string }[] }>(
-      ["agent", "spaces", agent.id],
-      env2,
-    );
-    expect(agentSpaces.spaces.some((s) => s.slug === spaceSlug)).toBe(true);
 
     // leave (self-service, no admin) succeeds
     const left = await meJson<{ removed: boolean }>(
@@ -2823,13 +2695,6 @@ describe.skipIf(
       env2,
     );
     expect(after.spaces.some((s) => s.slug === spaceSlug)).toBe(false);
-
-    // …and the cascade removed the agent from the space too
-    const agentAfter = await meJson<{ spaces: { slug: string }[] }>(
-      ["agent", "spaces", agent.id],
-      env2,
-    );
-    expect(agentAfter.spaces.some((s) => s.slug === spaceSlug)).toBe(false);
   });
 
   test("11a. the sole admin cannot leave (LAST_ADMIN)", async () => {
@@ -2842,49 +2707,21 @@ describe.skipIf(
     expect(who.activeSpace).toBe(spaceSlug);
   });
 
-  test("11b. an agent principal cannot leave — actionable error, not a bare FORBIDDEN", async () => {
-    // an owned agent; run `space leave` AS that agent (ME_AS_AGENT) — whoami then
-    // reports kind "a", and the CLI must reject with a clear message.
-    const agent = await meJson<{ id: string }>([
-      "agent",
-      "create",
-      `noleave-${rand()}`,
-    ]);
-    const r = await me(["space", "leave", "-y"], { ME_AS_AGENT: agent.id });
-    expect(r.code).not.toBe(0);
-    expect(`${r.stdout}${r.stderr}`.toLowerCase()).toContain(
-      "only a user can leave",
-    );
-  });
-
-  test("12. space remove-member: an admin removes an agent from the roster", async () => {
-    // the admin creates an agent, adds it, then removes it from the space
-    const agent = await meJson<{ id: string }>([
-      "agent",
-      "create",
-      `evictee-${rand()}`,
-    ]);
-    await me(["agent", "add", agent.id]);
-    const inSpace = await meJson<{ spaces: { slug: string }[] }>([
-      "agent",
-      "spaces",
-      agent.id,
-    ]);
-    expect(inSpace.spaces.some((s) => s.slug === spaceSlug)).toBe(true);
+  test("12. space remove-member: an admin removes a user from the roster", async () => {
+    const { userId, env2 } = await seedSecondMember();
 
     const removed = await meJson<{ removed: boolean }>([
       "space",
       "remove-member",
-      agent.id,
+      userId,
       "-y",
     ]);
     expect(removed.removed).toBe(true);
 
-    const gone = await meJson<{ spaces: { slug: string }[] }>([
-      "agent",
-      "spaces",
-      agent.id,
-    ]);
-    expect(gone.spaces.some((s) => s.slug === spaceSlug)).toBe(false);
+    const spaces = await meJson<{ spaces: { slug: string }[] }>(
+      ["space", "list"],
+      env2,
+    );
+    expect(spaces.spaces.some((s) => s.slug === spaceSlug)).toBe(false);
   });
 });

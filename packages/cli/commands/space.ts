@@ -3,17 +3,17 @@
  *
  * - me space list:                 list your spaces (marks the active one)
  * - me space members [--kind <k>]: list members in the active space (users by
- *     default; --kind u/user | a/agent | s/service | all — groups excluded)
+ *     default; --kind u/user | s/service | all — groups excluded)
  * - me space use <space>:          set the active space (the X-Me-Space)
  * - me space create <name>:        create a space and make it active
  * - me space rename <space> <name>: rename a space's display label
  * - me space delete <space>:       delete a space and all its data
- * - me space remove-member <principal> [-y]: (admin) remove a user/agent from
- *     the active space's roster. Removing a user also removes their agents in
- *     this space. Members-only (groups leave via `me group delete`).
- * - me space leave [-y]:           remove yourself (and your agents in this
- *     space) from the active space — no admin needed (unless you're the sole
- *     admin → LAST_ADMIN). Clears the active-space pointer on success.
+ * - me space remove-member <principal> [-y]: (admin) remove a user or service
+ *     account from the active space's roster. Members-only (groups leave via
+ *     `me group delete`).
+ * - me space leave [-y]:           remove yourself from the active space — no
+ *     admin needed (unless you're the sole admin → LAST_ADMIN). Clears the
+ *     active-space pointer on success.
  * - me space invite --email <addr> | --anyone [--admin] [--group <name>]
  *     [--expires <dur>] [--max-uses <n>]: invite a specific email (single-use)
  *     or mint an open shareable link (multi-use); the redeemer joins the given
@@ -166,14 +166,12 @@ function createSpaceListCommand(): Command {
 
 /**
  * Normalize a `--kind` filter, accepting both short codes and full words
- * (case-insensitive): u/user, a/agent, s/service/service-account, all. Returns
+ * (case-insensitive): u/user, s/service/service-account, all. Returns
  * `undefined` for an unrecognized value so the caller can report it.
  */
 const MEMBER_KIND_ALIASES: Record<string, SpaceMemberKind | "all"> = {
   u: "u",
   user: "u",
-  a: "a",
-  agent: "a",
   s: "s",
   service: "s",
   "service-account": "s",
@@ -190,8 +188,6 @@ function memberKindLabel(kind: SpaceMemberKind): string {
   switch (kind) {
     case "u":
       return "user";
-    case "a":
-      return "agent";
     case "s":
       return "service account";
   }
@@ -202,7 +198,7 @@ function createSpaceMembersCommand(): Command {
     .description("list members in the active space (users by default)")
     .option(
       "--kind <kind>",
-      "filter by member kind: u/user, a/agent, s/service (service-account), or all",
+      "filter by member kind: u/user, s/service (service-account), or all",
       "u",
     )
     .action(async (opts, cmd) => {
@@ -214,7 +210,7 @@ function createSpaceMembersCommand(): Command {
 
       const kind = parseMemberKindFilter(String(opts.kind));
       if (!kind) {
-        const msg = `Invalid --kind '${opts.kind}'. Use u/user, a/agent, s/service, or all.`;
+        const msg = `Invalid --kind '${opts.kind}'. Use u/user, s/service, or all.`;
         if (fmt === "text") clack.log.error(msg);
         else output({ error: msg }, fmt, () => {});
         process.exit(1);
@@ -223,7 +219,7 @@ function createSpaceMembersCommand(): Command {
       const memory = buildMemoryClient(creds);
 
       try {
-        // `all` lists every member kind (u/a/s); the server excludes groups
+        // `all` lists every member kind; the server excludes groups
         // regardless. Otherwise filter to the single requested kind.
         const { members } = await memory.space.listMembers(
           kind === "all" ? {} : { kind },
@@ -477,8 +473,10 @@ function createSpaceDeleteCommand(): Command {
 
 function createSpaceRemoveMemberCommand(): Command {
   return new Command("remove-member")
-    .description("remove a user or agent from the active space (admin)")
-    .argument("<principal>", "user or agent id or name")
+    .description(
+      "remove a user or service account from the active space (admin)",
+    )
+    .argument("<principal>", "user or service account id or name")
     .option("-y, --yes", "skip confirmation prompt")
     .action(async (principal: string, opts, cmd) => {
       const globalOpts = cmd.optsWithGlobals();
@@ -496,9 +494,6 @@ function createSpaceRemoveMemberCommand(): Command {
         if (fmt === "text" && !opts.yes) {
           clack.log.warn(
             "This removes the member from the space, scrubbing their grants and group memberships.",
-          );
-          clack.log.warn(
-            "For a user, their agents in this space are removed too. This cannot be undone.",
           );
           const ok = await clack.confirm({
             message: `Remove '${principal}' from the space?`,
@@ -525,7 +520,7 @@ function createSpaceRemoveMemberCommand(): Command {
 
 function createSpaceLeaveCommand(): Command {
   return new Command("leave")
-    .description("remove yourself (and your agents) from the active space")
+    .description("remove yourself from the active space")
     .option("-y, --yes", "skip confirmation prompt")
     .action(async (opts, cmd) => {
       const globalOpts = cmd.optsWithGlobals();
@@ -539,26 +534,19 @@ function createSpaceLeaveCommand(): Command {
       try {
         const me = await user.whoami();
 
-        // `leave` is for users removing themselves. An agent principal (an agent
-        // api key, or a human acting via --as-agent / ME_AS_AGENT) can't self-
-        // remove — the server would deny it with an opaque FORBIDDEN — so reject
-        // it here with an actionable message. An agent leaves a space when its
-        // owner runs `me agent remove`, or is removed with the owner via `leave`.
         if (me.kind !== "u") {
           const msg =
-            "Only a user can leave a space. To take an agent out of a space, its owner runs 'me agent remove <agent>'.";
+            "Only a user can leave a space. A service account is removed by an admin via 'me space remove-member <name>', or deleted entirely with 'me service delete <name>'.";
           if (fmt === "text") {
             clack.log.error(msg);
           } else {
-            output({ error: msg }, fmt, () => {});
+            await output({ error: msg }, fmt, () => {});
           }
           process.exit(1);
         }
 
         if (fmt === "text" && !opts.yes) {
-          clack.log.warn(
-            "This removes you from the active space, along with any agents you own in it.",
-          );
+          clack.log.warn("This removes you from the active space.");
           clack.log.warn("This action cannot be undone.");
           const ok = await clack.confirm({ message: "Leave this space?" });
           if (clack.isCancel(ok) || !ok) {

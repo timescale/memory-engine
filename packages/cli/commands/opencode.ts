@@ -16,10 +16,9 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import * as clack from "@clack/prompts";
 import { Command } from "commander";
-import { ensureDefaultAgent } from "../agent/default-agent.ts";
 import type { StepAvailability } from "../agent/init.ts";
 import { createMemoryClient } from "../client.ts";
-import { resolveCredentials, resolveHarnessAgent } from "../credentials.ts";
+import { resolveCredentials } from "../credentials.ts";
 import { importTranscriptSession } from "../importers/index.ts";
 import { opencodeImporter, parseSessionById } from "../importers/opencode.ts";
 import { detectGitContext } from "../importers/project.ts";
@@ -143,9 +142,6 @@ async function resolveProjectRoot(): Promise<string> {
 export async function runOpenCodeInstallFlow(
   opts: AgentInstallOptions & {
     scope?: OpenCodeScope;
-    defaultAgent?: boolean;
-    /** Set when called from `me project init`'s preflight — see
-     * {@link ensureDefaultAgent}'s matching option. */
     perProjectStepFollows?: boolean;
   },
   globalOpts: Record<string, unknown>,
@@ -166,13 +162,6 @@ export async function runOpenCodeInstallFlow(
   if (headless) return;
 
   const activeSpace = opts.space ?? creds.activeSpace;
-  if (opts.defaultAgent !== false) {
-    await ensureDefaultAgent(
-      { ...creds, activeSpace },
-      { perProjectStepFollows: opts.perProjectStepFollows },
-    );
-  }
-
   // The capture plugin — inert until capture is enabled (the flag below, or
   // a project's `.me` `capture: true`) — alongside the /memory-recall
   // command and the memory-engine skill, all at the same scope as the MCP
@@ -211,7 +200,7 @@ function createOpenCodeInstallCommand(): Command {
     )
     .option(
       "--api-key <key>",
-      "API key for a headless agent (default: use your login session at runtime)",
+      "API key for headless/CI use (default: use your login session at runtime)",
     )
     .option("--server <url>", "server URL to embed in MCP config")
     .option(
@@ -223,15 +212,10 @@ function createOpenCodeInstallCommand(): Command {
       "where to write the MCP config: project (./opencode.json) or user (~/.config/opencode) [default: user]",
       (v) => parseScope(v),
     )
-    .option(
-      "--no-default-agent",
-      "skip provisioning a default agent (agent: coder) for this install",
-    )
     .action(
       async (
         opts: AgentInstallOptions & {
           scope?: OpenCodeScope;
-          defaultAgent?: boolean;
         },
         cmd: Command,
       ) => {
@@ -312,20 +296,11 @@ function createOpenCodeHookCommand(): Command {
           // The hook ships inert — the ONE capture model shared with Claude:
           // project `.me` `capture` > the machine-wide flag > off (both folded
           // into `captureEnabled`). A deliberate opt-out exits 0 SILENTLY,
-          // distinct from the "no credentials" error below. Checked BEFORE
-          // resolving the agent below, so a project with capture off but no
-          // agent configured stays silent rather than logging a resolution
-          // error it doesn't need.
+          // distinct from the "no credentials" error below.
           if (!creds.captureEnabled) process.exit(0);
-          // Capture is a harness surface like MCP, so it resolves the agent
-          // ambiently (project agent: → global agent:) rather than the
-          // explicit-only `creds.asAgent` — an unresolvable agent throws
-          // here, into the catch below (capture skips), instead of silently
-          // writing as the human.
-          config = resolveHookConfig(
-            { ...creds, asAgent: resolveHarnessAgent() },
-            { fullTranscript: opts.fullTranscript },
-          );
+          config = resolveHookConfig(creds, {
+            fullTranscript: opts.fullTranscript,
+          });
         } catch (error) {
           console.error(
             `[memory-engine] ${eventName}: ${error instanceof Error ? error.message : String(error)}`,
@@ -366,7 +341,6 @@ function createOpenCodeHookCommand(): Command {
             url: config.server,
             ...memoryBearer(config.server, config.apiKey),
             space: config.space,
-            asAgent: config.asAgent,
           });
           await importTranscriptSession(client, session, {
             treeRoot: config.treeRoot,

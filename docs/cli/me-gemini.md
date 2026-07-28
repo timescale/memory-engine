@@ -23,13 +23,10 @@ me gemini install [options]
 | `--space <slug>` | Pin a space. Default: resolve `ME_SPACE` / active space at runtime. |
 | `--server <url>` | Server URL to embed in the MCP config. |
 | `-s, --scope <scope>` | Gemini CLI config scope: `user` or `project`. Default: `user`. |
-| `--no-default-agent` | Skip provisioning the default agent (see [Agent-by-config](../project-config.md#agent-by-config-and-the-agent-field)). |
 
-By default only the server URL is baked into the config: at runtime `me mcp` uses your `me login` session (resolved from the OS keychain / `~/.config/me` each run, so it survives re-login) and your active space (set by `me space use` / `ME_SPACE`). Pass `--api-key` for a headless install that cannot reach your keychain; that bakes the key and requires a pinned `--space`. For least privilege, mint a restricted PAT or service-account key with `me apikey create --allow <space>:<path>:<r|w|o>`; the pinned space must be declared by that key. An agent key remains an option when its regular agent grants are the intended boundary.
+By default only the server URL is baked into the config: at runtime `me mcp` uses your `me login` session (resolved from the OS keychain / `~/.config/me` each run, so it survives re-login) and your active space (set by `me space use` / `ME_SPACE`). Pass `--api-key` for a headless install that cannot reach your keychain; that bakes the key and requires a pinned `--space`. For least privilege, mint a restricted PAT or service-account key with `me apikey create --allow <space>:<path>:<r|w|o>`; the pinned space must be declared by that key.
 
-`me gemini install` also adds a small hook to `~/.gemini/settings.json` so that a plain `me` call from Gemini CLI's shell tool automatically runs as your configured agent in the right project. Re-running install is safe and leaves any other hooks you've configured untouched.
-
-Unless a session install already used `--no-default-agent` or a valid custom global `agent:` / `.user` opt-out is already set, install also provisions a default agent (adopts-or-creates `coder`) — see [Agent-by-config](../project-config.md#agent-by-config-and-the-agent-field). If a configured global agent is stale, install prompts to create it interactively or fails clearly non-interactively.
+`me gemini install` also adds a small hook to `~/.gemini/settings.json` so that a plain `me` call from Gemini CLI's shell tool can discover the active project after a directory change. Re-running install is safe and leaves any other hooks you've configured untouched.
 
 For manual MCP client configuration, see [MCP Integration](../mcp-integration.md).
 
@@ -37,4 +34,4 @@ For manual MCP client configuration, see [MCP Integration](../mcp-integration.md
 
 ## me gemini env-hook
 
-An internal helper that Gemini CLI invokes automatically through the hook `me gemini install` adds. It's what makes a plain `me` call from Gemini CLI's shell tool resolve the right project and run as your configured agent. **You never run this by hand**, and it's designed to fail open — if it can't recognize a command it does nothing, so your commands always run.
+An internal helper that Gemini CLI invokes automatically through the hook `me gemini install` adds. It makes a plain `me` call from Gemini CLI's shell tool resolve the right project. **You never run this by hand**, and it's designed to fail open — if it can't recognize a command it does nothing, so your commands always run.

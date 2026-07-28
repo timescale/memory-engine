@@ -16,12 +16,10 @@ import type { ResolvedCredentials } from "./credentials.ts";
 const {
   resolveSpacePrincipalId,
   resolveSpaceMemberId,
-  resolveAgentId,
   resolveActiveSpace,
   resolveServiceAccountId,
   shellTildeExpansionHint,
   describeAuthError,
-  describeForbiddenError,
   forbiddenTreeHint,
 } = await import("./util.ts");
 
@@ -96,33 +94,6 @@ describe("resolveSpaceMemberId", () => {
     expect(await resolveSpaceMemberId(memory, "ops", "text")).toBe(UUID);
     // resolves by name only (no kind constraint); the filtering is client-side
     expect(memory.principal.resolve).toHaveBeenCalledWith({ name: "ops" });
-  });
-});
-
-// =============================================================================
-// resolveAgentId
-// =============================================================================
-
-describe("resolveAgentId", () => {
-  test("returns a UUIDv7 as-is without listing agents", async () => {
-    const user = {
-      agent: { list: mock(() => Promise.reject(new Error("unused"))) },
-    } as unknown as UserClient;
-    expect(await resolveAgentId(user, UUID, "text")).toBe(UUID);
-    expect(user.agent.list).not.toHaveBeenCalled();
-  });
-
-  test("resolves a name via agent.list", async () => {
-    const user = {
-      agent: {
-        list: mock(() =>
-          Promise.resolve({ agents: [{ id: UUID, name: "bot" }] }),
-        ),
-      },
-    } as unknown as UserClient;
-
-    expect(await resolveAgentId(user, "bot", "text")).toBe(UUID);
-    expect(user.agent.list).toHaveBeenCalled();
   });
 });
 
@@ -354,38 +325,8 @@ describe("describeAuthError", () => {
   });
 });
 
-// =============================================================================
-// describeForbiddenError
-// =============================================================================
-
 const forbidden = () =>
   new RpcError(-32000, "This action is user-only", { code: "FORBIDDEN" });
-
-describe("describeForbiddenError", () => {
-  test("account scope + act-as-agent explains how to run as the user", () => {
-    const r = describeForbiddenError(
-      forbidden(),
-      creds({ asAgent: "my-agent" }),
-      "account",
-    );
-    expect(r).toEqual({
-      code: "FORBIDDEN",
-      message:
-        "Acting as agent 'my-agent'; this operation requires your user account. Unset ME_AS_AGENT or omit --as-agent to run it as your user account.",
-    });
-  });
-
-  test("non-act-as or space denials fall back to the server message", () => {
-    expect(describeForbiddenError(forbidden(), creds(), "account")).toBeNull();
-    expect(
-      describeForbiddenError(
-        forbidden(),
-        creds({ asAgent: "my-agent" }),
-        "space",
-      ),
-    ).toBeNull();
-  });
-});
 
 // =============================================================================
 // forbiddenTreeHint

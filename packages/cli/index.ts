@@ -10,7 +10,6 @@ import { Command } from "commander";
  */
 import { CLIENT_VERSION } from "../../version";
 import { createAccessCommand } from "./commands/access.ts";
-import { createAgentCommand } from "./commands/agent.ts";
 import { createApiKeyCommand } from "./commands/apikey.ts";
 import { createClaudeCommand } from "./commands/claude.ts";
 import { createCodexCommand } from "./commands/codex.ts";
@@ -38,19 +37,12 @@ import { createStatusCommand } from "./commands/status.ts";
 import { createUpgradeCommand } from "./commands/upgrade.ts";
 import { createVersionCommand } from "./commands/version.ts";
 import { createWhoamiCommand } from "./commands/whoami.ts";
-import {
-  isAsAgentRequested,
-  resolveCredentials,
-  setAsAgentOverride,
-  setServerFlagOverride,
-} from "./credentials.ts";
-import { checkHarnessFailsafe } from "./failsafe.ts";
+import { setServerFlagOverride } from "./credentials.ts";
 import { setExpanded } from "./output.ts";
 import {
   setConfigDirOverride,
   setProjectDirOverride,
 } from "./project-config.ts";
-import { buildUserClient } from "./util.ts";
 
 const SHELLS = ["zsh", "bash", "fish", "powershell"] as const;
 type Shell = (typeof SHELLS)[number];
@@ -73,28 +65,13 @@ program
     "--project-dir <dir>",
     "anchor to walk up from when discovering .me/ (replaces cwd; ME_PROJECT_DIR — set by harness adapters, rarely passed by hand)",
   )
-  .option(
-    "--as-agent <idOrName>",
-    "act as one of your own agents (id/name, or '.me' for the .me/config.yaml agent); overrides ME_AS_AGENT",
-  )
   .option("--json", "output as JSON")
   .option("--yaml", "output as YAML")
   .option("-x, --expanded", "show list output in expanded (vertical) format");
 
-/** The space-joined command path below the root program, e.g. "claude hook". */
-function commandPathOf(actionCommand: Command, root: Command): string {
-  const parts: string[] = [];
-  let cur: Command | null = actionCommand;
-  while (cur && cur !== root) {
-    parts.unshift(cur.name());
-    cur = cur.parent;
-  }
-  return parts.join(" ");
-}
-
-// Set expanded mode + seed the .me/config.yaml resolver before any command
-// runs, then run the harness shell failsafe (see failsafe.ts).
-program.hook("preAction", async (thisCommand, actionCommand) => {
+// Set expanded mode and seed the .me/config.yaml resolver before any command
+// runs.
+program.hook("preAction", (thisCommand) => {
   const opts = thisCommand.optsWithGlobals();
   setExpanded(opts.expanded ?? false);
   setConfigDirOverride(
@@ -103,37 +80,9 @@ program.hook("preAction", async (thisCommand, actionCommand) => {
   setProjectDirOverride(
     typeof opts.projectDir === "string" ? opts.projectDir : undefined,
   );
-  setAsAgentOverride(
-    typeof opts.asAgent === "string" ? opts.asAgent : undefined,
-  );
   setServerFlagOverride(
     typeof opts.server === "string" ? opts.server : undefined,
   );
-
-  const verdict = await checkHarnessFailsafe(
-    {
-      commandPath: commandPathOf(actionCommand, thisCommand),
-      env: process.env,
-      hasExplicitAsAgent: isAsAgentRequested(),
-      hasApiKeyClaim: Boolean(process.env.ME_API_KEY),
-      isStderrTTY: Boolean(process.stderr.isTTY),
-    },
-    async () => {
-      const apiKey = process.env.ME_API_KEY;
-      if (!apiKey) return false;
-      const identity = await buildUserClient({
-        ...resolveCredentials(),
-        apiKey,
-      }).whoami();
-      return identity.kind === "a";
-    },
-  );
-  if (verdict.action === "notice") {
-    console.error(verdict.message);
-  } else if (verdict.action === "error") {
-    console.error(verdict.message);
-    process.exit(1);
-  }
 });
 
 // Auth commands
@@ -146,12 +95,11 @@ program.addCommand(createStatusCommand());
 program.addCommand(createVersionCommand());
 program.addCommand(createUpgradeCommand());
 
-// Space commands (the new model: spaces, groups, access, agents, api keys)
+// Space commands
 program.addCommand(createSpaceCommand());
 program.addCommand(createInviteCommand());
 program.addCommand(createGroupCommand());
 program.addCommand(createAccessCommand());
-program.addCommand(createAgentCommand());
 program.addCommand(createServiceCommand());
 program.addCommand(createApiKeyCommand());
 

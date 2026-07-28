@@ -59,7 +59,7 @@ me login --switch
 - Your login credentials (the token set from either flow) are stored in your OS keychain when one is available (macOS `security`, Linux `secret-tool`); otherwise they fall back to `~/.config/me/credentials.yaml` (mode 0600). Set `ME_NO_KEYCHAIN=1` to force the file fallback.
 - `--device` is the recommended way to log in from a sandboxed agent harness or any host with no browser. The approval page lives at `<server>/device`; the CLI shows a `<server>/device?user_code=…` link that pre-fills the code.
 - Non-secret settings (default server and per-server active space) live in `~/.config/me/config.yaml`.
-- **Humans authenticate with a session, not an API key** — `me login` never creates a key. For headless/CLI use where a session isn't available you can mint a **personal access token** with [`me apikey create`](me-apikey.md#me-apikey-create), or restrict one with `me apikey create --allow <space>:<path>:<r|w|o>`; agent keys come from `me apikey create --agent <agent>`, and team-owned service-account keys come from `me apikey create --service <service>`.
+- **Humans authenticate with a session, not an API key** — `me login` never creates a key. For headless/CLI use where a session isn't available you can mint a **personal access token** with [`me apikey create`](me-apikey.md#me-apikey-create), or restrict one with `me apikey create --allow <space>:<path>:<r|w|o>`; team-owned service-account keys come from `me apikey create --service <service>`.
 - Use [`me logout`](me-logout.md) to clear the session; the non-secret config is kept so re-login resumes.
 
 ## See also

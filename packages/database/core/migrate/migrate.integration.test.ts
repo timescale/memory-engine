@@ -464,6 +464,7 @@ describe("access-control functions are callable", () => {
 test("018 removes agent rows and their dependent state from an upgraded schema", async () => {
   await withTestCore(sql, {}, async (core) => {
     const s = core.schema;
+    const memorySchema = `metest_legacy_${randomSlug()}`;
     const [space] = await sql.unsafe(`select ${s}.create_space($1, $2) as id`, [
       randomSlug(),
       "Agent Upgrade",
@@ -505,6 +506,7 @@ test("018 removes agent rows and their dependent state from an upgraded schema",
       [userId],
     );
     const agentId = agent?.id as string;
+    const agentHome = `home.${userId.replaceAll("-", "")}.${agentId.replaceAll("-", "")}`;
     await sql.unsafe(
       `insert into ${s}.principal_space (space_id, principal_id) values ($1, $2)`,
       [spaceId, agentId],
@@ -527,40 +529,81 @@ test("018 removes agent rows and their dependent state from an upgraded schema",
       `select ${s}.create_api_key($1, $2, $3, $4) as id`,
       [agentId, "upgradeAgentKey1", "hashed-secret", "upgrade-agent-key"],
     );
+    // The scoped-declaration tables (`api_key_space_access` /
+    // `api_key_tree_access`) are FK-linked to `api_key.id` and cascade
+    // automatically, so no explicit fixture is needed here — and no restricted
+    // *agent* key could ever have existed anyway:
+    // `_enforce_api_key_space_access_invariants` (idempotent 008_api_key)
+    // rejects a declaration for a non-user/service-account principal at
+    // insert time, well before this migration exists.
 
-    await sql.unsafe(template(removeAgents018, { schema: s }));
+    // Memories live in the space schema, outside core's ownership. The
+    // cutover removes the retired principal but must not rewrite its home path.
+    await sql.unsafe(`create schema ${memorySchema}`);
+    await sql.unsafe(
+      `create table ${memorySchema}.memory (content text not null, tree ltree not null)`,
+    );
+    await sql.unsafe(
+      `insert into ${memorySchema}.memory (content, tree) values ($1, $2::ltree)`,
+      ["legacy agent memory", `${agentHome}.notes`],
+    );
 
-    for (const [table, column] of [
-      ["principal", "id"],
-      ["principal_space", "principal_id"],
-      ["tree_access", "principal_id"],
-      ["group_member", "member_id"],
-      ["api_key", "id"],
-    ]) {
-      const [row] = await sql.unsafe(
-        `select count(*)::int as count from ${s}.${table} where ${column} = $1`,
-        [table === "api_key" ? key?.id : agentId],
+    try {
+      await sql.unsafe(template(removeAgents018, { schema: s }));
+
+      for (const [table, column] of [
+        ["principal", "id"],
+        ["principal_space", "principal_id"],
+        ["tree_access", "principal_id"],
+        ["group_member", "member_id"],
+        ["api_key", "id"],
+      ]) {
+        const [row] = await sql.unsafe(
+          `select count(*)::int as count from ${s}.${table} where ${column} = $1`,
+          [table === "api_key" ? key?.id : agentId],
+        );
+        expect(row?.count).toBe(0);
+      }
+      // Belt-and-braces: no scoped-declaration row can survive the delete
+      // (a real production DB, protected by the pre-existing insert-time
+      // trigger, will never have had any to begin with — see the fixture
+      // comment above).
+      const [spaceAccess] = await sql.unsafe(
+        `select count(*)::int as count from ${s}.api_key_space_access
+         where not exists (select 1 from ${s}.api_key k where k.id = api_key_id)`,
       );
-      expect(row?.count).toBe(0);
-    }
-    const columns = await sql.unsafe(
-      `select column_name from information_schema.columns
-       where table_schema = $1 and table_name = 'principal'`,
-      [s],
-    );
-    expect(columns.map((column) => column.column_name)).not.toContain(
-      "agent_id",
-    );
-    expect(columns.map((column) => column.column_name)).not.toContain(
-      "owner_id",
-    );
-    await expectReject(() =>
-      sql.unsafe(
-        `insert into ${s}.principal (kind, name) values ('a', 'removed-agent')`,
-      ),
-    );
+      expect(spaceAccess?.count).toBe(0);
+      const [treeAccess] = await sql.unsafe(
+        `select count(*)::int as count from ${s}.api_key_tree_access
+         where not exists (select 1 from ${s}.api_key k where k.id = api_key_id)`,
+      );
+      expect(treeAccess?.count).toBe(0);
+      const [memory] = await sql.unsafe(
+        `select content, tree::text as tree from ${memorySchema}.memory`,
+      );
+      expect(memory?.content).toBe("legacy agent memory");
+      expect(memory?.tree).toBe(`${agentHome}.notes`);
+      const columns = await sql.unsafe(
+        `select column_name from information_schema.columns
+         where table_schema = $1 and table_name = 'principal'`,
+        [s],
+      );
+      expect(columns.map((column) => column.column_name)).not.toContain(
+        "agent_id",
+      );
+      expect(columns.map((column) => column.column_name)).not.toContain(
+        "owner_id",
+      );
+      await expectReject(() =>
+        sql.unsafe(
+          `insert into ${s}.principal (kind, name) values ('a', 'removed-agent')`,
+        ),
+      );
 
-    await migrateCore(sql, { schema: s });
+      await migrateCore(sql, { schema: s });
+    } finally {
+      await sql.unsafe(`drop schema if exists ${memorySchema} cascade`);
+    }
   });
 });
 
