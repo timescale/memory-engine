@@ -286,6 +286,7 @@ as $func$
     ( 'tree_path', x.tree_path
     , 'access', x.access
     )
+    order by x.tree_path, x.access
   ), '[]'::jsonb)
   from
   (
