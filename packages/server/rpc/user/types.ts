@@ -1,8 +1,8 @@
 /**
  * User RPC context — populated by authenticateUser. Account-scoped (no space):
  * identity (`whoami`) and space discovery (`space.list`) for any authenticated
- * principal, plus the account-management surface (agents, api keys, space
- * lifecycle) which is user-only — see {@link requireUserCaller}.
+ * principal, plus the account-management surface (api keys, service accounts,
+ * and space lifecycle) which is user-only — see {@link requireUserCaller}.
  */
 import type { CoreStore } from "@memory.build/engine/core";
 import type { Sql } from "postgres";
@@ -12,9 +12,9 @@ import type { HandlerContext } from "../types";
 export interface UserRpcContext extends HandlerContext {
   /** Core control-plane store. */
   core: CoreStore;
-  /** The authenticated principal's kind: user, agent, or service account. */
-  kind: "u" | "a" | "s";
-  /** The authenticated principal id (user, agent, or service account). */
+  /** The authenticated principal's kind: user or service account. */
+  kind: "u" | "s";
+  /** The authenticated principal id (user or service account). */
   userId: string;
   /** The caller's email (powers whoami); null for non-users. */
   email: string | null;
@@ -27,7 +27,7 @@ export interface UserRpcContext extends HandlerContext {
   /**
    * The caller's name: a human display name from a session / OAuth token, or
    * the core principal's name on the api-key path — the user's email for a user
-   * PAT, or the principal handle for an agent/service account.
+   * PAT, or the service-account handle.
    */
   name: string;
   /** New-model pool — for transactional provisioning (space.create). */
@@ -35,8 +35,8 @@ export interface UserRpcContext extends HandlerContext {
   /** The core control-plane schema name. */
   coreSchema: string;
   /**
-   * True when the caller authenticated with an api key (a user PAT, agent key,
-   * or service-account key) rather than a session / OAuth token. Gates the
+   * True when the caller authenticated with an api key (a user PAT or
+   * service-account key) rather than a session / OAuth token. Gates the
    * credential-management ops: a key can't mint or revoke keys (preserves
    * revocability), so apiKey.create/delete reject a key-authenticated caller.
    */
@@ -45,12 +45,6 @@ export interface UserRpcContext extends HandlerContext {
   apiKeyId: string | null;
   /** Whether the API key carries declarations that restrict its authority. */
   apiKeyRestricted: boolean;
-  /**
-   * When a human is acting as one of their own agents (via `X-Me-As-Agent`),
-   * the human's principal id; null otherwise. Observability only — authorization
-   * reads the (already switched) `kind` / `userId`.
-   */
-  authenticatedAs: string | null;
 }
 
 export function isUserRpcContext(ctx: HandlerContext): ctx is UserRpcContext {
@@ -72,11 +66,11 @@ export function assertUserRpcContext(
 }
 
 /**
- * Reject a non-user (agent/service account) caller from an account-management method.
+ * Reject a service-account caller from an account-management method.
  *
  * The user RPC admits any authenticated principal so non-user keys can run the
  * account-scoped *reads* (`whoami`, `space.list`) — but managing the account is
- * user-only. The user-RPC gate (`gateAgentAccess` in ./index) calls this for
+ * user-only. The user-RPC gate (`gateNonUserAccess` in ./index) calls this for
  * every method outside its allow-list, so the denial is default-on and lives in
  * one place rather than relying on each handler to incidentally reject a
  * non-user.

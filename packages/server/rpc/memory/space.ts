@@ -9,7 +9,7 @@ import { buildRegistry } from "../registry";
 import type { HandlerContext } from "../types";
 import { assertSpaceRpcContext, type SpaceRpcContext } from "./types";
 
-const MEMBER_KINDS: SpaceMemberKind[] = ["u", "a", "s"];
+const MEMBER_KINDS: Array<"u" | "s"> = ["u", "s"];
 
 async function spaceListMembers(
   params: SpaceListMembersParams,
@@ -18,7 +18,9 @@ async function spaceListMembers(
   assertSpaceRpcContext(context);
   const ctx = context as SpaceRpcContext;
 
-  const kinds = params.kind ? [params.kind] : MEMBER_KINDS;
+  const kind = params.kind;
+  const kinds: Array<"u" | "s"> =
+    kind === "u" ? ["u"] : kind === "s" ? ["s"] : MEMBER_KINDS;
   const members = (
     await Promise.all(
       kinds.map((kind) => ctx.core.listSpacePrincipals(ctx.space.id, kind)),

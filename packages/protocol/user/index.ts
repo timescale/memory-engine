@@ -1,22 +1,10 @@
 /**
  * User RPC contract served on POST /api/v1/user/rpc. Covers user/account
- * operations, user-owned agents, space-scoped service accounts, and global api
- * keys; memory and in-space management live on the memory endpoint.
+ * operations, space-scoped service accounts, and global api keys; memory and
+ * in-space management live on the memory endpoint.
  */
 import type { z } from "zod";
 
-import {
-  agentCreateParams,
-  agentCreateResult,
-  agentDeleteParams,
-  agentDeleteResult,
-  agentListParams,
-  agentListResult,
-  agentRenameParams,
-  agentRenameResult,
-  agentSpacesParams,
-  agentSpacesResult,
-} from "./agent.ts";
 import {
   apiKeyCreateParams,
   apiKeyCreateResult,
@@ -61,7 +49,6 @@ import {
 } from "./space.ts";
 import { whoamiParams, whoamiResult } from "./whoami.ts";
 
-export * from "./agent.ts";
 export * from "./api-key.ts";
 export * from "./invitation.ts";
 export * from "./service-account.ts";
@@ -76,17 +63,11 @@ function method<TParams extends z.ZodType, TResult extends z.ZodType>(
 }
 
 /**
- * User RPC method contract (identity + agent lifecycle + api keys + space
- * discovery).
+ * User RPC method contract (identity, service-account lifecycle, api keys, and
+ * space discovery).
  */
 export const userMethods = {
   whoami: method(whoamiParams, whoamiResult),
-
-  "agent.create": method(agentCreateParams, agentCreateResult),
-  "agent.list": method(agentListParams, agentListResult),
-  "agent.spaces": method(agentSpacesParams, agentSpacesResult),
-  "agent.rename": method(agentRenameParams, agentRenameResult),
-  "agent.delete": method(agentDeleteParams, agentDeleteResult),
 
   "serviceAccount.create": method(
     serviceAccountCreateParams,

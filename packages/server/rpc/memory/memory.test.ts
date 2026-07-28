@@ -41,24 +41,6 @@ describe("dedupeOwnHome", () => {
     expect(result.find((e) => e.tree === "home.abc")?.count).toBe(2);
   });
 
-  test("agent home strips both `home` and the owner-home ancestor", () => {
-    // An agent's home nests under its owner's: `home.<owner>.<agent>`.
-    const AGENT = "home.own.ag";
-    const entries: Entry[] = [
-      { tree: "home", count: 5 }, // 2 agent + 3 owner/others
-      { tree: "home.own", count: 4 }, // 2 agent + 2 owner-direct
-      { tree: "home.own.ag", count: 2 }, // ~ (agent's own)
-      { tree: "home.own.ag.x", count: 2 },
-      { tree: "home.own.notes", count: 2 }, // owner's own memories
-    ];
-    const result = dedupeOwnHome(entries, AGENT);
-    const byTree = Object.fromEntries(result.map((e) => [e.tree, e.count]));
-    expect(byTree.home).toBe(3); // 5 - 2
-    expect(byTree["home.own"]).toBe(2); // 4 - 2 (owner's non-agent memories)
-    expect(byTree["home.own.ag"]).toBe(2); // untouched (this is `~`)
-    expect(byTree["home.own.notes"]).toBe(2); // untouched
-  });
-
   test("no-op when the caller has no home memories", () => {
     const entries: Entry[] = [
       { tree: "home", count: 1 }, // another member's home only

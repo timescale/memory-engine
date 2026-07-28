@@ -114,7 +114,7 @@ test("a restricted PAT keeps its space scope and cannot manage the account throu
   ]);
 
   const managementResponse = await router.handleRequest(
-    userRpcRequest(token, "agent.list"),
+    userRpcRequest(token, "serviceAccount.list"),
   );
   expect(managementResponse.status).toBe(200);
   const managementBody = (await managementResponse.json()) as {

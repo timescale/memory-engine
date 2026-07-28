@@ -1,5 +1,5 @@
-// Integration test for the space management handlers (4C-2b): member / agent /
-// group / grant / invite, driven through the merged memory registry against a
+// Integration test for the space management handlers: member / group / grant /
+// invite, driven through the merged memory registry against a
 // provisioned space. The provisioned owner has owner@root, satisfying the
 // management authorization gate. (Api keys are user-endpoint — see
 // rpc/user/api-key.integration.test.ts.)
@@ -47,7 +47,7 @@ function call<T = unknown>(
   params: unknown,
   as: {
     principalId?: string;
-    principalKind?: "u" | "a" | "s";
+    principalKind?: "u" | "s";
     treeAccess?: TreeAccess;
     admin?: boolean;
   } = {},
@@ -61,7 +61,6 @@ function call<T = unknown>(
     space,
     principalId: as.principalId ?? ownerId,
     principalKind: as.principalKind ?? "u",
-    ownerId: null, // user/session caller
     apiKeyId: null,
     treeAccess: as.treeAccess ?? ownerTreeAccess,
     // the provisioned owner is also a space admin; non-owner callers default false
@@ -88,16 +87,6 @@ async function makeUser(): Promise<string> {
     .coreStore(sql, coreSchema)
     .createUser(id, `u_${rand(8)}@example.com`);
   return id;
-}
-
-/**
- * Create a global agent owned by `owner` (the user-endpoint operation), returning
- * its id. Not yet a member of any space — principal.add brings it in.
- */
-function makeAgent(owner: string): Promise<string> {
-  return engineCore
-    .coreStore(sql, coreSchema)
-    .createAgent(owner, `agent_${rand(6)}`);
 }
 
 /** Create a registered user with a known email (the invite key), returning its id. */
@@ -197,18 +186,14 @@ test("last-admin safeguard: removing/demoting the sole admin → LAST_ADMIN", as
   ).toBe(true);
 });
 
-test("non-admin user can self-remove (leave), cascading their in-space agent", async () => {
-  // a non-admin member with an agent they brought into the space
+test("non-admin user can self-remove (leave)", async () => {
   const member = await makeUser();
   await call("principal.add", { principalId: member });
-  const agent = await makeAgent(member);
   const asMember = {
     principalId: member,
     admin: false,
     treeAccess: [{ tree_path: "share", access: 1 }] as TreeAccess,
   };
-  await call("principal.add", { principalId: agent }, asMember); // self-service add
-
   // the member removes THEMSELVES (no admin) — succeeds
   expect(
     (
@@ -220,51 +205,12 @@ test("non-admin user can self-remove (leave), cascading their in-space agent", a
     ).removed,
   ).toBe(true);
 
-  // both the member and their agent are gone from the roster (DB cascade)
+  // the member is gone from the roster
   const { principals } = await call<{ principals: { id: string }[] }>(
     "principal.list",
     {},
   );
   expect(principals.some((p) => p.id === member)).toBe(false);
-  expect(principals.some((p) => p.id === agent)).toBe(false);
-});
-
-test("non-admin can remove their OWN agent, but not another user / another's agent", async () => {
-  const member = await makeUser();
-  await call("principal.add", { principalId: member });
-  const asMember = {
-    principalId: member,
-    admin: false,
-    treeAccess: [{ tree_path: "share", access: 1 }] as TreeAccess,
-  };
-
-  // own agent → allowed
-  const ownAgent = await makeAgent(member);
-  await call("principal.add", { principalId: ownAgent }, asMember);
-  expect(
-    (
-      await call<{ removed: boolean }>(
-        "principal.remove",
-        { principalId: ownAgent },
-        asMember,
-      )
-    ).removed,
-  ).toBe(true);
-
-  // another user (the admin owner) → FORBIDDEN (authz before last-admin)
-  await expectAppError(
-    call("principal.remove", { principalId: ownerId }, asMember),
-    "FORBIDDEN",
-  );
-
-  // someone else's agent → FORBIDDEN
-  const otherUser = await makeUser();
-  const otherAgent = await makeAgent(otherUser);
-  await call("principal.add", { principalId: otherAgent });
-  await expectAppError(
-    call("principal.remove", { principalId: otherAgent }, asMember),
-    "FORBIDDEN",
-  );
 });
 
 test("principal.resolve / lookup are available to non-admin members (list is admin-only)", async () => {
@@ -315,8 +261,6 @@ test("space.listMembers is available to non-admin members and can list users onl
   const memberId = await makeUserWithEmail(email);
   await call("principal.add", { principalId: memberId });
 
-  const agentId = await makeAgent(ownerId);
-  await call("principal.add", { principalId: agentId });
   const { id: groupId } = await call<{ id: string }>("group.create", {
     name: `group_${rand(6)}`,
   });
@@ -344,7 +288,6 @@ test("space.listMembers is available to non-admin members and can list users onl
     kind: "u",
     name: email,
   });
-  expect(listed.members.map((m) => m.id)).not.toContain(agentId);
   expect(listed.members.map((m) => m.id)).not.toContain(service.id);
   expect(listed.members.map((m) => m.id)).not.toContain(groupId);
 
@@ -353,7 +296,6 @@ test("space.listMembers is available to non-admin members and can list users onl
     {},
     asMember,
   );
-  expect(allMembers.members.map((m) => m.id)).toContain(agentId);
   expect(allMembers.members.map((m) => m.id)).toContain(service.id);
   expect(allMembers.members.map((m) => m.id)).not.toContain(groupId);
 });
@@ -786,15 +728,10 @@ test("access.effective: admin can inspect another member's effective access", as
 
   const result = await call<{
     principal: { id: string };
-    authenticatedAs: unknown;
     access: { treePath: string; accessName: string }[];
   }>("access.effective", { principalId: member });
 
   expect(result.principal.id).toBe(member);
-  // authenticatedAs describes the caller's session, not the target — it is null
-  // when inspecting another principal so the target's access is not paired with
-  // the caller's identity.
-  expect(result.authenticatedAs).toBeNull();
   expect(result.access).toContainEqual(
     expect.objectContaining({ treePath: "/projects", accessName: "write" }),
   );
@@ -816,35 +753,6 @@ test("access.effective: admin can inspect another member's effective access", as
   );
   expect(result.access.every((entry) => !entry.treePath.startsWith("~"))).toBe(
     true,
-  );
-});
-
-test("access.effective: an agent owner can inspect clamped agent access", async () => {
-  const member = await makeUser();
-  const agentId = await makeAgent(member);
-  await call("principal.add", { principalId: member });
-  await call("principal.add", { principalId: agentId });
-  await call("grant.set", { principalId: member, treePath: "docs", access: 1 });
-  await call("grant.set", {
-    principalId: agentId,
-    treePath: "docs",
-    access: 2,
-  });
-
-  const core = engineCore.coreStore(sql, coreSchema);
-  const memberAccess = await core.buildTreeAccess(member, space.id);
-  const result = await call<{
-    principal: { id: string; kind: string };
-    access: { treePath: string; accessName: string }[];
-  }>(
-    "access.effective",
-    { principalId: agentId },
-    { principalId: member, treeAccess: memberAccess, admin: false },
-  );
-
-  expect(result.principal).toMatchObject({ id: agentId, kind: "a" });
-  expect(result.access).toContainEqual(
-    expect.objectContaining({ treePath: "/docs", accessName: "read" }),
   );
 });
 
@@ -919,7 +827,7 @@ test("access.effective: rejects unrelated principals and groups", async () => {
 
 test("a denied grant/roster op names the effective admins on the error", async () => {
   // A plain member: not an admin, owns no tree path, and the grant target is
-  // another user (not their own agent) — every self-service carve-out misses.
+  // another user — every self-service carve-out misses.
   const member = await makeUser();
   const other = await makeUserWithEmail(`target_${rand(6)}@example.com`);
   await call("principal.add", { principalId: member });
@@ -950,42 +858,6 @@ test("a denied grant/roster op names the effective admins on the error", async (
   // principal.list: admin-only roster enumeration → enriched via
   // requireSpaceAdmin (representative of the 14 admin-gated management ops).
   await expectAdminsOn(call("principal.list", {}, as));
-});
-
-test("grant.list: an agent's owner can list its grants", async () => {
-  // a member who owns an agent that holds a grant; the member is not an admin
-  // and owns no tree path of their own
-  const member = await makeUser();
-  const agentId = await makeAgent(member);
-  await call("principal.add", { principalId: agentId });
-  await call("grant.set", {
-    principalId: agentId,
-    treePath: "docs",
-    access: 1,
-  });
-  const as = {
-    principalId: member,
-    treeAccess: [] as TreeAccess,
-    admin: false,
-  };
-
-  const res = await call<{ grants: { principalId: string }[] }>(
-    "grant.list",
-    { principalId: agentId },
-    as,
-  );
-  expect(res.grants.some((g) => g.principalId === agentId)).toBe(true);
-
-  // a stranger who doesn't own the agent cannot
-  const stranger = await makeUser();
-  await expectAppError(
-    call(
-      "grant.list",
-      { principalId: agentId },
-      { principalId: stranger, treeAccess: [] as TreeAccess, admin: false },
-    ),
-    "FORBIDDEN",
-  );
 });
 
 test("grant.list/remove: a service-account admin can inspect and revoke its grants", async () => {
@@ -1061,129 +933,6 @@ test("service-account callers do not get '~' home expansion", async () => {
     ),
     "VALIDATION_ERROR",
   );
-});
-
-test("grant.set/remove: an agent's owner can grant at an unowned path (TNT-165)", async () => {
-  // A member who is NOT a space admin and does NOT own the target subtree — they
-  // hold only write@share.work (level 2, not owner) — can still grant and revoke
-  // access for their OWN agent there. Agent access is clamped to the owner's, so
-  // this self-service can't escalate beyond what the owner already has.
-  const core = engineCore.coreStore(sql, coreSchema);
-  const member = await makeUser();
-  await call("principal.add", { principalId: member });
-  // real, non-owner write access for the member at share.work
-  await call("grant.set", {
-    principalId: member,
-    treePath: "share/work",
-    access: 2,
-  });
-  const agentId = await makeAgent(member);
-  await call("principal.add", { principalId: agentId });
-
-  const memberTa = await core.buildTreeAccess(member, space.id);
-  const as = { principalId: member, treeAccess: memberTa, admin: false };
-
-  // they can grant their own agent at share.work.sub despite holding no owner
-  // grant there (the agent-ownership bypass, not admin/owner, is what allows it)
-  expect(
-    (
-      await call<{ granted: boolean }>(
-        "grant.set",
-        { principalId: agentId, treePath: "share/work/sub", access: 2 },
-        as,
-      )
-    ).granted,
-  ).toBe(true);
-
-  // proof it's the agent-ownership doing the work: granting the SAME path to a
-  // plain user (a space member, but NOT the caller's agent) is forbidden for
-  // this same member — so the failure is strictly the missing agent-ownership
-  // authority, not the target's non-membership.
-  const otherUser = await makeUser();
-  await call("principal.add", { principalId: otherUser });
-  await expectAppError(
-    call(
-      "grant.set",
-      { principalId: otherUser, treePath: "share/work/sub", access: 2 },
-      as,
-    ),
-    "FORBIDDEN",
-  );
-
-  // the grant is EFFECTIVE, clamped to the owner's write (min(2, 2) = 2)
-  const agentTa = await core.buildTreeAccess(agentId, space.id);
-  expect(agentTa).toContainEqual({ tree_path: "share.work.sub", access: 2 });
-
-  // they can revoke it too
-  expect(
-    (
-      await call<{ removed: boolean }>(
-        "grant.remove",
-        { principalId: agentId, treePath: "share/work/sub" },
-        as,
-      )
-    ).removed,
-  ).toBe(true);
-
-  // a stranger who doesn't own the agent (and isn't admin/owner) cannot
-  const stranger = await makeUser();
-  const asStranger = {
-    principalId: stranger,
-    treeAccess: [] as TreeAccess,
-    admin: false,
-  };
-  await expectAppError(
-    call(
-      "grant.set",
-      { principalId: agentId, treePath: "share/work/sub", access: 2 },
-      asStranger,
-    ),
-    "FORBIDDEN",
-  );
-  await expectAppError(
-    call(
-      "grant.remove",
-      { principalId: agentId, treePath: "share/work/sub" },
-      asStranger,
-    ),
-    "FORBIDDEN",
-  );
-});
-
-test("an agent grant is clamped DOWN to the owner's level, not dropped (TNT-165)", async () => {
-  // The headline case: a member holding only READ at share.work grants their
-  // agent WRITE at share.work.sub. The grant is allowed (self-service) and the
-  // agent ends up with READ there — clamped down to the owner's level, not
-  // dropped to nothing.
-  const core = engineCore.coreStore(sql, coreSchema);
-  const member = await makeUser();
-  await call("principal.add", { principalId: member });
-  await call("grant.set", {
-    principalId: member,
-    treePath: "share/work",
-    access: 1,
-  });
-  const agentId = await makeAgent(member);
-  await call("principal.add", { principalId: agentId });
-  const as = {
-    principalId: member,
-    treeAccess: await core.buildTreeAccess(member, space.id),
-    admin: false,
-  };
-
-  expect(
-    (
-      await call<{ granted: boolean }>(
-        "grant.set",
-        { principalId: agentId, treePath: "share/work/sub", access: 2 },
-        as,
-      )
-    ).granted,
-  ).toBe(true);
-
-  // owner holds read(1) at share.work → the agent's write(2) clamps to read(1)
-  const agentTa = await core.buildTreeAccess(agentId, space.id);
-  expect(agentTa).toContainEqual({ tree_path: "share.work.sub", access: 1 });
 });
 
 test("group member management allows a group admin (not a space admin)", async () => {
@@ -1367,41 +1116,6 @@ test("service-account admin group membership is managed only by space admins or 
   ).toBe(true);
 });
 
-test("group.listForMember: an agent's owner can list its groups", async () => {
-  // owner sets up: a member who owns an agent, the agent is in a group
-  const member = await makeUser();
-  const agentId = await makeAgent(member);
-  await call("principal.add", { principalId: agentId });
-  const { id: groupId } = await call<{ id: string }>("group.create", {
-    name: "bots",
-  });
-  await call("group.addMember", { groupId, memberId: agentId });
-
-  // the member (agent owner, not a space admin) can list their agent's groups
-  const as = {
-    principalId: member,
-    treeAccess: [] as TreeAccess,
-    admin: false,
-  };
-  const res = await call<{ groups: { groupId: string }[] }>(
-    "group.listForMember",
-    { memberId: agentId },
-    as,
-  );
-  expect(res.groups.some((g) => g.groupId === groupId)).toBe(true);
-
-  // a stranger who doesn't own the agent cannot
-  const stranger = await makeUser();
-  await expectAppError(
-    call(
-      "group.listForMember",
-      { memberId: agentId },
-      { principalId: stranger, treeAccess: [] as TreeAccess, admin: false },
-    ),
-    "FORBIDDEN",
-  );
-});
-
 test("structural mutations require admin — owner@root is not enough", async () => {
   // a member who owns the whole data tree (owner@root) but is NOT a space admin
   const member = await makeUser();
@@ -1424,8 +1138,7 @@ test("structural mutations require admin — owner@root is not enough", async ()
     call("principal.add", { principalId: stranger }, as),
     "FORBIDDEN",
   );
-  // Removing ANOTHER principal is admin-only (the self / own-agent carve-outs
-  // are exercised in the dedicated self-remove test above).
+  // Removing another principal is admin-only (self-leave is covered above).
   await expectAppError(
     call("principal.remove", { principalId: stranger }, as),
     "FORBIDDEN",
@@ -1470,56 +1183,4 @@ test("grant authority is path-scoped: a subtree owner delegates within it", asyn
   }>("grant.list", { treePath: "proj" }, as);
   expect(underProj.grants.some((g) => g.treePath === "/proj/sub")).toBe(true);
   await expectAppError(call("grant.list", {}, as), "FORBIDDEN");
-});
-
-test("self-service: a non-owner member brings their own agent into the space", async () => {
-  // owner onboards a second user with write (not owner) on a subtree
-  const member = await makeUser();
-  await call("principal.add", { principalId: member });
-  await call("grant.set", { principalId: member, treePath: "proj", access: 2 });
-  const memberTA = await engineCore
-    .coreStore(sql, coreSchema)
-    .buildTreeAccess(member, space.id);
-  const as = { principalId: member, treeAccess: memberTA };
-
-  // the member created their agent on the user endpoint (simulated via core);
-  // they bring it into the space (self-service principal.add) without owner rights
-  const agentId = await makeAgent(member);
-  expect(
-    (
-      await call<{ added: boolean }>(
-        "principal.add",
-        { principalId: agentId },
-        as,
-      )
-    ).added,
-  ).toBe(true);
-
-  // and self-grant it (capped by their own access). Minting the agent's api key
-  // is a user-endpoint op (apiKey.* — see rpc/user/api-key.integration.test.ts).
-  expect(
-    (
-      await call<{ granted: boolean }>(
-        "grant.set",
-        { principalId: agentId, treePath: "proj", access: 2 },
-        as,
-      )
-    ).granted,
-  ).toBe(true);
-
-  // but the member cannot manage the roster, add a stranger, or grant to others
-  await expectAppError(call("principal.list", {}, as), "FORBIDDEN");
-  const stranger = await makeUser();
-  await expectAppError(
-    call("principal.add", { principalId: stranger }, as),
-    "FORBIDDEN",
-  );
-  await expectAppError(
-    call(
-      "grant.set",
-      { principalId: stranger, treePath: "proj", access: 1 },
-      as,
-    ),
-    "FORBIDDEN",
-  );
 });

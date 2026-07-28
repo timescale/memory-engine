@@ -94,6 +94,9 @@ import incremental016 from "./incremental/016_api_key_last_used_on.sql" with {
 import incremental017 from "./incremental/017_scoped_api_keys.sql" with {
   type: "text",
 };
+import incremental018 from "./incremental/018_remove_agents.sql" with {
+  type: "text",
+};
 import provisionSql from "./provision.sql" with { type: "text" };
 
 const DIR = "packages/database/core/migrate";
@@ -179,6 +182,11 @@ const incrementals: Migration[] = [
     name: "017_scoped_api_keys",
     file: "incremental/017_scoped_api_keys.sql",
     sql: incremental017,
+  },
+  {
+    name: "018_remove_agents",
+    file: "incremental/018_remove_agents.sql",
+    sql: incremental018,
   },
 ];
 

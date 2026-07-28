@@ -22,7 +22,7 @@ export {
 
 /**
  * The full memory-endpoint registry: data-plane + space management methods.
- * (Agent lifecycle and api keys live on the user endpoint — see rpc/user.)
+ * (API keys live on the user endpoint — see rpc/user.)
  */
 export const memoryMethods: MethodRegistry = new Map([
   ...memoryDataMethods,

@@ -8,7 +8,7 @@
  *   Memory CRUD/search plus principal/group/grant/invite management.
  *
  * - {@link createUserClient} — user/account and service-account management.
- *   Talks to /api/v1/user/rpc: whoami, agent/service-account lifecycle, api keys,
+ *   Talks to /api/v1/user/rpc: whoami, service-account lifecycle, api keys,
  *   space discovery.
  *
  * CLI login is handled out-of-band by the `me` binary (OAuth auth-code + PKCE
@@ -63,9 +63,8 @@ export {
   type MemoryNamespace,
   type PrincipalNamespace,
 } from "./memory.ts";
-// User client (whoami, agent/service-account lifecycle, api keys, space discovery)
+// User client (whoami, service-account lifecycle, api keys, space discovery)
 export {
-  type AgentNamespace,
   type ApiKeyNamespace,
   createUserClient,
   type InviteeNamespace,

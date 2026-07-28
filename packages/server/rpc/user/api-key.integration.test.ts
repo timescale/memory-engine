@@ -1,7 +1,7 @@
 // Integration test for the user RPC api-key handlers (apiKey.* lifecycle).
-// A key is minted for a member the caller owns — an agent, or the caller's OWN
-// user principal (a personal access token). Keys are global (no space slug) and
-// minting needs only ownership, not space membership. Minting/revoking is
+// A key is minted for the caller's own user principal (a personal access token)
+// or a service account they administer. Keys are global (no space slug) and
+// minting/revoking is
 // session-only: a key-authenticated caller (viaApiKey) can't manage keys.
 //   TEST_DATABASE_URL="postgresql://postgres@127.0.0.1:5432/postgres" \
 //     bun test --timeout 30000 \
@@ -41,8 +41,7 @@ function call<T = unknown>(
   const context = {
     request: new Request("http://localhost/api/v1/user/rpc"),
     core: coreStore(sql, coreSchema),
-    // These tests exercise the user-PAT carve-out (a key-authenticated *user*);
-    // the agent-caller denial is covered in agent.integration.test.ts.
+    // These tests exercise the user-PAT carve-out (a key-authenticated user).
     kind: "u",
     userId: asUser,
     db: sql,
@@ -86,14 +85,8 @@ beforeEach(async () => {
 });
 
 test("create (global, no space needed) / list / get / delete", async () => {
-  // The agent is owned by the caller but is NOT a member of any space — key
-  // creation depends only on ownership, not space membership.
-  const { id: agentId } = await call<{ id: string }>("agent.create", {
-    name: "bot",
-  });
-
   const created = await call<{ id: string; key: string }>("apiKey.create", {
-    memberId: agentId,
+    memberId: userId,
     name: "ci",
     expiresAt: null,
   });
@@ -103,7 +96,7 @@ test("create (global, no space needed) / list / get / delete", async () => {
   const list = await call<{
     apiKeys: { id: string; lastUsedOn: string | null }[];
   }>("apiKey.list", {
-    memberId: agentId,
+    memberId: userId,
   });
   expect(list.apiKeys.map((k) => k.id)).toContain(created.id);
   expect(list.apiKeys.find((k) => k.id === created.id)?.lastUsedOn).toBeNull();
@@ -246,25 +239,6 @@ test("a key-authenticated caller can't mint or revoke keys (keys can't manage ke
     { viaApiKey: true },
   );
   expect(got.apiKey?.id).toBe(created.id);
-});
-
-test("cannot manage keys for another user's agent", async () => {
-  const { id: agentId } = await call<{ id: string }>("agent.create", {
-    name: "mine",
-  });
-  const intruder = await makeUser();
-  await expectAppError(
-    call(
-      "apiKey.create",
-      { memberId: agentId, name: "x", expiresAt: null },
-      intruder,
-    ),
-    "FORBIDDEN",
-  );
-  await expectAppError(
-    call("apiKey.list", { memberId: agentId }, intruder),
-    "FORBIDDEN",
-  );
 });
 
 test("managing keys for another user is FORBIDDEN, not NOT_FOUND", async () => {

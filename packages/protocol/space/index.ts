@@ -2,10 +2,8 @@
  * Space management RPC contract — the control-plane methods served on
  * POST /api/v1/memory/rpc alongside the memory.* data-plane methods.
  *
- * Follows the core model: principals (users/agents/groups), space membership,
- * group membership, and 3-level tree-access grants. (Agent lifecycle and api
- * keys are user-scoped and live on the user endpoint; here agents are only
- * referenced as members.)
+ * Follows the core model: principals (users/groups/service accounts), space
+ * membership, group membership, and 3-level tree-access grants.
  */
 import type { z } from "zod";
 import { accessEffectiveParams, accessEffectiveResult } from "./access.ts";
@@ -86,7 +84,7 @@ export const spaceMethods = {
   // Effective access (1) — resolved executable access for a member principal.
   "access.effective": method(accessEffectiveParams, accessEffectiveResult),
 
-  // Membership (4) — the space roster holds principals (user | agent | group)
+  // Membership (4) — the space roster holds principals (user | group | service account)
   "principal.list": method(principalListParams, principalListResult),
   "principal.add": method(principalAddParams, principalAddResult),
   "principal.remove": method(principalRemoveParams, principalRemoveResult),

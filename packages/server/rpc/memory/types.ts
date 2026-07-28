@@ -18,27 +18,16 @@ export interface SpaceRpcContext extends HandlerContext {
   core: CoreStore;
   /** The resolved space. */
   space: Space;
-  /** Authenticated principal id (user id for sessions, agent id for api keys). */
+  /** Authenticated principal id. */
   principalId: string;
-  /** Authenticated principal kind after any act-as-agent switch. */
-  principalKind: "u" | "a" | "s";
-  /**
-   * The principal's owner — non-null when it is an agent, null for a user. Drives
-   * `~` home nesting (an agent's home lives under its owner's home).
-   */
-  ownerId: string | null;
+  /** Authenticated principal kind. */
+  principalKind: "u" | "s";
   /** Api key id when authenticated by api key; null for sessions. */
   apiKeyId: string | null;
   /** The principal's effective grants in this space. May be empty. */
   treeAccess: TreeAccess;
   /** Whether the principal is a space admin (principal_space.admin). */
   admin: boolean;
-  /**
-   * When a human is acting as one of their own agents (via `X-Me-As-Agent`),
-   * the human's principal id; null otherwise. Observability only — authorization
-   * reads the (already switched) `principalId` / `ownerId` / `treeAccess` / `admin`.
-   */
-  authenticatedAs: string | null;
   /** Embedding config for semantic search (optional). */
   embeddingConfig?: EmbeddingConfig;
 }
@@ -60,9 +49,7 @@ export function isSpaceRpcContext(ctx: HandlerContext): ctx is SpaceRpcContext {
     "principalId" in ctx &&
     typeof ctx.principalId === "string" &&
     "principalKind" in ctx &&
-    (ctx.principalKind === "u" ||
-      ctx.principalKind === "a" ||
-      ctx.principalKind === "s") &&
+    (ctx.principalKind === "u" || ctx.principalKind === "s") &&
     "treeAccess" in ctx &&
     Array.isArray(ctx.treeAccess)
   );

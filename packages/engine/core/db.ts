@@ -57,7 +57,6 @@ export interface CoreStore {
   deleteSpace(slug: string): Promise<boolean>;
 
   createUser(id: string, name: string): Promise<string>;
-  createAgent(ownerId: string, name: string, id?: string): Promise<string>;
   /**
    * Create a group, rostered into its space. `isSpaceAdmin` makes it an admin
    * group (its space-admin authority flows to direct-member users); defaults
@@ -86,7 +85,7 @@ export interface CoreStore {
   getPrincipal(id: string): Promise<Principal | null>;
   /** Resolve a global user (kind 'u') by name (email). */
   getUserByName(name: string): Promise<Principal | null>;
-  /** Rename an agent or group (never a user — its name is its identity email). */
+  /** Rename a group or service account (never a user — its name is its identity email). */
   renamePrincipal(id: string, name: string): Promise<boolean>;
   deletePrincipal(id: string): Promise<boolean>;
 
@@ -97,7 +96,7 @@ export interface CoreStore {
   ): Promise<SpacePrincipal[]>;
   /** Direct-member users who are effective admins of a space. */
   listEffectiveSpaceAdmins(spaceId: string): Promise<EffectiveSpaceAdmin[]>;
-  /** Whether a principal is an admin of a space (agents are never admins). */
+  /** Whether a principal is an admin of a space. */
   isSpaceAdmin(
     principalId: string,
     spaceId: string,
@@ -109,7 +108,7 @@ export interface CoreStore {
     spaceId: string,
     apiKeyId?: string | null,
   ): Promise<boolean>;
-  /** Whether a member is an admin of a group (agents are never group admins). */
+  /** Whether a member is an admin of a group. */
   isGroupAdmin(
     memberId: string,
     groupId: string,
@@ -127,9 +126,6 @@ export interface CoreStore {
     groupId: string,
     isSpaceAdmin: boolean,
   ): Promise<boolean>;
-  /** A user's agents (global; agents are owned by a user, not a space). */
-  listAgents(ownerId: string): Promise<Principal[]>;
-
   addPrincipalToSpace(
     spaceId: string,
     principalId: string,
@@ -150,7 +146,7 @@ export interface CoreStore {
     groupId: string,
     memberId: string,
   ): Promise<boolean>;
-  /** Members (users / agents) of a group within a space. */
+  /** Members (users / service accounts) of a group within a space. */
   listGroupMembers(spaceId: string, groupId: string): Promise<GroupMember[]>;
   /** Groups within a space that a member belongs to. */
   listGroupsForMember(
@@ -320,7 +316,6 @@ function mapPrincipal(row: Record<string, unknown>): Principal {
     id: row.id as string,
     kind: row.kind as PrincipalKind,
     name: row.name as string,
-    ownerId: (row.owner_id as string | null) ?? null,
     spaceId: (row.space_id as string | null) ?? null,
     createdAt: row.created_at as Date,
     updatedAt: (row.updated_at as Date | null) ?? null,
@@ -332,7 +327,6 @@ function mapSpacePrincipal(row: Record<string, unknown>): SpacePrincipal {
     id: row.id as string,
     kind: row.kind as PrincipalKind,
     name: row.name as string,
-    ownerId: (row.owner_id as string | null) ?? null,
     admin: Boolean(row.admin),
     createdAt: row.created_at as Date,
     updatedAt: (row.updated_at as Date | null) ?? null,
@@ -449,14 +443,6 @@ export function coreStore(sql: Sql, schema: string = CORE_SCHEMA): CoreStore {
       return row.id as string;
     },
 
-    async createAgent(ownerId, name, id) {
-      const [row] = await sql`
-        select ${sch}.create_agent(${ownerId}, ${name}, ${id ?? null}) as id
-      `;
-      if (!row) throw new Error("create_agent returned no row");
-      return row.id as string;
-    },
-
     async createGroup(spaceId, name, isSpaceAdmin = false, id) {
       const [row] = await sql`
         select ${sch}.create_group(
@@ -526,11 +512,6 @@ export function coreStore(sql: Sql, schema: string = CORE_SCHEMA): CoreStore {
         ) as updated
       `;
       return Boolean(row?.updated);
-    },
-
-    async listAgents(ownerId) {
-      const rows = await sql`select * from ${sch}.list_agents(${ownerId})`;
-      return rows.map(mapPrincipal);
     },
 
     async isSpaceAdmin(principalId, spaceId, apiKeyId) {
@@ -730,14 +711,13 @@ export function coreStore(sql: Sql, schema: string = CORE_SCHEMA): CoreStore {
     async validateApiKey(lookupId, secret) {
       const secretHash = hashApiKeySecret(secret);
       const [row] = await sql`
-        select member_id, api_key_id, owner_id, kind, name, restricted
+        select member_id, api_key_id, kind, name, restricted
         from ${sch}.validate_api_key(${lookupId}, ${secretHash})
       `;
       if (!row) return null;
       return {
         memberId: row.member_id as string,
         apiKeyId: row.api_key_id as string,
-        ownerId: (row.owner_id as string | null) ?? null,
         kind: row.kind as ValidatedApiKey["kind"],
         name: row.name as string,
         restricted: Boolean(row.restricted),

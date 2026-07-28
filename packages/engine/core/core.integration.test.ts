@@ -96,15 +96,6 @@ test("listSpacePrincipals excludes group-only principals (not space members)", a
   expect(ids).not.toContain(groupOnlyId);
 });
 
-test("agents appear as space members of kind 'a'", async () => {
-  const agentId = await core.createAgent(userId, `agent-${rand(6)}`);
-  await core.addPrincipalToSpace(spaceId, agentId);
-  const agents = await core.listSpacePrincipals(spaceId, "a");
-  expect(agents).toHaveLength(1);
-  expect(agents[0]?.id).toBe(agentId);
-  expect(agents[0]?.ownerId).toBe(userId);
-});
-
 test("groups: create, list, rename, members, delete", async () => {
   const groupId = await core.createGroup(spaceId, "eng");
   let groups = await core.listSpaceGroups(spaceId);
@@ -173,7 +164,7 @@ test("provisionDefaultGroup: idempotent, rostered 'team' group with read@share +
   });
 });
 
-test("custom space (autoGrantHome=false): joining users AND agents get no owner@~", async () => {
+test("custom space (autoGrantHome=false): joining users gets no owner@~", async () => {
   const sid = await core.createSpace(rand(12), "Custom", {
     autoGrantHome: false,
   });
@@ -184,11 +175,6 @@ test("custom space (autoGrantHome=false): joining users AND agents get no owner@
   await core.addPrincipalToSpace(sid, u);
   expect(await core.listTreeAccessGrants(sid, u)).toEqual([]);
   expect(await core.buildTreeAccess(u, sid)).toEqual([]);
-
-  // a joining agent likewise gets no home grant
-  const agent = await core.createAgent(u, `a_${rand(6)}`);
-  await core.addPrincipalToSpace(sid, agent);
-  expect(await core.listTreeAccessGrants(sid, agent)).toEqual([]);
 
   // contrast: a standard space DOES seed owner@~ for a joining user
   const sid2 = await core.createSpace(rand(12), "Standard", {
@@ -249,7 +235,7 @@ test("createGroup rosters the group into principal_space (admin=false, no home g
   const all = await core.listSpacePrincipals(spaceId);
   expect(all.map((p) => p.id)).toContain(groupId);
 
-  // groups get NO home grant (only users/agents do), so the group holds no
+  // groups get NO home grant (only users do), so the group holds no
   // tree_access of its own and cannot authenticate (build_tree_access empty).
   expect(await core.listTreeAccessGrants(spaceId, groupId)).toEqual([]);
   expect(await core.buildTreeAccess(groupId, spaceId)).toEqual([]);
@@ -293,42 +279,6 @@ test("removePrincipalFromSpace rejects a group (a group leaves only by deletion)
   expect(
     (await core.listSpaceGroups(spaceId)).some((g) => g.id === groupId),
   ).toBe(false);
-});
-
-test("removePrincipalFromSpace cascades to owned agents (space-scoped)", async () => {
-  // a second, non-admin member (removing the beforeEach admin would trip ME001)
-  const member = await v7();
-  await core.createUser(member, `m_${rand(8)}@example.com`);
-  await core.addPrincipalToSpace(spaceId, member);
-
-  // agent1 lives in this space with a grant + a group membership
-  const agent1 = await core.createAgent(member, `a1-${rand(6)}`);
-  await core.addPrincipalToSpace(spaceId, agent1);
-  await core.grantTreeAccess(spaceId, agent1, "share", ACCESS.write);
-  const groupId = await core.createGroup(spaceId, `g-${rand(6)}`);
-  await core.addGroupMember(spaceId, groupId, agent1);
-
-  // agent2 lives in a different space (must stay untouched)
-  const otherSpace = await core.createSpace(rand(12), "Other");
-  const agent2 = await core.createAgent(member, `a2-${rand(6)}`);
-  await core.addPrincipalToSpace(otherSpace, agent2);
-
-  expect(await core.removePrincipalFromSpace(spaceId, member)).toBe(true);
-
-  // the member and its in-space agent are both off this space's roster
-  const ids = (await core.listSpacePrincipals(spaceId)).map((p) => p.id);
-  expect(ids).not.toContain(member);
-  expect(ids).not.toContain(agent1);
-  // agent1's grant + group membership in this space are scrubbed
-  expect(await core.listTreeAccessGrants(spaceId, agent1)).toHaveLength(0);
-  expect(await core.listGroupMembers(spaceId, groupId)).toHaveLength(0);
-
-  // but agent1's principal row itself survives (only its space rows were removed)
-  expect((await core.getPrincipal(agent1))?.id).toBe(agent1);
-  // and agent2 in the OTHER space is untouched
-  expect(
-    (await core.listSpacePrincipals(otherSpace)).map((p) => p.id),
-  ).toContain(agent2);
 });
 
 test("admin groups: create as admin, toggle via setGroupIsSpaceAdmin, confer admin to direct members", async () => {
@@ -440,8 +390,6 @@ test("listEffectiveSpaceAdmins returns only direct-member user admins", async ()
   await core.createUser(groupOnly, `group_only_${rand(8)}@example.com`);
   await core.addGroupMember(spaceId, groupId, groupOnly);
 
-  const agentId = await core.createAgent(userId, `agent_${rand(6)}`);
-  await core.addPrincipalToSpace(spaceId, agentId, true);
   const serviceAccount = await core.createServiceAccount(
     spaceId,
     `svc_${rand(6)}`,

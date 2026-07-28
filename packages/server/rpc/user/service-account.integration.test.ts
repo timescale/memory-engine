@@ -31,7 +31,7 @@ async function call<T = unknown>(
   method: string,
   params: unknown,
   asUser: string = userId,
-  identity: { kind?: "u" | "a" | "s"; viaApiKey?: boolean } = {},
+  identity: { kind?: "u" | "s"; viaApiKey?: boolean } = {},
 ): Promise<T> {
   const registered = userMethods.get(method);
   if (!registered) throw new Error(`no handler for ${method}`);
@@ -47,7 +47,6 @@ async function call<T = unknown>(
     db: sql,
     coreSchema,
     viaApiKey: identity.viaApiKey ?? false,
-    authenticatedAs: null,
   } as unknown as HandlerContext;
   registered.authorize?.(context);
   return registered.handler(params, context) as Promise<T>;
@@ -91,6 +90,35 @@ afterAll(async () => {
 
 beforeEach(async () => {
   userId = await makeUser();
+});
+
+test("service-account callers can use whoami and space.list", async () => {
+  const spaceId = await makeSpace();
+  const account = await coreStore(sql, coreSchema).createServiceAccount(
+    spaceId,
+    "read-only-bot",
+  );
+
+  const whoami = await call<{
+    id: string;
+    kind: string;
+    email: string | null;
+    name: string;
+  }>("whoami", {}, account.id, { kind: "s", viaApiKey: true });
+  expect(whoami).toEqual({
+    id: account.id,
+    kind: "s",
+    email: null,
+    name: "machine",
+  });
+
+  const listed = await call<{ spaces: { id: string }[] }>(
+    "space.list",
+    {},
+    account.id,
+    { kind: "s", viaApiKey: true },
+  );
+  expect(listed.spaces.map((space) => space.id)).toContain(spaceId);
 });
 
 test("space admin can create, list, rename, and delete service accounts", async () => {
@@ -401,7 +429,6 @@ test("non-user callers are denied before serviceAccount param validation", async
     db: sql,
     coreSchema,
     viaApiKey: true,
-    authenticatedAs: null,
   } as unknown as HandlerContext);
 
   const body = JSON.stringify(await response.json());

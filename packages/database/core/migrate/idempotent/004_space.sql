@@ -111,8 +111,8 @@ set search_path to pg_catalog, {{schema}}, public, pg_temp
 
 -------------------------------------------------------------------------------
 -- list_spaces_for_member
--- Spaces a member (user/agent) belongs to — i.e. has a direct principal_space
--- row. Group membership alone does NOT make you a space member, so a space
+-- Spaces a member (user/service account) belongs to — i.e. has a direct
+-- principal_space row. Group membership alone does NOT make you a space member, so a space
 -- reached only through a group is not listed. `admin` is the effective
 -- space-admin status (a direct admin row OR a direct member who belongs to an
 -- admin group). Used by the user endpoint so a logged-in human can pick their

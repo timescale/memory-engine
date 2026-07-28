@@ -14,6 +14,9 @@ import { CORE_SCHEMA_VERSION } from "../version";
 import backfill012 from "./incremental/012_default_groups.sql" with {
   type: "text",
 };
+import removeAgents018 from "./incremental/018_remove_agents.sql" with {
+  type: "text",
+};
 import { migrateCore } from "./migrate";
 import {
   appliedMigrations,
@@ -64,13 +67,13 @@ const EXPECTED_MIGRATIONS = [
   "015_service_accounts",
   "016_api_key_last_used_on",
   "017_scoped_api_keys",
+  "018_remove_agents",
 ];
 
 const EXPECTED_FUNCTIONS = [
   "_delete_service_account_admin_group",
   "_enforce_service_account_admin_group_not_space_admin",
   "_enforce_service_account_principal_invariants",
-  "agent_tree_access",
   "api_key_declared_tree_access",
   "create_service_account",
   "enforce_group_space_coherence",
@@ -181,7 +184,7 @@ describe("provisioned core schema", () => {
 });
 
 describe("schema constraints enforce", () => {
-  test("principal.kind is restricted to g/u/a/s", async () => {
+  test("principal.kind is restricted to g/u/s", async () => {
     await expectReject(() =>
       sql.unsafe(
         `insert into ${canonical.schema}.principal (kind, name) values ('x', 'bad-kind')`,
@@ -224,23 +227,13 @@ describe("schema constraints enforce", () => {
     }
   });
 
-  test("agent, group, and service account names are restricted to handle-safe characters", async () => {
+  test("group and service-account names are restricted to handle-safe characters", async () => {
     const s = canonical.schema;
-    const [owner] = await sql.unsafe(`select uuidv7() as id`);
-    const ownerId = owner?.id as string;
-    await sql.unsafe(`select ${s}.create_user($1, $2)`, [
-      ownerId,
-      `owner_${crypto.randomUUID().slice(0, 8)}+alias@example.com`,
-    ]);
     const [space] = await sql.unsafe(`select ${s}.create_space($1, $2) as id`, [
       randomSlug(),
       "Name Checks",
     ]);
     const spaceId = space?.id as string;
-
-    for (const ok of ["agent", "agent-v2", "ci_agent", "bot.v2"]) {
-      await sql.unsafe(`select ${s}.create_agent($1, $2)`, [ownerId, ok]);
-    }
 
     await sql.unsafe(`select ${s}.create_group($1, $2)`, [
       spaceId,
@@ -260,9 +253,6 @@ describe("schema constraints enforce", () => {
       "-prod",
       ".group",
     ]) {
-      await expectReject(() =>
-        sql.unsafe(`select ${s}.create_agent($1, $2)`, [ownerId, bad]),
-      );
       await expectReject(() =>
         sql.unsafe(`select ${s}.create_group($1, $2)`, [spaceId, bad]),
       );
@@ -292,7 +282,7 @@ describe("schema constraints enforce", () => {
     const [svc] = await sql.unsafe(
       `insert into ${s}.principal (kind, name, space_id, admin_id)
        values ('s', 'eon', $1, $2)
-       returning id, member_id, space_id, admin_id, user_id, agent_id, group_id`,
+        returning id, member_id, space_id, admin_id, user_id, group_id`,
       [spaceId, adminGroupId],
     );
 
@@ -301,7 +291,6 @@ describe("schema constraints enforce", () => {
     expect(svc?.space_id).toBe(spaceId);
     expect(svc?.admin_id).toBe(adminGroupId);
     expect(svc?.user_id).toBeNull();
-    expect(svc?.agent_id).toBeNull();
     expect(svc?.group_id).toBeNull();
 
     await expectReject(() =>
@@ -452,9 +441,6 @@ describe("access-control functions are callable", () => {
       `select * from ${s}.user_tree_access('${dummy}', '${dummy}')`,
     );
     await sql.unsafe(
-      `select * from ${s}.agent_tree_access('${dummy}', '${dummy}')`,
-    );
-    await sql.unsafe(
       `select * from ${s}.member_tree_access('${dummy}', '${dummy}')`,
     );
     await sql.unsafe(
@@ -475,279 +461,106 @@ describe("access-control functions are callable", () => {
   });
 });
 
-describe("agent_tree_access clamps agent access to its owner", () => {
-  // Regression for the `max(x.access)` + `group by tree_path` at the end of
-  // agent_tree_access (idempotent/003_tree_access.sql). Setup:
-  //
-  //   agent grants: foo = owner(3),  foo.bar = read(1)   <- foo.bar is redundant,
-  //   owner grants: foo.bar = write(2)                      already covered by foo=3
-  //
-  // The inner UNION then emits foo.bar twice with different access levels:
-  //   * arm 1 keeps the agent's (foo.bar, read)  — the owner's foo.bar covers it
-  //   * arm 2 keeps the owner's (foo.bar, write) — the agent's foo covers it
-  // Without the trailing max/group-by, agent_tree_access would return foo.bar
-  // twice; the effective access is the highest surviving row, (foo.bar, write).
-  // `foo` itself never surfaces — the owner grants nothing at or above it.
-  test("collapses the two clamp directions into one row per path", async () => {
-    await withTestCore(sql, {}, async (core) => {
-      const s = core.schema;
-
-      const [space] = await sql.unsafe(
-        `insert into ${s}.space (slug, name) values ($1, $2) returning id`,
-        [randomSlug(), "clamp"],
-      );
-      const spaceId = space?.id as string;
-
-      const [owner] = await sql.unsafe(
-        `insert into ${s}.principal (kind, name) values ('u', 'owner') returning id`,
-      );
-      const ownerId = owner?.id as string;
-
-      const [agent] = await sql.unsafe(
-        `insert into ${s}.principal (kind, name, owner_id) values ('a', 'agent', $1) returning id`,
-        [ownerId],
-      );
-      const agentId = agent?.id as string;
-
-      // both principals must belong to the space for the access functions to see them
-      await sql.unsafe(
-        `insert into ${s}.principal_space (space_id, principal_id) values ($1, $2), ($1, $3)`,
-        [spaceId, ownerId, agentId],
-      );
-
-      await sql.unsafe(
-        `insert into ${s}.tree_access (space_id, principal_id, tree_path, access) values
-           ($1, $2, 'foo', 3),
-           ($1, $2, 'foo.bar', 1),
-           ($1, $3, 'foo.bar', 2)`,
-        [spaceId, agentId, ownerId],
-      );
-
-      const rows = await sql.unsafe(
-        `select tree_path::text as tree_path, access
-         from ${s}.agent_tree_access($1, $2)
-         order by tree_path`,
-        [agentId, spaceId],
-      );
-      const result = rows.map((r) => ({
-        tree_path: r.tree_path as string,
-        access: r.access as number,
-      }));
-
-      // One clamped row, access collapsed to the max of the two union arms.
-      expect(result).toEqual([{ tree_path: "foo.bar", access: 2 }]);
-    });
-  });
-
-  // Resolve an agent's effective (clamped) access given a set of owner grants and
-  // a set of agent grants, each as [tree_path, access] tuples. Owner and agent
-  // both join the space so the access functions can see them.
-  const effectiveAgentAccess = async (
-    ownerGrants: [string, number][],
-    agentGrants: [string, number][],
-  ): Promise<{ tree_path: string; access: number }[]> => {
-    let out: { tree_path: string; access: number }[] = [];
-    await withTestCore(sql, {}, async (core) => {
-      const s = core.schema;
-      const [space] = await sql.unsafe(
-        `insert into ${s}.space (slug, name) values ($1, $2) returning id`,
-        [randomSlug(), "clamp"],
-      );
-      const spaceId = space?.id as string;
-      const [owner] = await sql.unsafe(
-        `insert into ${s}.principal (kind, name) values ('u', 'owner') returning id`,
-      );
-      const ownerId = owner?.id as string;
-      const [agent] = await sql.unsafe(
-        `insert into ${s}.principal (kind, name, owner_id) values ('a', 'agent', $1) returning id`,
-        [ownerId],
-      );
-      const agentId = agent?.id as string;
-      await sql.unsafe(
-        `insert into ${s}.principal_space (space_id, principal_id) values ($1, $2), ($1, $3)`,
-        [spaceId, ownerId, agentId],
-      );
-      const rows: [string, string, string, number][] = [
-        ...ownerGrants.map(
-          ([p, a]) =>
-            [spaceId, ownerId, p, a] as [string, string, string, number],
-        ),
-        ...agentGrants.map(
-          ([p, a]) =>
-            [spaceId, agentId, p, a] as [string, string, string, number],
-        ),
-      ];
-      for (const [sp, pr, path, acc] of rows) {
-        await sql.unsafe(
-          `insert into ${s}.tree_access (space_id, principal_id, tree_path, access) values ($1, $2, $3, $4)`,
-          [sp, pr, path, acc],
-        );
-      }
-      const result = await sql.unsafe(
-        `select tree_path::text as tree_path, access
-         from ${s}.agent_tree_access($1, $2)
-         order by tree_path`,
-        [agentId, spaceId],
-      );
-      out = result.map((r) => ({
-        tree_path: r.tree_path as string,
-        access: r.access as number,
-      }));
-    });
-    return out;
-  };
-
-  test("clamps DOWN (not away) when the agent grant exceeds the owner deeper", async () => {
-    // TNT-165: owner holds read@foo; the agent is granted write@foo.bar (deeper
-    // AND higher). The agent must end up with read@foo.bar — the owner's level —
-    // not nothing. (The old exists-based clamp dropped this row entirely.)
-    expect(await effectiveAgentAccess([["foo", 1]], [["foo.bar", 2]])).toEqual([
-      { tree_path: "foo.bar", access: 1 },
+test("018 removes agent rows and their dependent state from an upgraded schema", async () => {
+  await withTestCore(sql, {}, async (core) => {
+    const s = core.schema;
+    const [space] = await sql.unsafe(`select ${s}.create_space($1, $2) as id`, [
+      randomSlug(),
+      "Agent Upgrade",
     ]);
-  });
+    const spaceId = space?.id as string;
+    const ownerId = await sql.unsafe(`select uuidv7() as id`);
+    const userId = ownerId[0]?.id as string;
+    await sql.unsafe(`select ${s}.create_user($1, $2)`, [
+      userId,
+      "upgrade-owner@example.com",
+    ]);
+    await sql.unsafe(`select ${s}.add_principal_to_space($1, $2)`, [
+      spaceId,
+      userId,
+    ]);
 
-  test("a broad agent grant is clamped to the owner's narrower coverage", async () => {
-    // owner owns only foo.deep; the agent is granted read across all of foo. The
-    // agent is effective only where the owner has coverage — read@foo.deep.
-    expect(await effectiveAgentAccess([["foo.deep", 3]], [["foo", 1]])).toEqual(
-      [{ tree_path: "foo.deep", access: 1 }],
+    // Recreate the pre-018 principal shape in an otherwise migrated schema,
+    // then execute the upgrade SQL directly. migrateCore below recreates the
+    // idempotent functions which the incremental intentionally drops first.
+    await sql.unsafe(
+      `alter table ${s}.principal
+         drop constraint principal_kind_check,
+         drop constraint principal_handle_name_check,
+         add column agent_id uuid unique nulls distinct generated always as
+           (case when kind = 'a' then id else null end) stored,
+         add column owner_id uuid references ${s}.principal (user_id) on delete cascade,
+         alter column member_id set expression as
+           (case when kind in ('u', 'a', 's') then id else null end),
+         add constraint principal_kind_check check (kind in ('g', 'u', 'a', 's')),
+         add constraint principal_owner_check check
+           ((kind = 'a' and owner_id is not null) or (kind != 'a' and owner_id is null)),
+         add constraint principal_agent_group_name_check check
+           (kind not in ('a', 'g', 's') or name::text ~ '^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$')`,
     );
-  });
+    const [agent] = await sql.unsafe(
+      `insert into ${s}.principal (kind, name, owner_id)
+       values ('a', 'upgrade-agent', $1)
+       returning id`,
+      [userId],
+    );
+    const agentId = agent?.id as string;
+    await sql.unsafe(
+      `insert into ${s}.principal_space (space_id, principal_id) values ($1, $2)`,
+      [spaceId, agentId],
+    );
+    await sql.unsafe(
+      `insert into ${s}.tree_access (space_id, principal_id, tree_path, access)
+       values ($1, $2, 'share', 2)`,
+      [spaceId, agentId],
+    );
+    const [group] = await sql.unsafe(`select ${s}.create_group($1, $2) as id`, [
+      spaceId,
+      "upgrade-group",
+    ]);
+    await sql.unsafe(
+      `insert into ${s}.group_member (space_id, group_id, member_id)
+       values ($1, $2, $3)`,
+      [spaceId, group?.id as string, agentId],
+    );
+    const [key] = await sql.unsafe(
+      `select ${s}.create_api_key($1, $2, $3, $4) as id`,
+      [agentId, "upgradeAgentKey1", "hashed-secret", "upgrade-agent-key"],
+    );
 
-  test("a grant the owner does not cover at all yields nothing", async () => {
-    // owner has access only under bar; an agent grant under foo has no owner
-    // coverage on its lineage, so it is dropped.
-    expect(await effectiveAgentAccess([["bar", 3]], [["foo", 2]])).toEqual([]);
-  });
+    await sql.unsafe(template(removeAgents018, { schema: s }));
 
-  test("write@root mirrors the owner's whole footprint, clamped to write", async () => {
-    // The agent is granted write at the root (the empty path). Root is an
-    // ancestor of every owner grant, so the agent inherits the owner's ENTIRE
-    // footprint, each path clamped to least(write, owner): the owner's owner@share
-    // becomes write@share, while the owner's read@docs stays read@docs.
-    expect(
-      await effectiveAgentAccess(
-        [
-          ["share", 3],
-          ["docs", 1],
-        ],
-        [["", 2]],
+    for (const [table, column] of [
+      ["principal", "id"],
+      ["principal_space", "principal_id"],
+      ["tree_access", "principal_id"],
+      ["group_member", "member_id"],
+      ["api_key", "id"],
+    ]) {
+      const [row] = await sql.unsafe(
+        `select count(*)::int as count from ${s}.${table} where ${column} = $1`,
+        [table === "api_key" ? key?.id : agentId],
+      );
+      expect(row?.count).toBe(0);
+    }
+    const columns = await sql.unsafe(
+      `select column_name from information_schema.columns
+       where table_schema = $1 and table_name = 'principal'`,
+      [s],
+    );
+    expect(columns.map((column) => column.column_name)).not.toContain(
+      "agent_id",
+    );
+    expect(columns.map((column) => column.column_name)).not.toContain(
+      "owner_id",
+    );
+    await expectReject(() =>
+      sql.unsafe(
+        `insert into ${s}.principal (kind, name) values ('a', 'removed-agent')`,
       ),
-    ).toEqual([
-      { tree_path: "docs", access: 1 },
-      { tree_path: "share", access: 2 },
-    ]);
-  });
-
-  test("no escalation across overlapping owner grants", async () => {
-    // Owners can hold many overlapping grants (the unique constraint is only on
-    // (space, principal, path)): here owner@foo.bar + read@foo + write@foo.bar.baz.
-    // The agent holds read@foo. Every covered path must resolve to read — the
-    // owner's deeper owner@foo.bar must NOT leak extra access to the agent.
-    const result = await effectiveAgentAccess(
-      [
-        ["foo.bar", 3],
-        ["foo", 1],
-        ["foo.bar.baz", 2],
-      ],
-      [["foo", 1]],
     );
-    expect(result).toEqual([
-      { tree_path: "foo", access: 1 },
-      { tree_path: "foo.bar", access: 1 },
-      { tree_path: "foo.bar.baz", access: 1 },
-    ]);
-    // no path resolves above read
-    expect(result.every((r) => r.access <= 1)).toBe(true);
-  });
 
-  test("an explicit over-grant clamps down to the owner's level", async () => {
-    // agent granted owner@foo where the owner only reads foo → clamps to read@foo.
-    expect(await effectiveAgentAccess([["foo", 1]], [["foo", 3]])).toEqual([
-      { tree_path: "foo", access: 1 },
-    ]);
-  });
-
-  test("clamps against the owner's group-inherited access (same path, two groups)", async () => {
-    // The one case the (space, principal, path) unique constraint doesn't cover:
-    // the owner receives the SAME path at two levels via two separate groups
-    // (read@foo via g1, write@foo via g2). user_tree_access unions both, so the
-    // owner's effective foo is write (the max). An agent granted owner@foo must
-    // clamp to write@foo — exercising the union/group path in member_tree_access
-    // → user_tree_access that the single-grant tests skip.
-    await withTestCore(sql, {}, async (core) => {
-      const s = core.schema;
-      const [space] = await sql.unsafe(
-        `insert into ${s}.space (slug, name) values ($1, $2) returning id`,
-        [randomSlug(), "groups"],
-      );
-      const spaceId = space?.id as string;
-      const [owner] = await sql.unsafe(
-        `insert into ${s}.principal (kind, name) values ('u', 'owner') returning id`,
-      );
-      const ownerId = owner?.id as string;
-      const [agent] = await sql.unsafe(
-        `insert into ${s}.principal (kind, name, owner_id) values ('a', 'agent', $1) returning id`,
-        [ownerId],
-      );
-      const agentId = agent?.id as string;
-      await sql.unsafe(
-        `insert into ${s}.principal_space (space_id, principal_id) values ($1, $2), ($1, $3)`,
-        [spaceId, ownerId, agentId],
-      );
-
-      // two groups the owner belongs to, each granting foo at a different level
-      const [g1] = await sql.unsafe(`select ${s}.create_group($1, $2) as id`, [
-        spaceId,
-        "readers",
-      ]);
-      const [g2] = await sql.unsafe(`select ${s}.create_group($1, $2) as id`, [
-        spaceId,
-        "writers",
-      ]);
-      const g1Id = g1?.id as string;
-      const g2Id = g2?.id as string;
-      for (const gid of [g1Id, g2Id]) {
-        await sql.unsafe(`select ${s}.add_group_member($1, $2, $3)`, [
-          spaceId,
-          gid,
-          ownerId,
-        ]);
-      }
-      await sql.unsafe(`select ${s}.grant_tree_access($1, $2, $3::ltree, $4)`, [
-        spaceId,
-        g1Id,
-        "foo",
-        1,
-      ]);
-      await sql.unsafe(`select ${s}.grant_tree_access($1, $2, $3::ltree, $4)`, [
-        spaceId,
-        g2Id,
-        "foo",
-        2,
-      ]);
-      // the agent is granted owner@foo directly
-      await sql.unsafe(`select ${s}.grant_tree_access($1, $2, $3::ltree, $4)`, [
-        spaceId,
-        agentId,
-        "foo",
-        3,
-      ]);
-
-      const rows = await sql.unsafe(
-        `select tree_path::text as tree_path, access
-         from ${s}.agent_tree_access($1, $2)
-         order by tree_path`,
-        [agentId, spaceId],
-      );
-      // owner's effective foo = max(read, write) = write; the agent clamps to it
-      expect(
-        rows.map((r) => ({
-          tree_path: r.tree_path as string,
-          access: r.access as number,
-        })),
-      ).toEqual([{ tree_path: "foo", access: 2 }]);
-    });
+    await migrateCore(sql, { schema: s });
   });
 });
 
@@ -760,10 +573,6 @@ describe("control-plane functions", () => {
 
   /** A principal's canonical home path (mirrors space/path.ts homePrefix). */
   const homePath = (id: string) => `home.${id.replace(/-/g, "")}`;
-  /** An agent's home nests under its owner: home.<owner>.<agent>. */
-  const agentHomePath = (ownerId: string, agentId: string) =>
-    `${homePath(ownerId)}.${agentId.replace(/-/g, "")}`;
-
   type Grant = { tree_path: string; access: number };
 
   test("012 backfill: adds a rostered 'team' group + grants for spaces lacking one (idempotent, non-clobbering)", async () => {
@@ -885,7 +694,7 @@ describe("control-plane functions", () => {
     });
   });
 
-  test("add_principal_to_space grants owner@home to users and agents (nested), idempotently; not groups or service accounts", async () => {
+  test("add_principal_to_space grants owner@home to users, idempotently; not groups or service accounts", async () => {
     await withTestCore(sql, {}, async (core) => {
       const s = core.schema;
       const [sp] = await sql.unsafe(`select ${s}.create_space($1, $2) as id`, [
@@ -896,12 +705,6 @@ describe("control-plane functions", () => {
 
       const userId = await v7();
       await sql.unsafe(`select ${s}.create_user($1, $2)`, [userId, "homer"]);
-      const agentId = await v7();
-      await sql.unsafe(`select ${s}.create_agent($1, $2, $3)`, [
-        userId, // owner
-        `agent_${randomSlug()}`, // name
-        agentId, // id
-      ]);
       const [grp] = await sql.unsafe(`select ${s}.create_group($1, $2) as id`, [
         spaceId,
         `grp_${randomSlug()}`,
@@ -914,7 +717,7 @@ describe("control-plane functions", () => {
       const serviceId = svc?.id as string;
 
       // add each twice to prove the home grant is idempotent
-      for (const id of [userId, agentId, groupId, serviceId]) {
+      for (const id of [userId, groupId, serviceId]) {
         await sql.unsafe(`select ${s}.add_principal_to_space($1, $2, $3)`, [
           spaceId,
           id,
@@ -939,24 +742,8 @@ describe("control-plane functions", () => {
       expect(await grants(userId)).toEqual([
         { tree_path: homePath(userId), access: 3 },
       ]);
-      // the agent gets owner@home nested under its owner (covered by the owner's
-      // home grant, so agent_tree_access keeps it); groups and service accounts
-      // have no home
-      expect(await grants(agentId)).toEqual([
-        { tree_path: agentHomePath(userId, agentId), access: 3 },
-      ]);
       expect(await grants(groupId)).toEqual([]);
       expect(await grants(serviceId)).toEqual([]);
-
-      // the agent's nested home is EFFECTIVE (not clamped to nothing): the
-      // owner holds owner@home.<owner>, which covers home.<owner>.<agent>.
-      const [agentTa] = await sql.unsafe(
-        `select ${s}.build_tree_access($1, $2) as ta`,
-        [agentId, spaceId],
-      );
-      expect(agentTa?.ta as Grant[]).toEqual([
-        { tree_path: agentHomePath(userId, agentId), access: 3 },
-      ]);
     });
   });
 
@@ -972,14 +759,7 @@ describe("control-plane functions", () => {
 
       const userId = await v7();
       await sql.unsafe(`select ${s}.create_user($1, $2)`, [userId, "no-home"]);
-      const agentId = await v7();
-      await sql.unsafe(`select ${s}.create_agent($1, $2, $3)`, [
-        userId,
-        `agent_${randomSlug()}`,
-        agentId,
-      ]);
-
-      for (const id of [userId, agentId]) {
+      for (const id of [userId]) {
         await sql.unsafe(`select ${s}.add_principal_to_space($1, $2, $3)`, [
           spaceId,
           id,
@@ -995,9 +775,8 @@ describe("control-plane functions", () => {
         );
         return rows as unknown as Grant[];
       };
-      // neither the user nor the agent gets an owner@home grant
+      // the user gets no owner@home grant
       expect(await grants(userId)).toEqual([]);
-      expect(await grants(agentId)).toEqual([]);
     });
   });
 
@@ -1019,11 +798,6 @@ describe("control-plane functions", () => {
         groupAdminId,
         "svc-group-admin@example.com",
       ]);
-      const [agent] = await sql.unsafe(
-        `select ${s}.create_agent($1, $2) as id`,
-        [memberId, `svc_agent_${randomSlug()}`],
-      );
-      const agentId = agent?.id as string;
       const [memberService] = await sql.unsafe(
         `select * from ${s}.create_service_account($1, $2, $3::uuid[], $4::uuid[])`,
         [spaceId, "helper", [], []],
@@ -1032,7 +806,7 @@ describe("control-plane functions", () => {
 
       const [svc] = await sql.unsafe(
         `select * from ${s}.create_service_account($1, $2, $3::uuid[], $4::uuid[])`,
-        [spaceId, "eon", [memberId, agentId], [groupAdminId, memberServiceId]],
+        [spaceId, "eon", [memberId], [groupAdminId, memberServiceId]],
       );
       const serviceId = svc?.id as string;
       const adminGroupId = svc?.admin_id as string;
@@ -1088,10 +862,6 @@ describe("control-plane functions", () => {
         admin: true,
       });
       expect(normalizedMembers).toContainEqual({
-        member_id: agentId,
-        admin: false,
-      });
-      expect(normalizedMembers).toContainEqual({
         member_id: memberServiceId,
         admin: true,
       });
@@ -1100,24 +870,15 @@ describe("control-plane functions", () => {
         spaceId,
         memberId,
       ]);
-      await sql.unsafe(`select ${s}.add_principal_to_space($1, $2, false)`, [
-        spaceId,
-        agentId,
-      ]);
       const [userAdmin] = await sql.unsafe(
         `select ${s}.is_service_account_admin($1, $2) as ok`,
         [serviceId, memberId],
-      );
-      const [agentAdmin] = await sql.unsafe(
-        `select ${s}.is_service_account_admin($1, $2) as ok`,
-        [serviceId, agentId],
       );
       const [serviceAdmin] = await sql.unsafe(
         `select ${s}.is_service_account_admin($1, $2) as ok`,
         [serviceId, memberServiceId],
       );
       expect(userAdmin?.ok).toBe(true);
-      expect(agentAdmin?.ok).toBe(false);
       expect(serviceAdmin?.ok).toBe(false);
 
       const [helper] = await sql.unsafe(
@@ -1148,7 +909,6 @@ describe("control-plane functions", () => {
         ["lookupservice002", "hashed-secret"],
       );
       expect(validated?.member_id).toBe(serviceId);
-      expect(validated?.owner_id).toBeNull();
     });
   });
 
@@ -1275,11 +1035,6 @@ describe("control-plane functions", () => {
         userId,
         "svc-admin@example.com",
       ]);
-      const [agent] = await sql.unsafe(
-        `select ${s}.create_agent($1, $2) as id`,
-        [userId, `svc_agent_${randomSlug()}`],
-      );
-      const agentId = agent?.id as string;
       const [svc] = await sql.unsafe(
         `select * from ${s}.create_service_account($1, $2, $3::uuid[], $4::uuid[])`,
         [spaceId, "ci", [userId], []],
@@ -1287,15 +1042,6 @@ describe("control-plane functions", () => {
       const serviceId = svc?.id as string;
       const adminGroupId = svc?.admin_id as string;
 
-      await sql.unsafe(`select ${s}.add_principal_to_space($1, $2, false)`, [
-        spaceId,
-        agentId,
-      ]);
-      await sql.unsafe(`select ${s}.add_group_member($1, $2, $3, false)`, [
-        spaceId,
-        adminGroupId,
-        agentId,
-      ]);
       await sql.unsafe(`select ${s}.add_group_member($1, $2, $3, false)`, [
         spaceId,
         adminGroupId,
@@ -1442,13 +1188,11 @@ describe("control-plane functions", () => {
       const groupAdmin = await v7();
       const regular = await v7();
       const groupOnly = await v7();
-      const agentOwner = await v7();
       for (const [id, name] of [
         [directAdmin, "direct@example.com"],
         [groupAdmin, "group@example.com"],
         [regular, "regular@example.com"],
         [groupOnly, "group-only@example.com"],
-        [agentOwner, "owner@example.com"],
       ] as const) {
         await sql.unsafe(`select ${s}.create_user($1, $2)`, [id, name]);
       }
@@ -1463,10 +1207,6 @@ describe("control-plane functions", () => {
       await sql.unsafe(`select ${s}.add_principal_to_space($1, $2, false)`, [
         spaceId,
         regular,
-      ]);
-      await sql.unsafe(`select ${s}.add_principal_to_space($1, $2, false)`, [
-        spaceId,
-        agentOwner,
       ]);
 
       const [groupRow] = await sql.unsafe(
@@ -1485,14 +1225,6 @@ describe("control-plane functions", () => {
         groupOnly,
       ]);
 
-      const [agentRow] = await sql.unsafe(
-        `select ${s}.create_agent($1, $2) as id`,
-        [agentOwner, "agent-admin"],
-      );
-      await sql.unsafe(`select ${s}.add_principal_to_space($1, $2, true)`, [
-        spaceId,
-        agentRow?.id as string,
-      ]);
       const [serviceRow] = await sql.unsafe(
         `select id from ${s}.create_service_account($1, $2)`,
         [spaceId, "service-admin"],
@@ -1971,114 +1703,6 @@ describe("control-plane functions", () => {
       expect(await count("principal_space", "principal_id", serviceId)).toBe(1);
       expect(await count("tree_access", "principal_id", serviceId)).toBe(1);
       expect(await count("group_member", "member_id", serviceId)).toBe(1);
-    });
-  });
-
-  test("remove_principal_from_space cascades a user's owned agents (space-scoped)", async () => {
-    await withTestCore(sql, {}, async (core) => {
-      const s = core.schema;
-      const [sp1] = await sql.unsafe(`select ${s}.create_space($1, $2) as id`, [
-        randomSlug(),
-        "One",
-      ]);
-      const [sp2] = await sql.unsafe(`select ${s}.create_space($1, $2) as id`, [
-        randomSlug(),
-        "Two",
-      ]);
-      const space1 = sp1?.id as string;
-      const space2 = sp2?.id as string;
-      const userId = await v7();
-      await sql.unsafe(`select ${s}.create_user($1, $2)`, [userId, "frank"]);
-
-      // agent1 lives in space1 (with a grant + group membership); agent2 in space2.
-      const [a1] = await sql.unsafe(`select ${s}.create_agent($1, $2) as id`, [
-        userId,
-        "agent-one",
-      ]);
-      const [a2] = await sql.unsafe(`select ${s}.create_agent($1, $2) as id`, [
-        userId,
-        "agent-two",
-      ]);
-      const agent1 = a1?.id as string;
-      const agent2 = a2?.id as string;
-
-      // roster the user + agent1 into space1
-      for (const id of [userId, agent1]) {
-        await sql.unsafe(`select ${s}.add_principal_to_space($1, $2, $3)`, [
-          space1,
-          id,
-          false,
-        ]);
-      }
-      // agent1 gets a grant and a group membership in space1
-      const [grp] = await sql.unsafe(`select ${s}.create_group($1, $2) as id`, [
-        space1,
-        "team",
-      ]);
-      const groupId = grp?.id as string;
-      await sql.unsafe(`select ${s}.add_group_member($1, $2, $3, $4)`, [
-        space1,
-        groupId,
-        agent1,
-        false,
-      ]);
-      await sql.unsafe(`select ${s}.grant_tree_access($1, $2, $3::ltree, $4)`, [
-        space1,
-        agent1,
-        "share",
-        2,
-      ]);
-
-      // agent2 is rostered into space2 (a different space); the join grants it
-      // owner over its home directory (the one tree_access row we assert stays).
-      await sql.unsafe(`select ${s}.add_principal_to_space($1, $2, $3)`, [
-        space2,
-        agent2,
-        false,
-      ]);
-
-      const [removed] = await sql.unsafe(
-        `select ${s}.remove_principal_from_space($1, $2) as removed`,
-        [space1, userId],
-      );
-      expect(removed?.removed).toBe(true);
-
-      const count = async (
-        table: string,
-        col: string,
-        id: string,
-        spaceId: string,
-      ) => {
-        const [r] = await sql.unsafe(
-          `select count(*)::int as n from ${s}.${table} where space_id=$1 and ${col}=$2`,
-          [spaceId, id],
-        );
-        return Number(r?.n);
-      };
-
-      // agent1 is fully deprovisioned from space1: membership, grant, group row
-      expect(
-        await count("principal_space", "principal_id", agent1, space1),
-      ).toBe(0);
-      expect(await count("tree_access", "principal_id", agent1, space1)).toBe(
-        0,
-      );
-      expect(await count("group_member", "member_id", agent1, space1)).toBe(0);
-
-      // but agent1's `principal` row itself survives (it was not deleted)
-      const [pr] = await sql.unsafe(
-        `select count(*)::int as n from ${s}.principal where id=$1`,
-        [agent1],
-      );
-      expect(Number(pr?.n)).toBe(1);
-
-      // agent2 in the OTHER space is untouched (membership + its home grant)
-      expect(
-        await count("principal_space", "principal_id", agent2, space2),
-      ).toBe(1);
-      expect(await count("tree_access", "principal_id", agent2, space2)).toBe(
-        1,
-      );
     });
   });
 
@@ -2723,13 +2347,11 @@ describe("control-plane functions", () => {
       ]);
 
       const valid = await sql.unsafe(
-        `select member_id, owner_id from ${s}.validate_api_key($1, $2)`,
+        `select member_id from ${s}.validate_api_key($1, $2)`,
         [lookup, "hashed-secret"],
       );
       expect(valid.length).toBe(1);
       expect(valid[0]?.member_id).toBe(userId);
-      // a user key has no owner
-      expect(valid[0]?.owner_id).toBeNull();
       const [afterValidate] = await sql.unsafe(
         `select last_used_on from ${s}.api_key where lookup_id = $1`,
         [lookup],
@@ -2782,27 +2404,6 @@ describe("control-plane functions", () => {
         [userId, lookup],
       );
       expect(listed?.last_used_on).toBe("2026-07-18");
-
-      // an agent key reports the agent's owner (drives `~` home nesting)
-      const agentId = await v7();
-      await sql.unsafe(`select ${s}.create_agent($1, $2, $3)`, [
-        userId, // owner
-        `agent_${randomSlug()}`,
-        agentId,
-      ]);
-      const agentLookup = "AGENTlookup12345";
-      await sql.unsafe(`select ${s}.create_api_key($1, $2, $3, $4)`, [
-        agentId,
-        agentLookup,
-        "agent-secret",
-        "agent-key",
-      ]);
-      const agentValid = await sql.unsafe(
-        `select member_id, owner_id from ${s}.validate_api_key($1, $2)`,
-        [agentLookup, "agent-secret"],
-      );
-      expect(agentValid[0]?.member_id).toBe(agentId);
-      expect(agentValid[0]?.owner_id).toBe(userId);
 
       const wrong = await sql.unsafe(
         `select member_id from ${s}.validate_api_key($1, $2)`,
@@ -3035,51 +2636,29 @@ describe("control-plane functions", () => {
     });
   });
 
-  test("scoped API keys reject agent holders and empty access arrays", async () => {
+  test("scoped API keys reject empty access arrays", async () => {
     await withTestCore(sql, {}, async (core) => {
       const s = core.schema;
       const [sp] = await sql.unsafe(`select ${s}.create_space($1, $2) as id`, [
         randomSlug(),
-        "Agent Reject",
+        "Scoped Key Validation",
       ]);
       const spaceId = sp?.id as string;
-      const ownerId = await v7();
+      const userId = await v7();
       await sql.unsafe(`select ${s}.create_user($1, $2)`, [
-        ownerId,
-        "agent-owner",
+        userId,
+        "key-holder",
       ]);
       await sql.unsafe(`select ${s}.add_principal_to_space($1, $2, $3)`, [
         spaceId,
-        ownerId,
+        userId,
         false,
       ]);
-      const [agent] = await sql.unsafe(
-        `select ${s}.create_agent($1, $2) as id`,
-        [ownerId, `agent_${randomSlug()}`],
-      );
-      const agentId = agent?.id as string;
-      await sql.unsafe(`select ${s}.add_principal_to_space($1, $2, $3)`, [
-        spaceId,
-        agentId,
-        false,
-      ]);
-
-      // Agent keys cannot carry scope declarations — the space_access
-      // invariant trigger rejects kind='a'.
-      await expectReject(() =>
-        sql.unsafe(`select ${s}.create_api_key($1, $2, $3, $4, null, $5)`, [
-          agentId,
-          "scopeAgentKey001",
-          "secret",
-          "agent-scoped",
-          sql.json([{ space_id: spaceId, grants: [] }]),
-        ]),
-      );
 
       // Empty and non-array _access payloads are rejected up-front (22023).
       await expectReject(() =>
         sql.unsafe(`select ${s}.create_api_key($1, $2, $3, $4, null, $5)`, [
-          ownerId,
+          userId,
           "scopeEmptyArr001",
           "secret",
           "empty",
@@ -3088,7 +2667,7 @@ describe("control-plane functions", () => {
       );
       await expectReject(() =>
         sql.unsafe(`select ${s}.create_api_key($1, $2, $3, $4, null, $5)`, [
-          ownerId,
+          userId,
           "scopeBadShape001",
           "secret",
           "not-array",
@@ -3096,10 +2675,10 @@ describe("control-plane functions", () => {
         ]),
       );
 
-      // An unrestricted agent key still works (no _access provided).
+      // An unrestricted user key still works (no _access provided).
       const [ok] = await sql.unsafe(
         `select ${s}.create_api_key($1, $2, $3, $4) as id`,
-        [agentId, "scopeAgentPlain0", "secret", "plain-agent"],
+        [userId, "scopePlainKey001", "secret", "plain"],
       );
       expect(ok?.id).toBeTruthy();
     });
@@ -3517,10 +3096,10 @@ describe("migration behavior", () => {
     });
   });
 
-  // list_space_principals dropped its `direct` output column, a returns-table
-  // signature change create-or-replace can't do. The migration guards the drop
-  // so a current (or absent) definition is never churned — only a stale one is
-  // dropped + recreated.
+  // list_space_principals dropped its `owner_id` and `direct` output columns,
+  // returns-table signature changes create-or-replace can't do. The migration
+  // guards the drop so a current (or absent) definition is never churned — only
+  // a stale one is dropped + recreated.
   test("list_space_principals signature guard: no churn when current, upgrades a stale definition", async () => {
     await withTestCore(sql, {}, async (core) => {
       const s = core.schema;
@@ -3535,8 +3114,9 @@ describe("migration behavior", () => {
         return row as { oid: string; proargnames: string[] } | undefined;
       };
 
-      // fresh provision: current signature (no `direct` output column)
+      // fresh provision: current signature (no `owner_id` or `direct` output columns)
       const fresh = await fn();
+      expect(fresh?.proargnames).not.toContain("owner_id");
       expect(fresh?.proargnames).not.toContain("direct");
 
       // re-migrate: already current, so the guard must NOT drop it — the oid is

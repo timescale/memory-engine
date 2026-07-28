@@ -6,7 +6,8 @@
  * Two credential modes, discriminated by whether the bearer token parses as an
  * api key:
  *
- *   - api key (agent): `me.<lookupId>.<secret>` — validated against core.
+ *   - api key (user or service account): `me.<lookupId>.<secret>` — validated
+ *     against core.
  *   - human: an OAuth access token (Bearer, CLI/MCP), a better-auth session
  *     token presented as a bearer (the device-authorization flow, via the
  *     `bearer` plugin), or a better-auth cookie session — all opaque, validated
@@ -25,12 +26,11 @@ import {
   type TreeAccess,
 } from "@memory.build/engine/core";
 import { type SpaceStore, spaceStore } from "@memory.build/engine/space";
-import { AS_AGENT_HEADER, SPACE_HEADER } from "@memory.build/protocol/headers";
+import { SPACE_HEADER } from "@memory.build/protocol/headers";
 import { debug, span } from "@pydantic/logfire-node";
 import type { Sql } from "postgres";
 import type { Auth, VerifyOAuthAccessToken } from "../auth/betterauth";
 import { error, forbidden, unauthorized } from "../util/response";
-import { resolveOwnedAgent } from "./act-as-agent";
 import { recordApiKeyUse } from "./api-key-usage";
 import {
   bearerOnlyHeaders,
@@ -51,29 +51,16 @@ export interface SpaceAuthContext {
   core: CoreStore;
   /** The resolved space. */
   space: Space;
-  /** Authenticated principal id (user id for sessions, agent id for api keys). */
+  /** Authenticated principal id. */
   principalId: string;
-  /** Authenticated principal kind after any act-as-agent switch. */
-  principalKind: "u" | "a" | "s";
-  /**
-   * The authenticated principal's owner — non-null when it is an agent, null for
-   * a user/session. Drives `~` home nesting (an agent's home lives under its
-   * owner's home).
-   */
-  ownerId: string | null;
+  /** Authenticated principal kind. */
+  principalKind: "u" | "s";
   /** Api key id when authenticated by api key; null for sessions. */
   apiKeyId: string | null;
   /** The principal's effective grants in this space. May be empty. */
   treeAccess: TreeAccess;
   /** Whether the principal is a space admin (principal_space.admin). */
   admin: boolean;
-  /**
-   * When a human is acting as one of their own agents (via `X-Me-As-Agent`),
-   * the human's principal id; null otherwise. Observability only — never gates
-   * authorization (which reads `principalId` / `ownerId` / `treeAccess` /
-   * `admin`, all already switched to the agent).
-   */
-  authenticatedAs: string | null;
 }
 
 export type SpaceAuthResult =
@@ -149,10 +136,8 @@ async function authenticateSpaceInner(
   //    keys arrive only via the Bearer header (never a cookie).
   const parsed = bearer ? parseApiKey(bearer) : null;
   let principalId: string;
-  let principalKind: "u" | "a" | "s";
+  let principalKind: "u" | "s";
   let apiKeyId: string | null;
-  // The principal's owner — set only for an agent key; drives `~` home nesting.
-  let ownerId: string | null = null;
 
   if (parsed) {
     // Api keys are global; the space comes solely from the header. A key whose
@@ -165,16 +150,11 @@ async function authenticateSpaceInner(
     }
     principalId = validated.memberId;
     apiKeyId = validated.apiKeyId;
-    ownerId = validated.ownerId;
     // validate_api_key already joined core.principal, so the kind comes back with
     // the validation — no second lookup. An api key only ever belongs to a member
-    // principal (user, agent, or service account); accept those explicitly and
+    // principal (user or service account); accept those explicitly and
     // reject anything else rather than trusting the DB's text `kind`.
-    if (
-      validated.kind !== "u" &&
-      validated.kind !== "a" &&
-      validated.kind !== "s"
-    ) {
+    if (validated.kind !== "u" && validated.kind !== "s") {
       debug("space auth failed: api key principal is not a member kind", {
         kind: validated.kind,
       });
@@ -190,7 +170,7 @@ async function authenticateSpaceInner(
     return {
       ok: false,
       error: error(
-        "This API key uses the old space-scoped format (me.<slug>.<id>.<secret>) and no longer works. Recreate it with `me apikey create --agent <agent>`, then update ME_API_KEY or your MCP/plugin config.",
+        "This API key uses the old space-scoped format (me.<slug>.<id>.<secret>) and no longer works. Recreate it with `me apikey create`, then update ME_API_KEY or your MCP/plugin config.",
         401,
         "LEGACY_API_KEY",
       ),
@@ -241,45 +221,6 @@ async function authenticateSpaceInner(
     apiKeyId = null;
   }
 
-  // 4b. Act-as-agent switch. A human credential (session / OAuth / user PAT,
-  // i.e. `principalKind === "u"`) may send `X-Me-As-Agent` to run as one of their
-  // own agents. Gated on the user kind specifically — an agent key already IS an
-  // agent, and a service-account key (also owner-less) must not be able to
-  // act-as-agent — so the header is ignored for both. Done BEFORE the membership
-  // gate (step 5) and the admin check (step 6) so `treeAccess`, `~`-home nesting,
-  // and `admin` all reflect the agent.
-  let authenticatedAs: string | null = null;
-  const asAgent = request.headers.get(AS_AGENT_HEADER);
-  if (asAgent && principalKind === "u" && apiKeyId === null) {
-    const agents = await core.listAgents(principalId);
-    const resolved = resolveOwnedAgent(agents, asAgent);
-    if (resolved.kind !== "found") {
-      debug("space auth failed: X-Me-As-Agent not an owned agent", {
-        principalId,
-        asAgent,
-        reason: resolved.kind,
-      });
-      return {
-        ok: false,
-        error: error(
-          resolved.kind === "ambiguous"
-            ? `X-Me-As-Agent '${asAgent}' matches multiple agents you own; rename the conflicting agent`
-            : `X-Me-As-Agent '${asAgent}' is not an agent you own`,
-          403,
-          "INVALID_AGENT",
-        ),
-      };
-    }
-    const { agent } = resolved;
-    // Overwrite the resolved principal to the agent, reusing the existing agent
-    // semantics so parity with the agent-key path is automatic. The human owns
-    // the agent, so `ownerId = human` drives `~` home nesting the same way.
-    authenticatedAs = principalId;
-    ownerId = principalId;
-    principalId = agent.id;
-    principalKind = "a";
-  }
-
   // 5. Endpoint admission is direct space membership (principal_space), not
   // tree access. A member may legitimately have no tree grants; data-plane
   // methods still enforce that later through the space SQL functions.
@@ -293,8 +234,7 @@ async function authenticateSpaceInner(
 
   // 6. Bind the data-plane store to this space's schema, resolve management
   // authority, and eagerly compute the effective tree grants consumed by data
-  // handlers. `buildTreeAccess(agentId, spaceId)` applies the `agent_tree_access`
-  // clamp internally, so act-as remains byte-identical to the agent-key path.
+  // handlers.
   const store = spaceStore(db, slugToSchema(space.slug));
   const admin = await core.isSpaceAdmin(principalId, space.id, apiKeyId);
   const treeAccess = await core.buildTreeAccess(
@@ -317,11 +257,9 @@ async function authenticateSpaceInner(
       space,
       principalId,
       principalKind,
-      ownerId,
       apiKeyId,
       treeAccess,
       admin,
-      authenticatedAs,
     },
   };
 }

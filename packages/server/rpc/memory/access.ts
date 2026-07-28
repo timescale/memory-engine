@@ -8,7 +8,6 @@ import type {
   AccessEffectiveParams,
   AccessEffectiveResult,
   AccessLevel,
-  EffectiveAccessAuthenticatedAs,
   EffectiveAccessEntry,
   EffectiveAccessPrincipal,
 } from "@memory.build/protocol/space";
@@ -19,7 +18,7 @@ import {
 import { AppError } from "../errors";
 import { buildRegistry } from "../registry";
 import type { HandlerContext } from "../types";
-import { callerAdministersServiceAccount, callerOwnsAgent } from "./support";
+import { callerAdministersServiceAccount } from "./support";
 import { assertSpaceRpcContext, type SpaceRpcContext } from "./types";
 
 /**
@@ -31,7 +30,7 @@ import { assertSpaceRpcContext, type SpaceRpcContext } from "./types";
  */
 function callerTreePathOptions(ctx: SpaceRpcContext): TreePathOptions {
   if (ctx.principalKind === "s") return {};
-  return { home: ctx.principalId, homeOwner: ctx.ownerId ?? undefined };
+  return { home: ctx.principalId };
 }
 
 function toEffectiveAccessEntry(
@@ -53,14 +52,14 @@ function compareTreeAccess(
   return a.tree_path.localeCompare(b.tree_path) || b.access - a.access;
 }
 
-function assertExecutableKind(kind: string): asserts kind is "u" | "a" | "s" {
+function assertExecutableKind(kind: string): asserts kind is "u" | "s" {
   if (kind === "g") {
     throw new AppError(
       "VALIDATION_ERROR",
       "Groups have raw grants, not effective access as an executable principal",
     );
   }
-  if (kind !== "u" && kind !== "a" && kind !== "s") {
+  if (kind !== "u" && kind !== "s") {
     throw new AppError("VALIDATION_ERROR", "Invalid principal kind");
   }
 }
@@ -77,19 +76,8 @@ async function currentPrincipal(
     id: principal.id,
     kind: principal.kind,
     name: principal.name,
-    ownerId: principal.ownerId,
     admin: ctx.admin,
   };
-}
-
-async function authenticatedAs(
-  ctx: SpaceRpcContext,
-): Promise<EffectiveAccessAuthenticatedAs | null> {
-  if (!ctx.authenticatedAs) return null;
-  const principal = await ctx.core.getPrincipal(ctx.authenticatedAs);
-  if (!principal) return null;
-  assertExecutableKind(principal.kind);
-  return { id: principal.id, kind: principal.kind, name: principal.name };
 }
 
 async function targetPrincipal(
@@ -111,7 +99,6 @@ async function targetPrincipal(
     id: principal.id,
     kind: principal.kind,
     name: principal.name,
-    ownerId: principal.ownerId,
     admin: await ctx.core.isSpaceAdmin(principal.id, ctx.space.id),
   };
 }
@@ -122,7 +109,6 @@ async function requireEffectiveAccessInspection(
 ): Promise<void> {
   if (principalId === ctx.principalId) return;
   if (ctx.admin) return;
-  if (await callerOwnsAgent(ctx, principalId)) return;
   if (await callerAdministersServiceAccount(ctx, principalId)) return;
   throw new AppError(
     "FORBIDDEN",
@@ -154,14 +140,9 @@ async function accessEffective(
   // absolute paths so a `~` is never misattributed to the caller.
   const pathOptions = isCurrent ? callerTreePathOptions(ctx) : {};
 
-  // authenticatedAs is a property of the *caller's* session (the human behind
-  // act-as-agent), so it only makes sense alongside the caller's own access.
-  // When inspecting another principal it would misleadingly pair that
-  // principal's access with the caller's identity, so report null instead.
   return {
     space: { id: ctx.space.id, slug: ctx.space.slug, name: ctx.space.name },
     principal,
-    authenticatedAs: isCurrent ? await authenticatedAs(ctx) : null,
     access: [...treeAccess]
       .sort(compareTreeAccess)
       .map((row) => toEffectiveAccessEntry(pathOptions, row)),

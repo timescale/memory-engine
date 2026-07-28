@@ -166,17 +166,15 @@ export function createRouter(ctx: ServerContext): Router {
       space: spaceContext.space,
       principalId: spaceContext.principalId,
       principalKind: spaceContext.principalKind,
-      ownerId: spaceContext.ownerId,
       apiKeyId: spaceContext.apiKeyId,
       treeAccess: spaceContext.treeAccess,
       admin: spaceContext.admin,
-      authenticatedAs: spaceContext.authenticatedAs,
       embeddingConfig,
     };
   });
 
-  // User RPC (new model): account-scoped. Admits any authenticated principal;
-  // the handlers authorize per-method (an agent gets whoami / space.list only).
+  // User RPC (new model): account-scoped. Service accounts may call only
+  // whoami / space.list; the handlers authorize every other method as user-only.
   const userRpcHandler = createRpcHandler(userMethods, async (request) => {
     const result = await authenticateUser(
       request,
@@ -198,15 +196,13 @@ export function createRouter(ctx: ServerContext): Router {
       viaApiKey,
       apiKeyId,
       apiKeyRestricted,
-      authenticatedAs,
     } = result.context;
     // Lazy first-login provisioning: stand up the core principal the first time
     // a better-auth user reaches the user RPC (idempotent no-op thereafter). The
     // CLI hits whoami/space.list right after login, so this is the natural first
     // touchpoint. NO default space is created here — it's provisioned explicitly
     // via space.ensureDefault at onboarding (so invitees who join don't get a
-    // junk space). USERS only — an agent is already provisioned by its owner, and
-    // provisioning is user+email keyed (an agent has neither).
+    // junk space). USERS only — provisioning is user+email keyed.
     if (kind === "u" && email !== null) {
       await ensureUserProvisioned(
         db,
@@ -230,7 +226,6 @@ export function createRouter(ctx: ServerContext): Router {
       viaApiKey,
       apiKeyId,
       apiKeyRestricted,
-      authenticatedAs,
     };
   });
 
@@ -276,7 +271,7 @@ export function createRouter(ctx: ServerContext): Router {
       handler: withClientVersionCheck(memoryRpcHandler),
     },
 
-    // User RPC: account, agent, service-account, key, and space management.
+    // User RPC: account, service-account, key, and space management.
     {
       method: "POST",
       pattern: "/api/v1/user/rpc",

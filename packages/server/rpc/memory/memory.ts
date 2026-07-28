@@ -172,9 +172,8 @@ function nlevel(path: string): number {
  * time under a literal `home` root.
  *
  * `list_tree` explodes every memory into all of its prefixes, so a memory at
- * `home.<caller>.x` bumps the count of the bare `home` prefix (and, for an
- * agent whose home nests under its owner's, `home.<owner>` too). Those ancestor
- * prefixes are NOT reverse-mapped to `~` by `displayTreePath` — they render as a
+ * `home.<caller>.x` bumps the count of the bare `home` prefix. That ancestor is
+ * NOT reverse-mapped to `~` by `displayTreePath` — it renders as a
  * literal `home` root — so their counts double-count the caller's own home,
  * which is already shown under `~`. We subtract the caller's own-home aggregate
  * (the count at `homePrefix` itself) from each strict ancestor of `homePrefix`,
@@ -192,8 +191,8 @@ export function dedupeOwnHome<T extends { tree: string; count: number }>(
 
   const result: T[] = [];
   for (const entry of entries) {
-    // A strict ancestor of the caller's home (`home`, and `home.<owner>` for an
-    // agent) — not the home prefix itself, nor any of its descendants.
+    // A strict ancestor of the caller's home — not the home prefix itself, nor
+    // any of its descendants.
     if (homePrefix.startsWith(`${entry.tree}.`)) {
       const adjusted = entry.count - own;
       if (adjusted > 0) result.push({ ...entry, count: adjusted });

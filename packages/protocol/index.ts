@@ -7,14 +7,13 @@
  *
  * RPC endpoints / contracts:
  *   - Memory RPC (POST /api/v1/memory/rpc) — OAuth access token, api-key bearer
- *     (user PAT, agent key, or service-account key), or cookie session, plus a
+ *     (user PAT or service-account key), or cookie session, plus a
  *     required X-Me-Space header; the memory data plane (./memory) + the space
  *     management contract (./space).
  *   - User RPC (POST /api/v1/user/rpc) — OAuth access token, cookie session, or
- *     the user's own PAT; agent/service-account keys are admitted only for the
+ *     the user's own PAT; service-account keys are admitted only for the
  *     allow-listed reads (whoami, space.list), and key mint/revoke stays
- *     session-only. whoami + agent/service-account lifecycle + space discovery
- *     (./user).
+ *     session-only. whoami + service-account lifecycle + space discovery (./user).
  */
 
 // Error codes and AppError
