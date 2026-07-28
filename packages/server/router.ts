@@ -196,6 +196,8 @@ export function createRouter(ctx: ServerContext): Router {
       name,
       emailVerified,
       viaApiKey,
+      apiKeyId,
+      apiKeyRestricted,
       authenticatedAs,
     } = result.context;
     // Lazy first-login provisioning: stand up the core principal the first time
@@ -226,6 +228,8 @@ export function createRouter(ctx: ServerContext): Router {
       db,
       coreSchema,
       viaApiKey,
+      apiKeyId,
+      apiKeyRestricted,
       authenticatedAs,
     };
   });
