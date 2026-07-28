@@ -1,6 +1,6 @@
 -------------------------------------------------------------------------------
 -- create_user
--- Users are global (no space_id, no owner_id). The id is supplied by the caller
+-- Users are global (no space_id). The id is supplied by the caller
 -- so it equals auth.users.id (one identity across auth + core).
 -------------------------------------------------------------------------------
 create or replace function {{schema}}.create_user
@@ -17,31 +17,13 @@ set search_path to pg_catalog, {{schema}}, public, pg_temp
 ;
 
 -------------------------------------------------------------------------------
--- create_agent
--- Agents are owned by a user (owner_id -> a user principal's id) and are global.
--------------------------------------------------------------------------------
-create or replace function {{schema}}.create_agent
-( _owner_id uuid
-, _name text
-, _id uuid default null
-)
-returns uuid
-as $func$
-  insert into {{schema}}.principal (id, kind, name, owner_id)
-  values (coalesce(_id, uuidv7()), 'a', _name, _owner_id)
-  returning id
-$func$ language sql volatile security invoker
-set search_path to pg_catalog, {{schema}}, public, pg_temp
-;
-
--------------------------------------------------------------------------------
 -- create_group
 -- Groups belong to a single space, and are rostered into that space's
 -- principal_space on creation: principal_space is the single source of truth for
 -- who/what belongs to a space, so a group is a first-class roster entry (this is
 -- what makes it resolvable and grantable by name via principal.resolve /
 -- list_space_principals). add_principal_to_space skips the home grant for groups
--- (only u/a get a home). Rostering the group does NOT confer space access on its
+-- (only users get a home). Rostering the group does NOT confer space access on its
 -- members: member_tree_access still gates a group's grants on each member's own
 -- principal_space row, so group membership alone never confers space membership.
 --
@@ -83,6 +65,7 @@ set search_path to pg_catalog, {{schema}}, public, pg_temp
 -------------------------------------------------------------------------------
 -- get_principal
 -------------------------------------------------------------------------------
+{{fn get_principal(_id uuid) returns table(id uuid, kind text, name text, space_id uuid, created_at timestamptz, updated_at timestamptz)}}
 create or replace function {{schema}}.get_principal
 ( _id uuid
 )
@@ -90,24 +73,25 @@ returns table
 ( id uuid
 , kind text
 , name text
-, owner_id uuid
 , space_id uuid
 , created_at timestamptz
 , updated_at timestamptz
 )
 as $func$
-  select p.id, p.kind, p.name::text, p.owner_id, p.space_id, p.created_at, p.updated_at
+  select p.id, p.kind, p.name::text, p.space_id, p.created_at, p.updated_at
   from {{schema}}.principal p
   where p.id = _id
 $func$ language sql stable strict rows 1 security invoker
 set search_path to pg_catalog, {{schema}}, public, pg_temp
 ;
+{{endfn}}
 
 -------------------------------------------------------------------------------
 -- get_user_by_name
 -- Resolve a global user (kind 'u') by name. User names are globally unique
 -- (citext), so this returns at most one row.
 -------------------------------------------------------------------------------
+{{fn get_user_by_name(_name text) returns table(id uuid, kind text, name text, space_id uuid, created_at timestamptz, updated_at timestamptz)}}
 create or replace function {{schema}}.get_user_by_name
 ( _name text
 )
@@ -115,45 +99,19 @@ returns table
 ( id uuid
 , kind text
 , name text
-, owner_id uuid
 , space_id uuid
 , created_at timestamptz
 , updated_at timestamptz
 )
 as $func$
-  select p.id, p.kind, p.name::text, p.owner_id, p.space_id, p.created_at, p.updated_at
+  select p.id, p.kind, p.name::text, p.space_id, p.created_at, p.updated_at
   from {{schema}}.principal p
   where p.kind = 'u'
   and p.name = _name::citext
 $func$ language sql stable strict rows 1 security invoker
 set search_path to pg_catalog, {{schema}}, public, pg_temp
 ;
-
--------------------------------------------------------------------------------
--- list_agents
--- A user's agents (global; agents are owned by a user, not scoped to a space).
--------------------------------------------------------------------------------
-create or replace function {{schema}}.list_agents
-( _owner_id uuid
-)
-returns table
-( id uuid
-, kind text
-, name text
-, owner_id uuid
-, space_id uuid
-, created_at timestamptz
-, updated_at timestamptz
-)
-as $func$
-  select p.id, p.kind, p.name::text, p.owner_id, p.space_id, p.created_at, p.updated_at
-  from {{schema}}.principal p
-  where p.kind = 'a'
-  and p.owner_id = _owner_id
-  order by p.name
-$func$ language sql stable strict security invoker
-set search_path to pg_catalog, {{schema}}, public, pg_temp
-;
+{{endfn}}
 
 -------------------------------------------------------------------------------
 -- list_space_groups
@@ -190,10 +148,10 @@ set search_path to pg_catalog, {{schema}}, public, pg_temp
 
 -------------------------------------------------------------------------------
 -- rename_principal
--- Rename an agent, group, or service account. Users are intentionally excluded: a user's name is
--- its email — the global identity handle that mirrors auth.users — so changing
+-- Rename a group or service account. Users are intentionally excluded: a user's
+-- name is its email — the global identity handle that mirrors auth.users — so changing
 -- it is an account concern, not a space-management one. Returns true if an
--- agent/group/service-account with this id was renamed. Name uniqueness is
+-- group/service-account with this id was renamed. Name uniqueness is
 -- enforced by the principal table indexes.
 -------------------------------------------------------------------------------
 create or replace function {{schema}}.rename_principal
@@ -207,7 +165,7 @@ as $func$
     update {{schema}}.principal
     set name = _name::citext
     where id = _id
-    and kind in ('a', 'g', 's') -- never rename users (kind 'u')
+    and kind in ('g', 's') -- never rename users (kind 'u')
     returning 1
   )
   select exists (select 1 from u)
@@ -217,8 +175,8 @@ set search_path to pg_catalog, {{schema}}, public, pg_temp
 
 -------------------------------------------------------------------------------
 -- delete_principal
--- Delete a principal row. Foreign keys cascade: a user's agents (owner_id),
--- its space memberships, group memberships, tree-access grants, and api keys
+-- Delete a principal row. Foreign keys cascade its space memberships, group
+-- memberships, tree-access grants, and api keys
 -- all go with it. Service-account bound-admin-group cleanup is handled by the
 -- service-account delete trigger. Returns true if a row was deleted.
 -------------------------------------------------------------------------------

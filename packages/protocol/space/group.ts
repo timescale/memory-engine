@@ -4,7 +4,7 @@
  * Groups are space-scoped principals used to bundle members for tree-access
  * grants. A group is itself rostered into its space (principal_space), which is
  * what makes it resolvable/grantable by name — but group membership alone does
- * NOT confer space membership on a user/agent/service account: a group's grants
+ * NOT confer space membership on a user/service account: a group's grants
  * (and its admin flag, if it's an admin group) apply to a member only once they
  * have also joined the space directly.
  */

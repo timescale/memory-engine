@@ -66,7 +66,6 @@ test("createUser + getPrincipal", async () => {
   const p = await db.getPrincipal(userId);
   expect(p?.id).toBe(userId);
   expect(p?.kind).toBe("u");
-  expect(p?.ownerId).toBeNull();
   expect(p?.spaceId).toBeNull();
 });
 
@@ -137,7 +136,6 @@ test("createApiKey + validateApiKey (good / wrong secret)", async () => {
   const valid = await db.validateApiKey(key.lookupId, key.secret);
   expect(valid?.memberId).toBe(userId);
   expect(valid?.apiKeyId).toBe(key.id);
-  expect(valid?.ownerId).toBeNull(); // a user key has no owner
   // kind + name come back with validation, so the auth middleware needs no
   // second principal lookup.
   expect(valid?.kind).toBe("u");
@@ -266,7 +264,6 @@ test("service account lifecycle methods wrap the SQL functions", async () => {
   const key = await db.createApiKey(account.id, "robot-key");
   expect(await db.validateApiKey(key.lookupId, key.secret)).toMatchObject({
     memberId: account.id,
-    ownerId: null,
   });
 
   expect(

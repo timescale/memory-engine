@@ -1,11 +1,11 @@
 /**
  * Api key handlers (apiKey.*) for the user RPC.
  *
- * The caller manages keys for a member they may administer — an agent they own,
- * a service account they administer (a direct user member of its bound admin
- * group, or a space admin), or their OWN user principal (a personal access
- * token). Keys are global per-principal (not space-bound). The plaintext key is
- * returned once by create. Revoke ≡ delete. Minting/revoking is session-only
+ * The caller manages keys for a service account they administer (a direct user
+ * member of its bound admin group, or a space admin), or their own user
+ * principal (a personal access token). Keys are global per-principal (not
+ * space-bound). The plaintext key is returned once by create. Revoke ≡ delete.
+ * Minting/revoking is session-only
  * (`denyApiKeyCaller`): a key can't manage keys.
  */
 import { normalizeTreePath, TreePathError } from "@memory.build/database";
@@ -38,7 +38,6 @@ import { guardCore } from "../core-error";
 import { AppError } from "../errors";
 import { buildRegistry } from "../registry";
 import type { HandlerContext } from "../types";
-import { requireOwnAgent } from "./agent";
 import { requireServiceAccountManager } from "./service-account";
 import { assertUserRpcContext, type UserRpcContext } from "./types";
 
@@ -67,10 +66,6 @@ async function requireKeyAuthority(
   }
   if (memberId === ctx.userId) return principal;
 
-  if (principal.kind === "a") {
-    await requireOwnAgent(ctx, memberId);
-    return principal;
-  }
   if (principal.kind === "s") {
     await requireServiceAccountManager(ctx, memberId);
     return principal;

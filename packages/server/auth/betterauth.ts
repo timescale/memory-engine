@@ -16,7 +16,7 @@
 //      presented back as a signed bearer session token — hence the `bearer`
 //      plugin.
 //
-// The api-key path (agents) stays entirely in `core` (core.validate_api_key).
+// The api-key path stays entirely in `core` (core.validate_api_key).
 //
 // UPGRADING better-auth: the versions here are pinned EXACTLY (no `^`) because
 // better-auth owns DB tables — a bump can change the schema it expects and drift
@@ -152,8 +152,8 @@ export function createBetterAuth(opts: BetterAuthOptions) {
           // chokepoint. Social sign-in creates the session here, and the CLI's
           // OAuth flow is built on that web session, so blocking it blocks both;
           // the memory RPC is covered transitively (no session/token → no
-          // bearer). Agents never reach this (they use api keys, not sessions),
-          // and credentials minted while verified keep working. `email_verified`
+          // bearer). Credentials minted while verified keep working.
+          // `email_verified`
           // is the provider's claim (GitHub/Google only release a verified
           // email), re-read on every login. Throwing an APIError makes the
           // social callback redirect to the error URL (see AUTH_DESIGN flows
@@ -404,7 +404,7 @@ export function createBetterAuth(opts: BetterAuthOptions) {
   } | null> {
     // Join the user so callers get identity (whoami / provisioning) in one hop.
     // A user-less token (client_credentials) yields no row → treated as invalid;
-    // our API auth is user-bound (agents use core api keys, not OAuth).
+    // our API auth is user-bound (API keys use core validation, not OAuth).
     const { rows } = await pool.query(
       `select t.user_id, u.email, u.name, u.email_verified, t.scopes
          from oauth_access_token t

@@ -37,7 +37,6 @@ import { AppError } from "../errors";
 import { buildRegistry } from "../registry";
 import type { HandlerContext } from "../types";
 import {
-  callerOwnsAgent,
   guardCore,
   requireGroupAdmin,
   requireSpaceAdmin,
@@ -207,12 +206,8 @@ async function groupListForMember(
 ): Promise<GroupListForMemberResult> {
   assertSpaceRpcContext(context);
   const ctx = context as SpaceRpcContext;
-  // You may see your OWN memberships, or those of an agent you own (so
-  // `me agent group list` works); seeing anyone else's requires space-admin.
-  if (
-    params.memberId !== ctx.principalId &&
-    !(await callerOwnsAgent(ctx, params.memberId))
-  ) {
+  // You may see your own memberships; seeing anyone else's requires space-admin.
+  if (params.memberId !== ctx.principalId) {
     await requireSpaceAdmin(ctx);
   }
   const groups = await ctx.core.listGroupsForMember(

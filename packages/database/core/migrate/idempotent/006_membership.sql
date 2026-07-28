@@ -1,9 +1,9 @@
 -------------------------------------------------------------------------------
 -- add_principal_to_space
 -- Adds (or updates the admin flag of) a principal's membership in a space, and
--- grants a joining user/agent owner over its home directory. The single
+-- grants a joining user owner over its home directory. The single
 -- chokepoint every join path goes through (provisioning, invite redemption,
--- direct add), so a user/agent membership implies home ownership — service
+-- direct add), so a user membership implies home ownership — service
 -- accounts intentionally get no home — and the one place that enforces a
 -- space-scoped principal can only be rostered into its own space.
 -------------------------------------------------------------------------------
@@ -16,8 +16,8 @@ returns void
 as $func$
 begin
   -- Groups and service accounts belong to exactly one space (principal.space_id,
-  -- fixed at creation), so they can only be members of that space. Users and
-  -- agents are global (space_id null), so this constrains space-scoped kinds.
+  -- fixed at creation), so they can only be members of that space. Users are
+  -- global (space_id null), so this constrains space-scoped kinds.
   if exists
   (
     select 1
@@ -37,33 +37,23 @@ begin
   on conflict (principal_id, space_id) do update set
     admin = excluded.admin; -- updated_at maintained by the before-update trigger
 
-  -- A joining member owns its home directory; the path differs by kind (hyphens
-  -- stripped to valid ltree labels; see packages/database/space/path.ts
-  -- homePrefix() for the matching client form):
-  --   user  -> home.<user_id>
-  --   agent -> home.<owner_id>.<agent_id>   (nested under the owner's home)
-  -- The agent's home nests under its owner's home so the owner's
-  -- owner@home.<owner_id> grant covers it and agent_tree_access keeps the grant
-  -- effective (a bare home.<agent_id> would be clamped to nothing — the owner
-  -- holds no access there). Groups have no home. Idempotent and non-clobbering:
-  -- an existing home grant is left untouched.
+  -- A joining user owns its home directory (hyphens are stripped to valid ltree
+  -- labels). Groups and service accounts have no home. Idempotent and
+  -- non-clobbering: an existing home grant is left untouched.
   --
   -- Custom spaces: the home grant is suppressed when the space has
   -- auto_grant_home = false, so a joiner gets NO owner@~ (the operator sets up
   -- access manually). Read off the space row so every join path — provisioning,
   -- invite redeem, direct add — honors it without threading a param.
   insert into {{schema}}.tree_access (space_id, principal_id, tree_path, access)
-  select _space_id, _principal_id
-       , case
-           when p.kind = 'a'
-             then ('home.' || replace(p.owner_id::text, '-', '') || '.' || replace(p.id::text, '-', ''))::ltree
-           else ('home.' || replace(p.id::text, '-', ''))::ltree
-         end
-       , 3 -- owner
+  select
+    _space_id, _principal_id
+  , ('home.' || replace(p.id::text, '-', ''))::ltree
+  , 3 -- owner
   from {{schema}}.principal p
   join {{schema}}.space s on s.id = _space_id
   where p.id = _principal_id
-  and p.kind in ('u', 'a') -- service accounts do not get a home directory by default
+  and p.kind = 'u' -- only users get a home directory by default
   and s.auto_grant_home
   on conflict (space_id, principal_id, tree_path) do nothing;
 end;
@@ -73,7 +63,7 @@ set search_path to pg_catalog, {{schema}}, public, pg_temp
 
 -------------------------------------------------------------------------------
 -- add_group_member
--- Adds a user/agent/service-account member to a group within a space. Groups are NOT nestable:
+-- Adds a user/service-account member to a group within a space. Groups are NOT nestable:
 -- a group can never be a group member. This is already structurally impossible
 -- (group_member.member_id references principal(member_id), which is null for
 -- groups, so a group id can't be inserted), but we reject it explicitly first so
@@ -81,7 +71,7 @@ set search_path to pg_catalog, {{schema}}, public, pg_temp
 --
 -- Service accounts are space-scoped, so a service account from a DIFFERENT space
 -- is rejected: it could never join _space_id, so the row would be a permanently
--- dormant member that still shows up in listings. (Users/agents are global —
+-- dormant member that still shows up in listings. (Users are global —
 -- their space_id is null — so this only bites cross-space service accounts.)
 -------------------------------------------------------------------------------
 create or replace function {{schema}}.add_group_member
@@ -189,21 +179,10 @@ set search_path to pg_catalog, {{schema}}, public, pg_temp
 
 -------------------------------------------------------------------------------
 -- remove_principal_from_space
--- Removes a user/agent member from a space and cascades: scrubs its tree_access
+-- Removes a user member from a space and cascades: scrubs its tree_access
 -- grants and its group_member rows in that space. Returns true if the principal
 -- was a member of the space. (Space-scoped only; the principal row itself and
 -- any other spaces are left untouched.)
---
--- User → agent cascade: removing a USER also deprovisions the agents that user
--- owns from THIS space (their tree_access / group_member / principal_space rows),
--- because an agent is a separate principal nested under its owner's home and would
--- otherwise stay rostered and usable via its own api key after its owner leaves.
--- The cascade is space-scoped (only rows in _space_id) — the agents' `principal`
--- rows and their memberships in other spaces are left intact — and gated on the
--- target actually having been a member, so removing a non-member is a clean no-op.
--- It lives here so every caller (admin remove-member, self-leave) inherits it
--- atomically; agents are never admins, so the agent-row deletes can't trip the
--- deferred enforce_last_admin guard.
 --
 -- Groups and service accounts are rejected: both are space-scoped principals
 -- whose lifecycle is delete-based. Removing just the roster row here would
@@ -258,39 +237,6 @@ begin
   )
   select exists (select 1 from del_membership) into _removed;
 
-  -- User → agent cascade (space-scoped). Only when the target was actually a
-  -- member and is a user: deprovision the agents it owns from this space too.
-  if _removed and exists
-  (
-    select 1
-    from {{schema}}.principal p
-    where p.id = _principal_id
-    and p.kind = 'u'
-  ) then
-    with owned_agents as
-    (
-      select p.id
-      from {{schema}}.principal p
-      where p.kind = 'a'
-      and p.owner_id = _principal_id
-    )
-    , del_agent_grants as
-    (
-      delete from {{schema}}.tree_access
-      where space_id = _space_id
-      and principal_id in (select id from owned_agents)
-    )
-    , del_agent_group_member as
-    (
-      delete from {{schema}}.group_member
-      where space_id = _space_id
-      and member_id in (select id from owned_agents)
-    )
-    delete from {{schema}}.principal_space
-    where space_id = _space_id
-    and principal_id in (select id from owned_agents);
-  end if;
-
   return _removed;
 end;
 $func$ language plpgsql volatile security invoker
@@ -324,20 +270,19 @@ set search_path to pg_catalog, {{schema}}, public, pg_temp
 -------------------------------------------------------------------------------
 -- list_space_principals
 -- The space roster: principals with a direct membership row (principal_space) —
--- users, agents, AND groups (a group is rostered into its space on creation, so
+-- users, service accounts, AND groups (a group is rostered into its space on creation, so
 -- principal_space is the single source of truth for who/what belongs to a space).
 -- Note the distinction: a group appears here because it is itself a roster entry;
--- this says nothing about its members — a user/agent who is only in a group (no
+-- this says nothing about its members — a user who is only in a group (no
 -- principal_space row of their own) is still NOT a space member and is not listed.
 -- `admin` is the EFFECTIVE space-admin status via is_principal_space_admin (a
--- direct admin row OR a direct member who belongs to an admin group, never an
--- agent; false for a group rostered admin=false). Optional kind filter
--- ('u' | 'a' | 'g'); null returns all.
+-- direct admin row OR a direct member who belongs to an admin group; false for
+-- a group rostered admin=false). Optional kind filter; null returns all.
 -------------------------------------------------------------------------------
 -- list_space_principals dropped its `direct` output column — a returns-table
 -- change create-or-replace cannot make. The fn block drops a stale-signatured
 -- definition before the create and asserts the result after.
-{{fn list_space_principals(_space_id uuid, _kind text) returns table(id uuid, kind text, name text, owner_id uuid, admin bool, created_at timestamptz, updated_at timestamptz)}}
+{{fn list_space_principals(_space_id uuid, _kind text) returns table(id uuid, kind text, name text, admin bool, created_at timestamptz, updated_at timestamptz)}}
 create or replace function {{schema}}.list_space_principals
 ( _space_id uuid
 , _kind text default null
@@ -346,13 +291,12 @@ returns table
 ( id uuid
 , kind text
 , name text
-, owner_id uuid
 , admin bool
 , created_at timestamptz
 , updated_at timestamptz
 )
 as $func$
-  select p.id, p.kind, p.name::text, p.owner_id
+  select p.id, p.kind, p.name::text
        , {{schema}}.is_principal_space_admin(p.id, _space_id) as admin
        , p.created_at, p.updated_at
   from {{schema}}.principal_space ps
@@ -409,7 +353,7 @@ set search_path to pg_catalog, {{schema}}, public, pg_temp
 
 -------------------------------------------------------------------------------
 -- list_group_members
--- Members (users / agents / service accounts) of a group within a space, with
+-- Members (users / service accounts) of a group within a space, with
 -- the stored admin flag.
 -------------------------------------------------------------------------------
 create or replace function {{schema}}.list_group_members
@@ -436,7 +380,7 @@ set search_path to pg_catalog, {{schema}}, public, pg_temp
 
 -------------------------------------------------------------------------------
 -- list_groups_for_member
--- Groups within a space that a member (user / agent / service account) belongs
+-- Groups within a space that a member (user / service account) belongs
 -- to, with the effective admin flag.
 -------------------------------------------------------------------------------
 create or replace function {{schema}}.list_groups_for_member

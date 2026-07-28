@@ -20,7 +20,6 @@ import { buildRegistry } from "../registry";
 import type { HandlerContext } from "../types";
 import {
   callerAdministersServiceAccount,
-  callerOwnsAgent,
   guardCore,
   inputTreePath,
   ownsTreePath,
@@ -32,16 +31,13 @@ import { assertSpaceRpcContext, type SpaceRpcContext } from "./types";
 
 /**
  * Authority to grant/remove access at a path. Allowed when any of:
- *  - the target is the caller's OWN agent (self-service — capped anyway);
  *  - the caller is a space admin (admins manage all access);
  *  - the caller owns the path or an ancestor (owner@root owns the whole tree).
  */
 async function requireGrantAuthority(
   ctx: SpaceRpcContext,
-  principalId: string,
   treePath: string,
 ): Promise<void> {
-  if (await callerOwnsAgent(ctx, principalId)) return;
   if (ctx.admin) return;
   await requireTreeOwner(ctx, treePath);
 }
@@ -52,7 +48,7 @@ async function requireGrantRemovalAuthority(
   treePath: string,
 ): Promise<void> {
   if (await callerAdministersServiceAccount(ctx, principalId)) return;
-  await requireGrantAuthority(ctx, principalId, treePath);
+  await requireGrantAuthority(ctx, treePath);
 }
 
 async function grantSet(
@@ -62,7 +58,7 @@ async function grantSet(
   assertSpaceRpcContext(context);
   const ctx = context as SpaceRpcContext;
   const treePath = inputTreePath(ctx, params.treePath);
-  await requireGrantAuthority(ctx, params.principalId, treePath);
+  await requireGrantAuthority(ctx, treePath);
   await guardCore(() =>
     ctx.core.grantTreeAccess(
       ctx.space.id,
@@ -97,9 +93,8 @@ async function grantList(
   // No path filter means the whole space, i.e. the root path. Listing grants
   // under a path requires owning that path (root → owning the whole space),
   // else space-admin. Self-service paths (no admin/owner needed): listing your
-  // own grants (powers `me access mine`), or those of an agent you own — both
-  // keep the principal filter pinned to you (self) or your owned agent, so they
-  // can't reveal another principal's grants.
+  // Own grants (powers `me access mine`) keep the principal filter pinned to the
+  // caller, so they can't reveal another principal's grants.
   const under =
     params.treePath !== undefined && params.treePath !== null
       ? inputTreePath(ctx, params.treePath)
@@ -108,20 +103,11 @@ async function grantList(
     params.principalId !== undefined &&
     params.principalId !== null &&
     params.principalId === ctx.principalId;
-  const ownAgent =
-    params.principalId !== undefined &&
-    params.principalId !== null &&
-    (await callerOwnsAgent(ctx, params.principalId));
   const ownServiceAccount =
     params.principalId !== undefined &&
     params.principalId !== null &&
     (await callerAdministersServiceAccount(ctx, params.principalId));
-  if (
-    !ownSelf &&
-    !ownAgent &&
-    !ownServiceAccount &&
-    !ownsTreePath(ctx, under)
-  ) {
+  if (!ownSelf && !ownServiceAccount && !ownsTreePath(ctx, under)) {
     await requireSpaceAdmin(ctx);
   }
   const grants = await ctx.core.listTreeAccessGrants(

@@ -14,7 +14,7 @@ export const memberSpaceResponse = z.object({
   language: z.string(),
   /** Whether the user is a (direct) admin of the space. */
   admin: z.boolean(),
-  /** Whether joining users/agents automatically get owner@~ (custom spaces set false). */
+  /** Whether joining users automatically get owner@~ (custom spaces set false). */
   autoGrantHome: z.boolean(),
   /** The space's default/invite group (targeted by `me space invite` by default), or null. */
   defaultGroup: z.object({ id: z.string(), name: z.string() }).nullable(),

@@ -2,14 +2,13 @@
  * Effective access introspection schemas (access.*).
  *
  * Raw grant rows live under grant.*. Effective access is the access set a member
- * actually executes with after direct grants, group grants, and agent owner
- * clamps are resolved.
+ * actually executes with after direct grants and group grants are resolved.
  */
 import { z } from "zod";
 import { uuidv7Schema } from "../fields.ts";
 import { accessLevelSchema } from "./grant.ts";
 
-const executablePrincipalKindSchema = z.enum(["u", "a", "s"]);
+const executablePrincipalKindSchema = z.enum(["u", "s"]);
 
 export const effectiveAccessEntry = z.object({
   treePath: z.string(),
@@ -22,19 +21,9 @@ export const effectiveAccessPrincipal = z.object({
   id: z.string(),
   kind: executablePrincipalKindSchema,
   name: z.string(),
-  ownerId: z.string().nullable(),
   admin: z.boolean(),
 });
 export type EffectiveAccessPrincipal = z.infer<typeof effectiveAccessPrincipal>;
-
-export const effectiveAccessAuthenticatedAs = z.object({
-  id: z.string(),
-  kind: executablePrincipalKindSchema,
-  name: z.string(),
-});
-export type EffectiveAccessAuthenticatedAs = z.infer<
-  typeof effectiveAccessAuthenticatedAs
->;
 
 export const accessEffectiveParams = z.object({
   /** Principal to inspect. Omit/null for the current acting principal. */
@@ -49,7 +38,6 @@ export const accessEffectiveResult = z.object({
     name: z.string(),
   }),
   principal: effectiveAccessPrincipal,
-  authenticatedAs: effectiveAccessAuthenticatedAs.nullable(),
   access: z.array(effectiveAccessEntry),
 });
 export type AccessEffectiveResult = z.infer<typeof accessEffectiveResult>;

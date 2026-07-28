@@ -16,7 +16,6 @@ import {
   provisionSpace,
 } from "@memory.build/database";
 import * as engineCore from "@memory.build/engine/core";
-import { AS_AGENT_HEADER } from "@memory.build/protocol/headers";
 import postgres, { type Sql } from "postgres";
 import { createBetterAuth } from "../auth/betterauth";
 import { addSpaceCreator } from "../provision";
@@ -55,7 +54,7 @@ function deps() {
   };
 }
 
-/** Build a request with optional bearer token + X-Me-Space / X-Me-As-Agent. */
+/** Build a request with optional bearer token + X-Me-Space / legacy ignored header. */
 function req(opts: {
   token?: string;
   space?: string;
@@ -64,32 +63,11 @@ function req(opts: {
   const headers: Record<string, string> = {};
   if (opts.token) headers.Authorization = `Bearer ${opts.token}`;
   if (opts.space) headers[SPACE_HEADER] = opts.space;
-  if (opts.asAgent) headers[AS_AGENT_HEADER] = opts.asAgent;
+  if (opts.asAgent) headers["X-Me-As-Agent"] = opts.asAgent;
   return new Request("http://localhost/api/v1/memory/rpc", {
     method: "POST",
     headers,
   });
-}
-
-/**
- * Provision `p`'s owned agent as a space member with a `read@share` grant (clamped
- * to the owner's `owner@share`) and an api key. Returns the agent + full key so
- * the act-as (human header) and agent-key paths can be compared for parity.
- */
-async function seedOwnedAgent(p: Awaited<ReturnType<typeof provision>>) {
-  const core = engineCore.coreStore(sql, coreSchema);
-  const name = `agent-${rand()}`;
-  const agentId = await core.createAgent(p.userId, name);
-  await core.addPrincipalToSpace(p.spaceId, agentId);
-  await core.grantTreeAccess(
-    p.spaceId,
-    agentId,
-    "share",
-    engineCore.ACCESS.read,
-  );
-  const key = await core.createApiKey(agentId, "ci");
-  const fullKey = engineCore.formatApiKey(key.lookupId, key.secret);
-  return { agentId, name, fullKey };
 }
 
 async function restrictApiKey(
@@ -215,36 +193,6 @@ test("session: member with owner grant resolves space + treeAccess", async () =>
   }
 });
 
-test("api key: agent of the space resolves with apiKeyId set", async () => {
-  const p = await provision();
-  const core = engineCore.coreStore(sql, coreSchema);
-
-  const agentId = await core.createAgent(p.userId, `agent-${rand()}`);
-  await core.addPrincipalToSpace(p.spaceId, agentId);
-  // grant within the owner's access (it owns `share`) so the agent's clamped
-  // effective access is non-empty — the owner is no longer owner@root.
-  await core.grantTreeAccess(
-    p.spaceId,
-    agentId,
-    "share",
-    engineCore.ACCESS.read,
-  );
-  const key = await core.createApiKey(agentId, "ci");
-  const fullKey = engineCore.formatApiKey(key.lookupId, key.secret);
-
-  const result = await authenticateSpace(
-    req({ token: fullKey, space: p.spaceSlug }),
-    deps(),
-  );
-  expect(result.ok).toBe(true);
-  if (result.ok) {
-    expect(result.context.principalId).toBe(agentId);
-    expect(result.context.apiKeyId).not.toBeNull();
-    expect(result.context.treeAccess.length).toBeGreaterThan(0);
-  }
-  expect((await core.getApiKey(key.id))?.lastUsedOn).toBe(today());
-});
-
 test("api key: a user's own key (PAT) resolves as the user with full grants", async () => {
   const p = await provision();
   const core = engineCore.coreStore(sql, coreSchema);
@@ -259,7 +207,7 @@ test("api key: a user's own key (PAT) resolves as the user with full grants", as
   );
   expect(result.ok).toBe(true);
   if (result.ok) {
-    // Authenticates as the user (not clamped like an agent) with full grants.
+    // Authenticates as the user with full grants.
     expect(result.context.principalId).toBe(p.userId);
     expect(result.context.apiKeyId).not.toBeNull();
     expect(result.context.treeAccess).toContainEqual({
@@ -402,42 +350,11 @@ test("api key: service account resolves with direct tree access and no owner", a
   if (result.ok) {
     expect(result.context.principalId).toBe(serviceAccount.id);
     expect(result.context.principalKind).toBe("s");
-    expect(result.context.ownerId).toBeNull();
     expect(result.context.apiKeyId).not.toBeNull();
     expect(result.context.treeAccess).toContainEqual({
       tree_path: "share.deploy",
       access: engineCore.ACCESS.write,
     });
-  }
-});
-
-test("api key is global: one key authenticates into every space the agent belongs to", async () => {
-  const p = await provision();
-  const core = engineCore.coreStore(sql, coreSchema);
-
-  // A second space also created by p, so p (the agent's owner) has access in
-  // both — the agent's effective access is clamped to its owner's.
-  const slug2 = generateSlug();
-  const spaceId2 = await core.createSpace(slug2, "second");
-  await provisionSpace(sql, { slug: slug2 });
-  createdSpaceSchemas.push(`me_${slug2}`);
-  await addSpaceCreator(core, spaceId2, p.userId);
-
-  const agentId = await core.createAgent(p.userId, `agent-${rand()}`);
-  for (const sid of [p.spaceId, spaceId2]) {
-    await core.addPrincipalToSpace(sid, agentId);
-    await core.grantTreeAccess(sid, agentId, "share", engineCore.ACCESS.read);
-  }
-  const key = await core.createApiKey(agentId, "ci");
-  const fullKey = engineCore.formatApiKey(key.lookupId, key.secret);
-
-  for (const slug of [p.spaceSlug, slug2]) {
-    const result = await authenticateSpace(
-      req({ token: fullKey, space: slug }),
-      deps(),
-    );
-    expect(result.ok).toBe(true);
-    if (result.ok) expect(result.context.principalId).toBe(agentId);
   }
 });
 
@@ -496,20 +413,16 @@ test("invalid session token → 401", async () => {
   if (!result.ok) expect(result.error.status).toBe(401);
 });
 
-test("api key: agent that is not a member of the requested space → 403", async () => {
+test("api key: service account that is not a member of the requested space → 403", async () => {
   const p = await provision();
   const other = await provision();
   const core = engineCore.coreStore(sql, coreSchema);
-  const agentId = await core.createAgent(p.userId, `agent-${rand()}`);
-  await core.addPrincipalToSpace(p.spaceId, agentId);
-  await core.grantTreeAccess(
+  const serviceAccount = await core.createServiceAccount(
     p.spaceId,
-    agentId,
-    "share",
-    engineCore.ACCESS.read,
+    `svc-${rand()}`,
   );
-  const key = await core.createApiKey(agentId, "ci");
-  // A valid global key, but the agent has no principal_space membership in
+  const key = await core.createApiKey(serviceAccount.id, "ci");
+  // A valid key, but the service account has no principal_space membership in
   // `other` — the membership gate denies it rather than a parse-time rejection.
   const fullKey = engineCore.formatApiKey(key.lookupId, key.secret);
   const result = await authenticateSpace(
@@ -566,191 +479,12 @@ test("session: member of another space is not a member here → 403", async () =
   if (!result.ok) expect(result.error.status).toBe(403);
 });
 
-// =============================================================================
-// Act-as-agent (X-Me-As-Agent)
-// =============================================================================
-
-test("act-as: human session + owned agent by id → principal switch, ownerId=human, clamped access, admin=false", async () => {
+test("legacy X-Me-As-Agent is ignored", async () => {
   const p = await provision();
-  const { agentId } = await seedOwnedAgent(p);
-
   const result = await authenticateSpace(
-    req({ token: p.token, space: p.spaceSlug, asAgent: agentId }),
+    req({ token: p.token, space: p.spaceSlug, asAgent: "retired-agent" }),
     deps(),
   );
   expect(result.ok).toBe(true);
-  if (result.ok) {
-    expect(result.context.principalId).toBe(agentId);
-    expect(result.context.ownerId).toBe(p.userId);
-    expect(result.context.authenticatedAs).toBe(p.userId);
-    expect(result.context.admin).toBe(false);
-    // Clamped to the agent's grant (least(read, owner@share) = read), not the
-    // human's owner@share.
-    expect(result.context.treeAccess).toContainEqual({
-      tree_path: "share",
-      access: engineCore.ACCESS.read,
-    });
-    expect(result.context.treeAccess).not.toContainEqual({
-      tree_path: "share",
-      access: engineCore.ACCESS.owner,
-    });
-  }
-});
-
-test("act-as: human session + owned agent by name (mixed case) → principal switch", async () => {
-  const p = await provision();
-  const { agentId, name } = await seedOwnedAgent(p);
-
-  const mixed = name.toUpperCase();
-  const result = await authenticateSpace(
-    req({ token: p.token, space: p.spaceSlug, asAgent: mixed }),
-    deps(),
-  );
-  expect(result.ok).toBe(true);
-  if (result.ok) {
-    expect(result.context.principalId).toBe(agentId);
-    expect(result.context.authenticatedAs).toBe(p.userId);
-  }
-});
-
-test("act-as: human session + owned agent by UPPERCASE id → principal switch (id match is case-insensitive)", async () => {
-  const p = await provision();
-  const { agentId } = await seedOwnedAgent(p);
-
-  // Postgres emits uuids lowercase, but a client may send an uppercase UUID
-  // (the CLI's UUID gate is case-insensitive and passes it through verbatim).
-  const result = await authenticateSpace(
-    req({ token: p.token, space: p.spaceSlug, asAgent: agentId.toUpperCase() }),
-    deps(),
-  );
-  expect(result.ok).toBe(true);
-  if (result.ok) {
-    expect(result.context.principalId).toBe(agentId);
-    expect(result.context.authenticatedAs).toBe(p.userId);
-  }
-});
-
-test("act-as: id/name collision among owned agents → 403 INVALID_AGENT", async () => {
-  const p = await provision();
-  const { agentId } = await seedOwnedAgent(p);
-  const core = engineCore.coreStore(sql, coreSchema);
-  await core.createAgent(p.userId, agentId);
-
-  const result = await authenticateSpace(
-    req({ token: p.token, space: p.spaceSlug, asAgent: agentId }),
-    deps(),
-  );
-  expect(result.ok).toBe(false);
-  if (!result.ok) {
-    expect(result.error.status).toBe(403);
-    const body = (await result.error.json()) as {
-      error: { code: string; message: string };
-    };
-    expect(body.error.code).toBe("INVALID_AGENT");
-    expect(body.error.message).toContain("matches multiple agents");
-  }
-});
-
-test("act-as: agent-key bearer + X-Me-As-Agent (a valid other owned agent) → header ignored, key trumps", async () => {
-  const p = await provision();
-  const a = await seedOwnedAgent(p);
-  const b = await seedOwnedAgent(p); // a valid, other owned agent
-
-  // Bearer is a's key; header names b. The key already IS an agent → ignored.
-  const result = await authenticateSpace(
-    req({ token: a.fullKey, space: p.spaceSlug, asAgent: b.agentId }),
-    deps(),
-  );
-  expect(result.ok).toBe(true);
-  if (result.ok) {
-    expect(result.context.principalId).toBe(a.agentId);
-    expect(result.context.apiKeyId).not.toBeNull();
-    expect(result.context.authenticatedAs).toBeNull();
-  }
-});
-
-test("act-as: user PAT + X-Me-As-Agent → header ignored, key stays the user", async () => {
-  const p = await provision();
-  const agent = await seedOwnedAgent(p);
-  const core = engineCore.coreStore(sql, coreSchema);
-  const key = await core.createApiKey(p.userId, "user-pat");
-
-  const result = await authenticateSpace(
-    req({
-      token: engineCore.formatApiKey(key.lookupId, key.secret),
-      space: p.spaceSlug,
-      asAgent: agent.agentId,
-    }),
-    deps(),
-  );
-  expect(result.ok).toBe(true);
-  if (result.ok) {
-    expect(result.context.principalId).toBe(p.userId);
-    expect(result.context.authenticatedAs).toBeNull();
-  }
-});
-
-test("act-as: unknown/unowned/non-agent header → 403 INVALID_AGENT", async () => {
-  const p = await provision();
-  const other = await provision();
-  // An agent owned by a DIFFERENT user — not one p owns.
-  const foreign = await seedOwnedAgent(other);
-
-  for (const value of [foreign.agentId, "does-not-exist", p.userId]) {
-    const result = await authenticateSpace(
-      req({ token: p.token, space: p.spaceSlug, asAgent: value }),
-      deps(),
-    );
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.error.status).toBe(403);
-      const body = (await result.error.json()) as {
-        error: { code: string };
-      };
-      expect(body.error.code).toBe("INVALID_AGENT");
-    }
-  }
-});
-
-test("act-as: owned agent that is not a member of this space → 403", async () => {
-  const p = await provision();
-  const core = engineCore.coreStore(sql, coreSchema);
-  // An owned agent that is NOT a member of the space — the membership gate denies
-  // after the switch.
-  const agentId = await core.createAgent(p.userId, `agent-${rand()}`);
-
-  const result = await authenticateSpace(
-    req({ token: p.token, space: p.spaceSlug, asAgent: agentId }),
-    deps(),
-  );
-  expect(result.ok).toBe(false);
-  if (!result.ok) expect(result.error.status).toBe(403);
-});
-
-test("act-as parity: human+X-Me-As-Agent equals the agent-key context on the authz fields", async () => {
-  const p = await provision();
-  const a = await seedOwnedAgent(p);
-
-  const asAgent = await authenticateSpace(
-    req({ token: p.token, space: p.spaceSlug, asAgent: a.agentId }),
-    deps(),
-  );
-  const byKey = await authenticateSpace(
-    req({ token: a.fullKey, space: p.spaceSlug }),
-    deps(),
-  );
-  expect(asAgent.ok).toBe(true);
-  expect(byKey.ok).toBe(true);
-  if (asAgent.ok && byKey.ok) {
-    // Authorization reads only these fields — identical on both paths.
-    expect(asAgent.context.principalId).toBe(byKey.context.principalId);
-    expect(asAgent.context.ownerId).toBe(byKey.context.ownerId);
-    expect(asAgent.context.treeAccess).toEqual(byKey.context.treeAccess);
-    expect(asAgent.context.admin).toBe(byKey.context.admin);
-    // Observability-only fields may differ (and do).
-    expect(asAgent.context.apiKeyId).toBeNull();
-    expect(byKey.context.apiKeyId).not.toBeNull();
-    expect(asAgent.context.authenticatedAs).toBe(p.userId);
-    expect(byKey.context.authenticatedAs).toBeNull();
-  }
+  if (result.ok) expect(result.context.principalId).toBe(p.userId);
 });

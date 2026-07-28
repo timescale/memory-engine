@@ -1,11 +1,10 @@
 /**
  * Memory client — the space data-plane + management client.
  *
- * Talks to POST /api/v1/memory/rpc, authenticated by a session token (human) or
- * an api key (agent), with the active space selected via the X-Me-Space header.
+ * Talks to POST /api/v1/memory/rpc, authenticated by a session token or API key,
+ * with the active space selected via the X-Me-Space header.
  * Namespaces: memory (data plane) + space / principal / group / grant / invite
  * (management).
- * (Agent lifecycle and api keys live on the user client.)
  *
  * @example
  * ```ts
@@ -15,7 +14,7 @@
  * ```
  */
 
-import { AS_AGENT_HEADER, SPACE_HEADER } from "@memory.build/protocol/headers";
+import { SPACE_HEADER } from "@memory.build/protocol/headers";
 import type {
   MemoryBatchCreateParams,
   MemoryBatchCreateResult,
@@ -91,7 +90,6 @@ import type {
   SpaceListMembersParams,
   SpaceListMembersResult,
 } from "@memory.build/protocol/space";
-import { assertConcreteAsAgent } from "./as-agent";
 import { rpcCall, type TransportConfig } from "./transport.ts";
 
 export interface MemoryClientOptions {
@@ -99,7 +97,7 @@ export interface MemoryClientOptions {
   url?: string;
   /** Memory RPC endpoint path (default: "/api/v1/memory/rpc") */
   rpcPath?: string;
-  /** Bearer token: a session token (human) or an api key (agent). */
+  /** Bearer token: a session token or API key. */
   token?: string;
   /**
    * Async bearer provider (overrides `token`); resolved per call, refreshing an
@@ -110,13 +108,6 @@ export interface MemoryClientOptions {
   onUnauthorized?: () => Promise<string | undefined>;
   /** The active space slug, sent as X-Me-Space. */
   space?: string;
-  /**
-   * Act as one of the caller's own agents — an agent id or name, sent as
-   * X-Me-As-Agent. A human credential (session / OAuth / user PAT) is then
-   * authorized as that agent, constrained exactly as the agent's own api key.
-   * Ignored server-side when the bearer is itself an agent api key.
-   */
-  asAgent?: string;
   /** Request timeout in milliseconds (default: 30000) */
   timeout?: number;
   /** Maximum retry attempts for read-only calls. Mutating calls are not retried. */
@@ -159,7 +150,7 @@ export interface PrincipalNamespace {
 }
 
 export interface SpaceNamespace {
-  /** List direct user/agent/service-account members in the active space. */
+  /** List direct user/service-account members in the active space. */
   listMembers(params?: SpaceListMembersParams): Promise<SpaceListMembersResult>;
 }
 
@@ -211,11 +202,6 @@ export interface MemoryClient {
   setToken(token: string): void;
   /** Update the active space slug (X-Me-Space) at runtime. */
   setSpace(space: string): void;
-  /**
-   * Update the act-as-agent target (X-Me-As-Agent) at runtime. An empty string
-   * clears the header (act as the human credential).
-   */
-  setAsAgent(asAgent: string): void;
 }
 
 const DEFAULT_URL = "https://api.memory.build";
@@ -223,14 +209,12 @@ const MEMORY_RPC_PATH = "/api/v1/memory/rpc";
 const DEFAULT_TIMEOUT = 30_000;
 const DEFAULT_RETRIES = 3;
 
-/** Seed the initial header map from the space + act-as-agent options. */
+/** Seed the initial header map from the active-space option. */
 function seedHeaders(
   options: MemoryClientOptions,
 ): Record<string, string> | undefined {
-  assertConcreteAsAgent(options.asAgent);
   const headers: Record<string, string> = {};
   if (options.space) headers[SPACE_HEADER] = options.space;
-  if (options.asAgent) headers[AS_AGENT_HEADER] = options.asAgent;
   return Object.keys(headers).length > 0 ? headers : undefined;
 }
 
@@ -318,13 +302,6 @@ export function createMemoryClient(
     },
     setSpace(space: string) {
       config.headers = { ...config.headers, [SPACE_HEADER]: space };
-    },
-    setAsAgent(asAgent: string) {
-      assertConcreteAsAgent(asAgent);
-      const headers = { ...config.headers };
-      if (asAgent) headers[AS_AGENT_HEADER] = asAgent;
-      else delete headers[AS_AGENT_HEADER];
-      config.headers = headers;
     },
   };
 }

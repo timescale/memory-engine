@@ -23,7 +23,6 @@ import {
 import { buildRegistry } from "../registry";
 import type { HandlerContext } from "../types";
 import {
-  callerOwnsAgentGlobal,
   guardCore,
   requireSpaceAdmin,
   toSpacePrincipalResponse,
@@ -37,7 +36,7 @@ async function principalList(
   assertSpaceRpcContext(context);
   const ctx = context as SpaceRpcContext;
   // Enumerating the whole roster — including groups and each principal's admin /
-  // owner_id / timestamps — is structural, so admin only. (Targeted name / id
+  // timestamps — is structural, so admin only. (Targeted name / id
   // lookups for any member are principal.resolve / principal.lookup; a minimal
   // member listing without that metadata is space.listMembers, member-accessible.)
   await requireSpaceAdmin(ctx);
@@ -54,16 +53,7 @@ async function principalAdd(
 ): Promise<PrincipalAddResult> {
   assertSpaceRpcContext(context);
   const ctx = context as SpaceRpcContext;
-  // Bringing your OWN agent into a space is self-service (it stays capped by
-  // your access); adding anyone else is a structural roster change that requires
-  // space-admin (owner@root is not enough). A member can't grant themselves admin
-  // on their own agent membership.
-  const ownAgent =
-    params.admin !== true &&
-    (await callerOwnsAgentGlobal(ctx, params.principalId));
-  if (!ownAgent) {
-    await requireSpaceAdmin(ctx);
-  }
+  await requireSpaceAdmin(ctx);
   await guardCore(() =>
     ctx.core.addPrincipalToSpace(
       ctx.space.id,
@@ -80,26 +70,16 @@ async function principalRemove(
 ): Promise<PrincipalRemoveResult> {
   assertSpaceRpcContext(context);
   const ctx = context as SpaceRpcContext;
-  // Removing a roster member is structural — space-admin only — with two
-  // self-service exceptions that mirror `principal.add`'s own-agent carve-out:
-  //   (a) a member removing THEIR OWN agent (inverse of `me agent add`), and
-  //   (b) a USER removing THEMSELVES (`me space leave`).
-  // A user may remove themselves (`me space leave`), but agents and service
-  // accounts are managed by their owner/admins and must fall through to the
-  // structural gate even when `params.principalId === ctx.principalId`.
+  // Removing a roster member is structural — space-admin only — except a user
+  // may remove themselves (`me space leave`). Service accounts must fall through
+  // to the structural gate even when `params.principalId === ctx.principalId`.
   // `LAST_ADMIN` still protects a sole admin (the deferred trigger, mapped by
   // guardCore).
   //
-  // The allow set is `isSelfUser || admin || ownAgent`. Evaluate the two cheap
-  // in-context checks first and only fall back to the own-agent carve-out — a
-  // `getPrincipal` round-trip — for a non-self, non-admin removal, so the common
-  // admin remove-member and self-leave paths pay no extra query.
   const isSelfUser =
     params.principalId === ctx.principalId && ctx.principalKind === "u";
   if (!isSelfUser && !ctx.admin) {
-    const ownAgent = await callerOwnsAgentGlobal(ctx, params.principalId);
-    // Not self, not admin, not the caller's own agent → structural, denied.
-    if (!ownAgent) await requireSpaceAdmin(ctx);
+    await requireSpaceAdmin(ctx);
   }
   const removed = await guardCore(() =>
     ctx.core.removePrincipalFromSpace(ctx.space.id, params.principalId),

@@ -24,7 +24,7 @@ comment on column {{schema}}.principal.admin_id is
 -- The service account is rostered into the space with no tree grants and is not
 -- added to the default group. _group_admin_member_ids is a subset-or-extension of
 -- _member_ids: ids present there are inserted with group_member.admin=true.
--- Initial bound-admin-group members may be users, agents, or service accounts;
+-- Initial bound-admin-group members may be users or service accounts;
 -- only direct user members are service-account admins (is_service_account_admin).
 -------------------------------------------------------------------------------
 create or replace function {{schema}}.create_service_account
@@ -96,7 +96,7 @@ begin
     raise exception
       'cannot seed a service account from a different space into service account %''s admin group', _service_id
       using errcode = '23514'
-      , hint = 'initial admin-group members must be users, agents, or service accounts in the same space';
+      , hint = 'initial admin-group members must be users or service accounts in the same space';
   end if;
 
   insert into {{schema}}.group_member (space_id, group_id, member_id, admin)

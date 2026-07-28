@@ -46,9 +46,8 @@ $func$ language sql stable security invoker
 -- A principal is a space admin if it has a direct admin membership, OR it is a
 -- direct member of the space (a principal_space row) who also belongs to a group
 -- whose own space-membership is admin. Admin via a group requires direct
--- membership — group membership alone never confers space access. Agents are
--- never space admins, and service accounts only become space admins through a
--- direct admin row.
+-- membership — group membership alone never confers space access. Service
+-- accounts only become space admins through a direct admin row.
 -------------------------------------------------------------------------------
 {{fn is_principal_space_admin(_principal_id uuid, _space_id uuid, _api_key_id uuid) returns bool}}
 create or replace function {{schema}}.is_principal_space_admin
@@ -63,7 +62,6 @@ as $func$
     select 1
     from {{schema}}.principal p
     where p.id = _principal_id
-    and p.kind <> 'a' -- agents cannot be space admins
     and
     (
       _api_key_id is null
@@ -123,10 +121,10 @@ $func$ language sql stable security invoker
 -- Invariant: a live space must always have at least one *effective* admin — a
 -- user who is a direct admin (principal_space.admin) OR a direct member who
 -- belongs to an admin-flagged group (admin via a group requires direct
--- membership). Agents are never admins, and an admin-flagged group whose user
--- members aren't direct space members does NOT count. Checking the effective set
--- (not just the principal_space.admin flag) closes the brick where a space's
--- sole admin is an empty/non-member admin group, leaving it unrecoverable.
+-- membership). An admin-flagged group whose user members aren't direct space
+-- members does NOT count. Checking the effective set (not just the
+-- principal_space.admin flag) closes the brick where a space's sole admin is
+-- an empty/non-member admin group, leaving it unrecoverable.
 --
 -- Guards every path that could drop the effective set, uniformly:
 --   * principal_space remove/demote — incl. a group losing its admin flag, and
@@ -277,12 +275,12 @@ end $$;
 -- guards this for its own callers; this is the table-level backstop that also
 -- catches a direct insert/update: any principal_space row for a group (kind 'g')
 -- whose space_id differs from the group's principal.space_id is rejected. Users
--- and agents are global (principal.space_id null) and unconstrained — they can be
+-- users are global (principal.space_id null) and unconstrained — they can be
 -- rostered into many spaces.
 --
 -- This is the half of the group<->space coherence invariant that cannot be a
 -- composite FK: principal_space(principal_id, space_id) -> principal(id, space_id)
--- would break users/agents, whose principal.space_id is null (and FKs can't be
+-- would break users, whose principal.space_id is null (and FKs can't be
 -- conditioned on kind). The group_member half IS a composite FK — see
 -- incremental/011_group_member_space_fk.sql.
 -------------------------------------------------------------------------------

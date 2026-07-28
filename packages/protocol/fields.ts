@@ -202,8 +202,8 @@ export const nameSchema = z
   .max(100, "name must be at most 100 characters");
 
 /**
- * Agent/group principal names are CLI handles, not emails. User principal names
- * remain emails and are validated at the auth boundary.
+ * Group/service-account principal names are CLI handles, not emails. User
+ * principal names remain emails and are validated at the auth boundary.
  */
 export const principalHandleNameSchema = z
   .string()

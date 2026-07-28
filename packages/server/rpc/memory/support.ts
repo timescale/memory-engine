@@ -42,12 +42,12 @@ export { guardCore };
 // =============================================================================
 
 /**
- * The caller's `~` home expansion: `home.<userId>` for a user, or
- * `home.<ownerId>.<agentId>` for an agent (nested under its owner's home).
+ * The caller's `~` home expansion: `home.<userId>` for a user. Service accounts
+ * do not have a home.
  */
 function homeOpts(ctx: SpaceRpcContext): TreePathOptions {
   if (ctx.principalKind === "s") return {};
-  return { home: ctx.principalId, homeOwner: ctx.ownerId ?? undefined };
+  return { home: ctx.principalId };
 }
 
 /**
@@ -85,14 +85,14 @@ export function displayTreePath(ctx: SpaceRpcContext, stored: string): string {
 }
 
 /**
- * The caller's own-home ltree prefix (`home.<id>` for a user, `home.<owner>.<id>`
- * for an agent), or `null` when the caller has no `~` home (service accounts).
+ * The caller's own-home ltree prefix (`home.<id>`), or `null` when the caller
+ * has no `~` home (service accounts).
  * This is the prefix that `displayTreePath` reverse-maps to `~`.
  */
 export function callerHomePrefix(ctx: SpaceRpcContext): string | null {
   const opts = homeOpts(ctx);
   if (opts.home === undefined) return null;
-  return homePrefix(opts.home, opts.homeOwner);
+  return homePrefix(opts.home);
 }
 
 function asValidationError(e: unknown): AppError {
@@ -188,38 +188,6 @@ export async function requireTreeOwner(
   }
 }
 
-/**
- * True if `principalId` is an agent in this space owned by the caller. Agents
- * are user-owned and capped by their owner's access (agent_tree_access), so a
- * member managing their own agents (create/keys/self-grants) is self-service
- * and safe — it can't escalate beyond the caller's own access.
- */
-export async function callerOwnsAgent(
-  context: SpaceRpcContext,
-  principalId: string,
-): Promise<boolean> {
-  const agents = await context.core.listSpacePrincipals(context.space.id, "a");
-  const agent = agents.find((a) => a.id === principalId);
-  return agent !== undefined && agent.ownerId === context.principalId;
-}
-
-/**
- * True if `principalId` is an agent owned by the caller, checked globally (not
- * scoped to the current space). Used by principal.add so a member can bring
- * their OWN agent into a space before it is a member there.
- */
-export async function callerOwnsAgentGlobal(
-  context: SpaceRpcContext,
-  principalId: string,
-): Promise<boolean> {
-  const principal = await context.core.getPrincipal(principalId);
-  return (
-    principal !== null &&
-    principal.kind === "a" &&
-    principal.ownerId === context.principalId
-  );
-}
-
 /** True if the caller is a direct user member of an SA's bound admin group. */
 export async function callerAdministersServiceAccount(
   context: SpaceRpcContext,
@@ -240,7 +208,6 @@ export function toSpacePrincipalResponse(
     id: m.id,
     kind: m.kind,
     name: m.name,
-    ownerId: m.ownerId,
     admin: m.admin,
     createdAt: m.createdAt.toISOString(),
     updatedAt: m.updatedAt?.toISOString() ?? null,

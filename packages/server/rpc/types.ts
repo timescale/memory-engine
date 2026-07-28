@@ -49,7 +49,7 @@ export interface RegisteredMethod<TParams = unknown, TResult = unknown> {
    * Optional per-method authorization, run by the dispatcher BEFORE param
    * validation. Throw an AppError to deny (e.g. FORBIDDEN). Gates a method on
    * the caller's identity without parsing input it can't use — see the
-   * user-RPC agent allow-list (`gateAgentAccess`).
+   * user-RPC non-user allow-list (`gateNonUserAccess`).
    */
   authorize?: (context: HandlerContext) => void;
 }

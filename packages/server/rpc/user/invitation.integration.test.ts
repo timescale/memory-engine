@@ -42,7 +42,7 @@ async function call<T = unknown>(
   opts: {
     asUser?: string;
     email?: string | null;
-    kind?: "u" | "a";
+    kind?: "u" | "s";
     emailVerified?: boolean;
   } = {},
 ): Promise<T> {
@@ -55,9 +55,9 @@ async function call<T = unknown>(
     core: coreStore(sql, coreSchema),
     kind,
     userId: asUser,
-    email: kind === "a" ? null : (opts.email ?? userEmail),
+    email: kind === "s" ? null : (opts.email ?? userEmail),
     name: "Test User",
-    emailVerified: kind === "a" ? false : (opts.emailVerified ?? true),
+    emailVerified: kind === "s" ? false : (opts.emailVerified ?? true),
     db: sql,
     coreSchema,
   } as unknown as HandlerContext;
@@ -199,8 +199,8 @@ test("invitee methods require a verified email", async () => {
   );
 });
 
-test("an agent caller is denied the invitee methods", async () => {
-  await expectAppError(call("invite.pending", {}, { kind: "a" }), "FORBIDDEN");
+test("a service-account caller is denied the invitee methods", async () => {
+  await expectAppError(call("invite.pending", {}, { kind: "s" }), "FORBIDDEN");
 });
 
 test("invite.redeem joins via an open magic link (no email match needed)", async () => {

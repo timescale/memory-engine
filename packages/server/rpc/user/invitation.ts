@@ -7,9 +7,7 @@
  * admin side (`invite.create`/`list`/`revoke` for a space) lives on the space RPC.
  *
  * Gated on a verified email: invitations are email-keyed, so a caller may only
- * act on invitations addressed to their own provider-verified address. Agents
- * have no email and are denied by the user-RPC allow-list (these methods are not
- * in `AGENT_ALLOWED`).
+ * act on invitations addressed to their own provider-verified address.
  */
 import type {
   InviteAcceptParams,
@@ -35,7 +33,7 @@ import { assertUserRpcContext, type UserRpcContext } from "./types";
 /**
  * Resolve the caller's verified email, or reject. Invitations are addressed by
  * email; acting on one requires the caller to control that provider-verified
- * address (an unverified or absent email — e.g. an agent — must not).
+ * address (an unverified or absent email must not).
  */
 function requireVerifiedEmail(ctx: UserRpcContext): string {
   if (ctx.email === null || !ctx.emailVerified) {
@@ -108,7 +106,7 @@ async function inviteDecline(
  * Redeem a magic-link token. Unlike accept/decline this is NOT email-keyed: an
  * open link is redeemable by any logged-in user, and an email-constrained link's
  * email check happens in SQL against the caller's email. So it doesn't require a
- * verified email — only a logged-in user (agents are barred by the allow-list).
+ * verified email — only a logged-in user.
  *
  * Only a *verified* email is passed for the constraint check, mirroring `accept`'s
  * requireVerifiedEmail: an unverified email must not satisfy an email-constrained

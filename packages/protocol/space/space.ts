@@ -6,7 +6,7 @@
  */
 import { z } from "zod";
 
-export const spaceMemberKindSchema = z.enum(["u", "a", "s"]);
+export const spaceMemberKindSchema = z.enum(["u", "s"]);
 export type SpaceMemberKind = z.infer<typeof spaceMemberKindSchema>;
 
 export const spaceMemberResponse = z.object({
@@ -16,7 +16,7 @@ export const spaceMemberResponse = z.object({
 });
 export type SpaceMemberResponse = z.infer<typeof spaceMemberResponse>;
 
-// space.listMembers — list direct user/agent/service-account members of the
+// space.listMembers — list direct user/service-account members of the
 // active space. Groups are principals, but not members, so they are excluded.
 export const spaceListMembersParams = z.object({
   kind: spaceMemberKindSchema.optional().nullable(),
