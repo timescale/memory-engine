@@ -9,9 +9,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import * as clack from "@clack/prompts";
 import { Command } from "commander";
-import { ensureDefaultAgent } from "../agent/default-agent.ts";
 import { buildCodexEnvHookOutput } from "../codex/env-hook.ts";
-import { resolveCredentials } from "../credentials.ts";
 import {
   type JsonHookEntry,
   upsertJsonHooksFile,
@@ -38,9 +36,7 @@ const CODEX_HOOK_ENTRY: JsonHookEntry = {
  * Write (or refresh) the user-scope `~/.codex/hooks.json` PreToolUse entry.
  * Codex trusts hooks per definition hash and gates new/changed ones behind
  * the `/hooks` approval flow — so a fresh install needs a one-time
- * `/hooks` inside Codex before the injected contract goes live (the
- * failsafe error and `me doctor` both point at this when the entry exists
- * but injection isn't live).
+ * `/hooks` inside Codex before the injected contract goes live.
  */
 function installCodexEnvHook(): void {
   const path = join(homedir(), ".codex", "hooks.json");
@@ -63,42 +59,24 @@ function createCodexInstallCommand(): Command {
     .description("register me as an MCP server with Codex CLI")
     .option(
       "--api-key <key>",
-      "API key for a headless agent (default: use your login session at runtime)",
+      "API key for headless/CI use (default: use your login session at runtime)",
     )
     .option("--server <url>", "server URL to embed in MCP config")
     .option(
       "--space <slug>",
       "pin a space (default: resolve ME_SPACE / active space at runtime)",
     )
-    .option(
-      "--no-default-agent",
-      "skip provisioning a default agent (agent: coder) for this install",
-    )
-    .action(
-      async (
-        opts: AgentInstallOptions & { defaultAgent?: boolean },
-        cmd: Command,
-      ) => {
-        const globalOpts = cmd.optsWithGlobals();
-        const server = globalOpts.server ?? opts.server;
-        await runAgentMcpInstall("codex", {
-          apiKey: opts.apiKey,
-          server,
-          space: opts.space,
-        });
+    .action(async (opts: AgentInstallOptions, cmd: Command) => {
+      const globalOpts = cmd.optsWithGlobals();
+      const server = globalOpts.server ?? opts.server;
+      await runAgentMcpInstall("codex", {
+        apiKey: opts.apiKey,
+        server,
+        space: opts.space,
+      });
 
-        installCodexEnvHook();
-
-        const creds = resolveCredentials(server);
-        const headless = Boolean(opts.apiKey ?? creds.apiKey);
-        if (!headless && opts.defaultAgent !== false) {
-          await ensureDefaultAgent({
-            ...creds,
-            activeSpace: opts.space ?? creds.activeSpace,
-          });
-        }
-      },
-    );
+      installCodexEnvHook();
+    });
 }
 
 /**

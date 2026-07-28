@@ -10,7 +10,7 @@
  * - me access list [principal] [--path <p>]:     list grants (optionally scoped)
  * - me access mine:                              list your own grants (any member)
  *
- * <principal> is a UUID, or a name (user = email, agent/group = display name).
+ * <principal> is a UUID, or a name (user = email, group / service account = display name).
  */
 import * as clack from "@clack/prompts";
 import {
@@ -49,7 +49,7 @@ function createAccessGrantCommand(): Command {
     .description("grant or update a principal's access at a tree path")
     .argument(
       "<principal>",
-      "principal id or name (user email / agent / group)",
+      "principal id or name (user email / group / service account)",
     )
     .argument("<path>", "tree path (empty string for the space root)")
     .argument("<level>", "access level: r (read), w (write), o (owner)")

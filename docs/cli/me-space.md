@@ -14,7 +14,7 @@ These commands authenticate with your **session** (humans only — `me login`). 
 - [me space create](#me-space-create) -- create a space
 - [me space rename](#me-space-rename) -- rename a space
 - [me space delete](#me-space-delete) -- delete a space
-- [me space remove-member](#me-space-remove-member) -- remove a user/agent from the space (admin)
+- [me space remove-member](#me-space-remove-member) -- remove a user from the space (admin)
 - [me space leave](#me-space-leave) -- remove yourself from the space
 - [me space invite](#me-space-invite) -- invite a user (and manage invitations)
 
@@ -35,7 +35,7 @@ me space list
 List members of the active space. Available to any space member — this is how
 you discover who you can add to a group (`me group add`) or grant a path to
 (`me access grant`). By default it lists human **users** only; use `--kind` to
-list agents or service accounts, or `all` for every member kind. **Groups are
+list service accounts, or `all` for every member kind. **Groups are
 never listed** (a group is a roster entry, not a member), and pending
 invitations are not included (see `me space invite list`).
 
@@ -45,7 +45,7 @@ me space members [--kind <kind>]
 
 | Option | Description |
 |--------|-------------|
-| `--kind` | Member kind to list: `u`/`user` (default), `a`/`agent`, `s`/`service` (`service-account`), or `all`. `all` adds a kind column. |
+| `--kind` | Member kind to list: `u`/`user` (default), `s`/`service` (`service-account`), or `all`. `all` adds a kind column. |
 
 ---
 
@@ -80,7 +80,7 @@ still overrides whatever was saved.
 
 ## me space create
 
-Create a new space and make it active. As the creator you always become a space **admin** (so you can reshape access however you like); the flags below only set the space's **default** access. With no flags you get today's conventions: `owner@home` + `owner@share` (not `owner@root`), joining users/agents automatically get `owner@~`, and a default `team` group is created with `read@/share` + `write@/share/projects`.
+Create a new space and make it active. As the creator you always become a space **admin** (so you can reshape access however you like); the flags below only set the space's **default** access. With no flags you get today's conventions: `owner@home` + `owner@share` (not `owner@root`), joining users automatically get `owner@~`, and a default `team` group is created with `read@/share` + `write@/share/projects`.
 
 ```
 me space create <name> [--no-home-grants] [--default-group <name>]
@@ -93,7 +93,7 @@ me space create <name> [--no-home-grants] [--default-group <name>]
 
 | Option | Description |
 |--------|-------------|
-| `--no-home-grants` | Joining users **and** agents get no `owner@~`. You (the creator) get **god mode** instead: `admin` + `owner@/` (the whole space). |
+| `--no-home-grants` | Joining users get no `owner@~`. You (the creator) get **god mode** instead: `admin` + `owner@/` (the whole space). |
 | `--default-group <name>` | Name the default/invite group (default `team`). |
 | `--no-default-group-grants` | Create the default group **without** `read@/share` + `write@/share/projects` — a grantless group you configure by hand. |
 | `--no-default-group` | Don't create a default group at all. |
@@ -139,7 +139,7 @@ me space delete <space> [--force]
 
 ## me space remove-member
 
-Remove a **user or agent** from the active space's roster, scrubbing their access grants and group memberships in that space. Removing a **user** also removes every agent that user owns *from this space* (their own memories, keys, and other spaces are untouched). **Admin only.**
+Remove a **user** from the active space's roster, scrubbing their access grants and group memberships in that space. **Admin only.**
 
 ```
 me space remove-member <principal> [-y]
@@ -147,19 +147,19 @@ me space remove-member <principal> [-y]
 
 | Argument | Required | Description |
 |----------|----------|-------------|
-| `principal` | yes | User or agent **id or name** to remove. |
+| `principal` | yes | User **id or name** to remove. |
 
 | Option | Description |
 |--------|-------------|
 | `-y, --yes` | Skip the confirmation prompt. |
 
-Members only: a **group** cannot be removed this way — a group leaves a space only by being deleted (`me group delete`). Service accounts are deleted with [`me service delete`](me-service.md#me-service-delete), which also deletes their bound admin group. Passing a group name errors clearly. Removing the space's **sole admin** is rejected (`LAST_ADMIN`) — promote another admin first. To remove yourself, use [`me space leave`](#me-space-leave); to remove your own agent, [`me agent remove`](me-agent.md#me-agent-remove) (neither needs admin).
+Members only: a **group** cannot be removed this way — a group leaves a space only by being deleted (`me group delete`). Service accounts are deleted with [`me service delete`](me-service.md#me-service-delete), which also deletes their bound admin group. Passing a group name errors clearly. Removing the space's **sole admin** is rejected (`LAST_ADMIN`) — promote another admin first. To remove yourself, use [`me space leave`](#me-space-leave).
 
 ---
 
 ## me space leave
 
-Remove **yourself** from the active space — no admin required. Your access grants and group memberships in the space are scrubbed, along with **any agents you own in this space** (their memories, keys, and other spaces are untouched). On success the active-space pointer is cleared.
+Remove **yourself** from the active space — no admin required. Your access grants and group memberships in the space are scrubbed. On success the active-space pointer is cleared.
 
 ```
 me space leave [-y]
@@ -224,4 +224,3 @@ me space invite revoke <email>
 - [Access Control](../access-control.md) -- principals, the two axes of authority, and tree-access grants.
 - [`me access`](me-access.md) -- grant read/write/owner access on tree paths.
 - [`me group`](me-group.md) -- bundle members for shared grants.
-- [`me agent`](me-agent.md) -- add your agents to a space.

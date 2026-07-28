@@ -5,7 +5,6 @@ import * as clack from "@clack/prompts";
 import { Command } from "commander";
 import { clearServerCredentials, resolveServer } from "../credentials.ts";
 import { getOutputFormat, output } from "../output.ts";
-import { rejectActAsAgentForSessionCommand } from "../util.ts";
 
 export function createLogoutCommand(): Command {
   return new Command("logout")
@@ -14,8 +13,6 @@ export function createLogoutCommand(): Command {
       const globalOpts = cmd.optsWithGlobals();
       const server = resolveServer(globalOpts.server);
       const fmt = getOutputFormat(globalOpts);
-
-      await rejectActAsAgentForSessionCommand("logout", fmt);
 
       clearServerCredentials(server);
 

@@ -1,11 +1,11 @@
 /**
  * ONE-OFF, MANUAL smoke test: does a real OpenCode run actually load our
- * generated capture plugin's `shell.env` hook and inject the four contract
+ * generated capture plugin's `shell.env` hook and inject the contract
  * vars into a real shell-tool call's environment?
  *
  * Verified live against opencode 1.17.16 (`opencode run --auto`, project-
  * scoped `.opencode/plugins/`) — the `shell.env` hook fires and injects all
- * four vars correctly. Note there is no `--quiet`/`-q` flag on `run` in this
+ * both vars correctly. Note there is no `--quiet`/`-q` flag on `run` in this
  * version (unlike some older CLI docs) — passing one makes yargs print
  * usage and exit 1, so don't add it back without checking `opencode run
  * --help` first.
@@ -63,9 +63,7 @@ test.skipIf(!smokeTestsEnabled() || !OPENCODE_BIN)(
         vars.AI_AGENT,
         `stdout was:\n${stdout}\nstderr was:\n${stderr}`,
       ).toBe("opencode");
-      expect(vars.ME_AS_AGENT).toBe(".me");
       expect(vars.ME_PROJECT_DIR).toBe(projectDir);
-      expect(vars.ME_INJECT_V).toBeTruthy();
     } finally {
       rmSync(projectDir, { recursive: true, force: true });
     }

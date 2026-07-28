@@ -25,10 +25,10 @@ export async function runCapturePrompt(
     toolLabel: string;
     /** The install command to re-run to change the answer later. */
     installCmd: string;
-    /** Set when called from `me project init`'s preflight — see
-     * {@link ensureDefaultAgent}'s matching option. Adds the "(every
-     * project, not just this one)" qualifier: it disambiguates real
-     * ambiguity mid-wizard (there's a "this one" project in scope to
+    /** Set when called from `me project init`'s preflight (via
+     * {@link runClaudeInstallFlow} / {@link runOpenCodeInstallFlow}). Adds
+     * the "(every project, not just this one)" qualifier: it disambiguates
+     * real ambiguity mid-wizard (there's a "this one" project in scope to
      * contrast against), but reads oddly from a standalone install, where
      * there isn't. */
     perProjectStepFollows?: boolean;

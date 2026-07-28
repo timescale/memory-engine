@@ -35,8 +35,7 @@ The marketplace step is idempotent (skipped if already configured). **By default
 A session (non-headless) install then:
 
 1. **Persists global defaults** into `~/.config/me` — the resolved server (`default_server`) and active space. The private `~/projects` tree root is a code default — install never writes it; to change it machine-wide, set [`tree_root`](../project-config.md#changing-the-default-tree-root-tree_root) in `~/.config/me/config.yaml` by hand.
-2. **Provisions a default agent** (see [Agent-by-config](../project-config.md#agent-by-config-and-the-agent-field)): no-op if a valid custom global `agent:` or `.user` opt-out is already set, or you're installing with `--api-key` (the key already IS an agent). Otherwise adopts your existing `coder` agent if you have one, or creates it with write access to your whole space, and writes it as the global `agent:` — so harness surfaces (MCP, hooks, a plain `me` call from Claude's own shell) have an agent to run as by default. If a configured global agent is stale, install prompts to create it interactively or fails clearly non-interactively. Skip with `--no-default-agent`.
-3. **Asks whether to turn on session capture** (default **no** — the capture hook ships inert). Say **yes** and it enables the machine-wide `capture: true` and runs a one-time machine-wide [`me import claude`](me-import.md) backfill — everything lands **privately** under `~/projects/<slug>`, per project. Say no and you get the tools only. Re-run `me claude install` any time to change the answer; a project's [`.me/config.yaml` `capture`](../project-config.md#the-capture-field-session-capture-onoff) overrides per project either way. (Non-interactive runs skip the prompt and leave the setting untouched.)
+2. **Asks whether to turn on session capture** (default **no** — the capture hook ships inert). Say **yes** and it enables the machine-wide `capture: true` and runs a one-time machine-wide [`me import claude`](me-import.md) backfill — everything lands **privately** under `~/projects/<slug>`, per project. Say no and you get the tools only. Re-run `me claude install` any time to change the answer; a project's [`.me/config.yaml` `capture`](../project-config.md#the-capture-field-session-capture-onoff) overrides per project either way. (Non-interactive runs skip the prompt and leave the setting untouched.)
 
 Pass `--mcp-only` to skip the plugin and register just the `me` MCP server (no hooks, no slash commands).
 
@@ -47,11 +46,10 @@ Pass `--mcp-only` to skip the plugin and register just the `me` MCP server (no h
 | `--space <slug>` | Pin a space. Default: resolve `ME_SPACE` / active space at runtime. |
 | `--server <url>` | Pin a server. Default: use your `me login` server at runtime. |
 | `--dev` | Install the plugin from the local checkout instead of the published marketplace (run from inside this repo). |
-| `--no-default-agent` | Skip provisioning the default agent (step 2 above). |
 
-Credential handling: by default (a personal install) nothing is pinned, so the plugin (and the MCP server) uses your `me login` session, server, and active space, resolved from the OS keychain / `~/.config/me` at runtime — so it follows `me login` / `me space use` and survives re-login. Pass `--server` / `--space` to pin either. Pass `--api-key` for a **headless** install that can't reach your keychain — since there's no session to fall back to, an API key bakes in a fixed server + space + key together (and skips the defaults/capture steps above — the operator's `~/.config/me` is not necessarily the agent's; capture is credential-agnostic, so a headless deployment opts in via a committed `.me` `capture: true` or `capture: true` in the target machine's config). For least privilege, mint a restricted PAT or service-account key with `me apikey create --allow <space>:<path>:<r|w|o>`; the pinned space must be declared by that key. An agent key remains an option when its regular agent grants are the intended boundary. The space is resolved from `--space`, `ME_SPACE`, or your active space (whichever is set — install errors if none, since a global key has no active space to fall back to at runtime), and `--server` defaults to your resolved server.
+Credential handling: by default (a personal install) nothing is pinned, so the plugin (and the MCP server) uses your `me login` session, server, and active space, resolved from the OS keychain / `~/.config/me` at runtime — so it follows `me login` / `me space use` and survives re-login. Pass `--server` / `--space` to pin either. Pass `--api-key` for a **headless** install that can't reach your keychain — since there's no session to fall back to, an API key bakes in a fixed server + space + key together (and skips the defaults/capture steps above — the operator's `~/.config/me` is not necessarily the tool's; capture is credential-agnostic, so a headless deployment opts in via a committed `.me` `capture: true` or `capture: true` in the target machine's config). For least privilege, mint a restricted PAT or service-account key with `me apikey create --allow <space>:<path>:<r|w|o>`; the pinned space must be declared by that key. The space is resolved from `--space`, `ME_SPACE`, or your active space (whichever is set — install errors if none, since a global key has no active space to fall back to at runtime), and `--server` defaults to your resolved server.
 
-There is no `--scope` flag: the plugin is always installed at **user** scope (once, for all projects). Per-project behavior — a shared tree, a pinned space, a project agent, capture on/off — comes from the committed [`.me/config.yaml`](../project-config.md), which the single installed plugin reads per project.
+There is no `--scope` flag: the plugin is always installed at **user** scope (once, for all projects). Per-project behavior — a shared tree, a pinned space, and capture on/off — comes from the committed [`.me/config.yaml`](../project-config.md), which the single installed plugin reads per project.
 
 For manual MCP client configuration, see [MCP Integration](../mcp-integration.md).
 
@@ -65,7 +63,7 @@ For manual MCP client configuration, see [MCP Integration](../mcp-integration.md
 
 ## me claude env
 
-An internal helper the Memory Engine plugin runs automatically at the start of each Claude Code session. It's what makes a plain `me` call from Claude's Bash tool always resolve the right project (even after `cd`) and run as the agent configured in [`.me/config.yaml` or your global config](../project-config.md#agent-by-config-and-the-agent-field). **You never run this by hand** — it's installed by [`me claude install`](#me-claude-install).
+An internal helper the Memory Engine plugin runs automatically at the start of each Claude Code session. It makes a plain `me` call from Claude's Bash tool resolve the right project even after `cd`. **You never run this by hand** — it's installed by [`me claude install`](#me-claude-install).
 
 ---
 
@@ -84,7 +82,7 @@ claude plugin install --scope user memory-engine@memory-engine
 /plugin  # select memory-engine, Configure (all values optional if logged in)
 ```
 
-Both `api_key` and `space` are optional: blank `api_key` uses your `me login` session (set it to attribute captures to a dedicated agent), and blank `space` uses your active space (`me space use`; pin it for project/shared installs).
+Both `api_key` and `space` are optional: blank `api_key` uses your `me login` session, and blank `space` uses your active space (`me space use`; pin it for project/shared installs).
 
 If you only want the MCP tools (no hooks, no slash commands), run [me claude install --mcp-only](#me-claude-install) instead.
 

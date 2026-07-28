@@ -41,7 +41,6 @@ const ENV_KEYS = [
   "XDG_CONFIG_HOME",
   "ME_NO_KEYCHAIN",
   "ME_CONFIG_DIR",
-  "ME_AS_AGENT",
 ];
 
 let configDir: string;
@@ -58,14 +57,6 @@ function writeMe(body: string): void {
   setConfigDirOverride(projectDir);
 }
 
-/** Write a `.me/config.local.yaml` into the pinned project dir + refresh the cache. */
-function writeMeLocal(body: string): void {
-  mkdirSync(join(projectDir, ".me"), { recursive: true });
-  writeFileSync(join(projectDir, ".me", "config.local.yaml"), body);
-  resetProjectConfigCache();
-  setConfigDirOverride(projectDir);
-}
-
 beforeEach(() => {
   savedEnv = {};
   for (const k of ENV_KEYS) savedEnv[k] = process.env[k];
@@ -75,8 +66,6 @@ beforeEach(() => {
   process.env.ME_NO_KEYCHAIN = "1"; // force the file fallback
   for (const k of TOKEN_ENVS) delete process.env[k];
   delete process.env.ME_CONFIG_DIR;
-  delete process.env.ME_AS_AGENT;
-  creds.setAsAgentOverride(undefined);
   creds.setServerFlagOverride(undefined);
   resetKeychainForTests();
 
@@ -95,7 +84,6 @@ afterEach(() => {
     if (v === undefined) delete process.env[k];
     else process.env[k] = v;
   }
-  creds.setAsAgentOverride(undefined);
   creds.setServerFlagOverride(undefined);
   resetKeychainForTests();
   resetProjectConfigCache();
@@ -183,23 +171,6 @@ test("ME_SERVER env outranks the explicit project's server (documented precedenc
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
-});
-
-test("resolveCredentialsFor: the .me agent sentinel resolves against THAT project", () => {
-  writeMe("agent: ambient-agent\n"); // ambient project has a different agent
-  process.env.ME_AS_AGENT = ".me";
-  const { dir, project } = otherProject("agent: explicit-agent\n");
-  try {
-    expect(creds.resolveCredentialsFor(project).asAgent).toBe("explicit-agent");
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
-});
-
-test("resolveCredentialsFor: the sentinel with no agent in the given project throws", () => {
-  writeMe("agent: ambient-agent\n"); // ambient one must NOT satisfy the sentinel
-  process.env.ME_AS_AGENT = ".me";
-  expect(() => creds.resolveCredentialsFor(undefined)).toThrow(/agent/);
 });
 
 test(".me server is used when no --server flag / ME_SERVER env (whitelisted)", () => {
@@ -341,142 +312,6 @@ test("a malformed tree_root is a fatal config error (strict shape)", () => {
   }
 });
 
-// =============================================================================
-// resolveAsAgent (X-Me-As-Agent)
-// =============================================================================
-
-test("resolveAsAgent: off by default (no flag / env)", () => {
-  expect(creds.resolveAsAgent()).toBeUndefined();
-  expect(creds.isAsAgentRequested()).toBe(false);
-});
-
-test("resolveAsAgent: explicit id/name passes through verbatim (env)", () => {
-  process.env.ME_AS_AGENT = "my-agent";
-  expect(creds.isAsAgentRequested()).toBe(true);
-  expect(creds.resolveAsAgent()).toBe("my-agent");
-});
-
-test("resolveAsAgent: the flag override wins over ME_AS_AGENT env", () => {
-  process.env.ME_AS_AGENT = "from-env";
-  creds.setAsAgentOverride("from-flag");
-  expect(creds.isAsAgentRequested()).toBe(true);
-  expect(creds.resolveAsAgent()).toBe("from-flag");
-});
-
-test("resolveAsAgent: the .me sentinel resolves to the project's agent id", () => {
-  writeMe("agent: 018f1138-7f07-7c48-8bd1-c9a6b1095978\n");
-  creds.setAsAgentOverride(".me");
-  expect(creds.resolveAsAgent()).toBe("018f1138-7f07-7c48-8bd1-c9a6b1095978");
-});
-
-test("resolveAsAgent: the .me sentinel with no project agent throws", () => {
-  writeMe("space: sp_no_agent\n");
-  creds.setAsAgentOverride(".me");
-  expect(creds.isAsAgentRequested()).toBe(true);
-  expect(() => creds.resolveAsAgent()).toThrow(/\.me\/config\.yaml/);
-});
-
-test("resolveAsAgent: a .me agent alone does NOT activate the mode (explicit only)", () => {
-  writeMe("agent: 018f1138-7f07-7c48-8bd1-c9a6b1095978\n");
-  // No flag, no env → mode stays off even though `.me` has an agent.
-  expect(creds.isAsAgentRequested()).toBe(false);
-  expect(creds.resolveAsAgent()).toBeUndefined();
-  expect(creds.resolveCredentials().asAgent).toBeUndefined();
-});
-
-test("resolveAsAgent: env .me sentinel also resolves via the project agent", () => {
-  writeMe("agent: my-project-agent\n");
-  process.env.ME_AS_AGENT = ".me";
-  expect(creds.resolveAsAgent()).toBe("my-project-agent");
-  expect(creds.resolveCredentials().asAgent).toBe("my-project-agent");
-});
-
-// =============================================================================
-// Global default agent + the `.user` sentinel
-// =============================================================================
-
-test("the .me sentinel falls back to the global agent when no project agent is in scope", () => {
-  writeMe("space: sp_no_agent\n");
-  creds.setGlobalAgent("global-coder");
-  creds.setAsAgentOverride(".me");
-  expect(creds.resolveAsAgent()).toBe("global-coder");
-});
-
-test("a project agent wins over the global agent", () => {
-  writeMe("agent: project-agent\n");
-  creds.setGlobalAgent("global-coder");
-  creds.setAsAgentOverride(".me");
-  expect(creds.resolveAsAgent()).toBe("project-agent");
-});
-
-test("explicit --as-agent .user resolves to undefined (deliberate user-mode)", () => {
-  creds.setAsAgentOverride(".user");
-  expect(creds.isAsAgentRequested()).toBe(true);
-  expect(creds.resolveAsAgent()).toBeUndefined();
-  expect(creds.resolveCredentials().asAgent).toBeUndefined();
-});
-
-test("agent: .user in the global config resolves .me to undefined", () => {
-  writeMe("space: sp_no_agent\n");
-  creds.setGlobalAgent(".user");
-  creds.setAsAgentOverride(".me");
-  expect(creds.resolveAsAgent()).toBeUndefined();
-});
-
-test("agent: .user in .me/config.local.yaml resolves .me to undefined", () => {
-  writeMe("space: sp_committed\n");
-  writeMeLocal("agent: .user\n");
-  creds.setAsAgentOverride(".me");
-  expect(creds.resolveAsAgent()).toBeUndefined();
-});
-
-test("getGlobalAgent/setGlobalAgent round-trip", () => {
-  expect(creds.getGlobalAgent()).toBeUndefined();
-  creds.setGlobalAgent("coder");
-  expect(creds.getGlobalAgent()).toBe("coder");
-});
-
-// =============================================================================
-// resolveHarnessAgent — ambient agent-by-config for harness surfaces (MCP,
-// hooks). Unlike resolveAsAgent, activates the `.me` sentinel WITHOUT
-// requiring an explicit flag/env.
-// =============================================================================
-
-test("resolveHarnessAgent: ambient activation uses the project agent with no flag/env", () => {
-  writeMe("agent: project-agent\n");
-  expect(creds.isAsAgentRequested()).toBe(false); // not explicitly requested
-  expect(creds.resolveHarnessAgent()).toBe("project-agent");
-});
-
-test("resolveHarnessAgent: falls back to the global agent when no project agent", () => {
-  writeMe("space: sp_no_agent\n");
-  creds.setGlobalAgent("global-coder");
-  expect(creds.resolveHarnessAgent()).toBe("global-coder");
-});
-
-test("resolveHarnessAgent: throws when nothing is in scope anywhere", () => {
-  writeMe("space: sp_no_agent\n");
-  expect(() => creds.resolveHarnessAgent()).toThrow(/none is in scope/);
-});
-
-test("resolveHarnessAgent: an explicit --as-agent overrides ambient resolution", () => {
-  writeMe("agent: project-agent\n");
-  creds.setAsAgentOverride("explicit-agent");
-  expect(creds.resolveHarnessAgent()).toBe("explicit-agent");
-});
-
-test("resolveHarnessAgent: explicit --as-agent .user opts out even with a project agent", () => {
-  writeMe("agent: project-agent\n");
-  creds.setAsAgentOverride(".user");
-  expect(creds.resolveHarnessAgent()).toBeUndefined();
-});
-
-test("resolveHarnessAgent: global agent: .user opts out ambiently (no project agent)", () => {
-  writeMe("space: sp_no_agent\n");
-  creds.setGlobalAgent(".user");
-  expect(creds.resolveHarnessAgent()).toBeUndefined();
-});
-
 test("store + read an OAuth token set (file fallback)", () => {
   creds.storeTokens(SERVER, TOKENS);
   const r = creds.resolveCredentials(SERVER);
@@ -553,6 +388,36 @@ test("capture: off by default; setCaptureEnabled persists the machine-wide flag"
 
   creds.setCaptureEnabled(false);
   expect(creds.getGlobalCaptureEnabled()).toBe(false);
+});
+
+test("a legacy global agent setting is inert and preserved on config writes", () => {
+  const path = join(configDir, "me", "config.yaml");
+  mkdirSync(join(configDir, "me"), { recursive: true });
+  writeFileSync(path, "agent: old-coder\n");
+
+  creds.setCaptureEnabled(true);
+
+  expect(readFileSync(path, "utf-8")).toContain("agent: old-coder");
+  expect(creds.resolveCredentials()).not.toHaveProperty("asAgent");
+});
+
+test("legacy ME_AS_AGENT env is inert — never bleeds into ResolvedCredentials", () => {
+  // The env var is a phase-1/phase-2 removal; a stale value in a shell or
+  // CI job must not resurrect act-as-agent behavior in the client.
+  process.env.ME_AS_AGENT = "stale-agent";
+  try {
+    const resolved = creds.resolveCredentials(SERVER);
+    expect(resolved).not.toHaveProperty("asAgent");
+  } finally {
+    delete process.env.ME_AS_AGENT;
+  }
+});
+
+test("legacy project agent: is accepted, preserved, and never surfaces as asAgent", () => {
+  writeMe("agent: repo-agent\nspace: abc123def456\n");
+  const resolved = creds.resolveCredentials(SERVER);
+  expect(resolved.activeSpace).toBe("abc123def456"); // rest of the config still applies
+  expect(resolved).not.toHaveProperty("asAgent");
 });
 
 test("capture: a .me project capture overrides the machine-wide flag per project", () => {

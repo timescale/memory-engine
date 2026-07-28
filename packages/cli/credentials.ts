@@ -11,8 +11,7 @@
  * The secret a human persists is the OAuth token set ({@link OAuthTokenSet} —
  * access token + refresh token + expiry), obtained by `me login`. It prefers the
  * OS keychain (stored as JSON under the server origin); the file is the fallback.
- * Api keys are never stored — agents get their key via `ME_API_KEY` (or their MCP
- * config); `apiKey.create` prints it once.
+ * API keys are never stored; `apiKey.create` prints them once.
  *
  * config.yaml:
  * ```yaml
@@ -45,7 +44,6 @@ import { parse, stringify } from "yaml";
 import { keychainDelete, keychainGet, keychainSet } from "./keychain.ts";
 import {
   getProjectConfig,
-  PROJECT_USER_SENTINEL,
   type ProjectConfig,
   ProjectConfigError,
   VALID_TREE_PATH_RE,
@@ -118,14 +116,8 @@ export interface ConfigFile {
    */
   tree_root?: string;
   /**
-   * The machine-wide default agent to act as in a harness context — the
-   * fallback the `.me` sentinel resolves to when no project `agent:` is in
-   * scope (e.g. a harness session outside any project, or a project with no
-   * `agent:` pinned). Written by `ensureDefaultAgent()` at harness
-   * install-time (`me claude install` / `me opencode install`); the reserved
-   * value `.user` (see {@link PROJECT_USER_SENTINEL}) means "run as the user,
-   * deliberately" — unlike the committed `.me/config.yaml`, `.user` is fine
-   * here (this file is per-machine, not shared with a team).
+   * Legacy agent setting. It is accepted and preserved for backwards
+   * compatibility, but has no effect.
    */
   agent?: string;
 }
@@ -165,7 +157,7 @@ export interface ResolvedCredentials {
    * resolved lazily by `session.ts`, never returned synchronously here.
    */
   loggedIn: boolean;
-  /** Agent api key — ME_API_KEY only; never persisted. */
+  /** API key — ME_API_KEY only; never persisted. */
   apiKey?: string;
   /** Active space slug (the X-Me-Space) — ME_SPACE > `.me` space > stored active_space. */
   activeSpace?: string;
@@ -181,13 +173,6 @@ export interface ResolvedCredentials {
    * callers fall back to the code default (the private `~/projects`).
    */
   treeRoot?: string;
-  /**
-   * Act-as-agent target — a concrete agent id/name to send as `X-Me-As-Agent`,
-   * resolved from `--as-agent` / `ME_AS_AGENT` (the `.me` sentinel already
-   * substituted for `.me/config.yaml`'s `agent`). Undefined when the mode is off
-   * (activation is always explicit — a `.me` `agent` alone never enables it).
-   */
-  asAgent?: string;
   /**
    * Whether session capture is on, resolved highest-first: the `.me` project
    * `capture` > the machine-wide config setting > off. The capture hooks stay
@@ -297,18 +282,14 @@ function readConfig(): ConfigFile {
       `Invalid tree_root in ${path}: use ltree labels ([A-Za-z0-9_-]) separated by '/' or '.', with an optional leading '~'.`,
     );
   }
-  // A present agent must be a non-empty string — the '.me' sentinel is
-  // db-impossible as a real agent name, so it can never collide; any other
-  // literal (including '.user') is taken verbatim and validated at resolution
-  // time (a name the caller doesn't own 403s server-side).
+  // Legacy `agent:` remains accepted so existing global config files remain
+  // valid. It is deliberately inert and retained when config is rewritten.
   const rawAgent = data?.agent;
   if (
     rawAgent !== undefined &&
     (typeof rawAgent !== "string" || rawAgent.length === 0)
   ) {
-    throw new Error(
-      `Invalid agent in ${path}: it must be a non-empty string (an agent name, or the '${PROJECT_USER_SENTINEL}' sentinel).`,
-    );
+    throw new Error(`Invalid agent in ${path}: it must be a non-empty string.`);
   }
   return {
     default_server:
@@ -580,33 +561,12 @@ export function getGlobalCaptureEnabled(): boolean {
 }
 
 // =============================================================================
-// Global default agent (config)
-// =============================================================================
-
-/**
- * Persist the machine-wide default agent (see {@link ConfigFile.agent}) — the
- * `.me` sentinel's fallback when no project `agent:` is in scope. Written by
- * `ensureDefaultAgent()` at harness install-time; `.user` is a valid value
- * here (deliberate user-mode, machine-wide).
- */
-export function setGlobalAgent(agent: string): void {
-  const config = readConfig();
-  config.agent = agent;
-  writeConfig(config);
-}
-
-/** The machine-wide default agent (config.yaml `agent`), if any. */
-export function getGlobalAgent(): string | undefined {
-  return readConfig().agent;
-}
-
-// =============================================================================
 // --server flag (seeded)
 // =============================================================================
 
 /**
  * The root `--server` flag, seeded once from the root `preAction` hook
- * (mirrors {@link setAsAgentOverride} / `setConfigDirOverride`). Seeding lets
+ * (mirrors `setConfigDirOverride`). Seeding lets
  * {@link resolveCredentialsFor} — the explicit-project form — honor the flag
  * without taking a bare-string server parameter that a repo-authored value
  * could be mistakenly passed through.
@@ -616,129 +576,6 @@ let serverFlagOverride: string | undefined;
 /** Seed the `--server` flag override (called once from `preAction`). */
 export function setServerFlagOverride(value: string | undefined): void {
   serverFlagOverride = value;
-}
-
-// =============================================================================
-// Act-as-agent (X-Me-As-Agent)
-// =============================================================================
-
-/**
- * The literal `.me` sentinel for `--as-agent` / `ME_AS_AGENT`: "use the
- * configured agent" — resolved from config scope (project `agent:` → global
- * `agent:`), substituted client-side; never sent to the server. `.me` is a
- * DB-impossible agent name (agent names match `^[A-Za-z0-9]…`, so they can
- * never start with `.`), so it can't shadow a real agent.
- */
-const RUN_AS_AGENT_SENTINEL = ".me";
-
-/**
- * The `.user` sentinel — "run as the user, deliberately". Re-exported from
- * project-config.ts (the single source of truth for the committed-file gate)
- * so callers only need this module's import.
- */
-export const RUN_AS_USER_SENTINEL = PROJECT_USER_SENTINEL;
-
-/** The `--as-agent` global-flag value, seeded once from the root preAction hook. */
-let asAgentOverride: string | undefined;
-
-/**
- * Seed the `--as-agent` override (called once from the root `preAction` hook,
- * before any command resolves credentials) so it is ambiently visible to
- * {@link resolveAsAgent} without threading `globalOpts` through every command.
- * Mirrors {@link setConfigDirOverride}.
- */
-export function setAsAgentOverride(value: string | undefined): void {
-  asAgentOverride = value;
-}
-
-/**
- * Whether act-as-agent mode was explicitly requested by flag or env. This does
- * not resolve the `.me` sentinel, so local session-management commands can
- * refuse agent mode without consulting project config.
- */
-export function isAsAgentRequested(): boolean {
-  return Boolean(asAgentOverride ?? process.env.ME_AS_AGENT);
-}
-
-/**
- * Resolve a raw `--as-agent`/`ME_AS_AGENT` value against `project` (and, for
- * the `.me` sentinel with no project agent, the global config): `.user` always
- * resolves to `undefined` (deliberate user-mode — no `X-Me-As-Agent` sent);
- * `.me` resolves to the project's `agent:`, else the global `agent:` — an
- * effective `.user` at either layer also resolves to `undefined`; nothing in
- * scope is a hard throw. Any other value is an explicit agent id/name,
- * verbatim.
- */
-function resolveSentinel(
-  raw: string,
-  project: ProjectConfig | undefined,
-): string | undefined {
-  if (raw === RUN_AS_USER_SENTINEL) return undefined;
-  if (raw !== RUN_AS_AGENT_SENTINEL) return raw;
-
-  const projectAgent = project?.agent;
-  if (projectAgent !== undefined) {
-    return projectAgent === RUN_AS_USER_SENTINEL ? undefined : projectAgent;
-  }
-  const globalAgent = getGlobalAgent();
-  if (globalAgent !== undefined) {
-    return globalAgent === RUN_AS_USER_SENTINEL ? undefined : globalAgent;
-  }
-  throw new Error(
-    `--as-agent ${RUN_AS_AGENT_SENTINEL} needs an 'agent:' in .me/config.yaml or the global ~/.config/me/config.yaml, but none is in scope. ` +
-      `Run 'me agent create <name>' and set it as agent: in one of those files, or run 'me claude install' / 'me opencode install' to provision a default agent.`,
-  );
-}
-
-/**
- * Resolve the act-as-agent target (the `X-Me-As-Agent` value), highest first:
- *   1. the `--as-agent` flag override (from `preAction`),
- *   2. the `ME_AS_AGENT` env,
- *   3. otherwise `undefined` (mode OFF).
- *
- * Activation is always explicit: when neither the flag nor env is present, the
- * mode stays off even if a `.me/config.yaml` `agent` is in scope — use
- * {@link resolveHarnessAgent} for the harness surfaces (MCP, hooks) that
- * activate agent-by-config unconditionally. When the value is the literal
- * `.me` sentinel it resolves per {@link resolveSentinel}; `.user` resolves to
- * `undefined` (deliberate user-mode).
- */
-export function resolveAsAgent(): string | undefined {
-  return resolveAsAgentFor(getProjectConfig());
-}
-
-/** {@link resolveAsAgent} against an explicit project (the `.me` sentinel
- * resolves to THAT project's `agent`, else the global one). */
-function resolveAsAgentFor(
-  project: ProjectConfig | undefined,
-): string | undefined {
-  const raw = asAgentOverride ?? process.env.ME_AS_AGENT;
-  if (!raw) return undefined;
-  return resolveSentinel(raw, project);
-}
-
-/**
- * Resolve the act-as-agent target for a HARNESS SURFACE (`me mcp`, `me
- * <harness> hook`) — these activate agent-by-config UNCONDITIONALLY, as if
- * `--as-agent .me` were passed, because a harness surface has no human caller
- * for "no agent" to safely default to. An explicit `--as-agent` / `ME_AS_AGENT`
- * (including `.user`, the deliberate opt-out) always wins over the ambient
- * resolution. Throws when nothing resolves (no project agent, no global
- * agent, and no explicit `.user`) — the surface's fatal-on-no-agent
- * requirement (goal 3: never a silent user-credential fallback in a harness
- * context).
- */
-export function resolveHarnessAgent(): string | undefined {
-  return resolveHarnessAgentFor(getProjectConfig());
-}
-
-/** {@link resolveHarnessAgent} against an explicit project. */
-export function resolveHarnessAgentFor(
-  project: ProjectConfig | undefined,
-): string | undefined {
-  const raw = asAgentOverride ?? process.env.ME_AS_AGENT;
-  if (raw) return resolveSentinel(raw, project);
-  return resolveSentinel(RUN_AS_AGENT_SENTINEL, project);
 }
 
 // =============================================================================
@@ -844,8 +681,8 @@ export function getDefaultServer(): string {
  * Resolve all credentials for the active server. A human is "logged in" when a
  * token set is stored (or ME_SESSION_TOKEN overrides) — the live access token
  * is resolved lazily (with refresh) by `session.ts`, not here. The active space
- * (ME_SPACE env > config) is the X-Me-Space. An agent api key is never
- * persisted — it only ever comes from ME_API_KEY.
+ * (ME_SPACE env > config) is the X-Me-Space. API keys are never persisted —
+ * they only ever come from ME_API_KEY.
  */
 export function resolveCredentials(serverFlag?: string): ResolvedCredentials {
   return credentialsFor(getProjectConfig(), serverFlag);
@@ -861,8 +698,8 @@ export function resolveCredentials(serverFlag?: string): ResolvedCredentials {
  * documented precedence (--server flag, seeded via
  * {@link setServerFlagOverride} > `ME_*` env > `project` > global config),
  * the credential-safety whitelist gate on a project-sourced server, and the
- * `.me` agent-sentinel resolution against THIS project. Deliberately takes
- * no server string: repo-authored input can only enter through `project`,
+ * project targeting. Deliberately takes no server string: repo-authored input
+ * can only enter through `project`,
  * where it is always gated.
  */
 export function resolveCredentialsFor(
@@ -892,7 +729,6 @@ function credentialsFor(
       config.servers[normalizeOrigin(server)]?.active_space,
     tree: project?.tree,
     treeRoot: config.tree_root,
-    asAgent: resolveAsAgentFor(project),
     captureEnabled: project?.capture ?? config.capture === true,
   };
 }

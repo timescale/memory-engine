@@ -16,9 +16,7 @@ async function runGeminiEnvHook(
   const proc = Bun.spawn([process.execPath, CLI_ENTRY, "gemini", "env-hook"], {
     env: {
       ...process.env,
-      ME_INJECT_V: undefined,
       AI_AGENT: undefined,
-      ME_AS_AGENT: undefined,
       ME_PROJECT_DIR: undefined,
       ...env,
     },
@@ -77,31 +75,5 @@ describe("me gemini env-hook", () => {
     } finally {
       rmSync(configDir, { recursive: true, force: true });
     }
-  });
-
-  test("first-writer-wins: prints nothing when the contract is already live", async () => {
-    const { exitCode, stdout } = await runGeminiEnvHook(
-      JSON.stringify({
-        cwd: "/repo",
-        tool_name: "run_shell_command",
-        tool_input: { command: "echo hi" },
-      }),
-      { ME_INJECT_V: "1", ME_AS_AGENT: ".me", ME_PROJECT_DIR: "/other" },
-    );
-    expect(exitCode).toBe(0);
-    expect(stdout.trim()).toBe("");
-  });
-
-  test("a PARTIALLY live contract (ME_INJECT_V alone) does NOT trigger first-writer-wins", async () => {
-    const { exitCode, stdout } = await runGeminiEnvHook(
-      JSON.stringify({
-        cwd: "/repo",
-        tool_name: "run_shell_command",
-        tool_input: { command: "echo hi" },
-      }),
-      { ME_INJECT_V: "1" },
-    );
-    expect(exitCode).toBe(0);
-    expect(stdout.trim()).not.toBe("");
   });
 });

@@ -10,8 +10,6 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import * as clack from "@clack/prompts";
 import { Command, InvalidArgumentError } from "commander";
-import { ensureDefaultAgent } from "../agent/default-agent.ts";
-import { resolveCredentials } from "../credentials.ts";
 import { buildGeminiEnvHookOutput } from "../gemini/env-hook.ts";
 import {
   type JsonHookEntry,
@@ -64,7 +62,7 @@ function createGeminiInstallCommand(): Command {
     .description("register me as an MCP server with Gemini CLI")
     .option(
       "--api-key <key>",
-      "API key for a headless agent (default: use your login session at runtime)",
+      "API key for headless/CI use (default: use your login session at runtime)",
     )
     .option("--server <url>", "server URL to embed in MCP config")
     .option(
@@ -77,15 +75,10 @@ function createGeminiInstallCommand(): Command {
       parseGeminiScope,
       "user",
     )
-    .option(
-      "--no-default-agent",
-      "skip provisioning a default agent (agent: coder) for this install",
-    )
     .action(
       async (
         opts: AgentInstallOptions & {
           scope: GeminiScope;
-          defaultAgent?: boolean;
         },
         cmd: Command,
       ) => {
@@ -99,15 +92,6 @@ function createGeminiInstallCommand(): Command {
         });
 
         installGeminiEnvHook();
-
-        const creds = resolveCredentials(server);
-        const headless = Boolean(opts.apiKey ?? creds.apiKey);
-        if (!headless && opts.defaultAgent !== false) {
-          await ensureDefaultAgent({
-            ...creds,
-            activeSpace: opts.space ?? creds.activeSpace,
-          });
-        }
       },
     );
 }

@@ -8,53 +8,20 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   buildContractVars,
-  isInjectionLive,
-  ME_INJECT_VERSION,
   renderContractBlock,
   renderExportPrefix,
   upsertContractBlock,
 } from "./harness-contract.ts";
 
-test("buildContractVars sets all four vars", () => {
+test("buildContractVars sets routing and metadata vars", () => {
   const vars = buildContractVars("claude", "/repo/project");
-  expect(vars.ME_INJECT_V).toBe(ME_INJECT_VERSION);
   expect(vars.AI_AGENT).toBe("claude");
-  expect(vars.ME_AS_AGENT).toBe(".me");
   expect(vars.ME_PROJECT_DIR).toBe("/repo/project");
-});
-
-test("isInjectionLive requires the full contract, not just ME_INJECT_V", () => {
-  expect(isInjectionLive({})).toBe(false);
-  expect(isInjectionLive({ ME_INJECT_V: "1" })).toBe(false);
-  expect(isInjectionLive({ ME_INJECT_V: "1", ME_AS_AGENT: ".me" })).toBe(false);
-  expect(isInjectionLive({ ME_INJECT_V: "1", ME_PROJECT_DIR: "/repo" })).toBe(
-    false,
-  );
-  expect(
-    isInjectionLive({
-      ME_INJECT_V: "1",
-      ME_AS_AGENT: ".me",
-      ME_PROJECT_DIR: "/repo",
-    }),
-  ).toBe(true);
-});
-
-test("isInjectionLive doesn't require AI_AGENT (identity/observability only)", () => {
-  expect(
-    isInjectionLive({
-      ME_INJECT_V: "1",
-      ME_AS_AGENT: ".me",
-      ME_PROJECT_DIR: "/repo",
-      // no AI_AGENT
-    }),
-  ).toBe(true);
 });
 
 test("renderExportPrefix renders a single-line export prefix with a trailing space", () => {
   const prefix = renderExportPrefix(buildContractVars("codex", "/repo"));
-  expect(prefix).toBe(
-    'export ME_INJECT_V="1" AI_AGENT="codex" ME_AS_AGENT=".me" ME_PROJECT_DIR="/repo"; ',
-  );
+  expect(prefix).toBe('export AI_AGENT="codex" ME_PROJECT_DIR="/repo"; ');
   expect(prefix.includes("\n")).toBe(false);
 });
 

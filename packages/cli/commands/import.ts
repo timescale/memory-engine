@@ -205,10 +205,9 @@ ${hint}`,
  * resolved through the REAL local resolution stack — `discoverProjectConfig`
  * from the session's own cwd, passed explicitly to `resolveCredentialsFor` —
  * so a sweep mirrors the live hook exactly: per-project server
- * (whitelist-gated), space, tree, and even the `ME_AS_AGENT=.me` sentinel,
- * with the documented flag/env precedence intact because it IS the same code
- * path a local run uses (the `--server` flag reaches it via the preAction
- * seed). Decisions (including the client) are memoized per cwd; clients are
+ * (whitelist-gated), space, and tree. Imports always use the presented
+ * credential rather than an act-as-agent target. Decisions (including the
+ * client) are memoized per cwd; clients are
  * cheap stateless wrappers — token/refresh state lives at module level keyed
  * by server — so distinct projects resolving to the same target just build
  * equivalent ones.
@@ -261,12 +260,7 @@ export function createSessionRouter(opts: {
       const space = creds.activeSpace;
       if (!space) return { skip: "no_space_for_project" };
 
-      // Always a client from THIS project's creds — the client carries the
-      // identity (asAgent header), which the `.me` agent sentinel makes
-      // per-project, so reusing another target's client could write as the
-      // wrong principal. Clients are cheap stateless wrappers, and the
-      // per-cwd memo above prevents rebuilds for the hot case of many
-      // sessions from one project.
+      // Always use this project's routing credentials and presented bearer.
       return {
         route: {
           engine: buildClient({ ...creds, activeSpace: space }),

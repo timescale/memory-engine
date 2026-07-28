@@ -37,25 +37,19 @@ Captures your Claude Code conversations to [Memory Engine](https://memory.build)
 
    That login session is all the plugin needs — `api_key` is **optional** (see below).
 
-### Using a dedicated agent key (optional)
+### Using a restricted key (optional)
 
-By default the plugin uses your `me login` session, so captures are attributed to **you**. To attribute captures to a separate, scoped-down **agent** identity instead — so it only touches the tree paths you allow — mint an api key and paste *that* into the plugin's `api_key`:
+By default the plugin uses your `me login` session, so captures are attributed to
+**you**. For an unattended or restricted installation, create a restricted PAT
+or service-account key and paste it into the plugin's `api_key`:
 
 ```bash
-# 1. Create a dedicated agent
-me agent create claude-code-agent
-
-# 2. Add it to the space and grant just the access it needs — e.g. read+write on
-#    the capture subtree (grants cover all descendant paths via ltree)
-me agent add claude-code-agent
-me access grant claude-code-agent share.projects w
-
-# 3. Mint an API key for that agent
-me apikey create --agent claude-code-agent plugin-key
+me apikey create claude-plugin --allow <space>:/share/projects/acme:w
 # → prints the raw key once; paste it into the plugin's api_key config
 ```
 
-See [Access control](https://docs.memory.build/access-control) for the full grant model.
+The key is only a credential boundary when the plugin process cannot also read a
+stronger session or API key. See [Access control](https://docs.memory.build/access-control) for the full grant model.
 
 ## Install
 
@@ -93,7 +87,7 @@ in `~/.config/me/config.yaml` (on the machine Claude Code runs on), else off.
 A headless install opts in the same way — typically via a committed
 `capture: true` in each project it works on.
 
-Leave `api_key` blank to use your `me login` session (captures attributed to you); set it to use a dedicated agent key (see above). Leave `space` blank to capture into your active space; pin it for unattended or project-scope installs (a blank space with no active space set means captures are silently skipped). `content_mode` is `default` (user + assistant text — recommended) or `full_transcript` (also stores reasoning and tool calls/results as their own memories — more complete, but larger/noisier and may include sensitive tool output). Sensitive values (the api_key) go to your system keychain; non-sensitive values go to the `settings.json` for the scope you installed in.
+Leave `api_key` blank to use your `me login` session (captures attributed to you); set it to use a restricted PAT or service-account key when needed (see above). Leave `space` blank to capture into your active space; pin it for unattended or project-scope installs (a blank space with no active space set means captures are silently skipped). `content_mode` is `default` (user + assistant text — recommended) or `full_transcript` (also stores reasoning and tool calls/results as their own memories — more complete, but larger/noisier and may include sensitive tool output). Sensitive values (the api_key) go to your system keychain; non-sensitive values go to the `settings.json` for the scope you installed in.
 
 ## Verify
 

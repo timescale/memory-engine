@@ -15,21 +15,13 @@
  * `shell.env` hook: every shell command OpenCode runs gets `ME_PROJECT_DIR`
  * (the session-scoped `directory`, verbatim — deliberately NOT the
  * per-command `input.cwd`, so a `workdir=/tmp` excursion keeps discovery)
- * and `ME_AS_AGENT=.me` (the
- * ordinary sentinel), so a plain `me` call from OpenCode's shell tool always
- * resolves the right project and always runs as the configured agent. The
- * constants are baked in as literals at generation time (this file has no
+ * and inert `AI_AGENT` metadata, so a plain `me` call from OpenCode's shell
+ * tool always resolves the right project. The constants are baked in as
+ * literals at generation time (this file has no
  * runtime dependency on `../harness-contract.ts` — the generated source stays
  * dependency-free).
  */
-import {
-  AI_AGENT_VAR,
-  HARNESS_AS_AGENT_SENTINEL,
-  ME_AS_AGENT_VAR,
-  ME_INJECT_V_VAR,
-  ME_INJECT_VERSION,
-  ME_PROJECT_DIR_VAR,
-} from "../harness-contract.ts";
+import { AI_AGENT_VAR, ME_PROJECT_DIR_VAR } from "../harness-contract.ts";
 
 /**
  * Marker (first line) identifying a file we manage, for idempotent re-init.
@@ -39,7 +31,7 @@ import {
  * step report "available" again instead of "done".
  */
 export const PLUGIN_MARKER =
-  "// memory-engine: OpenCode capture plugin (managed by `me opencode init`) v3";
+  "// memory-engine: OpenCode capture plugin (managed by `me opencode init`) v4";
 
 /** Default filename for the generated plugin. */
 export const PLUGIN_FILENAME = "memory-engine.ts";
@@ -97,18 +89,12 @@ export const MemoryEngine = async ({ $, directory }) => {
           " relevant prior decisions and history with the \`me_memory_search\` tool.",
       )
     },
-    // Harness-injected environment contract (see the module doc): every
-    // shell command OpenCode runs gets the discovery anchor + activation
-    // sentinel. First-writer-wins — skip when this OpenCode process was
-    // itself launched inside another session's live contract (nested
-    // harnesses), so we never clobber it.
+    // Every shell command gets the project-discovery anchor and inert harness
+    // metadata. These identify routing only; they never alter credentials.
     "shell.env": async (_input, output) => {
-      if (process.env.${ME_INJECT_V_VAR} && process.env.${ME_AS_AGENT_VAR} && process.env.${ME_PROJECT_DIR_VAR}) return
       output.env = {
         ...output.env,
-        ${ME_INJECT_V_VAR}: ${JSON.stringify(ME_INJECT_VERSION)},
         ${AI_AGENT_VAR}: "opencode",
-        ${ME_AS_AGENT_VAR}: ${JSON.stringify(HARNESS_AS_AGENT_SENTINEL)},
         ${ME_PROJECT_DIR_VAR}: directory,
       }
     },

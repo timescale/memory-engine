@@ -93,9 +93,7 @@ test.skipIf(!smokeTestsEnabled() || !GEMINI_BIN)(
         vars.AI_AGENT,
         `stdout was:\n${stdout}\nstderr was:\n${stderr}`,
       ).toBe("gemini-cli");
-      expect(vars.ME_AS_AGENT).toBe(".me");
       expect(vars.ME_PROJECT_DIR).toBe(projectDir);
-      expect(vars.ME_INJECT_V).toBeTruthy();
     } finally {
       rmSync(projectDir, { recursive: true, force: true });
       rmSync(meBinDir, { recursive: true, force: true });

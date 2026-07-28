@@ -52,8 +52,10 @@ describe("authMethodOf", () => {
     expect(authMethodOf(creds({ apiKey: "me.abc.secret" }), "u")).toBe("pat");
   });
 
-  test("api key + agent kind → agent", () => {
-    expect(authMethodOf(creds({ apiKey: "me.abc.secret" }), "a")).toBe("agent");
+  test("api key + service-account kind → service-account", () => {
+    expect(authMethodOf(creds({ apiKey: "me.abc.secret" }), "s")).toBe(
+      "service-account",
+    );
   });
 });
 
@@ -61,6 +63,6 @@ describe("authLabel", () => {
   test("maps each method to its display label", () => {
     expect(authLabel("session")).toBe("session");
     expect(authLabel("pat")).toBe("api key (PAT)");
-    expect(authLabel("agent")).toBe("agent key");
+    expect(authLabel("service-account")).toBe("service-account key");
   });
 });

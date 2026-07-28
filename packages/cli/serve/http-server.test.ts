@@ -5,7 +5,7 @@
  * upstream — no network access required.
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { AS_AGENT_HEADER, SPACE_HEADER } from "@memory.build/protocol/headers";
+import { SPACE_HEADER } from "@memory.build/protocol/headers";
 import {
   findAvailablePort,
   MEMORY_RPC_PATH,
@@ -65,22 +65,6 @@ function startMockUpstream(port: number): MockUpstream {
   return state;
 }
 
-test("startHttpServer rejects unresolved .me asAgent sentinel", () => {
-  expect(() =>
-    startHttpServer({
-      server: "http://127.0.0.1:1",
-      bearer: {
-        getToken: async () => "sess-test-token",
-        onUnauthorized: async () => undefined,
-      },
-      space: "abc123def456",
-      asAgent: ".me",
-      host: "127.0.0.1",
-      port: 1,
-    }),
-  ).toThrow(/resolved/);
-});
-
 describe("startHttpServer", () => {
   let mock: MockUpstream;
   let running: RunningServer;
@@ -96,7 +80,6 @@ describe("startHttpServer", () => {
         onUnauthorized: async () => undefined,
       },
       space: "abc123def456",
-      asAgent: "serve-agent",
       host: "127.0.0.1",
       port: servePort,
     });
@@ -164,9 +147,6 @@ describe("startHttpServer", () => {
     expect(mock.lastRequest?.headers.authorization).toBe(
       "Bearer sess-test-token",
     );
-    expect(mock.lastRequest?.headers[AS_AGENT_HEADER.toLowerCase()]).toBe(
-      "serve-agent",
-    );
     expect(mock.lastRequest?.headers[SPACE_HEADER.toLowerCase()]).toBe(
       "abc123def456",
     );
@@ -201,9 +181,6 @@ describe("startHttpServer", () => {
     expect(mock.lastRequest?.path).toBe(USER_RPC_PATH);
     expect(mock.lastRequest?.headers.authorization).toBe(
       "Bearer sess-test-token",
-    );
-    expect(mock.lastRequest?.headers[AS_AGENT_HEADER.toLowerCase()]).toBe(
-      "serve-agent",
     );
     // User RPC is space-agnostic — no X-Me-Space should be forwarded.
     expect(

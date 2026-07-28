@@ -1,83 +1,34 @@
 /**
  * The harness-injected environment contract.
  *
- * Every harness adapter (Claude's SessionStart hook, opencode's `shell.env`
- * plugin hook, and eventually Codex/Gemini's PreToolUse/BeforeTool rewrites)
- * injects the same four env vars into every shell command a harness runs, so a
- * plain `me` invocation from an agent's tool shell always resolves the right
- * project and always runs as the configured agent:
+ * Every harness adapter (Claude's SessionStart hook, OpenCode's `shell.env`
+ * plugin hook, and Codex/Gemini's command rewrites) injects the same two env
+ * vars into every shell command a harness runs, so a plain `me` invocation
+ * resolves the right project:
  *
- *   - `ME_INJECT_V`    liveness + version marker (what the failsafe and
- *                       `me doctor` key on)
- *   - `AI_AGENT`        identity, per the `@vercel/detect-agent` convention —
- *                       names the *initiating* harness
- *   - `ME_AS_AGENT`     always the literal `.me` sentinel — activation
+ *   - `AI_AGENT`        inert harness identity metadata
  *   - `ME_PROJECT_DIR`  the session's project dir, verbatim — the discovery
  *                       anchor `me` walks up from at invocation time
  *
  * This module centralizes the names + version so adapters and the
- * failsafe/detection code can't drift. Three render forms cover the three
+ * generated source renderers cannot drift. Three render forms cover the three
  * injection mechanisms: a marker-delimited shell-file block for adapters
  * that inject via a sourced env file (Claude's `$CLAUDE_ENV_FILE`), an
  * in-process env object for adapters that mutate one directly (opencode's
  * `shell.env` hook), and a single-line `export …; ` command prefix for
  * adapters that rewrite a command STRING rather than touch env at all
  * (Codex/Gemini's PreToolUse/BeforeTool rewrites).
- *
- * The single gate every adapter must apply is **first-writer-wins**: when a
- * live `ME_INJECT_V` is already in the *adapter's own* inherited env, emit
- * nothing — the process was itself spawned inside another session's contract
- * (a nested harness), and clobbering it would flip which project/agent
- * governs the inner session. See {@link isInjectionLive}.
  */
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 
-/** Liveness + version marker env var name. */
-export const ME_INJECT_V_VAR = "ME_INJECT_V";
 /** Harness-identity env var name (the `@vercel/detect-agent` convention). */
 export const AI_AGENT_VAR = "AI_AGENT";
-/** Activation env var name — always set to {@link HARNESS_AS_AGENT_SENTINEL}. */
-export const ME_AS_AGENT_VAR = "ME_AS_AGENT";
 /** Discovery-anchor env var name. */
 export const ME_PROJECT_DIR_VAR = "ME_PROJECT_DIR";
 
 /**
- * The `.me` sentinel value every adapter injects for `ME_AS_AGENT` — resolved
- * by `resolveAsAgentFor`/`resolveHarnessAgent` in credentials.ts against
- * config scope (project `agent:` → global `agent:` → hard error). Duplicated
- * here (rather than imported from credentials.ts) so this module stays a leaf
- * dependency generated-source renderers (like the opencode plugin template)
- * can pull constants from without dragging in credential/session machinery.
- */
-export const HARNESS_AS_AGENT_SENTINEL = ".me";
-
-/**
- * Bump when the injected contract's shape changes in a way `me` needs to key
- * on (new required var, changed semantics). The failsafe and `me doctor` only
- * check *presence*, not the exact value, so adding a var is not a breaking
- * bump — reserved for the day it needs to be.
- */
-export const ME_INJECT_VERSION = "1";
-
-/**
- * Whether a live injected contract is already present in `env`. Requires the
- * liveness marker AND the two functionally load-bearing vars (activation,
- * discovery) to all be present — not just `ME_INJECT_V` alone. A partially
- * injected or stale env (e.g. `ME_INJECT_V` surviving in a subshell while
- * `ME_AS_AGENT`/`ME_PROJECT_DIR` didn't) must not read as "live": that would
- * let the failsafe wave it through, and let first-writer-wins skip an
- * adapter that should have run. `AI_AGENT` is excluded on purpose — it's
- * identity/observability only, never consulted for activation or discovery.
- */
-export function isInjectionLive(env: NodeJS.ProcessEnv = process.env): boolean {
-  return Boolean(
-    env[ME_INJECT_V_VAR] && env[ME_AS_AGENT_VAR] && env[ME_PROJECT_DIR_VAR],
-  );
-}
-
-/**
- * The four contract vars for a given harness + project dir, ready to inject
+ * The harness metadata vars for a given harness + project dir, ready to inject
  * (as env, or rendered into shell text via {@link renderContractBlock}).
  */
 export function buildContractVars(
@@ -85,9 +36,7 @@ export function buildContractVars(
   projectDir: string,
 ): Record<string, string> {
   return {
-    [ME_INJECT_V_VAR]: ME_INJECT_VERSION,
     [AI_AGENT_VAR]: harness,
-    [ME_AS_AGENT_VAR]: HARNESS_AS_AGENT_SENTINEL,
     [ME_PROJECT_DIR_VAR]: projectDir,
   };
 }

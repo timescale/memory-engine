@@ -51,20 +51,6 @@ export const VALID_TREE_PATH_RE =
 const TREE_PATH_RE = VALID_TREE_PATH_RE;
 
 /**
- * The `.user` sentinel for `agent:` — "run as the user, deliberately" (the
- * human escape hatch from the config side; see credentials.ts for the
- * `--as-agent .user` / `ME_AS_AGENT=.user` flag/env form). Valid in
- * `.me/config.local.yaml` and the global `~/.config/me/config.yaml`; a
- * committed `agent: .user` is a fatal {@link ProjectConfigError} (see
- * {@link readConfigFile}) — a repo author writing it into the tracked
- * `.me/config.yaml` would silently flip every cloning teammate's harness
- * surfaces to their own full user credentials, which is the one committed
- * value that *raises* effective privilege (a committed `agent: <name>` can at
- * worst 403, since names resolve against the caller's own agents).
- */
-export const PROJECT_USER_SENTINEL = ".user";
-
-/**
  * Schema for `.me/config.yaml`. Every field is optional — a `.me` may pin only a
  * `tree`, inheriting server/space from the global config. A present-but-invalid
  * field, an unparseable YAML, OR an unknown/misspelled key is a fatal
@@ -85,11 +71,12 @@ const projectConfigSchema = z
      */
     tree: z.string().min(1).regex(TREE_PATH_RE).optional(),
     /**
-     * The project's default agent to act as. Wired as the *value source* for the
-     * `.me` sentinel: `--as-agent .me` / `ME_AS_AGENT=.me` resolves to this id
-     * and is sent as `X-Me-As-Agent`. It never activates agent mode on its own —
-     * a bare `.me` `agent` present in the tree does not put `me` in agent mode
-     * (activation is always explicit via the flag/env).
+     * Legacy field, terminally deprecated. Accepted here so an existing
+     * `.me/config.yaml` from a pre-TNT-244 CLI still validates, and preserved
+     * on yaml round-trip by {@link writeProjectConfig}, but never emitted by a
+     * new writer and never read by any code path — it does not select a
+     * credential, target a principal, or affect authorization. Safe to remove
+     * from your `.me/config.yaml`.
      */
     agent: z.string().min(1).optional(),
     /**
@@ -153,12 +140,10 @@ export class ProjectConfigError extends Error {
 /**
  * Read + validate one `.me` config file. Returns undefined when the file is
  * absent; throws {@link ProjectConfigError} when it exists but is invalid
- * YAML, fails schema validation, or — for the **committed** file only — pins
- * the fatal `agent: .user` sentinel (see {@link PROJECT_USER_SENTINEL}).
+ * YAML or fails schema validation.
  */
 function readConfigFile(
   path: string,
-  opts: { allowUserSentinel: boolean },
 ): z.infer<typeof projectConfigSchema> | undefined {
   if (!existsSync(path)) return undefined;
   let raw: unknown;
@@ -177,13 +162,6 @@ function readConfigFile(
       : "";
     throw new ProjectConfigError(
       `${path} is invalid${where}: ${issue?.message ?? "does not match the .me/config.yaml schema"}`,
-    );
-  }
-  if (!opts.allowUserSentinel && parsed.data.agent === PROJECT_USER_SENTINEL) {
-    throw new ProjectConfigError(
-      `${path}: "agent: ${PROJECT_USER_SENTINEL}" is not allowed in the committed .me/config.yaml — it would silently switch every ` +
-        `cloning teammate's harness surfaces to their own full user credentials. Use .me/config.local.yaml, the global ` +
-        `~/.config/me/config.yaml, or an explicit --as-agent ${PROJECT_USER_SENTINEL} / ME_AS_AGENT=${PROJECT_USER_SENTINEL} instead.`,
     );
   }
   return parsed.data;
@@ -222,14 +200,9 @@ export function discoverProjectConfig(
 ): ProjectConfig | undefined {
   const dir = configDir ? resolve(configDir) : findConfigRoot(startDir);
   if (!dir) return undefined;
-  const committed = readConfigFile(join(dir, CONFIG_DIRNAME, CONFIG_FILENAME), {
-    allowUserSentinel: false,
-  });
+  const committed = readConfigFile(join(dir, CONFIG_DIRNAME, CONFIG_FILENAME));
   const local = readConfigFile(
     join(dir, CONFIG_DIRNAME, LOCAL_CONFIG_FILENAME),
-    {
-      allowUserSentinel: true,
-    },
   );
   if (!committed && !local) return undefined;
   return { ...committed, ...local, dir };
@@ -261,10 +234,9 @@ export function writeProjectSpace(
   // readConfigFile re-validates; a malformed file throws ProjectConfigError
   // here just as it does on read.
   const target =
-    readConfigFile(localPath, { allowUserSentinel: true })?.space !== undefined
+    readConfigFile(localPath)?.space !== undefined
       ? localPath
-      : readConfigFile(committedPath, { allowUserSentinel: false })?.space !==
-          undefined
+      : readConfigFile(committedPath)?.space !== undefined
         ? committedPath
         : undefined;
   if (!target) return undefined;
@@ -278,7 +250,10 @@ export function writeProjectSpace(
 }
 
 /** The writable fields of a `.me/config.yaml` (everything but `dir`). */
-export type ProjectConfigValues = z.infer<typeof projectConfigSchema>;
+export type ProjectConfigValues = Omit<
+  z.infer<typeof projectConfigSchema>,
+  "agent"
+>;
 
 /**
  * Create-or-update the **committed** `.me/config.yaml` under `projectRoot`,
@@ -301,17 +276,15 @@ export function writeProjectConfig(
 ): string {
   const dir = join(projectRoot, CONFIG_DIRNAME);
   const path = join(dir, CONFIG_FILENAME);
-  // A malformed existing file throws here (same error as on read) rather
-  // than being silently replaced. This targets the committed file, so the
-  // fatal `.user` gate applies.
-  readConfigFile(path, { allowUserSentinel: false });
+  // A malformed existing file throws here rather than being silently replaced.
+  readConfigFile(path);
 
   // An empty seed yields block style ("key: value" lines) once keys are set.
   const doc = existsSync(path)
     ? parseDocument(readFileSync(path, "utf-8"))
     : parseDocument("");
   for (const [key, value] of Object.entries(values)) {
-    if (value !== undefined) doc.set(key, value);
+    if (key !== "agent" && value !== undefined) doc.set(key, value);
   }
 
   const merged = projectConfigSchema.safeParse(doc.toJS());
@@ -322,13 +295,6 @@ export function writeProjectConfig(
       : "";
     throw new ProjectConfigError(
       `refusing to write ${path}${where}: ${issue?.message ?? "does not match the .me/config.yaml schema"}`,
-    );
-  }
-  if (merged.data.agent === PROJECT_USER_SENTINEL) {
-    throw new ProjectConfigError(
-      `refusing to write ${path}: "agent: ${PROJECT_USER_SENTINEL}" is not allowed in the committed .me/config.yaml — it would ` +
-        `silently switch every cloning teammate's harness surfaces to their own full user credentials. Use ` +
-        `.me/config.local.yaml, the global ~/.config/me/config.yaml, or an explicit --as-agent ${PROJECT_USER_SENTINEL} instead.`,
     );
   }
 

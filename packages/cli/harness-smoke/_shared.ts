@@ -63,16 +63,11 @@ export function mkScratchDir(prefix: string): string {
   return realpathSync(mkdtempSync(join(tmpdir(), prefix)));
 }
 
-/** The four contract vars every adapter injects (see harness-contract.ts). */
-export const CONTRACT_VAR_NAMES = [
-  "ME_INJECT_V",
-  "AI_AGENT",
-  "ME_AS_AGENT",
-  "ME_PROJECT_DIR",
-] as const;
+/** The routing and metadata vars every adapter injects. */
+export const CONTRACT_VAR_NAMES = ["AI_AGENT", "ME_PROJECT_DIR"] as const;
 
 /**
- * A prompt instructing the model to reveal exactly the four contract vars
+ * A prompt instructing the model to reveal exactly the contract vars
  * via the shell, verbatim — deterministic and narrow enough that any
  * capable model follows it reliably, and easy to regex out of a noisy
  * response (we don't rely on the model NOT adding extra commentary).
@@ -84,16 +79,12 @@ export function markerPrompt(shellCommand: string): string {
   );
 }
 
-/** The shell command the prompt asks for: prints just our four vars. */
+/** The shell command the prompt asks for: prints just our contract vars. */
 export const REVEAL_COMMAND = `env | grep -E '^(${CONTRACT_VAR_NAMES.join("|")})='`;
 
 /**
- * `process.env` with the four contract vars stripped. These tests may
- * themselves run inside a live-injected harness session (e.g. this very
- * Claude Code session) — spawning the harness-under-test with that ambient
- * state inherited would make first-writer-wins skip re-injection for the
- * wrong reason (an outer session's contract, not the child's own). Build
- * every smoke test's child env from this, never raw `process.env`.
+ * `process.env` with the contract vars stripped. Build every smoke test's
+ * child env from this, never raw `process.env`.
  */
 export function cleanEnv(): Record<string, string> {
   const env: Record<string, string> = {};

@@ -14,7 +14,7 @@ Calls the user endpoint (`whoami`) and displays your name, email, principal ID, 
 
 The active space is shown as its display name and slug (with an `[admin]` marker when you are an admin of it) — the slug is resolved to the full space via `space.list`. If the stored active-space slug no longer matches one of your spaces (for example, you were removed), the line flags it as `(not found — …)`.
 
-The **auth method** reflects how the current credential authenticates: `session` (a `me login` OAuth session), `api key (PAT)` (a personal access token acting as you, via `ME_API_KEY`), `agent key` (a dedicated agent key), or `service-account key` (a team-owned service-account key).
+The **auth method** reflects how the current credential authenticates: `session` (a `me login` OAuth session), `api key (PAT)` (a personal access token acting as you, via `ME_API_KEY`), or `service-account key` (a team-owned service-account key).
 
 ```
 me whoami
@@ -27,7 +27,7 @@ me whoami
   Space:  Acme (6nnv8r3gz9jr) [admin]
 ```
 
-In `--json` / `--yaml` output the active space is available both as the `activeSpace` slug (unchanged) and a resolved `space` object (`null` when unset or unresolved), alongside an `auth` field (`session` | `pat` | `agent` | `service-account`).
+In `--json` / `--yaml` output the active space is available both as the `activeSpace` slug (unchanged) and a resolved `space` object (`null` when unset or unresolved), alongside an `auth` field (`session` | `pat` | `service-account`).
 
 Returns an error if you are not logged in. Set or change the active space with [`me space use`](me-space.md#me-space-use).
 

@@ -35,10 +35,8 @@ const EFFECTIVE_ACCESS = {
     id: "user-123",
     kind: "u" as const,
     name: "User",
-    ownerId: null,
     admin: false,
   },
-  authenticatedAs: null,
   access: [],
 };
 

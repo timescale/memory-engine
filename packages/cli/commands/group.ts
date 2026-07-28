@@ -1,7 +1,7 @@
 /**
  * me group — manage groups in the active space.
  *
- * Groups bundle members (users / agents) so a single tree-access grant covers
+ * Groups bundle members (users / service accounts) so a single tree-access grant covers
  * everyone in the group. Group membership does not by itself make someone a
  * space member — a group's grants apply only to members who have also joined the
  * space directly (see AGENTS.md); joining is the single membership path.
@@ -11,11 +11,11 @@
  * - me group create <name>:              create a group
  * - me group rename <group> <new-name>:  rename a group
  * - me group delete <group>:             delete a group
- * - me group add <group> <member> [--admin]: add a member (user/agent)
+ * - me group add <group> <member> [--admin]: add a member
  * - me group remove <group> <member>:    remove a member
  * - me group members <group>:            list a group's members
  *
- * <group> is a group id or name; <member> is a user/agent id or name (a UUID is
+ * <group> is a group id or name; <member> is a user or service-account id or name (a UUID is
  * always accepted; name resolution requires space-manager authority).
  */
 import * as clack from "@clack/prompts";
@@ -248,9 +248,9 @@ function createGroupDeleteCommand(): Command {
 
 function createGroupAddCommand(): Command {
   return new Command("add")
-    .description("add a member (user/agent) to a group")
+    .description("add a member to a group")
     .argument("<group>", "group id or name")
-    .argument("<member>", "user/agent id or name")
+    .argument("<member>", "user or service-account id or name")
     .option("--admin", "make them a group admin (can manage group membership)")
     .action(async (group: string, member: string, opts, cmd) => {
       const globalOpts = cmd.optsWithGlobals();
@@ -284,7 +284,7 @@ function createGroupRemoveCommand(): Command {
     .alias("rm-member")
     .description("remove a member from a group")
     .argument("<group>", "group id or name")
-    .argument("<member>", "user/agent id or name")
+    .argument("<member>", "user or service-account id or name")
     .action(async (group: string, member: string, _opts, cmd) => {
       const globalOpts = cmd.optsWithGlobals();
       const creds = resolveCredentials(globalOpts.server);

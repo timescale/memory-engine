@@ -318,7 +318,6 @@ test("writeProjectConfig creates .me/config.yaml (and the dir) from scratch", ()
     server: "https://api.example.com",
     space: "sp_abc",
     tree: "/share/projects/foo",
-    agent: "foo-agent",
     capture: true,
   });
   expect(path).toBe(join(root, ".me", "config.yaml"));
@@ -327,8 +326,8 @@ test("writeProjectConfig creates .me/config.yaml (and the dir) from scratch", ()
   expect(cfg?.server).toBe("https://api.example.com");
   expect(cfg?.space).toBe("sp_abc");
   expect(cfg?.tree).toBe("/share/projects/foo");
-  expect(cfg?.agent).toBe("foo-agent");
   expect(cfg?.capture).toBe(true);
+  expect(readRaw(root)).not.toContain("agent:");
   // Block style, not a flow map.
   expect(readRaw(root)).toContain("space: sp_abc\n");
 });
@@ -342,17 +341,17 @@ test("writeProjectConfig updates only the provided keys on an existing file", ()
   expect(cfg?.server).toBe("https://old.example.com"); // untouched
 });
 
-test("writeProjectConfig preserves comments on an existing file", () => {
+test("writeProjectConfig preserves comments and a legacy agent field", () => {
   writeConfig(
     root,
-    "# team config\nserver: https://api.example.com # prod\nspace: sp_old\n",
+    "# team config\nserver: https://api.example.com # prod\nspace: sp_old\nagent: old-coder\n",
   );
-  writeProjectConfig(root, { space: "sp_new", agent: "a1" });
+  writeProjectConfig(root, { space: "sp_new" });
   const raw = readRaw(root);
   expect(raw).toContain("# team config");
   expect(raw).toContain("# prod");
   expect(raw).toContain("space: sp_new");
-  expect(raw).toContain("agent: a1");
+  expect(raw).toContain("agent: old-coder");
 });
 
 test("writeProjectConfig validates before writing (bad value → nothing written)", () => {
@@ -377,26 +376,11 @@ test("writeProjectConfig invalidates the process-wide memo", () => {
   expect(getProjectConfig()?.space).toBe("sp_after");
 });
 
-// =============================================================================
-// The committed `agent: .user` fatal gate
-// =============================================================================
-
-test("a committed agent: .user is a fatal ProjectConfigError", () => {
+test("a legacy agent value is accepted in committed and local config", () => {
   writeConfig(root, "agent: .user\n");
-  expect(() => discoverProjectConfig(root)).toThrow(ProjectConfigError);
-});
-
-test("agent: .user IS allowed in .me/config.local.yaml", () => {
-  writeConfig(root, "space: sp_abc\n");
-  writeConfig(root, "agent: .user\n", true);
   expect(discoverProjectConfig(root)?.agent).toBe(".user");
-});
-
-test("writeProjectConfig refuses to write a committed agent: .user", () => {
-  expect(() => writeProjectConfig(root, { agent: ".user" })).toThrow(
-    ProjectConfigError,
-  );
-  expect(existsSync(join(root, ".me", "config.yaml"))).toBe(false);
+  writeConfig(root, "agent: legacy-agent\n", true);
+  expect(discoverProjectConfig(root)?.agent).toBe("legacy-agent");
 });
 
 // =============================================================================

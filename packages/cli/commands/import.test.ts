@@ -81,7 +81,6 @@ const ROUTER_ENVS = [
   "ME_SPACE",
   "ME_SERVER",
   "ME_API_KEY",
-  "ME_AS_AGENT",
   "XDG_CONFIG_HOME",
   "ME_NO_KEYCHAIN",
   "ME_CONFIG_DIR",
@@ -133,7 +132,7 @@ describe("createSessionRouter", () => {
     projectsDir = mkdtempSync(join(tmpdir(), "me-router-proj-"));
     process.env.XDG_CONFIG_HOME = configDir;
     process.env.ME_NO_KEYCHAIN = "1";
-    for (const k of ["ME_SPACE", "ME_SERVER", "ME_API_KEY", "ME_AS_AGENT"]) {
+    for (const k of ["ME_SPACE", "ME_SERVER", "ME_API_KEY"]) {
       delete process.env[k];
     }
     delete process.env.ME_CONFIG_DIR;
@@ -178,8 +177,7 @@ describe("createSessionRouter", () => {
     const router = createSessionRouter({ base, buildClient });
     const d = await router(project("plain"));
     if ("skip" in d) throw new Error("expected route");
-    // Always a client from the project's own creds — never a reused one:
-    // the client carries the identity (asAgent), which can vary per project.
+    // Always use a client from the project's own routing credentials.
     expect(d.route.engine).not.toBe(base.engine);
     expect(d.route.tree).toBeUndefined();
     expect(built).toEqual([{ server: DEFAULT_SERVER, space: "basespace0001" }]);
@@ -237,28 +235,17 @@ describe("createSessionRouter", () => {
     expect(d).toMatchObject({ skip: "project_config_error" });
   });
 
-  test(".me agent sentinel: the project's agent rides on its client", async () => {
-    process.env.ME_AS_AGENT = ".me";
-    const base = makeBase({ asAgent: "runner-agent" });
-    const captured: Array<string | undefined> = [];
+  test("uses the project's credentials when building a session client", async () => {
+    const base = makeBase();
+    const captured: string[] = [];
     const buildClient = (c: ResolvedCredentials & { activeSpace: string }) => {
-      captured.push(c.asAgent);
+      captured.push(c.server);
       return { __built: captured.length } as unknown as MemoryClient;
     };
     const router = createSessionRouter({ base, buildClient });
-    const d = await router(project("agented", "agent: repo-a-agent\n"));
+    const d = await router(project("presented-credential"));
     if ("skip" in d) throw new Error("expected route");
-    expect(captured).toEqual(["repo-a-agent"]);
-  });
-
-  test(".me agent sentinel with no project agent skips (never kills the sweep)", async () => {
-    process.env.ME_AS_AGENT = ".me";
-    const base = makeBase({ asAgent: "runner-agent" });
-    const router = createSessionRouter({ base });
-    const d = await router(project("agentless"));
-    expect(d).toMatchObject({ skip: "project_config_error" });
-    if (!("skip" in d)) throw new Error("expected skip");
-    expect(d.detail).toContain("agent");
+    expect(captured).toEqual([DEFAULT_SERVER]);
   });
 
   test("no credentials for the project's server → skip", async () => {

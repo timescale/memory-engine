@@ -41,7 +41,6 @@ import { existsSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import * as clack from "@clack/prompts";
 import { Command } from "commander";
-import { ensureDefaultAgent } from "../agent/default-agent.ts";
 import type { StepAvailability } from "../agent/init.ts";
 import {
   HOOK_EVENT_NAMES,
@@ -54,15 +53,10 @@ import {
 import { createMemoryClient } from "../client.ts";
 import {
   resolveCredentials,
-  resolveHarnessAgent,
   setActiveSpace,
   setDefaultServer,
 } from "../credentials.ts";
-import {
-  buildContractVars,
-  isInjectionLive,
-  upsertContractBlock,
-} from "../harness-contract.ts";
+import { buildContractVars, upsertContractBlock } from "../harness-contract.ts";
 import { claudeImporter } from "../importers/claude.ts";
 import { importTranscriptFile } from "../importers/index.ts";
 import {
@@ -111,7 +105,7 @@ function createClaudeInstallCommand(): Command {
     )
     .option(
       "--api-key <key>",
-      "API key for a headless agent (default: use your login session at runtime)",
+      "API key for headless/CI use (default: use your login session at runtime)",
     )
     .option("--server <url>", "server URL to embed in the config")
     .option(
@@ -122,16 +116,11 @@ function createClaudeInstallCommand(): Command {
       "--dev",
       "install the plugin from the local checkout instead of the published marketplace (run from inside the repo)",
     )
-    .option(
-      "--no-default-agent",
-      "skip provisioning a default agent (agent: coder) for this install",
-    )
     .action(
       async (
         opts: AgentInstallOptions & {
           mcpOnly?: boolean;
           dev?: boolean;
-          defaultAgent?: boolean;
         },
         cmd: Command,
       ) => {
@@ -157,7 +146,6 @@ function createClaudeInstallCommand(): Command {
             server,
             space: opts.space,
             dev: opts.dev,
-            defaultAgent: opts.defaultAgent,
           },
           globalOpts,
         );
@@ -249,7 +237,7 @@ export function buildPluginConfig(
   if (!creds.loggedIn) {
     return {
       error:
-        "Not logged in. Run 'me login' (the plugin will use your session), or pass --api-key / set ME_API_KEY for a headless agent.",
+        "Not logged in. Run 'me login' (the plugin will use your session), or pass --api-key / set ME_API_KEY for headless/CI use.",
     };
   }
   const config: string[] = [];
@@ -439,19 +427,15 @@ export async function runClaudePluginInstall(
  *      (`setDefaultServer` / `setActiveSpace`) so the plugin's runtime
  *      fallbacks are deterministic. The private `~/projects` tree root and
  *      "no agent" are code defaults — nothing else is written.
- *   3. {@link ensureDefaultAgent} — provisions-or-adopts the machine-wide
- *      default agent (`coder`) so harness surfaces have an agent in scope by
- *      default (skippable with `--no-default-agent`).
- *   4. The shared capture opt-in ({@link runCapturePrompt}): ask (interactive
+ *   3. The shared capture opt-in ({@link runCapturePrompt}): ask (interactive
  *      TTY only; default = the current setting, initially off), persist the
  *      machine-wide flag, and on yes run a one-time machine-wide `me import
  *      claude` backfill (each project's sessions land under the same private
  *      `~/projects/<slug>` node live capture uses).
  *
- * A headless install (api key) skips 2–4: the config is baked into the plugin
+ * A headless install (api key) skips 2–3: the config is baked into the plugin
  * for whatever machine it runs on, and this machine's `~/.config/me` — the
- * operator's — is not necessarily the agent's (and the api key already IS an
- * agent — see {@link ensureDefaultAgent}). Capture is credential-agnostic
+ * operator's — is not necessarily the process that runs it. Capture is credential-agnostic
  * (`resolveCaptureEnabled`), so a headless deployment opts in via the same
  * flags as everyone else: a committed `.me` `capture: true` per project, or
  * `capture: true` in the target machine's `~/.config/me/config.yaml`.
@@ -459,9 +443,6 @@ export async function runClaudePluginInstall(
 export async function runClaudeInstallFlow(
   opts: AgentInstallOptions & {
     dev?: boolean;
-    defaultAgent?: boolean;
-    /** Set when called from `me project init`'s preflight — see
-     * {@link ensureDefaultAgent}'s matching option. */
     perProjectStepFollows?: boolean;
   },
   globalOpts: Record<string, unknown>,
@@ -477,13 +458,6 @@ export async function runClaudeInstallFlow(
   const space = opts.space ?? creds.activeSpace;
   if (space) setActiveSpace(creds.server, space);
 
-  if (opts.defaultAgent !== false) {
-    await ensureDefaultAgent(
-      { ...creds, activeSpace: space },
-      { perProjectStepFollows: opts.perProjectStepFollows },
-    );
-  }
-
   // Capture opt-in (shared with `me opencode install`): prompt, persist the
   // machine-wide flag, and backfill existing sessions on yes.
   await runCapturePrompt(claudeImporter, globalOpts, {
@@ -498,21 +472,14 @@ export async function runClaudeInstallFlow(
  * me claude env — invoked by the Claude Code plugin's SessionStart hook to
  * inject the harness contract into `$CLAUDE_ENV_FILE`, which Claude Code
  * sources before every Bash tool command — so a plain `me`
- * call from the agent's shell always resolves the right project
- * (`ME_PROJECT_DIR`, the discovery anchor) and always runs as the configured
- * agent (`ME_AS_AGENT=.me`, the ordinary sentinel).
- *
- * First-writer-wins: if a live `ME_INJECT_V` is already in THIS process's own
- * inherited env, this Claude session was itself spawned inside another
- * session's contract (a nested harness) — emit nothing rather than
- * clobbering it. Idempotent otherwise: SessionStart refires on resume and
- * `/clear`, and {@link upsertContractBlock} replaces its own block in place.
+ * call from the shell always resolves the right project (`ME_PROJECT_DIR`, the
+ * discovery anchor). Idempotent: SessionStart refires on resume and `/clear`,
+ * and {@link upsertContractBlock} replaces its own block in place.
  *
  * Fails open on anything unexpected — a missing `$CLAUDE_ENV_FILE`, an
  * unparseable/cwd-less event payload, or a write error (permission denied,
- * disk full) — since a broken injection must degrade to "no contract"
- * (caught by the failsafe), never break the session. Always exits 0; a
- * write error is logged to stderr but never propagates as a process failure.
+ * disk full) — it never breaks the session. Always exits 0; a write error is
+ * logged to stderr but never propagates as a process failure.
  */
 function createClaudeEnvCommand(): Command {
   return new Command("env")
@@ -520,8 +487,6 @@ function createClaudeEnvCommand(): Command {
       "invoked by Claude Code's SessionStart hook to inject the harness contract into $CLAUDE_ENV_FILE",
     )
     .action(async () => {
-      if (isInjectionLive()) process.exit(0);
-
       let event: HookEvent = {};
       try {
         event = JSON.parse(await Bun.stdin.text()) as HookEvent;
@@ -618,9 +583,6 @@ function createClaudeHookCommand(): Command {
         const creds = resolveCredentials();
         // The hook ships inert: exit 0 SILENTLY when capture is off — a
         // deliberate opt-out, distinct from the "no credentials" error below.
-        // Checked BEFORE resolving the agent below, so a project with capture
-        // off but no agent configured stays silent rather than logging a
-        // resolution error it doesn't need.
         const projectConfig = {
           space: project?.space,
           tree: project?.tree,
@@ -629,16 +591,7 @@ function createClaudeHookCommand(): Command {
         if (!resolveCaptureEnabled(creds, projectConfig)) {
           process.exit(0);
         }
-        // Capture is a harness surface like MCP, so it resolves the agent
-        // ambiently (project agent: → global agent:) rather than the
-        // explicit-only `creds.asAgent` — an unresolvable agent throws here,
-        // into the catch below (capture skips), instead of silently writing
-        // as the human.
-        config = resolveHookConfigFromEnv(
-          process.env,
-          { ...creds, asAgent: resolveHarnessAgent() },
-          projectConfig,
-        );
+        config = resolveHookConfigFromEnv(process.env, creds, projectConfig);
       } catch (error) {
         console.error(
           `[memory-engine] ${eventName}: ${error instanceof Error ? error.message : String(error)}`,
@@ -662,7 +615,6 @@ function createClaudeHookCommand(): Command {
           url: config.server,
           ...memoryBearer(config.server, config.apiKey),
           space: config.space,
-          asAgent: config.asAgent,
         });
         await importTranscriptFile(client, claudeImporter, transcriptPath, {
           treeRoot: config.treeRoot,

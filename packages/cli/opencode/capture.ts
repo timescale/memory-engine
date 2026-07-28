@@ -62,23 +62,12 @@ export interface HookConfig {
   tree?: string;
   /** content_mode=full_transcript → also store reasoning + tool calls/results. */
   fullTranscript: boolean;
-  /**
-   * Act-as-agent target (X-Me-As-Agent) — captures then write as that agent,
-   * constrained to its access. Undefined when not in agent mode.
-   */
-  asAgent?: string;
 }
 
 /** The slice of resolved credentials the hook needs. */
 export type HookCreds = Pick<
   ResolvedCredentials,
-  | "server"
-  | "apiKey"
-  | "activeSpace"
-  | "loggedIn"
-  | "tree"
-  | "treeRoot"
-  | "asAgent"
+  "server" | "apiKey" | "activeSpace" | "loggedIn" | "tree" | "treeRoot"
 >;
 
 /** Optional knobs the plugin/command passes through. */
@@ -120,6 +109,5 @@ export function resolveHookConfig(
     treeRoot,
     tree,
     fullTranscript,
-    asAgent: creds.asAgent,
   };
 }

@@ -4,7 +4,7 @@
  * Common patterns used across multiple command files:
  * - Session / active-space validation
  * - Memory / user client construction
- * - Principal / agent / service-account resolution
+ * - Principal and service-account resolution
  * - Error handling
  */
 import { writeSync } from "node:fs";
@@ -13,19 +13,12 @@ import * as clack from "@clack/prompts";
 import { stringify as yamlStringify } from "yaml";
 import type { MemoryClient, UserClient } from "./client.ts";
 import { createMemoryClient, createUserClient, RpcError } from "./client.ts";
-import {
-  clearTokens,
-  isAsAgentRequested,
-  type ResolvedCredentials,
-} from "./credentials.ts";
+import { clearTokens, type ResolvedCredentials } from "./credentials.ts";
 import type { OutputFormat } from "./output.ts";
-import { output } from "./output.ts";
 import { memoryBearer, userBearer } from "./session.ts";
 
 const UUIDV7_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-
-const ACT_AS_AGENT_UNSUPPORTED = "ACT_AS_AGENT_UNSUPPORTED";
 
 function outputSync(data: unknown, fmt: Exclude<OutputFormat, "text">): void {
   const rendered =
@@ -33,30 +26,6 @@ function outputSync(data: unknown, fmt: Exclude<OutputFormat, "text">): void {
       ? JSON.stringify(data, null, 2)
       : yamlStringify(data, { lineWidth: 0 }).trimEnd();
   writeSync(1, `${rendered}\n`);
-}
-
-/**
- * `login` / `logout` mutate the local human session store, so they are explicit
- * exceptions to ambient act-as-agent mode. Refuse before opening a browser or
- * clearing tokens; normal RPC commands should keep forwarding X-Me-As-Agent.
- */
-export async function rejectActAsAgentForSessionCommand(
-  command: "login" | "logout",
-  fmt: OutputFormat,
-): Promise<void> {
-  if (!isAsAgentRequested()) return;
-
-  const message = `me ${command} manages your user session and cannot run in act-as-agent mode. Unset ME_AS_AGENT or omit --as-agent, then run me ${command} again.`;
-  if (fmt === "text") {
-    clack.log.error(message);
-  } else {
-    await output(
-      { error: message, code: ACT_AS_AGENT_UNSUPPORTED },
-      fmt,
-      () => {},
-    );
-  }
-  process.exit(1);
 }
 
 /**
@@ -86,10 +55,9 @@ export function requireSession(
  * Ensure the caller can authenticate. Exits with an error if not.
  *
  * Both RPC endpoints accept either bearer: an api key (ME_API_KEY — a user PAT
- * or an agent key) or a logged-in human session. This is the gate for every
- * command except api-key mint/revoke (see {@link requireSession}). The server
- * decides what a given credential may do (e.g. it 403s an agent key on the user
- * RPC); the CLI only checks that *some* credential is present.
+ * or a logged-in human session. This is the gate for every command except
+ * api-key mint/revoke (see {@link requireSession}). The CLI only checks that
+ * some credential is present; the server decides what it may do.
  */
 export function requireAuth(
   creds: ResolvedCredentials,
@@ -136,7 +104,6 @@ export function buildUserClient(creds: ResolvedCredentials): UserClient {
   return createUserClient({
     url: creds.server,
     ...userBearer(creds.server, creds.apiKey),
-    asAgent: creds.asAgent,
   });
 }
 
@@ -154,7 +121,6 @@ export function buildMemoryClient(
     url: creds.server,
     ...memoryBearer(creds.server, creds.apiKey),
     space: creds.activeSpace,
-    asAgent: creds.asAgent,
     // Bulk imports send 1000-memory batchCreate chunks that the server
     // processes row-by-row; on a loaded server (or one far from its
     // database) a chunk can legitimately exceed the client's 30s default.
@@ -164,9 +130,9 @@ export function buildMemoryClient(
 
 /**
  * Resolve a principal in the active space to its id. Accepts a UUIDv7 (used
- * as-is) or a name — for users the name is their email; for agents/groups/service
+ * as-is) or a name — for users the name is their email; for groups/service
  * accounts it is the display name. Optionally constrained to a kind
- * ('u' | 'a' | 'g' | 's'). Uses
+ * ('u' | 'g' | 's'). Uses
  * principal.resolve (a targeted lookup any space member may call). Exits with an
  * actionable error on miss / ambiguity.
  */
@@ -174,7 +140,7 @@ export async function resolveSpacePrincipalId(
   memory: MemoryClient,
   input: string,
   fmt: OutputFormat,
-  kind?: "u" | "a" | "g" | "s",
+  kind?: "u" | "g" | "s",
 ): Promise<string> {
   if (UUIDV7_RE.test(input)) return input;
 
@@ -206,7 +172,7 @@ export async function resolveSpacePrincipalId(
 }
 
 /**
- * Resolve a space *member* (user, agent, or service account) to its id, by UUIDv7 or name. Like
+ * Resolve a space *member* (user or service account) to its id, by UUIDv7 or name. Like
  * {@link resolveSpacePrincipalId} but excludes groups — for call sites where a
  * group is never a valid target (group membership, which isn't nestable, and
  * space-roster removal, where a group leaves only via `me group delete`). A bare
@@ -232,11 +198,11 @@ export async function resolveSpaceMemberId(
     const onlyGroup = principals.some((p) => p.kind === "g");
     // Context-neutral wording: this helper backs both group-membership and
     // space-roster call sites, so it says only that a group isn't a valid
-    // user/agent/service-account target (the per-command remedy — `me group
+    // user/service-account target (the per-command remedy — `me group
     // delete` vs. not a group member — differs and is documented on each
     // command).
     const msg = onlyGroup
-      ? `'${input}' is a group, not a user, agent, or service account.`
+      ? `'${input}' is a group, not a user or service account.`
       : `No member named '${input}' in this space.`;
     if (fmt === "text") {
       clack.log.error(msg);
@@ -292,35 +258,6 @@ export async function resolveServiceAccountId(
     matches.length === 0
       ? `No service account named '${input}' in the active space.`
       : `Multiple service accounts named '${input}'. Use the service account id instead.`;
-  if (fmt === "text") {
-    clack.log.error(msg);
-    if (matches.length > 1)
-      for (const a of matches) console.log(`  ${a.name} — ${a.id}`);
-  } else {
-    outputSync({ error: msg, matches }, fmt);
-  }
-  process.exit(1);
-}
-
-/**
- * Resolve one of the caller's agents to its id, by UUIDv7 or name (agent names
- * are unique per user). Exits with an actionable error on miss / ambiguity.
- */
-export async function resolveAgentId(
-  user: UserClient,
-  input: string,
-  fmt: OutputFormat,
-): Promise<string> {
-  if (UUIDV7_RE.test(input)) return input;
-  const { agents } = await user.agent.list();
-  const lower = input.toLowerCase();
-  const matches = agents.filter((a) => a.name.toLowerCase() === lower);
-  if (matches.length === 1 && matches[0]) return matches[0].id;
-
-  const msg =
-    matches.length === 0
-      ? `No agent named '${input}'. Run 'me agent list'.`
-      : `Multiple agents named '${input}'. Use the agent id instead.`;
   if (fmt === "text") {
     clack.log.error(msg);
     if (matches.length > 1)
@@ -416,7 +353,7 @@ function isForbidden(error: unknown): boolean {
 /**
  * Which credential surface a command authenticates against — drives the
  * `UNAUTHORIZED` guidance:
- *   - `account`: a user-RPC call (e.g. whoami, agent.*, apiKey.*, space.*). A 401 here
+ *   - `account`: a user-RPC call (e.g. whoami, apiKey.*, space.*). A 401 here
  *     is unambiguously a credential problem.
  *   - `space`: a memory-RPC call (e.g. group.*, access.*, memory.*, principal.*, grant.*, invite.*). A 401 here is
  *     a bad credential and for an unknown/unset space (it resolves the space
@@ -471,23 +408,6 @@ export function describeAuthError(
   return {
     message: "Session expired. Run 'me login' to sign in again.",
     clearSession: true,
-  };
-}
-
-/**
- * Make account-management denials clearer when a human credential is explicitly
- * acting as an agent. Space-scoped denials keep the server's precise access
- * message because those may be fixed by granting the agent more access.
- */
-export function describeForbiddenError(
-  error: unknown,
-  creds: ResolvedCredentials,
-  scope: AuthScope,
-): { message: string; code: string } | null {
-  if (!isForbidden(error) || scope !== "account" || !creds.asAgent) return null;
-  return {
-    message: `Acting as agent '${creds.asAgent}'; this operation requires your user account. Unset ME_AS_AGENT or omit --as-agent to run it as your user account.`,
-    code: "FORBIDDEN",
   };
 }
 
@@ -554,16 +474,6 @@ export function handleError(
       if (auth.clearSession) clearTokens(opts.creds.server);
       msg = auth.message;
       code = "UNAUTHORIZED";
-    } else {
-      const forbidden = describeForbiddenError(
-        error,
-        opts.creds,
-        opts.scope ?? "account",
-      );
-      if (forbidden) {
-        msg = forbidden.message;
-        code = forbidden.code;
-      }
     }
   }
 

@@ -67,7 +67,6 @@ Detailed agent instructions: ${DOCS_BASE}/mcp/agent-instructions.md`;
 interface McpRuntimeContext {
   server: string;
   space: string;
-  asAgent?: string;
 }
 
 function registerTools(
@@ -82,7 +81,7 @@ function registerTools(
       title: "Memory Context",
       description: `Inspect the current Memory Engine execution context.
 
-Returns the active server and space, acting principal, authenticated-as identity when using act-as-agent mode, and effective tree access paths/levels.
+Returns the active server and space, presented principal, and effective tree access paths/levels.
 
 Call this before choosing where to store memories or when diagnosing empty search results and permission failures.
 
@@ -97,13 +96,7 @@ Docs: ${docUrl("me_memory_context")}`,
     },
     async () => {
       const result = await client.access.effective({});
-      const mode = result.authenticatedAs
-        ? "act-as-agent"
-        : result.principal.kind === "a"
-          ? "agent"
-          : result.principal.kind === "s"
-            ? "service-account"
-            : "user";
+      const mode = result.principal.kind === "s" ? "service-account" : "user";
       return {
         content: [
           {
@@ -112,7 +105,6 @@ Docs: ${docUrl("me_memory_context")}`,
               {
                 server: runtime.server,
                 activeSpace: runtime.space,
-                asAgentConfigured: runtime.asAgent ?? null,
                 mode,
                 ...result,
               },
@@ -1266,18 +1258,13 @@ export interface McpServerOptions {
   /** Base server URL. */
   server: string;
   /**
-   * Bearer source — a static agent api key, or the human's OAuth access token
+   * Bearer source — a static API key, or the user's OAuth access token
    * refreshed by expiry (and once reactively on a 401). The MCP server is
    * long-lived, so the access token is resolved per call rather than baked in.
    */
   bearer: BearerSource;
   /** Active space slug (sent as X-Me-Space). */
   space: string;
-  /**
-   * Act-as-agent target (sent as X-Me-As-Agent) — a human bearer is then
-   * authorized as that agent. Undefined when not in agent mode.
-   */
-  asAgent?: string;
 }
 
 /**
@@ -1289,7 +1276,6 @@ export async function runMcpServer(options: McpServerOptions): Promise<void> {
     getToken: options.bearer.getToken,
     onUnauthorized: options.bearer.onUnauthorized,
     space: options.space,
-    asAgent: options.asAgent,
   });
 
   const mcpServer = new McpServer(
@@ -1305,7 +1291,6 @@ export async function runMcpServer(options: McpServerOptions): Promise<void> {
   registerTools(mcpServer, client, {
     server: options.server,
     space: options.space,
-    asAgent: options.asAgent,
   });
 
   const transport = new StdioServerTransport();

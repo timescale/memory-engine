@@ -23,18 +23,14 @@
  * output, but {@link GeminiEnvHookResult.unrecognizedShape} is set so the
  * caller can log it).
  */
-import {
-  buildContractVars,
-  isInjectionLive,
-  renderExportPrefix,
-} from "../harness-contract.ts";
+import { buildContractVars, renderExportPrefix } from "../harness-contract.ts";
 
 /** The Gemini tool name we rewrite (a shell execution). */
 const SHELL_TOOL_NAME = "run_shell_command";
 
-/** The harness identity we inject (`AI_AGENT`) — matches the design's own
- * convention, distinct from `@vercel/detect-agent`'s native-marker "gemini"
- * (see harness-detect.ts's naming note). */
+/** Inert harness-identity metadata written to `AI_AGENT`. Distinct from
+ * `@vercel/detect-agent`'s bare "gemini" marker so consumers can tell the
+ * Gemini CLI apart from other Gemini surfaces at a glance. */
 const HARNESS_NAME = "gemini-cli";
 
 export interface GeminiEnvHookResult {
@@ -57,11 +53,8 @@ interface RawBeforeToolPayload {
  */
 export function buildGeminiEnvHookOutput(
   payload: unknown,
-  env: NodeJS.ProcessEnv,
+  _env: NodeJS.ProcessEnv,
 ): GeminiEnvHookResult {
-  // First-writer-wins — see codex/env-hook.ts's identical comment.
-  if (isInjectionLive(env)) return {};
-
   if (
     payload === null ||
     typeof payload !== "object" ||

@@ -1,11 +1,11 @@
 /**
  * ONE-OFF, MANUAL smoke test: does a real Claude Code session actually
- * source `$CLAUDE_ENV_FILE` before a Bash tool call, with our four contract
+ * source `$CLAUDE_ENV_FILE` before a Bash tool call, with our contract
  * vars visible in that command's real environment?
  *
  * Verified live against Claude Code 2.1.205 — the SessionStart hook fires,
  * `me claude env` writes the contract file, and it's sourced before the
- * Bash tool call with all four vars visible. Not part of `check`/
+ * Bash tool call with both vars visible. Not part of `check`/
  * `check:full`/CI — see _shared.ts's module doc and CLAUDE.md's "Harness
  * smoke tests" section for how/why to run this.
  *
@@ -83,9 +83,7 @@ test.skipIf(!smokeTestsEnabled() || !CLAUDE_BIN)(
         vars.AI_AGENT,
         `stdout was:\n${stdout}\nstderr was:\n${stderr}`,
       ).toBe("claude");
-      expect(vars.ME_AS_AGENT).toBe(".me");
       expect(vars.ME_PROJECT_DIR).toBe(projectDir);
-      expect(vars.ME_INJECT_V).toBeTruthy();
     } finally {
       rmSync(projectDir, { recursive: true, force: true });
       rmSync(meBinDir, { recursive: true, force: true });

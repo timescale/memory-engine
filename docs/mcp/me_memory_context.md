@@ -14,8 +14,7 @@ This tool takes no parameters.
 {
   "server": "https://api.memory.build",
   "activeSpace": "6nnv8r3gz9jr",
-  "asAgentConfigured": "coder",
-  "mode": "act-as-agent",
+  "mode": "user",
   "space": {
     "id": "019f...",
     "slug": "6nnv8r3gz9jr",
@@ -23,15 +22,9 @@ This tool takes no parameters.
   },
   "principal": {
     "id": "019f...",
-    "kind": "a",
-    "name": "coder",
-    "ownerId": "019d...",
-    "admin": false
-  },
-  "authenticatedAs": {
-    "id": "019d...",
     "kind": "u",
-    "name": "alice@example.com"
+    "name": "alice@example.com",
+    "admin": false
   },
   "access": [
     {
@@ -47,11 +40,9 @@ This tool takes no parameters.
 |-------|------|-------------|
 | `server` | `string` | Server URL configured for this MCP server. |
 | `activeSpace` | `string` | Active space slug sent as `X-Me-Space`. |
-| `asAgentConfigured` | `string \| null` | Configured act-as-agent value, if the MCP server is sending one. |
-| `mode` | `string` | `user`, `agent`, `service-account`, or `act-as-agent`. |
+| `mode` | `string` | `user` or `service-account`. |
 | `space` | `object` | Active space id, slug, and display name. |
-| `principal` | `object` | Principal the memory tools are acting as. `kind` is `u` for user, `a` for agent, or `s` for service account. |
-| `authenticatedAs` | `object \| null` | User identity behind act-as-agent mode. Null for direct user, agent-key, and service-account-key calls. |
+| `principal` | `object` | Principal the memory tools are acting as. `kind` is `u` for user or `s` for service account. |
 | `access` | `array` | Effective tree access paths for the acting principal. |
 
 Each access row contains:
@@ -67,10 +58,10 @@ Each access row contains:
 - Before storing a memory when the writable tree is unclear.
 - When `me_memory_search` returns fewer results than expected.
 - When create, update, move, or delete fails because the chosen tree is not writable.
-- When agent instructions mention a tree layout but the active space may use different grants.
+- When project instructions mention a tree layout but the active space may use different grants.
 
 ## Notes
 
 - This is a read-only operation.
-- The access list is effective access, not just direct grants. It includes access inherited through groups and agent access after owner clamping.
+- The access list is effective access, not just direct grants. It includes access inherited through groups.
 - Empty access means the principal is a member of the space but has no readable or writable tree paths.

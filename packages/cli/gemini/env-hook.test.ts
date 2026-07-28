@@ -19,24 +19,10 @@ test("rewrites a run_shell_command with the export prefix", () => {
     hookSpecificOutput: {
       tool_input: {
         command:
-          'export ME_INJECT_V="1" AI_AGENT="gemini-cli" ME_AS_AGENT=".me" ME_PROJECT_DIR="/repo/project"; npm test',
+          'export AI_AGENT="gemini-cli" ME_PROJECT_DIR="/repo/project"; npm test',
       },
     },
   });
-});
-
-test("first-writer-wins: emits nothing when the contract is already live", () => {
-  const result = buildGeminiEnvHookOutput(VALID_PAYLOAD, {
-    ME_INJECT_V: "1",
-    ME_AS_AGENT: ".me",
-    ME_PROJECT_DIR: "/other/project",
-  });
-  expect(result).toEqual({});
-});
-
-test("a PARTIALLY live contract (ME_INJECT_V alone) does NOT trigger first-writer-wins", () => {
-  const result = buildGeminiEnvHookOutput(VALID_PAYLOAD, { ME_INJECT_V: "1" });
-  expect(result.output).toBeDefined();
 });
 
 test("expected non-match: a non-shell tool call emits nothing, no log", () => {
@@ -96,9 +82,7 @@ test("the rewritten command, when actually executed by a real shell, sets the en
     const idx = line.indexOf("=");
     if (idx !== -1) env[line.slice(0, idx)] = line.slice(idx + 1);
   }
-  expect(env.ME_INJECT_V).toBe("1");
   expect(env.AI_AGENT).toBe("gemini-cli");
-  expect(env.ME_AS_AGENT).toBe(".me");
   expect(env.ME_PROJECT_DIR).toBe("/repo/project");
 });
 

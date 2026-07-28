@@ -47,7 +47,6 @@ const COMMAND_DOCS: Record<string, string | null> = {
   createInviteCommand: "me-invite",
   createGroupCommand: "me-group",
   createAccessCommand: "me-access",
-  createAgentCommand: "me-agent",
   createServiceCommand: "me-service",
   createApiKeyCommand: "me-apikey",
   createMemoryCommand: "me-memory",

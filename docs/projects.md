@@ -5,7 +5,7 @@ not a separate object in the server: a project is a tree path, usually recorded
 in the repo's `.me/config.yaml`, plus the grants that decide who can write there.
 
 Run [`me project init`](cli/me-project.md) from a repository to write the project
-config, set up an agent, enable capture, and optionally configure CI imports.
+config, enable capture, and optionally configure CI imports.
 The main choice is where the project's tree should live.
 
 Some layouts need help from a **space admin** or a path owner. You can run the
@@ -119,23 +119,6 @@ A single write grant is enough when the same group should both read and write:
 Put personal project notes under `~/projects/<project>` when they are only for
 you.
 
-## Project Agents
-
-`me project init` writes an `agent:` field so AI tools can act as a dedicated
-agent for the repo. Agents are owned by individual users, so a committed agent
-name works for the teammate who created it. Other teammates should run
-`me project init` too, choosing an existing agent or creating their own.
-
-When creating a new agent, choose the scope that matches the project layout:
-
-- **Whole-space agent** — useful when you want one agent to work across all
-  project trees you can access.
-- **Project-only agent** — grants the agent write access only at this project's
-  tree.
-
-Agent access is still capped by the owner's access, so an agent cannot write a
-group-writable project unless its owner can write that project too.
-
 ## CI Imports
 
 For git-history and docs imports, run:
@@ -144,7 +127,7 @@ For git-history and docs imports, run:
 me project ci
 ```
 
-CI runs as a service account, not as a human or agent. Service accounts do not
+CI runs as a service account. Service accounts do not
 join `team` and do not get a home tree, so `me project ci` creates or verifies a
 write grant for the service account at the configured project tree.
 

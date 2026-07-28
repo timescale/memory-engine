@@ -14,17 +14,15 @@ When an AI tool launches `me mcp`, it spawns a child process that communicates o
 
 The AI agent never sees or handles credentials — it just calls MCP tools and gets results back.
 
-Each `me mcp` instance is locked to a single **space**, carried as the `X-Me-Space` header. The space is resolved from `--space` > `ME_SPACE` > your stored active space. Authentication is **either** an API key (`--api-key` or `ME_API_KEY`: user PAT, agent key, or service-account key) **or**, if no key is given, your stored `me login` session token — so a developer install needs no key at all. A restricted PAT or service-account key must declare the pinned space. The server URL defaults to `https://api.memory.build` but can be overridden with `--server` or `ME_SERVER`.
+Each `me mcp` instance is locked to a single **space**, carried as the `X-Me-Space` header. The space is resolved from `--space` > `ME_SPACE` > your stored active space. Authentication is either an API key (`--api-key` or `ME_API_KEY`: a user PAT or service-account key) or, if no key is given, your stored `me login` session token — so a developer install needs no key at all. A restricted PAT or service-account key must declare the pinned space. The server URL defaults to `https://api.memory.build` but can be overridden with `--server` or `ME_SERVER`.
 
-### Agent-by-config
-
-`me mcp` is a harness surface, so it acts as a configured **agent** automatically — no `--as-agent` flag needed. It resolves the project's [`.me/config.yaml`](project-config.md) `agent`, else your global `~/.config/me/config.yaml` `agent`, and sends every request as that agent (`X-Me-As-Agent`) — so an agent's memory work is attributable and scoped to its own grants, not yours. If neither config defines an `agent`, `me mcp` refuses to start. If the configured name is stale, ambiguous, or not admitted to the space, the server starts and the first tool call returns the authorization error so the agent can see and act on it. See [Project config](project-config.md#agent-by-config-and-the-agent-field) for the `.user` opt-out and how the default agent gets provisioned. This does not apply to API-key authentication: the key acts as its own principal and ignores agent-by-config impersonation. Use a restricted PAT or service-account key when the MCP process needs a credential-side access boundary.
+MCP calls always run as the principal represented by the presented credential. A normal local install uses your login session. For an unattended or restricted installation, pass a restricted PAT or service-account key and expose no stronger credential to that process.
 
 ## Setup
 
 ### Prerequisites
 
-Log in with `me login` and select a space — `me whoami` shows your active space and identity. That session is enough to run the MCP server locally. For an unattended install, mint an API key and pass it with `--api-key`. For least privilege, use a restricted PAT or service-account key, for example `me apikey create mcp --allow <space-slug>:/share/project:w`. Agent keys remain useful for a dedicated agent identity, but their limits come from the agent's grants rather than key declarations.
+Log in with `me login` and select a space — `me whoami` shows your active space and identity. That session is enough to run the MCP server locally. For an unattended install, mint an API key and pass it with `--api-key`. For least privilege, use a restricted PAT or service-account key, for example `me apikey create mcp --allow <space-slug>:/share/project:w`.
 
 The server defaults to `https://api.memory.build`. Pass `--server <url>` only if you're running a self-hosted server.
 
@@ -36,7 +34,7 @@ me codex install
 me gemini install
 ```
 
-These commands register Memory Engine with the named tool, writing a `me mcp` invocation into the tool's MCP configuration. By default they embed no key — the server uses your `me login` session at runtime. Pass `--api-key` to pin a user PAT, dedicated agent key, or service-account key instead, `--space <slug>` to pin a space, and `--server <url>` to pin a non-default server. For a restricted key, the pinned space must be one of its declarations.
+These commands register Memory Engine with the named tool, writing a `me mcp` invocation into the tool's MCP configuration. By default they embed no key — the server uses your `me login` session at runtime. Pass `--api-key` to pin a user PAT or service-account key instead, `--space <slug>` to pin a space, and `--server <url>` to pin a non-default server. For a restricted key, the pinned space must be one of its declarations.
 
 See the agent-specific command references for details: [`me opencode install`](cli/me-opencode.md#me-opencode-install), [`me codex install`](cli/me-codex.md#me-codex-install), and [`me gemini install`](cli/me-gemini.md#me-gemini-install).
 
