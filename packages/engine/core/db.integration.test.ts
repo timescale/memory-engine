@@ -87,6 +87,21 @@ test("grant + buildTreeAccess returns the search_memory jsonb shape", async () =
   expect(ta).toHaveLength(2);
 });
 
+test("buildTreeAccess returns grants in tree-path order", async () => {
+  const spaceId = await db.createSpace(randomSlug(), "Ordered");
+  const userId = await newUserId();
+  await db.createUser(userId, `ordered_${userId.slice(0, 8)}`);
+  await db.addPrincipalToSpace(spaceId, userId);
+  await db.grantTreeAccess(spaceId, userId, "zeta", 2);
+  await db.grantTreeAccess(spaceId, userId, "alpha", 1);
+
+  expect(await db.buildTreeAccess(userId, spaceId)).toEqual([
+    { tree_path: "alpha", access: 1 },
+    { tree_path: `home.${userId.replace(/-/g, "")}`, access: 3 },
+    { tree_path: "zeta", access: 2 },
+  ]);
+});
+
 test("group access flows through buildTreeAccess; removeGroupMember revokes it", async () => {
   const spaceId = await db.createSpace(randomSlug(), "T");
   const userId = await newUserId();
