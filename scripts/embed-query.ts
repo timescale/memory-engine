@@ -64,7 +64,9 @@ if (!apiKey) {
 
 const embedding = await generateEmbedding(query, {
   provider: "openai",
-  model: "text-embedding-3-small",
+  // Mirror the server's EMBEDDING_MODEL override so a query vector generated
+  // here matches the model that produced the stored vectors.
+  model: process.env.EMBEDDING_MODEL || "text-embedding-3-small",
   dimensions: 1536,
   apiKey,
   baseUrl: process.env.EMBEDDING_BASE_URL,

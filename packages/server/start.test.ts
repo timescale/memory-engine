@@ -17,6 +17,7 @@ const TOUCHED_ENV = [
   "EMBEDDING_TIMEOUT_MS",
   "EMBEDDING_MAX_PARALLEL_CALLS",
   "EMBEDDING_BASE_URL",
+  "EMBEDDING_MODEL",
 ] as const;
 
 describe("buildEmbeddingConfig", () => {
@@ -67,5 +68,29 @@ describe("buildEmbeddingConfig", () => {
     expect(() => buildEmbeddingConfig()).toThrow(
       "EMBEDDING_API_KEY is required",
     );
+  });
+
+  test("defaults model to text-embedding-3-small", () => {
+    expect(buildEmbeddingConfig().model).toBe("text-embedding-3-small");
+  });
+
+  test("forwards an explicit EMBEDDING_MODEL (gateway-namespaced name)", () => {
+    process.env.EMBEDDING_MODEL = "openai/text-embedding-3-small";
+    expect(buildEmbeddingConfig().model).toBe("openai/text-embedding-3-small");
+  });
+
+  test("falls back to the default model when EMBEDDING_MODEL is empty", () => {
+    process.env.EMBEDDING_MODEL = "";
+    expect(buildEmbeddingConfig().model).toBe("text-embedding-3-small");
+  });
+
+  test("keeps dimensions at 1536 regardless of the model override", () => {
+    process.env.EMBEDDING_MODEL = "openai/text-embedding-3-small";
+    expect(buildEmbeddingConfig().dimensions).toBe(1536);
+  });
+
+  test("forwards EMBEDDING_BASE_URL for gateway routing", () => {
+    process.env.EMBEDDING_BASE_URL = "https://openrouter.ai/api/v1";
+    expect(buildEmbeddingConfig().baseUrl).toBe("https://openrouter.ai/api/v1");
   });
 });
