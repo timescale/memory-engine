@@ -51,6 +51,20 @@ cp .env.sample .env
 Set the required values:
 
 - `EMBEDDING_API_KEY` — your OpenAI (or compatible) API key.
+- Optional: route embeddings through an OpenAI-compatible gateway instead of
+  OpenAI directly by setting `EMBEDDING_BASE_URL` plus `EMBEDDING_MODEL` (some
+  gateways namespace model names). For OpenRouter:
+
+  ```bash
+  EMBEDDING_BASE_URL=https://openrouter.ai/api/v1
+  EMBEDDING_MODEL=openai/text-embedding-3-small
+  EMBEDDING_API_KEY=<your OpenRouter key>
+  ```
+
+  The model must emit 1536-dim vectors (the stored column is `halfvec(1536)`)
+  and must be the same underlying model that produced your existing vectors —
+  switching to a genuinely different model puts stored and query vectors in
+  different vector spaces and silently degrades semantic search.
 - Optional: `EMBEDDING_TOKENIZE_THREADS` controls worker threads used for OpenAI
   tokenization/truncation. It auto-sizes by default
   (`max(1, min(available CPU cores - 1, 4))`); set `0` to run inline in very

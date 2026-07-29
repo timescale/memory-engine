@@ -73,6 +73,14 @@ function parseIntEnv(
  * Build the embedding config from environment variables. Requires
  * EMBEDDING_API_KEY (the server won't boot without it). Used as the default
  * when `StartServerOptions.embeddingConfig` is not supplied.
+ *
+ * The provider is always the OpenAI SDK client, which speaks the
+ * OpenAI-compatible /embeddings protocol — so pointing EMBEDDING_BASE_URL at a
+ * gateway (e.g. OpenRouter's https://openrouter.ai/api/v1) plus that gateway's
+ * key in EMBEDDING_API_KEY is all that's needed to route through it.
+ * EMBEDDING_MODEL exists because gateways rename models (OpenRouter wants
+ * "openai/text-embedding-3-small"). Dimensions stay fixed at 1536 to match the
+ * halfvec(1536) column — see embeddingConstants.
  */
 export function buildEmbeddingConfig(): EmbeddingConfig {
   const apiKey = process.env.EMBEDDING_API_KEY;
@@ -109,7 +117,7 @@ export function buildEmbeddingConfig(): EmbeddingConfig {
 
   return {
     provider: "openai",
-    model: embeddingConstants.model,
+    model: process.env.EMBEDDING_MODEL || embeddingConstants.model,
     dimensions: embeddingConstants.dimensions,
     apiKey,
     baseUrl: process.env.EMBEDDING_BASE_URL,
