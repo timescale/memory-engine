@@ -24,11 +24,11 @@ A session (non-headless) install ends with the shared **capture prompt** (defaul
 | Option | Description |
 |--------|-------------|
 | `--api-key <key>` | API key for a headless install. Default: the MCP server uses your `me login` session, resolved at runtime. |
-| `--space <slug>` | Pin a space. Default: resolve `ME_SPACE` / active space at runtime. |
+| `--space <slug>` | Lock MCP to this space. Without it, MCP is multi-space unless `ME_SPACE` is set. |
 | `--server <url>` | Server URL to embed in the MCP config. |
 | `--scope <scope>` | Where to write the config: `project` (`./opencode.json` at the repo root) or `user` (`~/.config/opencode/opencode.json`). Default: `user`. |
 
-By default only the server URL is baked into the config: at runtime `me mcp` uses your `me login` session (resolved from the OS keychain / `~/.config/me` each run, so it survives re-login) and your active space (set by `me space use` / `ME_SPACE`). Pass `--api-key` for a headless install that cannot reach your keychain; that bakes the key and requires a pinned `--space`. For least privilege, mint a restricted PAT or service-account key with `me apikey create --allow <space>:<path>:<r|w|o>`; the pinned space must be declared by that key.
+By default only the server URL is baked into the config: at runtime `me mcp` uses your `me login` session (resolved from the OS keychain / `~/.config/me` each run, so it survives re-login). MCP is multi-space unless the generated command includes `--space` or its environment sets `ME_SPACE`: agents call `me_space_list`, then pass `space` to every memory tool. Your active space does not select an MCP space. Pass `--space` to lock the MCP tools to one space. Pass `--api-key` for a headless install that cannot reach your keychain; it may also run multi-space. For least privilege, mint a restricted PAT or service-account key with `me apikey create --allow <space>:<path>:<r|w|o>`; a pinned space must be declared by that key.
 
 Use `--scope project` to write the `mcp.me` entry into the repo's `opencode.json` (instead of your global config) so it can be committed and shared with your team. Don't combine `--scope project` with a baked `--api-key` unless you intend to commit that key.
 

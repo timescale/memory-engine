@@ -8,6 +8,7 @@ Shows how memories are organized and how many exist at each level. Use this to u
 
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
+| `space` | `string` | varies | Absent in locked mode; required nonempty string in multi-space mode. It selects the same-server space for this call. |
 | `tree` | `string \| null` | no | Root path to display from (e.g., `/work/projects`). Omit or pass `null` for the full tree. |
 | `levels` | `integer \| null` | no | Maximum depth to display. Omit or pass `null` for unlimited. |
 

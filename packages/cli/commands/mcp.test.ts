@@ -1,5 +1,12 @@
 import { describe, expect, test } from "bun:test";
-import { blankFlag, isLegacyApiKey } from "./mcp.ts";
+import { Command } from "commander";
+import type { McpServerOptions } from "../mcp/server.ts";
+import {
+  blankFlag,
+  createMcpRunAction,
+  isLegacyApiKey,
+  resolveMcpSpace,
+} from "./mcp.ts";
 
 // blankFlag normalizes the plugin's `--server/--api-key/--space ${user_config.X}`
 // args: blank (or an unsubstituted placeholder) → undefined, so resolution falls
@@ -9,9 +16,18 @@ describe("blankFlag", () => {
     expect(blankFlag("")).toBeUndefined();
   });
 
+  test("whitespace-only string → undefined (falls back)", () => {
+    expect(blankFlag(" ")).toBeUndefined();
+    expect(blankFlag("   \t\n")).toBeUndefined();
+  });
+
   test("unsubstituted ${...} placeholder → undefined (falls back)", () => {
     expect(blankFlag("${user_config.server}")).toBeUndefined();
     expect(blankFlag("${user_config.api_key}")).toBeUndefined();
+  });
+
+  test("whitespace-padded ${...} placeholder → undefined (falls back)", () => {
+    expect(blankFlag("  ${user_config.space}  ")).toBeUndefined();
   });
 
   test("undefined / non-string → undefined", () => {
@@ -24,6 +40,13 @@ describe("blankFlag", () => {
       "https://me.dev-us-east-1.ops.dev.timescale.com",
     );
     expect(blankFlag("7plcwreyoxdd")).toBe("7plcwreyoxdd");
+  });
+
+  test("a whitespace-padded real value is trimmed", () => {
+    expect(blankFlag("  7plcwreyoxdd  ")).toBe("7plcwreyoxdd");
+    expect(blankFlag("\thttps://api.memory.build\n")).toBe(
+      "https://api.memory.build",
+    );
   });
 });
 
@@ -50,4 +73,92 @@ describe("isLegacyApiKey", () => {
       isLegacyApiKey(`me.BADSLUG78901.lookupid12345678.${"s".repeat(32)}`),
     ).toBe(false);
   });
+});
+
+describe("resolveMcpSpace", () => {
+  test("a --space flag locks the MCP tool surface", () => {
+    expect(resolveMcpSpace("flagspace001", undefined)).toEqual({
+      lockedSpace: "flagspace001",
+      spaceMode: "locked",
+    });
+  });
+
+  test("ME_SPACE locks the MCP tool surface", () => {
+    expect(resolveMcpSpace(undefined, "envspace0001")).toEqual({
+      lockedSpace: "envspace0001",
+      spaceMode: "locked",
+    });
+  });
+
+  test("a blank plugin flag starts multi-space mode", () => {
+    expect(resolveMcpSpace("${user_config.space}", undefined)).toEqual({
+      spaceMode: "multi",
+    });
+  });
+
+  test("no explicit space starts multi-space mode", () => {
+    expect(resolveMcpSpace(undefined, undefined)).toEqual({
+      spaceMode: "multi",
+    });
+  });
+
+  test("an empty ME_SPACE starts multi-space mode", () => {
+    expect(resolveMcpSpace(undefined, "")).toEqual({
+      spaceMode: "multi",
+    });
+  });
+
+  test("a whitespace-only ME_SPACE starts multi-space mode", () => {
+    expect(resolveMcpSpace(undefined, "   ")).toEqual({
+      spaceMode: "multi",
+    });
+  });
+
+  test("a --space flag wins over ME_SPACE when both are set", () => {
+    expect(resolveMcpSpace("flagspace001", "envspace0001")).toEqual({
+      lockedSpace: "flagspace001",
+      spaceMode: "locked",
+    });
+  });
+
+  test("a blank --space flag falls back to ME_SPACE", () => {
+    expect(resolveMcpSpace("${user_config.space}", "envspace0001")).toEqual({
+      lockedSpace: "envspace0001",
+      spaceMode: "locked",
+    });
+  });
+});
+
+test("MCP startup passes multi-space mode instead of an active-space default", async () => {
+  const previousSpace = process.env.ME_SPACE;
+  delete process.env.ME_SPACE;
+  try {
+    let received: McpServerOptions | undefined;
+    const action = createMcpRunAction({
+      resolveCredentials: () => ({
+        server: "https://api.example.com",
+        loggedIn: true,
+        activeSpace: "ignoredspace",
+        captureEnabled: false,
+      }),
+      memoryBearer: () => ({
+        getToken: async () => "token",
+        onUnauthorized: async () => undefined,
+      }),
+      runMcpServer: async (options) => {
+        received = options;
+      },
+    });
+    const command = new Command();
+    command.parse(["node", "test"]);
+
+    await action({}, command);
+    expect(received).toMatchObject({
+      server: "https://api.example.com",
+      spaceMode: "multi",
+    });
+  } finally {
+    if (previousSpace === undefined) delete process.env.ME_SPACE;
+    else process.env.ME_SPACE = previousSpace;
+  }
 });

@@ -8,6 +8,7 @@ The source memories are preserved. Copied memories receive new IDs.
 
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
+| `space` | `string` | varies | Absent in locked mode; required nonempty string in multi-space mode. It selects the same-server space for this call. |
 | `source` | `string` | yes | Source tree prefix to copy from. Must be non-empty. |
 | `destination` | `string` | yes | Destination tree prefix to copy to. Must be non-empty. |
 | `dry_run` | `boolean` | yes | If `true`, return the count without copying. If `false`, execute the copy. |

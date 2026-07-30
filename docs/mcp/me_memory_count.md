@@ -8,6 +8,7 @@ The `tree` input is required and supports an exact path prefix, a wildcard patte
 
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
+| `space` | `string` | varies | Absent in locked mode; required nonempty string in multi-space mode. It selects the same-server space for this call. |
 | `tree` | `string` | yes | Tree filter: an exact path prefix (for example, `/share/projects`), a wildcard pattern (for example, `*/api/*`), or a label search (for example, `api & v2`). |
 | `max_count` | `integer \| null` | no | Stop counting after this many matches. If the returned `count` equals `max_count`, treat the result as "at least `max_count`" rather than an exact total. |
 

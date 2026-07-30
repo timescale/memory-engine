@@ -2,18 +2,19 @@
 
 Inspect the current Memory Engine execution context.
 
-Use this tool when you need to confirm which server, space, and principal the MCP server is using, or when you need to choose a readable or writable tree path.
+Use this tool when you need to confirm which server, selected space, and principal the MCP server is using, or when you need to choose a readable or writable tree path.
 
 ## Parameters
 
-This tool takes no parameters.
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| `space` | `string` | varies | Absent in locked mode; required nonempty string in multi-space mode. It selects the same-server space for this call. |
 
 ## Returns
 
 ```json
 {
   "server": "https://api.memory.build",
-  "activeSpace": "6nnv8r3gz9jr",
   "mode": "user",
   "space": {
     "id": "019f...",
@@ -39,9 +40,9 @@ This tool takes no parameters.
 | Field | Type | Description |
 |-------|------|-------------|
 | `server` | `string` | Server URL configured for this MCP server. |
-| `activeSpace` | `string` | Active space slug sent as `X-Me-Space`. |
+| `activeSpace` | `string` | Present only in locked mode: the space slug sent as `X-Me-Space` for every call. |
 | `mode` | `string` | `user` or `service-account`. |
-| `space` | `object` | Active space id, slug, and display name. |
+| `space` | `object` | Server-confirmed space id, slug, and display name for this call. In multi-space mode, this is the selected context. |
 | `principal` | `object` | Principal the memory tools are acting as. `kind` is `u` for user or `s` for service account. |
 | `access` | `array` | Effective tree access paths for the acting principal. |
 

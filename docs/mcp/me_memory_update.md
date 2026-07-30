@@ -10,6 +10,7 @@ Provide the ID, the current `version_hash` from a recent get/search/create/updat
 
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
+| `space` | `string` | varies | Absent in locked mode; required nonempty string in multi-space mode. It selects the same-server space for this call. |
 | `id` | `string` | yes | The UUID of the memory to update. |
 | `version_hash` | `string` | yes | The current `versionHash` of the memory (32-char md5 hex). Get it from the most recent `me_memory_get` / `me_memory_search` / `me_memory_create` / `me_memory_update` response. A stale or incorrect value fails with `CONFLICT` and does not modify the memory. |
 | `content` | `string \| null` | no | New content. Omit or pass `null` to keep existing. |

@@ -15,8 +15,8 @@ import { stringify as yamlStringify } from "yaml";
 import { z } from "zod";
 import { CLIENT_VERSION } from "../../../version";
 import { batchCreateChunked } from "../chunk.ts";
-import type { MemoryClient } from "../client.ts";
-import { createMemoryClient } from "../client.ts";
+import type { MemoryClient, UserClient } from "../client.ts";
+import { createMemoryClient, createUserClient } from "../client.ts";
 import {
   formatMemoryAsMarkdown,
   uniqueExportFilename,
@@ -50,6 +50,7 @@ Use it proactively:
 - Before nontrivial work, search for prior decisions, project context, and conventions with me_memory_search.
 - Choose the search mode deliberately: semantic for meaning/concepts, fulltext for exact words/identifiers, or both when you need both kinds of match.
 - Use me_memory_context when you need to confirm which space/principal you are acting as, what paths you can read/write/own, or why a search/create may be empty or forbidden.
+- When a memory tool exposes a space parameter, it selects that same-server space for only that call; it never grants access. Use me_space_list to discover selectable spaces, and supply space when it is required.
 - Use me_memory_tree and tree filters to understand what is visible, but remember that access is grant-based: missing access can look like empty search results or not found.
 - Store durable facts, decisions, conventions, runbooks, and workarounds with me_memory_create when they will help future work.
 - Choose the tree from project/user instructions or visible context. Do not assume every space uses the same tree layout or that shared paths are writable.
@@ -64,16 +65,86 @@ Detailed agent instructions: ${DOCS_BASE}/mcp/agent-instructions.md`;
 // Tool Registration
 // =============================================================================
 
-interface McpRuntimeContext {
-  server: string;
-  space: string;
+type McpRuntimeContext = McpSpaceSelection & { server: string };
+
+const multiSpaceInput = z
+  .string()
+  .min(1)
+  .describe(
+    "The same-server space slug this call operates in, as returned by me_space_list. Selecting a space never grants access; the server still enforces membership and tree grants.",
+  );
+
+function inputSchema<T extends Record<string, z.ZodType>>(
+  fields: T,
+  runtime: McpRuntimeContext,
+): T & { space?: typeof multiSpaceInput } {
+  // The concrete startup-mode branch controls the protocol schema. Handlers
+  // resolve the selected space through spaceFor instead of reading args.space.
+  if (runtime.spaceMode === "locked") {
+    return fields;
+  }
+  return { ...fields, space: multiSpaceInput };
 }
 
 function registerTools(
   server: McpServer,
-  client: MemoryClient,
+  getMemoryClient: (space: string) => MemoryClient,
+  getUserClient: () => UserClient,
   runtime: McpRuntimeContext,
 ): void {
+  function spaceFor(args: object): string {
+    if (runtime.spaceMode === "locked") return runtime.lockedSpace;
+    if ("space" in args && typeof args.space === "string") return args.space;
+    throw new Error(
+      "Invariant: reached a multi-space memory call without a space.",
+    );
+  }
+
+  function clientFor(args: object): MemoryClient {
+    return getMemoryClient(spaceFor(args));
+  }
+
+  if (runtime.spaceMode === "multi") {
+    server.registerTool(
+      "me_space_list",
+      {
+        title: "List Spaces",
+        description: `List spaces available to the credential used by this MCP server.
+
+Use a returned slug in a memory tool's space parameter to select that same-server space for one call.
+
+Docs: ${docUrl("me_space_list")}`,
+        inputSchema: {},
+        annotations: {
+          title: "List Spaces",
+          readOnlyHint: true,
+          destructiveHint: false,
+          idempotentHint: true,
+        },
+      },
+      async () => {
+        const result = await getUserClient().space.list();
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: JSON.stringify(
+                {
+                  spaces: result.spaces.map((space) => ({
+                    slug: space.slug,
+                    name: space.name,
+                  })),
+                },
+                null,
+                2,
+              ),
+            },
+          ],
+        };
+      },
+    );
+  }
+
   // me_memory_context
   server.registerTool(
     "me_memory_context",
@@ -86,7 +157,7 @@ Returns the active server and space, presented principal, and effective tree acc
 Call this before choosing where to store memories or when diagnosing empty search results and permission failures.
 
 Docs: ${docUrl("me_memory_context")}`,
-      inputSchema: {},
+      inputSchema: inputSchema({}, runtime),
       annotations: {
         title: "Memory Context",
         readOnlyHint: true,
@@ -94,8 +165,9 @@ Docs: ${docUrl("me_memory_context")}`,
         idempotentHint: true,
       },
     },
-    async () => {
-      const result = await client.access.effective({});
+    async (args) => {
+      const space = spaceFor(args);
+      const result = await getMemoryClient(space).access.effective({});
       const mode = result.principal.kind === "s" ? "service-account" : "user";
       return {
         content: [
@@ -104,7 +176,9 @@ Docs: ${docUrl("me_memory_context")}`,
             text: JSON.stringify(
               {
                 server: runtime.server,
-                activeSpace: runtime.space,
+                ...(runtime.spaceMode === "locked"
+                  ? { activeSpace: space }
+                  : {}),
                 mode,
                 ...result,
               },
@@ -125,54 +199,59 @@ Docs: ${docUrl("me_memory_context")}`,
       description: `Store a new memory.
 
 Docs: ${docUrl("me_memory_create")}`,
-      inputSchema: {
-        id: z
-          .string()
-          .optional()
-          .nullable()
-          .describe(
-            "UUIDv7 for idempotent creates (omit or null to auto-generate)",
-          ),
-        content: z.string().min(1).describe("The content of the memory"),
-        meta: z
-          .record(z.string(), z.any())
-          .optional()
-          .nullable()
-          .describe("Key-value metadata pairs"),
-        tree: z
-          .string()
-          .describe(
-            "Hierarchical path where the memory is stored (required). Choose deliberately from project/user instructions, prior memories, visible tree structure, and your write access; do not assume every space uses the same shared/private layout.",
-          ),
-        name: z
-          .string()
-          .optional()
-          .nullable()
-          .describe(
-            'Optional filename-like leaf name, unique within the tree (e.g. "jwt-rotation", "config.yaml"). Lets you address the memory later as `tree/name` and dedupe re-tells.',
-          ),
-        temporal: z
-          .object({
-            start: z.string().describe("ISO timestamp for start of time range"),
-            end: z
-              .string()
-              .optional()
-              .nullable()
-              .describe(
-                "ISO timestamp for end (omit or null for point-in-time)",
-              ),
-          })
-          .optional()
-          .nullable()
-          .describe("Time range for the memory"),
-        on_conflict: z
-          .enum(["error", "replace", "ignore"])
-          .optional()
-          .nullable()
-          .describe(
-            "On a conflict on the idempotency key (a named memory's tree+name, which takes precedence over id; else the id): 'error' (default) fails, 'replace' overwrites it in place, 'ignore' keeps the existing one.",
-          ),
-      },
+      inputSchema: inputSchema(
+        {
+          id: z
+            .string()
+            .optional()
+            .nullable()
+            .describe(
+              "UUIDv7 for idempotent creates (omit or null to auto-generate)",
+            ),
+          content: z.string().min(1).describe("The content of the memory"),
+          meta: z
+            .record(z.string(), z.any())
+            .optional()
+            .nullable()
+            .describe("Key-value metadata pairs"),
+          tree: z
+            .string()
+            .describe(
+              "Hierarchical path where the memory is stored (required). Choose deliberately from project/user instructions, prior memories, visible tree structure, and your write access; do not assume every space uses the same shared/private layout.",
+            ),
+          name: z
+            .string()
+            .optional()
+            .nullable()
+            .describe(
+              'Optional filename-like leaf name, unique within the tree (e.g. "jwt-rotation", "config.yaml"). Lets you address the memory later as `tree/name` and dedupe re-tells.',
+            ),
+          temporal: z
+            .object({
+              start: z
+                .string()
+                .describe("ISO timestamp for start of time range"),
+              end: z
+                .string()
+                .optional()
+                .nullable()
+                .describe(
+                  "ISO timestamp for end (omit or null for point-in-time)",
+                ),
+            })
+            .optional()
+            .nullable()
+            .describe("Time range for the memory"),
+          on_conflict: z
+            .enum(["error", "replace", "ignore"])
+            .optional()
+            .nullable()
+            .describe(
+              "On a conflict on the idempotency key (a named memory's tree+name, which takes precedence over id; else the id): 'error' (default) fails, 'replace' overwrites it in place, 'ignore' keeps the existing one.",
+            ),
+        },
+        runtime,
+      ),
       annotations: {
         title: "Create Memory",
         readOnlyHint: false,
@@ -181,7 +260,7 @@ Docs: ${docUrl("me_memory_create")}`,
       },
     },
     async (args) => {
-      const result = await client.memory.create({
+      const result = await clientFor(args).memory.create({
         id: args.id ?? undefined,
         content: args.content,
         meta: args.meta ?? undefined,
@@ -213,112 +292,115 @@ Docs: ${docUrl("me_memory_create")}`,
 Search modes: semantic (meaning), fulltext (keywords/exact text), or both (hybrid). Choose deliberately: semantic for concepts, fulltext for identifiers/errors/literal text, or both when both kinds of matching are useful. Combine with tree, meta, and temporal filters. Results scored 0-1.
 
 Docs: ${docUrl("me_memory_search")}`,
-      inputSchema: {
-        semantic: z
-          .string()
-          .optional()
-          .nullable()
-          .describe(
-            "Natural language query for semantic/meaning search. Use fulltext instead for exact words, identifiers, filenames, errors, or other literal text.",
-          ),
-        fulltext: z
-          .string()
-          .optional()
-          .nullable()
-          .describe("Keywords/phrases for BM25 exact matching"),
-        grep: z
-          .string()
-          .optional()
-          .nullable()
-          .describe(
-            "Regex pattern filter on content (POSIX, case-insensitive). Applied as WHERE filter alongside other filters.",
-          ),
-        meta: z
-          .record(z.string(), z.any())
-          .optional()
-          .nullable()
-          .describe("Filter by metadata attributes"),
-        tree: z
-          .string()
-          .optional()
-          .nullable()
-          .describe(
-            "Filter by tree path. Bare path (work.projects) matches exactly \u2014 use work.projects.* to include descendants. Supports lquery patterns (*.api.*) and ltxtquery label search (api & v2).",
-          ),
-        temporal: z
-          .object({
-            contains: z
-              .string()
-              .optional()
-              .nullable()
-              .describe("Find memories containing this point in time"),
-            overlaps: z
-              .object({
-                start: z.string().describe("Start of range"),
-                end: z.string().describe("End of range"),
-              })
-              .optional()
-              .nullable()
-              .describe("Find memories overlapping this range"),
-            within: z
-              .object({
-                start: z.string().describe("Start of range"),
-                end: z.string().describe("End of range"),
-              })
-              .optional()
-              .nullable()
-              .describe("Find memories fully within this range"),
-          })
-          .optional()
-          .nullable()
-          .describe("Temporal filter for search"),
-        weights: z
-          .object({
-            fulltext: z
-              .number()
-              .optional()
-              .nullable()
-              .describe("Weight for BM25 keyword matching (0-1)"),
-            semantic: z
-              .number()
-              .optional()
-              .nullable()
-              .describe("Weight for semantic similarity (0-1)"),
-          })
-          .optional()
-          .nullable()
-          .describe("Weights for hybrid search ranking"),
-        candidateLimit: z
-          .number()
-          .int()
-          .optional()
-          .nullable()
-          .describe(
-            "Candidates per search mode before RRF fusion (0 = default 30)",
-          ),
-        semanticThreshold: z
-          .number()
-          .min(0)
-          .max(1)
-          .optional()
-          .nullable()
-          .describe(
-            "Minimum semantic similarity score (0-1) for vector candidates",
-          ),
-        limit: z
-          .number()
-          .int()
-          .optional()
-          .nullable()
-          .describe("Maximum results (0 = default 10, max: 1000)"),
-        order_by: z
-          .string()
-          .optional()
-          .nullable()
-          .describe(
-            "Sort direction for filter-only searches (no semantic/fulltext). Default: desc",
-          ),
-      },
+      inputSchema: inputSchema(
+        {
+          semantic: z
+            .string()
+            .optional()
+            .nullable()
+            .describe(
+              "Natural language query for semantic/meaning search. Use fulltext instead for exact words, identifiers, filenames, errors, or other literal text.",
+            ),
+          fulltext: z
+            .string()
+            .optional()
+            .nullable()
+            .describe("Keywords/phrases for BM25 exact matching"),
+          grep: z
+            .string()
+            .optional()
+            .nullable()
+            .describe(
+              "Regex pattern filter on content (POSIX, case-insensitive). Applied as WHERE filter alongside other filters.",
+            ),
+          meta: z
+            .record(z.string(), z.any())
+            .optional()
+            .nullable()
+            .describe("Filter by metadata attributes"),
+          tree: z
+            .string()
+            .optional()
+            .nullable()
+            .describe(
+              "Filter by tree path. Bare path (work.projects) matches exactly \u2014 use work.projects.* to include descendants. Supports lquery patterns (*.api.*) and ltxtquery label search (api & v2).",
+            ),
+          temporal: z
+            .object({
+              contains: z
+                .string()
+                .optional()
+                .nullable()
+                .describe("Find memories containing this point in time"),
+              overlaps: z
+                .object({
+                  start: z.string().describe("Start of range"),
+                  end: z.string().describe("End of range"),
+                })
+                .optional()
+                .nullable()
+                .describe("Find memories overlapping this range"),
+              within: z
+                .object({
+                  start: z.string().describe("Start of range"),
+                  end: z.string().describe("End of range"),
+                })
+                .optional()
+                .nullable()
+                .describe("Find memories fully within this range"),
+            })
+            .optional()
+            .nullable()
+            .describe("Temporal filter for search"),
+          weights: z
+            .object({
+              fulltext: z
+                .number()
+                .optional()
+                .nullable()
+                .describe("Weight for BM25 keyword matching (0-1)"),
+              semantic: z
+                .number()
+                .optional()
+                .nullable()
+                .describe("Weight for semantic similarity (0-1)"),
+            })
+            .optional()
+            .nullable()
+            .describe("Weights for hybrid search ranking"),
+          candidateLimit: z
+            .number()
+            .int()
+            .optional()
+            .nullable()
+            .describe(
+              "Candidates per search mode before RRF fusion (0 = default 30)",
+            ),
+          semanticThreshold: z
+            .number()
+            .min(0)
+            .max(1)
+            .optional()
+            .nullable()
+            .describe(
+              "Minimum semantic similarity score (0-1) for vector candidates",
+            ),
+          limit: z
+            .number()
+            .int()
+            .optional()
+            .nullable()
+            .describe("Maximum results (0 = default 10, max: 1000)"),
+          order_by: z
+            .string()
+            .optional()
+            .nullable()
+            .describe(
+              "Sort direction for filter-only searches (no semantic/fulltext). Default: desc",
+            ),
+        },
+        runtime,
+      ),
       annotations: {
         title: "Search Memories",
         readOnlyHint: true,
@@ -327,7 +409,7 @@ Docs: ${docUrl("me_memory_search")}`,
       },
     },
     async (args) => {
-      const result = await client.memory.search({
+      const result = await clientFor(args).memory.search({
         semantic: args.semantic ?? undefined,
         fulltext: args.fulltext ?? undefined,
         grep: args.grep ?? undefined,
@@ -373,9 +455,12 @@ Docs: ${docUrl("me_memory_search")}`,
 Returns full memory including content, tree, meta, temporal, and embedding status. Use after search to get full details, or before update to see current state.
 
 Docs: ${docUrl("me_memory_get")}`,
-      inputSchema: {
-        id: z.string().describe("The UUID of the memory"),
-      },
+      inputSchema: inputSchema(
+        {
+          id: z.string().describe("The UUID of the memory"),
+        },
+        runtime,
+      ),
       annotations: {
         title: "Get Memory",
         readOnlyHint: true,
@@ -384,7 +469,7 @@ Docs: ${docUrl("me_memory_get")}`,
       },
     },
     async (args) => {
-      const result = await client.memory.get({ id: args.id });
+      const result = await clientFor(args).memory.get({ id: args.id });
       return {
         content: [
           { type: "text" as const, text: JSON.stringify(result, null, 2) },
@@ -403,14 +488,17 @@ Docs: ${docUrl("me_memory_get")}`,
 The last path segment is the name; the rest is the tree — e.g. "/share/auth/jwt-rotation" is the memory named "jwt-rotation" under "/share/auth". NOT_FOUND if no such named memory exists. Use me_memory_get when you have the UUID.
 
 Docs: ${docUrl("me_memory_get_by_path")}`,
-      inputSchema: {
-        path: z
-          .string()
-          .min(1)
-          .describe(
-            'tree/name path, e.g. "/share/auth/jwt-rotation" or "~/notes/todo"',
-          ),
-      },
+      inputSchema: inputSchema(
+        {
+          path: z
+            .string()
+            .min(1)
+            .describe(
+              'tree/name path, e.g. "/share/auth/jwt-rotation" or "~/notes/todo"',
+            ),
+        },
+        runtime,
+      ),
       annotations: {
         title: "Get Memory by Path",
         readOnlyHint: true,
@@ -419,7 +507,9 @@ Docs: ${docUrl("me_memory_get_by_path")}`,
       },
     },
     async (args) => {
-      const result = await client.memory.getByPath({ path: args.path });
+      const result = await clientFor(args).memory.getByPath({
+        path: args.path,
+      });
       return {
         content: [
           { type: "text" as const, text: JSON.stringify(result, null, 2) },
@@ -438,51 +528,56 @@ Docs: ${docUrl("me_memory_get_by_path")}`,
 Provide the ID, the current version_hash from a recent get/search/create/update response, and any fields to change (content, tree, meta, temporal). Null fields remain unchanged. Caution: meta is fully replaced, not merged.
 
 Docs: ${docUrl("me_memory_update")}`,
-      inputSchema: {
-        id: z.string().describe("The UUID of the memory to update"),
-        version_hash: z
-          .string()
-          .length(32)
-          .describe(
-            "Current version_hash for optimistic concurrency control. Get the latest value before updating.",
-          ),
-        content: z
-          .string()
-          .optional()
-          .nullable()
-          .describe("New content (omit or null to keep existing)"),
-        meta: z
-          .record(z.string(), z.any())
-          .optional()
-          .nullable()
-          .describe("New metadata (omit or null to keep existing)"),
-        tree: z
-          .string()
-          .optional()
-          .nullable()
-          .describe("New tree path (omit or null to keep existing)"),
-        name: z
-          .string()
-          .optional()
-          .nullable()
-          .describe(
-            'New leaf name — renames the memory; pass an empty string "" to clear the name (omit or null to keep existing).',
-          ),
-        temporal: z
-          .object({
-            start: z.string().describe("ISO timestamp for start of time range"),
-            end: z
-              .string()
-              .optional()
-              .nullable()
-              .describe(
-                "ISO timestamp for end (omit or null for point-in-time)",
-              ),
-          })
-          .optional()
-          .nullable()
-          .describe("Time range for the memory"),
-      },
+      inputSchema: inputSchema(
+        {
+          id: z.string().describe("The UUID of the memory to update"),
+          version_hash: z
+            .string()
+            .length(32)
+            .describe(
+              "Current version_hash for optimistic concurrency control. Get the latest value before updating.",
+            ),
+          content: z
+            .string()
+            .optional()
+            .nullable()
+            .describe("New content (omit or null to keep existing)"),
+          meta: z
+            .record(z.string(), z.any())
+            .optional()
+            .nullable()
+            .describe("New metadata (omit or null to keep existing)"),
+          tree: z
+            .string()
+            .optional()
+            .nullable()
+            .describe("New tree path (omit or null to keep existing)"),
+          name: z
+            .string()
+            .optional()
+            .nullable()
+            .describe(
+              'New leaf name — renames the memory; pass an empty string "" to clear the name (omit or null to keep existing).',
+            ),
+          temporal: z
+            .object({
+              start: z
+                .string()
+                .describe("ISO timestamp for start of time range"),
+              end: z
+                .string()
+                .optional()
+                .nullable()
+                .describe(
+                  "ISO timestamp for end (omit or null for point-in-time)",
+                ),
+            })
+            .optional()
+            .nullable()
+            .describe("Time range for the memory"),
+        },
+        runtime,
+      ),
       annotations: {
         title: "Update Memory",
         readOnlyHint: false,
@@ -491,7 +586,7 @@ Docs: ${docUrl("me_memory_update")}`,
       },
     },
     async (args) => {
-      const result = await client.memory.update({
+      const result = await clientFor(args).memory.update({
         id: args.id,
         versionHash: args.version_hash,
         content: args.content ?? undefined,
@@ -524,9 +619,12 @@ Docs: ${docUrl("me_memory_update")}`,
 This is irreversible. Consider archiving (meta update) or moving (me_memory_mv) instead.
 
 Docs: ${docUrl("me_memory_delete")}`,
-      inputSchema: {
-        id: z.string().describe("The UUID of the memory to delete"),
-      },
+      inputSchema: inputSchema(
+        {
+          id: z.string().describe("The UUID of the memory to delete"),
+        },
+        runtime,
+      ),
       annotations: {
         title: "Delete Memory",
         readOnlyHint: false,
@@ -535,7 +633,7 @@ Docs: ${docUrl("me_memory_delete")}`,
       },
     },
     async (args) => {
-      const result = await client.memory.delete({ id: args.id });
+      const result = await clientFor(args).memory.delete({ id: args.id });
       return {
         content: [
           { type: "text" as const, text: JSON.stringify(result, null, 2) },
@@ -554,12 +652,15 @@ Docs: ${docUrl("me_memory_delete")}`,
 Irreversible. Deletes only that one named memory — use me_memory_delete_tree to remove a whole subtree.
 
 Docs: ${docUrl("me_memory_delete_by_path")}`,
-      inputSchema: {
-        path: z
-          .string()
-          .min(1)
-          .describe('tree/name path, e.g. "/share/auth/jwt-rotation"'),
-      },
+      inputSchema: inputSchema(
+        {
+          path: z
+            .string()
+            .min(1)
+            .describe('tree/name path, e.g. "/share/auth/jwt-rotation"'),
+        },
+        runtime,
+      ),
       annotations: {
         title: "Delete Memory by Path",
         readOnlyHint: false,
@@ -568,7 +669,9 @@ Docs: ${docUrl("me_memory_delete_by_path")}`,
       },
     },
     async (args) => {
-      const result = await client.memory.deleteByPath({ path: args.path });
+      const result = await clientFor(args).memory.deleteByPath({
+        path: args.path,
+      });
       return {
         content: [
           { type: "text" as const, text: JSON.stringify(result, null, 2) },
@@ -587,17 +690,20 @@ Docs: ${docUrl("me_memory_delete_by_path")}`,
 Returns count of deleted memories. Use dry_run: true to preview without deleting.
 
 Docs: ${docUrl("me_memory_delete_tree")}`,
-      inputSchema: {
-        tree: z
-          .string()
-          .min(1)
-          .describe(
-            "Tree prefix \u2014 all memories at or below this path will be deleted",
-          ),
-        dry_run: z
-          .boolean()
-          .describe("Preview count without deleting (false to execute)"),
-      },
+      inputSchema: inputSchema(
+        {
+          tree: z
+            .string()
+            .min(1)
+            .describe(
+              "Tree prefix \u2014 all memories at or below this path will be deleted",
+            ),
+          dry_run: z
+            .boolean()
+            .describe("Preview count without deleting (false to execute)"),
+        },
+        runtime,
+      ),
       annotations: {
         title: "Delete Memory Tree",
         readOnlyHint: false,
@@ -606,7 +712,7 @@ Docs: ${docUrl("me_memory_delete_tree")}`,
       },
     },
     async (args) => {
-      const result = await client.memory.deleteTree({
+      const result = await clientFor(args).memory.deleteTree({
         tree: args.tree,
         dryRun: args.dry_run,
       });
@@ -628,23 +734,26 @@ Docs: ${docUrl("me_memory_delete_tree")}`,
 The tree input is required and accepts a path prefix (ltree), lquery pattern, or ltxtquery label search. If max_count is supplied and the returned count equals max_count, interpret the result as "at least max_count" rather than an exact total.
 
 Docs: ${docUrl("me_memory_count")}`,
-      inputSchema: {
-        tree: z
-          .string()
-          .min(1)
-          .describe(
-            "Tree filter: path prefix (work.projects), lquery pattern (*.api.*), or ltxtquery label search (api & v2)",
-          ),
-        max_count: z
-          .number()
-          .int()
-          .min(1)
-          .optional()
-          .nullable()
-          .describe(
-            "Stop counting after this many matches. If count equals max_count, treat it as at least this many.",
-          ),
-      },
+      inputSchema: inputSchema(
+        {
+          tree: z
+            .string()
+            .min(1)
+            .describe(
+              "Tree filter: path prefix (work.projects), lquery pattern (*.api.*), or ltxtquery label search (api & v2)",
+            ),
+          max_count: z
+            .number()
+            .int()
+            .min(1)
+            .optional()
+            .nullable()
+            .describe(
+              "Stop counting after this many matches. If count equals max_count, treat it as at least this many.",
+            ),
+        },
+        runtime,
+      ),
       annotations: {
         title: "Count Memories",
         readOnlyHint: true,
@@ -653,7 +762,7 @@ Docs: ${docUrl("me_memory_count")}`,
       },
     },
     async (args) => {
-      const result = await client.memory.countTree({
+      const result = await clientFor(args).memory.countTree({
         tree: args.tree,
         maxCount: args.max_count ?? undefined,
       });
@@ -675,16 +784,21 @@ Docs: ${docUrl("me_memory_count")}`,
 The source is preserved and copied memories receive new IDs. Like "cp" in a filesystem, all memories under the source prefix get copied under the destination prefix. Use dry_run to preview.
 
 Docs: ${docUrl("me_memory_copy")}`,
-      inputSchema: {
-        source: z.string().min(1).describe("Source tree prefix to copy from"),
-        destination: z
-          .string()
-          .min(1)
-          .describe("Destination tree prefix to copy to"),
-        dry_run: z
-          .boolean()
-          .describe("If true, return count without copying (false to execute)"),
-      },
+      inputSchema: inputSchema(
+        {
+          source: z.string().min(1).describe("Source tree prefix to copy from"),
+          destination: z
+            .string()
+            .min(1)
+            .describe("Destination tree prefix to copy to"),
+          dry_run: z
+            .boolean()
+            .describe(
+              "If true, return count without copying (false to execute)",
+            ),
+        },
+        runtime,
+      ),
       annotations: {
         title: "Copy Memories",
         readOnlyHint: false,
@@ -693,7 +807,7 @@ Docs: ${docUrl("me_memory_copy")}`,
       },
     },
     async (args) => {
-      const result = await client.memory.copy({
+      const result = await clientFor(args).memory.copy({
         source: args.source,
         destination: args.destination,
         dryRun: args.dry_run,
@@ -716,13 +830,20 @@ Docs: ${docUrl("me_memory_copy")}`,
 Like "mv" in a filesystem — all memories under the source prefix get their prefix replaced. Use dry_run to preview.
 
 Docs: ${docUrl("me_memory_mv")}`,
-      inputSchema: {
-        source: z.string().min(1).describe("Source tree prefix to move from"),
-        destination: z.string().describe("Destination tree prefix to move to"),
-        dry_run: z
-          .boolean()
-          .describe("If true, return count without moving (false to execute)"),
-      },
+      inputSchema: inputSchema(
+        {
+          source: z.string().min(1).describe("Source tree prefix to move from"),
+          destination: z
+            .string()
+            .describe("Destination tree prefix to move to"),
+          dry_run: z
+            .boolean()
+            .describe(
+              "If true, return count without moving (false to execute)",
+            ),
+        },
+        runtime,
+      ),
       annotations: {
         title: "Move Memories",
         readOnlyHint: false,
@@ -731,7 +852,7 @@ Docs: ${docUrl("me_memory_mv")}`,
       },
     },
     async (args) => {
-      const result = await client.memory.move({
+      const result = await clientFor(args).memory.move({
         source: args.source,
         destination: args.destination,
         dryRun: args.dry_run,
@@ -754,21 +875,24 @@ Docs: ${docUrl("me_memory_mv")}`,
 Shows how memories are organized and how many exist at each level. Use to understand the overall shape of stored knowledge before searching.
 
 Docs: ${docUrl("me_memory_tree")}`,
-      inputSchema: {
-        tree: z
-          .string()
-          .optional()
-          .nullable()
-          .describe(
-            "Root path to display from (e.g., work.projects). Omit or null for full tree.",
-          ),
-        levels: z
-          .number()
-          .int()
-          .optional()
-          .nullable()
-          .describe("Maximum depth to display (omit or null for unlimited)"),
-      },
+      inputSchema: inputSchema(
+        {
+          tree: z
+            .string()
+            .optional()
+            .nullable()
+            .describe(
+              "Root path to display from (e.g., work.projects). Omit or null for full tree.",
+            ),
+          levels: z
+            .number()
+            .int()
+            .optional()
+            .nullable()
+            .describe("Maximum depth to display (omit or null for unlimited)"),
+        },
+        runtime,
+      ),
       annotations: {
         title: "Memory Tree",
         readOnlyHint: true,
@@ -777,7 +901,7 @@ Docs: ${docUrl("me_memory_tree")}`,
       },
     },
     async (args) => {
-      const result = await client.memory.tree({
+      const result = await clientFor(args).memory.tree({
         tree: args.tree ?? undefined,
         levels: args.levels && args.levels > 0 ? args.levels : undefined,
       });
@@ -799,29 +923,32 @@ Docs: ${docUrl("me_memory_tree")}`,
 Token-efficient: prefer \`path\` over \`content\` to avoid passing large payloads through the conversation.
 
 Docs: ${docUrl("me_memory_import")}`,
-      inputSchema: {
-        path: z
-          .string()
-          .optional()
-          .nullable()
-          .describe(
-            "Absolute path to a file or directory. Directories are imported recursively. Format is inferred from extension (.json, .yaml, .yml, .md, .ndjson, .jsonl). Mutually exclusive with content.",
-          ),
-        content: z
-          .string()
-          .optional()
-          .nullable()
-          .describe(
-            "Raw content to import (JSON array, YAML array, or Markdown with frontmatter). Mutually exclusive with path.",
-          ),
-        format: z
-          .string()
-          .optional()
-          .nullable()
-          .describe(
-            "Content format: json, yaml, or md. Required when using content, optional when using path (inferred from extension).",
-          ),
-      },
+      inputSchema: inputSchema(
+        {
+          path: z
+            .string()
+            .optional()
+            .nullable()
+            .describe(
+              "Absolute path to a file or directory. Directories are imported recursively. Format is inferred from extension (.json, .yaml, .yml, .md, .ndjson, .jsonl). Mutually exclusive with content.",
+            ),
+          content: z
+            .string()
+            .optional()
+            .nullable()
+            .describe(
+              "Raw content to import (JSON array, YAML array, or Markdown with frontmatter). Mutually exclusive with path.",
+            ),
+          format: z
+            .string()
+            .optional()
+            .nullable()
+            .describe(
+              "Content format: json, yaml, or md. Required when using content, optional when using path (inferred from extension).",
+            ),
+        },
+        runtime,
+      ),
       annotations: {
         title: "Import Memories",
         readOnlyHint: false,
@@ -933,7 +1060,7 @@ Docs: ${docUrl("me_memory_import")}`,
       // server's request-body limit, and a single failed chunk doesn't
       // take down the rest of the import.
       const { results: writeResults, errors } = await batchCreateChunked(
-        client,
+        clientFor(args),
         allMemories,
         // Re-importing the same content is a no-op: skip rows whose
         // idempotency key ((tree, name), else id) already exists.
@@ -998,61 +1125,64 @@ Docs: ${docUrl("me_memory_import")}`,
 Token-efficient: use \`path\` to write directly to a file instead of returning content through the conversation.
 
 Docs: ${docUrl("me_memory_export")}`,
-      inputSchema: {
-        tree: z
-          .string()
-          .optional()
-          .nullable()
-          .describe("Tree path filter (omit or null for all)"),
-        meta: z
-          .record(z.string(), z.any())
-          .optional()
-          .nullable()
-          .describe("Metadata filter"),
-        temporal: z
-          .object({
-            contains: z
-              .string()
-              .optional()
-              .nullable()
-              .describe("Find memories containing this point in time"),
-            overlaps: z
-              .object({
-                start: z.string().describe("Start of range"),
-                end: z.string().describe("End of range"),
-              })
-              .optional()
-              .nullable()
-              .describe("Find memories overlapping this range"),
-            within: z
-              .object({
-                start: z.string().describe("Start of range"),
-                end: z.string().describe("End of range"),
-              })
-              .optional()
-              .nullable()
-              .describe("Find memories fully within this range"),
-          })
-          .optional()
-          .nullable()
-          .describe("Temporal filter"),
-        format: z.string().describe("Output format: json, yaml, or md"),
-        limit: z
-          .number()
-          .int()
-          .optional()
-          .nullable()
-          .describe(
-            "Maximum memories to export (omit or null for default 1000)",
-          ),
-        path: z
-          .string()
-          .optional()
-          .nullable()
-          .describe(
-            "Absolute file or directory path to write to. For md format, use a directory path to write one .md file per memory. Omit or null to return content inline.",
-          ),
-      },
+      inputSchema: inputSchema(
+        {
+          tree: z
+            .string()
+            .optional()
+            .nullable()
+            .describe("Tree path filter (omit or null for all)"),
+          meta: z
+            .record(z.string(), z.any())
+            .optional()
+            .nullable()
+            .describe("Metadata filter"),
+          temporal: z
+            .object({
+              contains: z
+                .string()
+                .optional()
+                .nullable()
+                .describe("Find memories containing this point in time"),
+              overlaps: z
+                .object({
+                  start: z.string().describe("Start of range"),
+                  end: z.string().describe("End of range"),
+                })
+                .optional()
+                .nullable()
+                .describe("Find memories overlapping this range"),
+              within: z
+                .object({
+                  start: z.string().describe("Start of range"),
+                  end: z.string().describe("End of range"),
+                })
+                .optional()
+                .nullable()
+                .describe("Find memories fully within this range"),
+            })
+            .optional()
+            .nullable()
+            .describe("Temporal filter"),
+          format: z.string().describe("Output format: json, yaml, or md"),
+          limit: z
+            .number()
+            .int()
+            .optional()
+            .nullable()
+            .describe(
+              "Maximum memories to export (omit or null for default 1000)",
+            ),
+          path: z
+            .string()
+            .optional()
+            .nullable()
+            .describe(
+              "Absolute file or directory path to write to. For md format, use a directory path to write one .md file per memory. Omit or null to return content inline.",
+            ),
+        },
+        runtime,
+      ),
       annotations: {
         title: "Export Memories",
         readOnlyHint: false,
@@ -1075,8 +1205,8 @@ Docs: ${docUrl("me_memory_export")}`,
         };
       }
 
-      const result = await client.memory.search(
-        searchParams as Parameters<typeof client.memory.search>[0],
+      const result = await clientFor(args).memory.search(
+        searchParams as Parameters<MemoryClient["memory"]["search"]>[0],
       );
 
       // Strip to import-compatible fields
@@ -1254,7 +1384,14 @@ function setupShutdownHandlers(mcpServer: McpServer): void {
 // Entry Point
 // =============================================================================
 
-export interface McpServerOptions {
+export type McpSpaceMode = "locked" | "multi";
+
+/** Mode and optional locked-space pairing selected before MCP schemas register. */
+export type McpSpaceSelection =
+  | { spaceMode: "locked"; lockedSpace: string }
+  | { spaceMode: "multi"; lockedSpace?: undefined };
+
+export type McpServerOptions = McpSpaceSelection & {
   /** Base server URL. */
   server: string;
   /**
@@ -1263,20 +1400,25 @@ export interface McpServerOptions {
    * long-lived, so the access token is resolved per call rather than baked in.
    */
   bearer: BearerSource;
-  /** Active space slug (sent as X-Me-Space). */
-  space: string;
-}
+};
 
-/**
- * Run MCP server over stdio.
- */
-export async function runMcpServer(options: McpServerOptions): Promise<void> {
-  const client = createMemoryClient({
-    url: options.server,
-    getToken: options.bearer.getToken,
-    onUnauthorized: options.bearer.onUnauthorized,
-    space: options.space,
-  });
+/** Build a configured MCP server. Exported for in-memory protocol tests. */
+export function createMcpServer(options: McpServerOptions): McpServer {
+  // A client captures its headers at construction time. Keep one client per tool
+  // call so concurrent calls selecting different spaces cannot leak headers.
+  const getMemoryClient = (space: string) =>
+    createMemoryClient({
+      url: options.server,
+      getToken: options.bearer.getToken,
+      onUnauthorized: options.bearer.onUnauthorized,
+      space,
+    });
+  const getUserClient = () =>
+    createUserClient({
+      url: options.server,
+      getToken: options.bearer.getToken,
+      onUnauthorized: options.bearer.onUnauthorized,
+    });
 
   const mcpServer = new McpServer(
     {
@@ -1288,10 +1430,24 @@ export async function runMcpServer(options: McpServerOptions): Promise<void> {
     },
   );
 
-  registerTools(mcpServer, client, {
-    server: options.server,
-    space: options.space,
-  });
+  const runtime: McpRuntimeContext =
+    options.spaceMode === "locked"
+      ? {
+          server: options.server,
+          spaceMode: "locked",
+          lockedSpace: options.lockedSpace,
+        }
+      : { server: options.server, spaceMode: "multi" };
+  registerTools(mcpServer, getMemoryClient, getUserClient, runtime);
+
+  return mcpServer;
+}
+
+/**
+ * Run MCP server over stdio.
+ */
+export async function runMcpServer(options: McpServerOptions): Promise<void> {
+  const mcpServer = createMcpServer(options);
 
   const transport = new StdioServerTransport();
   await mcpServer.connect(transport);

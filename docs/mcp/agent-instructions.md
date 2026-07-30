@@ -60,9 +60,12 @@ Example filtered browse:
 
 ## Understand Access
 
-Each MCP server runs in one active space as one authenticated principal: a user
-or service account. What you can see or change depends on that principal's
-tree-access grants in the active space.
+Each MCP server runs as one authenticated principal: a user or service account.
+It is either locked to one space or multi-space. In multi-space mode,
+`me_space_list` is available; use it to discover a slug before passing the
+required `space` to a memory tool.
+What you can see or change depends on that principal's tree-access grants in
+the selected space.
 
 Access is path-based and hierarchical:
 
@@ -74,9 +77,10 @@ Access filtering is quiet. If you lack `read` on a memory's tree path, search ma
 return fewer results and retrieval may report `not found`. If you lack `write`,
 creating or changing a memory in that tree fails even if the tree exists.
 
-Call `me_memory_context` when you need to confirm the current space, acting
-principal, or effective tree-access grants. The access list shows the paths you
-can actually read, write, or own, including inherited group access.
+Call `me_memory_context` when you need to confirm the selected space, acting
+principal, or effective tree-access grants. In multi-space mode, pass the same
+`space` you intend to use for a memory operation. The access list shows the
+paths you can actually read, write, or own, including inherited group access.
 
 Do not assume every space has the same layout or grants. Some spaces use
 `/share/...` for team knowledge and `~/...` for private notes, but custom spaces

@@ -1,6 +1,6 @@
 # MCP Integration
 
-Memory Engine integrates with AI coding agents via the [Model Context Protocol](https://modelcontextprotocol.io/) (MCP). This gives agents 14 memory tools they can use to store and retrieve knowledge across conversations.
+Memory Engine integrates with AI coding agents via the [Model Context Protocol](https://modelcontextprotocol.io/) (MCP). This gives agents 15 memory tools they can use to store and retrieve knowledge across conversations.
 
 ## How it works
 
@@ -14,15 +14,15 @@ When an AI tool launches `me mcp`, it spawns a child process that communicates o
 
 The AI agent never sees or handles credentials — it just calls MCP tools and gets results back.
 
-Each `me mcp` instance is locked to a single **space**, carried as the `X-Me-Space` header. The space is resolved from `--space` > `ME_SPACE` > your stored active space. Authentication is either an API key (`--api-key` or `ME_API_KEY`: a user PAT or service-account key) or, if no key is given, your stored `me login` session token — so a developer install needs no key at all. A restricted PAT or service-account key must declare the pinned space. The server URL defaults to `https://api.memory.build` but can be overridden with `--server` or `ME_SERVER`.
+Each `me mcp` instance uses one of two space modes. An explicit `--space` or `ME_SPACE` creates a **locked** server: memory tools do not expose a `space` parameter and every call uses that space. Without either selector, it starts in **multi-space** mode: `me_space_list` is available and every memory tool requires `space`. Project configuration and your stored active space never select an MCP space. This makes manual MCP setup work without any local Memory Engine configuration. Authentication is either an API key (`--api-key` or `ME_API_KEY`: a user PAT or service-account key) or, if no key is given, your stored `me login` session token — so a developer install needs no key at all. The server URL defaults to `https://api.memory.build` but can be overridden with `--server` or `ME_SERVER`.
 
-MCP calls always run as the principal represented by the presented credential. A normal local install uses your login session. For an unattended or restricted installation, pass a restricted PAT or service-account key and expose no stronger credential to that process.
+MCP calls always run as the principal represented by the presented credential. A normal local install uses your login session. For an unattended or restricted installation, pass a restricted PAT or service-account key and expose no stronger credential to that process. A per-tool `space` only selects the target space; the server still checks membership and the credential's grants, including restricted-key declarations.
 
 ## Setup
 
 ### Prerequisites
 
-Log in with `me login` and select a space — `me whoami` shows your active space and identity. That session is enough to run the MCP server locally. For an unattended install, mint an API key and pass it with `--api-key`. For least privilege, use a restricted PAT or service-account key, for example `me apikey create mcp --allow <space-slug>:/share/project:w`.
+Log in with `me login` to run the MCP server locally. Selecting a space is optional: omitting it starts multi-space mode. For an unattended installation, mint an API key and pass it with `--api-key`. For least privilege, use a restricted PAT or service-account key, for example `me apikey create mcp --allow <space-slug>:/share/project:w`.
 
 The server defaults to `https://api.memory.build`. Pass `--server <url>` only if you're running a self-hosted server.
 
@@ -35,6 +35,18 @@ me gemini install
 ```
 
 These commands register Memory Engine with the named tool, writing a `me mcp` invocation into the tool's MCP configuration. By default they embed no key — the server uses your `me login` session at runtime. Pass `--api-key` to pin a user PAT or service-account key instead, `--space <slug>` to pin a space, and `--server <url>` to pin a non-default server. For a restricted key, the pinned space must be one of its declarations.
+
+### Manual multi-space setup
+
+You can configure any stdio MCP client directly, without running a harness installer or creating a project config:
+
+```bash
+me mcp --server <url> --api-key <key>
+```
+
+This starts multi-space mode. Call `me_space_list` first, then pass one
+of its slugs as the required `space` argument to a memory tool. Add `--space
+<slug>` only when you want to lock that MCP process to one space.
 
 See the agent-specific command references for details: [`me opencode install`](cli/me-opencode.md#me-opencode-install), [`me codex install`](cli/me-codex.md#me-codex-install), and [`me gemini install`](cli/me-gemini.md#me-gemini-install).
 
@@ -145,10 +157,12 @@ After saving, check the Agent Panel settings — the indicator next to "me" shou
 Any tool that supports the MCP stdio transport can use Memory Engine. The server command is:
 
 ```bash
-me mcp --api-key <key> --space <slug> --server <url>
+me mcp --api-key <key> --server <url>
 ```
 
-Point your client at this command with `stdio` as the transport type.
+Point your client at this command with `stdio` as the transport type. This is
+multi-space mode: call `me_space_list`, then pass `space` to each memory
+tool. Add `--space <slug>` to lock the server to one space instead.
 
 ## Available tools
 
@@ -156,6 +170,7 @@ Once connected, the agent has access to:
 
 | Tool | Purpose |
 |------|---------|
+| `me_space_list` | List spaces available for per-call selection (multi-space mode only) |
 | `me_memory_context` | Show current identity, active space, and effective access |
 | `me_memory_create` | Store a new memory |
 | `me_memory_search` | Search by meaning, keywords, or filters |

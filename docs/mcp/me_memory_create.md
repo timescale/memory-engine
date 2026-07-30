@@ -6,6 +6,7 @@ Store a new memory.
 
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
+| `space` | `string` | varies | Absent in locked mode; required nonempty string in multi-space mode. It selects the same-server space for this call. |
 | `id` | `string \| null` | no | UUIDv7 to preserve identity (import/export). Omit or pass `null` to auto-generate. |
 | `content` | `string` | yes | The content of the memory. Must be non-empty. |
 | `name` | `string \| null` | no | Optional filename-like leaf slug, unique within the tree (e.g. `jwt-rotation`). Matches `^[A-Za-z0-9][A-Za-z0-9._-]*$`, ≤128 chars -- dots allowed, no slashes. Lets the memory be addressed as `/share/auth/jwt-rotation`. Omit or pass `null` for an unnamed memory. |

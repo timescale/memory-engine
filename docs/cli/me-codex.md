@@ -21,10 +21,10 @@ me codex install [options]
 | Option | Description |
 |--------|-------------|
 | `--api-key <key>` | API key for a headless install. Default: the MCP server uses your `me login` session, resolved at runtime. |
-| `--space <slug>` | Pin a space. Default: resolve `ME_SPACE` / active space at runtime. |
+| `--space <slug>` | Lock MCP to this space. Without it, MCP is multi-space unless `ME_SPACE` is set. |
 | `--server <url>` | Server URL to embed in the MCP config. |
 
-By default only the server URL is baked into the config: at runtime `me mcp` uses your `me login` session (resolved from the OS keychain / `~/.config/me` each run, so it survives re-login) and your active space (set by `me space use` / `ME_SPACE`). Pass `--api-key` for a headless install that cannot reach your keychain; that bakes the key and requires a pinned `--space`. For least privilege, mint a restricted PAT or service-account key with `me apikey create --allow <space>:<path>:<r|w|o>`; the pinned space must be declared by that key.
+By default only the server URL is baked into the config: at runtime `me mcp` uses your `me login` session (resolved from the OS keychain / `~/.config/me` each run, so it survives re-login). MCP is multi-space unless the generated command includes `--space` or its environment sets `ME_SPACE`: agents call `me_space_list`, then pass `space` to every memory tool. Your active space does not select an MCP space. Pass `--space` to lock the MCP tools to one space. Pass `--api-key` for a headless install that cannot reach your keychain; it may also run multi-space. For least privilege, mint a restricted PAT or service-account key with `me apikey create --allow <space>:<path>:<r|w|o>`; a pinned space must be declared by that key.
 
 `me codex install` also adds a hook to `~/.codex/hooks.json` so that a plain `me` call from Codex's shell can discover the active project after a directory change. Re-running install is safe and leaves any other hooks you've configured untouched. **One-time step**: Codex holds new hooks for review — run `/hooks` inside Codex once to approve it.
 
@@ -32,7 +32,7 @@ For manual MCP client configuration, see [MCP Integration](../mcp-integration.md
 
 ### Known gap: Codex Desktop and the VS Code extension
 
-Under the Codex **terminal CLI**, `me mcp` resolves your project the ordinary way — no action needed. The Codex **Desktop app** and **VS Code extension** currently launch MCP servers from the wrong working directory, so `me mcp` can't tell which project you're in and falls back to your global config (your own session and active space) instead of the project's `.me/config.yaml`. The workaround is to set a per-server `cwd` pointing at your project directory in Codex's own MCP config. The terminal CLI is unaffected.
+Under the Codex **terminal CLI**, `me mcp` resolves your project the ordinary way — no action needed. The Codex **Desktop app** and **VS Code extension** currently launch MCP servers from the wrong working directory, so `me mcp` cannot use a project's `.me/config.yaml` for server resolution and falls back to global configuration. MCP space selection is unaffected: an unpinned server is always multi-space. The workaround is to set a per-server `cwd` pointing at your project directory in Codex's own MCP config. The terminal CLI is unaffected.
 
 ---
 
