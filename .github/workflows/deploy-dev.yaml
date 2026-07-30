@@ -64,7 +64,8 @@ jobs:
               "repository": "memory-engine",
               "dockerfile_path": "packages/server/Dockerfile",
               "sha": "${{ needs.resolve.outputs.sha }}",
-              "latest": true
+              "latest": true,
+              "env_prefix": "dev"
             }
 
   deploy:
