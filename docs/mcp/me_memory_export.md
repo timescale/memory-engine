@@ -8,6 +8,7 @@ Prefer `path` to write directly to a file instead of returning content through t
 
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
+| `space` | `string` | varies | Absent in locked mode; required nonempty string in multi-space mode. It selects the same-server space for this call. |
 | `tree` | `string \| null` | no | Tree path filter. Omit or pass `null` for all memories. |
 | `meta` | `object \| null` | no | Metadata filter. Omit or pass `null` to skip. |
 | `temporal` | `object \| null` | no | Temporal filter. Omit or pass `null` to skip. |

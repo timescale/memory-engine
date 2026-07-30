@@ -8,6 +8,7 @@ Parses the input according to the specified format and creates all memories in o
 
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
+| `space` | `string` | varies | Absent in locked mode; required nonempty string in multi-space mode. It selects the same-server space for this call. |
 | `path` | `string \| null` | no | Absolute path to a file or directory. Directories are imported recursively. Format is inferred from extension (`.json`, `.yaml`, `.yml`, `.md`, `.ndjson`, `.jsonl`). Mutually exclusive with `content`. Omit or pass `null` if providing `content`. |
 | `content` | `string \| null` | no | Raw content to import (JSON array, YAML array, or Markdown with frontmatter). Mutually exclusive with `path`. Omit or pass `null` if providing `path`. |
 | `format` | `string \| null` | no | Content format: `"json"`, `"yaml"`, or `"md"`. Required when using `content`. Optional when using `path` (inferred from file extension). Omit or pass `null` to skip. |

@@ -127,10 +127,10 @@ export function detectInstalledTools(): McpTool[] {
  * when provided:
  *   - **Default (no api key):** the MCP server resolves your login *session* from
  *     the keychain/config at runtime (so it keeps working across `me login`), and
- *     the space from `ME_SPACE`/active space at runtime — nothing secret or
- *     stateful is written into the config.
- *   - **Headless agent (`--api-key`):** the global key is baked in, along with a
- *     pinned `--space` (keys aren't space-bound, so the space must be fixed).
+ *     no space is selected until a tool call supplies one (unless ME_SPACE is
+ *     present at runtime) — nothing secret or stateful is written into config.
+ *   - **Headless agent (`--api-key`):** the global key is baked in; it can be
+ *     multi-space or explicitly pinned with `--space`.
  *
  * Always uses bare `me` — the binary is expected to be on PATH whether installed
  * via the install script, Homebrew, or npm.

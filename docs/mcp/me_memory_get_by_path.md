@@ -13,6 +13,7 @@ Use `me_memory_get` when you already have the UUID.
 
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
+| `space` | `string` | varies | Absent in locked mode; required nonempty string in multi-space mode. It selects the same-server space for this call. |
 | `path` | `string` | yes | The `tree/name` path, e.g. `/share/auth/jwt-rotation`. |
 
 ## Returns

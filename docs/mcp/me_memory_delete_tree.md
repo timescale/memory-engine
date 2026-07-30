@@ -8,6 +8,7 @@ Use `dry_run: true` to preview how many memories would be deleted without actual
 
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
+| `space` | `string` | varies | Absent in locked mode; required nonempty string in multi-space mode. It selects the same-server space for this call. |
 | `tree` | `string` | yes | Tree prefix -- all memories at or below this path will be deleted. Must be non-empty. |
 | `dry_run` | `boolean` | yes | If `true`, return the count without deleting. If `false`, execute the deletion. |
 

@@ -8,6 +8,7 @@ Works like `mv` in a filesystem -- all memories under the source prefix get thei
 
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
+| `space` | `string` | varies | Absent in locked mode; required nonempty string in multi-space mode. It selects the same-server space for this call. |
 | `source` | `string` | yes | Source tree prefix to move from. Must be non-empty. |
 | `destination` | `string` | yes | Destination tree prefix to move to. |
 | `dry_run` | `boolean` | yes | If `true`, return the count without moving. If `false`, execute the move. |

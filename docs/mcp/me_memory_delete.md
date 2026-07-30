@@ -8,6 +8,7 @@ This is irreversible. Consider archiving (via a meta update) or moving (via `me_
 
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
+| `space` | `string` | varies | Absent in locked mode; required nonempty string in multi-space mode. It selects the same-server space for this call. |
 | `id` | `string` | yes | The UUID of the memory to delete. |
 
 ## Returns

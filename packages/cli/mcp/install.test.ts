@@ -18,10 +18,26 @@ describe("buildMeCommand", () => {
     expect(cmd[1]).toBe("mcp");
   });
 
-  test("session default bakes only --server (token + space resolve at runtime)", () => {
+  test("unpinned MCP command bakes only --server", () => {
     const cmd = buildMeCommand({ server: "https://example.com" });
     expect(cmd).toEqual(["me", "mcp", "--server", "https://example.com"]);
     expect(cmd).not.toContain("--api-key");
+    expect(cmd).not.toContain("--space");
+  });
+
+  test("headless MCP command can remain multi-space", () => {
+    const cmd = buildMeCommand({
+      server: "https://example.com",
+      apiKey: "k",
+    });
+    expect(cmd).toEqual([
+      "me",
+      "mcp",
+      "--server",
+      "https://example.com",
+      "--api-key",
+      "k",
+    ]);
     expect(cmd).not.toContain("--space");
   });
 

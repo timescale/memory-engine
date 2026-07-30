@@ -205,7 +205,7 @@ function createOpenCodeInstallCommand(): Command {
     .option("--server <url>", "server URL to embed in MCP config")
     .option(
       "--space <slug>",
-      "pin a space (default: resolve ME_SPACE / active space at runtime)",
+      "pin a space (otherwise MCP is multi-space unless ME_SPACE is set)",
     )
     .option(
       "--scope <scope>",

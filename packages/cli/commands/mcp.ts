@@ -2,21 +2,23 @@
  * me mcp — run the MCP server over stdio.
  *
  * Authenticates to a space with either a human session (from `me login`) or an
- * API key, and targets the active space (the X-Me-Space). Resolution:
+ * API key. Resolution:
  *   - token: --api-key > ME_API_KEY > stored session token
- *   - space: --space > ME_SPACE > stored active space
+ *   - space: --space > ME_SPACE (locked), otherwise multi-space
  *
- * The common case is a logged-in human: `me mcp` just works against the active
- * space. API-key users must supply a space via
- * --space / ME_SPACE — the installers bake it in).
+ * An unpinned MCP server is always multi-space and tools require a space
+ * argument. API-key installers can also run multi-space; --space stays opt-in.
  *
  * MCP registration with individual AI tools lives in per-agent commands:
  *   me opencode install, me gemini install, me codex install
  * Claude Code uses the Memory Engine plugin instead of a CLI installer.
  */
 import { Command } from "commander";
-import { resolveCredentials } from "../credentials.ts";
-import { runMcpServer } from "../mcp/server.ts";
+import {
+  type ResolvedCredentials,
+  resolveCredentials,
+} from "../credentials.ts";
+import { type McpSpaceSelection, runMcpServer } from "../mcp/server.ts";
 import { memoryBearer } from "../session.ts";
 
 /**
@@ -37,26 +39,57 @@ export function isLegacyApiKey(token: string): boolean {
 }
 
 /**
- * Treat unset / empty / unsubstituted-placeholder flag values as missing. The
- * Claude Code plugin's .mcp.json passes `--server/--api-key/--space
- * ${user_config.X}` statically; when left blank each arrives as `""` (or the
- * literal `${...}` placeholder), which must fall through to the live `me` config
- * (server/session/active space), not be used verbatim.
+ * Treat unset / empty / whitespace-only / unsubstituted-placeholder flag values
+ * as missing. The Claude Code plugin's .mcp.json passes `--server/--api-key/
+ * --space ${user_config.X}` statically; when left blank each arrives as `""`
+ * (or the literal `${...}` placeholder), which must fall through to the live
+ * `me` server/session config, not be used verbatim. Whitespace-only strings —
+ * e.g. `ME_SPACE=" "` — are treated as blank, and any legitimate value is
+ * trimmed so an accidental leading/trailing space cannot corrupt the wire.
  */
 export function blankFlag(v: unknown): string | undefined {
-  if (typeof v !== "string" || v === "" || /^\$\{.*\}$/.test(v))
-    return undefined;
-  return v;
+  if (typeof v !== "string") return undefined;
+  const trimmed = v.trim();
+  if (trimmed === "" || /^\$\{.*\}$/.test(trimmed)) return undefined;
+  return trimmed;
 }
 
-function createMcpRunAction() {
+/**
+ * Resolve the MCP mode. Explicit process configuration is a capability-surface
+ * choice: a flag or ME_SPACE locks the schemas; otherwise every memory tool
+ * requires a per-call space.
+ */
+export function resolveMcpSpace(
+  flagValue: unknown,
+  envSpace: string | undefined,
+): McpSpaceSelection {
+  const explicitSpace = blankFlag(flagValue) ?? blankFlag(envSpace);
+  if (explicitSpace) {
+    return { spaceMode: "locked", lockedSpace: explicitSpace };
+  }
+  return { spaceMode: "multi" };
+}
+
+interface McpRunActionDependencies {
+  resolveCredentials: (serverFlag?: string) => ResolvedCredentials;
+  memoryBearer: typeof memoryBearer;
+  runMcpServer: typeof runMcpServer;
+}
+
+export function createMcpRunAction(
+  dependencies: McpRunActionDependencies = {
+    resolveCredentials,
+    memoryBearer,
+    runMcpServer,
+  },
+) {
   return async (_opts: Record<string, unknown>, cmd: Command) => {
     const opts = cmd.optsWithGlobals();
     // Run server through blankFlag like api_key/space below: the plugin's
     // .mcp.json always passes `--server ${user_config.server}`, which arrives as
     // "" (or the literal placeholder) when left blank — it must fall back to the
     // live `me` config (ME_SERVER / default_server), not be used verbatim.
-    const creds = resolveCredentials(blankFlag(opts.server));
+    const creds = dependencies.resolveCredentials(blankFlag(opts.server));
 
     // Bearer: --api-key > ME_API_KEY (creds.apiKey), else the logged-in human's
     // OAuth session (resolved + refreshed at runtime by `memoryBearer`).
@@ -78,19 +111,12 @@ function createMcpRunAction() {
       process.exit(1);
     }
 
-    // Space: --space > ME_SPACE / stored active space.
-    const space = blankFlag(opts.space) ?? creds.activeSpace;
-    if (!space) {
-      console.error(
-        "Error: no active space. Run 'me space use <space>', or pass --space / set ME_SPACE.",
-      );
-      process.exit(1);
-    }
+    const space = resolveMcpSpace(opts.space, process.env.ME_SPACE);
 
-    await runMcpServer({
+    await dependencies.runMcpServer({
       server: creds.server,
-      bearer: memoryBearer(creds.server, apiKey),
-      space,
+      bearer: dependencies.memoryBearer(creds.server, apiKey),
+      ...space,
     });
   };
 }
@@ -101,7 +127,7 @@ export function createMcpCommand(): Command {
     .option("--api-key <key>", "API key (else uses the stored session)")
     .option(
       "--space <slug>",
-      "active space (else ME_SPACE / stored active space)",
+      "lock MCP to this space (else memory tools require a per-call space)",
     )
     .action(createMcpRunAction());
 }

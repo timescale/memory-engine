@@ -8,6 +8,7 @@ Supports three search modes: **semantic** (meaning-based), **fulltext** (keyword
 
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
+| `space` | `string` | varies | Absent in locked mode; required nonempty string in multi-space mode. It selects the same-server space for this call. |
 | `semantic` | `string \| null` | no | Natural language query for semantic search. Omit or pass `null` to skip. |
 | `fulltext` | `string \| null` | no | Keywords/phrases for BM25 exact matching. Omit or pass `null` to skip. |
 | `grep` | `string \| null` | no | POSIX regex pattern filter on content (case-insensitive). Applied as a WHERE filter alongside other filters. Omit or pass `null` to skip. |

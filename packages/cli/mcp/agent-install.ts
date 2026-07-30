@@ -23,6 +23,20 @@ export interface AgentInstallOptions {
 }
 
 /**
+ * When an install bakes no `--space`, the runtime MCP server starts in
+ * multi-space mode and agents must call `me_space_list` + pass `space` on
+ * every memory tool. Return the warn string in that case (both session and
+ * api-key installs behave the same at runtime), or undefined when a space
+ * pin will lock the server. Exposed pure for testability.
+ */
+export function multiSpaceWarning(
+  space: string | undefined,
+): string | undefined {
+  if (space?.trim()) return undefined;
+  return "No MCP space pinned — the server will start in multi-space mode. Agents must call me_space_list, then pass space to every memory tool. Re-run with --space to pin one.";
+}
+
+/**
  * Run MCP-only install for a single agent tool.
  *
  * Resolves credentials, finds the tool in the registry by its binary name,
@@ -49,22 +63,12 @@ export async function runAgentMcpInstall(
     process.exit(1);
   }
 
-  // Default path: no api key → the MCP server uses your login SESSION, resolved
-  // from the keychain/config at runtime each time it starts (so it survives
-  // `me login`). Pass --api-key / ME_API_KEY only for headless/CI use where the
-  // process can't reach your keychain; that bakes a long-lived global key and
-  // must pin a space. The `--space` flag pins the space either way; otherwise
-  // the session path resolves it at runtime from ME_SPACE / active space.
+  // The MCP server resolves a login session from the keychain/config at runtime,
+  // so a personal install survives `me login`. API keys are also global and may
+  // run multi-space. Only an explicit --space pins either credential type.
   let meCmd: string[];
   if (apiKey) {
-    const space = opts.space ?? creds.activeSpace;
-    if (!space) {
-      clack.log.error(
-        "No space for the API key. Pass --space, set ME_SPACE, or run 'me space use <space>' (keys are global, so the space must be fixed).",
-      );
-      process.exit(1);
-    }
-    meCmd = buildMeCommand({ server, apiKey, space });
+    meCmd = buildMeCommand({ server, apiKey, space: opts.space });
   } else {
     if (!creds.loggedIn) {
       clack.log.error(
@@ -73,14 +77,14 @@ export async function runAgentMcpInstall(
       process.exit(1);
     }
     // Bake only --server (+ an explicit --space pin if given); the session token
-    // and space resolve at runtime.
+    // resolves at runtime and an unpinned server is multi-space.
     meCmd = buildMeCommand({ server, space: opts.space });
-    if (!opts.space && !creds.activeSpace) {
-      clack.log.warn(
-        "No active space set — the MCP server will fail until you run 'me space use <space>' (or set ME_SPACE). Re-run with --space to pin one.",
-      );
-    }
   }
+
+  // Emit the multi-space notice on both credential paths: an unpinned MCP is
+  // multi-space regardless of whether it uses a session or an api key.
+  const warning = multiSpaceWarning(opts.space);
+  if (warning) clack.log.warn(warning);
 
   // For CLI tools, require the binary to be on PATH. JSON-file tools
   // (e.g. OpenCode) just edit a config file and don't need the binary.
