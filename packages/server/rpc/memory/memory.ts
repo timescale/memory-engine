@@ -91,13 +91,18 @@ const MAX_SEMANTIC_QUERY_CHARS = 8192;
  * `insufficient_privilege` (42501) on access violations and
  * `invalid_parameter_value` (22023) / `invalid_text_representation` (22P02)
  * on malformed input; everything else propagates as an internal error.
+ *
+ * `syntax_error` (42601) is also caller-caused here: ltree's `lquery` /
+ * `ltxtquery` parsers report a malformed pattern (`~|~`, `a&&`) with that
+ * code rather than 22P02, and a tree filter is caller-supplied — so it must
+ * surface as a validation error, not an opaque "Internal error".
  */
 function mapSpaceError(e: unknown): never {
   const code = (e as { code?: string }).code;
   if (code === "42501") {
     throw new AppError("FORBIDDEN", "Insufficient tree access");
   }
-  if (code === "22023" || code === "22P02") {
+  if (code === "22023" || code === "22P02" || code === "42601") {
     throw new AppError(
       "VALIDATION_ERROR",
       e instanceof Error ? e.message : "Invalid parameter",

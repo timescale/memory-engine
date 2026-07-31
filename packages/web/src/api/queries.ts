@@ -17,6 +17,7 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
+import { ROOT_PATH } from "../lib/tree-build.ts";
 import { memoryClient } from "./client.ts";
 
 const SEARCH_LIMIT = 1000;
@@ -37,21 +38,26 @@ function memoryToDot<T extends { tree: string }>(m: T): T {
 /**
  * Convert an exact ltree path to an lquery pattern that matches only that
  * path (no descendants). The engine's tree filter auto-detects lquery vs
- * ltree by special characters; by duplicating the last label via `|` or
- * using the zero-label quantifier for the empty path, we force lquery
- * detection while preserving exact-match semantics.
+ * ltree by special characters, so we append the zero-label quantifier
+ * `*{0,0}`: it forces lquery detection AND pins the match to exactly this
+ * path (zero further labels allowed).
+ *
+ * The quantifier is used rather than duplicating the last label as an
+ * alternation (`work|work`) because the latter produces invalid lquery for
+ * the `~` home sugar (`~|~` — a `~` is not a legal lquery label, and the
+ * server expands `~` only as a leading segment) and for the synthetic root
+ * sentinel, which crashed the search RPC with a PG syntax error.
  *
  * Examples:
- *   ""               -> "*{0,0}"          matches only the empty tree
- *   "work"           -> "work|work"       matches only `work`
- *   "work.projects"  -> "work.projects|projects" matches only `work.projects`
+ *   ""               -> "*{0,0}"                matches only the empty tree
+ *   "."              -> "*{0,0}"                the synthetic root bucket
+ *   "work"           -> "work.*{0,0}"           matches only `work`
+ *   "work.projects"  -> "work.projects.*{0,0}"  matches only `work.projects`
+ *   "~"              -> "~.*{0,0}"              matches only the caller's home
  */
 export function exactTreeLquery(path: string): string {
-  if (path === "") return "*{0,0}";
-  const labels = path.split(".");
-  const i = labels.length - 1;
-  labels[i] = `${labels[i]}|${labels[i]}`;
-  return labels.join(".");
+  if (path === "" || path === ROOT_PATH) return "*{0,0}";
+  return `${path}.*{0,0}`;
 }
 
 /**

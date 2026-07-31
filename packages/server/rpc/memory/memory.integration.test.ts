@@ -785,6 +785,51 @@ test("search: tree lquery wildcard matches descendants", async () => {
   expect(exact.results.map((r) => r.tree)).toEqual(["/share/proj/a"]);
 });
 
+test("search: `~.*{0,0}` pins to the root of the caller's home (TNT-248)", async () => {
+  // The web UI's exact-path filter for an expanded tree node. A memory at the
+  // ROOT of `~` (not under a sub-path) is the case that regressed: the old
+  // filter form was `~|~`, an unparseable lquery, so this search failed with an
+  // opaque Internal error and the UI showed "Failed to load".
+  await call("memory.batchCreate", {
+    memories: [
+      { content: "at home root", tree: "~" },
+      { content: "under home", tree: "~/notes" },
+      { content: "shared", tree: "share" },
+    ],
+  });
+
+  const atHomeRoot = await call<{ results: { content: string }[] }>(
+    "memory.search",
+    { tree: "~.*{0,0}", limit: 1000 },
+  );
+  expect(atHomeRoot.results.map((r) => r.content)).toEqual(["at home root"]);
+
+  // The same form one level down resolves the sub-path exactly.
+  const underHome = await call<{ results: { content: string }[] }>(
+    "memory.search",
+    { tree: "~.notes.*{0,0}", limit: 1000 },
+  );
+  expect(underHome.results.map((r) => r.content)).toEqual(["under home"]);
+});
+
+test("search: a malformed tree filter is a validation error, not an internal error", async () => {
+  // ltree's lquery/ltxtquery parsers report a bad pattern as `syntax_error`
+  // (42601), not 22P02 — it must still map to VALIDATION_ERROR so a caller sees
+  // what it did wrong instead of "Internal error" (the TNT-248 symptom).
+  // `~|~` is the exact filter the web UI used to send for a node at the root
+  // of home: `~` is not a legal lquery label (the server expands `~` only as a
+  // LEADING segment), so the ::lquery cast raises 42601.
+  await expectAppError(
+    call("memory.search", { tree: "~|~" }),
+    "VALIDATION_ERROR",
+  );
+  // An `&` classifies the filter as ltxtquery; `&&` is not valid there.
+  await expectAppError(
+    call("memory.search", { tree: "share.a&&b" }),
+    "VALIDATION_ERROR",
+  );
+});
+
 test("deleteOrphansInTree deletes stale slots; kept/foreign/unnamed survive; dryRun previews", async () => {
   await call("memory.batchCreate", {
     memories: [
