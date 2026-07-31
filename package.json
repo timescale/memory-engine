@@ -43,7 +43,7 @@
     "test:db:clean:all": "./bun scripts/clean-test-schemas.ts --all",
     "test:e2e": "./bun run test:db:clean && ./bun test --timeout 60000 ./e2e",
     "test:harness-smoke": "find ./packages/cli/harness-smoke -name '*.smoke.ts' -print0 | xargs -0 ./bun test --timeout 150000",
-    "test:unit": "find packages -name '*.test.ts' ! -name '*.integration.test.ts' -print0 | xargs -0 ./bun test --parallel=2",
+    "test:unit": "find ./packages ./scripts -name '*.test.ts' ! -name '*.integration.test.ts' ! -path '*/node_modules/*' -print0 | xargs -0 ./bun test --parallel=2",
     "typecheck": "tsc --noEmit && ./bun run web:typecheck"
   },
   "devDependencies": {
