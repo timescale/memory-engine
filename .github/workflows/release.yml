@@ -54,11 +54,40 @@ jobs:
       - name: Install npm 11.x (OIDC trusted publishing; 12.0.0 breaks provenance)
         run: npm install -g 'npm@^11.5.1'
 
+      # Pack with bun, publish the tarball with npm.
+      #
+      # `npm publish` from inside a package dir does NOT rewrite
+      # `workspace:*` dependency specs — that substitution only happens for
+      # npm-managed workspaces, and this repo installs with bun. So publishing
+      # directly shipped a literal `"@memory.build/protocol": "workspace:*"`
+      # in @memory.build/client's manifest, and every consumer install died
+      # with `Workspace dependency "@memory.build/protocol" not found`.
+      #
+      # `bun pm pack` resolves workspace protocols to the concrete version
+      # (`"@memory.build/protocol": "<this release's version>"`), so pack with
+      # bun and hand npm the finished tarball. npm still owns the upload, so
+      # OIDC trusted publishing and provenance work exactly as before.
+      #
+      # Note the packages' `prepublishOnly` build hooks do not fire when
+      # publishing a pre-made tarball — the explicit build steps above are
+      # what produce `dist/`.
+      - name: Pack npm tarballs (resolves workspace:* specs)
+        run: |
+          mkdir -p npm-tarballs
+          ./bun pm pack --cwd packages/protocol --destination "$PWD/npm-tarballs"
+          ./bun pm pack --cwd packages/client --destination "$PWD/npm-tarballs"
+
+      # Fail loudly rather than shipping another broken manifest.
+      - name: Verify no unresolved workspace specs survived packing
+        run: ./bun scripts/npm/verify-tarballs.ts ./npm-tarballs
+
+      # The `./` prefix is required: npm reads a bare relative path as a GitHub
+      # `org/repo` shorthand and tries to `git ls-remote` it.
       - name: Publish @memory.build/protocol
-        run: cd packages/protocol && npm publish --access public
+        run: npm publish --access public "./npm-tarballs/memory.build-protocol-${GITHUB_REF_NAME#v}.tgz"
 
       - name: Publish @memory.build/client
-        run: cd packages/client && npm publish --access public
+        run: npm publish --access public "./npm-tarballs/memory.build-client-${GITHUB_REF_NAME#v}.tgz"
 
   build-cli:
     # Build on macOS so the darwin binary can be ad-hoc signed.
