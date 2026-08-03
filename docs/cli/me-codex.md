@@ -19,10 +19,10 @@ Register `me` as an MCP server with Codex CLI.
 me codex install
 ```
 
-This non-interactive command registers exactly `me mcp` and adds a user-global
-Codex `PreToolUse` Bash hook. The hook only injects `AI_AGENT=codex` and
-`ME_PROJECT_DIR` into Bash commands; it has no credentials, server, space,
-tree, cwd, or project configuration.
+This non-interactive command registers exactly `me mcp`. The dormant Codex
+adapter also supports a user-global `PreToolUse` Bash hook that only injects
+`AI_AGENT=codex` and `ME_PROJECT_DIR` into Bash commands; it has no
+credentials, server, space, tree, cwd, or project configuration.
 
 Codex requires you to approve new or changed hooks. Run `/hooks` inside Codex
 and approve the entry after installation. Memory Engine never automates or
@@ -34,8 +34,9 @@ bypasses this trust approval.
 me codex uninstall
 ```
 
-Removes only the MCP registration and hook entry recorded by `me codex install`.
-Changed and unrelated hook entries are retained.
+Removes only the registration recorded by `me codex install`. When the dormant
+adapter's hook artifact is recorded, it removes only the matching
+`PreToolUse` entry and preserves unrelated hook configuration.
 
 For manual MCP client configuration, see [MCP Integration](../mcp-integration.md).
 
@@ -51,8 +52,8 @@ terminal CLI is unaffected.
 
 ## me codex env-hook
 
-An internal helper invoked by the user-global `PreToolUse` Bash hook installed
-by `me codex install`. It fails open for malformed or unknown payloads.
+An internal helper invoked by the dormant user-global `PreToolUse` Bash hook.
+It fails open for malformed or unknown payloads.
 
 ---
 

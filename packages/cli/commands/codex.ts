@@ -6,44 +6,16 @@
  * - me codex env-hook: invoked by that hook to rewrite Bash commands.
  */
 import { Command } from "commander";
-import { CLIENT_VERSION } from "../../../version";
 import { buildCodexEnvHookOutput } from "../codex/env-hook.ts";
-import {
-  installCodexIntegration,
-  uninstallCodexIntegration,
-} from "../codex/install.ts";
-import {
-  getInstallation,
-  removeInstallation,
-  writeInstallation,
-} from "../harness/installations.ts";
 import { logUnrecognizedPayloadShape } from "../harness-shape-log.ts";
 import { createCodexImportCommand } from "./import.ts";
+import {
+  createHarnessInstallCommand,
+  createHarnessUninstallCommand,
+} from "./install.ts";
 
 function createCodexInstallCommand(): Command {
-  return new Command("install")
-    .description("install Memory Engine's dormant Codex CLI integration")
-    .action(async () => {
-      const result = await installCodexIntegration(getInstallation("codex"));
-      writeInstallation("codex", {
-        installed_at: new Date().toISOString(),
-        me_version: CLIENT_VERSION,
-        artifacts: result.artifacts,
-      });
-      for (const message of result.messages) console.log(message);
-    });
-}
-
-function createCodexUninstallCommand(): Command {
-  return new Command("uninstall")
-    .description("uninstall the recorded Codex CLI integration")
-    .action(async () => {
-      const record = getInstallation("codex");
-      if (!record) return;
-      const result = await uninstallCodexIntegration(record);
-      if (result.retained.length === 0) removeInstallation("codex");
-      for (const message of result.messages) console.log(message);
-    });
+  return createHarnessInstallCommand("codex");
 }
 
 /**
@@ -83,7 +55,7 @@ function createCodexEnvHookCommand(): Command {
 export function createCodexCommand(): Command {
   const codex = new Command("codex").description("Codex CLI integration");
   codex.addCommand(createCodexInstallCommand());
-  codex.addCommand(createCodexUninstallCommand());
+  codex.addCommand(createHarnessUninstallCommand("codex"));
   codex.addCommand(createCodexEnvHookCommand());
   codex.addCommand(createCodexImportCommand());
   return codex;

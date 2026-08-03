@@ -5,9 +5,12 @@ import { join } from "node:path";
 import {
   CODEX_ENV_HOOK_COMMAND,
   CODEX_HOOK_ENTRY,
+  codexMcpCommand,
   installCodexEnvHook,
+  installCodexIntegration,
   removeCodexEnvHook,
-} from "./install.ts";
+  uninstallCodexIntegration,
+} from "./integration.ts";
 
 function withTmpDir<T>(action: (dir: string) => T): T {
   const dir = mkdtempSync(join(tmpdir(), "me-codex-install-"));
@@ -33,6 +36,35 @@ test("records the exact user-global Codex hook artifact", () => {
   });
 });
 
+test("registers exactly me mcp without any baked targeting", () => {
+  expect(codexMcpCommand()).toEqual([
+    "codex",
+    "mcp",
+    "add",
+    "me",
+    "--",
+    "me",
+    "mcp",
+  ]);
+});
+
+test("reports the complete MCP and hook artifact list", async () => {
+  const hook = {
+    kind: "json-hook" as const,
+    path: "/home/test/.codex/hooks.json",
+    event: "PreToolUse",
+    command: CODEX_ENV_HOOK_COMMAND,
+  };
+  const result = await installCodexIntegration(undefined, {
+    installMcp: async () => ({ success: true, message: "registered" }),
+    installHook: () => hook,
+  });
+  expect(result.artifacts).toEqual([
+    { kind: "mcp-cli", server_name: "me" },
+    hook,
+  ]);
+});
+
 test("uninstall removes only the unchanged recorded hook entry", () => {
   withTmpDir((dir) => {
     const path = join(dir, "hooks.json");
@@ -51,7 +83,7 @@ test("uninstall removes only the unchanged recorded hook entry", () => {
   });
 });
 
-test("uninstall retains a hook entry changed after installation", () => {
+test("uninstall removes an entry matching the recorded event and command", () => {
   withTmpDir((dir) => {
     const path = join(dir, "hooks.json");
     const artifact = installCodexEnvHook(path);
@@ -59,7 +91,31 @@ test("uninstall retains a hook entry changed after installation", () => {
     config.hooks.PreToolUse[0].matcher = "^Shell$";
     writeFileSync(path, `${JSON.stringify(config)}\n`);
 
-    expect(removeCodexEnvHook(artifact)).toBe("retained");
-    expect(JSON.parse(readFileSync(path, "utf8"))).toEqual(config);
+    expect(removeCodexEnvHook(artifact)).toBe("removed");
+    expect(JSON.parse(readFileSync(path, "utf8"))).toEqual({
+      hooks: { PreToolUse: [] },
+    });
   });
+});
+
+test("uninstall reports artifacts retained when native cleanup fails", async () => {
+  const mcp = { kind: "mcp-cli" as const, server_name: "me" as const };
+  const hook = {
+    kind: "json-hook" as const,
+    path: "/home/test/.codex/hooks.json",
+    event: "PreToolUse",
+    command: CODEX_ENV_HOOK_COMMAND,
+  };
+  const result = await uninstallCodexIntegration(
+    {
+      installed_at: "2026-08-03T14:00:00.000Z",
+      me_version: "0.0.0",
+      artifacts: [mcp, hook],
+    },
+    {
+      removeMcp: async () => false,
+      removeHook: () => "retained",
+    },
+  );
+  expect(result.retained).toEqual([mcp, hook]);
 });
