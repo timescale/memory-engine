@@ -22,9 +22,7 @@ The behavior contract is in:
 - `HARNESS_INTEGRATIONS_REQUIREMENTS.md`
 - `HARNESS_INTEGRATIONS_CONTRACTS.md`
 
-Provider agents must read both files from the merged common base. If the Wave 1
-documents have not been committed, use their `me1` absolute paths only for
-reference; do not copy them into provider branches.
+Provider agents must read both files from the merged common base.
 
 ## Prerequisites
 
@@ -48,10 +46,10 @@ fan-out rather than making each adapter compensate independently.
 
 | Checkout | Agent | Provider |
 | --- | --- | --- |
-| `/Users/john/projects/me0` | Agent D | Claude Code |
-| `/Users/john/projects/me1` | Agent E | OpenCode |
-| `/Users/john/projects/me2` | Agent F | Codex CLI |
-| `/Users/john/projects/me3` | Agent G | Gemini CLI |
+| `<checkout-claude>` | Agent D | Claude Code |
+| `<checkout-opencode>` | Agent E | OpenCode |
+| `<checkout-codex>` | Agent F | Codex CLI |
+| `<checkout-gemini>` | Agent G | Gemini CLI |
 
 Each agent creates a provider-only branch from the same merged Wave 1 base.
 Each agent edits only its provider files plus its tests/docs. Do not modify

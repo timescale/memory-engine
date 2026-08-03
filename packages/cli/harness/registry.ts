@@ -72,7 +72,7 @@ async function installMcp(name: HarnessName): Promise<HarnessInstallResult> {
       artifacts: [],
       messages: [
         recorded
-          ? `${tool.name}: existing managed MCP registration is current.`
+          ? `${tool.name}: existing managed MCP registration was left unchanged.`
           : result.message,
       ],
     };

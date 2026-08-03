@@ -11,8 +11,8 @@ Fix the cross-branch integration defects in:
 - `HARNESS_INTEGRATIONS_REQUIREMENTS.md`
 - `HARNESS_INTEGRATIONS_CONTRACTS.md`
 
-The requirements/contracts may remain untracked in `/Users/john/projects/me1`.
-Read them from that absolute path if they are absent from your checkout.
+The requirements/contracts are committed at the repository root. Read them
+before editing.
 
 ## Required work
 
