@@ -1,103 +1,222 @@
-/**
- * me gemini — Gemini CLI integration commands.
- *
- * - me gemini install: register me as an MCP server with Gemini CLI, and
- *   wire the harness-injected shell contract via a user-scope BeforeTool
- *   hook.
- * - me gemini env-hook: invoked by that hook to rewrite shell commands.
- */
+/** Gemini CLI's user-global dormant MCP and shell-contract integration. */
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import * as clack from "@clack/prompts";
-import { Command, InvalidArgumentError } from "commander";
+import { Command } from "commander";
+import { CLIENT_VERSION } from "../../../version";
 import { buildGeminiEnvHookOutput } from "../gemini/env-hook.ts";
+import {
+  getInstallation,
+  type InstallationArtifact,
+  removeInstallation,
+  writeInstallation,
+} from "../harness/installations.ts";
 import {
   type JsonHookEntry,
   upsertJsonHooksFile,
 } from "../harness-hooks-json.ts";
 import { logUnrecognizedPayloadShape } from "../harness-shape-log.ts";
-import {
-  createHarnessInstallCommand,
-  createHarnessUninstallCommand,
-} from "./install.ts";
+import { removeHarnessFromProfiles } from "../local-config.ts";
+import { buildMeCommand, installMcpServer, MCP_TOOLS } from "../mcp/install.ts";
 
-const GEMINI_SCOPES = ["user", "project"] as const;
-type GeminiScope = (typeof GEMINI_SCOPES)[number];
-
-export function parseGeminiScope(value: string): GeminiScope {
-  if (!GEMINI_SCOPES.includes(value as GeminiScope)) {
-    throw new InvalidArgumentError(
-      `must be one of: ${GEMINI_SCOPES.join(", ")}`,
-    );
-  }
-  return value as GeminiScope;
-}
-
-/** The hook command Gemini invokes — bare, no version string. */
 const GEMINI_ENV_HOOK_COMMAND = "me gemini env-hook";
-
-/** Our canonical BeforeTool hook definition — kept as one literal so every
- * install writes byte-identical JSON. */
 const GEMINI_HOOK_ENTRY: JsonHookEntry = {
   matcher: "run_shell_command",
   hooks: [{ type: "command", command: GEMINI_ENV_HOOK_COMMAND }],
 };
 
-/** Write (or refresh) the user-scope `~/.gemini/settings.json` BeforeTool entry. */
-export function installGeminiEnvHook(): void {
-  const path = join(homedir(), ".gemini", "settings.json");
-  const { changed } = upsertJsonHooksFile(
+export function geminiSettingsPath(): string {
+  return join(homedir(), ".gemini", "settings.json");
+}
+
+function hasGeminiHook(path: string): boolean {
+  if (!existsSync(path)) return false;
+  const root: unknown = JSON.parse(readFileSync(path, "utf8"));
+  if (!root || typeof root !== "object" || Array.isArray(root)) return false;
+  const hooks = (root as { hooks?: unknown }).hooks;
+  const entries =
+    hooks && typeof hooks === "object" && !Array.isArray(hooks)
+      ? (hooks as { BeforeTool?: unknown }).BeforeTool
+      : undefined;
+  return (
+    Array.isArray(entries) &&
+    entries.some(
+      (entry) =>
+        entry &&
+        typeof entry === "object" &&
+        Array.isArray((entry as { hooks?: unknown }).hooks) &&
+        (entry as { hooks: Array<{ command?: unknown }> }).hooks.some(
+          (hook) => hook?.command === GEMINI_ENV_HOOK_COMMAND,
+        ),
+    )
+  );
+}
+
+export function installGeminiEnvHook(path = geminiSettingsPath()): boolean {
+  return upsertJsonHooksFile(
     path,
     "BeforeTool",
     GEMINI_HOOK_ENTRY,
     GEMINI_ENV_HOOK_COMMAND,
-  );
-  if (changed) {
-    clack.log.success(`Installed the Gemini CLI BeforeTool hook → ${path}`);
+  ).changed;
+}
+
+/** Remove precisely our hook entry, retaining all other Gemini settings. */
+export function uninstallGeminiEnvHook(path = geminiSettingsPath()): boolean {
+  if (!existsSync(path)) return false;
+  const root: unknown = JSON.parse(readFileSync(path, "utf8"));
+  if (!root || typeof root !== "object" || Array.isArray(root)) {
+    throw new Error(`${path} must contain a JSON object`);
   }
+  const settings = root as Record<string, unknown>;
+  const hooks = settings.hooks;
+  if (!hooks || typeof hooks !== "object" || Array.isArray(hooks)) return false;
+  const hookSettings = hooks as Record<string, unknown>;
+  const entries = hookSettings.BeforeTool;
+  if (!Array.isArray(entries)) return false;
+  const remaining = entries.filter(
+    (entry) =>
+      !(
+        entry &&
+        typeof entry === "object" &&
+        Array.isArray((entry as { hooks?: unknown }).hooks) &&
+        (entry as { hooks: Array<{ command?: unknown }> }).hooks.some(
+          (hook) => hook?.command === GEMINI_ENV_HOOK_COMMAND,
+        )
+      ),
+  );
+  if (remaining.length === entries.length) return false;
+  writeFileSync(
+    path,
+    `${JSON.stringify(
+      { ...settings, hooks: { ...hookSettings, BeforeTool: remaining } },
+      null,
+      2,
+    )}\n`,
+  );
+  return true;
 }
 
-function createGeminiInstallCommand(): Command {
-  return createHarnessInstallCommand("gemini");
+function geminiMcpTool() {
+  const tool = MCP_TOOLS.find((candidate) => candidate.bin === "gemini");
+  if (!tool || tool.method !== "cli") {
+    throw new Error("Gemini CLI MCP installer is unavailable.");
+  }
+  return tool;
 }
 
-/**
- * me gemini env-hook — invoked by the BeforeTool hook installed above.
- * Structural twin of `me codex env-hook`: reads the payload from stdin, and
- * for a `run_shell_command` call prints a rewrite that prepends the harness
- * contract's `export …; ` prefix. Fails open (empty stdout) on anything it
- * doesn't recognize, logging the shape (never command content). Always
- * exits 0.
- */
+async function installGemini(): Promise<void> {
+  const previous = getInstallation("gemini");
+  const settingsPath = geminiSettingsPath();
+  const hookArtifact: InstallationArtifact = {
+    kind: "json-hook",
+    path: settingsPath,
+    event: "BeforeTool",
+    command: GEMINI_ENV_HOOK_COMMAND,
+  };
+  const hookWasRecorded = previous?.artifacts.some(
+    (artifact) =>
+      artifact.kind === "json-hook" &&
+      artifact.path === settingsPath &&
+      artifact.event === hookArtifact.event &&
+      artifact.command === hookArtifact.command,
+  );
+  const hookAlreadyExists = hasGeminiHook(settingsPath);
+  const result = await installMcpServer(geminiMcpTool(), buildMeCommand({}), {
+    scope: "user",
+    replaceExisting: false,
+  });
+  if (!result.success) throw new Error(result.message);
+
+  if (!hookAlreadyExists || hookWasRecorded) installGeminiEnvHook(settingsPath);
+
+  const artifacts: InstallationArtifact[] = [];
+  if (
+    !result.preserved ||
+    previous?.artifacts.some((artifact) => artifact.kind === "mcp-cli")
+  ) {
+    artifacts.push({ kind: "mcp-cli", server_name: "me", scope: "user" });
+  }
+  if (!hookAlreadyExists || hookWasRecorded) artifacts.push(hookArtifact);
+  if (artifacts.length > 0) {
+    writeInstallation("gemini", {
+      installed_at: new Date().toISOString(),
+      me_version: CLIENT_VERSION,
+      artifacts,
+    });
+  }
+  console.log(result.message);
+}
+
+async function uninstallGemini(purge: boolean): Promise<void> {
+  const installation = getInstallation("gemini");
+  if (!installation) return;
+  const retained: InstallationArtifact[] = [];
+  for (const artifact of installation.artifacts) {
+    if (artifact.kind === "mcp-cli") {
+      if (artifact.scope !== "user") {
+        retained.push(artifact);
+        continue;
+      }
+      const process = Bun.spawn(geminiMcpTool().removeCmd({ scope: "user" }), {
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+      if ((await process.exited) !== 0) retained.push(artifact);
+    } else if (artifact.kind === "json-hook") {
+      try {
+        uninstallGeminiEnvHook(artifact.path);
+      } catch {
+        retained.push(artifact);
+      }
+    } else {
+      retained.push(artifact);
+    }
+  }
+  if (retained.length > 0) {
+    throw new Error(
+      "Gemini integration cleanup was incomplete; retained recorded artifacts.",
+    );
+  }
+  removeInstallation("gemini");
+  if (purge) removeHarnessFromProfiles("gemini");
+}
+
 function createGeminiEnvHookCommand(): Command {
   return new Command("env-hook")
-    .description(
-      "invoked by Gemini CLI's BeforeTool hook to inject the harness contract into shell commands",
-    )
+    .description("inject the Gemini shell contract")
     .action(async () => {
       let payload: unknown;
       try {
         payload = JSON.parse(await Bun.stdin.text());
       } catch {
         logUnrecognizedPayloadShape("gemini", undefined);
-        process.exit(0);
+        return;
       }
-
       const result = buildGeminiEnvHookOutput(payload, process.env);
       if (result.unrecognizedShape) {
         logUnrecognizedPayloadShape("gemini", payload);
       }
-      if (result.output) {
-        console.log(JSON.stringify(result.output));
-      }
-      process.exit(0);
+      if (result.output) console.log(JSON.stringify(result.output));
     });
 }
 
 export function createGeminiCommand(): Command {
   const gemini = new Command("gemini").description("Gemini CLI integration");
-  gemini.addCommand(createGeminiInstallCommand());
-  gemini.addCommand(createHarnessUninstallCommand("gemini"));
-  gemini.addCommand(createGeminiEnvHookCommand());
+  gemini
+    .addCommand(
+      new Command("install")
+        .description("install Memory Engine's dormant Gemini CLI integration")
+        .action(installGemini),
+    )
+    .addCommand(
+      new Command("uninstall")
+        .description("uninstall the recorded Gemini CLI integration")
+        .option("--purge", "remove Gemini from local activation profiles")
+        .action((opts: { purge?: boolean }) =>
+          uninstallGemini(opts.purge === true),
+        ),
+    )
+    .addCommand(createGeminiEnvHookCommand());
   return gemini;
 }
