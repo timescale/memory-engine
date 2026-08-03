@@ -1,9 +1,8 @@
 /**
  * me opencode — OpenCode integration commands.
  *
- * - me opencode install: register me as an MCP server with OpenCode, and
- *   install the capture plugin + /memory-recall command + memory-engine
- *   skill (also offered from `me project init`'s preflight — see
+ * - me opencode install: install the dormant global OpenCode integration
+ *   (also offered from `me project init`'s preflight — see
  *   `openCodeSetupAvailable`/`runOpenCodeInstallFlow`)
  * - me opencode hook:    invoked by the OpenCode plugin to capture a session
  * - me opencode import:  bulk-import OpenCode session history
@@ -12,27 +11,13 @@
  * `me project init` — harness-agnostic, not duplicated here. `me opencode
  * init` used to cover that; it's now a deprecated alias (wired in index.ts).
  */
-import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { join } from "node:path";
-import * as clack from "@clack/prompts";
 import { Command } from "commander";
 import type { StepAvailability } from "../agent/init.ts";
 import { createMemoryClient } from "../client.ts";
 import { resolveCredentials } from "../credentials.ts";
+import { installHarness, isHarnessInstalled } from "../harness/registry.ts";
 import { importTranscriptSession } from "../importers/index.ts";
-import { opencodeImporter, parseSessionById } from "../importers/opencode.ts";
-import { detectGitContext } from "../importers/project.ts";
-import {
-  type AgentInstallOptions,
-  runAgentMcpInstall,
-} from "../mcp/agent-install.ts";
-import {
-  RECALL_COMMAND_FILENAME,
-  renderRecallCommand,
-  renderSkill,
-  SKILL_FILENAME,
-  SKILL_NAME,
-} from "../opencode/assets.ts";
+import { parseSessionById } from "../importers/opencode.ts";
 import {
   HOOK_EVENT_NAMES,
   type HookEventName,
@@ -40,160 +25,35 @@ import {
   SESSIONS_NODE,
 } from "../opencode/capture.ts";
 import {
-  PLUGIN_FILENAME,
-  PLUGIN_MARKER,
-  renderPluginSource,
-} from "../opencode/plugin-template.ts";
-import {
-  type OpenCodeScope,
-  openCodeCommandsDir,
-  openCodePluginsDir,
-  openCodeSkillsDir,
-} from "../opencode/scope.ts";
-import {
   discoverProjectConfig,
   setConfigDirOverride,
 } from "../project-config.ts";
 import { memoryBearer } from "../session.ts";
-import { runCapturePrompt } from "./capture-prompt.ts";
 import { createOpenCodeImportCommand } from "./import.ts";
 import {
   createHarnessInstallCommand,
   createHarnessUninstallCommand,
 } from "./install.ts";
 
-/** Absolute path of the generated capture plugin for a scope. */
-function openCodePluginPath(scope: OpenCodeScope, projectRoot: string): string {
-  return join(openCodePluginsDir(scope, projectRoot), PLUGIN_FILENAME);
-}
-
-/** Whether our managed capture plugin is already installed (by its marker). */
-export async function openCodePluginInstalled(
-  scope: OpenCodeScope,
-  projectRoot: string,
-): Promise<boolean> {
-  try {
-    const existing = await readFile(
-      openCodePluginPath(scope, projectRoot),
-      "utf8",
-    );
-    return existing.startsWith(PLUGIN_MARKER);
-  } catch {
-    return false;
-  }
-}
-
-/** Write (or refresh) the generated capture plugin into the scoped plugins dir. */
-async function installOpenCodePlugin(
-  scope: OpenCodeScope,
-  projectRoot: string,
-): Promise<void> {
-  const dir = openCodePluginsDir(scope, projectRoot);
-  await mkdir(dir, { recursive: true });
-  const file = openCodePluginPath(scope, projectRoot);
-  await writeFile(file, renderPluginSource());
-  clack.log.success(`Installed the OpenCode capture plugin → ${file}`);
-}
-
-const recallCommandPath = (scope: OpenCodeScope, projectRoot: string): string =>
-  join(openCodeCommandsDir(scope, projectRoot), RECALL_COMMAND_FILENAME);
-
-const skillPath = (scope: OpenCodeScope, projectRoot: string): string =>
-  join(openCodeSkillsDir(scope, projectRoot), SKILL_NAME, SKILL_FILENAME);
-
-/** Write (or refresh) the `/memory-recall` command into the scoped commands dir. */
-async function installRecallCommand(
-  scope: OpenCodeScope,
-  projectRoot: string,
-): Promise<void> {
-  const file = recallCommandPath(scope, projectRoot);
-  await mkdir(openCodeCommandsDir(scope, projectRoot), { recursive: true });
-  await writeFile(file, renderRecallCommand());
-  clack.log.success(`Installed the /memory-recall command → ${file}`);
-}
-
-/** Write (or refresh) the `memory-engine` skill into the scoped skills dir. */
-async function installSkill(
-  scope: OpenCodeScope,
-  projectRoot: string,
-): Promise<void> {
-  const file = skillPath(scope, projectRoot);
-  await mkdir(join(openCodeSkillsDir(scope, projectRoot), SKILL_NAME), {
-    recursive: true,
-  });
-  await writeFile(file, renderSkill());
-  clack.log.success(`Installed the ${SKILL_NAME} skill → ${file}`);
-}
-
-/** Resolve the project root (git root, else cwd) for `scope: "project"`. */
-async function resolveProjectRoot(): Promise<string> {
-  const { gitRoot } = await detectGitContext(process.cwd());
-  return gitRoot ?? process.cwd();
-}
-
 /**
- * me opencode install — register the MCP server, install the (inert) capture
- * plugin + `/memory-recall` command + `memory-engine` skill, and run the
- * shared capture opt-in — mirroring `me claude install`'s one-install model.
- * A headless (api-key) install stops after the MCP registration: capture is
- * credential-agnostic, so a headless deployment opts in via a committed
- * `.me` `capture: true` or the target machine's config.
- *
- * Exported so `me project init`'s preflight can offer this same flow — see
- * `openCodeSetupAvailable()` below.
+ * Legacy `me project init` preflight adapter. Public install commands use the
+ * same inventory-backed provider registry directly.
  */
 export async function runOpenCodeInstallFlow(
-  opts: AgentInstallOptions & {
-    scope?: OpenCodeScope;
-    perProjectStepFollows?: boolean;
-  },
-  globalOpts: Record<string, unknown>,
+  _opts: unknown,
+  _globalOpts: Record<string, unknown>,
 ): Promise<void> {
-  const scope = opts.scope ?? "user";
-  const projectRoot =
-    scope === "project" ? await resolveProjectRoot() : process.cwd();
-  await runAgentMcpInstall("opencode", {
-    apiKey: opts.apiKey,
-    server: opts.server,
-    space: opts.space,
-    scope,
-    projectDir: scope === "project" ? projectRoot : undefined,
-  });
-
-  const creds = resolveCredentials(opts.server);
-  const headless = Boolean(opts.apiKey ?? creds.apiKey);
-  if (headless) return;
-
-  const activeSpace = opts.space ?? creds.activeSpace;
-  // The capture plugin — inert until capture is enabled (the flag below, or
-  // a project's `.me` `capture: true`) — alongside the /memory-recall
-  // command and the memory-engine skill, all at the same scope as the MCP
-  // registration above.
-  await installOpenCodePlugin(scope, projectRoot);
-  await installRecallCommand(scope, projectRoot);
-  await installSkill(scope, projectRoot);
-
-  // Capture opt-in (shared with `me claude install`): prompt, persist
-  // the machine-wide flag, and backfill existing sessions on yes.
-  await runCapturePrompt(opencodeImporter, globalOpts, {
-    space: activeSpace,
-    toolLabel: "OpenCode",
-    installCmd: "me opencode install",
-    perProjectStepFollows: opts.perProjectStepFollows,
-  });
+  await installHarness("opencode");
 }
 
 /**
  * Whether `me project init`'s preflight should offer to run
  * {@link runOpenCodeInstallFlow}: hidden if OpenCode isn't installed on this
- * machine at all, "done" if the user-scope capture plugin is already
- * present (mirrors `pluginInstallAvailable()` in claude.ts).
+ * machine at all, "done" when the registry has recorded its integration.
  */
 export async function openCodeSetupAvailable(): Promise<StepAvailability> {
   if (Bun.which("opencode") === null) return "hidden";
-  return (await openCodePluginInstalled("user", process.cwd()))
-    ? "done"
-    : "available";
+  return isHarnessInstalled("opencode") ? "done" : "available";
 }
 
 function createOpenCodeInstallCommand(): Command {

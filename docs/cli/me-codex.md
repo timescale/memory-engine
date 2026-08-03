@@ -4,8 +4,8 @@ Codex CLI integration commands.
 
 ## Commands
 
-- [me codex install](#me-codex-install) -- register `me` as an MCP server with Codex CLI
-- [me codex uninstall](#me-codex-uninstall) -- remove the recorded MCP registration
+- [me codex install](#me-codex-install) -- install dormant Codex plumbing
+- [me codex uninstall](#me-codex-uninstall) -- remove recorded Codex plumbing
 - [me codex env-hook](#me-codex-env-hook) -- internal helper (you never run this directly)
 - [me codex import](#me-codex-import) -- import Codex sessions from `~/.codex/sessions` and `~/.codex/archived_sessions`
 
@@ -24,9 +24,8 @@ adapter also supports a user-global `PreToolUse` Bash hook that only injects
 `AI_AGENT=codex` and `ME_PROJECT_DIR` into Bash commands; it has no
 credentials, server, space, tree, cwd, or project configuration.
 
-When the shared integration wiring installs the hook, Codex requires you to
-approve it through `/hooks`. Memory Engine never automates or bypasses this
-trust approval.
+Codex requires you to approve the installed hook through `/hooks`. Memory
+Engine never automates or bypasses this trust approval.
 
 ## me codex uninstall
 
@@ -34,9 +33,8 @@ trust approval.
 me codex uninstall
 ```
 
-Removes only the registration recorded by `me codex install`. When the dormant
-adapter's hook artifact is recorded, it removes only the matching
-`PreToolUse` entry and preserves unrelated hook configuration.
+Removes only the MCP registration and matching `PreToolUse` hook recorded by
+`me codex install`, preserving unrelated hook configuration.
 
 For manual MCP client configuration, see [MCP Integration](../mcp-integration.md).
 

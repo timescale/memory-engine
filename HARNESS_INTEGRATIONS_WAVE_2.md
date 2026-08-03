@@ -1,8 +1,9 @@
 # Harness Integrations - Wave 2 Provider Execution Plan
 
-Status: blocked until the Wave 1 registry/inventory and local-config resolver
-branches have merged to a common base. This is a contributor-facing plan for
-four parallel provider-adapter agents.
+Status: provider adapters and registry integration complete locally; shared
+runtime policy gating remains a later wave. Wave 1 registry/inventory and
+local-config resolver work merged to `main` in PR #185, whose CI, Docker, and
+integration checks passed. This remains the contributor-facing provider plan.
 
 ## Goal
 

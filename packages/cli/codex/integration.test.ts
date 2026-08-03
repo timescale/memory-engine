@@ -57,7 +57,7 @@ test("reports the complete MCP and hook artifact list", async () => {
   };
   const result = await installCodexIntegration(undefined, {
     installMcp: async () => ({ success: true, message: "registered" }),
-    installHook: () => hook,
+    installHook: () => ({ artifact: hook, changed: true }),
   });
   expect(result.artifacts).toEqual([
     { kind: "mcp-cli", server_name: "me" },

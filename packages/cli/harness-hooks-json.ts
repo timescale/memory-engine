@@ -60,15 +60,22 @@ export function upsertJsonHooksFile(
     root = parsed as Record<string, unknown>;
   }
 
-  const hooksRoot: Record<string, unknown> =
-    root.hooks !== null &&
-    typeof root.hooks === "object" &&
-    !Array.isArray(root.hooks)
-      ? (root.hooks as Record<string, unknown>)
-      : {};
-  const existingList = Array.isArray(hooksRoot[eventKey])
-    ? (hooksRoot[eventKey] as unknown[])
-    : [];
+  if (
+    root.hooks !== undefined &&
+    (root.hooks === null ||
+      typeof root.hooks !== "object" ||
+      Array.isArray(root.hooks))
+  ) {
+    throw new Error(`${path} has a malformed hooks object`);
+  }
+  const hooksRoot = (root.hooks as Record<string, unknown> | undefined) ?? {};
+  if (
+    hooksRoot[eventKey] !== undefined &&
+    !Array.isArray(hooksRoot[eventKey])
+  ) {
+    throw new Error(`${path} has a malformed hooks.${eventKey} list`);
+  }
+  const existingList = (hooksRoot[eventKey] as unknown[] | undefined) ?? [];
   const list = [...existingList];
 
   const idx = list.findIndex(
