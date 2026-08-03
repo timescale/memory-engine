@@ -153,6 +153,24 @@ export function buildCiInstallOptions(
   };
 }
 
+export function validateCiInstallMode(
+  opts: CiInstallOptions,
+  isInteractive: boolean,
+): void {
+  if (!isInteractive && !opts.workflowOnly && !opts.createServiceAccount) {
+    throw new Error(
+      "Non-interactive mode requires --workflow-only or --create-service-account.",
+    );
+  }
+}
+
+export function isEffectiveSpaceAdmin(
+  spaces: Array<{ slug: string; admin: boolean }>,
+  slug: string,
+): boolean {
+  return spaces.find((space) => space.slug === slug)?.admin === true;
+}
+
 async function detectGitHubRepo(gitRoot: string): Promise<string | undefined> {
   try {
     const { stdout } = await execFileAsync("git", [
@@ -356,7 +374,7 @@ async function createAndPlaceKey(info: {
   } catch (error) {
     if (isAppErrorCode(error, "FORBIDDEN")) {
       printInstructions({ ...info, admins: adminContactsFrom(error) });
-      return;
+      throw error;
     }
     throw error;
   }
@@ -396,6 +414,11 @@ export async function runCiInstall(
     handleError(error, fmt);
   }
   const isInteractive = interactive(fmt);
+  try {
+    validateCiInstallMode(opts, isInteractive);
+  } catch (error) {
+    handleError(error, fmt);
+  }
   const { gitRoot } = await detectGitContext(process.cwd());
   if (!gitRoot)
     handleError(
@@ -434,14 +457,14 @@ export async function runCiInstall(
       requireAuth(creds, fmt);
       const selected = await selectSpace(creds);
       space = selected.slug;
-      isAdmin = selected.admin;
+      isAdmin = isEffectiveSpaceAdmin([selected], selected.slug);
     } catch (error) {
       handleError(error, fmt, { creds, scope: "account" });
     }
   } else if (isInteractive && !opts.workflowOnly) {
     try {
       const { spaces } = await buildUserClient(creds).space.list();
-      isAdmin = spaces.find((item) => item.slug === space)?.admin === true;
+      isAdmin = isEffectiveSpaceAdmin(spaces, space);
     } catch (error) {
       handleError(error, fmt, { creds, scope: "account" });
     }
@@ -468,14 +491,6 @@ export async function runCiInstall(
   }
 
   if (opts.workflowOnly) return;
-  if (!isInteractive && !opts.createServiceAccount) {
-    handleError(
-      new Error(
-        "Non-interactive mode requires --workflow-only or --create-service-account.",
-      ),
-      fmt,
-    );
-  }
   if (!isInteractive && opts.createServiceAccount) {
     try {
       if (!(await ghReady()))

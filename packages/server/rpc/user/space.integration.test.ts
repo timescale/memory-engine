@@ -152,6 +152,23 @@ test("space.list filters a restricted PAT to declared spaces and admin", async (
   expect(result.spaces[0]?.admin).toBe(false);
 });
 
+test("space.list reports effective admin status for direct, admin-group, and non-admin members", async () => {
+  const core = coreStore(sql, coreSchema);
+  const { id: spaceId } = await createSpace({ name: "Effective admins" });
+  const directAdmin = await makeUser();
+  const groupAdmin = await makeUser();
+  const nonAdmin = await makeUser();
+  await core.addPrincipalToSpace(spaceId, directAdmin, true);
+  await core.addPrincipalToSpace(spaceId, groupAdmin);
+  await core.addPrincipalToSpace(spaceId, nonAdmin);
+  const group = await core.createGroup(spaceId, `admins_${rand(6)}`, true);
+  await core.addGroupMember(spaceId, group, groupAdmin);
+
+  expect((await spaceListEntry(spaceId, directAdmin))?.admin).toBe(true);
+  expect((await spaceListEntry(spaceId, groupAdmin))?.admin).toBe(true);
+  expect((await spaceListEntry(spaceId, nonAdmin))?.admin).toBe(false);
+});
+
 test("space.create (autoGrantHome=false, no default group): creator god mode; a joiner is locked out", async () => {
   const core = coreStore(sql, coreSchema);
   const { id: spaceId } = await createSpace({

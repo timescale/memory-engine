@@ -12,7 +12,7 @@ export const memberSpaceResponse = z.object({
   slug: z.string(),
   name: z.string(),
   language: z.string(),
-  /** Whether the user is a (direct) admin of the space. */
+  /** Whether the user is an effective admin of the space, including via an admin group. */
   admin: z.boolean(),
   /** Whether joining users automatically get owner@~ (custom spaces set false). */
   autoGrantHome: z.boolean(),

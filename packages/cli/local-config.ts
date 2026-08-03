@@ -20,15 +20,8 @@ import {
 } from "node:path";
 import { parse, stringify } from "yaml";
 import { getGlobalConfigPath } from "./credentials.ts";
+import { HARNESS_NAMES, type HarnessName } from "./harness/names.ts";
 
-type HarnessName = "claude" | "opencode" | "codex" | "gemini";
-
-const HARNESS_NAMES: readonly HarnessName[] = [
-  "claude",
-  "opencode",
-  "codex",
-  "gemini",
-];
 const PROFILE_KEYS = new Set(["mcp", "capture", "cli"]);
 const MCP_KEYS = new Set(["enabled", "server", "space", "harnesses"]);
 const CAPTURE_KEYS = new Set([
