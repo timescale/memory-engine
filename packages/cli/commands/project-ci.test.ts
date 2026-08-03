@@ -82,6 +82,9 @@ describe("me ci install", () => {
     expect(() => buildCiInstallOptions({ tree: "not a tree" })).toThrow(
       /--tree/,
     );
+    expect(() => buildCiInstallOptions({ tree: "~/projects/widgets" })).toThrow(
+      /--tree/,
+    );
     expect(() => buildCiInstallOptions({ space: "not-a-slug" })).toThrow(
       /--space/,
     );
@@ -100,5 +103,7 @@ describe("me ci install", () => {
     expect(readFileSync(path, "utf8")).toBe("user-owned\n");
     expect(writeWorkflow(path, "replacement\n", true)).toBe("replaced");
     expect(readFileSync(path, "utf8")).toBe("replacement\n");
+    const newPath = join(dir, ".github", "workflows", "new.yml");
+    expect(writeWorkflow(newPath, "new\n", true)).toBe("created");
   });
 });

@@ -11,7 +11,7 @@ import {
   resolveCredentialsFor,
 } from "../credentials.ts";
 import { detectGitContext } from "../importers/project.ts";
-import { getOutputFormat } from "../output.ts";
+import { getOutputFormat, type OutputFormat } from "../output.ts";
 import {
   adminContactsFrom,
   buildMemoryClient,
@@ -102,14 +102,15 @@ export function writeWorkflow(
   workflow: string,
   force: boolean,
 ): "created" | "replaced" {
-  if (existsSync(path) && !force) {
+  const exists = existsSync(path);
+  if (exists && !force) {
     throw new Error(
       `${WORKFLOW_RELPATH} already exists; re-run with --force to replace it.`,
     );
   }
   mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, workflow);
-  return force ? "replaced" : "created";
+  return exists ? "replaced" : "created";
 }
 
 export function buildCiInstallOptions(
@@ -124,7 +125,10 @@ export function buildCiInstallOptions(
   if (space !== undefined && !SPACE_SLUG_RE.test(space)) {
     throw new Error(`Invalid --space: '${space}'.`);
   }
-  if (tree !== undefined && !TREE_PATH_RE.test(tree)) {
+  if (
+    tree !== undefined &&
+    (!TREE_PATH_RE.test(tree) || tree.startsWith("~"))
+  ) {
     throw new Error(`Invalid --tree: '${tree}'.`);
   }
   if (!SECRET_NAME_RE.test(secretName)) {
@@ -174,18 +178,43 @@ async function ghReady(): Promise<boolean> {
   }
 }
 
-async function secretExists(nwo: string, secretName: string): Promise<boolean> {
-  const { stdout } = await execFileAsync("gh", [
-    "secret",
-    "list",
-    "--repo",
-    nwo,
-    "--json",
-    "name",
-    "--jq",
-    ".[].name",
-  ]);
-  return stdout.split("\n").some((name) => name.trim() === secretName);
+type SecretPresence = "present" | "absent" | "unknown";
+
+async function secretPresence(
+  nwo: string,
+  secretName: string,
+): Promise<SecretPresence> {
+  try {
+    const { stdout } = await execFileAsync("gh", [
+      "secret",
+      "list",
+      "--repo",
+      nwo,
+      "--json",
+      "name",
+      "--jq",
+      ".[].name",
+    ]);
+    if (stdout.split("\n").some((name) => name.trim() === secretName)) {
+      return "present";
+    }
+  } catch {
+    return "unknown";
+  }
+  try {
+    const { stdout } = await execFileAsync("gh", [
+      "api",
+      `repos/${nwo}/actions/organization-secrets`,
+      "--jq",
+      ".secrets[].name",
+    ]);
+    return stdout.split("\n").some((name) => name.trim() === secretName)
+      ? "present"
+      : "absent";
+  } catch (error) {
+    const stderr = (error as { stderr?: string }).stderr ?? "";
+    return /HTTP 404/.test(stderr) ? "absent" : "unknown";
+  }
 }
 
 async function ghSetSecret(
@@ -287,14 +316,15 @@ async function selectSpace(
 
 async function createAndPlaceKey(info: {
   creds: ResolvedCredentials;
+  fmt: OutputFormat;
   space: string;
   tree: string;
   serviceAccount: string;
   secretName: string;
   repo: string;
 }): Promise<void> {
-  requireAuth(info.creds, "text");
-  requireSession(info.creds, "text");
+  requireAuth(info.creds, info.fmt);
+  requireSession(info.creds, info.fmt);
   const user = buildUserClient(info.creds);
   const memory = buildMemoryClient({ ...info.creds, activeSpace: info.space });
   const { spaces } = await user.space.list();
@@ -452,8 +482,17 @@ export async function runCiInstall(
         throw new Error(
           "--create-service-account requires an authenticated gh CLI.",
         );
+      const presence = await secretPresence(repo, opts.secretName);
+      if (presence !== "absent") {
+        throw new Error(
+          presence === "present"
+            ? `${opts.secretName} is already available to ${repo}; refusing to overwrite it in non-interactive mode.`
+            : `Can't determine whether ${opts.secretName} is available to ${repo}.`,
+        );
+      }
       await createAndPlaceKey({
         creds,
+        fmt,
         space: space as string,
         tree,
         serviceAccount,
@@ -509,7 +548,16 @@ export async function runCiInstall(
     );
   }
   if (choice === "existing") {
-    if (await secretExists(repo, opts.secretName)) {
+    const presence = await secretPresence(repo, opts.secretName);
+    if (presence === "unknown") {
+      handleError(
+        new Error(
+          `Can't determine whether ${opts.secretName} is available to ${repo}.`,
+        ),
+        fmt,
+      );
+    }
+    if (presence === "present") {
       const overwrite = unwrap(
         await clack.confirm({
           message: `${opts.secretName} already exists. Overwrite it?`,
@@ -529,7 +577,13 @@ export async function runCiInstall(
     return;
   }
   try {
-    if (await secretExists(repo, opts.secretName)) {
+    const presence = await secretPresence(repo, opts.secretName);
+    if (presence === "unknown") {
+      throw new Error(
+        `Can't determine whether ${opts.secretName} is available to ${repo}.`,
+      );
+    }
+    if (presence === "present") {
       const overwrite = unwrap(
         await clack.confirm({
           message: `${opts.secretName} already exists. Overwrite it?`,
@@ -540,6 +594,7 @@ export async function runCiInstall(
     }
     await createAndPlaceKey({
       creds,
+      fmt,
       space: space as string,
       tree,
       serviceAccount,
