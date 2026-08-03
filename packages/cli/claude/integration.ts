@@ -64,7 +64,7 @@ function assertClaudeAvailable(
 
 async function addMarketplace(
   dependencies: ClaudeIntegrationDependencies,
-): Promise<string | undefined> {
+): Promise<{ added: boolean; message?: string }> {
   const result = await dependencies.run([
     "claude",
     "plugin",
@@ -75,20 +75,41 @@ async function addMarketplace(
     MARKETPLACE_SOURCE,
   ]);
   if (result.exitCode === 0) {
-    return "Added the Memory Engine Claude marketplace.";
+    return {
+      added: true,
+      message: "Added the Memory Engine Claude marketplace.",
+    };
   }
-  if (alreadyExists(result)) return undefined;
+  if (alreadyExists(result)) return { added: false };
   throw new Error(
     `Claude marketplace registration failed: ${result.stderr.trim() || result.stdout.trim() || `exit code ${result.exitCode}`}`,
   );
 }
 
+async function removeMarketplace(
+  dependencies: ClaudeIntegrationDependencies,
+): Promise<void> {
+  const result = await dependencies.run([
+    "claude",
+    "plugin",
+    "marketplace",
+    "remove",
+    MARKETPLACE_NAME,
+  ]);
+  if (result.exitCode !== 0) {
+    throw new Error(
+      result.stderr.trim() ||
+        result.stdout.trim() ||
+        `exit code ${result.exitCode}`,
+    );
+  }
+}
+
 async function installPlugin(
   dependencies: ClaudeIntegrationDependencies,
 ): Promise<ClaudeInstallResult> {
-  const messages = await addMarketplace(dependencies).then((message) =>
-    message ? [message] : [],
-  );
+  const marketplace = await addMarketplace(dependencies);
+  const messages = marketplace.message ? [marketplace.message] : [];
   const result = await dependencies.run([
     "claude",
     "plugin",
@@ -118,9 +139,20 @@ async function installPlugin(
       ],
     };
   }
-  throw new Error(
-    `Claude plugin installation failed: ${result.stderr.trim() || result.stdout.trim() || `exit code ${result.exitCode}`}`,
-  );
+  const failure =
+    result.stderr.trim() ||
+    result.stdout.trim() ||
+    `exit code ${result.exitCode}`;
+  if (marketplace.added) {
+    try {
+      await removeMarketplace(dependencies);
+    } catch (error) {
+      throw new Error(
+        `Claude plugin installation failed: ${failure}. The marketplace was added but could not be removed: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
+  throw new Error(`Claude plugin installation failed: ${failure}`);
 }
 
 async function installMcpOnly(

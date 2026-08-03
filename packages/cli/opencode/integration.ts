@@ -3,7 +3,10 @@ import { createHash } from "node:crypto";
 import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
-import type { InstallationArtifact } from "../harness/installations.ts";
+import type {
+  HarnessInstallation,
+  InstallationArtifact,
+} from "../harness/installations.ts";
 import { writeOpenCodeConfigAtomically } from "../mcp/install.ts";
 import {
   PLUGIN_FILENAME,
@@ -62,12 +65,22 @@ async function readConfig(path: string): Promise<Record<string, unknown>> {
 /** Install only the global MCP entry and generated dormant plugin. */
 export async function installOpenCodeIntegration(
   paths: OpenCodeIntegrationPaths = getOpenCodeIntegrationPaths(),
+  existing?: HarnessInstallation,
 ): Promise<OpenCodeIntegrationResult> {
+  const priorPlugin = existing?.artifacts.find(
+    (artifact) =>
+      artifact.kind === "file" && artifact.path === resolve(paths.pluginPath),
+  );
   const plugin = renderPluginSource();
   try {
     const existingPlugin = await readFile(paths.pluginPath, "utf8");
     if (!existingPlugin.startsWith(PLUGIN_MARKER)) {
       throw new Error(`OpenCode plugin at ${paths.pluginPath} is user-owned.`);
+    }
+    if (!priorPlugin) {
+      throw new Error(
+        `OpenCode plugin at ${paths.pluginPath} is unrecorded; leaving it unchanged.`,
+      );
     }
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
@@ -75,14 +88,17 @@ export async function installOpenCodeIntegration(
 
   const config = await readConfig(paths.configPath);
   const mcp = config.mcp;
-  const entries =
-    mcp && typeof mcp === "object" && !Array.isArray(mcp)
-      ? { ...(mcp as Record<string, unknown>) }
-      : {};
-  const mcpCreated = !mcp || typeof mcp !== "object" || Array.isArray(mcp);
-  const existing = entries.me;
+  if (
+    mcp !== undefined &&
+    (!mcp || typeof mcp !== "object" || Array.isArray(mcp))
+  ) {
+    throw new Error(`OpenCode mcp config in ${paths.configPath} is malformed.`);
+  }
+  const entries = { ...((mcp as Record<string, unknown> | undefined) ?? {}) };
+  const existingEntry = entries.me;
   const artifacts: InstallationArtifact[] = [];
-  if (!existing) {
+  let createdMcp = false;
+  if (!existingEntry) {
     entries.me = { type: "local", command: ["me", "mcp"] };
     await writeOpenCodeConfigAtomically(paths.configPath, {
       ...config,
@@ -93,21 +109,32 @@ export async function installOpenCodeIntegration(
       path: resolve(paths.configPath),
       server_name: "me",
     });
-  } else if (!dormantMcpEntry(existing)) {
+    createdMcp = true;
+  } else if (!dormantMcpEntry(existingEntry)) {
     throw new Error(`OpenCode MCP entry in ${paths.configPath} is user-owned.`);
+  } else {
+    const priorMcp = existing?.artifacts.find(
+      (artifact) => artifact.kind === "mcp-json",
+    );
+    if (priorMcp) artifacts.push(priorMcp);
   }
 
-  await mkdir(dirname(paths.pluginPath), { recursive: true });
-  await writeFile(paths.pluginPath, plugin);
-  artifacts.push({
-    kind: "file",
-    path: resolve(paths.pluginPath),
-    sha256: hash(plugin),
-  });
+  try {
+    await mkdir(dirname(paths.pluginPath), { recursive: true });
+    await writeFile(paths.pluginPath, plugin);
+    artifacts.push({
+      kind: "file",
+      path: resolve(paths.pluginPath),
+      sha256: hash(plugin),
+    });
+  } catch (error) {
+    if (createdMcp) await uninstallOpenCodeIntegration(artifacts);
+    throw error;
+  }
   return {
     artifacts,
     messages: [
-      ...(mcpCreated || !existing ? ["Registered OpenCode MCP entry."] : []),
+      ...(createdMcp ? ["Registered OpenCode MCP entry."] : []),
       `Installed OpenCode dormant plugin → ${paths.pluginPath}`,
     ],
   };

@@ -31,17 +31,27 @@ export function codexHooksPath(): string {
 export function installCodexEnvHook(
   path = codexHooksPath(),
 ): Extract<InstallationArtifact, { kind: "json-hook" }> {
-  upsertJsonHooksFile(
+  return installCodexEnvHookResult(path).artifact;
+}
+
+function installCodexEnvHookResult(path = codexHooksPath()): {
+  artifact: Extract<InstallationArtifact, { kind: "json-hook" }>;
+  changed: boolean;
+} {
+  const result = upsertJsonHooksFile(
     path,
     "PreToolUse",
     CODEX_HOOK_ENTRY,
     CODEX_ENV_HOOK_COMMAND,
   );
   return {
-    kind: "json-hook",
-    path,
-    event: "PreToolUse",
-    command: CODEX_ENV_HOOK_COMMAND,
+    artifact: {
+      kind: "json-hook",
+      path,
+      event: "PreToolUse",
+      command: CODEX_ENV_HOOK_COMMAND,
+    },
+    changed: result.changed,
   };
 }
 
@@ -115,7 +125,10 @@ export interface CodexIntegrationResult {
 
 interface InstallOperations {
   installMcp?: () => Promise<InstallResult>;
-  installHook?: () => Extract<InstallationArtifact, { kind: "json-hook" }>;
+  installHook?: () => {
+    artifact: Extract<InstallationArtifact, { kind: "json-hook" }>;
+    changed: boolean;
+  };
 }
 
 export async function installCodexIntegration(
@@ -132,7 +145,7 @@ export async function installCodexIntegration(
   )();
   if (!registration.success) throw new Error(registration.message);
 
-  const hook = (operations.installHook ?? installCodexEnvHook)();
+  const hook = (operations.installHook ?? installCodexEnvHookResult)();
   const mcp = existing?.artifacts.find(
     (artifact) => artifact.kind === "mcp-cli",
   );
@@ -146,7 +159,11 @@ export async function installCodexIntegration(
               server_name: "me" as const,
             },
           ]),
-      hook,
+      ...(hook.changed
+        ? [hook.artifact]
+        : (existing?.artifacts.filter(
+            (artifact) => artifact.kind === "json-hook",
+          ) ?? [])),
     ],
     messages: [registration.message],
   };
@@ -162,12 +179,17 @@ export async function uninstallCodexIntegration(
       artifact: Extract<InstallationArtifact, { kind: "json-hook" }>,
     ) => "removed" | "retained";
   } = {},
-): Promise<{ retained: InstallationArtifact[]; messages: string[] }> {
+): Promise<{
+  removed: InstallationArtifact[];
+  retained: InstallationArtifact[];
+  messages: string[];
+}> {
+  const removed: InstallationArtifact[] = [];
   const retained: InstallationArtifact[] = [];
   const messages: string[] = [];
   for (const artifact of record.artifacts) {
     if (artifact.kind === "mcp-cli") {
-      const removed = await (
+      const removalSucceeded = await (
         operations.removeMcp ??
         (async (owned) => {
           const process = Bun.spawn(
@@ -177,11 +199,13 @@ export async function uninstallCodexIntegration(
           return (await process.exited) === 0;
         })
       )(artifact);
-      if (!removed) {
+      if (!removalSucceeded) {
         retained.push(artifact);
         messages.push(
           "Retained Codex MCP registration: provider removal failed.",
         );
+      } else {
+        removed.push(artifact);
       }
     } else if (artifact.kind === "json-hook") {
       if (
@@ -191,10 +215,12 @@ export async function uninstallCodexIntegration(
         messages.push(
           `Retained ${artifact.path}: hook entry changed or configuration is invalid.`,
         );
+      } else {
+        removed.push(artifact);
       }
     } else {
       retained.push(artifact);
     }
   }
-  return { retained, messages };
+  return { removed, retained, messages };
 }

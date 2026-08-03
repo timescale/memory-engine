@@ -1,15 +1,22 @@
 /** Canonical harness registry and installation facade. */
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
 import { InvalidArgumentError } from "commander";
 import { CLIENT_VERSION } from "../../../version";
 import {
-  buildMeCommand,
-  installMcpServer,
-  MCP_TOOLS,
-  openCodeConfigPath,
-  writeOpenCodeConfigAtomically,
-} from "../mcp/install.ts";
+  installClaudeIntegration,
+  uninstallClaudeIntegration,
+} from "../claude/integration.ts";
+import {
+  installCodexIntegration,
+  uninstallCodexIntegration,
+} from "../codex/integration.ts";
+import {
+  installGeminiIntegration,
+  uninstallGeminiIntegration,
+} from "../gemini/integration.ts";
+import {
+  installOpenCodeIntegration,
+  uninstallOpenCodeIntegration,
+} from "../opencode/integration.ts";
 import {
   getInstallation,
   type HarnessInstallation,
@@ -37,7 +44,7 @@ export interface HarnessDescriptor {
   displayName: string;
   binary: string;
   detect(): boolean;
-  install(): Promise<HarnessInstallResult>;
+  install(existing?: HarnessInstallation): Promise<HarnessInstallResult>;
   uninstall(record: HarnessInstallation): Promise<HarnessUninstallResult>;
 }
 
@@ -49,173 +56,52 @@ export function parseHarnessName(value: string): HarnessName {
   );
 }
 
-function toolFor(name: HarnessName) {
-  const binary = name === "claude" ? "claude" : name;
-  const tool = MCP_TOOLS.find((candidate) => candidate.bin === binary);
-  if (!tool) throw new Error(`No MCP installer is registered for ${name}.`);
-  return tool;
-}
-
-async function installMcp(name: HarnessName): Promise<HarnessInstallResult> {
-  const tool = toolFor(name);
-  const recorded = getInstallation(name) !== undefined;
-  const result = await installMcpServer(tool, buildMeCommand({}), {
-    scope: "user",
-    // The installed command is stable (`me mcp`), so a recorded registration
-    // never needs a destructive remove/re-add refresh. Preserving it also
-    // keeps the old inventory record valid if a later inventory write fails.
-    replaceExisting: false,
-  });
-  if (!result.success) throw new Error(result.message);
-  if (result.preserved) {
-    return {
-      artifacts: [],
-      messages: [
-        recorded
-          ? `${tool.name}: existing managed MCP registration was left unchanged.`
-          : result.message,
-      ],
-    };
-  }
-  const artifact: InstallationArtifact =
-    tool.method === "cli"
-      ? { kind: "mcp-cli", server_name: "me", scope: "user" }
-      : {
-          kind: "mcp-json",
-          path: resolve(openCodeConfigPath({ scope: "user" })),
-          server_name: "me",
-        };
-  return { artifacts: [artifact], messages: [result.message] };
-}
-
-function isDormantMcpEntry(value: unknown): boolean {
-  if (!value || typeof value !== "object") return false;
-  const entry = value as Record<string, unknown>;
-  return (
-    Object.keys(entry).length === 2 &&
-    entry.type === "local" &&
-    Array.isArray(entry.command) &&
-    entry.command.length === 2 &&
-    entry.command[0] === "me" &&
-    entry.command[1] === "mcp"
-  );
-}
-
-async function uninstallJsonArtifact(
-  artifact: Extract<InstallationArtifact, { kind: "mcp-json" }>,
-): Promise<HarnessUninstallResult> {
-  try {
-    const config = JSON.parse(readFileSync(artifact.path, "utf8")) as Record<
-      string,
-      unknown
-    >;
-    const mcp = config.mcp;
-    if (
-      !mcp ||
-      typeof mcp !== "object" ||
-      Array.isArray(mcp) ||
-      !("me" in mcp)
-    ) {
-      return {
-        removed: [],
-        retained: [],
-        messages: ["OpenCode MCP entry is already absent."],
-      };
-    }
-    const entries = mcp as Record<string, unknown>;
-    if (!isDormantMcpEntry(entries.me)) {
-      return {
-        removed: [],
-        retained: [artifact],
-        messages: [`Retained ${artifact.path}: its me entry has changed.`],
-      };
-    }
-    const { me: _, ...remaining } = entries;
-    await writeOpenCodeConfigAtomically(artifact.path, {
-      ...config,
-      mcp: remaining,
-    });
-    return {
-      removed: [artifact],
-      retained: [],
-      messages: ["Removed OpenCode MCP entry."],
-    };
-  } catch (error) {
-    return {
-      removed: [],
-      retained: [artifact],
-      messages: [
-        `Retained ${artifact.path}: ${error instanceof Error ? error.message : String(error)}`,
-      ],
-    };
-  }
-}
-
-async function uninstallMcp(
-  name: HarnessName,
-  record: HarnessInstallation,
-): Promise<HarnessUninstallResult> {
-  const removed: InstallationArtifact[] = [];
-  const retained: InstallationArtifact[] = [];
-  const messages: string[] = [];
-  for (const artifact of record.artifacts) {
-    if (artifact.kind === "mcp-cli") {
-      const tool = toolFor(name);
-      if (tool.method !== "cli") {
-        retained.push(artifact);
-        messages.push(
-          `Retained incompatible recorded MCP artifact for ${name}.`,
-        );
-        continue;
-      }
-      const process = Bun.spawn(tool.removeCmd({ scope: artifact.scope }), {
-        stdout: "pipe",
-        stderr: "pipe",
-      });
-      if ((await process.exited) === 0) {
-        removed.push(artifact);
-        messages.push(`Removed MCP registration for ${name}.`);
-      } else {
-        retained.push(artifact);
-        messages.push(
-          `Retained MCP registration for ${name}: provider removal failed.`,
-        );
-      }
-    } else if (artifact.kind === "mcp-json") {
-      const result = await uninstallJsonArtifact(artifact);
-      removed.push(...result.removed);
-      retained.push(...result.retained);
-      messages.push(...result.messages);
-    } else {
-      retained.push(artifact);
-      messages.push(
-        `Retained ${artifact.kind}: Wave 2 provider adapter cleanup is required.`,
-      );
-    }
-  }
-  return { removed, retained, messages };
-}
-
 function descriptor(
   name: HarnessName,
   displayName: string,
   binary: string,
+  install: (existing?: HarnessInstallation) => Promise<HarnessInstallResult>,
+  uninstall: (record: HarnessInstallation) => Promise<HarnessUninstallResult>,
 ): HarnessDescriptor {
   return {
     name,
     displayName,
     binary,
     detect: () => Bun.which(binary) !== null,
-    install: () => installMcp(name),
-    uninstall: (record) => uninstallMcp(name, record),
+    install,
+    uninstall,
   };
 }
 
 const HARNESS_REGISTRY: Record<HarnessName, HarnessDescriptor> = {
-  claude: descriptor("claude", "Claude Code", "claude"),
-  opencode: descriptor("opencode", "OpenCode", "opencode"),
-  codex: descriptor("codex", "Codex CLI", "codex"),
-  gemini: descriptor("gemini", "Gemini CLI", "gemini"),
+  claude: descriptor(
+    "claude",
+    "Claude Code",
+    "claude",
+    () => installClaudeIntegration(),
+    uninstallClaudeIntegration,
+  ),
+  opencode: descriptor(
+    "opencode",
+    "OpenCode",
+    "opencode",
+    (existing) => installOpenCodeIntegration(undefined, existing),
+    (record) => uninstallOpenCodeIntegration(record.artifacts),
+  ),
+  codex: descriptor(
+    "codex",
+    "Codex CLI",
+    "codex",
+    installCodexIntegration,
+    uninstallCodexIntegration,
+  ),
+  gemini: descriptor(
+    "gemini",
+    "Gemini CLI",
+    "gemini",
+    (existing) => installGeminiIntegration(undefined, undefined, existing),
+    uninstallGeminiIntegration,
+  ),
 };
 
 export function getHarness(name: HarnessName): HarnessDescriptor {
@@ -241,7 +127,8 @@ export async function installHarness(
   } = {},
 ): Promise<void> {
   const harness = operations.harness ?? getHarness(name);
-  const result = await harness.install();
+  const existing = getInstallation(name);
+  const result = await harness.install(existing);
   if (result.artifacts.length > 0) {
     const record = {
       installed_at: new Date().toISOString(),
@@ -304,11 +191,8 @@ function manualCleanupCommand(
 ): string {
   if (artifact.kind === "mcp-json")
     return `remove mcp.me from ${artifact.path}`;
-  if (artifact.kind === "mcp-cli") {
-    const tool = toolFor(name);
-    if (tool.method === "cli")
-      return tool.removeCmd({ scope: artifact.scope }).join(" ");
-  }
+  if (artifact.kind === "mcp-cli")
+    return `remove the me MCP registration from ${name}`;
   return `remove the ${artifact.kind} artifact`;
 }
 

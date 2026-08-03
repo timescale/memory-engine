@@ -16,10 +16,10 @@ Claude Code integration commands.
 me claude install
 ```
 
-This mechanical, non-interactive command creates a user-scoped Claude MCP
-registration that runs exactly `me mcp`. It does not prompt, log in, write
-credentials, backfill sessions, enable capture, select a server or space, or
-write repository configuration.
+This mechanical, non-interactive command installs the user-scoped dormant
+Claude plugin, whose MCP entry runs exactly `me mcp`. It does not prompt, log
+in, write credentials, backfill sessions, enable capture, select a server or
+space, or write repository configuration.
 
 ## me claude uninstall
 
@@ -27,7 +27,7 @@ write repository configuration.
 me claude uninstall
 ```
 
-Removes only the recorded user-scoped MCP registration. Existing or modified
+Removes only recorded user-scoped Claude plugin artifacts. Existing or modified
 Claude configuration is preserved.
 
 ## me claude env

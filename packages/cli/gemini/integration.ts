@@ -17,7 +17,7 @@ import {
   MCP_TOOLS,
 } from "../mcp/install.ts";
 
-const GEMINI_ENV_HOOK_COMMAND = "me gemini env-hook";
+export const GEMINI_ENV_HOOK_COMMAND = "me gemini env-hook";
 const GEMINI_HOOK_ENTRY: JsonHookEntry = {
   matcher: "run_shell_command",
   hooks: [{ type: "command", command: GEMINI_ENV_HOOK_COMMAND }],
@@ -70,18 +70,27 @@ export function installGeminiEnvHook(path = geminiSettingsPath()): boolean {
 }
 
 /** Remove precisely our hook entry, retaining all other Gemini settings. */
-export function uninstallGeminiEnvHook(path = geminiSettingsPath()): boolean {
-  if (!existsSync(path)) return false;
-  const root: unknown = JSON.parse(readFileSync(path, "utf8"));
+export function uninstallGeminiEnvHook(
+  artifact: Extract<InstallationArtifact, { kind: "json-hook" }>,
+): "removed" | "retained" {
+  if (
+    artifact.event !== "BeforeTool" ||
+    artifact.command !== GEMINI_ENV_HOOK_COMMAND
+  ) {
+    return "retained";
+  }
+  if (!existsSync(artifact.path)) return "removed";
+  const root: unknown = JSON.parse(readFileSync(artifact.path, "utf8"));
   if (!root || typeof root !== "object" || Array.isArray(root)) {
-    throw new Error(`${path} must contain a JSON object`);
+    throw new Error(`${artifact.path} must contain a JSON object`);
   }
   const settings = root as Record<string, unknown>;
   const hooks = settings.hooks;
-  if (!hooks || typeof hooks !== "object" || Array.isArray(hooks)) return false;
+  if (!hooks || typeof hooks !== "object" || Array.isArray(hooks))
+    return "retained";
   const hookSettings = hooks as Record<string, unknown>;
   const entries = hookSettings.BeforeTool;
-  if (!Array.isArray(entries)) return false;
+  if (!Array.isArray(entries)) return "retained";
   const remaining = entries.filter(
     (entry) =>
       !(
@@ -93,16 +102,16 @@ export function uninstallGeminiEnvHook(path = geminiSettingsPath()): boolean {
         )
       ),
   );
-  if (remaining.length === entries.length) return false;
+  if (remaining.length === entries.length) return "retained";
   writeFileSync(
-    path,
+    artifact.path,
     `${JSON.stringify(
       { ...settings, hooks: { ...hookSettings, BeforeTool: remaining } },
       null,
       2,
     )}\n`,
   );
-  return true;
+  return "removed";
 }
 
 export async function installGeminiIntegration(
@@ -112,16 +121,28 @@ export async function installGeminiIntegration(
       scope: "user",
       replaceExisting: false,
     }),
+  existing?: HarnessInstallation,
 ): Promise<GeminiIntegrationResult> {
   const result = await installMcp();
   if (!result.success) throw new Error(result.message);
 
   const artifacts: InstallationArtifact[] = [];
+  const priorMcp = existing?.artifacts.find(
+    (artifact) => artifact.kind === "mcp-cli",
+  );
   if (!result.preserved) {
     artifacts.push({ kind: "mcp-cli", server_name: "me", scope: "user" });
+  } else if (priorMcp) {
+    artifacts.push(priorMcp);
   }
-  if (installGeminiEnvHook(settingsPath))
+  const priorHook = existing?.artifacts.find(
+    (artifact) => artifact.kind === "json-hook",
+  );
+  if (installGeminiEnvHook(settingsPath)) {
     artifacts.push(hookArtifact(settingsPath));
+  } else if (priorHook) {
+    artifacts.push(priorHook);
+  }
   return { artifacts, messages: [result.message] };
 }
 
@@ -156,9 +177,15 @@ export async function uninstallGeminiIntegration(
       }
     } else if (artifact.kind === "json-hook") {
       try {
-        uninstallGeminiEnvHook(artifact.path);
-        removed.push(artifact);
-        messages.push("Removed Gemini BeforeTool hook.");
+        if (uninstallGeminiEnvHook(artifact) === "removed") {
+          removed.push(artifact);
+          messages.push("Removed Gemini BeforeTool hook.");
+        } else {
+          retained.push(artifact);
+          messages.push(
+            `Retained ${artifact.path}: hook entry changed or configuration is invalid.`,
+          );
+        }
       } catch (error) {
         retained.push(artifact);
         messages.push(

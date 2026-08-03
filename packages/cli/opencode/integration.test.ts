@@ -51,9 +51,16 @@ describe("OpenCode integration adapter", () => {
   test("reinstall preserves an existing dormant entry", async () => {
     const target = paths();
     const first = await installOpenCodeIntegration(target);
-    const second = await installOpenCodeIntegration(target);
-    expect(second.artifacts).toHaveLength(1);
-    expect(second.artifacts[0]?.kind).toBe("file");
+    const second = await installOpenCodeIntegration(target, {
+      installed_at: "2026-08-03T14:00:00.000Z",
+      me_version: "0.0.0",
+      artifacts: first.artifacts,
+    });
+    expect(second.artifacts).toHaveLength(2);
+    expect(second.artifacts.map((artifact) => artifact.kind)).toEqual([
+      "mcp-json",
+      "file",
+    ]);
     await uninstallOpenCodeIntegration(first.artifacts);
   });
 

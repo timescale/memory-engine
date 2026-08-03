@@ -4,8 +4,8 @@ OpenCode integration commands.
 
 ## Commands
 
-- [me opencode install](#me-opencode-install) -- install the dormant Memory Engine MCP registration
-- [me opencode uninstall](#me-opencode-uninstall) -- remove the recorded MCP registration
+- [me opencode install](#me-opencode-install) -- install dormant Memory Engine plumbing
+- [me opencode uninstall](#me-opencode-uninstall) -- remove recorded Memory Engine plumbing
 - [me opencode init](#me-opencode-init) -- removed; use [`me project init`](me-project.md)
 - [me opencode hook](#me-opencode-hook) -- internal helper (you never run this directly)
 - [me opencode import](#me-opencode-import) -- import OpenCode sessions from `~/.local/share/opencode/opencode.db` or legacy storage
@@ -14,15 +14,16 @@ OpenCode integration commands.
 
 ## me opencode install
 
-Install OpenCode's dormant user-scoped MCP registration:
+Install OpenCode's dormant user-scoped integration:
 
 ```bash
 me opencode install
 ```
 
 This non-interactive command writes exactly `me mcp` to the managed OpenCode
-MCP entry. It does not install plugins, commands, skills, capture behavior, or
-credentials, and does not pin runtime targeting.
+MCP entry and installs the generated dormant plugin. The plugin only supplies
+the shell contract and capture plumbing; it does not install commands, skills,
+credentials, or static runtime targeting.
 
 ## me opencode uninstall
 
@@ -30,7 +31,7 @@ credentials, and does not pin runtime targeting.
 me opencode uninstall
 ```
 
-Removes only the recorded entry when it remains unchanged.
+Removes only recorded MCP/plugin artifacts when they remain unchanged.
 
 ---
 
