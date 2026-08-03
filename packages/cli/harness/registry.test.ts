@@ -88,6 +88,38 @@ describe("harness registry", () => {
     expect(rollbackRecord).toMatchObject({ artifacts: [artifact] });
   });
 
+  test("does not roll back a preserved registration when inventory persistence fails", async () => {
+    const artifact = {
+      kind: "mcp-cli" as const,
+      server_name: "me" as const,
+      scope: "user" as const,
+    };
+    const existing = {
+      installed_at: "2026-08-03T14:00:00.000Z",
+      me_version: "0.0.0",
+      artifacts: [artifact],
+    };
+    let uninstalled = false;
+
+    await expect(
+      installHarness("claude", {
+        harness: {
+          ...getHarness("claude"),
+          install: async () => ({ artifacts: [artifact], messages: [] }),
+          uninstall: async () => {
+            uninstalled = true;
+            return { removed: [artifact], retained: [], messages: [] };
+          },
+        },
+        getInstallation: () => existing,
+        writeInstallation: () => {
+          throw new Error("disk is read-only");
+        },
+      }),
+    ).rejects.toThrow(/existing registration was left unchanged/);
+    expect(uninstalled).toBe(false);
+  });
+
   test("names manual cleanup when inventory persistence and rollback fail", async () => {
     const artifact = {
       kind: "mcp-json" as const,
