@@ -9,6 +9,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import * as creds from "./credentials.ts";
 import {
   canonicalizeDirectory,
   type HarnessProfile,
@@ -193,12 +194,16 @@ test("allows disabled surfaces with retained harness selections", () => {
   writeDefaults({
     mcp: { enabled: false, harnesses: { claude: true } },
     capture: { enabled: false, harnesses: { opencode: true } },
+    cli: { harnesses: {} },
   });
   expect(resolveMcpProfile(root).value?.enabled).toBe(false);
   expect(resolveCaptureProfile(root).value?.enabled).toBe(false);
+  expect(resolveHarnessCliProfile(root, "claude")).toEqual({
+    source: "disabled",
+  });
 });
 
-test("writers preserve human CLI state and migrate retired capture fields safely", () => {
+test("writers preserve human CLI state and legacy capture runtime fields", () => {
   writeConfig(
     [
       "default_server: https://human.example",
@@ -220,7 +225,14 @@ test("writers preserve human CLI state and migrate retired capture fields safely
   expect(written).toContain("active_space: human-space");
   expect(written).toContain("- https://internal.example");
   expect(written).toContain("unrelated: preserved");
-  expect(written).not.toContain("capture: true");
+  expect(written).toContain("capture: true");
+  expect(written).toContain("tree_root: /share/legacy");
+  expect(creds.resolveCredentials("https://human.example").captureEnabled).toBe(
+    true,
+  );
+  expect(creds.resolveCredentials("https://human.example").treeRoot).toBe(
+    "/share/legacy",
+  );
   const config = readLocalConfig();
   expect(config.defaults?.capture).toMatchObject({
     enabled: false,
@@ -229,6 +241,53 @@ test("writers preserve human CLI state and migrate retired capture fields safely
   expect(
     config.directories[join(canonicalizeDirectory(root), "project")],
   ).toBeDefined();
+});
+
+test("rejects unknown profile and surface keys", () => {
+  writeConfig("version: 1\ndefaults:\n  unknown: true\ndirectories: {}\n");
+  expect(readLocalConfig).toThrow(/unknown defaults key "unknown"/);
+
+  writeConfig(
+    "version: 1\ndefaults:\n  mcp:\n    enabled: false\n    harnesses: {}\n    unknown: true\ndirectories: {}\n",
+  );
+  expect(readLocalConfig).toThrow(/unknown defaults.mcp key "unknown"/);
+});
+
+test("rejects unknown and non-boolean harness selections", () => {
+  writeConfig(
+    "version: 1\ndefaults:\n  mcp:\n    enabled: false\n    harnesses:\n      unknown: true\ndirectories: {}\n",
+  );
+  expect(readLocalConfig).toThrow(/unknown harness "unknown"/);
+
+  writeConfig(
+    "version: 1\ndefaults:\n  mcp:\n    enabled: false\n    harnesses:\n      claude: yes\ndirectories: {}\n",
+  );
+  expect(readLocalConfig).toThrow(/harnesses.claude must be a boolean/);
+});
+
+test("rejects invalid YAML and unsupported versions", () => {
+  writeConfig("defaults: [\n");
+  expect(readLocalConfig).toThrow(/could not parse YAML/);
+
+  writeConfig("version: 2\ndirectories: {}\n");
+  expect(readLocalConfig).toThrow(/version must be 1/);
+});
+
+test("rejects relative and noncanonical directory keys", () => {
+  writeConfig("version: 1\ndirectories:\n  relative: {}\n");
+  expect(readLocalConfig).toThrow(/absolute canonical path/);
+
+  const canonicalRoot = canonicalizeDirectory(root);
+  mkdirSync(join(root, "target"));
+  symlinkSync(join(root, "target"), join(root, "alias"));
+  writeConfig(`version: 1\ndirectories:\n  ${canonicalRoot}/child/..: {}\n`);
+  expect(readLocalConfig).toThrow(/absolute canonical path/);
+
+  writeConfig(`version: 1
+directories:
+  ${join(root, "alias")}: {}
+`);
+  expect(readLocalConfig).toThrow(/absolute canonical path/);
 });
 
 test("removing a harness prunes empty surfaces and profiles", () => {

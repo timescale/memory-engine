@@ -312,8 +312,8 @@ function migrateLegacyCapture(raw: RawConfig): void {
     (raw.capture === undefined && raw.tree_root === undefined)
   )
     return;
-  // The retired global capture switch had no harness selection. Preserve the
-  // destination but keep it inactive until `me init` explicitly selects one.
+  // The retired global capture switch had no harness selection. Keep the new
+  // profile inactive until `me init` explicitly selects one.
   raw.defaults = {
     capture: {
       enabled: false,
@@ -323,8 +323,9 @@ function migrateLegacyCapture(raw: RawConfig): void {
       harnesses: {},
     },
   };
-  delete raw.capture;
-  delete raw.tree_root;
+  // TODO: Remove these only after every capture runtime consumer resolves via
+  // local-config.ts and an explicit legacy-config removal path has shipped.
+  // Today's credentials resolver still reads top-level capture/tree_root.
 }
 
 function writeRawConfig(raw: RawConfig): void {
