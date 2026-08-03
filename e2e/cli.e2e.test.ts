@@ -1020,13 +1020,10 @@ describe.skipIf(
     expect(who.auth).toBe("pat");
   });
 
-  test("8. `me claude import` backfills work that predates the hook", async () => {
-    // The scenario: a user does a bunch of Claude Code work BEFORE installing
-    // the capture hook (no hook fires for it), then installs the hook (which
-    // begins capturing new sessions live), then runs `me claude import`. The
-    // pre-install work must be backfilled — the importer has no lower time
-    // bound tied to hook install; it sweeps every transcript and dedupes by
-    // deterministic message id.
+  test("8. `me claude import` backfills work while the dormant hook is inactive", async () => {
+    // A dormant hook does not capture without a local policy. The explicit
+    // importer must still sweep every transcript and dedupe by deterministic
+    // message id.
     const root = await mkdtemp(join(tmpdir(), "me-e2e-backfill-"));
     const projDir = join(root, "proj");
     await mkdir(projDir, { recursive: true });
@@ -1069,8 +1066,8 @@ describe.skipIf(
     await writeTranscript(oldSession, "old");
     expect(await countBySession(oldSession)).toBe(0);
 
-    // 2. Install the hook (it now captures live) and let it import a NEW
-    //    session — the real `me claude hook` path, reading from stdin.
+    // 2. The dormant hook sees no selected local policy, so it must not capture
+    //    a new session. The explicit importer remains the backfill path.
     const newSession = `post-install-${rand()}`;
     const newTranscript = await writeTranscript(newSession, "new");
     const hook = await meStdin(
@@ -1081,9 +1078,7 @@ describe.skipIf(
       }),
     );
     expect(hook.code, hook.stderr).toBe(0);
-    // The hook captured only the post-install session — the old one is still
-    // absent (this is exactly the gap `me claude import` must close).
-    expect(await countBySession(newSession)).toBe(4);
+    expect(await countBySession(newSession)).toBe(0);
     expect(await countBySession(oldSession)).toBe(0);
 
     // 3. Run the import (canonical spelling; test 9 covers the
@@ -1091,8 +1086,7 @@ describe.skipIf(
     const imp = await me(["import", "claude", "--source", root]);
     expect(imp.code, imp.stderr).toBe(0);
 
-    // 4. The pre-install work is now backfilled, and the hook's live capture
-    //    was not duplicated.
+    // 4. The explicit import backfills both sessions.
     expect(await countBySession(oldSession)).toBe(4);
     expect(await countBySession(newSession)).toBe(4);
     expect(await countUnder(tree)).toBe(8);
@@ -1807,7 +1801,7 @@ describe.skipIf(
     await rm(root, { recursive: true, force: true });
   });
 
-  test("9. claude capture hook ↔ `me claude import` are cross-idempotent", async () => {
+  test("9. dormant Claude capture hook leaves explicit imports idempotent", async () => {
     // A minimal Claude Code session transcript on disk. The importer scans
     // <source>/<project-dir>/*.jsonl; the hook reads the file directly.
     const sessionId = `xact-${rand()}`;
@@ -1839,22 +1833,20 @@ describe.skipIf(
     // cwd "/work/idempotent-proj" → no git repo on disk → slug = basename.
     const tree = `${homeProjects}.idempotent_proj.agent_sessions`;
 
-    // 1. Live capture via the real hook (reads transcript_path from stdin,
-    //    auths with the session, writes via importTranscriptFile).
+    // 1. The real hook is dormant without a selected local capture policy.
     const hook = await meStdin(
       ["claude", "hook", "--event", "stop"],
       JSON.stringify({ transcript_path: transcript, session_id: sessionId }),
     );
     expect(hook.code, hook.stderr).toBe(0);
-    expect(await countUnder(tree)).toBe(4);
+    expect(await countUnder(tree)).toBe(0);
 
-    // 2. `me claude import` over the SAME transcript → no new rows (same tree +
-    //    deterministic ids ⇒ the importer dedupes against the hook's writes).
+    // 2. The explicit import writes the transcript.
     const imp = await me(["claude", "import", "--source", root]);
     expect(imp.code, imp.stderr).toBe(0);
     expect(await countUnder(tree)).toBe(4);
 
-    // 3. Re-run the hook → still idempotent.
+    // 3. Re-running the inactive hook leaves imported rows unchanged.
     const hook2 = await meStdin(
       ["claude", "hook", "--event", "stop"],
       JSON.stringify({ transcript_path: transcript, session_id: sessionId }),
