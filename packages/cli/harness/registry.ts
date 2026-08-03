@@ -124,10 +124,11 @@ export async function installHarness(
       target: HarnessName,
       record: HarnessInstallation,
     ) => void;
+    getInstallation?: (target: HarnessName) => HarnessInstallation | undefined;
   } = {},
 ): Promise<void> {
   const harness = operations.harness ?? getHarness(name);
-  const existing = getInstallation(name);
+  const existing = (operations.getInstallation ?? getInstallation)(name);
   const result = await harness.install(existing);
   if (result.artifacts.length > 0) {
     const record = {
@@ -139,6 +140,14 @@ export async function installHarness(
       (operations.writeInstallation ?? writeInstallation)(name, record);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
+      if (
+        existing &&
+        JSON.stringify(existing.artifacts) === JSON.stringify(record.artifacts)
+      ) {
+        throw new Error(
+          `Could not update the installation inventory for ${name}: ${message}. The existing registration was left unchanged.`,
+        );
+      }
       try {
         const rollback = await harness.uninstall(record);
         if (rollback.retained.length === 0) {
