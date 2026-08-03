@@ -18,15 +18,11 @@ Register `me` as an MCP server with Gemini CLI.
 me gemini install
 ```
 
-This non-interactive command registers exactly `me mcp`. It does not add
-credentials or runtime targeting. Gemini's user-global dormant `BeforeTool`
-adapter is available to the harness integration installer; it injects only
-`AI_AGENT=gemini` and `ME_PROJECT_DIR` for `run_shell_command` calls.
-
-It does not write project or checkout configuration, prompt for configuration,
-store credentials, select a server or space, or enable capture. MCP directory
-context propagation has not been manually validated, so per-directory MCP
-behavior is not guaranteed.
+This non-interactive command registers exactly `me mcp`. It does not add hooks,
+credentials, capture behavior, or runtime targeting. It does not write project
+or checkout configuration, prompt for configuration, store credentials, select
+a server or space, or enable capture. MCP directory context propagation has not
+been manually validated, so per-directory MCP behavior is not guaranteed.
 
 ## me gemini uninstall
 
@@ -34,9 +30,7 @@ behavior is not guaranteed.
 me gemini uninstall
 ```
 
-Removes only the registration recorded by `me gemini install`. The harness
-integration installer removes its recorded `BeforeTool` hook while preserving
-unrelated Gemini settings and hooks.
+Removes only the registration recorded by `me gemini install`.
 
 For manual MCP client configuration, see [MCP Integration](../mcp-integration.md).
 
@@ -44,5 +38,5 @@ For manual MCP client configuration, see [MCP Integration](../mcp-integration.md
 
 ## me gemini env-hook
 
-An internal helper invoked by the user-global `BeforeTool` hook. It fails open
-for unknown payloads and logs only their sanitized shape.
+An internal helper used when a Gemini `BeforeTool` hook is configured. It fails
+open for unknown payloads and logs only their sanitized shape.
