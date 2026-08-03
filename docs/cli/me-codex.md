@@ -19,8 +19,14 @@ Register `me` as an MCP server with Codex CLI.
 me codex install
 ```
 
-This non-interactive command registers exactly `me mcp`. It does not add hooks,
-credentials, capture behavior, or runtime targeting.
+This non-interactive command registers exactly `me mcp` and adds a user-global
+Codex `PreToolUse` Bash hook. The hook only injects `AI_AGENT=codex` and
+`ME_PROJECT_DIR` into Bash commands; it has no credentials, server, space,
+tree, cwd, or project configuration.
+
+Codex requires you to approve new or changed hooks. Run `/hooks` inside Codex
+and approve the entry after installation. Memory Engine never automates or
+bypasses this trust approval.
 
 ## me codex uninstall
 
@@ -28,20 +34,25 @@ credentials, capture behavior, or runtime targeting.
 me codex uninstall
 ```
 
-Removes only the registration recorded by `me codex install`.
+Removes only the MCP registration and hook entry recorded by `me codex install`.
+Changed and unrelated hook entries are retained.
 
 For manual MCP client configuration, see [MCP Integration](../mcp-integration.md).
 
 ### Known gap: Codex Desktop and the VS Code extension
 
-Under the Codex **terminal CLI**, `me mcp` resolves your project the ordinary way — no action needed. The Codex **Desktop app** and **VS Code extension** currently launch MCP servers from the wrong working directory, so `me mcp` cannot use a project's `.me/config.yaml` for server resolution and falls back to global configuration. MCP space selection is unaffected: an unpinned server is always multi-space. The workaround is to set a per-server `cwd` pointing at your project directory in Codex's own MCP config. The terminal CLI is unaffected.
+Under the Codex **terminal CLI**, `me mcp` can use its project directory. The
+Codex **Desktop app** and **VS Code extension** have unreliable MCP working
+directory propagation, so they use the `defaults` profile unless you configure
+a provider-native per-server `cwd` pointing at the project directory. The
+terminal CLI is unaffected.
 
 ---
 
 ## me codex env-hook
 
-An internal helper retained for existing integrations. New `me codex install`
-installations do not add this hook.
+An internal helper invoked by the user-global `PreToolUse` Bash hook installed
+by `me codex install`. It fails open for malformed or unknown payloads.
 
 ---
 

@@ -5,57 +5,45 @@
  *   the harness-injected shell contract via a user-scope PreToolUse hook.
  * - me codex env-hook: invoked by that hook to rewrite Bash commands.
  */
-import { homedir } from "node:os";
-import { join } from "node:path";
-import * as clack from "@clack/prompts";
 import { Command } from "commander";
+import { CLIENT_VERSION } from "../../../version";
 import { buildCodexEnvHookOutput } from "../codex/env-hook.ts";
 import {
-  type JsonHookEntry,
-  upsertJsonHooksFile,
-} from "../harness-hooks-json.ts";
+  installCodexIntegration,
+  uninstallCodexIntegration,
+} from "../codex/install.ts";
+import {
+  getInstallation,
+  removeInstallation,
+  writeInstallation,
+} from "../harness/installations.ts";
 import { logUnrecognizedPayloadShape } from "../harness-shape-log.ts";
 import { createCodexImportCommand } from "./import.ts";
-import {
-  createHarnessInstallCommand,
-  createHarnessUninstallCommand,
-} from "./install.ts";
-
-/** The hook command Codex invokes — bare, no version string, so its trust
- * hash survives a `me` upgrade (see harness-hooks-json.ts's module doc). */
-const CODEX_ENV_HOOK_COMMAND = "me codex env-hook";
-
-/** Our canonical PreToolUse hook definition — kept as one literal so every
- * install writes byte-identical JSON. */
-const CODEX_HOOK_ENTRY: JsonHookEntry = {
-  matcher: "^Bash$",
-  hooks: [{ type: "command", command: CODEX_ENV_HOOK_COMMAND, timeout: 10 }],
-};
-
-/**
- * Write (or refresh) the user-scope `~/.codex/hooks.json` PreToolUse entry.
- * Codex trusts hooks per definition hash and gates new/changed ones behind
- * the `/hooks` approval flow — so a fresh install needs a one-time
- * `/hooks` inside Codex before the injected contract goes live.
- */
-export function installCodexEnvHook(): void {
-  const path = join(homedir(), ".codex", "hooks.json");
-  const { changed } = upsertJsonHooksFile(
-    path,
-    "PreToolUse",
-    CODEX_HOOK_ENTRY,
-    CODEX_ENV_HOOK_COMMAND,
-  );
-  if (changed) {
-    clack.log.success(`Installed the Codex PreToolUse hook → ${path}`);
-    clack.log.info(
-      "One-time step: run `/hooks` inside Codex to trust it (new hooks are held for review until then).",
-    );
-  }
-}
 
 function createCodexInstallCommand(): Command {
-  return createHarnessInstallCommand("codex");
+  return new Command("install")
+    .description("install Memory Engine's dormant Codex CLI integration")
+    .action(async () => {
+      const result = await installCodexIntegration(getInstallation("codex"));
+      writeInstallation("codex", {
+        installed_at: new Date().toISOString(),
+        me_version: CLIENT_VERSION,
+        artifacts: result.artifacts,
+      });
+      for (const message of result.messages) console.log(message);
+    });
+}
+
+function createCodexUninstallCommand(): Command {
+  return new Command("uninstall")
+    .description("uninstall the recorded Codex CLI integration")
+    .action(async () => {
+      const record = getInstallation("codex");
+      if (!record) return;
+      const result = await uninstallCodexIntegration(record);
+      if (result.retained.length === 0) removeInstallation("codex");
+      for (const message of result.messages) console.log(message);
+    });
 }
 
 /**
@@ -95,7 +83,7 @@ function createCodexEnvHookCommand(): Command {
 export function createCodexCommand(): Command {
   const codex = new Command("codex").description("Codex CLI integration");
   codex.addCommand(createCodexInstallCommand());
-  codex.addCommand(createHarnessUninstallCommand("codex"));
+  codex.addCommand(createCodexUninstallCommand());
   codex.addCommand(createCodexEnvHookCommand());
   codex.addCommand(createCodexImportCommand());
   return codex;
