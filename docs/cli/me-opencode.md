@@ -14,15 +14,25 @@ OpenCode integration commands.
 
 ## me opencode install
 
-Install OpenCode's dormant user-scoped MCP registration:
+Install OpenCode's dormant user-global integration:
 
 ```bash
 me opencode install
 ```
 
-This non-interactive command writes exactly `me mcp` to the managed OpenCode
-MCP entry. It does not install plugins, commands, skills, capture behavior, or
-credentials, and does not pin runtime targeting.
+This non-interactive command writes the user-global `mcp.me` entry with the
+exact command `["me", "mcp"]` and installs a dormant capture/shell plugin
+under `~/.config/opencode/plugins/`. It does not write project files, prompt,
+pin credentials or runtime targeting, install recall commands or skills, or
+backfill sessions.
+
+The plugin captures only when the local OpenCode `capture` profile selected for
+the session directory enables OpenCode. Its shell hook injects only
+`AI_AGENT=opencode` and `ME_PROJECT_DIR`.
+
+OpenCode's MCP child working-directory behavior still requires manual
+validation. Until then, routing falls back to the shared defaults behavior when
+no provider context is available.
 
 ## me opencode uninstall
 
@@ -30,7 +40,9 @@ credentials, and does not pin runtime targeting.
 me opencode uninstall
 ```
 
-Removes only the recorded entry when it remains unchanged.
+Removes only recorded, unchanged artifacts. It deletes `mcp.me` while preserving
+unrelated OpenCode configuration, and removes the `mcp` object when it becomes
+empty. A modified generated plugin is retained.
 
 ---
 
@@ -42,7 +54,7 @@ Removes only the recorded entry when it remains unchanged.
 
 ## me opencode hook
 
-An internal helper the OpenCode capture plugin runs automatically as a session progresses. When capture is on, it imports the session as memories via the same incremental path as `me import opencode`, so live captures and bulk imports reconcile onto the same memories. **You never run this by hand** — it's best-effort and never blocks an OpenCode session.
+An internal helper the OpenCode plugin runs automatically as a session progresses. It resolves the local capture profile from the OpenCode session directory and exits successfully when no selected OpenCode capture profile exists. When selected, it imports the session via the same incremental path as `me import opencode`. **You never run this by hand** — it is best-effort and never blocks an OpenCode session.
 
 ---
 
