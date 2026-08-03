@@ -374,6 +374,29 @@ test("setDefaultServer persists the default server without touching secrets", ()
   expect(creds.resolveCredentials().server).toBe("https://picked.example.com");
 });
 
+test("human CLI writes preserve harness policy fields", () => {
+  const path = join(configDir, "me", "config.yaml");
+  mkdirSync(join(configDir, "me"), { recursive: true });
+  writeFileSync(
+    path,
+    [
+      "version: 1",
+      "defaults:",
+      "  mcp:",
+      "    enabled: false",
+      "    harnesses: {}",
+      "directories: {}",
+    ].join("\n"),
+  );
+
+  creds.setActiveSpace(SERVER, "abc123def456");
+
+  const config = readFileSync(path, "utf-8");
+  expect(config).toContain("version: 1");
+  expect(config).toContain("directories: {}");
+  expect(config).toContain("active_space: abc123def456");
+});
+
 test("capture: off by default; setCaptureEnabled persists the machine-wide flag", () => {
   expect(creds.getGlobalCaptureEnabled()).toBe(false);
   expect(creds.resolveCredentials(SERVER).captureEnabled).toBe(false);

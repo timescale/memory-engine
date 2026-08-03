@@ -91,6 +91,8 @@ export interface ServerConfig {
 
 /** config.yaml structure. */
 export interface ConfigFile {
+  /** Preserve policy and future top-level fields this module does not own. */
+  [key: string]: unknown;
   default_server: string;
   servers: Record<string, ServerConfig>;
   /**
@@ -292,6 +294,7 @@ function readConfig(): ConfigFile {
     throw new Error(`Invalid agent in ${path}: it must be a non-empty string.`);
   }
   return {
+    ...data,
     default_server:
       typeof data?.default_server === "string"
         ? data.default_server
