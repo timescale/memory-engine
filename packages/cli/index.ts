@@ -30,6 +30,7 @@ import {
   createProjectCommand,
   createRemovedCommand,
 } from "./commands/project.ts";
+import { createCiInstallCommand } from "./commands/project-ci.ts";
 import { createServeCommand } from "./commands/serve.ts";
 import { createServiceCommand } from "./commands/service.ts";
 import { createSpaceCommand } from "./commands/space.ts";
@@ -109,6 +110,9 @@ for (const c of createMemoryAliasCommands()) program.addCommand(c);
 
 // Import group — one subcommand per source (`me import memories|claude|codex|opencode|git`)
 program.addCommand(createImportCommand());
+
+// CI workflow setup
+program.addCommand(createCiInstallCommand());
 
 // MCP server
 program.addCommand(createMcpCommand());

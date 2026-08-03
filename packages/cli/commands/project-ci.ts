@@ -1,57 +1,16 @@
-/**
- * `me project ci` — set up (and maintain) the GitHub Actions import workflow.
- *
- * The CI import architecture is three layers (see CI_IMPORT_DESIGN.md): a
- * scaffolded, repo-agnostic workflow → the `me import ci` orchestrator → the
- * existing importers. This command owns the setup side:
- *
- *   1. workflow — write/update `.github/workflows/me-import.yml` with
- *      managed-file semantics (a marker line identifies our scaffold; a
- *      hand-maintained file is never silently clobbered). The scaffold
- *      carries no repo-specific values — the default branch is discovered at
- *      runtime by the workflow itself — so the only variable content is the
- *      secret name (`--key-name`) and, for a server outside the built-in
- *      trusted list, a baked-in `ME_SERVER`.
- *   2. identity + key — gated on ONE question: is the secret already
- *      available to the repo? Secrets are write-only, so presence is the only
- *      signal GitHub offers, and it can't distinguish "solo repo, nothing set
- *      up" from "org repo missing from the org secret's visibility list" —
- *      therefore provisioning is NEVER implicit: it happens only under
- *      `--create-service-account` or an interactive yes.
- *
- * Key-handling rule: a key is minted only when it has an immediate
- * destination — minted and piped straight into `gh secret set`, never
- * displayed or stored. Without `gh`, on a decline, or when the repo's
- * secrets couldn't be READ (writing needs the same repo-admin access, so
- * placement would fail) nothing is minted; the exact commands are printed
- * instead. If placement ever fails after a mint, the key is revoked on the
- * spot. This avoids orphan credentials: a minted-but-unplaced key is live
- * in scrollback with no home.
- *
- * An authority denial during provisioning is the expected common case (most
- * repo devs aren't space admins) and is not a dead end: the server enriches
- * the denial with the effective admins' contacts (see rpc/admin-contacts.ts),
- * and this command renders the two-command ask + self-serve retry.
- */
+/** GitHub Actions workflow setup for `me ci install`. */
 import { execFile } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { promisify } from "node:util";
 import * as clack from "@clack/prompts";
 import { Command } from "commander";
 import {
-  DEFAULT_SERVER,
-  isDefaultTrustedServer,
-  normalizeOrigin,
   type ResolvedCredentials,
   resolveCredentialsFor,
 } from "../credentials.ts";
 import { detectGitContext } from "../importers/project.ts";
-import { getOutputFormat, output } from "../output.ts";
-import {
-  discoverProjectConfig,
-  type ProjectConfig,
-} from "../project-config.ts";
+import { getOutputFormat } from "../output.ts";
 import {
   adminContactsFrom,
   buildMemoryClient,
@@ -60,88 +19,28 @@ import {
   isAppErrorCode,
   requireAuth,
   requireSession,
-  requireSpace,
-  resolveActiveSpace,
 } from "../util.ts";
-import { installedHookFile, stripHookBlock } from "./import-git-hook.ts";
 
 const execFileAsync = promisify(execFile);
 
-/** The scaffolded workflow's path, relative to the repo toplevel. */
 export const WORKFLOW_RELPATH = ".github/workflows/me-import.yml";
-
-/**
- * First line of our scaffold — the managed-file marker. Present → this
- * command may rewrite the file in place; absent on an existing file → the
- * file is hand-maintained and is never overwritten without confirmation.
- */
-export const MANAGED_MARKER =
-  "# Managed by 'me project ci' — re-run it to update; remove this line to hand-maintain.";
-
-/** Default GitHub secret name (also the env var `me` reads — that never varies). */
-export const DEFAULT_KEY_NAME = "ME_API_KEY";
-
-/** Service-account name shape (mirrors principalHandleNameSchema). */
+export const DEFAULT_SECRET_NAME = "ME_API_KEY";
 const SA_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
-/** GitHub Actions secret-name shape. */
-const KEY_NAME_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
+const SECRET_NAME_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
+const TREE_PATH_RE = /^~$|^(?:~[./]|\/)?[A-Za-z0-9_-]+(?:[./][A-Za-z0-9_-]+)*$/;
 
-/** Thrown by the shared body to end the run after output was rendered. */
-class FinishSignal extends Error {
-  constructor() {
-    super("finished");
-    this.name = "FinishSignal";
-  }
-}
-
-/** Thrown (and caught by the init step) when setup ends pending, not failed. */
-export class PendingSetup extends Error {
-  constructor() {
-    super("CI import setup pending");
-    this.name = "PendingSetup";
-  }
-}
-
-const isSignal = (e: unknown): boolean =>
-  e instanceof FinishSignal || e instanceof PendingSetup;
-
-/** Parsed options for one run. */
-interface ProjectCiOptions {
+interface CiInstallOptions {
+  space?: string;
+  tree?: string;
+  secretName: string;
+  serviceAccount?: string;
   createServiceAccount: boolean;
-  serviceAccount?: string;
-  keyName?: string;
-  /** Write/update the workflow file and stop — never touch gh or secrets. */
   workflowOnly: boolean;
-  rotateKey: boolean;
-  dryRun: boolean;
+  force: boolean;
 }
 
-/** Structured summary (the --json/--yaml output shape). */
-interface ProjectCiResult {
-  repo: string;
-  workflow:
-    | "created"
-    | "updated"
-    | "unchanged"
-    | "foreign"
-    | "would-create"
-    | "would-update";
-  keyName: string;
-  /** Secret visibility for the repo ("unknown" without a working gh;
-   * "unchecked" under --workflow-only). */
-  secret: "present" | "absent" | "unknown" | "unchecked" | "set" | "would-set";
-  serviceAccount?: string;
-  verified?: boolean;
-  notes: string[];
-}
-
-// =============================================================================
-// Pure helpers (exported for unit tests)
-// =============================================================================
-
-/** Parse a GitHub remote URL into "owner/repo", or undefined for non-GitHub. */
 export function parseGitHubRepo(remoteUrl: string): string | undefined {
-  const m =
+  const match =
     /^git@github\.com:(?<nwo>[^/]+\/[^/]+?)(?:\.git)?$/.exec(remoteUrl) ??
     /^ssh:\/\/git@github\.com\/(?<nwo>[^/]+\/[^/]+?)(?:\.git)?$/.exec(
       remoteUrl,
@@ -149,128 +48,102 @@ export function parseGitHubRepo(remoteUrl: string): string | undefined {
     /^https?:\/\/github\.com\/(?<nwo>[^/]+\/[^/]+?)(?:\.git)?\/?$/.exec(
       remoteUrl,
     );
-  return m?.groups?.nwo;
+  return match?.groups?.nwo;
 }
 
-/**
- * Render the scaffold. Repo-agnostic by design: the default branch is
- * discovered at runtime (a scaffold-time name would silently rot on a
- * rename), so the same bytes work in every repo — an org can even distribute
- * the file without running this command.
- */
 export function renderWorkflow(opts: {
-  keyName: string;
-  /** Baked in only when the resolved server differs from what a bare CI
-   * checkout would resolve on its own (see workflowServerEnv). */
-  serverEnv?: string;
+  secretName: string;
+  space: string;
+  tree: string;
+  server?: string;
 }): string {
-  const serverLine =
-    opts.serverEnv === undefined
-      ? ""
-      : `          ME_SERVER: ${opts.serverEnv}\n`;
-  return `${MANAGED_MARKER}
-name: Memory Engine import
+  const server = opts.server ? `          ME_SERVER: ${opts.server}\n` : "";
+  const env = `          ME_API_KEY: \${{ secrets.${opts.secretName} }}\n${server}          ME_SPACE: ${opts.space}`;
+  return `name: Memory Engine import
 on:
-  push: # all branches — the job itself gates on the default branch
-  workflow_dispatch: {} # manual backfill / re-run
-
-permissions:
-  contents: read
+  push:
+  workflow_dispatch: {}
 
 concurrency:
   group: me-import-\${{ github.ref }}
-  cancel-in-progress: true # newest run on the same ref supersedes: every run is a full catch-up
+  cancel-in-progress: true
 
 jobs:
   import:
-    # Default branch only, discovered at runtime — survives a rename, and
-    # keeps this file identical across repos (no scaffold-time values).
     if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
         with:
-          fetch-depth: 0 # REQUIRED — the git walk and docs git-date temporals need full history
+          fetch-depth: 0
       - name: Install me
         run: |
           set -o pipefail
           mkdir -p "$HOME/.local/bin"
           curl -fsSL https://install.memory.build | ME_INSTALL_DIR="$HOME/.local/bin" sh
-      - name: Import
+      - name: Import git history
         env:
-          ME_API_KEY: \${{ secrets.${opts.keyName} }}
-${serverLine}        run: |
-          "$HOME/.local/bin/me" import ci
+${env}
+        run: |
+          "$HOME/.local/bin/me" import git --tree ${opts.tree}
+      - name: Import docs
+        env:
+${env}
+        run: |
+          "$HOME/.local/bin/me" import docs . --git-aware --prune --tree ${opts.tree}
 `;
 }
 
-/** Recover the secret name from an existing managed scaffold. */
-export function recoverKeyNameFromWorkflow(
-  content: string,
-): string | undefined {
-  const m = /\$\{\{\s*secrets\.([A-Za-z_][A-Za-z0-9_]*)\s*\}\}/.exec(content);
-  return m?.[1];
-}
-
-/** Classify how the workflow scaffold relates to the desired contents. */
-export function workflowStateForScaffold(
-  existing: string | undefined,
-  existingManaged: boolean,
-  desired: string,
-  dryRun: boolean,
-): ProjectCiResult["workflow"] {
-  if (existing === undefined) return dryRun ? "would-create" : "created";
-  if (!existingManaged) return "foreign";
-  if (existing === desired) return "unchanged";
-  return dryRun ? "would-update" : "updated";
-}
-
-/** Segments of a tree path (display or dotted form), for ancestor checks. */
-function treeSegments(path: string): string[] {
-  return path
-    .replace(/^\//, "")
-    .split(/[./]/)
-    .filter((s) => s.length > 0);
-}
-
-/** Whether `grants` includes write (level ≥ 2) at `tree` or an ancestor. */
-export function hasWriteAtTree(
-  grants: ReadonlyArray<{ treePath: string; access: number }>,
-  tree: string,
-): boolean {
-  const target = treeSegments(tree);
-  return grants.some((g) => {
-    if (g.access < 2) return false;
-    const anc = treeSegments(g.treePath);
-    return (
-      anc.length <= target.length && anc.every((seg, i) => seg === target[i])
+/** Write the generated workflow, refusing an existing file unless forced. */
+export function writeWorkflow(
+  path: string,
+  workflow: string,
+  force: boolean,
+): "created" | "replaced" {
+  if (existsSync(path) && !force) {
+    throw new Error(
+      `${WORKFLOW_RELPATH} already exists; re-run with --force to replace it.`,
     );
-  });
+  }
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, workflow);
+  return force ? "replaced" : "created";
 }
 
-/**
- * The `ME_SERVER` value to bake into the workflow, or undefined when a bare
- * CI checkout resolves the right server on its own: CI honors a committed
- * `.me` server only when it's in the BUILT-IN trusted list (no global
- * whitelist exists there), else falls back to the default server.
- */
-export function workflowServerEnv(
-  resolvedServer: string,
-  project: Pick<ProjectConfig, "server"> | undefined,
-): string | undefined {
-  const resolved = normalizeOrigin(resolvedServer);
-  const ciResolves =
-    project?.server !== undefined && isDefaultTrustedServer(project.server)
-      ? normalizeOrigin(project.server)
-      : DEFAULT_SERVER;
-  return resolved === ciResolves ? undefined : resolved;
+export function buildCiInstallOptions(
+  raw: Record<string, unknown>,
+): CiInstallOptions {
+  const space = typeof raw.space === "string" ? raw.space : undefined;
+  const tree = typeof raw.tree === "string" ? raw.tree : undefined;
+  const secretName =
+    typeof raw.secretName === "string" ? raw.secretName : DEFAULT_SECRET_NAME;
+  const serviceAccount =
+    typeof raw.serviceAccount === "string" ? raw.serviceAccount : undefined;
+  if (tree !== undefined && !TREE_PATH_RE.test(tree)) {
+    throw new Error(`Invalid --tree: '${tree}'.`);
+  }
+  if (!SECRET_NAME_RE.test(secretName)) {
+    throw new Error(`Invalid --secret-name: '${secretName}'.`);
+  }
+  if (serviceAccount !== undefined && !SA_NAME_RE.test(serviceAccount)) {
+    throw new Error(`Invalid --service-account: '${serviceAccount}'.`);
+  }
+  if (raw.workflowOnly === true && raw.createServiceAccount === true) {
+    throw new Error(
+      "--workflow-only cannot be combined with --create-service-account.",
+    );
+  }
+  return {
+    space,
+    tree,
+    secretName,
+    serviceAccount,
+    createServiceAccount: raw.createServiceAccount === true,
+    workflowOnly: raw.workflowOnly === true,
+    force: raw.force === true,
+  };
 }
 
-// =============================================================================
-// git / gh subprocess helpers
-// =============================================================================
-
-/** The repo's "owner/repo" from its origin remote, or undefined. */
 async function detectGitHubRepo(gitRoot: string): Promise<string | undefined> {
   try {
     const { stdout } = await execFileAsync("git", [
@@ -286,7 +159,6 @@ async function detectGitHubRepo(gitRoot: string): Promise<string | undefined> {
   }
 }
 
-/** Whether the `gh` CLI is installed and authenticated. */
 async function ghReady(): Promise<boolean> {
   if (Bun.which("gh") === null) return false;
   try {
@@ -297,855 +169,398 @@ async function ghReady(): Promise<boolean> {
   }
 }
 
-/**
- * Whether a secret named `keyName` is visible to the repo — repo-level, or
- * provided by an org secret whose visibility list includes this repo (the
- * org variant). "unknown" when gh can't answer (insufficient repo access) —
- * treated as cannot-verify, never as absent.
- */
-async function secretPresence(
-  nwo: string,
-  keyName: string,
-): Promise<"present" | "absent" | "unknown"> {
-  try {
-    const repo = await execFileAsync("gh", [
-      "secret",
-      "list",
-      "--repo",
-      nwo,
-      "--json",
-      "name",
-      "--jq",
-      ".[].name",
-    ]);
-    if (repo.stdout.split("\n").some((n) => n.trim() === keyName)) {
-      return "present";
-    }
-  } catch {
-    return "unknown";
-  }
-  // Org-provided secrets are NOT in `gh secret list` — they come from the
-  // repo's organization-secrets endpoint.
-  try {
-    const org = await execFileAsync("gh", [
-      "api",
-      `repos/${nwo}/actions/organization-secrets`,
-      "--jq",
-      ".secrets[].name",
-    ]);
-    if (org.stdout.split("\n").some((n) => n.trim() === keyName)) {
-      return "present";
-    }
-  } catch (e) {
-    // A 404 is the one failure that MEANS something: the repo belongs to a
-    // personal account (no org), so "no org secrets" is simply true. Any
-    // other failure (transient network, rate limit, an exotic 403 — a
-    // permissions 403 is near-impossible here since the repo-level call
-    // above succeeded with the same token and the same access requirement)
-    // is indistinguishable from "an org secret might exist that we can't
-    // see" → unknown, never absent (absent's next step is the provisioning
-    // offer, which must not fire on a guess).
-    const stderr = (e as { stderr?: string }).stderr ?? "";
-    if (!/HTTP 404/.test(stderr)) return "unknown";
-  }
-  return "absent";
+async function secretExists(nwo: string, secretName: string): Promise<boolean> {
+  const { stdout } = await execFileAsync("gh", [
+    "secret",
+    "list",
+    "--repo",
+    nwo,
+    "--json",
+    "name",
+    "--jq",
+    ".[].name",
+  ]);
+  return stdout.split("\n").some((name) => name.trim() === secretName);
 }
 
-/** `gh secret set` with the value on stdin (never in argv). */
 async function ghSetSecret(
   nwo: string,
-  keyName: string,
+  secretName: string,
   value: string,
 ): Promise<void> {
-  const proc = Bun.spawn(["gh", "secret", "set", keyName, "--repo", nwo], {
+  const proc = Bun.spawn(["gh", "secret", "set", secretName, "--repo", nwo], {
     stdin: new TextEncoder().encode(value),
     stdout: "pipe",
     stderr: "pipe",
   });
-  const code = await proc.exited;
-  if (code !== 0) {
-    const stderr = await new Response(proc.stderr).text();
-    throw new Error(`gh secret set failed: ${stderr.trim()}`);
+  if ((await proc.exited) !== 0) {
+    throw new Error(
+      `gh secret set failed: ${(await new Response(proc.stderr).text()).trim()}`,
+    );
   }
 }
 
-// =============================================================================
-// The run
-// =============================================================================
-
-/** A minted-key name that never collides across rotations. */
-function mintedKeyName(): string {
-  const bytes = crypto.getRandomValues(new Uint8Array(4));
-  const alphabet = "abcdefghijklmnopqrstuvwxyz0123456789";
-  let suffix = "";
-  for (const b of bytes) suffix += alphabet[b % 36];
-  return `ci-import-${suffix}`;
+function interactive(fmt: string): boolean {
+  return (
+    fmt === "text" &&
+    Boolean(process.stdin.isTTY) &&
+    Boolean(process.stdout.isTTY)
+  );
 }
 
-/** Exit via clack's cancel outro. */
-function bail(): never {
-  clack.cancel("Cancelled.");
-  process.exit(0);
-}
-
-/** Unwrap a clack prompt result, exiting cleanly on cancel. */
 function unwrap<T>(value: T | symbol): T {
-  if (clack.isCancel(value)) bail();
+  if (clack.isCancel(value)) {
+    clack.cancel("Cancelled.");
+    process.exit(0);
+  }
   return value as T;
 }
 
-/**
- * Render the escalation block for an admin-gated denial: the effective
- * admins (from the enriched error) plus the exact commands to ask them to
- * run, and the self-serve retry. Returns true when the error was rendered
- * (a FORBIDDEN); false → the caller falls through to handleError.
- */
-function renderAdminAsk(
-  error: unknown,
-  info: {
-    saName: string;
-    tree: string;
-    callerEmail?: string;
-    spaceSlug: string;
-  },
-): boolean {
-  if (!isAppErrorCode(error, "FORBIDDEN")) return false;
-  const admins = adminContactsFrom(error);
-  const adminLines =
-    admins === undefined
-      ? ["  (ask a space admin)"]
-      : admins.map((a) => `  ${a.email}`);
-  const adminFlag = info.callerEmail ? ` --admin ${info.callerEmail}` : "";
-  clack.log.error(
-    error instanceof Error ? error.message : "This requires a space admin.",
-  );
+function defaultTree(repo: string): string {
+  return `/share/projects/${repo}`;
+}
+
+function printInstructions(info: {
+  space: string;
+  tree: string;
+  serviceAccount: string;
+  secretName: string;
+  repo: string;
+  admins?: Array<{ email: string }>;
+}): void {
+  const admin = info.admins?.map((a) => a.email).join(", ") ?? "a space admin";
   clack.log.info(
     [
-      `Space admins for ${info.spaceSlug}:`,
-      ...adminLines,
-      "Ask one of them to run:",
-      `  me service create ${info.saName}${adminFlag}`,
-      `  me access grant write ${info.tree} ${info.saName}`,
-      ...(info.callerEmail
-        ? [
-            `(--admin ${info.callerEmail} puts you in the service account's bound`,
-            " admin group — key management is then yours, no further admin needed.)",
-          ]
-        : []),
-      "Then re-run:",
-      "  me project ci",
-      "It will find the service account, mint the key, and set the repo secret itself.",
+      `Ask ${admin} to run:`,
+      `  me service create ${info.serviceAccount} --space ${info.space}`,
+      `  me access grant write ${info.tree} ${info.serviceAccount} --space ${info.space}`,
+      `  me apikey create --service ${info.serviceAccount} --space ${info.space}`,
+      `  gh secret set ${info.secretName} --repo ${info.repo}`,
     ].join("\n"),
   );
-  return true;
 }
 
-/** Validate raw Commander opts into a typed option set. */
-export function buildProjectCiOptions(
-  opts: Record<string, unknown>,
-): ProjectCiOptions {
-  const serviceAccount =
-    typeof opts.serviceAccount === "string" ? opts.serviceAccount : undefined;
-  if (serviceAccount !== undefined && !SA_NAME_RE.test(serviceAccount)) {
+async function selectSpace(
+  creds: ResolvedCredentials,
+): Promise<{ slug: string; admin: boolean }> {
+  const { spaces } = await buildUserClient(creds).space.list();
+  if (spaces.length === 0) {
     throw new Error(
-      `Invalid --service-account: '${serviceAccount}' is not a valid principal name.`,
+      "You do not belong to any spaces. Run 'me space create' or accept an invitation first.",
     );
   }
-  const keyName = typeof opts.keyName === "string" ? opts.keyName : undefined;
-  if (keyName !== undefined && !KEY_NAME_RE.test(keyName)) {
-    throw new Error(
-      `Invalid --key-name: '${keyName}' — GitHub secret names are [A-Za-z_][A-Za-z0-9_]*.`,
-    );
-  }
-  const workflowOnly = opts.workflowOnly === true;
-  if (
-    workflowOnly &&
-    (opts.createServiceAccount === true ||
-      opts.rotateKey === true ||
-      serviceAccount !== undefined)
-  ) {
-    throw new Error(
-      "--workflow-only writes only the workflow file — it can't be combined with " +
-        "--create-service-account, --service-account, or --rotate-key.",
-    );
-  }
-  return {
-    createServiceAccount: opts.createServiceAccount === true,
-    serviceAccount,
-    keyName,
-    workflowOnly,
-    rotateKey: opts.rotateKey === true,
-    dryRun: opts.dryRun === true,
-  };
-}
-
-/**
- * Run the setup end-to-end. With `fromInit`, hard stops become a
- * {@link PendingSetup} throw (caught by the init step) instead of a non-zero
- * exit, so a pending state — "ask your admin" — never aborts the wizard's
- * remaining steps: the scaffold that DID land still counts, and setup
- * completes on a later `me project ci` run.
- */
-export async function runProjectCi(
-  rawOpts: Record<string, unknown>,
-  globalOpts: Record<string, unknown>,
-  runCtx: { fromInit?: boolean } = {},
-): Promise<void> {
-  try {
-    await runProjectCiBody(rawOpts, globalOpts, runCtx);
-  } catch (e) {
-    if (e instanceof FinishSignal) {
-      return; // output already rendered; exit 0 via normal return
-    }
-    throw e;
-  }
-}
-
-async function runProjectCiBody(
-  rawOpts: Record<string, unknown>,
-  globalOpts: Record<string, unknown>,
-  runCtx: { fromInit?: boolean },
-): Promise<void> {
-  const fmt = getOutputFormat(globalOpts);
-  const interactive =
-    fmt === "text" &&
-    Boolean(process.stdin.isTTY) &&
-    Boolean(process.stdout.isTTY);
-  /** A hard stop: pending (init) or error exit (standalone). */
-  const fail = (message: string): never => {
-    if (runCtx.fromInit) {
-      clack.log.warn(`${message}\n(CI import setup left pending.)`);
-      throw new PendingSetup();
-    }
-    handleError(new Error(message), fmt);
-  };
-
-  let opts: ProjectCiOptions;
-  try {
-    opts = buildProjectCiOptions(rawOpts);
-  } catch (error) {
-    handleError(error, fmt);
-  }
-
-  // ---- Resolve the repo, its GitHub identity, and the project config ------
-  const { gitRoot } = await detectGitContext(process.cwd());
-  if (gitRoot === undefined) {
-    throw fail("me project ci must run inside a git repository");
-  }
-  const nwo = await detectGitHubRepo(gitRoot);
-  if (nwo === undefined) {
-    throw fail(
-      "No GitHub origin remote found — the scaffolded workflow is GitHub Actions. " +
-        "For other CI systems, call `me import ci` from your own pipeline.",
-    );
-  }
-
-  let project: ProjectConfig | undefined;
-  let creds: ResolvedCredentials;
-  try {
-    project = discoverProjectConfig(gitRoot);
-    creds = resolveCredentialsFor(project);
-  } catch (error) {
-    if (isSignal(error)) throw error;
-    handleError(error, fmt);
-  }
-
-  // The CI run authenticates as a service account resolving the committed
-  // `.me`: it needs a pinned space (no ME_SPACE exists in CI) and a pinned,
-  // non-home tree (service accounts have no `~` — a home-rooted tree
-  // resolves to nothing for them).
-  const tree = project?.tree;
-  if (project?.space === undefined || tree === undefined) {
-    throw fail(
-      "The CI import needs a committed .me/config.yaml pinning `space` and `tree` " +
-        "(run `me project init` first).",
-    );
-  }
-  if (tree.startsWith("~")) {
-    throw fail(
-      `The project tree '${tree}' is home-rooted — a service account has no home. ` +
-        "Pin a shared tree (e.g. /share/projects/<name>) in .me/config.yaml.",
-    );
-  }
-
-  const notes: string[] = [];
-  const repoName = nwo.split("/")[1] ?? "repo";
-  const saName =
-    opts.serviceAccount ??
-    project.import?.service_account ??
-    `${repoName}-import`;
-  const saNamedExplicitly =
-    opts.serviceAccount !== undefined ||
-    project.import?.service_account !== undefined;
-
-  // ---- Phase 1: the workflow scaffold --------------------------------------
-  const workflowPath = join(gitRoot, WORKFLOW_RELPATH);
-  const existing = existsSync(workflowPath)
-    ? readFileSync(workflowPath, "utf-8")
-    : undefined;
-  const existingManaged = existing?.startsWith(MANAGED_MARKER) ?? false;
-  const keyName =
-    opts.keyName ??
-    (existing !== undefined && existingManaged
-      ? recoverKeyNameFromWorkflow(existing)
-      : undefined) ??
-    DEFAULT_KEY_NAME;
-  const desired = renderWorkflow({
-    keyName,
-    serverEnv: workflowServerEnv(creds.server, project),
-  });
-
-  let workflowState = workflowStateForScaffold(
-    existing,
-    existingManaged,
-    desired,
-    opts.dryRun,
+  const selected = unwrap(
+    await clack.select({
+      message: "Which space should CI import into?",
+      options: spaces.map((space) => ({
+        value: space.slug,
+        label: space.name,
+        hint: space.slug,
+      })),
+      initialValue: spaces.find((space) => space.slug === creds.activeSpace)
+        ?.slug,
+    }),
   );
+  const space = spaces.find((item) => item.slug === selected);
+  if (!space) throw new Error(`space '${selected}' disappeared`);
+  return space;
+}
 
-  if (workflowState === "foreign" && interactive && !opts.dryRun) {
-    const overwrite = unwrap(
-      await clack.confirm({
-        message: `${WORKFLOW_RELPATH} exists but isn't managed by me project ci — overwrite it with the scaffold?`,
-        initialValue: false,
-      }),
-    );
-    if (overwrite) workflowState = "updated";
-  }
-  if (workflowState === "foreign") {
-    notes.push(
-      `${WORKFLOW_RELPATH} exists and isn't managed by me project ci — left untouched.`,
-    );
-  }
-  if (
-    !opts.dryRun &&
-    (workflowState === "created" || workflowState === "updated")
-  ) {
-    mkdirSync(dirname(workflowPath), { recursive: true });
-    writeFileSync(workflowPath, desired);
-  }
-  if (fmt === "text") {
-    clack.log.step(
-      {
-        created: `Wrote ${WORKFLOW_RELPATH}`,
-        updated: `Updated ${WORKFLOW_RELPATH}`,
-        unchanged: `${WORKFLOW_RELPATH} is up to date`,
-        foreign: `${WORKFLOW_RELPATH} left untouched (not managed by me project ci)`,
-        "would-create": `Would write ${WORKFLOW_RELPATH}`,
-        "would-update": `Would update ${WORKFLOW_RELPATH}`,
-      }[workflowState],
-    );
-  }
-
-  // ---- Phase 2: secret presence --------------------------------------------
-  // --workflow-only: credentials are somebody else's problem by explicit
-  // declaration (Terraform/UI-managed secrets, an org whose admin did the
-  // provisioning, a dev whose gh can't read this repo's secrets) — never
-  // invoke gh at all.
-  const gh = opts.workflowOnly ? false : await ghReady();
-  const presence: ProjectCiResult["secret"] = opts.workflowOnly
-    ? "unchecked"
-    : gh
-      ? await secretPresence(nwo, keyName)
-      : "unknown";
-  if (fmt === "text" && !opts.workflowOnly) {
-    if (presence === "present") {
-      clack.log.step(`Found ${keyName} — secret already available to ${nwo}`);
-    } else if (presence === "absent") {
-      clack.log.step(
-        `No ${keyName} secret found for ${nwo} (checked repo and org secrets)`,
-      );
-    } else {
-      clack.log.warn(
-        `Can't check for an existing ${keyName} secret — 'gh' is ${
-          Bun.which("gh") === null
-            ? "not installed"
-            : "not authenticated (or lacks access to this repo)"
-        }.`,
-      );
-    }
-  }
-
-  const result: ProjectCiResult = {
-    repo: nwo,
-    workflow: workflowState,
-    keyName,
-    secret: presence,
-    notes,
-  };
-  /** A text-mode progress line (structured modes keep stdout clean). */
-  const step = (msg: string): void => {
-    if (fmt === "text") clack.log.step(msg);
-  };
-
-  /**
-   * Migration from the retired `me import git-hook`: an installed hook keeps
-   * firing `me import git` on every local commit (importing unmerged work)
-   * until its managed block is stripped — and the `--remove` path is gone
-   * with the command, so this is the supported removal. Runs only once CI
-   * credentials are in place (`ready`): stripping earlier would open a
-   * capture gap between "hook gone" and "CI not yet importing".
-   */
-  const migrateInstalledHook = async (ready: boolean): Promise<void> => {
-    if (opts.dryRun) return;
-    const hooksFile = await installedHookFile(gitRoot);
-    if (hooksFile === undefined) return;
-    if (!ready) {
-      notes.push(
-        `A retired 'me import git-hook' block is still installed (${hooksFile}); it will be removed once CI credentials are set up.`,
-      );
-      return;
-    }
-    const strip = interactive
-      ? unwrap(
-          await clack.confirm({
-            message:
-              "A retired 'me import git-hook' post-commit hook is installed — remove it? (CI now owns git imports; the local hook also imports unmerged commits.)",
-            initialValue: true,
-          }),
-        )
-      : true;
-    if (strip) {
-      await stripHookBlock(hooksFile);
-      step(`Removed the retired post-commit hook block from ${hooksFile}`);
-    } else {
-      notes.push(
-        "Kept the local post-commit hook — it imports unmerged commits; remove its '>>> memory-engine' block when ready.",
-      );
-    }
-  };
-
-  /**
-   * Render the summary and end the run (unwinds via FinishSignal). MUST be
-   * awaited: output()'s structured write is async, and the process exits
-   * right after the command action resolves — an unawaited write is lost.
-   * `credentialsReady` gates the retired-hook migration (see above).
-   */
-  const finish = async (
-    extra?: Partial<ProjectCiResult> & { credentialsReady?: boolean },
-  ): Promise<never> => {
-    const { credentialsReady, ...rest } = extra ?? {};
-    await migrateInstalledHook(credentialsReady === true);
-    Object.assign(result, rest);
-    await output(result, fmt, () => {
-      for (const n of notes) clack.log.info(n);
-      if (
-        !opts.dryRun &&
-        (workflowState === "created" || workflowState === "updated")
-      ) {
-        clack.log.info(
-          `Commit ${WORKFLOW_RELPATH} — imports start on the next push to the default branch (the first run backfills history).`,
-        );
-      }
-    });
-    throw new FinishSignal();
-  };
-
-  if (opts.workflowOnly) {
-    notes.push(
-      `Credentials not checked (--workflow-only) — make sure a ${keyName} secret reaching this repo holds a ` +
-        "service-account key with write access at the project tree.",
-    );
-    throw await finish();
-  }
-
-  if (opts.dryRun) {
-    if (opts.rotateKey) {
-      notes.push(
-        `Would mint a new key for '${saName}' and update the ${keyName} secret.`,
-      );
-    } else if (presence !== "present") {
-      notes.push(
-        `Would ${opts.createServiceAccount || interactive ? "offer to " : ""}provision service account '${saName}' ` +
-          `with write on ${tree}, mint a key, and set the ${keyName} secret.`,
-      );
-    }
-    throw await finish();
-  }
-
-  // ---- Phase 3: secret present → verify (when an identity is named) --------
-  if (presence === "present" && !opts.rotateKey && !opts.createServiceAccount) {
-    if (!saNamedExplicitly) {
-      notes.push(
-        "Using the existing secret. (A secret's contents can't be read back — the first workflow run verifies it, and fails loudly.)",
-      );
-      throw await finish({ credentialsReady: true });
-    }
-    requireAuth(creds, fmt);
-    requireSpace(creds, fmt);
-    const memory = buildMemoryClient(creds);
-    try {
-      // Existence via principal.resolve — the targeted, ANY-MEMBER lookup.
-      // serviceAccount.list would be silently FILTERED for a non-admin (only
-      // accounts they administer), which would read here as a false
-      // "does not exist" for a shared org SA the caller doesn't manage.
-      const { principals } = await memory.principal.resolve({
-        name: saName,
-        kind: "s",
-      });
-      const sa = principals[0];
-      if (!sa) {
-        throw fail(
-          `Service account '${saName}' does not exist — but the ${keyName} secret is set, so it can't be holding ` +
-            "that account's key. Run `me project ci --create-service-account` to provision consistently " +
-            "(it will ask before overwriting the secret).",
-        );
-      }
-      const { grants } = await memory.grant.list({ principalId: sa.id });
-      if (hasWriteAtTree(grants, tree)) {
-        step(`Verified: '${saName}' holds write on ${tree}`);
-        throw await finish({
-          serviceAccount: saName,
-          verified: true,
-          credentialsReady: true,
-        });
-      }
-      const applyGrant = interactive
-        ? unwrap(
-            await clack.confirm({
-              message: `'${saName}' has no write grant on ${tree} — grant it now?`,
-            }),
-          )
-        : true; // a named SA is the operator's stated intent
-      if (applyGrant) {
-        await memory.grant.set({
-          principalId: sa.id,
-          treePath: tree,
-          access: 2,
-        });
-        step(`Granted write on ${tree} to '${saName}'`);
-      }
-      throw await finish({
-        serviceAccount: saName,
-        verified: applyGrant,
-        credentialsReady: true,
-      });
-    } catch (error) {
-      if (isSignal(error)) throw error;
-      if (isAppErrorCode(error, "FORBIDDEN")) {
-        // grant.list on another principal is admin-gated: verify degrades to
-        // a note rather than blocking a setup that may be perfectly fine.
-        notes.push(
-          `Couldn't verify '${saName}' locally (requires admin/owner authority). Run the workflow on GitHub to verify.`,
-        );
-        throw await finish({
-          serviceAccount: saName,
-          verified: false,
-          credentialsReady: true,
-        });
-      }
-      handleError(error, fmt, { creds, scope: "space" });
-    }
-  }
-
-  // ---- Phase 4: provisioning gate -------------------------------------------
-  let provision = opts.createServiceAccount || opts.rotateKey;
-  if (!provision) {
-    if (presence === "unknown") {
-      throw fail(
-        gh
-          ? `Can't determine whether the ${keyName} secret is available to ${nwo} — reading its secrets failed ` +
-              "(repo secrets need repo-admin access; org-secret checks can also fail transiently). " +
-              "Ask a repo admin to run this, set the secret yourself in the GitHub UI, or retry."
-          : `Can't check whether the ${keyName} secret exists — 'gh' is ${
-              Bun.which("gh") === null ? "not installed" : "not authenticated"
-            }. Install/authenticate gh, set the secret manually, or re-run with --create-service-account to provision.`,
-      );
-    }
-    if (!interactive) {
-      throw fail(
-        `No ${keyName} secret is available to ${nwo}. Either ask your org admin to add this repo to the ` +
-          "org secret's visibility list, or re-run with --create-service-account to provision repo-scoped credentials.",
-      );
-    }
-    const choice = unwrap(
-      await clack.select({
-        message: `No ${keyName} secret found. Provision CI credentials now?`,
-        options: [
-          {
-            value: "create",
-            label: "Yes — create a repo-scoped service account",
-          },
-          {
-            value: "abort",
-            label: "No — an org secret is expected",
-            hint: "ask an org admin to add this repo to its visibility list",
-          },
-        ],
-      }),
-    ) as string;
-    if (choice !== "create") {
-      notes.push(
-        "Skipped provisioning — ask an org admin to expose the org secret to this repo.",
-      );
-      throw await finish();
-    }
-    provision = true;
-  }
-
-  // ---- Phase 5: provision (ensure SA + grant; mint only into the secret) ---
-  requireAuth(creds, fmt);
-  requireSpace(creds, fmt);
-  requireSession(creds, fmt); // key minting is session-only
-  const user = buildUserClient(creds);
-  const memory = buildMemoryClient(creds);
-  const spaceSlug = creds.activeSpace ?? "the space";
-  let callerEmail: string | undefined;
-  let callerId = "";
-  let spaceId = "";
+async function createAndPlaceKey(info: {
+  creds: ResolvedCredentials;
+  space: string;
+  tree: string;
+  serviceAccount: string;
+  secretName: string;
+  repo: string;
+}): Promise<void> {
+  requireAuth(info.creds, "text");
+  requireSession(info.creds, "text");
+  const user = buildUserClient(info.creds);
+  const memory = buildMemoryClient({ ...info.creds, activeSpace: info.space });
+  const { spaces } = await user.space.list();
+  const space = spaces.find((item) => item.slug === info.space);
+  if (!space) throw new Error(`Space '${info.space}' is not available.`);
+  const who = await user.whoami();
+  let serviceAccountId: string;
   try {
-    const who = await user.whoami();
-    callerEmail = who.email ?? undefined;
-    callerId = who.id;
-    const space = await resolveActiveSpace(user, creds.activeSpace ?? "", fmt);
-    spaceId = space.id;
-  } catch (error) {
-    if (isSignal(error)) throw error;
-    handleError(error, fmt, { creds, scope: "space" });
-  }
-
-  const finalName =
-    interactive && !opts.rotateKey
-      ? unwrap(
-          await clack.text({
-            message: "Service account name:",
-            initialValue: saName,
-            validate: (v) =>
-              SA_NAME_RE.test(v ?? "")
-                ? undefined
-                : "not a valid principal name",
-          }),
-        )
-      : saName;
-
-  let saId = "";
-  try {
-    // Existence via the any-member lookup (see the verify-phase note):
-    // serviceAccount.list is silently filtered for non-admins, and
-    // provisioning must FIND an SA someone else created (then proceed to the
-    // grant/key steps) rather than re-attempt a doomed creation.
     const { principals } = await memory.principal.resolve({
-      name: finalName,
+      name: info.serviceAccount,
       kind: "s",
     });
-    const existingSa = principals[0];
-    if (existingSa) {
-      saId = existingSa.id;
-      step(`Service account '${finalName}' already exists`);
-    } else if (opts.rotateKey) {
-      throw fail(
-        `--rotate-key: service account '${finalName}' does not exist. Provision first with --create-service-account.`,
-      );
+    const existing = principals[0];
+    if (existing) {
+      serviceAccountId = existing.id;
     } else {
-      // The caller seeds the bound admin group so key management (and future
-      // rotation) is self-serve — no dependency on the creating admin.
-      const { serviceAccount } = await user.serviceAccount.create({
-        spaceId,
-        name: finalName,
-        adminMembers: [{ memberId: callerId }],
+      const created = await user.serviceAccount.create({
+        spaceId: space.id,
+        name: info.serviceAccount,
+        adminMembers: [{ memberId: who.id }],
       });
-      saId = serviceAccount.id;
-      step(
-        `Created service account '${finalName}' (you are in its bound admin group)`,
-      );
+      serviceAccountId = created.serviceAccount.id;
     }
-  } catch (error) {
-    if (isSignal(error)) throw error;
-    if (
-      fmt === "text" &&
-      renderAdminAsk(error, { saName: finalName, tree, callerEmail, spaceSlug })
-    ) {
-      if (runCtx.fromInit) throw new PendingSetup();
-      process.exit(1);
-    }
-    handleError(error, fmt, { creds, scope: "space" });
-  }
-
-  // Grant write at the project tree (idempotent; a denial names the admins).
-  try {
-    const { grants } = await memory.grant.list({ principalId: saId });
-    if (hasWriteAtTree(grants, tree)) {
-      step(`'${finalName}' already holds write on ${tree}`);
-    } else {
-      await memory.grant.set({ principalId: saId, treePath: tree, access: 2 });
-      step(`Granted write on ${tree} to '${finalName}'`);
-    }
-  } catch (error) {
-    if (isSignal(error)) throw error;
-    if (
-      fmt === "text" &&
-      renderAdminAsk(error, { saName: finalName, tree, callerEmail, spaceSlug })
-    ) {
-      if (runCtx.fromInit) throw new PendingSetup();
-      process.exit(1);
-    }
-    handleError(error, fmt, { creds, scope: "space" });
-  }
-
-  // ---- Phase 6: key + secret — mint ONLY when piping into gh secret set ----
-  if (!gh || presence === "unknown") {
-    // presence "unknown" with gh working means the secrets couldn't be READ
-    // — and writing them needs the same repo-admin access, so a direct mint
-    // would fail at `gh secret set` and orphan the key. Same treatment as
-    // no-gh: print the pair, mint nothing.
-    notes.push(
-      gh
-        ? "No key was minted — this repo's secrets couldn't be read, and writing them would likely fail the same way (both need repo-admin access)."
-        : "No key was minted ('gh' unavailable — a key is minted only when it can go straight into the secret).",
-      gh
-        ? "Have someone with repo-admin access run these together:"
-        : "Run these together once gh is ready:",
-      `  me apikey create --service ${finalName}`,
-      `  gh secret set ${keyName} --repo ${nwo}   # paste the key`,
-    );
-    throw await finish({ serviceAccount: finalName });
-  }
-  if (presence === "present" && !opts.rotateKey) {
-    // Reached only via --create-service-account with a secret already set:
-    // a new repo-level secret would shadow it (e.g. an org secret).
-    const overwrite = interactive
-      ? unwrap(
-          await clack.confirm({
-            message: `A ${keyName} secret is already visible to ${nwo} — a new repo-level secret will shadow it. Overwrite?`,
-            initialValue: false,
-          }),
-        )
-      : false;
-    if (!overwrite) {
-      notes.push("Kept the existing secret; no key was minted.");
-      throw await finish({ serviceAccount: finalName, credentialsReady: true });
-    }
-  }
-  const setNow = interactive
-    ? unwrap(
-        await clack.confirm({
-          message: `Set repo secret ${keyName} on ${nwo} via gh?`,
-          initialValue: true,
-        }),
-      )
-    : true;
-  if (!setNow) {
-    notes.push(
-      "No key was minted (a key is minted only when it can go straight into the secret).",
-      "To finish, run these together:",
-      `  me apikey create --service ${finalName}`,
-      `  gh secret set ${keyName} --repo ${nwo}   # paste the key`,
-    );
-    throw await finish({ serviceAccount: finalName });
-  }
-  try {
-    const name = mintedKeyName();
-    const minted = await user.apiKey.create({
-      memberId: saId,
-      name,
-      expiresAt: null,
+    await memory.grant.set({
+      principalId: serviceAccountId,
+      treePath: info.tree,
+      access: 2,
     });
-    try {
-      await ghSetSecret(nwo, keyName, minted.key);
-    } catch (setError) {
-      // Never leave an orphan credential: the key exists only to sit in this
-      // secret, so a failed placement revokes it on the spot (we hold the
-      // session key-deletion requires). Only if the revoke ALSO fails does
-      // the operator get manual instructions.
-      const msg =
-        setError instanceof Error ? setError.message : String(setError);
-      let revoked = false;
-      try {
-        const res = await user.apiKey.delete({ id: minted.id });
-        revoked = res.deleted;
-      } catch {
-        // fall through to manual guidance
-      }
-      handleError(
-        new Error(
-          revoked
-            ? `${msg}\nThe just-minted key was revoked — nothing was left behind. Fix gh's access to ${nwo} ` +
-                "(writing secrets needs repo-admin) and re-run, or set the secret via the GitHub UI and finish with " +
-                `\`me apikey create --service ${finalName}\`.`
-            : `${msg}\nA key named "${name}" was minted for '${finalName}' but could not be placed or revoked. ` +
-                `Revoke it with: me apikey delete ${minted.id}`,
-        ),
-        fmt,
-        { creds, scope: "space" },
-      );
-    }
-    step(
-      `Minted api key "${name}" → gh secret set ${keyName} (piped directly; never displayed or stored)`,
-    );
-    if (opts.rotateKey) {
-      notes.push(
-        `Rotated. Revoke old keys: me apikey list --service ${finalName} (find the old id), then me apikey delete <id>.`,
-      );
-    }
   } catch (error) {
-    if (isSignal(error)) throw error;
-    handleError(error, fmt, { creds, scope: "space" });
+    if (isAppErrorCode(error, "FORBIDDEN")) {
+      printInstructions({ ...info, admins: adminContactsFrom(error) });
+      return;
+    }
+    throw error;
   }
-  throw await finish({
-    serviceAccount: finalName,
-    secret: "set",
-    credentialsReady: true,
+
+  const minted = await user.apiKey.create({
+    memberId: serviceAccountId,
+    name: `ci-import-${crypto.randomUUID().slice(0, 8)}`,
+    expiresAt: null,
   });
+  try {
+    await ghSetSecret(info.repo, info.secretName, minted.key);
+  } catch (error) {
+    let revoked = false;
+    try {
+      revoked = (await user.apiKey.delete({ id: minted.id })).deleted;
+    } catch {
+      // The error below gives the operator the key id to revoke manually.
+    }
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(
+      revoked
+        ? `${message}\nThe just-minted key was revoked.`
+        : `${message}\nThe just-minted key could not be revoked. Revoke it with: me apikey delete ${minted.id}`,
+    );
+  }
 }
 
-/** `me project ci` subcommand factory. */
-export function createProjectCiCommand(): Command {
-  return new Command("ci")
-    .description(
-      "set up the GitHub Actions import workflow (scaffold + service-account credentials)",
+export async function runCiInstall(
+  rawOpts: Record<string, unknown>,
+  globalOpts: Record<string, unknown>,
+): Promise<void> {
+  const fmt = getOutputFormat(globalOpts);
+  let opts: CiInstallOptions;
+  try {
+    opts = buildCiInstallOptions(rawOpts);
+  } catch (error) {
+    handleError(error, fmt);
+  }
+  const isInteractive = interactive(fmt);
+  const { gitRoot } = await detectGitContext(process.cwd());
+  if (!gitRoot)
+    handleError(
+      new Error("me ci install must run inside a git repository"),
+      fmt,
+    );
+  const repo = await detectGitHubRepo(gitRoot);
+  if (!repo)
+    handleError(
+      new Error("me ci install requires a GitHub origin remote"),
+      fmt,
+    );
+  const workflowPath = join(gitRoot, WORKFLOW_RELPATH);
+  if (!isInteractive && !opts.space) {
+    handleError(
+      new Error("--space is required when stdin/stdout are not TTYs."),
+      fmt,
+    );
+  }
+
+  // CI settings are explicit workflow inputs; a repository's retired .me
+  // configuration must not influence this command.
+  const creds = resolveCredentialsFor(undefined);
+  let space = opts.space;
+  let isAdmin = false;
+  if (!space) {
+    try {
+      requireAuth(creds, fmt);
+      const selected = await selectSpace(creds);
+      space = selected.slug;
+      isAdmin = selected.admin;
+    } catch (error) {
+      handleError(error, fmt, { creds, scope: "account" });
+    }
+  } else if (isInteractive && !opts.workflowOnly) {
+    try {
+      const { spaces } = await buildUserClient(creds).space.list();
+      isAdmin = spaces.find((item) => item.slug === space)?.admin === true;
+    } catch (error) {
+      handleError(error, fmt, { creds, scope: "account" });
+    }
+  }
+  const tree = opts.tree ?? defaultTree(repo.split("/")[1] ?? "repo");
+  if (!TREE_PATH_RE.test(tree))
+    handleError(new Error(`Invalid --tree: '${tree}'.`), fmt);
+  const serviceAccount =
+    opts.serviceAccount ?? `${repo.split("/")[1] ?? "repo"}-import`;
+  const workflow = renderWorkflow({
+    secretName: opts.secretName,
+    space: space as string,
+    tree,
+    server:
+      creds.server === "https://api.memory.build" ? undefined : creds.server,
+  });
+  try {
+    const state = writeWorkflow(workflowPath, workflow, opts.force);
+    if (fmt === "text")
+      clack.log.success(
+        `${state === "created" ? "Wrote" : "Replaced"} ${WORKFLOW_RELPATH}`,
+      );
+  } catch (error) {
+    handleError(error, fmt);
+  }
+
+  if (opts.workflowOnly) return;
+  if (!isInteractive && !opts.createServiceAccount) {
+    handleError(
+      new Error(
+        "Non-interactive mode requires --workflow-only or --create-service-account.",
+      ),
+      fmt,
+    );
+  }
+  if (!isInteractive && opts.createServiceAccount) {
+    try {
+      if (!(await ghReady()))
+        throw new Error(
+          "--create-service-account requires an authenticated gh CLI.",
+        );
+      await createAndPlaceKey({
+        creds,
+        space: space as string,
+        tree,
+        serviceAccount,
+        secretName: opts.secretName,
+        repo,
+      });
+    } catch (error) {
+      handleError(error, fmt, { creds, scope: "space" });
+    }
+    return;
+  }
+  if (!(await ghReady())) {
+    handleError(
+      new Error(
+        "An authenticated gh CLI is required to place a repository secret.",
+      ),
+      fmt,
+    );
+  }
+
+  const choice = unwrap(
+    await clack.select({
+      message: "How should CI receive its ME_API_KEY?",
+      options: isAdmin
+        ? [
+            {
+              value: "existing",
+              label: "I have a service account's ME_API_KEY",
+            },
+            { value: "create", label: "Create a service account" },
+          ]
+        : [
+            {
+              value: "existing",
+              label: "I have a service account's ME_API_KEY",
+            },
+            { value: "instructions", label: "Give me instructions" },
+          ],
+    }),
+  );
+  if (choice === "instructions") {
+    // Ask the server for its admin-contact enrichment without minting a key.
+    try {
+      await createAndPlaceKey({
+        creds,
+        space: space as string,
+        tree,
+        serviceAccount,
+        secretName: opts.secretName,
+        repo,
+      });
+    } catch (error) {
+      if (isAppErrorCode(error, "FORBIDDEN"))
+        printInstructions({
+          space: space as string,
+          tree,
+          serviceAccount,
+          secretName: opts.secretName,
+          repo,
+          admins: adminContactsFrom(error),
+        });
+      else handleError(error, fmt, { creds, scope: "space" });
+    }
+    return;
+  }
+  if (choice === "existing") {
+    if (await secretExists(repo, opts.secretName)) {
+      const overwrite = unwrap(
+        await clack.confirm({
+          message: `${opts.secretName} already exists. Overwrite it?`,
+          initialValue: false,
+        }),
+      );
+      if (!overwrite) return;
+    }
+    const key = unwrap(
+      await clack.password({ message: "Service account ME_API_KEY:" }),
+    );
+    try {
+      await ghSetSecret(repo, opts.secretName, key);
+    } catch (error) {
+      handleError(error, fmt);
+    }
+    return;
+  }
+  try {
+    if (await secretExists(repo, opts.secretName)) {
+      const overwrite = unwrap(
+        await clack.confirm({
+          message: `${opts.secretName} already exists. Overwrite it?`,
+          initialValue: false,
+        }),
+      );
+      if (!overwrite) return;
+    }
+    await createAndPlaceKey({
+      creds,
+      space: space as string,
+      tree,
+      serviceAccount,
+      secretName: opts.secretName,
+      repo,
+    });
+  } catch (error) {
+    handleError(error, fmt, { creds, scope: "space" });
+  }
+}
+
+export function createCiInstallCommand(): Command {
+  const ci = new Command("ci").description(
+    "set up a GitHub Actions workflow that imports this repository",
+  );
+  ci.command("install")
+    .description("generate .github/workflows/me-import.yml")
+    .option("--space <slug>", "Memory Engine space (required off-TTY)")
+    .option(
+      "--tree <path>",
+      "destination tree (default: /share/projects/<repo>)",
     )
     .option(
-      "--create-service-account",
-      "provision repo-scoped credentials without prompting (the TTY prompt's headless spelling)",
+      "--secret-name <name>",
+      `GitHub secret name (default: ${DEFAULT_SECRET_NAME})`,
     )
     .option(
       "--service-account <name>",
-      "the service account expected to hold the CI credentials (default: .me import.service_account, else <repo>-import)",
+      "service account name (default: <repo>-import)",
     )
     .option(
-      "--key-name <secret-name>",
-      `GitHub secret name (default: ${DEFAULT_KEY_NAME}; recovered from an existing managed workflow)`,
+      "--create-service-account",
+      "create credentials and place them in the repository secret",
     )
-    .option(
-      "--workflow-only",
-      "write/update the workflow file and stop — never check or touch secrets (credentials managed elsewhere)",
-    )
-    .option(
-      "--rotate-key",
-      "mint a new key for the service account and update the secret",
-    )
-    .option("--dry-run", "report what would happen without writing anything")
-    .action(async (opts, cmdRef) => {
-      const globalOpts = cmdRef.optsWithGlobals();
-      await runProjectCi(opts, globalOpts);
-    });
-}
-
-/**
- * Init-step availability for the `ci-workflow` step: hidden outside a git
- * repo or without a GitHub remote; "done" when the managed scaffold is
- * already current (setup may still be pending secret-side — re-runs are
- * offered as idempotent).
- */
-export async function ciWorkflowStatus(
-  cwd: string,
-): Promise<"hidden" | "done" | "available"> {
-  try {
-    const { gitRoot } = await detectGitContext(cwd);
-    if (gitRoot === undefined) return "hidden";
-    const nwo = await detectGitHubRepo(gitRoot);
-    if (nwo === undefined) return "hidden";
-    const workflowPath = join(gitRoot, WORKFLOW_RELPATH);
-    if (!existsSync(workflowPath)) return "available";
-    const existing = readFileSync(workflowPath, "utf-8");
-    if (!existing.startsWith(MANAGED_MARKER)) return "available";
-    const project = discoverProjectConfig(gitRoot);
-    const creds = resolveCredentialsFor(project);
-    const desired = renderWorkflow({
-      keyName: recoverKeyNameFromWorkflow(existing) ?? DEFAULT_KEY_NAME,
-      serverEnv: workflowServerEnv(creds.server, project),
-    });
-    return existing === desired ? "done" : "available";
-  } catch {
-    return "available";
-  }
+    .option("--workflow-only", "write only the workflow")
+    .option("--force", "replace an existing workflow file")
+    .action(async (opts, cmd) => runCiInstall(opts, cmd.optsWithGlobals()));
+  return ci;
 }

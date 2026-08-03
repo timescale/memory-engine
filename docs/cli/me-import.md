@@ -10,9 +10,8 @@ Get data into Memory Engine — one subcommand per source.
 - [me import opencode](#me-import-claude--codex--opencode) -- import OpenCode sessions
 - [me import granola](#me-import-granola) -- import Granola meeting notes and transcripts
 - [me import git](#me-import-git) -- import a repo's git commit history
-- [me import git-hook](#me-import-git-hook-removed) -- removed; CI imports replaced the local hook (see [`me project ci`](me-project.md#me-project-ci))
+- [me import git-hook](#me-import-git-hook-removed) -- removed; CI imports replaced the local hook (see [`me ci install`](me-ci.md#me-ci-install))
 - [me import docs](#me-import-docs) -- import a directory's markdown docs
-- [me import ci](#me-import-ci) -- the orchestrated CI run: git history + docs from the repo toplevel
 - [me import slab](#me-import-slab) -- import a Slab knowledge-base export (a directory or `.zip`)
 
 There is no bare default: `me import <file>` does not parse — use `me import memories <file>`.
@@ -296,45 +295,6 @@ me memory tree ~/projects/acme/docs --levels 3   # browse the result
 
 ---
 
-## me import ci
-
-Run the project's configured imports — git history, then docs — from the repo toplevel with CI-appropriate defaults. This is the one command the scaffolded GitHub workflow calls (see [`me project ci`](me-project.md#me-project-ci)); the orchestration lives in the CLI so behavior ships with `me` releases and the committed workflow file stays frozen.
-
-```
-me import ci [--dry-run] [-v]
-```
-
-| Option | Description |
-|--------|-------------|
-| `--dry-run` | Report what each phase would import/prune without writing. Run it locally to preview **exactly** what CI will do. |
-| `-v, --verbose` | Per-item progress output. |
-
-Must run inside a git repository; everything anchors at the repo toplevel regardless of the invocation directory. Phases:
-
-1. **Git history** — [`me import git`](#me-import-git) on `HEAD`: incremental via the server-side high-water lookup, so the first CI run is automatically a full-history backfill and every later run imports only new commits.
-2. **Docs** — [`me import docs --git-aware`](#me-import-docs) from the repo toplevel with the default markdown globs and **prune on**: the CI walk is the authoritative full corpus, so deleted/renamed docs are removed. A repo with no matching docs skips cleanly.
-
-Phases are fail-fast and loud: any failure exits non-zero, so the workflow goes red instead of rotting silently.
-
-The optional `import:` block in `.me/config.yaml` shapes the run — phase toggles and docs scoping ([project config → the `import` block](../project-config.md#the-import-block-ci-imports)):
-
-```yaml
-import:
-  git: true                 # default true
-  docs: true                # default true
-  docs_include: ["docs/**"] # optional; default = all markdown in the repo
-  docs_exclude: []          # optional
-```
-
-In CI the identity is the `ME_API_KEY` bearer — a service account with a write grant at the project tree. Targeting (server/space/tree) resolves from the committed `.me/config.yaml` exactly as it does for the underlying importers. `--json`/`--yaml` are not supported (two phases can't render one structured document) — run the phases separately for structured output.
-
-```bash
-me import ci --dry-run     # locally: preview what the next CI run does
-me import ci               # what the workflow runs on push to the default branch
-```
-
----
-
 ## me import slab
 
 Import a [Slab](https://slab.com/) knowledge-base export — markdown posts laid out in topic folders — as one memory per post. Slab's topic hierarchy becomes the tree path, so the whole wiki is browsable (`me memory tree`) and searchable (hybrid BM25 + semantic) in one space.
@@ -406,9 +366,9 @@ Everything lands under one tree root, so the import is reversible — `me memory
 
 ## me import git-hook (removed)
 
-`me import git-hook` has been **removed**. The local post-commit hook imported whatever HEAD was — feature-branch and rebased commits landed in the shared tree keyed by `(tree, sha)` forever — it ran per-clone with the committing human's credentials, and it failed silently. Imports now run from CI on push to the default branch instead: run [`me project ci`](me-project.md#me-project-ci) to set that up.
+`me import git-hook` has been **removed**. The local post-commit hook imported whatever HEAD was — feature-branch and rebased commits landed in the shared tree keyed by `(tree, sha)` forever — it ran per-clone with the committing human's credentials, and it failed silently. Imports now run from CI on push to the default branch instead: run [`me ci install`](me-ci.md#me-ci-install) to set that up.
 
-An already-installed hook keeps firing until its managed block is deleted. `me project ci` detects the block and removes it once CI credentials are in place; or delete the `# >>> memory-engine` block from `.git/hooks/post-commit` by hand.
+An already-installed hook keeps firing until its managed block is deleted. Delete the `# >>> memory-engine` block from `.git/hooks/post-commit` by hand.
 
 If you genuinely want local-commit capture (into a **private** tree), the primitive remains — add this line to your own `post-commit` hook, knowing it imports unmerged and rebased commits:
 
