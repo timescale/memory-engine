@@ -101,6 +101,18 @@ test("uses a segment-aware longest ancestor directory profile", () => {
   expect(resolveMcpProfile(foobar).source).toBe("disabled");
 });
 
+test("matches a root directory profile for descendant paths", () => {
+  writeDirectoryProfile("/", {
+    mcp: {
+      enabled: true,
+      server: "https://root.example",
+      harnesses: { claude: true },
+    },
+  });
+
+  expect(resolveMcpProfile(root).value?.server).toBe("https://root.example");
+});
+
 test("a directory profile replaces defaults, including omitted surfaces", () => {
   const project = join(root, "project");
   mkdirSync(project);
