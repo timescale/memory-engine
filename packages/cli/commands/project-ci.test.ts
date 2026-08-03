@@ -115,11 +115,9 @@ describe("me ci install", () => {
     const path = join(dir, ".github", "workflows", "me-import.yml");
     mkdirSync(join(dir, ".github", "workflows"), { recursive: true });
     writeFileSync(path, "user-owned\n");
-    const bun = Bun.which("bun");
-    if (!bun) throw new Error("bun is required for the CLI ordering test");
     const child = Bun.spawn(
       [
-        bun,
+        process.execPath,
         join(process.cwd(), "packages", "cli", "index.ts"),
         "ci",
         "install",
@@ -145,11 +143,9 @@ describe("me ci install", () => {
     const path = join(dir, ".github", "workflows", "me-import.yml");
     mkdirSync(join(dir, ".github", "workflows"), { recursive: true });
     writeFileSync(path, "user-owned\n");
-    const bun = Bun.which("bun");
-    if (!bun) throw new Error("bun is required for the CLI ordering test");
     const child = Bun.spawn(
       [
-        bun,
+        process.execPath,
         join(process.cwd(), "packages", "cli", "index.ts"),
         "ci",
         "install",
