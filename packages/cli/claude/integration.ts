@@ -107,6 +107,7 @@ async function removeMarketplace(
 
 async function installPlugin(
   dependencies: ClaudeIntegrationDependencies,
+  existing?: HarnessInstallation,
 ): Promise<ClaudeInstallResult> {
   const marketplace = await addMarketplace(dependencies);
   const messages = marketplace.message ? [marketplace.message] : [];
@@ -131,12 +132,21 @@ async function installPlugin(
     };
   }
   if (alreadyExists(result)) {
+    if (
+      !existing?.artifacts.some(
+        (artifact) =>
+          artifact.kind === "plugin" &&
+          artifact.marketplace === MARKETPLACE_NAME &&
+          artifact.plugin === PLUGIN_REF,
+      )
+    ) {
+      throw new Error(
+        "Claude already has an unrecorded Memory Engine plugin; refusing to claim ownership.",
+      );
+    }
     return {
-      artifacts: [],
-      messages: [
-        ...messages,
-        "Claude already has an unrecorded Memory Engine plugin; leaving it unchanged.",
-      ],
+      artifacts: existing.artifacts,
+      messages: [...messages, "Claude plugin is already installed."],
     };
   }
   const failure =
@@ -157,6 +167,7 @@ async function installPlugin(
 
 async function installMcpOnly(
   dependencies: ClaudeIntegrationDependencies,
+  existing?: HarnessInstallation,
 ): Promise<ClaudeInstallResult> {
   const result = await dependencies.run([
     "claude",
@@ -176,11 +187,19 @@ async function installMcpOnly(
     };
   }
   if (alreadyExists(result)) {
+    if (
+      !existing?.artifacts.some(
+        (artifact) =>
+          artifact.kind === "mcp-cli" && artifact.server_name === "me",
+      )
+    ) {
+      throw new Error(
+        "Claude already has an unrecorded me MCP registration; refusing to claim ownership.",
+      );
+    }
     return {
-      artifacts: [],
-      messages: [
-        "Claude already has an unrecorded me MCP registration; leaving it unchanged.",
-      ],
+      artifacts: existing.artifacts,
+      messages: ["Claude me MCP registration is already installed."],
     };
   }
   throw new Error(
@@ -192,11 +211,12 @@ async function installMcpOnly(
 export async function installClaudeIntegration(
   mode: ClaudeIntegrationMode = "plugin",
   dependencies: ClaudeIntegrationDependencies = defaultDependencies,
+  existing?: HarnessInstallation,
 ): Promise<ClaudeInstallResult> {
   assertClaudeAvailable(dependencies);
   return mode === "plugin"
-    ? installPlugin(dependencies)
-    : installMcpOnly(dependencies);
+    ? installPlugin(dependencies, existing)
+    : installMcpOnly(dependencies, existing);
 }
 
 function removeRecordedFile(
