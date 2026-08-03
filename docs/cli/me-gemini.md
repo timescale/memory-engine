@@ -20,7 +20,7 @@ me gemini install
 
 This non-interactive command registers exactly `me mcp`. It does not add
 credentials or runtime targeting. Gemini's user-global dormant `BeforeTool`
-adapter is wired by the harness integration installer; it injects only
+adapter is available to the harness integration installer; it injects only
 `AI_AGENT=gemini` and `ME_PROJECT_DIR` for `run_shell_command` calls.
 
 It does not write project or checkout configuration, prompt for configuration,
