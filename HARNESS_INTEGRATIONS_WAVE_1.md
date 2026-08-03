@@ -5,12 +5,11 @@ three parallel agents working in separate checkouts.
 
 ## Design sources
 
-The shared requirements are currently untracked in the `me1` checkout. Until
-they are committed to the common base, every agent must read these files by
-absolute path before editing its own checkout:
+The shared requirements and contracts are committed at the repository root.
+Every agent must read them before editing its assigned checkout:
 
-- `/Users/john/projects/me1/HARNESS_INTEGRATIONS_REQUIREMENTS.md`
-- `/Users/john/projects/me1/HARNESS_INTEGRATIONS_CONTRACTS.md`
+- `HARNESS_INTEGRATIONS_REQUIREMENTS.md`
+- `HARNESS_INTEGRATIONS_CONTRACTS.md`
 
 Durable decisions are available in Memory Engine under:
 
@@ -33,10 +32,10 @@ No Wave 1 agent should implement a provider-specific dormant dispatcher,
 
 | Checkout | Branch purpose | Owner |
 | --- | --- | --- |
-| `/Users/john/projects/me0` | CI command/workflow rewrite | Agent A |
-| `/Users/john/projects/me1` | Local config schema and resolver | Agent B |
-| `/Users/john/projects/me2` | Harness registry and deployment inventory | Agent C |
-| `/Users/john/projects/me3` | Reserved for integration/rebase or approved live MCP validation | None in Wave 1 |
+| `<checkout-ci>` | CI command/workflow rewrite | Agent A |
+| `<checkout-local-config>` | Local config schema and resolver | Agent B |
+| `<checkout-registry>` | Harness registry and deployment inventory | Agent C |
+| `<checkout-integration>` | Reserved for integration/rebase or approved live MCP validation | None in Wave 1 |
 
 Each agent edits and commits only in its assigned checkout. Do not copy files
 between worktrees. Do not commit another agent's changes.

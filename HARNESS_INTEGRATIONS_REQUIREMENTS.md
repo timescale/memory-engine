@@ -207,7 +207,7 @@ defaults:
 # Complete per-directory profiles. Presence of a matched entry REPLACES
 # defaults wholesale for that directory.
 directories:
-  /Users/john/projects/me1:
+  /Users/alice/projects/widget:
     mcp:
       enabled: true
       server: https://api.memory.build

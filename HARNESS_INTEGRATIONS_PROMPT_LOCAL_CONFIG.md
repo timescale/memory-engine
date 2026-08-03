@@ -1,14 +1,14 @@
 # Agent Prompt - Wave 1 Local Config and Resolver
 
-You are Agent B. Work only in `/Users/john/projects/me1`.
+You are Agent B. Work only in your assigned checkout.
 
 ## Mission
 
 Implement the local harness-policy config foundation from:
 
-- `/Users/john/projects/me1/HARNESS_INTEGRATIONS_REQUIREMENTS.md`, especially
+- `HARNESS_INTEGRATIONS_REQUIREMENTS.md`, especially
   sections 1, 3, 4, 7, 9, 10, and 11.
-- `/Users/john/projects/me1/HARNESS_INTEGRATIONS_CONTRACTS.md`, especially
+- `HARNESS_INTEGRATIONS_CONTRACTS.md`, especially
   sections 1, 4, 5, 6, and 7.
 
 Read both files before editing. They are frozen design authority.
