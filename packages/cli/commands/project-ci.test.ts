@@ -82,6 +82,9 @@ describe("me ci install", () => {
     expect(() => buildCiInstallOptions({ tree: "not a tree" })).toThrow(
       /--tree/,
     );
+    expect(() => buildCiInstallOptions({ space: "not-a-slug" })).toThrow(
+      /--space/,
+    );
   });
 
   test("refuses an existing workflow unless forced, then replaces the whole file", () => {

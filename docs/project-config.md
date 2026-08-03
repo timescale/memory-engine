@@ -22,8 +22,6 @@ server: https://api.memory.build   # pin the server
 space: xjjg3kmq6vvb                 # pin the space (slug)
 tree: /share/projects/acme          # optional: where integrations write (see below)
 capture: true                       # optional: session capture on/off (see below)
-import:                             # optional: the CI import run (see below)
-  docs_include: ["docs/**"]
 ```
 
 All fields are optional. A `.me` that sets only `tree` still inherits its

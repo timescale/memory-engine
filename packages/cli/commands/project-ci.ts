@@ -6,6 +6,7 @@ import { promisify } from "node:util";
 import * as clack from "@clack/prompts";
 import { Command } from "commander";
 import {
+  DEFAULT_SERVER,
   type ResolvedCredentials,
   resolveCredentialsFor,
 } from "../credentials.ts";
@@ -28,6 +29,7 @@ export const DEFAULT_SECRET_NAME = "ME_API_KEY";
 const SA_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 const SECRET_NAME_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
 const TREE_PATH_RE = /^~$|^(?:~[./]|\/)?[A-Za-z0-9_-]+(?:[./][A-Za-z0-9_-]+)*$/;
+const SPACE_SLUG_RE = /^[a-z0-9]{12}$/;
 
 interface CiInstallOptions {
   space?: string;
@@ -119,6 +121,9 @@ export function buildCiInstallOptions(
     typeof raw.secretName === "string" ? raw.secretName : DEFAULT_SECRET_NAME;
   const serviceAccount =
     typeof raw.serviceAccount === "string" ? raw.serviceAccount : undefined;
+  if (space !== undefined && !SPACE_SLUG_RE.test(space)) {
+    throw new Error(`Invalid --space: '${space}'.`);
+  }
   if (tree !== undefined && !TREE_PATH_RE.test(tree)) {
     throw new Error(`Invalid --tree: '${tree}'.`);
   }
@@ -238,6 +243,20 @@ function printInstructions(info: {
       `  gh secret set ${info.secretName} --repo ${info.repo}`,
     ].join("\n"),
   );
+}
+
+/** Obtain the server's admin-contact enrichment without changing CI state. */
+async function adminContactsForInstructions(
+  creds: ResolvedCredentials,
+  space: string,
+): Promise<Array<{ email: string }> | undefined> {
+  try {
+    await buildMemoryClient({ ...creds, activeSpace: space }).principal.list();
+    return undefined;
+  } catch (error) {
+    if (isAppErrorCode(error, "FORBIDDEN")) return adminContactsFrom(error);
+    throw error;
+  }
 }
 
 async function selectSpace(
@@ -360,6 +379,14 @@ export async function runCiInstall(
       fmt,
     );
   const workflowPath = join(gitRoot, WORKFLOW_RELPATH);
+  if (existsSync(workflowPath) && !opts.force) {
+    handleError(
+      new Error(
+        `${WORKFLOW_RELPATH} already exists; re-run with --force to replace it.`,
+      ),
+      fmt,
+    );
+  }
   if (!isInteractive && !opts.space) {
     handleError(
       new Error("--space is required when stdin/stdout are not TTYs."),
@@ -398,8 +425,7 @@ export async function runCiInstall(
     secretName: opts.secretName,
     space: space as string,
     tree,
-    server:
-      creds.server === "https://api.memory.build" ? undefined : creds.server,
+    server: creds.server === DEFAULT_SERVER ? undefined : creds.server,
   });
   try {
     const state = writeWorkflow(workflowPath, workflow, opts.force);
@@ -439,15 +465,6 @@ export async function runCiInstall(
     }
     return;
   }
-  if (!(await ghReady())) {
-    handleError(
-      new Error(
-        "An authenticated gh CLI is required to place a repository secret.",
-      ),
-      fmt,
-    );
-  }
-
   const choice = unwrap(
     await clack.select({
       message: "How should CI receive its ME_API_KEY?",
@@ -469,29 +486,27 @@ export async function runCiInstall(
     }),
   );
   if (choice === "instructions") {
-    // Ask the server for its admin-contact enrichment without minting a key.
     try {
-      await createAndPlaceKey({
-        creds,
+      printInstructions({
         space: space as string,
         tree,
         serviceAccount,
         secretName: opts.secretName,
         repo,
+        admins: await adminContactsForInstructions(creds, space as string),
       });
     } catch (error) {
-      if (isAppErrorCode(error, "FORBIDDEN"))
-        printInstructions({
-          space: space as string,
-          tree,
-          serviceAccount,
-          secretName: opts.secretName,
-          repo,
-          admins: adminContactsFrom(error),
-        });
-      else handleError(error, fmt, { creds, scope: "space" });
+      handleError(error, fmt, { creds, scope: "space" });
     }
     return;
+  }
+  if (!(await ghReady())) {
+    handleError(
+      new Error(
+        "An authenticated gh CLI is required to place a repository secret.",
+      ),
+      fmt,
+    );
   }
   if (choice === "existing") {
     if (await secretExists(repo, opts.secretName)) {

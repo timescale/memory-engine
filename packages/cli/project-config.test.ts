@@ -154,9 +154,9 @@ test("an unknown/misspelled key is a fatal ProjectConfigError (strict)", () => {
   expect(() => discoverProjectConfig(root)).toThrow(ProjectConfigError);
 });
 
-test("the retired import block is rejected", () => {
+test("the retired import block is ignored", () => {
   writeConfig(root, "import:\n  git: true\n");
-  expect(() => discoverProjectConfig(root)).toThrow(ProjectConfigError);
+  expect(discoverProjectConfig(root)).toBeDefined();
 });
 
 test("getProjectConfig honors --config-dir override and memoizes", () => {

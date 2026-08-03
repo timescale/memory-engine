@@ -1742,19 +1742,11 @@ describe.skipIf(
     await rm(root, { recursive: true, force: true });
   });
 
-  test("8f. `me import git-hook` is removed; `me project ci` strips a legacy hook", async () => {
-    // The removed-command stub: errors, pointing at the replacement — and
-    // accepts the old flags without a Commander parse error masking it.
-    const stub = await me(["import", "git-hook", "--remove"]);
-    expect(stub.code).not.toBe(0);
-    expect(stub.stdout + stub.stderr).toContain("me project ci");
-
-    // Migration: a hook block installed by an older version is stripped by
-    // `me project ci` once CI credentials are in place (secret present).
-    const root = await mkdtemp(join(tmpdir(), "me-e2e-hookmig-"));
-    const name = `hookmig${rand()}`;
+  test("8f. `me ci install` generates and replaces its workflow", async () => {
+    const root = await mkdtemp(join(tmpdir(), "me-e2e-ci-install-"));
+    const name = `ciinstall${rand()}`;
     const repo = join(root, name);
-    await mkdir(join(repo, ".me"), { recursive: true });
+    await mkdir(repo, { recursive: true });
     await git(repo, ["init", "-q", "-b", "main"]);
     await git(repo, [
       "remote",
@@ -1762,427 +1754,57 @@ describe.skipIf(
       "origin",
       `git@github.com:acme/${name}.git`,
     ]);
-    await writeFile(
-      join(repo, ".me", "config.yaml"),
-      `space: ${spaceSlug}\ntree: /share/projects/${name}\n`,
-    );
-    const hookFile = join(repo, ".git", "hooks", "post-commit");
-    await mkdir(join(repo, ".git", "hooks"), { recursive: true });
-    await writeFile(
-      hookFile,
-      [
-        "#!/bin/sh",
-        "# >>> memory-engine (managed by `me import git-hook`) >>>",
-        "# Best-effort and asynchronous: never blocks or fails the commit.",
-        '("/usr/local/bin/me" import git >/dev/null 2>&1 &)',
-        "# <<< memory-engine <<<",
-        "",
-      ].join("\n"),
-    );
 
-    // Fake gh reporting the secret as present (same contract as test 8i).
-    const fakeDir = await mkdtemp(join(tmpdir(), "me-e2e-hookmig-gh-"));
-    const binDir = join(fakeDir, "bin");
-    await mkdir(binDir, { recursive: true });
-    await writeFile(
-      join(binDir, "gh"),
-      [
-        "#!/bin/sh",
-        'case "$1" in',
-        "  auth) exit 0 ;;",
-        '  secret) if [ "$2" = "list" ]; then printf "ME_API_KEY\\n"; exit 0; fi; exit 1 ;;',
-        "  api) exit 0 ;;",
-        "esac",
-        "exit 1",
-        "",
-      ].join("\n"),
-    );
-    await chmod(join(binDir, "gh"), 0o755);
-
-    const run = await me(
-      ["project", "ci"],
-      { PATH: `${binDir}:${process.env.PATH}` },
+    const first = await me(
+      ["ci", "install", "--space", spaceSlug, "--workflow-only"],
+      undefined,
       repo,
     );
-    expect(run.code, run.stderr + run.stdout).toBe(0);
-    expect(existsSync(hookFile)).toBe(false);
+    expect(first.code, first.stderr + first.stdout).toBe(0);
+    const workflowPath = join(repo, ".github", "workflows", "me-import.yml");
+    const workflow = await readFile(workflowPath, "utf8");
+    expect(workflow).toContain(`ME_SPACE: ${spaceSlug}`);
+    expect(workflow).toContain(`import git --tree /share/projects/${name}`);
+    expect(workflow).toContain(
+      `import docs . --git-aware --prune --tree /share/projects/${name}`,
+    );
+
+    const refuse = await me(
+      ["ci", "install", "--space", spaceSlug, "--workflow-only"],
+      undefined,
+      repo,
+    );
+    expect(refuse.code).not.toBe(0);
+    expect(refuse.stdout + refuse.stderr).toContain("--force");
+    await writeFile(workflowPath, "user-owned\n");
+    const forced = await me(
+      ["ci", "install", "--space", spaceSlug, "--workflow-only", "--force"],
+      undefined,
+      repo,
+    );
+    expect(forced.code, forced.stderr + forced.stdout).toBe(0);
+    expect(await readFile(workflowPath, "utf8")).toBe(workflow);
+
+    await rm(workflowPath);
+    const noSpace = await me(
+      ["ci", "install", "--workflow-only"],
+      undefined,
+      repo,
+    );
+    expect(noSpace.code).not.toBe(0);
+    expect(noSpace.stdout + noSpace.stderr).toContain("--space is required");
+
+    const oldProject = await me(["project", "ci"], undefined, repo);
+    expect(oldProject.code).not.toBe(0);
+    expect(oldProject.stdout + oldProject.stderr).toContain("me ci install");
+    const oldImport = await me(["import", "ci"], undefined, repo);
+    expect(oldImport.code).not.toBe(0);
+    expect(oldImport.stdout + oldImport.stderr).toContain("unknown command");
+    const hook = await me(["import", "git-hook", "--remove"], undefined, repo);
+    expect(hook.code).not.toBe(0);
+    expect(hook.stdout + hook.stderr).toContain("me ci install");
 
     await rm(root, { recursive: true, force: true });
-    await rm(fakeDir, { recursive: true, force: true });
-  });
-
-  test("8h. `me import ci` orchestrates git + docs from the repo toplevel", async () => {
-    const root = await mkdtemp(join(tmpdir(), "me-e2e-ci-"));
-    const name = `ciproj${rand()}`;
-    const repo = join(root, name);
-    await mkdir(join(repo, "docs"), { recursive: true });
-    const gitTree = `${homeProjects}.${name}.git_history`;
-    const docsTree = `${homeProjects}.${name}.docs`;
-
-    await git(repo, ["init", "-q", "-b", "main"]);
-    await writeFile(join(repo, "README.md"), "# CI project\n\nHello.\n");
-    await writeFile(join(repo, "docs", "guide.md"), "# Guide\n\nUse it.\n");
-    await git(repo, ["add", "."], "2026-06-01T10:00:00Z");
-    await git(
-      repo,
-      ["commit", "-q", "-m", "feat: initial"],
-      "2026-06-01T10:00:00Z",
-    );
-
-    // 1. --dry-run reports both phases and writes nothing.
-    const dry = await me(["import", "ci", "--dry-run"], undefined, repo);
-    expect(dry.code, dry.stderr).toBe(0);
-    expect(await countUnder(`${homeProjects}.${name}`)).toBe(0);
-
-    // 2. Real run — invoked from a SUBDIRECTORY to prove the toplevel anchor:
-    //    one commit lands under git_history, both docs under docs.
-    const run1 = await me(["import", "ci"], undefined, join(repo, "docs"));
-    expect(run1.code, run1.stderr).toBe(0);
-    expect(await countUnder(gitTree)).toBe(1);
-    expect(await countUnder(docsTree)).toBe(2);
-
-    // 3. Idempotent re-run: no new rows, exit 0.
-    const run2 = await me(["import", "ci"], undefined, repo);
-    expect(run2.code, run2.stderr).toBe(0);
-    expect(await countUnder(gitTree)).toBe(1);
-    expect(await countUnder(docsTree)).toBe(2);
-
-    // 4. Delete a doc and commit: the re-run imports the new commit and
-    //    PRUNES the deleted doc (the CI walk is the authoritative corpus).
-    await rm(join(repo, "docs", "guide.md"));
-    await git(repo, ["add", "-A"], "2026-06-02T10:00:00Z");
-    await git(
-      repo,
-      ["commit", "-q", "-m", "docs: drop guide"],
-      "2026-06-02T10:00:00Z",
-    );
-    const run3 = await me(["import", "ci"], undefined, repo);
-    expect(run3.code, run3.stderr).toBe(0);
-    expect(await countUnder(gitTree)).toBe(2);
-    expect(await countUnder(docsTree)).toBe(1);
-
-    // 5. The .me import: block gates phases — docs:false leaves docs alone
-    //    even after a doc edit (and git still runs).
-    await writeFile(join(repo, "README.md"), "# CI project\n\nEdited.\n");
-    await git(repo, ["add", "-A"], "2026-06-03T10:00:00Z");
-    await git(
-      repo,
-      ["commit", "-q", "-m", "docs: edit readme"],
-      "2026-06-03T10:00:00Z",
-    );
-    await mkdir(join(repo, ".me"), { recursive: true });
-    await writeFile(
-      join(repo, ".me", "config.yaml"),
-      "import:\n  docs: false\n",
-    );
-    const gated = await me(["import", "ci"], undefined, repo);
-    expect(gated.code, gated.stderr).toBe(0);
-    expect(await countUnder(gitTree)).toBe(3);
-    // README edit NOT re-imported: docs phase was disabled.
-    const [readmeRow] = await sql.unsafe(
-      `select content from metest_${spaceSlug}.memory
-         where tree = $1::ltree and name = 'readme.md'`,
-      [docsTree],
-    );
-    expect(readmeRow?.content).not.toContain("Edited.");
-
-    // 6. Direct docs import is plain by default (walks files on disk), while
-    //    --git-aware respects gitignore unless --include-ignored is explicit.
-    await writeFile(join(repo, ".gitignore"), "generated/\n");
-    await mkdir(join(repo, "generated"));
-    await writeFile(join(repo, "generated", "ignored.md"), "# Generated\n");
-    const plainTree = `${homeProjects}.${name}_plain_docs`;
-    const gitAwareTree = `${homeProjects}.${name}_git_docs`;
-    const withIgnoredTree = `${homeProjects}.${name}_ignored_docs`;
-
-    const plainDocs = await me(
-      ["import", "docs", repo, "--tree", plainTree],
-      undefined,
-      repo,
-    );
-    expect(plainDocs.code, plainDocs.stderr + plainDocs.stdout).toBe(0);
-    expect(await countUnder(`${plainTree}.docs`)).toBe(2);
-
-    const gitAwareDocs = await me(
-      ["import", "docs", repo, "--git-aware", "--tree", gitAwareTree],
-      undefined,
-      repo,
-    );
-    expect(gitAwareDocs.code, gitAwareDocs.stderr + gitAwareDocs.stdout).toBe(
-      0,
-    );
-    expect(await countUnder(`${gitAwareTree}.docs`)).toBe(1);
-
-    const ignoredDocs = await me(
-      [
-        "import",
-        "docs",
-        repo,
-        "--git-aware",
-        "--include-ignored",
-        "--tree",
-        withIgnoredTree,
-      ],
-      undefined,
-      repo,
-    );
-    expect(ignoredDocs.code, ignoredDocs.stderr + ignoredDocs.stdout).toBe(0);
-    expect(await countUnder(`${withIgnoredTree}.docs`)).toBe(2);
-
-    const includeIgnoredPlain = await me(
-      ["import", "docs", repo, "--include-ignored", "--tree", plainTree],
-      undefined,
-      repo,
-    );
-    expect(includeIgnoredPlain.code).not.toBe(0);
-    expect(includeIgnoredPlain.stdout + includeIgnoredPlain.stderr).toContain(
-      "--include-ignored requires --git-aware",
-    );
-
-    // 7. A repo with no markdown at all: docs phase skips cleanly, exit 0.
-    const bare = join(root, `bareci${rand()}`);
-    await mkdir(bare, { recursive: true });
-    await git(bare, ["init", "-q", "-b", "main"]);
-    await writeFile(join(bare, "code.txt"), "no docs here\n");
-    await git(bare, ["add", "."], "2026-06-01T10:00:00Z");
-    await git(
-      bare,
-      ["commit", "-q", "-m", "feat: no docs"],
-      "2026-06-01T10:00:00Z",
-    );
-    const bareRun = await me(["import", "ci"], undefined, bare);
-    expect(bareRun.code, bareRun.stderr).toBe(0);
-    expect(bareRun.stdout + bareRun.stderr).toContain("No matching docs");
-
-    // 8. Outside a git repo: `me import ci` has a clear error, and direct
-    //    docs import only errors when git-aware behavior was requested.
-    const plain = await mkdtemp(join(tmpdir(), "me-e2e-ci-plain-"));
-    const noRepo = await me(["import", "ci"], undefined, plain);
-    expect(noRepo.code).not.toBe(0);
-    expect(noRepo.stdout + noRepo.stderr).toContain("git repository");
-    const gitAwareOutsideRepo = await me(
-      ["import", "docs", plain, "--git-aware", "--tree", plainTree],
-      undefined,
-      repo,
-    );
-    expect(gitAwareOutsideRepo.code).not.toBe(0);
-    expect(gitAwareOutsideRepo.stdout + gitAwareOutsideRepo.stderr).toContain(
-      "--git-aware requires dir to be inside a git repository",
-    );
-
-    // 9. --json is rejected (two phases can't render one structured doc).
-    const asJson = await me(["import", "ci", "--json"], undefined, repo);
-    expect(asJson.code).not.toBe(0);
-
-    await rm(root, { recursive: true, force: true });
-    await rm(plain, { recursive: true, force: true });
-  });
-
-  test("8i. `me project ci` scaffolds the workflow and provisions credentials", async () => {
-    // A repo with a GitHub remote and a committed .me pinning space + a
-    // shared tree — the preconditions the CI flow requires.
-    const root = await mkdtemp(join(tmpdir(), "me-e2e-projci-"));
-    const name = `projci${rand()}`;
-    const repo = join(root, name);
-    await mkdir(join(repo, ".me"), { recursive: true });
-    await git(repo, ["init", "-q", "-b", "main"]);
-    await git(repo, [
-      "remote",
-      "add",
-      "origin",
-      `git@github.com:acme/${name}.git`,
-    ]);
-    const tree = `share.projects.${name}`;
-    await writeFile(
-      join(repo, ".me", "config.yaml"),
-      `space: ${spaceSlug}\ntree: /share/projects/${name}\n`,
-    );
-
-    // A FAKE `gh` on PATH: deterministic secret state regardless of whether
-    // the host has a real, authenticated gh. It reads/records state under
-    // $ME_E2E_FAKE_GH — `secret list` prints repo-secret names, `api …`
-    // prints org-secret names, `secret set <name>` records stdin.
-    const fakeDir = await mkdtemp(join(tmpdir(), "me-e2e-fakegh-"));
-    const ghScript = [
-      "#!/bin/sh",
-      'case "$1" in',
-      "  auth) exit 0 ;;",
-      "  secret)",
-      '    if [ "$2" = "list" ]; then',
-      '      if [ -f "$ME_E2E_FAKE_GH/secrets-fail" ]; then echo "gh: Forbidden (HTTP 403)" >&2; exit 1; fi',
-      '      cat "$ME_E2E_FAKE_GH/repo-secrets" 2>/dev/null || true; exit 0',
-      "    fi",
-      '    if [ "$2" = "set" ]; then cat > "$ME_E2E_FAKE_GH/set-$3"; exit 0; fi',
-      "    exit 1 ;;",
-      "  api)",
-      '    if [ -f "$ME_E2E_FAKE_GH/org-404" ]; then echo "gh: Not Found (HTTP 404)" >&2; exit 1; fi',
-      '    if [ -f "$ME_E2E_FAKE_GH/org-fail" ]; then echo "gh: boom (HTTP 500)" >&2; exit 1; fi',
-      '    cat "$ME_E2E_FAKE_GH/org-secrets" 2>/dev/null || true; exit 0 ;;',
-      "esac",
-      "exit 1",
-    ].join("\n");
-    const binDir = join(fakeDir, "bin");
-    await mkdir(binDir, { recursive: true });
-    await writeFile(join(binDir, "gh"), `${ghScript}\n`);
-    await chmod(join(binDir, "gh"), 0o755);
-    const env = {
-      PATH: `${binDir}:${process.env.PATH}`,
-      ME_E2E_FAKE_GH: fakeDir,
-    };
-
-    // 1. Headless, no secret, no --create-service-account: the workflow IS
-    //    scaffolded, but provisioning never happens implicitly — hard error
-    //    naming the two resolutions.
-    const denied = await me(["project", "ci"], env, repo);
-    expect(denied.code).not.toBe(0);
-    expect(denied.stdout + denied.stderr).toContain("--create-service-account");
-    const wfPath = join(repo, ".github", "workflows", "me-import.yml");
-    const wf = await readFile(wfPath, "utf8");
-    expect(wf).toContain("Managed by 'me project ci'");
-    expect(wf).toContain("github.event.repository.default_branch");
-    expect(wf).toContain("permissions:\n  contents: read");
-    expect(wf).toContain('ME_INSTALL_DIR="$HOME/.local/bin" sh');
-    expect(wf).toContain('"$HOME/.local/bin/me" import ci');
-
-    // 2. Explicit provisioning: creates the SA, grants write at the tree,
-    //    mints a key straight into `gh secret set`.
-    const saName = `${name}-import`;
-    const created = await me(
-      ["project", "ci", "--create-service-account"],
-      env,
-      repo,
-    );
-    expect(created.code, created.stderr + created.stdout).toBe(0);
-    const [saRow] = await sql.unsafe(
-      `select id from ${coreSchema}.principal where kind = 's' and name = $1`,
-      [saName],
-    );
-    expect(saRow?.id).toBeDefined();
-    const [grantRow] = await sql.unsafe(
-      `select access from ${coreSchema}.tree_access
-         where principal_id = $1 and tree_path = $2::ltree`,
-      [saRow?.id, tree],
-    );
-    expect(grantRow?.access).toBe(2);
-    const setKey = await readFile(join(fakeDir, "set-ME_API_KEY"), "utf8");
-    expect(setKey.startsWith("me.")).toBe(true);
-
-    // 3. Secret now present: a plain re-run is scaffold-only maintenance —
-    //    no prompts, no new keys.
-    await writeFile(join(fakeDir, "repo-secrets"), "ME_API_KEY\n");
-    await rm(join(fakeDir, "set-ME_API_KEY"));
-    const rerun = await me(["project", "ci"], env, repo);
-    expect(rerun.code, rerun.stderr + rerun.stdout).toBe(0);
-    expect(existsSync(join(fakeDir, "set-ME_API_KEY"))).toBe(false);
-
-    // 4. With the identity committed (import.service_account), the re-run
-    //    verifies the SA + grant.
-    await writeFile(
-      join(repo, ".me", "config.yaml"),
-      `space: ${spaceSlug}\ntree: /share/projects/${name}\nimport:\n  service_account: ${saName}\n`,
-    );
-    const verified = await me(["project", "ci", "--json"], env, repo);
-    expect(verified.code, verified.stderr + verified.stdout).toBe(0);
-    const vr = JSON.parse(verified.stdout);
-    expect(vr.serviceAccount).toBe(saName);
-    expect(vr.verified).toBe(true);
-    expect(vr.workflow).toBe("unchanged");
-
-    // 4b. A NON-admin member verifying the same committed identity:
-    //     existence resolves via the any-member principal.resolve
-    //     (serviceAccount.list is silently filtered for non-admins and would
-    //     read as a false "does not exist"), and the admin-gated grant check
-    //     DEGRADES — verified:false, exit 0 — rather than failing a setup
-    //     that is perfectly correct.
-    const { env2 } = await seedSecondMember();
-    const memberVerify = await me(
-      ["project", "ci", "--json"],
-      { ...env2, PATH: env.PATH, ME_E2E_FAKE_GH: fakeDir },
-      repo,
-    );
-    expect(memberVerify.code, memberVerify.stderr + memberVerify.stdout).toBe(
-      0,
-    );
-    const mv = JSON.parse(memberVerify.stdout);
-    expect(mv.serviceAccount).toBe(saName);
-    expect(mv.verified).toBe(false);
-    expect(JSON.stringify(mv.notes)).toContain("Couldn't verify");
-
-    // 5. --rotate-key mints a new key for the existing SA into the secret.
-    const rotated = await me(["project", "ci", "--rotate-key"], env, repo);
-    expect(rotated.code, rotated.stderr + rotated.stdout).toBe(0);
-    const rotatedKey = await readFile(join(fakeDir, "set-ME_API_KEY"), "utf8");
-    expect(rotatedKey.startsWith("me.")).toBe(true);
-    expect(rotatedKey).not.toBe(setKey);
-
-    // 6. The minted keys really belong to the service account.
-    const keys = await meJson<{ apiKeys: { name: string }[] }>(
-      ["apikey", "list", "--service", saName],
-      env,
-    );
-    expect(keys.apiKeys.length).toBe(2);
-
-    // 7. Repo secrets unREADable (403 on `gh secret list`): presence is
-    //    "unknown" — the plain run errors with the access wording, and even
-    //    --create-service-account mints NOTHING (writing the secret needs
-    //    the same access, so a direct mint would orphan the key).
-    await writeFile(join(fakeDir, "secrets-fail"), "");
-    const unknownPlain = await me(["project", "ci"], env, repo);
-    expect(unknownPlain.code).not.toBe(0);
-    expect(unknownPlain.stdout + unknownPlain.stderr).toContain("repo-admin");
-    const unknownCreate = await me(
-      ["project", "ci", "--create-service-account"],
-      env,
-      repo,
-    );
-    expect(
-      unknownCreate.code,
-      unknownCreate.stderr + unknownCreate.stdout,
-    ).toBe(0);
-    expect(unknownCreate.stdout + unknownCreate.stderr).toContain(
-      "No key was minted",
-    );
-    const keysAfterUnknown = await meJson<{ apiKeys: unknown[] }>(
-      ["apikey", "list", "--service", saName],
-      env,
-    );
-    expect(keysAfterUnknown.apiKeys.length).toBe(2); // unchanged
-    await rm(join(fakeDir, "secrets-fail"));
-
-    // 8. Org-secrets endpoint failures: a 404 (personal account, no org)
-    //    reads as "no org secrets" → the ordinary absent error; anything
-    //    else (transient 500) must read as UNKNOWN, never absent — absent's
-    //    next step is the provisioning offer, which must not fire on a guess.
-    await rm(join(fakeDir, "repo-secrets"));
-    await writeFile(join(fakeDir, "org-404"), "");
-    const org404 = await me(["project", "ci"], env, repo);
-    expect(org404.code).not.toBe(0);
-    expect(org404.stdout + org404.stderr).toContain("visibility list");
-    await rm(join(fakeDir, "org-404"));
-    await writeFile(join(fakeDir, "org-fail"), "");
-    const orgFail = await me(["project", "ci"], env, repo);
-    expect(orgFail.code).not.toBe(0);
-    expect(orgFail.stdout + orgFail.stderr).toContain("Can't determine");
-
-    // 9. --workflow-only: the file is (re)written and NOTHING else runs —
-    //    exit 0 even though gh is in a failing state (never invoked), no
-    //    keys minted. The escape hatch for externally-managed credentials.
-    await rm(wfPath);
-    const wfOnly = await me(["project", "ci", "--workflow-only"], env, repo);
-    expect(wfOnly.code, wfOnly.stderr + wfOnly.stdout).toBe(0);
-    const wfOnlyContent = await readFile(wfPath, "utf8");
-    expect(wfOnlyContent).toContain("permissions:\n  contents: read");
-    expect(wfOnlyContent).toContain('ME_INSTALL_DIR="$HOME/.local/bin" sh');
-    expect(wfOnlyContent).toContain('"$HOME/.local/bin/me" import ci');
-    expect(wfOnly.stdout + wfOnly.stderr).toContain("Credentials not checked");
-    const keysAfterWfOnly = await meJson<{ apiKeys: unknown[] }>(
-      ["apikey", "list", "--service", saName],
-      env,
-    );
-    expect(keysAfterWfOnly.apiKeys.length).toBe(2); // still unchanged
-
-    await rm(root, { recursive: true, force: true });
-    await rm(fakeDir, { recursive: true, force: true });
   });
 
   test("9. claude capture hook ↔ `me claude import` are cross-idempotent", async () => {

@@ -88,6 +88,11 @@ const projectConfigSchema = z
      * opted in at `me claude install`).
      */
     capture: z.boolean().optional(),
+    /**
+     * Retired CI configuration. Preserve it in existing files so upgrading
+     * does not make unrelated commands fail; no runtime path reads it.
+     */
+    import: z.unknown().optional(),
   })
   .strict();
 
@@ -137,7 +142,8 @@ function readConfigFile(
       `${path} is invalid${where}: ${issue?.message ?? "does not match the .me/config.yaml schema"}`,
     );
   }
-  return parsed.data;
+  const { import: _retiredImport, ...config } = parsed.data;
+  return config;
 }
 
 /**
