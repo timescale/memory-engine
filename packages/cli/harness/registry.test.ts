@@ -5,6 +5,7 @@ import { join } from "node:path";
 import {
   getHarness,
   HARNESS_NAMES,
+  installHarness,
   parseHarnessName,
   resolveHarnessTargets,
 } from "./registry.ts";
@@ -60,5 +61,52 @@ describe("harness registry", () => {
     });
     expect(result.retained).toHaveLength(1);
     expect(JSON.parse(readFileSync(path, "utf8")).mcp.me.extra).toBe(true);
+  });
+
+  test("rolls back a newly installed registration when inventory persistence fails", async () => {
+    const artifact = {
+      kind: "mcp-cli" as const,
+      server_name: "me" as const,
+      scope: "user" as const,
+    };
+    let rollbackRecord: unknown;
+    await expect(
+      installHarness("claude", {
+        harness: {
+          ...getHarness("claude"),
+          install: async () => ({ artifacts: [artifact], messages: [] }),
+          uninstall: async (record) => {
+            rollbackRecord = record;
+            return { removed: [artifact], retained: [], messages: [] };
+          },
+        },
+        writeInstallation: () => {
+          throw new Error("disk is read-only");
+        },
+      }),
+    ).rejects.toThrow(/registration was rolled back/);
+    expect(rollbackRecord).toMatchObject({ artifacts: [artifact] });
+  });
+
+  test("names manual cleanup when inventory persistence and rollback fail", async () => {
+    const artifact = {
+      kind: "mcp-json" as const,
+      path: "/tmp/opencode.json",
+      server_name: "me" as const,
+    };
+    await expect(
+      installHarness("opencode", {
+        harness: {
+          ...getHarness("opencode"),
+          install: async () => ({ artifacts: [artifact], messages: [] }),
+          uninstall: async () => {
+            throw new Error("provider unavailable");
+          },
+        },
+        writeInstallation: () => {
+          throw new Error("disk is read-only");
+        },
+      }),
+    ).rejects.toThrow(/remove mcp\.me from \/tmp\/opencode\.json/);
   });
 });

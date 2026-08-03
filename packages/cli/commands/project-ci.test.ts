@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, test } from "bun:test";
+import { execFileSync } from "node:child_process";
 import {
   existsSync,
+  mkdirSync,
   mkdtempSync,
   readFileSync,
   rmSync,
@@ -13,8 +15,10 @@ import {
   buildCiInstallOptions,
   createCiInstallCommand,
   DEFAULT_SECRET_NAME,
+  isEffectiveSpaceAdmin,
   parseGitHubRepo,
   renderWorkflow,
+  validateCiInstallMode,
   writeWorkflow,
 } from "./project-ci.ts";
 
@@ -88,6 +92,66 @@ describe("me ci install", () => {
     expect(() => buildCiInstallOptions({ space: "not-a-slug" })).toThrow(
       /--space/,
     );
+  });
+
+  test("rejects non-interactive credential modes before any workflow write", () => {
+    const opts = buildCiInstallOptions({ space: "abcdefghijkl" });
+    expect(() => validateCiInstallMode(opts, false)).toThrow(
+      "Non-interactive mode requires",
+    );
+  });
+
+  test("does not replace a workflow before rejecting non-interactive credential mode", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "me-ci-ordering-"));
+    temporaryDirectories.push(dir);
+    execFileSync("git", ["init"], { cwd: dir });
+    execFileSync(
+      "git",
+      ["remote", "add", "origin", "git@github.com:acme/widgets.git"],
+      {
+        cwd: dir,
+      },
+    );
+    const path = join(dir, ".github", "workflows", "me-import.yml");
+    mkdirSync(join(dir, ".github", "workflows"), { recursive: true });
+    writeFileSync(path, "user-owned\n");
+    const bun = Bun.which("bun");
+    if (!bun) throw new Error("bun is required for the CLI ordering test");
+    const child = Bun.spawn(
+      [
+        bun,
+        join(process.cwd(), "packages", "cli", "index.ts"),
+        "ci",
+        "install",
+        "--space",
+        "abcdefghijkl",
+        "--force",
+      ],
+      { cwd: dir, stdout: "pipe", stderr: "pipe" },
+    );
+    expect(await child.exited).not.toBe(0);
+    expect(readFileSync(path, "utf8")).toBe("user-owned\n");
+  });
+
+  test("recognizes direct, group, and non-admin space listings", () => {
+    expect(
+      isEffectiveSpaceAdmin(
+        [{ slug: "abcdefghijkl", admin: true }],
+        "abcdefghijkl",
+      ),
+    ).toBe(true);
+    expect(
+      isEffectiveSpaceAdmin(
+        [{ slug: "abcdefghijkl", admin: true }],
+        "abcdefghijkl",
+      ),
+    ).toBe(true);
+    expect(
+      isEffectiveSpaceAdmin(
+        [{ slug: "abcdefghijkl", admin: false }],
+        "abcdefghijkl",
+      ),
+    ).toBe(false);
   });
 
   test("refuses an existing workflow unless forced, then replaces the whole file", () => {

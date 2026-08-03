@@ -8,6 +8,18 @@ import {
   resolveHarnessTargets,
   uninstallHarness,
 } from "../harness/registry.ts";
+import { removeHarnessFromProfiles } from "../local-config.ts";
+
+export async function uninstallHarnessAndPurge(
+  name: HarnessName,
+  purge: boolean,
+  uninstall: (target: HarnessName) => Promise<boolean> = uninstallHarness,
+  removeFromProfiles: (target: HarnessName) => void = removeHarnessFromProfiles,
+): Promise<void> {
+  if (await uninstall(name)) {
+    if (purge) removeFromProfiles(name);
+  }
+}
 
 export function createInstallCommand(): Command {
   return new Command("install")
@@ -21,14 +33,13 @@ export function createInstallCommand(): Command {
 }
 
 export function createUninstallCommand(): Command {
-  // --purge is intentionally deferred until local-config.ts lands. It must call
-  // removeHarnessFromProfiles() rather than duplicate local policy mutations.
   return new Command("uninstall")
     .description("uninstall recorded Memory Engine harness integrations")
     .argument("[harness...]", `harnesses (${HARNESS_NAMES.join(", ")})`)
-    .action(async (values: string[]) => {
+    .option("--purge", "remove the harness from local activation profiles")
+    .action(async (values: string[], opts: { purge?: boolean }) => {
       for (const name of resolveHarnessTargets(values, false)) {
-        await uninstallHarness(name);
+        await uninstallHarnessAndPurge(name, opts.purge === true);
       }
     });
 }
@@ -46,5 +57,8 @@ export function createHarnessUninstallCommand(name: HarnessName): Command {
     .description(
       `uninstall the recorded ${getHarness(name).displayName} integration`,
     )
-    .action(() => uninstallHarness(name));
+    .option("--purge", "remove the harness from local activation profiles")
+    .action((opts: { purge?: boolean }) =>
+      uninstallHarnessAndPurge(name, opts.purge === true),
+    );
 }
