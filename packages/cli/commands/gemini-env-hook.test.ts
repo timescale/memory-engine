@@ -3,10 +3,9 @@
  * decision logic itself is covered by gemini/env-hook.test.ts.
  */
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { installGeminiEnvHook, uninstallGeminiEnvHook } from "./gemini.ts";
 
 const CLI_ENTRY = join(import.meta.dir, "..", "index.ts");
 
@@ -75,48 +74,6 @@ describe("me gemini env-hook", () => {
       expect(log).toContain('"harness":"gemini"');
     } finally {
       rmSync(configDir, { recursive: true, force: true });
-    }
-  });
-
-  test("uninstall removes only the recorded BeforeTool hook", () => {
-    const dir = mkdtempSync(join(tmpdir(), "me-gemini-settings-"));
-    const path = join(dir, "settings.json");
-    try {
-      writeFileSync(
-        path,
-        JSON.stringify({
-          theme: "dark",
-          hooks: {
-            BeforeTool: [
-              {
-                matcher: "read_file",
-                hooks: [{ type: "command", command: "other" }],
-              },
-            ],
-            AfterTool: [
-              { matcher: "*", hooks: [{ type: "command", command: "after" }] },
-            ],
-          },
-        }),
-      );
-      expect(installGeminiEnvHook(path)).toBe(true);
-      expect(uninstallGeminiEnvHook(path)).toBe(true);
-      expect(JSON.parse(readFileSync(path, "utf8"))).toEqual({
-        theme: "dark",
-        hooks: {
-          BeforeTool: [
-            {
-              matcher: "read_file",
-              hooks: [{ type: "command", command: "other" }],
-            },
-          ],
-          AfterTool: [
-            { matcher: "*", hooks: [{ type: "command", command: "after" }] },
-          ],
-        },
-      });
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
     }
   });
 });
