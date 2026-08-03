@@ -20,7 +20,7 @@ target path.
 | Whole team can write project memories | `/share/projects/<project>` | The default `team` group is enough |
 | Whole team can read, one group writes | `/share/<group>/<project>` | Grant that group `write` on the group or project path |
 | Only one group can read and write | `/<group>/<project>` | Grant that group `write` on the group or project path |
-| CI imports git/docs | The selected CI tree | `me ci install` creates or verifies service-account write access |
+| CI imports git/docs | The selected CI tree | `me ci install` can create a service account and grant it write access |
 
 Project trees are full paths. If `.me/config.yaml` says
 `tree: /share/projects/acme-api`, captures and imports land under that node:
@@ -128,8 +128,8 @@ me ci install
 ```
 
 CI runs as a service account. Service accounts do not join `team` and do not get
-a home tree, so `me ci install` creates or verifies a write grant at the selected
-CI tree.
+a home tree. When it provisions credentials, `me ci install` creates a write
+grant at the selected CI tree; an existing key is verified by the first CI run.
 
 For teams that use `/share/projects/<project>` everywhere, a space admin may
 also grant one shared service account `write@/share/projects`. For per-project
