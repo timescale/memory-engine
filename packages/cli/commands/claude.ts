@@ -110,9 +110,16 @@ function createClaudeHookCommand(): Command {
         process.exit(0);
       }
       if (!policy?.enabled || policy.harnesses.claude !== true) process.exit(0);
+      const { server, space } = policy;
+      if (!server || !space) {
+        console.error(
+          "[memory-engine] capture is enabled but its server or space is missing.",
+        );
+        process.exit(0);
+      }
 
       try {
-        const creds = resolveCredentials(policy.server);
+        const creds = resolveCredentials(server);
         if (!creds.apiKey && !creds.loggedIn) {
           console.error(
             "[memory-engine] capture is enabled but no credentials are available.",
@@ -120,9 +127,9 @@ function createClaudeHookCommand(): Command {
           process.exit(0);
         }
         const client = createMemoryClient({
-          url: policy.server as string,
-          ...memoryBearer(policy.server as string, creds.apiKey),
-          space: policy.space as string,
+          url: server,
+          ...memoryBearer(server, creds.apiKey),
+          space,
         });
         await importTranscriptFile(
           client,

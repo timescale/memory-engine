@@ -38,11 +38,11 @@ interface ClaudeIntegrationDependencies {
 const defaultDependencies: ClaudeIntegrationDependencies = {
   hasClaude: () => Bun.which("claude") !== null,
   async run(command) {
-    const process = Bun.spawn(command, { stdout: "pipe", stderr: "pipe" });
+    const child = Bun.spawn(command, { stdout: "pipe", stderr: "pipe" });
     const [stdout, stderr, exitCode] = await Promise.all([
-      new Response(process.stdout).text(),
-      new Response(process.stderr).text(),
-      process.exited,
+      new Response(child.stdout).text(),
+      new Response(child.stderr).text(),
+      child.exited,
     ]);
     return { exitCode, stdout, stderr };
   },
