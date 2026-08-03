@@ -63,6 +63,9 @@ async function installMcp(name: HarnessName): Promise<HarnessInstallResult> {
     replaceExisting: getInstallation(name) !== undefined,
   });
   if (!result.success) throw new Error(result.message);
+  if (result.preserved) {
+    return { artifacts: [], messages: [result.message] };
+  }
   const artifact: InstallationArtifact =
     tool.method === "cli"
       ? { kind: "mcp-cli", server_name: "me", scope: "user" }
@@ -218,11 +221,13 @@ export function isHarnessInstalled(name: HarnessName): boolean {
 
 export async function installHarness(name: HarnessName): Promise<void> {
   const result = await getHarness(name).install();
-  writeInstallation(name, {
-    installed_at: new Date().toISOString(),
-    me_version: CLIENT_VERSION,
-    artifacts: result.artifacts,
-  });
+  if (result.artifacts.length > 0) {
+    writeInstallation(name, {
+      installed_at: new Date().toISOString(),
+      me_version: CLIENT_VERSION,
+      artifacts: result.artifacts,
+    });
+  }
   for (const message of result.messages) console.log(message);
 }
 
