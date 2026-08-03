@@ -73,10 +73,11 @@ export function removeCodexEnvHook(
   }
   const hooks = root.hooks;
   if (hooks === null || typeof hooks !== "object" || Array.isArray(hooks))
-    return "removed";
+    return "retained";
   const events = hooks as Record<string, unknown>;
   const entries = events[artifact.event];
-  if (!Array.isArray(entries)) return "removed";
+  if (entries === undefined) return "removed";
+  if (!Array.isArray(entries)) return "retained";
   const retained = entries.filter(
     (entry) => !isMatchingHookEntry(entry, artifact.command),
   );

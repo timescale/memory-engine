@@ -24,9 +24,9 @@ adapter also supports a user-global `PreToolUse` Bash hook that only injects
 `AI_AGENT=codex` and `ME_PROJECT_DIR` into Bash commands; it has no
 credentials, server, space, tree, cwd, or project configuration.
 
-Codex requires you to approve new or changed hooks. Run `/hooks` inside Codex
-and approve the entry after installation. Memory Engine never automates or
-bypasses this trust approval.
+When the shared integration wiring installs the hook, Codex requires you to
+approve it through `/hooks`. Memory Engine never automates or bypasses this
+trust approval.
 
 ## me codex uninstall
 

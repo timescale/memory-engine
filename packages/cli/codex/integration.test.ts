@@ -98,6 +98,16 @@ test("uninstall removes an entry matching the recorded event and command", () =>
   });
 });
 
+test("uninstall retains a hook artifact when its configuration is invalid", () => {
+  withTmpDir((dir) => {
+    const path = join(dir, "hooks.json");
+    const artifact = installCodexEnvHook(path);
+    writeFileSync(path, JSON.stringify({ hooks: { PreToolUse: "invalid" } }));
+
+    expect(removeCodexEnvHook(artifact)).toBe("retained");
+  });
+});
+
 test("uninstall reports artifacts retained when native cleanup fails", async () => {
   const mcp = { kind: "mcp-cli" as const, server_name: "me" as const };
   const hook = {
