@@ -19,7 +19,7 @@ test("rewrites a run_shell_command with the export prefix", () => {
     hookSpecificOutput: {
       tool_input: {
         command:
-          'export AI_AGENT="gemini-cli" ME_PROJECT_DIR="/repo/project"; npm test',
+          'export AI_AGENT="gemini" ME_PROJECT_DIR="/repo/project"; npm test',
       },
     },
   });
@@ -82,7 +82,7 @@ test("the rewritten command, when actually executed by a real shell, sets the en
     const idx = line.indexOf("=");
     if (idx !== -1) env[line.slice(0, idx)] = line.slice(idx + 1);
   }
-  expect(env.AI_AGENT).toBe("gemini-cli");
+  expect(env.AI_AGENT).toBe("gemini");
   expect(env.ME_PROJECT_DIR).toBe("/repo/project");
 });
 

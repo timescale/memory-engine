@@ -28,10 +28,8 @@ import { buildContractVars, renderExportPrefix } from "../harness-contract.ts";
 /** The Gemini tool name we rewrite (a shell execution). */
 const SHELL_TOOL_NAME = "run_shell_command";
 
-/** Inert harness-identity metadata written to `AI_AGENT`. Distinct from
- * `@vercel/detect-agent`'s bare "gemini" marker so consumers can tell the
- * Gemini CLI apart from other Gemini surfaces at a glance. */
-const HARNESS_NAME = "gemini-cli";
+/** The canonical registry identity injected into `AI_AGENT`. */
+const HARNESS_NAME = "gemini";
 
 export interface GeminiEnvHookResult {
   /** JSON to print to stdout — undefined means fail-open, print nothing. */
