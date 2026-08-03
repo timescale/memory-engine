@@ -1,5 +1,5 @@
 /** Canonical harness registry and installation facade. */
-import { readFileSync, writeFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { InvalidArgumentError } from "commander";
 import { CLIENT_VERSION } from "../../../version";
@@ -8,6 +8,7 @@ import {
   installMcpServer,
   MCP_TOOLS,
   openCodeConfigPath,
+  writeOpenCodeConfigAtomically,
 } from "../mcp/install.ts";
 import {
   getInstallation,
@@ -16,9 +17,9 @@ import {
   removeInstallation,
   writeInstallation,
 } from "./installations.ts";
+import { HARNESS_NAMES, type HarnessName } from "./names.ts";
 
-export const HARNESS_NAMES = ["claude", "opencode", "codex", "gemini"] as const;
-export type HarnessName = (typeof HARNESS_NAMES)[number];
+export { HARNESS_NAMES, type HarnessName } from "./names.ts";
 
 export interface HarnessInstallResult {
   artifacts: InstallationArtifact[];
@@ -59,6 +60,7 @@ async function installMcp(name: HarnessName): Promise<HarnessInstallResult> {
   const tool = toolFor(name);
   const result = await installMcpServer(tool, buildMeCommand({}), {
     scope: "user",
+    replaceExisting: getInstallation(name) !== undefined,
   });
   if (!result.success) throw new Error(result.message);
   const artifact: InstallationArtifact =
@@ -74,8 +76,10 @@ async function installMcp(name: HarnessName): Promise<HarnessInstallResult> {
 
 function isDormantMcpEntry(value: unknown): boolean {
   if (!value || typeof value !== "object") return false;
-  const entry = value as { command?: unknown };
+  const entry = value as Record<string, unknown>;
   return (
+    Object.keys(entry).length === 2 &&
+    entry.type === "local" &&
     Array.isArray(entry.command) &&
     entry.command.length === 2 &&
     entry.command[0] === "me" &&
@@ -83,9 +87,9 @@ function isDormantMcpEntry(value: unknown): boolean {
   );
 }
 
-function uninstallJsonArtifact(
+async function uninstallJsonArtifact(
   artifact: Extract<InstallationArtifact, { kind: "mcp-json" }>,
-): HarnessUninstallResult {
+): Promise<HarnessUninstallResult> {
   try {
     const config = JSON.parse(readFileSync(artifact.path, "utf8")) as Record<
       string,
@@ -113,10 +117,10 @@ function uninstallJsonArtifact(
       };
     }
     const { me: _, ...remaining } = entries;
-    writeFileSync(
-      artifact.path,
-      `${JSON.stringify({ ...config, mcp: remaining }, null, 2)}\n`,
-    );
+    await writeOpenCodeConfigAtomically(artifact.path, {
+      ...config,
+      mcp: remaining,
+    });
     return {
       removed: [artifact],
       retained: [],
@@ -164,7 +168,7 @@ async function uninstallMcp(
         );
       }
     } else if (artifact.kind === "mcp-json") {
-      const result = uninstallJsonArtifact(artifact);
+      const result = await uninstallJsonArtifact(artifact);
       removed.push(...result.removed);
       retained.push(...result.retained);
       messages.push(...result.messages);
