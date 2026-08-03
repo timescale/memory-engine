@@ -1,4 +1,3 @@
-/** Behavior tests for the generated OpenCode dormant plugin. */
 import { afterAll, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -31,9 +30,9 @@ type Hooks = {
 };
 
 async function loadPlugin(shell: ReturnType<typeof makeShell>): Promise<Hooks> {
-  const path = join(tmp, `plugin-${Math.random().toString(36).slice(2)}.ts`);
-  writeFileSync(path, renderPluginSource());
-  const module = (await import(path)) as {
+  const file = join(tmp, `plugin-${Math.random().toString(36).slice(2)}.ts`);
+  writeFileSync(file, renderPluginSource());
+  const module = (await import(file)) as {
     MemoryEngine: (context: {
       $: unknown;
       directory: string;
@@ -42,15 +41,15 @@ async function loadPlugin(shell: ReturnType<typeof makeShell>): Promise<Hooks> {
   return module.MemoryEngine({ $: shell.$, directory: "/repo/project" });
 }
 
-describe("renderPluginSource", () => {
-  test("identifies the managed plugin and has no recall prompt", () => {
+describe("OpenCode dormant plugin", () => {
+  test("has no unconditional recall instruction", () => {
     const source = renderPluginSource();
     expect(source.startsWith(PLUGIN_MARKER)).toBe(true);
     expect(source).not.toContain("experimental.session.compacting");
     expect(source).not.toContain("me_memory_search");
   });
 
-  test("captures using the OpenCode session directory", async () => {
+  test("passes the session directory to dormant capture", async () => {
     const shell = makeShell();
     const hooks = await loadPlugin(shell);
     await hooks.event({
