@@ -56,12 +56,6 @@ import { buildUserClient, handleError } from "../util.ts";
 import { pluginInstallAvailable, runClaudeInstallFlow } from "./claude.ts";
 import { VALID_TREE_ROOT_RE } from "./import.ts";
 import { openCodeSetupAvailable, runOpenCodeInstallFlow } from "./opencode.ts";
-import {
-  ciWorkflowStatus,
-  createProjectCiCommand,
-  PendingSetup,
-  runProjectCi,
-} from "./project-ci.ts";
 
 /**
  * Sentinel option values for the selects. `create-space` cannot collide with
@@ -388,33 +382,6 @@ const PROJECT_INIT_STEPS: InitStep[] = [
   // backfills main's full ancestry under the service account, and a local
   // hook imported unmerged/rebased commits (the reason it was removed).
   {
-    id: "ci-workflow",
-    group: "CI import",
-    kind: "ongoing",
-    optionKey: "skipCiWorkflow",
-    skipFlag: "--skip-ci-workflow",
-    skipDescription: "do not set up the GitHub Actions import workflow",
-    label:
-      "Set up the GitHub Actions import workflow — imports merged commits + docs on push to the default branch",
-    // Hidden outside a git repo / without a GitHub remote; ✓ when the managed
-    // scaffold is already current (credentials may still be pending — the
-    // re-run is idempotent).
-    available: () => ciWorkflowStatus(process.cwd()),
-    doneLabel: "GitHub Actions import workflow already scaffolded",
-    rerunLabel:
-      "Re-run the CI import setup (workflow already scaffolded; checks credentials)",
-    run: async ({ globalOpts }) => {
-      try {
-        await runProjectCi({}, globalOpts, { fromInit: true });
-      } catch (e) {
-        // A pending end-state ("ask your admin", no secret yet) is not a
-        // failure: the scaffold landed, and setup completes on a later
-        // `me project ci` run — init keeps going.
-        if (!(e instanceof PendingSetup)) throw e;
-      }
-    },
-  },
-  {
     id: "claude-md",
     group: "Project config",
     kind: "config",
@@ -591,6 +558,20 @@ export function createProjectCommand(): Command {
     "per-project Memory Engine setup",
   );
   project.addCommand(createProjectInitCommand());
-  project.addCommand(createProjectCiCommand());
+  project.addCommand(createProjectCiRedirectCommand());
   return project;
+}
+
+/** Temporary hard redirect for the retired `me project ci` spelling. */
+function createProjectCiRedirectCommand(): Command {
+  return new Command("ci")
+    .description("deprecated — run 'me ci install' instead")
+    .allowUnknownOption()
+    .allowExcessArguments()
+    .action(() => {
+      console.error(
+        "error: 'me project ci' is deprecated. Run 'me ci install' instead.",
+      );
+      process.exit(1);
+    });
 }

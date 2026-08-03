@@ -86,9 +86,8 @@ export interface DocsImportOptions {
   allowSubdirRoot: boolean;
   /**
    * An empty walk is a clean skip (info, exit 0) instead of a `--prune`
-   * refusal — for orchestrated runs (`me import ci`) whose import root is the
-   * repo toplevel by construction, where "no matching docs" means the repo
-   * has no docs corpus, not that the run is mis-rooted.
+   * refusal — callers that know an empty walk is a valid no-docs corpus can
+   * opt into this behavior.
    */
   skipIfEmpty?: boolean;
   /** Report without writing. */
@@ -373,9 +372,8 @@ export async function runDocsImport(
     fail(error);
   }
 
-  // Orchestrated runs (`me import ci`) skip a repo with no matching docs
-  // cleanly, even though CI also asks for prune. An empty authoritative walk is
-  // more likely a non-docs repo than an instruction to delete an entire corpus.
+  // CI and other authoritative callers may treat an empty docs corpus as a
+  // clean skip even when pruning is enabled.
   if (opts.skipIfEmpty === true && relPaths.length === 0) {
     progress?.stop();
     const structured: DocsImportResult = {

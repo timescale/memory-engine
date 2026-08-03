@@ -5,16 +5,14 @@
  * The local post-commit hook imported whatever HEAD was: feature-branch and
  * rebased commits landed in the tree keyed by `(tree, sha)` forever, it ran
  * per-clone with the committing human's credentials, and it failed silently.
- * CI imports replaced it (`me project ci` scaffolds a GitHub workflow that
- * runs `me import ci` on push to the default branch — see
- * CI_IMPORT_DESIGN.md). Anyone who truly wants local-commit capture can put
+ * CI imports replaced it (`me ci install` scaffolds a GitHub workflow that
+ * runs the git and docs importers on push to the default branch). Anyone who
+ * truly wants local-commit capture can put
  * `me import git >/dev/null 2>&1 &` in their own hook — the primitive stays.
  *
  * What remains here: already-installed hooks keep firing on every commit
- * until their managed block is deleted, so `me project ci` migrates them —
- * it detects the block by its markers and strips it once CI credentials are
- * in place. The stub's error names the same two options: run `me project
- * ci`, or delete the block by hand.
+ * until their managed block is deleted. The stub directs users to CI setup or
+ * manual cleanup.
  */
 import { execFile } from "node:child_process";
 import { readFile, rm, writeFile } from "node:fs/promises";
@@ -116,7 +114,7 @@ export function createRemovedGitHookCommand(): Command {
       console.error(
         "error: 'me import git-hook' has been removed — a local hook imports unmerged and rebased " +
           "commits, and imports now run from CI on push to the default branch instead. Run " +
-          "'me project ci' to set that up (it also strips an installed hook block), or delete the " +
+          "'me ci install' to set that up, or delete the " +
           "'>>> memory-engine' block from .git/hooks/post-commit by hand.",
       );
       process.exit(1);

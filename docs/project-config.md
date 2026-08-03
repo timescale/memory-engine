@@ -192,31 +192,9 @@ OpenCode); `me claude install` and `me opencode install` both ask the capture
 question and write the machine-wide flag. Codex and Gemini currently install
 shell env hooks for project discovery, not session capture hooks.
 
-## The `import` block (CI imports)
+## CI configuration
 
-The optional `import:` block shapes the orchestrated CI run —
-[`me import ci`](cli/me-import.md#me-import-ci), the command the scaffolded
-GitHub workflow calls on every push to the default branch. Targeting
-(server/space/tree) stays in the top-level fields; this block only controls
-WHAT the run imports and which identity is expected to run it:
-
-```yaml
-import:
-  git: true                       # run the git-history phase (default true)
-  docs: true                      # run the docs phase (default true)
-  docs_include: ["docs/**"]       # docs globs, replacing the default markdown set
-  docs_exclude: ["docs/internal/**"]
-  service_account: github-import  # the SA expected to hold the CI credentials
-```
-
-Like the rest of the schema it is **strict** — a typo'd key (`docs_includes:`)
-is a fatal error, never a silently-widened walk.
-
-`service_account` is read by [`me project ci`](cli/me-project.md#me-project-ci)
-(setup/verify), **not** at import time — in CI the `ME_API_KEY` bearer *is* the
-identity. The name is not a secret (any space member can resolve it).
-Committing it is how an org using **per-project grants** makes onboarding
-self-documenting: plain `me project ci` then verifies the shared account and
-extends its grant to this repo's tree without anyone remembering a flag. Orgs
-using a single parent-level grant (`write@/share/projects`) don't need it at
-all.
+CI configuration lives in the generated GitHub Actions workflow, not in
+`.me/config.yaml`. Run [`me ci install`](cli/me-ci.md#me-ci-install) to create
+the workflow with its selected server, space, tree, and GitHub secret name.
+After generation, edit the workflow directly for different CI behavior.
