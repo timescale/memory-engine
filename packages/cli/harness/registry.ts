@@ -58,13 +58,24 @@ function toolFor(name: HarnessName) {
 
 async function installMcp(name: HarnessName): Promise<HarnessInstallResult> {
   const tool = toolFor(name);
+  const recorded = getInstallation(name) !== undefined;
   const result = await installMcpServer(tool, buildMeCommand({}), {
     scope: "user",
-    replaceExisting: getInstallation(name) !== undefined,
+    // The installed command is stable (`me mcp`), so a recorded registration
+    // never needs a destructive remove/re-add refresh. Preserving it also
+    // keeps the old inventory record valid if a later inventory write fails.
+    replaceExisting: false,
   });
   if (!result.success) throw new Error(result.message);
   if (result.preserved) {
-    return { artifacts: [], messages: [result.message] };
+    return {
+      artifacts: [],
+      messages: [
+        recorded
+          ? `${tool.name}: existing managed MCP registration is current.`
+          : result.message,
+      ],
+    };
   }
   const artifact: InstallationArtifact =
     tool.method === "cli"
