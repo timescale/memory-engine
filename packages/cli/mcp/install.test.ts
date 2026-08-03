@@ -137,6 +137,15 @@ describe("buildOpenCodeConfig", () => {
     });
   });
 
+  test("preserves an existing entry when replacement is not authorized", () => {
+    const existing = {
+      mcp: { me: { type: "remote", url: "https://example.test" } },
+    };
+    const result = buildOpenCodeConfig(existing, meCmd, false);
+    expect(result.changed).toBe(false);
+    expect(result.config).toEqual(existing);
+  });
+
   test("replaces non-object mcp key with a fresh object", () => {
     const existing = { mcp: "not-an-object" };
     const { config } = buildOpenCodeConfig(existing, meCmd);

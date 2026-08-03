@@ -4,7 +4,8 @@ OpenCode integration commands.
 
 ## Commands
 
-- [me opencode install](#me-opencode-install) -- register `me` as an MCP server with OpenCode, install the capture plugin + `/memory-recall` command + `memory-engine` skill
+- [me opencode install](#me-opencode-install) -- install the dormant Memory Engine MCP registration
+- [me opencode uninstall](#me-opencode-uninstall) -- remove the recorded MCP registration
 - [me opencode init](#me-opencode-init) -- removed; use [`me project init`](me-project.md)
 - [me opencode hook](#me-opencode-hook) -- internal helper (you never run this directly)
 - [me opencode import](#me-opencode-import) -- import OpenCode sessions from `~/.local/share/opencode/opencode.db` or legacy storage
@@ -13,26 +14,23 @@ OpenCode integration commands.
 
 ## me opencode install
 
-Set up OpenCode: register `me` as an MCP server (editing `~/.config/opencode/opencode.json`), install the user-scope capture plugin (inert until you opt in) plus the `/memory-recall` command and the `memory-engine` skill, and ask whether to capture your OpenCode sessions — mirroring [`me claude install`](me-claude.md#me-claude-install)'s one-install model. This same flow is also what [`me project init`](me-project.md#preflight)'s preflight offers when it detects OpenCode installed but not yet set up.
+Install OpenCode's dormant user-scoped MCP registration:
 
+```bash
+me opencode install
 ```
-me opencode install [options]
+
+This non-interactive command writes exactly `me mcp` to the managed OpenCode
+MCP entry. It does not install plugins, commands, skills, capture behavior, or
+credentials, and does not pin runtime targeting.
+
+## me opencode uninstall
+
+```bash
+me opencode uninstall
 ```
 
-A session (non-headless) install ends with the shared **capture prompt** (default **no**): say yes and it enables the machine-wide `capture: true` and runs a one-time machine-wide [`me import opencode`](me-import.md) backfill — everything lands privately under `~/projects/<slug>`. Say no and you get the tools only; the capture plugin stays inert. Re-run `me opencode install` to change the answer; a project's [`.me/config.yaml` `capture`](../project-config.md#the-capture-field-session-capture-onoff) overrides per project. A headless (`--api-key`) install skips the prompt — capture is credential-agnostic, so a headless deployment opts in via a committed `.me` `capture: true` or the target machine's config.
-
-| Option | Description |
-|--------|-------------|
-| `--api-key <key>` | API key for a headless install. Default: the MCP server uses your `me login` session, resolved at runtime. |
-| `--space <slug>` | Lock MCP to this space. Without it, MCP is multi-space unless `ME_SPACE` is set. |
-| `--server <url>` | Server URL to embed in the MCP config. |
-| `--scope <scope>` | Where to write the config: `project` (`./opencode.json` at the repo root) or `user` (`~/.config/opencode/opencode.json`). Default: `user`. |
-
-By default only the server URL is baked into the config: at runtime `me mcp` uses your `me login` session (resolved from the OS keychain / `~/.config/me` each run, so it survives re-login). MCP is multi-space unless the generated command includes `--space` or its environment sets `ME_SPACE`: agents call `me_space_list`, then pass `space` to every memory tool. Your active space does not select an MCP space. Pass `--space` to lock the MCP tools to one space. Pass `--api-key` for a headless install that cannot reach your keychain; it may also run multi-space. For least privilege, mint a restricted PAT or service-account key with `me apikey create --allow <space>:<path>:<r|w|o>`; a pinned space must be declared by that key.
-
-Use `--scope project` to write the `mcp.me` entry into the repo's `opencode.json` (instead of your global config) so it can be committed and shared with your team. Don't combine `--scope project` with a baked `--api-key` unless you intend to commit that key.
-
-For manual MCP client configuration, see [MCP Integration](../mcp-integration.md).
+Removes only the recorded entry when it remains unchanged.
 
 ---
 

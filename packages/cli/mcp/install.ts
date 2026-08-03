@@ -5,7 +5,16 @@
  * by running each tool's `mcp add` command or editing its JSON config.
  */
 
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+import {
+  chmod,
+  mkdir,
+  readFile,
+  rename,
+  stat,
+  unlink,
+  writeFile,
+} from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
@@ -28,6 +37,8 @@ export interface McpInstallOpts {
   scope?: string;
   /** Project root for `scope: "project"` (OpenCode). Defaults to cwd. */
   projectDir?: string;
+  /** Replace an existing ME registration. False preserves user-owned entries. */
+  replaceExisting?: boolean;
 }
 
 interface McpToolBase {
@@ -189,7 +200,7 @@ async function installViaCli(
   }
 
   // Prior registration exists — remove it and re-add with current credentials
-  if (stderr.includes("already exists")) {
+  if (opts.replaceExisting && stderr.includes("already exists")) {
     const rm = Bun.spawn(tool.removeCmd(opts), {
       stdout: "pipe",
       stderr: "pipe",
@@ -251,7 +262,8 @@ export function openCodeConfigPath(opts: McpInstallOpts = {}): string {
 export function buildOpenCodeConfig(
   existing: Record<string, unknown>,
   meCmd: string[],
-): { config: Record<string, unknown>; existed: boolean } {
+  replaceExisting = true,
+): { config: Record<string, unknown>; existed: boolean; changed: boolean } {
   const currentMcp = existing.mcp;
   const mcp =
     currentMcp && typeof currentMcp === "object" && !Array.isArray(currentMcp)
@@ -259,6 +271,9 @@ export function buildOpenCodeConfig(
       : {};
 
   const existed = "me" in mcp;
+  if (existed && !replaceExisting) {
+    return { config: existing, existed: true, changed: false };
+  }
   mcp.me = {
     type: "local",
     command: meCmd,
@@ -267,7 +282,37 @@ export function buildOpenCodeConfig(
   return {
     config: { ...existing, mcp },
     existed,
+    changed: true,
   };
+}
+
+/** Atomically replace an OpenCode config while retaining unrelated config data. */
+export async function writeOpenCodeConfigAtomically(
+  path: string,
+  config: Record<string, unknown>,
+): Promise<void> {
+  await mkdir(dirname(path), { recursive: true });
+  let mode = 0o600;
+  try {
+    mode = (await stat(path)).mode & 0o777;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+  }
+  const temporary = join(dirname(path), `.opencode.${randomUUID()}.tmp`);
+  try {
+    await writeFile(temporary, `${JSON.stringify(config, null, 2)}\n`, {
+      mode,
+    });
+    await chmod(temporary, mode);
+    await rename(temporary, path);
+  } finally {
+    try {
+      await unlink(temporary);
+    } catch {
+      // The rename already consumed the temporary file, or a failed write has
+      // already reported its primary error.
+    }
+  }
 }
 
 /**
@@ -309,11 +354,21 @@ async function installOpenCode(
     // File doesn't exist — start with an empty config.
   }
 
-  const { config, existed } = buildOpenCodeConfig(existing, meCmd);
+  const { config, existed, changed } = buildOpenCodeConfig(
+    existing,
+    meCmd,
+    opts.replaceExisting,
+  );
+
+  if (!changed) {
+    return {
+      success: false,
+      message: `OpenCode: ${configPath} already has an unrecorded me MCP entry; leaving it unchanged.`,
+    };
+  }
 
   try {
-    await mkdir(dirname(configPath), { recursive: true });
-    await writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`);
+    await writeOpenCodeConfigAtomically(configPath, config);
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     return {

@@ -4,7 +4,8 @@ Claude Code integration commands.
 
 ## Commands
 
-- [me claude install](#me-claude-install) -- install the Memory Engine plugin for Claude Code (full plugin by default, `--mcp-only` for just the MCP server)
+- [me claude install](#me-claude-install) -- install the dormant Memory Engine MCP registration
+- [me claude uninstall](#me-claude-uninstall) -- remove the recorded MCP registration
 - [me claude init](#me-claude-init) -- removed; use [`me project init`](me-project.md)
 - [me claude env](#me-claude-env) -- internal helper (you never run this directly)
 - [me claude hook](#me-claude-hook) -- internal helper the plugin uses to capture sessions (you never run this directly)
@@ -14,44 +15,23 @@ Claude Code integration commands.
 
 ## me claude install
 
-Install the **one, user-scoped** Memory Engine plugin for Claude Code — run it once and it applies to every project.
-
-By default this installs the **full plugin** -- hooks (session capture, inert until you opt in), slash commands, and the MCP tools -- by driving Claude Code's native plugin CLI for you:
-
-```
-me claude install [options]
-```
-
-Under the hood it runs the equivalent of:
+Install Claude Code's user-scoped dormant MCP registration:
 
 ```bash
-claude plugin marketplace add timescale/memory-engine
-claude plugin install --scope user memory-engine@memory-engine \
-  [--config server=<url>] [--config space=<slug>] [--config api_key=<key>]
+me claude install
 ```
 
-The marketplace step is idempotent (skipped if already configured). **By default nothing is pinned into the plugin** -- `server`, `space`, and `api_key` are left blank. Hooks track your live `me` config, including the active space for captures; MCP uses your live server and session but is multi-space until `space`, `--space`, or `ME_SPACE` is set. Pinning is opt-in: `--server` / `--space` pin those, and `--api-key` marks a headless install (see below). After install, restart Claude Code (or run `/plugin`) to load the hooks and slash commands.
+This non-interactive command registers exactly `me mcp`. It does not install a
+plugin, enable capture, write credentials, or pin a server, space, or project.
+Use `me init` to configure runtime behavior separately.
 
-A session (non-headless) install then:
+## me claude uninstall
 
-1. **Persists global defaults** into `~/.config/me` — the resolved server (`default_server`) and active space. The private `~/projects` tree root is a code default — install never writes it; to change it machine-wide, set [`tree_root`](../project-config.md#changing-the-default-tree-root-tree_root) in `~/.config/me/config.yaml` by hand.
-2. **Asks whether to turn on session capture** (default **no** — the capture hook ships inert). Say **yes** and it enables the machine-wide `capture: true` and runs a one-time machine-wide [`me import claude`](me-import.md) backfill — everything lands **privately** under `~/projects/<slug>`, per project. Say no and you get the tools only. Re-run `me claude install` any time to change the answer; a project's [`.me/config.yaml` `capture`](../project-config.md#the-capture-field-session-capture-onoff) overrides per project either way. (Non-interactive runs skip the prompt and leave the setting untouched.)
+```bash
+me claude uninstall
+```
 
-Pass `--mcp-only` to skip the plugin and register just the `me` MCP server (no hooks, no slash commands).
-
-| Option | Description |
-|--------|-------------|
-| `--mcp-only` | Register only the `me` MCP server (no hooks or slash commands). |
-| `--api-key <key>` | API key for a headless install. Default: the plugin/MCP server uses your `me login` session, resolved at runtime. |
-| `--space <slug>` | Lock MCP to this space and pin captures. Without it, MCP is multi-space unless `ME_SPACE` is set. |
-| `--server <url>` | Pin a server. Default: use your `me login` server at runtime. |
-| `--dev` | Install the plugin from the local checkout instead of the published marketplace (run from inside this repo). |
-
-Credential handling: by default (a personal install) nothing is pinned, so the plugin and MCP server use your `me login` session and server, resolved from the OS keychain / `~/.config/me` at runtime. An unpinned MCP server is multi-space: agents call `me_space_list`, then pass `space` to every memory tool. Your active space controls captures, not MCP routing. Pass `--server` / `--space` to pin either; a pinned space locks the MCP tools to that space. Pass `--api-key` for a **headless** install that cannot reach your keychain; it may also run multi-space. Capture is credential-agnostic, so a headless deployment opts in through a committed `.me` `capture: true` or the target machine's config. For least privilege, mint a restricted PAT or service-account key with `me apikey create --allow <space>:<path>:<r|w|o>`; a pinned space must be declared by that key. `ME_SPACE` also locks MCP at runtime, and `--server` defaults to your resolved server.
-
-There is no `--scope` flag: the plugin is always installed at **user** scope (once, for all projects). Per-project behavior — a shared tree, a pinned space, and capture on/off — comes from the committed [`.me/config.yaml`](../project-config.md), which the single installed plugin reads per project.
-
-For manual MCP client configuration, see [MCP Integration](../mcp-integration.md).
+Removes only the registration recorded by `me claude install`.
 
 ---
 

@@ -5,6 +5,7 @@ import {
   mkdtempSync,
   readFileSync,
   statSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -66,6 +67,28 @@ describe("installations inventory", () => {
       mkdirSync(join(home, "me"), { recursive: true });
       writeFileSync(path, "version: 2\nharnesses: {}\n");
       expect(() => readInstallations()).toThrow(path);
+    });
+  });
+
+  test("rejects unknown inventory data instead of discarding it", () => {
+    withConfigHome((home) => {
+      const path = join(home, "me", "installations.yaml");
+      mkdirSync(join(home, "me"), { recursive: true });
+      writeFileSync(path, "version: 1\nharnesses: {}\nfuture_field: true\n");
+      expect(() => writeInstallation("claude", installation)).toThrow(
+        "future_field",
+      );
+    });
+  });
+
+  test("rejects a symlinked config directory before writing", () => {
+    withConfigHome((home) => {
+      const target = join(home, "target");
+      mkdirSync(target);
+      symlinkSync(target, join(home, "me"));
+      expect(() => writeInstallation("claude", installation)).toThrow(
+        "symlinked config directory",
+      );
     });
   });
 
