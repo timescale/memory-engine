@@ -1,38 +1,37 @@
-/**
- * me opencode — OpenCode integration commands.
- *
- * - me opencode install: register me as an MCP server with OpenCode, and
- *   install the capture plugin + /memory-recall command + memory-engine
- *   skill (also offered from `me project init`'s preflight — see
- *   `openCodeSetupAvailable`/`runOpenCodeInstallFlow`)
- * - me opencode hook:    invoked by the OpenCode plugin to capture a session
- * - me opencode import:  bulk-import OpenCode session history
- *
- * Per-project setup (session backfill, git history, memory pointers) is
- * `me project init` — harness-agnostic, not duplicated here. `me opencode
- * init` used to cover that; it's now a deprecated alias (wired in index.ts).
- */
-import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { join } from "node:path";
-import * as clack from "@clack/prompts";
+/** OpenCode integration commands. */
+import { createHash } from "node:crypto";
+import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
+import { join, resolve } from "node:path";
 import { Command } from "commander";
 import type { StepAvailability } from "../agent/init.ts";
 import { createMemoryClient } from "../client.ts";
 import { resolveCredentials } from "../credentials.ts";
+import {
+  fileMatchesArtifact,
+  getInstallation,
+  type HarnessInstallation,
+  type InstallationArtifact,
+  removeInstallation,
+} from "../harness/installations.ts";
+import {
+  type HarnessDescriptor,
+  type HarnessInstallResult,
+  type HarnessUninstallResult,
+  installHarness,
+} from "../harness/registry.ts";
 import { importTranscriptSession } from "../importers/index.ts";
-import { opencodeImporter, parseSessionById } from "../importers/opencode.ts";
-import { detectGitContext } from "../importers/project.ts";
+import { parseSessionById } from "../importers/opencode.ts";
 import {
-  type AgentInstallOptions,
-  runAgentMcpInstall,
-} from "../mcp/agent-install.ts";
+  removeHarnessFromProfiles,
+  resolveCaptureProfile,
+} from "../local-config.ts";
 import {
-  RECALL_COMMAND_FILENAME,
-  renderRecallCommand,
-  renderSkill,
-  SKILL_FILENAME,
-  SKILL_NAME,
-} from "../opencode/assets.ts";
+  buildMeCommand,
+  installMcpServer,
+  MCP_TOOLS,
+  openCodeConfigPath,
+  writeOpenCodeConfigAtomically,
+} from "../mcp/install.ts";
 import {
   HOOK_EVENT_NAMES,
   type HookEventName,
@@ -41,177 +40,216 @@ import {
 } from "../opencode/capture.ts";
 import {
   PLUGIN_FILENAME,
-  PLUGIN_MARKER,
   renderPluginSource,
 } from "../opencode/plugin-template.ts";
-import {
-  type OpenCodeScope,
-  openCodeCommandsDir,
-  openCodePluginsDir,
-  openCodeSkillsDir,
-} from "../opencode/scope.ts";
-import {
-  discoverProjectConfig,
-  setConfigDirOverride,
-} from "../project-config.ts";
+import { openCodePluginsDir } from "../opencode/scope.ts";
 import { memoryBearer } from "../session.ts";
-import { runCapturePrompt } from "./capture-prompt.ts";
 import { createOpenCodeImportCommand } from "./import.ts";
-import {
-  createHarnessInstallCommand,
-  createHarnessUninstallCommand,
-} from "./install.ts";
 
-/** Absolute path of the generated capture plugin for a scope. */
-function openCodePluginPath(scope: OpenCodeScope, projectRoot: string): string {
-  return join(openCodePluginsDir(scope, projectRoot), PLUGIN_FILENAME);
+const openCodePluginPath = (): string =>
+  join(openCodePluginsDir(), PLUGIN_FILENAME);
+
+function fileArtifact(path: string, contents: string): InstallationArtifact {
+  return {
+    kind: "file",
+    path: resolve(path),
+    sha256: createHash("sha256").update(contents).digest("hex"),
+  };
 }
 
-/** Whether our managed capture plugin is already installed (by its marker). */
-export async function openCodePluginInstalled(
-  scope: OpenCodeScope,
-  projectRoot: string,
-): Promise<boolean> {
+async function writePlugin(): Promise<InstallationArtifact> {
+  const path = openCodePluginPath();
+  const contents = renderPluginSource();
+  await mkdir(openCodePluginsDir(), { recursive: true });
+  await writeFile(path, contents);
+  return fileArtifact(path, contents);
+}
+
+function dormantMcpEntry(value: unknown): boolean {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const entry = value as Record<string, unknown>;
+  return (
+    Object.keys(entry).length === 2 &&
+    entry.type === "local" &&
+    Array.isArray(entry.command) &&
+    entry.command.length === 2 &&
+    entry.command[0] === "me" &&
+    entry.command[1] === "mcp"
+  );
+}
+
+async function uninstallMcpJson(
+  artifact: Extract<InstallationArtifact, { kind: "mcp-json" }>,
+): Promise<HarnessUninstallResult> {
   try {
-    const existing = await readFile(
-      openCodePluginPath(scope, projectRoot),
-      "utf8",
-    );
-    return existing.startsWith(PLUGIN_MARKER);
-  } catch {
-    return false;
+    const config = JSON.parse(await readFile(artifact.path, "utf8")) as Record<
+      string,
+      unknown
+    >;
+    const mcp = config.mcp;
+    if (
+      !mcp ||
+      typeof mcp !== "object" ||
+      Array.isArray(mcp) ||
+      !("me" in mcp)
+    ) {
+      return {
+        removed: [artifact],
+        retained: [],
+        messages: ["OpenCode MCP entry is already absent."],
+      };
+    }
+    const entries = mcp as Record<string, unknown>;
+    if (!dormantMcpEntry(entries.me)) {
+      return {
+        removed: [],
+        retained: [artifact],
+        messages: [`Retained ${artifact.path}: its me entry has changed.`],
+      };
+    }
+    const { me: _, ...remaining } = entries;
+    const next = { ...config };
+    if (Object.keys(remaining).length === 0) delete next.mcp;
+    else next.mcp = remaining;
+    await writeOpenCodeConfigAtomically(artifact.path, next);
+    return {
+      removed: [artifact],
+      retained: [],
+      messages: ["Removed OpenCode MCP entry."],
+    };
+  } catch (error) {
+    return {
+      removed: [],
+      retained: [artifact],
+      messages: [
+        `Retained ${artifact.path}: ${error instanceof Error ? error.message : String(error)}`,
+      ],
+    };
   }
 }
 
-/** Write (or refresh) the generated capture plugin into the scoped plugins dir. */
-async function installOpenCodePlugin(
-  scope: OpenCodeScope,
-  projectRoot: string,
-): Promise<void> {
-  const dir = openCodePluginsDir(scope, projectRoot);
-  await mkdir(dir, { recursive: true });
-  const file = openCodePluginPath(scope, projectRoot);
-  await writeFile(file, renderPluginSource());
-  clack.log.success(`Installed the OpenCode capture plugin → ${file}`);
+/** Remove only artifacts recorded for the OpenCode integration. */
+export async function uninstallOpenCodeArtifacts(
+  record: HarnessInstallation,
+): Promise<HarnessUninstallResult> {
+  const removed: InstallationArtifact[] = [];
+  const retained: InstallationArtifact[] = [];
+  const messages: string[] = [];
+  for (const artifact of record.artifacts) {
+    if (artifact.kind === "mcp-json") {
+      const result = await uninstallMcpJson(artifact);
+      removed.push(...result.removed);
+      retained.push(...result.retained);
+      messages.push(...result.messages);
+    } else if (artifact.kind === "file") {
+      if (!fileMatchesArtifact(artifact)) {
+        retained.push(artifact);
+        messages.push(
+          `Retained ${artifact.path}: the generated file has changed.`,
+        );
+        continue;
+      }
+      try {
+        await unlink(artifact.path);
+        removed.push(artifact);
+        messages.push(`Removed ${artifact.path}.`);
+      } catch (error) {
+        retained.push(artifact);
+        messages.push(
+          `Retained ${artifact.path}: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+    } else {
+      retained.push(artifact);
+      messages.push(
+        `Retained incompatible OpenCode artifact: ${artifact.kind}.`,
+      );
+    }
+  }
+  return { removed, retained, messages };
 }
 
-const recallCommandPath = (scope: OpenCodeScope, projectRoot: string): string =>
-  join(openCodeCommandsDir(scope, projectRoot), RECALL_COMMAND_FILENAME);
-
-const skillPath = (scope: OpenCodeScope, projectRoot: string): string =>
-  join(openCodeSkillsDir(scope, projectRoot), SKILL_NAME, SKILL_FILENAME);
-
-/** Write (or refresh) the `/memory-recall` command into the scoped commands dir. */
-async function installRecallCommand(
-  scope: OpenCodeScope,
-  projectRoot: string,
-): Promise<void> {
-  const file = recallCommandPath(scope, projectRoot);
-  await mkdir(openCodeCommandsDir(scope, projectRoot), { recursive: true });
-  await writeFile(file, renderRecallCommand());
-  clack.log.success(`Installed the /memory-recall command → ${file}`);
-}
-
-/** Write (or refresh) the `memory-engine` skill into the scoped skills dir. */
-async function installSkill(
-  scope: OpenCodeScope,
-  projectRoot: string,
-): Promise<void> {
-  const file = skillPath(scope, projectRoot);
-  await mkdir(join(openCodeSkillsDir(scope, projectRoot), SKILL_NAME), {
-    recursive: true,
+async function installOpenCodeArtifacts(): Promise<HarnessInstallResult> {
+  const tool = MCP_TOOLS.find((candidate) => candidate.bin === "opencode");
+  if (!tool || tool.method !== "json-file")
+    throw new Error("OpenCode MCP installer is unavailable.");
+  const result = await installMcpServer(tool, buildMeCommand({}), {
+    scope: "user",
+    replaceExisting: false,
   });
-  await writeFile(file, renderSkill());
-  clack.log.success(`Installed the ${SKILL_NAME} skill → ${file}`);
+  if (!result.success) throw new Error(result.message);
+
+  const artifacts: InstallationArtifact[] = [await writePlugin()];
+  if (!result.preserved) {
+    artifacts.unshift({
+      kind: "mcp-json",
+      path: resolve(openCodeConfigPath({ scope: "user" })),
+      server_name: "me",
+    });
+  } else {
+    const recorded = getInstallation("opencode");
+    const mcp = recorded?.artifacts.find(
+      (
+        artifact,
+      ): artifact is Extract<InstallationArtifact, { kind: "mcp-json" }> =>
+        artifact.kind === "mcp-json",
+    );
+    if (mcp) artifacts.unshift(mcp);
+  }
+  return {
+    artifacts,
+    messages: [
+      result.message,
+      `Installed OpenCode dormant plugin → ${openCodePluginPath()}`,
+    ],
+  };
 }
 
-/** Resolve the project root (git root, else cwd) for `scope: "project"`. */
-async function resolveProjectRoot(): Promise<string> {
-  const { gitRoot } = await detectGitContext(process.cwd());
-  return gitRoot ?? process.cwd();
-}
+const openCodeDescriptor: HarnessDescriptor = {
+  name: "opencode",
+  displayName: "OpenCode",
+  binary: "opencode",
+  detect: () => Bun.which("opencode") !== null,
+  install: installOpenCodeArtifacts,
+  uninstall: uninstallOpenCodeArtifacts,
+};
 
-/**
- * me opencode install — register the MCP server, install the (inert) capture
- * plugin + `/memory-recall` command + `memory-engine` skill, and run the
- * shared capture opt-in — mirroring `me claude install`'s one-install model.
- * A headless (api-key) install stops after the MCP registration: capture is
- * credential-agnostic, so a headless deployment opts in via a committed
- * `.me` `capture: true` or the target machine's config.
- *
- * Exported so `me project init`'s preflight can offer this same flow — see
- * `openCodeSetupAvailable()` below.
- */
+/** Compatibility entry point for the retiring project-init preflight. */
 export async function runOpenCodeInstallFlow(
-  opts: AgentInstallOptions & {
-    scope?: OpenCodeScope;
-    perProjectStepFollows?: boolean;
-  },
-  globalOpts: Record<string, unknown>,
+  ..._args: unknown[]
 ): Promise<void> {
-  const scope = opts.scope ?? "user";
-  const projectRoot =
-    scope === "project" ? await resolveProjectRoot() : process.cwd();
-  await runAgentMcpInstall("opencode", {
-    apiKey: opts.apiKey,
-    server: opts.server,
-    space: opts.space,
-    scope,
-    projectDir: scope === "project" ? projectRoot : undefined,
-  });
-
-  const creds = resolveCredentials(opts.server);
-  const headless = Boolean(opts.apiKey ?? creds.apiKey);
-  if (headless) return;
-
-  const activeSpace = opts.space ?? creds.activeSpace;
-  // The capture plugin — inert until capture is enabled (the flag below, or
-  // a project's `.me` `capture: true`) — alongside the /memory-recall
-  // command and the memory-engine skill, all at the same scope as the MCP
-  // registration above.
-  await installOpenCodePlugin(scope, projectRoot);
-  await installRecallCommand(scope, projectRoot);
-  await installSkill(scope, projectRoot);
-
-  // Capture opt-in (shared with `me claude install`): prompt, persist
-  // the machine-wide flag, and backfill existing sessions on yes.
-  await runCapturePrompt(opencodeImporter, globalOpts, {
-    space: activeSpace,
-    toolLabel: "OpenCode",
-    installCmd: "me opencode install",
-    perProjectStepFollows: opts.perProjectStepFollows,
-  });
+  await installHarness("opencode", { harness: openCodeDescriptor });
 }
 
-/**
- * Whether `me project init`'s preflight should offer to run
- * {@link runOpenCodeInstallFlow}: hidden if OpenCode isn't installed on this
- * machine at all, "done" if the user-scope capture plugin is already
- * present (mirrors `pluginInstallAvailable()` in claude.ts).
- */
+/** Project init must not offer the retired OpenCode setup flow. */
 export async function openCodeSetupAvailable(): Promise<StepAvailability> {
-  if (Bun.which("opencode") === null) return "hidden";
-  return (await openCodePluginInstalled("user", process.cwd()))
-    ? "done"
-    : "available";
+  return "hidden";
 }
 
 function createOpenCodeInstallCommand(): Command {
-  return createHarnessInstallCommand("opencode");
+  return new Command("install")
+    .description(
+      "install Memory Engine's dormant user-global OpenCode integration",
+    )
+    .action(runOpenCodeInstallFlow);
 }
 
-/**
- * me opencode hook — invoked by the OpenCode plugin on session.idle /
- * session.deleted to capture the session.
- *
- * The plugin runs in-process JS and forwards the session id (not a transcript
- * path), so this command resolves the id from OpenCode's SQLite DB or legacy
- * storage and runs it through the same incremental write path as
- * `me import opencode`.
- *
- * Best-effort: logs failures to stderr but always exits 0 so a hook failure never
- * blocks an OpenCode session.
- */
+function createOpenCodeUninstallCommand(): Command {
+  return new Command("uninstall")
+    .description("uninstall the recorded Memory Engine OpenCode integration")
+    .option("--purge", "remove OpenCode from local activation profiles")
+    .action(async (opts: { purge?: boolean }) => {
+      const record = getInstallation("opencode");
+      if (!record) return;
+      const result = await uninstallOpenCodeArtifacts(record);
+      for (const message of result.messages) console.log(message);
+      if (result.retained.length === 0) {
+        removeInstallation("opencode");
+        if (opts.purge) removeHarnessFromProfiles("opencode");
+      }
+    });
+}
+
 function createOpenCodeHookCommand(): Command {
   return new Command("hook")
     .description("invoked by the OpenCode plugin to capture a session")
@@ -220,95 +258,37 @@ function createOpenCodeHookCommand(): Command {
       `hook event name (${HOOK_EVENT_NAMES.join(", ")})`,
     )
     .requiredOption("--session <id>", "OpenCode session id (e.g. ses_abc123)")
+    .requiredOption("--project-dir <dir>", "OpenCode session directory")
     .option(
       "--storage <dir>",
-      "OpenCode data dir, SQLite DB, or legacy storage dir (default: standard location)",
-    )
-    .option(
-      "--project-dir <dir>",
-      "the session's project dir (anchor for .me/config.yaml discovery; passed by the generated plugin)",
-    )
-    .option(
-      "--full-transcript",
-      "also store reasoning + tool calls/results (default: prompts + responses)",
+      "OpenCode data dir, SQLite DB, or legacy storage dir",
     )
     .action(
-      async (
-        opts: {
-          event: string;
-          session: string;
-          storage?: string;
-          projectDir?: string;
-          fullTranscript?: boolean;
-        },
-        cmd: Command,
-      ) => {
+      async (opts: {
+        event: string;
+        session: string;
+        projectDir: string;
+        storage?: string;
+      }) => {
         const eventName = opts.event as HookEventName;
-        if (!HOOK_EVENT_NAMES.includes(eventName)) {
-          console.error(
-            `[memory-engine] unknown event '${opts.event}'. Expected one of: ${HOOK_EVENT_NAMES.join(", ")}`,
-          );
-          process.exit(0);
-        }
-
-        const globalOpts = cmd.optsWithGlobals();
-        // `.me` server/space/tree come via resolveCredentials, scoped to the
-        // session's own project dir (explicit --project-dir from the plugin,
-        // matching the Claude hook's explicit-anchor approach) — falling back
-        // to a cwd walk-up when absent (an older plugin, or a direct manual
-        // call). A broken `.me` is fatal for direct CLI use, but the hook is
-        // best-effort: log + exit 0 so a typo never blocks capture.
-        let config: ReturnType<typeof resolveHookConfig>;
+        if (!HOOK_EVENT_NAMES.includes(eventName)) return;
+        const profile = resolveCaptureProfile(opts.projectDir);
+        if (
+          profile.source === "disabled" ||
+          !profile.value?.enabled ||
+          profile.value.harnesses.opencode !== true
+        )
+          return;
+        const config = resolveHookConfig(
+          // The selected capture profile owns targeting. The explicit server
+          // keeps legacy project config from contributing one here.
+          resolveCredentials(profile.value.server),
+          profile.value,
+        );
+        if (!config) return;
         try {
-          const project = opts.projectDir
-            ? discoverProjectConfig(opts.projectDir)
-            : undefined;
-          if (project) setConfigDirOverride(project.dir);
-          const creds = resolveCredentials(globalOpts.server);
-          // The hook ships inert — the ONE capture model shared with Claude:
-          // project `.me` `capture` > the machine-wide flag > off (both folded
-          // into `captureEnabled`). A deliberate opt-out exits 0 SILENTLY,
-          // distinct from the "no credentials" error below.
-          if (!creds.captureEnabled) process.exit(0);
-          config = resolveHookConfig(creds, {
-            fullTranscript: opts.fullTranscript,
-          });
-        } catch (error) {
-          console.error(
-            `[memory-engine] ${eventName}: ${error instanceof Error ? error.message : String(error)}`,
-          );
-          process.exit(0);
-        }
-        if (!config) {
-          // resolveHookConfig returns null for a missing bearer OR a missing
-          // space — name both so the fix is actionable either way.
-          console.error(
-            "[memory-engine] missing credentials or space. Run `me login` and " +
-              "`me space use <space>`, or set ME_API_KEY + ME_SPACE.",
-          );
-          process.exit(0);
-        }
-
-        // Resolve the session id from SQLite when available, falling back to
-        // the legacy JSON storage tree.
-        let session: Awaited<ReturnType<typeof parseSessionById>>;
-        try {
-          session = await parseSessionById(opts.session, opts.storage);
-        } catch (error) {
-          console.error(
-            `[memory-engine] ${eventName}: ${error instanceof Error ? error.message : String(error)}`,
-          );
-          process.exit(0);
-        }
-        if (!session) {
-          console.error(
-            `[memory-engine] ${eventName}: session '${opts.session}' not found in OpenCode data`,
-          );
-          process.exit(0);
-        }
-
-        // Import the session (incremental; same path as `me import opencode`).
-        try {
+          const session = await parseSessionById(opts.session, opts.storage);
+          if (!session) return;
           const client = createMemoryClient({
             url: config.server,
             ...memoryBearer(config.server, config.apiKey),
@@ -318,7 +298,7 @@ function createOpenCodeHookCommand(): Command {
             treeRoot: config.treeRoot,
             tree: config.tree,
             sessionsNodeName: SESSIONS_NODE,
-            fullTranscript: config.fullTranscript,
+            fullTranscript: false,
             dryRun: false,
             verbose: false,
           });
@@ -327,8 +307,6 @@ function createOpenCodeHookCommand(): Command {
             `[memory-engine] ${eventName} capture failed: ${error instanceof Error ? error.message : String(error)}`,
           );
         }
-
-        process.exit(0);
       },
     );
 }
@@ -336,7 +314,7 @@ function createOpenCodeHookCommand(): Command {
 export function createOpenCodeCommand(): Command {
   const opencode = new Command("opencode").description("OpenCode integration");
   opencode.addCommand(createOpenCodeInstallCommand());
-  opencode.addCommand(createHarnessUninstallCommand("opencode"));
+  opencode.addCommand(createOpenCodeUninstallCommand());
   opencode.addCommand(createOpenCodeHookCommand());
   opencode.addCommand(createOpenCodeImportCommand());
   return opencode;
