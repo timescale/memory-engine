@@ -85,17 +85,32 @@ describe("Claude dormant integration adapter", () => {
     ]);
   });
 
-  test("preserves an existing unrecorded plugin", async () => {
+  test("refuses to claim an existing unrecorded plugin", async () => {
     const { commands, dependencies: adapter } = dependencies([
       { exitCode: 1, stderr: "marketplace already exists" },
       { exitCode: 1, stderr: "plugin already installed" },
     ]);
 
-    const result = await installClaudeIntegration("plugin", adapter);
-
+    await expect(installClaudeIntegration("plugin", adapter)).rejects.toThrow(
+      "refusing to claim ownership",
+    );
     expect(commands).toHaveLength(2);
-    expect(result.artifacts).toEqual([]);
-    expect(result.messages.join(" ")).toContain("unrecorded");
+  });
+
+  test("preserves the recorded artifact when the plugin already exists", async () => {
+    const { dependencies: adapter } = dependencies([
+      { exitCode: 1, stderr: "marketplace already exists" },
+      { exitCode: 1, stderr: "plugin already installed" },
+    ]);
+    const existing = {
+      installed_at: "2026-08-03T20:00:00.000Z",
+      me_version: "0.0.0",
+      artifacts: [pluginArtifact],
+    } satisfies HarnessInstallation;
+
+    const result = await installClaudeIntegration("plugin", adapter, existing);
+
+    expect(result.artifacts).toEqual(existing.artifacts);
   });
 
   test("uninstalls only recorded plugin and MCP artifacts", async () => {

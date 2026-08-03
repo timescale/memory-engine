@@ -78,7 +78,7 @@ const HARNESS_REGISTRY: Record<HarnessName, HarnessDescriptor> = {
     "claude",
     "Claude Code",
     "claude",
-    () => installClaudeIntegration(),
+    (existing) => installClaudeIntegration("plugin", undefined, existing),
     uninstallClaudeIntegration,
   ),
   opencode: descriptor(

@@ -114,9 +114,16 @@ export async function installOpenCodeIntegration(
     throw new Error(`OpenCode MCP entry in ${paths.configPath} is user-owned.`);
   } else {
     const priorMcp = existing?.artifacts.find(
-      (artifact) => artifact.kind === "mcp-json",
+      (artifact) =>
+        artifact.kind === "mcp-json" &&
+        artifact.path === resolve(paths.configPath),
     );
-    if (priorMcp) artifacts.push(priorMcp);
+    if (!priorMcp) {
+      throw new Error(
+        `OpenCode MCP entry in ${paths.configPath} is unrecorded; refusing to claim ownership.`,
+      );
+    }
+    artifacts.push(priorMcp);
   }
 
   try {

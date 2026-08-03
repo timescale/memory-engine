@@ -64,6 +64,28 @@ describe("OpenCode integration adapter", () => {
     await uninstallOpenCodeIntegration(first.artifacts);
   });
 
+  test("does not reuse an MCP artifact from another config path", async () => {
+    const target = paths();
+    const first = await installOpenCodeIntegration(target);
+    const plugin = first.artifacts.find((artifact) => artifact.kind === "file");
+    const mcp = first.artifacts.find(
+      (artifact) => artifact.kind === "mcp-json",
+    );
+    if (!plugin || !mcp)
+      throw new Error("missing OpenCode installation artifacts");
+
+    await expect(
+      installOpenCodeIntegration(target, {
+        installed_at: "2026-08-03T14:00:00.000Z",
+        me_version: "0.0.0",
+        artifacts: [
+          { ...mcp, path: join(target.configPath, "..", "other.json") },
+          plugin,
+        ],
+      }),
+    ).rejects.toThrow("unrecorded");
+  });
+
   test("refuses to overwrite an unmanaged plugin", async () => {
     const target = paths();
     mkdirSync(join(target.pluginPath, ".."), { recursive: true });
