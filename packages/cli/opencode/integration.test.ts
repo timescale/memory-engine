@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -57,6 +57,18 @@ describe("OpenCode integration adapter", () => {
     await uninstallOpenCodeIntegration(first.artifacts);
   });
 
+  test("refuses to overwrite an unmanaged plugin", async () => {
+    const target = paths();
+    mkdirSync(join(target.pluginPath, ".."), { recursive: true });
+    writeFileSync(target.pluginPath, "user plugin");
+
+    await expect(installOpenCodeIntegration(target)).rejects.toThrow(
+      "user-owned",
+    );
+    expect(() => readFileSync(target.configPath)).toThrow();
+    expect(readFileSync(target.pluginPath, "utf8")).toBe("user plugin");
+  });
+
   test("uninstall preserves unrelated config and removes an empty mcp object", async () => {
     const target = paths();
     writeFileSync(target.configPath, JSON.stringify({ theme: "dark" }));
@@ -74,5 +86,17 @@ describe("OpenCode integration adapter", () => {
     const removed = await uninstallOpenCodeIntegration(result.artifacts);
     expect(removed.retained).toHaveLength(1);
     expect(readFileSync(target.pluginPath, "utf8")).toBe("modified");
+  });
+
+  test("treats an absent generated plugin as already removed", async () => {
+    const target = paths();
+    const result = await installOpenCodeIntegration(target);
+    const file = result.artifacts.find((artifact) => artifact.kind === "file");
+    if (!file) throw new Error("missing file artifact");
+    await Bun.file(target.pluginPath).delete();
+
+    const removed = await uninstallOpenCodeIntegration([file]);
+    expect(removed.removed).toEqual([file]);
+    expect(removed.retained).toEqual([]);
   });
 });

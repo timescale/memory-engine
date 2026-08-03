@@ -5,7 +5,11 @@ import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import type { InstallationArtifact } from "../harness/installations.ts";
 import { writeOpenCodeConfigAtomically } from "../mcp/install.ts";
-import { PLUGIN_FILENAME, renderPluginSource } from "./plugin-template.ts";
+import {
+  PLUGIN_FILENAME,
+  PLUGIN_MARKER,
+  renderPluginSource,
+} from "./plugin-template.ts";
 
 export interface OpenCodeIntegrationResult {
   artifacts: InstallationArtifact[];
@@ -59,6 +63,16 @@ async function readConfig(path: string): Promise<Record<string, unknown>> {
 export async function installOpenCodeIntegration(
   paths: OpenCodeIntegrationPaths = getOpenCodeIntegrationPaths(),
 ): Promise<OpenCodeIntegrationResult> {
+  const plugin = renderPluginSource();
+  try {
+    const existingPlugin = await readFile(paths.pluginPath, "utf8");
+    if (!existingPlugin.startsWith(PLUGIN_MARKER)) {
+      throw new Error(`OpenCode plugin at ${paths.pluginPath} is user-owned.`);
+    }
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+  }
+
   const config = await readConfig(paths.configPath);
   const mcp = config.mcp;
   const entries =
@@ -83,7 +97,6 @@ export async function installOpenCodeIntegration(
     throw new Error(`OpenCode MCP entry in ${paths.configPath} is user-owned.`);
   }
 
-  const plugin = renderPluginSource();
   await mkdir(dirname(paths.pluginPath), { recursive: true });
   await writeFile(paths.pluginPath, plugin);
   artifacts.push({
@@ -138,6 +151,10 @@ export async function uninstallOpenCodeIntegration(
         await writeOpenCodeConfigAtomically(artifact.path, next);
         removed.push(artifact);
       } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+          removed.push(artifact);
+          continue;
+        }
         retained.push(artifact);
         messages.push(
           `Retained ${artifact.path}: ${error instanceof Error ? error.message : String(error)}`,
@@ -156,6 +173,10 @@ export async function uninstallOpenCodeIntegration(
         await unlink(artifact.path);
         removed.push(artifact);
       } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+          removed.push(artifact);
+          continue;
+        }
         retained.push(artifact);
         messages.push(
           `Retained ${artifact.path}: ${error instanceof Error ? error.message : String(error)}`,
