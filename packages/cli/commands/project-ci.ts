@@ -525,7 +525,6 @@ export async function runCiInstall(
     writeGeneratedWorkflow();
     return;
   }
-  writeGeneratedWorkflow();
   const choice = unwrap(
     await clack.select({
       message: "How should CI receive its ME_API_KEY?",
@@ -547,6 +546,7 @@ export async function runCiInstall(
     }),
   );
   if (choice === "instructions") {
+    writeGeneratedWorkflow();
     try {
       printInstructions({
         space: space as string,
@@ -596,6 +596,7 @@ export async function runCiInstall(
     } catch (error) {
       handleError(error, fmt);
     }
+    writeGeneratedWorkflow();
     return;
   }
   try {
@@ -626,6 +627,7 @@ export async function runCiInstall(
   } catch (error) {
     handleError(error, fmt, { creds, scope: "space" });
   }
+  writeGeneratedWorkflow();
 }
 
 export function createCiInstallCommand(): Command {
