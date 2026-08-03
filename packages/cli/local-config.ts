@@ -10,7 +10,14 @@ import {
   renameSync,
   writeFileSync,
 } from "node:fs";
-import { basename, dirname, isAbsolute, resolve, sep } from "node:path";
+import {
+  basename,
+  dirname,
+  isAbsolute,
+  relative,
+  resolve,
+  sep,
+} from "node:path";
 import { parse, stringify } from "yaml";
 import { getGlobalConfigPath } from "./credentials.ts";
 
@@ -367,10 +374,10 @@ export function writeDirectoryProfile(
 }
 
 function isAncestor(directory: string, cwd: string): boolean {
+  const path = relative(directory, cwd);
   return (
-    directory === "/" ||
-    cwd === directory ||
-    cwd.startsWith(`${directory}${sep}`)
+    path === "" ||
+    (path !== ".." && !path.startsWith(`..${sep}`) && !isAbsolute(path))
   );
 }
 
