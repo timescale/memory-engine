@@ -51,7 +51,7 @@ async function requireSpaceAdminById(
 ): Promise<void> {
   if (!(await ctx.core.isSpaceAdmin(ctx.userId, spaceId))) {
     // Enriched with the effective admins' contacts: for a repo dev running
-    // `me project ci`, this denial is the expected common case — the error
+    // `me ci install`, this denial is the expected common case — the error
     // must carry whom to ask, not be a dead end.
     throw await forbiddenNamingAdmins(
       ctx.core,
