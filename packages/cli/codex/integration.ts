@@ -10,7 +10,12 @@ import {
   type JsonHookEntry,
   upsertJsonHooksFile,
 } from "../harness-hooks-json.ts";
-import { buildMeCommand, installMcpServer, MCP_TOOLS } from "../mcp/install.ts";
+import {
+  buildMeCommand,
+  type InstallResult,
+  installMcpServer,
+  MCP_TOOLS,
+} from "../mcp/install.ts";
 
 export const CODEX_ENV_HOOK_COMMAND = "me codex env-hook";
 
@@ -47,9 +52,7 @@ function isMatchingHookEntry(value: unknown, command: string): boolean {
     !Array.isArray(value) &&
     Array.isArray((value as { hooks?: unknown }).hooks) &&
     (value as { hooks: Array<{ command?: unknown }> }).hooks.some(
-      (hook) =>
-        hook?.command === command &&
-        JSON.stringify(value) === JSON.stringify(CODEX_HOOK_ENTRY),
+      (hook) => hook?.command === command,
     )
   );
 }
@@ -99,20 +102,36 @@ function codexMcpTool() {
   return tool;
 }
 
+/** The only Codex MCP registration command: `codex mcp add me -- me mcp`. */
+export function codexMcpCommand(): string[] {
+  return codexMcpTool().addCmd(buildMeCommand({}), {});
+}
+
+export interface CodexIntegrationResult {
+  artifacts: InstallationArtifact[];
+  messages: string[];
+}
+
+interface InstallOperations {
+  installMcp?: () => Promise<InstallResult>;
+  installHook?: () => Extract<InstallationArtifact, { kind: "json-hook" }>;
+}
+
 export async function installCodexIntegration(
   existing?: HarnessInstallation,
-): Promise<{ artifacts: InstallationArtifact[]; messages: string[] }> {
-  const registration = await installMcpServer(
-    codexMcpTool(),
-    buildMeCommand({}),
-    {
-      scope: "user",
-      replaceExisting: false,
-    },
-  );
+  operations: InstallOperations = {},
+): Promise<CodexIntegrationResult> {
+  const registration = await (
+    operations.installMcp ??
+    (() =>
+      installMcpServer(codexMcpTool(), buildMeCommand({}), {
+        scope: "user",
+        replaceExisting: false,
+      }))
+  )();
   if (!registration.success) throw new Error(registration.message);
 
-  const hook = installCodexEnvHook();
+  const hook = (operations.installHook ?? installCodexEnvHook)();
   const mcp = existing?.artifacts.find(
     (artifact) => artifact.kind === "mcp-cli",
   );
@@ -134,23 +153,39 @@ export async function installCodexIntegration(
 
 export async function uninstallCodexIntegration(
   record: HarnessInstallation,
+  operations: {
+    removeMcp?: (
+      artifact: Extract<InstallationArtifact, { kind: "mcp-cli" }>,
+    ) => Promise<boolean>;
+    removeHook?: (
+      artifact: Extract<InstallationArtifact, { kind: "json-hook" }>,
+    ) => "removed" | "retained";
+  } = {},
 ): Promise<{ retained: InstallationArtifact[]; messages: string[] }> {
   const retained: InstallationArtifact[] = [];
   const messages: string[] = [];
   for (const artifact of record.artifacts) {
     if (artifact.kind === "mcp-cli") {
-      const process = Bun.spawn(
-        codexMcpTool().removeCmd({ scope: artifact.scope }),
-        { stdout: "pipe", stderr: "pipe" },
-      );
-      if ((await process.exited) !== 0) {
+      const removed = await (
+        operations.removeMcp ??
+        (async (owned) => {
+          const process = Bun.spawn(
+            codexMcpTool().removeCmd({ scope: owned.scope }),
+            { stdout: "pipe", stderr: "pipe" },
+          );
+          return (await process.exited) === 0;
+        })
+      )(artifact);
+      if (!removed) {
         retained.push(artifact);
         messages.push(
           "Retained Codex MCP registration: provider removal failed.",
         );
       }
     } else if (artifact.kind === "json-hook") {
-      if (removeCodexEnvHook(artifact) === "retained") {
+      if (
+        (operations.removeHook ?? removeCodexEnvHook)(artifact) === "retained"
+      ) {
         retained.push(artifact);
         messages.push(
           `Retained ${artifact.path}: hook entry changed or configuration is invalid.`,
