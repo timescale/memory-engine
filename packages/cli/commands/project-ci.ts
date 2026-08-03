@@ -480,17 +480,22 @@ export async function runCiInstall(
     tree,
     server: creds.server === DEFAULT_SERVER ? undefined : creds.server,
   });
-  try {
-    const state = writeWorkflow(workflowPath, workflow, opts.force);
-    if (fmt === "text")
-      clack.log.success(
-        `${state === "created" ? "Wrote" : "Replaced"} ${WORKFLOW_RELPATH}`,
-      );
-  } catch (error) {
-    handleError(error, fmt);
-  }
+  const writeGeneratedWorkflow = () => {
+    try {
+      const state = writeWorkflow(workflowPath, workflow, opts.force);
+      if (fmt === "text")
+        clack.log.success(
+          `${state === "created" ? "Wrote" : "Replaced"} ${WORKFLOW_RELPATH}`,
+        );
+    } catch (error) {
+      handleError(error, fmt);
+    }
+  };
 
-  if (opts.workflowOnly) return;
+  if (opts.workflowOnly) {
+    writeGeneratedWorkflow();
+    return;
+  }
   if (!isInteractive && opts.createServiceAccount) {
     try {
       if (!(await ghReady()))
@@ -517,8 +522,10 @@ export async function runCiInstall(
     } catch (error) {
       handleError(error, fmt, { creds, scope: "space" });
     }
+    writeGeneratedWorkflow();
     return;
   }
+  writeGeneratedWorkflow();
   const choice = unwrap(
     await clack.select({
       message: "How should CI receive its ME_API_KEY?",

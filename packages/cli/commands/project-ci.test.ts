@@ -133,6 +133,46 @@ describe("me ci install", () => {
     expect(readFileSync(path, "utf8")).toBe("user-owned\n");
   });
 
+  test("does not replace a workflow before failed scripted credential placement", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "me-ci-placement-ordering-"));
+    temporaryDirectories.push(dir);
+    execFileSync("git", ["init"], { cwd: dir });
+    execFileSync(
+      "git",
+      ["remote", "add", "origin", "git@github.com:acme/widgets.git"],
+      { cwd: dir },
+    );
+    const path = join(dir, ".github", "workflows", "me-import.yml");
+    mkdirSync(join(dir, ".github", "workflows"), { recursive: true });
+    writeFileSync(path, "user-owned\n");
+    const bun = Bun.which("bun");
+    if (!bun) throw new Error("bun is required for the CLI ordering test");
+    const child = Bun.spawn(
+      [
+        bun,
+        join(process.cwd(), "packages", "cli", "index.ts"),
+        "ci",
+        "install",
+        "--space",
+        "abcdefghijkl",
+        "--create-service-account",
+        "--force",
+      ],
+      {
+        cwd: dir,
+        env: {
+          ...process.env,
+          XDG_CONFIG_HOME: join(dir, "config"),
+          ME_NO_KEYCHAIN: "1",
+        },
+        stdout: "pipe",
+        stderr: "pipe",
+      },
+    );
+    expect(await child.exited).not.toBe(0);
+    expect(readFileSync(path, "utf8")).toBe("user-owned\n");
+  });
+
   test("recognizes direct, group, and non-admin space listings", () => {
     expect(
       isEffectiveSpaceAdmin(
