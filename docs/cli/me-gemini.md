@@ -18,11 +18,10 @@ Register `me` as an MCP server with Gemini CLI.
 me gemini install
 ```
 
-This non-interactive command installs user-global Gemini CLI plumbing only:
-
-- An MCP server registration with the exact command `me mcp`.
-- A dormant `BeforeTool` hook for `run_shell_command`. It injects only
-  `AI_AGENT=gemini` and `ME_PROJECT_DIR` into shell commands.
+This non-interactive command registers exactly `me mcp`. It does not add
+credentials or runtime targeting. Gemini's user-global dormant `BeforeTool`
+adapter is wired by the harness integration installer; it injects only
+`AI_AGENT=gemini` and `ME_PROJECT_DIR` for `run_shell_command` calls.
 
 It does not write project or checkout configuration, prompt for configuration,
 store credentials, select a server or space, or enable capture. MCP directory
@@ -35,8 +34,9 @@ behavior is not guaranteed.
 me gemini uninstall
 ```
 
-Removes only the user-global MCP registration and `BeforeTool` hook recorded by
-`me gemini install`; unrelated Gemini settings and hooks are preserved.
+Removes only the registration recorded by `me gemini install`. The harness
+integration installer removes its recorded `BeforeTool` hook while preserving
+unrelated Gemini settings and hooks.
 
 For manual MCP client configuration, see [MCP Integration](../mcp-integration.md).
 
