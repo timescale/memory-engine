@@ -136,11 +136,12 @@ export function detectInstalledTools(): McpTool[] {
  * via the install script, Homebrew, or npm.
  */
 export function buildMeCommand(opts: {
-  server: string;
+  server?: string;
   apiKey?: string;
   space?: string;
 }): string[] {
-  const cmd = ["me", "mcp", "--server", opts.server];
+  const cmd = ["me", "mcp"];
+  if (opts.server) cmd.push("--server", opts.server);
   if (opts.apiKey) cmd.push("--api-key", opts.apiKey);
   if (opts.space) cmd.push("--space", opts.space);
   return cmd;

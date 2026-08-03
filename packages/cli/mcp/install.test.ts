@@ -18,14 +18,15 @@ describe("buildMeCommand", () => {
     expect(cmd[1]).toBe("mcp");
   });
 
-  test("unpinned MCP command bakes only --server", () => {
-    const cmd = buildMeCommand({ server: "https://example.com" });
-    expect(cmd).toEqual(["me", "mcp", "--server", "https://example.com"]);
+  test("new dormant MCP command has no baked runtime targeting", () => {
+    const cmd = buildMeCommand({});
+    expect(cmd).toEqual(["me", "mcp"]);
+    expect(cmd).not.toContain("--server");
     expect(cmd).not.toContain("--api-key");
     expect(cmd).not.toContain("--space");
   });
 
-  test("headless MCP command can remain multi-space", () => {
+  test("legacy explicit MCP command can remain multi-space", () => {
     const cmd = buildMeCommand({
       server: "https://example.com",
       apiKey: "k",
@@ -41,7 +42,7 @@ describe("buildMeCommand", () => {
     expect(cmd).not.toContain("--space");
   });
 
-  test("pins --space when given (session path with explicit space)", () => {
+  test("legacy explicit command pins --space when given", () => {
     const cmd = buildMeCommand({
       server: "https://example.com",
       space: "abc123def456",

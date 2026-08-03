@@ -15,11 +15,11 @@ import {
   upsertJsonHooksFile,
 } from "../harness-hooks-json.ts";
 import { logUnrecognizedPayloadShape } from "../harness-shape-log.ts";
-import {
-  type AgentInstallOptions,
-  runAgentMcpInstall,
-} from "../mcp/agent-install.ts";
 import { createCodexImportCommand } from "./import.ts";
+import {
+  createHarnessInstallCommand,
+  createHarnessUninstallCommand,
+} from "./install.ts";
 
 /** The hook command Codex invokes — bare, no version string, so its trust
  * hash survives a `me` upgrade (see harness-hooks-json.ts's module doc). */
@@ -38,7 +38,7 @@ const CODEX_HOOK_ENTRY: JsonHookEntry = {
  * the `/hooks` approval flow — so a fresh install needs a one-time
  * `/hooks` inside Codex before the injected contract goes live.
  */
-function installCodexEnvHook(): void {
+export function installCodexEnvHook(): void {
   const path = join(homedir(), ".codex", "hooks.json");
   const { changed } = upsertJsonHooksFile(
     path,
@@ -55,28 +55,7 @@ function installCodexEnvHook(): void {
 }
 
 function createCodexInstallCommand(): Command {
-  return new Command("install")
-    .description("register me as an MCP server with Codex CLI")
-    .option(
-      "--api-key <key>",
-      "API key for headless/CI use (default: use your login session at runtime)",
-    )
-    .option("--server <url>", "server URL to embed in MCP config")
-    .option(
-      "--space <slug>",
-      "pin a space (otherwise MCP is multi-space unless ME_SPACE is set)",
-    )
-    .action(async (opts: AgentInstallOptions, cmd: Command) => {
-      const globalOpts = cmd.optsWithGlobals();
-      const server = globalOpts.server ?? opts.server;
-      await runAgentMcpInstall("codex", {
-        apiKey: opts.apiKey,
-        server,
-        space: opts.space,
-      });
-
-      installCodexEnvHook();
-    });
+  return createHarnessInstallCommand("codex");
 }
 
 /**
@@ -116,6 +95,7 @@ function createCodexEnvHookCommand(): Command {
 export function createCodexCommand(): Command {
   const codex = new Command("codex").description("Codex CLI integration");
   codex.addCommand(createCodexInstallCommand());
+  codex.addCommand(createHarnessUninstallCommand("codex"));
   codex.addCommand(createCodexEnvHookCommand());
   codex.addCommand(createCodexImportCommand());
   return codex;

@@ -17,14 +17,14 @@ import {
 } from "../harness-hooks-json.ts";
 import { logUnrecognizedPayloadShape } from "../harness-shape-log.ts";
 import {
-  type AgentInstallOptions,
-  runAgentMcpInstall,
-} from "../mcp/agent-install.ts";
+  createHarnessInstallCommand,
+  createHarnessUninstallCommand,
+} from "./install.ts";
 
 const GEMINI_SCOPES = ["user", "project"] as const;
 type GeminiScope = (typeof GEMINI_SCOPES)[number];
 
-function parseGeminiScope(value: string): GeminiScope {
+export function parseGeminiScope(value: string): GeminiScope {
   if (!GEMINI_SCOPES.includes(value as GeminiScope)) {
     throw new InvalidArgumentError(
       `must be one of: ${GEMINI_SCOPES.join(", ")}`,
@@ -44,7 +44,7 @@ const GEMINI_HOOK_ENTRY: JsonHookEntry = {
 };
 
 /** Write (or refresh) the user-scope `~/.gemini/settings.json` BeforeTool entry. */
-function installGeminiEnvHook(): void {
+export function installGeminiEnvHook(): void {
   const path = join(homedir(), ".gemini", "settings.json");
   const { changed } = upsertJsonHooksFile(
     path,
@@ -58,42 +58,7 @@ function installGeminiEnvHook(): void {
 }
 
 function createGeminiInstallCommand(): Command {
-  return new Command("install")
-    .description("register me as an MCP server with Gemini CLI")
-    .option(
-      "--api-key <key>",
-      "API key for headless/CI use (default: use your login session at runtime)",
-    )
-    .option("--server <url>", "server URL to embed in MCP config")
-    .option(
-      "--space <slug>",
-      "pin a space (otherwise MCP is multi-space unless ME_SPACE is set)",
-    )
-    .option(
-      "-s, --scope <scope>",
-      `Gemini CLI config scope (${GEMINI_SCOPES.join(", ")})`,
-      parseGeminiScope,
-      "user",
-    )
-    .action(
-      async (
-        opts: AgentInstallOptions & {
-          scope: GeminiScope;
-        },
-        cmd: Command,
-      ) => {
-        const globalOpts = cmd.optsWithGlobals();
-        const server = globalOpts.server ?? opts.server;
-        await runAgentMcpInstall("gemini", {
-          apiKey: opts.apiKey,
-          server,
-          space: opts.space,
-          scope: opts.scope,
-        });
-
-        installGeminiEnvHook();
-      },
-    );
+  return createHarnessInstallCommand("gemini");
 }
 
 /**
@@ -132,6 +97,7 @@ function createGeminiEnvHookCommand(): Command {
 export function createGeminiCommand(): Command {
   const gemini = new Command("gemini").description("Gemini CLI integration");
   gemini.addCommand(createGeminiInstallCommand());
+  gemini.addCommand(createHarnessUninstallCommand("gemini"));
   gemini.addCommand(createGeminiEnvHookCommand());
   return gemini;
 }

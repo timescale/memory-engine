@@ -53,6 +53,8 @@ const COMMAND_DOCS: Record<string, string | null> = {
   createMemoryAliasCommands: null, // top-level aliases documented in me-memory
   createImportCommand: "me-import",
   createMcpCommand: "me-mcp",
+  createInstallCommand: "me-install",
+  createUninstallCommand: "me-uninstall",
   createClaudeCommand: "me-claude",
   createOpenCodeCommand: "me-opencode",
   createGeminiCommand: "me-gemini",
