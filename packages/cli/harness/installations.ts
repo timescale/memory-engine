@@ -9,6 +9,7 @@ import {
   readFileSync,
   renameSync,
   rmdirSync,
+  statSync,
   unlinkSync,
   writeFileSync,
 } from "node:fs";
@@ -159,6 +160,12 @@ function withInventoryLock<T>(action: () => T): T {
       }
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+      // A killed CLI can strand an empty lock directory. Inventory operations
+      // are short, so a five-minute-old lock is safe to reclaim.
+      if (Date.now() - statSync(lock).mtimeMs > 5 * 60 * 1000) {
+        rmdirSync(lock);
+        continue;
+      }
       Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10);
     }
   }

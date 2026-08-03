@@ -23,7 +23,7 @@ me claude install
 
 This non-interactive command registers exactly `me mcp`. It does not install a
 plugin, enable capture, write credentials, or pin a server, space, or project.
-Use `me init` to configure runtime behavior separately.
+Use `me project init` to configure runtime behavior separately.
 
 ## me claude uninstall
 

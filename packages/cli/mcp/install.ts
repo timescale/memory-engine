@@ -134,8 +134,8 @@ export function detectInstalledTools(): McpTool[] {
 /**
  * Build the `me mcp …` command array to embed in an MCP config.
  *
- * Only `--server` is always baked. `--api-key` and `--space` are baked **only**
- * when provided:
+ * New harness installations pass no options and register exactly `me mcp`.
+ * Legacy callers may explicitly bake `--server`, `--api-key`, and `--space`:
  *   - **Default (no api key):** the MCP server resolves your login *session* from
  *     the keychain/config at runtime (so it keeps working across `me login`), and
  *     no space is selected until a tool call supplies one (unless ME_SPACE is
@@ -164,6 +164,8 @@ export function buildMeCommand(opts: {
 
 export interface InstallResult {
   success: boolean;
+  /** A user-owned registration already exists and was intentionally left alone. */
+  preserved?: boolean;
   message: string;
 }
 
@@ -200,7 +202,15 @@ async function installViaCli(
   }
 
   // Prior registration exists — remove it and re-add with current credentials
-  if (opts.replaceExisting && stderr.includes("already exists")) {
+  if (stderr.includes("already exists") && opts.replaceExisting === false) {
+    return {
+      success: true,
+      preserved: true,
+      message: `${tool.name}: an unrecorded me MCP registration already exists; leaving it unchanged.`,
+    };
+  }
+
+  if (opts.replaceExisting !== false && stderr.includes("already exists")) {
     const rm = Bun.spawn(tool.removeCmd(opts), {
       stdout: "pipe",
       stderr: "pipe",
@@ -362,7 +372,8 @@ async function installOpenCode(
 
   if (!changed) {
     return {
-      success: false,
+      success: true,
+      preserved: true,
       message: `OpenCode: ${configPath} already has an unrecorded me MCP entry; leaving it unchanged.`,
     };
   }
