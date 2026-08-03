@@ -1,9 +1,9 @@
 /**
  * me codex — Codex CLI integration commands.
  *
- * - me codex install: register me as an MCP server with Codex CLI, and wire
- *   the harness-injected shell contract via a user-scope PreToolUse hook.
- * - me codex env-hook: invoked by that hook to rewrite Bash commands.
+ * - me codex install: register me as an MCP server with Codex CLI.
+ * - me codex env-hook: available for shared integration wiring as its
+ *   user-scope PreToolUse hook to rewrite Bash commands.
  */
 import { Command } from "commander";
 import { buildCodexEnvHookOutput } from "../codex/env-hook.ts";
