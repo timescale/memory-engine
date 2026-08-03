@@ -20,9 +20,10 @@ Use the mechanical CLI installer:
 me claude install
 ```
 
-It registers the user-scoped Claude MCP entry `me mcp` and records that native
-registration for safe removal. It does not prompt, log in, backfill sessions,
-write repository configuration, or enable a Memory Engine feature.
+It registers the user-scoped Claude MCP entry `me mcp` and records a
+registration it creates for safe removal. An existing registration is left
+unchanged and is not recorded. The command does not prompt, log in, backfill
+sessions, write repository configuration, or enable a Memory Engine feature.
 
 ## Uninstall
 
