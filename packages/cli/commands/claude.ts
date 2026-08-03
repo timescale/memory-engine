@@ -59,10 +59,7 @@ import {
 import { buildContractVars, upsertContractBlock } from "../harness-contract.ts";
 import { claudeImporter } from "../importers/claude.ts";
 import { importTranscriptFile } from "../importers/index.ts";
-import {
-  type AgentInstallOptions,
-  runAgentMcpInstall,
-} from "../mcp/agent-install.ts";
+import type { AgentInstallOptions } from "../mcp/agent-install.ts";
 import {
   discoverProjectConfig,
   setConfigDirOverride,
@@ -70,6 +67,10 @@ import {
 import { memoryBearer } from "../session.ts";
 import { runCapturePrompt } from "./capture-prompt.ts";
 import { createClaudeImportCommand } from "./import.ts";
+import {
+  createHarnessInstallCommand,
+  createHarnessUninstallCommand,
+} from "./install.ts";
 
 /** GitHub source for `claude plugin marketplace add`. */
 const PLUGIN_MARKETPLACE_SOURCE = "timescale/memory-engine";
@@ -95,62 +96,7 @@ const PLUGIN_SCOPE = "user";
  * no slash commands).
  */
 function createClaudeInstallCommand(): Command {
-  return new Command("install")
-    .description(
-      "install the Memory Engine plugin for Claude Code (hooks + slash commands + MCP)",
-    )
-    .option(
-      "--mcp-only",
-      "register only the me MCP server (no hooks or slash commands)",
-    )
-    .option(
-      "--api-key <key>",
-      "API key for headless/CI use (default: use your login session at runtime)",
-    )
-    .option("--server <url>", "server URL to embed in the config")
-    .option(
-      "--space <slug>",
-      "pin a space (otherwise MCP is multi-space unless ME_SPACE is set)",
-    )
-    .option(
-      "--dev",
-      "install the plugin from the local checkout instead of the published marketplace (run from inside the repo)",
-    )
-    .action(
-      async (
-        opts: AgentInstallOptions & {
-          mcpOnly?: boolean;
-          dev?: boolean;
-        },
-        cmd: Command,
-      ) => {
-        const globalOpts = cmd.optsWithGlobals();
-        const server = globalOpts.server ?? opts.server;
-        if (opts.mcpOnly) {
-          if (opts.dev) {
-            clack.log.warn(
-              "--dev has no effect with --mcp-only: the MCP server already runs your local `me` binary on PATH.",
-            );
-          }
-          await runAgentMcpInstall("claude", {
-            apiKey: opts.apiKey,
-            server,
-            space: opts.space,
-            scope: PLUGIN_SCOPE,
-          });
-          return;
-        }
-        await runClaudeInstallFlow(
-          {
-            apiKey: opts.apiKey,
-            server,
-            space: opts.space,
-            dev: opts.dev,
-          },
-          globalOpts,
-        );
-      },
-    );
+  return createHarnessInstallCommand("claude");
 }
 
 /** Run a command, capturing its exit code, stdout, and stderr. */
@@ -670,6 +616,7 @@ export async function pluginInstallAvailable(): Promise<StepAvailability> {
 export function createClaudeCommand(): Command {
   const claude = new Command("claude").description("Claude Code integration");
   claude.addCommand(createClaudeInstallCommand());
+  claude.addCommand(createHarnessUninstallCommand("claude"));
   // `me claude init` is retired in favor of the harness-agnostic
   // `me project init`; a deprecated alias (registered by index.ts to avoid a
   // module cycle with project.ts) warns and delegates for one release.

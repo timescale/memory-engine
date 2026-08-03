@@ -54,6 +54,8 @@ const COMMAND_DOCS: Record<string, string | null> = {
   createImportCommand: "me-import",
   createCiInstallCommand: "me-ci",
   createMcpCommand: "me-mcp",
+  createInstallCommand: "me-install",
+  createUninstallCommand: "me-uninstall",
   createClaudeCommand: "me-claude",
   createOpenCodeCommand: "me-opencode",
   createGeminiCommand: "me-gemini",

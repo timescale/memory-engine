@@ -43,6 +43,8 @@ export const NAV: NavSection[] = [
       { label: "me ci", slug: "cli/me-ci" },
       { label: "me project", slug: "cli/me-project" },
       { label: "me mcp", slug: "cli/me-mcp" },
+      { label: "me install", slug: "cli/me-install" },
+      { label: "me uninstall", slug: "cli/me-uninstall" },
       { label: "me claude", slug: "cli/me-claude" },
       { label: "me codex", slug: "cli/me-codex" },
       { label: "me gemini", slug: "cli/me-gemini" },

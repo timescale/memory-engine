@@ -49,7 +49,6 @@ import {
   openCodeCommandsDir,
   openCodePluginsDir,
   openCodeSkillsDir,
-  parseScope,
 } from "../opencode/scope.ts";
 import {
   discoverProjectConfig,
@@ -58,6 +57,10 @@ import {
 import { memoryBearer } from "../session.ts";
 import { runCapturePrompt } from "./capture-prompt.ts";
 import { createOpenCodeImportCommand } from "./import.ts";
+import {
+  createHarnessInstallCommand,
+  createHarnessUninstallCommand,
+} from "./install.ts";
 
 /** Absolute path of the generated capture plugin for a scope. */
 function openCodePluginPath(scope: OpenCodeScope, projectRoot: string): string {
@@ -194,38 +197,7 @@ export async function openCodeSetupAvailable(): Promise<StepAvailability> {
 }
 
 function createOpenCodeInstallCommand(): Command {
-  return new Command("install")
-    .description(
-      "set up OpenCode: MCP server + capture plugin (asks about capture)",
-    )
-    .option(
-      "--api-key <key>",
-      "API key for headless/CI use (default: use your login session at runtime)",
-    )
-    .option("--server <url>", "server URL to embed in MCP config")
-    .option(
-      "--space <slug>",
-      "pin a space (otherwise MCP is multi-space unless ME_SPACE is set)",
-    )
-    .option(
-      "--scope <scope>",
-      "where to write the MCP config: project (./opencode.json) or user (~/.config/opencode) [default: user]",
-      (v) => parseScope(v),
-    )
-    .action(
-      async (
-        opts: AgentInstallOptions & {
-          scope?: OpenCodeScope;
-        },
-        cmd: Command,
-      ) => {
-        const globalOpts = cmd.optsWithGlobals();
-        await runOpenCodeInstallFlow(
-          { ...opts, server: globalOpts.server ?? opts.server },
-          globalOpts,
-        );
-      },
-    );
+  return createHarnessInstallCommand("opencode");
 }
 
 /**
@@ -364,6 +336,7 @@ function createOpenCodeHookCommand(): Command {
 export function createOpenCodeCommand(): Command {
   const opencode = new Command("opencode").description("OpenCode integration");
   opencode.addCommand(createOpenCodeInstallCommand());
+  opencode.addCommand(createHarnessUninstallCommand("opencode"));
   opencode.addCommand(createOpenCodeHookCommand());
   opencode.addCommand(createOpenCodeImportCommand());
   return opencode;

@@ -16,6 +16,10 @@ import { createCodexCommand } from "./commands/codex.ts";
 import { createGeminiCommand } from "./commands/gemini.ts";
 import { createGroupCommand } from "./commands/group.ts";
 import { createImportCommand } from "./commands/import-group.ts";
+import {
+  createInstallCommand,
+  createUninstallCommand,
+} from "./commands/install.ts";
 import { createInviteCommand } from "./commands/invite.ts";
 import { createLoginCommand } from "./commands/login.ts";
 import { createLogoutCommand } from "./commands/logout.ts";
@@ -116,6 +120,10 @@ program.addCommand(createCiInstallCommand());
 
 // MCP server
 program.addCommand(createMcpCommand());
+
+// Mechanical harness deployment. These commands never configure activation or credentials.
+program.addCommand(createInstallCommand());
+program.addCommand(createUninstallCommand());
 
 // Agent integration commands (install MCP, import sessions, capture hooks)
 const claude = createClaudeCommand();
