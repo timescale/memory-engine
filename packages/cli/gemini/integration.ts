@@ -8,6 +8,7 @@ import type {
 } from "../harness/installations.ts";
 import {
   type JsonHookEntry,
+  jsonHookEntryExists,
   upsertJsonHooksFile,
 } from "../harness-hooks-json.ts";
 import {
@@ -122,28 +123,67 @@ export async function installGeminiIntegration(
       replaceExisting: false,
     }),
   existing?: HarnessInstallation,
+  removeMcp: () => Promise<boolean> = async () => {
+    const process = Bun.spawn(geminiMcpTool().removeCmd({ scope: "user" }), {
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    return (await process.exited) === 0;
+  },
+  installHook: (path: string) => boolean = installGeminiEnvHook,
 ): Promise<GeminiIntegrationResult> {
-  const result = await installMcp();
-  if (!result.success) throw new Error(result.message);
-
-  const artifacts: InstallationArtifact[] = [];
   const priorMcp = existing?.artifacts.find(
     (artifact) => artifact.kind === "mcp-cli",
   );
-  if (!result.preserved) {
-    artifacts.push({ kind: "mcp-cli", server_name: "me", scope: "user" });
-  } else if (priorMcp) {
-    artifacts.push(priorMcp);
-  }
   const priorHook = existing?.artifacts.find(
-    (artifact) => artifact.kind === "json-hook",
+    (artifact) =>
+      artifact.kind === "json-hook" &&
+      artifact.path === settingsPath &&
+      artifact.event === "BeforeTool" &&
+      artifact.command === GEMINI_ENV_HOOK_COMMAND,
   );
-  if (installGeminiEnvHook(settingsPath)) {
-    artifacts.push(hookArtifact(settingsPath));
-  } else if (priorHook) {
-    artifacts.push(priorHook);
+  if (
+    jsonHookEntryExists(settingsPath, "BeforeTool", GEMINI_ENV_HOOK_COMMAND) &&
+    !priorHook
+  ) {
+    throw new Error(
+      `Gemini hook in ${settingsPath} is unrecorded; refusing to claim ownership.`,
+    );
   }
-  return { artifacts, messages: [result.message] };
+  const result = await installMcp();
+  if (!result.success) throw new Error(result.message);
+  if (result.preserved && !priorMcp) {
+    throw new Error(
+      "Gemini MCP registration is unrecorded; refusing to claim ownership.",
+    );
+  }
+  let hookChanged: boolean;
+  try {
+    hookChanged = installHook(settingsPath);
+    if (!hookChanged && !priorHook) {
+      throw new Error(
+        `Gemini hook in ${settingsPath} is unrecorded; refusing to claim ownership.`,
+      );
+    }
+  } catch (error) {
+    if (!result.preserved && !(await removeMcp())) {
+      throw new Error(
+        `Gemini hook installation failed: ${error instanceof Error ? error.message : String(error)}. The newly registered MCP entry could not be removed.`,
+      );
+    }
+    throw error;
+  }
+  return {
+    artifacts: [
+      priorMcp ?? { kind: "mcp-cli", server_name: "me", scope: "user" },
+      ...(hookChanged
+        ? [hookArtifact(settingsPath)]
+        : priorHook
+          ? [priorHook]
+          : []),
+    ],
+    messages: [result.message],
+  };
 }
 
 export async function uninstallGeminiIntegration(
