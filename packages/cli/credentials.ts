@@ -584,7 +584,7 @@ export function clearActiveSpace(server: string): void {
 
 /**
  * Resolve the active space slug for a server.
- * Priority: --space flag > ME_SPACE env > `.me` space > stored active_space.
+ * Priority: --space flag > ME_SPACE env > selected harness CLI profile > stored active_space.
  */
 export function resolveSpace(
   server: string,
@@ -698,12 +698,11 @@ function projectServerOrigin(raw: string): string {
 
 /**
  * Resolve the active server URL.
- * Priority: --server flag > ME_SERVER env > `.me` server > default_server (config) > DEFAULT_SERVER
+ * Priority: --server flag > ME_SERVER env > selected harness CLI profile > default_server (config) > DEFAULT_SERVER
  *
- * A `.me`-sourced server is validated as an http(s) URL and against the
- * whitelist (see {@link assertProjectServerAllowed}); `--server` / `ME_SERVER` /
- * the stored default are the user's own choice and pass through unguarded. Every
- * branch returns a normalized origin.
+ * A selected harness profile is machine-local policy. Explicit flags and
+ * environment variables remain higher precedence; ordinary human CLI calls do
+ * not read directory profiles. Every branch returns a normalized origin.
  */
 export function resolveServer(flagValue?: string): string {
   return resolveServerFor(undefined, flagValue);
