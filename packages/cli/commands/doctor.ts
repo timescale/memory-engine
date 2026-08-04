@@ -12,6 +12,7 @@ import {
   resolveHarnessProfile,
 } from "../local-config.ts";
 import { getOutputFormat, output } from "../output.ts";
+import { resolveManagedHarness, resolveManagedMcpProfile } from "./mcp.ts";
 
 /** The harnesses a surface's `harnesses` map selects (value `true`). */
 function selectedHarnesses(harnesses: HarnessSelection): HarnessName[] {
@@ -221,7 +222,8 @@ export function createDoctorCommand(): Command {
       "[directory]",
       "directory to inspect (default: ME_PROJECT_DIR, else the current directory)",
     )
-    .action((directory: string | undefined, _opts, cmd) => {
+    .option("--harness <name>", "managed MCP harness to inspect")
+    .action((directory: string | undefined, opts, cmd) => {
       // Emulate the dispatcher/hook anchor (`ME_PROJECT_DIR ?? cwd`) when no
       // directory is passed; an explicit argument overrides it.
       const anchorSource = directory
@@ -232,9 +234,21 @@ export function createDoctorCommand(): Command {
       const anchorRaw =
         directory ?? process.env.ME_PROJECT_DIR ?? process.cwd();
       const profile = resolveHarnessProfile(anchorRaw);
+      const mcpHarness = resolveManagedHarness(
+        opts.harness ?? process.env.AI_AGENT,
+      );
+      const mcpResolution = mcpHarness
+        ? resolveManagedMcpProfile(
+            mcpHarness,
+            directory ?? process.cwd(),
+            process.env.ME_PROJECT_DIR,
+            process.env.CLAUDE_PROJECT_DIR,
+          )
+        : undefined;
+      const mcpProfile = mcpResolution?.profile ?? profile;
       const shapes = readShapeLog();
 
-      const mcp = diagnoseEnabledSurface("mcp", profile.mcp, profile);
+      const mcp = diagnoseEnabledSurface("mcp", mcpProfile.mcp, mcpProfile);
       const capture = diagnoseEnabledSurface(
         "capture",
         profile.capture,
@@ -251,6 +265,16 @@ export function createDoctorCommand(): Command {
             raw: anchorRaw,
             canonical: profile.cwd,
           },
+          ...(mcpResolution
+            ? {
+                mcp_anchor: {
+                  harness: mcpHarness,
+                  source: mcpResolution.anchor.source,
+                  raw: mcpResolution.anchor.raw,
+                  canonical: mcpProfile.cwd,
+                },
+              }
+            : {}),
           profile_source: profile.profile_source,
           ...(profile.profile_path === undefined
             ? {}
@@ -262,6 +286,11 @@ export function createDoctorCommand(): Command {
         getOutputFormat(global),
         () => {
           console.log(`  Anchor:    ${anchorRaw} (${anchorSource})`);
+          if (mcpResolution) {
+            console.log(
+              `  MCP Anchor: ${mcpResolution.anchor.raw} (${mcpResolution.anchor.source})`,
+            );
+          }
           console.log(`  Resolved:  ${profile.cwd}`);
           console.log(
             `  Profile:   ${
