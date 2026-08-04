@@ -173,9 +173,9 @@ test("ME_SERVER env outranks the explicit project's server (documented precedenc
   }
 });
 
-test(".me server is used when no --server flag / ME_SERVER env (whitelisted)", () => {
+test("human CLI ignores a .me server pin", () => {
   writeMe(`server: ${creds.DEV_SERVER}\n`);
-  expect(creds.resolveServer()).toBe(creds.DEV_SERVER);
+  expect(creds.resolveServer()).toBe(creds.DEFAULT_SERVER);
 });
 
 test("ME_SERVER env still wins over a .me server", () => {
@@ -191,12 +191,9 @@ test(".me may pin the prod server (default whitelist)", () => {
   expect(creds.resolveServer()).toBe(creds.DEFAULT_SERVER);
 });
 
-test(".me pinning an untrusted server is a fatal error (credential-theft guard)", () => {
+test("human CLI ignores an untrusted .me server", () => {
   writeMe("server: https://attacker.example\n");
-  expect(() => creds.resolveServer()).toThrow(ProjectConfigError);
-  expect(() => creds.resolveServer()).toThrow(
-    /not in your trusted server list/,
-  );
+  expect(creds.resolveServer()).toBe(creds.DEFAULT_SERVER);
 });
 
 test("an explicit --server / ME_SERVER bypasses the whitelist (user's own choice)", () => {
@@ -208,21 +205,21 @@ test("an explicit --server / ME_SERVER bypasses the whitelist (user's own choice
   expect(creds.resolveServer()).toBe("https://env-picked.example");
 });
 
-test("server_whitelist in the global config trusts an extra .me server", () => {
+test("server_whitelist does not make a .me server active for human CLI", () => {
   mkdirSync(join(configDir, "me"), { recursive: true });
   writeFileSync(
     join(configDir, "me", "config.yaml"),
     "server_whitelist:\n  - https://internal.example.com\n",
   );
   writeMe("server: https://internal.example.com\n");
-  expect(creds.resolveServer()).toBe("https://internal.example.com");
+  expect(creds.resolveServer()).toBe(creds.DEFAULT_SERVER);
 });
 
 test("me login (storeTokens) trusts the server it logged into", () => {
   creds.storeTokens("https://loggedin.example.com", TOKENS);
   // getServerWhitelist now includes the logged-into server...
   expect(creds.getServerWhitelist()).toContain("https://loggedin.example.com");
-  // ...so a .me pinning it is honored.
+  // ...but project configuration never changes normal CLI targeting.
   writeMe("server: https://loggedin.example.com\n");
   expect(creds.resolveServer()).toBe("https://loggedin.example.com");
 });
@@ -243,15 +240,14 @@ test("a non-string server_whitelist entry is a fatal config error", () => {
   expect(() => creds.getServerWhitelist()).toThrow(/Invalid server_whitelist/);
 });
 
-test(".me server that isn't a valid http(s) URL fails with a clear error", () => {
+test("human CLI ignores malformed .me server pins", () => {
   writeMe("server: not-a-url\n");
-  expect(() => creds.resolveServer()).toThrow(ProjectConfigError);
-  expect(() => creds.resolveServer()).toThrow(/invalid server/i);
+  expect(creds.resolveServer()).toBe(creds.DEFAULT_SERVER);
 });
 
-test("a non-http(s) .me server scheme is rejected", () => {
+test("human CLI ignores non-http .me server pins", () => {
   writeMe("server: ftp://api.memory.build\n");
-  expect(() => creds.resolveServer()).toThrow(/must use http/i);
+  expect(creds.resolveServer()).toBe(creds.DEFAULT_SERVER);
 });
 
 test("resolveServer normalizes a hand-edited default_server (trailing slash)", () => {
@@ -264,15 +260,15 @@ test("resolveServer normalizes a hand-edited default_server (trailing slash)", (
   expect(creds.resolveServer()).toBe("https://api.memory.build");
 });
 
-test(".me space drives resolveSpace + resolveCredentials.activeSpace", () => {
+test("human CLI ignores .me space", () => {
   writeMe("space: sp_from_me\n");
-  expect(creds.resolveSpace(SERVER)).toBe("sp_from_me");
-  expect(creds.resolveCredentials().activeSpace).toBe("sp_from_me");
+  expect(creds.resolveSpace(SERVER)).toBeUndefined();
+  expect(creds.resolveCredentials().activeSpace).toBeUndefined();
 });
 
-test(".me tree surfaces as resolveCredentials.tree", () => {
+test("human CLI ignores .me tree", () => {
   writeMe("tree: ~/projects/foo\n");
-  expect(creds.resolveCredentials().tree).toBe("~/projects/foo");
+  expect(creds.resolveCredentials().tree).toBeUndefined();
 });
 
 test("tree_root: unset by default; a config value surfaces as treeRoot", () => {
@@ -281,11 +277,11 @@ test("tree_root: unset by default; a config value surfaces as treeRoot", () => {
   mkdirSync(join(configDir, "me"), { recursive: true });
   writeFileSync(join(configDir, "me", "config.yaml"), "tree_root: ~/work\n");
   expect(creds.resolveCredentials().treeRoot).toBe("~/work");
-  // Independent axes: a .me `tree` (full node) rides alongside the parent.
+  // A project tree no longer affects normal CLI targeting.
   writeMe("tree: /share/projects/foo\n");
   const r = creds.resolveCredentials();
   expect(r.treeRoot).toBe("~/work");
-  expect(r.tree).toBe("/share/projects/foo");
+  expect(r.tree).toBeUndefined();
 });
 
 test("a non-boolean capture in the global config is a fatal error", () => {
@@ -439,18 +435,18 @@ test("legacy ME_AS_AGENT env is inert — never bleeds into ResolvedCredentials"
 test("legacy project agent: is accepted, preserved, and never surfaces as asAgent", () => {
   writeMe("agent: repo-agent\nspace: abc123def456\n");
   const resolved = creds.resolveCredentials(SERVER);
-  expect(resolved.activeSpace).toBe("abc123def456"); // rest of the config still applies
+  expect(resolved.activeSpace).toBeUndefined();
   expect(resolved).not.toHaveProperty("asAgent");
 });
 
-test("capture: a .me project capture overrides the machine-wide flag per project", () => {
+test("capture: .me project capture does not affect machine-wide resolution", () => {
   creds.setCaptureEnabled(true);
   writeMe("capture: false\n");
-  expect(creds.resolveCredentials(SERVER).captureEnabled).toBe(false); // project opt-out wins
+  expect(creds.resolveCredentials(SERVER).captureEnabled).toBe(true);
 
   creds.setCaptureEnabled(false);
   writeMe("capture: true\n");
-  expect(creds.resolveCredentials(SERVER).captureEnabled).toBe(true); // committed team opt-in wins
+  expect(creds.resolveCredentials(SERVER).captureEnabled).toBe(false);
 
   writeMe("space: abc123def456\n"); // no capture key → global (off) governs
   expect(creds.resolveCredentials(SERVER).captureEnabled).toBe(false);

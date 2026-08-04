@@ -16,18 +16,17 @@ import type { StepAvailability } from "../agent/init.ts";
 import { createMemoryClient } from "../client.ts";
 import { resolveCredentials } from "../credentials.ts";
 import { installHarness, isHarnessInstalled } from "../harness/registry.ts";
-import { importTranscriptSession } from "../importers/index.ts";
+import {
+  DEFAULT_PRIVATE_TREE_ROOT,
+  importTranscriptSession,
+} from "../importers/index.ts";
 import { parseSessionById } from "../importers/opencode.ts";
+import { type CaptureSurface, resolveCaptureProfile } from "../local-config.ts";
 import {
   HOOK_EVENT_NAMES,
   type HookEventName,
-  resolveHookConfig,
   SESSIONS_NODE,
 } from "../opencode/capture.ts";
-import {
-  discoverProjectConfig,
-  setConfigDirOverride,
-} from "../project-config.ts";
 import { memoryBearer } from "../session.ts";
 import { createOpenCodeImportCommand } from "./import.ts";
 import {
@@ -101,7 +100,7 @@ function createOpenCodeHookCommand(): Command {
           projectDir?: string;
           fullTranscript?: boolean;
         },
-        cmd: Command,
+        _cmd: Command,
       ) => {
         const eventName = opts.event as HookEventName;
         if (!HOOK_EVENT_NAMES.includes(eventName)) {
@@ -111,43 +110,21 @@ function createOpenCodeHookCommand(): Command {
           process.exit(0);
         }
 
-        const globalOpts = cmd.optsWithGlobals();
-        // `.me` server/space/tree come via resolveCredentials, scoped to the
-        // session's own project dir (explicit --project-dir from the plugin,
-        // matching the Claude hook's explicit-anchor approach) — falling back
-        // to a cwd walk-up when absent (an older plugin, or a direct manual
-        // call). A broken `.me` is fatal for direct CLI use, but the hook is
-        // best-effort: log + exit 0 so a typo never blocks capture.
-        let config: ReturnType<typeof resolveHookConfig>;
+        let policy: CaptureSurface | undefined;
         try {
-          const project = opts.projectDir
-            ? discoverProjectConfig(opts.projectDir)
-            : undefined;
-          if (project) setConfigDirOverride(project.dir);
-          const creds = resolveCredentials(globalOpts.server);
-          // The hook ships inert — the ONE capture model shared with Claude:
-          // project `.me` `capture` > the machine-wide flag > off (both folded
-          // into `captureEnabled`). A deliberate opt-out exits 0 SILENTLY,
-          // distinct from the "no credentials" error below.
-          if (!creds.captureEnabled) process.exit(0);
-          config = resolveHookConfig(creds, {
-            fullTranscript: opts.fullTranscript,
-          });
+          policy = resolveCaptureProfile(
+            opts.projectDir ?? process.env.ME_PROJECT_DIR ?? process.cwd(),
+          ).value;
         } catch (error) {
           console.error(
             `[memory-engine] ${eventName}: ${error instanceof Error ? error.message : String(error)}`,
           );
           process.exit(0);
         }
-        if (!config) {
-          // resolveHookConfig returns null for a missing bearer OR a missing
-          // space — name both so the fix is actionable either way.
-          console.error(
-            "[memory-engine] missing credentials or space. Run `me login` and " +
-              "`me space use <space>`, or set ME_API_KEY + ME_SPACE.",
-          );
+        if (!policy?.enabled || policy.harnesses.opencode !== true)
           process.exit(0);
-        }
+        const { server, space } = policy;
+        if (!server || !space) process.exit(0);
 
         // Resolve the session id from SQLite when available, falling back to
         // the legacy JSON storage tree.
@@ -169,16 +146,18 @@ function createOpenCodeHookCommand(): Command {
 
         // Import the session (incremental; same path as `me import opencode`).
         try {
+          const creds = resolveCredentials(server);
+          if (!creds.apiKey && !creds.loggedIn) process.exit(0);
           const client = createMemoryClient({
-            url: config.server,
-            ...memoryBearer(config.server, config.apiKey),
-            space: config.space,
+            url: server,
+            ...memoryBearer(server, creds.apiKey),
+            space,
           });
           await importTranscriptSession(client, session, {
-            treeRoot: config.treeRoot,
-            tree: config.tree,
+            treeRoot: policy.tree_root ?? DEFAULT_PRIVATE_TREE_ROOT,
+            tree: policy.tree,
             sessionsNodeName: SESSIONS_NODE,
-            fullTranscript: config.fullTranscript,
+            fullTranscript: opts.fullTranscript ?? false,
             dryRun: false,
             verbose: false,
           });

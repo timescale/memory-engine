@@ -97,6 +97,46 @@ describe("Gemini integration adapter", () => {
     });
   });
 
+  test("preserves all recorded artifacts on a Gemini reinstall", async () => {
+    await withSettings(async (path) => {
+      const mcp = {
+        kind: "mcp-cli" as const,
+        server_name: "me" as const,
+        scope: "user" as const,
+      };
+      const hook = {
+        kind: "json-hook" as const,
+        path,
+        event: "BeforeTool" as const,
+        command: "me gemini env-hook",
+      };
+      const extra = {
+        kind: "file" as const,
+        path: join(path, "legacy.json"),
+        sha256: "a".repeat(64),
+      };
+      const existing = {
+        installed_at: "2026-08-04T00:00:00.000Z",
+        me_version: "0.0.0",
+        artifacts: [mcp, hook, extra],
+      };
+
+      const result = await installGeminiIntegration(
+        path,
+        async () => ({
+          success: true,
+          preserved: true,
+          message: "already registered",
+        }),
+        existing,
+        undefined,
+        () => false,
+      );
+
+      expect(result.artifacts).toEqual(existing.artifacts);
+    });
+  });
+
   test("does not register MCP when Gemini hook configuration is malformed", async () => {
     await withSettings(async (path) => {
       writeFileSync(path, JSON.stringify({ hooks: { BeforeTool: "invalid" } }));

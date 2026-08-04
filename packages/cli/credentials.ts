@@ -43,7 +43,6 @@ import { join } from "node:path";
 import { parse, stringify } from "yaml";
 import { keychainDelete, keychainGet, keychainSet } from "./keychain.ts";
 import {
-  getProjectConfig,
   type ProjectConfig,
   ProjectConfigError,
   VALID_TREE_PATH_RE,
@@ -537,8 +536,7 @@ export function resolveSpace(
 ): string | undefined {
   if (flagValue) return flagValue;
   if (process.env.ME_SPACE) return process.env.ME_SPACE;
-  const projectSpace = getProjectConfig()?.space;
-  if (projectSpace) return projectSpace;
+  if (harnessCliOverride?.space) return harnessCliOverride.space;
   return getServerConfig(server).active_space;
 }
 
@@ -574,10 +572,18 @@ export function getGlobalCaptureEnabled(): boolean {
  * could be mistakenly passed through.
  */
 let serverFlagOverride: string | undefined;
+let harnessCliOverride: { server?: string; space?: string } | undefined;
 
 /** Seed the `--server` flag override (called once from `preAction`). */
 export function setServerFlagOverride(value: string | undefined): void {
   serverFlagOverride = value;
+}
+
+/** Seeded once for a known harness shell selected by machine-local policy. */
+export function setHarnessCliOverride(
+  value: { server?: string; space?: string } | undefined,
+): void {
+  harnessCliOverride = value;
 }
 
 // =============================================================================
@@ -644,7 +650,7 @@ function projectServerOrigin(raw: string): string {
  * branch returns a normalized origin.
  */
 export function resolveServer(flagValue?: string): string {
-  return resolveServerFor(getProjectConfig(), flagValue);
+  return resolveServerFor(undefined, flagValue);
 }
 
 /**
@@ -660,6 +666,8 @@ function resolveServerFor(
   const flag = flagValue ?? serverFlagOverride;
   if (flag) return normalizeOrigin(flag);
   if (process.env.ME_SERVER) return normalizeOrigin(process.env.ME_SERVER);
+  if (!project && harnessCliOverride?.server)
+    return normalizeOrigin(harnessCliOverride.server);
   const projectServer = project?.server;
   if (projectServer) {
     const origin = projectServerOrigin(projectServer);
@@ -687,7 +695,7 @@ export function getDefaultServer(): string {
  * they only ever come from ME_API_KEY.
  */
 export function resolveCredentials(serverFlag?: string): ResolvedCredentials {
-  return credentialsFor(getProjectConfig(), serverFlag);
+  return credentialsFor(undefined, serverFlag);
 }
 
 /**
