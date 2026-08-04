@@ -81,7 +81,12 @@ function parseTemporal(value: string): { start: string; end?: string | null } {
 }
 
 function parseSelect(value: string): ParsedSelect {
-  return parseSelectFields(value.split(",").map((field) => field.trim()));
+  try {
+    return parseSelectFields(value.split(",").map((field) => field.trim()));
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error);
+    throw new Error(`Invalid --select: ${msg}`);
+  }
 }
 
 export function parseMaxCount(value: string | undefined): number | undefined {
