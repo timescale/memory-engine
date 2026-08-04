@@ -22,9 +22,19 @@ export const OAUTH_CLIENT_ID = "me-cli";
 export const OAUTH_SCOPE = "offline_access";
 
 export class OAuthError extends Error {
-  constructor(message: string) {
+  /**
+   * The OAuth 2.0 error code from the token-endpoint JSON body (RFC 6749 §5.2),
+   * e.g. `"invalid_grant"`, when the failure was an OAuth error response.
+   * Undefined for transport/network failures. Lets callers distinguish a
+   * genuinely dead refresh token (re-login required) from a transient failure
+   * (retryable) — see session.ts.
+   */
+  readonly code?: string;
+
+  constructor(message: string, code?: string) {
     super(message);
     this.name = "OAuthError";
+    this.code = code;
   }
 }
 
@@ -149,5 +159,17 @@ function toTokens(t: client.TokenEndpointResponse): OAuthTokens {
 
 function toOAuthError(error: unknown): OAuthError {
   if (error instanceof OAuthError) return error;
-  return new OAuthError(error instanceof Error ? error.message : String(error));
+  // openid-client throws `ResponseBodyError` (re-exported from oauth4webapi) for
+  // an OAuth error response; its `error` field carries the code (e.g.
+  // "invalid_grant"). Duck-type it so we don't couple to the class identity
+  // across the wrapper, and prefer the server's `error_description` as message.
+  const code =
+    error instanceof client.ResponseBodyError ? error.error : undefined;
+  const message =
+    error instanceof client.ResponseBodyError
+      ? (error.error_description ?? error.error)
+      : error instanceof Error
+        ? error.message
+        : String(error);
+  return new OAuthError(message, code);
 }
