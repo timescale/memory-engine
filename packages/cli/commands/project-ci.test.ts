@@ -33,6 +33,9 @@ describe("me ci install", () => {
     const command = createCiInstallCommand();
     expect(command.name()).toBe("ci");
     expect(command.commands.map((child) => child.name())).toContain("install");
+    expect(
+      command.commands[0]?.options.some((option) => option.long === "--server"),
+    ).toBe(true);
   });
 
   test("parses GitHub remotes", () => {
@@ -73,8 +76,14 @@ describe("me ci install", () => {
   });
 
   test("validates workflow-only credential flags", () => {
-    expect(buildCiInstallOptions({ workflowOnly: true })).toMatchObject({
+    expect(
+      buildCiInstallOptions({
+        workflowOnly: true,
+        server: "https://me.example.test",
+      }),
+    ).toMatchObject({
       workflowOnly: true,
+      server: "https://me.example.test",
       secretName: DEFAULT_SECRET_NAME,
     });
     expect(() =>

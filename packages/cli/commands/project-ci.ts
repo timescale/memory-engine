@@ -32,6 +32,7 @@ const TREE_PATH_RE = /^~$|^(?:~[./]|\/)?[A-Za-z0-9_-]+(?:[./][A-Za-z0-9_-]+)*$/;
 const SPACE_SLUG_RE = /^[a-z0-9]{12}$/;
 
 interface CiInstallOptions {
+  server?: string;
   space?: string;
   tree?: string;
   secretName: string;
@@ -116,6 +117,7 @@ export function writeWorkflow(
 export function buildCiInstallOptions(
   raw: Record<string, unknown>,
 ): CiInstallOptions {
+  const server = typeof raw.server === "string" ? raw.server : undefined;
   const space = typeof raw.space === "string" ? raw.space : undefined;
   const tree = typeof raw.tree === "string" ? raw.tree : undefined;
   const secretName =
@@ -143,6 +145,7 @@ export function buildCiInstallOptions(
     );
   }
   return {
+    server,
     space,
     tree,
     secretName,
@@ -447,7 +450,8 @@ export async function runCiInstall(
     );
   }
 
-  const creds = resolveCredentials();
+  // A subcommand server is more specific than the root-level --server option.
+  const creds = resolveCredentials(opts.server);
   let space = opts.space;
   let isAdmin = false;
   if (!space) {
@@ -634,6 +638,7 @@ export function createCiInstallCommand(): Command {
   );
   ci.command("install")
     .description("generate .github/workflows/me-import.yml")
+    .option("--server <url>", "Memory Engine server URL")
     .option("--space <slug>", "Memory Engine space (required off-TTY)")
     .option(
       "--tree <path>",
