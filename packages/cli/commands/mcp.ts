@@ -92,9 +92,16 @@ export function createMcpRunAction(
       agent && HARNESS_NAMES.includes(agent as HarnessName)
         ? (agent as HarnessName)
         : undefined;
-    const policy = harness
-      ? resolveMcpProfile(process.env.ME_PROJECT_DIR ?? process.cwd()).value
-      : undefined;
+    let policy: ReturnType<typeof resolveMcpProfile>["value"];
+    try {
+      policy = harness
+        ? resolveMcpProfile(process.env.ME_PROJECT_DIR ?? process.cwd()).value
+        : undefined;
+    } catch {
+      // A malformed local policy fails closed: keep the dispatcher alive with
+      // no tools rather than breaking the harness session.
+      policy = undefined;
+    }
     if (!policy?.enabled || !harness || policy.harnesses[harness] !== true) {
       await dependencies.runMcpServer({
         server: "https://api.memory.build",
