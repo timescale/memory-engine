@@ -49,7 +49,7 @@ of its slugs as the required `space` argument to a memory tool. Add `--space
 
 See the agent-specific command references for details: [`me opencode install`](cli/me-opencode.md#me-opencode-install) and [`me codex install`](cli/me-codex.md#me-codex-install).
 
-These installers are mechanical and **dormant**: they wire up the MCP entry and (for Claude Code and OpenCode) the capture plumbing, but they never log in, write credentials, or turn anything on. Enable capture and point it at a server, space, and tree with [`me init`](cli/me-init.md); inspect the policy that applies to a directory with [`me doctor`](cli/me-doctor.md).
+These installers are mechanical and **dormant**: they wire up the MCP entry and (for Claude Code, OpenCode, and Codex) the capture plumbing, but they never log in, write credentials, or turn anything on. Enable capture and point it at a server, space, and tree with [`me init`](cli/me-init.md); inspect the policy that applies to a directory with [`me doctor`](cli/me-doctor.md).
 
 | Tool | Install command |
 |------|-----------------|
