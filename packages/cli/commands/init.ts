@@ -16,6 +16,19 @@ function harnesses(values: string[]): Record<string, true> {
   return Object.fromEntries(values.map((value) => [value, true]));
 }
 
+export function validateInitServer(value: string, option: string): string {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    throw new InvalidArgumentError(`${option} must be an absolute http(s) URL`);
+  }
+  if (url.protocol !== "http:" && url.protocol !== "https:") {
+    throw new InvalidArgumentError(`${option} must use http(s)`);
+  }
+  return value;
+}
+
 export function createInitCommand(): Command {
   return new Command("init")
     .description("configure machine-local harness policy")
@@ -98,7 +111,7 @@ export function createInitCommand(): Command {
         }
         profile.mcp = {
           enabled: true,
-          server: opts.mcpServer,
+          server: validateInitServer(opts.mcpServer, "--mcp-server"),
           ...(opts.mcpSpace ? { space: opts.mcpSpace } : {}),
           harnesses: harnesses(opts.mcpHarness),
         };
@@ -128,7 +141,7 @@ export function createInitCommand(): Command {
         }
         profile.capture = {
           enabled: true,
-          server: opts.captureServer,
+          server: validateInitServer(opts.captureServer, "--capture-server"),
           space: opts.captureSpace,
           ...(opts.captureTree ? { tree: opts.captureTree } : {}),
           ...(opts.captureTreeRoot ? { tree_root: opts.captureTreeRoot } : {}),
@@ -143,7 +156,7 @@ export function createInitCommand(): Command {
           );
         }
         profile.cli = {
-          server: opts.cliServer,
+          server: validateInitServer(opts.cliServer, "--cli-server"),
           ...(opts.cliSpace ? { space: opts.cliSpace } : {}),
           harnesses: harnesses(opts.cliHarness),
         };
