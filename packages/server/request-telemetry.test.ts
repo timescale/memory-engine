@@ -62,6 +62,41 @@ describe("httpRequestTelemetryAttributes", () => {
     expect(attributes["client.mode"]).toBeUndefined();
   });
 
+  test("drops token-endpoint identity headers that don't match the expected shape", () => {
+    // Bounded length but wrong content — an attacker can't inflate root-span
+    // cardinality by spraying arbitrary strings into these attributes.
+    const attributes = httpRequestTelemetryAttributes(
+      new Request("https://api.memory.build/api/v1/auth/oauth2/token", {
+        headers: {
+          "User-Agent": "curl/8.4.0",
+          "X-Me-Client-Instance": "not-a-uuid",
+          "X-Me-Client-Mode": "attacker",
+        },
+      }),
+    );
+
+    expect(attributes["client.user_agent"]).toBeUndefined();
+    expect(attributes["client.instance.id"]).toBeUndefined();
+    expect(attributes["client.mode"]).toBeUndefined();
+  });
+
+  test("accepts each token-endpoint identity header independently of the others", () => {
+    // A valid CLI user-agent with a bogus instance/mode still records the UA,
+    // and vice versa — validation is per-field.
+    const attributes = httpRequestTelemetryAttributes(
+      new Request("https://api.memory.build/api/v1/auth/oauth2/token", {
+        headers: {
+          "User-Agent": "memory-engine-cli/0.6.2",
+          "X-Me-Client-Instance": "not-a-uuid",
+          "X-Me-Client-Mode": "cli",
+        },
+      }),
+    );
+    expect(attributes["client.user_agent"]).toBe("memory-engine-cli/0.6.2");
+    expect(attributes["client.instance.id"]).toBeUndefined();
+    expect(attributes["client.mode"]).toBe("cli");
+  });
+
   test("classifies invalid_grant as an expected token-grant outcome", async () => {
     const attributes = await tokenResponseTelemetryAttributes(
       new Request("https://api.memory.build/api/v1/auth/oauth2/token"),
