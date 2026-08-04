@@ -102,7 +102,7 @@ export function createMcpRunAction(
       // no tools rather than breaking the harness session.
       policy = undefined;
     }
-    if (!policy?.enabled || !harness || policy.harnesses[harness] !== true) {
+    if (harness && (!policy?.enabled || policy.harnesses[harness] !== true)) {
       await dependencies.runMcpServer({
         server: "https://api.memory.build",
         bearer: {
@@ -119,7 +119,7 @@ export function createMcpRunAction(
     // "" (or the literal placeholder) when left blank — it must fall back to the
     // live `me` config (ME_SERVER / default_server), not be used verbatim.
     const creds = dependencies.resolveCredentials(
-      blankFlag(opts.server) ?? policy.server,
+      blankFlag(opts.server) ?? policy?.server,
     );
 
     // Bearer: --api-key > ME_API_KEY (creds.apiKey), else the logged-in human's
@@ -144,7 +144,7 @@ export function createMcpRunAction(
 
     const space = resolveMcpSpace(
       opts.space,
-      process.env.ME_SPACE ?? policy.space,
+      process.env.ME_SPACE ?? policy?.space,
     );
 
     await dependencies.runMcpServer({
