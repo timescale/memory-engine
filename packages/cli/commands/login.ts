@@ -231,7 +231,7 @@ export function createLoginCommand(): Command {
             if (active) {
               clack.log.info(`Space:  ${formatSpaceLabel(active)}`);
               clack.note(
-                "Run 'me project init' at the root of a software development\nproject to set up its memory (space and capture).",
+                "Install the integration for your coding agent (e.g. 'me claude\ninstall'), then 'me init' to turn on capture for a project.",
                 "Next step",
               );
             } else if (spaces.length === 0) {

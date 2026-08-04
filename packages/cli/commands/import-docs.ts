@@ -588,7 +588,7 @@ export function createDocsImportCommand(): Command {
     .argument("[dir]", "directory to import (default: cwd)")
     .option(
       "--tree <path>",
-      `full project tree to place '${DOCS_NODE_NAME}' under, no slug appended (default: .me tree, else <tree_root ?? ${DEFAULT_PRIVATE_TREE_ROOT}>.<slug> — private)`,
+      `full project tree to place '${DOCS_NODE_NAME}' under, no slug appended (default: ${DEFAULT_PRIVATE_TREE_ROOT}.<slug> — private)`,
     )
     .option(
       "--include <globs...>",

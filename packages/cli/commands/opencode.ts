@@ -10,21 +10,21 @@ import { createMemoryClient } from "../client.ts";
 import { resolveCredentials } from "../credentials.ts";
 import {
   DEFAULT_PRIVATE_TREE_ROOT,
+  DEFAULT_SESSIONS_NODE_NAME,
   importTranscriptSession,
 } from "../importers/index.ts";
 import { parseSessionById } from "../importers/opencode.ts";
 import { type CaptureSurface, resolveCaptureProfile } from "../local-config.ts";
-import {
-  HOOK_EVENT_NAMES,
-  type HookEventName,
-  SESSIONS_NODE,
-} from "../opencode/capture.ts";
 import { memoryBearer } from "../session.ts";
 import { createOpenCodeImportCommand } from "./import.ts";
 import {
   createHarnessInstallCommand,
   createHarnessUninstallCommand,
 } from "./install.ts";
+
+const HOOK_EVENT_NAMES = ["idle", "deleted"] as const;
+type HookEventName = (typeof HOOK_EVENT_NAMES)[number];
+const SESSIONS_NODE = DEFAULT_SESSIONS_NODE_NAME;
 
 function createOpenCodeInstallCommand(): Command {
   return createHarnessInstallCommand("opencode");

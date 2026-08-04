@@ -142,7 +142,7 @@ me import git [repo] [options]
 | `--full` | Walk the full history (skip the incremental high-water lookup). |
 | `--no-merges` | Drop all merge commits. |
 | `--no-file-list` | Omit the changed-file list from commit memories. |
-| `--tree <path>` | Full project tree to place `git_history` under (no slug appended — `me import git` is single-repo). Default: the **target repo's** [`.me` tree](../project-config.md) (resolved from the repo path, so it works from any cwd; its `.me` server/space pins apply too, whitelist-gated), else `<tree_root>/<slug>` (your global [`tree_root`](../project-config.md#changing-the-default-tree-root-tree_root) override, default the private `~/projects`). |
+| `--tree <path>` | Full project tree to place `git_history` under (no slug appended — `me import git` is single-repo). Default: `~/projects/<slug>` — private. |
 | `--dry-run` | Parse and report what would be imported without writing. |
 | `-v, --verbose` | Per-commit progress output. |
 
@@ -154,7 +154,7 @@ Each commit is a named leaf (the commit `<sha>`) under the project's `git_histor
 <tree>/git_history/<sha>
 ```
 
-`<tree>` is the full project node — `--tree`, else the repo's [`.me` tree](../project-config.md), else `<tree_root>/<project_slug>` (the private `~/projects` unless your global config overrides `tree_root`). The default project slug is derived exactly as for [agent session imports](agent-session-imports.md#tree-layout) (git remote repo name, else repo root directory name), so a project's commit history sits next to its `agent_sessions` node — e.g. a commit lands at `~/projects/memory_engine/git_history/<sha>` and is addressable by that path (or at `/share/projects/memory_engine/git_history/<sha>` when the project's `.me` tree pins the shared layout).
+`<tree>` is the full project node — `--tree`, else `~/projects/<project_slug>` (private). The default project slug is derived exactly as for [agent session imports](agent-session-imports.md#tree-layout) (git remote repo name, else repo root directory name), so a project's commit history sits next to its `agent_sessions` node — e.g. a commit lands at `~/projects/memory_engine/git_history/<sha>` and is addressable by that path (or at `/share/projects/memory_engine/git_history/<sha>` when you pass `--tree /share/projects/memory_engine`).
 
 ### Content shape
 
@@ -213,7 +213,7 @@ me import docs [dir] [options]
 
 | Option | Description |
 |--------|-------------|
-| `--tree <path>` | Full project tree to place `docs` under (no slug appended). Default: the repo/project [`.me` tree](../project-config.md), else `<tree_root>/<slug>` (your global [`tree_root`](../project-config.md#changing-the-default-tree-root-tree_root) override, default the private `~/projects`). An explicit `--tree` controls only the destination; it does not imply git-aware discovery. |
+| `--tree <path>` | Full project tree to place `docs` under (no slug appended). Default: `~/projects/<slug>` — private. An explicit `--tree` controls only the destination; it does not imply git-aware discovery. |
 | `--include <globs...>` | Glob patterns to import, **replacing** the default set (`**/*.md`, `**/*.markdown`, `**/*.mdx`). |
 | `--exclude <globs...>` | Glob patterns to drop from the include set. |
 | `--temporal-key <key>` | Frontmatter key parsed as the memory's temporal start (e.g. `date` for blogs/ADRs). In git-aware mode, falls back to git last-modified. |
@@ -243,9 +243,9 @@ Each file is a named leaf under the project's `docs` node, mirroring its directo
 
 Directory segments are normalized to ltree labels and the leaf name is a filename-derived slug keeping its (lowercased) extension, unique within its tree — e.g. `docs/guides/Getting Started.md` in repo `acme` lands at `~/projects/acme/docs/docs/guides/getting-started.md`. Files at the import root sit directly on the `docs` node.
 
-In plain mode, the fallback project slug comes from the import directory basename. With `--git-aware`, the fallback project slug comes from the git remote/repo root, so docs, git history, and agent sessions naturally sit beside each other. An explicit `--tree` or `.me` `tree` bypasses slug-derived placement entirely.
+In plain mode, the fallback project slug comes from the import directory basename. With `--git-aware`, the fallback project slug comes from the git remote/repo root, so docs, git history, and agent sessions naturally sit beside each other. An explicit `--tree` bypasses slug-derived placement entirely.
 
-Because slots derive from the import root while a git-aware fallback identity or [`.me` tree](../project-config.md) stays repo-level, runs rooted at different directories of the same repo would mint parallel corpora under one docs root — and a cross-root `--prune` would delete the other root's slots. So with `--git-aware`, an import root below the repo toplevel is **refused** unless `--allow-subdir-root` is passed; scope with `--include` from the toplevel instead, and if you do opt into a subfolder root, always use the same one. Plain mode needs no guard: it means exactly "the files under this directory".
+Because slots derive from the import root while a git-aware fallback identity stays repo-level, runs rooted at different directories of the same repo would mint parallel corpora under one docs root — and a cross-root `--prune` would delete the other root's slots. So with `--git-aware`, an import root below the repo toplevel is **refused** unless `--allow-subdir-root` is passed; scope with `--include` from the toplevel instead, and if you do opt into a subfolder root, always use the same one. Plain mode needs no guard: it means exactly "the files under this directory".
 
 ### Frontmatter is document data, never engine fields
 

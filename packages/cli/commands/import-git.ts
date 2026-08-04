@@ -397,7 +397,7 @@ export function createGitImportCommand(): Command {
     .option("--no-file-list", "omit the changed-file list from commit memories")
     .option(
       "--tree <path>",
-      `full project tree to place '${GIT_HISTORY_NODE_NAME}' under, no slug appended (default: the repo's .me tree, else <tree_root ?? ${DEFAULT_PRIVATE_TREE_ROOT}>.<slug> — private)`,
+      `full project tree to place '${GIT_HISTORY_NODE_NAME}' under, no slug appended (default: ${DEFAULT_PRIVATE_TREE_ROOT}.<slug> — private)`,
     )
     .option(
       "--dry-run",

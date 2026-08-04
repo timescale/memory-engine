@@ -61,20 +61,11 @@ me space use [space]
 |----------|----------|-------------|
 | `space` | no | Space slug or name. Prompts interactively if omitted. |
 
-The write goes to the config that **currently governs** the space resolution
-(like `git config` editing the effective scope):
+The active space is saved as the per-server `active_space` in your global
+`~/.config/me/config.yaml`. It applies to the resolved server (the `--server`
+flag or `ME_SERVER`, else your default server).
 
-- If a [`.me` project config](../project-config.md) in scope defines `space`,
-  that file is updated — `.me/config.local.yaml` if it defines `space` (it
-  overrides the committed file per field), else the committed `.me/config.yaml`.
-  If the effective server differs from what the project would resolve on its
-  own (e.g. a `--server` override), `server:` is rewritten alongside so the pin
-  stays self-consistent.
-- Otherwise, the per-server `active_space` in the global
-  `~/.config/me/config.yaml` is updated, as before.
-
-The command prints which file it saved to. Note that `ME_SPACE`, when set,
-still overrides whatever was saved.
+Note that `ME_SPACE`, when set, still overrides the saved active space.
 
 ---
 

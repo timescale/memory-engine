@@ -306,28 +306,6 @@ export function readLocalConfig(): LocalConfig {
   return parseLocalConfig(readRawConfig());
 }
 
-function migrateLegacyCapture(raw: RawConfig): void {
-  if (
-    raw.defaults !== undefined ||
-    (raw.capture === undefined && raw.tree_root === undefined)
-  )
-    return;
-  // The retired global capture switch had no harness selection. Keep the new
-  // profile inactive until `me init` explicitly selects one.
-  raw.defaults = {
-    capture: {
-      enabled: false,
-      ...(typeof raw.tree_root === "string"
-        ? { tree_root: raw.tree_root }
-        : {}),
-      harnesses: {},
-    },
-  };
-  // TODO: Remove these only after every capture runtime consumer resolves via
-  // local-config.ts and an explicit legacy-config removal path has shipped.
-  // Today's credentials resolver still reads top-level capture/tree_root.
-}
-
 function writeRawConfig(raw: RawConfig): void {
   const path = getGlobalConfigPath();
   mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
@@ -338,7 +316,6 @@ function writeRawConfig(raw: RawConfig): void {
 
 function writeProfile(profile: HarnessProfile, directory?: string): void {
   const raw = readRawConfig();
-  migrateLegacyCapture(raw);
   const current = parseLocalConfig(raw);
   if (directory === undefined) {
     parseProfile(profile, "defaults", "defaults");
@@ -454,7 +431,6 @@ export function resolveHarnessCliProfile(
 /** Remove one harness from every surface, pruning now-empty policy blocks. */
 export function removeHarnessFromProfiles(harness: HarnessName): void {
   const raw = readRawConfig();
-  migrateLegacyCapture(raw);
   const config = parseLocalConfig(raw);
   const pruneProfile = (
     profile: HarnessProfile,

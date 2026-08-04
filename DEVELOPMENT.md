@@ -540,8 +540,8 @@ something must answer those paths. Two ways to supply that backend:
   ME_SERVER=https://… ./bun run web:remote   # or any other backend
   ```
 
-  The backend is resolved like any `me` command (`ME_SERVER` env > `.me`
-  project config > global `default_server` > production). Open
+   The backend is resolved like any `me` command (`ME_SERVER` env > global
+   `default_server` > production). Open
   `http://localhost:5173`. Against production this is hot-reloading UI over
   **live** data — writes/deletes are real.
 

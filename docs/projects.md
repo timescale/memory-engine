@@ -1,17 +1,17 @@
 # Projects
 
 A Memory Engine **project** is a convention for one repository's memories. It is
-not a separate object in the server: a project is a tree path, usually recorded
-in the repo's `.me/config.yaml`, plus the grants that decide who can write there.
+not a separate object in the server: a project is a tree path, plus the grants
+that decide who can write there.
 
-Run [`me project init`](cli/me-project.md) from a repository to write the project
-config, enable capture, and optionally configure CI imports.
-The main choice is where the project's tree should live.
+Nothing in the repository configures this. You point a project's captures and
+imports at its tree with machine-local, per-directory policy ([`me init`](cli/me-init.md))
+and with the `--tree` / `--tree-root` flags on the import commands. The main
+choice is where the project's tree should live.
 
-Some layouts need help from a **space admin** or a path owner. You can run the
-project wizard yourself for layouts that use access you already have, but
-creating groups is admin-gated, and granting access requires owner access at the
-target path.
+Some layouts need help from a **space admin** or a path owner. You can set up
+layouts that use access you already have, but creating groups is admin-gated,
+and granting access requires owner access at the target path.
 
 ## Common Layouts
 
@@ -22,8 +22,8 @@ target path.
 | Only one group can read and write | `/<group>/<project>` | Grant that group `write` on the group or project path |
 | CI imports git/docs | The selected CI tree | `me ci install` can create a service account and grant it write access |
 
-Project trees are full paths. If `.me/config.yaml` says
-`tree: /share/projects/acme-api`, captures and imports land under that node:
+Project trees are full paths. When a project tree is `/share/projects/acme-api`,
+captures and imports land directly under that node:
 
 - `/share/projects/acme-api/agent_sessions`
 - `/share/projects/acme-api/git_history`
@@ -36,15 +36,15 @@ No extra project slug is appended.
 Use `/share/projects/<project>` when everyone in the space's default `team`
 group should be able to write memories for the repo.
 
+Point this directory's session capture at that tree (machine-local; each
+teammate runs it once for their own checkout):
+
 ```bash
-me project init
-```
-
-Choose the public location:
-
-```yaml
-# .me/config.yaml
-tree: /share/projects/acme-api
+me init . \
+  --capture-server https://api.memory.build \
+  --capture-space abc123def456 \
+  --capture-tree /share/projects/acme-api \
+  --capture-harness claude
 ```
 
 This works in a default space because the auto-provisioned `team` group carries:
@@ -54,7 +54,8 @@ This works in a default space because the auto-provisioned `team` group carries:
 
 Invitations add new members to `team` by default, so teammates can read shared
 knowledge and write under `/share/projects/...` without a per-project grant.
-This is the happy path for shared repository memory.
+This is the happy path for shared repository memory. One-off imports target the
+same tree with `--tree`, e.g. `me import git --tree /share/projects/acme-api`.
 
 ## Group-Writable Projects
 
@@ -72,12 +73,8 @@ me group add payments bob@example.com
 me access grant payments /share/payments w
 ```
 
-Then configure the repo with a custom project tree:
-
-```yaml
-# .me/config.yaml
-tree: /share/payments/acme-billing
-```
+Then point the repo's capture (and imports) at a tree under that group path,
+e.g. `--capture-tree /share/payments/acme-billing`.
 
 The grant at `/share/payments` covers every project below it. If you want one
 repo at a time instead, grant the project node directly:
@@ -106,18 +103,12 @@ me group add group-x bob@example.com
 me access grant group-x /group-x w
 ```
 
-Then configure the repo under that tree:
-
-```yaml
-# .me/config.yaml
-tree: /group-x/secret-project
-```
-
-A single write grant is enough when the same group should both read and write:
-`write` includes `read`.
+Then point the repo's capture at a tree under that node, e.g.
+`--capture-tree /group-x/secret-project`. A single write grant is enough when the
+same group should both read and write: `write` includes `read`.
 
 Put personal project notes under `~/projects/<project>` when they are only for
-you.
+you — that private layout is the default when you don't pin a `--capture-tree`.
 
 ## CI Imports
 
@@ -137,17 +128,18 @@ or per-group service accounts, grant only the specific project tree.
 
 ## Changing a Project Later
 
-To move a repository's future captures and imports, edit `.me/config.yaml` or
-rerun `me project init` and choose a different tree. Existing memories stay at
-their old paths until you move or copy them.
+To move a repository's future captures, rerun [`me init`](cli/me-init.md) for
+that directory with a different `--capture-tree`; for imports, pass a different
+`--tree`. Existing memories stay at their old paths until you move or copy them.
 
 Useful checks:
 
 ```bash
+me doctor
 me whoami
 me access mine --effective
 me tree /share/projects --levels 2
 ```
 
-See also [Project config](project-config.md), [`me project`](cli/me-project.md),
+See also [`me init`](cli/me-init.md), [`me doctor`](cli/me-doctor.md),
 [`me group`](cli/me-group.md), and [`me access`](cli/me-access.md).

@@ -193,7 +193,7 @@ describe("runImport with a SessionRouter", () => {
     const base = capturingEngine();
     const router: SessionRouter = (cwd) =>
       cwd === "/work/evil"
-        ? { skip: "untrusted_me_server" }
+        ? { skip: "unwritable_target" }
         : {
             route: {
               engine: base.engine,
@@ -212,7 +212,7 @@ describe("runImport with a SessionRouter", () => {
     );
 
     expect(result.sessionsProcessed).toBe(1);
-    expect(result.discovery.skipped.untrusted_me_server).toBe(1);
+    expect(result.discovery.skipped.unwritable_target).toBe(1);
     expect(base.writes).toHaveLength(1);
     expect(base.writes[0]?.tree).toContain("fine");
   });
