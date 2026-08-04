@@ -93,8 +93,8 @@ test("refuses an unrecorded preserved Codex MCP registration", async () => {
   expect(installedHook).toBe(false);
 });
 
-test("refuses an unrecorded Codex hook before registering MCP", () => {
-  withTmpDir(async (dir) => {
+test("refuses an unrecorded Codex hook before registering MCP", async () => {
+  await withTmpDir(async (dir) => {
     const path = join(dir, "hooks.json");
     installCodexEnvHook(path);
     let installedMcp = false;
@@ -108,6 +108,43 @@ test("refuses an unrecorded Codex hook before registering MCP", () => {
       }),
     ).rejects.toThrow("hook in");
     expect(installedMcp).toBe(false);
+  });
+});
+
+test("preserves all recorded artifacts on a Codex reinstall", async () => {
+  await withTmpDir(async (dir) => {
+    const hook = {
+      kind: "json-hook" as const,
+      path: join(dir, "hooks.json"),
+      event: "PreToolUse",
+      command: CODEX_ENV_HOOK_COMMAND,
+    };
+    const extra = {
+      kind: "file" as const,
+      path: join(dir, "legacy.json"),
+      sha256: "a".repeat(64),
+    };
+    const existing = {
+      installed_at: "2026-08-04T00:00:00.000Z",
+      me_version: "0.0.0",
+      artifacts: [
+        { kind: "mcp-cli" as const, server_name: "me" as const },
+        hook,
+        extra,
+      ],
+    };
+
+    const result = await installCodexIntegration(existing, {
+      hookPath: hook.path,
+      installMcp: async () => ({
+        success: true,
+        preserved: true,
+        message: "already registered",
+      }),
+      installHook: () => ({ artifact: hook, changed: false }),
+    });
+
+    expect(result.artifacts).toEqual(existing.artifacts);
   });
 });
 
