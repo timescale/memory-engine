@@ -1,6 +1,7 @@
 import { describe, expect, mock, test } from "bun:test";
 import { createHash } from "node:crypto";
 import * as realClient from "openid-client";
+import { CLIENT_VERSION } from "../../version";
 
 // Mock openid-client BEFORE importing ./oauth so the refresh-grant call is
 // intercepted. We spread the real module so the pure helpers (Configuration,
@@ -134,7 +135,9 @@ describe("refreshTokens error mapping", () => {
       globalThis.fetch = originalFetch;
     }
 
-    expect(request?.headers.get("user-agent")).toBe("memory-engine-cli/0.6.2");
+    expect(request?.headers.get("user-agent")).toBe(
+      `memory-engine-cli/${CLIENT_VERSION}`,
+    );
     expect(request?.headers.get("x-me-client-mode")).toBe("cli");
     expect(request?.headers.get("x-me-client-instance")).toMatch(
       /^[0-9a-f-]{36}$/,
