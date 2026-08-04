@@ -1,12 +1,30 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, mock, test } from "bun:test";
 import { createHash } from "node:crypto";
-import {
+import * as realClient from "openid-client";
+
+// Mock openid-client BEFORE importing ./oauth so the refresh-grant call is
+// intercepted. We spread the real module so the pure helpers (Configuration,
+// PKCE, authorize URL) keep working; only refreshTokenGrant is overridable.
+let refreshGrantImpl: (() => Promise<never>) | null = null;
+mock.module("openid-client", () => ({
+  ...realClient,
+  refreshTokenGrant: (
+    ...args: Parameters<typeof realClient.refreshTokenGrant>
+  ) =>
+    refreshGrantImpl
+      ? refreshGrantImpl()
+      : realClient.refreshTokenGrant(...args),
+}));
+
+const {
   buildAuthorizeUrl,
   generatePkce,
   generateState,
+  refreshTokens,
+  OAuthError,
   OAUTH_CLIENT_ID,
   OAUTH_SCOPE,
-} from "./oauth";
+} = await import("./oauth.ts");
 
 describe("PKCE", () => {
   test("challenge is S256(verifier) in base64url", async () => {
@@ -71,5 +89,59 @@ describe("buildAuthorizeUrl", () => {
       }),
     );
     expect(url.searchParams.get("prompt")).toBe("login");
+  });
+});
+
+describe("refreshTokens error mapping", () => {
+  test("maps an OAuth error response to OAuthError carrying the code", async () => {
+    const rbe = new realClient.ResponseBodyError("token endpoint error", {
+      cause: {
+        error: "invalid_grant",
+        error_description: "session not found",
+      },
+      response: new Response("{}", { status: 400 }),
+    });
+    // Sanity: oauth4webapi surfaces the OAuth code on `.error`.
+    expect(rbe.error).toBe("invalid_grant");
+    refreshGrantImpl = () => Promise.reject(rbe);
+
+    let caught: unknown;
+    try {
+      await refreshTokens({
+        server: "https://api.example.com",
+        refreshToken: "r1",
+      });
+    } catch (error) {
+      caught = error;
+    } finally {
+      refreshGrantImpl = null;
+    }
+
+    expect(caught).toBeInstanceOf(OAuthError);
+    expect((caught as InstanceType<typeof OAuthError>).code).toBe(
+      "invalid_grant",
+    );
+    // Prefers the server's human-readable description as the message.
+    expect((caught as Error).message).toBe("session not found");
+  });
+
+  test("a non-OAuth (transport) failure has no code", async () => {
+    refreshGrantImpl = () => Promise.reject(new Error("network down"));
+
+    let caught: unknown;
+    try {
+      await refreshTokens({
+        server: "https://api.example.com",
+        refreshToken: "r1",
+      });
+    } catch (error) {
+      caught = error;
+    } finally {
+      refreshGrantImpl = null;
+    }
+
+    expect(caught).toBeInstanceOf(OAuthError);
+    expect((caught as InstanceType<typeof OAuthError>).code).toBeUndefined();
+    expect((caught as Error).message).toBe("network down");
   });
 });

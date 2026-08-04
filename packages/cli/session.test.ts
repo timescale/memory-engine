@@ -7,7 +7,7 @@
  * without network or keychain.
  */
 import { afterEach, beforeEach, expect, mock, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, utimesSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -22,11 +22,16 @@ let refreshImpl: (p: { server: string; refreshToken: string }) => Promise<{
   scope?: string;
 }>;
 
+// The real OAuthError class, re-exported through the mock so session.ts's
+// `error instanceof OAuthError` check keys on the same identity our test throws.
+const { OAuthError } = await import("./oauth.ts");
+
 mock.module("./oauth.ts", () => ({
   refreshTokens: (p: { server: string; refreshToken: string }) => {
     refreshCalls++;
     return refreshImpl(p);
   },
+  OAuthError,
 }));
 
 const creds = await import("./credentials.ts");
@@ -167,4 +172,112 @@ test("concurrent expiring reads share a single refresh round-trip", async () => 
   expect(await a).toBe("new");
   expect(await b).toBe("new");
   expect(refreshCalls).toBe(1);
+});
+
+// =============================================================================
+// Track A — cross-process serialization: re-read the store instead of replaying
+// =============================================================================
+
+test("refreshFromStore returns a peer-rotated token without a network call", async () => {
+  // The store already holds a peer's rotated token (r1 → r2); our snapshot is r1.
+  creds.storeTokens(SERVER, {
+    access_token: "peer",
+    refresh_token: "r2",
+    expires_at: Date.now() + 3_600_000,
+  });
+  const result = await session.refreshFromStore(SERVER, {
+    access_token: "old",
+    refresh_token: "r1",
+    expires_at: Date.now() - 1_000,
+  });
+  expect(result?.access_token).toBe("peer");
+  expect(result?.refresh_token).toBe("r2");
+  expect(refreshCalls).toBe(0); // no replay of the now-revoked r1
+});
+
+test("refreshFromStore refreshes when the store still holds our refresh token", async () => {
+  creds.storeTokens(SERVER, {
+    access_token: "old",
+    refresh_token: "r1",
+    expires_at: Date.now() - 1_000,
+  });
+  refreshImpl = async () => ({
+    accessToken: "new",
+    refreshToken: "r2",
+    expiresIn: 3600,
+  });
+  const result = await session.refreshFromStore(SERVER, {
+    access_token: "old",
+    refresh_token: "r1",
+    expires_at: Date.now() - 1_000,
+  });
+  expect(result?.access_token).toBe("new");
+  expect(refreshCalls).toBe(1);
+});
+
+test("withRefreshLock serializes concurrent actions for one server", async () => {
+  let active = 0;
+  let maxActive = 0;
+  const action = async () => {
+    active++;
+    maxActive = Math.max(maxActive, active);
+    await new Promise((r) => setTimeout(r, 20));
+    active--;
+    return "ok";
+  };
+  const results = await Promise.all([
+    session.withRefreshLock(SERVER, action),
+    session.withRefreshLock(SERVER, action),
+    session.withRefreshLock(SERVER, action),
+  ]);
+  expect(results).toEqual(["ok", "ok", "ok"]);
+  expect(maxActive).toBe(1); // never two refreshes in flight at once
+});
+
+test("withRefreshLock reclaims a stale lock left by a crashed holder", async () => {
+  const lock = session.lockPath(SERVER);
+  mkdirSync(lock, { recursive: true });
+  const stale = new Date(Date.now() - 60_000); // older than LOCK_STALE_MS
+  utimesSync(lock, stale, stale);
+  const result = await session.withRefreshLock(SERVER, async () => "ran");
+  expect(result).toBe("ran");
+});
+
+// =============================================================================
+// Track B — invalid_grant recovery: re-read a peer/prior fresh set before
+// forcing a re-login; distinguish a dead token from a transient failure.
+// =============================================================================
+
+test("invalid_grant recovers a concurrently-persisted fresh token", async () => {
+  creds.storeTokens(SERVER, {
+    access_token: "old",
+    refresh_token: "r1",
+    expires_at: Date.now() - 1_000,
+  });
+  refreshImpl = async () => {
+    // A peer rotated + persisted before our own exchange came back invalid_grant
+    // (the losing side of a race, or a lost response from a prior refresh).
+    creds.storeTokens(SERVER, {
+      access_token: "peer",
+      refresh_token: "r2",
+      expires_at: Date.now() + 3_600_000,
+    });
+    throw new OAuthError("session not found", "invalid_grant");
+  };
+  expect(await session.refreshAccessToken(SERVER)).toBe("peer");
+  expect(refreshCalls).toBe(1);
+});
+
+test("invalid_grant with no fresher stored token gives up", async () => {
+  creds.storeTokens(SERVER, {
+    access_token: "old",
+    refresh_token: "r1",
+    expires_at: Date.now() - 1_000,
+  });
+  refreshImpl = async () => {
+    throw new OAuthError("session not found", "invalid_grant");
+  };
+  expect(await session.refreshAccessToken(SERVER)).toBeUndefined();
+  // getAccessToken still falls back to the stale token (the 401 path is backstop).
+  expect(await session.getAccessToken(SERVER)).toBe("old");
 });

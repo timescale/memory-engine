@@ -37,7 +37,16 @@
  * A pre-split credentials.yaml (which once held default_server + active_space
  * next to the token) is migrated to this layout on first read.
  */
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+
+import { randomUUID } from "node:crypto";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  renameSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { parse, stringify } from "yaml";
@@ -242,6 +251,38 @@ function ensureDir(): void {
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true, mode: 0o700 });
 }
 
+/**
+ * Absolute path for a named lock (a directory used as a cross-process mutex) in
+ * the config dir, ensuring the dir exists. The session layer serializes token
+ * refreshes on such a lock so concurrent `me` processes on one host don't race
+ * the rotating refresh token (see session.ts).
+ */
+export function getConfigLockPath(name: string): string {
+  ensureDir();
+  return join(getConfigDir(), name);
+}
+
+/**
+ * Write `contents` to `path` atomically: write a sibling temp file, fsync-free
+ * `rename` over the target (atomic on POSIX), and clean up the temp on failure.
+ * A crash mid-write can then never leave a torn/truncated config or credentials
+ * file (which readers would treat as unparseable → surprise re-login). Mirrors
+ * the inventory writer in harness/installations.ts.
+ */
+function writeFileAtomic(
+  path: string,
+  contents: string,
+  mode: number | undefined,
+): void {
+  const temporaryPath = `${path}.${randomUUID()}.tmp`;
+  try {
+    writeFileSync(temporaryPath, contents, mode !== undefined ? { mode } : {});
+    renameSync(temporaryPath, path);
+  } finally {
+    if (existsSync(temporaryPath)) unlinkSync(temporaryPath);
+  }
+}
+
 /** Read config.yaml (non-secret). Empty structure if absent / unparseable. */
 function readConfig(): ConfigFile {
   migrateLegacyIfNeeded();
@@ -309,7 +350,11 @@ function readConfig(): ConfigFile {
 /** Write config.yaml. Non-secret, but the dir is 0700 (owner-only). */
 function writeConfig(config: ConfigFile): void {
   ensureDir();
-  writeFileSync(getConfigPath(), stringify(config, { lineWidth: 0 }));
+  writeFileAtomic(
+    getConfigPath(),
+    stringify(config, { lineWidth: 0 }),
+    undefined,
+  );
 }
 
 /** Read credentials.yaml (secrets). Empty structure if absent / unparseable. */
@@ -330,9 +375,11 @@ function readSecrets(): CredentialsFile {
 /** Write credentials.yaml with 0600 (owner read/write only). */
 function writeSecrets(secrets: CredentialsFile): void {
   ensureDir();
-  writeFileSync(getCredentialsPath(), stringify(secrets, { lineWidth: 0 }), {
-    mode: 0o600,
-  });
+  writeFileAtomic(
+    getCredentialsPath(),
+    stringify(secrets, { lineWidth: 0 }),
+    0o600,
+  );
 }
 
 /**

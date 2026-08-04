@@ -10,6 +10,7 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   rmSync,
   statSync,
@@ -337,6 +338,18 @@ test("clearTokens removes the token set", () => {
   creds.clearTokens(SERVER);
   expect(creds.resolveCredentials(SERVER).loggedIn).toBe(false);
   expect(creds.getStoredTokens(SERVER)).toBeUndefined();
+});
+
+test("credential + config writes are atomic (no leftover temp files)", () => {
+  creds.storeTokens(SERVER, TOKENS);
+  const dir = join(configDir, "me");
+  // The atomic writer renames a temp sibling over the target; none must remain.
+  const leftovers = readdirSync(dir).filter((f) => f.includes(".tmp"));
+  expect(leftovers).toEqual([]);
+  // And both files are present and well-formed after the rename.
+  expect(creds.getStoredTokens(SERVER)).toEqual(TOKENS);
+  expect(existsSync(join(dir, "config.yaml"))).toBe(true);
+  expect(statSync(join(dir, "credentials.yaml")).mode & 0o777).toBe(0o600);
 });
 
 test("ME_SESSION_TOKEN env marks the server logged in (no stored set needed)", () => {
