@@ -43,7 +43,6 @@ MCP registration lives under agent-specific commands:
 |------|---------|
 | OpenCode | [`me opencode install`](me-opencode.md#me-opencode-install) |
 | Codex CLI | [`me codex install`](me-codex.md#me-codex-install) |
-| Gemini CLI | [`me gemini install`](me-gemini.md#me-gemini-install) |
 | Claude Code | [`me claude`](me-claude.md) plugin hooks |
 
 Claude Code uses the Memory Engine plugin instead of MCP registration through the `me` CLI:

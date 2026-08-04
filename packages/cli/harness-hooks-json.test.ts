@@ -1,5 +1,5 @@
 /**
- * Tests for the shared Codex/Gemini JSON hooks-file upsert.
+ * Tests for the Codex JSON hooks-file upsert.
  */
 import { expect, test } from "bun:test";
 import {
@@ -140,18 +140,5 @@ test("throws when the file holds a non-object (e.g. an array)", () => {
       upsertJsonHooksFile(path, "PreToolUse", OUR_ENTRY, "me codex env-hook"),
     ).toThrow(/JSON object/);
     expect(existsSync(path)).toBe(true);
-  });
-});
-
-test("Gemini's BeforeTool shape works identically (different event key)", () => {
-  withTmpDir((dir) => {
-    const path = join(dir, "settings.json");
-    const geminiEntry: JsonHookEntry = {
-      matcher: "run_shell_command",
-      hooks: [{ type: "command", command: "me gemini env-hook" }],
-    };
-    upsertJsonHooksFile(path, "BeforeTool", geminiEntry, "me gemini env-hook");
-    const parsed = JSON.parse(readFileSync(path, "utf-8"));
-    expect(parsed).toEqual({ hooks: { BeforeTool: [geminiEntry] } });
   });
 });

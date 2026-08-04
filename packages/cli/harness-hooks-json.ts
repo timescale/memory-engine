@@ -1,9 +1,7 @@
 /**
- * Shared JSON hooks-file upsert for Codex (`~/.codex/hooks.json`) and Gemini
- * CLI (`~/.gemini/settings.json`) — both use the same
+ * JSON hooks-file upsert for Codex (`~/.codex/hooks.json`). It uses the
  * `{ hooks: { <EventName>: [ { matcher, hooks: [{ type, command, ... }] } ] } }`
- * shape (Codex's top-level file IS the hooks config; Gemini's hooks live
- * under a `hooks` key alongside the rest of `settings.json`).
+ * shape. Codex's top-level file is the hooks config.
  *
  * Our managed entry is identified by its hook `command` (an exact string,
  * e.g. `"me codex env-hook"`) — never a marker comment (JSON has none) — so
@@ -18,11 +16,11 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 
-/** One hook definition within an event's array (Codex/Gemini's shared shape). */
+/** One hook definition within a Codex event's array. */
 export interface JsonHookEntry {
   matcher: string;
   hooks: Array<{ type: string; command: string; [key: string]: unknown }>;
-  /** Extra event-level fields some harnesses support (e.g. Gemini's `sequential`) — passed through as given. */
+  /** Extra event-level fields are passed through as given. */
   [key: string]: unknown;
 }
 

@@ -71,7 +71,6 @@ const harnessesSchema = z
     claude: installationSchema.optional(),
     opencode: installationSchema.optional(),
     codex: installationSchema.optional(),
-    gemini: installationSchema.optional(),
   })
   .strict();
 

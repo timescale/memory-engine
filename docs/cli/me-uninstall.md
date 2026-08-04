@@ -7,7 +7,7 @@ unrecorded harness configuration is left untouched.
 ## Usage
 
 ```bash
-me uninstall [claude|opencode|codex|gemini...]
+me uninstall [claude|opencode|codex...]
 ```
 
 With no harness names, `me uninstall` removes every recorded integration.
@@ -20,11 +20,11 @@ successful no-op.
 me uninstall
 ```
 
-Remove only the Gemini integration:
+Remove only the Codex integration:
 
 ```bash
-me uninstall gemini
+me uninstall codex
 ```
 
 The equivalent single-harness commands are `me claude uninstall`,
-`me opencode uninstall`, `me codex uninstall`, and `me gemini uninstall`.
+`me opencode uninstall`, and `me codex uninstall`.

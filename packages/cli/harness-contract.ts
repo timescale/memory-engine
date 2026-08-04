@@ -2,7 +2,7 @@
  * The harness-injected environment contract.
  *
  * Every harness adapter (Claude's SessionStart hook, OpenCode's `shell.env`
- * plugin hook, and Codex/Gemini's command rewrites) injects the same two env
+ * plugin hook, and Codex's command rewrite) injects the same two env
  * vars into every shell command a harness runs, so a plain `me` invocation
  * resolves the right project:
  *
@@ -17,7 +17,7 @@
  * in-process env object for adapters that mutate one directly (opencode's
  * `shell.env` hook), and a single-line `export …; ` command prefix for
  * adapters that rewrite a command STRING rather than touch env at all
- * (Codex/Gemini's PreToolUse/BeforeTool rewrites).
+ * (Codex's PreToolUse rewrite).
  */
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
@@ -52,7 +52,7 @@ function shellQuote(value: string): string {
 /**
  * Render `vars` as a single-line `export NAME="value" ...; ` prefix (trailing
  * space, so it reads naturally prepended to a command string) — used by the
- * Codex/Gemini rewrite hooks, which mutate a tool-input command string rather
+ * Codex's rewrite hook, which mutates a tool-input command string rather
  * than a real process env (Claude/opencode inject via
  * {@link upsertContractBlock} / a `shell.env` hook instead).
  */

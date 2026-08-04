@@ -10,10 +10,6 @@ import {
   uninstallCodexIntegration,
 } from "../codex/integration.ts";
 import {
-  installGeminiIntegration,
-  uninstallGeminiIntegration,
-} from "../gemini/integration.ts";
-import {
   installOpenCodeIntegration,
   uninstallOpenCodeIntegration,
 } from "../opencode/integration.ts";
@@ -94,13 +90,6 @@ const HARNESS_REGISTRY: Record<HarnessName, HarnessDescriptor> = {
     "codex",
     installCodexIntegration,
     uninstallCodexIntegration,
-  ),
-  gemini: descriptor(
-    "gemini",
-    "Gemini CLI",
-    "gemini",
-    (existing) => installGeminiIntegration(undefined, undefined, existing),
-    uninstallGeminiIntegration,
   ),
 };
 

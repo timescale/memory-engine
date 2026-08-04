@@ -60,7 +60,6 @@ const COMMAND_DOCS: Record<string, string | null> = {
   createUninstallCommand: "me-uninstall",
   createClaudeCommand: "me-claude",
   createOpenCodeCommand: "me-opencode",
-  createGeminiCommand: "me-gemini",
   createCodexCommand: "me-codex",
   createServeCommand: "me-serve",
   createPackCommand: "me-pack",

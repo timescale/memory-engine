@@ -25,13 +25,13 @@ import { dirname, join } from "node:path";
 /**
  * Per-install options shared across tool installers.
  *
- * - `scope`: configuration scope for tools that support it (Claude Code,
- *   Gemini CLI). Ignored by tools without a scope concept (Codex, OpenCode).
+ * - `scope`: configuration scope for tools that support it (Claude Code).
+ *   Ignored by tools without a scope concept (Codex, OpenCode).
  */
 export interface McpInstallOpts {
   /**
-   * Configuration scope. CLI tools (Claude/Gemini) pass it to their own
-   * `mcp add` CLI. OpenCode (json-file) maps it to a config path: "project"
+   * Configuration scope. Claude passes it to its own `mcp add` CLI. OpenCode
+   * (json-file) maps it to a config path: "project"
    * writes `<projectDir>/opencode.json`, anything else writes the global config.
    */
   scope?: string;
@@ -76,28 +76,6 @@ export const MCP_TOOLS: McpTool[] = [
     ],
     removeCmd: ({ scope = "user" }) => [
       "claude",
-      "mcp",
-      "remove",
-      "--scope",
-      scope,
-      "me",
-    ],
-  },
-  {
-    name: "Gemini CLI",
-    bin: "gemini",
-    method: "cli",
-    addCmd: (meCmd, { scope = "user" }) => [
-      "gemini",
-      "mcp",
-      "add",
-      "--scope",
-      scope,
-      "me",
-      ...meCmd,
-    ],
-    removeCmd: ({ scope = "user" }) => [
-      "gemini",
       "mcp",
       "remove",
       "--scope",

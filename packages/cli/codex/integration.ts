@@ -19,11 +19,30 @@ import {
 } from "../mcp/install.ts";
 
 export const CODEX_ENV_HOOK_COMMAND = "me codex env-hook";
+export const CODEX_CAPTURE_EVENTS = ["Stop", "SessionEnd"] as const;
+export type CodexCaptureEvent = (typeof CODEX_CAPTURE_EVENTS)[number];
 
 export const CODEX_HOOK_ENTRY: JsonHookEntry = {
   matcher: "^Bash$",
   hooks: [{ type: "command", command: CODEX_ENV_HOOK_COMMAND, timeout: 10 }],
 };
+
+export function codexCaptureHookCommand(event: CodexCaptureEvent): string {
+  return `me codex hook --event ${event}`;
+}
+
+export function codexCaptureHookEntry(event: CodexCaptureEvent): JsonHookEntry {
+  return {
+    matcher: ".*",
+    hooks: [
+      {
+        type: "command",
+        command: codexCaptureHookCommand(event),
+        timeout: event === "SessionEnd" ? 3 : 10,
+      },
+    ],
+  };
+}
 
 export function codexHooksPath(): string {
   return join(homedir(), ".codex", "hooks.json");
@@ -52,6 +71,26 @@ function installCodexEnvHookResult(path = codexHooksPath()): {
       event: "PreToolUse",
       command: CODEX_ENV_HOOK_COMMAND,
     },
+    changed: result.changed,
+  };
+}
+
+function installCodexCaptureHook(
+  path: string,
+  event: CodexCaptureEvent,
+): {
+  artifact: Extract<InstallationArtifact, { kind: "json-hook" }>;
+  changed: boolean;
+} {
+  const command = codexCaptureHookCommand(event);
+  const result = upsertJsonHooksFile(
+    path,
+    event,
+    codexCaptureHookEntry(event),
+    command,
+  );
+  return {
+    artifact: { kind: "json-hook", path, event, command },
     changed: result.changed,
   };
 }
@@ -132,6 +171,10 @@ interface InstallOperations {
     artifact: Extract<InstallationArtifact, { kind: "json-hook" }>;
     changed: boolean;
   };
+  installCaptureHook?: (event: CodexCaptureEvent) => {
+    artifact: Extract<InstallationArtifact, { kind: "json-hook" }>;
+    changed: boolean;
+  };
 }
 
 export async function installCodexIntegration(
@@ -157,6 +200,27 @@ export async function installCodexIntegration(
       `Codex hook in ${hookPath} is unrecorded; refusing to claim ownership.`,
     );
   }
+  const captureHooks = CODEX_CAPTURE_EVENTS.map((event) => ({
+    event,
+    command: codexCaptureHookCommand(event),
+    prior: existing?.artifacts.find(
+      (artifact) =>
+        artifact.kind === "json-hook" &&
+        artifact.path === hookPath &&
+        artifact.event === event &&
+        artifact.command === codexCaptureHookCommand(event),
+    ),
+  }));
+  for (const capture of captureHooks) {
+    if (
+      jsonHookEntryExists(hookPath, capture.event, capture.command) &&
+      !capture.prior
+    ) {
+      throw new Error(
+        `Codex hook in ${hookPath} is unrecorded; refusing to claim ownership.`,
+      );
+    }
+  }
   const registration = await (
     operations.installMcp ??
     (() =>
@@ -171,7 +235,10 @@ export async function installCodexIntegration(
       "Codex MCP registration is unrecorded; refusing to claim ownership.",
     );
   }
-  let hook: ReturnType<typeof installCodexEnvHookResult>;
+  let hook: ReturnType<typeof installCodexEnvHookResult> | undefined;
+  const installedCaptureHooks: Array<
+    ReturnType<typeof installCodexCaptureHook>
+  > = [];
   try {
     hook = (
       operations.installHook ?? (() => installCodexEnvHookResult(hookPath))
@@ -181,7 +248,26 @@ export async function installCodexIntegration(
         `Codex hook in ${hookPath} is unrecorded; refusing to claim ownership.`,
       );
     }
+    for (const capture of captureHooks) {
+      const installed = (
+        operations.installCaptureHook ??
+        ((event: CodexCaptureEvent) => installCodexCaptureHook(hookPath, event))
+      )(capture.event);
+      if (!installed.changed && !capture.prior) {
+        throw new Error(
+          `Codex hook in ${hookPath} is unrecorded; refusing to claim ownership.`,
+        );
+      }
+      installedCaptureHooks.push(installed);
+    }
   } catch (error) {
+    const newlyInstalledHooks = [
+      ...installedCaptureHooks.map((capture) => capture.artifact),
+      ...(hook?.changed && !priorHook ? [hook.artifact] : []),
+    ];
+    const retainedHooks = newlyInstalledHooks.filter(
+      (artifact) => removeCodexEnvHook(artifact) === "retained",
+    );
     if (!registration.preserved) {
       const removed = await (
         operations.removeMcp ??
@@ -202,13 +288,23 @@ export async function installCodexIntegration(
         );
       }
     }
+    if (retainedHooks.length > 0) {
+      throw new Error(
+        `Codex hook installation failed: ${error instanceof Error ? error.message : String(error)}. Automatic rollback retained ${retainedHooks.map((artifact) => artifact.command).join(", ")}.`,
+      );
+    }
     throw error;
   }
   const artifacts = [...(existing?.artifacts ?? [])];
   if (!mcp) {
     artifacts.push({ kind: "mcp-cli", server_name: "me" });
   }
-  if (hook.changed && !priorHook) artifacts.push(hook.artifact);
+  if (hook?.changed && !priorHook) artifacts.push(hook.artifact);
+  for (const [index, capture] of captureHooks.entries()) {
+    const installed = installedCaptureHooks[index];
+    if (installed?.changed && !capture.prior)
+      artifacts.push(installed.artifact);
+  }
   return {
     artifacts,
     messages: [registration.message],

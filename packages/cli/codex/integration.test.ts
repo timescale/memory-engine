@@ -3,14 +3,28 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  CODEX_CAPTURE_EVENTS,
   CODEX_ENV_HOOK_COMMAND,
   CODEX_HOOK_ENTRY,
+  codexCaptureHookCommand,
   codexMcpCommand,
   installCodexEnvHook,
   installCodexIntegration,
   removeCodexEnvHook,
   uninstallCodexIntegration,
 } from "./integration.ts";
+
+function captureHook(
+  path: string,
+  event: (typeof CODEX_CAPTURE_EVENTS)[number],
+) {
+  return {
+    kind: "json-hook" as const,
+    path,
+    event,
+    command: codexCaptureHookCommand(event),
+  };
+}
 
 async function withTmpDir<T>(
   action: (dir: string) => T | Promise<T>,
@@ -38,6 +52,46 @@ test("records the exact user-global Codex hook artifact", async () => {
   });
 });
 
+test("installs and removes the dormant Codex capture hooks", async () => {
+  await withTmpDir(async (dir) => {
+    const path = join(dir, "hooks.json");
+    const result = await installCodexIntegration(undefined, {
+      hookPath: path,
+      installMcp: async () => ({ success: true, message: "registered" }),
+    });
+    const config = JSON.parse(readFileSync(path, "utf8"));
+    for (const event of CODEX_CAPTURE_EVENTS) {
+      expect(config.hooks[event]).toEqual([
+        {
+          matcher: ".*",
+          hooks: [
+            {
+              type: "command",
+              command: codexCaptureHookCommand(event),
+              timeout: event === "SessionEnd" ? 3 : 10,
+            },
+          ],
+        },
+      ]);
+    }
+
+    const removed = await uninstallCodexIntegration(
+      {
+        installed_at: "2026-08-04T00:00:00.000Z",
+        me_version: "0.0.0",
+        artifacts: result.artifacts,
+      },
+      {
+        removeMcp: async () => true,
+      },
+    );
+    expect(removed.retained).toEqual([]);
+    const after = JSON.parse(readFileSync(path, "utf8"));
+    expect(after.hooks.Stop).toEqual([]);
+    expect(after.hooks.SessionEnd).toEqual([]);
+  });
+});
+
 test("registers exactly me mcp without any baked targeting", () => {
   expect(codexMcpCommand()).toEqual([
     "codex",
@@ -58,12 +112,18 @@ test("reports the complete MCP and hook artifact list", async () => {
     command: CODEX_ENV_HOOK_COMMAND,
   };
   const result = await installCodexIntegration(undefined, {
+    hookPath: hook.path,
     installMcp: async () => ({ success: true, message: "registered" }),
     installHook: () => ({ artifact: hook, changed: true }),
+    installCaptureHook: (event) => ({
+      artifact: captureHook(hook.path, event),
+      changed: true,
+    }),
   });
   expect(result.artifacts).toEqual([
     { kind: "mcp-cli", server_name: "me" },
     hook,
+    ...CODEX_CAPTURE_EVENTS.map((event) => captureHook(hook.path, event)),
   ]);
 });
 
@@ -71,6 +131,7 @@ test("refuses an unrecorded preserved Codex MCP registration", async () => {
   let installedHook = false;
   await expect(
     installCodexIntegration(undefined, {
+      hookPath: "/tmp/me-codex-preserved-hooks.json",
       installMcp: async () => ({
         success: true,
         preserved: true,
@@ -88,6 +149,10 @@ test("refuses an unrecorded preserved Codex MCP registration", async () => {
           changed: true,
         };
       },
+      installCaptureHook: (event) => ({
+        artifact: captureHook("/tmp/hooks.json", event),
+        changed: true,
+      }),
     }),
   ).rejects.toThrow("MCP registration is unrecorded");
   expect(installedHook).toBe(false);
@@ -130,6 +195,7 @@ test("preserves all recorded artifacts on a Codex reinstall", async () => {
       artifacts: [
         { kind: "mcp-cli" as const, server_name: "me" as const },
         hook,
+        ...CODEX_CAPTURE_EVENTS.map((event) => captureHook(hook.path, event)),
         extra,
       ],
     };
@@ -142,6 +208,10 @@ test("preserves all recorded artifacts on a Codex reinstall", async () => {
         message: "already registered",
       }),
       installHook: () => ({ artifact: hook, changed: false }),
+      installCaptureHook: (event) => ({
+        artifact: captureHook(hook.path, event),
+        changed: false,
+      }),
     });
 
     expect(result.artifacts).toEqual(existing.artifacts);
@@ -152,6 +222,7 @@ test("rolls back a new Codex MCP registration when hook installation fails", asy
   let removedMcp = false;
   await expect(
     installCodexIntegration(undefined, {
+      hookPath: "/tmp/me-codex-read-only-hooks.json",
       installMcp: async () => ({ success: true, message: "registered" }),
       installHook: () => {
         throw new Error("disk is read-only");
@@ -160,6 +231,10 @@ test("rolls back a new Codex MCP registration when hook installation fails", asy
         removedMcp = true;
         return true;
       },
+      installCaptureHook: (event) => ({
+        artifact: captureHook("/tmp/hooks.json", event),
+        changed: true,
+      }),
     }),
   ).rejects.toThrow("disk is read-only");
   expect(removedMcp).toBe(true);

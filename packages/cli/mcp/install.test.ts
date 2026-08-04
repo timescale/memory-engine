@@ -254,46 +254,6 @@ describe("Claude Code scope handling", () => {
   });
 });
 
-describe("Gemini CLI scope handling", () => {
-  const meCmd = ["me", "mcp", "--api-key", "k", "--server", "https://x"];
-  const gemini = findCliTool("gemini");
-
-  test("addCmd defaults to --scope user", () => {
-    expect(gemini.addCmd(meCmd, {})).toEqual([
-      "gemini",
-      "mcp",
-      "add",
-      "--scope",
-      "user",
-      "me",
-      ...meCmd,
-    ]);
-  });
-
-  test("addCmd honors explicit project scope", () => {
-    expect(gemini.addCmd(meCmd, { scope: "project" })).toEqual([
-      "gemini",
-      "mcp",
-      "add",
-      "--scope",
-      "project",
-      "me",
-      ...meCmd,
-    ]);
-  });
-
-  test("removeCmd defaults to --scope user", () => {
-    expect(gemini.removeCmd({})).toEqual([
-      "gemini",
-      "mcp",
-      "remove",
-      "--scope",
-      "user",
-      "me",
-    ]);
-  });
-});
-
 describe("Codex CLI (no scope)", () => {
   const meCmd = ["me", "mcp", "--api-key", "k", "--server", "https://x"];
   const codex = findCliTool("codex");

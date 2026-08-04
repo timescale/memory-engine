@@ -14,7 +14,6 @@ import { createApiKeyCommand } from "./commands/apikey.ts";
 import { createClaudeCommand } from "./commands/claude.ts";
 import { createCodexCommand } from "./commands/codex.ts";
 import { createDoctorCommand } from "./commands/doctor.ts";
-import { createGeminiCommand } from "./commands/gemini.ts";
 import { createGroupCommand } from "./commands/group.ts";
 import { createImportCommand } from "./commands/import-group.ts";
 import { createInitCommand } from "./commands/init.ts";
@@ -128,7 +127,6 @@ const claude = createClaudeCommand();
 program.addCommand(claude);
 const opencode = createOpenCodeCommand();
 program.addCommand(opencode);
-program.addCommand(createGeminiCommand());
 program.addCommand(createCodexCommand());
 
 // Local web UI
