@@ -19,12 +19,16 @@ Register `me` as an MCP server with Codex CLI.
 me codex install
 ```
 
-This non-interactive command registers an identified managed MCP command. The
-dormant Codex adapter also supports a user-global `PreToolUse` Bash hook that
-only injects `AI_AGENT=codex` and `ME_PROJECT_DIR` into Bash commands; it has
-no credentials, server, space, tree, cwd, or project configuration.
+This non-interactive command registers an identified managed MCP command and
+installs user-global Codex hooks: a `PreToolUse` Bash hook that only injects
+`AI_AGENT=codex` and `ME_PROJECT_DIR` into Bash commands, plus transcript-capture
+hooks (on session `Stop` and `SessionEnd`). The install writes no credentials,
+server, space, tree, cwd, or project configuration — capture stays dormant until
+you enable it and point it at a server, space, and tree with
+[`me init`](me-init.md) (inspect the policy that applies to a directory with
+[`me doctor`](me-doctor.md)).
 
-Codex requires you to approve the installed hook through `/hooks`. Memory
+Codex requires you to approve the installed hooks through `/hooks`. Memory
 Engine never automates or bypasses this trust approval.
 
 ## me codex uninstall

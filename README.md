@@ -31,7 +31,7 @@ npm i -g @memory.build/cli
 me login
 
 # Install the integration for your coding agent (once, user scope)
-me claude install     # or: me opencode / me codex install
+me claude install     # or: me opencode install / me codex install
 
 # Turn on capture for a project and choose where its memories live
 cd ~/code/your-project
