@@ -5,14 +5,18 @@ import * as realClient from "openid-client";
 // Mock openid-client BEFORE importing ./oauth so the refresh-grant call is
 // intercepted. We spread the real module so the pure helpers (Configuration,
 // PKCE, authorize URL) keep working; only refreshTokenGrant is overridable.
-let refreshGrantImpl: (() => Promise<never>) | null = null;
+let refreshGrantImpl:
+  | ((
+      ...args: Parameters<typeof realClient.refreshTokenGrant>
+    ) => Promise<never>)
+  | null = null;
 mock.module("openid-client", () => ({
   ...realClient,
   refreshTokenGrant: (
     ...args: Parameters<typeof realClient.refreshTokenGrant>
   ) =>
     refreshGrantImpl
-      ? refreshGrantImpl()
+      ? refreshGrantImpl(...args)
       : realClient.refreshTokenGrant(...args),
 }));
 
@@ -93,6 +97,50 @@ describe("buildAuthorizeUrl", () => {
 });
 
 describe("refreshTokens error mapping", () => {
+  test("adds per-process diagnostic headers to token requests", async () => {
+    const originalFetch = globalThis.fetch;
+    let request: Request | undefined;
+    globalThis.fetch = Object.assign(
+      async (input: string | URL | Request, init?: RequestInit) => {
+        request =
+          input instanceof Request
+            ? new Request(input, init)
+            : new Request(input.toString(), init);
+        return new Response("{}", { status: 400 });
+      },
+      { preconnect: originalFetch.preconnect },
+    ) as typeof fetch;
+    refreshGrantImpl = async (config) => {
+      const customFetch = config[realClient.customFetch];
+      expect(customFetch).toBeDefined();
+      await customFetch?.("https://api.example.com/token", {
+        body: undefined,
+        headers: {},
+        method: "POST",
+        redirect: "manual",
+      });
+      throw new Error("stop after inspecting headers");
+    };
+
+    try {
+      await refreshTokens({
+        server: "https://api.example.com",
+        refreshToken: "r1",
+      });
+    } catch {
+      // The mock stops after exercising the custom fetch.
+    } finally {
+      refreshGrantImpl = null;
+      globalThis.fetch = originalFetch;
+    }
+
+    expect(request?.headers.get("user-agent")).toBe("memory-engine-cli/0.6.2");
+    expect(request?.headers.get("x-me-client-mode")).toBe("cli");
+    expect(request?.headers.get("x-me-client-instance")).toMatch(
+      /^[0-9a-f-]{36}$/,
+    );
+  });
+
   test("maps an OAuth error response to OAuthError carrying the code", async () => {
     const rbe = new realClient.ResponseBodyError("token endpoint error", {
       cause: {

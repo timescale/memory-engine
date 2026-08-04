@@ -13,13 +13,26 @@
  * resolved server-side from the access token; offline_access yields the refresh
  * token.
  */
+
+import { randomUUID } from "node:crypto";
 import * as client from "openid-client";
+import { CLIENT_VERSION } from "../../version";
 
 /** The first-party CLI's registered public client_id (seeded in auth migration 006). */
 export const OAUTH_CLIENT_ID = "me-cli";
 
 /** offline_access → a refresh token; no `openid` → plain OAuth, no id_token. */
 export const OAUTH_SCOPE = "offline_access";
+
+/** Per-process correlation ID for token-endpoint telemetry; never persisted. */
+const CLIENT_INSTANCE_ID = randomUUID();
+
+/** Distinguish the long-running credential consumers in token-endpoint traces. */
+function clientMode(): "cli" | "mcp" | "serve" {
+  if (process.argv.includes("mcp")) return "mcp";
+  if (process.argv.includes("serve")) return "serve";
+  return "cli";
+}
 
 export class OAuthError extends Error {
   /**
@@ -51,6 +64,16 @@ function buildConfig(server: string): client.Configuration {
     undefined,
     client.None(), // public client — no secret
   );
+  // The token endpoint is unauthenticated, so its server span cannot otherwise
+  // identify the local process that sent a refresh. These are diagnostics only:
+  // instance is random per process and mode distinguishes CLI/MCP/serve.
+  config[client.customFetch] = (input, init) => {
+    const request = new Request(input, init);
+    request.headers.set("User-Agent", `memory-engine-cli/${CLIENT_VERSION}`);
+    request.headers.set("X-Me-Client-Instance", CLIENT_INSTANCE_ID);
+    request.headers.set("X-Me-Client-Mode", clientMode());
+    return fetch(request);
+  };
   // Local dev servers are http; a real deployment is https.
   if (issuer.startsWith("http://")) client.allowInsecureRequests(config);
   return config;
