@@ -36,7 +36,7 @@ me init . \
   --mcp-harness claude \
   --capture-server https://api.memory.build \
   --capture-space abc123def456 \
-  --capture-tree share/projects/demo \
+  --capture-tree /share/projects/demo \
   --capture-harness claude
 ```
 
