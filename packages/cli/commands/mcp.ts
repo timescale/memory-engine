@@ -19,7 +19,11 @@ import {
   resolveCredentials,
 } from "../credentials.ts";
 import { HARNESS_NAMES, type HarnessName } from "../harness/names.ts";
-import { resolveMcpProfile } from "../local-config.ts";
+import {
+  type McpSurface,
+  type ResolvedSurface,
+  resolveMcpProfile,
+} from "../local-config.ts";
 import { type McpSpaceSelection, runMcpServer } from "../mcp/server.ts";
 import { memoryBearer } from "../session.ts";
 
@@ -73,6 +77,33 @@ export function resolveMcpSpace(
   return { spaceMode: "multi" };
 }
 
+/**
+ * Resolve a managed MCP policy without letting a fallback bypass a directory
+ * profile that explicitly disables MCP. Claude's documented project variable
+ * follows the startup cwd because it may name a main checkout for worktrees.
+ */
+export function resolveManagedMcpProfile(
+  harness: HarnessName,
+  cwd: string,
+  meProjectDir: string | undefined,
+  claudeProjectDir: string | undefined,
+  resolveProfile: typeof resolveMcpProfile = resolveMcpProfile,
+): ResolvedSurface<McpSurface> {
+  const initial = resolveProfile(cwd);
+  if (initial.source === "directory") return initial;
+
+  const fallbacks = [
+    ...(harness === "claude" ? [claudeProjectDir] : []),
+    meProjectDir,
+  ];
+  for (const directory of fallbacks) {
+    if (!directory || directory === cwd) continue;
+    const resolved = resolveProfile(directory);
+    if (resolved.source === "directory") return resolved;
+  }
+  return initial;
+}
+
 interface McpRunActionDependencies {
   resolveCredentials: (serverFlag?: string) => ResolvedCredentials;
   resolveMcpProfile: typeof resolveMcpProfile;
@@ -91,11 +122,15 @@ export function createMcpRunAction(
   return async (_opts: Record<string, unknown>, cmd: Command) => {
     const opts = cmd.optsWithGlobals();
     const harness = resolveManagedHarness(opts.harness);
-    let policy: ReturnType<typeof resolveMcpProfile>["value"];
+    let policy: McpSurface | undefined;
     try {
       policy = harness
-        ? dependencies.resolveMcpProfile(
-            process.env.ME_PROJECT_DIR ?? process.cwd(),
+        ? resolveManagedMcpProfile(
+            harness,
+            process.cwd(),
+            process.env.ME_PROJECT_DIR,
+            process.env.CLAUDE_PROJECT_DIR,
+            dependencies.resolveMcpProfile,
           ).value
         : undefined;
     } catch {
