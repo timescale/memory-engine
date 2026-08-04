@@ -11,7 +11,7 @@ Generate a starter GitHub Actions workflow that imports a repository's git histo
 ## me ci install
 
 ```
-me [--server <url>] ci install [options]
+me [--server <url>] ci install [--server <url>] [options]
 ```
 
 Run this from a git repository with a GitHub `origin` remote. It writes `.github/workflows/me-import.yml`, which imports git history and docs on pushes to the default branch. The generated workflow is yours to edit after creation.
@@ -20,7 +20,7 @@ The command refuses to replace an existing workflow. Pass `--force` to replace t
 
 | Option | Description |
 | --- | --- |
-| `--server <url>` | Global option before `ci`; selects the Memory Engine server. The workflow includes `ME_SERVER` when it is not the default hosted server. |
+| `--server <url>` | Selects the Memory Engine server. It may appear before `ci` or after `install`; the `install` value wins if both are supplied. The workflow includes `ME_SERVER` when it is not the default hosted server. |
 | `--space <slug>` | Destination space. Required outside an interactive terminal. |
 | `--tree <path>` | Shared destination tree. Default: `/share/projects/<repo-name>`; home (`~`) trees are invalid for service accounts. |
 | `--secret-name <name>` | GitHub secret name. Default: `ME_API_KEY`. |

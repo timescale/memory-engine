@@ -116,16 +116,18 @@ still contains another harness or any enabled surface for another harness.
 
 ### 2.3 Dispatcher command
 
-Every new install registers this exact stable command for MCP:
+Every new install registers the stable MCP command with its harness identity:
 
 ```
-me mcp
+me mcp --harness <name>
 ```
 
-The command intentionally contains no server, space, API key, scope, or
-project path. The dormant dispatcher resolves all activation at runtime from
-the local config and existing credential state. No installation writes a
-credential or a per-repository configuration file.
+`<name>` must be a canonical harness name. It selects the per-harness policy
+without baking configuration into the provider registration. The command
+intentionally contains no server, space, API key, scope, or project path. The
+dormant dispatcher resolves all activation at runtime from the local config and
+existing credential state. No installation writes a credential or a
+per-repository configuration file.
 
 The provider adapter must separately install its minimum native hook/plugin
 plumbing needed to inject the harness contract and run dormant capture. The

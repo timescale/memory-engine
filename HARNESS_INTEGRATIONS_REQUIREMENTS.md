@@ -57,6 +57,9 @@ the terse version an implementer needs.
 - Arguments: install only the named harnesses. Unknown names error.
 - Purely mechanical: writes only ME-owned native plumbing (hook entries, MCP
   registration, plugin/env-hook files) and updates `installations.yaml`.
+- Managed MCP registrations run `me mcp --harness <name>`. The harness identity
+  selects that harness's local MCP policy; no registration includes a server,
+  space, credential, scope, or project path.
 - **No prompts.** Never asks about auth, space, tree, capture, MCP, or data
   collection.
 - Idempotent.
