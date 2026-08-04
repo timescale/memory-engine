@@ -215,12 +215,11 @@ test("server_whitelist does not make a .me server active for human CLI", () => {
   expect(creds.resolveServer()).toBe(creds.DEFAULT_SERVER);
 });
 
-test("me login (storeTokens) trusts the server it logged into", () => {
+test("me login (storeTokens) selects the server it logged into", () => {
   creds.storeTokens("https://loggedin.example.com", TOKENS);
-  // getServerWhitelist now includes the logged-into server...
+  // The server is whitelisted for explicit project imports and becomes the
+  // human CLI default without consulting repository configuration.
   expect(creds.getServerWhitelist()).toContain("https://loggedin.example.com");
-  // ...but project configuration never changes normal CLI targeting.
-  writeMe("server: https://loggedin.example.com\n");
   expect(creds.resolveServer()).toBe("https://loggedin.example.com");
 });
 
