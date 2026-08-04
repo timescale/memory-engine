@@ -34,6 +34,10 @@ import { cleanupExpiredAuth } from "./auth/cleanup";
 import { embeddingConstants } from "./config";
 import type { ServerContext } from "./context";
 import { checkSizeLimit } from "./middleware";
+import {
+  httpRequestTelemetryAttributes,
+  tokenResponseTelemetryAttributes,
+} from "./request-telemetry";
 import { createRouter } from "./router";
 import { internalError } from "./util/response";
 
@@ -558,23 +562,21 @@ export async function startServer(
   const server = Bun.serve({
     port,
     async fetch(request) {
-      const url = new URL(request.url);
-      const method = request.method;
-      const path = url.pathname;
-
       try {
         return await span("http.request", {
-          attributes: {
-            "http.method": method,
-            "http.url": request.url,
-            "http.path": path,
-          },
-          callback: async () => {
+          attributes: httpRequestTelemetryAttributes(request),
+          callback: async (activeSpan) => {
             const sizeError = checkSizeLimit(request);
             if (sizeError) {
               return sizeError;
             }
-            return await router.handleRequest(request);
+            const response = await router.handleRequest(request);
+            for (const [key, value] of Object.entries(
+              await tokenResponseTelemetryAttributes(request, response),
+            )) {
+              activeSpan.setAttribute(key, value);
+            }
+            return response;
           },
         });
       } catch {
