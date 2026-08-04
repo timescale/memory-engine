@@ -63,6 +63,7 @@ me memory get <id-or-path> [options]
 | Option | Description |
 |--------|-------------|
 | `--raw` | Output raw Markdown with YAML frontmatter (no ANSI), even in a TTY. |
+| `--select <fields>` | Comma-separated response fields to return. Omit for the complete memory. Supports `meta.keyName` and content slices such as `content:200` or `content:100:300`. |
 
 ```bash
 me memory get 0194a000-0001-7000-8000-000000000001   # by id
@@ -99,8 +100,18 @@ me memory search [query] [options]
 | `--weight-semantic <w>` | Semantic weight, 0-1. |
 | `--weight-fulltext <w>` | Fulltext weight, 0-1. |
 | `--order-by <dir>` | Sort direction: `asc` or `desc`. |
+| `--select <fields>` | Comma-separated response fields to return for each result. Omit for full records in JSON/YAML output; the default text view requests an ID, tree, 120-code-unit content preview, and score. |
 
 At least one search criterion is required. A positional `query` runs hybrid search by sending the same text to semantic and fulltext ranking. Use `--semantic` for pure vector search, `--fulltext` for pure keyword search, or both flags to provide different text for each mode.
+
+`--select` accepts camelCase response fields such as `id`, `tree`, `name`,
+`meta`, `hasEmbedding`, `createdAt`, and `versionHash`. Use `meta.keyName` to
+return selected metadata keys; the complete suffix after `meta.` is the key, so
+selectors such as `meta.$thread` and `meta.build-id` are valid. Content supports
+`content:N` for the first `N` UTF-16 code units, `content:M:N` for the zero-based
+range `[M, N)`, and `content:M:` from `M` through the end. A content slice also
+returns `contentLength`, measured in UTF-16 code units. An empty selection or
+multiple distinct content slices are invalid.
 
 ### Examples
 
@@ -116,6 +127,9 @@ me memory search --semantic "embedding performance" --fulltext "nomic" --tree "/
 
 # Browse by metadata
 me memory search --meta '{"type": "decision"}' --limit 20
+
+# Return only IDs, trees, and short previews
+me memory search --tree '/share/design/*' --select id,tree,content:200,score
 ```
 
 ---

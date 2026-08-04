@@ -22,6 +22,12 @@ import {
   uniqueExportFilename,
 } from "../commands/memory.ts";
 import {
+  parseSelectFields,
+  projectMemory,
+  projectSearchResult,
+  selectSchema,
+} from "../memory-projection.ts";
+import {
   detectFormatFromExtension,
   type ImportFormat,
   parseContent,
@@ -32,6 +38,14 @@ import type { BearerSource } from "../session.ts";
 // literals embedded in tool descriptions back into concrete URLs.
 export const DOCS_BASE = "https://docs.memory.build";
 const MCP_DOCS_BASE = `${DOCS_BASE}/mcp`;
+
+function serializeReadResult(
+  result: unknown,
+  format: "yaml" | "json" | "compact" = "yaml",
+): string {
+  if (format === "yaml") return yamlStringify(result, { lineWidth: 0 });
+  return JSON.stringify(result);
+}
 
 /** URL to a tool's raw Markdown documentation page. */
 export function docUrl(tool: string): string {
@@ -289,7 +303,7 @@ Docs: ${docUrl("me_memory_create")}`,
       title: "Search Memories",
       description: `Search and browse memories using text matching and/or filters.
 
-Search modes: semantic (meaning), fulltext (keywords/exact text), or both (hybrid). Choose deliberately: semantic for concepts, fulltext for identifiers/errors/literal text, or both when both kinds of matching are useful. Combine with tree, meta, and temporal filters. Results scored 0-1.
+Search modes: semantic (meaning), fulltext (keywords/exact text), or both (hybrid). Choose deliberately: semantic for concepts, fulltext for identifiers/errors/literal text, or both when both kinds of matching are useful. Combine with tree, meta, and temporal filters. Scores are mode-dependent and comparable within one result set.
 
 Docs: ${docUrl("me_memory_search")}`,
       inputSchema: inputSchema(
@@ -398,6 +412,19 @@ Docs: ${docUrl("me_memory_search")}`,
             .describe(
               "Sort direction for filter-only searches (no semantic/fulltext). Default: desc",
             ),
+          select: selectSchema
+            .optional()
+            .nullable()
+            .describe(
+              "Fields to return for each result. Omit for full memories. Supports response fields, meta.keyName, and content:N / content:M:N / content:M: slices.",
+            ),
+          format: z
+            .enum(["yaml", "json", "compact"])
+            .optional()
+            .nullable()
+            .describe(
+              "Response text format. Defaults to yaml; json and compact use compact JSON.",
+            ),
         },
         runtime,
       ),
@@ -409,7 +436,7 @@ Docs: ${docUrl("me_memory_search")}`,
       },
     },
     async (args) => {
-      const result = await clientFor(args).memory.search({
+      const fullResult = await clientFor(args).memory.search({
         semantic: args.semantic ?? undefined,
         fulltext: args.fulltext ?? undefined,
         grep: args.grep ?? undefined,
@@ -437,9 +464,16 @@ Docs: ${docUrl("me_memory_search")}`,
         orderBy:
           (args.order_by as "asc" | "desc" | null | undefined) ?? undefined,
       });
+      const select = args.select ? parseSelectFields(args.select) : null;
+      const result = select
+        ? projectSearchResult(fullResult, select)
+        : fullResult;
       return {
         content: [
-          { type: "text" as const, text: JSON.stringify(result, null, 2) },
+          {
+            type: "text" as const,
+            text: serializeReadResult(result, args.format ?? undefined),
+          },
         ],
       };
     },
@@ -458,6 +492,19 @@ Docs: ${docUrl("me_memory_get")}`,
       inputSchema: inputSchema(
         {
           id: z.string().describe("The UUID of the memory"),
+          select: selectSchema
+            .optional()
+            .nullable()
+            .describe(
+              "Fields to return. Omit for the full memory. Supports response fields, meta.keyName, and content:N / content:M:N / content:M: slices.",
+            ),
+          format: z
+            .enum(["yaml", "json", "compact"])
+            .optional()
+            .nullable()
+            .describe(
+              "Response text format. Defaults to yaml; json and compact use compact JSON.",
+            ),
         },
         runtime,
       ),
@@ -469,10 +516,18 @@ Docs: ${docUrl("me_memory_get")}`,
       },
     },
     async (args) => {
-      const result = await clientFor(args).memory.get({ id: args.id });
+      const fullResult = await clientFor(args).memory.get({
+        id: args.id,
+      });
+      const result = args.select
+        ? projectMemory(fullResult, parseSelectFields(args.select))
+        : fullResult;
       return {
         content: [
-          { type: "text" as const, text: JSON.stringify(result, null, 2) },
+          {
+            type: "text" as const,
+            text: serializeReadResult(result, args.format ?? undefined),
+          },
         ],
       };
     },
@@ -496,6 +551,19 @@ Docs: ${docUrl("me_memory_get_by_path")}`,
             .describe(
               'tree/name path, e.g. "/share/auth/jwt-rotation" or "~/notes/todo"',
             ),
+          select: selectSchema
+            .optional()
+            .nullable()
+            .describe(
+              "Fields to return. Omit for the full memory. Supports response fields, meta.keyName, and content:N / content:M:N / content:M: slices.",
+            ),
+          format: z
+            .enum(["yaml", "json", "compact"])
+            .optional()
+            .nullable()
+            .describe(
+              "Response text format. Defaults to yaml; json and compact use compact JSON.",
+            ),
         },
         runtime,
       ),
@@ -510,9 +578,15 @@ Docs: ${docUrl("me_memory_get_by_path")}`,
       const result = await clientFor(args).memory.getByPath({
         path: args.path,
       });
+      const presented = args.select
+        ? projectMemory(result, parseSelectFields(args.select))
+        : result;
       return {
         content: [
-          { type: "text" as const, text: JSON.stringify(result, null, 2) },
+          {
+            type: "text" as const,
+            text: serializeReadResult(presented, args.format ?? undefined),
+          },
         ],
       };
     },

@@ -22,7 +22,13 @@ import * as clack from "@clack/prompts";
 import { Command } from "commander";
 import { stringify as yamlStringify } from "yaml";
 import { resolveCredentials } from "../credentials.ts";
-import { getOutputFormat, output, table } from "../output.ts";
+import {
+  type ParsedSelect,
+  parseSelectFields,
+  projectMemory,
+  projectSearchResult,
+} from "../memory-projection.ts";
+import { getOutputFormat, output } from "../output.ts";
 import {
   buildMemoryClient,
   handleError,
@@ -72,6 +78,10 @@ function parseTemporal(value: string): { start: string; end?: string | null } {
   throw new Error(
     "Invalid --temporal: expected 'start' or 'start,end' (ISO 8601)",
   );
+}
+
+function parseSelect(value: string): ParsedSelect {
+  return parseSelectFields(value.split(",").map((field) => field.trim()));
 }
 
 export function parseMaxCount(value: string | undefined): number | undefined {
@@ -258,6 +268,10 @@ function createMemoryGetCommand(): Command {
     .description("get a memory by ID or by its tree/name path")
     .argument("<id-or-path>", "memory ID (UUIDv7) or tree/name path")
     .option("--raw", "output raw Markdown with YAML frontmatter (no ANSI)")
+    .option(
+      "--select <fields>",
+      "comma-separated fields to return (for example id,tree,content:200)",
+    )
     .action(async (ref: string, opts, cmd) => {
       const globalOpts = cmd.optsWithGlobals();
       const creds = resolveCredentials(globalOpts.server);
@@ -268,6 +282,22 @@ function createMemoryGetCommand(): Command {
       const client = buildMemoryClient(creds);
 
       try {
+        if (opts.select !== undefined) {
+          if (opts.raw) {
+            throw new Error("--raw cannot be combined with --select");
+          }
+          const select = parseSelect(opts.select);
+          const fullMemory = UUIDV7_RE.test(ref)
+            ? await client.memory.get({ id: ref })
+            : await client.memory.getByPath({ path: ref });
+          const memory = projectMemory(fullMemory, select);
+
+          await output(memory, fmt, () => {
+            console.log(yamlStringify(memory, { lineWidth: 0 }).trimEnd());
+          });
+          return;
+        }
+
         const memory = UUIDV7_RE.test(ref)
           ? await client.memory.get({ id: ref })
           : await client.memory.getByPath({ path: ref });
@@ -336,6 +366,10 @@ function createMemorySearchCommand(): Command {
     .option(
       "--order-by <dir>",
       "filter-only search: order by recency, desc (default, newest first) | asc",
+    )
+    .option(
+      "--select <fields>",
+      "comma-separated fields to return (for example id,tree,content:200,score)",
     )
     .action(async (query: string | undefined, opts, cmd) => {
       const globalOpts = cmd.optsWithGlobals();
@@ -432,12 +466,21 @@ function createMemorySearchCommand(): Command {
         if (opts.semanticThreshold)
           params.semanticThreshold = Number.parseFloat(opts.semanticThreshold);
         if (opts.orderBy) params.orderBy = opts.orderBy;
+        const select =
+          opts.select !== undefined
+            ? parseSelect(opts.select)
+            : fmt === "text"
+              ? parseSelectFields(["id", "tree", "content:120", "score"])
+              : undefined;
 
-        const result = await client.memory.search(
+        const fullResult = await client.memory.search(
           params as Parameters<typeof client.memory.search>[0],
         );
+        const result = select
+          ? projectSearchResult(fullResult, select)
+          : fullResult;
 
-        output(result, fmt, () => {
+        await output(result, fmt, () => {
           console.log(
             `Found ${result.total} results (showing ${result.results.length})`,
           );
@@ -447,20 +490,33 @@ function createMemorySearchCommand(): Command {
             return;
           }
           console.log();
-          table(
-            ["id", "content", "tree", "score"],
-            result.results.map((r) => {
-              const flat = r.content.replace(/\s+/g, " ").trim();
-              const preview =
-                flat.length > 60 ? `${flat.slice(0, 60)}...` : flat;
-              return [
-                r.id,
-                preview,
-                r.tree ?? "",
-                r.score < 1.0 ? r.score.toFixed(3) : "",
-              ];
-            }),
-          );
+          if (opts.select !== undefined) {
+            console.log(
+              yamlStringify(result.results, { lineWidth: 0 }).trimEnd(),
+            );
+            return;
+          }
+          for (const [index, resultMemory] of result.results.entries()) {
+            const content = resultMemory.content ?? "";
+            const flat = content.replace(/\s+/g, " ").trim();
+            const length =
+              "contentLength" in resultMemory
+                ? resultMemory.contentLength
+                : undefined;
+            const preview =
+              length !== undefined && length > content.length
+                ? `${flat}...`
+                : flat;
+            if (resultMemory.id !== undefined) console.log(resultMemory.id);
+            if (resultMemory.tree !== undefined) {
+              console.log(`  tree: ${resultMemory.tree}`);
+            }
+            console.log(`  ${preview}`);
+            if (resultMemory.score !== undefined) {
+              console.log(`  score: ${resultMemory.score.toFixed(3)}`);
+            }
+            if (index < result.results.length - 1) console.log();
+          }
         });
       } catch (error) {
         handleError(error, fmt, { creds, scope: "space" });
