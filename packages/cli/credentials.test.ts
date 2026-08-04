@@ -385,6 +385,19 @@ test("active space: set / resolve / clear; ME_SPACE wins", () => {
   expect(creds.resolveCredentials(SERVER).activeSpace).toBeUndefined();
 });
 
+test("harness CLI space applies only to its selected server", () => {
+  creds.setHarnessCliOverride({ server: SERVER, space: "profile-space" });
+  try {
+    expect(creds.resolveCredentials(SERVER).activeSpace).toBe("profile-space");
+    expect(creds.resolveSpace("https://other.example.com")).toBeUndefined();
+    expect(
+      creds.resolveCredentials("https://other.example.com").activeSpace,
+    ).toBeUndefined();
+  } finally {
+    creds.setHarnessCliOverride(undefined);
+  }
+});
+
 test("logout clears the secret but keeps the active space", () => {
   creds.storeTokens(SERVER, TOKENS);
   creds.setActiveSpace(SERVER, "abc123def456");

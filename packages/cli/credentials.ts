@@ -592,7 +592,8 @@ export function resolveSpace(
 ): string | undefined {
   if (flagValue) return flagValue;
   if (process.env.ME_SPACE) return process.env.ME_SPACE;
-  if (harnessCliOverride?.space) return harnessCliOverride.space;
+  const harnessSpace = harnessSpaceFor(server);
+  if (harnessSpace) return harnessSpace;
   return getServerConfig(server).active_space;
 }
 
@@ -640,6 +641,14 @@ export function setHarnessCliOverride(
   value: { server?: string; space?: string } | undefined,
 ): void {
   harnessCliOverride = value;
+}
+
+function harnessSpaceFor(server: string): string | undefined {
+  if (!harnessCliOverride?.server || !harnessCliOverride.space)
+    return undefined;
+  return normalizeOrigin(harnessCliOverride.server) === normalizeOrigin(server)
+    ? harnessCliOverride.space
+    : undefined;
 }
 
 // =============================================================================
@@ -791,7 +800,7 @@ function credentialsFor(
     activeSpace:
       process.env.ME_SPACE ??
       project?.space ??
-      (!project ? harnessCliOverride?.space : undefined) ??
+      (!project ? harnessSpaceFor(server) : undefined) ??
       config.servers[normalizeOrigin(server)]?.active_space,
     tree: project?.tree,
     treeRoot: config.tree_root,
