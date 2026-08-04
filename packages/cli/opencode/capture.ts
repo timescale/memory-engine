@@ -67,7 +67,7 @@ export interface HookConfig {
 /** The slice of resolved credentials the hook needs. */
 export type HookCreds = Pick<
   ResolvedCredentials,
-  "server" | "apiKey" | "activeSpace" | "loggedIn" | "tree" | "treeRoot"
+  "server" | "apiKey" | "activeSpace" | "loggedIn"
 >;
 
 /** Optional knobs the plugin/command passes through. */
@@ -98,8 +98,8 @@ export function resolveHookConfig(
   // the slug nests under the machine-wide `tree_root` override, else under
   // the PRIVATE default (`~/projects/<slug>` — shared layouts are explicit
   // opt-ins).
-  const treeRoot = creds.treeRoot ?? DEFAULT_PRIVATE_TREE_ROOT;
-  const tree = creds.tree;
+  const treeRoot = DEFAULT_PRIVATE_TREE_ROOT;
+  const tree = undefined;
   const fullTranscript = input.fullTranscript ?? false;
 
   return {

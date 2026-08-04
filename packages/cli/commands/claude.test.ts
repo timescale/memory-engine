@@ -2,7 +2,6 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { initOutroLead } from "../agent/init.ts";
 
 const pluginDir = join(import.meta.dir, "..", "..", "claude-plugin");
 
@@ -30,22 +29,5 @@ describe("Claude plugin assets", () => {
       "Stop",
       "SessionEnd",
     ]);
-  });
-});
-
-describe("initOutroLead", () => {
-  const backfill = { kind: "backfill" } as const;
-  const ongoing = { kind: "ongoing" } as const;
-  const config = { kind: "config" } as const;
-
-  test("backfill + ongoing → imported history and hooks keep it updated", () => {
-    const lead = initOutroLead([backfill, ongoing, config]).join(" ");
-    expect(lead).toContain("Imported");
-    expect(lead).toContain("going forward");
-  });
-
-  test("config only (or nothing) → no lead paragraph", () => {
-    expect(initOutroLead([config])).toEqual([]);
-    expect(initOutroLead([])).toEqual([]);
   });
 });

@@ -2,8 +2,8 @@
  * `me import docs [dir]` — import a directory's markdown docs as memories.
  *
  * One memory per markdown file under `<tree>.docs.<relative dirs>` — the
- * full project TREE from `--tree` or the repo's `.me` `tree`, else
- * `<tree_root ?? ~/projects>.<project_slug>` (private by default). The
+ * full project TREE from `--tree`, else `<~/projects>.<project_slug>`
+ * (private by default). The
  * argument directory is the import root: trees derive relative to IT.
  *
  * Plain mode is the default: discover markdown files by walking the filesystem
@@ -25,7 +25,7 @@ import * as clack from "@clack/prompts";
 import type { MemoryCreateParams } from "@memory.build/protocol/memory";
 import { Command } from "commander";
 import { BATCH_CREATE_BYTES_BUDGET, batchCreateChunked } from "../chunk.ts";
-import { resolveCredentials, resolveCredentialsFor } from "../credentials.ts";
+import { resolveCredentials } from "../credentials.ts";
 import {
   buildDocMemory,
   DEFAULT_DOC_PATTERNS,
@@ -52,7 +52,6 @@ import {
   ProjectRegistry,
 } from "../importers/project.ts";
 import { getOutputFormat, output } from "../output.ts";
-import { discoverProjectConfig } from "../project-config.ts";
 import {
   buildMemoryClient,
   displayTreePath,
@@ -143,7 +142,7 @@ export function buildDocsImportOptions(
 /**
  * In git mode, an import root below the repo toplevel is refused unless
  * explicitly allowed: tree slots derive from the import root while the
- * project identity (slug, .me tree) stays repo-level, so runs rooted at
+ * project identity stays repo-level, so runs rooted at
  * different directories mint parallel corpora under one docs root — and a
  * cross-root --prune deletes the other root's slots. `--include` scoping
  * from the toplevel achieves the same narrowing without re-rooting. Returns
@@ -275,29 +274,18 @@ export async function runDocsImport(
     handleError(new Error(`Not a directory: ${opts.dir}`), fmt);
   }
 
-  // Per-project resolution follows the TARGET directory, not the cwd (the
-  // `me import git` pattern): the import root's own .me config supplies
-  // server/space/tree, so importing another project's docs from anywhere
-  // routes to that project. An explicit --config-dir/ME_CONFIG_DIR keeps the
-  // ambient resolution the caller asked for; `--server` reaches both forms
-  // (seeded).
   const serverFlag =
     typeof globalOpts.server === "string" ? globalOpts.server : undefined;
-  const explicitConfigDir =
-    typeof globalOpts.configDir === "string" ||
-    Boolean(process.env.ME_CONFIG_DIR);
   let creds: ReturnType<typeof resolveCredentials>;
   try {
-    creds = explicitConfigDir
-      ? resolveCredentials(serverFlag)
-      : resolveCredentialsFor(discoverProjectConfig(dir));
+    creds = resolveCredentials(serverFlag);
   } catch (error) {
     handleError(error, fmt);
   }
   requireAuth(creds, fmt);
   requireSpace(creds, fmt);
 
-  const explicitProjectNode = opts.tree ?? creds.tree;
+  const explicitProjectNode = opts.tree;
   let slug: string | undefined;
   if (explicitProjectNode === undefined) {
     slug = opts.gitAware
@@ -306,10 +294,9 @@ export async function runDocsImport(
   }
 
   // Destination is independent of source interpretation: an explicit `--tree`
-  // or `.me` tree is the full project node, with no slug resolution needed.
+  // is the full project node, with no slug resolution needed.
   const projectNode =
-    explicitProjectNode ??
-    `${creds.treeRoot ?? DEFAULT_PRIVATE_TREE_ROOT}.${slug}`;
+    explicitProjectNode ?? `${DEFAULT_PRIVATE_TREE_ROOT}.${slug}`;
   const docsTree = `${projectNode}.${DOCS_NODE_NAME}`;
 
   const gitContext = opts.gitAware ? await detectGitContext(dir) : {};

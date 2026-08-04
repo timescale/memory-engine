@@ -5,10 +5,7 @@
  * (`me import claude|codex|opencode`) and as an alias under its agent command
  * group (`me claude import`, …) — both built from the same per-tool factory
  * (`createClaudeImportCommand`, …). Each source-native message becomes one
- * memory, stored under `<tree-root>.<project_slug>.<sessions-node-name>` — or,
- * for a `--project`-scoped run whose project pins a `.me/config.yaml` `tree`,
- * directly under `<tree>.<sessions-node-name>` (no slug), matching the live
- * capture hook.
+ * memory, stored under `<tree-root>.<project_slug>.<sessions-node-name>`.
  *
  * Shared flags across every agent import subcommand:
  *   --source <dir>           override default source directory / DB
@@ -16,8 +13,7 @@
  *   --since <iso>            only sessions started at/after this timestamp
  *   --until <iso>            only sessions started at/before this timestamp
  *   --tree-root <path>       tree root under which `<slug>.<sessions-node-name>`
- *                            nodes are placed (default: the `.me` tree for a
- *                            --project run, else the private `~/projects`)
+ *                            nodes are placed (default: the private `~/projects`)
  *   --sessions-node-name     per-project node name for imported agent
  *                            sessions (default: agent_sessions)
  *   --full-transcript        include reasoning, tool calls, tool results
@@ -33,7 +29,6 @@ import type { MemoryClient } from "../client.ts";
 import {
   type ResolvedCredentials,
   resolveCredentials,
-  resolveCredentialsFor,
 } from "../credentials.ts";
 import { claudeImporter } from "../importers/claude.ts";
 import { codexImporter } from "../importers/codex.ts";
@@ -51,10 +46,7 @@ import {
 import { opencodeImporter } from "../importers/opencode.ts";
 import type { ImporterOptions } from "../importers/types.ts";
 import { getOutputFormat, output } from "../output.ts";
-import {
-  discoverProjectConfig,
-  VALID_TREE_PATH_RE,
-} from "../project-config.ts";
+import { VALID_TREE_PATH_RE } from "../tree-path.ts";
 import {
   buildMemoryClient,
   handleError,
@@ -65,8 +57,7 @@ import {
 
 // Default capture layout (~/projects.<slug>.agent_sessions — private) lives in the
 // importers module so `me import <tool>` and the Claude Code hook share one source.
-// User-facing tree-path input shares the strict client-side gate with the `.me`
-// `tree` / global `tree_root` (see VALID_TREE_PATH_RE): labels [A-Za-z0-9_-],
+// User-facing tree-path input uses the strict client-side gate: labels [A-Za-z0-9_-],
 // `.`/`/` separators, optional leading `~` (home) or `/`. The server still
 // normalizes + authoritatively validates.
 export const VALID_TREE_ROOT_RE = VALID_TREE_PATH_RE;
@@ -130,24 +121,17 @@ function addCommonOptions(
  * Validates --tree-root syntax and the ISO filter bounds.
  *
  * This computes only the RUN-LEVEL parent (`treeRoot`); per-session trees
- * come from the router (`createSessionRouter`), which resolves each session's
- * own project `.me` — so `write.tree` is left unset here and superseded per
- * session. The parent, highest-first: an explicit `--tree-root` (a slug-free
- * parent — each project's slug is appended under it; it also overrides every
- * project's `.me` tree, via the router) > the machine-wide `tree_root` config
- * override > the private `~/projects`.
+ * come from the router (`createSessionRouter`), so `write.tree` is left unset
+ * here. The parent is an explicit `--tree-root`, else private `~/projects`.
  */
-export function buildOptions(
-  opts: Record<string, unknown>,
-  creds?: { treeRoot?: string },
-): {
+export function buildOptions(opts: Record<string, unknown>): {
   importer: ImporterOptions;
   write: WriteOptions;
 } {
   const explicitTreeRoot = typeof opts.treeRoot === "string";
   const treeRoot = explicitTreeRoot
     ? (opts.treeRoot as string)
-    : (creds?.treeRoot ?? DEFAULT_PRIVATE_TREE_ROOT);
+    : DEFAULT_PRIVATE_TREE_ROOT;
   const sessionsNodeName =
     typeof opts.sessionsNodeName === "string"
       ? opts.sessionsNodeName
@@ -201,28 +185,14 @@ ${hint}`,
 }
 
 /**
- * Build the per-session router for a bulk import: each session's project is
- * resolved through the REAL local resolution stack — `discoverProjectConfig`
- * from the session's own cwd, passed explicitly to `resolveCredentialsFor` —
- * so a sweep mirrors the live hook exactly: per-project server
- * (whitelist-gated), space, and tree. Imports always use the presented
- * credential rather than an act-as-agent target. Decisions (including the
- * client) are memoized per cwd; clients are
+ * Build the per-session router for a bulk import. Imports use the resolved
+ * machine-local credentials, while session trees remain per-project by slug.
+ * Decisions (including the client) are memoized per cwd; clients are
  * cheap stateless wrappers — token/refresh state lives at module level keyed
  * by server — so distinct projects resolving to the same target just build
  * equivalent ones.
  *
- * Per-project failures never kill the sweep — best-effort like the hook,
- * they become skip tallies (`discovery.skipped[reason]`):
- *   - `project_config_error`      — resolving the project threw: a malformed
- *                                   `.me`, an untrusted `server` (the same
- *                                   credential-safety gate a local run
- *                                   applies), a `.me` agent sentinel with no
- *                                   project agent, … (the message is carried
- *                                   as the skip detail for verbose output);
- *   - `no_credentials_for_server` — no api key and no login session for the
- *                                   project's server;
- *   - `no_space_for_project`      — no space resolvable there.
+ * Missing credentials or an active space become skip tallies.
  */
 export function createSessionRouter(opts: {
   /** An explicit `--tree-root`: wins over every project's `.me` tree. */
@@ -236,7 +206,7 @@ export function createSessionRouter(opts: {
 }): SessionRouter {
   const buildClient = opts.buildClient ?? buildMemoryClient;
   const treeRootOf = (creds: ResolvedCredentials): string =>
-    opts.explicitTreeRoot ?? creds.treeRoot ?? DEFAULT_PRIVATE_TREE_ROOT;
+    opts.explicitTreeRoot ?? DEFAULT_PRIVATE_TREE_ROOT;
 
   const routeByCwd = new Map<string, SessionRouteDecision>();
   const base: SessionRouteDecision = {
@@ -249,10 +219,7 @@ export function createSessionRouter(opts: {
 
   function computeRoute(cwd: string): SessionRouteDecision {
     try {
-      // The session project's `.me`, from ITS cwd, passed EXPLICITLY —
-      // `resolveCredentialsFor(undefined)` means "no project config", so the
-      // sweep runner's own project can never leak in.
-      const creds = resolveCredentialsFor(discoverProjectConfig(cwd));
+      const creds = resolveCredentials();
 
       if (!creds.apiKey && !creds.loggedIn) {
         return { skip: "no_credentials_for_server" };
@@ -264,7 +231,7 @@ export function createSessionRouter(opts: {
       return {
         route: {
           engine: buildClient({ ...creds, activeSpace: space }),
-          tree: opts.explicitTreeRoot ? undefined : creds.tree,
+          tree: undefined,
           treeRoot: treeRootOf(creds),
         },
       };
@@ -306,22 +273,6 @@ export async function runAgentImport(
   globalOpts: Record<string, unknown>,
 ): Promise<void> {
   const fmt = getOutputFormat(globalOpts);
-  // A config-dir pin means "use exactly this .me" — a single-project concept
-  // that contradicts per-session routing (every session resolves its OWN
-  // project's config). Reject the combination loudly rather than silently
-  // ignoring the pin for routing; single-target commands (`me import git`,
-  // the capture hooks, `me mcp`) keep honoring it.
-  if (typeof globalOpts.configDir === "string" || process.env.ME_CONFIG_DIR) {
-    handleError(
-      new Error(
-        "--config-dir / ME_CONFIG_DIR does not apply to session imports: " +
-          "every session routes by its own project's .me. Scope the sweep " +
-          "with --project <path>, or force a target with ME_SERVER / " +
-          "ME_SPACE / --tree-root.",
-      ),
-      fmt,
-    );
-  }
   const creds = resolveCredentials(
     typeof globalOpts.server === "string" ? globalOpts.server : undefined,
   );
@@ -330,14 +281,12 @@ export async function runAgentImport(
 
   let config: ReturnType<typeof buildOptions>;
   try {
-    config = buildOptions(opts, creds);
+    config = buildOptions(opts);
   } catch (error) {
     handleError(error, fmt);
   }
 
   const engine = buildMemoryClient(creds);
-  // Bulk imports route each session by ITS project's config — full
-  // per-project server/space/tree, mirroring the live hook.
   const router = createSessionRouter({
     explicitTreeRoot:
       typeof opts.treeRoot === "string" ? opts.treeRoot : undefined,

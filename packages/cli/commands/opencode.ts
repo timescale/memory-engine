@@ -2,20 +2,12 @@
  * me opencode — OpenCode integration commands.
  *
  * - me opencode install: install the dormant global OpenCode integration
- *   (also offered from `me project init`'s preflight — see
- *   `openCodeSetupAvailable`/`runOpenCodeInstallFlow`)
  * - me opencode hook:    invoked by the OpenCode plugin to capture a session
  * - me opencode import:  bulk-import OpenCode session history
- *
- * Per-project setup (session backfill, git history, memory pointers) is
- * `me project init` — harness-agnostic, not duplicated here. `me opencode
- * init` used to cover that; it's now a deprecated alias (wired in index.ts).
  */
 import { Command } from "commander";
-import type { StepAvailability } from "../agent/init.ts";
 import { createMemoryClient } from "../client.ts";
 import { resolveCredentials } from "../credentials.ts";
-import { installHarness, isHarnessInstalled } from "../harness/registry.ts";
 import {
   DEFAULT_PRIVATE_TREE_ROOT,
   importTranscriptSession,
@@ -33,27 +25,6 @@ import {
   createHarnessInstallCommand,
   createHarnessUninstallCommand,
 } from "./install.ts";
-
-/**
- * Legacy `me project init` preflight adapter. Public install commands use the
- * same inventory-backed provider registry directly.
- */
-export async function runOpenCodeInstallFlow(
-  _opts: unknown,
-  _globalOpts: Record<string, unknown>,
-): Promise<void> {
-  await installHarness("opencode");
-}
-
-/**
- * Whether `me project init`'s preflight should offer to run
- * {@link runOpenCodeInstallFlow}: hidden if OpenCode isn't installed on this
- * machine at all, "done" when the registry has recorded its integration.
- */
-export async function openCodeSetupAvailable(): Promise<StepAvailability> {
-  if (Bun.which("opencode") === null) return "hidden";
-  return isHarnessInstalled("opencode") ? "done" : "available";
-}
 
 function createOpenCodeInstallCommand(): Command {
   return createHarnessInstallCommand("opencode");
@@ -85,7 +56,7 @@ function createOpenCodeHookCommand(): Command {
     )
     .option(
       "--project-dir <dir>",
-      "the session's project dir (anchor for .me/config.yaml discovery; passed by the generated plugin)",
+      "the session's project dir (capture-profile discovery anchor; passed by the generated plugin)",
     )
     .option(
       "--full-transcript",

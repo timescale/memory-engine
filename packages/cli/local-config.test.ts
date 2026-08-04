@@ -215,17 +215,13 @@ test("allows disabled surfaces with retained harness selections", () => {
   });
 });
 
-test("writers preserve human CLI state and legacy capture runtime fields", () => {
+test("writers preserve human CLI state and unrelated fields", () => {
   writeConfig(
     [
       "default_server: https://human.example",
       "servers:",
       "  https://human.example:",
       "    active_space: human-space",
-      "server_whitelist:",
-      "  - https://internal.example",
-      "capture: true",
-      "tree_root: /share/legacy",
       "unrelated: preserved",
     ].join("\n"),
   );
@@ -235,21 +231,8 @@ test("writers preserve human CLI state and legacy capture runtime fields", () =>
   const written = readFileSync(configPath(), "utf-8");
   expect(written).toContain("default_server: https://human.example");
   expect(written).toContain("active_space: human-space");
-  expect(written).toContain("- https://internal.example");
   expect(written).toContain("unrelated: preserved");
-  expect(written).toContain("capture: true");
-  expect(written).toContain("tree_root: /share/legacy");
-  expect(creds.resolveCredentials("https://human.example").captureEnabled).toBe(
-    true,
-  );
-  expect(creds.resolveCredentials("https://human.example").treeRoot).toBe(
-    "/share/legacy",
-  );
   const config = readLocalConfig();
-  expect(config.defaults?.capture).toMatchObject({
-    enabled: false,
-    tree_root: "/share/legacy",
-  });
   expect(
     config.directories[join(canonicalizeDirectory(root), "project")],
   ).toBeDefined();

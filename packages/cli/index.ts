@@ -32,10 +32,6 @@ import {
 } from "./commands/memory.ts";
 import { createOpenCodeCommand } from "./commands/opencode.ts";
 import { createPackCommand } from "./commands/pack.ts";
-import {
-  createProjectCommand,
-  createRemovedCommand,
-} from "./commands/project.ts";
 import { createCiInstallCommand } from "./commands/project-ci.ts";
 import { createServeCommand } from "./commands/serve.ts";
 import { createServiceCommand } from "./commands/service.ts";
@@ -48,10 +44,6 @@ import { setHarnessCliOverride, setServerFlagOverride } from "./credentials.ts";
 import { HARNESS_NAMES, type HarnessName } from "./harness/names.ts";
 import { resolveHarnessCliProfile } from "./local-config.ts";
 import { setExpanded } from "./output.ts";
-import {
-  setConfigDirOverride,
-  setProjectDirOverride,
-} from "./project-config.ts";
 
 const SHELLS = ["zsh", "bash", "fish", "powershell"] as const;
 type Shell = (typeof SHELLS)[number];
@@ -66,14 +58,6 @@ program
     "--server <url>",
     "server URL (overrides ME_SERVER env and stored default)",
   )
-  .option(
-    "--config-dir <dir>",
-    "directory containing the .me/config.yaml to use (else walk up from cwd; ME_CONFIG_DIR)",
-  )
-  .option(
-    "--project-dir <dir>",
-    "anchor to walk up from when discovering .me/ (replaces cwd; ME_PROJECT_DIR — set by harness adapters, rarely passed by hand)",
-  )
   .option("--json", "output as JSON")
   .option("--yaml", "output as YAML")
   .option("-x, --expanded", "show list output in expanded (vertical) format");
@@ -82,12 +66,6 @@ program
 program.hook("preAction", (thisCommand) => {
   const opts = thisCommand.optsWithGlobals();
   setExpanded(opts.expanded ?? false);
-  setConfigDirOverride(
-    typeof opts.configDir === "string" ? opts.configDir : undefined,
-  );
-  setProjectDirOverride(
-    typeof opts.projectDir === "string" ? opts.projectDir : undefined,
-  );
   setServerFlagOverride(
     typeof opts.server === "string" ? opts.server : undefined,
   );
@@ -147,20 +125,11 @@ program.addCommand(createUninstallCommand());
 
 // Agent integration commands (install MCP, import sessions, capture hooks)
 const claude = createClaudeCommand();
-// `me claude init` is retired — redirect to `me project init` (registered
-// here so claude.ts and project.ts don't cycle).
-claude.addCommand(createRemovedCommand("me claude init"));
 program.addCommand(claude);
 const opencode = createOpenCodeCommand();
-// `me opencode init` is retired — redirect to `me project init`, mirroring
-// the claude alias above.
-opencode.addCommand(createRemovedCommand("me opencode init"));
 program.addCommand(opencode);
 program.addCommand(createGeminiCommand());
 program.addCommand(createCodexCommand());
-
-// Harness-agnostic per-project setup (`me project init`)
-program.addCommand(createProjectCommand());
 
 // Local web UI
 program.addCommand(createServeCommand());

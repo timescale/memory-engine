@@ -1,6 +1,5 @@
 /** Claude Code integration commands and dormant hook entry points. */
 import { Command } from "commander";
-import type { StepAvailability } from "../agent/init.ts";
 import {
   HOOK_EVENT_NAMES,
   type HookEvent,
@@ -9,7 +8,6 @@ import {
 } from "../claude/capture.ts";
 import { createMemoryClient } from "../client.ts";
 import { resolveCredentials } from "../credentials.ts";
-import { installHarness, isHarnessInstalled } from "../harness/registry.ts";
 import { buildContractVars, upsertContractBlock } from "../harness-contract.ts";
 import { claudeImporter } from "../importers/claude.ts";
 import {
@@ -23,24 +21,6 @@ import {
   createHarnessInstallCommand,
   createHarnessUninstallCommand,
 } from "./install.ts";
-
-/**
- * Retained for the retired project-init integration step. Harness installation
- * itself is always mechanical; this compatibility wrapper has no side effects
- * beyond registering Claude's dormant integration.
- */
-export async function runClaudeInstallFlow(
-  _opts?: unknown,
-  _globalOpts?: unknown,
-): Promise<void> {
-  await installHarness("claude");
-}
-
-/** Availability for the retired project-init integration step. */
-export async function pluginInstallAvailable(): Promise<StepAvailability> {
-  if (Bun.which("claude") === null) return "hidden";
-  return isHarnessInstalled("claude") ? "done" : "available";
-}
 
 /**
  * Inject the frozen harness contract into Claude's sourced environment file.

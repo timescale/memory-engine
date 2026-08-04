@@ -112,11 +112,8 @@ export async function resolveMemoryPointer(
   const cwd = process.cwd();
   const creds = resolveCredentials(server);
   const { gitRoot } = await detectGitContext(cwd);
-  const slug = creds.tree
-    ? undefined
-    : (await new ProjectRegistry().resolve(cwd)).slug;
-  const tree =
-    creds.tree ?? `${creds.treeRoot ?? DEFAULT_PRIVATE_TREE_ROOT}/${slug}`;
+  const slug = (await new ProjectRegistry().resolve(cwd)).slug;
+  const tree = `${DEFAULT_PRIVATE_TREE_ROOT}/${slug}`;
   const section = buildMemoryPointerSection(spec, tree, creds.activeSpace);
   const filePath = join(gitRoot ?? cwd, spec.filename);
   return { filePath, section };
@@ -127,7 +124,7 @@ export async function resolveMemoryPointer(
  * resolve to the SAME underlying file — a common convention for projects
  * supporting multiple AI tools is symlinking one to the other so they only
  * maintain one set of instructions. Both specs share the exact same start
- * marker (`managedBy` is now harness-agnostic — see `commands/project.ts`),
+ * marker (`managedBy` is harness-agnostic),
  * so writing both independently into a symlinked pair wouldn't duplicate
  * anything, but it WOULD silently clobber one write with the other's
  * `agentLabel` wording, non-deterministically depending on step order.

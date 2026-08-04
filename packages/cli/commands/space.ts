@@ -31,9 +31,7 @@ import type { MemberSpaceResponse } from "@memory.build/protocol/user";
 import { Command } from "commander";
 import {
   clearActiveSpace,
-  getDefaultServer,
   getServerConfig,
-  normalizeOrigin,
   type ResolvedCredentials,
   resolveCredentials,
   setActiveSpace,
@@ -44,7 +42,6 @@ import {
   output,
   table,
 } from "../output.ts";
-import { getProjectConfig, writeProjectSpace } from "../project-config.ts";
 import {
   buildMemoryClient,
   buildUserClient,
@@ -263,39 +260,18 @@ function createSpaceUseCommand(): Command {
         const { spaces } = await user.space.list();
         const space = await resolveSpaceArg(spaces, arg, fmt);
 
-        // Effective-scope write (like `git config`): when a `.me` file in
-        // scope defines `space`, that pin shadows the global active_space —
-        // edit it instead. Otherwise the global config governs; write there.
-        let configPath: string | undefined;
-        const project = getProjectConfig();
-        if (project) {
-          // Keep the pin self-consistent: if the effective server differs from
-          // what the project resolves on its own (a --server/ME_SERVER
-          // override, or a stale `.me` server pin), write `server:` alongside.
-          const projectServer = normalizeOrigin(
-            project.server ?? getDefaultServer(),
-          );
-          configPath = writeProjectSpace(project, {
-            space: space.slug,
-            server: projectServer === creds.server ? undefined : creds.server,
-          });
-        }
-        if (!configPath) setActiveSpace(creds.server, space.slug);
+        setActiveSpace(creds.server, space.slug);
 
-        output(
-          { space, switched: true, configPath: configPath ?? null },
-          fmt,
-          () => {
-            clack.log.success(
-              `Active space: ${space.name} (${space.slug}) — saved to ${configPath ?? "global config"}`,
+        output({ space, switched: true }, fmt, () => {
+          clack.log.success(
+            `Active space: ${space.name} (${space.slug}) — saved to global config`,
+          );
+          if (process.env.ME_SPACE && process.env.ME_SPACE !== space.slug) {
+            clack.log.warn(
+              `ME_SPACE=${process.env.ME_SPACE} is set and overrides the saved active space.`,
             );
-            if (process.env.ME_SPACE && process.env.ME_SPACE !== space.slug) {
-              clack.log.warn(
-                `ME_SPACE=${process.env.ME_SPACE} is set and overrides the saved active space.`,
-              );
-            }
-          },
-        );
+          }
+        });
       } catch (error) {
         handleError(error, fmt, { creds });
       }
@@ -442,10 +418,8 @@ function createSpaceDeleteCommand(): Command {
 
         const result = await user.space.delete({ slug: space.slug });
         // If the global config's active_space points at the just-deleted
-        // space, drop the stale pointer. Check the stored value directly —
-        // creds.activeSpace can come from ME_SPACE or a `.me` pin, and
-        // clearing on those would wipe a global selection that points at a
-        // different, still-valid space.
+        // space, drop the stale pointer. Check the stored value directly so an
+        // ME_SPACE override never clears a different global selection.
         if (
           result.deleted &&
           getServerConfig(creds.server).active_space === space.slug
@@ -455,12 +429,7 @@ function createSpaceDeleteCommand(): Command {
         output({ slug: space.slug, ...result }, fmt, () => {
           if (result.deleted) {
             clack.log.success(`Space '${space.name}' has been deleted.`);
-            const project = getProjectConfig();
-            if (project?.space === space.slug) {
-              clack.log.warn(
-                `This project's .me config (${project.dir}/.me) still pins the deleted space — run 'me space use <space>' here to repoint it.`,
-              );
-            } else if (creds.activeSpace === space.slug) {
+            if (creds.activeSpace === space.slug) {
               clack.log.info("Run 'me space use <space>' to pick another.");
             }
           }

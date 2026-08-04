@@ -8,7 +8,7 @@ import { Command } from "commander";
 import {
   DEFAULT_SERVER,
   type ResolvedCredentials,
-  resolveCredentialsFor,
+  resolveCredentials,
 } from "../credentials.ts";
 import { detectGitContext } from "../importers/project.ts";
 import { getOutputFormat, type OutputFormat } from "../output.ts";
@@ -447,9 +447,7 @@ export async function runCiInstall(
     );
   }
 
-  // CI settings are explicit workflow inputs; a repository's retired .me
-  // configuration must not influence this command.
-  const creds = resolveCredentialsFor(undefined);
+  const creds = resolveCredentials();
   let space = opts.space;
   let isAdmin = false;
   if (!space) {

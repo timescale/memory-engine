@@ -9,7 +9,24 @@
 import { runAgentImport } from "../commands/import.ts";
 import type { Importer } from "../importers/index.ts";
 import type { SourceTool } from "../importers/types.ts";
-import type { InitStep } from "./init.ts";
+
+interface TranscriptImportStep {
+  id: string;
+  group: string;
+  kind: "backfill";
+  optionKey: string;
+  skipFlag: string;
+  skipDescription: string;
+  label: string;
+  available: (ctx: {
+    globalOpts: Record<string, unknown>;
+    projectRoot?: string;
+  }) => Promise<"available" | "hidden">;
+  run: (ctx: {
+    globalOpts: Record<string, unknown>;
+    projectRoot?: string;
+  }) => Promise<void>;
+}
 
 /**
  * Whether `importer` would actually import at least one session for
@@ -43,7 +60,7 @@ export function transcriptImportStep(
   tool: SourceTool,
   importer: Importer,
   toolLabel: string,
-): InitStep {
+): TranscriptImportStep {
   return {
     id: `transcript-import-${tool}`,
     group: `${toolLabel} sessions`,
