@@ -141,7 +141,6 @@ test("manual MCP startup passes multi-space mode instead of an active-space defa
         server: "https://api.example.com",
         loggedIn: true,
         activeSpace: "ignoredspace",
-        captureEnabled: false,
       }),
       memoryBearer: () => ({
         getToken: async () => "token",
