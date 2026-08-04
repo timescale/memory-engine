@@ -10,10 +10,14 @@ Returns the full memory including content, tree, name, meta, temporal, and embed
 |------|------|----------|-------------|
 | `space` | `string` | varies | Absent in locked mode; required nonempty string in multi-space mode. It selects the same-server space for this call. |
 | `id` | `string` | yes | The UUID of the memory to retrieve. |
+| `select` | `string[] \| null` | no | Fields to present. Omit or pass `null` for the complete memory. Supports response fields, `meta.keyName`, and content slices. |
+| `format` | `"yaml" \| "json" \| "compact" \| null` | no | Text serialization format. Omit or pass `null` for YAML; `json` and `compact` both return compact JSON. |
 
 ## Returns
 
-The full memory object:
+The tool returns YAML by default. The JSON below illustrates the complete
+memory-object shape; pass `format: "json"` or `format: "compact"` for compact
+JSON text.
 
 ```json
 {
@@ -58,4 +62,5 @@ The full memory object:
 ## Notes
 
 - Returns an error if the memory does not exist or the caller lacks access.
+- Omit `select` or pass `null` to receive the complete memory object. An empty selection or multiple distinct content slices are invalid. Selectors use camelCase response names. The complete suffix after `meta.` is the metadata key, so `meta.$thread` and punctuated keys are supported. `content:N`, `content:M:N`, and `content:M:` select UTF-16 code-unit ranges and include the full UTF-16 `contentLength`.
 - Useful for fetching the current state before performing an update. The returned `versionHash` is the value to pass back as `version_hash` to `me_memory_update`.

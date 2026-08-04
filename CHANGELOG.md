@@ -23,6 +23,8 @@ Server `server/v0.6.2` · Client `v0.6.2`.
   toast, and invite views.
 - Harness and project-config documentation was updated to match the current
   Claude, MCP, opencode, and project workflows.
+- MCP memory read tools now return YAML by default; pass `format: "json"` or
+  `format: "compact"` to receive compact JSON text.
 
 ### Unchanged
 - `MIN_CLIENT_VERSION` stays at 0.4.0 and `MIN_SERVER_VERSION` stays at 0.6.0.

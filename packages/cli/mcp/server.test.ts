@@ -1,6 +1,7 @@
 import { afterEach, expect, test } from "bun:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
+import { parse as yamlParse } from "yaml";
 import {
   createMcpServer,
   type McpServerOptions,
@@ -17,6 +18,54 @@ type RequestCapture = {
   method: string;
   headers: Record<string, string>;
 };
+
+type RpcRequestCapture = {
+  method: string;
+  params: Record<string, unknown>;
+};
+
+const fullMemory = {
+  id: "0194a000-0001-7000-8000-000000000001",
+  content: "ab😀cdefghij",
+  meta: { source: "docs", $thread: "thread-1" },
+  tree: "/share/design",
+  name: "projection",
+  temporal: null,
+  version: 2,
+  versionHash: "a".repeat(32),
+  hasEmbedding: true,
+  createdAt: "2026-01-01T00:00:00.000Z",
+  createdBy: null,
+  updatedAt: null,
+};
+
+function captureRpcResult(result: unknown): RpcRequestCapture[] {
+  const requests: RpcRequestCapture[] = [];
+  globalThis.fetch = (async (
+    _input: string | URL | Request,
+    init?: RequestInit,
+  ) => {
+    const body = JSON.parse(String(init?.body)) as {
+      id: number;
+      method: string;
+      params?: Record<string, unknown>;
+    };
+    requests.push({ method: body.method, params: body.params ?? {} });
+    return new Response(
+      JSON.stringify({ jsonrpc: "2.0", id: body.id, result }),
+      { status: 200, headers: { "Content-Type": "application/json" } },
+    );
+  }) as typeof fetch;
+  return requests;
+}
+
+function toolText(result: Awaited<ReturnType<Client["callTool"]>>): string {
+  const content = (
+    result.content as Array<{ type: string; text: string }> | undefined
+  )?.[0];
+  if (!content || content.type !== "text") throw new Error("missing text");
+  return content.text;
+}
 
 function assertMcpServerOptions(_options: McpServerOptions): void {}
 
@@ -259,6 +308,137 @@ test("space discovery uses the account endpoint without a space header", async (
         }),
       },
     ]);
+  } finally {
+    await Promise.all([client.close(), server.close()]);
+  }
+});
+
+test("memory get projects locally without sending presentation params to RPC", async () => {
+  const requests = captureRpcResult(fullMemory);
+  const { client, server } = await connect("locked");
+  try {
+    const result = await client.callTool({
+      name: "me_memory_get",
+      arguments: {
+        id: fullMemory.id,
+        select: ["content:4", "meta.$thread"],
+        format: "compact",
+      },
+    });
+    expect(JSON.parse(toolText(result))).toEqual({
+      content: "ab😀",
+      contentLength: 12,
+      meta: { $thread: "thread-1" },
+    });
+    expect(requests).toEqual([
+      { method: "memory.get", params: { id: fullMemory.id } },
+    ]);
+  } finally {
+    await Promise.all([client.close(), server.close()]);
+  }
+});
+
+test("memory get accepts null presentation options and defaults to full YAML", async () => {
+  const requests = captureRpcResult(fullMemory);
+  const { client, server } = await connect("locked");
+  try {
+    const withNulls = await client.callTool({
+      name: "me_memory_get",
+      arguments: { id: fullMemory.id, select: null, format: null },
+    });
+    const omitted = await client.callTool({
+      name: "me_memory_get",
+      arguments: { id: fullMemory.id },
+    });
+    expect(yamlParse(toolText(withNulls))).toEqual(fullMemory);
+    expect(yamlParse(toolText(omitted))).toEqual(fullMemory);
+    expect(requests).toHaveLength(2);
+  } finally {
+    await Promise.all([client.close(), server.close()]);
+  }
+});
+
+test("memory get-by-path projects locally", async () => {
+  const requests = captureRpcResult(fullMemory);
+  const { client, server } = await connect("locked");
+  try {
+    const result = await client.callTool({
+      name: "me_memory_get_by_path",
+      arguments: {
+        path: "/share/design/projection",
+        select: ["name", "versionHash"],
+        format: "json",
+      },
+    });
+    expect(JSON.parse(toolText(result))).toEqual({
+      name: "projection",
+      versionHash: fullMemory.versionHash,
+    });
+    expect(requests).toEqual([
+      {
+        method: "memory.getByPath",
+        params: { path: "/share/design/projection" },
+      },
+    ]);
+  } finally {
+    await Promise.all([client.close(), server.close()]);
+  }
+});
+
+test("memory search projects rows and keeps both compact JSON format names", async () => {
+  const fullResult = {
+    results: [{ ...fullMemory, score: 2.5 }],
+    total: 1,
+    limit: 10,
+  };
+  const requests = captureRpcResult(fullResult);
+  const { client, server } = await connect("locked");
+  try {
+    const outputs: string[] = [];
+    for (const format of ["json", "compact"] as const) {
+      const result = await client.callTool({
+        name: "me_memory_search",
+        arguments: {
+          fulltext: "projection",
+          select: ["id", "score"],
+          format,
+        },
+      });
+      outputs.push(toolText(result));
+    }
+    expect(outputs[0]).toBe(outputs[1]);
+    expect(JSON.parse(outputs[0] ?? "")).toEqual({
+      results: [{ id: fullMemory.id, score: 2.5 }],
+      total: 1,
+      limit: 10,
+    });
+    expect(requests).toEqual([
+      { method: "memory.search", params: { fulltext: "projection" } },
+      { method: "memory.search", params: { fulltext: "projection" } },
+    ]);
+  } finally {
+    await Promise.all([client.close(), server.close()]);
+  }
+});
+
+test("memory read tools reject empty or conflicting selections before RPC", async () => {
+  const requests = captureRpcResult(fullMemory);
+  const { client, server } = await connect("locked");
+  try {
+    const empty = await client.callTool({
+      name: "me_memory_get",
+      arguments: { id: fullMemory.id, select: [] },
+    });
+    const conflicting = await client.callTool({
+      name: "me_memory_get_by_path",
+      arguments: {
+        path: "/share/design/projection",
+        select: ["content:4", "content:4:"],
+      },
+    });
+    expect(empty.isError).toBe(true);
+    expect(conflicting.isError).toBe(true);
+    expect(requests).toEqual([]);
   } finally {
     await Promise.all([client.close(), server.close()]);
   }

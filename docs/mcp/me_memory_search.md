@@ -20,6 +20,8 @@ Supports three search modes: **semantic** (meaning-based), **fulltext** (keyword
 | `semanticThreshold` | `number \| null` | no | Minimum semantic similarity score (0-1) for vector candidates. Omit or pass `null` to skip. |
 | `limit` | `integer \| null` | no | Maximum number of results. Omit or pass `null` for default (10). Max: 1000. |
 | `order_by` | `string \| null` | no | Sort direction for filter-only searches: `"asc"` or `"desc"`. Default: `"desc"`. Omit or pass `null` for default. |
+| `select` | `string[] \| null` | no | Fields to present for each result. Omit or pass `null` for complete memory objects. Supports response fields, `meta.keyName`, and content slices. |
+| `format` | `"yaml" \| "json" \| "compact" \| null` | no | Text serialization format. Omit or pass `null` for YAML; `json` and `compact` both return compact JSON. |
 
 ### tree syntax
 
@@ -51,6 +53,9 @@ See [Tree filter syntax](../concepts.md#tree-filter-syntax) for the full referen
 
 ## Returns
 
+The tool returns YAML by default. The JSON below illustrates the response shape;
+pass `format: "json"` or `format: "compact"` for compact JSON text.
+
 ```json
 {
   "results": [
@@ -77,7 +82,7 @@ See [Tree filter syntax](../concepts.md#tree-filter-syntax) for the full referen
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `results` | `array` | Array of memory objects (same shape as `me_memory_get`, including `version` and `versionHash`), each with an additional `score` field (0-1). |
+| `results` | `array` | Array of memory objects (same shape as `me_memory_get`, including `version` and `versionHash`), each with an additional mode-dependent `score`. |
 | `total` | `number` | Total number of matching memories. |
 | `limit` | `number` | The limit that was applied. |
 
@@ -128,6 +133,8 @@ See [Tree filter syntax](../concepts.md#tree-filter-syntax) for the full referen
 
 - Provide at least one of `semantic`, `fulltext`, or a filter (`tree`, `meta`, `temporal`, `grep`) -- otherwise the search has no criteria.
 - Optional parameters may be omitted or explicitly passed as `null` — both are treated as "no value".
+- Omit `select` or pass `null` to receive complete memory objects. An empty selection or multiple distinct content slices are invalid.
+- Selectors use camelCase response names, such as `id`, `tree`, `hasEmbedding`, and `versionHash`. The complete suffix after `meta.` is the metadata key, including `$thread` or punctuation. `content:N` returns the first `N` UTF-16 code units; `content:M:N` returns the zero-based range `[M, N)`; `content:M:` returns from `M` through the end. Content slices include the full UTF-16 `contentLength`.
 - When both `semantic` and `fulltext` are provided, results are ranked using Reciprocal Rank Fusion (hybrid mode). Use this when both meaning-based similarity and exact-term matching are useful for the same query.
 - `order_by` only applies to filter-only searches (no `semantic`/`fulltext`). Ranked searches are always sorted by score.
-- `score` ranges from 0 to 1, where 1 is the best match.
+- Scores are mode-dependent and only comparable within one result set. Filter-only searches use `-1`; BM25, semantic, and hybrid searches use their respective ranking scales.
