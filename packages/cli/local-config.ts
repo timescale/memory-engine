@@ -82,6 +82,7 @@ export interface ResolvedHarnessProfile {
   profile_path?: string;
   mcp: ResolvedSurface<McpSurface>;
   capture: ResolvedSurface<CaptureSurface>;
+  cli: ResolvedSurface<CliSurface>;
 }
 
 type RawConfig = Record<string, unknown>;
@@ -404,6 +405,7 @@ export function resolveHarnessProfile(cwd: string): ResolvedHarnessProfile {
       matched.path,
       matched.profile?.capture,
     ),
+    cli: resolveSurface(matched.source, matched.path, matched.profile?.cli),
   };
 }
 
