@@ -31,7 +31,6 @@ The server defaults to `https://api.memory.build`. Pass `--server <url>` only if
 ```bash
 me opencode install
 me codex install
-me gemini install
 ```
 
 These commands register Memory Engine with the named tool, writing a `me mcp` invocation into the tool's MCP configuration. By default they embed no key — the server uses your `me login` session at runtime. Pass `--api-key` to pin a user PAT or service-account key instead, `--space <slug>` to pin a space, and `--server <url>` to pin a non-default server. For a restricted key, the pinned space must be one of its declarations.
@@ -48,7 +47,7 @@ This starts multi-space mode. Call `me_space_list` first, then pass one
 of its slugs as the required `space` argument to a memory tool. Add `--space
 <slug>` only when you want to lock that MCP process to one space.
 
-See the agent-specific command references for details: [`me opencode install`](cli/me-opencode.md#me-opencode-install), [`me codex install`](cli/me-codex.md#me-codex-install), and [`me gemini install`](cli/me-gemini.md#me-gemini-install).
+See the agent-specific command references for details: [`me opencode install`](cli/me-opencode.md#me-opencode-install) and [`me codex install`](cli/me-codex.md#me-codex-install).
 
 These installers are mechanical and **dormant**: they wire up the MCP entry and (for Claude Code and OpenCode) the capture plumbing, but they never log in, write credentials, or turn anything on. Enable capture and point it at a server, space, and tree with [`me init`](cli/me-init.md); inspect the policy that applies to a directory with [`me doctor`](cli/me-doctor.md).
 
@@ -56,7 +55,6 @@ These installers are mechanical and **dormant**: they wire up the MCP entry and 
 |------|-----------------|
 | OpenCode | `me opencode install` |
 | Codex CLI | `me codex install` |
-| Gemini CLI | `me gemini install` |
 | Claude Code | `me claude install` (full plugin) / `me claude install --mcp-only` |
 
 ### Claude Code
@@ -74,18 +72,6 @@ claude plugin install memory-engine@memory-engine [--scope user|project|local]
 ```
 
 See [`me claude install`](cli/me-claude.md#me-claude-install) for the full option reference.
-
-### Gemini CLI
-
-```bash
-me gemini install
-```
-
-To configure manually:
-
-```bash
-gemini mcp add --scope user me me mcp --api-key <key> --space <slug> --server <url>
-```
 
 ### Codex CLI
 
@@ -239,7 +225,7 @@ me_memory_search({tree: "/share/design/*"})
 
 1. Verify the `me` binary is on your PATH: `which me`
 2. Test the server directly: `echo '{}' | me mcp --api-key <key> --space <slug> --server <url>`
-3. Re-install with the agent-specific command, for example `me opencode install`, `me codex install`, or `me gemini install`. For Claude Code, open `/plugin` and reconfigure `memory-engine`.
+3. Re-install with the agent-specific command, for example `me opencode install` or `me codex install`. For Claude Code, open `/plugin` and reconfigure `memory-engine`.
 
 ### Agent can't find memories
 

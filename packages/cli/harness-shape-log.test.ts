@@ -1,6 +1,6 @@
 /**
  * Tests for the unrecognized-payload-shape diagnostic log used by the
- * Codex/Gemini rewrite hooks' fail-open path.
+ * Codex's rewrite hook fail-open path.
  */
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -39,10 +39,10 @@ test("logs sorted top-level keys, never values", () => {
 });
 
 test("describes non-object payloads with a type marker", () => {
-  logUnrecognizedPayloadShape("gemini", "not json");
-  logUnrecognizedPayloadShape("gemini", null);
-  logUnrecognizedPayloadShape("gemini", [1, 2, 3]);
-  logUnrecognizedPayloadShape("gemini", undefined);
+  logUnrecognizedPayloadShape("codex", "not json");
+  logUnrecognizedPayloadShape("codex", null);
+  logUnrecognizedPayloadShape("codex", [1, 2, 3]);
+  logUnrecognizedPayloadShape("codex", undefined);
   const entries = readShapeLog();
   expect(entries.map((e) => e.shape)).toEqual([
     "string",

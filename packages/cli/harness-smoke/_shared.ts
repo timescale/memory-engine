@@ -2,7 +2,7 @@
  * Shared helpers for the harness smoke tests (packages/cli/harness-smoke/).
  *
  * These are ONE-OFF, MANUAL tests — they launch the real harness binary
- * (claude/opencode/codex/gemini) non-interactively, which makes a real model
+ * (claude/opencode/codex) non-interactively, which makes a real model
  * call under whatever account is authenticated on this machine and costs
  * real API tokens. They are deliberately NOT named `*.test.ts`, so `bun test
  * packages`, `test:unit`, and `test:db` never pick them up — see CLAUDE.md
@@ -13,10 +13,10 @@
  *
  * The mechanism under test is narrow and deliberately free of any memory-
  * engine credentials: `me claude env` / the opencode `shell.env` hook / the
- * Codex and Gemini env-hooks only read their stdin/tool-call payload and
+ * Codex's env-hook only reads its stdin/tool-call payload and
  * write or rewrite an env contract — no network call, no memory-engine
  * config, no login. So these smoke tests only need the HARNESS itself authenticated
- * (an existing `claude`/`codex`/`gemini`/`opencode` login), never a
+ * (an existing `claude`/`codex`/`opencode` login), never a
  * memory-engine account.
  */
 import { chmodSync, mkdtempSync, realpathSync, writeFileSync } from "node:fs";

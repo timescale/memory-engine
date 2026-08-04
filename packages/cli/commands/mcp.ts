@@ -10,7 +10,7 @@
  * argument. API-key installers can also run multi-space; --space stays opt-in.
  *
  * MCP registration with individual AI tools lives in per-agent commands:
- *   me opencode install, me gemini install, me codex install
+ *   me opencode install, me codex install
  * Claude Code uses the Memory Engine plugin instead of a CLI installer.
  */
 import { Command } from "commander";

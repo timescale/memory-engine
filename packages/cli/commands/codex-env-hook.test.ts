@@ -13,8 +13,9 @@ const CLI_ENTRY = join(import.meta.dir, "..", "index.ts");
 async function runCodexEnvHook(
   stdin: string,
   env: Record<string, string | undefined> = {},
+  args = ["env-hook"],
 ): Promise<{ exitCode: number; stdout: string; stderr: string }> {
-  const proc = Bun.spawn([process.execPath, CLI_ENTRY, "codex", "env-hook"], {
+  const proc = Bun.spawn([process.execPath, CLI_ENTRY, "codex", ...args], {
     env: {
       ...process.env,
       AI_AGENT: undefined,
@@ -84,4 +85,23 @@ describe("me codex env-hook", () => {
       rmSync(configDir, { recursive: true, force: true });
     }
   });
+});
+
+test("me codex hook is silent when capture is not enabled", async () => {
+  const configDir = mkdtempSync(join(tmpdir(), "me-codex-capture-"));
+  try {
+    const { exitCode, stdout, stderr } = await runCodexEnvHook(
+      JSON.stringify({
+        cwd: "/repo/project",
+        transcript_path: "/tmp/session.jsonl",
+      }),
+      { XDG_CONFIG_HOME: configDir },
+      ["hook", "--event", "Stop"],
+    );
+    expect(exitCode).toBe(0);
+    expect(stdout.trim()).toBe("");
+    expect(stderr.trim()).toBe("");
+  } finally {
+    rmSync(configDir, { recursive: true, force: true });
+  }
 });

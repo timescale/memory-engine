@@ -84,7 +84,6 @@ Register Memory Engine with your AI coding tools:
 ```bash
 me opencode install
 me codex install
-me gemini install
 ```
 
 For Claude Code, `me claude install` installs the one user-scoped Memory Engine plugin (hooks + slash commands + MCP) — run it once, it applies to every project:

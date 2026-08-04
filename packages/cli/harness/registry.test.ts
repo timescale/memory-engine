@@ -12,7 +12,7 @@ import {
 
 describe("harness registry", () => {
   test("has the frozen canonical names and metadata", () => {
-    expect(HARNESS_NAMES).toEqual(["claude", "opencode", "codex", "gemini"]);
+    expect(HARNESS_NAMES).toEqual(["claude", "opencode", "codex"]);
     expect(getHarness("claude").displayName).toBe("Claude Code");
     expect(getHarness("opencode").binary).toBe("opencode");
   });
@@ -23,17 +23,17 @@ describe("harness registry", () => {
   });
 
   test("keeps explicit aggregate selections in argument order", () => {
-    expect(resolveHarnessTargets(["gemini", "claude"], true)).toEqual([
-      "gemini",
+    expect(resolveHarnessTargets(["codex", "claude"], true)).toEqual([
+      "codex",
       "claude",
     ]);
   });
 
   test("uses PATH detection for argument-free install and inventory for uninstall", () => {
-    const detected = () => [getHarness("claude"), getHarness("gemini")];
+    const detected = () => [getHarness("claude"), getHarness("codex")];
     expect(resolveHarnessTargets([], true, detected)).toEqual([
       "claude",
-      "gemini",
+      "codex",
     ]);
     expect(
       resolveHarnessTargets([], false, detected, (name) => name === "codex"),

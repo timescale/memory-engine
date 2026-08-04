@@ -47,7 +47,6 @@ export const NAV: NavSection[] = [
       { label: "me uninstall", slug: "cli/me-uninstall" },
       { label: "me claude", slug: "cli/me-claude" },
       { label: "me codex", slug: "cli/me-codex" },
-      { label: "me gemini", slug: "cli/me-gemini" },
       { label: "me opencode", slug: "cli/me-opencode" },
       { label: "me serve", slug: "cli/me-serve" },
       { label: "Agent session imports", slug: "cli/agent-session-imports" },

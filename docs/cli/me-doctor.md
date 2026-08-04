@@ -26,7 +26,7 @@ An explicit `[directory]` overrides that anchor. The command reports:
   `AI_AGENT`, whether CLI-in-harness routing applies (and its target) or falls
   back to user CLI. A plain user shell reports that user CLI is never retargeted
   by directory profiles.
-- Any sanitized unrecognized Codex or Gemini hook payload shapes recorded by
-  the harness adapters.
+- Any sanitized unrecognized Codex hook payload shapes recorded by the harness
+  adapter.
 
 Use `--json` or `--yaml` for structured output.

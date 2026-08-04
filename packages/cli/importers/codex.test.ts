@@ -165,3 +165,13 @@ describe("codex importer", () => {
     );
   });
 });
+
+test("uses the same parser for a hook-provided transcript file", async () => {
+  const file = join(
+    FIXTURE_DIR,
+    "2026/03/03/rollout-2026-03-03T10-00-00-01234567-89ab-71de-9abc-def012345678.jsonl",
+  );
+  const session = await codexImporter.parseFile?.(file);
+  expect(session?.sessionId).toBe("01234567-89ab-71de-9abc-def012345678");
+  expect(session?.messages).toHaveLength(7);
+});

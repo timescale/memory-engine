@@ -10,7 +10,7 @@
  * Coverage notes:
  *  - Auth, org, engine, invitation, RBAC, memory ops, pack ops are exercised.
  *  - Skipped: `me memory edit` (spawns $EDITOR), `me invitation accept`
- *    (needs a second identity), agent integrations (claude/codex/gemini/
+ *    (needs a second identity), agent integrations (claude/codex/
  *    opencode), `me mcp` (long-running stdio), `me serve` (HTTP server),
  *    `me upgrade` (would replace the running binary), `me completions`.
  *

@@ -159,13 +159,13 @@ test("harness gates apply independently to mcp, capture, and harness CLI", () =>
       tree: "/share/projects/test",
       harnesses: { opencode: true },
     },
-    cli: { server: "https://api.example", harnesses: { gemini: true } },
+    cli: { server: "https://api.example", harnesses: { codex: true } },
   });
 
   const resolved = resolveHarnessProfile(project);
   expect(resolved.mcp.value?.harnesses.claude).toBe(true);
   expect(resolved.capture.value?.harnesses.opencode).toBe(true);
-  expect(resolveHarnessCliProfile(project, "gemini").source).toBe("directory");
+  expect(resolveHarnessCliProfile(project, "codex").source).toBe("directory");
   expect(resolveHarnessCliProfile(project, "claude")).toEqual({
     source: "disabled",
   });

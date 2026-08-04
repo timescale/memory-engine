@@ -7,7 +7,7 @@ Memory Engine behavior.
 ## Usage
 
 ```bash
-me install [claude|opencode|codex|gemini...]
+me install [claude|opencode|codex...]
 ```
 
 With no harness names, `me install` detects supported harness binaries on
@@ -30,4 +30,4 @@ me install opencode codex
 ```
 
 The equivalent single-harness commands are `me claude install`,
-`me opencode install`, `me codex install`, and `me gemini install`.
+`me opencode install`, and `me codex install`.

@@ -2,7 +2,7 @@
  * Shared MCP-only install logic for per-agent commands.
  *
  * Used by `me <agent> install` stubs that register the MCP server
- * with a single AI tool (Claude Code, Gemini CLI, Codex CLI, OpenCode).
+ * with a single AI tool (Claude Code, Codex CLI, OpenCode).
  */
 import * as clack from "@clack/prompts";
 import { resolveCredentials } from "../credentials.ts";
@@ -14,8 +14,8 @@ export interface AgentInstallOptions {
   /** The space slug to bake into the MCP command (api keys are global). */
   space?: string;
   /**
-   * Configuration scope for tools that support it (Claude Code, Gemini CLI,
-   * and OpenCode — "project" vs "user"). Ignored by Codex.
+   * Configuration scope for tools that support it (Claude Code and OpenCode -
+   * "project" versus "user"). Ignored by Codex.
    */
   scope?: string;
   /** Project root for `scope: "project"` (OpenCode). Defaults to cwd. */

@@ -51,7 +51,6 @@ export const HARNESS_NAMES = [
   "claude",
   "opencode",
   "codex",
-  "gemini",
 ] as const;
 
 export type HarnessName = (typeof HARNESS_NAMES)[number];
@@ -66,7 +65,6 @@ metadata only:
 | `claude` | Claude Code | `claude` |
 | `opencode` | OpenCode | `opencode` |
 | `codex` | Codex CLI | `codex` |
-| `gemini` | Gemini CLI | `gemini` |
 
 ### 2.2 Registry API
 

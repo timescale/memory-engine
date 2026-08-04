@@ -1,12 +1,12 @@
 # Harness Integrations — Requirements
 
 Status: **draft; superseding the current `me project init` / `me project ci` /
-`me claude install` / `me opencode install` / `me codex install` /
-`me gemini install` design.** Contributor-facing; not published to
+`me claude install` / `me opencode install` / `me codex install` design.**
+Contributor-facing; not published to
 `docs.memory.build/`.
 
 This document is the implementation contract for a rework of how Memory Engine
-integrates with coding-agent harnesses (Claude Code, OpenCode, Codex, Gemini).
+integrates with coding-agent harnesses (Claude Code, OpenCode, Codex).
 It replaces committed-repo configuration, one-command "installs everything and
 turns everything on" flows, and the current project/CI split with a smaller,
 sharper model:
@@ -53,7 +53,7 @@ the terse version an implementer needs.
 ### 2.1 `me install [harness...]`
 
 - No arguments: detect every supported harness on `PATH` (Claude Code,
-  OpenCode, Codex, Gemini) and install the dispatcher for each.
+  OpenCode, Codex) and install the dispatcher for each.
 - Arguments: install only the named harnesses. Unknown names error.
 - Purely mechanical: writes only ME-owned native plumbing (hook entries, MCP
   registration, plugin/env-hook files) and updates `installations.yaml`.
@@ -71,7 +71,7 @@ the terse version an implementer needs.
   default. `--purge` also removes them.
 - **No prompts.**
 
-### 2.3 `me claude install` / `me opencode install` / `me codex install` / `me gemini install` (and matching `uninstall`)
+### 2.3 `me claude install` / `me opencode install` / `me codex install` (and matching `uninstall`)
 
 - The single-harness form of `me install` / `me uninstall`.
 - Mechanical; no prompts.
@@ -181,7 +181,6 @@ defaults:
       claude: false
       opencode: false
       codex: false
-      gemini: false
 
   capture:
     enabled: false
@@ -192,7 +191,6 @@ defaults:
       claude: false
       opencode: false
       codex: false
-      gemini: false
 
   cli:
     server: https://api.memory.build
@@ -201,7 +199,6 @@ defaults:
       claude: false
       opencode: false
       codex: false
-      gemini: false
 
 # Complete per-directory profiles. Presence of a matched entry REPLACES
 # defaults wholesale for that directory.
@@ -374,8 +371,6 @@ installations:
   opencode:
     ...
   codex:
-    ...
-  gemini:
     ...
 ```
 
@@ -596,8 +591,8 @@ commands and machine-local configuration directly.
 The rework is complete when all of the following hold on `./bun run check:full`:
 
 - `me install`, `me uninstall`, and the per-harness variants are exercised in
-  integration tests against the four harnesses (Claude, OpenCode, Codex,
-  Gemini). No user prompts appear in any of these tests.
+  integration tests against the three harnesses (Claude, OpenCode, Codex). No
+  user prompts appear in any of these tests.
 - `installations.yaml` is created/updated by `me install` and consumed by
   `me uninstall` such that a full round-trip leaves each harness's native
   config file byte-identical to its pre-install state (ignoring unrelated
@@ -640,8 +635,8 @@ The rework is complete when all of the following hold on `./bun run check:full`:
 
 ## 10. Non-goals
 
-- **No launcher/wrapper.** Users continue to invoke `claude`, `opencode`,
-  `codex`, `gemini` natively. Memory Engine does not shell over them.
+- **No launcher/wrapper.** Users continue to invoke `claude`, `opencode`, and
+  `codex` natively. Memory Engine does not shell over them.
 - **No CI-side declarative policy.** `.me/policies.yaml` and `me apply` are
   not introduced.
 - **No multi-target CI generator.** `me ci install` writes a single-space,

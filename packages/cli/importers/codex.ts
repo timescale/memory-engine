@@ -53,6 +53,7 @@ export const codexImporter: Importer = {
   tool: "codex",
   defaultSource: DEFAULT_SOURCE,
   discoverSessions,
+  parseFile: parseSessionFile,
 };
 
 async function* discoverSessions(
@@ -136,7 +137,9 @@ async function findJsonlFilesRecursively(root: string): Promise<string[]> {
 /**
  * Parse a single Codex session file into a normalized ImportedSession.
  */
-async function parseSessionFile(file: string): Promise<ImportedSession | null> {
+export async function parseSessionFile(
+  file: string,
+): Promise<ImportedSession | null> {
   const content = await fs.readFile(file, "utf-8");
   const lines = content.split("\n").filter((l) => l.length > 0);
   if (lines.length === 0) return null;
