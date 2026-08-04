@@ -27,8 +27,19 @@
  *
  */
 
-import { createHash } from "node:crypto";
-import { mkdirSync, rmdirSync, statSync } from "node:fs";
+import { createHash, randomUUID } from "node:crypto";
+import {
+  mkdirSync,
+  readFileSync,
+  renameSync,
+  rmdirSync,
+  rmSync,
+  statSync,
+  unlinkSync,
+  utimesSync,
+  writeFileSync,
+} from "node:fs";
+import { join } from "node:path";
 import {
   getConfigLockPath,
   getStoredTokens,
@@ -83,7 +94,10 @@ function isExpiring(t: OAuthTokenSet): boolean {
   return Date.now() + REFRESH_SKEW_MS >= t.expires_at;
 }
 
-/** In-flight refresh per server origin — concurrent callers share one round-trip. */
+/** In-flight refresh per server origin — concurrent callers share one round-trip.
+ * Keyed on the NORMALIZED origin so `https://api.example.com` and
+ * `https://api.example.com/` collapse to one entry (otherwise callers with the
+ * same server-but-different-string would each pay the file-lock round-trip). */
 const inFlight = new Map<string, Promise<OAuthTokenSet | undefined>>();
 
 /**
@@ -99,13 +113,14 @@ function refreshOnce(
 ): Promise<OAuthTokenSet | undefined> {
   if (!tokens.refresh_token) return Promise.resolve(undefined);
 
-  const existing = inFlight.get(server);
+  const key = normalizeOrigin(server);
+  const existing = inFlight.get(key);
   if (existing) return existing;
 
   const run = lockedRefresh(server, tokens).finally(() => {
-    inFlight.delete(server);
+    inFlight.delete(key);
   });
-  inFlight.set(server, run);
+  inFlight.set(key, run);
   return run;
 }
 
@@ -116,9 +131,9 @@ function refreshOnce(
  * key that stops a waiting process from replaying the now-revoked refresh token.
  * Only if the token is still expiring do we actually refresh, under the lock.
  *
- * If the lock can't be acquired in time we degrade rather than fail: re-read
- * once (a peer may have just refreshed) and otherwise fall back to an unlocked
- * refresh — i.e. exactly today's behavior, never worse.
+ * If the lock can't be acquired in time we re-read once for a peer's completed
+ * rotation, then give up. Never refresh unlocked: doing so reopens precisely the
+ * concurrent replay race the lock exists to prevent.
  */
 async function lockedRefresh(
   server: string,
@@ -129,10 +144,11 @@ async function lockedRefresh(
   );
   if (locked !== LOCK_TIMEOUT) return locked;
 
-  // Degraded path: couldn't acquire the lock in time. refreshFromStore still
-  // defers to a peer's rotation (no network) and otherwise refreshes unlocked —
-  // exactly the pre-lock behavior, never worse.
-  return refreshFromStore(server, tokens);
+  // A peer may have finished immediately after our final acquire attempt. Use
+  // its rotated set if present, but never send our stale refresh token unlocked.
+  const current = getStoredTokens(server);
+  if (current?.refresh_token !== tokens.refresh_token) return current;
+  return undefined;
 }
 
 /**
@@ -154,7 +170,13 @@ export async function refreshFromStore(
     current.refresh_token &&
     current.refresh_token !== fallback.refresh_token
   ) {
-    return current;
+    // Our fallback.refresh_token has been superseded by peer's rotation, so it
+    // is now revoked — never replay it. If peer's access token is still fresh,
+    // return it and skip the network. If peer's rotation was long enough ago
+    // that its access token is now expiring, refresh with PEER's refresh_token
+    // (the current, valid one), not ours. Mirrors the invalid_grant catch below.
+    if (!isExpiring(current)) return current;
+    return doRefresh(server, current.refresh_token, current);
   }
   const refreshToken = current.refresh_token ?? fallback.refresh_token;
   if (!refreshToken) return undefined;
@@ -185,12 +207,14 @@ async function doRefresh(
     // already persisted a fresh set we can use instead of forcing a re-login.
     if (error instanceof OAuthError && error.code === "invalid_grant") {
       const current = getStoredTokens(server);
-      if (
-        current &&
-        current.refresh_token !== refreshToken &&
-        !isExpiring(current)
-      ) {
-        return current;
+      if (current?.refresh_token !== refreshToken) {
+        if (current && !isExpiring(current)) return current;
+        // A peer's newer access token may itself have expired while we waited;
+        // its refresh token is still the only safe one to use. Never replay the
+        // rejected token that triggered this invalid_grant.
+        if (current?.refresh_token) {
+          return doRefresh(server, current.refresh_token, current);
+        }
       }
     }
     // Expired / revoked refresh token (or transient failure) → give up; the
@@ -207,13 +231,25 @@ async function doRefresh(
 /** Sentinel: the lock could not be acquired within the deadline. */
 export const LOCK_TIMEOUT = Symbol("refresh-lock-timeout");
 
-/** Give up acquiring the lock after this long and degrade to an unlocked refresh. */
-const LOCK_ACQUIRE_TIMEOUT_MS = 15_000;
-/** Reclaim a lock older than this — its holder must have crashed. Exceeds the
- * worst-case refresh round-trip so a live holder is never stolen from. */
+/** Reclaim a lock older than this with no heartbeat — its holder likely crashed. */
 const LOCK_STALE_MS = 30_000;
+/** Give up acquiring the lock after this long and degrade to an unlocked
+ * refresh. Deliberately >= LOCK_STALE_MS so a waiter always reaches the stale
+ * threshold before giving up: a live holder either releases (we acquire) or
+ * keeps its heartbeat fresh; we never fall through to an unlocked refresh. */
+const LOCK_ACQUIRE_TIMEOUT_MS = 45_000;
 /** Poll interval while waiting for a held lock. */
 const LOCK_POLL_MS = 25;
+/** Keep a live lock's mtime fresh while the network request is in flight. */
+const LOCK_HEARTBEAT_MS = 5_000;
+
+/** @internal Optional overrides for {@link withRefreshLock}; test-only knobs. */
+export interface LockOptions {
+  acquireTimeoutMs?: number;
+  staleMs?: number;
+  pollMs?: number;
+  heartbeatMs?: number;
+}
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -233,12 +269,31 @@ export function lockPath(server: string): string {
 export async function withRefreshLock<T>(
   server: string,
   action: () => Promise<T>,
+  options?: LockOptions,
 ): Promise<T | typeof LOCK_TIMEOUT> {
+  const acquireTimeoutMs = options?.acquireTimeoutMs ?? LOCK_ACQUIRE_TIMEOUT_MS;
+  const staleMs = options?.staleMs ?? LOCK_STALE_MS;
+  const pollMs = options?.pollMs ?? LOCK_POLL_MS;
+  const heartbeatMs = options?.heartbeatMs ?? LOCK_HEARTBEAT_MS;
   const lock = lockPath(server);
-  const deadline = Date.now() + LOCK_ACQUIRE_TIMEOUT_MS;
+  const deadline = Date.now() + acquireTimeoutMs;
   for (;;) {
     try {
-      mkdirSync(lock); // atomic create — EEXIST means someone else holds it
+      mkdirSync(lock, { mode: 0o700 }); // atomic create — EEXIST means held
+      const owner = randomUUID();
+      try {
+        writeFileSync(join(lock, "owner"), owner, { flag: "wx", mode: 0o600 });
+      } catch (error) {
+        // The directory is ours and empty until this write. Clean it up rather
+        // than stranding a lock when the marker write itself fails.
+        try {
+          rmdirSync(lock);
+        } catch {
+          // Best effort; report the original marker-write failure below.
+        }
+        throw error;
+      }
+      return await runWithRefreshLock(lock, owner, heartbeatMs, action);
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
       // Held by someone else. Check its age to reclaim a crashed holder's lock.
@@ -250,26 +305,58 @@ export async function withRefreshLock<T>(
         // error falls through to the bounded wait (never a tight spin).
         if ((statError as NodeJS.ErrnoException).code === "ENOENT") continue;
       }
-      if (mtimeMs !== undefined && Date.now() - mtimeMs > LOCK_STALE_MS) {
+      if (mtimeMs !== undefined && Date.now() - mtimeMs > staleMs) {
         try {
-          rmdirSync(lock);
+          // Atomically move the old directory away before deleting it. A live
+          // owner only releases a lock whose owner marker still matches, so it
+          // can never remove the successor's directory after this handoff.
+          const stalePath = `${lock}.${randomUUID()}.stale`;
+          renameSync(lock, stalePath);
+          rmSync(stalePath, { recursive: true, force: true });
         } catch {
           // Raced with another reclaimer; retry.
         }
         continue;
       }
       if (Date.now() >= deadline) return LOCK_TIMEOUT;
-      await sleep(LOCK_POLL_MS);
-      continue;
+      await sleep(pollMs);
     }
+  }
+}
+
+async function runWithRefreshLock<T>(
+  lock: string,
+  owner: string,
+  heartbeatMs: number,
+  action: () => Promise<T>,
+): Promise<T> {
+  // A refresh is normally short, but keep the mtime alive while awaiting a slow
+  // network/keychain operation so stale recovery means a crashed (not merely
+  // slow) owner. Verify ownership before touching the directory after a stale
+  // handoff.
+  const heartbeat = setInterval(() => {
     try {
-      return await action();
-    } finally {
-      try {
-        rmdirSync(lock);
-      } catch {
-        // Best effort: a reclaimer may have already removed it.
+      if (readFileSync(join(lock, "owner"), "utf-8") === owner) {
+        const now = new Date();
+        utimesSync(lock, now, now);
       }
+    } catch {
+      // Ownership was reclaimed or the lock is gone; the action's result is
+      // still handled normally, but we must not mutate a successor's lock.
+    }
+  }, heartbeatMs);
+  try {
+    return await action();
+  } finally {
+    clearInterval(heartbeat);
+    try {
+      const ownerPath = join(lock, "owner");
+      if (readFileSync(ownerPath, "utf-8") === owner) {
+        unlinkSync(ownerPath);
+        rmdirSync(lock);
+      }
+    } catch {
+      // A reclaimer may already own the path; never remove its lock.
     }
   }
 }

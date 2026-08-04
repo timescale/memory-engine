@@ -27,10 +27,14 @@ export const OAUTH_SCOPE = "offline_access";
 /** Per-process correlation ID for token-endpoint telemetry; never persisted. */
 const CLIENT_INSTANCE_ID = randomUUID();
 
-/** Distinguish the long-running credential consumers in token-endpoint traces. */
+/** Distinguish the long-running credential consumers in token-endpoint traces.
+ * Keys on the SUBCOMMAND slot (argv[2]) rather than a substring match against
+ * the full argv, so content args like `me create "mcp integration notes"` are
+ * never misclassified as `mcp`. */
 function clientMode(): "cli" | "mcp" | "serve" {
-  if (process.argv.includes("mcp")) return "mcp";
-  if (process.argv.includes("serve")) return "serve";
+  const subcommand = process.argv[2];
+  if (subcommand === "mcp") return "mcp";
+  if (subcommand === "serve") return "serve";
   return "cli";
 }
 

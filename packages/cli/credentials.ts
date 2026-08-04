@@ -279,7 +279,16 @@ function writeFileAtomic(
     writeFileSync(temporaryPath, contents, mode !== undefined ? { mode } : {});
     renameSync(temporaryPath, path);
   } finally {
-    if (existsSync(temporaryPath)) unlinkSync(temporaryPath);
+    // Best-effort cleanup. A failing unlink here would otherwise mask the
+    // original write/rename error (or throw over an already-successful write);
+    // swallow it so callers see the real cause and no stale temp accumulates
+    // beyond one leaked file per crash (each has a UUID name, so reads never
+    // touch it).
+    try {
+      if (existsSync(temporaryPath)) unlinkSync(temporaryPath);
+    } catch {
+      // ignore
+    }
   }
 }
 
