@@ -233,8 +233,8 @@ export const LOCK_TIMEOUT = Symbol("refresh-lock-timeout");
 
 /** Reclaim a lock older than this with no heartbeat — its holder likely crashed. */
 const LOCK_STALE_MS = 30_000;
-/** Give up acquiring the lock after this long and degrade to an unlocked
- * refresh. Deliberately >= LOCK_STALE_MS so a waiter always reaches the stale
+/** Give up acquiring the lock after this long. Deliberately >= LOCK_STALE_MS so
+ * a waiter always reaches the stale
  * threshold before giving up: a live holder either releases (we acquire) or
  * keeps its heartbeat fresh; we never fall through to an unlocked refresh. */
 const LOCK_ACQUIRE_TIMEOUT_MS = 45_000;

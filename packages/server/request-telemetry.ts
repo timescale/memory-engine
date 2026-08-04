@@ -4,10 +4,10 @@
  * Better Auth's handler span has no authenticated principal to attach them to.
  *
  * The token endpoint is UNAUTHENTICATED — anyone can hit it — so caller-supplied
- * headers are treated as untrusted input. Each is validated against a known
- * shape (our own CLI user-agent, a UUID instance id, one of the fixed mode
- * strings) so an attacker can't inflate root-span cardinality by spraying
- * random values on `client.instance.id` / `client.mode` / `client.user_agent`.
+ * headers are treated as untrusted input. Each is length- and shape-bounded
+ * (our own CLI user-agent, a UUID instance id, one of the fixed mode strings)
+ * before recording. The instance ID is intentionally high-cardinality per
+ * process for race attribution; this validation does not authenticate callers.
  */
 const TOKEN_ENDPOINT_PATH = "/api/v1/auth/oauth2/token";
 const MAX_USER_AGENT_LENGTH = 256;
