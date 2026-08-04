@@ -129,7 +129,7 @@ describe("resolveMcpSpace", () => {
   });
 });
 
-test("MCP startup passes multi-space mode instead of an active-space default", async () => {
+test("MCP startup exposes no tools without a selected harness profile", async () => {
   const previousSpace = process.env.ME_SPACE;
   delete process.env.ME_SPACE;
   try {
@@ -154,8 +154,9 @@ test("MCP startup passes multi-space mode instead of an active-space default", a
 
     await action({}, command);
     expect(received).toMatchObject({
-      server: "https://api.example.com",
+      server: "https://api.memory.build",
       spaceMode: "multi",
+      tools: false,
     });
   } finally {
     if (previousSpace === undefined) delete process.env.ME_SPACE;

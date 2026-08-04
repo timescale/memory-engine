@@ -173,15 +173,13 @@ export async function installGeminiIntegration(
     }
     throw error;
   }
+  const artifacts = [...(existing?.artifacts ?? [])];
+  if (!priorMcp) {
+    artifacts.push({ kind: "mcp-cli", server_name: "me", scope: "user" });
+  }
+  if (hookChanged && !priorHook) artifacts.push(hookArtifact(settingsPath));
   return {
-    artifacts: [
-      priorMcp ?? { kind: "mcp-cli", server_name: "me", scope: "user" },
-      ...(hookChanged
-        ? [hookArtifact(settingsPath)]
-        : priorHook
-          ? [priorHook]
-          : []),
-    ],
+    artifacts,
     messages: [result.message],
   };
 }

@@ -1400,6 +1400,8 @@ export type McpServerOptions = McpSpaceSelection & {
    * long-lived, so the access token is resolved per call rather than baked in.
    */
   bearer: BearerSource;
+  /** Leave the server connected but expose no tools when local policy is inactive. */
+  tools?: boolean;
 };
 
 /** Build a configured MCP server. Exported for in-memory protocol tests. */
@@ -1438,7 +1440,9 @@ export function createMcpServer(options: McpServerOptions): McpServer {
           lockedSpace: options.lockedSpace,
         }
       : { server: options.server, spaceMode: "multi" };
-  registerTools(mcpServer, getMemoryClient, getUserClient, runtime);
+  if (options.tools !== false) {
+    registerTools(mcpServer, getMemoryClient, getUserClient, runtime);
+  }
 
   return mcpServer;
 }

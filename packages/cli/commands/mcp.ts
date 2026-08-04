@@ -18,6 +18,8 @@ import {
   type ResolvedCredentials,
   resolveCredentials,
 } from "../credentials.ts";
+import { HARNESS_NAMES, type HarnessName } from "../harness/names.ts";
+import { resolveMcpProfile } from "../local-config.ts";
 import { type McpSpaceSelection, runMcpServer } from "../mcp/server.ts";
 import { memoryBearer } from "../session.ts";
 
@@ -85,11 +87,31 @@ export function createMcpRunAction(
 ) {
   return async (_opts: Record<string, unknown>, cmd: Command) => {
     const opts = cmd.optsWithGlobals();
+    const agent = process.env.AI_AGENT;
+    const harness =
+      agent && HARNESS_NAMES.includes(agent as HarnessName)
+        ? (agent as HarnessName)
+        : undefined;
+    const policy = harness ? resolveMcpProfile(process.cwd()).value : undefined;
+    if (!policy?.enabled || !harness || policy.harnesses[harness] !== true) {
+      await dependencies.runMcpServer({
+        server: "https://api.memory.build",
+        bearer: {
+          getToken: async () => undefined,
+          onUnauthorized: async () => undefined,
+        },
+        spaceMode: "multi",
+        tools: false,
+      });
+      return;
+    }
     // Run server through blankFlag like api_key/space below: the plugin's
     // .mcp.json always passes `--server ${user_config.server}`, which arrives as
     // "" (or the literal placeholder) when left blank — it must fall back to the
     // live `me` config (ME_SERVER / default_server), not be used verbatim.
-    const creds = dependencies.resolveCredentials(blankFlag(opts.server));
+    const creds = dependencies.resolveCredentials(
+      blankFlag(opts.server) ?? policy.server,
+    );
 
     // Bearer: --api-key > ME_API_KEY (creds.apiKey), else the logged-in human's
     // OAuth session (resolved + refreshed at runtime by `memoryBearer`).
@@ -111,7 +133,10 @@ export function createMcpRunAction(
       process.exit(1);
     }
 
-    const space = resolveMcpSpace(opts.space, process.env.ME_SPACE);
+    const space = resolveMcpSpace(
+      opts.space,
+      process.env.ME_SPACE ?? policy.space,
+    );
 
     await dependencies.runMcpServer({
       server: creds.server,

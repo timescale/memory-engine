@@ -13,9 +13,11 @@ import { createAccessCommand } from "./commands/access.ts";
 import { createApiKeyCommand } from "./commands/apikey.ts";
 import { createClaudeCommand } from "./commands/claude.ts";
 import { createCodexCommand } from "./commands/codex.ts";
+import { createDoctorCommand } from "./commands/doctor.ts";
 import { createGeminiCommand } from "./commands/gemini.ts";
 import { createGroupCommand } from "./commands/group.ts";
 import { createImportCommand } from "./commands/import-group.ts";
+import { createInitCommand } from "./commands/init.ts";
 import {
   createInstallCommand,
   createUninstallCommand,
@@ -42,7 +44,9 @@ import { createStatusCommand } from "./commands/status.ts";
 import { createUpgradeCommand } from "./commands/upgrade.ts";
 import { createVersionCommand } from "./commands/version.ts";
 import { createWhoamiCommand } from "./commands/whoami.ts";
-import { setServerFlagOverride } from "./credentials.ts";
+import { setHarnessCliOverride, setServerFlagOverride } from "./credentials.ts";
+import { HARNESS_NAMES, type HarnessName } from "./harness/names.ts";
+import { resolveHarnessCliProfile } from "./local-config.ts";
 import { setExpanded } from "./output.ts";
 import {
   setConfigDirOverride,
@@ -74,8 +78,7 @@ program
   .option("--yaml", "output as YAML")
   .option("-x, --expanded", "show list output in expanded (vertical) format");
 
-// Set expanded mode and seed the .me/config.yaml resolver before any command
-// runs.
+// Seed display, explicit server, and optional known-harness CLI targeting.
 program.hook("preAction", (thisCommand) => {
   const opts = thisCommand.optsWithGlobals();
   setExpanded(opts.expanded ?? false);
@@ -88,6 +91,21 @@ program.hook("preAction", (thisCommand) => {
   setServerFlagOverride(
     typeof opts.server === "string" ? opts.server : undefined,
   );
+  const agent = process.env.AI_AGENT;
+  if (!agent || !HARNESS_NAMES.includes(agent as HarnessName)) {
+    setHarnessCliOverride(undefined);
+    return;
+  }
+  try {
+    const profile = resolveHarnessCliProfile(
+      process.env.ME_PROJECT_DIR ?? process.cwd(),
+      agent as HarnessName,
+    );
+    setHarnessCliOverride(profile.value);
+  } catch {
+    // A malformed local profile must not change ordinary CLI targeting.
+    setHarnessCliOverride(undefined);
+  }
 });
 
 // Auth commands
@@ -95,6 +113,8 @@ program.addCommand(createLoginCommand());
 program.addCommand(createLogoutCommand());
 program.addCommand(createWhoamiCommand());
 program.addCommand(createStatusCommand());
+program.addCommand(createDoctorCommand());
+program.addCommand(createInitCommand());
 
 // Version + compatibility check
 program.addCommand(createVersionCommand());

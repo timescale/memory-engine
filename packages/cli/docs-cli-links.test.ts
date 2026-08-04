@@ -41,6 +41,8 @@ const COMMAND_DOCS: Record<string, string | null> = {
   createLogoutCommand: "me-logout",
   createWhoamiCommand: "me-whoami",
   createStatusCommand: "me-status",
+  createDoctorCommand: "me-doctor",
+  createInitCommand: "me-init",
   createVersionCommand: "me-version",
   createUpgradeCommand: "me-upgrade",
   createSpaceCommand: "me-space",
