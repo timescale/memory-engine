@@ -89,6 +89,32 @@ interface LoginOptions {
   browser?: boolean;
 }
 
+type LoginUserClient = ReturnType<typeof createUserClient>;
+
+/** Options for acquiring and persisting a login session outside Commander. */
+export interface AuthenticateLoginOptions {
+  /** Server to authenticate against. */
+  server: string;
+  /** Select the OAuth 2.0 device flow instead of browser loopback OAuth. */
+  device: boolean;
+  /** Whether the selected OAuth flow should try to open a browser. */
+  browser: boolean;
+  /** Force the browser loopback flow to show the sign-in page. */
+  forceSwitch?: boolean;
+  /** Controls progress and device-code output. Defaults to text output. */
+  format?: OutputFormat;
+}
+
+/**
+ * A persisted OAuth session and client ready for account-scoped calls such as
+ * `user.space.list()`. This deliberately does not choose or create a space.
+ */
+export interface AuthenticatedLogin {
+  server: string;
+  tokens: OAuthTokens;
+  user: LoginUserClient;
+}
+
 /**
  * Validate option combinations, returning an error message for an invalid combo
  * (or null when OK). Pure + exported so it's unit-testable without running the
@@ -105,6 +131,61 @@ export function validateLoginOptions(opts: LoginOptions): string | null {
     return "--switch isn't supported with --device. The device flow authorizes whichever account is signed in to your browser — sign out there first (or use the default browser login) to switch accounts.";
   }
   return null;
+}
+
+/**
+ * Authenticate to a server and persist the resulting token set. Kept separate
+ * from the command so interactive setup flows can continue with `user.space`.
+ */
+export async function authenticateLogin(
+  options: AuthenticateLoginOptions,
+): Promise<AuthenticatedLogin> {
+  const fmt = options.format ?? "text";
+  const forceSwitch = options.forceSwitch === true;
+  const optionError = validateLoginOptions({
+    device: options.device,
+    switch: forceSwitch,
+    browser: options.browser,
+  });
+  if (optionError) throw new Error(optionError);
+
+  await checkServerVersion({
+    url: options.server,
+    clientVersion: CLIENT_VERSION,
+    minServerVersion: MIN_SERVER_VERSION,
+  });
+
+  const tokens = options.device
+    ? await authorizeViaDevice({
+        server: options.server,
+        fmt,
+        openBrowser: options.browser,
+      })
+    : await authorizeViaLoopback({
+        server: options.server,
+        fmt,
+        forceSwitch,
+        openBrowser: options.browser,
+      });
+
+  storeTokens(options.server, {
+    access_token: tokens.accessToken,
+    refresh_token: tokens.refreshToken,
+    expires_at:
+      tokens.expiresIn !== undefined
+        ? Date.now() + tokens.expiresIn * 1000
+        : undefined,
+    scope: tokens.scope,
+  });
+
+  return {
+    server: options.server,
+    tokens,
+    user: createUserClient({
+      url: options.server,
+      token: tokens.accessToken,
+    }),
+  };
 }
 
 export function createLoginCommand(): Command {
@@ -145,46 +226,13 @@ export function createLoginCommand(): Command {
         }
       }
 
-      // --- Compatibility check (before the OAuth round-trip) ---
       try {
-        await checkServerVersion({
-          url: server,
-          clientVersion: CLIENT_VERSION,
-          minServerVersion: MIN_SERVER_VERSION,
-        });
-      } catch (error) {
-        fail(error, fmt, server);
-      }
-
-      try {
-        // Acquire tokens via the chosen flow. `--device` polls a device code
-        // (headless, no local browser); otherwise the auth-code + PKCE loopback.
-        const tokens = opts.device
-          ? await authorizeViaDevice({
-              server,
-              fmt,
-              openBrowser: opts.browser !== false,
-            })
-          : await authorizeViaLoopback({
-              server,
-              fmt,
-              forceSwitch,
-              openBrowser: opts.browser !== false,
-            });
-
-        storeTokens(server, {
-          access_token: tokens.accessToken,
-          refresh_token: tokens.refreshToken,
-          expires_at:
-            tokens.expiresIn !== undefined
-              ? Date.now() + tokens.expiresIn * 1000
-              : undefined,
-          scope: tokens.scope,
-        });
-
-        const user = createUserClient({
-          url: server,
-          token: tokens.accessToken,
+        const { user } = await authenticateLogin({
+          server,
+          device: opts.device === true,
+          browser: opts.browser !== false,
+          forceSwitch,
+          format: fmt,
         });
         const identity = await user.whoami();
 
@@ -435,8 +483,6 @@ async function selectSpace(
 
   return null;
 }
-
-type LoginUserClient = ReturnType<typeof createUserClient>;
 
 /**
  * Pending invitations addressed to the logged-in email. Best-effort: an error
