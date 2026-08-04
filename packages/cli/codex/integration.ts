@@ -8,6 +8,7 @@ import type {
 } from "../harness/installations.ts";
 import {
   type JsonHookEntry,
+  jsonHookEntryExists,
   upsertJsonHooksFile,
 } from "../harness-hooks-json.ts";
 import {
@@ -125,6 +126,8 @@ export interface CodexIntegrationResult {
 
 interface InstallOperations {
   installMcp?: () => Promise<InstallResult>;
+  removeMcp?: () => Promise<boolean>;
+  hookPath?: string;
   installHook?: () => {
     artifact: Extract<InstallationArtifact, { kind: "json-hook" }>;
     changed: boolean;
@@ -135,6 +138,25 @@ export async function installCodexIntegration(
   existing?: HarnessInstallation,
   operations: InstallOperations = {},
 ): Promise<CodexIntegrationResult> {
+  const hookPath = operations.hookPath ?? codexHooksPath();
+  const mcp = existing?.artifacts.find(
+    (artifact) => artifact.kind === "mcp-cli",
+  );
+  const priorHook = existing?.artifacts.find(
+    (artifact) =>
+      artifact.kind === "json-hook" &&
+      artifact.path === hookPath &&
+      artifact.event === "PreToolUse" &&
+      artifact.command === CODEX_ENV_HOOK_COMMAND,
+  );
+  if (
+    jsonHookEntryExists(hookPath, "PreToolUse", CODEX_ENV_HOOK_COMMAND) &&
+    !priorHook
+  ) {
+    throw new Error(
+      `Codex hook in ${hookPath} is unrecorded; refusing to claim ownership.`,
+    );
+  }
   const registration = await (
     operations.installMcp ??
     (() =>
@@ -144,26 +166,48 @@ export async function installCodexIntegration(
       }))
   )();
   if (!registration.success) throw new Error(registration.message);
-
-  const hook = (operations.installHook ?? installCodexEnvHookResult)();
-  const mcp = existing?.artifacts.find(
-    (artifact) => artifact.kind === "mcp-cli",
-  );
+  if (registration.preserved && !mcp) {
+    throw new Error(
+      "Codex MCP registration is unrecorded; refusing to claim ownership.",
+    );
+  }
+  let hook: ReturnType<typeof installCodexEnvHookResult>;
+  try {
+    hook = (
+      operations.installHook ?? (() => installCodexEnvHookResult(hookPath))
+    )();
+    if (!hook.changed && !priorHook) {
+      throw new Error(
+        `Codex hook in ${hookPath} is unrecorded; refusing to claim ownership.`,
+      );
+    }
+  } catch (error) {
+    if (!registration.preserved) {
+      const removed = await (
+        operations.removeMcp ??
+        (async () => {
+          const process = Bun.spawn(
+            codexMcpTool().removeCmd({ scope: "user" }),
+            {
+              stdout: "pipe",
+              stderr: "pipe",
+            },
+          );
+          return (await process.exited) === 0;
+        })
+      )();
+      if (!removed) {
+        throw new Error(
+          `Codex hook installation failed: ${error instanceof Error ? error.message : String(error)}. The newly registered MCP entry could not be removed.`,
+        );
+      }
+    }
+    throw error;
+  }
   return {
     artifacts: [
-      ...(registration.preserved && !mcp
-        ? []
-        : [
-            mcp ?? {
-              kind: "mcp-cli" as const,
-              server_name: "me" as const,
-            },
-          ]),
-      ...(hook.changed
-        ? [hook.artifact]
-        : (existing?.artifacts.filter(
-            (artifact) => artifact.kind === "json-hook",
-          ) ?? [])),
+      mcp ?? { kind: "mcp-cli" as const, server_name: "me" as const },
+      ...(hook.changed ? [hook.artifact] : priorHook ? [priorHook] : []),
     ],
     messages: [registration.message],
   };

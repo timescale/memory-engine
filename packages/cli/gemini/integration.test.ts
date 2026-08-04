@@ -59,6 +59,79 @@ describe("Gemini integration adapter", () => {
     });
   });
 
+  test("refuses an unrecorded preserved Gemini MCP registration", async () => {
+    await withSettings(async (path) => {
+      await expect(
+        installGeminiIntegration(path, async () => ({
+          success: true,
+          preserved: true,
+          message: "already registered",
+        })),
+      ).rejects.toThrow("MCP registration is unrecorded");
+    });
+  });
+
+  test("refuses an unrecorded Gemini hook before registering MCP", async () => {
+    await withSettings(async (path) => {
+      writeFileSync(
+        path,
+        JSON.stringify({
+          hooks: {
+            BeforeTool: [
+              {
+                matcher: "run_shell_command",
+                hooks: [{ type: "command", command: "me gemini env-hook" }],
+              },
+            ],
+          },
+        }),
+      );
+      let installedMcp = false;
+      await expect(
+        installGeminiIntegration(path, async () => {
+          installedMcp = true;
+          return { success: true, message: "registered" };
+        }),
+      ).rejects.toThrow("hook in");
+      expect(installedMcp).toBe(false);
+    });
+  });
+
+  test("does not register MCP when Gemini hook configuration is malformed", async () => {
+    await withSettings(async (path) => {
+      writeFileSync(path, JSON.stringify({ hooks: { BeforeTool: "invalid" } }));
+      let installedMcp = false;
+      await expect(
+        installGeminiIntegration(path, async () => {
+          installedMcp = true;
+          return { success: true, message: "registered" };
+        }),
+      ).rejects.toThrow("malformed hooks.BeforeTool list");
+      expect(installedMcp).toBe(false);
+    });
+  });
+
+  test("rolls back a new Gemini MCP registration when hook installation fails", async () => {
+    await withSettings(async (path) => {
+      let removedMcp = false;
+      await expect(
+        installGeminiIntegration(
+          path,
+          async () => ({ success: true, message: "registered" }),
+          undefined,
+          async () => {
+            removedMcp = true;
+            return true;
+          },
+          () => {
+            throw new Error("disk is read-only");
+          },
+        ),
+      ).rejects.toThrow("disk is read-only");
+      expect(removedMcp).toBe(true);
+    });
+  });
+
   test("uninstall preserves unrelated Gemini settings and hook entries", async () => {
     await withSettings(async (path) => {
       writeFileSync(

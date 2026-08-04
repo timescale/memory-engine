@@ -12,17 +12,19 @@ import {
   uninstallCodexIntegration,
 } from "./integration.ts";
 
-function withTmpDir<T>(action: (dir: string) => T): T {
+async function withTmpDir<T>(
+  action: (dir: string) => T | Promise<T>,
+): Promise<T> {
   const dir = mkdtempSync(join(tmpdir(), "me-codex-install-"));
   try {
-    return action(dir);
+    return await action(dir);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
 }
 
-test("records the exact user-global Codex hook artifact", () => {
-  withTmpDir((dir) => {
+test("records the exact user-global Codex hook artifact", async () => {
+  await withTmpDir((dir) => {
     const path = join(dir, "hooks.json");
     expect(installCodexEnvHook(path)).toEqual({
       kind: "json-hook",
@@ -65,8 +67,69 @@ test("reports the complete MCP and hook artifact list", async () => {
   ]);
 });
 
-test("uninstall removes only the unchanged recorded hook entry", () => {
-  withTmpDir((dir) => {
+test("refuses an unrecorded preserved Codex MCP registration", async () => {
+  let installedHook = false;
+  await expect(
+    installCodexIntegration(undefined, {
+      installMcp: async () => ({
+        success: true,
+        preserved: true,
+        message: "already registered",
+      }),
+      installHook: () => {
+        installedHook = true;
+        return {
+          artifact: {
+            kind: "json-hook",
+            path: "/tmp/hooks.json",
+            event: "PreToolUse",
+            command: CODEX_ENV_HOOK_COMMAND,
+          },
+          changed: true,
+        };
+      },
+    }),
+  ).rejects.toThrow("MCP registration is unrecorded");
+  expect(installedHook).toBe(false);
+});
+
+test("refuses an unrecorded Codex hook before registering MCP", () => {
+  withTmpDir(async (dir) => {
+    const path = join(dir, "hooks.json");
+    installCodexEnvHook(path);
+    let installedMcp = false;
+    await expect(
+      installCodexIntegration(undefined, {
+        hookPath: path,
+        installMcp: async () => {
+          installedMcp = true;
+          return { success: true, message: "registered" };
+        },
+      }),
+    ).rejects.toThrow("hook in");
+    expect(installedMcp).toBe(false);
+  });
+});
+
+test("rolls back a new Codex MCP registration when hook installation fails", async () => {
+  let removedMcp = false;
+  await expect(
+    installCodexIntegration(undefined, {
+      installMcp: async () => ({ success: true, message: "registered" }),
+      installHook: () => {
+        throw new Error("disk is read-only");
+      },
+      removeMcp: async () => {
+        removedMcp = true;
+        return true;
+      },
+    }),
+  ).rejects.toThrow("disk is read-only");
+  expect(removedMcp).toBe(true);
+});
+
+test("uninstall removes only the unchanged recorded hook entry", async () => {
+  await withTmpDir((dir) => {
     const path = join(dir, "hooks.json");
     const artifact = installCodexEnvHook(path);
     const config = JSON.parse(readFileSync(path, "utf8"));
@@ -83,8 +146,8 @@ test("uninstall removes only the unchanged recorded hook entry", () => {
   });
 });
 
-test("uninstall removes an entry matching the recorded event and command", () => {
-  withTmpDir((dir) => {
+test("uninstall removes an entry matching the recorded event and command", async () => {
+  await withTmpDir((dir) => {
     const path = join(dir, "hooks.json");
     const artifact = installCodexEnvHook(path);
     const config = JSON.parse(readFileSync(path, "utf8"));
@@ -98,8 +161,8 @@ test("uninstall removes an entry matching the recorded event and command", () =>
   });
 });
 
-test("uninstall retains a hook artifact when its configuration is invalid", () => {
-  withTmpDir((dir) => {
+test("uninstall retains a hook artifact when its configuration is invalid", async () => {
+  await withTmpDir((dir) => {
     const path = join(dir, "hooks.json");
     const artifact = installCodexEnvHook(path);
     writeFileSync(path, JSON.stringify({ hooks: { PreToolUse: "invalid" } }));

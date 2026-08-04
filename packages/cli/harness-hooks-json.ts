@@ -26,6 +26,47 @@ export interface JsonHookEntry {
   [key: string]: unknown;
 }
 
+/** Return whether a matching hook command already exists without changing the file. */
+export function jsonHookEntryExists(
+  path: string,
+  eventKey: string,
+  command: string,
+): boolean {
+  if (!existsSync(path)) return false;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(readFileSync(path, "utf-8"));
+  } catch (error) {
+    throw new Error(
+      `${path} is not valid JSON: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error(`${path} must contain a JSON object`);
+  }
+  const hooks = (parsed as Record<string, unknown>).hooks;
+  if (
+    hooks !== undefined &&
+    (hooks === null || typeof hooks !== "object" || Array.isArray(hooks))
+  ) {
+    throw new Error(`${path} has a malformed hooks object`);
+  }
+  const entries = (hooks as Record<string, unknown> | undefined)?.[eventKey];
+  if (entries === undefined) return false;
+  if (!Array.isArray(entries)) {
+    throw new Error(`${path} has a malformed hooks.${eventKey} list`);
+  }
+  return entries.some(
+    (entry) =>
+      entry !== null &&
+      typeof entry === "object" &&
+      Array.isArray((entry as { hooks?: unknown }).hooks) &&
+      (entry as { hooks: Array<{ command?: unknown }> }).hooks.some(
+        (hook) => hook?.command === command,
+      ),
+  );
+}
+
 /**
  * Upsert `entry` into `<path>`'s `hooks[eventKey]` array, matched by
  * `matchCommand` (an existing entry whose `hooks[]` contains that command is
