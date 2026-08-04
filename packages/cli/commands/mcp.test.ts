@@ -5,6 +5,7 @@ import {
   blankFlag,
   createMcpRunAction,
   isLegacyApiKey,
+  resolveManagedHarness,
   resolveMcpSpace,
 } from "./mcp.ts";
 
@@ -129,11 +130,24 @@ describe("resolveMcpSpace", () => {
   });
 });
 
+describe("resolveManagedHarness", () => {
+  test("accepts installer-owned harness identities", () => {
+    expect(resolveManagedHarness("claude")).toBe("claude");
+    expect(resolveManagedHarness("opencode")).toBe("opencode");
+    expect(resolveManagedHarness("codex")).toBe("codex");
+    expect(resolveManagedHarness(undefined)).toBeUndefined();
+  });
+
+  test("rejects an unknown managed harness", () => {
+    expect(() => resolveManagedHarness("unknown")).toThrow(
+      "invalid managed harness",
+    );
+  });
+});
+
 test("manual MCP startup passes multi-space mode instead of an active-space default", async () => {
   const previousSpace = process.env.ME_SPACE;
-  const previousAgent = process.env.AI_AGENT;
   delete process.env.ME_SPACE;
-  delete process.env.AI_AGENT;
   try {
     let received: McpServerOptions | undefined;
     const action = createMcpRunAction({
@@ -142,6 +156,7 @@ test("manual MCP startup passes multi-space mode instead of an active-space defa
         loggedIn: true,
         activeSpace: "ignoredspace",
       }),
+      resolveMcpProfile: () => ({ value: undefined }) as never,
       memoryBearer: () => ({
         getToken: async () => "token",
         onUnauthorized: async () => undefined,
@@ -161,7 +176,123 @@ test("manual MCP startup passes multi-space mode instead of an active-space defa
   } finally {
     if (previousSpace === undefined) delete process.env.ME_SPACE;
     else process.env.ME_SPACE = previousSpace;
-    if (previousAgent === undefined) delete process.env.AI_AGENT;
-    else process.env.AI_AGENT = previousAgent;
   }
+});
+
+test("a disabled managed harness starts without tools or credentials", async () => {
+  let received: McpServerOptions | undefined;
+  const action = createMcpRunAction({
+    resolveCredentials: () => {
+      throw new Error("disabled policy must not resolve credentials");
+    },
+    resolveMcpProfile: () =>
+      ({ value: { enabled: false, harnesses: {} } }) as never,
+    memoryBearer: () => {
+      throw new Error("disabled policy must not create a bearer");
+    },
+    runMcpServer: async (options) => {
+      received = options;
+    },
+  });
+  const command = new Command().option("--harness <name>");
+  command.parse(["node", "test", "--harness", "claude"]);
+
+  await action({}, command);
+
+  expect(received).toMatchObject({ tools: false, spaceMode: "multi" });
+});
+
+test("an enabled managed harness uses its selected policy", async () => {
+  let received: McpServerOptions | undefined;
+  let requestedServer: string | undefined;
+  const action = createMcpRunAction({
+    resolveCredentials: (server) => {
+      requestedServer = server;
+      return {
+        server: "https://policy.example.com",
+        loggedIn: true,
+        activeSpace: undefined,
+      };
+    },
+    resolveMcpProfile: () =>
+      ({
+        value: {
+          enabled: true,
+          server: "https://policy.example.com",
+          space: "abc123def456",
+          harnesses: { claude: true },
+        },
+      }) as never,
+    memoryBearer: () => ({
+      getToken: async () => "token",
+      onUnauthorized: async () => undefined,
+    }),
+    runMcpServer: async (options) => {
+      received = options;
+    },
+  });
+  const command = new Command().option("--harness <name>");
+  command.parse(["node", "test", "--harness", "claude"]);
+
+  await action({}, command);
+
+  expect(requestedServer).toBe("https://policy.example.com");
+  expect(received).toMatchObject({
+    server: "https://policy.example.com",
+    lockedSpace: "abc123def456",
+    spaceMode: "locked",
+  });
+});
+
+test("a malformed managed-harness policy fails closed without tools", async () => {
+  let received: McpServerOptions | undefined;
+  const action = createMcpRunAction({
+    resolveCredentials: () => {
+      throw new Error("malformed policy must not resolve credentials");
+    },
+    resolveMcpProfile: () => {
+      throw new Error("simulated malformed local config");
+    },
+    memoryBearer: () => {
+      throw new Error("malformed policy must not create a bearer");
+    },
+    runMcpServer: async (options) => {
+      received = options;
+    },
+  });
+  const command = new Command().option("--harness <name>");
+  command.parse(["node", "test", "--harness", "claude"]);
+
+  await action({}, command);
+
+  expect(received).toMatchObject({ tools: false, spaceMode: "multi" });
+});
+
+test("an unselected managed harness starts without tools", async () => {
+  let received: McpServerOptions | undefined;
+  const action = createMcpRunAction({
+    resolveCredentials: () => {
+      throw new Error("unselected policy must not resolve credentials");
+    },
+    resolveMcpProfile: () =>
+      ({
+        value: {
+          enabled: true,
+          server: "https://policy.example.com",
+          harnesses: { codex: true },
+        },
+      }) as never,
+    memoryBearer: () => {
+      throw new Error("unselected policy must not create a bearer");
+    },
+    runMcpServer: async (options) => {
+      received = options;
+    },
+  });
+  const command = new Command().option("--harness <name>");
+  command.parse(["node", "test", "--harness", "claude"]);
+
+  await action({}, command);
+
+  expect(received).toMatchObject({ tools: false, spaceMode: "multi" });
 });

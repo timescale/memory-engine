@@ -179,6 +179,8 @@ async function installMcpOnly(
     "--",
     "me",
     "mcp",
+    "--harness",
+    "claude",
   ]);
   if (result.exitCode === 0) {
     return {

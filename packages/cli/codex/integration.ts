@@ -153,9 +153,9 @@ function codexMcpTool() {
   return tool;
 }
 
-/** The only Codex MCP registration command: `codex mcp add me -- me mcp`. */
+/** The managed Codex MCP registration carries its harness identity. */
 export function codexMcpCommand(): string[] {
-  return codexMcpTool().addCmd(buildMeCommand({}), {});
+  return codexMcpTool().addCmd(buildMeCommand({ harness: "codex" }), {});
 }
 
 export interface CodexIntegrationResult {
@@ -224,7 +224,7 @@ export async function installCodexIntegration(
   const registration = await (
     operations.installMcp ??
     (() =>
-      installMcpServer(codexMcpTool(), buildMeCommand({}), {
+      installMcpServer(codexMcpTool(), buildMeCommand({ harness: "codex" }), {
         scope: "user",
         replaceExisting: false,
       }))

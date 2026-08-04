@@ -72,13 +72,25 @@ describe("Claude dormant integration adapter", () => {
     expect(commands.flat()).not.toContain("--api-key");
   });
 
-  test("registers exactly me mcp in explicit MCP-only mode", async () => {
+  test("registers the managed Claude MCP command in MCP-only mode", async () => {
     const { commands, dependencies: adapter } = dependencies();
 
     const result = await installClaudeIntegration("mcp-only", adapter);
 
     expect(commands).toEqual([
-      ["claude", "mcp", "add", "--scope", "user", "me", "--", "me", "mcp"],
+      [
+        "claude",
+        "mcp",
+        "add",
+        "--scope",
+        "user",
+        "me",
+        "--",
+        "me",
+        "mcp",
+        "--harness",
+        "claude",
+      ],
     ]);
     expect(result.artifacts).toEqual([
       { kind: "mcp-cli", server_name: "me", scope: "user" },

@@ -6,11 +6,14 @@ import { join } from "node:path";
 const pluginDir = join(import.meta.dir, "..", "..", "claude-plugin");
 
 describe("Claude plugin assets", () => {
-  test("registers exactly the dormant me mcp command", () => {
+  test("registers the managed Claude MCP command", () => {
     const config = JSON.parse(
       readFileSync(join(pluginDir, ".mcp.json"), "utf8"),
     ) as { mcpServers: { me: { command: string; args: string[] } } };
-    expect(config.mcpServers.me).toEqual({ command: "me", args: ["mcp"] });
+    expect(config.mcpServers.me).toEqual({
+      command: "me",
+      args: ["mcp", "--harness", "claude"],
+    });
   });
 
   test("has no install-time credential or routing configuration", () => {

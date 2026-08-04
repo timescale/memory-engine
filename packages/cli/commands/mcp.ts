@@ -13,7 +13,7 @@
  *   me opencode install, me codex install
  * Claude Code uses the Memory Engine plugin instead of a CLI installer.
  */
-import { Command } from "commander";
+import { Command, InvalidArgumentError, Option } from "commander";
 import {
   type ResolvedCredentials,
   resolveCredentials,
@@ -41,13 +41,14 @@ export function isLegacyApiKey(token: string): boolean {
 }
 
 /**
- * Treat unset / empty / whitespace-only / unsubstituted-placeholder flag values
- * as missing. The Claude Code plugin's .mcp.json passes `--server/--api-key/
- * --space ${user_config.X}` statically; when left blank each arrives as `""`
- * (or the literal `${...}` placeholder), which must fall through to the live
- * `me` server/session config, not be used verbatim. Whitespace-only strings —
- * e.g. `ME_SPACE=" "` — are treated as blank, and any legitimate value is
- * trimmed so an accidental leading/trailing space cannot corrupt the wire.
+ * Treat unset / empty / whitespace-only / unsubstituted-placeholder values as
+ * missing. Managed registrations bake no `--server`/`--api-key`/`--space`, but
+ * env (`ME_SERVER` / `ME_SPACE`) and a manually-configured MCP entry can still
+ * arrive as `""` (or a literal `${...}` placeholder from a templated config),
+ * which must fall through to the live `me` server/session config rather than be
+ * used verbatim. Whitespace-only strings — e.g. `ME_SPACE=" "` — are treated as
+ * blank, and any legitimate value is trimmed so an accidental leading/trailing
+ * space cannot corrupt the wire.
  */
 export function blankFlag(v: unknown): string | undefined {
   if (typeof v !== "string") return undefined;
@@ -74,6 +75,7 @@ export function resolveMcpSpace(
 
 interface McpRunActionDependencies {
   resolveCredentials: (serverFlag?: string) => ResolvedCredentials;
+  resolveMcpProfile: typeof resolveMcpProfile;
   memoryBearer: typeof memoryBearer;
   runMcpServer: typeof runMcpServer;
 }
@@ -81,21 +83,20 @@ interface McpRunActionDependencies {
 export function createMcpRunAction(
   dependencies: McpRunActionDependencies = {
     resolveCredentials,
+    resolveMcpProfile,
     memoryBearer,
     runMcpServer,
   },
 ) {
   return async (_opts: Record<string, unknown>, cmd: Command) => {
     const opts = cmd.optsWithGlobals();
-    const agent = process.env.AI_AGENT;
-    const harness =
-      agent && HARNESS_NAMES.includes(agent as HarnessName)
-        ? (agent as HarnessName)
-        : undefined;
+    const harness = resolveManagedHarness(opts.harness);
     let policy: ReturnType<typeof resolveMcpProfile>["value"];
     try {
       policy = harness
-        ? resolveMcpProfile(process.env.ME_PROJECT_DIR ?? process.cwd()).value
+        ? dependencies.resolveMcpProfile(
+            process.env.ME_PROJECT_DIR ?? process.cwd(),
+          ).value
         : undefined;
     } catch {
       // A malformed local policy fails closed: keep the dispatcher alive with
@@ -114,12 +115,15 @@ export function createMcpRunAction(
       });
       return;
     }
-    // Run server through blankFlag like api_key/space below: the plugin's
-    // .mcp.json always passes `--server ${user_config.server}`, which arrives as
-    // "" (or the literal placeholder) when left blank — it must fall back to the
-    // live `me` config (ME_SERVER / default_server), not be used verbatim.
+    // Server precedence mirrors space below: --server flag > ME_SERVER env >
+    // MCP-profile policy > live `me` config default. `blankFlag` normalizes both
+    // the flag and the env (blank / whitespace / unsubstituted `${...}` →
+    // undefined) so an accidentally-empty value falls through instead of being
+    // used verbatim; the managed profile's server is only a fallback below env.
     const creds = dependencies.resolveCredentials(
-      blankFlag(opts.server) ?? policy?.server,
+      blankFlag(opts.server) ??
+        blankFlag(process.env.ME_SERVER) ??
+        policy?.server,
     );
 
     // Bearer: --api-key > ME_API_KEY (creds.apiKey), else the logged-in human's
@@ -155,6 +159,20 @@ export function createMcpRunAction(
   };
 }
 
+/** Validate the installer-owned harness identity on a managed MCP process. */
+export function resolveManagedHarness(value: unknown): HarnessName | undefined {
+  if (value === undefined) return undefined;
+  if (
+    typeof value !== "string" ||
+    !HARNESS_NAMES.includes(value as HarnessName)
+  ) {
+    throw new InvalidArgumentError(
+      `invalid managed harness '${String(value)}'`,
+    );
+  }
+  return value as HarnessName;
+}
+
 export function createMcpCommand(): Command {
   return new Command("mcp")
     .description("run MCP server over stdio")
@@ -162,6 +180,12 @@ export function createMcpCommand(): Command {
     .option(
       "--space <slug>",
       "lock MCP to this space (else memory tools require a per-call space)",
+    )
+    .addOption(
+      new Option(
+        "--harness <name>",
+        "internal managed-harness identity",
+      ).hideHelp(),
     )
     .action(createMcpRunAction());
 }

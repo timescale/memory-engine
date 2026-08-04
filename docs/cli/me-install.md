@@ -14,8 +14,9 @@ With no harness names, `me install` detects supported harness binaries on
 `PATH` and installs each detected integration. Supplying names installs only
 those harnesses.
 
-Each integration registers the stable `me mcp` command without credentials,
-server, space, or project settings. Runtime behavior is configured separately.
+Each integration registers an identified managed MCP command without
+credentials, server, space, or project settings. Runtime behavior is configured
+separately through `me init`.
 
 ## Examples
 

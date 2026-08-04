@@ -19,10 +19,10 @@ Install OpenCode's dormant user-scoped integration:
 me opencode install
 ```
 
-This non-interactive command writes exactly `me mcp` to the managed OpenCode
-MCP entry and installs the generated dormant plugin. The plugin only supplies
-the shell contract and capture plumbing; it does not install commands, skills,
-credentials, or static runtime targeting.
+This non-interactive command writes a managed MCP entry and installs the
+generated dormant plugin. The plugin only supplies the shell contract and
+capture plumbing; it does not install commands, skills, credentials, or static
+runtime targeting.
 
 ## me opencode uninstall
 
