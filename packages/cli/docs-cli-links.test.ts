@@ -62,8 +62,6 @@ const COMMAND_DOCS: Record<string, string | null> = {
   createOpenCodeCommand: "me-opencode",
   createGeminiCommand: "me-gemini",
   createCodexCommand: "me-codex",
-  createProjectCommand: "me-project",
-  createRemovedCommand: null, // helper for retired aliases, not a command
   createServeCommand: "me-serve",
   createPackCommand: "me-pack",
 };

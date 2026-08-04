@@ -2,9 +2,9 @@
  * `me import git` — import a repo's commit history as memories.
  *
  * One memory per commit (message + capped changed-file list) under
- * `<tree>.git_history` — the full project TREE from `--tree` or the repo's
- * `.me` `tree`, else `<tree_root ?? ~/projects>.<project_slug>` (private by
- * default) — named with the commit `<sha>` and with the commit date as the
+ * `<tree>.git_history` — the full project TREE from `--tree`, else
+ * `<~/projects>.<project_slug>` (private by default) — named with the commit
+ * `<sha>` and with the commit date as the
  * memory's temporal. `me import git` is single-repo, so the tree is a full
  * node (no slug appended here).
  * Idempotency is keyed on
@@ -23,7 +23,7 @@ import type { MemoryCreateParams } from "@memory.build/protocol/memory";
 import { Command, InvalidArgumentError } from "commander";
 import { batchCreateChunked } from "../chunk.ts";
 import type { MemoryClient } from "../client.ts";
-import { resolveCredentials, resolveCredentialsFor } from "../credentials.ts";
+import { resolveCredentials } from "../credentials.ts";
 import {
   buildCommitMemory,
   GIT_HISTORY_NODE_NAME,
@@ -39,7 +39,6 @@ import {
 import { detectGitContext, ProjectRegistry } from "../importers/project.ts";
 import { stampGitPrevLinks } from "../importers/thread-links.ts";
 import { getOutputFormat, output } from "../output.ts";
-import { discoverProjectConfig } from "../project-config.ts";
 import {
   buildMemoryClient,
   handleError,
@@ -68,8 +67,7 @@ export interface GitImportOptions {
   fileList?: boolean;
   /**
    * The full project TREE to place `git_history` under (no slug appended).
-   * From `--tree`; when unset, runGitImport falls back to the repo's `.me`
-   * `tree`, else `<tree_root ?? ~/projects>.<slug>`.
+   * From `--tree`; when unset, runGitImport uses `<~/projects>.<slug>`.
    */
   tree?: string;
   /** Report without writing. */
@@ -167,22 +165,11 @@ export async function runGitImport(
   }
 
   const repoPath = resolve(opts.repo ?? process.cwd());
-  // Resolve credentials AS IF running inside the TARGET repo (mirrors the
-  // hook and the bulk-sweep router): its `.me` — passed explicitly — governs
-  // server (whitelist-gated, fatal here — this is a single explicit target),
-  // space, and tree, even when the command is invoked from elsewhere. An
-  // explicit `--config-dir` / ME_CONFIG_DIR keeps pointing wherever the
-  // caller said; the `--server` flag reaches both forms (seeded).
   const serverFlag =
     typeof globalOpts.server === "string" ? globalOpts.server : undefined;
-  const explicitConfigDir =
-    typeof globalOpts.configDir === "string" ||
-    Boolean(process.env.ME_CONFIG_DIR);
   let creds: ReturnType<typeof resolveCredentials>;
   try {
-    creds = explicitConfigDir
-      ? resolveCredentials(serverFlag)
-      : resolveCredentialsFor(discoverProjectConfig(repoPath));
+    creds = resolveCredentials(serverFlag);
   } catch (error) {
     handleError(error, fmt);
   }
@@ -201,17 +188,12 @@ export async function runGitImport(
     handleError(new Error(`${repoPath} is not a git repository`), fmt);
   }
 
-  const explicitProjectNode = opts.tree ?? creds.tree;
+  const explicitProjectNode = opts.tree;
   const slug = (await new ProjectRegistry().resolve(repoPath)).slug;
-  // The full project node git history nests under (no slug appended — git
-  // import is single-repo): an explicit `--tree`, else the TARGET repo's
-  // `.me` `tree` (`creds` above is scoped to the repo, so this works from any
-  // cwd), else the slug nests under the machine-wide `tree_root` override or
-  // the PRIVATE default. The slug is still retained as source metadata even
-  // when explicitProjectNode controls placement.
+  // The full project node git history nests under an explicit `--tree`, else
+  // the private default plus the source repository slug.
   const projectNode =
-    explicitProjectNode ??
-    `${creds.treeRoot ?? DEFAULT_PRIVATE_TREE_ROOT}.${slug}`;
+    explicitProjectNode ?? `${DEFAULT_PRIVATE_TREE_ROOT}.${slug}`;
   const tree = `${projectNode}.${GIT_HISTORY_NODE_NAME}`;
   const rev = opts.branch ?? "HEAD";
   const engine = buildMemoryClient(creds);

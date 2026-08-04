@@ -20,12 +20,6 @@ import { join } from "node:path";
 import type { OAuthTokenSet } from "./credentials.ts";
 import * as creds from "./credentials.ts";
 import { resetKeychainForTests } from "./keychain.ts";
-import {
-  discoverProjectConfig,
-  ProjectConfigError,
-  resetProjectConfigCache,
-  setConfigDirOverride,
-} from "./project-config.ts";
 
 const SERVER = "https://api.example.com";
 const TOKENS: OAuthTokenSet = {
@@ -36,26 +30,10 @@ const TOKENS: OAuthTokenSet = {
 const TOKEN_ENVS = ["ME_SESSION_TOKEN", "ME_SPACE", "ME_SERVER", "ME_API_KEY"];
 // Every env key these tests touch — snapshotted and restored so the ambient
 // environment (and other test files in the same process) is left untouched.
-const ENV_KEYS = [
-  ...TOKEN_ENVS,
-  "XDG_CONFIG_HOME",
-  "ME_NO_KEYCHAIN",
-  "ME_CONFIG_DIR",
-];
+const ENV_KEYS = [...TOKEN_ENVS, "XDG_CONFIG_HOME", "ME_NO_KEYCHAIN"];
 
 let configDir: string;
-/** A throwaway project dir; the `.me` resolver is pinned here (empty by default,
- *  so discovery is deterministic — no ambient `.me` from the repo ancestry). */
-let projectDir: string;
 let savedEnv: Record<string, string | undefined>;
-
-/** Write a `.me/config.yaml` into the pinned project dir + refresh the cache. */
-function writeMe(body: string): void {
-  mkdirSync(join(projectDir, ".me"), { recursive: true });
-  writeFileSync(join(projectDir, ".me", "config.yaml"), body);
-  resetProjectConfigCache();
-  setConfigDirOverride(projectDir);
-}
 
 beforeEach(() => {
   savedEnv = {};
@@ -65,20 +43,12 @@ beforeEach(() => {
   process.env.XDG_CONFIG_HOME = configDir;
   process.env.ME_NO_KEYCHAIN = "1"; // force the file fallback
   for (const k of TOKEN_ENVS) delete process.env[k];
-  delete process.env.ME_CONFIG_DIR;
   creds.setServerFlagOverride(undefined);
   resetKeychainForTests();
-
-  // Pin the `.me` resolver at an empty throwaway dir so discovery is
-  // deterministic (no walk-up into the repo/home) and off by default.
-  projectDir = mkdtempSync(join(tmpdir(), "me-proj-"));
-  resetProjectConfigCache();
-  setConfigDirOverride(projectDir);
 });
 
 afterEach(() => {
   rmSync(configDir, { recursive: true, force: true });
-  rmSync(projectDir, { recursive: true, force: true });
   for (const k of ENV_KEYS) {
     const v = savedEnv[k];
     if (v === undefined) delete process.env[k];
@@ -86,167 +56,6 @@ afterEach(() => {
   }
   creds.setServerFlagOverride(undefined);
   resetKeychainForTests();
-  resetProjectConfigCache();
-  setConfigDirOverride(undefined);
-});
-
-// =============================================================================
-// resolveCredentialsFor — the explicit-project form (bulk-import router,
-// `me import git <repo>` from outside). Everything ambient resolution promises
-// must hold identically when the project is an argument.
-// =============================================================================
-
-/** A second, non-ambient project on disk, discovered explicitly. */
-function otherProject(body: string) {
-  const dir = mkdtempSync(join(tmpdir(), "me-other-proj-"));
-  mkdirSync(join(dir, ".me"), { recursive: true });
-  writeFileSync(join(dir, ".me", "config.yaml"), body);
-  const project = discoverProjectConfig(dir);
-  if (!project) throw new Error("expected a discovered project");
-  return { dir, project };
-}
-
-test("resolveCredentialsFor gates an untrusted project server (same gate as ambient)", () => {
-  const { dir, project } = otherProject("server: https://attacker.example\n");
-  try {
-    expect(() => creds.resolveCredentialsFor(project)).toThrow(
-      ProjectConfigError,
-    );
-    expect(() => creds.resolveCredentialsFor(project)).toThrow(
-      /not in your trusted server list/i,
-    );
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
-});
-
-test("resolveCredentialsFor resolves server/space/tree from THAT project, not the ambient one", () => {
-  writeMe("space: ambientspace1\ntree: /share/projects/ambient\n"); // ambient .me
-  const { dir, project } = otherProject(
-    `server: ${creds.DEV_SERVER}\nspace: explicitspace\ntree: /share/projects/explicit\n`,
-  );
-  try {
-    const r = creds.resolveCredentialsFor(project);
-    expect(r.server).toBe(creds.DEV_SERVER);
-    expect(r.activeSpace).toBe("explicitspace");
-    expect(r.tree).toBe("/share/projects/explicit");
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
-});
-
-test("resolveCredentialsFor(undefined) means no project — the ambient .me does not leak", () => {
-  writeMe("space: ambientspace1\ntree: /share/projects/ambient\n");
-  const r = creds.resolveCredentialsFor(undefined);
-  expect(r.activeSpace).toBeUndefined();
-  expect(r.tree).toBeUndefined();
-});
-
-test("a seeded --server flag wins over env and the project (and bypasses the gate)", () => {
-  process.env.ME_SERVER = "https://env.example.com";
-  const { dir, project } = otherProject("server: https://attacker.example\n");
-  try {
-    creds.setServerFlagOverride("https://picked.example");
-    // The flag is the user's own choice: it outranks env + project and is
-    // ungated — the untrusted project server never enters resolution.
-    expect(creds.resolveCredentialsFor(project).server).toBe(
-      "https://picked.example",
-    );
-    // The same seed feeds the ambient form (preAction seeds it once).
-    expect(creds.resolveCredentials().server).toBe("https://picked.example");
-    // An explicit serverFlag argument still outranks the seed.
-    expect(creds.resolveCredentials(SERVER).server).toBe(SERVER);
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
-});
-
-test("ME_SERVER env outranks the explicit project's server (documented precedence)", () => {
-  process.env.ME_SERVER = "https://env.example.com";
-  const { dir, project } = otherProject(`server: ${creds.DEV_SERVER}\n`);
-  try {
-    expect(creds.resolveCredentialsFor(project).server).toBe(
-      "https://env.example.com",
-    );
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
-});
-
-test("human CLI ignores a .me server pin", () => {
-  writeMe(`server: ${creds.DEV_SERVER}\n`);
-  expect(creds.resolveServer()).toBe(creds.DEFAULT_SERVER);
-});
-
-test("ME_SERVER env still wins over a .me server", () => {
-  writeMe("server: https://me-project.example.com\n");
-  process.env.ME_SERVER = "https://env.example.com";
-  // ME_SERVER short-circuits before the .me branch, so the untrusted .me
-  // server is never resolved (or validated).
-  expect(creds.resolveServer()).toBe("https://env.example.com");
-});
-
-test(".me may pin the prod server (default whitelist)", () => {
-  writeMe(`server: ${creds.DEFAULT_SERVER}\n`);
-  expect(creds.resolveServer()).toBe(creds.DEFAULT_SERVER);
-});
-
-test("human CLI ignores an untrusted .me server", () => {
-  writeMe("server: https://attacker.example\n");
-  expect(creds.resolveServer()).toBe(creds.DEFAULT_SERVER);
-});
-
-test("an explicit --server / ME_SERVER bypasses the whitelist (user's own choice)", () => {
-  writeMe("server: https://attacker.example\n"); // untrusted .me present
-  expect(creds.resolveServer("https://picked.example")).toBe(
-    "https://picked.example",
-  );
-  process.env.ME_SERVER = "https://env-picked.example";
-  expect(creds.resolveServer()).toBe("https://env-picked.example");
-});
-
-test("server_whitelist does not make a .me server active for human CLI", () => {
-  mkdirSync(join(configDir, "me"), { recursive: true });
-  writeFileSync(
-    join(configDir, "me", "config.yaml"),
-    "server_whitelist:\n  - https://internal.example.com\n",
-  );
-  writeMe("server: https://internal.example.com\n");
-  expect(creds.resolveServer()).toBe(creds.DEFAULT_SERVER);
-});
-
-test("me login (storeTokens) selects the server it logged into", () => {
-  creds.storeTokens("https://loggedin.example.com", TOKENS);
-  // The server is whitelisted for explicit project imports and becomes the
-  // human CLI default without consulting repository configuration.
-  expect(creds.getServerWhitelist()).toContain("https://loggedin.example.com");
-  expect(creds.resolveServer()).toBe("https://loggedin.example.com");
-});
-
-test("logging into prod/dev does not bloat server_whitelist (already trusted)", () => {
-  creds.storeTokens(creds.DEFAULT_SERVER, TOKENS);
-  // prod is a built-in default, so it isn't re-added; it appears exactly once.
-  const wl = creds.getServerWhitelist();
-  expect(wl.filter((s) => s === creds.DEFAULT_SERVER).length).toBe(1);
-});
-
-test("a non-string server_whitelist entry is a fatal config error", () => {
-  mkdirSync(join(configDir, "me"), { recursive: true });
-  writeFileSync(
-    join(configDir, "me", "config.yaml"),
-    "server_whitelist:\n  - 12345\n",
-  );
-  expect(() => creds.getServerWhitelist()).toThrow(/Invalid server_whitelist/);
-});
-
-test("human CLI ignores malformed .me server pins", () => {
-  writeMe("server: not-a-url\n");
-  expect(creds.resolveServer()).toBe(creds.DEFAULT_SERVER);
-});
-
-test("human CLI ignores non-http .me server pins", () => {
-  writeMe("server: ftp://api.memory.build\n");
-  expect(creds.resolveServer()).toBe(creds.DEFAULT_SERVER);
 });
 
 test("resolveServer normalizes a hand-edited default_server (trailing slash)", () => {
@@ -255,56 +64,8 @@ test("resolveServer normalizes a hand-edited default_server (trailing slash)", (
     join(configDir, "me", "config.yaml"),
     "default_server: https://api.memory.build/\n",
   );
-  // projectDir has no `.me` server, no flag/env → falls to default_server.
+  // No flag or env → falls to default_server.
   expect(creds.resolveServer()).toBe("https://api.memory.build");
-});
-
-test("human CLI ignores .me space", () => {
-  writeMe("space: sp_from_me\n");
-  expect(creds.resolveSpace(SERVER)).toBeUndefined();
-  expect(creds.resolveCredentials().activeSpace).toBeUndefined();
-});
-
-test("human CLI ignores .me tree", () => {
-  writeMe("tree: ~/projects/foo\n");
-  expect(creds.resolveCredentials().tree).toBeUndefined();
-});
-
-test("tree_root: unset by default; a config value surfaces as treeRoot", () => {
-  expect(creds.resolveCredentials().treeRoot).toBeUndefined();
-
-  mkdirSync(join(configDir, "me"), { recursive: true });
-  writeFileSync(join(configDir, "me", "config.yaml"), "tree_root: ~/work\n");
-  expect(creds.resolveCredentials().treeRoot).toBe("~/work");
-  // A project tree no longer affects normal CLI targeting.
-  writeMe("tree: /share/projects/foo\n");
-  const r = creds.resolveCredentials();
-  expect(r.treeRoot).toBe("~/work");
-  expect(r.tree).toBeUndefined();
-});
-
-test("a non-boolean capture in the global config is a fatal error", () => {
-  mkdirSync(join(configDir, "me"), { recursive: true });
-  // YAML 1.2: `yes` parses as the string "yes", not a boolean — must fail
-  // loudly rather than silently leaving capture off.
-  writeFileSync(join(configDir, "me", "config.yaml"), "capture: yes\n");
-  expect(() => creds.resolveCredentials()).toThrow(/Invalid capture/);
-
-  writeFileSync(join(configDir, "me", "config.yaml"), "capture: true\n");
-  expect(creds.resolveCredentials().captureEnabled).toBe(true);
-});
-
-test("a malformed tree_root is a fatal config error (strict shape)", () => {
-  mkdirSync(join(configDir, "me"), { recursive: true });
-  for (const bad of [
-    "'has spaces!'",
-    "share..projects",
-    "share~oops",
-    "share.projects.",
-  ]) {
-    writeFileSync(join(configDir, "me", "config.yaml"), `tree_root: ${bad}\n`);
-    expect(() => creds.resolveCredentials()).toThrow(/Invalid tree_root/);
-  }
 });
 
 test("store + read an OAuth token set (file fallback)", () => {
@@ -405,33 +166,6 @@ test("human CLI writes preserve harness policy fields", () => {
   expect(config).toContain("active_space: abc123def456");
 });
 
-test("capture: off by default; setCaptureEnabled persists the machine-wide flag", () => {
-  expect(creds.getGlobalCaptureEnabled()).toBe(false);
-  expect(creds.resolveCredentials(SERVER).captureEnabled).toBe(false);
-
-  creds.setCaptureEnabled(true);
-  expect(creds.getGlobalCaptureEnabled()).toBe(true);
-  expect(creds.resolveCredentials(SERVER).captureEnabled).toBe(true);
-  // Non-secret: lands in config.yaml.
-  expect(readFileSync(join(configDir, "me", "config.yaml"), "utf-8")).toContain(
-    "capture: true",
-  );
-
-  creds.setCaptureEnabled(false);
-  expect(creds.getGlobalCaptureEnabled()).toBe(false);
-});
-
-test("a legacy global agent setting is inert and preserved on config writes", () => {
-  const path = join(configDir, "me", "config.yaml");
-  mkdirSync(join(configDir, "me"), { recursive: true });
-  writeFileSync(path, "agent: old-coder\n");
-
-  creds.setCaptureEnabled(true);
-
-  expect(readFileSync(path, "utf-8")).toContain("agent: old-coder");
-  expect(creds.resolveCredentials()).not.toHaveProperty("asAgent");
-});
-
 test("legacy ME_AS_AGENT env is inert — never bleeds into ResolvedCredentials", () => {
   // The env var is a phase-1/phase-2 removal; a stale value in a shell or
   // CI job must not resurrect act-as-agent behavior in the client.
@@ -442,26 +176,6 @@ test("legacy ME_AS_AGENT env is inert — never bleeds into ResolvedCredentials"
   } finally {
     delete process.env.ME_AS_AGENT;
   }
-});
-
-test("legacy project agent: is accepted, preserved, and never surfaces as asAgent", () => {
-  writeMe("agent: repo-agent\nspace: abc123def456\n");
-  const resolved = creds.resolveCredentials(SERVER);
-  expect(resolved.activeSpace).toBeUndefined();
-  expect(resolved).not.toHaveProperty("asAgent");
-});
-
-test("capture: .me project capture does not affect machine-wide resolution", () => {
-  creds.setCaptureEnabled(true);
-  writeMe("capture: false\n");
-  expect(creds.resolveCredentials(SERVER).captureEnabled).toBe(true);
-
-  creds.setCaptureEnabled(false);
-  writeMe("capture: true\n");
-  expect(creds.resolveCredentials(SERVER).captureEnabled).toBe(false);
-
-  writeMe("space: abc123def456\n"); // no capture key → global (off) governs
-  expect(creds.resolveCredentials(SERVER).captureEnabled).toBe(false);
 });
 
 test("secrets and config live in separate files", () => {
