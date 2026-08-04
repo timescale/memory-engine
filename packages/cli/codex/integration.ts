@@ -204,11 +204,13 @@ export async function installCodexIntegration(
     }
     throw error;
   }
+  const artifacts = [...(existing?.artifacts ?? [])];
+  if (!mcp) {
+    artifacts.push({ kind: "mcp-cli", server_name: "me" });
+  }
+  if (hook.changed && !priorHook) artifacts.push(hook.artifact);
   return {
-    artifacts: [
-      mcp ?? { kind: "mcp-cli" as const, server_name: "me" as const },
-      ...(hook.changed ? [hook.artifact] : priorHook ? [priorHook] : []),
-    ],
+    artifacts,
     messages: [registration.message],
   };
 }
