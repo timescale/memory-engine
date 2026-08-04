@@ -39,6 +39,62 @@ interface InitOptions {
   cliHarness: string[];
 }
 
+type InitPrompts = Pick<
+  typeof clack,
+  | "cancel"
+  | "confirm"
+  | "isCancel"
+  | "multiselect"
+  | "note"
+  | "outro"
+  | "select"
+  | "text"
+> & {
+  log: Pick<typeof clack.log, "info" | "warn">;
+};
+
+export interface InitDependencies {
+  prompts: InitPrompts;
+  resolveCredentials: typeof resolveCredentials;
+  buildUserClient: typeof buildUserClient;
+  authenticateLogin: typeof authenticateLogin;
+  detectInstalledHarnesses: typeof detectInstalledHarnesses;
+  isHarnessInstalled: typeof isHarnessInstalled;
+  installHarness: typeof installHarness;
+  readLocalConfig: typeof readLocalConfig;
+  writeDefaults: typeof writeDefaults;
+  writeDirectoryProfile: typeof writeDirectoryProfile;
+  canonicalizeDirectory: typeof canonicalizeDirectory;
+  cwd: () => string;
+  isTTY: () => boolean;
+  exit: (code?: number) => never;
+  browserLikelyAvailable: () => boolean;
+}
+
+const defaultDependencies: InitDependencies = {
+  prompts: clack,
+  resolveCredentials,
+  buildUserClient,
+  authenticateLogin,
+  detectInstalledHarnesses,
+  isHarnessInstalled,
+  installHarness,
+  readLocalConfig,
+  writeDefaults,
+  writeDirectoryProfile,
+  canonicalizeDirectory,
+  cwd: () => process.cwd(),
+  isTTY: () => Boolean(process.stdin.isTTY),
+  exit: (code) => process.exit(code),
+  browserLikelyAvailable,
+};
+
+function resolveDependencies(
+  overrides: Partial<InitDependencies> = {},
+): InitDependencies {
+  return { ...defaultDependencies, ...overrides };
+}
+
 function collectHarness(value: string, previous: string[]): string[] {
   parseHarnessName(value);
   return [...previous, value];
@@ -203,34 +259,42 @@ export function buildInitProfile(
   return profile;
 }
 
-function cancel<T>(value: T | symbol): T {
-  if (clack.isCancel(value)) {
-    clack.cancel("Cancelled.");
-    process.exit(0);
+function cancel<T>(deps: InitDependencies, value: T | symbol): T {
+  if (deps.prompts.isCancel(value)) {
+    deps.prompts.cancel("Cancelled.");
+    deps.exit(0);
   }
   return value as T;
 }
 
-function existingProfile(scope: Scope): HarnessProfile | undefined {
-  const config = readLocalConfig();
+function existingProfile(
+  deps: InitDependencies,
+  scope: Scope,
+): HarnessProfile | undefined {
+  const config = deps.readLocalConfig();
   return scope.kind === "defaults"
     ? config.defaults
-    : config.directories[canonicalizeDirectory(scope.directory)];
+    : config.directories[deps.canonicalizeDirectory(scope.directory)];
 }
 
-function writeProfile(scope: Scope, profile: HarnessProfile): void {
-  if (scope.kind === "defaults") writeDefaults(profile);
-  else writeDirectoryProfile(scope.directory, profile);
+function writeProfile(
+  deps: InitDependencies,
+  scope: Scope,
+  profile: HarnessProfile,
+): void {
+  if (scope.kind === "defaults") deps.writeDefaults(profile);
+  else deps.writeDirectoryProfile(scope.directory, profile);
 }
 
-async function selectScope(): Promise<Scope> {
+async function selectScope(deps: InitDependencies): Promise<Scope> {
   const choice = cancel(
-    await clack.select({
+    deps,
+    await deps.prompts.select({
       message: "Where should this configuration apply?",
       options: [
         {
           value: "directory",
-          label: `This directory: ${canonicalizeDirectory(process.cwd())}`,
+          label: `This directory: ${deps.canonicalizeDirectory(deps.cwd())}`,
         },
         {
           value: "defaults",
@@ -241,17 +305,21 @@ async function selectScope(): Promise<Scope> {
   );
   return choice === "defaults"
     ? { kind: "defaults" }
-    : { kind: "directory", directory: process.cwd() };
+    : { kind: "directory", directory: deps.cwd() };
 }
 
-async function confirmReplacement(scope: Scope): Promise<boolean> {
-  if (!existingProfile(scope)) return true;
+async function confirmReplacement(
+  deps: InitDependencies,
+  scope: Scope,
+): Promise<boolean> {
+  if (!existingProfile(deps, scope)) return true;
   return cancel(
-    await clack.confirm({
+    deps,
+    await deps.prompts.confirm({
       message:
         scope.kind === "defaults"
           ? "Replace the existing defaults profile?"
-          : `Replace the existing profile for ${canonicalizeDirectory(scope.directory)}?`,
+          : `Replace the existing profile for ${deps.canonicalizeDirectory(scope.directory)}?`,
       initialValue: false,
     }),
   );
@@ -266,28 +334,30 @@ function browserLikelyAvailable(): boolean {
   );
 }
 
-async function authenticateForWizard(): Promise<{
+async function authenticateForWizard(deps: InitDependencies): Promise<{
   server: string;
   spaces: Space[];
 }> {
-  let creds = resolveCredentials();
+  let creds = deps.resolveCredentials();
   let user: ReturnType<typeof buildUserClient>;
   const login = async (): Promise<ReturnType<typeof buildUserClient>> => {
     const shouldLogin = cancel(
-      await clack.confirm({
+      deps,
+      await deps.prompts.confirm({
         message:
           "Memory Engine needs to know which spaces you can use. Log in now?",
         initialValue: true,
       }),
     );
     if (!shouldLogin) {
-      clack.log.info("Run 'me login', then re-run 'me init'.");
-      process.exit(0);
+      deps.prompts.log.info("Run 'me login', then re-run 'me init'.");
+      deps.exit(0);
       throw new Error("unreachable");
     }
-    const browser = browserLikelyAvailable();
+    const browser = deps.browserLikelyAvailable();
     const flow = cancel(
-      await clack.select({
+      deps,
+      await deps.prompts.select({
         message: "How would you like to sign in?",
         options: browser
           ? [
@@ -303,7 +373,7 @@ async function authenticateForWizard(): Promise<{
             ],
       }),
     );
-    const authenticated = await authenticateLogin({
+    const authenticated = await deps.authenticateLogin({
       server: creds.server,
       device: flow === "device",
       browser: true,
@@ -313,7 +383,7 @@ async function authenticateForWizard(): Promise<{
   };
 
   if (creds.apiKey || creds.loggedIn) {
-    user = buildUserClient(creds);
+    user = deps.buildUserClient(creds);
   } else {
     user = await login();
   }
@@ -322,15 +392,19 @@ async function authenticateForWizard(): Promise<{
   try {
     ({ spaces } = await user.space.list());
   } catch {
-    clack.log.warn(
+    deps.prompts.log.warn(
       "Current credentials could not list spaces. Sign in again to continue.",
     );
     const retry = cancel(
-      await clack.confirm({ message: "Sign in again?", initialValue: true }),
+      deps,
+      await deps.prompts.confirm({
+        message: "Sign in again?",
+        initialValue: true,
+      }),
     );
     if (!retry) {
-      clack.log.info("Run 'me login', then re-run 'me init'.");
-      process.exit(0);
+      deps.prompts.log.info("Run 'me login', then re-run 'me init'.");
+      deps.exit(0);
       throw new Error("unreachable");
     }
     user = await login();
@@ -338,16 +412,17 @@ async function authenticateForWizard(): Promise<{
   }
   if (spaces.length === 0) {
     const create = cancel(
-      await clack.confirm({
+      deps,
+      await deps.prompts.confirm({
         message: "You have no spaces yet. Create a personal space now?",
         initialValue: true,
       }),
     );
     if (!create) {
-      clack.log.info(
+      deps.prompts.log.info(
         "Memory Engine needs a space before it can configure MCP tools or capture. Run 'me space create <name>' or accept an invitation, then run 'me init' again.",
       );
-      process.exit(0);
+      deps.exit(0);
     }
     await user.space.ensureDefault();
     ({ spaces } = await user.space.list());
@@ -355,26 +430,30 @@ async function authenticateForWizard(): Promise<{
   return { server: creds.server, spaces };
 }
 
-async function installMissingHarnesses(): Promise<HarnessDescriptor[]> {
-  const detected = detectInstalledHarnesses();
+async function installMissingHarnesses(
+  deps: InitDependencies,
+): Promise<HarnessDescriptor[]> {
+  const detected = deps.detectInstalledHarnesses();
   const missing = detected.filter(
-    (harness) => !isHarnessInstalled(harness.name),
+    (harness) => !deps.isHarnessInstalled(harness.name),
   );
   if (missing.length === 0)
-    return detected.filter((harness) => isHarnessInstalled(harness.name));
+    return detected.filter((harness) => deps.isHarnessInstalled(harness.name));
   if (missing.length === 1) {
     const harness = missing[0];
     if (!harness) return [];
     const install = cancel(
-      await clack.confirm({
+      deps,
+      await deps.prompts.confirm({
         message: `MCP tools for ${harness.displayName} are not installed. Install now?`,
         initialValue: true,
       }),
     );
-    if (install) await installHarness(harness.name);
+    if (install) await deps.installHarness(harness.name);
   } else {
     const selected = cancel(
-      await clack.multiselect({
+      deps,
+      await deps.prompts.multiselect({
         message: "Install MCP tools for:",
         required: false,
         options: missing.map((harness) => ({
@@ -383,24 +462,26 @@ async function installMissingHarnesses(): Promise<HarnessDescriptor[]> {
         })),
       }),
     ) as HarnessName[];
-    for (const name of selected) await installHarness(name);
+    for (const name of selected) await deps.installHarness(name);
   }
-  return detected.filter((harness) => isHarnessInstalled(harness.name));
+  return detected.filter((harness) => deps.isHarnessInstalled(harness.name));
 }
 
 async function selectHarnesses(
+  deps: InitDependencies,
   message: string,
   available: HarnessDescriptor[],
 ): Promise<HarnessName[]> {
   if (available.length === 0) {
-    clack.log.info(
+    deps.prompts.log.info(
       "No installed supported coding-agent harnesses were detected.",
     );
     return [];
   }
   for (;;) {
     const selected = cancel(
-      await clack.multiselect({
+      deps,
+      await deps.prompts.multiselect({
         message,
         required: false,
         options: available.map((harness) => ({
@@ -410,11 +491,14 @@ async function selectHarnesses(
       }),
     ) as HarnessName[];
     if (selected.length > 0) return selected;
-    clack.log.warn("Select at least one harness to enable this surface.");
+    deps.prompts.log.warn(
+      "Select at least one harness to enable this surface.",
+    );
   }
 }
 
 async function selectSpace(
+  deps: InitDependencies,
   message: string,
   spaces: Space[],
   allowMultiSpace = false,
@@ -433,17 +517,22 @@ async function selectSpace(
         ]
       : []),
   ];
-  const selected = cancel(await clack.select({ message, options }));
+  const selected = cancel(
+    deps,
+    await deps.prompts.select({ message, options }),
+  );
   return selected === "__multi__" ? undefined : (selected as string);
 }
 
 async function promptServer(
+  deps: InitDependencies,
   message: string,
   initialValue: string,
 ): Promise<string> {
   for (;;) {
     const value = cancel(
-      await clack.text({
+      deps,
+      await deps.prompts.text({
         message,
         initialValue,
         validate: (raw) => {
@@ -459,10 +548,14 @@ async function promptServer(
   }
 }
 
-async function promptTree(message: string): Promise<string> {
+async function promptTree(
+  deps: InitDependencies,
+  message: string,
+): Promise<string> {
   return normalizeTree(
     cancel(
-      await clack.text({
+      deps,
+      await deps.prompts.text({
         message,
         validate: (value) =>
           value?.trim() ? undefined : "A tree path is required.",
@@ -472,6 +565,7 @@ async function promptTree(message: string): Promise<string> {
 }
 
 async function buildWizardProfile(
+  deps: InitDependencies,
   scope: Scope,
   server: string,
   spaces: Space[],
@@ -479,79 +573,90 @@ async function buildWizardProfile(
 ): Promise<HarnessProfile> {
   const profile = disabledProfile();
   if (available.length === 0) {
-    clack.log.info(
+    deps.prompts.log.info(
       "No installed supported coding-agent harnesses were detected. Skipping MCP, capture, and CLI setup.",
     );
     return profile;
   }
 
   const mcp = cancel(
-    await clack.confirm({
+    deps,
+    await deps.prompts.confirm({
       message: "Make MCP tools available to coding agents here?",
     }),
   );
   if (mcp) {
     const selected = await selectHarnesses(
+      deps,
       "Which harnesses should have MCP tools here?",
       available,
     );
     const space = await selectSpace(
+      deps,
       "Which space should the MCP tools use?",
       spaces,
       true,
     );
     profile.mcp = {
       enabled: true,
-      server: await promptServer("MCP server URL", server),
+      server: await promptServer(deps, "MCP server URL", server),
       ...(space ? { space } : {}),
       harnesses: harnesses(selected),
     };
   }
 
   const capture = cancel(
-    await clack.confirm({ message: "Capture coding-agent sessions here?" }),
+    deps,
+    await deps.prompts.confirm({
+      message: "Capture coding-agent sessions here?",
+    }),
   );
   if (capture) {
     const selected = await selectHarnesses(
+      deps,
       "Which harnesses should capture sessions here?",
       available,
     );
     if (scope.kind === "defaults") {
-      clack.log.warn(
+      deps.prompts.log.warn(
         "Sessions from otherwise-unconfigured directories will be captured to this destination.",
       );
     }
     profile.capture = {
       enabled: true,
-      server: await promptServer("Capture server URL", server),
+      server: await promptServer(deps, "Capture server URL", server),
       space: (await selectSpace(
+        deps,
         "Which space should captured sessions go to?",
         spaces,
       )) as string,
       ...(scope.kind === "directory"
-        ? { tree: await promptTree("Project memory location") }
-        : { tree_root: await promptTree("Capture tree root") }),
+        ? { tree: await promptTree(deps, "Project memory location") }
+        : { tree_root: await promptTree(deps, "Capture tree root") }),
       harnesses: harnesses(selected),
     };
   }
 
   const cli = cancel(
-    await clack.confirm({
+    deps,
+    await deps.prompts.confirm({
       message:
         "Route Memory Engine CLI commands run by these harnesses to this space? Your own me commands are not affected.",
     }),
   );
   if (cli) {
     const selected = await selectHarnesses(
+      deps,
       "Which harnesses should use CLI routing here?",
       available,
     );
     const space = await selectSpace(
+      deps,
       "Which space should harness CLI commands use?",
       spaces,
     );
     profile.cli = {
-      server: await promptServer("CLI server URL", server),
+      server: await promptServer(deps, "CLI server URL", server),
       ...(space ? { space } : {}),
       harnesses: harnesses(selected),
     };
@@ -559,27 +664,61 @@ async function buildWizardProfile(
   return profile;
 }
 
-async function runWizard(scope: Scope): Promise<void> {
-  if (!(await confirmReplacement(scope))) {
-    clack.cancel("Cancelled.");
+async function runWizard(deps: InitDependencies, scope: Scope): Promise<void> {
+  if (!(await confirmReplacement(deps, scope))) {
+    deps.prompts.cancel("Cancelled.");
     return;
   }
-  const { server, spaces } = await authenticateForWizard();
-  const installed = await installMissingHarnesses();
-  const profile = await buildWizardProfile(scope, server, spaces, installed);
-  clack.note(JSON.stringify(profile, null, 2), "Profile to write");
+  const { server, spaces } = await authenticateForWizard(deps);
+  const installed = await installMissingHarnesses(deps);
+  const profile = await buildWizardProfile(
+    deps,
+    scope,
+    server,
+    spaces,
+    installed,
+  );
+  deps.prompts.note(JSON.stringify(profile, null, 2), "Profile to write");
   const confirmed = cancel(
-    await clack.confirm({ message: "Write this profile?", initialValue: true }),
+    deps,
+    await deps.prompts.confirm({
+      message: "Write this profile?",
+      initialValue: true,
+    }),
   );
   if (!confirmed) {
-    clack.cancel("Cancelled.");
+    deps.prompts.cancel("Cancelled.");
     return;
   }
-  writeProfile(scope, profile);
-  clack.outro("Machine-local harness policy configured.");
+  writeProfile(deps, scope, profile);
+  deps.prompts.outro("Machine-local harness policy configured.");
 }
 
-export function createInitCommand(): Command {
+export async function runInit(
+  directory: string | undefined,
+  opts: InitOptions,
+  dependencies: Partial<InitDependencies> = {},
+): Promise<void> {
+  const deps = resolveDependencies(dependencies);
+  let scope = resolveExplicitScope(directory, opts);
+  if (!scope) {
+    if (!deps.isTTY()) {
+      throw new InvalidArgumentError(
+        "me init requires a directory or --defaults when stdin is not a TTY",
+      );
+    }
+    scope = await selectScope(deps);
+  }
+  if (hasSurfaceFlags(opts) || !deps.isTTY()) {
+    writeProfile(deps, scope, buildInitProfile(scope, opts));
+    return;
+  }
+  await runWizard(deps, scope);
+}
+
+export function createInitCommand(
+  dependencies: Partial<InitDependencies> = {},
+): Command {
   return new Command("init")
     .description("configure machine-local harness policy")
     .argument("[directory]", "directory profile to write")
@@ -611,20 +750,7 @@ export function createInitCommand(): Command {
       collectHarness,
       [],
     )
-    .action(async (directory: string | undefined, opts: InitOptions) => {
-      let scope = resolveExplicitScope(directory, opts);
-      if (!scope) {
-        if (!process.stdin.isTTY) {
-          throw new InvalidArgumentError(
-            "me init requires a directory or --defaults when stdin is not a TTY",
-          );
-        }
-        scope = await selectScope();
-      }
-      if (hasSurfaceFlags(opts) || !process.stdin.isTTY) {
-        writeProfile(scope, buildInitProfile(scope, opts));
-        return;
-      }
-      await runWizard(scope);
-    });
+    .action((directory: string | undefined, opts: InitOptions) =>
+      runInit(directory, opts, dependencies),
+    );
 }
