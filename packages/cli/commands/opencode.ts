@@ -147,7 +147,12 @@ function createOpenCodeHookCommand(): Command {
         // Import the session (incremental; same path as `me import opencode`).
         try {
           const creds = resolveCredentials(server);
-          if (!creds.apiKey && !creds.loggedIn) process.exit(0);
+          if (!creds.apiKey && !creds.loggedIn) {
+            console.error(
+              "[memory-engine] capture is enabled but no credentials are available.",
+            );
+            process.exit(0);
+          }
           const client = createMemoryClient({
             url: server,
             ...memoryBearer(server, creds.apiKey),

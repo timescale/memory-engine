@@ -791,6 +791,7 @@ function credentialsFor(
     activeSpace:
       process.env.ME_SPACE ??
       project?.space ??
+      (!project ? harnessCliOverride?.space : undefined) ??
       config.servers[normalizeOrigin(server)]?.active_space,
     tree: project?.tree,
     treeRoot: config.tree_root,
