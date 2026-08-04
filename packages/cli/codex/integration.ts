@@ -262,7 +262,9 @@ export async function installCodexIntegration(
     }
   } catch (error) {
     const newlyInstalledHooks = [
-      ...installedCaptureHooks.map((capture) => capture.artifact),
+      ...installedCaptureHooks
+        .filter((capture) => capture.changed)
+        .map((capture) => capture.artifact),
       ...(hook?.changed && !priorHook ? [hook.artifact] : []),
     ];
     const retainedHooks = newlyInstalledHooks.filter(
