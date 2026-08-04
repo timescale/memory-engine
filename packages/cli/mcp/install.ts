@@ -17,6 +17,7 @@ import {
 } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
+import type { HarnessName } from "../harness/names.ts";
 
 // =============================================================================
 // Tool Registry
@@ -112,8 +113,8 @@ export function detectInstalledTools(): McpTool[] {
 /**
  * Build the `me mcp …` command array to embed in an MCP config.
  *
- * New harness installations pass no options and register exactly `me mcp`.
- * Legacy callers may explicitly bake `--server`, `--api-key`, and `--space`:
+ * Managed harness installations pass a harness identity. Other callers may
+ * explicitly bake `--server`, `--api-key`, and `--space`:
  *   - **Default (no api key):** the MCP server resolves your login *session* from
  *     the keychain/config at runtime (so it keeps working across `me login`), and
  *     no space is selected until a tool call supplies one (unless ME_SPACE is
@@ -128,8 +129,10 @@ export function buildMeCommand(opts: {
   server?: string;
   apiKey?: string;
   space?: string;
+  harness?: HarnessName;
 }): string[] {
   const cmd = ["me", "mcp"];
+  if (opts.harness) cmd.push("--harness", opts.harness);
   if (opts.server) cmd.push("--server", opts.server);
   if (opts.apiKey) cmd.push("--api-key", opts.apiKey);
   if (opts.space) cmd.push("--space", opts.space);

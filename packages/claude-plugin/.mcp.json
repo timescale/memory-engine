@@ -3,7 +3,9 @@
     "me": {
       "command": "me",
       "args": [
-        "mcp"
+        "mcp",
+        "--harness",
+        "claude"
       ]
     }
   }

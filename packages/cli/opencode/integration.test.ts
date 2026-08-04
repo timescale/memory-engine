@@ -20,7 +20,12 @@ describe("OpenCode integration adapter", () => {
     const target = paths();
     const result = await installOpenCodeIntegration(target);
     expect(JSON.parse(readFileSync(target.configPath, "utf8"))).toEqual({
-      mcp: { me: { type: "local", command: ["me", "mcp"] } },
+      mcp: {
+        me: {
+          type: "local",
+          command: ["me", "mcp", "--harness", "opencode"],
+        },
+      },
     });
     expect(result.artifacts).toHaveLength(2);
     expect(result.artifacts[0]).toMatchObject({
@@ -64,6 +69,31 @@ describe("OpenCode integration adapter", () => {
     await uninstallOpenCodeIntegration(first.artifacts);
   });
 
+  test("rejects the retired bare MCP entry even when it was recorded", async () => {
+    const target = paths();
+    mkdirSync(join(target.pluginPath, ".."), { recursive: true });
+    writeFileSync(
+      target.configPath,
+      JSON.stringify({
+        mcp: { me: { type: "local", command: ["me", "mcp"] } },
+      }),
+    );
+
+    await expect(
+      installOpenCodeIntegration(target, {
+        installed_at: "2026-08-04T00:00:00.000Z",
+        me_version: "0.0.0",
+        artifacts: [
+          {
+            kind: "mcp-json",
+            path: target.configPath,
+            server_name: "me",
+          },
+        ],
+      }),
+    ).rejects.toThrow("user-owned");
+  });
+
   test("does not reuse an MCP artifact from another config path", async () => {
     const target = paths();
     const first = await installOpenCodeIntegration(target);
@@ -103,6 +133,30 @@ describe("OpenCode integration adapter", () => {
     writeFileSync(target.configPath, JSON.stringify({ theme: "dark" }));
     const result = await installOpenCodeIntegration(target);
     await uninstallOpenCodeIntegration(result.artifacts);
+    expect(JSON.parse(readFileSync(target.configPath, "utf8"))).toEqual({
+      theme: "dark",
+    });
+  });
+
+  test("uninstall removes a recorded legacy bare MCP entry", async () => {
+    const target = paths();
+    writeFileSync(
+      target.configPath,
+      JSON.stringify({
+        theme: "dark",
+        mcp: { me: { type: "local", command: ["me", "mcp"] } },
+      }),
+    );
+    const artifact = {
+      kind: "mcp-json" as const,
+      path: target.configPath,
+      server_name: "me" as const,
+    };
+
+    const result = await uninstallOpenCodeIntegration([artifact]);
+
+    expect(result.removed).toEqual([artifact]);
+    expect(result.retained).toEqual([]);
     expect(JSON.parse(readFileSync(target.configPath, "utf8"))).toEqual({
       theme: "dark",
     });

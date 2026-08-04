@@ -43,6 +43,28 @@ function dormantMcpEntry(value: unknown): boolean {
     Object.keys(entry).length === 2 &&
     entry.type === "local" &&
     Array.isArray(entry.command) &&
+    entry.command.length === 4 &&
+    entry.command[0] === "me" &&
+    entry.command[1] === "mcp" &&
+    entry.command[2] === "--harness" &&
+    entry.command[3] === "opencode"
+  );
+}
+
+/**
+ * Recognize the retired bare `["me", "mcp"]` MCP entry from installs made before
+ * the managed `--harness opencode` identity existed. Install still rejects it as
+ * user-owned (a clean cut, not an in-place migration), but uninstall must be able
+ * to remove a legacy entry it originally wrote so that `uninstall` → `install`
+ * cleanly re-registers the current managed command.
+ */
+function legacyDormantMcpEntry(value: unknown): boolean {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const entry = value as Record<string, unknown>;
+  return (
+    Object.keys(entry).length === 2 &&
+    entry.type === "local" &&
+    Array.isArray(entry.command) &&
     entry.command.length === 2 &&
     entry.command[0] === "me" &&
     entry.command[1] === "mcp"
@@ -99,7 +121,10 @@ export async function installOpenCodeIntegration(
   const artifacts: InstallationArtifact[] = [];
   let createdMcp = false;
   if (!existingEntry) {
-    entries.me = { type: "local", command: ["me", "mcp"] };
+    entries.me = {
+      type: "local",
+      command: ["me", "mcp", "--harness", "opencode"],
+    };
     await writeOpenCodeConfigAtomically(paths.configPath, {
       ...config,
       mcp: entries,
@@ -173,7 +198,10 @@ export async function uninstallOpenCodeIntegration(
           continue;
         }
         const entries = mcp as Record<string, unknown>;
-        if (!dormantMcpEntry(entries.me)) {
+        if (
+          !dormantMcpEntry(entries.me) &&
+          !legacyDormantMcpEntry(entries.me)
+        ) {
           retained.push(artifact);
           messages.push(`Retained ${artifact.path}: its me entry has changed.`);
           continue;

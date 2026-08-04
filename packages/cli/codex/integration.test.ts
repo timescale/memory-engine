@@ -92,7 +92,7 @@ test("installs and removes the dormant Codex capture hooks", async () => {
   });
 });
 
-test("registers exactly me mcp without any baked targeting", () => {
+test("registers the managed Codex MCP command without baked targeting", () => {
   expect(codexMcpCommand()).toEqual([
     "codex",
     "mcp",
@@ -101,6 +101,8 @@ test("registers exactly me mcp without any baked targeting", () => {
     "--",
     "me",
     "mcp",
+    "--harness",
+    "codex",
   ]);
 });
 

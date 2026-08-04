@@ -18,9 +18,9 @@ describe("buildMeCommand", () => {
     expect(cmd[1]).toBe("mcp");
   });
 
-  test("new dormant MCP command has no baked runtime targeting", () => {
-    const cmd = buildMeCommand({});
-    expect(cmd).toEqual(["me", "mcp"]);
+  test("managed MCP command carries harness identity without runtime targeting", () => {
+    const cmd = buildMeCommand({ harness: "claude" });
+    expect(cmd).toEqual(["me", "mcp", "--harness", "claude"]);
     expect(cmd).not.toContain("--server");
     expect(cmd).not.toContain("--api-key");
     expect(cmd).not.toContain("--space");

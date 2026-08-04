@@ -52,4 +52,9 @@ claude plugin marketplace add timescale/memory-engine
 claude plugin install memory-engine@memory-engine [--scope user|project|local]
 ```
 
-Then start Claude Code, run `/plugin`, select `memory-engine`, and configure the options (all optional): leave `api_key` and `server` blank to use your `me login` session and server; leave `space` blank for multi-space MCP tools or set it to lock MCP and pin captures. Set `content_mode` to control how much of each message is captured. The plugin has no tree setting — where captured sessions are stored is controlled by your machine-local capture policy ([`me init`](me-init.md)'s `--capture-tree`, or the private `~/projects` default). See [`me claude`](me-claude.md) for the full plugin reference.
+Then configure the plugin with [`me init`](me-init.md). The managed MCP server
+exposes tools only when the matched local profile enables MCP for Claude. The
+plugin has no tree setting — where captured sessions are stored is controlled by
+your machine-local capture policy ([`me init`](me-init.md)'s `--capture-tree`,
+or the private `~/projects` default). See [`me claude`](me-claude.md) for the
+full plugin reference.
