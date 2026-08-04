@@ -23,7 +23,10 @@ export function createInitCommand(): Command {
     .option("--defaults", "write the fallback defaults profile")
     .option("--mcp-server <url>", "MCP server URL")
     .option("--mcp-space <slug>", "lock MCP to this space")
-    .option("--mcp-multi-space", "require MCP tools to receive a space")
+    .option(
+      "--mcp-multi-space",
+      "leave MCP unpinned so tools require a space (the default without --mcp-space)",
+    )
     .option(
       "--mcp-harness <name>",
       "enable MCP for a harness",

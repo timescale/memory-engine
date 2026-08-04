@@ -92,7 +92,9 @@ export function createMcpRunAction(
       agent && HARNESS_NAMES.includes(agent as HarnessName)
         ? (agent as HarnessName)
         : undefined;
-    const policy = harness ? resolveMcpProfile(process.cwd()).value : undefined;
+    const policy = harness
+      ? resolveMcpProfile(process.env.ME_PROJECT_DIR ?? process.cwd()).value
+      : undefined;
     if (!policy?.enabled || !harness || policy.harnesses[harness] !== true) {
       await dependencies.runMcpServer({
         server: "https://api.memory.build",
