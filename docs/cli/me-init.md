@@ -5,14 +5,28 @@ Configure Memory Engine's machine-local harness policy.
 ## Usage
 
 ```bash
+me init
 me init <directory> [surface options]
 me init --defaults [surface options]
 ```
 
 `me init` writes only your local Memory Engine configuration. It never writes a
-repository file or stores credentials. A directory profile applies to that
+repository file. If login is needed, it stores its OAuth session using the
+normal `me login` credential handling. A directory profile applies to that
 directory and its descendants; `--defaults` applies when no directory profile
 matches.
+
+Run `me init` in an interactive terminal to configure a profile step by step.
+It asks whether to configure the current directory or fallback defaults, helps
+you sign in when needed, offers to install detected harness integrations, and
+then configures MCP, capture, and harness-shell CLI routing independently. If
+you have no spaces, it can create a personal space; ordinary space pickers list
+existing spaces only.
+
+The interactive wizard asks before replacing an existing profile. Flag-based
+invocations are deterministic and replace the selected profile directly. The
+resulting profile always contains explicit disabled surfaces, so a directory
+profile never inherits an omitted surface from `defaults`.
 
 Enable a surface by supplying its server and one or more selected harnesses:
 
@@ -26,14 +40,20 @@ me init . \
   --capture-harness claude
 ```
 
+On a TTY, supplying surface flags without a scope prompts only for the scope;
+the flags remain the complete, deterministic profile input. In a non-interactive
+shell, provide either a directory or `--defaults`.
+
 Available surfaces:
 
 - MCP: `--mcp-server`, `--mcp-space` or `--mcp-multi-space`, and repeatable
   `--mcp-harness`.
 - Capture: `--capture-server`, `--capture-space`, directory `--capture-tree`
-  or default `--capture-tree-root`, and repeatable `--capture-harness`.
+  or defaults `--capture-tree-root`, and repeatable `--capture-harness`. A
+  defaults capture profile uses a per-project slug beneath `tree_root`.
 - Harness-shell CLI targeting: `--cli-server`, optional `--cli-space`, and
-  repeatable `--cli-harness`.
+  repeatable `--cli-harness`. This affects only `me` commands started by the
+  selected harnesses, never commands you run in your own shell.
 
 Use [`me doctor`](me-doctor.md) to inspect the profile that applies to a
 directory.
