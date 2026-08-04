@@ -129,9 +129,11 @@ describe("resolveMcpSpace", () => {
   });
 });
 
-test("MCP startup exposes no tools without a selected harness profile", async () => {
+test("manual MCP startup passes multi-space mode instead of an active-space default", async () => {
   const previousSpace = process.env.ME_SPACE;
+  const previousAgent = process.env.AI_AGENT;
   delete process.env.ME_SPACE;
+  delete process.env.AI_AGENT;
   try {
     let received: McpServerOptions | undefined;
     const action = createMcpRunAction({
@@ -154,12 +156,13 @@ test("MCP startup exposes no tools without a selected harness profile", async ()
 
     await action({}, command);
     expect(received).toMatchObject({
-      server: "https://api.memory.build",
+      server: "https://api.example.com",
       spaceMode: "multi",
-      tools: false,
     });
   } finally {
     if (previousSpace === undefined) delete process.env.ME_SPACE;
     else process.env.ME_SPACE = previousSpace;
+    if (previousAgent === undefined) delete process.env.AI_AGENT;
+    else process.env.AI_AGENT = previousAgent;
   }
 });
