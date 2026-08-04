@@ -352,6 +352,25 @@ test("credential + config writes are atomic (no leftover temp files)", () => {
   expect(statSync(join(dir, "credentials.yaml")).mode & 0o777).toBe(0o600);
 });
 
+test("a prior crashed write's leaked .tmp does not shadow the current write", () => {
+  // A previous invocation was killed mid-write, leaving a randomly-named .tmp
+  // sibling. The atomic writer uses a UUID-suffixed name, so it never touches
+  // the leftover on the next write, and reads only see the renamed target.
+  const dir = join(configDir, "me");
+  mkdirSync(dir, { recursive: true });
+  const leaked = join(dir, "credentials.yaml.deadbeef.tmp");
+  writeFileSync(leaked, "garbage");
+
+  creds.storeTokens(SERVER, TOKENS);
+
+  // The write succeeded and the read sees the new tokens (not the garbage).
+  expect(creds.getStoredTokens(SERVER)).toEqual(TOKENS);
+  // The leaked .tmp is untouched — reads never load it because they only open
+  // `credentials.yaml`, and each new write uses its own random UUID suffix.
+  expect(existsSync(leaked)).toBe(true);
+  expect(readFileSync(leaked, "utf-8")).toBe("garbage");
+});
+
 test("ME_SESSION_TOKEN env marks the server logged in (no stored set needed)", () => {
   expect(creds.resolveCredentials(SERVER).loggedIn).toBe(false);
   process.env.ME_SESSION_TOKEN = "from-env";
