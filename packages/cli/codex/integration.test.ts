@@ -240,6 +240,42 @@ test("rolls back a new Codex MCP registration when hook installation fails", asy
   expect(removedMcp).toBe(true);
 });
 
+test("rollback preserves unchanged recorded capture hooks", async () => {
+  await withTmpDir(async (dir) => {
+    const path = join(dir, "hooks.json");
+    const initial = await installCodexIntegration(undefined, {
+      hookPath: path,
+      installMcp: async () => ({ success: true, message: "registered" }),
+    });
+    let captures = 0;
+
+    await expect(
+      installCodexIntegration(
+        {
+          installed_at: "2026-08-04T00:00:00.000Z",
+          me_version: "0.0.0",
+          artifacts: initial.artifacts,
+        },
+        {
+          hookPath: path,
+          installMcp: async () => ({
+            success: true,
+            preserved: true,
+            message: "already registered",
+          }),
+          installCaptureHook: (event) => {
+            if (captures++ > 0) throw new Error("capture install failed");
+            return { artifact: captureHook(path, event), changed: false };
+          },
+        },
+      ),
+    ).rejects.toThrow("capture install failed");
+
+    const config = JSON.parse(readFileSync(path, "utf8"));
+    expect(config.hooks[CODEX_CAPTURE_EVENTS[0]]).toHaveLength(1);
+  });
+});
+
 test("uninstall removes only the unchanged recorded hook entry", async () => {
   await withTmpDir((dir) => {
     const path = join(dir, "hooks.json");
