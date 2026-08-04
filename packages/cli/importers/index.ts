@@ -64,8 +64,8 @@ const MESSAGE_NAME_BODY_MAX = 128 - "msg_".length;
 
 /**
  * The ltree node for one session:
- * `<root>.<slug>.<sessionsNode>.<sessionLabel>` — or, when a `.me` project tree
- * is in effect, `<tree>.<sessionsNode>.<sessionLabel>` (no slug).
+ * `<root>.<slug>.<sessionsNode>.<sessionLabel>` — or, when a project tree
+ * is in effect (`--tree`), `<tree>.<sessionsNode>.<sessionLabel>` (no slug).
  * The session id is mapped to a valid, collision-free ltree label via
  * `boundedUniqueLabel` — `normalizeProjectSlug` alone is lossy (e.g. it merges a UUID's
  * dashes), so distinct session ids could otherwise share one node. Each session
@@ -81,7 +81,7 @@ function sessionTree(
     normalizeProjectSlug,
     SESSION_LABEL_MAX,
   );
-  // A `.me` project tree is the full project node — nest sessions directly under
+  // A project tree is the full project node — nest sessions directly under
   // it (no slug). Otherwise the slug is the per-project node under `treeRoot`.
   const projectNode = options.tree ?? `${options.treeRoot}.${slug}`;
   return `${projectNode}.${options.sessionsNodeName}.${label}`;
@@ -108,8 +108,8 @@ function messageName(messageId: string): string {
  * The SHARED projects parent (`share.projects`). No longer any command's
  * default — captures and session/git imports default to the private
  * {@link DEFAULT_PRIVATE_TREE_ROOT} instead. Kept for explicit opt-ins: a
- * project whose `.me/config.yaml` pins a `/share/projects/<slug>` tree, or an
- * explicit `--tree-root share.projects` on the import commands.
+ * capture profile that pins a `/share/projects/<slug>` tree, or an explicit
+ * `--tree-root share.projects` on the import commands.
  */
 export const DEFAULT_TREE_ROOT = "share.projects";
 /**
@@ -118,8 +118,8 @@ export const DEFAULT_TREE_ROOT = "share.projects";
  * `<DEFAULT_PRIVATE_TREE_ROOT>.<project_slug>.<DEFAULT_SESSIONS_NODE_NAME>`.
  * PRIVATE by default — `~` is the caller's home (`home.<id>`, expanded
  * server-side by `normalizeTreePath`), so captures are visible only to the
- * capturing user unless a project's `.me/config.yaml` explicitly points at a
- * shared tree.
+ * capturing user unless the capture profile or `--tree-root` explicitly points
+ * at a shared tree.
  */
 export const DEFAULT_PRIVATE_TREE_ROOT = "~/projects";
 export const DEFAULT_SESSIONS_NODE_NAME = "agent_sessions";
@@ -178,7 +178,7 @@ export interface WriteOptions {
    */
   treeRoot: string;
   /**
-   * A single project's full TREE (e.g. from a `.me/config.yaml` `tree`). When
+   * A single project's full TREE (e.g. from `--tree` or a capture profile). When
    * set it is used verbatim as the project node and the per-project slug is
    * NOT appended — sessions nest as `<tree>.<sessionsNodeName>.<label>` rather
    * than `<treeRoot>.<slug>.<sessionsNodeName>.<label>`. Lenient wire form
@@ -199,15 +199,15 @@ export interface WriteOptions {
 }
 
 /**
- * Where one session's writes go — resolved per PROJECT by the caller
- * (`createSessionRouter` in commands/import.ts), so a bulk sweep mirrors the
- * live hook: each session lands on its project's server + space, under its
- * project's tree.
+ * Where one session's writes go — supplied by the caller
+ * (`createSessionRouter` in commands/import.ts): the run's resolved server +
+ * space, with each session's tree derived per project by slug under the run's
+ * tree root.
  */
 export interface SessionRoute {
-  /** Client bound to the session project's server + space. */
+  /** Client bound to the run's server + space. */
   engine: MemoryClient;
-  /** The project's full tree (no slug appended) when its `.me` pins one. */
+  /** The project's full tree (no slug appended) when one is pinned (`--tree`). */
   tree?: string;
   /** Parent for the per-slug fallback layout (`<treeRoot>.<slug>.…`). */
   treeRoot: string;
@@ -217,23 +217,21 @@ export interface SessionRoute {
 
 /**
  * Per-session routing decision: a route to write through, or a skip — the
- * session is tallied under `discovery.skipped[reason]` and not written (e.g.
- * its project pins an untrusted server, or the caller holds no credentials
- * for that server). `detail` carries the underlying error message for
- * verbose output.
+ * session is tallied under `discovery.skipped[reason]` and not written.
+ * `detail` carries an underlying message for verbose output.
  */
 export type SessionRouteDecision =
   | { route: SessionRoute }
   | { skip: string; detail?: string };
 
-/** Resolves a session's cwd to its routing decision (memoized by the caller). */
+/** Resolves a session's cwd to its routing decision. */
 export type SessionRouter = (
   cwd: string | undefined,
 ) => SessionRouteDecision | Promise<SessionRouteDecision>;
 
 /**
  * Run discovery + writes for a single importer. With a `router`, each
- * session's engine/tree/treeRoot come from its own project's config
+ * session's engine/tree/treeRoot come from the supplied router
  * (`writeOptions.tree`/`treeRoot` are superseded per session); without one,
  * every session writes through `engine` under `writeOptions`.
  */
@@ -269,8 +267,7 @@ export async function runImport(
     const title = synthesizeTitle(session);
     progress?.process(title);
 
-    // Route the session to its project's client + tree. A skip (untrusted
-    // `.me` server, no credentials for that server, …) is tallied like a
+    // Route the session to its client + tree. A skip is tallied like a
     // discovery skip and the session is not written.
     let sessionEngine = engine;
     let write = writeOptions;

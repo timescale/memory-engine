@@ -9,7 +9,6 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import * as creds from "./credentials.ts";
 import {
   canonicalizeDirectory,
   type HarnessProfile,

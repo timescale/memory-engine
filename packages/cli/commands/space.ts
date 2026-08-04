@@ -526,7 +526,7 @@ function createSpaceLeaveCommand(): Command {
 
         const result = await memory.principal.remove({ principalId: me.id });
         // Drop the global active-space pointer only if it points at the space we
-        // just left (like `space delete`); leave a ME_SPACE / `.me` pin alone.
+        // just left (like `space delete`); leave a ME_SPACE override alone.
         if (
           result.removed &&
           getServerConfig(creds.server).active_space === creds.activeSpace

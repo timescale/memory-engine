@@ -6,7 +6,6 @@ OpenCode integration commands.
 
 - [me opencode install](#me-opencode-install) -- install dormant Memory Engine plumbing
 - [me opencode uninstall](#me-opencode-uninstall) -- remove recorded Memory Engine plumbing
-- [me opencode init](#me-opencode-init) -- removed; use [`me project init`](me-project.md)
 - [me opencode hook](#me-opencode-hook) -- internal helper (you never run this directly)
 - [me opencode import](#me-opencode-import) -- import OpenCode sessions from `~/.local/share/opencode/opencode.db` or legacy storage
 
@@ -33,11 +32,8 @@ me opencode uninstall
 
 Removes only recorded MCP/plugin artifacts when they remain unchanged.
 
----
-
-## me opencode init
-
-**Removed** — run [`me project init`](me-project.md), the harness-agnostic per-project setup wizard. The retired command prints an error and exits without running the wizard.
+Turning capture on (and pointing it at a server/space/tree) is a separate,
+machine-local step — see [`me init`](me-init.md).
 
 ---
 

@@ -6,8 +6,7 @@ your first search and your first shared memory, and covers the conventions that
 keep a shared space useful for everyone.
 
 New to the core ideas (memories, trees, search)? Skim [Core Concepts](concepts.md)
-first. To set Memory Engine up in a specific repo, see [Projects](projects.md)
-and [Project config](project-config.md).
+first. To set Memory Engine up in a specific repo, see [Projects](projects.md).
 
 ## 1. Install and log in
 
@@ -160,4 +159,4 @@ A shared space stays valuable when everyone follows a few habits:
 - [Core Concepts](concepts.md) — the memory model, tree paths, and search in depth
 - [Access Control](access-control.md) — how grants decide what you can see and do
 - [MCP Integration](mcp-integration.md) — let your AI coding tools use the space
-- [Project config](project-config.md) — point a repo at this space for your whole team
+- [Projects](projects.md) — point a repo's memories at this space

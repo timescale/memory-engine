@@ -1,4 +1,4 @@
-# Managed by 'me project ci' — re-run it to update; remove this line to hand-maintain.
+# Managed by 'me ci install' — re-run it to update; remove this line to hand-maintain.
 name: Memory Engine import
 on:
   push: # all branches — the job itself gates on the default branch

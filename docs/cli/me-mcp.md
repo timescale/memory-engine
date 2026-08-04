@@ -29,7 +29,7 @@ Resolution order:
 - **Space**: `--space` > `ME_SPACE`; without either, MCP is multi-space.
 - **Server URL**: `--server` (global option) > `ME_SERVER` > `https://api.memory.build`.
 
-A logged-in developer needs no key or space. `--space` and `ME_SPACE` create a locked server: memory tools cannot select another space. Without either, MCP starts multi-space mode: `me_space_list` is available and memory tools require `space`. Project configuration and your stored active space do not select an MCP space. This supports manual configuration without `.me/config.yaml` or an active space, for example `me mcp --api-key <key> --server <url>`. Selecting a space never grants access; the server still enforces membership and tree grants. The server acts as the principal represented by that credential.
+A logged-in developer needs no key or space. `--space` and `ME_SPACE` create a locked server: memory tools cannot select another space. Without either, MCP starts multi-space mode: `me_space_list` is available and memory tools require `space`. Your stored active space does not select an MCP space. This supports manual configuration without an active space, for example `me mcp --api-key <key> --server <url>`. Selecting a space never grants access; the server still enforces membership and tree grants. The server acts as the principal represented by that credential.
 
 This command is typically not run directly -- it is invoked by AI tools based on their MCP configuration.
 
@@ -53,4 +53,4 @@ claude plugin marketplace add timescale/memory-engine
 claude plugin install memory-engine@memory-engine [--scope user|project|local]
 ```
 
-Then start Claude Code, run `/plugin`, select `memory-engine`, and configure the options (all optional): leave `api_key` and `server` blank to use your `me login` session and server; leave `space` blank for multi-space MCP tools or set it to lock MCP and pin captures. Set `content_mode` to control how much of each message is captured. The plugin has no tree setting — where captured sessions are stored is controlled by your project's [`.me/config.yaml`](../project-config.md) `tree` (or the private `~/projects` default). See [`me claude`](me-claude.md) for the full plugin reference.
+Then start Claude Code, run `/plugin`, select `memory-engine`, and configure the options (all optional): leave `api_key` and `server` blank to use your `me login` session and server; leave `space` blank for multi-space MCP tools or set it to lock MCP and pin captures. Set `content_mode` to control how much of each message is captured. The plugin has no tree setting — where captured sessions are stored is controlled by your machine-local capture policy ([`me init`](me-init.md)'s `--capture-tree`, or the private `~/projects` default). See [`me claude`](me-claude.md) for the full plugin reference.

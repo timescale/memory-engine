@@ -30,17 +30,24 @@ npm i -g @memory.build/cli
 # Authenticate
 me login
 
-# Set up a project's memory — run at the project root
+# Install the integration for your coding agent (once, user scope)
+me claude install     # or: me opencode / me codex / me gemini install
+
+# Turn on capture for a project and choose where its memories live
 cd ~/code/your-project
-me project init
+me init . \
+  --capture-server https://api.memory.build \
+  --capture-space <space> \
+  --capture-tree /share/projects/your-project \
+  --capture-harness claude
 ```
 
-`me project init` does the whole setup in one shot: installs the Claude Code
-plugin (hooks + slash commands + MCP) if it isn't already, configures the
-project's `.me/config.yaml` (space, memory location, a dedicated agent),
-backfills the project's past Claude Code sessions and git commit history as
-searchable memories, and records the project's memory location in `CLAUDE.md`
-so agents consult it. From then on, new sessions are captured automatically.
+`me claude install` installs the Claude Code plugin (hooks + slash commands +
+MCP), dormant — it never logs in or turns anything on. `me init` is
+machine-local: it enables session capture and points it at a server, space, and
+tree (captures default **privately** to `~/projects/<repo>`). Backfill past
+sessions and git history with `me import claude` / `me import git`, and inspect
+what applies to a directory with `me doctor`.
 
 ## Usage
 
@@ -55,9 +62,8 @@ me memory search "how does authentication work"
 me import memories notes.md      # md / yaml / json / ndjson records
 me import claude                 # all Claude Code sessions on this machine
 me import git                    # a repo's commit history
-me import git-hook               # keep it current via a post-commit hook
 
-# Connect other AI tools (Claude Code is covered by `me project init`)
+# Connect other AI tools (Claude Code uses `me claude install`)
 me opencode install
 me codex install
 me gemini install

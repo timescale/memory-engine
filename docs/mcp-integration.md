@@ -38,7 +38,7 @@ These commands register Memory Engine with the named tool, writing a `me mcp` in
 
 ### Manual multi-space setup
 
-You can configure any stdio MCP client directly, without running a harness installer or creating a project config:
+You can configure any stdio MCP client directly, without running a harness installer or creating a local harness profile:
 
 ```bash
 me mcp --server <url> --api-key <key>
@@ -50,9 +50,7 @@ of its slugs as the required `space` argument to a memory tool. Add `--space
 
 See the agent-specific command references for details: [`me opencode install`](cli/me-opencode.md#me-opencode-install), [`me codex install`](cli/me-codex.md#me-codex-install), and [`me gemini install`](cli/me-gemini.md#me-gemini-install).
 
-[`me project init`](cli/me-project.md) goes further than any of the installers above: it's a harness-agnostic, per-project wizard that backfills existing sessions (for whichever of Claude Code/OpenCode/Codex actually has any), enables the per-project capture flag used by the Claude Code and OpenCode capture hooks, sets up the CI import workflow, and writes a memory pointer into `CLAUDE.md`/`AGENTS.md`. Its preflight also offers to run `me claude install`/`me opencode install` for you if a harness is detected but not yet set up.
-
-`me opencode install` takes `--scope project|user`. Project scope writes into the repo (`opencode.json` + `.opencode/`) so the integration can be committed and shared with a team (no key is embedded — credentials resolve from each teammate's `me login`); user scope (the default) writes the global `~/.config/opencode/` config instead. `me project init`'s preflight always installs OpenCode at user scope — run `me opencode install --scope project` directly for a team-committed setup.
+These installers are mechanical and **dormant**: they wire up the MCP entry and (for Claude Code and OpenCode) the capture plumbing, but they never log in, write credentials, or turn anything on. Enable capture and point it at a server, space, and tree with [`me init`](cli/me-init.md); inspect the policy that applies to a directory with [`me doctor`](cli/me-doctor.md).
 
 | Tool | Install command |
 |------|-----------------|

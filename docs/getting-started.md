@@ -87,12 +87,6 @@ me codex install
 me gemini install
 ```
 
-For a guided, per-project setup that goes further than `install` — choosing a shared or private project tree, backfilling existing sessions, enabling automatic capture going forward, and adding a memory pointer to `CLAUDE.md`/`AGENTS.md` — run [`me project init`](cli/me-project.md) once per project. It's harness-agnostic: it detects whichever of Claude Code/OpenCode/Codex you actually have installed and have sessions for, and only offers the steps that apply:
-
-```bash
-me project init              # guided per-project setup
-```
-
 For Claude Code, `me claude install` installs the one user-scoped Memory Engine plugin (hooks + slash commands + MCP) — run it once, it applies to every project:
 
 ```bash
@@ -100,7 +94,9 @@ me claude install            # full plugin (once, user scope)
 me claude install --mcp-only # or just the MCP server
 ```
 
-This drives Claude Code's native plugin flow for you (`claude plugin marketplace add` + `claude plugin install`), then persists your resolved server + active space as global defaults and **asks whether to capture your Claude Code sessions as memories**. Capture is **off by default**; opt in and new sessions (plus a one-time backfill of your existing ones) are captured **privately** under `~/projects/<repo>` — sharing with a team is a separate, per-project choice via [Projects](projects.md) and [`.me/config.yaml`](project-config.md). Afterwards, restart Claude Code (or run `/plugin`) to load the hooks and slash commands; re-run `/plugin` → `memory-engine` → Configure to adjust options, or re-run `me claude install` to change the capture answer.
+This drives Claude Code's native plugin flow for you (`claude plugin marketplace add` + `claude plugin install`) and installs the plugin **dormant**: it does not log in, write credentials, or turn on capture. Restart Claude Code (or run `/plugin`) afterwards to load the hooks and slash commands.
+
+Session capture is **off by default** and configured machine-locally. Turn it on — and choose where a project's memories land — with [`me init`](cli/me-init.md): captures default **privately** to `~/projects/<repo>`, and sharing with a team is a per-directory choice via a `--capture-tree` under `/share/projects/...` (see [Projects](projects.md)). Use [`me doctor`](cli/me-doctor.md) to see which policy applies to a directory.
 
 After installation, your AI agent has access to memory tools -- create, search, get, update, delete, and more.
 

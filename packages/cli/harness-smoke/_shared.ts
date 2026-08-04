@@ -14,8 +14,8 @@
  * The mechanism under test is narrow and deliberately free of any memory-
  * engine credentials: `me claude env` / the opencode `shell.env` hook / the
  * Codex and Gemini env-hooks only read their stdin/tool-call payload and
- * write or rewrite an env contract — no network call, no `.me/config.yaml`,
- * no login. So these smoke tests only need the HARNESS itself authenticated
+ * write or rewrite an env contract — no network call, no memory-engine
+ * config, no login. So these smoke tests only need the HARNESS itself authenticated
  * (an existing `claude`/`codex`/`gemini`/`opencode` login), never a
  * memory-engine account.
  */

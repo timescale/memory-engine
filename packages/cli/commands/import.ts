@@ -26,10 +26,7 @@
 import * as clack from "@clack/prompts";
 import { Command } from "commander";
 import type { MemoryClient } from "../client.ts";
-import {
-  type ResolvedCredentials,
-  resolveCredentials,
-} from "../credentials.ts";
+import { resolveCredentials } from "../credentials.ts";
 import { claudeImporter } from "../importers/claude.ts";
 import { codexImporter } from "../importers/codex.ts";
 import {
@@ -84,7 +81,7 @@ function addCommonOptions(
     )
     .option(
       "--tree-root <path>",
-      `tree root under which '<slug>.<sessions-node-name>' nodes are placed (default: the .me/config.yaml tree for a --project run, else ${DEFAULT_PRIVATE_TREE_ROOT} — private)`,
+      `tree root under which '<slug>.<sessions-node-name>' nodes are placed (default: ${DEFAULT_PRIVATE_TREE_ROOT} — private)`,
     )
     .option(
       "--sessions-node-name <name>",
@@ -120,9 +117,9 @@ function addCommonOptions(
  * Assemble importer + write options from Commander parsed opts.
  * Validates --tree-root syntax and the ISO filter bounds.
  *
- * This computes only the RUN-LEVEL parent (`treeRoot`); per-session trees
- * come from the router (`createSessionRouter`), so `write.tree` is left unset
- * here. The parent is an explicit `--tree-root`, else private `~/projects`.
+ * This computes only the RUN-LEVEL parent (`treeRoot`); each session's own
+ * tree is derived per project by slug, so `write.tree` is left unset here. The
+ * parent is an explicit `--tree-root`, else private `~/projects`.
  */
 export function buildOptions(opts: Record<string, unknown>): {
   importer: ImporterOptions;
@@ -185,78 +182,27 @@ ${hint}`,
 }
 
 /**
- * Build the per-session router for a bulk import. Imports use the resolved
- * machine-local credentials, while session trees remain per-project by slug.
- * Decisions (including the client) are memoized per cwd; clients are
- * cheap stateless wrappers — token/refresh state lives at module level keyed
- * by server — so distinct projects resolving to the same target just build
- * equivalent ones.
- *
- * Missing credentials or an active space become skip tallies.
+ * Build the per-session router for a bulk import. Every session writes through
+ * the run's resolved credentials (machine-local config / flags / `ME_*`,
+ * already authenticated by the caller); each session's tree stays per-project
+ * by slug under the run's tree root — an explicit `--tree-root`, else the
+ * private `~/projects`. This is a constant route: routing no longer varies by
+ * a session's cwd.
  */
 export function createSessionRouter(opts: {
-  /** An explicit `--tree-root`: wins over every project's `.me` tree. */
+  /** An explicit `--tree-root`: the per-slug parent for every session. */
   explicitTreeRoot?: string;
-  /** The run-level default route (sessions with no cwd / no `.me`). */
-  base: { creds: ResolvedCredentials; engine: MemoryClient };
-  /** Injectable client factory (tests). */
-  buildClient?: (
-    creds: ResolvedCredentials & { activeSpace: string },
-  ) => MemoryClient;
+  /** The run-level route every session writes through. */
+  base: { engine: MemoryClient };
 }): SessionRouter {
-  const buildClient = opts.buildClient ?? buildMemoryClient;
-  const treeRootOf = (creds: ResolvedCredentials): string =>
-    opts.explicitTreeRoot ?? DEFAULT_PRIVATE_TREE_ROOT;
-
-  const routeByCwd = new Map<string, SessionRouteDecision>();
-  const base: SessionRouteDecision = {
+  const decision: SessionRouteDecision = {
     route: {
       engine: opts.base.engine,
       tree: undefined,
-      treeRoot: treeRootOf(opts.base.creds),
+      treeRoot: opts.explicitTreeRoot ?? DEFAULT_PRIVATE_TREE_ROOT,
     },
   };
-
-  function computeRoute(cwd: string): SessionRouteDecision {
-    try {
-      const creds = resolveCredentials();
-
-      if (!creds.apiKey && !creds.loggedIn) {
-        return { skip: "no_credentials_for_server" };
-      }
-      const space = creds.activeSpace;
-      if (!space) return { skip: "no_space_for_project" };
-
-      // Always use this project's routing credentials and presented bearer.
-      return {
-        route: {
-          engine: buildClient({ ...creds, activeSpace: space }),
-          tree: undefined,
-          treeRoot: treeRootOf(creds),
-        },
-      };
-    } catch (error) {
-      // Best-effort like the hook: ANY per-project resolution failure —
-      // malformed/untrusted `.me`, the `.me` agent sentinel with no project
-      // agent, … — skips this project's sessions instead of killing the
-      // sweep. The message lands in the skip detail (verbose output); a
-      // local import inside the project reproduces the error loudly.
-      return {
-        skip: "project_config_error",
-        detail: error instanceof Error ? error.message : String(error),
-      };
-    }
-  }
-
-  return (cwd) => {
-    if (!cwd) return base;
-    let decision = routeByCwd.get(cwd);
-    if (!decision) {
-      decision = computeRoute(cwd);
-      routeByCwd.set(cwd, decision);
-    }
-    return decision;
-  };
+  return () => decision;
 }
 
 /**
@@ -290,7 +236,7 @@ export async function runAgentImport(
   const router = createSessionRouter({
     explicitTreeRoot:
       typeof opts.treeRoot === "string" ? opts.treeRoot : undefined,
-    base: { creds, engine },
+    base: { engine },
   });
 
   if (fmt === "text" && config.write.verbose) {

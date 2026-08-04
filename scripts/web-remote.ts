@@ -10,7 +10,7 @@
  *      pointed at the `me serve` port.
  *
  * The backend is your active server, resolved exactly like any `me` command
- * (ME_SERVER env > `.me` project config > global default_server > production).
+ * (ME_SERVER env > global default_server > production).
  *
  * Open http://localhost:5173. Both processes are torn down together on Ctrl+C
  * or if either one exits. Override the backend with `ME_SERVER=…`.
@@ -23,9 +23,8 @@ import { resolveServer } from "../packages/cli/credentials.ts";
 import { findAvailablePort } from "../packages/cli/serve/http-server.ts";
 
 const REPO_ROOT = join(import.meta.dir, "..");
-// Resolve from the repo root regardless of the invoking cwd, so the `.me`
-// project config consulted here is the same one the spawned `me serve`
-// (cwd: REPO_ROOT) would see.
+// Use the repository root for both child processes so they share a predictable
+// development working directory.
 process.chdir(REPO_ROOT);
 const server = resolveServer();
 const port = await findAvailablePort("127.0.0.1", 3100, 20);
