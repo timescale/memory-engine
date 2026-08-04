@@ -360,10 +360,15 @@ harness, it returns `{ source: "disabled" }`; its caller then uses the existing
 human CLI resolution chain. There is intentionally no `resolveCliProfile(cwd)`
 for a user command.
 
-The MCP dispatcher obtains cwd from provider context, then `process.cwd()`,
-then `ME_PROJECT_DIR`; no cwd means it passes a synthetic no-match path to the
-resolver and gets `defaults`. Capture hooks use `ME_PROJECT_DIR` as their
-primary discovery anchor.
+The MCP dispatcher resolves `process.cwd()` first. When that has no directory
+profile, the Claude dispatcher next tries `CLAUDE_PROJECT_DIR`, then every
+dispatcher tries `ME_PROJECT_DIR`. A fallback must not override an explicitly
+matched directory profile, including one that disables MCP. If no location
+matches, the initial resolution supplies `defaults`. Codex Desktop and VS Code
+have no reliable dynamic project directory for a global MCP registration, so
+they intentionally use `defaults` unless configured with a provider-native
+per-server `cwd`. Capture hooks use `ME_PROJECT_DIR` as their primary discovery
+anchor.
 
 ### 4.3 Writer API
 

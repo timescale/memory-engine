@@ -6,6 +6,7 @@ import {
   createMcpRunAction,
   isLegacyApiKey,
   resolveManagedHarness,
+  resolveManagedMcpProfile,
   resolveMcpSpace,
 } from "./mcp.ts";
 
@@ -142,6 +143,76 @@ describe("resolveManagedHarness", () => {
     expect(() => resolveManagedHarness("unknown")).toThrow(
       "invalid managed harness",
     );
+  });
+});
+
+describe("resolveManagedMcpProfile", () => {
+  const profile = (source: "directory" | "defaults" | "disabled") =>
+    ({ source, value: undefined }) as never;
+
+  test("does not let fallbacks override the cwd directory profile", () => {
+    const requested: string[] = [];
+    const result = resolveManagedMcpProfile(
+      "claude",
+      "/workspace",
+      "/session",
+      "/claude-project",
+      (directory) => {
+        requested.push(directory);
+        return profile("directory");
+      },
+    );
+
+    expect(result.source).toBe("directory");
+    expect(requested).toEqual(["/workspace"]);
+  });
+
+  test("uses Claude's project directory before ME_PROJECT_DIR", () => {
+    const requested: string[] = [];
+    const result = resolveManagedMcpProfile(
+      "claude",
+      "/workspace",
+      "/session",
+      "/claude-project",
+      (directory) => {
+        requested.push(directory);
+        return profile(
+          directory === "/claude-project" ? "directory" : "defaults",
+        );
+      },
+    );
+
+    expect(result.source).toBe("directory");
+    expect(requested).toEqual(["/workspace", "/claude-project"]);
+  });
+
+  test("uses ME_PROJECT_DIR after a non-Claude cwd miss", () => {
+    const requested: string[] = [];
+    const result = resolveManagedMcpProfile(
+      "opencode",
+      "/workspace",
+      "/session",
+      "/claude-project",
+      (directory) => {
+        requested.push(directory);
+        return profile(directory === "/session" ? "directory" : "defaults");
+      },
+    );
+
+    expect(result.source).toBe("directory");
+    expect(requested).toEqual(["/workspace", "/session"]);
+  });
+
+  test("keeps the cwd defaults result when no fallback finds a profile", () => {
+    const result = resolveManagedMcpProfile(
+      "codex",
+      "/workspace",
+      "/session",
+      undefined,
+      () => profile("defaults"),
+    );
+
+    expect(result.source).toBe("defaults");
   });
 });
 

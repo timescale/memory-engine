@@ -304,11 +304,21 @@ that surface is disabled. A missing harness under a surface's `harnesses:` map
 means that harness is not selected for that surface. `defaults` is not
 consulted to fill in gaps.
 
-MCP cwd propagation: the dispatcher's MCP handler tries to determine cwd from
-the provider (in whatever form the provider offers), then `process.cwd()` at
-server start, then `ME_PROJECT_DIR`. If no cwd is available, the handler
-resolves against `defaults`. Per-directory MCP behavior is a best-effort
-feature per provider; `me doctor` reports which resolution path was taken.
+MCP directory propagation is provider-aware. The dispatcher first resolves
+against `process.cwd()` at server start. If that finds no directory profile,
+the Claude dispatcher tries `CLAUDE_PROJECT_DIR`, then every dispatcher tries
+`ME_PROJECT_DIR`. A fallback is used only when the earlier location has no
+directory profile, so an explicitly-disabled profile is never bypassed. If no
+location matches, the handler resolves against `defaults`.
+
+OpenCode and the Codex terminal CLI start local MCP servers from the session
+directory. Claude documents `CLAUDE_PROJECT_DIR` as the reliable MCP project
+signal, but it is a fallback because it can point to the main checkout for a
+worktree session. Codex Desktop and the VS Code extension have no reliable
+dynamic project directory for global MCP registrations; they intentionally use
+the `defaults` profile unless the user configures a provider-native per-server
+`cwd`. Per-directory MCP behavior is otherwise a best-effort provider feature;
+`me doctor` reports which resolution path was taken.
 
 #### 3.4.2 `cli` — harness-initiated CLI
 
