@@ -33,9 +33,12 @@ describe("me ci install", () => {
     const command = createCiInstallCommand();
     expect(command.name()).toBe("ci");
     expect(command.commands.map((child) => child.name())).toContain("install");
-    expect(
-      command.commands[0]?.options.some((option) => option.long === "--server"),
-    ).toBe(true);
+    const install = command.commands.find(
+      (child) => child.name() === "install",
+    );
+    expect(install?.options.some((option) => option.long === "--server")).toBe(
+      true,
+    );
   });
 
   test("parses GitHub remotes", () => {
