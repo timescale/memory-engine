@@ -10,6 +10,13 @@ import {
   resolveMcpSpace,
 } from "./mcp.ts";
 
+function harnessProfile(mcp: unknown) {
+  return {
+    profile_source: "defaults",
+    mcp: { source: "defaults", value: mcp },
+  } as never;
+}
+
 // blankFlag normalizes the plugin's `--server/--api-key/--space ${user_config.X}`
 // args: blank (or an unsubstituted placeholder) → undefined, so resolution falls
 // back to the live `me` config instead of using the literal value.
@@ -147,8 +154,11 @@ describe("resolveManagedHarness", () => {
 });
 
 describe("resolveManagedMcpProfile", () => {
-  const profile = (source: "directory" | "defaults" | "disabled") =>
-    ({ source, value: undefined }) as never;
+  const profile = (profileSource: "directory" | "defaults") =>
+    ({
+      profile_source: profileSource,
+      mcp: { source: "disabled" },
+    }) as never;
 
   test("does not let fallbacks override the cwd directory profile", () => {
     const requested: string[] = [];
@@ -163,7 +173,7 @@ describe("resolveManagedMcpProfile", () => {
       },
     );
 
-    expect(result.source).toBe("directory");
+    expect(result.profile.profile_source).toBe("directory");
     expect(requested).toEqual(["/workspace"]);
   });
 
@@ -182,7 +192,7 @@ describe("resolveManagedMcpProfile", () => {
       },
     );
 
-    expect(result.source).toBe("directory");
+    expect(result.profile.profile_source).toBe("directory");
     expect(requested).toEqual(["/workspace", "/claude-project"]);
   });
 
@@ -199,7 +209,7 @@ describe("resolveManagedMcpProfile", () => {
       },
     );
 
-    expect(result.source).toBe("directory");
+    expect(result.profile.profile_source).toBe("directory");
     expect(requested).toEqual(["/workspace", "/session"]);
   });
 
@@ -212,7 +222,24 @@ describe("resolveManagedMcpProfile", () => {
       () => profile("defaults"),
     );
 
-    expect(result.source).toBe("defaults");
+    expect(result.profile.profile_source).toBe("defaults");
+  });
+
+  test("does not bypass a matched profile that omits MCP", () => {
+    const requested: string[] = [];
+    const result = resolveManagedMcpProfile(
+      "claude",
+      "/workspace",
+      "/session",
+      "/claude-project",
+      (directory) => {
+        requested.push(directory);
+        return profile("directory");
+      },
+    );
+
+    expect(result.profile.mcp.source).toBe("disabled");
+    expect(requested).toEqual(["/workspace"]);
   });
 });
 
@@ -227,7 +254,7 @@ test("manual MCP startup passes multi-space mode instead of an active-space defa
         loggedIn: true,
         activeSpace: "ignoredspace",
       }),
-      resolveMcpProfile: () => ({ value: undefined }) as never,
+      resolveHarnessProfile: () => harnessProfile(undefined),
       memoryBearer: () => ({
         getToken: async () => "token",
         onUnauthorized: async () => undefined,
@@ -256,8 +283,8 @@ test("a disabled managed harness starts without tools or credentials", async () 
     resolveCredentials: () => {
       throw new Error("disabled policy must not resolve credentials");
     },
-    resolveMcpProfile: () =>
-      ({ value: { enabled: false, harnesses: {} } }) as never,
+    resolveHarnessProfile: () =>
+      harnessProfile({ enabled: false, harnesses: {} }),
     memoryBearer: () => {
       throw new Error("disabled policy must not create a bearer");
     },
@@ -285,15 +312,13 @@ test("an enabled managed harness uses its selected policy", async () => {
         activeSpace: undefined,
       };
     },
-    resolveMcpProfile: () =>
-      ({
-        value: {
-          enabled: true,
-          server: "https://policy.example.com",
-          space: "abc123def456",
-          harnesses: { claude: true },
-        },
-      }) as never,
+    resolveHarnessProfile: () =>
+      harnessProfile({
+        enabled: true,
+        server: "https://policy.example.com",
+        space: "abc123def456",
+        harnesses: { claude: true },
+      }),
     memoryBearer: () => ({
       getToken: async () => "token",
       onUnauthorized: async () => undefined,
@@ -321,7 +346,7 @@ test("a malformed managed-harness policy fails closed without tools", async () =
     resolveCredentials: () => {
       throw new Error("malformed policy must not resolve credentials");
     },
-    resolveMcpProfile: () => {
+    resolveHarnessProfile: () => {
       throw new Error("simulated malformed local config");
     },
     memoryBearer: () => {
@@ -345,14 +370,12 @@ test("an unselected managed harness starts without tools", async () => {
     resolveCredentials: () => {
       throw new Error("unselected policy must not resolve credentials");
     },
-    resolveMcpProfile: () =>
-      ({
-        value: {
-          enabled: true,
-          server: "https://policy.example.com",
-          harnesses: { codex: true },
-        },
-      }) as never,
+    resolveHarnessProfile: () =>
+      harnessProfile({
+        enabled: true,
+        server: "https://policy.example.com",
+        harnesses: { codex: true },
+      }),
     memoryBearer: () => {
       throw new Error("unselected policy must not create a bearer");
     },

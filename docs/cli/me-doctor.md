@@ -5,7 +5,7 @@ Inspect the machine-local harness policy that applies to a directory.
 ## Usage
 
 ```bash
-me doctor [directory]
+me doctor [directory] [--harness <name>]
 ```
 
 With no argument, `me doctor` resolves from the same anchor the dispatcher and
@@ -20,6 +20,9 @@ An explicit `[directory]` overrides that anchor. The command reports:
   the surface is absent from the matched profile, `enabled` is `false`, or it is
   enabled but selects no harness. When active, it lists the selected harnesses,
   server, space (or multi-space for MCP), and capture `tree` / `tree_root`.
+- **MCP anchor** — when `--harness` is supplied (or `AI_AGENT` names a known
+  harness), the provider-aware directory path used by that managed MCP server.
+  This can differ from the capture and CLI anchor.
 - **CLI** — whether the harness-context routing surface is configured, its
   selected harnesses, and its server/space.
 - **Harness context** — for the current shell only: if a known harness set

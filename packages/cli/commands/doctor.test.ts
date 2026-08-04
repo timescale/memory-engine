@@ -17,16 +17,19 @@ let root: string;
 let savedXdg: string | undefined;
 let savedAgent: string | undefined;
 let savedProjectDir: string | undefined;
+let savedClaudeProjectDir: string | undefined;
 
 beforeEach(() => {
   savedXdg = process.env.XDG_CONFIG_HOME;
   savedAgent = process.env.AI_AGENT;
   savedProjectDir = process.env.ME_PROJECT_DIR;
+  savedClaudeProjectDir = process.env.CLAUDE_PROJECT_DIR;
   configHome = mkdtempSync(join(tmpdir(), "me-doctor-config-"));
   root = mkdtempSync(join(tmpdir(), "me-doctor-root-"));
   process.env.XDG_CONFIG_HOME = configHome;
   delete process.env.AI_AGENT;
   delete process.env.ME_PROJECT_DIR;
+  delete process.env.CLAUDE_PROJECT_DIR;
 });
 
 afterEach(() => {
@@ -38,6 +41,9 @@ afterEach(() => {
   else process.env.AI_AGENT = savedAgent;
   if (savedProjectDir === undefined) delete process.env.ME_PROJECT_DIR;
   else process.env.ME_PROJECT_DIR = savedProjectDir;
+  if (savedClaudeProjectDir === undefined)
+    delete process.env.CLAUDE_PROJECT_DIR;
+  else process.env.CLAUDE_PROJECT_DIR = savedClaudeProjectDir;
 });
 
 // Run `me doctor` with `--json` and return the parsed structured output. The
@@ -184,4 +190,22 @@ test("the resolution anchor is ME_PROJECT_DIR by default, overridden by an expli
   const anchored = await runDoctor([]);
   expect(anchored.anchor.source).toBe("ME_PROJECT_DIR");
   expect(anchored.anchor.canonical).toBe(canonicalizeDirectory(dir));
+});
+
+test("managed MCP diagnosis uses the same Claude fallback as the dispatcher", async () => {
+  const cwd = makeDir("mcp-cwd");
+  const claudeProject = makeDir("claude-project");
+  writeDirectoryProfile(claudeProject, {
+    mcp: { enabled: true, server: SERVER, harnesses: { claude: true } },
+  });
+  process.env.CLAUDE_PROJECT_DIR = claudeProject;
+
+  const out = await runDoctor(["--harness", "claude", cwd]);
+
+  expect(out.mcp_anchor).toMatchObject({
+    harness: "claude",
+    source: "CLAUDE_PROJECT_DIR",
+    canonical: canonicalizeDirectory(claudeProject),
+  });
+  expect(out.surfaces.mcp).toMatchObject({ active: true, server: SERVER });
 });

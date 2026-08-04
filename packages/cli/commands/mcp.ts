@@ -21,8 +21,8 @@ import {
 import { HARNESS_NAMES, type HarnessName } from "../harness/names.ts";
 import {
   type McpSurface,
-  type ResolvedSurface,
-  resolveMcpProfile,
+  type ResolvedHarnessProfile,
+  resolveHarnessProfile,
 } from "../local-config.ts";
 import { type McpSpaceSelection, runMcpServer } from "../mcp/server.ts";
 import { memoryBearer } from "../session.ts";
@@ -82,31 +82,48 @@ export function resolveMcpSpace(
  * profile that explicitly disables MCP. Claude's documented project variable
  * follows the startup cwd because it may name a main checkout for worktrees.
  */
+export interface ManagedMcpResolution {
+  anchor: {
+    source: "cwd" | "CLAUDE_PROJECT_DIR" | "ME_PROJECT_DIR";
+    raw: string;
+  };
+  profile: ResolvedHarnessProfile;
+}
+
 export function resolveManagedMcpProfile(
   harness: HarnessName,
   cwd: string,
   meProjectDir: string | undefined,
   claudeProjectDir: string | undefined,
-  resolveProfile: typeof resolveMcpProfile = resolveMcpProfile,
-): ResolvedSurface<McpSurface> {
+  resolveProfile: typeof resolveHarnessProfile = resolveHarnessProfile,
+): ManagedMcpResolution {
   const initial = resolveProfile(cwd);
-  if (initial.source === "directory") return initial;
+  if (initial.profile_source === "directory") {
+    return { anchor: { source: "cwd", raw: cwd }, profile: initial };
+  }
 
-  const fallbacks = [
-    ...(harness === "claude" ? [claudeProjectDir] : []),
-    meProjectDir,
+  const fallbacks: Array<{
+    source: "CLAUDE_PROJECT_DIR" | "ME_PROJECT_DIR";
+    directory: string | undefined;
+  }> = [
+    ...(harness === "claude"
+      ? [{ source: "CLAUDE_PROJECT_DIR" as const, directory: claudeProjectDir }]
+      : []),
+    { source: "ME_PROJECT_DIR", directory: meProjectDir },
   ];
-  for (const directory of fallbacks) {
+  for (const { source, directory } of fallbacks) {
     if (!directory || directory === cwd) continue;
     const resolved = resolveProfile(directory);
-    if (resolved.source === "directory") return resolved;
+    if (resolved.profile_source === "directory") {
+      return { anchor: { source, raw: directory }, profile: resolved };
+    }
   }
-  return initial;
+  return { anchor: { source: "cwd", raw: cwd }, profile: initial };
 }
 
 interface McpRunActionDependencies {
   resolveCredentials: (serverFlag?: string) => ResolvedCredentials;
-  resolveMcpProfile: typeof resolveMcpProfile;
+  resolveHarnessProfile: typeof resolveHarnessProfile;
   memoryBearer: typeof memoryBearer;
   runMcpServer: typeof runMcpServer;
 }
@@ -114,7 +131,7 @@ interface McpRunActionDependencies {
 export function createMcpRunAction(
   dependencies: McpRunActionDependencies = {
     resolveCredentials,
-    resolveMcpProfile,
+    resolveHarnessProfile,
     memoryBearer,
     runMcpServer,
   },
@@ -130,8 +147,8 @@ export function createMcpRunAction(
             process.cwd(),
             process.env.ME_PROJECT_DIR,
             process.env.CLAUDE_PROJECT_DIR,
-            dependencies.resolveMcpProfile,
-          ).value
+            dependencies.resolveHarnessProfile,
+          ).profile.mcp.value
         : undefined;
     } catch {
       // A malformed local policy fails closed: keep the dispatcher alive with
