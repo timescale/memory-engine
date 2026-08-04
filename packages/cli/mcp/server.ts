@@ -43,7 +43,7 @@ function serializeReadResult(
   result: unknown,
   format: "yaml" | "json" | "compact" = "yaml",
 ): string {
-  if (format === "yaml") return yamlStringify(result, { lineWidth: 0 });
+  if (format === "yaml") return yamlStringify(result, { lineWidth: 0 }).trimEnd();
   return JSON.stringify(result);
 }
 
