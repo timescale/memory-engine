@@ -179,6 +179,37 @@ test("me init validates capture scope in flag profiles", () => {
   ).toThrow("--capture-tree is only valid for a directory profile");
 });
 
+test("me init prompts for scope when surface flags omit it", async () => {
+  const { dependencies, writes } = wizardDependencies({
+    selects: ["defaults"],
+  });
+
+  await runInit(
+    undefined,
+    {
+      ...baseOptions,
+      mcpServer: "https://api.memory.build",
+      mcpHarness: ["claude"],
+    },
+    dependencies,
+  );
+
+  expect(writes).toEqual([
+    {
+      scope: "defaults",
+      profile: {
+        mcp: {
+          enabled: true,
+          server: "https://api.memory.build",
+          harnesses: { claude: true },
+        },
+        capture: { enabled: false, harnesses: {} },
+        cli: { harnesses: {} },
+      },
+    },
+  ]);
+});
+
 test("me init requires surface flags outside a TTY", async () => {
   const { dependencies, writes } = wizardDependencies();
   dependencies.isTTY = () => false;
