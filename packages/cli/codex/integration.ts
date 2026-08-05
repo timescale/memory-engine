@@ -20,6 +20,11 @@ import {
 
 export const CODEX_ENV_HOOK_COMMAND = "me codex env-hook";
 export const CODEX_CAPTURE_EVENTS = ["Stop", "SessionEnd"] as const;
+export const CODEX_MCP_ENV_VARS = [
+  "ME_API_KEY",
+  "ME_SERVER",
+  "ME_SPACE",
+] as const;
 export type CodexCaptureEvent = (typeof CODEX_CAPTURE_EVENTS)[number];
 
 export const CODEX_HOOK_ENTRY: JsonHookEntry = {
@@ -46,6 +51,49 @@ export function codexCaptureHookEntry(event: CodexCaptureEvent): JsonHookEntry {
 
 export function codexHooksPath(): string {
   return join(homedir(), ".codex", "hooks.json");
+}
+
+export function codexConfigPath(): string {
+  return join(homedir(), ".codex", "config.toml");
+}
+
+/** Add the non-secret environment allowlist to the managed Codex MCP table. */
+export function configureCodexMcpEnvironment(path = codexConfigPath()): void {
+  if (!existsSync(path)) {
+    throw new Error(`Codex MCP config at ${path} was not created.`);
+  }
+  const source = readFileSync(path, "utf8");
+  try {
+    Bun.TOML.parse(source);
+  } catch (error) {
+    throw new Error(
+      `Codex MCP config at ${path} is invalid TOML: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+
+  const header = /^\[mcp_servers\.me\][ \t]*(?:#.*)?$/m.exec(source);
+  if (!header || header.index === undefined) {
+    throw new Error(`Codex MCP server 'me' is missing from ${path}.`);
+  }
+  const tableStart = header.index + header[0].length;
+  const nextTable = /^[ \t]*\[/m.exec(source.slice(tableStart));
+  const tableEnd =
+    nextTable?.index === undefined
+      ? source.length
+      : tableStart + nextTable.index;
+  const table = source.slice(tableStart, tableEnd);
+  const envVars = `env_vars = [${CODEX_MCP_ENV_VARS.map((name) => JSON.stringify(name)).join(", ")}]`;
+  const existing = /^[ \t]*env_vars[ \t]*=[^\n]*$/m.exec(table);
+  if (existing) {
+    if (existing[0].trim() === envVars) return;
+    throw new Error(
+      `Codex MCP server 'me' in ${path} has user-managed env_vars; refusing to overwrite it.`,
+    );
+  }
+
+  const tableContentEnd = tableStart + table.trimEnd().length;
+  const updated = `${source.slice(0, tableContentEnd)}\n${envVars}${source.slice(tableContentEnd)}`;
+  writeFileSync(path, updated);
 }
 
 export function installCodexEnvHook(
@@ -167,6 +215,8 @@ interface InstallOperations {
   installMcp?: () => Promise<InstallResult>;
   removeMcp?: () => Promise<boolean>;
   hookPath?: string;
+  configPath?: string;
+  configureMcpEnvironment?: () => void;
   installHook?: () => {
     artifact: Extract<InstallationArtifact, { kind: "json-hook" }>;
     changed: boolean;
@@ -182,6 +232,7 @@ export async function installCodexIntegration(
   operations: InstallOperations = {},
 ): Promise<CodexIntegrationResult> {
   const hookPath = operations.hookPath ?? codexHooksPath();
+  const configPath = operations.configPath ?? codexConfigPath();
   const mcp = existing?.artifacts.find(
     (artifact) => artifact.kind === "mcp-cli",
   );
@@ -240,6 +291,10 @@ export async function installCodexIntegration(
     ReturnType<typeof installCodexCaptureHook>
   > = [];
   try {
+    (
+      operations.configureMcpEnvironment ??
+      (() => configureCodexMcpEnvironment(configPath))
+    )();
     hook = (
       operations.installHook ?? (() => installCodexEnvHookResult(hookPath))
     )();
