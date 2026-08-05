@@ -1,6 +1,18 @@
 # Harness Integrations
 
-Memory Engine integrations have two separate layers:
+Memory Engine has first-class integrations for [Claude
+Code](https://docs.anthropic.com/en/docs/claude-code),
+[OpenCode](https://opencode.ai/), and [Codex
+CLI](https://developers.openai.com/codex/cli/). An integration gives the coding
+harness access to Memory Engine tools through MCP. You can also opt in to session
+capture and configure where `me` commands run by the harness connect. For other
+MCP-compatible coding harnesses, see [MCP Integration](mcp-integration.md).
+
+Install each harness integration once for your user account. Then configure it
+machine-wide through fallback defaults, or for one directory and its descendants.
+`me init` is the guided tool for that configuration.
+
+Integrations have two separate layers:
 
 1. **Install** registers user-global, provider-specific plumbing for a coding
    harness.
