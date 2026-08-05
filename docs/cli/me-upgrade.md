@@ -15,8 +15,9 @@ release version is newer than the running CLI version, it downloads the matching
 platform binary, verifies its `.sha256` checksum, applies the same macOS signing
 fixups as `install.sh`, and replaces the running `me` executable.
 
-The command must be run from an installed `me` binary. It refuses to replace a
-non-`me` executable such as the Bun runtime used during local development.
+Installation is supported on Linux and Apple Silicon macOS. Windows self-upgrade
+is unsupported, and macOS x64 is rejected. Replacing an installed release requires
+an executable named `me` with write permission; `--check` can run from development.
 
 ## Options
 

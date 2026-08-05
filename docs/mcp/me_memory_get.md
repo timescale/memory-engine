@@ -31,7 +31,7 @@ JSON text.
   "versionHash": "5f3e9c2a8b1d4f7e0c3a6b9d2e5f8c1a",
   "hasEmbedding": true,
   "createdAt": "2025-04-15T12:00:00Z",
-  "createdBy": "user_abc",
+  "createdBy": null,
   "updatedAt": null
 }
 ```
@@ -48,7 +48,7 @@ JSON text.
 | `versionHash` | `string` | 32-char md5 hex over `tree`, `name`, `meta`, `temporal`, `content`. Pass back as `version_hash` to `me_memory_update` for optimistic concurrency control. |
 | `hasEmbedding` | `boolean` | Whether a vector embedding has been computed. |
 | `createdAt` | `string` | ISO 8601 creation timestamp. |
-| `createdBy` | `string \| null` | The user that created the memory. |
+| `createdBy` | `null` | Reserved field; per-memory creators are not currently tracked. |
 | `updatedAt` | `string \| null` | ISO 8601 timestamp of last update, or `null`. |
 
 ## Example

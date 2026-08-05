@@ -42,7 +42,7 @@ The full updated memory object:
   "versionHash": "9b7e4c5e8a1f3d2c6b0a4f7e8d1c2b3a",
   "hasEmbedding": true,
   "createdAt": "2025-04-15T12:00:00Z",
-  "createdBy": "user_abc",
+  "createdBy": null,
   "updatedAt": "2025-04-15T14:00:00Z"
 }
 ```

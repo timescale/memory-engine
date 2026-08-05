@@ -9,9 +9,9 @@ Parses the input according to the specified format and creates all memories in o
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
 | `space` | `string` | varies | Absent in locked mode; required nonempty string in multi-space mode. It selects the same-server space for this call. |
-| `path` | `string \| null` | no | Absolute path to a file or directory. Directories are imported recursively. Format is inferred from extension (`.json`, `.yaml`, `.yml`, `.md`, `.ndjson`, `.jsonl`). Mutually exclusive with `content`. Omit or pass `null` if providing `content`. |
-| `content` | `string \| null` | no | Raw content to import (JSON array, YAML array, or Markdown with frontmatter). Mutually exclusive with `path`. Omit or pass `null` if providing `path`. |
-| `format` | `string \| null` | no | Content format: `"json"`, `"yaml"`, or `"md"`. Required when using `content`. Optional when using `path` (inferred from file extension). Omit or pass `null` to skip. |
+| `path` | `string \| null` | no | File or directory path. Directories are imported recursively. Format is inferred from extension (`.json`, `.yaml`, `.yml`, `.md`, `.ndjson`, `.jsonl`). When both inputs are provided, `path` takes precedence. |
+| `content` | `string \| null` | no | Raw content to import (JSON array, YAML array, or Markdown with frontmatter). Used when `path` is omitted. |
+| `format` | `string \| null` | no | Content format: `"json"`, `"yaml"`, or `"md"`. Optional; content is detected when omitted. |
 
 One of `path` or `content` must be provided.
 
@@ -21,7 +21,7 @@ JSON (array or single object), NDJSON, YAML (array or single object), and Markdo
 
 Each memory object supports fields: `id`, `content` (required), `name`, `meta`, `tree`, `temporal`. Unlike `me_memory_create` (which requires an explicit `tree`), a record with no `tree` is imported into the shared root `share`.
 
-Import submits with `onConflict: 'ignore'`, so a record whose idempotency key -- its `id`, or its `(tree, name)` slot -- already exists is skipped rather than erroring. Re-importing the same data is a no-op.
+Import submits with `onConflict: 'ignore'`, so a record whose idempotency key already exists is skipped rather than erroring. A named record uses its `(tree, name)` slot in preference to its `id`. Re-importing the same data is a no-op.
 
 See [File Formats](../formats.md) for full schema documentation, examples, and format detection rules.
 
@@ -46,13 +46,13 @@ See [File Formats](../formats.md) for full schema documentation, examples, and f
 | Field | Type | Description |
 |-------|------|-------------|
 | `imported` | `number` | Number of memories successfully imported on this call. |
-| `skipped` | `number` | Number of memories whose explicit `id` already existed in the space. Always present (may be `0`). |
+| `skipped` | `number` | Number of memories whose idempotency key already existed in the space. Always present (may be `0`). |
 | `failed` | `number` | Number of memories in chunks that errored before reaching the server. Always present (may be `0`). |
 | `ids` | `string[]` | UUIDs of the memories actually inserted on this call. |
-| `skippedIds` | `string[]` | The explicit ids that were skipped because they already existed. Always present (may be empty). Inspect any of these with `me_memory_get` to see what's there. |
+| `skippedIds` | `string[]` | Stored IDs of skipped memories. Always present (may be empty). Inspect any of these with `me_memory_get` to see what's there. |
 | `errors` | `Array<{ chunkIndex, itemCount, ids, error }>` | One entry per failed chunk. Always present (may be empty). |
 
-The tool is idempotent: re-calling with the same arguments leaves the space in the same state, with previously-imported explicit ids appearing in `skippedIds` instead of `ids`. A record with neither an `id` nor a `name` gets a server-generated UUIDv7 and never collides; a named record is keyed on its `(tree, name)` slot (such skips aren't listed by id in `skippedIds`).
+The tool is idempotent: re-calling with the same arguments leaves the space in the same state. A record with neither an `id` nor a `name` gets a server-generated UUIDv7 and never collides; a named record is keyed on its `(tree, name)` slot.
 
 ### Chunking and partial failures
 

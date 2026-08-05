@@ -29,6 +29,9 @@ The command refuses to replace an existing workflow. Pass `--force` to replace t
 | `--workflow-only` | Write the workflow without touching credentials. Intended for scripted use. |
 | `--force` | Replace an existing `.github/workflows/me-import.yml`. |
 
+Outside an interactive terminal, supply `--space` and exactly one of
+`--workflow-only` or `--create-service-account`.
+
 In a terminal, choose a space and then either provide an existing service-account key or create a service account. Existing keys are entered without echo and are piped directly to `gh secret set`; they are never written into the workflow or saved by `me`.
 
 Creating credentials requires a space admin and an authenticated `gh` CLI with permission to write repository secrets. A newly minted key is created only for immediate placement in the GitHub secret; if placement fails, `me` revokes it. Non-admins can still place an existing key, or receive commands and space-admin contacts for completing setup manually.

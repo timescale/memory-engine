@@ -87,6 +87,8 @@ Do not assume every space has the same layout or grants. Some spaces use
 may use different defaults or grant only selected paths. Choose a tree from the
 user's instructions, the project's memory map, prior memories, or visible tree
 structure. If the right writable tree is unclear, ask the user before storing.
+`~/...` is valid only for user principals; service accounts must use explicitly
+granted paths such as `/share/...`.
 
 ## Store Useful Memories
 

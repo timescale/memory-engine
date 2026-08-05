@@ -120,4 +120,4 @@ List installed packs in the active space.
 me pack list
 ```
 
-Searches for all memories with pack metadata and displays a table grouped by pack name, showing name, version, and memory count.
+Searches up to 1,000 memories with pack metadata and displays a table grouped by pack name, showing name, version, and memory count.
