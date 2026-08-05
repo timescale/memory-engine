@@ -192,6 +192,16 @@ test("the resolution anchor is ME_PROJECT_DIR by default, overridden by an expli
   expect(anchored.anchor.canonical).toBe(canonicalizeDirectory(dir));
 });
 
+test("an unrelated AI_AGENT value does not prevent diagnosis", async () => {
+  const dir = makeDir("proj");
+  process.env.AI_AGENT = "other-agent";
+
+  const out = await runDoctor([dir]);
+
+  expect(out.profile_source).toBe("defaults");
+  expect(out.mcp_anchor).toBeUndefined();
+});
+
 test("managed MCP diagnosis uses the same Claude fallback as the dispatcher", async () => {
   const cwd = makeDir("mcp-cwd");
   const claudeProject = makeDir("claude-project");
