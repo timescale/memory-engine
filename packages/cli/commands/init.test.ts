@@ -35,6 +35,7 @@ function wizardDependencies({
   detected = [],
   installed = [],
   defaults,
+  activeSpace,
 }: {
   confirms?: boolean[];
   selects?: string[];
@@ -44,18 +45,28 @@ function wizardDependencies({
   detected?: { name: string; displayName: string }[];
   installed?: string[];
   defaults?: unknown;
+  activeSpace?: string;
 } = {}) {
   const writes: unknown[] = [];
   const logs: string[] = [];
+  const outros: string[] = [];
+  const selectCalls: unknown[] = [];
+  const textCalls: unknown[] = [];
   const prompts = {
     cancel: (message: string) => logs.push(`cancel:${message}`),
     confirm: async () => confirms.shift() ?? false,
     isCancel: () => false,
     multiselect: async () => multiselects.shift() ?? [],
     note: () => {},
-    outro: () => {},
-    select: async () => selects.shift() ?? "",
-    text: async () => texts.shift() ?? "",
+    outro: (message: string) => outros.push(message),
+    select: async (options: unknown) => {
+      selectCalls.push(options);
+      return selects.shift() ?? "";
+    },
+    text: async (options: unknown) => {
+      textCalls.push(options);
+      return texts.shift() ?? "";
+    },
     log: {
       info: (message: string) => logs.push(`info:${message}`),
       warn: (message: string) => logs.push(`warn:${message}`),
@@ -66,7 +77,7 @@ function wizardDependencies({
     resolveCredentials: () => ({
       server: "https://api.memory.build",
       loggedIn: true,
-      activeSpace: undefined,
+      activeSpace,
     }),
     buildUserClient: () => user as never,
     detectInstalledHarnesses: () => detected as never,
@@ -79,7 +90,10 @@ function wizardDependencies({
     writeDefaults: (profile) => writes.push({ scope: "defaults", profile }),
     writeDirectoryProfile: (directory, profile) =>
       writes.push({ scope: directory, profile }),
-    canonicalizeDirectory: (directory) => directory,
+    canonicalizeDirectory: (directory) =>
+      directory === "." ? "/repo" : directory,
+    getGlobalConfigPath: () => "/home/test/.config/me/config.yaml",
+    resolveProjectSlug: async () => "demo",
     cwd: () => "/repo",
     isTTY: () => true,
     exit: () => {
@@ -87,7 +101,7 @@ function wizardDependencies({
     },
     browserLikelyAvailable: () => false,
   };
-  return { dependencies, writes, logs };
+  return { dependencies, writes, logs, outros, selectCalls, textCalls };
 }
 
 test("me init server flags require absolute http(s) URLs", () => {
@@ -165,22 +179,14 @@ test("me init validates capture scope in flag profiles", () => {
   ).toThrow("--capture-tree is only valid for a directory profile");
 });
 
-test("me init writes a disabled profile noninteractively", async () => {
+test("me init requires surface flags outside a TTY", async () => {
   const { dependencies, writes } = wizardDependencies();
   dependencies.isTTY = () => false;
 
-  await runInit(undefined, { ...baseOptions, defaults: true }, dependencies);
-
-  expect(writes).toEqual([
-    {
-      scope: "defaults",
-      profile: {
-        mcp: { enabled: false, harnesses: {} },
-        capture: { enabled: false, harnesses: {} },
-        cli: { harnesses: {} },
-      },
-    },
-  ]);
+  await expect(runInit("/repo", baseOptions, dependencies)).rejects.toThrow(
+    "requires surface options",
+  );
+  expect(writes).toEqual([]);
 });
 
 test("me init skips surfaces when no harnesses are available", async () => {
@@ -191,7 +197,7 @@ test("me init skips surfaces when no harnesses are available", async () => {
   await runInit("/repo", baseOptions, dependencies);
 
   expect(logs).toContain(
-    "info:No installed supported coding-agent harnesses were detected. Skipping MCP, capture, and CLI setup.",
+    "info:No supported coding-agent harnesses were detected. MCP, capture, and CLI routing remain disabled.",
   );
   expect(writes).toHaveLength(1);
   expect(writes[0]).toMatchObject({
@@ -215,7 +221,7 @@ test("me init configures MCP, capture, and CLI independently", async () => {
     installed: ["claude"],
   });
 
-  await runInit("/repo", baseOptions, dependencies);
+  await runInit("/repo", { ...baseOptions, verbose: true }, dependencies);
 
   expect(writes[0]).toEqual({
     scope: "/repo",
@@ -306,7 +312,7 @@ test("me init bootstraps a personal space only after the zero-space prompt", asy
 test("me init installs a detected harness before configuring surfaces", async () => {
   const installed = new Set<string>();
   const { dependencies, writes } = wizardDependencies({
-    confirms: [true, false, false, false, true],
+    confirms: [false, true, true],
     detected: [{ name: "claude", displayName: "Claude Code" }],
   });
   dependencies.isHarnessInstalled = (name) => installed.has(name);
@@ -339,9 +345,9 @@ test("me init requires an explicit scope outside a TTY", async () => {
   const { dependencies } = wizardDependencies();
   dependencies.isTTY = () => false;
 
-  await expect(runInit(undefined, baseOptions, dependencies)).rejects.toThrow(
-    "requires a directory or --defaults",
-  );
+  await expect(
+    runInit(undefined, { ...baseOptions, verbose: true }, dependencies),
+  ).rejects.toThrow("requires a directory or --defaults");
 });
 
 test("me init exits without writing when a prompt is cancelled", async () => {
@@ -353,10 +359,136 @@ test("me init exits without writing when a prompt is cancelled", async () => {
     isCancel: (value: unknown) => value === cancelled,
   } as unknown as InitDependencies["prompts"];
 
-  await expect(runInit(undefined, baseOptions, dependencies)).rejects.toThrow(
-    "exit",
-  );
+  await expect(
+    runInit(undefined, { ...baseOptions, verbose: true }, dependencies),
+  ).rejects.toThrow("exit");
 
   expect(writes).toEqual([]);
   expect(logs).toContain("cancel:Cancelled.");
+});
+
+test("me init and me init . write the same quick profile", async () => {
+  const first = wizardDependencies({
+    confirms: [false, true],
+    detected: [{ name: "claude", displayName: "Claude Code" }],
+    installed: ["claude"],
+  });
+  const second = wizardDependencies({
+    confirms: [false, true],
+    detected: [{ name: "claude", displayName: "Claude Code" }],
+    installed: ["claude"],
+  });
+
+  await runInit(undefined, baseOptions, first.dependencies);
+  await runInit(".", baseOptions, second.dependencies);
+
+  expect(first.writes).toEqual(second.writes);
+});
+
+test("quick init enables MCP and CLI for every detected harness", async () => {
+  const { dependencies, writes, selectCalls, outros } = wizardDependencies({
+    confirms: [false, true],
+    detected: [
+      { name: "claude", displayName: "Claude Code" },
+      { name: "codex", displayName: "Codex CLI" },
+    ],
+    installed: ["claude", "codex"],
+  });
+
+  await runInit("/repo", baseOptions, dependencies);
+
+  expect(writes[0]).toEqual({
+    scope: "/repo",
+    profile: {
+      mcp: {
+        enabled: true,
+        server: "https://api.memory.build",
+        space: space.slug,
+        harnesses: { claude: true, codex: true },
+      },
+      capture: { enabled: false, harnesses: {} },
+      cli: {
+        server: "https://api.memory.build",
+        space: space.slug,
+        harnesses: { claude: true, codex: true },
+      },
+    },
+  });
+  expect(selectCalls).toEqual([]);
+  expect(outros).toEqual([
+    "Configured /repo in /home/test/.config/me/config.yaml. Run 'me init --verbose' for advanced setup.",
+  ]);
+});
+
+test("quick init uses its explicit server instead of the configured default", async () => {
+  const { dependencies } = wizardDependencies({
+    confirms: [false, true],
+    detected: [{ name: "claude", displayName: "Claude Code" }],
+    installed: ["claude"],
+  });
+  let requestedServer: string | undefined;
+  dependencies.resolveCredentials = (server) => {
+    requestedServer = server;
+    return {
+      server: server ?? "https://configured.example.com",
+      loggedIn: true,
+      activeSpace: undefined,
+    };
+  };
+
+  await runInit(
+    "/repo",
+    { ...baseOptions, server: "https://self-hosted.example.com" },
+    dependencies,
+  );
+
+  expect(requestedServer).toBe("https://self-hosted.example.com");
+});
+
+test("quick init defaults the space picker to the active space", async () => {
+  const other = { slug: "other000000", name: "Other" };
+  const { dependencies, selectCalls } = wizardDependencies({
+    confirms: [false, true],
+    selects: [space.slug],
+    activeSpace: space.slug,
+    user: fakeUser([space, other]),
+    detected: [{ name: "claude", displayName: "Claude Code" }],
+    installed: ["claude"],
+  });
+
+  await runInit("/repo", baseOptions, dependencies);
+
+  expect(selectCalls[0]).toMatchObject({ initialValue: space.slug });
+});
+
+test("quick init offers shared capture with a private-tree note", async () => {
+  const { dependencies, writes, logs, textCalls } = wizardDependencies({
+    confirms: [true, true],
+    texts: ["/share/projects/demo"],
+    detected: [{ name: "claude", displayName: "Claude Code" }],
+    installed: ["claude"],
+  });
+
+  await runInit("/repo", baseOptions, dependencies);
+
+  expect(textCalls[0]).toMatchObject({
+    initialValue: "/share/projects/demo",
+  });
+  expect(logs).toContain(
+    "info:Use ~/projects/demo instead to capture sessions privately.",
+  );
+  expect(writes[0]).toMatchObject({
+    profile: { capture: { enabled: true, tree: "/share/projects/demo" } },
+  });
+});
+
+test("quick init prints missing integration instructions when declined", async () => {
+  const { dependencies, logs } = wizardDependencies({
+    confirms: [false, false, true],
+    detected: [{ name: "codex", displayName: "Codex CLI" }],
+  });
+
+  await runInit("/repo", baseOptions, dependencies);
+
+  expect(logs).toContain("info:Run 'me install codex' when you are ready.");
 });
