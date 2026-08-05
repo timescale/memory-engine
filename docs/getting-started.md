@@ -44,7 +44,7 @@ me version
 
 ```bash
 me memory create "PostgreSQL 18 supports native UUIDv7 generation." \
-  --tree /share/notes/postgres \
+  --tree '~/notes/postgres' \
   --name uuidv7 \
   --meta '{"topic": "database"}'
 ```
@@ -113,7 +113,8 @@ me doctor
 ```
 
 Use `me init --verbose` to configure MCP, capture, and CLI routing separately.
-For headless or unattended environments, use `me login --device` or supply an
+
+`me init` works in headless or unattended environments, use `me login --device` or supply an
 API key through `ME_API_KEY`.
 
 Read [Harness Integrations](harness-integrations.md) for installation,
