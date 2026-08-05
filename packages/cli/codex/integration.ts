@@ -63,15 +63,40 @@ export function configureCodexMcpEnvironment(path = codexConfigPath()): void {
     throw new Error(`Codex MCP config at ${path} was not created.`);
   }
   const source = readFileSync(path, "utf8");
+  let config: Record<string, unknown>;
   try {
-    Bun.TOML.parse(source);
+    config = Bun.TOML.parse(source) as Record<string, unknown>;
   } catch (error) {
     throw new Error(
       `Codex MCP config at ${path} is invalid TOML: ${error instanceof Error ? error.message : String(error)}`,
     );
   }
 
-  const header = /^\[mcp_servers\.me\][ \t]*(?:#.*)?$/m.exec(source);
+  const mcpServers = config.mcp_servers;
+  const me =
+    mcpServers && typeof mcpServers === "object" && !Array.isArray(mcpServers)
+      ? (mcpServers as Record<string, unknown>).me
+      : undefined;
+  const existingEnvVars =
+    me && typeof me === "object" && !Array.isArray(me)
+      ? (me as Record<string, unknown>).env_vars
+      : undefined;
+  if (existingEnvVars !== undefined) {
+    if (
+      Array.isArray(existingEnvVars) &&
+      existingEnvVars.length === CODEX_MCP_ENV_VARS.length &&
+      existingEnvVars.every(
+        (value, index) => value === CODEX_MCP_ENV_VARS[index],
+      )
+    ) {
+      return;
+    }
+    throw new Error(
+      `Codex MCP server 'me' in ${path} has user-managed env_vars; refusing to overwrite it.`,
+    );
+  }
+
+  const header = /^[ \t]*\[mcp_servers\.me\][ \t]*(?:#.*)?\r?$/m.exec(source);
   if (!header || header.index === undefined) {
     throw new Error(`Codex MCP server 'me' is missing from ${path}.`);
   }
@@ -83,16 +108,10 @@ export function configureCodexMcpEnvironment(path = codexConfigPath()): void {
       : tableStart + nextTable.index;
   const table = source.slice(tableStart, tableEnd);
   const envVars = `env_vars = [${CODEX_MCP_ENV_VARS.map((name) => JSON.stringify(name)).join(", ")}]`;
-  const existing = /^[ \t]*env_vars[ \t]*=[^\n]*$/m.exec(table);
-  if (existing) {
-    if (existing[0].trim() === envVars) return;
-    throw new Error(
-      `Codex MCP server 'me' in ${path} has user-managed env_vars; refusing to overwrite it.`,
-    );
-  }
 
   const tableContentEnd = tableStart + table.trimEnd().length;
-  const updated = `${source.slice(0, tableContentEnd)}\n${envVars}${source.slice(tableContentEnd)}`;
+  const newline = source.includes("\r\n") ? "\r\n" : "\n";
+  const updated = `${source.slice(0, tableContentEnd)}${newline}${envVars}${source.slice(tableContentEnd)}`;
   writeFileSync(path, updated);
 }
 
