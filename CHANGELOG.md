@@ -4,6 +4,74 @@ All notable changes to the memory engine are documented here. The client
 (`v<x.y.z>`) and server (`server/v<x.y.z>`) release independently but are
 versioned in lockstep for coordinated breaking changes.
 
+## 0.7.0
+
+Server `server/v0.7.0` · Client `v0.7.0`.
+
+### Breaking
+- **Agent principals removed.** The `agent` principal kind and every
+  act-as-agent flow are gone: `--as-agent` / `ME_AS_AGENT` /
+  `X-Me-As-Agent`, owned-agent creation, and agent-scoped identity. Use a
+  **service account** (or a personal access token) for automated access
+  instead.
+- **Repository project configuration removed (hard cut).** `.me/config.yaml`,
+  `ME_CONFIG_DIR` / `--config-dir`, `me project init`, `me project ci`, and
+  `me import ci` no longer exist. Harness behavior is now machine-local policy
+  configured with `me init`, and CI setup is `me ci install`. Cloning a repo no
+  longer changes what Memory Engine does on your machine.
+- **Gemini harness support removed.** Only Claude Code, OpenCode, and Codex CLI
+  are supported harnesses.
+- **Minimum server version raised:** the client now requires server >= 0.7.0
+  (`MIN_SERVER_VERSION`) so a new client cannot request restricted API-key
+  access from a server too old to enforce the scope. `MIN_CLIENT_VERSION`
+  stays at 0.4.0 — the `memory.*` data plane (CRUD + search) is unchanged, so
+  older clients keep working for ordinary user and service-account access.
+  Removed agent flows (`--as-agent`, `agent.*`) are the exception: an old
+  client that used them silently loses that behavior against a 0.7.0 server.
+
+### Added
+- **Restricted API keys.** `me apikey create` gains `--allow <scope>` (space or
+  `space:path:r|w|o` tree ceiling), `--space-admin <space>`, and `--ttl`.
+  Restricted keys are capped to their declared spaces and dynamically clamped to
+  the holder's live authority; the server enforces the scope. Key metadata now
+  tracks a day-resolution last-used date.
+- **Harness integrations rework.** `me install` / `me uninstall` register
+  dormant, user-global integrations for Claude Code, OpenCode, and Codex CLI.
+  `me init` (quick setup, plus `--verbose` and `--defaults` wizards) writes
+  machine-local policy in `~/.config/me/config.yaml` with independent MCP,
+  capture, and harness-shell CLI surfaces. `me doctor` explains the effective
+  policy for a directory. See the new
+  [Harness Integrations](https://docs.memory.build/harness-integrations) guide.
+- **`me ci install`.** Generates a GitHub Actions workflow that imports git
+  history and Markdown docs, optionally provisioning a service account and
+  placing its key. The workflow runs `me import git` and `me import docs`
+  directly, restricts itself to `contents: read`, and checks out with
+  `persist-credentials: false`.
+- **Multi-space MCP.** A manual `me mcp` without a pinned space runs in
+  multi-space mode: `me_space_list` is available and memory tools take a
+  `space` argument. An explicit `--space` / `ME_SPACE` still locks the server.
+- **Memory field projection.** `me memory get` / `me memory search` accept
+  `--select`, and the MCP read tools accept `select` (plus `format`:
+  `yaml` default, or `json` / `compact`) to return only the requested fields
+  and content slices.
+- **Gateway-routed embeddings** via the `EMBEDDING_MODEL` environment variable.
+
+### Changed
+- OAuth token refresh is hardened: refreshes are serialized across processes
+  with lock-ownership checks, and refresh requests carry validated
+  client-identity headers for telemetry.
+- Tree-access grants resolve in a deterministic order.
+
+### Fixed
+- Exact `~` tree-path filters now build a valid lquery.
+- npm release tarballs are packed by bun so `workspace:*` dependencies resolve.
+
+### Database
+- core schema 0.0.4 -> 0.0.6 (API-key last-used tracking, then the scoped
+  API-key access model). auth stays 0.0.2 and space stays 0.0.6. Migrations
+  auto-apply on server boot; rolling back to a pre-0.7.0 server image is refused
+  by the downgrade guard on core.
+
 ## 0.6.2
 
 Server `server/v0.6.2` · Client `v0.6.2`.
