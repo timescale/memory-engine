@@ -125,6 +125,22 @@ test("adds the MCP environment allowlist without changing other Codex config", a
   });
 });
 
+test("adds the MCP environment allowlist to indented CRLF TOML", async () => {
+  await withTmpDir((dir) => {
+    const path = join(dir, "config.toml");
+    writeFileSync(
+      path,
+      '  [mcp_servers.me]\r\ncommand = "me"\r\nargs = ["mcp", "--harness", "codex"]\r\n',
+    );
+
+    configureCodexMcpEnvironment(path);
+
+    expect(readFileSync(path, "utf8")).toBe(
+      '  [mcp_servers.me]\r\ncommand = "me"\r\nargs = ["mcp", "--harness", "codex"]\r\nenv_vars = ["ME_API_KEY", "ME_SERVER", "ME_SPACE"]\r\n',
+    );
+  });
+});
+
 test("configures the managed MCP environment during installation", async () => {
   await withTmpDir(async (dir) => {
     const configPath = join(dir, "config.toml");
@@ -146,19 +162,15 @@ test("configures the managed MCP environment during installation", async () => {
   });
 });
 
-test("keeps the generated MCP environment allowlist idempotent", async () => {
+test("keeps a multiline generated MCP environment allowlist idempotent", async () => {
   await withTmpDir((dir) => {
     const path = join(dir, "config.toml");
-    writeFileSync(
-      path,
-      `[mcp_servers.me]\ncommand = "me"\nenv_vars = [${CODEX_MCP_ENV_VARS.map((name) => JSON.stringify(name)).join(", ")}]\n`,
-    );
+    const source = `[mcp_servers.me]\ncommand = "me"\nenv_vars = [\n${CODEX_MCP_ENV_VARS.map((name) => `  ${JSON.stringify(name)},`).join("\n")}\n]\n`;
+    writeFileSync(path, source);
 
     configureCodexMcpEnvironment(path);
 
-    expect(readFileSync(path, "utf8")).toContain(
-      'env_vars = ["ME_API_KEY", "ME_SERVER", "ME_SPACE"]',
-    );
+    expect(readFileSync(path, "utf8")).toBe(source);
   });
 });
 
@@ -167,7 +179,7 @@ test("refuses to overwrite a user-managed MCP environment allowlist", async () =
     const path = join(dir, "config.toml");
     writeFileSync(
       path,
-      '[mcp_servers.me]\ncommand = "me"\nenv_vars = ["CUSTOM_TOKEN"]\n',
+      '[mcp_servers.me]\ncommand = "me"\nenv_vars = [\n  "CUSTOM_TOKEN",\n]\n',
     );
 
     expect(() => configureCodexMcpEnvironment(path)).toThrow(
