@@ -17,7 +17,7 @@ me serve [--port <port>] [--host <host>] [--no-open]
 Starts a local HTTP server that:
 
 - Serves a React-based UI for browsing, searching, viewing, editing, and deleting memories.
-- Proxies JSON-RPC calls from the browser to the server, injecting your stored session token so it never leaves the machine.
+- Proxies JSON-RPC calls from the browser to the server, injecting the resolved bearer credential (your session or `ME_API_KEY`) so it never reaches the browser.
 
 By default the server binds to `127.0.0.1:3000`; if 3000 is busy it tries 3001, 3002, … up to 3019 before giving up. Passing `--port` explicitly is strict — it does not auto-increment.
 

@@ -4,7 +4,7 @@ Manage spaces.
 
 A **space** is an isolated collection of memories with its own roster, groups, and access grants. It is identified by an immutable 12-character **slug** (also the `X-Me-Space` header value) and a renamable display **name**. Your *active* space is the one carried on every memory command; set it with `me space use` (or `me login <space>`).
 
-These commands authenticate with your **session** (humans only — `me login`). Invitations operate on the active space.
+These commands require an authenticated credential. Invitations operate on the active space.
 
 ## Commands
 
@@ -14,7 +14,7 @@ These commands authenticate with your **session** (humans only — `me login`). 
 - [me space create](#me-space-create) -- create a space
 - [me space rename](#me-space-rename) -- rename a space
 - [me space delete](#me-space-delete) -- delete a space
-- [me space remove-member](#me-space-remove-member) -- remove a user from the space (admin)
+- [me space remove-member](#me-space-remove-member) -- remove a member from the space (admin)
 - [me space leave](#me-space-leave) -- remove yourself from the space
 - [me space invite](#me-space-invite) -- invite a user (and manage invitations)
 
@@ -89,7 +89,7 @@ me space create <name> [--no-home-grants] [--default-group <name>]
 | `--no-default-group-grants` | Create the default group **without** `read@/share` + `write@/share/projects` — a grantless group you configure by hand. |
 | `--no-default-group` | Don't create a default group at all. |
 
-The name, grants, and existence of the default group are independent axes, so `--default-group team` behaves exactly like the bare default. A fully manual, god-mode space is just `--no-home-grants --no-default-group`. Conflicting combinations error (e.g. `--no-default-group` with `--default-group` or `--no-default-group-grants`).
+The name, grants, and existence of the default group are independent axes, so `--default-group team` behaves exactly like the bare default. A fully manual, god-mode space is just `--no-home-grants --no-default-group`. Conflicting combinations error (for example, `--no-default-group` with `--no-default-group-grants`).
 
 > **Note:** in a space where members get no automatic access (`--no-home-grants` and no granted default group), a fresh joiner holds **zero grants and is locked out** until you grant them access — grant a default group `read@/share` once and invite through it (see [`me space invite`](#me-space-invite)) so joiners land read-only.
 
@@ -130,7 +130,7 @@ me space delete <space> [--force]
 
 ## me space remove-member
 
-Remove a **user** from the active space's roster, scrubbing their access grants and group memberships in that space. **Admin only.**
+Remove a **user or service account** from the active space's roster, scrubbing their access grants and group memberships in that space. **Admin only.**
 
 ```
 me space remove-member <principal> [-y]
@@ -138,13 +138,13 @@ me space remove-member <principal> [-y]
 
 | Argument | Required | Description |
 |----------|----------|-------------|
-| `principal` | yes | User **id or name** to remove. |
+| `principal` | yes | User or service-account **id or name** to remove. |
 
 | Option | Description |
 |--------|-------------|
 | `-y, --yes` | Skip the confirmation prompt. |
 
-Members only: a **group** cannot be removed this way — a group leaves a space only by being deleted (`me group delete`). Service accounts are deleted with [`me service delete`](me-service.md#me-service-delete), which also deletes their bound admin group. Passing a group name errors clearly. Removing the space's **sole admin** is rejected (`LAST_ADMIN`) — promote another admin first. To remove yourself, use [`me space leave`](#me-space-leave).
+A **group** cannot be removed this way — a group leaves a space only by being deleted (`me group delete`). Use [`me service delete`](me-service.md#me-service-delete) when you also want to delete a service account and its keys. Passing a group name errors clearly. Removing the space's **sole admin** is rejected (`LAST_ADMIN`) — promote another admin first. To remove yourself, use [`me space leave`](#me-space-leave).
 
 ---
 
@@ -160,7 +160,7 @@ me space leave [-y]
 |--------|-------------|
 | `-y, --yes` | Skip the confirmation prompt. |
 
-If you are the space's **sole admin**, the leave is rejected (`LAST_ADMIN`) — promote another admin (e.g. `me space invite --admin`, or add one) before leaving so the space keeps at least one.
+Only user principals can leave; service accounts must be removed by an admin or deleted. If you are the space's **sole admin**, the leave is rejected (`LAST_ADMIN`) — promote another admin before leaving so the space keeps at least one.
 
 ---
 
@@ -188,7 +188,7 @@ Example — invite into two groups:
 me space invite --email alice@example.com --group team --group backend
 ```
 
-Exactly one of `--email` or `--anyone` is required. A joining user always receives `owner@home` (their private root); their **shared** access comes from the group they join — the default `team` group grants `read` on `/share` and `write` on `/share/projects`. See [Access Control](../access-control.md#the-default-team-group) for changing these defaults.
+Exactly one of `--email` or `--anyone` is required. Unless the space was created with `--no-home-grants`, a joining user receives `owner@home` (their private root). Their **shared** access comes from the group they join. See [Access Control](../access-control.md#the-default-team-group) for changing defaults.
 
 ### me space invite list
 
@@ -200,15 +200,15 @@ me space invite list
 
 ### me space invite revoke
 
-Revoke a pending invitation by email.
+Revoke a pending invitation by its email or an open-link invitation by ID.
 
 ```
-me space invite revoke <email>
+me space invite revoke <id-or-email>
 ```
 
 | Argument | Required | Description |
 |----------|----------|-------------|
-| `email` | yes | The invited email to revoke. |
+| `id-or-email` | yes | The invited email or open-link invitation ID to revoke. |
 
 ## See also
 

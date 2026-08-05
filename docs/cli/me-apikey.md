@@ -2,7 +2,7 @@
 
 Manage API keys — your own **personal access token (PAT)** or a key for a **service account** (`--service`).
 
-An API key is a global, per-principal credential — **not** inherently bound to a space. An unrestricted key works in any space its principal has been admitted to. A restricted key works only in its declared spaces and is capped to any declared tree grants; the space comes from the `X-Me-Space` header (`--space` / `ME_SPACE`). Keys are formatted `me.<lookupId>.<secret>`.
+An API key is a global, per-principal credential — **not** inherently bound to a space. An unrestricted key works in any space its principal has been admitted to. A restricted key works only in its declared spaces and is capped to any declared tree grants; the space comes from the `X-Me-Space` header (`ME_SPACE` or the selected active space). Keys are formatted `me.<lookupId>.<secret>`.
 
 There are two access modes: an unrestricted key acts with all of its holder's
 current authority, while a restricted key is capped to declared spaces and

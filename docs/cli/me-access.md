@@ -12,7 +12,7 @@ A grant attaches an access **level** to a principal (user, service account, or g
 
 `owner` at the empty (root) path owns the whole space. Granting access requires `owner` on the path in question (an admin can self-grant `owner@root`). See [Access Control](../access-control.md).
 
-These commands authenticate with your **session** and operate on the active space.
+These commands require an authenticated credential and operate on the active space.
 
 ## Commands
 
