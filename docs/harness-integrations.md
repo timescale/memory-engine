@@ -34,6 +34,13 @@ Run `me doctor` afterwards to inspect the profile that applies to the current
 directory. Use `me init --verbose` when you need to configure MCP, capture, and
 CLI routing independently.
 
+### Import Existing Sessions
+
+To import sessions created before capture was enabled, run `me import claude`,
+`me import codex`, or `me import opencode`. See [Agent session
+imports](cli/agent-session-imports.md) for options, destination trees, and
+idempotent re-imports.
+
 ## Install And Uninstall
 
 Use the aggregate commands to manage detected harnesses:
