@@ -28,6 +28,10 @@ you enable it and point it at a server, space, and tree with
 [`me init`](me-init.md) (inspect the policy that applies to a directory with
 [`me doctor`](me-doctor.md)).
 
+The MCP registration allows Codex to forward `ME_API_KEY`, `ME_SERVER`, and
+`ME_SPACE` when they are present in Codex's environment. Their values are not
+written to `~/.codex/config.toml`; restart Codex after changing them.
+
 Codex requires you to approve the installed hooks through `/hooks`. Memory
 Engine never automates or bypasses this trust approval.
 
