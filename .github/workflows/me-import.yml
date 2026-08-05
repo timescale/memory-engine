@@ -29,10 +29,10 @@ jobs:
           ME_API_KEY: ${{ secrets.ME_API_KEY }}
           ME_SPACE: ahkgk250pmzh
         run: |
-          "$HOME/.local/bin/me" import git --tree /share/projects/memory-engine
+          "$HOME/.local/bin/me" import git --tree /share/projects/memory_engine
       - name: Import docs
         env:
           ME_API_KEY: ${{ secrets.ME_API_KEY }}
           ME_SPACE: ahkgk250pmzh
         run: |
-          "$HOME/.local/bin/me" import docs . --git-aware --prune --tree /share/projects/memory-engine
+          "$HOME/.local/bin/me" import docs . --git-aware --prune --tree /share/projects/memory_engine
