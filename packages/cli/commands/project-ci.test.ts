@@ -63,6 +63,7 @@ describe("me ci install", () => {
     expect(workflow).toContain("ME_SPACE: team-memory");
     expect(workflow).toContain("ME_SERVER: https://me.example.test");
     expect(workflow).toContain("permissions:\n  contents: read");
+    expect(workflow).toContain("persist-credentials: false");
     expect(workflow).toContain("import git --tree /share/projects/widgets");
     expect(workflow).toContain(
       "import docs . --git-aware --prune --tree /share/projects/widgets",
