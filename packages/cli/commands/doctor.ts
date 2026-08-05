@@ -52,6 +52,7 @@ function diagnoseEnabledSurface(
   name: "mcp" | "capture",
   surface: ResolvedSurface<McpSurface | CaptureSurface>,
   profile: ResolvedHarnessProfile,
+  harness?: HarnessName,
 ): EnabledSurfaceDiagnosis {
   if (surface.source === "disabled" || surface.value === undefined) {
     return {
@@ -75,6 +76,13 @@ function diagnoseEnabledSurface(
       active: false,
       reason: `\`${name}\` is enabled in the ${where} but selects no harness`,
       harnesses: [],
+    };
+  }
+  if (harness && value.harnesses[harness] !== true) {
+    return {
+      active: false,
+      reason: `\`${name}\` is enabled in the ${where} but does not select ${harness}`,
+      harnesses,
     };
   }
   const base: EnabledSurfaceDiagnosis = {
@@ -251,7 +259,12 @@ export function createDoctorCommand(): Command {
       const mcpProfile = mcpResolution?.profile ?? profile;
       const shapes = readShapeLog();
 
-      const mcp = diagnoseEnabledSurface("mcp", mcpProfile.mcp, mcpProfile);
+      const mcp = diagnoseEnabledSurface(
+        "mcp",
+        mcpProfile.mcp,
+        mcpProfile,
+        mcpHarness,
+      );
       const capture = diagnoseEnabledSurface(
         "capture",
         profile.capture,
@@ -302,10 +315,14 @@ export function createDoctorCommand(): Command {
                 : "defaults (no directory profile matched)"
             }`,
           );
-          console.log(`  MCP:       ${enabledSurfaceLine(mcp)}`);
+          console.log(
+            `  ${mcpHarness ? `MCP (${mcpHarness})` : "MCP"}: ${enabledSurfaceLine(mcp)}`,
+          );
           console.log(`  Capture:   ${enabledSurfaceLine(capture)}`);
           console.log(`  CLI:       ${cliSurfaceLine(cli)}`);
-          console.log(`  Harness:   ${harnessContextLine(agent, cliRouting)}`);
+          console.log(
+            `  CLI context: ${harnessContextLine(agent, cliRouting)}`,
+          );
           if (shapes.length > 0) {
             console.log(
               `  Warnings:  ${shapes.length} unrecognized harness payload shape(s)`,

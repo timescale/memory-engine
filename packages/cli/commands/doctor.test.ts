@@ -219,3 +219,16 @@ test("managed MCP diagnosis uses the same Claude fallback as the dispatcher", as
   });
   expect(out.surfaces.mcp).toMatchObject({ active: true, server: SERVER });
 });
+
+test("managed MCP diagnosis is inactive when the profile selects another harness", async () => {
+  const dir = makeDir("project");
+  writeDirectoryProfile(dir, {
+    mcp: { enabled: true, server: SERVER, harnesses: { opencode: true } },
+  });
+
+  const out = await runDoctor(["--harness", "claude", dir]);
+
+  expect(out.mcp_anchor.harness).toBe("claude");
+  expect(out.surfaces.mcp.active).toBe(false);
+  expect(out.surfaces.mcp.reason).toContain("does not select claude");
+});
