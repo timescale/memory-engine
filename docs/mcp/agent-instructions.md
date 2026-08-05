@@ -1,8 +1,8 @@
 # MCP Agent Instructions
 
 This page is for AI agents that already have Memory Engine MCP tools available.
-It explains how to use memory during work. For setup, see
-[MCP Integration](../mcp-integration.md).
+It explains how to use memory during work. For setup, see [MCP Integration](../mcp-integration.md)
+and [Harness Integrations](../harness-integrations.md).
 
 ## Use Memory Proactively
 
@@ -99,7 +99,7 @@ Prefer this:
 {
   "tree": "/share/decisions/auth",
   "name": "device-flow-session-token",
-  "content": "Device login returns a bearer session token, not an OAuth refresh token. Treat it as a 7-day sliding session accepted by the resource-server middleware.",
+  "content": "Device login returns a bearer session token, not an OAuth refresh token. Treat it as a 7-day sliding session.",
   "meta": { "type": "decision", "topic": "auth" }
 }
 ```

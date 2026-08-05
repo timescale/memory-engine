@@ -154,7 +154,7 @@ Each commit is a named leaf (the commit `<sha>`) under the project's `git_histor
 <tree>/git_history/<sha>
 ```
 
-`<tree>` is the full project node — `--tree`, else `~/projects/<project_slug>` (private). The default project slug is derived exactly as for [agent session imports](agent-session-imports.md#tree-layout) (git remote repo name, else repo root directory name), so a project's commit history sits next to its `agent_sessions` node — e.g. a commit lands at `~/projects/memory_engine/git_history/<sha>` and is addressable by that path (or at `/share/projects/memory_engine/git_history/<sha>` when you pass `--tree /share/projects/memory_engine`).
+`<tree>` is the full project node — `--tree`, else `~/projects/<project_slug>` (private). The default project slug is derived exactly as for [agent session imports](agent-session-imports.md#tree-layout) (git `origin` repository name, then repo root directory name), so a project's commit history sits next to its `agent_sessions` node — e.g. a commit lands at `~/projects/memory_engine/git_history/<sha>` and is addressable by that path (or at `/share/projects/memory_engine/git_history/<sha>` when you pass `--tree /share/projects/memory_engine`).
 
 ### Content shape
 
@@ -247,9 +247,9 @@ In plain mode, the fallback project slug comes from the import directory basenam
 
 Because slots derive from the import root while a git-aware fallback identity stays repo-level, runs rooted at different directories of the same repo would mint parallel corpora under one docs root — and a cross-root `--prune` would delete the other root's slots. So with `--git-aware`, an import root below the repo toplevel is **refused** unless `--allow-subdir-root` is passed; scope with `--include` from the toplevel instead, and if you do opt into a subfolder root, always use the same one. Plain mode needs no guard: it means exactly "the files under this directory".
 
-### Frontmatter is document data, never engine fields
+### Frontmatter is document data, never record fields
 
-Unlike [`me import memories`](#me-import-memories) — where frontmatter *is* the memory record — this importer never reads engine fields (`id`, `name`, `tree`, `temporal`) from frontmatter: real-world docs own that vocabulary (Docusaurus `id:`, Hugo `slug:`), and the engine fields derive from the file path so idempotency keys stay stable. The parsed frontmatter object is preserved verbatim under **`meta.doc`**, and it is stripped from the content. Two exceptions use frontmatter *as data*: a string `title:` wins over the first-H1 heuristic for `meta.title`, and `--temporal-key` designates one key as the temporal source. A file whose frontmatter block is invalid YAML (or a non-object) imports with its content verbatim and no `meta.doc` — a broken header never fails the file.
+Unlike [`me import memories`](#me-import-memories) — where frontmatter *is* the memory record — this importer never reads record fields (`id`, `name`, `tree`, `temporal`) from frontmatter: real-world docs own that vocabulary (Docusaurus `id:`, Hugo `slug:`), and the record fields derive from the file path so idempotency keys stay stable. The parsed frontmatter object is preserved verbatim under **`meta.doc`**, and it is stripped from the content. Two exceptions use frontmatter *as data*: a string `title:` wins over the first-H1 heuristic for `meta.title`, and `--temporal-key` designates one key as the temporal source. A file whose frontmatter block is invalid YAML (or a non-object) imports with its content verbatim and no `meta.doc` — a broken header never fails the file.
 
 ### Content shape
 

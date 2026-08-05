@@ -39,3 +39,6 @@ The workflow runs these commands explicitly:
 me import git --tree /share/projects/<repo-name>
 me import docs . --git-aware --prune --tree /share/projects/<repo-name>
 ```
+
+See [Projects](../projects.md) for choosing a shared CI destination and
+[Harness Integrations](../harness-integrations.md) for local coding-agent setup.

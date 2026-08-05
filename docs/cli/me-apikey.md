@@ -124,3 +124,5 @@ me apikey delete <id> [-y]
 
 - [`me service`](me-service.md) -- create service accounts that hold `--service` keys.
 - [MCP Integration](../mcp-integration.md) -- supply a key to an MCP-connected agent via `--api-key` or `ME_API_KEY`.
+- [Harness Integrations](../harness-integrations.md) -- managed harnesses and
+  machine-local configuration.

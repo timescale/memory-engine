@@ -27,11 +27,14 @@ Resolution order:
 
 - **Auth token**: `--api-key` > `ME_API_KEY` > stored session token.
 - **Space**: `--space` > `ME_SPACE`; without either, MCP is multi-space.
-- **Server URL**: `--server` (global option) > `ME_SERVER` > `https://api.memory.build`.
+- **Server URL**: `--server` (global option) > `ME_SERVER` > saved default server >
+  `https://api.memory.build`.
 
 A logged-in developer needs no key or space. `--space` and `ME_SPACE` create a locked server: memory tools cannot select another space. Without either, MCP starts multi-space mode: `me_space_list` is available and memory tools require `space`. Your stored active space does not select an MCP space. This supports manual configuration without an active space, for example `me mcp --api-key <key> --server <url>`. Selecting a space never grants access; the server still enforces membership and tree grants. The server acts as the principal represented by that credential.
 
 This command is typically not run directly -- it is invoked by AI tools based on their MCP configuration.
+For managed harness installation and policy activation, see [Harness
+Integrations](../harness-integrations.md).
 
 ---
 
@@ -55,6 +58,6 @@ claude plugin install memory-engine@memory-engine [--scope user|project|local]
 Then configure the plugin with [`me init`](me-init.md). The managed MCP server
 exposes tools only when the matched local profile enables MCP for Claude. The
 plugin has no tree setting — where captured sessions are stored is controlled by
-your machine-local capture policy ([`me init`](me-init.md)'s `--capture-tree`,
-or the private `~/projects` default). See [`me claude`](me-claude.md) for the
-full plugin reference.
+your machine-local capture policy. Quick `me init` suggests a shared project
+tree and offers `~/projects/<repository>` for private capture. See
+[`me claude`](me-claude.md) for the full plugin reference.

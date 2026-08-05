@@ -17,7 +17,7 @@ me claude install
 ```
 
 This mechanical, non-interactive command installs the user-scoped dormant
-Claude plugin, whose MCP entry runs exactly `me mcp`. It does not prompt, log
+Claude plugin, whose managed MCP entry identifies Claude as its harness. It does not prompt, log
 in, write credentials, backfill sessions, enable capture, select a server or
 space, or write repository configuration.
 
@@ -35,6 +35,9 @@ Claude configuration is preserved.
 An internal SessionStart helper. It provides `AI_AGENT=claude` and
 `ME_PROJECT_DIR` to Claude shell commands. It does not activate Memory Engine
 features or set credentials.
+
+See [Harness Integrations](../harness-integrations.md) for how the plugin uses
+the machine-local policy at runtime.
 
 ## me claude hook
 

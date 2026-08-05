@@ -46,7 +46,12 @@ The whole run imports into a **single** target: the space resolved from `--space
 
 Sessions are **skipped and tallied** (not fatal) when a filter excludes them — a system temp cwd (see `--include-temp-cwd`), a trivial session under two user messages (`--include-trivial`), a Claude subagent sidechain (`--include-sidechains`), or a `--since` / `--until` bound — and parse errors are counted separately. `--verbose` lists each skip; `--dry-run` reports the plan without writing.
 
-Project slugs come from the git repo root directory name when the cwd is inside a repo, or from `basename(cwd)` otherwise. Slug collisions (two different cwds that normalize to the same label) are resolved automatically by appending a 4-char hash suffix -- the first cwd seen gets the plain slug, subsequent ones get `slug_<hash>`. The full cwd is always preserved in `meta.source_cwd`.
+Project slugs come from the git `origin` repository name when available, then the
+git repo root directory name, then `basename(cwd)`. Slug collisions (two
+different cwds that normalize to the same label) are resolved automatically by
+appending a 4-char hash suffix -- the first cwd seen gets the plain slug,
+subsequent ones get `slug_<hash>`. The full cwd is always preserved in
+`meta.source_cwd`.
 
 ## Idempotency
 

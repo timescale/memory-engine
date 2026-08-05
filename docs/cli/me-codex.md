@@ -23,7 +23,7 @@ This non-interactive command registers an identified managed MCP command and
 installs user-global Codex hooks: a `PreToolUse` Bash hook that only injects
 `AI_AGENT=codex` and `ME_PROJECT_DIR` into Bash commands, plus transcript-capture
 hooks (on session `Stop` and `SessionEnd`). The install writes no credentials,
-server, space, tree, cwd, or project configuration — capture stays dormant until
+server, space, tree, cwd, or repository configuration — capture stays dormant until
 you enable it and point it at a server, space, and tree with
 [`me init`](me-init.md) (inspect the policy that applies to a directory with
 [`me doctor`](me-doctor.md)).
@@ -41,10 +41,12 @@ Engine never automates or bypasses this trust approval.
 me codex uninstall
 ```
 
-Removes only the MCP registration and matching `PreToolUse` hook recorded by
+Removes the MCP registration and recorded Codex hooks created by
 `me codex install`, preserving unrelated hook configuration.
 
 For manual MCP client configuration, see [MCP Integration](../mcp-integration.md).
+See [Harness Integrations](../harness-integrations.md) for the shared
+installation and activation model.
 
 ### Known gap: Codex Desktop and the VS Code extension
 
