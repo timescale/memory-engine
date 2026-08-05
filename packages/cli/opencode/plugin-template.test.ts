@@ -99,7 +99,7 @@ describe("OpenCode dormant plugin", () => {
       const capture = hooks.event({ event }).then(() => {
         settled = true;
       });
-      await new Promise((resolve) => setTimeout(resolve, 0));
+      await new Promise<void>((resolve) => queueMicrotask(resolve));
       expect(settled).toBe(false);
       shell.release();
       await capture;
