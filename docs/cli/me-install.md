@@ -18,6 +18,11 @@ Each integration registers an identified managed MCP command without
 credentials, server, space, or project settings. Runtime behavior is configured
 separately through `me init`.
 
+Installation is user-global; `me init` is directory-specific. If an integration
+cannot be installed immediately, configure the directory first and run
+`me install <harness>` later. See [Harness Integrations](../harness-integrations.md)
+for the lifecycle and ownership rules.
+
 ## Examples
 
 ```bash

@@ -1,70 +1,73 @@
 # Projects
 
-A Memory Engine **project** is a convention for one repository's memories. It is
-not a separate object in the server: a project is a tree path, plus the grants
-that decide who can write there.
+A Memory Engine **project** is a convention for memories from one repository.
+It is not a separate server object and it does not require repository
+configuration. A project is a tree path plus the access grants that control who
+can use that path.
 
-Nothing in the repository configures this. You point a project's captures and
-imports at its tree with machine-local, per-directory policy ([`me init`](cli/me-init.md))
-and with the `--tree` / `--tree-root` flags on the import commands. The main
-choice is where the project's tree should live.
+Use `me init` from a repository to configure machine-local capture and harness
+policy for that directory. Use [Harness Integrations](harness-integrations.md)
+for the installation and policy model.
 
-Some layouts need help from a **space admin** or a path owner. You can set up
-layouts that use access you already have, but creating groups is admin-gated,
-and granting access requires owner access at the target path.
+## Choose A Project Tree
 
-## Common Layouts
+The main decision is whether project knowledge is shared or private.
 
-| Goal | Project tree | Grants |
-|------|--------------|--------|
-| Whole team can write project memories | `/share/projects/<project>` | The default `team` group is enough |
-| Whole team can read, one group writes | `/share/<group>/<project>` | Grant that group `write` on the group or project path |
-| Only one group can read and write | `/<group>/<project>` | Grant that group `write` on the group or project path |
-| CI imports git/docs | The selected CI tree | `me ci install` can create a service account and grant it write access |
+| Goal | Project tree | Typical access |
+| --- | --- | --- |
+| Team-shared repository knowledge | `/share/projects/<project>` | Members with write access under `/share/projects` |
+| Shared visibility, subgroup writes | `/share/<group>/<project>` | Team reads `/share`; subgroup receives write access |
+| Group-private repository knowledge | `/<group>/<project>` | Only the group receives access |
+| Personal repository knowledge | `~/projects/<project>` | Your home-tree access |
+| CI imports | A shared project tree | Service account receives write access at that tree |
 
-Project trees are full paths. When a project tree is `/share/projects/acme-api`,
-captures and imports land directly under that node:
+When quick setup enables capture, it suggests `/share/projects/<repository>`.
+Choose `~/projects/<repository>` at the prompt when captures should remain
+private. Use `me init --verbose` to choose a different tree or configure capture
+separately from MCP and CLI routing.
+
+Project trees are full paths. For `/share/projects/acme-api`, common child nodes
+include:
 
 - `/share/projects/acme-api/agent_sessions`
 - `/share/projects/acme-api/git_history`
 - `/share/projects/acme-api/docs`
 
-No extra project slug is appended.
+No additional repository slug is appended to a tree you explicitly choose.
 
-## Team-Writable Projects
+## Team-Shared Projects
 
-Use `/share/projects/<project>` when everyone in the space's default `team`
-group should be able to write memories for the repo.
+`/share/projects/<project>` is the usual destination for repository knowledge
+the whole space should be able to read and contribute to.
 
-Point this directory's session capture at that tree (machine-local; each
-teammate runs it once for their own checkout):
+Default spaces commonly provision a default group with read access to `/share`
+and write access to `/share/projects`. That is a convention of the default space
+setup, not a guarantee for every custom space. Check your effective access
+before relying on it:
 
 ```bash
-me init . \
-  --capture-server https://api.memory.build \
-  --capture-space abc123def456 \
-  --capture-tree /share/projects/acme-api \
-  --capture-harness claude
+me access mine --effective
+me tree /share/projects --levels 2
 ```
 
-This works in a default space because the auto-provisioned `team` group carries:
+For a repository named `acme-api`, run `me init` and accept or enter:
 
-- `read@/share`
-- `write@/share/projects`
+```text
+/share/projects/acme-api
+```
 
-Invitations add new members to `team` by default, so teammates can read shared
-knowledge and write under `/share/projects/...` without a per-project grant.
-This is the happy path for shared repository memory. One-off imports target the
-same tree with `--tree`, e.g. `me import git --tree /share/projects/acme-api`.
+The same full tree can be used for one-off imports:
 
-## Group-Writable Projects
+```bash
+me import git --tree /share/projects/acme-api
+me import docs . --tree /share/projects/acme-api
+```
 
-Use a group path when the whole team may read the project, but only a subgroup
-should write it. For example, a payments team might keep projects under
-`/share/payments/...`:
+## Subgroup-Writable Projects
 
-Ask a space admin to create the group and add members. Then have someone with
-owner access at the target path grant the group write access:
+Use a subgroup path when everyone may read a project but only selected members
+should write it. A space admin creates and manages the group; a path owner grants
+the group's access:
 
 ```bash
 me group create payments
@@ -73,28 +76,15 @@ me group add payments bob@example.com
 me access grant payments /share/payments w
 ```
 
-Then point the repo's capture (and imports) at a tree under that group path,
-e.g. `--capture-tree /share/payments/acme-billing`.
+Then configure the repository to use a child tree such as
+`/share/payments/acme-billing`. A grant at `/share/payments` covers every
+project below it. Grant the individual project path when access should be scoped
+to one repository only.
 
-The grant at `/share/payments` covers every project below it. If you want one
-repo at a time instead, grant the project node directly:
+## Private Group And Personal Projects
 
-```bash
-me access grant payments /share/payments/acme-billing w
-```
-
-In a default space, `team` still has `read@/share`, so other teammates can read
-the project memories but cannot write them unless they are also in `payments`.
-
-## Group-Private Projects
-
-If the project should not be broadly visible, do not put it under `/share`.
-`/share` is the convention for space-wide shared knowledge, and in a default
-space the `team` group can read it.
-
-Instead, create a top-level tree for the group and grant only that group access.
-A space admin can create the group and add members; granting write access at the
-target path requires owner access there.
+Do not place a private group project under `/share` when the wider space should
+not read it. Instead, create a separate tree and grant only that group:
 
 ```bash
 me group create group-x
@@ -103,34 +93,32 @@ me group add group-x bob@example.com
 me access grant group-x /group-x w
 ```
 
-Then point the repo's capture at a tree under that node, e.g.
-`--capture-tree /group-x/secret-project`. A single write grant is enough when the
-same group should both read and write: `write` includes `read`.
+Configure a project below that tree, for example
+`/group-x/secret-project`.
 
-Put personal project notes under `~/projects/<project>` when they are only for
-you — that private layout is the default when you don't pin a `--capture-tree`.
+For personal notes and private captures, use `~/projects/<project>`. A home tree
+is private by default, subject to any access you explicitly grant to others.
 
 ## CI Imports
 
-For git-history and docs imports, run:
+Use `me ci install` from a GitHub repository to create an import workflow for
+git history and Markdown documentation:
 
 ```bash
 me ci install
 ```
 
-CI runs as a service account. Service accounts do not join `team` and do not get
-a home tree. When it provisions credentials, `me ci install` creates a write
-grant at the selected CI tree; an existing key is verified by the first CI run.
+CI runs with a service-account key. Service accounts do not have a home tree, so
+their destination must be a shared or otherwise explicitly granted project tree.
+When `me ci install` creates credentials, it grants write access at the selected
+tree. See [`me ci`](cli/me-ci.md) for workflow and credential details.
 
-For teams that use `/share/projects/<project>` everywhere, a space admin may
-also grant one shared service account `write@/share/projects`. For per-project
-or per-group service accounts, grant only the specific project tree.
+## Change A Project Later
 
-## Changing a Project Later
-
-To move a repository's future captures, rerun [`me init`](cli/me-init.md) for
-that directory with a different `--capture-tree`; for imports, pass a different
-`--tree`. Existing memories stay at their old paths until you move or copy them.
+Rerun `me init` in the repository to update its quick configuration, or use
+`me init --verbose` to choose a different capture tree while preserving precise
+control of the other surfaces. Existing memories stay at their original paths;
+changing future capture or import destinations does not move them.
 
 Useful checks:
 
@@ -138,8 +126,7 @@ Useful checks:
 me doctor
 me whoami
 me access mine --effective
-me tree /share/projects --levels 2
 ```
 
-See also [`me init`](cli/me-init.md), [`me doctor`](cli/me-doctor.md),
-[`me group`](cli/me-group.md), and [`me access`](cli/me-access.md).
+See also [Harness Integrations](harness-integrations.md), [`me init`](cli/me-init.md),
+[`me access`](cli/me-access.md), and [`me group`](cli/me-group.md).

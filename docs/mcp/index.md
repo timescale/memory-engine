@@ -1,6 +1,6 @@
 # MCP Tool Reference
 
-Memory Engine exposes 15 memory tools to AI agents over the [Model Context Protocol](https://modelcontextprotocol.io/). In multi-space mode it also exposes a space-discovery tool. Once an agent is connected (see [MCP Integration](../mcp-integration.md)), it can inspect its context, store, search, and organize memories with the tools below.
+Memory Engine exposes 15 memory tools to AI agents over the [Model Context Protocol](https://modelcontextprotocol.io/). In multi-space mode it also exposes a space-discovery tool. Once an agent is connected (see [MCP Integration](../mcp-integration.md)), it can inspect its context, store, search, and organize memories with the tools below. Managed coding-agent setup is described in [Harness Integrations](../harness-integrations.md).
 
 If you are an agent using these tools, start with [MCP Agent Instructions](agent-instructions.md) for when to search, what to store, and how access control affects visible and writable trees.
 

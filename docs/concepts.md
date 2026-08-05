@@ -273,6 +273,9 @@ A **space** is an isolated collection of memories with its own roster, groups, a
 - A roster of **principals** -- users, service accounts, and groups.
 - Tree-access grants that control who can read/write/own which paths.
 
-A space is identified by an immutable 12-character **slug** (also the `X-Me-Space` header value) and a renamable display **name**. A user can belong to many spaces; service accounts are created inside one space; each memory lives in exactly one space. There are no organization, engine, or shard concepts above a space.
+A space is identified by an immutable 12-character **slug** (also the
+`X-Me-Space` header value) and a renamable display **name**. A user can belong
+to many spaces; service accounts are created inside one space; each memory lives
+in exactly one space.
 
 Manage spaces with [`me space`](cli/me-space.md), and see [Access Control](access-control.md) for principals and grants.

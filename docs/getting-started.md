@@ -24,7 +24,7 @@ This opens your browser to sign in via GitHub or Google (an OAuth 2.1 auth-code 
 
 On a **headless** host with no local browser (an agent harness in a sandbox, a remote SSH session, a container), use `me login --device` instead: the CLI prints a short URL and code to approve on any device (the OAuth 2.0 device authorization grant), yielding a rolling 7-day session token. See [`me login`](cli/me-login.md).
 
-If you belong to more than one space, pick the active one (it's carried as the `X-Me-Space` on every request):
+If you belong to more than one space, pick the active one:
 
 ```bash
 me space list
@@ -44,12 +44,12 @@ me version
 
 ```bash
 me memory create "PostgreSQL 18 supports native UUIDv7 generation." \
-  --tree share/notes/postgres \
+  --tree /share/notes/postgres \
   --name uuidv7 \
   --meta '{"topic": "database"}'
 ```
 
-A `--tree` is required. Put memories the rest of your space should see under `share/*`, and personal ones under `~/*` (your private home). The optional `--name` gives the memory a filename-like slug (unique within its tree) so you can later address it by path -- `me get share/notes/postgres/uuidv7`. See [Core Concepts](concepts.md#reserved-roots).
+A `--tree` is required. Put memories the rest of your space should see under `/share/*`, and personal ones under `~/*` (your private home). The optional `--name` gives the memory a filename-like slug (unique within its tree) so you can later address it by path -- `me get share/notes/postgres/uuidv7`. See [Core Concepts](concepts.md#reserved-roots).
 
 ## Search
 
@@ -79,31 +79,39 @@ For a richer, visual experience there's a web UI with a tree explorer, hybrid / 
 
 ## Connect to AI tools
 
-Register Memory Engine with your AI coding tools:
+From a repository you want to configure, run:
 
 ```bash
-me opencode install
-me codex install
+me init
 ```
 
-For Claude Code, `me claude install` installs the one user-scoped Memory Engine plugin (hooks + slash commands + MCP) — run it once, it applies to every project:
+This is the recommended coding-agent setup. It signs you in when needed,
+selects a space, enables MCP tools and `me` command routing for detected
+harnesses, and offers to install missing integrations. It also asks whether to
+enable session capture.
+
+Capture is off by default. When enabled, its suggested tree is
+`/share/projects/<repository>` for team knowledge; choose
+`~/projects/<repository>` instead for private captures.
+
+Verify the result with:
 
 ```bash
-me claude install            # full plugin (once, user scope)
-me claude install --mcp-only # or just the MCP server
+me doctor
 ```
 
-This drives Claude Code's native plugin flow for you (`claude plugin marketplace add` + `claude plugin install`) and installs the plugin **dormant**: it does not log in, write credentials, or turn on capture. Restart Claude Code (or run `/plugin`) afterwards to load the hooks and slash commands.
+Use `me init --verbose` to configure MCP, capture, and CLI routing separately.
+For headless or unattended environments, use `me login --device` or supply an
+API key through `ME_API_KEY`.
 
-Session capture is **off by default** and configured machine-locally. Turn it on — and choose where a project's memories land — with [`me init`](cli/me-init.md): captures default **privately** to `~/projects/<repo>`, and sharing with a team is a per-directory choice via a `--capture-tree` under `/share/projects/...` (see [Projects](projects.md)). Use [`me doctor`](cli/me-doctor.md) to see which policy applies to a directory.
-
-After installation, your AI agent has access to memory tools -- create, search, get, update, delete, and more.
-
-See [MCP Integration](mcp-integration.md) for details.
+Read [Harness Integrations](harness-integrations.md) for installation,
+uninstallation, and machine-local policy details. See [MCP Integration](mcp-integration.md)
+for manual MCP client configuration.
 
 ## What's next
 
 - [Core Concepts](concepts.md) -- understand memories, tree paths, metadata, search modes
+- [Harness Integrations](harness-integrations.md) -- install coding-agent integrations and configure local policy
 - [Projects](projects.md) -- set up repository memory trees and project grants
 - [Access Control](access-control.md) -- spaces, principals, and tree-access grants
 - [Memory Packs](memory-packs.md) -- install pre-built knowledge collections

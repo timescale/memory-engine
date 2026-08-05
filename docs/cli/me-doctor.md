@@ -35,3 +35,6 @@ An explicit `[directory]` overrides that anchor. The command reports:
   adapter.
 
 Use `--json` or `--yaml` for structured output.
+
+See [Harness Integrations](../harness-integrations.md) for how profiles are
+installed, resolved, and activated.

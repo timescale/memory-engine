@@ -1,6 +1,7 @@
 # Access Control
 
-Memory Engine organizes knowledge into **spaces**. Access within a space is granted on **tree paths**, not by role. There is no Row-Level Security — the server computes a caller's effective access and passes it into every database call.
+Memory Engine organizes knowledge into **spaces**. Access within a space is
+granted on **tree paths**, not by role, and is enforced for every operation.
 
 ## Principals
 
@@ -143,9 +144,13 @@ The default group is surfaced on `me space list` and is what `me space invite` t
 
 ## How it's enforced
 
-There is no Row-Level Security. For each request, the server calls `build_tree_access(principalId, spaceId)`, which collapses the principal's own grants and those from any groups it belongs to — but **only if the principal is a direct space member** — into a single set of `(tree_path, access)` rows. That set is passed as an argument into the space's SQL functions (`search_memory`, `get_memory`, …), which filter to the paths the caller may see.
+Memory Engine combines a member's direct grants with grants from its groups when
+evaluating each request. Group grants apply only after the member has joined the
+space directly; belonging to a group alone does not make someone a space member.
 
-The authorization gate to use a space at all is direct **space membership** (`principal_space`). A member may have zero tree grants and still authenticate for structural operations such as group management. Data-plane operations still receive the caller's effective grants; someone with no matching `read`/`write` grant sees no memories and cannot write memories. Someone who is only in a group (never joined the space) resolves to an empty access set and is denied at the membership gate.
+Direct space membership allows the account to authenticate for space operations,
+but data operations still require matching tree access. A member with no
+matching `read` or `write` grant sees no memories and cannot create them.
 
 :::warning[Quiet filtering]
 Access filtering happens inside the query. If you lack `read` on a memory's tree path, a search simply returns fewer rows and `me memory get` reports "not found" — you get no error distinguishing "doesn't exist" from "not visible to you." If you're missing results you expect, check your grants with `me access list <your-principal>`.

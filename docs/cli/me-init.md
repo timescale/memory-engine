@@ -35,6 +35,9 @@ profile ready for a later `me install <harness>`.
 On success, `me init` prints the machine-local config path it updated and points
 to `me init --verbose` for advanced setup.
 
+See [Harness Integrations](../harness-integrations.md) for installation,
+uninstallation, configuration storage, and runtime policy details.
+
 ## Verbose setup
 
 Use `me init --verbose` to configure a profile step by step. The verbose wizard

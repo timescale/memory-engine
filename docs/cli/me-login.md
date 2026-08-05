@@ -61,6 +61,8 @@ me login --switch
 - Non-secret settings (default server and per-server active space) live in `~/.config/me/config.yaml`.
 - **Humans authenticate with a session, not an API key** — `me login` never creates a key. For headless/CLI use where a session isn't available you can mint a **personal access token** with [`me apikey create`](me-apikey.md#me-apikey-create), or restrict one with `me apikey create --allow <space>:<path>:<r|w|o>`; team-owned service-account keys come from `me apikey create --service <service>`.
 - Use [`me logout`](me-logout.md) to clear the session; the non-secret config is kept so re-login resumes.
+- See [Harness Integrations](../harness-integrations.md) for how machine-local
+  harness policy uses this configuration.
 
 ## See also
 

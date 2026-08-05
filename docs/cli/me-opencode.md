@@ -35,6 +35,9 @@ Removes only recorded MCP/plugin artifacts when they remain unchanged.
 Turning capture on (and pointing it at a server/space/tree) is a separate,
 machine-local step — see [`me init`](me-init.md).
 
+See [Harness Integrations](../harness-integrations.md) for the managed
+installation lifecycle and policy model.
+
 ---
 
 ## me opencode hook
