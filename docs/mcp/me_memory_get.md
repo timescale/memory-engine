@@ -48,7 +48,7 @@ JSON text.
 | `versionHash` | `string` | 32-char md5 hex over `tree`, `name`, `meta`, `temporal`, `content`. Pass back as `version_hash` to `me_memory_update` for optimistic concurrency control. |
 | `hasEmbedding` | `boolean` | Whether a vector embedding has been computed. |
 | `createdAt` | `string` | ISO 8601 creation timestamp. |
-| `createdBy` | `null` | Reserved field; per-memory creators are not currently tracked. |
+| `createdBy` | `string \| null` | Reserved field; per-memory creators are not currently tracked, so it is currently `null`. |
 | `updatedAt` | `string \| null` | ISO 8601 timestamp of last update, or `null`. |
 
 ## Example

@@ -49,7 +49,7 @@ me memory create "PostgreSQL 18 supports native UUIDv7 generation." \
   --meta '{"topic": "database"}'
 ```
 
-A `--tree` is required. Put memories the rest of your space should see under `/share/*`, and personal ones under `~/*` (your private home). The optional `--name` gives the memory a filename-like slug (unique within its tree) so you can later address it by path -- `me get share/notes/postgres/uuidv7`. See [Core Concepts](concepts.md#reserved-roots).
+A `--tree` is required. Put memories the rest of your space should see under `/share/*`, and personal ones under `~/*` (your private home). The optional `--name` gives the memory a filename-like slug (unique within its tree) so you can later address it by path -- `me get '~/notes/postgres/uuidv7'`. See [Core Concepts](concepts.md#reserved-roots).
 
 ## Search
 

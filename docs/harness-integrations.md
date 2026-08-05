@@ -133,21 +133,21 @@ directories:
     mcp:
       enabled: true
       server: https://api.memory.build
-      space: acme123def456
+      space: acme123def45
       harnesses:
         codex: true
         opencode: true
     capture:
       enabled: true
       server: https://api.memory.build
-      space: acme123def456
+      space: acme123def45
       tree: /share/projects/acme-api
       harnesses:
         codex: true
         opencode: true
     cli:
       server: https://api.memory.build
-      space: acme123def456
+      space: acme123def45
       harnesses:
         codex: true
         opencode: true

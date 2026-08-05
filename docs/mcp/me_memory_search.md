@@ -70,7 +70,7 @@ pass `format: "json"` or `format: "compact"` for compact JSON text.
       "versionHash": "5f3e9c2a8b1d4f7e0c3a6b9d2e5f8c1a",
       "hasEmbedding": true,
       "createdAt": "2025-04-15T12:00:00Z",
-       "createdBy": null,
+      "createdBy": null,
       "updatedAt": null,
       "score": 0.85
     }

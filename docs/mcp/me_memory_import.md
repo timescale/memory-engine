@@ -13,7 +13,7 @@ Parses the input according to the specified format and creates all memories in o
 | `content` | `string \| null` | no | Raw content to import (JSON array, YAML array, or Markdown with frontmatter). Used when `path` is omitted. |
 | `format` | `string \| null` | no | Content format: `"json"`, `"yaml"`, or `"md"`. Optional; content is detected when omitted. |
 
-One of `path` or `content` must be provided.
+At least one of `path` or `content` must be provided.
 
 ### Supported formats
 
