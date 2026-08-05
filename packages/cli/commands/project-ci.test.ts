@@ -15,6 +15,7 @@ import {
   buildCiInstallOptions,
   createCiInstallCommand,
   DEFAULT_SECRET_NAME,
+  defaultTree,
   isEffectiveSpaceAdmin,
   parseGitHubRepo,
   renderWorkflow,
@@ -49,6 +50,10 @@ describe("me ci install", () => {
       "acme/widgets",
     );
     expect(parseGitHubRepo("git@gitlab.com:acme/widgets.git")).toBeUndefined();
+  });
+
+  test("normalizes the default tree from the repository name", () => {
+    expect(defaultTree("memory-engine")).toBe("/share/projects/memory_engine");
   });
 
   test("renders a single-target workflow with explicit imports", () => {

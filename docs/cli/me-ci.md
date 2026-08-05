@@ -22,7 +22,7 @@ The command refuses to replace an existing workflow. Pass `--force` to replace t
 | --- | --- |
 | `--server <url>` | Selects the Memory Engine server. It may appear before `ci` or after `install`; the `install` value wins if both are supplied. The workflow includes `ME_SERVER` when it is not the default hosted server. |
 | `--space <slug>` | Destination space. Required outside an interactive terminal. |
-| `--tree <path>` | Shared destination tree. Default: `/share/projects/<repo-name>`; home (`~`) trees are invalid for service accounts. |
+| `--tree <path>` | Shared destination tree. Default: `/share/projects/<normalized-repo-name>` (for example, `memory-engine` becomes `memory_engine`); home (`~`) trees are invalid for service accounts. |
 | `--secret-name <name>` | GitHub secret name. Default: `ME_API_KEY`. |
 | `--service-account <name>` | Service account name. Default: `<repo-name>-import`. |
 | `--create-service-account` | Create the service account, grant it write access at the selected tree, mint a key, and pipe it directly to `gh secret set`. Intended for scripted use. |

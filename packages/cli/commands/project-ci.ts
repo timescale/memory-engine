@@ -10,7 +10,10 @@ import {
   type ResolvedCredentials,
   resolveCredentials,
 } from "../credentials.ts";
-import { detectGitContext } from "../importers/project.ts";
+import {
+  detectGitContext,
+  normalizeProjectSlug,
+} from "../importers/project.ts";
 import { getOutputFormat, type OutputFormat } from "../output.ts";
 import {
   adminContactsFrom,
@@ -275,8 +278,8 @@ function unwrap<T>(value: T | symbol): T {
   return value as T;
 }
 
-function defaultTree(repo: string): string {
-  return `/share/projects/${repo}`;
+export function defaultTree(repo: string): string {
+  return `/share/projects/${normalizeProjectSlug(repo)}`;
 }
 
 function printInstructions(info: {
