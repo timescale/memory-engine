@@ -848,9 +848,10 @@ export async function runInit(
         "me init requires a directory or --defaults when stdin is not a TTY",
       );
     }
-    scope = opts.verbose
-      ? await selectScope(deps)
-      : { kind: "directory", directory: deps.cwd() };
+    scope =
+      opts.verbose || hasSurfaceFlags(opts)
+        ? await selectScope(deps)
+        : { kind: "directory", directory: deps.cwd() };
   }
   if (hasSurfaceFlags(opts)) {
     writeProfile(deps, scope, buildInitProfile(scope, opts));
