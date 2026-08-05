@@ -67,6 +67,9 @@ on:
   push:
   workflow_dispatch: {}
 
+permissions:
+  contents: read
+
 concurrency:
   group: me-import-\${{ github.ref }}
   cancel-in-progress: true
