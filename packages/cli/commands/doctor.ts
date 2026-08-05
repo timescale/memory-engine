@@ -234,9 +234,12 @@ export function createDoctorCommand(): Command {
       const anchorRaw =
         directory ?? process.env.ME_PROJECT_DIR ?? process.cwd();
       const profile = resolveHarnessProfile(anchorRaw);
-      const mcpHarness = resolveManagedHarness(
-        opts.harness ?? process.env.AI_AGENT,
-      );
+      const mcpHarness =
+        opts.harness !== undefined
+          ? resolveManagedHarness(opts.harness)
+          : HARNESS_NAMES.includes(process.env.AI_AGENT as HarnessName)
+            ? (process.env.AI_AGENT as HarnessName)
+            : undefined;
       const mcpResolution = mcpHarness
         ? resolveManagedMcpProfile(
             mcpHarness,

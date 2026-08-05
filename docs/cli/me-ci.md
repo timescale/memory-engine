@@ -11,7 +11,7 @@ Generate a starter GitHub Actions workflow that imports a repository's git histo
 ## me ci install
 
 ```
-me [--server <url>] ci install [--server <url>] [options]
+me ci install [options]
 ```
 
 Run this from a git repository with a GitHub `origin` remote. It writes `.github/workflows/me-import.yml`, which imports git history and docs on pushes to the default branch. The generated workflow is yours to edit after creation.
