@@ -1,7 +1,7 @@
 /** Machine-local harness policy setup and interactive wizard. */
 import * as clack from "@clack/prompts";
 import { Command, InvalidArgumentError } from "commander";
-import { resolveCredentials } from "../credentials.ts";
+import { getGlobalConfigPath, resolveCredentials } from "../credentials.ts";
 import {
   detectInstalledHarnesses,
   type HarnessDescriptor,
@@ -10,6 +10,7 @@ import {
   isHarnessInstalled,
   parseHarnessName,
 } from "../harness/registry.ts";
+import { ProjectRegistry } from "../importers/project.ts";
 import {
   canonicalizeDirectory,
   type HarnessProfile,
@@ -25,6 +26,8 @@ type Scope = { kind: "defaults" } | { kind: "directory"; directory: string };
 
 interface InitOptions {
   defaults?: boolean;
+  verbose?: boolean;
+  server?: string;
   mcpServer?: string;
   mcpSpace?: string;
   mcpMultiSpace?: boolean;
@@ -65,6 +68,8 @@ export interface InitDependencies {
   writeDefaults: typeof writeDefaults;
   writeDirectoryProfile: typeof writeDirectoryProfile;
   canonicalizeDirectory: typeof canonicalizeDirectory;
+  getGlobalConfigPath: typeof getGlobalConfigPath;
+  resolveProjectSlug: (directory: string) => Promise<string>;
   cwd: () => string;
   isTTY: () => boolean;
   exit: (code?: number) => never;
@@ -83,6 +88,9 @@ const defaultDependencies: InitDependencies = {
   writeDefaults,
   writeDirectoryProfile,
   canonicalizeDirectory,
+  getGlobalConfigPath,
+  resolveProjectSlug: async (directory) =>
+    (await new ProjectRegistry().resolve(directory)).slug,
   cwd: () => process.cwd(),
   isTTY: () => Boolean(process.stdin.isTTY),
   exit: (code) => process.exit(code),
@@ -334,11 +342,15 @@ function browserLikelyAvailable(): boolean {
   );
 }
 
-async function authenticateForWizard(deps: InitDependencies): Promise<{
+async function authenticateForWizard(
+  deps: InitDependencies,
+  serverFlag?: string,
+): Promise<{
   server: string;
   spaces: Space[];
+  activeSpace?: string;
 }> {
-  let creds = deps.resolveCredentials();
+  let creds = deps.resolveCredentials(serverFlag);
   let user: ReturnType<typeof buildUserClient>;
   const login = async (): Promise<ReturnType<typeof buildUserClient>> => {
     const shouldLogin = cancel(
@@ -427,7 +439,7 @@ async function authenticateForWizard(deps: InitDependencies): Promise<{
     await user.space.ensureDefault();
     ({ spaces } = await user.space.list());
   }
-  return { server: creds.server, spaces };
+  return { server: creds.server, spaces, activeSpace: creds.activeSpace };
 }
 
 async function installMissingHarnesses(
@@ -502,6 +514,7 @@ async function selectSpace(
   message: string,
   spaces: Space[],
   allowMultiSpace = false,
+  initialValue?: string,
 ): Promise<string | undefined> {
   const options = [
     ...spaces.map((space) => ({
@@ -519,7 +532,11 @@ async function selectSpace(
   ];
   const selected = cancel(
     deps,
-    await deps.prompts.select({ message, options }),
+    await deps.prompts.select({
+      message,
+      options,
+      ...(initialValue ? { initialValue } : {}),
+    }),
   );
   return selected === "__multi__" ? undefined : (selected as string);
 }
@@ -551,12 +568,14 @@ async function promptServer(
 async function promptTree(
   deps: InitDependencies,
   message: string,
+  initialValue?: string,
 ): Promise<string> {
   return normalizeTree(
     cancel(
       deps,
       await deps.prompts.text({
         message,
+        ...(initialValue ? { initialValue } : {}),
         validate: (value) =>
           value?.trim() ? undefined : "A tree path is required.",
       }),
@@ -694,12 +713,134 @@ async function runWizard(deps: InitDependencies, scope: Scope): Promise<void> {
   deps.prompts.outro("Machine-local harness policy configured.");
 }
 
+async function selectQuickSpace(
+  deps: InitDependencies,
+  spaces: Space[],
+  activeSpace: string | undefined,
+): Promise<string> {
+  const [onlySpace] = spaces;
+  if (spaces.length === 1 && onlySpace) return onlySpace.slug;
+  return (await selectSpace(
+    deps,
+    "Which space should Memory Engine use here?",
+    spaces,
+    false,
+    spaces.some((space) => space.slug === activeSpace)
+      ? activeSpace
+      : undefined,
+  )) as string;
+}
+
+async function runQuickInit(
+  deps: InitDependencies,
+  directory: string,
+  server: string,
+): Promise<void> {
+  const scope: Scope = { kind: "directory", directory };
+  if (!(await confirmReplacement(deps, scope))) {
+    deps.prompts.cancel("Cancelled.");
+    return;
+  }
+  const {
+    server: resolvedServer,
+    spaces,
+    activeSpace,
+  } = await authenticateForWizard(deps, server);
+  const selectedSpace = await selectQuickSpace(deps, spaces, activeSpace);
+  const detected = deps.detectInstalledHarnesses();
+  const selectedHarnesses = detected.map((harness) => harness.name);
+  const profile = disabledProfile();
+  if (selectedHarnesses.length > 0) {
+    profile.mcp = {
+      enabled: true,
+      server: resolvedServer,
+      space: selectedSpace,
+      harnesses: harnesses(selectedHarnesses),
+    };
+    profile.cli = {
+      server: resolvedServer,
+      space: selectedSpace,
+      harnesses: harnesses(selectedHarnesses),
+    };
+    const capture = cancel(
+      deps,
+      await deps.prompts.confirm({
+        message: "Make session capture available here?",
+        initialValue: false,
+      }),
+    );
+    if (capture) {
+      const slug = await deps.resolveProjectSlug(directory);
+      deps.prompts.log.info(
+        `Use ~/projects/${slug} instead to capture sessions privately.`,
+      );
+      profile.capture = {
+        enabled: true,
+        server: resolvedServer,
+        space: selectedSpace,
+        tree: await promptTree(
+          deps,
+          "Project memory location",
+          `/share/projects/${slug}`,
+        ),
+        harnesses: harnesses(selectedHarnesses),
+      };
+    }
+  } else {
+    deps.prompts.log.info(
+      "No supported coding-agent harnesses were detected. MCP, capture, and CLI routing remain disabled.",
+    );
+  }
+
+  const missing = detected.filter(
+    (harness) => !deps.isHarnessInstalled(harness.name),
+  );
+  if (missing.length > 0) {
+    const install = cancel(
+      deps,
+      await deps.prompts.confirm({
+        message: `Install integrations for ${missing.map((harness) => harness.displayName).join(", ")} now?`,
+        initialValue: true,
+      }),
+    );
+    if (install) {
+      for (const harness of missing) await deps.installHarness(harness.name);
+    } else {
+      deps.prompts.log.info(
+        `Run 'me install ${missing.map((harness) => harness.name).join(" ")}' when you are ready.`,
+      );
+    }
+  }
+
+  deps.prompts.note(JSON.stringify(profile, null, 2), "Profile to write");
+  const confirmed = cancel(
+    deps,
+    await deps.prompts.confirm({
+      message: "Write this profile?",
+      initialValue: true,
+    }),
+  );
+  if (!confirmed) {
+    deps.prompts.cancel("Cancelled.");
+    return;
+  }
+  writeProfile(deps, scope, profile);
+  deps.prompts.outro(
+    `Configured ${deps.canonicalizeDirectory(directory)} in ${deps.getGlobalConfigPath()}. Run 'me init --verbose' for advanced setup.`,
+  );
+}
+
 export async function runInit(
   directory: string | undefined,
   opts: InitOptions,
   dependencies: Partial<InitDependencies> = {},
 ): Promise<void> {
   const deps = resolveDependencies(dependencies);
+  if (opts.verbose && hasSurfaceFlags(opts)) {
+    throw new InvalidArgumentError(
+      "--verbose cannot be combined with surface options",
+    );
+  }
   let scope = resolveExplicitScope(directory, opts);
   if (!scope) {
     if (!deps.isTTY()) {
@@ -707,13 +848,32 @@ export async function runInit(
         "me init requires a directory or --defaults when stdin is not a TTY",
       );
     }
-    scope = await selectScope(deps);
+    scope = opts.verbose
+      ? await selectScope(deps)
+      : { kind: "directory", directory: deps.cwd() };
   }
-  if (hasSurfaceFlags(opts) || !deps.isTTY()) {
+  if (hasSurfaceFlags(opts)) {
     writeProfile(deps, scope, buildInitProfile(scope, opts));
     return;
   }
-  await runWizard(deps, scope);
+  if (!deps.isTTY()) {
+    throw new InvalidArgumentError(
+      "me init requires surface options when stdin is not a TTY",
+    );
+  }
+  if (opts.defaults || opts.verbose) {
+    await runWizard(deps, scope);
+    return;
+  }
+  if (scope.kind === "defaults") {
+    await runWizard(deps, scope);
+    return;
+  }
+  await runQuickInit(
+    deps,
+    deps.canonicalizeDirectory(scope.directory),
+    opts.server ?? process.env.ME_SERVER ?? "https://api.memory.build",
+  );
 }
 
 export function createInitCommand(
@@ -723,6 +883,7 @@ export function createInitCommand(
     .description("configure machine-local harness policy")
     .argument("[directory]", "directory profile to write")
     .option("--defaults", "write the fallback defaults profile")
+    .option("-v, --verbose", "configure each harness surface independently")
     .option("--mcp-server <url>", "MCP server URL")
     .option("--mcp-space <slug>", "lock MCP to this space")
     .option("--mcp-multi-space", "leave MCP unpinned so tools require a space")
@@ -750,7 +911,11 @@ export function createInitCommand(
       collectHarness,
       [],
     )
-    .action((directory: string | undefined, opts: InitOptions) =>
-      runInit(directory, opts, dependencies),
+    .action((directory: string | undefined, opts: InitOptions, cmd: Command) =>
+      runInit(
+        directory,
+        { ...opts, server: cmd.optsWithGlobals().server as string | undefined },
+        dependencies,
+      ),
     );
 }
