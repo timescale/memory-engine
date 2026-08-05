@@ -21,6 +21,24 @@ function makeShell() {
   return { $, commands };
 }
 
+function makePendingShell() {
+  const commands: string[] = [];
+  let release: (() => void) | undefined;
+  const done = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const $ = (strings: TemplateStringsArray, ...values: unknown[]) => {
+    let command = "";
+    strings.forEach((string, index) => {
+      command += string;
+      if (index < values.length) command += String(values[index]);
+    });
+    commands.push(command.replace(/\s+/g, " ").trim());
+    return { quiet: () => ({ nothrow: () => done }) };
+  };
+  return { $, commands, release: () => release?.() };
+}
+
 type Hooks = {
   event: (input: { event: unknown }) => Promise<void>;
   "shell.env": (
@@ -29,7 +47,7 @@ type Hooks = {
   ) => Promise<void>;
 };
 
-async function loadPlugin(shell: ReturnType<typeof makeShell>): Promise<Hooks> {
+async function loadPlugin(shell: { $: unknown }): Promise<Hooks> {
   const file = join(tmp, `plugin-${Math.random().toString(36).slice(2)}.ts`);
   writeFileSync(file, renderPluginSource());
   const module = (await import(file)) as {
@@ -58,6 +76,34 @@ describe("OpenCode dormant plugin", () => {
     expect(shell.commands).toEqual([
       "me opencode hook --event idle --session ses_abc --project-dir /repo/project",
     ]);
+  });
+
+  test("awaits capture for idle and deleted session events", async () => {
+    const source = renderPluginSource();
+    expect(source).toContain("const capture = async");
+    expect(source).toContain("await $`me opencode hook");
+    expect(source).toContain(
+      'await capture("idle", event.properties?.sessionID)',
+    );
+    expect(source).toContain(
+      'await capture("deleted", event.properties?.info?.id)',
+    );
+
+    for (const event of [
+      { type: "session.idle", properties: { sessionID: "ses_idle" } },
+      { type: "session.deleted", properties: { info: { id: "ses_deleted" } } },
+    ]) {
+      const shell = makePendingShell();
+      const hooks = await loadPlugin(shell);
+      let settled = false;
+      const capture = hooks.event({ event }).then(() => {
+        settled = true;
+      });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(settled).toBe(false);
+      shell.release();
+      await capture;
+    }
   });
 
   test("injects only the frozen shell contract", async () => {

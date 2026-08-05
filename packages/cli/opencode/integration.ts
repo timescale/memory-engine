@@ -36,6 +36,15 @@ function hash(contents: string): string {
   return createHash("sha256").update(contents).digest("hex");
 }
 
+function managedPlugin(contents: string): boolean {
+  return (
+    contents.startsWith(PLUGIN_MARKER) ||
+    contents.startsWith(
+      "// memory-engine: OpenCode dormant plugin (managed by `me opencode install`) v5",
+    )
+  );
+}
+
 function dormantMcpEntry(value: unknown): boolean {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const entry = value as Record<string, unknown>;
@@ -96,7 +105,7 @@ export async function installOpenCodeIntegration(
   const plugin = renderPluginSource();
   try {
     const existingPlugin = await readFile(paths.pluginPath, "utf8");
-    if (!existingPlugin.startsWith(PLUGIN_MARKER)) {
+    if (!managedPlugin(existingPlugin)) {
       throw new Error(`OpenCode plugin at ${paths.pluginPath} is user-owned.`);
     }
     if (!priorPlugin) {

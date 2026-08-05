@@ -6,6 +6,7 @@ import {
   installOpenCodeIntegration,
   uninstallOpenCodeIntegration,
 } from "./integration.ts";
+import { PLUGIN_MARKER, renderPluginSource } from "./plugin-template.ts";
 
 function paths() {
   const directory = mkdtempSync(join(tmpdir(), "me-opencode-integration-"));
@@ -67,6 +68,24 @@ describe("OpenCode integration adapter", () => {
       "file",
     ]);
     await uninstallOpenCodeIntegration(first.artifacts);
+  });
+
+  test("upgrades a recorded v5 plugin to the current template", async () => {
+    const target = paths();
+    const first = await installOpenCodeIntegration(target);
+    const legacy = renderPluginSource().replace(
+      PLUGIN_MARKER,
+      "// memory-engine: OpenCode dormant plugin (managed by `me opencode install`) v5",
+    );
+    writeFileSync(target.pluginPath, legacy);
+
+    await installOpenCodeIntegration(target, {
+      installed_at: "2026-08-03T14:00:00.000Z",
+      me_version: "0.6.2",
+      artifacts: first.artifacts,
+    });
+
+    expect(readFileSync(target.pluginPath, "utf8")).toBe(renderPluginSource());
   });
 
   test("rejects the retired bare MCP entry even when it was recorded", async () => {
