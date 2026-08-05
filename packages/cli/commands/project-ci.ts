@@ -82,6 +82,7 @@ jobs:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
+          persist-credentials: false
       - name: Install me
         run: |
           set -o pipefail
