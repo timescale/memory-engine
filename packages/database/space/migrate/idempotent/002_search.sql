@@ -243,6 +243,28 @@ begin
 end;
 $func$ language plpgsql stable security invoker
 set search_path to pg_catalog, {{schema}}, public, pg_temp
+-- Enable pgvector HNSW iterative scan (strict, distance-exact) so a filtered
+-- semantic query keeps pulling graph candidates until it fills the limit,
+-- instead of stopping at the first ~ef_search and letting post-filters (access,
+-- tree, regexp, _min_similarity) shrink the result below the limit. strict_order
+-- (not relaxed_order) preserves exact distance order, which the RRF ranks rely
+-- on. Inert on the bm25/filter-only paths (no HNSW scan there).
+set hnsw.iterative_scan to 'strict_order'
+-- hnsw.ef_search is deliberately LEFT AT THE DEFAULT (40), NOT tailored to
+-- _limit. Once iterative scan is on, ef_search is a recall/latency dial, not a
+-- correctness gate: pgvector iterates past the initial ef_search candidate list
+-- until it fills the limit (bounded by hnsw.max_scan_tuples), so results are
+-- never silently truncated to ~40 the way they are with iterative scan OFF.
+-- Tailoring ef_search would only help the uncommon LARGE-_limit path (direct
+-- vector search up to 1000, or a large candidate_limit), where a bigger
+-- ef_search means fewer scan iterations — a pure latency micro-opt. The common
+-- paths (hybrid candidate_limit=30, default direct limit=10) are already <= 40
+-- and would gain nothing, while a static bump would only tax them. A function
+-- SET clause can't be dynamic anyway (literal only); tailoring would need
+-- `perform set_config('hnsw.ef_search', greatest(40, least(_limit, 1000)), true)`
+-- in the _vec branch. Deferred pending a benchmark rather than guessing a
+-- heuristic. hnsw.max_scan_tuples (20000) and hnsw.scan_mem_multiplier (1) are
+-- likewise left at defaults.
 ;
 {{endfn}}
 
