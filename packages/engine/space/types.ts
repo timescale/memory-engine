@@ -89,8 +89,13 @@ export interface SearchOptions extends MemoryFilters {
   bm25?: string;
   /** Pre-computed query embedding. Mutually exclusive with `bm25`. */
   vec?: number[];
-  /** Max cosine distance (only with `vec`). */
-  maxVecDist?: number;
+  /**
+   * Min cosine similarity in [0, 1] (only with `vec`). Out-of-range values are
+   * rejected, not clamped (matches the public semanticThreshold). Note the
+   * returned `score` is a cosine similarity in [-1, 1] — a wider range than this
+   * threshold. The SQL converts it to a max-distance bound internally.
+   */
+  minSimilarity?: number;
   limit?: number;
   /**
    * Result order for the **unranked** (filter-only) path: by id (chronological),
@@ -105,7 +110,11 @@ export interface HybridSearchOptions extends MemoryFilters {
   bm25: string;
   /** Pre-computed query embedding (required). */
   vec: number[];
-  maxVecDist?: number;
+  /**
+   * Min cosine similarity in [0, 1]. Out-of-range values are rejected, not
+   * clamped. The SQL converts it to a max-distance bound internally.
+   */
+  minSimilarity?: number;
   /** RRF constant (default 60). */
   k?: number;
   /** Per-arm candidate pool size (default 30). */

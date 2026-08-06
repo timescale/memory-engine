@@ -273,17 +273,56 @@ test("unranked (filter-only) search orders by id, newest-first by default", asyn
   expect(desc.map((r) => r.id)).toEqual([...ids].reverse());
 });
 
-test("vector search ranks by embedding similarity", async () => {
+test("vector search ranks by embedding similarity and returns cosine similarity as score", async () => {
   const near = await mustCreate(FULL, {
     tree: "work.v1",
     content: "near",
   });
   const far = await mustCreate(FULL, { tree: "work.v2", content: "far" });
-  await setEmbedding(near, [1, 0, 0, 0]);
-  await setEmbedding(far, [0, 1, 0, 0]);
+  await setEmbedding(near, [1, 0, 0, 0]); // identical direction → similarity 1
+  await setEmbedding(far, [0, 1, 0, 0]); // orthogonal → similarity 0
 
   const results = await db.search(FULL, { vec: [1, 0, 0, 0], limit: 5 });
   expect(results[0]?.id).toBe(near);
+
+  // Score is cosine similarity (1 - cosine distance), in [-1, 1] — NOT negative
+  // distance. Identical vectors → ~1, orthogonal → ~0.
+  const byId = new Map(results.map((r) => [r.id, r.score]));
+  expect(byId.get(near)).toBeCloseTo(1, 5);
+  expect(byId.get(far)).toBeCloseTo(0, 5);
+});
+
+test("minSimilarity drops below-threshold vectors, preserving rank order", async () => {
+  const near = await mustCreate(FULL, { tree: "work.ms1", content: "near" });
+  const mid = await mustCreate(FULL, { tree: "work.ms2", content: "mid" });
+  const far = await mustCreate(FULL, { tree: "work.ms3", content: "far" });
+  await setEmbedding(near, [1, 0, 0, 0]); // similarity 1 to query
+  await setEmbedding(mid, [1, 1, 0, 0]); // similarity ~0.7071 to query
+  await setEmbedding(far, [0, 1, 0, 0]); // similarity 0 to query
+
+  // minSimilarity is a cosine-similarity floor (converted to a max-distance
+  // bound in SQL). 0.5 keeps near (1) and mid (~0.71), drops far (0). Rank
+  // order (near before mid) is preserved.
+  const results = await db.search(FULL, {
+    vec: [1, 0, 0, 0],
+    minSimilarity: 0.5,
+    limit: 5,
+  });
+  const ids = results.map((r) => r.id);
+  expect(ids).toContain(near);
+  expect(ids).toContain(mid);
+  expect(ids).not.toContain(far);
+  expect(ids.indexOf(near)).toBeLessThan(ids.indexOf(mid));
+});
+
+test("minSimilarity outside [0,1] is rejected, not clamped", async () => {
+  const q = [1, 0, 0, 0];
+  await expect(db.search(FULL, { vec: q, minSimilarity: 1.5 })).rejects.toThrow(
+    /_min_similarity must be between 0 and 1/,
+  );
+  await expect(
+    db.search(FULL, { vec: q, minSimilarity: -0.1 }),
+  ).rejects.toThrow(/_min_similarity must be between 0 and 1/);
 });
 
 test("hybridSearch fuses bm25 + vector", async () => {
