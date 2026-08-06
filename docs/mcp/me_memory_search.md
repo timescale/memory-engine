@@ -137,4 +137,8 @@ pass `format: "json"` or `format: "compact"` for compact JSON text.
 - Selectors use camelCase response names, such as `id`, `tree`, `hasEmbedding`, and `versionHash`. The complete suffix after `meta.` is the metadata key, including `$thread` or punctuation. `content:N` returns the first `N` UTF-16 code units; `content:M:N` returns the zero-based range `[M, N)`; `content:M:` returns from `M` through the end. Content slices include the full UTF-16 `contentLength`.
 - When both `semantic` and `fulltext` are provided, results are ranked using Reciprocal Rank Fusion (hybrid mode). Use this when both meaning-based similarity and exact-term matching are useful for the same query.
 - `order_by` only applies to filter-only searches (no `semantic`/`fulltext`). Ranked searches are always sorted by score.
-- Scores are mode-dependent and only comparable within one result set. Filter-only searches use `-1`; BM25, semantic, and hybrid searches use their respective ranking scales.
+- Each result's `score` is mode-dependent and only comparable within one result set (not across modes or queries):
+  - **Semantic** (`semantic` only): cosine similarity in `[-1, 1]` — higher is more similar (`1` = identical direction).
+  - **Fulltext** (`fulltext` only): a positive, unnormalized BM25 score (`> 0`, unbounded — it can exceed `1`). Only genuine term matches are returned.
+  - **Hybrid** (`semantic` + `fulltext`): the fused Reciprocal Rank Fusion (RRF) score — a small positive number reflecting cross-mode rank agreement, not absolute relevance.
+  - **Filter-only** (neither): an unranked sentinel (`-1`); results are ordered by creation time (see `order_by`).

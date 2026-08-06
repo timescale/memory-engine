@@ -36,7 +36,7 @@ returns table
 , has_embedding bool
 , created_at timestamptz
 , updated_at timestamptz
-, score float8 -- cosine similarity [-1,1] when _vec; -1 when neither _vec nor _bm25 provided
+, score float8 -- cosine similarity [-1,1] when _vec; positive unnormalized BM25 (>0) when _bm25; -1 when neither provided
 )
 as $func$
 declare
@@ -70,6 +70,18 @@ begin
     -- negative score * -1 = score. higher score means better match
     _score = format($sql$, (m.content <@> %L::bm25query) * -1 as score$sql$, _bm25);
     _order_by = format($sql$order by m.content <@> %L::bm25query, m.id$sql$, _bm25);
+    -- INVARIANT: keep only genuine lexical matches (BM25 > 0, i.e. <@> < 0).
+    -- pg_textsearch's IDF is non-negative and absent terms contribute 0, so
+    -- BM25 == 0 (⟺ <@> == 0) means the doc contains NONE of the query stems.
+    -- Without this, `ORDER BY <@> LIMIT n` backfills the limit with zero-score
+    -- non-matches whenever real matches < n (true on BOTH the BMW index path
+    -- and a seq-scan), and hybrid RRF then hands those junk rows positive fused
+    -- scores. Applied as a WHERE filter; EXPLAIN confirms the BM25 index scan
+    -- (BMW) stays eligible (the filter sits on top of the Order By index scan).
+    _filters = array_append
+    ( _filters
+    , format($sql$and (m.content <@> %L::bm25query) < 0$sql$, _bm25)
+    );
   when _vec is not null then
     _filter_count = _filter_count + 1;
     -- <=> is cosine distance (= 1 - cosine similarity). smaller distance = better

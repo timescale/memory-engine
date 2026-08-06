@@ -304,7 +304,9 @@ Docs: ${docUrl("me_memory_create")}`,
       title: "Search Memories",
       description: `Search and browse memories using text matching and/or filters.
 
-Search modes: semantic (meaning), fulltext (keywords/exact text), or both (hybrid). Choose deliberately: semantic for concepts, fulltext for identifiers/errors/literal text, or both when both kinds of matching are useful. Combine with tree, meta, and temporal filters. Scores are mode-dependent and comparable within one result set.
+Search modes: semantic (meaning), fulltext (keywords/exact text), or both (hybrid). Choose deliberately: semantic for concepts, fulltext for identifiers/errors/literal text, or both when both kinds of matching are useful. Combine with tree, meta, and temporal filters.
+
+Each result's score is mode-dependent (and comparable only within one result set, not across modes or queries): semantic → cosine similarity in [-1, 1] (higher = more similar); fulltext → a positive, unnormalized BM25 score (> 0, unbounded; only genuine term matches are returned); hybrid → the fused Reciprocal Rank Fusion (RRF) score (a small positive number reflecting cross-mode rank agreement, not absolute relevance); filter-only (neither) → an unranked sentinel (-1), with results ordered by creation time (see order_by).
 
 Docs: ${docUrl("me_memory_search")}`,
       inputSchema: inputSchema(

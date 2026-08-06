@@ -113,6 +113,14 @@ range `[M, N)`, and `content:M:` from `M` through the end. A content slice also
 returns `contentLength`, measured in UTF-16 code units. An empty selection or
 multiple distinct content slices are invalid.
 
+Each result's `score` (shown in the default text view, or via `--select
+...,score`) is **mode-dependent** and only comparable within one result set:
+
+- **Semantic** (`--semantic` only): cosine similarity in `[-1, 1]` — higher is more similar (`1` = identical direction).
+- **Fulltext** (`--fulltext` only): a positive, unnormalized BM25 score (`> 0`, unbounded — it can exceed `1`). Only genuine term matches are returned.
+- **Hybrid** (`--semantic` + `--fulltext`, or a positional `query`): the fused Reciprocal Rank Fusion (RRF) score — a small positive number reflecting cross-mode rank agreement, not absolute relevance.
+- **Filter-only** (no `--semantic`/`--fulltext`): an unranked sentinel (`-1`); results are ordered by creation time instead (see `--order-by`).
+
 ### Examples
 
 ```bash
