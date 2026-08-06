@@ -1,15 +1,17 @@
 -------------------------------------------------------------------------------
 -- search_memory
 -------------------------------------------------------------------------------
--- search_memory's result has changed (it gained a `name` column), which
--- create-or-replace cannot do (42P13). The fn block drops a stale-signatured
--- definition before the create and asserts the result after.
-{{fn search_memory(_tree_access jsonb, _bm25 bm25query, _vec halfvec, _max_vec_dist float8, _ltree ltree, _lquery lquery, _ltxtquery ltxtquery, _meta_contains jsonb, _temporal_within tstzrange, _temporal_overlaps tstzrange, _temporal_before timestamptz, _temporal_after timestamptz, _regexp text, _limit bigint, _order text) returns table (id uuid, meta jsonb, tree ltree, temporal tstzrange, content text, name text, version bigint, version_hash text, has_embedding bool, created_at timestamptz, updated_at timestamptz, score float8)}}
+-- search_memory's signature changes over time in ways create-or-replace cannot
+-- do (42P13): it gained a `name` result column, and the input param was renamed
+-- _max_vec_dist -> _min_similarity (a param rename is a 42P13 just like a type
+-- change). The fn block drops a stale-signatured definition before the create
+-- (matching on arg types AND names) and asserts the new signature after.
+{{fn search_memory(_tree_access jsonb, _bm25 bm25query, _vec halfvec, _min_similarity float8, _ltree ltree, _lquery lquery, _ltxtquery ltxtquery, _meta_contains jsonb, _temporal_within tstzrange, _temporal_overlaps tstzrange, _temporal_before timestamptz, _temporal_after timestamptz, _regexp text, _limit bigint, _order text) returns table (id uuid, meta jsonb, tree ltree, temporal tstzrange, content text, name text, version bigint, version_hash text, has_embedding bool, created_at timestamptz, updated_at timestamptz, score float8)}}
 create or replace function {{schema}}.search_memory
 ( _tree_access jsonb
 , _bm25 bm25query default null
 , _vec halfvec({{embedding_dimensions}}) default null
-, _max_vec_dist float8 default null
+, _min_similarity float8 default null  -- min cosine similarity (= 1 - distance); only with _vec; rejected unless in [0,1]
 , _ltree ltree default null
 , _lquery lquery default null
 , _ltxtquery ltxtquery default null
@@ -34,7 +36,7 @@ returns table
 , has_embedding bool
 , created_at timestamptz
 , updated_at timestamptz
-, score float8
+, score float8 -- cosine similarity [-1,1] when _vec; -1 when neither _vec nor _bm25 provided
 )
 as $func$
 declare
@@ -43,6 +45,7 @@ declare
   _filters text[] = '{}'::text;
   _order_by text;
   _sql text;
+  _max_dist float8;  -- cosine distance bound (= 1 - _min_similarity), computed below
 begin
   -- _bm25 OR _vec but NOT BOTH
   if _bm25 is not null and _vec is not null then
@@ -50,8 +53,8 @@ begin
       using errcode = 'invalid_parameter_value';
   end if;
 
-  if _max_vec_dist is not null and _vec is null then
-    raise exception '_max_vec_dist provided but _vec was not provided'
+  if _min_similarity is not null and _vec is null then
+    raise exception '_min_similarity provided but _vec was not provided'
       using errcode = 'invalid_parameter_value';
   end if;
 
@@ -69,19 +72,29 @@ begin
     _order_by = format($sql$order by m.content <@> %L::bm25query, m.id$sql$, _bm25);
   when _vec is not null then
     _filter_count = _filter_count + 1;
-    -- <=> is cosine distance. smaller distance means better match. order by this for index scans
-    -- distance * -1 = "score". higher score means better match
-    _score = format($sql$, (m.embedding <=> %L::halfvec({{embedding_dimensions}})) * -1 as score$sql$, _vec);
+    -- <=> is cosine distance (= 1 - cosine similarity). smaller distance = better
+    -- match. ORDER BY the RAW distance operator so the HNSW index stays eligible.
+    -- The returned SCORE is cosine similarity (1 - distance, range [-1, 1]) so it
+    -- agrees with the public semanticThreshold; the transform is only in the
+    -- projection, never the ORDER BY.
+    _score = format($sql$, 1 - (m.embedding <=> %L::halfvec({{embedding_dimensions}})) as score$sql$, _vec);
     _order_by = format($sql$order by m.embedding <=> %L::halfvec({{embedding_dimensions}}), m.id$sql$, _vec);
     _filters = array_append
     ( _filters
     , $sql$and m.embedding is not null$sql$
     );
-    if _max_vec_dist is not null then
+    if _min_similarity is not null then
+      if not (_min_similarity between 0 and 1) then
+        raise exception '_min_similarity must be between 0 and 1'
+          using errcode = 'invalid_parameter_value';
+      end if;
       _filter_count = _filter_count + 1;
+      -- min similarity s == max distance d = 1 - s. Filter in the operator's
+      -- native distance form so it matches the ORDER BY expression.
+      _max_dist = 1 - _min_similarity;
       _filters = array_append
       ( _filters
-      , format($sql$and (m.embedding <=> %L::halfvec({{embedding_dimensions}})) <= %L::float8$sql$, _vec, _max_vec_dist)
+      , format($sql$and (m.embedding <=> %L::halfvec({{embedding_dimensions}})) <= %L::float8$sql$, _vec, _max_dist)
       );
     end if;
   else
@@ -236,13 +249,14 @@ set search_path to pg_catalog, {{schema}}, public, pg_temp
 -------------------------------------------------------------------------------
 -- hybrid_search_memory
 -------------------------------------------------------------------------------
--- Same `name` return-column addition as search_memory; same fn-block guard.
-{{fn hybrid_search_memory(_tree_access jsonb, _bm25 bm25query, _vec halfvec, _max_vec_dist float8, _ltree ltree, _lquery lquery, _ltxtquery ltxtquery, _meta_contains jsonb, _temporal_within tstzrange, _temporal_overlaps tstzrange, _temporal_before timestamptz, _temporal_after timestamptz, _regexp text, _k float8, _candidate_limit bigint, _fulltext_weight float8, _semantic_weight float8, _limit bigint) returns table(id uuid, meta jsonb, tree ltree, temporal tstzrange, content text, name text, version bigint, version_hash text, has_embedding bool, created_at timestamptz, updated_at timestamptz, score float8)}}
+-- Same `name` return-column addition and _max_vec_dist -> _min_similarity param
+-- rename as search_memory; same fn-block guard (drops the stale signature).
+{{fn hybrid_search_memory(_tree_access jsonb, _bm25 bm25query, _vec halfvec, _min_similarity float8, _ltree ltree, _lquery lquery, _ltxtquery ltxtquery, _meta_contains jsonb, _temporal_within tstzrange, _temporal_overlaps tstzrange, _temporal_before timestamptz, _temporal_after timestamptz, _regexp text, _k float8, _candidate_limit bigint, _fulltext_weight float8, _semantic_weight float8, _limit bigint) returns table(id uuid, meta jsonb, tree ltree, temporal tstzrange, content text, name text, version bigint, version_hash text, has_embedding bool, created_at timestamptz, updated_at timestamptz, score float8)}}
 create or replace function {{schema}}.hybrid_search_memory
 ( _tree_access jsonb
 , _bm25 bm25query
 , _vec halfvec({{embedding_dimensions}})
-, _max_vec_dist float8 default null
+, _min_similarity float8 default null  -- min cosine similarity (= 1 - distance); rejected unless in [0,1]
 , _ltree ltree default null
 , _lquery lquery default null
 , _ltxtquery ltxtquery default null
@@ -338,7 +352,7 @@ begin
     from {{schema}}.search_memory
     ( _tree_access => _tree_access
     , _vec => _vec
-    , _max_vec_dist => _max_vec_dist
+    , _min_similarity => _min_similarity
     , _ltree => _ltree
     , _lquery => _lquery
     , _ltxtquery => _ltxtquery

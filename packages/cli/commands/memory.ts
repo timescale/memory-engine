@@ -362,7 +362,10 @@ function createMemorySearchCommand(): Command {
     .option("--meta <json>", "metadata filter (JSON)")
     .option("--limit <n>", "max results", "10")
     .option("--candidate-limit <n>", "pre-RRF candidate pool size")
-    .option("--semantic-threshold <n>", "minimum semantic score (0-1)")
+    .option(
+      "--semantic-threshold <n>",
+      "minimum cosine similarity in [0,1] (1=identical, 0=unrelated); higher is stricter; rejected if out of range",
+    )
     .option("--temporal-contains <ts>", "memory must contain this point")
     .option("--temporal-overlaps <range>", "memory must overlap (start,end)")
     .option("--temporal-within <range>", "memory must be within (start,end)")

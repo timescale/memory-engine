@@ -520,11 +520,13 @@ async function memorySearch(
     );
   }
 
-  // semanticThreshold is a cosine similarity (0..1); the space search filters by
-  // cosine distance (= 1 - similarity), and only when a vector is present.
-  const maxVecDist =
+  // semanticThreshold is a cosine similarity (0..1). The engine/SQL now speaks
+  // similarity too (minSimilarity), converting to a max-distance bound internally,
+  // so we pass it straight through — no conversion at this seam. Only meaningful
+  // when a vector is present.
+  const minSimilarity =
     vec && params.semanticThreshold != null
-      ? 1 - params.semanticThreshold
+      ? params.semanticThreshold
       : undefined;
 
   // Classify the tree filter so a wildcard (`foo.*`) binds to lquery and a
@@ -547,7 +549,7 @@ async function memorySearch(
       store.hybridSearch(treeAccess, {
         bm25,
         vec,
-        maxVecDist,
+        minSimilarity,
         candidateLimit: params.candidateLimit,
         fulltextWeight: params.weights?.fulltext,
         semanticWeight: params.weights?.semantic,
@@ -560,7 +562,7 @@ async function memorySearch(
       store.search(treeAccess, {
         bm25,
         vec,
-        maxVecDist,
+        minSimilarity,
         limit,
         order: params.orderBy ?? undefined,
         ...filters,

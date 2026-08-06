@@ -398,7 +398,7 @@ Docs: ${docUrl("me_memory_search")}`,
             .optional()
             .nullable()
             .describe(
-              "Minimum semantic similarity score (0-1) for vector candidates",
+              "Minimum cosine similarity, in [0, 1] (1 = identical, 0 = unrelated), for semantic/vector candidates. Higher is stricter. Values outside [0, 1] are rejected, not clamped.",
             ),
           limit: z
             .number()
