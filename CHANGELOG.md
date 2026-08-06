@@ -4,6 +4,44 @@ All notable changes to the memory engine are documented here. The client
 (`v<x.y.z>`) and server (`server/v<x.y.z>`) release independently but are
 versioned in lockstep for coordinated breaking changes.
 
+## 0.7.1
+
+Server `server/v0.7.1` · Client `v0.7.1`.
+
+A search-correctness pass: the three search modes now score and filter results
+correctly. See the new [Searching Memories](https://docs.memory.build/search)
+guide.
+
+### Fixed
+- **Semantic search `score` is now cosine similarity.** Results previously
+  reported a negative cosine-*distance* value (`similarity - 1`, in `[-2, 0]`);
+  they now report true cosine **similarity** (`1 - distance`, in `[-1, 1]`,
+  higher = more similar), matching the `semanticThreshold` scale. Result
+  **ordering is unchanged** — only the returned number is corrected. Integrators
+  that compared the raw `score` against a hard-coded value should re-check it.
+- **Fulltext and hybrid search no longer return zero-relevance rows.** A keyword
+  (BM25) query whose matches were fewer than the limit used to backfill the
+  result with rows that contained **none** of the query terms (score `0.000`),
+  and in hybrid search those junk rows still received a small fused score.
+  Search now returns only genuine term matches.
+- **Filtered semantic recall.** A semantic query combined with access/tree/meta/
+  temporal filters or `semanticThreshold` could return fewer matches than
+  requested, because filtering pruned the vector index's initial candidate
+  window. Search now keeps scanning until it has filled the limit (up to an
+  internal work cap).
+
+### Changed
+- Documented the **mode-dependent `score`** across the CLI, the MCP tool, and the
+  docs: semantic = cosine similarity `[-1, 1]`; fulltext = a positive,
+  unnormalized BM25 score (`> 0`); hybrid = a fused Reciprocal Rank Fusion
+  score; filter-only = an unranked `-1` sentinel. Scores are comparable only
+  within a single result set.
+
+### Database
+- The space search SQL functions are updated in place (semantic score contract,
+  HNSW iterative scan, BM25 `> 0` filter). No schema version change — the
+  idempotent search migration re-applies on deploy.
+
 ## 0.7.0
 
 Server `server/v0.7.0` · Client `v0.7.0`.
