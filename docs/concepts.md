@@ -263,7 +263,14 @@ Filters can also be used alone (without semantic or fulltext) to browse memories
 
 ### Scoring
 
-Search results include a `score` between 0 and 1, where 1 is the best match. For hybrid search, scores are computed via RRF fusion. For filter-only queries, results are sorted by creation time (configurable with `order_by`).
+Every result carries a `score`, but its meaning depends on the search mode. Scores are comparable **within a single result set**, not across modes or queries.
+
+| Mode | What you passed | `score` means |
+| --- | --- | --- |
+| Semantic | `semantic` only | Cosine similarity in `[-1, 1]` — higher is more similar (`1` = identical direction). |
+| Fulltext | `fulltext` only | A positive, **unnormalized** BM25 relevance score (`> 0`, unbounded — it can exceed `1`). Only genuine term matches are returned. |
+| Hybrid | `semantic` + `fulltext` | The fused [Reciprocal Rank Fusion](https://en.wikipedia.org/wiki/Learning_to_rank) (RRF) score — a small positive number that reflects rank agreement across the two modes, **not** an absolute relevance. |
+| Filter-only | neither (just `tree`/`meta`/`temporal`/`grep`) | An unranked sentinel (`-1`); results are ordered by creation time instead (configurable with `order_by`). |
 
 ## Spaces
 

@@ -340,6 +340,44 @@ test("hybridSearch fuses bm25 + vector", async () => {
   expect(results.some((r) => r.id === id)).toBe(true);
 });
 
+test("bm25 search returns only genuine matches, never zero-score non-matches", async () => {
+  // Two docs contain the term; eight do not. With limit > matches, the old
+  // `ORDER BY <@> LIMIT` backfilled the result with zero-score non-matches
+  // (on both the BMW index path and a seq-scan). The BM25 > 0 invariant drops
+  // them: we expect exactly the two real matches, all with a positive score.
+  // Use a term unique to this test — the schema is shared across tests, so a
+  // common word (e.g. "pineapple", used elsewhere) would pull in other rows.
+  const a = await mustCreate(FULL, {
+    tree: "work.bm.a",
+    content: "dragonfruit smoothie",
+  });
+  const b = await mustCreate(FULL, {
+    tree: "work.bm.b",
+    content: "fresh dragonfruit cake",
+  });
+  for (let i = 0; i < 8; i++) {
+    await mustCreate(FULL, {
+      tree: `work.bm.x${i}`,
+      content: `banana muffin ${i}`,
+    });
+  }
+
+  const results = await db.search(FULL, { bm25: "dragonfruit", limit: 10 });
+  const ids = results.map((r) => r.id).sort();
+  expect(ids).toEqual([a, b].sort());
+  expect(results.every((r) => r.score > 0)).toBe(true);
+});
+
+test("bm25 search with no matching terms returns zero rows", async () => {
+  await mustCreate(FULL, { tree: "work.bmz.a", content: "apricot jam" });
+  await mustCreate(FULL, { tree: "work.bmz.b", content: "cherry pie" });
+  const results = await db.search(FULL, {
+    bm25: "zzznonexistentterm",
+    limit: 10,
+  });
+  expect(results).toEqual([]);
+});
+
 test("moveTree, countTree, listTree", async () => {
   await db.createMemory(FULL, { tree: "work.src.one", content: "1" });
   await db.createMemory(FULL, { tree: "work.src.two", content: "2" });
