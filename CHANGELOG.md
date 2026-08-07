@@ -4,6 +4,24 @@ All notable changes to the memory engine are documented here. The client
 (`v<x.y.z>`) and server (`server/v<x.y.z>`) release independently but are
 versioned in lockstep for coordinated breaking changes.
 
+## 0.7.2
+
+Server `server/v0.7.2` · Client `v0.7.2`.
+
+### Fixed
+- **Search deploy fix (the 0.7.1 search-scoring pass reaches production).** 0.7.1
+  enabled pgvector HNSW iterative scan by setting `hnsw.iterative_scan` via a
+  function `SET` clause on `search_memory`. That clause is validated at
+  `CREATE FUNCTION` time, and on a boot re-migration of an *existing* space the
+  vector index isn't rebuilt, so pgvector isn't loaded on that connection and the
+  parameter is an unrecognized placeholder — which the non-superuser application
+  role is denied (`SQLSTATE 42501`), aborting server startup and rolling back the
+  deploy. The setting is now applied at query time inside `search_memory` as a
+  transaction-local `set_config`, which the app role is permitted to do and which
+  still enables strict-order iterative scan for filtered semantic search. No
+  behavior change for callers; this is what lets the 0.7.1 changes below actually
+  deploy.
+
 ## 0.7.1
 
 Server `server/v0.7.1` · Client `v0.7.1`.

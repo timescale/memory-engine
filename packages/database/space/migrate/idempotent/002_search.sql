@@ -84,6 +84,26 @@ begin
     );
   when _vec is not null then
     _filter_count = _filter_count + 1;
+    -- Enable pgvector HNSW iterative scan (strict, distance-exact) for this query
+    -- so a filtered semantic search keeps pulling graph candidates until it fills
+    -- the limit, instead of stopping at the first ~ef_search and letting the
+    -- post-filters (access, tree, regexp, _min_similarity) shrink the result.
+    --
+    -- Set it HERE in the body as a transaction-local GUC (set_config(..., true)),
+    -- NOT as a function `SET hnsw.iterative_scan` clause. A function SET clause is
+    -- validated at CREATE-FUNCTION time; on a boot re-migration of an EXISTING
+    -- space pgvector is not yet loaded on that connection, so hnsw.* is an
+    -- unrecognized placeholder and a non-superuser role (prod's tsdbadmin) gets
+    -- `permission denied to set parameter "hnsw.iterative_scan"` (SQLSTATE 42501),
+    -- which aborts boot. Setting it at query time — a session-local SET the role
+    -- IS allowed to make — sidesteps that entirely and applies to the scan below.
+    --
+    -- strict_order (not relaxed_order) preserves exact distance order, which the
+    -- RRF ranks in hybrid_search_memory depend on. hnsw.ef_search is left at the
+    -- default (40): with iterative scan on it is a latency dial, not a correctness
+    -- gate (the scan iterates until the limit is filled, bounded by
+    -- hnsw.max_scan_tuples); tailoring it to _limit is deferred pending a benchmark.
+    perform set_config('hnsw.iterative_scan', 'strict_order', true);
     -- <=> is cosine distance (= 1 - cosine similarity). smaller distance = better
     -- match. ORDER BY the RAW distance operator so the HNSW index stays eligible.
     -- The returned SCORE is cosine similarity (1 - distance, range [-1, 1]) so it
@@ -255,28 +275,6 @@ begin
 end;
 $func$ language plpgsql stable security invoker
 set search_path to pg_catalog, {{schema}}, public, pg_temp
--- Enable pgvector HNSW iterative scan (strict, distance-exact) so a filtered
--- semantic query keeps pulling graph candidates until it fills the limit,
--- instead of stopping at the first ~ef_search and letting post-filters (access,
--- tree, regexp, _min_similarity) shrink the result below the limit. strict_order
--- (not relaxed_order) preserves exact distance order, which the RRF ranks rely
--- on. Inert on the bm25/filter-only paths (no HNSW scan there).
-set hnsw.iterative_scan to 'strict_order'
--- hnsw.ef_search is deliberately LEFT AT THE DEFAULT (40), NOT tailored to
--- _limit. Once iterative scan is on, ef_search is a recall/latency dial, not a
--- correctness gate: pgvector iterates past the initial ef_search candidate list
--- until it fills the limit (bounded by hnsw.max_scan_tuples), so results are
--- never silently truncated to ~40 the way they are with iterative scan OFF.
--- Tailoring ef_search would only help the uncommon LARGE-_limit path (direct
--- vector search up to 1000, or a large candidate_limit), where a bigger
--- ef_search means fewer scan iterations — a pure latency micro-opt. The common
--- paths (hybrid candidate_limit=30, default direct limit=10) are already <= 40
--- and would gain nothing, while a static bump would only tax them. A function
--- SET clause can't be dynamic anyway (literal only); tailoring would need
--- `perform set_config('hnsw.ef_search', greatest(40, least(_limit, 1000)), true)`
--- in the _vec branch. Deferred pending a benchmark rather than guessing a
--- heuristic. hnsw.max_scan_tuples (20000) and hnsw.scan_mem_multiplier (1) are
--- likewise left at defaults.
 ;
 {{endfn}}
 
