@@ -947,6 +947,36 @@ async function phase5_memory(): Promise<void> {
     ]);
   });
 
+  await step("me memory search --temporal-before", async () => {
+    const { json } = await runJson<{ results: { id: string }[] }>([
+      "memory",
+      "search",
+      "--temporal-before",
+      "2027-01-01T00:00:00Z",
+      "--tree",
+      `${TREE_BASE}.*`,
+    ]);
+    expect(
+      json.results.some((r) => r.id === id2),
+      `temporal-before should find id2 (${id2})`,
+    );
+  });
+
+  await step("me memory search --temporal-after", async () => {
+    const { json } = await runJson<{ results: { id: string }[] }>([
+      "memory",
+      "search",
+      "--temporal-after",
+      "2025-12-31T00:00:00Z",
+      "--tree",
+      `${TREE_BASE}.*`,
+    ]);
+    expect(
+      json.results.some((r) => r.id === id2),
+      `temporal-after should find id2 (${id2})`,
+    );
+  });
+
   await step("me memory search (weights + order-by)", async () => {
     await runJson<{ results: unknown[] }>([
       "memory",

@@ -344,6 +344,16 @@ Docs: ${docUrl("me_memory_search")}`,
             ),
           temporal: z
             .object({
+              before: z
+                .string()
+                .optional()
+                .nullable()
+                .describe("Find memories strictly before this point in time"),
+              after: z
+                .string()
+                .optional()
+                .nullable()
+                .describe("Find memories strictly after this point in time"),
               contains: z
                 .string()
                 .optional()
@@ -447,6 +457,8 @@ Docs: ${docUrl("me_memory_search")}`,
         tree: args.tree ?? undefined,
         temporal: args.temporal
           ? {
+              before: args.temporal.before ?? undefined,
+              after: args.temporal.after ?? undefined,
               contains: args.temporal.contains ?? undefined,
               overlaps: args.temporal.overlaps ?? undefined,
               within: args.temporal.within ?? undefined,
@@ -1216,6 +1228,16 @@ Docs: ${docUrl("me_memory_export")}`,
             .describe("Metadata filter"),
           temporal: z
             .object({
+              before: z
+                .string()
+                .optional()
+                .nullable()
+                .describe("Find memories strictly before this point in time"),
+              after: z
+                .string()
+                .optional()
+                .nullable()
+                .describe("Find memories strictly after this point in time"),
               contains: z
                 .string()
                 .optional()
@@ -1276,6 +1298,8 @@ Docs: ${docUrl("me_memory_export")}`,
       if (args.meta) searchParams.meta = args.meta;
       if (args.temporal) {
         searchParams.temporal = {
+          before: args.temporal.before ?? undefined,
+          after: args.temporal.after ?? undefined,
           contains: args.temporal.contains ?? undefined,
           overlaps: args.temporal.overlaps ?? undefined,
           within: args.temporal.within ?? undefined,

@@ -199,9 +199,15 @@ begin
   -- temporal_before
   if _temporal_before is not null then
     _filter_count = _filter_count + 1;
+    -- A closed point keeps the boundary strict: [a,t) is before [t,t],
+    -- while a point or range containing t is neither before nor after it.
     _filters = array_append
     ( _filters
-    , format($sql$and tstzrange('-infinity'::timestamptz, %L::timestamptz, '[]') @> m.temporal$sql$, _temporal_before)
+    , format
+      ( $sql$and m.temporal << tstzrange(%L::timestamptz, %L::timestamptz, '[]')$sql$
+      , _temporal_before
+      , _temporal_before
+      )
     );
   end if;
 
@@ -210,7 +216,11 @@ begin
     _filter_count = _filter_count + 1;
     _filters = array_append
     ( _filters
-    , format($sql$and tstzrange(%L::timestamptz, 'infinity'::timestamptz, '[]') @> m.temporal$sql$, _temporal_after)
+    , format
+      ( $sql$and m.temporal >> tstzrange(%L::timestamptz, %L::timestamptz, '[]')$sql$
+      , _temporal_after
+      , _temporal_after
+      )
     );
   end if;
 

@@ -36,7 +36,8 @@ Filters narrow any search (and can be used alone to browse):
 
 - `--tree <filter>` — restrict to a subtree or pattern. See [Tree filter syntax](concepts.md#tree-filter-syntax).
 - `--meta <json>` — require metadata attributes (e.g. `{"type":"decision"}`).
-- `--temporal-contains` / `--temporal-overlaps` / `--temporal-within` — filter by time.
+- `--temporal-before` / `--temporal-after` — require the memory's range to be strictly before or after a point in time.
+- `--temporal-contains` / `--temporal-overlaps` / `--temporal-within` — filter by containment or range relationships.
 - `--grep <pattern>` — regex over content. It must accompany another criterion (it can't be the only filter).
 
 ## Thresholds and tuning

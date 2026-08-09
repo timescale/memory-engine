@@ -19,7 +19,7 @@ import {
   formatDatetimeLocalInputValue,
   localOffsetTimestampFromDatetimeLocalValue,
 } from "../../lib/datetime.ts";
-import { useFilter } from "../../store/filter.ts";
+import { type TemporalMode, useFilter } from "../../store/filter.ts";
 import { DisclosureCaret } from "../DisclosureCaret.tsx";
 
 export function AdvancedSearchPanel({ onSearch }: { onSearch: () => void }) {
@@ -105,12 +105,14 @@ export function AdvancedSearchPanel({ onSearch }: { onSearch: () => void }) {
                 setAdvanced({
                   temporal: {
                     ...advanced.temporal,
-                    mode: e.target.value as "contains" | "overlaps" | "within",
+                    mode: e.target.value as TemporalMode,
                   },
                 })
               }
               className="rounded-md border border-ink/[0.18] bg-surface px-2 py-2 text-[13px] transition-colors focus:border-ink focus:outline-none"
             >
+              <option value="before">before</option>
+              <option value="after">after</option>
               <option value="contains">contains</option>
               <option value="overlaps">overlaps</option>
               <option value="within">within</option>
@@ -132,17 +134,25 @@ export function AdvancedSearchPanel({ onSearch }: { onSearch: () => void }) {
                   temporal: { ...advanced.temporal, end: value },
                 })
               }
-              disabled={advanced.temporal.mode === "contains"}
+              disabled={
+                advanced.temporal.mode === "before" ||
+                advanced.temporal.mode === "after" ||
+                advanced.temporal.mode === "contains"
+              }
               placeholder="end timestamp"
               pickerLabel="Pick end timestamp"
             />
           </div>
           <p className="mt-1 text-[11px] text-ink/50">
-            {advanced.temporal.mode === "contains"
-              ? "contains: the memory's range contains this single point"
-              : advanced.temporal.mode === "overlaps"
-                ? "overlaps: the memory's range overlaps [start, end]"
-                : "within: the memory's range is fully within [start, end]"}
+            {advanced.temporal.mode === "before"
+              ? "before: the memory's range is strictly before this point"
+              : advanced.temporal.mode === "after"
+                ? "after: the memory's range is strictly after this point"
+                : advanced.temporal.mode === "contains"
+                  ? "contains: the memory's range contains this single point"
+                  : advanced.temporal.mode === "overlaps"
+                    ? "overlaps: the memory's range overlaps [start, end]"
+                    : "within: the memory's range is fully within [start, end]"}
           </p>
         </Field>
 

@@ -191,11 +191,19 @@ Memories can have an associated time range:
 - **Point-in-time** -- a single timestamp (e.g., "this decision was made on 2025-04-15").
 - **Date range** -- a start and end (e.g., "this was true from January to March 2025").
 
-Temporal ranges use PostgreSQL's `tstzrange` type and support three query modes:
+Temporal ranges use PostgreSQL's `tstzrange` type and support five query modes:
 
+- **before** -- find memories whose range is strictly before a specific point in time.
+- **after** -- find memories whose range is strictly after a specific point in time.
 - **contains** -- find memories whose range contains a specific point in time.
 - **overlaps** -- find memories whose range overlaps a given range.
 - **within** -- find memories whose range falls entirely within a given range.
+
+`before` and `after` are strict. A range ending at a point with an exclusive
+upper bound is before that point, while a range beginning at or containing the
+point is neither before nor after it. This makes `before: now` suitable for
+finding expired TTL ranges without also returning ranges scheduled for the
+future.
 
 Temporal is optional. Not all memories need a time association.
 

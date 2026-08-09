@@ -231,14 +231,16 @@ function toMemoryResponse(
 }
 
 /**
- * Map the wire temporal filter (contains | overlaps | within — mutually
- * exclusive) onto the space search's temporal range params. A `contains`
- * point becomes an inclusive point-range overlap (true iff the memory's range
- * spans the instant).
+ * Map the wire temporal filter (before | after | contains | overlaps | within
+ * — mutually exclusive) onto the space search's temporal range params. A
+ * `contains` point becomes an inclusive point-range overlap (true iff the
+ * memory's range spans the instant).
  */
 function mapTemporalFilter(tf: MemorySearchParams["temporal"]): {
   temporalWithin?: string;
   temporalOverlaps?: string;
+  temporalBefore?: string;
+  temporalAfter?: string;
 } {
   if (!tf) return {};
   if (tf.within) {
@@ -249,6 +251,12 @@ function mapTemporalFilter(tf: MemorySearchParams["temporal"]): {
   }
   if (tf.contains) {
     return { temporalOverlaps: `[${tf.contains},${tf.contains}]` };
+  }
+  if (tf.before) {
+    return { temporalBefore: tf.before };
+  }
+  if (tf.after) {
+    return { temporalAfter: tf.after };
   }
   return {};
 }

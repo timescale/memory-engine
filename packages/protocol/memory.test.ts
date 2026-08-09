@@ -3,6 +3,7 @@ import {
   memoryNameSchema,
   memoryPathSchema,
   onConflictSchema,
+  temporalFilterSchema,
 } from "./fields.ts";
 import { memoryCreateParams, memoryGetByPathParams } from "./memory.ts";
 
@@ -77,6 +78,23 @@ describe("onConflictSchema", () => {
       expect(onConflictSchema.safeParse(ok).success).toBe(true);
     }
     expect(onConflictSchema.safeParse("upsert").success).toBe(false);
+  });
+});
+
+describe("temporalFilterSchema", () => {
+  test("accepts before/after offset timestamps and rejects timestamps without an offset", () => {
+    expect(
+      temporalFilterSchema.safeParse({ before: "2026-08-09T12:00:00Z" })
+        .success,
+    ).toBe(true);
+    expect(
+      temporalFilterSchema.safeParse({
+        after: "2026-08-09T12:00:00-07:00",
+      }).success,
+    ).toBe(true);
+    expect(
+      temporalFilterSchema.safeParse({ before: "2026-08-09T12:00:00" }).success,
+    ).toBe(false);
   });
 });
 

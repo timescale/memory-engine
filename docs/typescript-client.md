@@ -175,6 +175,8 @@ const { results } = await me.memory.search({
   meta: { source: "meeting-notes" },   // JSONB containment
   temporal: {                          // time-based filter
     contains: "2025-06-15T00:00:00Z",  // point-in-time
+    // OR before: "2025-06-15T00:00:00Z"
+    // OR after: "2025-06-15T00:00:00Z"
     // OR overlaps: { start, end }
     // OR within: { start, end }
   },

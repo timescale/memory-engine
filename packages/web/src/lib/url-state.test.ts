@@ -65,6 +65,22 @@ describe("encode/decode round-trip", () => {
     expect(qs).not.toContain("mode=");
   });
 
+  test("single-point temporal modes round-trip without an end timestamp", () => {
+    const filter: FilterState = {
+      ...EMPTY_FILTER,
+      mode: "advanced",
+      advanced: {
+        ...EMPTY_FILTER.advanced,
+        temporal: {
+          mode: "before",
+          start: "2026-01-01T00:00:00Z",
+          end: "",
+        },
+      },
+    };
+    expect(decodeUrlState(encodeUrlState(filter, null)).filter).toEqual(filter);
+  });
+
   test("unknown params are ignored", () => {
     const round = decodeUrlState("?unknown=x&q=hi");
     expect(round.filter.simple).toBe("hi");

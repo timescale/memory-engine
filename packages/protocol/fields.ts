@@ -141,6 +141,8 @@ export const temporalSchema = z.object({
  * Temporal filter for search.
  */
 export const temporalFilterSchema = z.object({
+  before: timestampSchema.optional(),
+  after: timestampSchema.optional(),
   contains: timestampSchema.optional(),
   overlaps: z
     .object({

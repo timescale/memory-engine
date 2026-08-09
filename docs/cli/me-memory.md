@@ -94,6 +94,8 @@ me memory search [query] [options]
 | `--limit <n>` | Max results (default: 10). |
 | `--candidate-limit <n>` | Pre-RRF candidate pool size. |
 | `--semantic-threshold <n>` | Minimum semantic similarity score, 0-1. |
+| `--temporal-before <ts>` | Memory must be strictly before this point in time. |
+| `--temporal-after <ts>` | Memory must be strictly after this point in time. |
 | `--temporal-contains <ts>` | Memory must contain this point in time. |
 | `--temporal-overlaps <range>` | Memory must overlap this range (`start,end`). |
 | `--temporal-within <range>` | Memory must be within this range (`start,end`). |
@@ -379,6 +381,8 @@ me memory export [file] [options]
 | `--format <fmt>` | Output format: `json`, `yaml`, `md` (default: `json`). |
 | `--meta <json>` | Metadata filter as JSON. |
 | `--limit <n>` | Max memories to export (default: 1000). |
+| `--temporal-before <ts>` | Memory must be strictly before this point in time. |
+| `--temporal-after <ts>` | Memory must be strictly after this point in time. |
 | `--temporal-contains <ts>` | Memory must contain this point in time. |
 | `--temporal-overlaps <range>` | Memory must overlap this range. |
 | `--temporal-within <range>` | Memory must be within this range. |

@@ -137,6 +137,22 @@ describe("selectSearchParams", () => {
     ).toEqual({ contains: new Date(start).toISOString() });
   });
 
+  test("converts temporal before/after filters as single offset ISO datetimes", () => {
+    const start = "2026-01-01T12:34:56";
+    const iso = new Date(start).toISOString();
+
+    expect(
+      selectSearchParams(
+        withAdvanced({ temporal: { mode: "before", start, end: "" } }),
+      ).temporal,
+    ).toEqual({ before: iso });
+    expect(
+      selectSearchParams(
+        withAdvanced({ temporal: { mode: "after", start, end: "" } }),
+      ).temporal,
+    ).toEqual({ after: iso });
+  });
+
   test("preserves millisecond precision in datetime-local temporal filters", () => {
     const start = "2026-01-01T12:34:56.789";
 
@@ -241,6 +257,23 @@ describe("summarizeFilter (advanced mode)", () => {
       }),
     );
     expect(chips).toEqual(["temporal contains 2026-01-01T00:00"]);
+  });
+
+  test("temporal: before/after with only start render chips", () => {
+    expect(
+      summarizeFilter(
+        withAdvanced({
+          temporal: { mode: "before", start: "2026-01-01", end: "" },
+        }),
+      ).chips,
+    ).toEqual(["temporal before 2026-01-01"]);
+    expect(
+      summarizeFilter(
+        withAdvanced({
+          temporal: { mode: "after", start: "2026-01-01", end: "" },
+        }),
+      ).chips,
+    ).toEqual(["temporal after 2026-01-01"]);
   });
 
   test("temporal: overlaps/within requires both endpoints", () => {

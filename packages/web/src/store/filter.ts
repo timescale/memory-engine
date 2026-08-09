@@ -19,7 +19,12 @@ import { useSelection } from "./selection.ts";
 
 export type FilterMode = "simple" | "advanced";
 
-export type TemporalMode = "contains" | "overlaps" | "within";
+export type TemporalMode =
+  | "before"
+  | "after"
+  | "contains"
+  | "overlaps"
+  | "within";
 
 export interface AdvancedFilter {
   semantic: string;
@@ -197,9 +202,9 @@ export function selectSearchParams(state: FilterState): MemorySearchParams {
 function buildTemporal(
   t: AdvancedFilter["temporal"],
 ): TemporalFilter | undefined {
-  if (t.mode === "contains") {
+  if (t.mode === "before" || t.mode === "after" || t.mode === "contains") {
     if (!t.start) return undefined;
-    return { contains: toOffsetIsoDatetime(t.start) };
+    return { [t.mode]: toOffsetIsoDatetime(t.start) };
   }
   if (!t.start || !t.end) return undefined;
   const start = toOffsetIsoDatetime(t.start);
@@ -349,8 +354,8 @@ function summarizeMetaJson(raw: string): string | null {
 }
 
 function summarizeTemporal(t: AdvancedFilter["temporal"]): string | null {
-  if (t.mode === "contains") {
-    return t.start ? `temporal contains ${t.start}` : null;
+  if (t.mode === "before" || t.mode === "after" || t.mode === "contains") {
+    return t.start ? `temporal ${t.mode} ${t.start}` : null;
   }
   if (!t.start || !t.end) return null;
   return `temporal ${t.mode} [${t.start} → ${t.end}]`;

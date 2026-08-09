@@ -758,6 +758,69 @@ test("search: tree filter only (no ranking) returns matches", async () => {
   expect(res.results[0]?.tree).toBe("/share/scope/a");
 });
 
+test("search: temporal before/after are strict at the cutoff", async () => {
+  const cutoff = "2026-06-01T00:00:00Z";
+  await call("memory.batchCreate", {
+    memories: [
+      {
+        content: "past",
+        tree: "share.temporal",
+        temporal: {
+          start: "2026-01-01T00:00:00Z",
+          end: "2026-02-01T00:00:00Z",
+        },
+      },
+      {
+        content: "ended at cutoff",
+        tree: "share.temporal",
+        temporal: { start: "2026-05-01T00:00:00Z", end: cutoff },
+      },
+      {
+        content: "contains cutoff",
+        tree: "share.temporal",
+        temporal: {
+          start: "2026-05-01T00:00:00Z",
+          end: "2026-07-01T00:00:00Z",
+        },
+      },
+      {
+        content: "starts at cutoff",
+        tree: "share.temporal",
+        temporal: { start: cutoff, end: "2026-07-01T00:00:00Z" },
+      },
+      {
+        content: "point at cutoff",
+        tree: "share.temporal",
+        temporal: { start: cutoff },
+      },
+      {
+        content: "future",
+        tree: "share.temporal",
+        temporal: {
+          start: "2026-07-01T00:00:00Z",
+          end: "2026-08-01T00:00:00Z",
+        },
+      },
+      { content: "untimed", tree: "share.temporal" },
+    ],
+  });
+
+  const before = await call<{ results: { content: string }[] }>(
+    "memory.search",
+    { temporal: { before: cutoff }, limit: 1000 },
+  );
+  expect(before.results.map((r) => r.content).sort()).toEqual([
+    "ended at cutoff",
+    "past",
+  ]);
+
+  const after = await call<{ results: { content: string }[] }>(
+    "memory.search",
+    { temporal: { after: cutoff }, limit: 1000 },
+  );
+  expect(after.results.map((r) => r.content)).toEqual(["future"]);
+});
+
 test("search: tree lquery wildcard matches descendants", async () => {
   await call("memory.batchCreate", {
     memories: [
