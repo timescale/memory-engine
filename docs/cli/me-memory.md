@@ -88,9 +88,10 @@ me memory search [query] [options]
 |--------|-------------|
 | `--semantic <text>` | Semantic (vector) search query. |
 | `--fulltext <text>` | BM25 keyword search. |
-| `--grep <pattern>` | Regex filter on content (POSIX, case-insensitive). |
+| `--grep <pattern>` | Regex filter on content (POSIX, case-insensitive). Must accompany semantic/fulltext search or a tree, structured metadata, or temporal filter; `--meta-predicate` alone does not qualify. |
 | `--tree <filter>` | Tree path filter. Supports exact match, wildcards, negation, and label search. See [Tree filter syntax](../concepts.md#tree-filter-syntax). |
 | `--meta <json>` | Metadata filter as JSON. |
+| `--meta-predicate <jsonpath>` | PostgreSQL JSONPath Boolean predicate evaluated against metadata. |
 | `--limit <n>` | Max results (default: 10). |
 | `--candidate-limit <n>` | Pre-RRF candidate pool size. |
 | `--semantic-threshold <n>` | Minimum semantic similarity score, 0-1. |
@@ -105,6 +106,23 @@ me memory search [query] [options]
 | `--select <fields>` | Comma-separated response fields to return for each result. Omit for full records in JSON/YAML output; the default text view requests an ID, tree, 120-code-unit content preview, and score. |
 
 At least one search criterion is required. A positional `query` runs hybrid search by sending the same text to semantic and fulltext ranking. Use `--semantic` for pure vector search, `--fulltext` for pure keyword search, or both flags to provide different text for each mode.
+
+`--grep` cannot be the only broad-scan filter. Pair it with semantic/fulltext
+search or `--tree`, `--meta`, or a `--temporal-*` filter. A
+`--meta-predicate` companion alone does not qualify because both filters can
+require broad scans.
+
+`--meta-predicate` uses PostgreSQL's JSONPath predicate syntax. Quote the
+expression so the shell does not interpret `$`, `*`, or parentheses:
+
+```bash
+me memory search --meta-predicate '$.priority >= 3 && !exists($.archivedAt)'
+```
+
+Use `--meta` for simple equality and array membership. Predicates containing
+only extractable equality clauses can use the metadata GIN index; inequalities,
+regular expressions, arithmetic, cardinality, and negation may be more
+expensive.
 
 `--select` accepts camelCase response fields such as `id`, `tree`, `name`,
 `meta`, `hasEmbedding`, `createdAt`, and `versionHash`. Use `meta.keyName` to
@@ -380,6 +398,7 @@ me memory export [file] [options]
 | `--tree <filter>` | Tree path filter. |
 | `--format <fmt>` | Output format: `json`, `yaml`, `md` (default: `json`). |
 | `--meta <json>` | Metadata filter as JSON. |
+| `--meta-predicate <jsonpath>` | PostgreSQL JSONPath Boolean predicate evaluated against metadata. |
 | `--limit <n>` | Max memories to export (default: 1000). |
 | `--temporal-before <ts>` | Memory must be strictly before this point in time. |
 | `--temporal-after <ts>` | Memory must be strictly after this point in time. |

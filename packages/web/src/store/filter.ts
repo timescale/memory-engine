@@ -33,6 +33,7 @@ export interface AdvancedFilter {
   tree: string;
   /** Stored as a raw JSON string so the textarea edits are preserved. */
   metaJson: string;
+  metaPredicate: string;
   temporal: {
     mode: TemporalMode;
     /** ISO timestamp. Empty string = unset. */
@@ -72,6 +73,7 @@ export const EMPTY_ADVANCED: AdvancedFilter = {
   grep: "",
   tree: "",
   metaJson: "",
+  metaPredicate: "",
   temporal: { mode: "overlaps", start: "", end: "" },
   limit: "",
   candidateLimit: "",
@@ -156,6 +158,7 @@ export function selectSearchParams(state: FilterState): MemorySearchParams {
   if (a.fulltext.trim()) params.fulltext = a.fulltext.trim();
   if (a.grep.trim()) params.grep = a.grep.trim();
   if (a.tree.trim()) params.tree = a.tree.trim();
+  if (a.metaPredicate.trim()) params.metaPredicate = a.metaPredicate.trim();
 
   if (a.metaJson.trim()) {
     try {
@@ -274,6 +277,9 @@ export function summarizeFilter(state: FilterState): {
 
   const metaChip = summarizeMetaJson(a.metaJson);
   if (metaChip) chips.push(metaChip);
+  if (a.metaPredicate.trim()) {
+    chips.push(`metaPredicate: ${truncate(a.metaPredicate.trim(), 40)}`);
+  }
 
   const temporalChip = summarizeTemporal(a.temporal);
   if (temporalChip) chips.push(temporalChip);

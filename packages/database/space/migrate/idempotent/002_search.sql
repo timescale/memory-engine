@@ -6,7 +6,7 @@
 -- _max_vec_dist -> _min_similarity (a param rename is a 42P13 just like a type
 -- change). The fn block drops a stale-signatured definition before the create
 -- (matching on arg types AND names) and asserts the new signature after.
-{{fn search_memory(_tree_access jsonb, _bm25 bm25query, _vec halfvec, _min_similarity float8, _ltree ltree, _lquery lquery, _ltxtquery ltxtquery, _meta_contains jsonb, _temporal_within tstzrange, _temporal_overlaps tstzrange, _temporal_before timestamptz, _temporal_after timestamptz, _regexp text, _limit bigint, _order text) returns table (id uuid, meta jsonb, tree ltree, temporal tstzrange, content text, name text, version bigint, version_hash text, has_embedding bool, created_at timestamptz, updated_at timestamptz, score float8)}}
+{{fn search_memory(_tree_access jsonb, _bm25 bm25query, _vec halfvec, _min_similarity float8, _ltree ltree, _lquery lquery, _ltxtquery ltxtquery, _meta_contains jsonb, _temporal_within tstzrange, _temporal_overlaps tstzrange, _temporal_before timestamptz, _temporal_after timestamptz, _regexp text, _limit bigint, _order text, _meta_predicate jsonpath) returns table (id uuid, meta jsonb, tree ltree, temporal tstzrange, content text, name text, version bigint, version_hash text, has_embedding bool, created_at timestamptz, updated_at timestamptz, score float8)}}
 create or replace function {{schema}}.search_memory
 ( _tree_access jsonb
 , _bm25 bm25query default null
@@ -23,6 +23,7 @@ create or replace function {{schema}}.search_memory
 , _regexp text default null
 , _limit bigint default 10
 , _order text default 'desc'  -- unranked (filter-only) result order by id: 'desc' (newest first) | 'asc'
+, _meta_predicate jsonpath default null
 )
 returns table
 ( id uuid
@@ -178,6 +179,15 @@ begin
     );
   end if;
 
+  -- meta_predicate
+  if _meta_predicate is not null then
+    _filter_count = _filter_count + 1;
+    _filters = array_append
+    ( _filters
+    , format($sql$and m.meta @@ %L::jsonpath$sql$, _meta_predicate)
+    );
+  end if;
+
   -- temporal_within
   if _temporal_within is not null then
     _filter_count = _filter_count + 1;
@@ -293,7 +303,7 @@ set search_path to pg_catalog, {{schema}}, public, pg_temp
 -------------------------------------------------------------------------------
 -- Same `name` return-column addition and _max_vec_dist -> _min_similarity param
 -- rename as search_memory; same fn-block guard (drops the stale signature).
-{{fn hybrid_search_memory(_tree_access jsonb, _bm25 bm25query, _vec halfvec, _min_similarity float8, _ltree ltree, _lquery lquery, _ltxtquery ltxtquery, _meta_contains jsonb, _temporal_within tstzrange, _temporal_overlaps tstzrange, _temporal_before timestamptz, _temporal_after timestamptz, _regexp text, _k float8, _candidate_limit bigint, _fulltext_weight float8, _semantic_weight float8, _limit bigint) returns table(id uuid, meta jsonb, tree ltree, temporal tstzrange, content text, name text, version bigint, version_hash text, has_embedding bool, created_at timestamptz, updated_at timestamptz, score float8)}}
+{{fn hybrid_search_memory(_tree_access jsonb, _bm25 bm25query, _vec halfvec, _min_similarity float8, _ltree ltree, _lquery lquery, _ltxtquery ltxtquery, _meta_contains jsonb, _temporal_within tstzrange, _temporal_overlaps tstzrange, _temporal_before timestamptz, _temporal_after timestamptz, _regexp text, _k float8, _candidate_limit bigint, _fulltext_weight float8, _semantic_weight float8, _limit bigint, _meta_predicate jsonpath) returns table(id uuid, meta jsonb, tree ltree, temporal tstzrange, content text, name text, version bigint, version_hash text, has_embedding bool, created_at timestamptz, updated_at timestamptz, score float8)}}
 create or replace function {{schema}}.hybrid_search_memory
 ( _tree_access jsonb
 , _bm25 bm25query
@@ -313,6 +323,7 @@ create or replace function {{schema}}.hybrid_search_memory
 , _fulltext_weight float8 default 1.0
 , _semantic_weight float8 default 1.0
 , _limit bigint default 10
+, _meta_predicate jsonpath default null
 )
 returns table
 ( id uuid
@@ -378,6 +389,7 @@ begin
     , _lquery => _lquery
     , _ltxtquery => _ltxtquery
     , _meta_contains => _meta_contains
+    , _meta_predicate => _meta_predicate
     , _temporal_within => _temporal_within
     , _temporal_overlaps => _temporal_overlaps
     , _temporal_before => _temporal_before
@@ -399,6 +411,7 @@ begin
     , _lquery => _lquery
     , _ltxtquery => _ltxtquery
     , _meta_contains => _meta_contains
+    , _meta_predicate => _meta_predicate
     , _temporal_within => _temporal_within
     , _temporal_overlaps => _temporal_overlaps
     , _temporal_before => _temporal_before

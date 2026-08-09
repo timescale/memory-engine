@@ -58,7 +58,7 @@ The UI talks to whichever space is active for the current server — same resolu
 ```
 
 - **Tree** (left): tree paths as collapsible nodes, memories as leaves. Right-click a node for a context menu (delete memory / delete subtree).
-- **Search** (top): simple hybrid search by default; flip to Advanced for every field accepted by `memory.search` (semantic, fulltext, grep, tree, meta, temporal, limit, candidateLimit, semanticThreshold, weights, orderBy).
+- **Search** (top): simple hybrid search by default; flip to Advanced for every field accepted by `memory.search` (semantic, fulltext, grep, tree, meta, metaPredicate, temporal, limit, candidateLimit, semanticThreshold, weights, orderBy).
 - **Viewer / Editor** (right): rendered Markdown with syntax highlighting, or the Monaco editor with YAML frontmatter + body. The copy button copies the Markdown source with frontmatter. Save is disabled until you make a valid change. The read-only metadata panel sits below.
 - **URL state**: filter fields and the selected memory id are reflected in the URL, so any view can be shared or bookmarked.
 

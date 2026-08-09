@@ -76,6 +76,8 @@ export interface MemoryFilters {
   ltxtquery?: string;
   /** meta @> this object. */
   metaContains?: Record<string, unknown>;
+  /** PostgreSQL JSONPath predicate evaluated as meta @@ this expression. */
+  metaPredicate?: string;
   temporalWithin?: TemporalRange;
   temporalOverlaps?: TemporalRange;
   temporalBefore?: string;

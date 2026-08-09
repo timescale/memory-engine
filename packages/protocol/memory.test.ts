@@ -5,7 +5,11 @@ import {
   onConflictSchema,
   temporalFilterSchema,
 } from "./fields.ts";
-import { memoryCreateParams, memoryGetByPathParams } from "./memory.ts";
+import {
+  memoryCreateParams,
+  memoryGetByPathParams,
+  memorySearchParams,
+} from "./memory.ts";
 
 describe("memoryNameSchema", () => {
   test("accepts filename-like slugs (dots, hyphens, underscores, mixed case)", () => {
@@ -95,6 +99,23 @@ describe("temporalFilterSchema", () => {
     expect(
       temporalFilterSchema.safeParse({ before: "2026-08-09T12:00:00" }).success,
     ).toBe(false);
+  });
+});
+
+describe("memorySearchParams", () => {
+  test("accepts a non-empty metaPredicate and preserves its text", () => {
+    const predicate = '  $.allowList[*] == "tom"  ';
+    const parsed = memorySearchParams.parse({ metaPredicate: predicate });
+    expect(parsed.metaPredicate).toBe(predicate);
+  });
+
+  test("rejects an empty or whitespace-only metaPredicate", () => {
+    expect(memorySearchParams.safeParse({ metaPredicate: "" }).success).toBe(
+      false,
+    );
+    expect(memorySearchParams.safeParse({ metaPredicate: "   " }).success).toBe(
+      false,
+    );
   });
 });
 

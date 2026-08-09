@@ -19,3 +19,4 @@ The `status` field progresses from `Proposed` to `Accepted`, `Deprecated`, or `S
 | [0002](0002-hnsw-filtered-recall.md) | Use strict-order HNSW iterative scans for filtered semantic search | Accepted |
 | [0003](0003-fulltext-bm25-scoring.md) | Return only positive BM25 matches from fulltext search | Accepted |
 | [0004](0004-hybrid-rrf-scoring.md) | Use Reciprocal Rank Fusion without a fused-score threshold | Accepted |
+| [0005](0005-jsonpath-metadata-predicates.md) | Expose PostgreSQL JSONPath predicates for advanced metadata filtering | Accepted |

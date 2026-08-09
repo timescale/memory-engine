@@ -3,7 +3,7 @@
  */
 import { describe, expect, test } from "bun:test";
 import { ROOT_PATH } from "../lib/tree-build.ts";
-import { exactTreeLquery } from "./queries.ts";
+import { exactTreeLquery, normalizeSearchParams } from "./queries.ts";
 
 describe("exactTreeLquery", () => {
   test("the empty path and the synthetic root bucket both pin to the root", () => {
@@ -31,5 +31,23 @@ describe("exactTreeLquery", () => {
     for (const path of ["", ROOT_PATH, "~", "~.a.b", "work", "share.auth"]) {
       expect(exactTreeLquery(path)).not.toContain("|");
     }
+  });
+});
+
+describe("normalizeSearchParams", () => {
+  test("preserves metaPredicate as a search criterion", () => {
+    expect(normalizeSearchParams({ metaPredicate: "$.priority >= 3" })).toEqual(
+      {
+        metaPredicate: "$.priority >= 3",
+        limit: 1000,
+      },
+    );
+  });
+
+  test("drops an empty metaPredicate and falls back to list-all", () => {
+    expect(normalizeSearchParams({ metaPredicate: "" })).toEqual({
+      tree: "*",
+      limit: 1000,
+    });
   });
 });

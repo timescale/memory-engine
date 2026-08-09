@@ -140,6 +140,13 @@ export const memorySearchParams = z.object({
   grep: z.string().optional().nullable(),
   tree: treeFilterSchema.optional().nullable(),
   meta: metaSchema.optional().nullable(),
+  metaPredicate: z
+    .string()
+    .refine((value) => value.trim().length > 0, {
+      message: "metaPredicate must not be empty",
+    })
+    .optional()
+    .nullable(),
   temporal: temporalFilterSchema.optional().nullable(),
   limit: z.number().int().min(1).max(1000).optional(),
   candidateLimit: z.number().int().min(1).max(1000).optional(),

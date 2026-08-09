@@ -11,6 +11,7 @@ Prefer `path` to write directly to a file instead of returning content through t
 | `space` | `string` | varies | Absent in locked mode; required nonempty string in multi-space mode. It selects the same-server space for this call. |
 | `tree` | `string \| null` | no | Tree path filter. Omit or pass `null` for all memories. |
 | `meta` | `object \| null` | no | Metadata filter. Omit or pass `null` to skip. |
+| `metaPredicate` | `string \| null` | no | PostgreSQL JSONPath Boolean predicate evaluated against metadata with `@@`. Omit or pass `null` to skip. |
 | `temporal` | `object \| null` | no | Temporal filter. Omit or pass `null` to skip. |
 | `format` | `string` | yes | Output format: `"json"`, `"yaml"`, or `"md"`. |
 | `limit` | `integer \| null` | no | Maximum memories to export. Omit or pass `null` for default (1000). |

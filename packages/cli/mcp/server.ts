@@ -304,7 +304,7 @@ Docs: ${docUrl("me_memory_create")}`,
       title: "Search Memories",
       description: `Search and browse memories using text matching and/or filters.
 
-Search modes: semantic (meaning), fulltext (keywords/exact text), or both (hybrid). Choose deliberately: semantic for concepts, fulltext for identifiers/errors/literal text, or both when both kinds of matching are useful. Combine with tree, meta, and temporal filters.
+Search modes: semantic (meaning), fulltext (keywords/exact text), or both (hybrid). Choose deliberately: semantic for concepts, fulltext for identifiers/errors/literal text, or both when both kinds of matching are useful. Combine with tree, structured metadata, JSONPath metadata predicate, temporal, and regex filters.
 
 Each result's score is mode-dependent (and comparable only within one result set, not across modes or queries): semantic → cosine similarity in [-1, 1] (higher = more similar); fulltext → a positive, unnormalized BM25 score (> 0, unbounded; only genuine term matches are returned); hybrid → the fused Reciprocal Rank Fusion (RRF) score (a small positive number reflecting cross-mode rank agreement, not absolute relevance); filter-only (neither) → an unranked sentinel (-1), with results ordered by creation time (see order_by).
 
@@ -328,13 +328,23 @@ Docs: ${docUrl("me_memory_search")}`,
             .optional()
             .nullable()
             .describe(
-              "Regex pattern filter on content (POSIX, case-insensitive). Applied as WHERE filter alongside other filters.",
+              "Regex pattern filter on content (POSIX, case-insensitive). Must accompany semantic/fulltext search or a tree, structured metadata, or temporal filter; metaPredicate alone does not qualify.",
             ),
           meta: z
             .record(z.string(), z.any())
             .optional()
             .nullable()
             .describe("Filter by metadata attributes"),
+          metaPredicate: z
+            .string()
+            .refine((value) => value.trim().length > 0, {
+              message: "metaPredicate must not be empty",
+            })
+            .optional()
+            .nullable()
+            .describe(
+              'PostgreSQL JSONPath predicate evaluated against metadata with @@. Must produce one Boolean result. Examples: $.allowList[*] == "tom"; $.priority >= 3; exists($.grants[*] ? (@.level >= 2)).',
+            ),
           tree: z
             .string()
             .optional()
@@ -454,6 +464,7 @@ Docs: ${docUrl("me_memory_search")}`,
         fulltext: args.fulltext ?? undefined,
         grep: args.grep ?? undefined,
         meta: args.meta ?? undefined,
+        metaPredicate: args.metaPredicate ?? undefined,
         tree: args.tree ?? undefined,
         temporal: args.temporal
           ? {
@@ -1226,6 +1237,16 @@ Docs: ${docUrl("me_memory_export")}`,
             .optional()
             .nullable()
             .describe("Metadata filter"),
+          metaPredicate: z
+            .string()
+            .refine((value) => value.trim().length > 0, {
+              message: "metaPredicate must not be empty",
+            })
+            .optional()
+            .nullable()
+            .describe(
+              "PostgreSQL JSONPath predicate evaluated against metadata with @@. Must produce one Boolean result. Example: $.priority >= 3 && !exists($.archivedAt).",
+            ),
           temporal: z
             .object({
               before: z
@@ -1296,6 +1317,7 @@ Docs: ${docUrl("me_memory_export")}`,
       };
       if (args.tree) searchParams.tree = args.tree;
       if (args.meta) searchParams.meta = args.meta;
+      if (args.metaPredicate) searchParams.metaPredicate = args.metaPredicate;
       if (args.temporal) {
         searchParams.temporal = {
           before: args.temporal.before ?? undefined,

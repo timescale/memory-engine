@@ -75,7 +75,7 @@ Memory Engine runs as an MCP server that AI agents connect to over stdio. Each a
 - **pgvector** for semantic (vector) search
 - **pg_textsearch** for BM25 keyword search
 - **ltree** for hierarchical tree paths
-- **JSONB + GIN** for metadata filtering
+- **JSONB + GIN** for containment and PostgreSQL JSONPath metadata predicates
 - **tstzrange** for temporal queries
 - **Tree-scoped access grants** evaluated in the search SQL (no RLS)
 

@@ -462,6 +462,62 @@ test("memory search and export forward temporal before/after filters", async () 
   }
 });
 
+test("memory search and export forward metaPredicate", async () => {
+  const fullResult = {
+    results: [{ ...fullMemory, score: -1 }],
+    total: 1,
+    limit: 10,
+  };
+  const requests = captureRpcResult(fullResult);
+  const { client, server } = await connect("locked");
+  try {
+    await client.callTool({
+      name: "me_memory_search",
+      arguments: { metaPredicate: '$.allowList[*] == "tom"' },
+    });
+    await client.callTool({
+      name: "me_memory_export",
+      arguments: { metaPredicate: "$.priority >= 3", format: "json" },
+    });
+    expect(requests).toEqual([
+      {
+        method: "memory.search",
+        params: { metaPredicate: '$.allowList[*] == "tom"' },
+      },
+      {
+        method: "memory.search",
+        params: {
+          metaPredicate: "$.priority >= 3",
+          limit: 1000,
+          orderBy: "asc",
+        },
+      },
+    ]);
+  } finally {
+    await Promise.all([client.close(), server.close()]);
+  }
+});
+
+test("memory search and export reject empty metaPredicate before RPC", async () => {
+  const requests = captureRpcResult({ results: [] });
+  const { client, server } = await connect("locked");
+  try {
+    const search = await client.callTool({
+      name: "me_memory_search",
+      arguments: { metaPredicate: "   " },
+    });
+    const exported = await client.callTool({
+      name: "me_memory_export",
+      arguments: { metaPredicate: "", format: "json" },
+    });
+    expect(search.isError).toBe(true);
+    expect(exported.isError).toBe(true);
+    expect(requests).toEqual([]);
+  } finally {
+    await Promise.all([client.close(), server.close()]);
+  }
+});
+
 test("memory read tools reject empty or conflicting selections before RPC", async () => {
   const requests = captureRpcResult(fullMemory);
   const { client, server } = await connect("locked");

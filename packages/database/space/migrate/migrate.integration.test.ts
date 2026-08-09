@@ -303,6 +303,128 @@ describe("migration behavior", () => {
     });
   });
 
+  test("upgrades the 0.0.6 search signatures without breaking old positional calls", async () => {
+    await withTestSpace(sql, {}, async (space) => {
+      await sql.unsafe(
+        `drop function ${space.schema}.hybrid_search_memory(jsonb, bm25query, halfvec, float8, ltree, lquery, ltxtquery, jsonb, tstzrange, tstzrange, timestamptz, timestamptz, text, float8, bigint, float8, float8, bigint, jsonpath)`,
+      );
+      await sql.unsafe(
+        `drop function ${space.schema}.search_memory(jsonb, bm25query, halfvec, float8, ltree, lquery, ltxtquery, jsonb, tstzrange, tstzrange, timestamptz, timestamptz, text, bigint, text, jsonpath)`,
+      );
+
+      const resultColumns = `
+        id uuid,
+        meta jsonb,
+        tree ltree,
+        temporal tstzrange,
+        content text,
+        name text,
+        version bigint,
+        version_hash text,
+        has_embedding bool,
+        created_at timestamptz,
+        updated_at timestamptz,
+        score float8`;
+      const emptyBody = `
+        select m.id, m.meta, m.tree, m.temporal, m.content, m.name,
+               m.version, m.version_hash, m.embedding is not null,
+               m.created_at, m.updated_at, -1::float8
+        from ${space.schema}.memory m
+        where false`;
+
+      await sql.unsafe(`
+        create function ${space.schema}.search_memory
+        ( _tree_access jsonb
+        , _bm25 bm25query
+        , _vec halfvec
+        , _min_similarity float8
+        , _ltree ltree
+        , _lquery lquery
+        , _ltxtquery ltxtquery
+        , _meta_contains jsonb
+        , _temporal_within tstzrange
+        , _temporal_overlaps tstzrange
+        , _temporal_before timestamptz
+        , _temporal_after timestamptz
+        , _regexp text
+        , _limit bigint
+        , _order text
+        ) returns table (${resultColumns})
+        as $function$ ${emptyBody} $function$ language sql`);
+      await sql.unsafe(`
+        create function ${space.schema}.hybrid_search_memory
+        ( _tree_access jsonb
+        , _bm25 bm25query
+        , _vec halfvec
+        , _min_similarity float8
+        , _ltree ltree
+        , _lquery lquery
+        , _ltxtquery ltxtquery
+        , _meta_contains jsonb
+        , _temporal_within tstzrange
+        , _temporal_overlaps tstzrange
+        , _temporal_before timestamptz
+        , _temporal_after timestamptz
+        , _regexp text
+        , _k float8
+        , _candidate_limit bigint
+        , _fulltext_weight float8
+        , _semantic_weight float8
+        , _limit bigint
+        ) returns table (${resultColumns})
+        as $function$ ${emptyBody} $function$ language sql`);
+      await sql.unsafe(`update ${space.schema}.version set version = '0.0.6'`);
+
+      await migrateSpace(sql, { slug: space.slug, schema: space.schema });
+
+      const functions = await sql.unsafe(
+        `select proname, pronargs::int as arg_count
+         from pg_proc p
+         join pg_namespace n on n.oid = p.pronamespace
+         where n.nspname = '${space.schema}'
+           and p.proname in ('search_memory', 'hybrid_search_memory')
+         order by proname`,
+      );
+      expect(
+        functions.map((row) => ({
+          proname: row.proname,
+          arg_count: Number(row.arg_count),
+        })),
+      ).toEqual([
+        { proname: "hybrid_search_memory", arg_count: 19 },
+        { proname: "search_memory", arg_count: 16 },
+      ]);
+      expect(await getSchemaVersion(sql, space.schema)).toBe(
+        SPACE_SCHEMA_VERSION,
+      );
+
+      const [searched] = await sql.unsafe(
+        `select count(*)::int as count
+         from ${space.schema}.search_memory(
+           '[]'::jsonb, null::bm25query, null::halfvec, null,
+           null::ltree, null::lquery, null::ltxtquery, null::jsonb,
+           null::tstzrange, null::tstzrange, null::timestamptz,
+           null::timestamptz, null::text, 10::bigint, 'desc'::text
+         )`,
+      );
+      expect(searched?.count).toBe(0);
+
+      const [hybrid] = await sql.unsafe(
+        `select count(*)::int as count
+         from ${space.schema}.hybrid_search_memory(
+           '[]'::jsonb,
+           to_bm25query('upgrade', '${space.schema}.memory_content_bm25_idx'),
+           ('[' || repeat('0,', 1535) || '0]')::halfvec,
+           null, null::ltree, null::lquery, null::ltxtquery, null::jsonb,
+           null::tstzrange, null::tstzrange, null::timestamptz,
+           null::timestamptz, null::text, 60.0, 10::bigint, 1.0, 1.0,
+           10::bigint
+         )`,
+      );
+      expect(hybrid?.count).toBe(0);
+    });
+  });
+
   test("rejects a downgrade (db version newer than app)", async () => {
     await withTestSpace(sql, {}, async (space) => {
       await sql.unsafe(`update ${space.schema}.version set version = '99.0.0'`);

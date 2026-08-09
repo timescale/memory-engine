@@ -64,6 +64,13 @@ function parseMeta(value: string): Record<string, unknown> {
   }
 }
 
+export function parseMetaPredicate(value: string): string {
+  if (value.trim().length === 0) {
+    throw new Error("Invalid --meta-predicate: must not be empty");
+  }
+  return value;
+}
+
 /**
  * Parse a --temporal flag value (start[,end]) to a temporal object.
  */
@@ -360,6 +367,11 @@ function createMemorySearchCommand(): Command {
     )
     .option("--tree <filter>", "tree path filter (supports wildcards)")
     .option("--meta <json>", "metadata filter (JSON)")
+    .option(
+      "--meta-predicate <jsonpath>",
+      "PostgreSQL JSONPath predicate evaluated against metadata",
+      parseMetaPredicate,
+    )
     .option("--limit <n>", "max results", "10")
     .option("--candidate-limit <n>", "pre-RRF candidate pool size")
     .option(
@@ -415,6 +427,7 @@ function createMemorySearchCommand(): Command {
         !opts.grep &&
         !tree &&
         !meta &&
+        !opts.metaPredicate &&
         !opts.temporalBefore &&
         !opts.temporalAfter &&
         !opts.temporalContains &&
@@ -422,7 +435,7 @@ function createMemorySearchCommand(): Command {
         !opts.temporalWithin
       ) {
         const msg =
-          "At least one search criterion required (query, --semantic, --fulltext, --grep, --tree, --meta, or --temporal-*).";
+          "At least one search criterion required (query, --semantic, --fulltext, --grep, --tree, --meta, --meta-predicate, or --temporal-*).";
         if (fmt === "text") {
           clack.log.error(msg);
         } else {
@@ -478,6 +491,7 @@ function createMemorySearchCommand(): Command {
         if (opts.grep) params.grep = opts.grep;
         if (tree) params.tree = tree;
         if (meta) params.meta = meta;
+        if (opts.metaPredicate) params.metaPredicate = opts.metaPredicate;
         if (temporal) params.temporal = temporal;
         if (weights) params.weights = weights;
         if (opts.candidateLimit)
@@ -1005,6 +1019,11 @@ function createMemoryExportCommand(): Command {
     .option("--tree <filter>", "tree path filter")
     .option("--format <fmt>", "output format: json, yaml, md", "json")
     .option("--meta <json>", "metadata filter (JSON)")
+    .option(
+      "--meta-predicate <jsonpath>",
+      "PostgreSQL JSONPath predicate evaluated against metadata",
+      parseMetaPredicate,
+    )
     .option("--limit <n>", "max memories to export", "1000")
     .option(
       "--temporal-before <ts>",
@@ -1036,6 +1055,7 @@ function createMemoryExportCommand(): Command {
       };
       if (opts.tree) searchParams.tree = opts.tree;
       if (opts.meta) searchParams.meta = parseMeta(opts.meta);
+      if (opts.metaPredicate) searchParams.metaPredicate = opts.metaPredicate;
 
       // Build temporal filter
       if (opts.temporalBefore) {
