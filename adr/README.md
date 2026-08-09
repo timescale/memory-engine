@@ -2,7 +2,7 @@
 
 This directory records significant architectural decisions for Memory Engine. An ADR explains the context that led to a decision, the decision itself, and its consequences. ADRs are historical records: when a decision changes, add a new ADR that supersedes the old one instead of rewriting the old decision.
 
-ADRs use numbered filenames and a lightweight Nygard format:
+ADRs use numbered filenames and a lightweight Nygaard format:
 
 - **Context** describes the problem and constraints.
 - **Decision** states the chosen approach.
