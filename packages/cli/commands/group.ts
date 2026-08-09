@@ -16,7 +16,7 @@
  * - me group members <group>:            list a group's members
  *
  * <group> is a group id or name; <member> is a user or service-account id or name (a UUID is
- * always accepted; name resolution requires space-manager authority).
+ * always accepted; group-name resolution is available to any space member).
  */
 import * as clack from "@clack/prompts";
 import { Command } from "commander";
@@ -35,6 +35,7 @@ import {
   requireAuth,
   requireSpace,
   resolveSpaceMemberId,
+  resolveSpacePrincipalId,
 } from "../util.ts";
 
 const UUIDV7_RE =
@@ -67,23 +68,19 @@ function resolveGroupInList(
   process.exit(1);
 }
 
-/** Resolve a group id from a UUID or name (via group.list). */
+/** Resolve a group id from a UUID or name via member-accessible principal.resolve. */
 export async function resolveGroupId(
   memory: MemoryClient,
   input: string,
   fmt: OutputFormat,
 ): Promise<string> {
-  // Only hit the network for a name; a bare UUID needs no lookup.
-  const groups = UUIDV7_RE.test(input)
-    ? []
-    : (await memory.group.list()).groups;
-  return resolveGroupInList(input, groups, fmt);
+  return resolveSpacePrincipalId(memory, input, fmt, "g");
 }
 
 /**
- * Resolve several group ids/names in a single `group.list` round-trip (used by
- * `me space invite --group … --group …`). Fetches the list only when at least
- * one input is a name.
+ * Resolve several group ids/names in a single admin-only `group.list` round-trip
+ * (used by `me space invite --group … --group …`). Fetches the list only when at
+ * least one input is a name.
  */
 export async function resolveGroupIds(
   memory: MemoryClient,
