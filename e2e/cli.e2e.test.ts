@@ -878,6 +878,34 @@ describe.skipIf(
     );
   });
 
+  test("7a2a. a group admin can manage its group by name without space-admin access (TNT-261)", async () => {
+    const groupName = `group-admins-${rand()}`;
+    await meJson(["group", "create", groupName]);
+    const groupAdmin = await seedSecondMember();
+    const member = await seedSecondMember();
+    await meJson(["group", "add", groupName, groupAdmin.email, "--admin"]);
+
+    // The group admin must not gain roster enumeration authority.
+    const listed = await me(["group", "list"], groupAdmin.env2);
+    expect(listed.code).not.toBe(0);
+    expect(`${listed.stdout}${listed.stderr}`).toContain("space admin");
+
+    // But it can resolve this group by name and manage its membership.
+    await meJson(["group", "add", groupName, member.email], groupAdmin.env2);
+    const members = await meJson<{ members: { memberId: string }[] }>(
+      ["group", "members", groupName],
+      groupAdmin.env2,
+    );
+    expect(members.members.some((m) => m.memberId === member.userId)).toBe(
+      true,
+    );
+    const removed = await meJson<{ removed: boolean }>(
+      ["group", "remove", groupName, member.email],
+      groupAdmin.env2,
+    );
+    expect(removed.removed).toBe(true);
+  });
+
   test("7a3. admin groups: create --space-admin, list shows space-admin, set-space-admin toggles", async () => {
     // create as an admin group
     const adminName = `leads-${rand()}`;
