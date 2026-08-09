@@ -37,6 +37,7 @@ export function encodeUrlState(
     if (a.grep) p.set("grep", a.grep);
     if (a.tree) p.set("tree", a.tree);
     if (a.metaJson) p.set("meta", a.metaJson);
+    if (a.metaPredicate) p.set("meta_predicate", a.metaPredicate);
     if (a.temporal.mode !== "overlaps") p.set("temporal_mode", a.temporal.mode);
     if (a.temporal.start) p.set("temporal_start", a.temporal.start);
     if (a.temporal.end) p.set("temporal_end", a.temporal.end);
@@ -74,6 +75,7 @@ export function decodeUrlState(search: string): {
     grep: p.get("grep") ?? "",
     tree: p.get("tree") ?? "",
     metaJson: p.get("meta") ?? "",
+    metaPredicate: p.get("meta_predicate") ?? "",
     temporal: {
       mode: (p.get("temporal_mode") as TemporalMode | null) ?? "overlaps",
       start: p.get("temporal_start") ?? "",

@@ -24,8 +24,10 @@ Use `me_memory_search` with the search mode that matches the task:
   strings, and other literal text.
 - Use both `semantic` and `fulltext` only when both meaning and exact terms are
   useful for the same query.
-- Use `tree`, `meta`, `temporal`, and `grep` filters to narrow results when you
-  know the relevant area or attribute.
+- Use `tree`, `meta`, `metaPredicate`, `temporal`, and `grep` filters to narrow
+  results when you know the relevant area or attribute. Pair `grep` with
+  semantic/fulltext search or a `tree`, `meta`, or `temporal` filter;
+  `metaPredicate` alone does not qualify.
 - Use `me_memory_tree` to inspect visible tree structure and counts before
   browsing or choosing a tree.
 

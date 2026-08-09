@@ -125,6 +125,13 @@ describe("selectSearchParams", () => {
     ).toBeUndefined();
   });
 
+  test("passes a trimmed metadata predicate through", () => {
+    expect(
+      selectSearchParams(withAdvanced({ metaPredicate: "  $.priority >= 3  " }))
+        .metaPredicate,
+    ).toBe("$.priority >= 3");
+  });
+
   test("converts datetime-local temporal contains filters to offset ISO datetimes", () => {
     const start = "2026-01-01T12:34:56";
 
@@ -222,6 +229,16 @@ describe("summarizeFilter (advanced mode)", () => {
       withAdvanced({ metaJson: '{"a":1,"b":2}' }),
     );
     expect(chips).toEqual(["meta: {a, b}"]);
+  });
+
+  test("metaPredicate produces a truncated chip", () => {
+    const predicate = `$.name == "${"a".repeat(60)}"`;
+    const { chips } = summarizeFilter(
+      withAdvanced({ metaPredicate: predicate }),
+    );
+    expect(chips).toHaveLength(1);
+    expect(chips[0]).toStartWith("metaPredicate: $.name ==");
+    expect(chips[0]?.length).toBeLessThan(predicate.length);
   });
 
   test("meta JSON: empty object renders as '{}'", () => {

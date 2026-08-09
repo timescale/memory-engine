@@ -97,6 +97,23 @@ export function AdvancedSearchPanel({ onSearch }: { onSearch: () => void }) {
           />
         </Field>
 
+        <Field
+          label="meta predicate (PostgreSQL JSONPath)"
+          className="sm:col-span-2"
+        >
+          <textarea
+            value={advanced.metaPredicate}
+            onChange={(e) => setAdvanced({ metaPredicate: e.target.value })}
+            rows={3}
+            placeholder="$.priority >= 3 && !exists($.archivedAt)"
+            className="w-full rounded-md border border-ink/[0.18] bg-surface px-3 py-2 font-mono text-[12px] transition-colors focus:border-ink focus:outline-none"
+          />
+          <p className="mt-1 text-[11px] text-ink/50">
+            Boolean predicate evaluated with @@. Equality clauses can use the
+            metadata GIN index; other predicates may be more expensive.
+          </p>
+        </Field>
+
         <Field label="temporal" className="sm:col-span-2">
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
             <select

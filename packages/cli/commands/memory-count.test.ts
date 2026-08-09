@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   formatMemoryCount,
   parseMaxCount,
+  parseMetaPredicate,
   uniqueExportFilename,
 } from "./memory.ts";
 
@@ -18,6 +19,20 @@ describe("parseMaxCount", () => {
   test("rejects invalid values", () => {
     for (const value of ["0", "-1", "1.5", "abc", ""]) {
       expect(() => parseMaxCount(value)).toThrow(/Invalid --max-count/);
+    }
+  });
+});
+
+describe("parseMetaPredicate", () => {
+  test("accepts a nonempty predicate", () => {
+    expect(parseMetaPredicate("$.priority >= 3")).toBe("$.priority >= 3");
+  });
+
+  test("rejects empty predicates", () => {
+    for (const value of ["", "   "]) {
+      expect(() => parseMetaPredicate(value)).toThrow(
+        /Invalid --meta-predicate/,
+      );
     }
   });
 });

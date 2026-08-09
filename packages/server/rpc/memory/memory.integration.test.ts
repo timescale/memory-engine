@@ -821,6 +821,117 @@ test("search: temporal before/after are strict at the cutoff", async () => {
   expect(after.results.map((r) => r.content)).toEqual(["future"]);
 });
 
+test("search: metaPredicate adds JSONPath predicates to metadata containment", async () => {
+  await call("memory.batchCreate", {
+    memories: [
+      {
+        content: "predicate target",
+        tree: "share.meta_predicate",
+        meta: {
+          allowList: ["tom", "alice"],
+          priority: 4,
+          workspace: "acme",
+          grants: [{ user: "tom", level: 2 }],
+        },
+      },
+      {
+        content: "predicate low",
+        tree: "share.meta_predicate",
+        meta: { allowList: ["tom"], priority: 1, workspace: "acme" },
+      },
+      {
+        content: "predicate other workspace",
+        tree: "share.meta_predicate",
+        meta: { allowList: ["alice"], priority: 5, workspace: "other" },
+      },
+      {
+        content: "predicate archived",
+        tree: "share.meta_predicate",
+        meta: {
+          allowList: ["tom"],
+          priority: 5,
+          workspace: "acme",
+          archivedAt: "2026-08-09T00:00:00Z",
+        },
+      },
+      {
+        content: "predicate wrong type",
+        tree: "share.meta_predicate",
+        meta: { allowList: ["tom"], priority: "high", workspace: "acme" },
+      },
+    ],
+  });
+
+  const contents = async (params: Record<string, unknown>) => {
+    const result = await call<{ results: { content: string }[] }>(
+      "memory.search",
+      { ...params, limit: 1000 },
+    );
+    return result.results.map((row) => row.content).sort();
+  };
+
+  expect(await contents({ meta: { allowList: ["tom"] } })).toEqual([
+    "predicate archived",
+    "predicate low",
+    "predicate target",
+    "predicate wrong type",
+  ]);
+  expect(await contents({ metaPredicate: '$.allowList[*] == "tom"' })).toEqual([
+    "predicate archived",
+    "predicate low",
+    "predicate target",
+    "predicate wrong type",
+  ]);
+  expect(
+    await contents({
+      metaPredicate: "$.priority >= 3 && !exists($.archivedAt)",
+    }),
+  ).toEqual(["predicate other workspace", "predicate target"]);
+  expect(
+    await contents({
+      meta: { workspace: "acme" },
+      metaPredicate: "$.priority >= 3 && !exists($.archivedAt)",
+    }),
+  ).toEqual(["predicate target"]);
+  expect(
+    await contents({
+      metaPredicate: 'exists($.grants[*] ? (@.user == "tom" && @.level >= 2))',
+    }),
+  ).toEqual(["predicate target"]);
+
+  await expectAppError(
+    call("memory.search", { metaPredicate: "$.priority = 3" }),
+    "VALIDATION_ERROR",
+  );
+
+  const schema = `me_${space.slug}`;
+  await sql.begin(async (tx) => {
+    await tx`set local enable_seqscan = off`;
+    const plan = await tx.unsafe(
+      `explain (format json) select id from ${schema}.memory
+       where meta @@ '$.allowList[*] == "tom"'::jsonpath`,
+    );
+    expect(JSON.stringify(plan)).toContain("memory_meta_gin_idx");
+  });
+
+  await sql.unsafe(
+    `update ${schema}.memory
+     set embedding = ('[1,' || repeat('0,', 1534) || '0]')::halfvec
+     where tree = 'share.meta_predicate'`,
+  );
+  const hybrid = await store.hybridSearch(treeAccess, {
+    bm25: "predicate",
+    vec: [1, ...Array.from({ length: 1535 }, () => 0)],
+    metaPredicate: "$.priority >= 3 && !exists($.archivedAt)",
+    candidateLimit: 20,
+    limit: 20,
+  });
+  expect(hybrid.map((row) => row.content).sort()).toEqual([
+    "predicate other workspace",
+    "predicate target",
+  ]);
+});
+
 test("search: tree lquery wildcard matches descendants", async () => {
   await call("memory.batchCreate", {
     memories: [
@@ -1037,9 +1148,13 @@ test("search: tree ltxtquery (label boolean) matches by label", async () => {
   expect(res.results.map((r) => r.tree)).toEqual(["/share/alpha/beta"]);
 });
 
-test("search: grep alone is rejected", async () => {
+test("search: grep without an index-friendly companion is rejected", async () => {
   await expectAppError(
     call("memory.search", { grep: "anything" }),
+    "VALIDATION_ERROR",
+  );
+  await expectAppError(
+    call("memory.search", { grep: "anything", metaPredicate: "true" }),
     "VALIDATION_ERROR",
   );
 });

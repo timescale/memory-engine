@@ -908,6 +908,22 @@ async function phase5_memory(): Promise<void> {
     );
   });
 
+  await step("me memory search --meta-predicate", async () => {
+    const predicate = `$.kind == "flag" && $.run_id == ${JSON.stringify(RUN_ID)}`;
+    const { json } = await runJson<{ results: { id: string }[] }>([
+      "memory",
+      "search",
+      "--meta-predicate",
+      predicate,
+      "--limit",
+      "10",
+    ]);
+    expect(
+      json.results.some((r) => r.id === id2),
+      `metaPredicate should find id2 (${id2})`,
+    );
+  });
+
   await step("me memory search --temporal-overlaps", async () => {
     const { json } = await runJson<{ results: { id: string }[] }>([
       "memory",
@@ -1137,6 +1153,22 @@ async function phase5_memory(): Promise<void> {
     ]);
     expect(Array.isArray(json), "export json is array");
     expect(json.length >= 1, "export non-empty");
+  });
+
+  await step("me memory export --meta-predicate", async () => {
+    const predicate = `$.kind == "flag" && $.run_id == ${JSON.stringify(RUN_ID)}`;
+    const { json } = await runJson<{ id: string }[]>([
+      "memory",
+      "export",
+      "--meta-predicate",
+      predicate,
+      "--format",
+      "json",
+      "--limit",
+      "1000",
+    ]);
+    expectEq(json.length, 1, "metaPredicate export count");
+    expectEq(json[0]?.id, id2, "metaPredicate export id");
   });
 
   await step("me memory export (yaml → file)", async () => {

@@ -11,7 +11,7 @@ See also: [Core Concepts → Search](concepts.md#search), the CLI [`me memory se
 | **Semantic** | Meaning / concepts, via vector embeddings and cosine similarity. Finds related ideas even when the words differ. | `--semantic <text>` (CLI); `semantic` (MCP/API) |
 | **Fulltext** | Exact keywords, identifiers, error strings — BM25 relevance over stemmed terms. | `--fulltext <text>` (CLI); `fulltext` (MCP/API) |
 | **Hybrid** | Both at once, combined with Reciprocal Rank Fusion (RRF). | pass **both** `--semantic` and `--fulltext`, or a positional `me memory search "query"` |
-| **Filter-only** | No ranking — just browse memories matching your filters. | any filter (`--tree`, `--meta`, `--temporal-*`, `--grep`) with no `--semantic`/`--fulltext` |
+| **Filter-only** | No ranking — just browse memories matching your filters. | one or more filters (`--tree`, `--meta`, `--meta-predicate`, `--temporal-*`, `--grep`) with no `--semantic`/`--fulltext`; `--grep` has the additional companion-filter requirement below |
 
 Choose deliberately: **semantic** for "things about X," **fulltext** for a specific term, filename, or error, and **hybrid** when both kinds of matching help the same query.
 
@@ -36,9 +36,10 @@ Filters narrow any search (and can be used alone to browse):
 
 - `--tree <filter>` — restrict to a subtree or pattern. See [Tree filter syntax](concepts.md#tree-filter-syntax).
 - `--meta <json>` — require metadata attributes (e.g. `{"type":"decision"}`).
+- `--meta-predicate <jsonpath>` — evaluate a PostgreSQL JSONPath Boolean predicate against metadata (e.g. `$.priority >= 3`).
 - `--temporal-before` / `--temporal-after` — require the memory's range to be strictly before or after a point in time.
 - `--temporal-contains` / `--temporal-overlaps` / `--temporal-within` — filter by containment or range relationships.
-- `--grep <pattern>` — regex over content. It must accompany another criterion (it can't be the only filter).
+- `--grep <pattern>` — regex over content. It must accompany semantic/fulltext search or a tree, structured metadata (`--meta`), or temporal filter. `--meta-predicate` alone does not satisfy this guard because both filters can require broad scans.
 
 ## Thresholds and tuning
 

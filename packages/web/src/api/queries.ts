@@ -252,6 +252,7 @@ export function normalizeSearchParams(
   if (nonEmpty(params.tree)) out.tree = params.tree;
   if (params.meta && Object.keys(params.meta).length > 0)
     out.meta = params.meta;
+  if (nonEmpty(params.metaPredicate)) out.metaPredicate = params.metaPredicate;
   if (params.temporal) out.temporal = params.temporal;
   if (params.weights) out.weights = params.weights;
   if (params.orderBy) out.orderBy = params.orderBy;
@@ -268,6 +269,7 @@ export function normalizeSearchParams(
     out.grep !== undefined ||
     out.tree !== undefined ||
     out.meta !== undefined ||
+    out.metaPredicate !== undefined ||
     out.temporal !== undefined;
 
   if (!hasAnyFilter) {

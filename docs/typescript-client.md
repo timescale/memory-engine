@@ -173,6 +173,8 @@ const { results } = await me.memory.search({
   grep: "regex.*pattern",              // POSIX regex on content
   tree: "/share/work/projects/*",       // ltree/lquery filter
   meta: { source: "meeting-notes" },   // JSONB containment
+  metaPredicate:                       // PostgreSQL JSONPath Boolean predicate
+    '$.priority >= 3 && !exists($.archivedAt)',
   temporal: {                          // time-based filter
     contains: "2025-06-15T00:00:00Z",  // point-in-time
     // OR before: "2025-06-15T00:00:00Z"

@@ -38,6 +38,7 @@ describe("encode/decode round-trip", () => {
         grep: "[a-z]+",
         tree: "work.*",
         metaJson: '{"priority":"high"}',
+        metaPredicate: "$.priority >= 3",
         temporal: {
           mode: "within",
           start: "2026-01-01T00:00:00Z",

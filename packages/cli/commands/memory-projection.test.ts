@@ -107,6 +107,20 @@ const memory = {
   updatedAt: null,
 };
 
+test("search and export reject empty metadata predicates before RPC", async () => {
+  const requests = captureRpcResult({ results: [], total: 0, limit: 10 });
+
+  for (const subcommand of ["search", "export"]) {
+    await expect(
+      program().parseAsync(["memory", subcommand, "--meta-predicate", "   "], {
+        from: "user",
+      }),
+    ).rejects.toThrow(/Invalid --meta-predicate/);
+  }
+
+  expect(requests).toHaveLength(0);
+});
+
 test("default text search projects locally and always displays the score", async () => {
   const requests = captureRpcResult({
     results: [

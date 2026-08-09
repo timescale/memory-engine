@@ -546,6 +546,7 @@ async function memorySearch(
     lquery: treeFilter?.kind === "lquery" ? treeFilter.value : undefined,
     ltxtquery: treeFilter?.kind === "ltxtquery" ? treeFilter.value : undefined,
     metaContains: params.meta ?? undefined,
+    metaPredicate: params.metaPredicate ?? undefined,
     regexp: params.grep ?? undefined,
     ...mapTemporalFilter(params.temporal),
   };

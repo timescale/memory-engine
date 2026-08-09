@@ -182,6 +182,29 @@ The conversation importers (`me import claude` / `codex` / `opencode`) set `$pre
 - **Meta** allows multiple flat attributes and faceted filtering. Use for searchable classification.
 - **Use both.** They serve different purposes and work well together.
 
+### Advanced metadata predicates
+
+Search also accepts `metaPredicate`, a PostgreSQL JSONPath Boolean predicate
+evaluated against the complete metadata object. Use it for comparisons, Boolean
+logic, missing-key checks, regular expressions, array cardinality, arithmetic,
+and cross-field conditions that JSON containment cannot express:
+
+```text
+$.priority >= 3 && !exists($.archivedAt)
+```
+
+`meta` and `metaPredicate` are additive: when both are supplied, a memory must
+match both. Prefer structured `meta` containment for exact values and array
+membership because it is simpler and predictably index-friendly. For example,
+`{"allowList":["tom"]}` matches an allow list containing both `tom` and
+`alice`.
+
+JSONPath equality clauses can use the metadata GIN index. More expressive
+predicates such as inequalities, arithmetic, regular expressions, cardinality,
+and negation may require broader scans and are bounded by the server's database
+statement timeout. `metaPredicate` uses PostgreSQL's SQL/JSON path dialect and
+the `@@` predicate contract, not JavaScript-oriented JSONPath syntax.
+
 **Important:** metadata is fully replaced on update, not merged. If you want to add a key, fetch the current metadata first, merge locally, then send the full object.
 
 ## Temporal Ranges
@@ -264,6 +287,7 @@ All search modes can be combined with filters:
 
 - **tree** -- restrict to a branch of the tree hierarchy.
 - **meta** -- filter by metadata attributes.
+- **metaPredicate** -- evaluate an advanced PostgreSQL JSONPath predicate against metadata.
 - **temporal** -- filter by time range.
 - **grep** -- regex pattern filter on content.
 
@@ -278,7 +302,7 @@ Every result carries a `score`, but its meaning depends on the search mode. Scor
 | Semantic | `semantic` only | Cosine similarity in `[-1, 1]` — higher is more similar (`1` = identical direction). |
 | Fulltext | `fulltext` only | A positive, **unnormalized** BM25 relevance score (`> 0`, unbounded — it can exceed `1`). Only genuine term matches are returned. |
 | Hybrid | `semantic` + `fulltext` | The fused [Reciprocal Rank Fusion](https://en.wikipedia.org/wiki/Learning_to_rank) (RRF) score — a small positive number that reflects rank agreement across the two modes, **not** an absolute relevance. |
-| Filter-only | neither (just `tree`/`meta`/`temporal`/`grep`) | An unranked sentinel (`-1`); results are ordered by creation time instead (configurable with `order_by`). |
+| Filter-only | neither (just `tree`/`meta`/`metaPredicate`/`temporal`/`grep`) | An unranked sentinel (`-1`); results are ordered by creation time instead (configurable with `order_by`). |
 
 ## Spaces
 

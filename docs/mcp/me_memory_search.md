@@ -2,7 +2,7 @@
 
 Search and browse memories using text matching and/or filters.
 
-Supports three search modes: **semantic** (meaning-based), **fulltext** (keyword-based via BM25), or **hybrid** (both combined via Reciprocal Rank Fusion). Choose the mode deliberately: use semantic search for concepts and intent, fulltext for exact words or identifiers, and hybrid when both kinds of matching are useful. Combine any search mode with tree, meta, and temporal filters.
+Supports three search modes: **semantic** (meaning-based), **fulltext** (keyword-based via BM25), or **hybrid** (both combined via Reciprocal Rank Fusion). Choose the mode deliberately: use semantic search for concepts and intent, fulltext for exact words or identifiers, and hybrid when both kinds of matching are useful. Combine any search mode with tree, structured metadata, JSONPath metadata predicate, temporal, and regex filters.
 
 ## Parameters
 
@@ -11,8 +11,9 @@ Supports three search modes: **semantic** (meaning-based), **fulltext** (keyword
 | `space` | `string` | varies | Absent in locked mode; required nonempty string in multi-space mode. It selects the same-server space for this call. |
 | `semantic` | `string \| null` | no | Natural language query for semantic search. Omit or pass `null` to skip. |
 | `fulltext` | `string \| null` | no | Keywords/phrases for BM25 exact matching. Omit or pass `null` to skip. |
-| `grep` | `string \| null` | no | POSIX regex pattern filter on content (case-insensitive). Applied as a WHERE filter alongside other filters. Omit or pass `null` to skip. |
+| `grep` | `string \| null` | no | POSIX regex pattern filter on content (case-insensitive). Must accompany semantic/fulltext search or a `tree`, `meta`, or `temporal` filter; `metaPredicate` alone does not qualify. Omit or pass `null` to skip. |
 | `meta` | `object \| null` | no | Filter by metadata attributes. Omit or pass `null` to skip. |
+| `metaPredicate` | `string \| null` | no | PostgreSQL JSONPath Boolean predicate evaluated against metadata with `@@`. Omit or pass `null` to skip. |
 | `tree` | `string \| null` | no | Filter by tree path. Omit or pass `null` to skip. |
 | `temporal` | `object \| null` | no | Temporal filter. Omit or pass `null` to skip. |
 | `weights` | `object \| null` | no | Weights for hybrid search ranking. Omit or pass `null` for defaults. |
@@ -49,6 +50,23 @@ See [Tree filter syntax](../concepts.md#tree-filter-syntax) for the full referen
 `before` and `after` are strict and exclude memories without a temporal range.
 A half-open range ending exactly at `before` matches; a range beginning at or
 containing the point does not.
+
+### metaPredicate
+
+Use `metaPredicate` for metadata conditions that structured `meta` containment
+cannot express:
+
+```text
+$.priority >= 3
+$.status == "active" || $.status == "pending"
+!exists($.archivedAt)
+exists($.grants[*] ? (@.user == "tom" && @.level >= 2))
+```
+
+The expression must produce one Boolean result and uses PostgreSQL's SQL/JSON
+path dialect. When both `meta` and `metaPredicate` are provided, both must match.
+Prefer `meta` for exact values and array membership. Equality clauses can use
+the metadata GIN index; other predicates may require broader scans.
 
 ### weights
 
@@ -137,7 +155,7 @@ pass `format: "json"` or `format: "compact"` for compact JSON text.
 
 ## Notes
 
-- Provide at least one of `semantic`, `fulltext`, or a filter (`tree`, `meta`, `temporal`, `grep`) -- otherwise the search has no criteria.
+- Provide at least one of `semantic`, `fulltext`, or a filter (`tree`, `meta`, `metaPredicate`, `temporal`, `grep`) -- otherwise the search has no criteria. `grep` must also accompany semantic/fulltext search or a `tree`, `meta`, or `temporal` filter; `metaPredicate` alone does not satisfy this guard.
 - Optional parameters may be omitted or explicitly passed as `null` — both are treated as "no value".
 - Omit `select` or pass `null` to receive complete memory objects. An empty selection or multiple distinct content slices are invalid.
 - Selectors use camelCase response names, such as `id`, `tree`, `hasEmbedding`, and `versionHash`. The complete suffix after `meta.` is the metadata key, including `$thread` or punctuation. `content:N` returns the first `N` UTF-16 code units; `content:M:N` returns the zero-based range `[M, N)`; `content:M:` returns from `M` through the end. Content slices include the full UTF-16 `contentLength`.
