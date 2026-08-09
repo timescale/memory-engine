@@ -140,23 +140,30 @@ export const temporalSchema = z.object({
 /**
  * Temporal filter for search.
  */
-export const temporalFilterSchema = z.object({
-  before: timestampSchema.optional(),
-  after: timestampSchema.optional(),
-  contains: timestampSchema.optional(),
-  overlaps: z
-    .object({
-      start: timestampSchema,
-      end: timestampSchema,
-    })
-    .optional(),
-  within: z
-    .object({
-      start: timestampSchema,
-      end: timestampSchema,
-    })
-    .optional(),
-});
+export const temporalFilterSchema = z
+  .object({
+    before: timestampSchema.optional(),
+    after: timestampSchema.optional(),
+    contains: timestampSchema.optional(),
+    overlaps: z
+      .object({
+        start: timestampSchema,
+        end: timestampSchema,
+      })
+      .optional(),
+    within: z
+      .object({
+        start: timestampSchema,
+        end: timestampSchema,
+      })
+      .optional(),
+  })
+  .refine(
+    (filter) => Object.values(filter).some((value) => value !== undefined),
+    {
+      message: "temporal filter requires at least one predicate",
+    },
+  );
 
 /**
  * Metadata schema (arbitrary JSON object).

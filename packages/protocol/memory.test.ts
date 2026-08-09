@@ -117,6 +117,11 @@ describe("temporalFilterSchema", () => {
     };
     expect(temporalFilterSchema.parse(temporal)).toEqual(temporal);
   });
+
+  test("rejects an empty filter", () => {
+    expect(temporalFilterSchema.safeParse({}).success).toBe(false);
+    expect(memorySearchParams.safeParse({ temporal: {} }).success).toBe(false);
+  });
 });
 
 describe("memorySearchParams", () => {
