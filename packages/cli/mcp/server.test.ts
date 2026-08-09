@@ -421,6 +421,47 @@ test("memory search projects rows and keeps both compact JSON format names", asy
   }
 });
 
+test("memory search and export forward temporal before/after filters", async () => {
+  const fullResult = {
+    results: [{ ...fullMemory, score: -1 }],
+    total: 1,
+    limit: 10,
+  };
+  const requests = captureRpcResult(fullResult);
+  const { client, server } = await connect("locked");
+  try {
+    await client.callTool({
+      name: "me_memory_search",
+      arguments: {
+        temporal: { before: "2026-08-09T12:00:00Z" },
+      },
+    });
+    await client.callTool({
+      name: "me_memory_export",
+      arguments: {
+        temporal: { after: "2026-08-09T12:00:00Z" },
+        format: "json",
+      },
+    });
+    expect(requests).toEqual([
+      {
+        method: "memory.search",
+        params: { temporal: { before: "2026-08-09T12:00:00Z" } },
+      },
+      {
+        method: "memory.search",
+        params: {
+          temporal: { after: "2026-08-09T12:00:00Z" },
+          limit: 1000,
+          orderBy: "asc",
+        },
+      },
+    ]);
+  } finally {
+    await Promise.all([client.close(), server.close()]);
+  }
+});
+
 test("memory read tools reject empty or conflicting selections before RPC", async () => {
   const requests = captureRpcResult(fullMemory);
   const { client, server } = await connect("locked");

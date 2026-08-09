@@ -20,6 +20,8 @@ Prefer `path` to write directly to a file instead of returning content through t
 
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
+| `before` | `string \| null` | no | Find memories strictly before this point in time. |
+| `after` | `string \| null` | no | Find memories strictly after this point in time. |
 | `contains` | `string \| null` | no | Find memories containing this point in time. |
 | `overlaps` | `object \| null` | no | Find memories overlapping this range (`{start, end}`). |
 | `within` | `object \| null` | no | Find memories fully within this range (`{start, end}`). |

@@ -366,6 +366,11 @@ function createMemorySearchCommand(): Command {
       "--semantic-threshold <n>",
       "minimum cosine similarity in [0,1] (1=identical, 0=unrelated); higher is stricter; rejected if out of range",
     )
+    .option(
+      "--temporal-before <ts>",
+      "memory must be strictly before this point",
+    )
+    .option("--temporal-after <ts>", "memory must be strictly after this point")
     .option("--temporal-contains <ts>", "memory must contain this point")
     .option("--temporal-overlaps <range>", "memory must overlap (start,end)")
     .option("--temporal-within <range>", "memory must be within (start,end)")
@@ -410,6 +415,8 @@ function createMemorySearchCommand(): Command {
         !opts.grep &&
         !tree &&
         !meta &&
+        !opts.temporalBefore &&
+        !opts.temporalAfter &&
         !opts.temporalContains &&
         !opts.temporalOverlaps &&
         !opts.temporalWithin
@@ -426,7 +433,11 @@ function createMemorySearchCommand(): Command {
 
       // Build temporal filter
       let temporal: Record<string, unknown> | null = null;
-      if (opts.temporalContains) {
+      if (opts.temporalBefore) {
+        temporal = { before: opts.temporalBefore };
+      } else if (opts.temporalAfter) {
+        temporal = { after: opts.temporalAfter };
+      } else if (opts.temporalContains) {
         temporal = { contains: opts.temporalContains };
       } else if (opts.temporalOverlaps) {
         const parts = opts.temporalOverlaps
@@ -995,6 +1006,11 @@ function createMemoryExportCommand(): Command {
     .option("--format <fmt>", "output format: json, yaml, md", "json")
     .option("--meta <json>", "metadata filter (JSON)")
     .option("--limit <n>", "max memories to export", "1000")
+    .option(
+      "--temporal-before <ts>",
+      "memory must be strictly before this point",
+    )
+    .option("--temporal-after <ts>", "memory must be strictly after this point")
     .option("--temporal-contains <ts>", "memory must contain this point")
     .option("--temporal-overlaps <range>", "memory must overlap (start,end)")
     .option("--temporal-within <range>", "memory must be within (start,end)")
@@ -1022,7 +1038,11 @@ function createMemoryExportCommand(): Command {
       if (opts.meta) searchParams.meta = parseMeta(opts.meta);
 
       // Build temporal filter
-      if (opts.temporalContains) {
+      if (opts.temporalBefore) {
+        searchParams.temporal = { before: opts.temporalBefore };
+      } else if (opts.temporalAfter) {
+        searchParams.temporal = { after: opts.temporalAfter };
+      } else if (opts.temporalContains) {
         searchParams.temporal = { contains: opts.temporalContains };
       } else if (opts.temporalOverlaps) {
         const parts = opts.temporalOverlaps
