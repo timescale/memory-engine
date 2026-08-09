@@ -4,6 +4,36 @@ All notable changes to the memory engine are documented here. The client
 (`v<x.y.z>`) and server (`server/v<x.y.z>`) release independently but are
 versioned in lockstep for coordinated breaking changes.
 
+## 0.7.3
+
+Server `server/v0.7.3` · Client `v0.7.3`.
+
+### Added
+- **JSONPath metadata filters.** Search and export now accept a PostgreSQL
+  JSONPath predicate (`metaPredicate` in RPC/MCP; `--meta-predicate` in the
+  CLI) for queries such as matching array members, nested values, comparisons,
+  and existence checks that structured metadata containment cannot express.
+- **Composable temporal filters.** Search and export can now combine `before`,
+  `after`, `contains`, `overlaps`, and `within` predicates; every supplied
+  predicate must match. The CLI exposes `--temporal-before` and
+  `--temporal-after` alongside the existing temporal options.
+
+### Fixed
+- **Group-name resolution for group administrators.** Group-management commands
+  now resolve a group by name through the member-accessible principal lookup,
+  rather than requiring the admin-only group listing permission.
+- Empty temporal filter objects and empty JSONPath predicates are rejected at
+  validation time instead of reaching search as ambiguous filters.
+
+### Changed
+- The client now requires server >= 0.7.3 (`MIN_SERVER_VERSION`) because these
+  search parameters require server support added in this release.
+
+### Database
+- Space schema -> 0.0.8. Search functions gain JSONPath metadata and temporal
+  containment parameters. Migrations auto-apply on server boot; rolling back to
+  a server older than 0.7.3 is refused by the space-schema downgrade guard.
+
 ## 0.7.2
 
 Server `server/v0.7.2` · Client `v0.7.2`.
