@@ -41,6 +41,10 @@ Filters narrow any search (and can be used alone to browse):
 - `--temporal-contains` / `--temporal-overlaps` / `--temporal-within` — filter by containment or range relationships.
 - `--grep <pattern>` — regex over content. It must accompany semantic/fulltext search or a tree, structured metadata (`--meta`), or temporal filter. `--meta-predicate` alone does not satisfy this guard because both filters can require broad scans.
 
+Temporal flags can be combined; every supplied predicate must match. For
+example, use `--temporal-after <start>` with `--temporal-before <end>` to find
+memories wholly between two cutoffs.
+
 ## Thresholds and tuning
 
 - **`--semantic-threshold <n>` (`semanticThreshold`)** — minimum cosine similarity, in `[0, 1]`. Higher is stricter (`0.8` ≈ strong matches; `0.5` ≈ loosely related). Values outside `[0, 1]` are rejected, not clamped. Applies only to the semantic/vector match.

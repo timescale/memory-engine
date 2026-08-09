@@ -821,6 +821,48 @@ test("search: temporal before/after are strict at the cutoff", async () => {
   expect(after.results.map((r) => r.content)).toEqual(["future"]);
 });
 
+test("search: combines all temporal predicates with AND", async () => {
+  await call("memory.batchCreate", {
+    memories: [
+      {
+        content: "temporal target",
+        tree: "share.temporal.conjunction",
+        temporal: {
+          start: "2026-01-10T00:00:00Z",
+          end: "2026-01-20T00:00:00Z",
+        },
+      },
+      {
+        content: "temporal decoy",
+        tree: "share.temporal.conjunction",
+        temporal: {
+          start: "2026-01-10T00:00:00Z",
+          end: "2026-01-15T00:00:00Z",
+        },
+      },
+    ],
+  });
+
+  const res = await call<{ results: { content: string }[] }>("memory.search", {
+    tree: "share.temporal.conjunction",
+    temporal: {
+      after: "2026-01-05T00:00:00Z",
+      before: "2026-01-25T00:00:00Z",
+      contains: "2026-01-14T00:00:00Z",
+      overlaps: {
+        start: "2026-01-15T00:00:00Z",
+        end: "2026-01-25T00:00:00Z",
+      },
+      within: {
+        start: "2026-01-01T00:00:00Z",
+        end: "2026-02-01T00:00:00Z",
+      },
+    },
+    limit: 1000,
+  });
+  expect(res.results.map((r) => r.content)).toEqual(["temporal target"]);
+});
+
 test("search: metaPredicate adds JSONPath predicates to metadata containment", async () => {
   await call("memory.batchCreate", {
     memories: [

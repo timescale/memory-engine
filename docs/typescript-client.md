@@ -176,11 +176,11 @@ const { results } = await me.memory.search({
   metaPredicate:                       // PostgreSQL JSONPath Boolean predicate
     '$.priority >= 3 && !exists($.archivedAt)',
   temporal: {                          // time-based filter
-    contains: "2025-06-15T00:00:00Z",  // point-in-time
-    // OR before: "2025-06-15T00:00:00Z"
-    // OR after: "2025-06-15T00:00:00Z"
-    // OR overlaps: { start, end }
-    // OR within: { start, end }
+    after: "2025-06-01T00:00:00Z",
+    before: "2025-07-01T00:00:00Z",   // every populated mode must match
+    // contains: "2025-06-15T00:00:00Z"
+    // overlaps: { start, end }
+    // within: { start, end }
   },
 
   // Tuning

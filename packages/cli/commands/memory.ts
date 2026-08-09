@@ -64,6 +64,40 @@ function parseMeta(value: string): Record<string, unknown> {
   }
 }
 
+type TemporalOptions = {
+  temporalBefore?: string;
+  temporalAfter?: string;
+  temporalContains?: string;
+  temporalOverlaps?: string;
+  temporalWithin?: string;
+};
+
+/** Build conjunctive temporal filters from every supplied temporal option. */
+function parseTemporalFilters(
+  opts: TemporalOptions,
+  fmt: ReturnType<typeof getOutputFormat>,
+): Record<string, unknown> | null {
+  const temporal: Record<string, unknown> = {};
+  if (opts.temporalBefore) temporal.before = opts.temporalBefore;
+  if (opts.temporalAfter) temporal.after = opts.temporalAfter;
+  if (opts.temporalContains) temporal.contains = opts.temporalContains;
+  if (opts.temporalOverlaps) {
+    const parts = opts.temporalOverlaps.split(",").map((s) => s.trim());
+    if (parts.length !== 2 || !parts[0] || !parts[1]) {
+      handleError(new Error("--temporal-overlaps requires start,end"), fmt);
+    }
+    temporal.overlaps = { start: parts[0], end: parts[1] };
+  }
+  if (opts.temporalWithin) {
+    const parts = opts.temporalWithin.split(",").map((s) => s.trim());
+    if (parts.length !== 2 || !parts[0] || !parts[1]) {
+      handleError(new Error("--temporal-within requires start,end"), fmt);
+    }
+    temporal.within = { start: parts[0], end: parts[1] };
+  }
+  return Object.keys(temporal).length > 0 ? temporal : null;
+}
+
 export function parseMetaPredicate(value: string): string {
   if (value.trim().length === 0) {
     throw new Error("Invalid --meta-predicate: must not be empty");
@@ -444,31 +478,7 @@ function createMemorySearchCommand(): Command {
         process.exit(1);
       }
 
-      // Build temporal filter
-      let temporal: Record<string, unknown> | null = null;
-      if (opts.temporalBefore) {
-        temporal = { before: opts.temporalBefore };
-      } else if (opts.temporalAfter) {
-        temporal = { after: opts.temporalAfter };
-      } else if (opts.temporalContains) {
-        temporal = { contains: opts.temporalContains };
-      } else if (opts.temporalOverlaps) {
-        const parts = opts.temporalOverlaps
-          .split(",")
-          .map((s: string) => s.trim());
-        if (parts.length !== 2 || !parts[0] || !parts[1]) {
-          handleError(new Error("--temporal-overlaps requires start,end"), fmt);
-        }
-        temporal = { overlaps: { start: parts[0], end: parts[1] } };
-      } else if (opts.temporalWithin) {
-        const parts = opts.temporalWithin
-          .split(",")
-          .map((s: string) => s.trim());
-        if (parts.length !== 2 || !parts[0] || !parts[1]) {
-          handleError(new Error("--temporal-within requires start,end"), fmt);
-        }
-        temporal = { within: { start: parts[0], end: parts[1] } };
-      }
+      const temporal = parseTemporalFilters(opts, fmt);
 
       // Build weights (only when both semantic + fulltext)
       let weights: Record<string, number> | null = null;
@@ -1057,34 +1067,8 @@ function createMemoryExportCommand(): Command {
       if (opts.meta) searchParams.meta = parseMeta(opts.meta);
       if (opts.metaPredicate) searchParams.metaPredicate = opts.metaPredicate;
 
-      // Build temporal filter
-      if (opts.temporalBefore) {
-        searchParams.temporal = { before: opts.temporalBefore };
-      } else if (opts.temporalAfter) {
-        searchParams.temporal = { after: opts.temporalAfter };
-      } else if (opts.temporalContains) {
-        searchParams.temporal = { contains: opts.temporalContains };
-      } else if (opts.temporalOverlaps) {
-        const parts = opts.temporalOverlaps
-          .split(",")
-          .map((s: string) => s.trim());
-        if (parts.length !== 2 || !parts[0] || !parts[1]) {
-          handleError(new Error("--temporal-overlaps requires start,end"), fmt);
-        }
-        searchParams.temporal = {
-          overlaps: { start: parts[0], end: parts[1] },
-        };
-      } else if (opts.temporalWithin) {
-        const parts = opts.temporalWithin
-          .split(",")
-          .map((s: string) => s.trim());
-        if (parts.length !== 2 || !parts[0] || !parts[1]) {
-          handleError(new Error("--temporal-within requires start,end"), fmt);
-        }
-        searchParams.temporal = {
-          within: { start: parts[0], end: parts[1] },
-        };
-      }
+      const temporal = parseTemporalFilters(opts, fmt);
+      if (temporal) searchParams.temporal = temporal;
 
       const client = buildMemoryClient(creds);
 

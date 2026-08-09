@@ -333,10 +333,11 @@ export function spaceStore(sql: Sql, schema: string): SpaceStore {
           ${o.temporalOverlaps ?? null}::tstzrange,
           ${o.temporalBefore ?? null}::timestamptz,
           ${o.temporalAfter ?? null}::timestamptz,
-          ${o.regexp ?? null},
-          ${o.limit ?? 10},
-          ${o.order ?? "desc"},
-          ${o.metaPredicate ?? null}::jsonpath
+           ${o.regexp ?? null},
+           ${o.limit ?? 10},
+           ${o.order ?? "desc"},
+           ${o.metaPredicate ?? null}::jsonpath,
+           ${o.temporalContains ?? null}::timestamptz
         )`;
       return rows.map(mapSearchItem);
     },
@@ -363,9 +364,10 @@ export function spaceStore(sql: Sql, schema: string): SpaceStore {
           ${o.k ?? 60.0},
           ${o.candidateLimit ?? 30},
           ${o.fulltextWeight ?? 1.0},
-          ${o.semanticWeight ?? 1.0},
-          ${o.limit ?? 10},
-          ${o.metaPredicate ?? null}::jsonpath
+           ${o.semanticWeight ?? 1.0},
+           ${o.limit ?? 10},
+           ${o.metaPredicate ?? null}::jsonpath,
+           ${o.temporalContains ?? null}::timestamptz
         )`;
       return rows.map(mapSearchItem);
     },
