@@ -222,6 +222,10 @@ Temporal ranges use PostgreSQL's `tstzrange` type and support five query modes:
 - **overlaps** -- find memories whose range overlaps a given range.
 - **within** -- find memories whose range falls entirely within a given range.
 
+You can combine temporal modes; every supplied predicate must match. For
+example, `after: A` with `before: B` finds memories wholly between those
+cutoffs. Contradictory predicates return no memories.
+
 `before` and `after` are strict. A range ending at a point with an exclusive
 upper bound is before that point, while a range beginning at or containing the
 point is neither before nor after it. This makes `before: now` suitable for

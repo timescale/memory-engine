@@ -112,6 +112,10 @@ search or `--tree`, `--meta`, or a `--temporal-*` filter. A
 `--meta-predicate` companion alone does not qualify because both filters can
 require broad scans.
 
+Temporal flags can be combined; every supplied predicate must match. For
+example, pair `--temporal-after <start>` with `--temporal-before <end>` to find
+memories wholly between two cutoffs.
+
 `--meta-predicate` uses PostgreSQL's JSONPath predicate syntax. Quote the
 expression so the shell does not interpret `$`, `*`, or parentheses:
 

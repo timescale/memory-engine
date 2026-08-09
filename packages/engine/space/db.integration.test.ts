@@ -273,6 +273,41 @@ test("unranked (filter-only) search orders by id, newest-first by default", asyn
   expect(desc.map((r) => r.id)).toEqual([...ids].reverse());
 });
 
+test("temporal filters are conjunctive, including contains and overlaps", async () => {
+  const target = await mustCreate(FULL, {
+    tree: "work.temporal.target",
+    content: "temporal target",
+    temporal: "[2026-01-10T00:00:00Z,2026-01-20T00:00:00Z)",
+  });
+  await mustCreate(FULL, {
+    tree: "work.temporal.decoy",
+    content: "temporal decoy",
+    temporal: "[2026-01-10T00:00:00Z,2026-01-15T00:00:00Z)",
+  });
+  await setEmbedding(target, [0, 0, 0, 1]);
+
+  const filters = {
+    temporalAfter: "2026-01-05T00:00:00Z",
+    temporalBefore: "2026-01-25T00:00:00Z",
+    temporalContains: "2026-01-14T00:00:00Z",
+    temporalOverlaps: "[2026-01-15T00:00:00Z,2026-01-25T00:00:00Z)",
+    temporalWithin: "[2026-01-01T00:00:00Z,2026-02-01T00:00:00Z)",
+  };
+  expect(
+    (await db.search(FULL, { ...filters, limit: 10 })).map((r) => r.id),
+  ).toEqual([target]);
+  expect(
+    (
+      await db.hybridSearch(FULL, {
+        ...filters,
+        bm25: "target",
+        vec: [0, 0, 0, 1],
+        limit: 10,
+      })
+    ).map((r) => r.id),
+  ).toEqual([target]);
+});
+
 test("vector search ranks by embedding similarity and returns cosine similarity as score", async () => {
   const near = await mustCreate(FULL, {
     tree: "work.v1",

@@ -121,6 +121,44 @@ test("search and export reject empty metadata predicates before RPC", async () =
   expect(requests).toHaveLength(0);
 });
 
+test("search and export preserve every temporal filter", async () => {
+  const requests = captureRpcResult({ results: [], total: 0, limit: 10 });
+  const flags = [
+    "--temporal-before",
+    "2026-02-01T00:00:00Z",
+    "--temporal-after",
+    "2026-01-01T00:00:00Z",
+    "--temporal-contains",
+    "2026-01-15T00:00:00Z",
+    "--temporal-overlaps",
+    "2026-01-10T00:00:00Z,2026-01-20T00:00:00Z",
+    "--temporal-within",
+    "2026-01-01T00:00:00Z,2026-02-01T00:00:00Z",
+  ];
+  const temporal = {
+    before: "2026-02-01T00:00:00Z",
+    after: "2026-01-01T00:00:00Z",
+    contains: "2026-01-15T00:00:00Z",
+    overlaps: { start: "2026-01-10T00:00:00Z", end: "2026-01-20T00:00:00Z" },
+    within: { start: "2026-01-01T00:00:00Z", end: "2026-02-01T00:00:00Z" },
+  };
+
+  await program().parseAsync(["memory", "search", ...flags], {
+    from: "user",
+  });
+  await program().parseAsync(["memory", "export", ...flags], {
+    from: "user",
+  });
+
+  expect(requests.map(({ method, params }) => ({ method, params }))).toEqual([
+    { method: "memory.search", params: { temporal, limit: 10 } },
+    {
+      method: "memory.search",
+      params: { temporal, limit: 1000, orderBy: "asc" },
+    },
+  ]);
+});
+
 test("default text search projects locally and always displays the score", async () => {
   const requests = captureRpcResult({
     results: [

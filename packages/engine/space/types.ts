@@ -82,6 +82,8 @@ export interface MemoryFilters {
   temporalOverlaps?: TemporalRange;
   temporalBefore?: string;
   temporalAfter?: string;
+  /** Point that the memory's temporal range must contain. */
+  temporalContains?: string;
   /** case-insensitive regexp on content (must be combined with another filter). */
   regexp?: string;
 }

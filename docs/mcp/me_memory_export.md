@@ -27,6 +27,8 @@ Prefer `path` to write directly to a file instead of returning content through t
 | `overlaps` | `object \| null` | no | Find memories overlapping this range (`{start, end}`). |
 | `within` | `object \| null` | no | Find memories fully within this range (`{start, end}`). |
 
+You can provide multiple temporal fields; all populated predicates must match.
+
 ## Returns
 
 ### When `path` is provided (file output)

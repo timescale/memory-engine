@@ -388,7 +388,9 @@ Docs: ${docUrl("me_memory_search")}`,
             })
             .optional()
             .nullable()
-            .describe("Temporal filter for search"),
+            .describe(
+              "Temporal filters for search; all populated predicates must match",
+            ),
           weights: z
             .object({
               fulltext: z
@@ -1283,7 +1285,7 @@ Docs: ${docUrl("me_memory_export")}`,
             })
             .optional()
             .nullable()
-            .describe("Temporal filter"),
+            .describe("Temporal filters; all populated predicates must match"),
           format: z.string().describe("Output format: json, yaml, or md"),
           limit: z
             .number()

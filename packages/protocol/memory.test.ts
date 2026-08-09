@@ -100,6 +100,23 @@ describe("temporalFilterSchema", () => {
       temporalFilterSchema.safeParse({ before: "2026-08-09T12:00:00" }).success,
     ).toBe(false);
   });
+
+  test("preserves multiple temporal predicates", () => {
+    const temporal = {
+      before: "2026-08-09T12:00:00Z",
+      after: "2026-08-01T12:00:00Z",
+      contains: "2026-08-05T12:00:00Z",
+      overlaps: {
+        start: "2026-08-04T00:00:00Z",
+        end: "2026-08-06T00:00:00Z",
+      },
+      within: {
+        start: "2026-08-01T00:00:00Z",
+        end: "2026-08-09T00:00:00Z",
+      },
+    };
+    expect(temporalFilterSchema.parse(temporal)).toEqual(temporal);
+  });
 });
 
 describe("memorySearchParams", () => {

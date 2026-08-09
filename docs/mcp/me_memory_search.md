@@ -47,6 +47,8 @@ See [Tree filter syntax](../concepts.md#tree-filter-syntax) for the full referen
 | `overlaps` | `object \| null` | no | Find memories overlapping this range (`{start, end}`). |
 | `within` | `object \| null` | no | Find memories fully within this range (`{start, end}`). |
 
+You can provide multiple temporal fields; all populated predicates must match.
+
 `before` and `after` are strict and exclude memories without a temporal range.
 A half-open range ending exactly at `before` matches; a range beginning at or
 containing the point does not.

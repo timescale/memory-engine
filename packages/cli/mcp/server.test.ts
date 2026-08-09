@@ -421,7 +421,7 @@ test("memory search projects rows and keeps both compact JSON format names", asy
   }
 });
 
-test("memory search and export forward temporal before/after filters", async () => {
+test("memory search and export forward every temporal filter", async () => {
   const fullResult = {
     results: [{ ...fullMemory, score: -1 }],
     total: 1,
@@ -439,7 +439,19 @@ test("memory search and export forward temporal before/after filters", async () 
     await client.callTool({
       name: "me_memory_export",
       arguments: {
-        temporal: { after: "2026-08-09T12:00:00Z" },
+        temporal: {
+          before: "2026-08-09T12:00:00Z",
+          after: "2026-08-01T12:00:00Z",
+          contains: "2026-08-05T12:00:00Z",
+          overlaps: {
+            start: "2026-08-04T00:00:00Z",
+            end: "2026-08-06T00:00:00Z",
+          },
+          within: {
+            start: "2026-08-01T00:00:00Z",
+            end: "2026-08-09T00:00:00Z",
+          },
+        },
         format: "json",
       },
     });
@@ -451,7 +463,19 @@ test("memory search and export forward temporal before/after filters", async () 
       {
         method: "memory.search",
         params: {
-          temporal: { after: "2026-08-09T12:00:00Z" },
+          temporal: {
+            before: "2026-08-09T12:00:00Z",
+            after: "2026-08-01T12:00:00Z",
+            contains: "2026-08-05T12:00:00Z",
+            overlaps: {
+              start: "2026-08-04T00:00:00Z",
+              end: "2026-08-06T00:00:00Z",
+            },
+            within: {
+              start: "2026-08-01T00:00:00Z",
+              end: "2026-08-09T00:00:00Z",
+            },
+          },
           limit: 1000,
           orderBy: "asc",
         },
