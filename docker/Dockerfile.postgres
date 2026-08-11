@@ -4,10 +4,20 @@ ARG TARGETARCH
 ADD https://github.com/timescale/pg_textsearch/releases/download/v1.1.0/pg-textsearch-v1.1.0-pg18-${TARGETARCH}.zip /tmp/pg_textsearch.zip
 RUN unzip /tmp/pg_textsearch.zip -d /tmp/
 
-# Stage 2: PostgreSQL with pgvector + pg_textsearch
+# Stage 2: PostgreSQL with pgvector, pg_textsearch, and TimescaleDB
 FROM docker.io/pgvector/pgvector:0.8.2-pg18-trixie
 COPY --from=extract /tmp/pg-textsearch-*.deb /tmp/
-RUN dpkg -i /tmp/pg-textsearch-*.deb && rm /tmp/pg-textsearch-*.deb
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends ca-certificates curl gnupg \
+ && install -d -m 0755 /etc/apt/keyrings \
+ && curl -fsSL https://packagecloud.io/timescale/timescaledb/gpgkey \
+    | gpg --dearmor -o /etc/apt/keyrings/timescaledb.gpg \
+ && echo "deb [signed-by=/etc/apt/keyrings/timescaledb.gpg] https://packagecloud.io/timescale/timescaledb/debian/ trixie main" \
+    > /etc/apt/sources.list.d/timescaledb.list \
+ && apt-get update \
+ && apt-get install -y --no-install-recommends timescaledb-2-postgresql-18 \
+ && dpkg -i /tmp/pg-textsearch-*.deb \
+ && rm -rf /var/lib/apt/lists/* /tmp/pg-textsearch-*.deb
 
-# pg_textsearch 0.6+ requires shared_preload_libraries
-RUN echo "shared_preload_libraries = 'pg_textsearch'" >> /usr/share/postgresql/postgresql.conf.sample
+# TimescaleDB and pg_textsearch both require shared_preload_libraries.
+RUN echo "shared_preload_libraries = 'timescaledb,pg_textsearch'" >> /usr/share/postgresql/postgresql.conf.sample
