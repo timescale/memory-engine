@@ -1,16 +1,11 @@
 ---
-title: Expose PostgreSQL JSONPath predicates for advanced metadata filtering
-status: Accepted
-date: 2026-08-09
-deciders: [jgpruitt]
+title: Metadata Predicates
 tags: [search, metadata, jsonb, jsonpath, gin]
-tickets: []
-supersedes: []
 ---
 
-# ADR 0005: Expose PostgreSQL JSONPath predicates for advanced metadata filtering
+# Metadata Predicates
 
-## Context
+## Metadata filters
 
 Memory Engine stores each memory's metadata as a `jsonb` object and exposes a
 structured `meta` search filter. That filter uses PostgreSQL containment:
@@ -89,9 +84,9 @@ Relevant PostgreSQL 18 documentation:
 - [Boolean predicate check expressions](https://www.postgresql.org/docs/18/functions-json.html#FUNCTIONS-SQLJSON-CHECK-EXPRESSIONS)
 - [GIN built-in operator classes](https://www.postgresql.org/docs/18/gin.html#GIN-BUILTIN-OPCLASSES)
 
-## Decision
+## `metaPredicate` interface
 
-Add an optional `metaPredicate` search filter containing a PostgreSQL `jsonpath`
+`metaPredicate` is an optional search filter containing a PostgreSQL `jsonpath`
 predicate check expression. Evaluate it with the `@@` operator:
 
 ```ts
@@ -129,7 +124,7 @@ metadata. Callers may prefix a path with `strict` when they need exact structura
 matching instead of lax-mode array wrapping and unwrapping; the operator still
 suppresses the documented evaluation errors.
 
-Expose the same filter on public surfaces that provide the complete memory
+The same filter is available on public surfaces that provide the complete memory
 search contract, including the TypeScript client, CLI, MCP search and export
 tools, and advanced web search. Their descriptions and documentation include
 PostgreSQL-specific examples for equality, numeric comparison, Boolean
@@ -146,7 +141,7 @@ index strategy for `@@`, not for the function call. Do not promise that every
 valid predicate is index-backed: documentation must distinguish extractable
 equality predicates from predicates that may scan.
 
-## Consequences
+## Behavior and constraints
 
 - Callers can express metadata comparisons, ranges, OR and negation, missing-key
   checks, regexes, array cardinality, arithmetic, cross-field comparisons, and
@@ -162,66 +157,9 @@ equality predicates from predicates that may scan.
 - Missing or differently typed metadata generally produces a non-match rather
   than failing the whole search because `@@` suppresses common structural and
   evaluation errors.
-- The public API becomes coupled to PostgreSQL's SQL/JSON path dialect. This is
-  intentional: exposing the database-native predicate avoids inventing and
-  maintaining a separate expression language.
-- Adding the predicate to the database search functions changes their signatures
-  and requires the guarded function-signature migration pattern. The new
-  argument should be trailing and defaulted so existing positional callers stay
-  valid during a rolling deployment.
-- The space schema version must advance because an older application does not
-  understand the new search-function contract.
-- A new client talking to an old server must not silently lose the predicate and
-  return broader results. Client/server compatibility bounds must make the
-  required server version explicit.
-
-## Alternatives considered
-
-### Document containment and add no new filter
-
-This is sufficient for the allow-list example and should be documented
-regardless. It does not address numeric comparisons, OR, negation, regexes,
-cardinality, arithmetic, or cross-field predicates.
-
-### Name the field `metaQuery`
-
-The name is approachable but ambiguous. PostgreSQL distinguishes paths that
-select items from predicate check expressions that return a Boolean. A public
-name that omits that distinction makes incorrect `@?`/`@@` usage more likely.
-
-### Use `@?` or `jsonb_path_exists`
-
-Path-existence semantics work for expressions such as:
-
-```text
-$.allowList[*] ? (@ == "tom")
-```
-
-They are less natural for a general search filter, where callers expect to
-write Boolean expressions. Predicate expressions are also unsafe with `@?`
-because both `true` and `false` are returned items. If path-existence semantics
-are added later, they should use a distinct name such as `metaPathExists`.
-
-### Use `jsonb_path_match` instead of `@@`
-
-The function has the desired Boolean semantics and supports a separate variables
-object, but the existing GIN index advertises an index strategy for `@@`, not the
-function. Using the operator preserves index eligibility for extractable
-equality clauses.
-
-### Define a structured metadata expression language
-
-A custom tree of operators could be easier to validate and generate safely, but
-it would duplicate PostgreSQL's expression model, require an expanding public
-schema, and need a compiler with well-defined null, missing-field, array, type,
-and error semantics. The structured `meta` filter already covers the common
-simple case; the advanced escape hatch should remain database-native.
-
-### Replace the index with `jsonb_path_ops`
-
-`jsonb_path_ops` can be smaller and more selective for supported containment and
-JSONPath searches, but it supports fewer operators and creates no entries for
-value-less structures such as `{"pack":{}}`. Replacing the existing index could
-regress current containment and future key-existence workloads. A second index
-would add storage and write amplification. Either change requires workload
-evidence and is outside this decision.
+- The public API uses PostgreSQL's SQL/JSON path dialect rather than a custom
+  expression language.
+- Database search-function signatures retain `metaPredicate` as a trailing,
+  defaulted argument so existing positional callers remain valid.
+- Client/server compatibility requires a server that understands the filter; a
+  request must never silently drop it and return broader results.
