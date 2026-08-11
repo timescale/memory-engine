@@ -26,6 +26,12 @@ must preserve.
 | --- | --- |
 | [Embedding queue and worker](embedding-queue-and-worker.md) | Asynchronous vector generation and backlog processing |
 
+## Memory Model
+
+| Document | Scope |
+| --- | --- |
+| [Memory schema](memory-schema.md) | Flexible memory records, identity, temporal modeling, metadata, and retrieval indexes |
+
 ## Spaces
 
 | Document | Scope |
@@ -36,6 +42,7 @@ must preserve.
 
 | Document | Scope |
 | --- | --- |
+| [Authentication](authentication.md) | Human login, OAuth, sessions, device authorization, and API-key boundaries |
 | [Principal model](principal-model.md) | Users, groups, service accounts, and agent removal |
 | [Memory authorization](memory-authorization.md) | Space admission, tree grants, and effective access |
 | [Restricted API keys](restricted-api-keys.md) | Scoped personal and service-account credentials |
