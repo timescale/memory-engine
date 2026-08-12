@@ -176,7 +176,7 @@ test("multi-space MCP servers require space selection and expose discovery", asy
     expect(tools.tools.some((tool) => tool.name === "me_space_list")).toBe(
       true,
     );
-    expect(memoryTools(tools)).toHaveLength(15);
+    expect(memoryTools(tools)).toHaveLength(16);
     for (const tool of memoryTools(tools)) {
       expect(tool.inputSchema.properties).toHaveProperty("space");
       expect(tool.inputSchema.required).toContain("space");
@@ -193,7 +193,7 @@ test("locked MCP servers hide space selection and discovery", async () => {
     expect(tools.tools.some((tool) => tool.name === "me_space_list")).toBe(
       false,
     );
-    expect(memoryTools(tools)).toHaveLength(15);
+    expect(memoryTools(tools)).toHaveLength(16);
     for (const tool of memoryTools(tools)) {
       expect(tool.inputSchema.properties ?? {}).not.toHaveProperty("space");
     }

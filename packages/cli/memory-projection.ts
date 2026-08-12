@@ -1,4 +1,6 @@
 import type {
+  MemoryEventResponse,
+  MemoryHistoryResult,
   MemoryResponse,
   MemorySearchResult,
   MemoryWithScoreResponse,
@@ -180,5 +182,91 @@ export function projectSearchResult(
   return {
     ...result,
     results: result.results.map((memory) => projectMemory(memory, select)),
+  };
+}
+
+/** The always-present audit envelope of a memory event. */
+type MemoryEventEnvelope = Pick<
+  MemoryEventResponse,
+  | "eventId"
+  | "at"
+  | "operation"
+  | "operationId"
+  | "cause"
+  | "actor"
+  | "memoryId"
+>;
+
+/** Snapshot fields of a memory event that `select` may trim. */
+type MemoryEventSnapshot = Pick<
+  MemoryEventResponse,
+  "content" | "meta" | "tree" | "name" | "temporal" | "version" | "versionHash"
+>;
+
+export type ProjectedMemoryEvent = MemoryEventEnvelope &
+  Partial<MemoryEventSnapshot> & { contentLength?: number };
+
+export type ProjectedMemoryHistoryResult = Omit<
+  MemoryHistoryResult,
+  "events"
+> & {
+  events: ProjectedMemoryEvent[];
+};
+
+/**
+ * Project one event for presentation. The audit envelope (who/when/what) is
+ * always kept; only the snapshot fields honor `select`, reusing the same
+ * content-slice / meta-key logic as memories.
+ */
+export function projectEvent(
+  event: MemoryEventResponse,
+  select: ParsedSelect,
+): ProjectedMemoryEvent {
+  const projected: ProjectedMemoryEvent = {
+    eventId: event.eventId,
+    at: event.at,
+    operation: event.operation,
+    operationId: event.operationId,
+    cause: event.cause,
+    actor: event.actor,
+    memoryId: event.memoryId,
+  };
+
+  if (select.fields.has("content")) {
+    if (select.contentSlice) {
+      const { start, end } = select.contentSlice;
+      projected.content = event.content.slice(start, end ?? undefined);
+      projected.contentLength = event.content.length;
+    } else {
+      projected.content = event.content;
+    }
+  }
+  if (select.fields.has("meta")) {
+    projected.meta = select.includeFullMeta
+      ? event.meta
+      : Object.fromEntries(
+          [...select.metaKeys]
+            .filter((key) => Object.hasOwn(event.meta, key))
+            .map((key) => [key, event.meta[key]]),
+        );
+  }
+  if (select.fields.has("tree")) projected.tree = event.tree;
+  if (select.fields.has("name")) projected.name = event.name;
+  if (select.fields.has("temporal")) projected.temporal = event.temporal;
+  if (select.fields.has("version")) projected.version = event.version;
+  if (select.fields.has("versionHash")) {
+    projected.versionHash = event.versionHash;
+  }
+
+  return projected;
+}
+
+export function projectHistoryResult(
+  result: MemoryHistoryResult,
+  select: ParsedSelect,
+): ProjectedMemoryHistoryResult {
+  return {
+    ...result,
+    events: result.events.map((event) => projectEvent(event, select)),
   };
 }

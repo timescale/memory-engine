@@ -390,6 +390,58 @@ describe("provisioned space schema", () => {
     expect(rows[0]?.operation_id).toMatch(UUIDV7);
     expect(rows[1]?.operation_id).toBe(rows[0]?.operation_id);
   });
+
+  test("get_memory_history gates per event tree and honors filters + order", async () => {
+    const readable = "01900000-0000-7000-8000-000000000031";
+    const secret = "01900000-0000-7000-8000-000000000032";
+    await sql.begin(async (tx) => {
+      await tx`select set_config('me.event_context', ${JSON.stringify({
+        principal_id: "01900000-0000-7000-8000-000000000040",
+        principal_name: "alice@example.com",
+        cause: "create",
+      })}, true)`;
+      await tx`insert into ${tx(canonical.schema)}.memory (id, tree, content)
+        values (${readable}, ${"gate.readable"}::ltree, ${"r1"}),
+               (${secret}, ${"gate.secret"}::ltree, ${"s1"})`;
+      await tx`update ${tx(canonical.schema)}.memory
+        set content = ${"r2"} where id = ${readable}`;
+    });
+
+    const fullAccess = JSON.stringify([{ tree_path: "gate", access: 1 }]);
+    const readableOnly = JSON.stringify([
+      { tree_path: "gate.readable", access: 1 },
+    ]);
+
+    // Full read on `gate`: readable memory has insert + update, oldest first,
+    // attributed to alice.
+    const asc = await sql.unsafe(
+      `select operation, content, actor->>'principal_name' as actor, cause
+       from ${canonical.schema}.get_memory_history(
+         '${fullAccess}'::jsonb, '${readable}'::uuid, null::ltree, null,
+         null::uuid, 50, 'asc')`,
+    );
+    expect(asc.map((r) => r.operation)).toEqual(["insert", "update"]);
+    expect(asc[0]).toMatchObject({
+      actor: "alice@example.com",
+      cause: "create",
+    });
+
+    // Read access to only `gate.readable` cannot see the sibling's events.
+    const denied = await sql.unsafe(
+      `select 1 from ${canonical.schema}.get_memory_history(
+         '${readableOnly}'::jsonb, '${secret}'::uuid, null::ltree, null,
+         null::uuid, 50, 'desc')`,
+    );
+    expect(denied).toHaveLength(0);
+
+    // Subtree filter scopes to `gate.readable`; operation filter + desc order.
+    const filtered = await sql.unsafe(
+      `select operation from ${canonical.schema}.get_memory_history(
+         '${fullAccess}'::jsonb, null::uuid, 'gate.readable'::ltree, 'update',
+         null::uuid, 50, 'desc')`,
+    );
+    expect(filtered.map((r) => r.operation)).toEqual(["update"]);
+  });
 });
 
 describe("migration templating", () => {

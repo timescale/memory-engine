@@ -33,6 +33,8 @@ import type {
   MemoryEmbeddingStatusResult,
   MemoryGetByPathParams,
   MemoryGetParams,
+  MemoryHistoryParams,
+  MemoryHistoryResult,
   MemoryMoveParams,
   MemoryMoveResult,
   MemoryResponse,
@@ -123,6 +125,8 @@ export interface MemoryNamespace {
   ): Promise<MemoryBatchCreateResult>;
   get(params: MemoryGetParams): Promise<MemoryResponse>;
   getByPath(params: MemoryGetByPathParams): Promise<MemoryResponse>;
+  /** Read the append-only audit log (read-gated per event tree). */
+  history(params: MemoryHistoryParams): Promise<MemoryHistoryResult>;
   update(params: MemoryUpdateParams): Promise<MemoryResponse>;
   delete(params: MemoryDeleteParams): Promise<MemoryDeleteResult>;
   deleteByPath(params: MemoryDeleteByPathParams): Promise<MemoryDeleteResult>;
@@ -250,6 +254,7 @@ export function createMemoryClient(
       batchCreate: (p) => writeRpc("memory.batchCreate", p),
       get: (p) => readRpc("memory.get", p),
       getByPath: (p) => readRpc("memory.getByPath", p),
+      history: (p) => readRpc("memory.history", p),
       update: (p) => writeRpc("memory.update", p),
       delete: (p) => writeRpc("memory.delete", p),
       deleteByPath: (p) => writeRpc("memory.deleteByPath", p),

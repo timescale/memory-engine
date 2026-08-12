@@ -4,7 +4,9 @@ import type {
   CreateMemoryParams,
   HybridSearchOptions,
   Memory,
+  MemoryEvent,
   MemoryEventContext,
+  MemoryHistoryFilters,
   MemoryPatch,
   OnConflict,
   QueueStats,
@@ -52,6 +54,15 @@ export interface SpaceStore {
     onConflict?: OnConflict,
   ): Promise<WriteResult[]>;
   getMemory(treeAccess: TreeAccess, id: string): Promise<Memory | null>;
+  /**
+   * Read the append-only audit log. Each event is gated on read access to its
+   * own tree; filters are ANDed. The caller supplies at least one scope
+   * (memoryId/tree/operationId) — enforced at the RPC boundary.
+   */
+  getMemoryHistory(
+    treeAccess: TreeAccess,
+    filters: MemoryHistoryFilters,
+  ): Promise<MemoryEvent[]>;
   /** Resolve a (tree, name) reference to its memory id (read-gated), or null. */
   resolveMemoryId(
     treeAccess: TreeAccess,
@@ -149,6 +160,31 @@ function mapSearchItem(row: Record<string, unknown>): SearchResultItem {
   return { ...mapMemory(row), score: Number(row.score) };
 }
 
+function mapEvent(row: Record<string, unknown>): MemoryEvent {
+  const actor = (row.actor as Record<string, unknown> | null) ?? {};
+  return {
+    eventId: row.event_id as string,
+    at: row.at as Date,
+    operation: row.operation as MemoryEvent["operation"],
+    operationId: row.operation_id as string,
+    cause: (row.cause as string | null) ?? null,
+    actor: {
+      principalId: (actor.principal_id as string | undefined) ?? null,
+      principalName: (actor.principal_name as string | undefined) ?? null,
+      apiKeyId: (actor.api_key_id as string | undefined) ?? null,
+      apiKeyName: (actor.api_key_name as string | undefined) ?? null,
+    },
+    memoryId: row.memory_id as string,
+    tree: row.tree as string,
+    name: (row.name as string | null) ?? null,
+    meta: (row.meta as Record<string, unknown>) ?? {},
+    temporal: (row.temporal as string | null) ?? null,
+    content: row.content as string,
+    version: Number(row.version),
+    versionHash: row.version_hash as string,
+  };
+}
+
 export function spaceStore(sql: Sql, schema: string): SpaceStore {
   const sch = sql(schema);
   const bm25Index = `${schema}.memory_content_bm25_idx`;
@@ -225,6 +261,23 @@ export function spaceStore(sql: Sql, schema: string): SpaceStore {
                content, version, version_hash, has_embedding, created_at, updated_at
         from ${sch}.get_memory(${jb(treeAccess)}, ${id})`;
       return row ? mapMemory(row) : null;
+    },
+
+    async getMemoryHistory(treeAccess, filters) {
+      const rows = await sql`
+        select event_id, at, memory_id, operation, operation_id, cause, actor,
+               tree::text as tree, name, meta, temporal::text as temporal,
+               content, version, version_hash
+        from ${sch}.get_memory_history(
+          ${jb(treeAccess)},
+          ${filters.memoryId ?? null}::uuid,
+          ${filters.tree ?? null}::ltree,
+          ${filters.operation ?? null},
+          ${filters.operationId ?? null}::uuid,
+          ${filters.limit ?? 20},
+          ${filters.order ?? "desc"}
+        )`;
+      return rows.map(mapEvent);
     },
 
     async resolveMemoryId(treeAccess, tree, name) {

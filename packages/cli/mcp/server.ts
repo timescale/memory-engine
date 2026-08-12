@@ -23,6 +23,7 @@ import {
 } from "../commands/memory.ts";
 import {
   parseSelectFields,
+  projectHistoryResult,
   projectMemory,
   projectSearchResult,
   selectSchema,
@@ -549,6 +550,102 @@ Docs: ${docUrl("me_memory_get")}`,
       });
       const result = args.select
         ? projectMemory(fullResult, parseSelectFields(args.select))
+        : fullResult;
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: serializeReadResult(result, args.format ?? undefined),
+          },
+        ],
+      };
+    },
+  );
+
+  // me_memory_history
+  server.registerTool(
+    "me_memory_history",
+    {
+      title: "Memory History",
+      description: `Read the append-only audit log of memory mutations.
+
+Every insert/update/delete is one immutable event carrying the actor, an app-level cause, the physical operation, an operation_id shared across a bulk statement, and a full snapshot of the resulting (or, for deletes, removed) state. Access is enforced per event by read access to that event's tree, so history for a memory that moved between trees may appear partial. Deleted memories remain visible here (query by memoryId). Pass at least one of memoryId, tree, or operationId.
+
+Docs: ${docUrl("me_memory_history")}`,
+      inputSchema: inputSchema(
+        {
+          memoryId: z
+            .string()
+            .optional()
+            .nullable()
+            .describe(
+              "UUID of a memory; returns just that memory's history. Works after deletion.",
+            ),
+          tree: z
+            .string()
+            .optional()
+            .nullable()
+            .describe(
+              "Subtree path filter; returns events at or under this path.",
+            ),
+          operation: z
+            .enum(["insert", "update", "delete"])
+            .optional()
+            .nullable()
+            .describe("Filter by physical operation."),
+          operationId: z
+            .string()
+            .optional()
+            .nullable()
+            .describe(
+              "Return all events sharing one bulk operation id (e.g. every row of a bulk delete or move).",
+            ),
+          limit: z
+            .number()
+            .int()
+            .optional()
+            .nullable()
+            .describe("Maximum events (0 = default 20, max 1000)."),
+          order: z
+            .enum(["asc", "desc"])
+            .optional()
+            .nullable()
+            .describe("Sort by event time. Default: desc (newest first)."),
+          select: selectSchema
+            .optional()
+            .nullable()
+            .describe(
+              "Snapshot fields to return per event (e.g. content:200); the audit envelope (who/when/what) is always included.",
+            ),
+          format: z
+            .enum(["yaml", "json", "compact"])
+            .optional()
+            .nullable()
+            .describe(
+              "Response text format. Defaults to yaml; json and compact use compact JSON.",
+            ),
+        },
+        runtime,
+      ),
+      annotations: {
+        title: "Memory History",
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+      },
+    },
+    async (args) => {
+      const fullResult = await clientFor(args).memory.history({
+        memoryId: args.memoryId ?? undefined,
+        tree: args.tree ?? undefined,
+        operation: args.operation ?? undefined,
+        operationId: args.operationId ?? undefined,
+        limit: args.limit && args.limit > 0 ? args.limit : undefined,
+        order: args.order ?? undefined,
+      });
+      const select = args.select ? parseSelectFields(args.select) : null;
+      const result = select
+        ? projectHistoryResult(fullResult, select)
         : fullResult;
       return {
         content: [
