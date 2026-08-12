@@ -48,6 +48,42 @@ export interface SearchResultItem extends Memory {
   score: number;
 }
 
+/** The actor of a memory event; all fields null for unattributed mutations. */
+export interface MemoryEventActor {
+  principalId: string | null;
+  principalName: string | null;
+  apiKeyId: string | null;
+  apiKeyName: string | null;
+}
+
+/** One immutable row from the append-only memory_event audit log. */
+export interface MemoryEvent {
+  eventId: string;
+  at: Date;
+  operation: "insert" | "update" | "delete";
+  operationId: string;
+  cause: string | null;
+  actor: MemoryEventActor;
+  memoryId: string;
+  tree: string;
+  name: string | null;
+  meta: Record<string, unknown>;
+  temporal: TemporalRange | null;
+  content: string;
+  version: number;
+  versionHash: string;
+}
+
+/** Nullable filters for reading the memory_event audit log. */
+export interface MemoryHistoryFilters {
+  memoryId?: string;
+  tree?: string;
+  operation?: "insert" | "update" | "delete";
+  operationId?: string;
+  limit?: number;
+  order?: "asc" | "desc";
+}
+
 export interface CreateMemoryParams {
   tree: string;
   content: string;

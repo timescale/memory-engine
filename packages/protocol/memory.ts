@@ -158,6 +158,29 @@ export const memorySearchParams = z.object({
 export type MemorySearchParams = z.infer<typeof memorySearchParams>;
 
 /**
+ * memory.history params — read the append-only audit log.
+ *
+ * At least one scope (`memoryId`, `tree`, or `operationId`) is required; a bare
+ * unbounded scan is rejected. `operation` narrows within a scope. Each event is
+ * gated on read access to its own tree, so a moved memory's history may appear
+ * partial. Deleted memories remain readable by `memoryId`.
+ */
+export const memoryHistoryParams = z
+  .object({
+    memoryId: uuidv7Schema.optional().nullable(),
+    tree: treeFilterSchema.optional().nullable(),
+    operation: z.enum(["insert", "update", "delete"]).optional().nullable(),
+    operationId: uuidv7Schema.optional().nullable(),
+    limit: z.number().int().min(1).max(1000).optional(),
+    order: z.enum(["asc", "desc"]).optional(),
+  })
+  .refine((p) => Boolean(p.memoryId || p.tree || p.operationId), {
+    message: "At least one of memoryId, tree, or operationId is required",
+  });
+
+export type MemoryHistoryParams = z.infer<typeof memoryHistoryParams>;
+
+/**
  * memory.tree params.
  */
 export const memoryTreeParams = z.object({
@@ -335,6 +358,57 @@ export const memorySearchResult = z.object({
 });
 
 export type MemorySearchResult = z.infer<typeof memorySearchResult>;
+
+/**
+ * The actor of a memory event. All fields are null for unattributed mutations
+ * (e.g. direct SQL / migrations); `apiKey*` is null for session-authed writes.
+ */
+export const memoryEventActor = z.object({
+  principalId: z.string().nullable(),
+  principalName: z.string().nullable(),
+  apiKeyId: z.string().nullable(),
+  apiKeyName: z.string().nullable(),
+});
+
+export type MemoryEventActor = z.infer<typeof memoryEventActor>;
+
+/**
+ * One immutable audit-log entry — the resulting (or, for deletes, removed)
+ * state snapshot plus who/when/what.
+ */
+export const memoryEventResponse = z.object({
+  eventId: z.string(),
+  at: z.string(),
+  operation: z.enum(["insert", "update", "delete"]),
+  operationId: z.string(),
+  cause: z.string().nullable(),
+  actor: memoryEventActor,
+  memoryId: z.string(),
+  tree: z.string(),
+  name: z.string().nullable(),
+  meta: z.record(z.string(), z.unknown()),
+  temporal: z
+    .object({
+      start: z.string(),
+      end: z.string(),
+    })
+    .nullable(),
+  content: z.string(),
+  version: z.number().int().positive(),
+  versionHash: z.string().length(32),
+});
+
+export type MemoryEventResponse = z.infer<typeof memoryEventResponse>;
+
+/**
+ * memory.history result — newest-first by default.
+ */
+export const memoryHistoryResult = z.object({
+  events: z.array(memoryEventResponse),
+  limit: z.number(),
+});
+
+export type MemoryHistoryResult = z.infer<typeof memoryHistoryResult>;
 
 /**
  * Tree node — used in memory.tree result.

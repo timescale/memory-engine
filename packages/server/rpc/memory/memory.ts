@@ -12,6 +12,7 @@
 import { clipToCharLimit, generateEmbedding } from "@memory.build/embedding";
 import { ACCESS } from "@memory.build/engine/core";
 import type {
+  MemoryEvent,
   MemoryEventContext,
   SearchResultItem,
   Memory as SpaceMemory,
@@ -32,8 +33,11 @@ import type {
   MemoryDeleteTreeParams,
   MemoryDeleteTreeResult,
   MemoryEmbeddingStatusResult,
+  MemoryEventResponse,
   MemoryGetByPathParams,
   MemoryGetParams,
+  MemoryHistoryParams,
+  MemoryHistoryResult,
   MemoryMoveParams,
   MemoryMoveResult,
   MemoryResponse,
@@ -55,6 +59,7 @@ import {
   memoryEmbeddingStatusParams,
   memoryGetByPathParams,
   memoryGetParams,
+  memoryHistoryParams,
   memoryMoveParams,
   memorySearchParams,
   memoryTreeParams,
@@ -231,6 +236,28 @@ function toMemoryResponse(
   };
 }
 
+function toEventResponse(
+  e: MemoryEvent,
+  ctx: SpaceRpcContext,
+): MemoryEventResponse {
+  return {
+    eventId: e.eventId,
+    at: e.at.toISOString(),
+    operation: e.operation,
+    operationId: e.operationId,
+    cause: e.cause,
+    actor: e.actor,
+    memoryId: e.memoryId,
+    tree: displayTreePath(ctx, e.tree),
+    name: e.name,
+    meta: e.meta,
+    temporal: parseTemporal(e.temporal),
+    content: e.content,
+    version: e.version,
+    versionHash: e.versionHash,
+  };
+}
+
 function eventContext(ctx: SpaceRpcContext, cause: string): MemoryEventContext {
   return {
     principal_id: ctx.principalId,
@@ -396,6 +423,29 @@ async function memoryGet(
     throw new AppError("NOT_FOUND", `Memory not found: ${params.id}`);
   }
   return toMemoryResponse(memory, ctx);
+}
+
+/** memory.history — read the append-only audit log (read-gated per event tree). */
+async function memoryHistory(
+  params: MemoryHistoryParams,
+  context: HandlerContext,
+): Promise<MemoryHistoryResult> {
+  assertSpaceRpcContext(context);
+  const ctx = context as SpaceRpcContext;
+  const { store, treeAccess } = ctx;
+
+  const limit = params.limit ?? 20;
+  const events = await guard(() =>
+    store.getMemoryHistory(treeAccess, {
+      memoryId: params.memoryId ?? undefined,
+      tree: params.tree ? inputTreePath(ctx, params.tree) : undefined,
+      operation: params.operation ?? undefined,
+      operationId: params.operationId ?? undefined,
+      limit,
+      order: params.order ?? "desc",
+    }),
+  );
+  return { events: events.map((e) => toEventResponse(e, ctx)), limit };
 }
 
 /** memory.getByPath — address a named memory by its folder/name path. */
@@ -817,6 +867,7 @@ export const memoryDataMethods = buildRegistry()
   .register("memory.batchCreate", memoryBatchCreateParams, memoryBatchCreate)
   .register("memory.get", memoryGetParams, memoryGet)
   .register("memory.getByPath", memoryGetByPathParams, memoryGetByPath)
+  .register("memory.history", memoryHistoryParams, memoryHistory)
   .register("memory.update", memoryUpdateParams, memoryUpdate)
   .register("memory.delete", memoryDeleteParams, memoryDelete)
   .register("memory.deleteByPath", memoryDeleteByPathParams, memoryDeleteByPath)

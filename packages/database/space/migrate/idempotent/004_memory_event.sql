@@ -75,3 +75,80 @@ set search_path to pg_catalog, {{schema}}, public, pg_temp
 create or replace trigger memory_log_event_trg
 after insert or update or delete on {{schema}}.memory
 for each row execute function {{schema}}.memory_log_event();
+
+-------------------------------------------------------------------------------
+-- get_memory_history
+--
+-- Read the append-only audit log. Every returned row is gated on read access
+-- (level 1) to that event's own tree, so a snapshot from a tree the caller
+-- cannot read is never returned — history for a memory that moved between trees
+-- may therefore look partial. Filters are all nullable; the caller supplies at
+-- least one of _memory_id / _tree / _operation_id (enforced at the RPC layer).
+-- Deleted memories remain visible (their tombstone events outlive the row).
+-------------------------------------------------------------------------------
+{{fn get_memory_history(_tree_access jsonb, _memory_id uuid, _tree ltree, _operation text, _operation_id uuid, _limit bigint, _order text) returns table(event_id uuid, at timestamptz, memory_id uuid, operation text, operation_id uuid, cause text, actor jsonb, tree ltree, name text, meta jsonb, temporal tstzrange, content text, version bigint, version_hash text)}}
+create or replace function {{schema}}.get_memory_history
+( _tree_access jsonb
+, _memory_id uuid
+, _tree ltree
+, _operation text
+, _operation_id uuid
+, _limit bigint
+, _order text
+)
+returns table
+( event_id uuid
+, at timestamptz
+, memory_id uuid
+, operation text
+, operation_id uuid
+, cause text
+, actor jsonb
+, tree ltree
+, name text
+, meta jsonb
+, temporal tstzrange
+, content text
+, version bigint
+, version_hash text
+)
+as $func$
+begin
+  -- guard the sort direction (it is not otherwise constrained here)
+  if _order is null or _order not in ('asc', 'desc') then
+    _order = 'desc';
+  end if;
+
+  return query
+  select
+    e.event_id
+  , e.at
+  , e.memory_id
+  , e.operation
+  , e.operation_id
+  , e.cause
+  , e.actor
+  , e.tree
+  , e.name
+  , e.meta
+  , e.temporal
+  , e.content
+  , e.version
+  , e.version_hash
+  from {{schema}}.memory_event e
+  where {{schema}}.has_tree_access(_tree_access, e.tree, 1)
+  and (_memory_id is null or e.memory_id = _memory_id)
+  and (_tree is null or e.tree operator(public.<@) _tree)
+  and (_operation is null or e.operation = _operation)
+  and (_operation_id is null or e.operation_id = _operation_id)
+  order by
+    case when _order = 'asc' then e.at end asc
+  , case when _order = 'desc' then e.at end desc
+  , case when _order = 'asc' then e.event_id end asc
+  , case when _order = 'desc' then e.event_id end desc
+  limit _limit;
+end
+$func$ language plpgsql stable security invoker
+set search_path to pg_catalog, {{schema}}, public, pg_temp
+;
+{{endfn}}

@@ -72,6 +72,7 @@ export const NAV: NavSection[] = [
       { label: "me_memory_create", slug: "mcp/me_memory_create" },
       { label: "me_memory_get", slug: "mcp/me_memory_get" },
       { label: "me_memory_get_by_path", slug: "mcp/me_memory_get_by_path" },
+      { label: "me_memory_history", slug: "mcp/me_memory_history" },
       { label: "me_memory_search", slug: "mcp/me_memory_search" },
       { label: "me_memory_count", slug: "mcp/me_memory_count" },
       { label: "me_memory_update", slug: "mcp/me_memory_update" },

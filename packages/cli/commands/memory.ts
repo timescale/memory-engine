@@ -25,6 +25,7 @@ import { resolveCredentials } from "../credentials.ts";
 import {
   type ParsedSelect,
   parseSelectFields,
+  projectHistoryResult,
   projectMemory,
   projectSearchResult,
 } from "../memory-projection.ts";
@@ -559,6 +560,120 @@ function createMemorySearchCommand(): Command {
               console.log(`  score: ${resultMemory.score.toFixed(3)}`);
             }
             if (index < result.results.length - 1) console.log();
+          }
+        });
+      } catch (error) {
+        handleError(error, fmt, { creds, scope: "space" });
+      }
+    });
+}
+
+function createMemoryHistoryCommand(): Command {
+  return new Command("history")
+    .description(
+      "show the append-only audit log for a memory, subtree, or bulk operation",
+    )
+    .argument(
+      "[id-or-path]",
+      "memory ID (UUIDv7) or tree/name path to scope history to (use the ID for a deleted memory)",
+    )
+    .option("--tree <path>", "show events under a subtree path")
+    .option("--operation <op>", "filter by operation: insert | update | delete")
+    .option(
+      "--operation-id <uuid>",
+      "show all events sharing one bulk operation id",
+    )
+    .option("--limit <n>", "max events", "20")
+    .option(
+      "--order-by <dir>",
+      "order by event time, desc (default, newest first) | asc",
+    )
+    .option(
+      "--select <fields>",
+      "comma-separated snapshot fields to return (for example tree,content:200)",
+    )
+    .action(async (ref: string | undefined, opts, cmd) => {
+      const globalOpts = cmd.optsWithGlobals();
+      const creds = resolveCredentials(globalOpts.server);
+      const fmt = getOutputFormat(globalOpts);
+      requireAuth(creds, fmt);
+      requireSpace(creds, fmt);
+
+      // A scope is required — a bare unbounded scan of the log is rejected.
+      if (!ref && !opts.tree && !opts.operationId) {
+        const msg =
+          "Scope required: pass a memory id/path, --tree, or --operation-id.";
+        if (fmt === "text") clack.log.error(msg);
+        else output({ error: msg }, fmt, () => {});
+        process.exit(1);
+      }
+
+      const client = buildMemoryClient(creds);
+
+      try {
+        // A positional path resolves to an id via the live table, so a deleted
+        // memory's history must be requested by its UUID.
+        let memoryId: string | undefined;
+        if (ref) {
+          memoryId = UUIDV7_RE.test(ref)
+            ? ref
+            : (await client.memory.getByPath({ path: ref })).id;
+        }
+
+        const params: Record<string, unknown> = {
+          limit: Number.parseInt(opts.limit, 10),
+        };
+        if (memoryId) params.memoryId = memoryId;
+        if (opts.tree) params.tree = opts.tree;
+        if (opts.operation) params.operation = opts.operation;
+        if (opts.operationId) params.operationId = opts.operationId;
+        if (opts.orderBy) params.order = opts.orderBy;
+
+        const select =
+          opts.select !== undefined
+            ? parseSelect(opts.select)
+            : fmt === "text"
+              ? parseSelectFields(["tree", "version", "content:120"])
+              : undefined;
+
+        const fullResult = await client.memory.history(
+          params as Parameters<typeof client.memory.history>[0],
+        );
+        const result = select
+          ? projectHistoryResult(fullResult, select)
+          : fullResult;
+
+        await output(result, fmt, () => {
+          console.log(`${result.events.length} event(s)`);
+          if (result.events.length === 0) return;
+          console.log();
+          if (opts.select !== undefined) {
+            console.log(
+              yamlStringify(result.events, { lineWidth: 0 }).trimEnd(),
+            );
+            return;
+          }
+          for (const [index, event] of result.events.entries()) {
+            const actor = event.actor?.principalName ?? "\u2014";
+            const viaKey = event.actor?.apiKeyName
+              ? ` via ${event.actor.apiKeyName}`
+              : "";
+            console.log(
+              `${event.at}  ${event.operation}  v${event.version}  ${event.memoryId}`,
+            );
+            console.log(`  actor: ${actor}${viaKey}`);
+            console.log(`  cause: ${event.cause ?? "\u2014"}`);
+            if (event.tree !== undefined) console.log(`  tree: ${event.tree}`);
+            const content = event.content ?? "";
+            const flat = content.replace(/\s+/g, " ").trim();
+            const length =
+              "contentLength" in event ? event.contentLength : undefined;
+            const preview =
+              length !== undefined && length > content.length
+                ? `${flat}...`
+                : flat;
+            if (preview) console.log(`  ${preview}`);
+            if (index < result.events.length - 1) console.log();
           }
         });
       } catch (error) {
@@ -1284,6 +1399,7 @@ function memorySubcommands(): Command[] {
     createMemoryCreateCommand(),
     createMemoryGetCommand(),
     createMemorySearchCommand(),
+    createMemoryHistoryCommand(),
     createMemoryUpdateCommand(),
     createMemoryDeleteCommand(),
     createMemoryDeltreeCommand(),

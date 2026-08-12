@@ -9,6 +9,7 @@ Memories are the core data type in Memory Engine. Each memory has content, an op
 - [me memory create](#me-memory-create) -- create a memory
 - [me memory get](#me-memory-get) -- get a memory by ID or path
 - [me memory search](#me-memory-search) -- search memories
+- [me memory history](#me-memory-history) -- show a memory's audit-log history
 - [me memory update](#me-memory-update) -- update a memory
 - [me memory delete](#me-memory-delete) -- delete a single memory
 - [me memory deltree](#me-memory-deltree) -- delete a subtree
@@ -162,6 +163,42 @@ me memory search --meta '{"type": "decision"}' --limit 20
 
 # Return only IDs, trees, and short previews
 me memory search --tree '/share/design/*' --select id,tree,content:200,score
+```
+
+---
+
+## me memory history
+
+Show the append-only audit log for a memory, a subtree, or a bulk operation. Every insert, update, and delete is recorded as one immutable event with the actor, an app-level cause, the operation, an operation id (shared across a bulk statement), and a full snapshot of the resulting (or, for deletes, removed) state — so you can answer "who changed this, when, and how", including who deleted it.
+
+```
+me memory history [id-or-path] [options]
+```
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `id-or-path` | no | A memory ID (UUIDv7), or a live memory's `tree/name` path, to scope history to one memory. A path is resolved via the live table, so a **deleted** memory's history must be requested by its UUID. |
+
+| Option | Description |
+|--------|-------------|
+| `--tree <path>` | Show events at or under this subtree path. |
+| `--operation <op>` | Filter by operation: `insert`, `update`, or `delete`. |
+| `--operation-id <uuid>` | Show all events sharing one bulk operation id (e.g. every row of a bulk delete or move). |
+| `--limit <n>` | Maximum events (default 20, max 1000). |
+| `--order-by <dir>` | Order by event time: `desc` (default, newest first) or `asc`. |
+| `--select <fields>` | Comma-separated snapshot fields to return (e.g. `tree,content:200`). The audit envelope (event id, time, operation, cause, actor, memory id) is always shown. |
+
+At least one scope is required: a positional id/path, `--tree`, or `--operation-id`. Access is enforced per event by read access to that event's tree, so a memory that moved between trees may show a partial history to a caller who cannot read some of its historical trees.
+
+```bash
+# Full history of one memory, including who deleted it
+me memory history 0194a000-0001-7000-8000-000000000001
+
+# Everything that changed under a subtree, oldest first
+me memory history --tree /share/auth --order-by asc
+
+# Every row of one bulk delete
+me memory history --operation-id 0194a000-0002-7000-8000-00000000000a
 ```
 
 ---

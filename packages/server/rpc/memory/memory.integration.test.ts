@@ -14,6 +14,7 @@ import * as engineCore from "@memory.build/engine/core";
 import type { SpaceStore } from "@memory.build/engine/space";
 import * as engineSpace from "@memory.build/engine/space";
 import { type AppErrorCode, isAppError } from "@memory.build/protocol/errors";
+import { memoryHistoryParams } from "@memory.build/protocol/memory";
 import postgres, { type Sql } from "postgres";
 import { seedUserSpace } from "../../test-support";
 import type { HandlerContext } from "../types";
@@ -477,6 +478,79 @@ test("create with a duplicate explicit id → CONFLICT", async () => {
     call("memory.create", { id, content: "second", tree: "share.dup" }),
     "CONFLICT",
   );
+});
+
+test("memory.history logs one event per mutation, attributed to the caller", async () => {
+  const created = await call<{ id: string; versionHash: string }>(
+    "memory.create",
+    { content: "first", tree: "share.audit", name: "note" },
+  );
+  await call("memory.update", {
+    id: created.id,
+    versionHash: created.versionHash,
+    content: "second",
+  });
+  await call("memory.delete", { id: created.id });
+
+  type HistoryEvent = {
+    operation: string;
+    cause: string | null;
+    content: string;
+    version: number;
+    tree: string;
+    actor: { principalName: string | null; apiKeyName: string | null };
+  };
+  const history = await call<{ events: HistoryEvent[]; limit: number }>(
+    "memory.history",
+    { memoryId: created.id, order: "asc" },
+  );
+
+  expect(history.limit).toBe(20);
+  expect(history.events.map((e) => e.operation)).toEqual([
+    "insert",
+    "update",
+    "delete",
+  ]);
+  expect(history.events.map((e) => e.cause)).toEqual([
+    "create",
+    "update",
+    "delete",
+  ]);
+  // The updater's content survives as its own event, even after the delete.
+  expect(history.events.map((e) => e.content)).toEqual([
+    "first",
+    "second",
+    "second",
+  ]);
+  expect(history.events[1]).toMatchObject({ operation: "update", version: 2 });
+  for (const event of history.events) {
+    expect(event.tree).toBe("/share/audit");
+    expect(event.actor.principalName).toBe("test@example.com");
+    expect(event.actor.apiKeyName).toBeNull();
+  }
+});
+
+test("memory.history requires a scope and gates by read access", async () => {
+  // The wire schema rejects a bare unbounded scan (enforced before dispatch).
+  expect(memoryHistoryParams.safeParse({}).success).toBe(false);
+  expect(
+    memoryHistoryParams.safeParse({
+      memoryId: "01941000-0000-7000-8000-00000000c0f1",
+    }).success,
+  ).toBe(true);
+
+  const created = await call<{ id: string }>("memory.create", {
+    content: "secret",
+    tree: "share.hidden",
+    name: "s",
+  });
+  // A caller with no grants sees none of the memory's events.
+  const empty = await call<{ events: unknown[] }>(
+    "memory.history",
+    { memoryId: created.id },
+    [],
+  );
+  expect(empty.events).toEqual([]);
 });
 
 test("batchCreate with a bare duplicate id raises CONFLICT", async () => {
