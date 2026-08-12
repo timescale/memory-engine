@@ -12,6 +12,7 @@
 import { clipToCharLimit, generateEmbedding } from "@memory.build/embedding";
 import { ACCESS } from "@memory.build/engine/core";
 import type {
+  MemoryEventContext,
   SearchResultItem,
   Memory as SpaceMemory,
 } from "@memory.build/engine/space";
@@ -230,6 +231,25 @@ function toMemoryResponse(
   };
 }
 
+function eventContext(ctx: SpaceRpcContext, cause: string): MemoryEventContext {
+  return {
+    principal_id: ctx.principalId,
+    principal_name: ctx.principalName,
+    ...(ctx.apiKeyId === null
+      ? {}
+      : { api_key_id: ctx.apiKeyId, api_key_name: ctx.apiKeyName ?? "" }),
+    cause,
+  };
+}
+
+async function mutate<T>(
+  ctx: SpaceRpcContext,
+  cause: string,
+  fn: (store: SpaceRpcContext["store"]) => Promise<T>,
+): Promise<T> {
+  return ctx.store.withEventContext(eventContext(ctx, cause), fn);
+}
+
 /**
  * Map every populated wire temporal filter onto the space search's temporal
  * params. The database combines predicates with AND.
@@ -306,15 +326,17 @@ async function memoryCreate(
   // row's id (which may differ from a submitted id; name wins over id). A bare
   // conflict (default onConflict 'error') raises 23505 → CONFLICT via guard.
   const { id } = await guard(() =>
-    store.createMemory(treeAccess, {
-      id: params.id ?? undefined,
-      content: params.content,
-      meta: params.meta ?? undefined,
-      tree,
-      name: params.name ?? undefined,
-      temporal: formatTemporal(params.temporal),
-      onConflict: params.onConflict ?? undefined,
-    }),
+    mutate(ctx, "create", (store) =>
+      store.createMemory(treeAccess, {
+        id: params.id ?? undefined,
+        content: params.content,
+        meta: params.meta ?? undefined,
+        tree,
+        name: params.name ?? undefined,
+        temporal: formatTemporal(params.temporal),
+        onConflict: params.onConflict ?? undefined,
+      }),
+    ),
   );
   const memory = await store.getMemory(treeAccess, id);
   if (!memory) {
@@ -339,20 +361,22 @@ async function memoryBatchCreate(
 ): Promise<MemoryBatchCreateResult> {
   assertSpaceRpcContext(context);
   const ctx = context as SpaceRpcContext;
-  const { store, treeAccess } = ctx;
+  const { treeAccess } = ctx;
 
   const rows = await guard(() =>
-    store.batchCreateMemories(
-      treeAccess,
-      params.memories.map((m) => ({
-        id: m.id ?? undefined,
-        content: m.content,
-        meta: m.meta ?? undefined,
-        tree: inputTreePath(ctx, m.tree),
-        name: m.name ?? undefined,
-        temporal: formatTemporal(m.temporal),
-      })),
-      params.onConflict ?? undefined,
+    mutate(ctx, "create", (store) =>
+      store.batchCreateMemories(
+        treeAccess,
+        params.memories.map((m) => ({
+          id: m.id ?? undefined,
+          content: m.content,
+          meta: m.meta ?? undefined,
+          tree: inputTreePath(ctx, m.tree),
+          name: m.name ?? undefined,
+          temporal: formatTemporal(m.temporal),
+        })),
+        params.onConflict ?? undefined,
+      ),
     ),
   );
   return { results: rows.map((r) => ({ id: r.id, status: r.status })) };
@@ -428,7 +452,9 @@ async function memoryUpdate(
   }
 
   const ok = await guard(() =>
-    store.patchMemory(treeAccess, params.id, params.versionHash, patch),
+    mutate(ctx, "update", (store) =>
+      store.patchMemory(treeAccess, params.id, params.versionHash, patch),
+    ),
   );
   if (!ok) {
     throw new AppError("NOT_FOUND", `Memory not found: ${params.id}`);
@@ -446,9 +472,12 @@ async function memoryDelete(
   context: HandlerContext,
 ): Promise<MemoryDeleteResult> {
   assertSpaceRpcContext(context);
-  const { store, treeAccess } = context as SpaceRpcContext;
+  const ctx = context as SpaceRpcContext;
+  const { treeAccess } = ctx;
 
-  const deleted = await guard(() => store.deleteMemory(treeAccess, params.id));
+  const deleted = await guard(() =>
+    mutate(ctx, "delete", (store) => store.deleteMemory(treeAccess, params.id)),
+  );
   if (!deleted) {
     throw new AppError("NOT_FOUND", `Memory not found: ${params.id}`);
   }
@@ -462,10 +491,12 @@ async function memoryDeleteByPath(
 ): Promise<MemoryDeleteResult> {
   assertSpaceRpcContext(context);
   const ctx = context as SpaceRpcContext;
-  const { store, treeAccess } = ctx;
+  const { treeAccess } = ctx;
 
   const id = await resolvePath(ctx, params.path);
-  const deleted = await guard(() => store.deleteMemory(treeAccess, id));
+  const deleted = await guard(() =>
+    mutate(ctx, "delete", (store) => store.deleteMemory(treeAccess, id)),
+  );
   if (!deleted) {
     throw new AppError("NOT_FOUND", `Memory not found: ${params.path}`);
   }
@@ -623,14 +654,16 @@ async function memoryCopy(
 ): Promise<MemoryCopyResult> {
   assertSpaceRpcContext(context);
   const ctx = context as SpaceRpcContext;
-  const { store, treeAccess } = ctx;
+  const { treeAccess } = ctx;
 
   const count = await guard(() =>
-    store.copyTree(
-      treeAccess,
-      inputTreePath(ctx, params.source),
-      inputTreePath(ctx, params.destination),
-      params.dryRun ?? false,
+    mutate(ctx, "copy", (store) =>
+      store.copyTree(
+        treeAccess,
+        inputTreePath(ctx, params.source),
+        inputTreePath(ctx, params.destination),
+        params.dryRun ?? false,
+      ),
     ),
   );
   return { count };
@@ -643,14 +676,16 @@ async function memoryMove(
 ): Promise<MemoryMoveResult> {
   assertSpaceRpcContext(context);
   const ctx = context as SpaceRpcContext;
-  const { store, treeAccess } = ctx;
+  const { treeAccess } = ctx;
 
   const count = await guard(() =>
-    store.moveTree(
-      treeAccess,
-      inputTreePath(ctx, params.source),
-      inputTreePath(ctx, params.destination),
-      params.dryRun ?? false,
+    mutate(ctx, "move", (store) =>
+      store.moveTree(
+        treeAccess,
+        inputTreePath(ctx, params.source),
+        inputTreePath(ctx, params.destination),
+        params.dryRun ?? false,
+      ),
     ),
   );
   return { count };
@@ -663,13 +698,15 @@ async function memoryDeleteTree(
 ): Promise<MemoryDeleteTreeResult> {
   assertSpaceRpcContext(context);
   const ctx = context as SpaceRpcContext;
-  const { store, treeAccess } = ctx;
+  const { treeAccess } = ctx;
 
   const count = await guard(() =>
-    store.deleteTree(
-      treeAccess,
-      inputTreePath(ctx, params.tree),
-      params.dryRun ?? false,
+    mutate(ctx, "delete_tree", (store) =>
+      store.deleteTree(
+        treeAccess,
+        inputTreePath(ctx, params.tree),
+        params.dryRun ?? false,
+      ),
     ),
   );
   return { count };
@@ -688,20 +725,22 @@ async function memoryDeleteOrphansInTree(
 ): Promise<MemoryDeleteOrphansInTreeResult> {
   assertSpaceRpcContext(context);
   const ctx = context as SpaceRpcContext;
-  const { store, treeAccess } = ctx;
+  const { treeAccess } = ctx;
 
   const root = inputTreePath(ctx, params.root);
   const keepTrees = params.keep.map((k) => inputTreePath(ctx, k.tree));
   const keepNames = params.keep.map((k) => k.name);
 
   const rows = await guard(() =>
-    store.deleteOrphansInTree(
-      treeAccess,
-      root,
-      params.metaContains,
-      keepTrees,
-      keepNames,
-      params.dryRun ?? false,
+    mutate(ctx, "delete_orphans", (store) =>
+      store.deleteOrphansInTree(
+        treeAccess,
+        root,
+        params.metaContains,
+        keepTrees,
+        keepNames,
+        params.dryRun ?? false,
+      ),
     ),
   );
   return {

@@ -1,9 +1,4 @@
-// 0.0.8: adds the temporalContains timestamptz argument to search_memory and
-// hybrid_search_memory (idempotent 002_search.sql).
-// Idempotent migrations currently re-run on every migrate pass (the
-// equal-version early-return in migrate/kit.ts is deliberately commented
-// out), so the bump is not what delivers the function. It marks the schema
-// change and arms the ACTIVE downgrade guard: an older application (≤0.0.7,
-// which doesn't know these arguments) refuses to migrate a database stamped
-// 0.0.8 instead of quietly re-running its older idempotent set against it.
-export const SPACE_SCHEMA_VERSION = "0.0.8";
+// 0.0.9: adds the append-only memory_event audit log (incremental 008).
+// Incremental migrations run once, while idempotents re-run on every migrate
+// pass. The schema version arms the downgrade guard for older applications.
+export const SPACE_SCHEMA_VERSION = "0.0.9";

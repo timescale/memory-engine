@@ -55,8 +55,12 @@ export interface SpaceAuthContext {
   principalId: string;
   /** Authenticated principal kind. */
   principalKind: "u" | "s";
+  /** Authenticated principal display name, captured for audit attribution. */
+  principalName: string;
   /** Api key id when authenticated by api key; null for sessions. */
   apiKeyId: string | null;
+  /** API key display name when authenticated by one. */
+  apiKeyName: string | null;
   /** The principal's effective grants in this space. May be empty. */
   treeAccess: TreeAccess;
   /** Whether the principal is a space admin (principal_space.admin). */
@@ -137,7 +141,9 @@ async function authenticateSpaceInner(
   const parsed = bearer ? parseApiKey(bearer) : null;
   let principalId: string;
   let principalKind: "u" | "s";
+  let principalName: string;
   let apiKeyId: string | null;
+  let apiKeyName: string | null;
 
   if (parsed) {
     // Api keys are global; the space comes solely from the header. A key whose
@@ -150,6 +156,8 @@ async function authenticateSpaceInner(
     }
     principalId = validated.memberId;
     apiKeyId = validated.apiKeyId;
+    apiKeyName = validated.apiKeyName;
+    principalName = validated.name;
     // validate_api_key already joined core.principal, so the kind comes back with
     // the validation — no second lookup. An api key only ever belongs to a member
     // principal (user or service account); accept those explicitly and
@@ -187,6 +195,9 @@ async function authenticateSpaceInner(
       principalId = verified.userId;
       principalKind = "u";
       apiKeyId = null;
+      apiKeyName = null;
+      principalName =
+        (await core.getPrincipal(principalId))?.name ?? principalId;
     } else {
       // Authorization-only headers so a signed-session bearer can't fall back to
       // an ambient cookie (which would skip the CSRF gate below).
@@ -202,6 +213,9 @@ async function authenticateSpaceInner(
       principalId = session.user.id;
       principalKind = "u";
       apiKeyId = null;
+      apiKeyName = null;
+      principalName =
+        (await core.getPrincipal(principalId))?.name ?? principalId;
     }
   } else {
     // Browser cookie session. CSRF gates the ambient cookie credential.
@@ -219,6 +233,8 @@ async function authenticateSpaceInner(
     principalId = session.user.id;
     principalKind = "u";
     apiKeyId = null;
+    apiKeyName = null;
+    principalName = (await core.getPrincipal(principalId))?.name ?? principalId;
   }
 
   // 5. Endpoint admission is direct space membership (principal_space), not
@@ -257,7 +273,9 @@ async function authenticateSpaceInner(
       space,
       principalId,
       principalKind,
+      principalName,
       apiKeyId,
+      apiKeyName,
       treeAccess,
       admin,
     },

@@ -45,7 +45,11 @@ function call<T = unknown>(
   method: string,
   params: unknown,
   ta: TreeAccess = treeAccess,
-  as: { principalId?: string; principalKind?: "u" | "s" } = {},
+  as: {
+    principalId?: string;
+    principalKind?: "u" | "s";
+    principalName?: string;
+  } = {},
 ): Promise<T> {
   const registered = memoryDataMethods.get(method);
   if (!registered) throw new Error(`no handler for ${method}`);
@@ -56,7 +60,9 @@ function call<T = unknown>(
     space,
     principalId: as.principalId ?? principalId,
     principalKind: as.principalKind ?? "u",
+    principalName: as.principalName ?? "test@example.com",
     apiKeyId: null,
+    apiKeyName: null,
     treeAccess: ta,
   } as unknown as HandlerContext;
   return registered.handler(params, context) as Promise<T>;

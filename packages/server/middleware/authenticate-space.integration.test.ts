@@ -182,9 +182,15 @@ test("session: member with owner grant resolves space + treeAccess", async () =>
   );
   expect(result.ok).toBe(true);
   if (result.ok) {
+    const principal = await engineCore
+      .coreStore(sql, coreSchema)
+      .getPrincipal(p.userId);
+    if (!principal) throw new Error("seeded principal not found");
     expect(result.context.space.id).toBe(p.spaceId);
     expect(result.context.principalId).toBe(p.userId);
+    expect(result.context.principalName).toBe(principal.name);
     expect(result.context.apiKeyId).toBeNull();
+    expect(result.context.apiKeyName).toBeNull();
     // the creator owns the shared root (and its own home), not owner@root
     expect(result.context.treeAccess).toContainEqual({
       tree_path: "share",
@@ -207,9 +213,13 @@ test("api key: a user's own key (PAT) resolves as the user with full grants", as
   );
   expect(result.ok).toBe(true);
   if (result.ok) {
+    const principal = await core.getPrincipal(p.userId);
+    if (!principal) throw new Error("seeded principal not found");
     // Authenticates as the user with full grants.
     expect(result.context.principalId).toBe(p.userId);
+    expect(result.context.principalName).toBe(principal.name);
     expect(result.context.apiKeyId).not.toBeNull();
+    expect(result.context.apiKeyName).toBe("my-pat");
     expect(result.context.treeAccess).toContainEqual({
       tree_path: "share",
       access: engineCore.ACCESS.owner,
