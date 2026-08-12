@@ -19,6 +19,16 @@ export type OnConflict = "error" | "replace" | "ignore";
 /** What a create/batchCreate did to one row. */
 export type WriteStatus = "inserted" | "updated" | "skipped";
 
+/** Transaction-local audit context consumed by the memory-event trigger. */
+export interface MemoryEventContext {
+  principal_id: string;
+  principal_name: string;
+  api_key_id?: string;
+  api_key_name?: string;
+  /** App-level intent (create/update/delete/copy/move/delete_tree/…). */
+  cause: string;
+}
+
 export interface Memory {
   id: string;
   tree: string;

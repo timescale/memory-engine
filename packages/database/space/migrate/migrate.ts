@@ -20,6 +20,9 @@ import idempotent002 from "./idempotent/002_search.sql" with { type: "text" };
 import idempotent003 from "./idempotent/003_embedding_queue.sql" with {
   type: "text",
 };
+import idempotent004 from "./idempotent/004_memory_event.sql" with {
+  type: "text",
+};
 import incremental001 from "./incremental/001_memory.sql" with { type: "text" };
 import incremental002 from "./incremental/002_embedding_queue.sql" with {
   type: "text",
@@ -37,6 +40,9 @@ import incremental006 from "./incremental/006_content_version.sql" with {
   type: "text",
 };
 import incremental007 from "./incremental/007_memory_version.sql" with {
+  type: "text",
+};
+import incremental008 from "./incremental/008_memory_event.sql" with {
   type: "text",
 };
 import provisionSql from "./provision.sql" with { type: "text" };
@@ -79,6 +85,11 @@ const incrementals: Migration[] = [
     file: "incremental/007_memory_version.sql",
     sql: incremental007,
   },
+  {
+    name: "008_memory_event",
+    file: "incremental/008_memory_event.sql",
+    sql: incremental008,
+  },
 ];
 
 const idempotents: Migration[] = [
@@ -88,6 +99,11 @@ const idempotents: Migration[] = [
     name: "003_embedding_queue",
     file: "idempotent/003_embedding_queue.sql",
     sql: idempotent003,
+  },
+  {
+    name: "004_memory_event",
+    file: "idempotent/004_memory_event.sql",
+    sql: idempotent004,
   },
 ];
 

@@ -711,7 +711,7 @@ export function coreStore(sql: Sql, schema: string = CORE_SCHEMA): CoreStore {
     async validateApiKey(lookupId, secret) {
       const secretHash = hashApiKeySecret(secret);
       const [row] = await sql`
-        select member_id, api_key_id, kind, name, restricted
+        select member_id, api_key_id, kind, name, api_key_name, restricted
         from ${sch}.validate_api_key(${lookupId}, ${secretHash})
       `;
       if (!row) return null;
@@ -720,6 +720,7 @@ export function coreStore(sql: Sql, schema: string = CORE_SCHEMA): CoreStore {
         apiKeyId: row.api_key_id as string,
         kind: row.kind as ValidatedApiKey["kind"],
         name: row.name as string,
+        apiKeyName: row.api_key_name as string,
         restricted: Boolean(row.restricted),
       };
     },

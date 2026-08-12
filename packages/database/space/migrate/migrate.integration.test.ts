@@ -14,6 +14,7 @@
 // isolated by unique `me_<slug>` schema, so those processes never collide.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import type { Sql as SQL } from "postgres";
+import { ensureExtension } from "../../migrate/kit";
 import { SPACE_SCHEMA_VERSION } from "../version";
 import { bootstrapSpaceDatabase } from "./bootstrap";
 import { migrateSpace, provisionSpace } from "./migrate";
@@ -36,7 +37,13 @@ import {
   withTestSpace,
 } from "./test-utils";
 
-const EXPECTED_TABLES = ["embedding_queue", "memory", "migration", "version"];
+const EXPECTED_TABLES = [
+  "embedding_queue",
+  "memory",
+  "memory_event",
+  "migration",
+  "version",
+];
 
 const EXPECTED_MIGRATIONS = [
   "001_memory",
@@ -46,6 +53,7 @@ const EXPECTED_MIGRATIONS = [
   "005_memory_name",
   "006_content_version",
   "007_memory_version",
+  "008_memory_event",
 ];
 
 const EXPECTED_MEMORY_FUNCTIONS = [
@@ -92,6 +100,7 @@ let customIdx: TestSpace; // custom HNSW + BM25 index parameters
 
 beforeAll(async () => {
   sql = connect(12);
+  await sql.begin((tx) => ensureExtension(tx, "timescaledb", "2.29.1"));
   await bootstrapSpaceDatabase(sql);
   [canonical, dim768, customIdx] = await Promise.all([
     TestSpace.create(sql),
@@ -248,10 +257,138 @@ describe("provisioned space schema", () => {
     expect(row?.missing).toBe(0);
   });
 
-  test("installs the memory versioning triggers", async () => {
+  test("installs the memory versioning and event-log triggers", async () => {
     const triggers = await listTriggers(sql, canonical.schema, "memory");
     expect(triggers).toContain("memory_before_insert_trg");
     expect(triggers).toContain("memory_before_update_trg");
+    expect(triggers).toContain("memory_log_event_trg");
+  });
+
+  test("makes memory_event a monthly hypertable", async () => {
+    const [row] = await sql.unsafe(
+      `select time_interval::text as interval
+       from timescaledb_information.dimensions
+       where hypertable_schema = '${canonical.schema}'
+       and hypertable_name = 'memory_event'
+       and column_name = 'at'`,
+    );
+    expect(row?.interval).toBe("30 days");
+  });
+
+  const UUIDV7 =
+    /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+
+  test("logs an append-only event per mutation, preserving every actor", async () => {
+    const memoryId = "01900000-0000-7000-8000-000000000001";
+    const access = [{ tree_path: "history", access: 2 }];
+    await sql.begin(async (tx) => {
+      await tx`select set_config('me.event_context', ${JSON.stringify({
+        principal_id: "01900000-0000-7000-8000-000000000010",
+        principal_name: "creator@example.com",
+        cause: "create",
+      })}, true)`;
+      await tx`select ${tx(canonical.schema)}.create_memory(
+        ${tx.json(access)}::jsonb,
+        ${"history"}::ltree, ${"first"}, ${memoryId}, ${tx.json({})}::jsonb,
+        null::tstzrange, null, ${"error"}
+      )`;
+
+      await tx`select set_config('me.event_context', ${JSON.stringify({
+        principal_id: "01900000-0000-7000-8000-000000000011",
+        principal_name: "updater@example.com",
+        cause: "update",
+      })}, true)`;
+      const [current] = await tx.unsafe(
+        `select version_hash from ${canonical.schema}.memory where id = '${memoryId}'`,
+      );
+      await tx`select ${tx(canonical.schema)}.patch_memory(
+        ${tx.json(access)}::jsonb, ${memoryId}, ${current?.version_hash},
+        ${tx.json({ content: "second" })}::jsonb
+      )`;
+
+      await tx`select set_config('me.event_context', ${JSON.stringify({
+        principal_id: "01900000-0000-7000-8000-000000000012",
+        principal_name: "deleter@example.com",
+        cause: "delete",
+      })}, true)`;
+      await tx`select ${tx(canonical.schema)}.delete_memory(
+        ${tx.json(access)}::jsonb, ${memoryId}
+      )`;
+    });
+
+    const rows = await sql.unsafe(
+      `select operation, cause, content, version, actor, operation_id
+       from ${canonical.schema}.memory_event
+       where memory_id = '${memoryId}'
+       order by at`,
+    );
+    expect(rows).toHaveLength(3);
+
+    expect(rows[0]).toMatchObject({
+      operation: "insert",
+      cause: "create",
+      content: "first",
+      version: "1",
+    });
+    expect(rows[0]?.actor).toMatchObject({
+      principal_name: "creator@example.com",
+    });
+
+    // The updater is preserved as its own event — never overwritten by the delete.
+    expect(rows[1]).toMatchObject({
+      operation: "update",
+      cause: "update",
+      content: "second",
+      version: "2",
+    });
+    expect(rows[1]?.actor).toMatchObject({
+      principal_name: "updater@example.com",
+    });
+
+    expect(rows[2]).toMatchObject({
+      operation: "delete",
+      cause: "delete",
+      content: "second",
+      version: "2",
+    });
+    expect(rows[2]?.actor).toMatchObject({
+      principal_name: "deleter@example.com",
+    });
+
+    // Each distinct operation gets its own operation id; none carry it in actor.
+    for (const row of rows) {
+      expect(row.operation_id).toMatch(UUIDV7);
+      expect(row.actor).not.toHaveProperty("operation_id");
+      expect(row.actor).not.toHaveProperty("cause");
+    }
+  });
+
+  test("shares a generated operation id across unattributed bulk deletes", async () => {
+    const ids = [
+      "01900000-0000-7000-8000-000000000021",
+      "01900000-0000-7000-8000-000000000022",
+    ] as const;
+    await sql.begin(async (tx) => {
+      await tx`insert into ${tx(canonical.schema)}.memory (id, tree, content)
+        values (${ids[0]}, ${"bulk"}::ltree, ${"one"}),
+               (${ids[1]}, ${"bulk"}::ltree, ${"two"})`;
+      await tx`select set_config('me.event_context', '', true)`;
+      await tx`delete from ${tx(canonical.schema)}.memory where id = any(${ids}::uuid[])`;
+    });
+
+    const rows = await sql.unsafe(
+      `select operation, cause, actor, operation_id
+       from ${canonical.schema}.memory_event
+       where memory_id in ('${ids[0]}', '${ids[1]}')
+       and operation = 'delete'
+       order by memory_id`,
+    );
+    expect(rows).toHaveLength(2);
+    // Unattributed direct SQL: empty actor, no cause, still correlated by one id.
+    expect(rows[0]).toMatchObject({ operation: "delete", cause: null });
+    expect(rows[0]?.actor).toEqual({});
+    expect(rows[0]?.operation_id).toMatch(UUIDV7);
+    expect(rows[1]?.operation_id).toBe(rows[0]?.operation_id);
   });
 });
 

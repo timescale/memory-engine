@@ -6,7 +6,12 @@ import { authenticateSpace } from "./middleware/authenticate-space";
 import { authenticateUser } from "./middleware/authenticate-user";
 import { checkClientVersion } from "./middleware/client-version";
 import { ensureUserProvisioned } from "./provision";
-import { createRpcHandler, memoryMethods, userMethods } from "./rpc";
+import {
+  createRpcHandler,
+  memoryMethods,
+  type SpaceRpcContext,
+  userMethods,
+} from "./rpc";
 import { methodNotAllowed, notFound } from "./util/response";
 import { createStaticHandler } from "./web/static";
 
@@ -166,11 +171,13 @@ export function createRouter(ctx: ServerContext): Router {
       space: spaceContext.space,
       principalId: spaceContext.principalId,
       principalKind: spaceContext.principalKind,
+      principalName: spaceContext.principalName,
       apiKeyId: spaceContext.apiKeyId,
+      apiKeyName: spaceContext.apiKeyName,
       treeAccess: spaceContext.treeAccess,
       admin: spaceContext.admin,
       embeddingConfig,
-    };
+    } satisfies Omit<SpaceRpcContext, "request">;
   });
 
   // User RPC (new model): account-scoped. Service accounts may call only

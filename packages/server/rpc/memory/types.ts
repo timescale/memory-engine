@@ -22,8 +22,12 @@ export interface SpaceRpcContext extends HandlerContext {
   principalId: string;
   /** Authenticated principal kind. */
   principalKind: "u" | "s";
+  /** Authenticated principal display name. */
+  principalName: string;
   /** Api key id when authenticated by api key; null for sessions. */
   apiKeyId: string | null;
+  /** API key display name when authenticated by one. */
+  apiKeyName: string | null;
   /** The principal's effective grants in this space. May be empty. */
   treeAccess: TreeAccess;
   /** Whether the principal is a space admin (principal_space.admin). */
@@ -50,6 +54,8 @@ export function isSpaceRpcContext(ctx: HandlerContext): ctx is SpaceRpcContext {
     typeof ctx.principalId === "string" &&
     "principalKind" in ctx &&
     (ctx.principalKind === "u" || ctx.principalKind === "s") &&
+    "principalName" in ctx &&
+    typeof ctx.principalName === "string" &&
     "treeAccess" in ctx &&
     Array.isArray(ctx.treeAccess)
   );

@@ -61,7 +61,9 @@ function call<T = unknown>(
     space,
     principalId: as.principalId ?? ownerId,
     principalKind: as.principalKind ?? "u",
+    principalName: "owner@example.com",
     apiKeyId: null,
+    apiKeyName: null,
     treeAccess: as.treeAccess ?? ownerTreeAccess,
     // the provisioned owner is also a space admin; non-owner callers default false
     admin: as.admin ?? as.principalId === undefined,

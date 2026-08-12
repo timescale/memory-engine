@@ -3,6 +3,7 @@ export type {
   CreateMemoryParams,
   HybridSearchOptions,
   Memory,
+  MemoryEventContext,
   MemoryFilters,
   MemoryPatch,
   QueueStats,

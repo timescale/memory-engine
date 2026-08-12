@@ -11,7 +11,7 @@
 
 import { describe, expect, mock, test } from "bun:test";
 import type { EmbeddingConfig } from "@memory.build/embedding";
-import type { CoreStore } from "@memory.build/engine/core";
+import type { CoreStore, Space } from "@memory.build/engine/core";
 import type { Sql } from "postgres";
 import { MIN_CLIENT_VERSION, SERVER_VERSION } from "../../version";
 import type { Auth } from "./auth/betterauth";
@@ -62,6 +62,63 @@ function createMockContext(overrides?: Partial<ServerContext>): ServerContext {
 
 describe("Server-Database Wiring", () => {
   describe("Memory RPC authentication (authenticateSpace)", () => {
+    test("authenticated context reaches a memory RPC handler", async () => {
+      const principalId = "01960000-0000-7000-8000-000000000000";
+      const space = {
+        id: "01960000-0000-7000-8000-000000000001",
+        slug: "abc123def456",
+        name: "Test Space",
+        language: "english",
+        createdAt: new Date(),
+        updatedAt: null,
+      } satisfies Space;
+      const core = {
+        getSpace: mock(() => Promise.resolve(space)),
+        getPrincipal: mock(() =>
+          Promise.resolve({ id: principalId, name: "Test User" }),
+        ),
+        isPrincipalInSpace: mock(() => Promise.resolve(true)),
+        isSpaceAdmin: mock(() => Promise.resolve(false)),
+        buildTreeAccess: mock(() => Promise.resolve([])),
+        listSpacePrincipals: mock(() => Promise.resolve([])),
+      } as unknown as CoreStore;
+      const router = createRouter(
+        createMockContext({
+          core,
+          db: mock((value: string) => value) as unknown as Sql,
+          verifyOAuthToken: async () => ({
+            userId: principalId,
+            email: "test@example.com",
+            name: "Test User",
+            emailVerified: true,
+            scopes: [],
+          }),
+        }),
+      );
+      const request = new Request("http://localhost/api/v1/memory/rpc", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer valid-oauth-token",
+          "X-Me-Space": space.slug,
+        },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          method: "space.listMembers",
+          params: {},
+          id: 1,
+        }),
+      });
+
+      const response = await router.handleRequest(request);
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({
+        jsonrpc: "2.0",
+        result: { members: [] },
+        id: 1,
+      });
+    });
+
     test("returns 401 for missing Authorization header", async () => {
       const router = createRouter(createMockContext());
       const request = new Request("http://localhost/api/v1/memory/rpc", {

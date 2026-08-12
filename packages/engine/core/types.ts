@@ -86,6 +86,8 @@ export interface ValidatedApiKey {
    * service-account handle). Saves the middleware a second lookup.
    */
   name: string;
+  /** The API key's display name, preserved for audit attribution. */
+  apiKeyName: string;
   /** Whether this key carries space/tree access declarations. */
   restricted: boolean;
 }

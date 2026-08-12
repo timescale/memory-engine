@@ -4,6 +4,7 @@ import type {
   CreateMemoryParams,
   HybridSearchOptions,
   Memory,
+  MemoryEventContext,
   MemoryPatch,
   OnConflict,
   QueueStats,
@@ -121,6 +122,11 @@ export interface SpaceStore {
 
   /** Run operations atomically against the same transaction. */
   withTransaction<T>(fn: (store: SpaceStore) => Promise<T>): Promise<T>;
+  /** Run a mutation with transaction-local event context for the audit log. */
+  withEventContext<T>(
+    context: MemoryEventContext,
+    fn: (store: SpaceStore) => Promise<T>,
+  ): Promise<T>;
 }
 
 function mapMemory(row: Record<string, unknown>): Memory {
@@ -391,6 +397,16 @@ export function spaceStore(sql: Sql, schema: string): SpaceStore {
       return sql.begin((tx) =>
         fn(spaceStore(tx as unknown as Sql, schema)),
       ) as Promise<T>;
+    },
+
+    async withEventContext<T>(
+      context: MemoryEventContext,
+      fn: (store: SpaceStore) => Promise<T>,
+    ): Promise<T> {
+      return sql.begin(async (tx) => {
+        await tx`select set_config('me.event_context', ${JSON.stringify(context)}, true)`;
+        return fn(spaceStore(tx as unknown as Sql, schema));
+      }) as Promise<T>;
     },
   };
 }
