@@ -80,6 +80,12 @@ export interface MemoryHistoryFilters {
   tree?: string;
   operation?: "insert" | "update" | "delete";
   operationId?: string;
+  /** Lower bound on event time (`at >= since`), ISO 8601. */
+  since?: string;
+  /** Upper bound on event time (`at < until`), ISO 8601. */
+  until?: string;
+  /** Keyset cursor: seek strictly past this event id (co-monotonic with `at`). */
+  cursorEventId?: string;
   limit?: number;
   order?: "asc" | "desc";
 }

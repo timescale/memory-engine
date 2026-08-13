@@ -575,7 +575,7 @@ function createMemoryHistoryCommand(): Command {
     )
     .argument(
       "[id-or-path]",
-      "memory ID (UUIDv7) or tree/name path to scope history to (use the ID for a deleted memory)",
+      "memory ID (UUIDv7) or tree/name path to scope history to (a deleted memory resolves by path via the audit log)",
     )
     .option("--tree <path>", "show events under a subtree path")
     .option("--operation <op>", "filter by operation: insert | update | delete")
@@ -583,6 +583,9 @@ function createMemoryHistoryCommand(): Command {
       "--operation-id <uuid>",
       "show all events sharing one bulk operation id",
     )
+    .option("--since <ts>", "only events at or after this time (ISO 8601)")
+    .option("--until <ts>", "only events strictly before this time (ISO 8601)")
+    .option("--cursor <cursor>", "page from a prior result's nextCursor")
     .option("--limit <n>", "max events", "20")
     .option(
       "--order-by <dir>",
@@ -600,9 +603,9 @@ function createMemoryHistoryCommand(): Command {
       requireSpace(creds, fmt);
 
       // A scope is required — a bare unbounded scan of the log is rejected.
-      if (!ref && !opts.tree && !opts.operationId) {
+      if (!ref && !opts.tree && !opts.operationId && !opts.since) {
         const msg =
-          "Scope required: pass a memory id/path, --tree, or --operation-id.";
+          "Scope required: pass a memory id/path, --tree, --operation-id, or --since.";
         if (fmt === "text") clack.log.error(msg);
         else output({ error: msg }, fmt, () => {});
         process.exit(1);
@@ -611,22 +614,21 @@ function createMemoryHistoryCommand(): Command {
       const client = buildMemoryClient(creds);
 
       try {
-        // A positional path resolves to an id via the live table, so a deleted
-        // memory's history must be requested by its UUID.
-        let memoryId: string | undefined;
-        if (ref) {
-          memoryId = UUIDV7_RE.test(ref)
-            ? ref
-            : (await client.memory.getByPath({ path: ref })).id;
-        }
-
         const params: Record<string, unknown> = {
           limit: Number.parseInt(opts.limit, 10),
         };
-        if (memoryId) params.memoryId = memoryId;
+        // A UUID scopes by id; anything else is a path resolved server-side
+        // (live first, then the audit log, so deleted memories still work).
+        if (ref) {
+          if (UUIDV7_RE.test(ref)) params.memoryId = ref;
+          else params.path = ref;
+        }
         if (opts.tree) params.tree = opts.tree;
         if (opts.operation) params.operation = opts.operation;
         if (opts.operationId) params.operationId = opts.operationId;
+        if (opts.since) params.since = opts.since;
+        if (opts.until) params.until = opts.until;
+        if (opts.cursor) params.cursor = opts.cursor;
         if (opts.orderBy) params.order = opts.orderBy;
 
         const select =
@@ -651,29 +653,34 @@ function createMemoryHistoryCommand(): Command {
             console.log(
               yamlStringify(result.events, { lineWidth: 0 }).trimEnd(),
             );
-            return;
+          } else {
+            for (const [index, event] of result.events.entries()) {
+              const actor = event.actor?.principalName ?? "\u2014";
+              const viaKey = event.actor?.apiKeyName
+                ? ` via ${event.actor.apiKeyName}`
+                : "";
+              console.log(
+                `${event.at}  ${event.operation}  v${event.version}  ${event.memoryId}`,
+              );
+              console.log(`  actor: ${actor}${viaKey}`);
+              console.log(`  cause: ${event.cause ?? "\u2014"}`);
+              if (event.tree !== undefined) {
+                console.log(`  tree: ${event.tree}`);
+              }
+              const content = event.content ?? "";
+              const flat = content.replace(/\s+/g, " ").trim();
+              const length =
+                "contentLength" in event ? event.contentLength : undefined;
+              const preview =
+                length !== undefined && length > content.length
+                  ? `${flat}...`
+                  : flat;
+              if (preview) console.log(`  ${preview}`);
+              if (index < result.events.length - 1) console.log();
+            }
           }
-          for (const [index, event] of result.events.entries()) {
-            const actor = event.actor?.principalName ?? "\u2014";
-            const viaKey = event.actor?.apiKeyName
-              ? ` via ${event.actor.apiKeyName}`
-              : "";
-            console.log(
-              `${event.at}  ${event.operation}  v${event.version}  ${event.memoryId}`,
-            );
-            console.log(`  actor: ${actor}${viaKey}`);
-            console.log(`  cause: ${event.cause ?? "\u2014"}`);
-            if (event.tree !== undefined) console.log(`  tree: ${event.tree}`);
-            const content = event.content ?? "";
-            const flat = content.replace(/\s+/g, " ").trim();
-            const length =
-              "contentLength" in event ? event.contentLength : undefined;
-            const preview =
-              length !== undefined && length > content.length
-                ? `${flat}...`
-                : flat;
-            if (preview) console.log(`  ${preview}`);
-            if (index < result.events.length - 1) console.log();
+          if (result.nextCursor) {
+            console.log(`\nmore: --cursor ${result.nextCursor}`);
           }
         });
       } catch (error) {

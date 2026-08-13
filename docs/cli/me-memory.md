@@ -177,25 +177,34 @@ me memory history [id-or-path] [options]
 
 | Argument | Required | Description |
 |----------|----------|-------------|
-| `id-or-path` | no | A memory ID (UUIDv7), or a live memory's `tree/name` path, to scope history to one memory. A path is resolved via the live table, so a **deleted** memory's history must be requested by its UUID. |
+| `id-or-path` | no | A memory ID (UUIDv7), or a memory's `tree/name` path, to scope history to one memory. A path resolves live first, then via the audit log — so a **deleted** memory's history is still reachable by its path. |
 
 | Option | Description |
 |--------|-------------|
 | `--tree <path>` | Show events at or under this subtree path. |
 | `--operation <op>` | Filter by operation: `insert`, `update`, or `delete`. |
 | `--operation-id <uuid>` | Show all events sharing one bulk operation id (e.g. every row of a bulk delete or move). |
+| `--since <ts>` | Only events at or after this time (ISO 8601). A `--since` alone drives a space-wide activity feed. |
+| `--until <ts>` | Only events strictly before this time (ISO 8601). |
+| `--cursor <cursor>` | Page from a prior result's `nextCursor`. |
 | `--limit <n>` | Maximum events (default 20, max 1000). |
 | `--order-by <dir>` | Order by event time: `desc` (default, newest first) or `asc`. |
 | `--select <fields>` | Comma-separated snapshot fields to return (e.g. `tree,content:200`). The audit envelope (event id, time, operation, cause, actor, memory id) is always shown. |
 
-At least one scope is required: a positional id/path, `--tree`, or `--operation-id`. Access is enforced per event by read access to that event's tree, so a memory that moved between trees may show a partial history to a caller who cannot read some of its historical trees.
+At least one scope is required: a positional id/path, `--tree`, `--operation-id`, or `--since`. Access is enforced per event by read access to that event's tree, so a memory that moved between trees may show a partial history to a caller who cannot read some of its historical trees. Audit events are retained for 30 days.
 
 ```bash
 # Full history of one memory, including who deleted it
 me memory history 0194a000-0001-7000-8000-000000000001
 
+# A deleted memory's history, by its old path
+me memory history /share/auth/jwt-rotation
+
 # Everything that changed under a subtree, oldest first
 me memory history --tree /share/auth --order-by asc
+
+# Space-wide activity feed for a window
+me memory history --since 2025-04-01T00:00:00Z --until 2025-04-08T00:00:00Z
 
 # Every row of one bulk delete
 me memory history --operation-id 0194a000-0002-7000-8000-00000000000a

@@ -88,6 +88,10 @@ import { assertSpaceRpcContext, type SpaceRpcContext } from "./types";
  */
 const MAX_SEMANTIC_QUERY_CHARS = 8192;
 
+/** Any RFC-4122 UUID (used to validate a decoded history cursor). */
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 // =============================================================================
 // Helpers
 // =============================================================================
@@ -425,6 +429,46 @@ async function memoryGet(
   return toMemoryResponse(memory, ctx);
 }
 
+/**
+ * Resolve a `folder/name` path to a memory id for history: the live memory
+ * first (its id wins when a slot was reused), then the audit log so a deleted
+ * memory is still reachable by path.
+ */
+async function resolveHistoryPath(
+  ctx: SpaceRpcContext,
+  path: string,
+): Promise<string> {
+  const { tree, name } = splitPath(path);
+  if (name === "") {
+    throw new AppError("VALIDATION_ERROR", "path must end in a name");
+  }
+  const treePath = inputTreePath(ctx, tree);
+  const live = await guard(() =>
+    ctx.store.resolveMemoryId(ctx.treeAccess, treePath, name),
+  );
+  if (live != null) return live;
+  const archived = await guard(() =>
+    ctx.store.resolveMemoryIdFromHistory(ctx.treeAccess, treePath, name),
+  );
+  if (archived == null) {
+    throw new AppError("NOT_FOUND", `Memory not found: ${path}`);
+  }
+  return archived;
+}
+
+/** Opaque keyset cursor over the audit log's event_id. */
+function encodeHistoryCursor(eventId: string): string {
+  return Buffer.from(eventId, "utf8").toString("base64url");
+}
+
+function decodeHistoryCursor(cursor: string): string {
+  const eventId = Buffer.from(cursor, "base64url").toString("utf8");
+  if (!UUID_RE.test(eventId)) {
+    throw new AppError("VALIDATION_ERROR", "Invalid cursor");
+  }
+  return eventId;
+}
+
 /** memory.history — read the append-only audit log (read-gated per event tree). */
 async function memoryHistory(
   params: MemoryHistoryParams,
@@ -434,18 +478,35 @@ async function memoryHistory(
   const ctx = context as SpaceRpcContext;
   const { store, treeAccess } = ctx;
 
+  // A `path` scope resolves to a single memory (live, else via the audit log).
+  const memoryId = params.path
+    ? await resolveHistoryPath(ctx, params.path)
+    : (params.memoryId ?? undefined);
+
   const limit = params.limit ?? 20;
   const events = await guard(() =>
     store.getMemoryHistory(treeAccess, {
-      memoryId: params.memoryId ?? undefined,
+      memoryId,
       tree: params.tree ? inputTreePath(ctx, params.tree) : undefined,
       operation: params.operation ?? undefined,
       operationId: params.operationId ?? undefined,
+      since: params.since ?? undefined,
+      until: params.until ?? undefined,
+      cursorEventId: params.cursor
+        ? decodeHistoryCursor(params.cursor)
+        : undefined,
       limit,
       order: params.order ?? "desc",
     }),
   );
-  return { events: events.map((e) => toEventResponse(e, ctx)), limit };
+
+  // A full page implies there may be more; hand back a keyset cursor.
+  const last = events.length === limit ? events[events.length - 1] : undefined;
+  return {
+    events: events.map((e) => toEventResponse(e, ctx)),
+    limit,
+    nextCursor: last ? encodeHistoryCursor(last.eventId) : null,
+  };
 }
 
 /** memory.getByPath — address a named memory by its folder/name path. */

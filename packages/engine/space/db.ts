@@ -69,6 +69,16 @@ export interface SpaceStore {
     tree: string,
     name: string,
   ): Promise<string | null>;
+  /**
+   * Resolve a (tree, name) path to a memory id via the audit log, so a deleted
+   * memory's history is reachable by path. Returns the most recent event's
+   * memory id at that path (read-gated), or null.
+   */
+  resolveMemoryIdFromHistory(
+    treeAccess: TreeAccess,
+    tree: string,
+    name: string,
+  ): Promise<string | null>;
   patchMemory(
     treeAccess: TreeAccess,
     id: string,
@@ -274,10 +284,21 @@ export function spaceStore(sql: Sql, schema: string): SpaceStore {
           ${filters.tree ?? null}::ltree,
           ${filters.operation ?? null},
           ${filters.operationId ?? null}::uuid,
+          ${filters.since ?? null}::timestamptz,
+          ${filters.until ?? null}::timestamptz,
+          ${filters.cursorEventId ?? null}::uuid,
           ${filters.limit ?? 20},
           ${filters.order ?? "desc"}
         )`;
       return rows.map(mapEvent);
+    },
+
+    async resolveMemoryIdFromHistory(treeAccess, tree, name) {
+      const [row] = await sql`
+        select ${sch}.resolve_memory_id_from_history(
+          ${jb(treeAccess)}, ${tree}::ltree, ${name}
+        ) as id`;
+      return (row?.id as string | null) ?? null;
     },
 
     async resolveMemoryId(treeAccess, tree, name) {

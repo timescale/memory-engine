@@ -14,15 +14,19 @@ Pass at least one scope: `memoryId`, `tree`, or `operationId`. `operation` narro
 |------|------|----------|-------------|
 | `space` | `string` | varies | Absent in locked mode; required nonempty string in multi-space mode. It selects the same-server space for this call. |
 | `memoryId` | `string \| null` | no | UUID of a memory; returns just that memory's history. Works after deletion. |
+| `path` | `string \| null` | no | `tree/name` path of a memory; resolved live, else via the audit log, so a deleted memory's history is reachable by path. |
 | `tree` | `string \| null` | no | Subtree path filter; returns events at or under this path. |
 | `operation` | `"insert" \| "update" \| "delete" \| null` | no | Filter by physical operation. |
 | `operationId` | `string \| null` | no | Return all events sharing one bulk operation id (e.g. every row of a bulk delete or move). |
+| `since` | `string \| null` | no | Only events at or after this time (ISO 8601). A `since` alone drives a space-wide activity feed. |
+| `until` | `string \| null` | no | Only events strictly before this time (ISO 8601). |
+| `cursor` | `string \| null` | no | Keyset cursor from a prior response's `nextCursor`; fetches the next page. |
 | `limit` | `number \| null` | no | Maximum events (`0` = default 20, max 1000). |
 | `order` | `"asc" \| "desc" \| null` | no | Sort by event time. Default `desc` (newest first). |
 | `select` | `string[] \| null` | no | Snapshot fields to return per event (e.g. `content:200`); the audit envelope is always included. |
 | `format` | `"yaml" \| "json" \| "compact" \| null` | no | Text serialization format. Omit or pass `null` for YAML; `json` and `compact` both return compact JSON. |
 
-At least one of `memoryId`, `tree`, or `operationId` is required; a bare unbounded scan is rejected.
+At least one of `memoryId`, `path`, `tree`, `operationId`, or `since` is required; a bare unbounded scan is rejected.
 
 ## Returns
 
@@ -53,9 +57,12 @@ The tool returns YAML by default. The JSON below illustrates the result shape.
       "versionHash": "5f3e9c2a8b1d4f7e0c3a6b9d2e5f8c1a"
     }
   ],
-  "limit": 20
+  "limit": 20,
+  "nextCursor": null
 }
 ```
+
+`nextCursor` is a keyset cursor: non-null when a full page was returned (more events may exist). Pass it back as `cursor` to fetch the next page.
 
 | Field | Type | Description |
 |-------|------|-------------|
@@ -94,6 +101,6 @@ Every row of one bulk delete:
 
 ## Notes
 
-- The audit log is append-only; there is no way to modify or remove events through the API.
-- History is gated per event by read access to that event's tree, so a moved memory's history can look partial. Deleted memories stay readable by `memoryId`.
+- The audit log is append-only; there is no way to modify or remove events through the API. Events are retained for 30 days.
+- History is gated per event by read access to that event's tree, so a moved memory's history can look partial. Deleted memories stay readable by `memoryId` or `path`.
 - Omit `select` for the full event. Selecting only trims the snapshot fields (`content`, `meta`, `tree`, `name`, `temporal`, `version`, `versionHash`); the audit envelope (`eventId`, `at`, `operation`, `operationId`, `cause`, `actor`, `memoryId`) is always present. `content:N`, `content:M:N`, and `content:M:` select UTF-16 code-unit ranges and include the full UTF-16 `contentLength`.

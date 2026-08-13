@@ -160,23 +160,34 @@ export type MemorySearchParams = z.infer<typeof memorySearchParams>;
 /**
  * memory.history params — read the append-only audit log.
  *
- * At least one scope (`memoryId`, `tree`, or `operationId`) is required; a bare
- * unbounded scan is rejected. `operation` narrows within a scope. Each event is
- * gated on read access to its own tree, so a moved memory's history may appear
- * partial. Deleted memories remain readable by `memoryId`.
+ * At least one scope (`memoryId`, `path`, `tree`, `operationId`, or `since`) is
+ * required; a bare unbounded scan is rejected. `operation` narrows within a
+ * scope, and `since`/`until` bound the window on event time (`at`) — a `since`
+ * alone drives a space-wide activity feed. Each event is gated on read access to
+ * its own tree, so a moved memory's history may appear partial. Deleted memories
+ * remain readable by `memoryId`, or by `path` (resolved via the audit log).
+ * Pass `cursor` (from a prior response's `nextCursor`) to page.
  */
 export const memoryHistoryParams = z
   .object({
     memoryId: uuidv7Schema.optional().nullable(),
+    path: memoryPathSchema.optional().nullable(),
     tree: treeFilterSchema.optional().nullable(),
     operation: z.enum(["insert", "update", "delete"]).optional().nullable(),
     operationId: uuidv7Schema.optional().nullable(),
+    since: z.string().optional().nullable(),
+    until: z.string().optional().nullable(),
+    cursor: z.string().optional().nullable(),
     limit: z.number().int().min(1).max(1000).optional(),
     order: z.enum(["asc", "desc"]).optional(),
   })
-  .refine((p) => Boolean(p.memoryId || p.tree || p.operationId), {
-    message: "At least one of memoryId, tree, or operationId is required",
-  });
+  .refine(
+    (p) => Boolean(p.memoryId || p.path || p.tree || p.operationId || p.since),
+    {
+      message:
+        "At least one of memoryId, path, tree, operationId, or since is required",
+    },
+  );
 
 export type MemoryHistoryParams = z.infer<typeof memoryHistoryParams>;
 
@@ -401,11 +412,13 @@ export const memoryEventResponse = z.object({
 export type MemoryEventResponse = z.infer<typeof memoryEventResponse>;
 
 /**
- * memory.history result — newest-first by default.
+ * memory.history result — newest-first by default. `nextCursor` is non-null when
+ * more events may exist; pass it back as `cursor` to fetch the next page.
  */
 export const memoryHistoryResult = z.object({
   events: z.array(memoryEventResponse),
   limit: z.number(),
+  nextCursor: z.string().nullable(),
 });
 
 export type MemoryHistoryResult = z.infer<typeof memoryHistoryResult>;
