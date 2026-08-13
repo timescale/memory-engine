@@ -31,6 +31,7 @@ must preserve.
 | Document | Scope |
 | --- | --- |
 | [Memory schema](memory-schema.md) | Flexible memory records, identity, temporal modeling, metadata, and retrieval indexes |
+| [Event log, history, and revert](event-log-and-history.md) | Append-only audit log, attribution, history reads, and version revert/undelete |
 
 ## Spaces
 
