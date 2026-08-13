@@ -6,7 +6,7 @@ Every insert, update, and delete is recorded as one immutable event. Each event 
 
 Access is enforced per event by read access to that event's own tree, so the history of a memory that moved between trees may appear partial to a caller who lacks read on some of its historical trees. Deleted memories remain visible here — query them by `memoryId`.
 
-Pass at least one scope: `memoryId`, `tree`, or `operationId`. `operation` narrows within a scope.
+Pass at least one scope: `memoryId`, `path`, `tree`, `operationId`, or `since`. `operation` narrows within a scope.
 
 ## Parameters
 
