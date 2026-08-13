@@ -4,6 +4,50 @@ All notable changes to the memory engine are documented here. The client
 (`v<x.y.z>`) and server (`server/v<x.y.z>`) release independently but are
 versioned in lockstep for coordinated breaking changes.
 
+## 0.8.0
+
+Server `server/v0.8.0` · Client `v0.8.0`.
+
+An audit-history release: every memory mutation is now recorded in an
+append-only log, and any version can be restored.
+
+### Added
+- **Memory history.** Every insert, update, and delete is recorded as an
+  immutable event carrying the actor, an app-level cause, the operation, a
+  bulk-correlation id, and a full snapshot of the resulting (or, for deletes,
+  removed) state. New `memory.history` RPC, `me memory history` / `me history`
+  CLI, and the `me_memory_history` MCP tool answer who changed a memory, when,
+  and how — including who deleted it. Scope by memory id, `tree/name` path,
+  subtree, bulk operation id, or a `since` window (a space-wide activity feed),
+  narrow by operation, page with a keyset cursor, and bound by `since`/`until`.
+  Access is enforced per event by tree read access; deleted memories remain
+  reachable by id or their old path.
+- **Version revert and undelete.** New `memory.revert` RPC, `me memory revert` /
+  `me revert` CLI, and the `me_memory_revert` MCP tool restore a memory to a
+  prior version's snapshot, applied as a new forward version (it reproduces an
+  earlier state rather than rewriting history). The full snapshot — content,
+  metadata, tree, name, and temporal — is restored. Reverting a **deleted**
+  memory re-creates it (undelete), continuing its version sequence. Revert is a
+  deliberate override by default, with an optional `expectedVersionHash` guard
+  against a concurrent change to a live memory.
+
+### Changed
+- The client now requires server >= 0.8.0 (`MIN_SERVER_VERSION`) because history
+  and revert require server support added in this release. `MIN_CLIENT_VERSION`
+  stays at 0.4.0 — the existing `memory.*` data plane is unchanged, so older
+  clients keep working.
+
+### Database
+- Space schema -> 0.0.9. Adds the append-only `memory_event` audit log: a trigger
+  records every memory mutation with transaction-scoped actor attribution.
+  Optionally a TimescaleDB hypertable partitioned by event time, with a 30-day
+  retention policy — so history and revert reach back over that window — and it
+  degrades to a plain table when the extension is absent.
+- Core schema -> 0.0.7. `validate_api_key` now returns the API-key display name,
+  so an API-key-authenticated mutation is attributed by key name in the log.
+- Migrations auto-apply on server boot; rolling back to a pre-0.8.0 server image
+  is refused by the downgrade guards on space and core.
+
 ## 0.7.3
 
 Server `server/v0.7.3` · Client `v0.7.3`.
