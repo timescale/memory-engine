@@ -581,6 +581,13 @@ Docs: ${docUrl("me_memory_history")}`,
             .describe(
               "UUID of a memory; returns just that memory's history. Works after deletion.",
             ),
+          path: z
+            .string()
+            .optional()
+            .nullable()
+            .describe(
+              "tree/name path of a memory; resolved live, else via the audit log, so a deleted memory's history is reachable by path.",
+            ),
           tree: z
             .string()
             .optional()
@@ -599,6 +606,25 @@ Docs: ${docUrl("me_memory_history")}`,
             .nullable()
             .describe(
               "Return all events sharing one bulk operation id (e.g. every row of a bulk delete or move).",
+            ),
+          since: z
+            .string()
+            .optional()
+            .nullable()
+            .describe(
+              "Only events at or after this time (ISO 8601). A since alone drives a space-wide activity feed.",
+            ),
+          until: z
+            .string()
+            .optional()
+            .nullable()
+            .describe("Only events strictly before this time (ISO 8601)."),
+          cursor: z
+            .string()
+            .optional()
+            .nullable()
+            .describe(
+              "Keyset cursor from a prior response's nextCursor; fetches the next page.",
             ),
           limit: z
             .number()
@@ -637,9 +663,13 @@ Docs: ${docUrl("me_memory_history")}`,
     async (args) => {
       const fullResult = await clientFor(args).memory.history({
         memoryId: args.memoryId ?? undefined,
+        path: args.path ?? undefined,
         tree: args.tree ?? undefined,
         operation: args.operation ?? undefined,
         operationId: args.operationId ?? undefined,
+        since: args.since ?? undefined,
+        until: args.until ?? undefined,
+        cursor: args.cursor ?? undefined,
         limit: args.limit && args.limit > 0 ? args.limit : undefined,
         order: args.order ?? undefined,
       });

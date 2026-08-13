@@ -553,6 +553,62 @@ test("memory.history requires a scope and gates by read access", async () => {
   expect(empty.events).toEqual([]);
 });
 
+test("memory.history resolves a deleted memory by path and pages by cursor", async () => {
+  const created = await call<{ id: string; versionHash: string }>(
+    "memory.create",
+    { content: "a", tree: "share.audit2", name: "gone" },
+  );
+  await call("memory.update", {
+    id: created.id,
+    versionHash: created.versionHash,
+    content: "b",
+  });
+  await call("memory.delete", { id: created.id });
+
+  type Page = {
+    events: { operation: string; memoryId: string }[];
+    nextCursor: string | null;
+  };
+
+  // The live row is gone, but the path resolves via the audit log.
+  const byPath = await call<Page>("memory.history", {
+    path: "share/audit2/gone",
+    order: "asc",
+  });
+  expect(byPath.events.map((e) => e.operation)).toEqual([
+    "insert",
+    "update",
+    "delete",
+  ]);
+  expect(byPath.events.every((e) => e.memoryId === created.id)).toBe(true);
+  expect(byPath.nextCursor).toBeNull();
+
+  // Keyset paging: 2 then 1, with a cursor bridging the pages.
+  const page1 = await call<Page>("memory.history", {
+    memoryId: created.id,
+    order: "asc",
+    limit: 2,
+  });
+  expect(page1.events.map((e) => e.operation)).toEqual(["insert", "update"]);
+  expect(page1.nextCursor).not.toBeNull();
+
+  const page2 = await call<Page>("memory.history", {
+    memoryId: created.id,
+    order: "asc",
+    limit: 2,
+    cursor: page1.nextCursor,
+  });
+  expect(page2.events.map((e) => e.operation)).toEqual(["delete"]);
+  expect(page2.nextCursor).toBeNull();
+
+  // A future `since` window returns nothing.
+  const future = await call<Page>("memory.history", {
+    memoryId: created.id,
+    since: "2999-01-01T00:00:00Z",
+  });
+  expect(future.events).toEqual([]);
+});
+
 test("batchCreate with a bare duplicate id raises CONFLICT", async () => {
   const id = "01941000-0000-7000-8000-00000000c0f2";
   await call("memory.batchCreate", {

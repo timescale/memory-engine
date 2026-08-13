@@ -86,13 +86,16 @@ for each row execute function {{schema}}.memory_log_event();
 -- least one of _memory_id / _tree / _operation_id (enforced at the RPC layer).
 -- Deleted memories remain visible (their tombstone events outlive the row).
 -------------------------------------------------------------------------------
-{{fn get_memory_history(_tree_access jsonb, _memory_id uuid, _tree ltree, _operation text, _operation_id uuid, _limit bigint, _order text) returns table(event_id uuid, at timestamptz, memory_id uuid, operation text, operation_id uuid, cause text, actor jsonb, tree ltree, name text, meta jsonb, temporal tstzrange, content text, version bigint, version_hash text)}}
+{{fn get_memory_history(_tree_access jsonb, _memory_id uuid, _tree ltree, _operation text, _operation_id uuid, _since timestamptz, _until timestamptz, _cursor_event_id uuid, _limit bigint, _order text) returns table(event_id uuid, at timestamptz, memory_id uuid, operation text, operation_id uuid, cause text, actor jsonb, tree ltree, name text, meta jsonb, temporal tstzrange, content text, version bigint, version_hash text)}}
 create or replace function {{schema}}.get_memory_history
 ( _tree_access jsonb
 , _memory_id uuid
 , _tree ltree
 , _operation text
 , _operation_id uuid
+, _since timestamptz
+, _until timestamptz
+, _cursor_event_id uuid
 , _limit bigint
 , _order text
 )
@@ -141,6 +144,17 @@ begin
   and (_tree is null or e.tree operator(public.<@) _tree)
   and (_operation is null or e.operation = _operation)
   and (_operation_id is null or e.operation_id = _operation_id)
+  -- date window (chunk-pruned on the hypertable)
+  and (_since is null or e.at >= _since)
+  and (_until is null or e.at < _until)
+  -- keyset cursor on event_id: uuidv7 is unique and co-monotonic with `at`, so a
+  -- single-column seek is exact (no timestamp-precision loss) and matches the
+  -- (at, event_id) sort order below.
+  and (
+    _cursor_event_id is null
+    or (_order = 'desc' and e.event_id < _cursor_event_id)
+    or (_order = 'asc' and e.event_id > _cursor_event_id)
+  )
   order by
     case when _order = 'asc' then e.at end asc
   , case when _order = 'desc' then e.at end desc
@@ -152,3 +166,30 @@ $func$ language plpgsql stable security invoker
 set search_path to pg_catalog, {{schema}}, public, pg_temp
 ;
 {{endfn}}
+
+-------------------------------------------------------------------------------
+-- resolve_memory_id_from_history
+--
+-- Resolve a (tree, name) path to a memory id using the audit log, so a DELETED
+-- memory's history is reachable by path (the live table no longer has the row).
+-- Returns the most-recently-seen memory id at that path the caller can read, or
+-- null. Callers try the live resolver first; the live id wins when a (tree,
+-- name) slot was reused after a delete.
+-------------------------------------------------------------------------------
+create or replace function {{schema}}.resolve_memory_id_from_history
+( _tree_access jsonb
+, _tree ltree
+, _name text
+)
+returns uuid
+as $func$
+  select e.memory_id
+  from {{schema}}.memory_event e
+  where e.tree = _tree
+  and e.name = _name
+  and {{schema}}.has_tree_access(_tree_access, e.tree, 1)
+  order by e.at desc, e.event_id desc
+  limit 1
+$func$ language sql stable strict security invoker
+set search_path to pg_catalog, {{schema}}, public, pg_temp
+;

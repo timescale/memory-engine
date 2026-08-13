@@ -414,11 +414,15 @@ describe("provisioned space schema", () => {
 
     // Full read on `gate`: readable memory has insert + update, oldest first,
     // attributed to alice.
+    // args: (access, memory_id, tree, operation, operation_id, since, until,
+    //        cursor_event_id, limit, order)
+    // Full read on `gate`: readable memory has insert + update, oldest first,
+    // attributed to alice.
     const asc = await sql.unsafe(
       `select operation, content, actor->>'principal_name' as actor, cause
        from ${canonical.schema}.get_memory_history(
          '${fullAccess}'::jsonb, '${readable}'::uuid, null::ltree, null,
-         null::uuid, 50, 'asc')`,
+         null::uuid, null::timestamptz, null::timestamptz, null::uuid, 50, 'asc')`,
     );
     expect(asc.map((r) => r.operation)).toEqual(["insert", "update"]);
     expect(asc[0]).toMatchObject({
@@ -430,7 +434,7 @@ describe("provisioned space schema", () => {
     const denied = await sql.unsafe(
       `select 1 from ${canonical.schema}.get_memory_history(
          '${readableOnly}'::jsonb, '${secret}'::uuid, null::ltree, null,
-         null::uuid, 50, 'desc')`,
+         null::uuid, null::timestamptz, null::timestamptz, null::uuid, 50, 'desc')`,
     );
     expect(denied).toHaveLength(0);
 
@@ -438,9 +442,69 @@ describe("provisioned space schema", () => {
     const filtered = await sql.unsafe(
       `select operation from ${canonical.schema}.get_memory_history(
          '${fullAccess}'::jsonb, null::uuid, 'gate.readable'::ltree, 'update',
-         null::uuid, 50, 'desc')`,
+         null::uuid, null::timestamptz, null::timestamptz, null::uuid, 50, 'desc')`,
     );
     expect(filtered.map((r) => r.operation)).toEqual(["update"]);
+
+    // Keyset cursor: first page of 1 (desc → update first), then seek past it.
+    const page1 = await sql.unsafe(
+      `select event_id, operation from ${canonical.schema}.get_memory_history(
+         '${fullAccess}'::jsonb, '${readable}'::uuid, null::ltree, null,
+         null::uuid, null::timestamptz, null::timestamptz, null::uuid, 1, 'desc')`,
+    );
+    expect(page1.map((r) => r.operation)).toEqual(["update"]);
+    const cursor = page1[0]?.event_id as string;
+    const page2 = await sql.unsafe(
+      `select operation from ${canonical.schema}.get_memory_history(
+         '${fullAccess}'::jsonb, '${readable}'::uuid, null::ltree, null,
+         null::uuid, null::timestamptz, null::timestamptz, '${cursor}'::uuid, 1, 'desc')`,
+    );
+    expect(page2.map((r) => r.operation)).toEqual(["insert"]);
+
+    // resolve_memory_id_from_history finds a memory by (tree, name) via the log.
+    await sql.begin(async (tx) => {
+      await tx`select set_config('me.event_context', '', true)`;
+      await tx`update ${tx(canonical.schema)}.memory
+        set name = ${"r"} where id = ${readable}`;
+    });
+    const [resolved] = await sql.unsafe(
+      `select ${canonical.schema}.resolve_memory_id_from_history(
+         '${fullAccess}'::jsonb, 'gate.readable'::ltree, 'r') as id`,
+    );
+    expect(resolved?.id).toBe(readable);
+    // Gated: no access to gate.readable → no resolution.
+    const [unresolved] = await sql.unsafe(
+      `select ${canonical.schema}.resolve_memory_id_from_history(
+         '${JSON.stringify([{ tree_path: "other", access: 1 }])}'::jsonb,
+         'gate.readable'::ltree, 'r') as id`,
+    );
+    expect(unresolved?.id).toBeNull();
+  });
+
+  test("memory_event has the read-path indexes and a retention policy", async () => {
+    const indexes = await sql.unsafe(
+      `select indexname from pg_indexes
+       where schemaname = '${canonical.schema}' and tablename = 'memory_event'`,
+    );
+    const names = indexes.map((r) => r.indexname);
+    for (const idx of [
+      "memory_event_tree_gist_idx",
+      "memory_event_tree_name_idx",
+      "memory_event_memory_id_version_idx",
+      "memory_event_operation_id_idx",
+      "memory_event_at_idx",
+    ]) {
+      expect(names).toContain(idx);
+    }
+
+    // A 30-day retention policy is registered for the hypertable.
+    const [policy] = await sql.unsafe(
+      `select config from timescaledb_information.jobs
+       where proc_name = 'policy_retention'
+       and hypertable_schema = '${canonical.schema}'
+       and hypertable_name = 'memory_event'`,
+    );
+    expect(policy?.config?.drop_after).toBe("30 days");
   });
 });
 
