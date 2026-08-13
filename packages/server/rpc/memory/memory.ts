@@ -270,7 +270,12 @@ function eventContext(ctx: SpaceRpcContext, cause: string): MemoryEventContext {
     principal_name: ctx.principalName,
     ...(ctx.apiKeyId === null
       ? {}
-      : { api_key_id: ctx.apiKeyId, api_key_name: ctx.apiKeyName ?? "" }),
+      : {
+          api_key_id: ctx.apiKeyId,
+          // Include the name only when present — keep attribution null/absent
+          // rather than coercing a missing name to an ambiguous "".
+          ...(ctx.apiKeyName ? { api_key_name: ctx.apiKeyName } : {}),
+        }),
     cause,
   };
 }

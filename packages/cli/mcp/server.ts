@@ -569,7 +569,7 @@ Docs: ${docUrl("me_memory_get")}`,
       title: "Memory History",
       description: `Read the append-only audit log of memory mutations.
 
-Every insert/update/delete is one immutable event carrying the actor, an app-level cause, the physical operation, an operation_id shared across a bulk statement, and a full snapshot of the resulting (or, for deletes, removed) state. Access is enforced per event by read access to that event's tree, so history for a memory that moved between trees may appear partial. Deleted memories remain visible here (query by memoryId). Pass at least one of memoryId, tree, or operationId.
+Every insert/update/delete is one immutable event carrying the actor, an app-level cause, the physical operation, an operation_id shared across a bulk statement, and a full snapshot of the resulting (or, for deletes, removed) state. Access is enforced per event by read access to that event's tree, so history for a memory that moved between trees may appear partial. Deleted memories remain visible here (query by memoryId or path). Pass at least one of memoryId, path, tree, operationId, or since (a since alone drives a space-wide activity feed).
 
 Docs: ${docUrl("me_memory_history")}`,
       inputSchema: inputSchema(

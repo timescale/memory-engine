@@ -16,7 +16,7 @@ Reverting a **deleted** memory re-creates it (undelete), continuing its version 
 | `version` | `number` | yes | The version number to restore. |
 | `expectedVersionHash` | `string \| null` | no | Only revert if the memory's current `versionHash` matches — guards against a concurrent change to a live memory. Omit for a deliberate override. |
 
-Exactly one of `id` or `path` is required.
+Provide `id` or `path` (at least one is required). If both are given, `path` takes precedence.
 
 ## Returns
 
