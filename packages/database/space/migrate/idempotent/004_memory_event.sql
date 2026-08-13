@@ -122,6 +122,9 @@ begin
     _order = 'desc';
   end if;
 
+  _since = coalesce(_since, '-infinity'::timestamptz);
+  _until = coalesce(_until, 'infinity'::timestamptz);
+
   return query
   select
     e.event_id
@@ -144,9 +147,8 @@ begin
   and (_tree is null or e.tree operator(public.<@) _tree)
   and (_operation is null or e.operation = _operation)
   and (_operation_id is null or e.operation_id = _operation_id)
-  -- date window (chunk-pruned on the hypertable)
-  and (_since is null or e.at >= _since)
-  and (_until is null or e.at < _until)
+  and e.at >= _since
+  and e.at < _until
   -- keyset cursor on event_id: uuidv7 is unique and co-monotonic with `at`, so a
   -- single-column seek is exact (no timestamp-precision loss) and matches the
   -- (at, event_id) sort order below.
