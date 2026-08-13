@@ -28,9 +28,10 @@ Read the relevant docs before starting work on a subsystem.
 > terms (semantic/fulltext/hybrid search, tree paths, grant levels), but keep
 > ME-internal detail out: no source paths (`packages/…`), internal function or DB
 > schema names (e.g. `me_<slug>`, SQL/RPC function names), internal design docs
-> (`AUTH_DESIGN.md`, `HARNESS_DESIGN.md`), Linear links, CI/test mechanics, or
-> roadmap/unbuilt features. Contributor/build/design notes belong in this file and
-> the other root `*_DESIGN.md`/`DEVELOPMENT.md` docs instead. New CLI commands and
+> (the `design/` documents), Linear links, CI/test mechanics, or
+> roadmap/unbuilt features. Contributor design notes belong in the `design/`
+> documents (see below); build/dev notes belong in this file and `DEVELOPMENT.md`.
+> New CLI commands and
 > MCP tools need a matching page (enforced by `packages/cli/docs-cli-links.test.ts`
 > and `packages/cli/mcp/docs-links.test.ts`); new `docs/` pages must be added to
 > the sidebar in `packages/docs-site/lib/nav.ts` (enforced by
@@ -40,6 +41,17 @@ Read the relevant docs before starting work on a subsystem.
 > the auth+core+space schemas) is in this file. Some `docs/` pages still describe
 > the retired engine/org/role model and may lag — trust this file when they
 > disagree, and fix the docs as you touch them.
+
+## Design docs
+
+Contributor-facing **living design documents** live in `design/` — one per
+subsystem, describing the model, interfaces, invariants, constraints, and
+operational tradeoffs future work must preserve. Unlike `docs/` (user-facing,
+published to docs.memory.build), these are internal: they freely name source
+paths, SQL/RPC functions, triggers, and schema details. Read the relevant
+`design/` doc before changing a subsystem, and update it in place when the
+design changes — they describe the *implemented* design, not a roadmap.
+`design/README.md` is the index (grouped by area); add new documents there.
 
 ## Quick Reference
 
