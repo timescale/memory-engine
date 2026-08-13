@@ -11,6 +11,7 @@ Memories are the core data type in Memory Engine. Each memory has content, an op
 - [me memory search](#me-memory-search) -- search memories
 - [me memory history](#me-memory-history) -- show a memory's audit-log history
 - [me memory update](#me-memory-update) -- update a memory
+- [me memory revert](#me-memory-revert) -- restore a memory to an earlier version
 - [me memory delete](#me-memory-delete) -- delete a single memory
 - [me memory deltree](#me-memory-deltree) -- delete a subtree
 - [me memory edit](#me-memory-edit) -- open a memory in your editor
@@ -234,6 +235,36 @@ me memory update <id-or-path> --version-hash <hash> [options]
 | `--temporal <range>` | New temporal range as `start[,end]`. |
 
 At least one update field is required. Metadata is fully replaced, not merged. Update is id-addressed; you can pass a `tree/name` path as the `<id-or-path>` argument and the CLI resolves it to an id first. `me memory edit` handles `--version-hash` automatically — it fetches the memory before opening the editor and submits the captured hash on save.
+
+---
+
+## me memory revert
+
+Restore a memory to an earlier version's state, applied as a new forward version (it reproduces the old snapshot; it does not rewrite history). Look up versions with `me memory history`.
+
+```
+me memory revert <id-or-path> <version> [options]
+```
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `id-or-path` | yes | A memory ID (UUIDv7), or a `tree/name` path. A path resolves live first, then via the audit log — so reverting a **deleted** memory by its old path undeletes it. |
+| `version` | yes | The version number to restore (must still be within the 30-day audit retention window). |
+
+| Option | Description |
+|--------|-------------|
+| `--expect-version-hash <hash>` | Only revert if the memory's current `versionHash` matches — guards against a concurrent change. Omit for a deliberate override. |
+| `-y, --yes` | Skip the confirmation prompt. |
+
+The full snapshot is restored (content, meta, tree, name, temporal), so a revert can move the memory back to an old tree, or fail with `CONFLICT` if the snapshot's `(tree, name)` slot is now taken. Reverting a deleted memory re-creates it, continuing its version sequence. Requires write access on the current tree and, when the target version lived elsewhere, on that tree too.
+
+```bash
+# Restore a memory to version 2 (becomes a new, higher version)
+me memory revert 0194a000-0001-7000-8000-000000000001 2
+
+# Undelete a memory to its last version, by its old path
+me memory revert /share/auth/jwt-rotation 5 --yes
+```
 
 ---
 

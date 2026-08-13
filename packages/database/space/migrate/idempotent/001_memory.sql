@@ -77,7 +77,10 @@ create or replace function {{schema}}.memory_before_insert()
 returns trigger
 as $func$
 begin
-  new.version = 1;
+  -- `version` is not forced here: an ordinary insert takes the column default
+  -- (1), while revert_memory undeletes a memory by re-inserting it with an
+  -- explicit version that continues its historical sequence (kept monotonic per
+  -- id). We only (re)compute the hash for whatever payload is being inserted.
   new.version_hash = {{schema}}.compute_memory_version_hash(new);
   return new;
 end;

@@ -609,6 +609,57 @@ test("memory.history resolves a deleted memory by path and pages by cursor", asy
   expect(future.events).toEqual([]);
 });
 
+test("memory.revert restores content, undeletes by path, and gates on write", async () => {
+  const created = await call<{
+    id: string;
+    versionHash: string;
+    version: number;
+  }>("memory.create", { content: "a", tree: "share.rev", name: "note" });
+  await call("memory.update", {
+    id: created.id,
+    versionHash: created.versionHash,
+    content: "b",
+  });
+
+  // Revert the live memory to v1: content back to "a", a new forward version.
+  const reverted = await call<{ content: string; version: number }>(
+    "memory.revert",
+    { id: created.id, version: 1 },
+  );
+  expect(reverted.content).toBe("a");
+  expect(reverted.version).toBe(3);
+
+  // Reverting to the current state is a no-op.
+  const noop = await call<{ content: string; version: number }>(
+    "memory.revert",
+    { id: created.id, version: 3 },
+  );
+  expect(noop).toMatchObject({ content: "a", version: 3 });
+
+  // Unknown version → NOT_FOUND.
+  await expectAppError(
+    call("memory.revert", { id: created.id, version: 99 }),
+    "NOT_FOUND",
+  );
+
+  // Read-only access can see the version but not write it back → FORBIDDEN.
+  await expectAppError(
+    call("memory.revert", { id: created.id, version: 1 }, [
+      { tree_path: "share.rev", access: 1 },
+    ]),
+    "FORBIDDEN",
+  );
+
+  // Delete, then undelete by its old path (resolved via the audit log).
+  await call("memory.delete", { id: created.id });
+  const undeleted = await call<{ id: string; content: string }>(
+    "memory.revert",
+    { path: "share/rev/note", version: 1 },
+  );
+  expect(undeleted.id).toBe(created.id);
+  expect(undeleted.content).toBe("a");
+});
+
 test("batchCreate with a bare duplicate id raises CONFLICT", async () => {
   const id = "01941000-0000-7000-8000-00000000c0f2";
   await call("memory.batchCreate", {
