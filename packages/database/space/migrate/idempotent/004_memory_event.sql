@@ -83,8 +83,8 @@ for each row execute function {{schema}}.memory_log_event();
 -- (level 1) to that event's own tree, so a snapshot from a tree the caller
 -- cannot read is never returned — history for a memory that moved between trees
 -- may therefore look partial. Filters are all nullable; the caller supplies at
--- least one of _memory_id / _tree / _operation_id (enforced at the RPC layer).
--- Deleted memories remain visible (their tombstone events outlive the row).
+-- least one of _memory_id / _tree / _operation_id / _since (enforced at the RPC
+-- layer). Deleted memories remain visible (their tombstone events outlive the row).
 -------------------------------------------------------------------------------
 {{fn get_memory_history(_tree_access jsonb, _memory_id uuid, _tree ltree, _operation text, _operation_id uuid, _since timestamptz, _until timestamptz, _cursor_event_id uuid, _limit bigint, _order text) returns table(event_id uuid, at timestamptz, memory_id uuid, operation text, operation_id uuid, cause text, actor jsonb, tree ltree, name text, meta jsonb, temporal tstzrange, content text, version bigint, version_hash text)}}
 create or replace function {{schema}}.get_memory_history
@@ -149,18 +149,18 @@ begin
   and (_operation_id is null or e.operation_id = _operation_id)
   and e.at >= _since
   and e.at < _until
-  -- keyset cursor on event_id: uuidv7 is unique and co-monotonic with `at`, so a
-  -- single-column seek is exact (no timestamp-precision loss) and matches the
-  -- (at, event_id) sort order below.
+  -- keyset cursor on event_id (uuidv7): a unique, chronological total order, so
+  -- ordering by it matches the seek predicate exactly — exact pagination with no
+  -- (at, event_id) ordering mismatch or timestamp-precision loss. `at` still
+  -- drives the since/until window (and hypertable chunk pruning) above; every
+  -- query is bounded by a scope, so this orders a bounded candidate set.
   and (
     _cursor_event_id is null
     or (_order = 'desc' and e.event_id < _cursor_event_id)
     or (_order = 'asc' and e.event_id > _cursor_event_id)
   )
   order by
-    case when _order = 'asc' then e.at end asc
-  , case when _order = 'desc' then e.at end desc
-  , case when _order = 'asc' then e.event_id end asc
+    case when _order = 'asc' then e.event_id end asc
   , case when _order = 'desc' then e.event_id end desc
   limit _limit;
 end
