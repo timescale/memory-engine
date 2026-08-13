@@ -41,6 +41,7 @@ import type {
   MemoryMoveParams,
   MemoryMoveResult,
   MemoryResponse,
+  MemoryRevertParams,
   MemorySearchParams,
   MemorySearchResult,
   MemoryTreeParams,
@@ -61,6 +62,7 @@ import {
   memoryGetParams,
   memoryHistoryParams,
   memoryMoveParams,
+  memoryRevertParams,
   memorySearchParams,
   memoryTreeParams,
   memoryUpdateParams,
@@ -509,6 +511,51 @@ async function memoryHistory(
   };
 }
 
+/**
+ * memory.revert — restore a memory to a version-N snapshot from the audit log
+ * as a new forward version. Undeletes a deleted memory (re-created, continuing
+ * its version sequence). `expectedVersionHash` optionally guards a concurrent
+ * change on a live memory.
+ */
+async function memoryRevert(
+  params: MemoryRevertParams,
+  context: HandlerContext,
+): Promise<MemoryResponse> {
+  assertSpaceRpcContext(context);
+  const ctx = context as SpaceRpcContext;
+  const { store, treeAccess } = ctx;
+
+  // Resolve the target: `path` works for a deleted memory (live, else via log).
+  const id = params.path
+    ? await resolveHistoryPath(ctx, params.path)
+    : params.id;
+  if (!id) {
+    throw new AppError("VALIDATION_ERROR", "Either id or path is required");
+  }
+
+  const reverted = await guard(() =>
+    mutate(ctx, "revert", (s) =>
+      s.revertMemory(
+        treeAccess,
+        id,
+        params.version,
+        params.expectedVersionHash ?? undefined,
+      ),
+    ),
+  );
+  if (!reverted) {
+    throw new AppError(
+      "NOT_FOUND",
+      `No revertable version ${params.version} for memory: ${id}`,
+    );
+  }
+  const memory = await guard(() => store.getMemory(treeAccess, id));
+  if (!memory) {
+    throw new AppError("NOT_FOUND", `Memory not found: ${id}`);
+  }
+  return toMemoryResponse(memory, ctx);
+}
+
 /** memory.getByPath — address a named memory by its folder/name path. */
 async function memoryGetByPath(
   params: MemoryGetByPathParams,
@@ -929,6 +976,7 @@ export const memoryDataMethods = buildRegistry()
   .register("memory.get", memoryGetParams, memoryGet)
   .register("memory.getByPath", memoryGetByPathParams, memoryGetByPath)
   .register("memory.history", memoryHistoryParams, memoryHistory)
+  .register("memory.revert", memoryRevertParams, memoryRevert)
   .register("memory.update", memoryUpdateParams, memoryUpdate)
   .register("memory.delete", memoryDeleteParams, memoryDelete)
   .register("memory.deleteByPath", memoryDeleteByPathParams, memoryDeleteByPath)

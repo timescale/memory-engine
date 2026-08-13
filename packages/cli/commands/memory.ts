@@ -769,6 +769,73 @@ function createMemoryUpdateCommand(): Command {
     });
 }
 
+function createMemoryRevertCommand(): Command {
+  return new Command("revert")
+    .description(
+      "restore a memory to an earlier version's state, as a new forward version",
+    )
+    .argument(
+      "<id-or-path>",
+      "memory ID (UUIDv7) or tree/name path (a deleted memory resolves by path — this undeletes it)",
+    )
+    .argument("<version>", "the version number to restore")
+    .option(
+      "--expect-version-hash <hash>",
+      "only revert if the memory's current versionHash matches (guards a concurrent change)",
+    )
+    .option("-y, --yes", "skip the confirmation prompt")
+    .action(async (ref: string, versionArg: string, opts, cmd) => {
+      const globalOpts = cmd.optsWithGlobals();
+      const creds = resolveCredentials(globalOpts.server);
+      const fmt = getOutputFormat(globalOpts);
+      requireAuth(creds, fmt);
+      requireSpace(creds, fmt);
+
+      const version = Number.parseInt(versionArg, 10);
+      if (!Number.isInteger(version) || version < 1) {
+        const msg = "version must be a positive integer.";
+        if (fmt === "text") clack.log.error(msg);
+        else output({ error: msg }, fmt, () => {});
+        process.exit(1);
+      }
+
+      // Revert overwrites the current state — confirm in a TTY unless --yes.
+      if (fmt === "text" && !opts.yes) {
+        const confirmed = await clack.confirm({
+          message: `Revert ${ref} to version ${version}? This creates a new version with version ${version}'s content.`,
+          initialValue: false,
+        });
+        if (clack.isCancel(confirmed) || !confirmed) {
+          clack.cancel("Cancelled.");
+          process.exit(0);
+        }
+      }
+
+      const client = buildMemoryClient(creds);
+
+      try {
+        const params: Record<string, unknown> = { version };
+        if (UUIDV7_RE.test(ref)) params.id = ref;
+        else params.path = ref;
+        if (opts.expectVersionHash) {
+          params.expectedVersionHash = opts.expectVersionHash;
+        }
+
+        const memory = await client.memory.revert(
+          params as Parameters<typeof client.memory.revert>[0],
+        );
+
+        output(memory, fmt, () => {
+          clack.log.success(
+            `Reverted memory ${memory.id} to version ${version} (now version ${memory.version})`,
+          );
+        });
+      } catch (error) {
+        handleError(error, fmt, { creds, scope: "space" });
+      }
+    });
+}
+
 function createMemoryDeleteCommand(): Command {
   return new Command("delete")
     .alias("rm")
@@ -1408,6 +1475,7 @@ function memorySubcommands(): Command[] {
     createMemorySearchCommand(),
     createMemoryHistoryCommand(),
     createMemoryUpdateCommand(),
+    createMemoryRevertCommand(),
     createMemoryDeleteCommand(),
     createMemoryDeltreeCommand(),
     createMemoryEditCommand(),

@@ -38,6 +38,7 @@ import type {
   MemoryMoveParams,
   MemoryMoveResult,
   MemoryResponse,
+  MemoryRevertParams,
   MemorySearchParams,
   MemorySearchResult,
   MemoryTreeParams,
@@ -128,6 +129,8 @@ export interface MemoryNamespace {
   /** Read the append-only audit log (read-gated per event tree). */
   history(params: MemoryHistoryParams): Promise<MemoryHistoryResult>;
   update(params: MemoryUpdateParams): Promise<MemoryResponse>;
+  /** Restore a memory to a prior version's snapshot as a new forward version. */
+  revert(params: MemoryRevertParams): Promise<MemoryResponse>;
   delete(params: MemoryDeleteParams): Promise<MemoryDeleteResult>;
   deleteByPath(params: MemoryDeleteByPathParams): Promise<MemoryDeleteResult>;
   search(params: MemorySearchParams): Promise<MemorySearchResult>;
@@ -256,6 +259,7 @@ export function createMemoryClient(
       getByPath: (p) => readRpc("memory.getByPath", p),
       history: (p) => readRpc("memory.history", p),
       update: (p) => writeRpc("memory.update", p),
+      revert: (p) => writeRpc("memory.revert", p),
       delete: (p) => writeRpc("memory.delete", p),
       deleteByPath: (p) => writeRpc("memory.deleteByPath", p),
       search: (p) => readRpc("memory.search", p),

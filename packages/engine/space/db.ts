@@ -85,6 +85,19 @@ export interface SpaceStore {
     versionHash: string,
     patch: MemoryPatch,
   ): Promise<boolean>;
+  /**
+   * Restore a memory to the snapshot recorded for `version` in the audit log,
+   * as a new forward version. A deleted memory is undeleted (re-created,
+   * continuing its version sequence). `expectedVersionHash` optionally guards a
+   * concurrent change to a live memory. Returns false when the version is
+   * unknown/unreadable (retention-dropped).
+   */
+  revertMemory(
+    treeAccess: TreeAccess,
+    id: string,
+    version: number,
+    expectedVersionHash?: string,
+  ): Promise<boolean>;
   deleteMemory(treeAccess: TreeAccess, id: string): Promise<boolean>;
 
   moveTree(
@@ -316,6 +329,15 @@ export function spaceStore(sql: Sql, schema: string): SpaceStore {
       if (patch.content !== undefined) obj.content = patch.content;
       const [row] = await sql`
         select ${sch}.patch_memory(${jb(treeAccess)}, ${id}, ${versionHash}, ${jb(obj)}) as ok`;
+      return Boolean(row?.ok);
+    },
+
+    async revertMemory(treeAccess, id, version, expectedVersionHash) {
+      const [row] = await sql`
+        select ${sch}.revert_memory(
+          ${jb(treeAccess)}, ${id}::uuid, ${version},
+          ${expectedVersionHash ?? null}
+        ) as ok`;
       return Boolean(row?.ok);
     },
 

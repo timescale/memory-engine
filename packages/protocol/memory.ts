@@ -111,6 +111,30 @@ export const memoryUpdateParams = z.object({
 export type MemoryUpdateParams = z.infer<typeof memoryUpdateParams>;
 
 /**
+ * memory.revert params — restore a memory's current state to the snapshot
+ * recorded for `version` in the audit log, applied as a new forward version.
+ *
+ * Address the memory by `id` or `path` (path resolves live, else via the log,
+ * so a deleted memory can be undeleted by path). Reverting a deleted memory
+ * re-creates it, continuing its version sequence. `version` must still be within
+ * the audit retention window. `expectedVersionHash`, when provided, guards
+ * against a concurrent change to a live memory (CONFLICT on mismatch); omit it
+ * for a deliberate override.
+ */
+export const memoryRevertParams = z
+  .object({
+    id: uuidv7Schema.optional().nullable(),
+    path: memoryPathSchema.optional().nullable(),
+    version: z.number().int().positive(),
+    expectedVersionHash: z.string().length(32).optional().nullable(),
+  })
+  .refine((p) => Boolean(p.id || p.path), {
+    message: "Either id or path is required",
+  });
+
+export type MemoryRevertParams = z.infer<typeof memoryRevertParams>;
+
+/**
  * memory.delete params — delete one memory by id. (Address a named memory by
  * its path with memory.deleteByPath; delete a whole subtree with deleteTree.)
  */

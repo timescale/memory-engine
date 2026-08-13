@@ -195,3 +195,128 @@ as $func$
 $func$ language sql stable strict security invoker
 set search_path to pg_catalog, {{schema}}, public, pg_temp
 ;
+
+-------------------------------------------------------------------------------
+-- revert_memory
+--
+-- Restore a memory's current state to the snapshot recorded for `_version` in
+-- the audit log, applied as a normal forward mutation (a new version + a logged
+-- 'revert' event, via the trigger). A live memory is updated in place; a DELETED
+-- memory is re-inserted (undelete) with a version that continues its historical
+-- sequence, so version numbers stay monotonic per id.
+--
+-- Access mirrors patch_memory: write (level 2) on the current tree and, when the
+-- version lived elsewhere, on the snapshot tree too (undelete needs write on the
+-- snapshot tree). The snapshot read is gated on read access, so a version in an
+-- unreadable tree — or one dropped by retention — is NOT_FOUND (returns false).
+-- `_expected_version_hash`, when non-null, guards a concurrent change on a live
+-- memory (stale → ME002); null is a deliberate override. A rename/move into an
+-- occupied (tree, name) slot raises 23505 → CONFLICT at the RPC boundary.
+-------------------------------------------------------------------------------
+{{fn revert_memory(_tree_access jsonb, _id uuid, _version bigint, _expected_version_hash text) returns bool}}
+create or replace function {{schema}}.revert_memory
+( _tree_access jsonb
+, _id uuid
+, _version bigint
+, _expected_version_hash text
+)
+returns bool
+as $func$
+declare
+  _content text;
+  _meta jsonb;
+  _tree ltree;
+  _temporal tstzrange;
+  _name text;
+  _cur_tree ltree;
+  _cur_hash text;
+  _next_version bigint;
+  _next_content_version int;
+begin
+  -- 1. the version-N snapshot from the log (read-gated on its own tree). The
+  -- establishing insert/update event is unique per version; a delete event
+  -- shares the last version but carries the same payload, so exclude it.
+  select e.content, e.meta, e.tree, e.temporal, e.name
+  into _content, _meta, _tree, _temporal, _name
+  from {{schema}}.memory_event e
+  where e.memory_id = _id
+  and e.version = _version
+  and e.operation <> 'delete'
+  and {{schema}}.has_tree_access(_tree_access, e.tree, 1)
+  order by e.at
+  limit 1
+  ;
+
+  if not found then
+    return false;  -- unknown / unreadable / retention-dropped version
+  end if;
+
+  -- 2. the live row, if any (locked so a concurrent write can't race the revert)
+  select m.tree, m.version_hash into _cur_tree, _cur_hash
+  from {{schema}}.memory m
+  where m.id = _id
+  for update
+  ;
+
+  if found then
+    -- LIVE revert: write on the current tree AND the snapshot tree. No
+    -- `_cur_tree @> _tree` short-circuit is needed: given write on the current
+    -- tree, a grant that covers it also covers any descendant snapshot tree, so
+    -- has_tree_access on the snapshot tree is already satisfied in that case.
+    if not (
+      {{schema}}.has_tree_access(_tree_access, _cur_tree, 2)
+      and {{schema}}.has_tree_access(_tree_access, _tree, 2)
+    ) then
+      raise exception 'insufficient tree access'
+        using errcode = 'insufficient_privilege';
+    end if;
+
+    if _expected_version_hash is not null
+       and _cur_hash is distinct from _expected_version_hash then
+      raise exception 'stale version hash'
+        using errcode = 'ME002';
+    end if;
+
+    -- trigger updates content_version and version
+    update {{schema}}.memory m set
+      content = _content
+    , meta = _meta
+    , tree = _tree
+    , temporal = _temporal
+    , name = _name
+    where m.id = _id
+    ;
+    return true;
+  end if;
+
+  -- 3. DELETED: undelete by re-inserting the snapshot, continuing the version
+  -- sequence (memory_before_insert no longer forces version = 1). Needs write on
+  -- the snapshot tree; a reused (tree, name) slot raises 23505 → CONFLICT.
+  if not {{schema}}.has_tree_access(_tree_access, _tree, 2) then
+    raise exception 'insufficient tree access'
+      using errcode = 'insufficient_privilege';
+  end if;
+
+  -- Continue BOTH sequences from history: `version` (logical payload) and
+  -- `content_version` (the embedding-queue guard token). Resetting content_version
+  -- to the default 1 could collide with a pre-delete version still in flight in
+  -- the embedding worker, letting a stale embedding win the version-guarded
+  -- write-back (complete_embedding matches on content_version).
+  select coalesce(max(e.version), 0) + 1
+       , coalesce(max(e.content_version), 0) + 1
+  into _next_version, _next_content_version
+  from {{schema}}.memory_event e
+  where e.memory_id = _id
+  ;
+
+  insert into {{schema}}.memory
+    (id, tree, content, meta, temporal, name, version, content_version)
+  values
+    (_id, _tree, _content, _meta, _temporal, _name, _next_version, _next_content_version)
+  ;
+  return true;
+end;
+$func$ language plpgsql volatile security invoker
+set search_path to pg_catalog, {{schema}}, public, pg_temp
+;
+{{endfn}}

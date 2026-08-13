@@ -838,6 +838,68 @@ Docs: ${docUrl("me_memory_update")}`,
     },
   );
 
+  // me_memory_revert
+  server.registerTool(
+    "me_memory_revert",
+    {
+      title: "Revert Memory",
+      description: `Restore a memory to an earlier version's state, applied as a new forward version.
+
+Look up the target version with me_memory_history. Reverting a DELETED memory re-creates it (undelete), continuing its version sequence. The full snapshot (content, meta, tree, name, temporal) is restored, so reverting can move the memory back or hit a (tree, name) conflict. Only versions still within the audit retention window can be reverted.
+
+Docs: ${docUrl("me_memory_revert")}`,
+      inputSchema: inputSchema(
+        {
+          id: z
+            .string()
+            .optional()
+            .nullable()
+            .describe("The UUID of the memory to revert (or pass path)."),
+          path: z
+            .string()
+            .optional()
+            .nullable()
+            .describe(
+              "tree/name path of the memory; resolves live, else via the audit log (so a deleted memory can be undeleted by path).",
+            ),
+          version: z
+            .number()
+            .int()
+            .positive()
+            .describe("The version number to restore."),
+          expectedVersionHash: z
+            .string()
+            .length(32)
+            .optional()
+            .nullable()
+            .describe(
+              "Only revert if the memory's current version_hash matches (guards a concurrent change to a live memory). Omit for a deliberate override.",
+            ),
+        },
+        runtime,
+      ),
+      annotations: {
+        title: "Revert Memory",
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: false,
+      },
+    },
+    async (args) => {
+      const result = await clientFor(args).memory.revert({
+        id: args.id ?? undefined,
+        path: args.path ?? undefined,
+        version: args.version,
+        expectedVersionHash: args.expectedVersionHash ?? undefined,
+      });
+      return {
+        content: [
+          { type: "text" as const, text: JSON.stringify(result, null, 2) },
+        ],
+      };
+    },
+  );
+
   // me_memory_delete
   server.registerTool(
     "me_memory_delete",

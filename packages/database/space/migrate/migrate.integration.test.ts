@@ -481,6 +481,100 @@ describe("provisioned space schema", () => {
     expect(unresolved?.id).toBeNull();
   });
 
+  test("revert_memory restores a live memory and undeletes a deleted one", async () => {
+    const liveId = "01900000-0000-7000-8000-000000000051";
+    const goneId = "01900000-0000-7000-8000-000000000052";
+    const access = JSON.stringify([{ tree_path: "rev", access: 2 }]);
+
+    await sql.begin(async (tx) => {
+      await tx`select set_config('me.event_context', ${JSON.stringify({
+        principal_id: "01900000-0000-7000-8000-000000000060",
+        principal_name: "carol@example.com",
+        cause: "create",
+      })}, true)`;
+      // live memory: v1 "a" → v2 "b"
+      await tx`insert into ${tx(canonical.schema)}.memory (id, tree, content)
+        values (${liveId}, ${"rev"}::ltree, ${"a"})`;
+      await tx`update ${tx(canonical.schema)}.memory
+        set content = ${"b"} where id = ${liveId}`;
+      // to-be-deleted memory: v1 "one" → v2 "two" → delete
+      await tx`insert into ${tx(canonical.schema)}.memory (id, tree, content)
+        values (${goneId}, ${"rev"}::ltree, ${"one"})`;
+      await tx`update ${tx(canonical.schema)}.memory
+        set content = ${"two"} where id = ${goneId}`;
+      await tx`delete from ${tx(canonical.schema)}.memory where id = ${goneId}`;
+    });
+
+    // Revert the live memory to v1: content back to "a", version bumps to 3.
+    const [ok] = await sql.unsafe(
+      `select ${canonical.schema}.revert_memory(
+         '${access}'::jsonb, '${liveId}'::uuid, 1, null) as ok`,
+    );
+    expect(ok?.ok).toBe(true);
+    const [live] = await sql.unsafe(
+      `select content, version from ${canonical.schema}.memory where id = '${liveId}'`,
+    );
+    expect(live).toMatchObject({ content: "a", version: "3" });
+
+    // Unknown version → false (NOT_FOUND at the RPC boundary).
+    const [missing] = await sql.unsafe(
+      `select ${canonical.schema}.revert_memory(
+         '${access}'::jsonb, '${liveId}'::uuid, 99, null) as ok`,
+    );
+    expect(missing?.ok).toBe(false);
+
+    // Undelete the deleted memory to v1: re-created with "one", version
+    // continues the sequence (v2 was the last event → new v3).
+    const [undeleted] = await sql.unsafe(
+      `select ${canonical.schema}.revert_memory(
+         '${access}'::jsonb, '${goneId}'::uuid, 1, null) as ok`,
+    );
+    expect(undeleted?.ok).toBe(true);
+    const [restored] = await sql.unsafe(
+      `select content, version, content_version
+       from ${canonical.schema}.memory where id = '${goneId}'`,
+    );
+    // Both sequences continue from history: version 2 → 3, and content_version
+    // (guard token for the embedding queue) 2 → 3, never resetting to 1.
+    expect(restored).toMatchObject({
+      content: "one",
+      version: "3",
+      content_version: 3,
+    });
+
+    // The restore is logged as a fresh insert event at the continued version.
+    // (`cause` is stamped by the app layer's event context, exercised in the
+    // RPC integration test; a bare SQL call leaves it null.)
+    const [lastEvent] = await sql.unsafe(
+      `select operation, version from ${canonical.schema}.memory_event
+       where memory_id = '${goneId}' order by at desc limit 1`,
+    );
+    expect(lastEvent).toMatchObject({ operation: "insert", version: "3" });
+
+    // Read-only access cannot revert (write required).
+    const readOnly = JSON.stringify([{ tree_path: "rev", access: 1 }]);
+    try {
+      await sql.unsafe(
+        `select ${canonical.schema}.revert_memory(
+           '${readOnly}'::jsonb, '${liveId}'::uuid, 1, null)`,
+      );
+      throw new Error("expected insufficient_privilege");
+    } catch (e) {
+      expect((e as { code?: string }).code).toBe("42501");
+    }
+
+    // A stale expected hash is rejected.
+    try {
+      await sql.unsafe(
+        `select ${canonical.schema}.revert_memory(
+           '${access}'::jsonb, '${liveId}'::uuid, 1, 'deadbeefdeadbeefdeadbeefdeadbeef')`,
+      );
+      throw new Error("expected ME002");
+    } catch (e) {
+      expect((e as { code?: string }).code).toBe("ME002");
+    }
+  });
+
   test("memory_event has the read-path indexes and a retention policy", async () => {
     const indexes = await sql.unsafe(
       `select indexname from pg_indexes
