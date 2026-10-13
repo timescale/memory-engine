@@ -111,6 +111,12 @@ $func$ language sql immutable strict security invoker
 
 -------------------------------------------------------------------------------
 -- has_tree_access
+--
+-- This function has no `set search_path`, so that the planner can inline it.
+-- Thus the ltree operator must be schema-qualified. TimescaleDB 2.30+ can
+-- inline this function into a hypertable query (e.g. memory_event with
+-- `order by at limit 1`) with a search_path that does not contain public.
+-- An unqualified `@>` then fails with "operator does not exist".
 -------------------------------------------------------------------------------
 create or replace function {{schema}}.has_tree_access
 ( _tree_access jsonb
@@ -123,7 +129,7 @@ as $func$
   (
     select 1
     from {{schema}}.tree_access(_tree_access) x
-    where x.tree_path @> _tree_path
+    where x.tree_path operator(public.@>) _tree_path
     and x.access >= _access
   )
 $func$ language sql immutable strict security invoker
