@@ -40,7 +40,7 @@ import { confirmDiscardChangesIfDirty, useEditor } from "../../store/editor.ts";
 import { useFilter } from "../../store/filter.ts";
 import { useLayout } from "../../store/layout.ts";
 import { useSelection } from "../../store/selection.ts";
-import { CloseIcon } from "../icons.tsx";
+import { CloseIcon, CopyIcon } from "../icons.tsx";
 import { pushToast } from "../toast/Toast.tsx";
 import { FrontmatterBlock } from "../viewer/FrontmatterBlock.tsx";
 import { MarkdownViewer } from "../viewer/MarkdownViewer.tsx";
@@ -180,7 +180,7 @@ export function EditorPane({ memory, onRequestDelete, onClose }: Props) {
             <span className="font-mono text-[11px] text-ink/55">unsaved</span>
           )}
           <IconButton title="Copy Markdown" onClick={handleCopy}>
-            <CopyIcon />
+            <CopyIcon className="h-4 w-4" />
           </IconButton>
           <GhostButton onClick={toggleMode}>Preview</GhostButton>
           <PrimaryButton onClick={handleSave} disabled={!canSave}>
@@ -250,7 +250,7 @@ function ReadingView({
           <div className="flex shrink-0 items-center gap-2">
             <GhostButton onClick={onEdit}>Edit</GhostButton>
             <IconButton title="Copy Markdown" onClick={onCopy}>
-              <CopyIcon />
+              <CopyIcon className="h-4 w-4" />
             </IconButton>
             <IconButton
               title="Delete memory"
@@ -544,24 +544,6 @@ function IconButton({
 
 function saveErrorText(error: Error | null): string | null {
   return error ? `Save failed: ${error.message}` : null;
-}
-
-function CopyIcon() {
-  return (
-    <svg
-      aria-hidden="true"
-      className="h-4 w-4"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.7"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
-      <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-    </svg>
-  );
 }
 
 function TrashIcon() {

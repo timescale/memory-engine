@@ -50,22 +50,34 @@ export interface ParsedFrontmatter {
  * Empty fields are omitted entirely so the editor starts clean.
  */
 export function memoryToEditorText(memory: MemoryResponse): string {
-  const frontmatter: Record<string, unknown> = {};
-  if (memory.name) frontmatter.name = memory.name;
-  if (memory.tree) frontmatter.tree = memory.tree;
-  if (memory.meta && Object.keys(memory.meta).length > 0) {
-    frontmatter.meta = memory.meta;
-  }
-  if (memory.temporal) frontmatter.temporal = memory.temporal;
+  const frontmatterBlock = formatFrontmatterBlock(memory);
+  return frontmatterBlock
+    ? `${frontmatterBlock}\n\n${memory.content}`
+    : memory.content;
+}
 
-  if (Object.keys(frontmatter).length === 0) {
-    return memory.content;
+/**
+ * Serialize the editable fields as a fenced YAML frontmatter block
+ * (`---` … `---`), without a trailing newline. Empty fields are omitted.
+ * Returns an empty string when no field has a value.
+ */
+export function formatFrontmatterBlock(
+  fields: Pick<ParsedFrontmatter, "name" | "tree" | "meta" | "temporal">,
+): string {
+  const frontmatter: Record<string, unknown> = {};
+  if (fields.name) frontmatter.name = fields.name;
+  if (fields.tree) frontmatter.tree = fields.tree;
+  if (fields.meta && Object.keys(fields.meta).length > 0) {
+    frontmatter.meta = fields.meta;
   }
+  if (fields.temporal) frontmatter.temporal = fields.temporal;
+
+  if (Object.keys(frontmatter).length === 0) return "";
 
   const yamlText = yaml
     .dump(frontmatter, { lineWidth: 0, noRefs: true })
     .trimEnd();
-  return `---\n${yamlText}\n---\n\n${memory.content}`;
+  return `---\n${yamlText}\n---`;
 }
 
 /**

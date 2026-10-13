@@ -4,7 +4,11 @@
 
 import { describe, expect, test } from "bun:test";
 import type { MemoryResponse } from "@memory.build/client";
-import { memoryToEditorText, parseEditorText } from "./frontmatter.ts";
+import {
+  formatFrontmatterBlock,
+  memoryToEditorText,
+  parseEditorText,
+} from "./frontmatter.ts";
 
 function mkMemory(partial: Partial<MemoryResponse>): MemoryResponse {
   return {
@@ -54,6 +58,30 @@ describe("memoryToEditorText", () => {
       mkMemory({ content: "body", tree: "work" }),
     );
     expect(text).not.toContain("name:");
+  });
+});
+
+describe("formatFrontmatterBlock", () => {
+  test("returns an empty string when no field has a value", () => {
+    expect(
+      formatFrontmatterBlock({
+        name: null,
+        tree: "",
+        meta: {},
+        temporal: null,
+      }),
+    ).toBe("");
+  });
+
+  test("emits a fenced YAML block with only the set fields", () => {
+    expect(
+      formatFrontmatterBlock({
+        name: null,
+        tree: "work",
+        meta: { priority: "high" },
+        temporal: null,
+      }),
+    ).toBe("---\ntree: work\nmeta:\n  priority: high\n---");
   });
 });
 

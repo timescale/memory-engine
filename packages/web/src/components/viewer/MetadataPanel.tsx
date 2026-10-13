@@ -6,6 +6,8 @@
  * reading view uncluttered.
  */
 import type { MemoryResponse } from "@memory.build/client";
+import yaml from "js-yaml";
+import { SummaryCopyButton } from "./SummaryCopyButton.tsx";
 
 interface Props {
   memory: MemoryResponse;
@@ -16,6 +18,7 @@ export function MetadataPanel({ memory }: Props) {
     <details className="rounded-lg border border-ink/[0.12]">
       <summary className="cursor-pointer select-none px-3 py-2 font-mono text-[11px] uppercase tracking-[0.08em] text-ink/50 hover:text-ink">
         metadata
+        <SummaryCopyButton text={formatMetadata(memory)} label="metadata" />
       </summary>
       <div className="border-t border-ink/[0.12] px-3 py-3">
         <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 text-[12px]">
@@ -38,6 +41,16 @@ export function MetadataPanel({ memory }: Props) {
       </div>
     </details>
   );
+}
+
+// Serialize the fields this panel shows as YAML, with the API field names.
+function formatMetadata(memory: MemoryResponse): string {
+  const metadata: Record<string, unknown> = {
+    id: memory.id,
+    hasEmbedding: memory.hasEmbedding,
+  };
+  if (memory.createdBy) metadata.createdBy = memory.createdBy;
+  return yaml.dump(metadata, { lineWidth: 0, noRefs: true }).trimEnd();
 }
 
 function Row({
