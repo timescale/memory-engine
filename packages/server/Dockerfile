@@ -2,7 +2,7 @@
 # Stage 1 — build the web UI (Vite). Kept separate so the runtime image carries
 # only the built static assets, not the web build toolchain (vite/react/...).
 # =============================================================================
-FROM oven/bun:1.3.13 AS web-builder
+FROM oven/bun:1.4.3 AS web-builder
 
 WORKDIR /app
 
@@ -37,7 +37,7 @@ RUN bun run --cwd packages/web build
 # =============================================================================
 # Stage 2 — runtime: the server + the built web UI.
 # =============================================================================
-FROM oven/bun:1.3.13
+FROM oven/bun:1.4.3
 
 WORKDIR /app
 CMD ["bun", "run", "packages/server/index.ts"]
