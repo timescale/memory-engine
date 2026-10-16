@@ -14,6 +14,7 @@ import { DEFAULT_DOC_PATTERNS } from "../importers/docs.ts";
 import { displayTreePath } from "../util.ts";
 import {
   buildDocsImportOptions,
+  buildImportedPaths,
   buildKeepList,
   keepListBytes,
   PRUNE_KEEP_BYTES_BUDGET,
@@ -172,6 +173,57 @@ describe("subdirRootError", () => {
     expect(
       subdirRootError(join(root, "self-link"), root, DOCS_TREE, false),
     ).toBeUndefined();
+  });
+});
+
+describe("buildImportedPaths", () => {
+  const payload = (
+    tree: string,
+    name: string,
+    repoPath: string | undefined,
+  ): { payload: MemoryCreateParams } => ({
+    payload: {
+      content: "x",
+      tree,
+      name,
+      meta: {
+        ...(repoPath !== undefined ? { repo_path: repoPath } : {}),
+      },
+    } as MemoryCreateParams,
+  });
+
+  test("reports each payload's repo_path, sorted", () => {
+    const paths = buildImportedPaths([
+      payload("a.b", "setup.md", "b/setup.md"),
+      payload("a", "readme.md", "README.md"),
+      payload("a.c", "guide.md", "c/guide.md"),
+    ]);
+    expect(paths).toEqual(["README.md", "b/setup.md", "c/guide.md"]);
+  });
+
+  test("reports the source path, not the normalized tree slot", () => {
+    // The tree label and leaf slug are lossy (ltree normalization, lowercased
+    // slug), which is why a caller cannot reconstruct the file from them.
+    const paths = buildImportedPaths([
+      payload(
+        "p.docs.workload_identity",
+        "readme.md",
+        "terraform/workload-identity/README.md",
+      ),
+    ]);
+    expect(paths).toEqual(["terraform/workload-identity/README.md"]);
+  });
+
+  test("is empty for an empty walk", () => {
+    expect(buildImportedPaths([])).toEqual([]);
+  });
+
+  test("drops a payload with no repo_path rather than emitting a hole", () => {
+    const paths = buildImportedPaths([
+      payload("a", "readme.md", "README.md"),
+      payload("a.b", "setup.md", undefined),
+    ]);
+    expect(paths).toEqual(["README.md"]);
   });
 });
 

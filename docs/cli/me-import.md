@@ -222,7 +222,7 @@ me import docs [dir] [options]
 | `--include-ignored` | With `--git-aware`, include ignored/generated files too. Without `--git-aware`, this is invalid because plain mode already walks files on disk. |
 | `--prune` | Delete previously-imported docs under the docs root that are absent from this walk. **Full-corpus runs only** — see [Pruning](#pruning-deletions-and-renames). |
 | `--allow-subdir-root` | Allow a git-mode import root below the repo toplevel — see [Tree layout](#tree-layout). Prefer `--include` scoping from the toplevel, which narrows without re-rooting. |
-| `--dry-run` | Discover and report what would be imported without writing (with `--prune`: lists what would be deleted). |
+| `--dry-run` | Discover and report what would be imported without writing (with `--prune`: lists what would be deleted). Under `--json`/`--yaml`, `importedPaths` lists the discovered source paths. |
 | `-v, --verbose` | Per-file progress output (prints each `tree / name`). |
 
 ### Discovery Modes
@@ -281,6 +281,27 @@ Idempotency is keyed on `(tree, name)`. Docs are submitted with `onConflict: "re
 | `doc` | The parsed frontmatter object, verbatim (absent when the file has none). |
 | `truncated` | `true` when the content hit the 64 KiB cap (absent otherwise). |
 | `importer_version` | Version tag of the importer schema. |
+
+### Acting on the discovered file set
+
+The structured output (`--json` / `--yaml`) carries **`importedPaths`**: the
+source path of every doc the walk produced, relative to the import root with
+posix separators and sorted — the same value each memory stores as
+`meta.repo_path`. Pair it with `--dry-run` to get the file set without writing
+anything, so a caller (a CI doc linter, say) can act on exactly what the
+importer would index instead of reimplementing the `--include`/`--exclude`
+matching and drifting from it:
+
+```bash
+me --json import docs . --git-aware --dry-run \
+  --include 'docs/**/*.md' --exclude 'docs/plans/**' \
+  | jq -r '.importedPaths[]'
+```
+
+The `--verbose` text output is not a substitute: it prints each memory's
+*destination* (`<tree> / <name>`), whose directory labels are ltree-normalized
+and whose leaf is a lowercased slug, so the original path cannot be recovered
+from it.
 
 ### Example
 
