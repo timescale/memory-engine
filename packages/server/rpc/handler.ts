@@ -1,9 +1,10 @@
+import { Buffer } from "node:buffer";
 import { span } from "@pydantic/logfire-node";
 import type { ZodError } from "zod";
-import { json } from "../util/response";
+import { setTelemetryAttributes } from "../request-telemetry";
+import { json, jsonResponseTelemetry } from "../util/response";
 import { mapDbTimeoutError } from "./db-errors";
 import {
-  type AppError,
   applicationError,
   internalError,
   invalidParams,
@@ -13,6 +14,7 @@ import {
   methodNotFound,
   parseError,
 } from "./errors";
+import { withMutationTelemetry } from "./operation-telemetry";
 import { getMethod } from "./registry";
 import type {
   HandlerContext,
@@ -165,6 +167,26 @@ export async function handleRpcRequest(
       if (engine.orgId) identityAttrs["org.id"] = engine.orgId;
       if (engine.slug) identityAttrs["engine.slug"] = engine.slug;
     }
+    if (ctx.space && typeof ctx.space === "object") {
+      const space = ctx.space as { slug?: unknown };
+      if (typeof space.slug === "string")
+        identityAttrs["space.slug"] = space.slug;
+    }
+    // Both endpoint context shapes come from authentication, never RPC params
+    // or raw headers. Service accounts also use userId on the account endpoint.
+    if (
+      typeof ctx.principalId === "string" &&
+      (ctx.principalKind === "u" || ctx.principalKind === "s")
+    ) {
+      identityAttrs["principal.id"] = ctx.principalId;
+      identityAttrs["principal.kind"] = ctx.principalKind;
+    } else if (
+      typeof ctx.userId === "string" &&
+      (ctx.kind === "u" || ctx.kind === "s")
+    ) {
+      identityAttrs["principal.id"] = ctx.userId;
+      identityAttrs["principal.kind"] = ctx.kind;
+    }
     if (typeof ctx.userId === "string") identityAttrs["user.id"] = ctx.userId;
     if (typeof ctx.apiKeyId === "string")
       identityAttrs["api_key.id"] = ctx.apiKeyId;
@@ -178,44 +200,88 @@ export async function handleRpcRequest(
     // *inside* the callback so they never propagate as a throw — that keeps the
     // span helper from recording them as exceptions (they're normal outcomes,
     // not failures). They're tagged on the span so they stay queryable, then
-    // surfaced out-of-band and mapped to the same JSON-RPC error response below.
-    // Genuine failures (including DB timeouts) still throw and are recorded by
-    // the span helper as exceptions.
-    const outcome = await span(`rpc.${rpcRequest.method}`, {
+    // serialized inside the span along with successful results. Genuine
+    // failures (including DB timeouts/serialization) still throw and are
+    // recorded by the span helper as exceptions.
+    return await span(`rpc.${rpcRequest.method}`, {
       attributes: {
         "rpc.method": rpcRequest.method,
         "rpc.request_id": String(requestId),
+        // Default covers genuine handler/serialization failures; normal
+        // outcomes override this below without creating another countable span.
+        "rpc.outcome": "error",
         ...identityAttrs,
       },
-      callback: async (
-        activeSpan,
-      ): Promise<
-        { ok: true; value: unknown } | { ok: false; error: AppError }
-      > => {
+      callback: async (activeSpan): Promise<Response> => {
+        const finish = (response: Response): Response => {
+          const metadata = jsonResponseTelemetry(response);
+          if (metadata) setTelemetryAttributes(activeSpan, { ...metadata });
+          return response;
+        };
+        if (rpcRequest.method === "memory.search") {
+          // Only validated inputs, and only numeric/fixed-vocabulary summaries.
+          const params = paramsResult.data as {
+            fulltext?: string | null;
+            semantic?: string | null;
+            limit?: number;
+          };
+          setTelemetryAttributes(activeSpan, {
+            "search.mode": params.fulltext
+              ? params.semantic
+                ? "hybrid"
+                : "fulltext"
+              : params.semantic
+                ? "semantic"
+                : "filter",
+            "search.requested_limit": params.limit ?? 10,
+          });
+        }
+        let value: unknown;
         try {
-          const value = await method.handler(paramsResult.data, handlerContext);
-          return { ok: true, value };
+          value = await method.handler(
+            paramsResult.data,
+            withMutationTelemetry(handlerContext, (attributes) => {
+              setTelemetryAttributes(activeSpan, attributes);
+            }),
+          );
         } catch (err) {
           if (isExpectedAppError(err)) {
-            activeSpan.setAttribute("rpc.outcome", "business_error");
-            activeSpan.setAttribute("rpc.error_code", err.code);
-            activeSpan.setAttribute("error.expected", true);
-            return { ok: false, error: err };
+            setTelemetryAttributes(activeSpan, {
+              "rpc.outcome": "business_error",
+              "rpc.error_code": err.code,
+              "error.expected": true,
+            });
+            return finish(
+              appErrorResponse(err, requestId) ??
+                json(internalError(requestId)),
+            );
           }
           throw err;
         }
+        if (rpcRequest.method === "memory.search") {
+          try {
+            const results = (value as { results?: { content?: unknown }[] })
+              ?.results;
+            if (Array.isArray(results)) {
+              let bytes = 0;
+              for (const row of results) {
+                if (typeof row.content === "string")
+                  bytes += Buffer.byteLength(row.content, "utf8");
+              }
+              setTelemetryAttributes(activeSpan, {
+                "search.returned_count": results.length,
+                "search.returned_text_bytes": bytes,
+              });
+            }
+          } catch {
+            // Result diagnostics must not turn a successful handler into failure.
+          }
+        }
+        const response = json(createSuccessResponse(value, requestId ?? 0));
+        setTelemetryAttributes(activeSpan, { "rpc.outcome": "success" });
+        return finish(response);
       },
     });
-
-    if (!outcome.ok) {
-      // Expected business error: already tagged on the span (not an exception).
-      return (
-        appErrorResponse(outcome.error, requestId) ??
-        json(internalError(requestId))
-      );
-    }
-
-    return json(createSuccessResponse(outcome.value, requestId ?? 0));
   } catch (error: unknown) {
     const response = appErrorResponse(error, requestId ?? 0);
     if (response) return response;

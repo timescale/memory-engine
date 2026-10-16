@@ -1,15 +1,79 @@
-/**
- * HTTP response helpers for consistent response formatting.
- */
+import { Buffer } from "node:buffer";
+import { type Histogram, metrics } from "@opentelemetry/api";
+
+/** Numeric-only metadata: never retain a second payload or consume the body. */
+export interface JsonResponseTelemetry {
+  "http.response.body.size": number;
+  "response.serialization.duration_ms": number;
+}
+const responseTelemetry = new WeakMap<Response, JsonResponseTelemetry>();
+
+export function jsonResponseTelemetry(
+  response: Response,
+): JsonResponseTelemetry | undefined {
+  return responseTelemetry.get(response);
+}
+
+let serializationDuration: Histogram | undefined;
+let responseBytes: Histogram | undefined;
+
+/** Best effort only; the global meter is the existing Logfire provider. */
+function recordSerialization(bytes: number, durationMs: number): void {
+  try {
+    const meter = metrics.getMeter("memory-engine.http");
+    serializationDuration ??= meter.createHistogram(
+      "memory_engine.http.response.serialization.duration",
+      {
+        unit: "ms",
+        description: "JSON.stringify duration for JSON response helpers",
+      },
+    );
+    serializationDuration.record(durationMs);
+    responseBytes ??= meter.createHistogram(
+      "memory_engine.http.response.body.size",
+      {
+        unit: "By",
+        description: "UTF-8 JSON response bytes (not network-flush bytes)",
+        advice: {
+          // OTel's default buckets stop at 10 KB, hiding the large responses
+          // this instrumentation is meant to diagnose. Extend through 64 MiB.
+          explicitBucketBoundaries: [
+            0, 1024, 4096, 16_384, 65_536, 262_144, 1_048_576, 4_194_304,
+            16_777_216, 67_108_864,
+          ],
+        },
+      },
+    );
+    responseBytes.record(bytes);
+  } catch {
+    // Exporter/instrumentation failures must not affect a response.
+  }
+}
+
+/** HTTP response helpers for consistent response formatting. */
 
 /**
  * Create a JSON response.
  */
 export function json<T>(data: T, status = 200): Response {
-  return new Response(JSON.stringify(data), {
+  const started = performance.now();
+  const body = JSON.stringify(data);
+  const durationMs = performance.now() - started;
+  const response = new Response(body, {
     status,
     headers: { "Content-Type": "application/json" },
   });
+  try {
+    const bytes = body === undefined ? 0 : Buffer.byteLength(body, "utf8");
+    responseTelemetry.set(response, {
+      "http.response.body.size": bytes,
+      "response.serialization.duration_ms": durationMs,
+    });
+    recordSerialization(bytes, durationMs);
+  } catch {
+    // Measurement is fail-open; serialization/Response errors still propagate.
+  }
+  return response;
 }
 
 /**
@@ -86,18 +150,12 @@ export function notFound(message = "Not Found"): Response {
  * 405 Method Not Allowed response.
  */
 export function methodNotAllowed(allowed: string[]): Response {
-  return new Response(
-    JSON.stringify({
-      error: { message: "Method Not Allowed", code: "METHOD_NOT_ALLOWED" },
-    }),
-    {
-      status: 405,
-      headers: {
-        "Content-Type": "application/json",
-        Allow: allowed.join(", "),
-      },
-    },
+  const response = json(
+    { error: { message: "Method Not Allowed", code: "METHOD_NOT_ALLOWED" } },
+    405,
   );
+  response.headers.set("Allow", allowed.join(", "));
+  return response;
 }
 
 /**
@@ -111,18 +169,12 @@ export function payloadTooLarge(message = "Payload Too Large"): Response {
  * 429 Too Many Requests response.
  */
 export function tooManyRequests(retryAfterSeconds: number): Response {
-  return new Response(
-    JSON.stringify({
-      error: { message: "Too Many Requests", code: "RATE_LIMITED" },
-    }),
-    {
-      status: 429,
-      headers: {
-        "Content-Type": "application/json",
-        "Retry-After": String(retryAfterSeconds),
-      },
-    },
+  const response = json(
+    { error: { message: "Too Many Requests", code: "RATE_LIMITED" } },
+    429,
   );
+  response.headers.set("Retry-After", String(retryAfterSeconds));
+  return response;
 }
 
 /**

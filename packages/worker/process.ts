@@ -1,3 +1,4 @@
+import { Buffer } from "node:buffer";
 import { reportError } from "@memory.build/database/telemetry";
 import {
   type EmbedResult,
@@ -140,6 +141,10 @@ export async function processBatch(
     attributes: {
       "worker.schema": schema,
       "batch.size": claimed.length,
+      "batch.input_bytes": claimed.reduce(
+        (total, row) => total + Buffer.byteLength(row.content, "utf8"),
+        0,
+      ),
       "batch.requested_size": batchSize,
       "batch.lock_duration": lockDuration,
       "batch.claim_duration_ms": claimDurationMs,

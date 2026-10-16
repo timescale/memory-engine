@@ -1,3 +1,4 @@
+import { Buffer } from "node:buffer";
 import { availableParallelism } from "node:os";
 import { Worker as ThreadWorker } from "node:worker_threads";
 import { type TruncateResult, truncateToTokenLimit } from "./truncate";
@@ -15,6 +16,7 @@ interface TruncateResponse {
 }
 
 interface PendingJob {
+  inputBytes: number;
   id: number;
   maxTokens: number;
   texts: string[];
@@ -52,11 +54,22 @@ function parseThreadCount(): number {
   return Math.max(1, Math.min(cores - 1, 4));
 }
 
+export interface TokenizerPoolStats {
+  threads: number;
+  activeJobs: number;
+  queuedJobs: number;
+  activeInputBytes: number;
+  queuedInputBytes: number;
+}
+
 class TokenizePool {
   private readonly workers: TokenizeWorker[] = [];
   private readonly queue: PendingJob[] = [];
   private nextId = 1;
   private closed = false;
+  private activeJobs = 0;
+  private activeInputBytes = 0;
+  private queuedInputBytes = 0;
 
   constructor(size: number) {
     // Spawn every worker eagerly rather than lazily on demand. The pool itself
@@ -67,9 +80,35 @@ class TokenizePool {
     // handles the first job, so a concurrent burst (batch embed / search) finds
     // every worker hot instead of eating that cold start on the request path —
     // exactly the latency this pool exists to remove.
-    for (let i = 0; i < size; i++) {
-      this.workers.push(this.createWorker());
+    try {
+      for (let i = 0; i < size; i++) {
+        this.workers.push(this.createWorker());
+      }
+    } catch (error) {
+      // Do not leak already-created threads if a later spawn fails.
+      void this.shutdown();
+      throw error;
     }
+  }
+
+  stats(): TokenizerPoolStats {
+    return {
+      threads: this.workers.length,
+      activeJobs: this.activeJobs,
+      queuedJobs: this.queue.length,
+      activeInputBytes: this.activeInputBytes,
+      queuedInputBytes: this.queuedInputBytes,
+    };
+  }
+
+  private clearCurrent(entry: TokenizeWorker): PendingJob | undefined {
+    const job = entry.current;
+    if (job) {
+      entry.current = undefined;
+      this.activeJobs--;
+      this.activeInputBytes -= job.inputBytes;
+    }
+    return job;
   }
 
   truncateMany(texts: string[], maxTokens: number): Promise<TruncateResult[]> {
@@ -81,8 +120,15 @@ class TokenizePool {
       return Promise.resolve([]);
     }
 
+    // byteLength measures UTF-8 without allocating a second copy of the input.
+    const inputBytes = texts.reduce(
+      (total, text) => total + Buffer.byteLength(text, "utf8"),
+      0,
+    );
     return new Promise((resolve, reject) => {
+      this.queuedInputBytes += inputBytes;
       this.queue.push({
+        inputBytes,
         id: this.nextId++,
         maxTokens,
         texts,
@@ -99,9 +145,9 @@ class TokenizePool {
       this.queue.shift()?.reject(new Error("Tokenizer pool shut down"));
     }
 
+    this.queuedInputBytes = 0;
     const terminations = this.workers.map(async (entry) => {
-      entry.current?.reject(new Error("Tokenizer pool shut down"));
-      entry.current = undefined;
+      this.clearCurrent(entry)?.reject(new Error("Tokenizer pool shut down"));
       await entry.worker.terminate();
     });
     this.workers.length = 0;
@@ -122,7 +168,7 @@ class TokenizePool {
         return;
       }
 
-      entry.current = undefined;
+      this.clearCurrent(entry);
       if (message.error) {
         job.reject(new Error(message.error));
       } else if (
@@ -153,7 +199,7 @@ class TokenizePool {
     });
 
     worker.on("exit", (code) => {
-      if (this.closed || code === 0) {
+      if (this.closed) {
         return;
       }
       this.replaceFailedWorker(
@@ -167,20 +213,26 @@ class TokenizePool {
 
   private replaceFailedWorker(entry: TokenizeWorker, error: Error): void {
     const index = this.workers.indexOf(entry);
-    const job = entry.current;
-    entry.current = undefined;
-    job?.reject(error);
+    this.clearCurrent(entry)?.reject(error);
 
     if (index !== -1) {
       // Best-effort terminate the failed worker before replacing it so a thread
       // stuck in a bad state doesn't leak. A resulting exit event is a no-op:
       // the entry is no longer in this.workers.
+      this.workers.splice(index, 1);
       void entry.worker.terminate().catch(() => {});
 
-      if (this.closed) {
-        this.workers.splice(index, 1);
-      } else {
-        this.workers[index] = this.createWorker();
+      if (!this.closed) {
+        try {
+          this.workers.splice(index, 0, this.createWorker());
+        } catch {
+          // Remaining workers may still serve the queue. If none survive,
+          // reject queued jobs so callers fall back inline rather than hang.
+          if (this.workers.length === 0) {
+            if (pool === this) pool = undefined;
+            void this.shutdown();
+          }
+        }
       }
     }
 
@@ -205,6 +257,9 @@ class TokenizePool {
         return;
       }
 
+      this.queuedInputBytes -= job.inputBytes;
+      this.activeInputBytes += job.inputBytes;
+      this.activeJobs++;
       entry.current = job;
       const request: TruncateRequest = {
         id: job.id,
@@ -226,6 +281,19 @@ class TokenizePool {
 }
 
 let pool: TokenizePool | undefined;
+
+/** Constant-time snapshot; never creates the lazy pool or retains input texts. */
+export function getTokenizerPoolStats(): TokenizerPoolStats {
+  return (
+    pool?.stats() ?? {
+      threads: 0,
+      activeJobs: 0,
+      queuedJobs: 0,
+      activeInputBytes: 0,
+      queuedInputBytes: 0,
+    }
+  );
+}
 
 export function getTokenizerThreadCount(): number {
   return parseThreadCount();

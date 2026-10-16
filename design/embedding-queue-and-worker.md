@@ -90,3 +90,39 @@ The embedding status surface reports aggregate queue state for the active space:
 
 It also reports the oldest pending enqueue time. These are space-wide operational
 counts, not tree-scoped memory results.
+
+The `embedding.generate_batch` and worker `embedding.batch` spans include numeric
+`batch.input_bytes`: the sum of UTF-8 byte lengths of the original input strings,
+before truncation. This measures text payload size, not JSON request size, vector
+size, heap usage, or RSS. The attribute name deliberately avoids `content` and
+`embedding`, which the telemetry privacy scrubber treats as sensitive keys. No
+input text, queries, or credentials are added by this instrumentation, and it
+does not serialize payloads or allocate byte-buffer copies to measure them.
+
+`getTokenizerPoolStats()` (exported by the embedding package) provides a
+constant-time, numeric-only snapshot for the runtime metrics sampler:
+
+| Field | Meaning |
+| --- | --- |
+| `threads` | Live pool worker slots; zero before lazy initialization and after shutdown, not the configured maximum. |
+| `activeJobs` | Jobs dispatched to tokenizer workers and awaiting a result. |
+| `queuedJobs` | Jobs waiting for a free tokenizer worker. |
+| `activeInputBytes` | UTF-8 input bytes belonging to active jobs. |
+| `queuedInputBytes` | UTF-8 input bytes belonging to waiting jobs. |
+
+Sampling does not create workers or parse thread configuration. Each job's byte
+length is counted once with `Buffer.byteLength`, then transferred between queued
+and active totals on dispatch and removed on completion or failure. Shutdown
+clears both totals. Worker errors, unexpected exits, malformed responses, and
+failed message sends release active accounting while preserving the existing
+inline-tokenization fallback. A failed replacement cannot strand queued jobs if
+no workers remain. Pool initialization also cleans up partially spawned pools.
+The snapshot counts managed worker slots: a retiring failed worker may briefly
+still be terminating after its replacement is installed. It is not an OS thread
+census or an estimate of tokenizer dictionary/worker heap memory. Inline fallback
+work is synchronous and is not counted as active pool work. Stats retain no new
+text references and export no per-job identifiers or labels.
+
+Per-tokenization-job spans are deliberately omitted to avoid adding span volume
+on every search; these aggregate snapshots provide the queue-pressure signal.
+The existing embedding spans still cover batch processing duration.

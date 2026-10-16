@@ -1,3 +1,4 @@
+import { Buffer } from "node:buffer";
 import { span, warning } from "@pydantic/logfire-node";
 import { embed, embedMany } from "ai";
 import {
@@ -255,6 +256,10 @@ export async function generateEmbeddings(
       model: config.model,
       dimensions: config.dimensions,
       batch_size: rows.length,
+      "batch.input_bytes": rows.reduce(
+        (total, row) => total + Buffer.byteLength(row.content, "utf8"),
+        0,
+      ),
     },
     callback: async () => {
       const model = getEmbeddingModel(config);

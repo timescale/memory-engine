@@ -14,6 +14,12 @@ must preserve.
 | [OpenCode adapter](harnesses/opencode.md) | MCP entry, plugin, environment injection, and capture |
 | [Codex CLI adapter](harnesses/codex.md) | MCP entry, hooks, command rewrite, and capture |
 
+## Operations
+
+| Document | Scope |
+| --- | --- |
+| [Runtime and OOM observability](runtime-observability.md) | Logfire memory, cgroup, request-size, and tokenizer-pressure diagnostics |
+
 ## Database
 
 | Document | Scope |

@@ -36,6 +36,9 @@ import type { ServerContext } from "./context";
 import { checkSizeLimit } from "./middleware";
 import {
   httpRequestTelemetryAttributes,
+  httpResponseTelemetryAttributes,
+  observeHttpRequest,
+  setTelemetryAttributes,
   tokenResponseTelemetryAttributes,
 } from "./request-telemetry";
 import { createRouter } from "./router";
@@ -562,27 +565,30 @@ export async function startServer(
   const server = Bun.serve({
     port,
     async fetch(request) {
-      try {
-        return await span("http.request", {
-          attributes: httpRequestTelemetryAttributes(request),
-          callback: async (activeSpan) => {
-            const sizeError = checkSizeLimit(request);
-            if (sizeError) {
-              return sizeError;
-            }
-            const response = await router.handleRequest(request);
-            for (const [key, value] of Object.entries(
-              await tokenResponseTelemetryAttributes(request, response),
-            )) {
-              activeSpan.setAttribute(key, value);
-            }
-            return response;
-          },
-        });
-      } catch {
-        // Error already recorded on http.request span by the helper
-        return internalError();
-      }
+      return observeHttpRequest(request, async () => {
+        try {
+          return await span("http.request", {
+            attributes: httpRequestTelemetryAttributes(request),
+            callback: async (activeSpan) => {
+              const response =
+                checkSizeLimit(request) ??
+                (await router.handleRequest(request));
+              setTelemetryAttributes(
+                activeSpan,
+                httpResponseTelemetryAttributes(response),
+              );
+              setTelemetryAttributes(
+                activeSpan,
+                await tokenResponseTelemetryAttributes(request, response),
+              );
+              return response;
+            },
+          });
+        } catch {
+          // Error already recorded on http.request span by the helper
+          return internalError();
+        }
+      });
     },
   });
 

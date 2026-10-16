@@ -1,4 +1,6 @@
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, spyOn, test } from "bun:test";
+import * as logfire from "@pydantic/logfire-node";
+import * as ai from "ai";
 import { RateLimitError } from "./errors";
 import {
   generateEmbedding,
@@ -137,6 +139,44 @@ describe("validateConfig", () => {
     await expect(validateConfig(config)).rejects.toThrow(
       "dimensions must be a positive number",
     );
+  });
+});
+
+describe("generateEmbeddings observability", () => {
+  test("records numeric UTF-8 input bytes without input contents", async () => {
+    const spanSpy = spyOn(logfire, "span");
+    const embedSpy = spyOn(ai, "embedMany").mockResolvedValue({
+      embeddings: [
+        [0, 1],
+        [1, 0],
+      ],
+      usage: { tokens: 4 },
+    } as Awaited<ReturnType<typeof ai.embedMany>>);
+    try {
+      const rows = [
+        { id: "1", content: "あ🙂" },
+        { id: "2", content: "é" },
+      ];
+      const results = await generateEmbeddings(rows, {
+        provider: "openai",
+        model: "text-embedding-3-small",
+        dimensions: 2,
+        apiKey: "test-key",
+      });
+      expect(results).toHaveLength(2);
+      const call = spanSpy.mock.calls.find(
+        ([name]) => name === "embedding.generate_batch",
+      );
+      const attrs = call?.[1].attributes as Record<string, unknown> | undefined;
+      expect(attrs?.["batch.input_bytes"]).toBe(9);
+      expect(typeof attrs?.["batch.input_bytes"]).toBe("number");
+      expect(Object.values(attrs ?? {})).not.toContain("あ🙂");
+      expect(Object.values(attrs ?? {})).not.toContain("test-key");
+      expect(embedSpy).toHaveBeenCalledTimes(1);
+    } finally {
+      embedSpy.mockRestore();
+      spanSpy.mockRestore();
+    }
   });
 });
 

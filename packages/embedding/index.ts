@@ -32,8 +32,10 @@ export {
 } from "./generate";
 
 export {
+  getTokenizerPoolStats,
   getTokenizerThreadCount,
   shutdownTokenizerPool,
+  type TokenizerPoolStats,
 } from "./tokenize-pool";
 
 // =============================================================================

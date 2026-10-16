@@ -9,7 +9,128 @@
  * before recording. The instance ID is intentionally high-cardinality per
  * process for race attribution; this validation does not authenticate callers.
  */
+import { type Counter, metrics, type UpDownCounter } from "@opentelemetry/api";
+import { jsonResponseTelemetry } from "./util/response";
+
 const TOKEN_ENDPOINT_PATH = "/api/v1/auth/oauth2/token";
+
+/** Telemetry failures must never change a request's business outcome. */
+export function setTelemetryAttributes(
+  target: {
+    setAttribute(key: string, value: string | number | boolean): unknown;
+  },
+  attributes: Record<string, string | number | boolean>,
+): void {
+  try {
+    for (const [key, value] of Object.entries(attributes)) {
+      target.setAttribute(key, value);
+    }
+  } catch {
+    // Best effort.
+  }
+}
+
+/** These are fixed route buckets, never raw paths, RPC names or identities. */
+export function httpMetricLabels(request: Request): Record<string, string> {
+  const path = new URL(request.url).pathname;
+  const route =
+    path === "/api/v1/memory/rpc" ||
+    path === "/api/v1/user/rpc" ||
+    path === TOKEN_ENDPOINT_PATH
+      ? path
+      : path.startsWith("/api/v1/auth/")
+        ? "/api/v1/auth/*"
+        : path.startsWith("/api/")
+          ? "/api/*"
+          : "web";
+  const method = [
+    "GET",
+    "POST",
+    "PUT",
+    "PATCH",
+    "DELETE",
+    "HEAD",
+    "OPTIONS",
+  ].includes(request.method)
+    ? request.method
+    : "OTHER";
+  return { "http.route": route, "http.request.method": method };
+}
+
+export function httpResponseTelemetryAttributes(
+  response: Response,
+): Record<string, string | number> {
+  return {
+    "http.response.status_code": response.status,
+    "http.outcome":
+      response.status >= 500
+        ? "server_error"
+        : response.status >= 400
+          ? "client_error"
+          : "success",
+    ...jsonResponseTelemetry(response),
+  };
+}
+
+let activeRequests: UpDownCounter | undefined;
+let completedRequests: Counter | undefined;
+
+/**
+ * In-flight means handler lifetime, NOT socket lifetime/network flush. Both
+ * success and thrown failures release the count in finally. No request labels
+ * at all on the UpDownCounter; completion labels are a fixed vocabulary.
+ */
+export async function observeHttpRequest(
+  request: Request,
+  handler: () => Promise<Response>,
+): Promise<Response> {
+  let counted = false;
+  try {
+    const meter = metrics.getMeter("memory-engine.http");
+    activeRequests ??= meter.createUpDownCounter(
+      "memory_engine.http.requests.active",
+      {
+        unit: "{request}",
+        description: "Inbound HTTP handlers active (not network flush)",
+      },
+    );
+    activeRequests.add(1);
+    counted = true;
+  } catch {
+    // Instrument setup/recording is fail-open.
+  }
+  let response: Response | undefined;
+  try {
+    response = await handler();
+    return response;
+  } finally {
+    try {
+      if (counted) activeRequests?.add(-1);
+    } catch {
+      // Best effort; keep cleanup independent of completion recording.
+    }
+    try {
+      completedRequests ??= metrics
+        .getMeter("memory-engine.http")
+        .createCounter("memory_engine.http.requests.completed", {
+          unit: "{request}",
+        });
+      completedRequests.add(1, {
+        ...httpMetricLabels(request),
+        "http.response.status_code": response?.status ?? 500,
+        "http.outcome": response
+          ? response.status >= 500
+            ? "server_error"
+            : response.status >= 400
+              ? "client_error"
+              : "success"
+          : "exception",
+      });
+    } catch {
+      // Best effort.
+    }
+  }
+}
 const MAX_USER_AGENT_LENGTH = 256;
 const MAX_INSTANCE_LENGTH = 128;
 const MAX_MODE_LENGTH = 32;

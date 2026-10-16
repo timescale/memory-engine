@@ -1,5 +1,13 @@
 # Development
 
+## Server observability
+
+The production server emits process/cgroup memory gauges, per-process identity,
+search/JSON-response sizes, and tokenizer-pressure diagnostics through its
+existing Logfire setup. See [Runtime and OOM observability](design/runtime-observability.md)
+for metric names, sampling/export behavior, Logfire queries, and the external
+Kubernetes monitoring still needed to confirm `OOMKilled` terminations.
+
 ## Prerequisites
 
 - [Bun](https://bun.sh) (latest)

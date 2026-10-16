@@ -137,6 +137,7 @@
         "@memory.build/engine": "workspace:*",
         "@memory.build/protocol": "workspace:*",
         "@memory.build/worker": "workspace:*",
+        "@opentelemetry/api": "^1.9.0",
         "@pydantic/logfire-node": "^0.13.1",
         "better-auth": "1.6.20",
         "pg": "^8.22.0",

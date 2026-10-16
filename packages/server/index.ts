@@ -6,8 +6,13 @@
 // it can be driven in-process by tests.
 
 import { reportError } from "@memory.build/database/telemetry";
+import { getTokenizerPoolStats } from "@memory.build/embedding";
 import { configure, info } from "@pydantic/logfire-node";
 import { SERVER_VERSION } from "../../version";
+import {
+  prepareRuntimeTelemetryEnvironment,
+  startRuntimeSampler,
+} from "./runtime-telemetry";
 import { startServer } from "./start";
 
 // Resolve git revision for Logfire code source linking.
@@ -22,27 +27,37 @@ const gitRevision = (() => {
   }
 })();
 
+// Resource identity must be present before Logfire's env detector runs.
+prepareRuntimeTelemetryEnvironment();
 // Initialize telemetry before starting server
-configure({
-  sendToLogfire: "if-token-present",
-  console: process.env.LOGFIRE_CONSOLE === "true",
-  serviceName: "memory-engine",
-  serviceVersion: SERVER_VERSION,
-  codeSource: {
-    repository: "https://github.com/timescale/memory-engine",
-    revision: gitRevision,
-  },
-  scrubbing:
-    process.env.LOGFIRE_SCRUBBING === "false"
-      ? false
-      : {
-          extraPatterns: [
-            "content", // Memory content — potentially sensitive user data
-            "embedding", // Vector embeddings — large, not useful in traces
-            "access_token",
-            "refresh_token",
-          ],
-        },
+try {
+  configure({
+    sendToLogfire: "if-token-present",
+    console: process.env.LOGFIRE_CONSOLE === "true",
+    serviceName: "memory-engine",
+    serviceVersion: SERVER_VERSION,
+    codeSource: {
+      repository: "https://github.com/timescale/memory-engine",
+      revision: gitRevision,
+    },
+    scrubbing:
+      process.env.LOGFIRE_SCRUBBING === "false"
+        ? false
+        : {
+            extraPatterns: [
+              "content", // Memory content — potentially sensitive user data
+              "embedding", // Vector embeddings — large, not useful in traces
+              "access_token",
+              "refresh_token",
+            ],
+          },
+  });
+} catch {
+  console.warn("Telemetry configuration failed; continuing without telemetry");
+}
+
+const runtimeSampler = startRuntimeSampler({
+  tokenizerStats: getTokenizerPoolStats,
 });
 
 // Boot the full stack. All env parsing / pools / migrate / worker / Bun.serve
@@ -57,6 +72,7 @@ try {
   srv = await startServer();
 } catch (error) {
   reportError("Server failed to start", error as Error);
+  await runtimeSampler.stop();
   process.exit(1);
 }
 
@@ -74,6 +90,9 @@ async function shutdown() {
   } catch (error) {
     reportError("Error during shutdown", error as Error);
   }
+  // Keep sampling while HTTP/worker work drains, then export the final snapshot
+  // with a bounded wait (including SIGINT, which exits before SDK beforeExit).
+  await runtimeSampler.stop();
   process.exit(0);
 }
 
@@ -89,6 +108,7 @@ process.on("unhandledRejection", (reason) => {
 });
 
 process.on("uncaughtException", (error) => {
+  void runtimeSampler.stop();
   reportError("Uncaught exception", error);
   process.exit(1);
 });

@@ -68,6 +68,10 @@ import {
   memoryUpdateParams,
 } from "@memory.build/protocol/memory";
 import { AppError } from "../errors";
+import {
+  type MemoryMutationCounts,
+  recordMemoryMutation,
+} from "../operation-telemetry";
 import { buildRegistry } from "../registry";
 import type { HandlerContext } from "../types";
 import {
@@ -264,6 +268,30 @@ function toEventResponse(
   };
 }
 
+/** Only store-returned statuses participate; never infer from requested policy. */
+function recordWriteStatuses(ctx: HandlerContext, statuses: string[]): void {
+  const counts = { inserted: 0, updated: 0, skipped: 0 };
+  for (const status of statuses) {
+    if (status !== "inserted" && status !== "updated" && status !== "skipped") {
+      return;
+    }
+    counts[status]++;
+  }
+  recordMemoryMutation(ctx, counts);
+}
+
+function recordTreeMutation(
+  ctx: HandlerContext,
+  kind: "copied" | "moved" | "deleted",
+  count: number,
+  dryRun: boolean,
+): void {
+  const counts: MemoryMutationCounts = dryRun
+    ? { dryRun, preview: count }
+    : { [kind]: count, dryRun };
+  recordMemoryMutation(ctx, counts);
+}
+
 function eventContext(ctx: SpaceRpcContext, cause: string): MemoryEventContext {
   return {
     principal_id: ctx.principalId,
@@ -363,7 +391,7 @@ async function memoryCreate(
   // skip ('ignore'/'replace' no-op), where for a named row that's the existing
   // row's id (which may differ from a submitted id; name wins over id). A bare
   // conflict (default onConflict 'error') raises 23505 → CONFLICT via guard.
-  const { id } = await guard(() =>
+  const { id, status } = await guard(() =>
     mutate(ctx, "create", (store) =>
       store.createMemory(treeAccess, {
         id: params.id ?? undefined,
@@ -376,6 +404,7 @@ async function memoryCreate(
       }),
     ),
   );
+  recordWriteStatuses(ctx, [status]);
   const memory = await store.getMemory(treeAccess, id);
   if (!memory) {
     throw new AppError("INTERNAL_ERROR", "Created memory could not be read");
@@ -416,6 +445,10 @@ async function memoryBatchCreate(
         params.onConflict ?? undefined,
       ),
     ),
+  );
+  recordWriteStatuses(
+    ctx,
+    rows.map((r) => r.status),
   );
   return { results: rows.map((r) => ({ id: r.id, status: r.status })) };
 }
@@ -554,6 +587,7 @@ async function memoryRevert(
       `No revertable version ${params.version} for memory: ${id}`,
     );
   }
+  recordMemoryMutation(ctx, { reverted: 1 });
   const memory = await guard(() => store.getMemory(treeAccess, id));
   if (!memory) {
     throw new AppError("NOT_FOUND", `Memory not found: ${id}`);
@@ -622,6 +656,8 @@ async function memoryUpdate(
   if (!ok) {
     throw new AppError("NOT_FOUND", `Memory not found: ${params.id}`);
   }
+  // A true result means one SQL UPDATE row, even for an identical payload.
+  recordMemoryMutation(ctx, { updated: 1 });
   const memory = await store.getMemory(treeAccess, params.id);
   if (!memory) {
     throw new AppError("NOT_FOUND", `Memory not found: ${params.id}`);
@@ -644,6 +680,7 @@ async function memoryDelete(
   if (!deleted) {
     throw new AppError("NOT_FOUND", `Memory not found: ${params.id}`);
   }
+  recordMemoryMutation(ctx, { deleted: 1 });
   return { deleted };
 }
 
@@ -663,6 +700,7 @@ async function memoryDeleteByPath(
   if (!deleted) {
     throw new AppError("NOT_FOUND", `Memory not found: ${params.path}`);
   }
+  recordMemoryMutation(ctx, { deleted: 1 });
   return { deleted };
 }
 
@@ -829,6 +867,7 @@ async function memoryCopy(
       ),
     ),
   );
+  recordTreeMutation(ctx, "copied", count, params.dryRun ?? false);
   return { count };
 }
 
@@ -851,6 +890,7 @@ async function memoryMove(
       ),
     ),
   );
+  recordTreeMutation(ctx, "moved", count, params.dryRun ?? false);
   return { count };
 }
 
@@ -872,6 +912,7 @@ async function memoryDeleteTree(
       ),
     ),
   );
+  recordTreeMutation(ctx, "deleted", count, params.dryRun ?? false);
   return { count };
 }
 
@@ -906,6 +947,7 @@ async function memoryDeleteOrphansInTree(
       ),
     ),
   );
+  recordTreeMutation(ctx, "deleted", rows.length, params.dryRun ?? false);
   return {
     count: rows.length,
     paths: rows.map((r) => {
