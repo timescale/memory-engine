@@ -113,8 +113,13 @@ process-local, not a provider-wide quota across the fleet.
 
 Both entrypoints apply the same telemetry scrubbing policy, with standalone
 workers reporting under `memory-engine-worker` rather than `memory-engine`.
-SIGINT/SIGTERM stops new queue claims and drains in-flight batches before
-closing pools and tokenizer threads. The orchestrator must allow sufficient
+SIGINT/SIGTERM propagates cancellation through startup immediately, including
+while initial discovery is pending. Partially started pools stop new claims and
+do not start additional consumers; already-claimed batches still drain before
+closing pools and tokenizer threads. Callable bootstraps accept an optional
+`AbortSignal` for the same behavior. Pre-aborted startup allocates no pools, and
+expected signal cancellation exits successfully without a misleading ready or
+startup-failure log. The orchestrator must allow sufficient
 termination grace for provider/DB timeouts and batch write-back. A killed
 process still relies on queue visibility expiry for recovery.
 

@@ -8,8 +8,8 @@ import { startEmbeddingWorkers } from "./worker-start";
 const telemetry = configureTelemetry("memory-engine-worker");
 
 await runProcessLifecycle({
-  start: async () => {
-    const workers = await startEmbeddingWorkers();
+  start: async (signal) => {
+    const workers = await startEmbeddingWorkers({ signal });
     return { stop: () => workers.stop(), workerFinished: workers.finished };
   },
   finalize: () => telemetry.stop(),

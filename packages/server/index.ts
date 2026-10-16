@@ -7,7 +7,7 @@ import { configureTelemetry } from "./telemetry";
 const telemetry = configureTelemetry("memory-engine");
 
 await runProcessLifecycle({
-  start: () => startServer(),
+  start: (signal) => startServer({ signal }),
   finalize: () => telemetry.stop(),
   startupFailure: "Server failed to start",
   ready: (server) => info("Server ready", { url: server.url }),

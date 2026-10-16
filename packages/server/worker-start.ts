@@ -14,6 +14,8 @@ import { buildEmbeddingConfig } from "./embedding-config";
 import { buildWorkerSettings, resolveWorkerCount } from "./worker-config";
 
 export interface StartEmbeddingWorkersOptions {
+  /** Stop new claims on abort; drain existing work before rejecting startup. */
+  signal?: AbortSignal;
   databaseUrl?: string;
   workerDatabaseUrl?: string;
   coreSchema?: string;
@@ -37,37 +39,68 @@ export async function startWorkerPool(
   discover: () => Promise<SpaceTarget[]>,
   settings: ReturnType<typeof buildWorkerSettings>,
   count: number,
+  signal?: AbortSignal,
 ): Promise<RunningEmbeddingWorkers> {
+  signal?.throwIfAborted();
   const db = postgres(databaseUrl, {
     ...settings.pool,
     onnotice: () => {},
     connection: { application_name: "me-worker" },
   });
-  const pool = new WorkerPool(db, { ...settings.config, embedding, discover });
+  const pool = new WorkerPool(db, {
+    ...settings.config,
+    embedding,
+    // Assign Worker/WorkerPool startup promises before user discovery can
+    // synchronously abort and re-enter stop().
+    discover: () =>
+      Promise.resolve().then(() => {
+        // Cancellation is not a fatal discovery failure inside a running loop.
+        if (signal?.aborted) return [];
+        return discover();
+      }),
+  });
+  let stopping: Promise<void> | undefined;
+  function stop(): Promise<void> {
+    if (stopping) return stopping;
+    signal?.removeEventListener("abort", onAbort);
+    stopping ??= (async () => {
+      try {
+        await pool.stop();
+      } finally {
+        await db.end();
+      }
+    })();
+    return stopping;
+  }
+  function onAbort(): void {
+    // stop() aborts every partial worker synchronously, but drains provider/DB
+    // work. Observe rejection now; startup or the returned stop still owns it.
+    void stop().catch(() => {});
+  }
+  signal?.addEventListener("abort", onAbort, { once: true });
   try {
     await pool.start(count);
   } catch (error) {
-    await db.end();
+    try {
+      await stop();
+    } catch (drainError) {
+      if (signal?.aborted && error === signal.reason) throw drainError;
+    }
+    // A real discovery failure wins even if shutdown overlapped it.
     throw error;
+  }
+  if (signal?.aborted) {
+    await stop();
+    throw signal.reason;
   }
   const finished = pool.finished;
   void finished.catch(() => {});
-  let stopping: Promise<void> | undefined;
   return {
     get stats() {
       return pool.stats;
     },
     finished,
-    stop() {
-      stopping ??= (async () => {
-        try {
-          await pool.stop();
-        } finally {
-          await db.end();
-        }
-      })();
-      return stopping;
-    },
+    stop,
   };
 }
 
@@ -75,6 +108,7 @@ export async function startWorkerPool(
 export async function startEmbeddingWorkers(
   opts: StartEmbeddingWorkersOptions = {},
 ): Promise<RunningEmbeddingWorkers> {
+  opts.signal?.throwIfAborted();
   const count = resolveWorkerCount(opts.workerCount);
   const databaseUrl = opts.databaseUrl ?? process.env.DATABASE_URL;
   if (!databaseUrl)
@@ -118,7 +152,12 @@ export async function startEmbeddingWorkers(
         })),
       settings,
       count,
+      opts.signal,
     );
+    if (opts.signal?.aborted) {
+      await workers.stop();
+      throw opts.signal.reason;
+    }
   } catch (error) {
     try {
       await discoveryDb.end();

@@ -58,6 +58,8 @@ const DEFAULT_RPC_DB_TIMEOUTS_MS: RpcDbTimeoutsMs = {
 export { buildEmbeddingConfig } from "./embedding-config";
 
 export interface StartServerOptions {
+  /** Cancel startup and stop new worker claims without abandoning in-flight work. */
+  signal?: AbortSignal;
   /** HTTP port. Default PORT env or 3000; 0 = OS-assigned random port. */
   port?: number;
   /** Application pool connection string. Default DATABASE_URL. */
@@ -116,10 +118,15 @@ export interface RunningServer {
  * the logs), then any failure aborts boot — the server must not serve spaces
  * whose schema may be stale.
  */
-async function remigrateSpaces(db: Sql, core: CoreStore): Promise<void> {
+async function remigrateSpaces(
+  db: Sql,
+  core: CoreStore,
+  signal?: AbortSignal,
+): Promise<void> {
   const spaces = await core.listSpaces();
   const failed: string[] = [];
   for (const space of spaces) {
+    if (signal?.aborted) break;
     try {
       await migrateSpace(db, { slug: space.slug });
     } catch (error) {
@@ -135,6 +142,7 @@ async function remigrateSpaces(db: Sql, core: CoreStore): Promise<void> {
       `space re-migration failed for ${failed.length} of ${spaces.length} space(s): ${failed.join(", ")}`,
     );
   }
+  signal?.throwIfAborted();
   info(`${spaces.length} space schema(s) re-migrated`);
 }
 
@@ -145,6 +153,7 @@ async function remigrateSpaces(db: Sql, core: CoreStore): Promise<void> {
 export async function startServer(
   opts: StartServerOptions = {},
 ): Promise<RunningServer> {
+  opts.signal?.throwIfAborted();
   const port =
     opts.port ?? (process.env.PORT ? Number(process.env.PORT) : 3000);
 
@@ -279,14 +288,19 @@ export async function startServer(
     try {
       const migrationCore = coreStore(migrationDb, coreSchema);
       await bootstrapSpaceDatabase(migrationDb);
+      opts.signal?.throwIfAborted();
       await migrateCore(migrationDb, { schema: coreSchema });
+      opts.signal?.throwIfAborted();
       await migrateAuth(migrationDb, { schema: authSchema });
+      opts.signal?.throwIfAborted();
       info("Core + auth schemas migrated");
-      await remigrateSpaces(migrationDb, migrationCore);
+      await remigrateSpaces(migrationDb, migrationCore, opts.signal);
     } finally {
       await migrationDb.end();
     }
   }
+
+  opts.signal?.throwIfAborted();
 
   // Runtime application pool. Session-level timeout GUCs protect request-path
   // database work without assuming auth/core/space share a transaction.
@@ -391,9 +405,13 @@ export async function startServer(
           })),
         workerSettings,
         workerCount,
+        opts.signal,
       );
+      opts.signal?.throwIfAborted();
       info("Embedding worker pool started", { workers: workerCount });
     }
+
+    opts.signal?.throwIfAborted();
 
     // ---------------------------------------------------------------------------
     // Cleanup Jobs
@@ -525,13 +543,23 @@ export async function startServer(
       stop,
     };
   } catch (error) {
+    let failure = error;
     cleanupCron?.stop();
-    await workers?.stop().catch(() => {});
-    await Promise.allSettled([
+    try {
+      await workers?.stop();
+    } catch (drainError) {
+      if (opts.signal?.aborted && failure === opts.signal.reason)
+        failure = drainError;
+    }
+    const cleanup = await Promise.allSettled([
       runtimeDb.end(),
       authPool?.end(),
       shutdownTokenizerPool(),
     ]);
-    throw error;
+    if (opts.signal?.aborted && failure === opts.signal.reason) {
+      const failed = cleanup.find((result) => result.status === "rejected");
+      if (failed?.status === "rejected") throw failed.reason;
+    }
+    throw failure;
   }
 }

@@ -23,6 +23,17 @@ afterEach(() => {
 });
 
 describe("worker configuration", () => {
+  test("preaborted API and worker bootstraps reject before configuration or allocation", async () => {
+    const controller = new AbortController();
+    const reason = new Error("shutdown requested");
+    controller.abort(reason);
+    await expect(startServer({ signal: controller.signal })).rejects.toBe(
+      reason,
+    );
+    await expect(
+      startEmbeddingWorkers({ signal: controller.signal }),
+    ).rejects.toBe(reason);
+  });
   test("defaults to two, permits zero only for combined mode", () => {
     expect(resolveWorkerCount()).toBe(2);
     expect(resolveWorkerCount(0, true)).toBe(0);

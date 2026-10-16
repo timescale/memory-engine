@@ -7,7 +7,7 @@ interface ProcessHandle {
 
 /** Install handlers before bootstrap; every exit path shares the same drain. */
 export async function runProcessLifecycle<T extends ProcessHandle>(options: {
-  start(): Promise<T>;
+  start(signal: AbortSignal): Promise<T>;
   /** Process telemetry final flush, after application drain (also on boot failure). */
   finalize?(): Promise<void>;
   ready(handle: T): void;
@@ -18,11 +18,16 @@ export async function runProcessLifecycle<T extends ProcessHandle>(options: {
   let exitCode = 0;
   let stopping: Promise<void> | undefined;
   // Defer bootstrap until handlers are installed (including synchronous throws).
-  const startup = Promise.resolve().then(options.start);
+  const controller = new AbortController();
+  const startup = Promise.resolve().then(() =>
+    options.start(controller.signal),
+  );
 
   function shutdown(code: number): Promise<void> {
     requested = true;
     if (code !== 0) exitCode = code; // A later signal cannot erase a fatal error.
+    // Reach partially started pools synchronously, before awaiting bootstrap.
+    controller.abort();
     stopping ??= (async () => {
       const handle = await startup.catch(() => undefined);
       try {
@@ -56,8 +61,10 @@ export async function runProcessLifecycle<T extends ProcessHandle>(options: {
   try {
     handle = await startup;
   } catch (error) {
-    reportError(options.startupFailure, error as Error);
-    await shutdown(1);
+    const cancelled =
+      controller.signal.aborted && error === controller.signal.reason;
+    if (!cancelled) reportError(options.startupFailure, error as Error);
+    await shutdown(cancelled ? 0 : 1);
     return;
   }
   void handle.workerFinished?.then(
