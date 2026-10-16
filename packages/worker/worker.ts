@@ -4,7 +4,7 @@ import { info, warning } from "@pydantic/logfire-node";
 import type { Sql } from "postgres";
 import { rateLimitBackoffMs } from "./backoff";
 import { processBatch, pruneQueue } from "./process";
-import type { WorkerConfig, WorkerStats } from "./types";
+import type { SpaceTarget, WorkerConfig, WorkerStats } from "./types";
 
 /**
  * Pool-wide rate-limit gate. A single mutable object shared by every Worker in
@@ -77,6 +77,8 @@ export class Worker {
   private readonly gate: RateLimitGate;
   private abort: AbortController | null = null;
   private runPromise: Promise<void> | null = null;
+  private startPromise: Promise<void> | null = null;
+  private stopPromise: Promise<void> | null = null;
   readonly _stats: WorkerStats = {
     schemasPolled: 0,
     totalProcessed: 0,
@@ -98,27 +100,61 @@ export class Worker {
   }
 
   async start(): Promise<void> {
-    if (this.abort) {
+    if (this.abort || this.stopPromise) {
       throw new Error("Worker is already running");
     }
 
-    this.abort = new AbortController();
-    this.runPromise = run(
-      this.sql,
-      this.config,
-      this.abort.signal,
-      this._stats,
-      this.gate,
-    );
+    const controller = new AbortController();
+    this.abort = controller;
+    this.startPromise = (async () => {
+      const targets = await this.config.discover();
+      // Shutdown may have arrived while discovery was pending. Never claim in
+      // that case, and keep the controller local until startup has settled.
+      if (controller.signal.aborted) return;
+      this.runPromise = run(
+        this.sql,
+        this.config,
+        controller.signal,
+        this._stats,
+        this.gate,
+        targets,
+      );
+      // Observe immediately; callers monitor `finished` for fatal loop failures.
+      void this.runPromise.catch(() => {});
+    })();
+    try {
+      await this.startPromise;
+    } catch (error) {
+      if (!this.stopPromise) {
+        this.abort = null;
+        this.startPromise = null;
+      }
+      throw error;
+    }
   }
 
-  async stop(): Promise<void> {
-    if (!this.abort) return;
+  get finished(): Promise<void> {
+    return this.runPromise ?? Promise.resolve();
+  }
+
+  stop(): Promise<void> {
+    if (this.stopPromise) return this.stopPromise;
+    if (!this.abort) return Promise.resolve();
 
     this.abort.abort();
-    await this.runPromise;
-    this.abort = null;
-    this.runPromise = null;
+    this.stopPromise = (async () => {
+      try {
+        // Startup failures belong to start(); stop still drains and resets.
+        await this.startPromise?.catch(() => {});
+        await this.runPromise;
+      } finally {
+        this.abort = null;
+        this.startPromise = null;
+        this.runPromise = null;
+        this.stopPromise = null;
+      }
+    })();
+    return this.stopPromise;
   }
 
   get stats(): WorkerStats {
@@ -132,6 +168,7 @@ async function run(
   signal: AbortSignal,
   stats: WorkerStats,
   gate: RateLimitGate,
+  initialTargets: SpaceTarget[],
 ): Promise<void> {
   const idleDelayMs = config.idleDelayMs ?? 10_000;
   const maxBackoffMs = config.maxBackoffMs ?? 60_000;
@@ -139,7 +176,7 @@ async function run(
   const drainTimeoutMs = config.drainTimeoutMs;
   const pruneRetention = config.pruneRetention ?? "7 days";
 
-  let targets = shuffle(await config.discover());
+  let targets = shuffle(initialTargets);
   let lastRefresh = Date.now();
   let consecutiveErrors = 0;
   let idleSince: number | null = null;

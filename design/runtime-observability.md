@@ -5,11 +5,17 @@ tags: [server, telemetry, logfire, operations]
 
 # Runtime and OOM Observability
 
-The production server entrypoint configures Logfire before booting the server.
-It starts a process-wide memory sampler immediately, including during database
-migrations, and stops it after graceful server shutdown. `startServer()` remains
-free of process-global telemetry configuration so in-process harnesses do not
-install extra timers or change global providers.
+The API and standalone embedding-worker entrypoints share process telemetry
+setup in `packages/server/telemetry.ts`. Both configure Logfire and start a
+process-wide memory sampler before application bootstrap (including API database
+migrations), keeping sampling active until application drain completes. API
+processes use service name `memory-engine`; standalone consumers use
+`memory-engine-worker`. Both retain the same resource identity, scrubbing,
+fail-open setup, final-sample, and bounded SDK shutdown behavior.
+`startServer()` and `startEmbeddingWorkers()` remain free of process-global
+telemetry configuration so in-process harnesses do not install extra timers or
+change global providers. The shared process lifecycle also finalizes telemetry
+on startup failure and fatal worker-loop failure.
 
 All new measurements use the existing Logfire/OpenTelemetry providers and token.
 There is no second exporter, HTTP listener, telemetry endpoint, heap snapshot,

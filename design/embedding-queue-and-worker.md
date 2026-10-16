@@ -77,6 +77,64 @@ opportunistically when a worker finds no claimable work in that space. This
 preserves short-term failure and cancellation visibility without unbounded queue
 growth.
 
+## Runtime ownership
+
+The default API server starts an embedded worker pool (`WORKER_COUNT=2`),
+preserving the single-process self-hosted setup. Setting `WORKER_COUNT=0`
+disables background queue consumers entirely: the API creates no worker DB
+pool and performs no worker discovery. Memory writes still enqueue through
+Postgres triggers. Semantic search still generates its query embedding on the
+request path, so API-only mode still needs embedding-provider configuration
+and can use tokenizer threads.
+
+For separate processes, `./bun run worker` runs
+`packages/server/worker.ts`; the existing server image can use the command
+`bun run packages/server/worker.ts` without a separate image build. This is a
+backend entrypoint, not a `me` CLI command (`me serve` is a local UI proxy).
+The callable bootstrap is `startEmbeddingWorkers()` in
+`packages/server/worker-start.ts`.
+
+Standalone workers require a positive `WORKER_COUNT` (default 2),
+`DATABASE_URL` for core space discovery, and the same `EMBEDDING_*` provider
+settings/model as the API. `WORKER_DATABASE_URL` optionally overrides the
+connection used for queue processing; it must address the same logical data.
+The worker queue pool uses `WORKER_DB_*` settings, falling back to the existing
+DB pool lifetime/idle/connect settings, and discovery uses a separate pool of
+one connection. `CORE_SCHEMA` is honored in both modes. Worker startup validates
+space discovery but does **not** migrate schemas: deploy/migrate the matching
+API version first. Workers start no auth stack, cleanup cron, or public HTTP
+listener, and require no API URL, auth signing secret, or OAuth credentials.
+
+Independent processes coordinate through the existing queue claims; there is
+no in-memory work handoff, leader election, or permanent space assignment.
+Effective background concurrency is `worker replicas × WORKER_COUNT`, plus
+any embedded workers still running in API replicas. Rate-limit gates are
+process-local, not a provider-wide quota across the fleet.
+
+Both entrypoints apply the same telemetry scrubbing policy, with standalone
+workers reporting under `memory-engine-worker` rather than `memory-engine`.
+SIGINT/SIGTERM stops new queue claims and drains in-flight batches before
+closing pools and tokenizer threads. The orchestrator must allow sufficient
+termination grace for provider/DB timeouts and batch write-back. A killed
+process still relies on queue visibility expiry for recovery.
+
+### Lifecycle failures and health
+
+Initial discovery failures reject startup and release allocated pools. Worker
+loop failures outside the normal batch retry path (for example, failed
+periodic discovery) are exposed through the running handle's `finished`
+promise; the process entrypoints drain and exit nonzero rather than leave a
+live process with dead consumers. Programmatic callers must observe `finished`
+and stop the handle. Ordinary batch failures and provider 429s retain their
+existing retry/backoff behavior.
+
+The standalone command currently has **no HTTP health endpoint**. Process
+failure is observable via its exit status, but process liveness alone does not
+prove work is progressing. Empty queues and rate-limit backoff are normal idle
+states, not reasons to restart a worker. Queue age, outcomes, restarts, and
+per-role memory remain the operational signals; HTTP readiness or heartbeat
+probes can be added separately when the worker Deployment is introduced.
+
 ## Operational visibility
 
 The embedding status surface reports aggregate queue state for the active space:

@@ -12,6 +12,9 @@ export class WorkerPool {
   private readonly config: WorkerConfig;
   private workers: Worker[] = [];
   private running = false;
+  private stopRequested = false;
+  private startPromise: Promise<void> | null = null;
+  private stopPromise: Promise<void> | null = null;
   /**
    * Shared rate-limit gate handed to every worker: a 429 on any one of them
    * stands the whole pool down for the backoff window.
@@ -28,19 +31,63 @@ export class WorkerPool {
       throw new Error("Worker pool is already running");
     }
 
+    if (!Number.isSafeInteger(count) || count < 0) {
+      throw new Error("Worker count must be a non-negative integer");
+    }
     this.running = true;
+    this.stopRequested = false;
     this.workers = [];
-    for (let i = 0; i < count; i++) {
-      const worker = new Worker(this.sql, this.config, this.gate);
-      this.workers.push(worker);
-      await worker.start();
+    this.startPromise = (async () => {
+      try {
+        for (let i = 0; i < count && !this.stopRequested; i++) {
+          const worker = new Worker(this.sql, this.config, this.gate);
+          this.workers.push(worker);
+          await worker.start();
+        }
+      } catch (error) {
+        // Do not call stop(): it waits for this startup promise. Roll back
+        // directly so a concurrent external stop cannot deadlock startup.
+        await Promise.allSettled(this.workers.map((worker) => worker.stop()));
+        throw error;
+      }
+    })();
+    try {
+      await this.startPromise;
+    } catch (error) {
+      if (!this.stopPromise) {
+        this.running = false;
+        this.startPromise = null;
+      }
+      throw error;
     }
   }
 
-  async stop(): Promise<void> {
-    if (!this.running) return;
-    await Promise.all(this.workers.map((w) => w.stop()));
-    this.running = false;
+  stop(): Promise<void> {
+    if (this.stopPromise) return this.stopPromise;
+    if (!this.running) return Promise.resolve();
+    this.stopRequested = true;
+    // Abort partial startup immediately, not after discovery has completed.
+    const draining = Promise.allSettled(this.workers.map((w) => w.stop()));
+    this.stopPromise = (async () => {
+      try {
+        await this.startPromise?.catch(() => {});
+        const results = await draining;
+        const failed = results.find((r) => r.status === "rejected");
+        if (failed?.status === "rejected") throw failed.reason;
+      } finally {
+        this.running = false;
+        this.startPromise = null;
+        this.stopPromise = null;
+      }
+    })();
+    return this.stopPromise;
+  }
+
+  /** Rejects on a fatal loop failure, resolves after all loops drain. */
+  get finished(): Promise<void> {
+    return Promise.all(this.workers.map((worker) => worker.finished)).then(
+      () => {},
+    );
   }
 
   get stats(): WorkerStats {

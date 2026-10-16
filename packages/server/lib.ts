@@ -10,3 +10,8 @@ export {
   type StartServerOptions,
   startServer,
 } from "./start";
+export {
+  type RunningEmbeddingWorkers,
+  type StartEmbeddingWorkersOptions,
+  startEmbeddingWorkers,
+} from "./worker-start";

@@ -21,18 +21,13 @@ import {
   shutdownTokenizerPool,
 } from "@memory.build/embedding";
 import { type CoreStore, coreStore } from "@memory.build/engine/core";
-import {
-  DEFAULT_WORKER_TIMEOUTS,
-  WorkerPool,
-  type WorkerTimeouts,
-} from "@memory.build/worker";
 import { info, span } from "@pydantic/logfire-node";
 import postgres, { type Sql } from "postgres";
 import { MIN_CLIENT_VERSION, SERVER_VERSION } from "../../version";
 import { createBetterAuth } from "./auth/betterauth";
 import { cleanupExpiredAuth } from "./auth/cleanup";
-import { embeddingConstants } from "./config";
 import type { ServerContext } from "./context";
+import { buildEmbeddingConfig, parseIntEnv } from "./embedding-config";
 import { checkSizeLimit } from "./middleware";
 import {
   httpRequestTelemetryAttributes,
@@ -43,6 +38,8 @@ import {
 } from "./request-telemetry";
 import { createRouter } from "./router";
 import { internalError } from "./util/response";
+import { buildWorkerSettings, resolveWorkerCount } from "./worker-config";
+import { type RunningEmbeddingWorkers, startWorkerPool } from "./worker-start";
 
 interface RpcDbTimeoutsMs {
   statementTimeoutMs: number;
@@ -58,79 +55,7 @@ const DEFAULT_RPC_DB_TIMEOUTS_MS: RpcDbTimeoutsMs = {
   idleInTransactionSessionTimeoutMs: 35_000,
 };
 
-/**
- * Parse an integer from an environment variable with NaN guard.
- */
-function parseIntEnv(
-  name: string,
-  value: string,
-  defaultValue: string,
-): number {
-  const raw = value || defaultValue;
-  const parsed = parseInt(raw, 10);
-  if (Number.isNaN(parsed)) {
-    throw new Error(
-      `Invalid value for ${name}: "${raw}" is not a valid integer`,
-    );
-  }
-  return parsed;
-}
-
-/**
- * Build the embedding config from environment variables. Requires
- * EMBEDDING_API_KEY (the server won't boot without it). Used as the default
- * when `StartServerOptions.embeddingConfig` is not supplied.
- *
- * The provider is always the OpenAI SDK client, which speaks the
- * OpenAI-compatible /embeddings protocol — so pointing EMBEDDING_BASE_URL at a
- * gateway (e.g. OpenRouter's https://openrouter.ai/api/v1) plus that gateway's
- * key in EMBEDDING_API_KEY is all that's needed to route through it.
- * EMBEDDING_MODEL exists because gateways rename models (OpenRouter wants
- * "openai/text-embedding-3-small"). Dimensions stay fixed at 1536 to match the
- * halfvec(1536) column — see embeddingConstants.
- */
-export function buildEmbeddingConfig(): EmbeddingConfig {
-  const apiKey = process.env.EMBEDDING_API_KEY;
-  if (!apiKey) {
-    throw new Error("EMBEDDING_API_KEY is required");
-  }
-
-  const options: EmbeddingConfig["options"] = {};
-
-  if (process.env.EMBEDDING_TIMEOUT_MS) {
-    options.timeoutMs = parseIntEnv(
-      "EMBEDDING_TIMEOUT_MS",
-      process.env.EMBEDDING_TIMEOUT_MS,
-      "0",
-    );
-  }
-  // Default to 0: the worker's own visibility-timeout requeue + the pool-wide
-  // rate-limit backoff are the single retry authority, so the AI SDK's internal
-  // retry ladder (default 2 → 3 attempts) is redundant and actively harmful
-  // during a provider 429 — it multiplies the calls behind every surfaced
-  // error. Set EMBEDDING_MAX_RETRIES explicitly to re-enable SDK retries.
-  options.maxRetries = parseIntEnv(
-    "EMBEDDING_MAX_RETRIES",
-    process.env.EMBEDDING_MAX_RETRIES || "",
-    "0",
-  );
-  if (process.env.EMBEDDING_MAX_PARALLEL_CALLS) {
-    options.maxParallelCalls = parseIntEnv(
-      "EMBEDDING_MAX_PARALLEL_CALLS",
-      process.env.EMBEDDING_MAX_PARALLEL_CALLS,
-      "0",
-    );
-  }
-
-  return {
-    provider: "openai",
-    model: process.env.EMBEDDING_MODEL || embeddingConstants.model,
-    dimensions: embeddingConstants.dimensions,
-    apiKey,
-    baseUrl: process.env.EMBEDDING_BASE_URL,
-    options,
-  };
-}
+export { buildEmbeddingConfig } from "./embedding-config";
 
 export interface StartServerOptions {
   /** HTTP port. Default PORT env or 3000; 0 = OS-assigned random port. */
@@ -170,6 +95,8 @@ export interface RunningServer {
   url: string;
   port: number;
   context: ServerContext;
+  /** Rejects if an embedding loop dies; absent in API-only mode. */
+  workerFinished?: Promise<void>;
   /** Tear down: workerPool.stop → cron.stop → server.stop → pools.end. */
   stop(): Promise<void>;
 }
@@ -262,9 +189,9 @@ export async function startServer(
   const authSchema = opts.authSchema ?? process.env.AUTH_SCHEMA ?? "auth";
   const coreSchema = opts.coreSchema ?? process.env.CORE_SCHEMA ?? "core";
 
-  const workerCount =
-    opts.workerCount ??
-    parseIntEnv("WORKER_COUNT", process.env.WORKER_COUNT || "", "2");
+  const workerCount = resolveWorkerCount(opts.workerCount, true);
+  const workerSettings =
+    workerCount > 0 ? buildWorkerSettings({ ...opts, workerCount }) : undefined;
 
   // Connection pool settings - database
   const dbPoolMax = parseIntEnv(
@@ -288,42 +215,6 @@ export async function startServer(
     "30",
   );
 
-  // Connection pool settings - embedding worker database
-  const workerDatabaseUrl =
-    opts.workerDatabaseUrl ?? process.env.WORKER_DATABASE_URL ?? databaseUrl;
-  const workerDbPoolMax = parseIntEnv(
-    "WORKER_DB_POOL_MAX",
-    process.env.WORKER_DB_POOL_MAX || "",
-    String(Math.max(workerCount, 1)),
-  );
-  const workerDbPoolIdleReapSeconds = parseIntEnv(
-    "WORKER_DB_POOL_IDLE_REAP_SECONDS",
-    process.env.WORKER_DB_POOL_IDLE_REAP_SECONDS || "",
-    String(dbPoolIdleReapSeconds),
-  );
-  const workerDbPoolMaxLifetime = parseIntEnv(
-    "WORKER_DB_POOL_MAX_LIFETIME",
-    process.env.WORKER_DB_POOL_MAX_LIFETIME || "",
-    String(dbPoolMaxLifetime),
-  );
-  const workerDbPoolConnectionTimeout = parseIntEnv(
-    "WORKER_DB_POOL_CONNECTION_TIMEOUT",
-    process.env.WORKER_DB_POOL_CONNECTION_TIMEOUT || "",
-    String(dbPoolConnectionTimeout),
-  );
-  const workerTimeouts: WorkerTimeouts = {
-    statementTimeout:
-      process.env.WORKER_DB_STATEMENT_TIMEOUT ??
-      DEFAULT_WORKER_TIMEOUTS.statementTimeout,
-    lockTimeout:
-      process.env.WORKER_DB_LOCK_TIMEOUT ?? DEFAULT_WORKER_TIMEOUTS.lockTimeout,
-    transactionTimeout:
-      process.env.WORKER_DB_TRANSACTION_TIMEOUT ??
-      DEFAULT_WORKER_TIMEOUTS.transactionTimeout,
-    idleInTransactionSessionTimeout:
-      process.env.WORKER_DB_IDLE_IN_TRANSACTION_SESSION_TIMEOUT ??
-      DEFAULT_WORKER_TIMEOUTS.idleInTransactionSessionTimeout,
-  };
   const rpcDbTimeoutsMs: RpcDbTimeoutsMs = opts.rpcDbTimeoutsMs ?? {
     statementTimeoutMs: parseIntEnv(
       "RPC_DB_STATEMENT_TIMEOUT_MS",
@@ -415,230 +306,232 @@ export async function startServer(
     },
   });
 
-  // Core control-plane store (core schema) on the runtime application pool.
-  const core = coreStore(runtimeDb, coreSchema);
+  let authPool: ReturnType<typeof createBetterAuth>["pool"] | undefined;
+  let workers: RunningEmbeddingWorkers | undefined;
+  let cleanupCron: Bun.CronJob | null = null;
+  try {
+    // Core control-plane store (core schema) on the runtime application pool.
+    const core = coreStore(runtimeDb, coreSchema);
 
-  // better-auth instance + its dedicated, schema-pinned pool. better-auth owns
-  // the human identity surface (social login, sessions, OAuth tokens); the api-key path
-  // stays in `core`. Its pool is separate from the runtime app pool.
-  const betterAuthSecret =
-    opts.betterAuthSecret ?? process.env.BETTER_AUTH_SECRET;
-  if (!betterAuthSecret) {
-    throw new Error("BETTER_AUTH_SECRET environment variable is required");
-  }
-  const {
-    auth: betterAuth,
-    pool: authDbPool,
-    verifyOAuthAccessToken,
-    getUserEmailVerified,
-  } = createBetterAuth({
-    databaseUrl,
-    authSchema,
-    baseURL: apiBaseUrl,
-    secret: betterAuthSecret,
-    trustedOrigins: webAllowedOrigins,
-    github:
-      process.env.GITHUB_CLIENT_ID && process.env.GITHUB_CLIENT_SECRET
-        ? {
-            clientId: process.env.GITHUB_CLIENT_ID,
-            clientSecret: process.env.GITHUB_CLIENT_SECRET,
-          }
-        : undefined,
-    google:
-      process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET
-        ? {
-            clientId: process.env.GOOGLE_CLIENT_ID,
-            clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-          }
-        : undefined,
-  });
-
-  // ---------------------------------------------------------------------------
-  // Router
-  // ---------------------------------------------------------------------------
-
-  const tokenizerThreads = getTokenizerThreadCount();
-  info("Embedding tokenizer configured", { threads: tokenizerThreads });
-
-  const context: ServerContext = {
-    db: runtimeDb,
-    betterAuth,
-    verifyOAuthToken: verifyOAuthAccessToken,
-    getUserEmailVerified,
-    core,
-    authSchema,
-    coreSchema,
-    embeddingConfig,
-    apiBaseUrl,
-    webDist,
-    webAllowedOrigins,
-    serverVersion: SERVER_VERSION,
-    minClientVersion: MIN_CLIENT_VERSION,
-  };
-
-  const router = createRouter(context);
-
-  // ---------------------------------------------------------------------------
-  // Embedding Worker Pool
-  // ---------------------------------------------------------------------------
-
-  // Dedicated worker pool (postgres.js) — the embedding worker processes the
-  // per-space me_<slug> schemas.
-  const workerDb = postgres(workerDatabaseUrl, {
-    max: workerDbPoolMax,
-    idle_timeout: workerDbPoolIdleReapSeconds,
-    max_lifetime: workerDbPoolMaxLifetime,
-    connect_timeout: workerDbPoolConnectionTimeout,
-    onnotice: () => {},
-    connection: { application_name: "me-worker" },
-  });
-
-  const workerPool = new WorkerPool(workerDb, {
-    embedding: embeddingConfig,
-    discover: async () => {
-      const spaces = await core.listSpaces();
-      return spaces.map((s) => ({ schema: spaceSlugToSchema(s.slug) }));
-    },
-    batchSize: parseIntEnv(
-      "WORKER_BATCH_SIZE",
-      process.env.WORKER_BATCH_SIZE || "",
-      "10",
-    ),
-    lockDuration: process.env.WORKER_LOCK_DURATION || "5 minutes",
-    idleDelayMs:
-      opts.workerIdleDelayMs ??
-      parseIntEnv(
-        "WORKER_IDLE_DELAY_MS",
-        process.env.WORKER_IDLE_DELAY_MS || "",
-        "10000",
-      ),
-    maxBackoffMs: parseIntEnv(
-      "WORKER_MAX_BACKOFF_MS",
-      process.env.WORKER_MAX_BACKOFF_MS || "",
-      "60000",
-    ),
-    refreshIntervalMs:
-      opts.workerRefreshIntervalMs ??
-      parseIntEnv(
-        "WORKER_REFRESH_INTERVAL_MS",
-        process.env.WORKER_REFRESH_INTERVAL_MS || "",
-        "60000",
-      ),
-    timeouts: workerTimeouts,
-  });
-
-  await workerPool.start(workerCount);
-  info("Embedding worker pool started", { workers: workerCount });
-
-  // ---------------------------------------------------------------------------
-  // Cleanup Jobs
-  // ---------------------------------------------------------------------------
-
-  // Sweep expired auth rows on a cron schedule (UTC). better-auth + the OAuth
-  // provider + the device-authorization plugin own these tables (sessions,
-  // verifications, oauth tokens, device codes) but don't purge expired rows on
-  // their own, so this reclaims them.
-  const cleanupCron =
-    (opts.enableCleanupCron ?? true)
-      ? Bun.cron(authCleanupCron, async () => {
-          try {
-            const { sessions, verifications, oauthTokens, deviceCodes } =
-              await cleanupExpiredAuth(runtimeDb, authSchema);
-            if (sessions || verifications || oauthTokens || deviceCodes) {
-              info("Cleaned up expired auth rows", {
-                sessions,
-                verifications,
-                oauthTokens,
-                deviceCodes,
-              });
+    // better-auth instance + its dedicated, schema-pinned pool. better-auth owns
+    // the human identity surface (social login, sessions, OAuth tokens); the api-key path
+    // stays in `core`. Its pool is separate from the runtime app pool.
+    const betterAuthSecret =
+      opts.betterAuthSecret ?? process.env.BETTER_AUTH_SECRET;
+    if (!betterAuthSecret) {
+      throw new Error("BETTER_AUTH_SECRET environment variable is required");
+    }
+    const {
+      auth: betterAuth,
+      pool: authDbPool,
+      verifyOAuthAccessToken,
+      getUserEmailVerified,
+    } = createBetterAuth({
+      databaseUrl,
+      authSchema,
+      baseURL: apiBaseUrl,
+      secret: betterAuthSecret,
+      trustedOrigins: webAllowedOrigins,
+      github:
+        process.env.GITHUB_CLIENT_ID && process.env.GITHUB_CLIENT_SECRET
+          ? {
+              clientId: process.env.GITHUB_CLIENT_ID,
+              clientSecret: process.env.GITHUB_CLIENT_SECRET,
             }
-          } catch (error) {
-            reportError("Failed to clean up expired auth rows", error as Error);
+          : undefined,
+      google:
+        process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET
+          ? {
+              clientId: process.env.GOOGLE_CLIENT_ID,
+              clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+            }
+          : undefined,
+    });
+
+    authPool = authDbPool;
+
+    // ---------------------------------------------------------------------------
+    // Router
+    // ---------------------------------------------------------------------------
+
+    const tokenizerThreads = getTokenizerThreadCount();
+    info("Embedding tokenizer configured", { threads: tokenizerThreads });
+
+    const context: ServerContext = {
+      db: runtimeDb,
+      betterAuth,
+      verifyOAuthToken: verifyOAuthAccessToken,
+      getUserEmailVerified,
+      core,
+      authSchema,
+      coreSchema,
+      embeddingConfig,
+      apiBaseUrl,
+      webDist,
+      webAllowedOrigins,
+      serverVersion: SERVER_VERSION,
+      minClientVersion: MIN_CLIENT_VERSION,
+    };
+
+    const router = createRouter(context);
+
+    // ---------------------------------------------------------------------------
+    // Embedding Worker Pool
+    // ---------------------------------------------------------------------------
+
+    if (workerSettings) {
+      workers = await startWorkerPool(
+        opts.workerDatabaseUrl ??
+          process.env.WORKER_DATABASE_URL ??
+          databaseUrl,
+        embeddingConfig,
+        async () =>
+          (await core.listSpaces()).map((s) => ({
+            schema: spaceSlugToSchema(s.slug),
+          })),
+        workerSettings,
+        workerCount,
+      );
+      info("Embedding worker pool started", { workers: workerCount });
+    }
+
+    // ---------------------------------------------------------------------------
+    // Cleanup Jobs
+    // ---------------------------------------------------------------------------
+
+    // Sweep expired auth rows on a cron schedule (UTC). better-auth + the OAuth
+    // provider + the device-authorization plugin own these tables (sessions,
+    // verifications, oauth tokens, device codes) but don't purge expired rows on
+    // their own, so this reclaims them.
+    cleanupCron =
+      (opts.enableCleanupCron ?? true)
+        ? Bun.cron(authCleanupCron, async () => {
+            try {
+              const { sessions, verifications, oauthTokens, deviceCodes } =
+                await cleanupExpiredAuth(runtimeDb, authSchema);
+              if (sessions || verifications || oauthTokens || deviceCodes) {
+                info("Cleaned up expired auth rows", {
+                  sessions,
+                  verifications,
+                  oauthTokens,
+                  deviceCodes,
+                });
+              }
+            } catch (error) {
+              reportError(
+                "Failed to clean up expired auth rows",
+                error as Error,
+              );
+            }
+          })
+        : null;
+
+    // ---------------------------------------------------------------------------
+    // Server
+    // ---------------------------------------------------------------------------
+
+    const server = Bun.serve({
+      port,
+      async fetch(request) {
+        return observeHttpRequest(request, async () => {
+          try {
+            return await span("http.request", {
+              attributes: httpRequestTelemetryAttributes(request),
+              callback: async (activeSpan) => {
+                const response =
+                  checkSizeLimit(request) ??
+                  (await router.handleRequest(request));
+                setTelemetryAttributes(
+                  activeSpan,
+                  httpResponseTelemetryAttributes(response),
+                );
+                setTelemetryAttributes(
+                  activeSpan,
+                  await tokenResponseTelemetryAttributes(request, response),
+                );
+                return response;
+              },
+            });
+          } catch {
+            // Error already recorded on http.request span by the helper
+            return internalError();
           }
-        })
-      : null;
+        });
+      },
+    });
 
-  // ---------------------------------------------------------------------------
-  // Server
-  // ---------------------------------------------------------------------------
+    info("Server started", { port: server.port });
 
-  const server = Bun.serve({
-    port,
-    async fetch(request) {
-      return observeHttpRequest(request, async () => {
+    let stopping: Promise<void> | undefined;
+    function stop(): Promise<void> {
+      stopping ??= drain();
+      return stopping;
+    }
+    async function drain(): Promise<void> {
+      info("Shutting down server...");
+
+      const errors: unknown[] = [];
+      // Stop accepting connections and await in-flight handlers before draining
+      // their worker/tokenizer/database dependencies.
+      try {
+        await server.stop();
+      } catch (error) {
+        errors.push(error);
+      }
+
+      // Stop embedding workers
+      try {
+        await workers?.stop();
+        info("Embedding worker pool stopped");
+      } catch (error) {
+        errors.push(error);
+        reportError("Error stopping embedding workers", error as Error);
+      }
+
+      try {
+        await shutdownTokenizerPool();
+        info("Embedding tokenizer pool stopped");
+      } catch (error) {
+        errors.push(error);
+        reportError("Error stopping embedding tokenizer pool", error as Error);
+      }
+
+      // Stop background jobs and close both pools even if one drain fails.
+      try {
+        cleanupCron?.stop();
+      } catch (error) {
+        errors.push(error);
+      }
+      for (const pool of [runtimeDb, authDbPool]) {
         try {
-          return await span("http.request", {
-            attributes: httpRequestTelemetryAttributes(request),
-            callback: async (activeSpan) => {
-              const response =
-                checkSizeLimit(request) ??
-                (await router.handleRequest(request));
-              setTelemetryAttributes(
-                activeSpan,
-                httpResponseTelemetryAttributes(response),
-              );
-              setTelemetryAttributes(
-                activeSpan,
-                await tokenResponseTelemetryAttributes(request, response),
-              );
-              return response;
-            },
-          });
-        } catch {
-          // Error already recorded on http.request span by the helper
-          return internalError();
+          await pool.end();
+        } catch (error) {
+          errors.push(error);
+          reportError("Error closing database connections", error as Error);
         }
-      });
-    },
-  });
+      }
 
-  info("Server started", { port: server.port });
-
-  let stopped = false;
-  async function stop(): Promise<void> {
-    if (stopped) return;
-    stopped = true;
-
-    info("Shutting down server...");
-
-    // Stop accepting new connections
-    server.stop();
-
-    // Stop embedding workers
-    try {
-      await workerPool.stop();
-      info("Embedding worker pool stopped");
-    } catch (error) {
-      reportError("Error stopping embedding workers", error as Error);
+      info("Shutdown complete");
+      if (errors.length)
+        throw new AggregateError(errors, "Server drain failed");
     }
 
-    try {
-      await shutdownTokenizerPool();
-      info("Embedding tokenizer pool stopped");
-    } catch (error) {
-      reportError("Error stopping embedding tokenizer pool", error as Error);
-    }
-
-    // Stop background jobs
+    const boundPort = server.port ?? port;
+    return {
+      url: `http://localhost:${boundPort}`,
+      port: boundPort,
+      context,
+      workerFinished: workers?.finished,
+      stop,
+    };
+  } catch (error) {
     cleanupCron?.stop();
-
-    // Close database pools
-    try {
-      await workerDb.end();
-      await runtimeDb.end();
-      await authDbPool.end();
-    } catch (error) {
-      reportError("Error closing database connections", error as Error);
-    }
-
-    info("Shutdown complete");
+    await workers?.stop().catch(() => {});
+    await Promise.allSettled([
+      runtimeDb.end(),
+      authPool?.end(),
+      shutdownTokenizerPool(),
+    ]);
+    throw error;
   }
-
-  const boundPort = server.port ?? port;
-  return {
-    url: `http://localhost:${boundPort}`,
-    port: boundPort,
-    context,
-    stop,
-  };
 }

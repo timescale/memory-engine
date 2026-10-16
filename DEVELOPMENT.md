@@ -492,6 +492,47 @@ per-schema advisory lock.
 Rolling back to an older server image trips the downgrade guard in the
 migration runners (stamped schema version newer than the app's) — by design.
 
+## Separate API and embedding processes
+
+The server defaults to two embedded background workers. To run separate
+processes locally against an **explicit local database**, first start the API
+(which performs migrations), then start a standalone consumer:
+
+```bash
+# Terminal 1: also provide API_BASE_URL, BETTER_AUTH_SECRET, and EMBEDDING_*.
+DATABASE_URL=postgresql://postgres@127.0.0.1:5432/postgres \
+  WORKER_COUNT=0 ./bun run server
+
+# Terminal 2: same EMBEDDING_* settings/model; no auth/API URL required.
+DATABASE_URL=postgresql://postgres@127.0.0.1:5432/postgres \
+  WORKER_COUNT=2 ./bun run worker
+```
+
+The existing server image also supports `bun run packages/server/worker.ts`
+as its command override. There is no new `me` CLI command: `me serve` remains
+the local UI proxy. No Compose or Kubernetes defaults change automatically.
+
+The worker command never runs migrations or starts a public HTTP listener.
+It discovers spaces through `DATABASE_URL` and optionally processes queues
+through `WORKER_DATABASE_URL`, using `WORKER_DB_*` pool/timeouts and the
+existing batch/poll settings. The databases must represent the same logical
+application data. Set `CORE_SCHEMA` consistently if using a non-default schema.
+API-only mode still embeds semantic search queries synchronously, so it still
+requires provider credentials. Use the same embedding model in both roles.
+
+SIGTERM drains batches before exit. Fatal discovery/loop failures exit nonzero;
+ordinary batch/provider errors retry normally. There is no worker HTTP health
+endpoint yet. See [the worker design](design/embedding-queue-and-worker.md)
+for lifecycle, rate-limit, and connection-budget details.
+
+Focused integration coverage uses isolated schemas and a loopback embedding
+stub—no real embedding-provider key is needed:
+
+```bash
+TEST_DATABASE_URL=postgresql://postgres@127.0.0.1:5432/postgres \
+  ./bun test --timeout 30000 packages/server/worker-start.integration.test.ts
+```
+
 ## Hosted web UI
 
 The web UI (`packages/web`) runs in two modes from a **single build**:

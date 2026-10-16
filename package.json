@@ -10,6 +10,7 @@
     "e2e"
   ],
   "scripts": {
+    "worker": "./bun run packages/server/worker.ts",
     "build": "./bun run --filter '@memory.build/cli' build",
     "build:all": "./bun scripts/build-all.ts",
     "check": "./bun i --silent && ./bun scripts/bundle-web-assets.ts && ./bun run typecheck && ./bun run lint --write && ./bun run test:unit",
