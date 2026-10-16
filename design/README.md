@@ -18,7 +18,7 @@ must preserve.
 
 | Document | Scope |
 | --- | --- |
-| [Runtime and OOM observability](runtime-observability.md) | Logfire memory, cgroup, request-size, and tokenizer-pressure diagnostics |
+| [Runtime and OOM observability](runtime-observability.md) | Lean Logfire application snapshots, request-size and tokenizer diagnostics, and Prometheus correlation |
 
 ## Database
 

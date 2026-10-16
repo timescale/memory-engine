@@ -11,7 +11,7 @@ process-wide memory sampler before application bootstrap (including API database
 migrations), keeping sampling active until application drain completes. API
 processes use service name `memory-engine`; standalone consumers use
 `memory-engine-worker`. Both retain the same resource identity, scrubbing,
-fail-open setup, final-sample, and bounded SDK shutdown behavior.
+fail-open setup, telemetry profile, and bounded SDK shutdown behavior.
 `startServer()` and `startEmbeddingWorkers()` remain free of process-global
 telemetry configuration so in-process harnesses do not install extra timers or
 change global providers. The shared process lifecycle also finalizes telemetry
@@ -29,9 +29,9 @@ retaining previously installed auto-peers outside Logfire's supported ranges.
 The installed stack is `@pydantic/logfire-node` 0.18.29 (`logfire` 0.23.0), OTel API
 1.9.1, stable SDK/core/resources/context packages 2.12.0, experimental
 SDK/exporters/instrumentation/API-logs 0.223.0, node auto-instrumentations 0.81.1,
-and semantic conventions 1.43.0. Runtime gauges, HTTP instruments, SDK readers,
-and public SDK flushes use the same provider. Tests check installed peer ranges
-and identical resolved module paths across database/embedding/engine/server/worker.
+and semantic conventions 1.43.0. Diagnostic runtime gauges and HTTP instruments
+use the SDK's existing metrics provider and reader. Tests check installed peer
+ranges and identical resolved module paths across database/embedding/engine/server/worker.
 
 OTel's 0.223 transformer uses upstream custom protobuf serialization rather than
 `protobufjs`. The remaining protobuf runtime is in NodeSDK's optional gRPC
@@ -79,99 +79,99 @@ env:
 
 This repository change does not modify the separate deployment charts.
 
-## Runtime measurements
+## Telemetry profiles and runtime measurements
 
-Every 10 seconds, and once at startup, the sampler captures a bounded numeric
-snapshot. Nonoverlapping asynchronous filesystem reads keep slow/unavailable
-procfs/cgroup files from accumulating work. The timer is unref'd; shutdown aborts
-pending reads and performs a best-effort final metric flush with a one-second
-budget before removing observation callbacks.
+`LOGFIRE_TELEMETRY_PROFILE=lean` is the default for both API and standalone
+workers. Unknown profile values fail lean rather than enabling metrics. This is
+a trace-first application profile: RPC spans, search/response sizes, authenticated
+principal identity, and mutation attributes are unchanged. Kubernetes monitoring
+in `timescale/tiger-agents-deploy`, under `charts/memory-engine`, owns working
+set, memory limits, container RSS/CPU, restarts, and OOM alerts for API and worker
+containers. Logfire carries sparse application state to correlate with those
+Prometheus signals by pod, environment, and time.
 
-Metrics are observable gauges, with no point labels:
+The ingest investigation motivating this split observed metric ingest increase
+from 2,120/hour to 233,633/hour across dev and prod combined. Automatic runtime-node
+V8 metrics (52 series) accounted for 61.5% of ingest; 48 zero-valued series
+accounted for 56.8%. These are observations from that investigation, not a
+prediction of future volume or cost.
 
-| Metric | Unit / interpretation |
-| --- | --- |
-| `memory_engine.process.memory.rss` | Bytes resident for the process. |
-| `memory_engine.process.memory.heap_used` | Bytes reported by Bun's `process.memoryUsage().heapUsed`. |
-| `memory_engine.process.memory.heap_total` | Bytes reported by `heapTotal`. |
-| `memory_engine.process.memory.external` | Bytes reported by `external`. |
-| `memory_engine.process.memory.array_buffers` | Bytes reported by `arrayBuffers`, when available. |
-| `memory_engine.process.uptime` | Seconds since process startup. |
-| `memory_engine.cgroup.memory.usage` | Leaf cgroup memory usage in bytes; not process RSS. |
-| `memory_engine.cgroup.memory.limit` | Leaf finite memory limit in bytes. |
-| `memory_engine.cgroup.memory.peak` | Leaf peak memory usage in bytes, when supported. |
-| `memory_engine.cgroup.memory.events.oom` | Absolute kernel OOM event count, when available. |
-| `memory_engine.cgroup.memory.events.oom_kill` | Absolute kernel OOM-kill count, when available. |
-| `memory_engine.cgroup.memory.effective_limit` | Minimum finite cgroup-v2 `memory.max` across the leaf and visible ancestors. |
-| `memory_engine.cgroup.memory.limiting.usage` | Usage of the cgroup supplying that minimum limit. |
-| `memory_engine.cgroup.memory.limiting.events.oom` | Absolute OOM event count for that limiting cgroup. |
-| `memory_engine.cgroup.memory.limiting.events.oom_kill` | Absolute OOM-kill count for that limiting cgroup. |
-| `memory_engine.tokenizer.threads` | Managed tokenizer worker slots, not configured maximum or total OS thread count. |
-| `memory_engine.tokenizer.active_jobs` | Tokenizer jobs dispatched and awaiting a result. |
-| `memory_engine.tokenizer.queued_jobs` | Jobs waiting for a tokenizer worker. |
-| `memory_engine.tokenizer.active_input` | UTF-8 input bytes belonging to active jobs. |
-| `memory_engine.tokenizer.queued_input` | UTF-8 input bytes belonging to waiting jobs. |
+| Behavior | `lean` (default) | `diagnostic` (incident opt-in) |
+| --- | --- | --- |
+| SDK metrics | Disabled; no exported HTTP or snapshot metric points | Application HTTP instruments and nine snapshot gauges enabled |
+| `Runtime memory sample` structured log | Startup, then every 60,000 ms | Startup, then every 10,000 ms |
+| SDK metric export | No metric reader/export | SDK-native 60-second reader |
+| Automatic runtime-node / V8 instrumentation | Disabled | Disabled |
+| Cgroup filesystem sampling or metrics | None | None |
+| Provider-wide periodic `forceFlush()` | None | None |
 
-Cgroup resolution uses `/proc/self/cgroup` and `/proc/self/mountinfo`, including
-mount roots and namespace-relative membership. Conventional container-root paths
-are fallbacks when discovery is unavailable. Cgroup v1 supports leaf usage,
-limit, peak, and available OOM-kill counters; `under_oom` is not an event count.
-Cgroup v2 also checks ancestors up to the visible mount root, never outside it.
-Unlimited, unsupported, inaccessible, malformed, or unsafe numeric values are
-omitted rather than exported as zero. A missing cgroup limit does not mean zero
-memory is available.
+Each sample is a single `Runtime memory sample` event with numeric-only snapshot
+attributes in `packages/server/runtime-telemetry.ts`. Resource identity (service,
+environment, pod, and process instance) is retained separately. There is no input
+text, per-job identifier, heap snapshot, or new payload retention. Unavailable,
+non-finite, or negative measurements are omitted, not fabricated as zero.
 
-Ancestor measurements may include sibling containers/processes. Do not divide
-leaf usage by an ancestor's limit and call that ancestor utilization; use the
-paired limiting-cgroup usage instead. Hidden host ancestors, cgroup-v1 inherited
-limits, swap, and node-wide pressure are not fully represented. The smallest
-finite byte limit is not necessarily the ancestor nearest to exhaustion.
+| Sample attribute | Diagnostic gauge | Unit / interpretation |
+| --- | --- | --- |
+| `rss` | `memory_engine.process.memory.rss` | Bytes resident for this process. |
+| `heapUsed` | `memory_engine.process.memory.heap_used` | Bytes reported by Bun's `process.memoryUsage().heapUsed`. |
+| `external` | `memory_engine.process.memory.external` | Runtime-reported external bytes. |
+| `uptime` | `memory_engine.process.uptime` | Seconds since process startup. |
+| `tokenizerThreads` | `memory_engine.tokenizer.threads` | Managed worker slots, not configured maximum or total OS threads. |
+| `tokenizerActiveJobs` | `memory_engine.tokenizer.active_jobs` | Jobs dispatched and awaiting a result. |
+| `tokenizerQueuedJobs` | `memory_engine.tokenizer.queued_jobs` | Jobs waiting for a worker. |
+| `tokenizerActiveInputBytes` | `memory_engine.tokenizer.active_input` | UTF-8 input bytes belonging to active jobs. |
+| `tokenizerQueuedInputBytes` | `memory_engine.tokenizer.queued_input` | UTF-8 input bytes belonging to waiting jobs. |
 
-Bun's JS memory categories are runtime-reported diagnostics, not V8 heap
-statistics. RSS, heap, external memory, and ArrayBuffer measurements are not
-necessarily disjoint; do not sum them into a total or label their difference a
-proven leak. Worker dictionaries/native allocations can raise RSS without raising
-main-thread JS heap usage.
+The diagnostic gauges have no point labels. Heap-total, ArrayBuffer, and cgroup
+measurements are not part of either profile. Bun's JS memory categories are
+runtime-reported diagnostics, not V8 heap statistics. Process RSS, JS heap, and
+external memory are not necessarily disjoint: do not sum them or label their
+difference a proven leak. Worker dictionaries/native allocations can raise RSS
+without raising main-thread JS heap usage. Container RSS and working set cover
+different scopes and semantics from JS heap; they cannot be directly compared
+as equivalent measurements or subtracted to attribute allocations.
 
-### Export cadence and structured samples
+### Sampling, export, and shutdown
 
-The installed Logfire 0.18 / OTel 2.12 reader still has its own 60-second export
-timer and does not consume `OTEL_METRIC_EXPORT_INTERVAL`. The sampler supplements
-it with Logfire's public `forceFlush()` API, reaching the SDK's existing readers
-and pending spans/logs without probing private global-provider methods. It
-defaults the env setting to `10000` milliseconds only when absent; explicit values
-are preserved. Supplementary flushes occur on sampling ticks, are clamped to a
-minimum of one sampling interval, and round up to that resolution.
-Invalid/nonpositive values fall back to the greater of 10 seconds and the sample
-interval. Longer settings do not disable the SDK's 60-second timer. Only one
-supplementary flush runs at a time, without blocking memory sampling. No-token
-export callbacks now complete, so public flush/shutdown also support in-memory
-additional readers in no-export configurations.
+`LOGFIRE_RUNTIME_SAMPLE_INTERVAL_MS` overrides the structured-log sampling
+interval in either profile, with a minimum of 10,000 ms. Positive safe integers
+up to 2,147,483,647 ms are accepted; smaller positive values are clamped to the
+minimum. Invalid, nonpositive, unsafe, or out-of-timer-range values fall back to
+the profile default (60,000 ms lean; 10,000 ms diagnostic). The timer is unref'd.
+This setting does not change diagnostic metric export cadence. Profile and
+interval settings are read at process startup: changing production configuration
+requires restart/redeploy, not a new image release once profile support is
+available. Explicitly restore lean and remove temporary interval overrides after
+an incident; see the operational recipe in `DEVELOPMENT.md`.
 
-Before configuration, the entrypoint defaults `OTEL_LOGS_EXPORTER` and
-`OTEL_METRICS_EXPORTER` to `none`, preserving explicit operator settings. NodeSDK
-0.223 otherwise creates implicit localhost OTLP exporters when Logfire omits a
-signal (no-token log processors, or `metrics: false`). These defaults do **not**
-disable Logfire's explicitly configured readers/processors when a token is
-present. There is still no second metrics provider or exporter.
+`OTEL_METRIC_EXPORT_INTERVAL` no longer controls this application. Diagnostic
+metrics use the SDK's native 60-second reader. There is no sampling-tick or other
+provider-wide periodic `forceFlush()` of metrics, spans, or logs; normal SDK
+batching remains responsible for export.
 
-On boot failure and graceful shutdown, the sampler first flushes its final
-snapshot before removing gauge callbacks (one-second budget), then the entrypoint
-calls public `shutdown({ timeoutMillis: 1000 })` to close every SDK signal. This
-also covers SIGINT/explicit exit, where `beforeExit` is not emitted. Isolated
-real-SDK tests exercise no-token in-memory readers and a loopback OTLP collector:
-default 60-second reader registration, supplementary cadence, metric/resource and
-span export, final flush, idempotent shutdown, and natural process exit.
+Lean configures SDK metrics off and suppresses implicit NodeSDK metric exporters,
+so disabling explicit metrics cannot accidentally create a localhost OTLP metrics
+pipeline. `OTEL_METRICS_EXPORTER` is intentionally set to `none` even if inherited
+from the deployment: the application profile, not an implicit OTel exporter,
+controls metric opt-in. Implicit no-token log exporters are also suppressed. Diagnostic uses
+the SDK's existing provider and reader, not a second metrics pipeline.
 
-A `Runtime memory sample` structured Logfire event accompanies each completed
-sample. Its attributes are the numeric keys from `RUNTIME_METRICS` in
-`packages/server/runtime-telemetry.ts` (for example `rss`, `heapUsed`,
-`cgroupUsage`, `cgroupEffectiveLimit`, `tokenizerQueuedInputBytes`). This gives a
-second queryable view of the same samples, not additional sensitive data. It
-adds approximately six small events per minute per process. Logfire buffering,
-sampling, network failure, or SIGKILL can still lose the final sample.
+Boot failure, fatal worker-loop failure, and graceful shutdown still finalize
+telemetry with bounded public SDK shutdown (`shutdown({ timeoutMillis: 1000 })`),
+including SIGINT/explicit exit where `beforeExit` is not emitted. There is no
+special periodic flush or OOM handler. Samples and spans may be sampled, buffered,
+dropped, or lost to network failure or SIGKILL; even graceful shutdown's final
+export is best effort. Lean normally schedules roughly one small sample event
+per minute per process, not a guarantee of one ingested observation per minute.
 
 ## HTTP and RPC measurements
+
+HTTP metric instruments remain in the application but export points only in the
+`diagnostic` profile. Span attributes below remain available in both profiles.
+Routine `Health check` info and `space auth succeeded` debug logs are removed;
+failure logs are preserved. Health/readiness HTTP request spans remain traced:
+removing success logs does not exclude probes from tracing.
 
 | Signal | Location / interpretation |
 | --- | --- |
@@ -226,9 +226,9 @@ Identity remains trace-only, never a per-principal/per-space metric label.
 There is one `rpc.<method>` span for each dispatched, schema-valid method call.
 `rpc.outcome` is `success`, `business_error`, or `error`. Requests rejected before
 dispatch (authentication, method lookup, authorization gates, parameter/envelope
-validation) do not have this RPC span; aggregate HTTP counters still cover their
-HTTP handlers. Rates below therefore measure dispatched RPCs, not every incoming
-attempt. Span timestamp buckets use operation start time; a long operation may
+validation) do not have this RPC span; HTTP spans still cover their handlers,
+and aggregate HTTP counters cover them when diagnostic metrics are enabled.
+Rates below therefore measure dispatched RPCs, not every incoming attempt. Span timestamp buckets use operation start time; a long operation may
 finish/export after its bucket.
 
 Mutation handlers add the following **numeric attributes to that existing span**
@@ -318,31 +318,35 @@ change. Trace sampling, exporter failures, abrupt kills, and partial time bucket
 can undercount these operational rates. They are not suitable for exact billing;
 use database-backed audit/history records for durable accounting.
 
-## Investigating a restart in Logfire
+## Investigating a restart across Prometheus and Logfire
 
-Group memory time series by `service_instance_id` and environment before comparing
-replicas. Example metric query (select an appropriate Logfire query time window):
+Start with Prometheus/Kubernetes monitoring for the affected API or worker pod:
+check working set versus its memory limit, container RSS/CPU, restart count, and
+OOM/termination evidence. Select that environment and time window in Logfire,
+match the pod resource identity, then distinguish process lifetimes with
+`service_instance_id`. Do not join replicas or successive lifetimes merely by
+service name. Example application-state query (works in lean without metrics;
+use `memory-engine-worker` for standalone workers):
 
 ```sql
-select time_bucket('1 minute', recorded_timestamp) as t,
-       service_instance_id, metric_name,
-       max(metric_max(value)) as peak
-from metrics
+select start_timestamp, service_instance_id,
+       attributes->>'rss' as process_rss_bytes,
+       attributes->>'heapUsed' as heap_used_bytes,
+       attributes->>'external' as external_bytes,
+       attributes->>'uptime' as uptime_seconds,
+       attributes->>'tokenizerActiveJobs' as tokenizer_active_jobs,
+       attributes->>'tokenizerQueuedJobs' as tokenizer_queued_jobs,
+       attributes->>'tokenizerQueuedInputBytes' as tokenizer_queued_input_bytes
+from records
 where service_name = 'memory-engine'
   and deployment_environment = 'aws-prod'
-  and metric_name in (
-    'memory_engine.process.memory.rss',
-    'memory_engine.process.memory.heap_used',
-    'memory_engine.cgroup.memory.usage',
-    'memory_engine.cgroup.memory.limit'
-  )
-group by time_bucket('1 minute', recorded_timestamp),
-         service_instance_id, metric_name
-order by t desc
+  and message = 'Runtime memory sample'
+order by start_timestamp desc
 limit 50
 ```
 
-Then inspect the expensive search spans for the same process/time window:
+Filter to the matching instance when inspecting expensive search spans for that
+process/time window:
 
 ```sql
 select start_timestamp, service_instance_id, trace_id,
@@ -359,22 +363,24 @@ order by (attributes->>'http.response.body.size')::float desc nulls last
 limit 50
 ```
 
-Compare sustained growth versus isolated spikes, JS heap versus RSS, response
-sizes versus request concurrency, and tokenizer queued bytes versus active work.
+Correlate sustained process RSS/heap trends, response sizes and concurrent request
+spans, and tokenizer queued bytes versus active work with the pod's Prometheus
+timeline. Sparse samples can miss short spikes; container RSS is not JS heap.
 These are correlations, not proof that a particular request allocated retained
-memory. Histograms aggregate completed helper calls; abrupt kills can lose spans
-for the very operation that caused a spike.
+memory. Diagnostic histograms aggregate completed helper calls; abrupt kills can
+lose spans for the very operation that caused a spike. Removed Logfire cgroup
+metrics cannot supply container limits, utilization, or OOM counters in either
+profile; use the infrastructure monitoring source instead.
 
 ## What the application cannot guarantee
 
 An OOM SIGKILL cannot be caught. Application sampling cannot reliably confirm the
-victim's own OOM kill because it may never emit/flush another sample, and a new
-container may get fresh cgroup counters. A one-second final flush is best effort
-for graceful shutdown, not an OOM handler. Logfire's existing SIGTERM SDK shutdown
-listener can also race a post-drain flush.
+victim's own OOM kill because it may never emit/export another sample. Bounded
+SDK shutdown is best effort for graceful termination, not protection against OOM.
 
-Kubernetes/container monitoring outside the application is still required for
-restart count, last termination reason (`OOMKilled`), and uninterrupted container
-usage/limit telemetry. Configure an external OpenTelemetry Collector/Kubernetes
-monitoring integration to send those signals to Logfire. No collector or cluster
-configuration is installed by this change.
+Kubernetes/container monitoring in `timescale/tiger-agents-deploy`'s
+`charts/memory-engine` provides infrastructure signals and OOM alerts for both
+roles independently of the application's Logfire exporter. Those Prometheus
+signals do not need to be duplicated as application cgroup metrics in Logfire.
+Missing application samples do not establish healthy memory usage or absence of
+an OOM. Neither profile is a durable accounting or uninterrupted monitoring feed.

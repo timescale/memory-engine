@@ -20,6 +20,8 @@ for (const serviceName of ["memory-engine", "memory-engine-worker"]) {
           startRuntimeSampler(options) {
             events.push("sampler");
             expect(options.tokenizerStats).toBe(stats);
+            expect(options.metricsEnabled).toBe(false);
+            expect(options.intervalMs).toBe(60000);
             return { stop: async () => {
               events.push("final sample");
               ${failure === "sampler" ? 'throw new Error("sample failed");' : ""}
@@ -32,6 +34,9 @@ for (const serviceName of ["memory-engine", "memory-engine-worker"]) {
             events.push("configure");
             expect(options.serviceName).toBe(${JSON.stringify(serviceName)});
             expect(options.sendToLogfire).toBe("if-token-present");
+            expect(options.metrics).toBe(false);
+            expect(options.nodeAutoInstrumentations["@opentelemetry/instrumentation-runtime-node"].enabled).toBe(false);
+            expect(options.nodeAutoInstrumentations["@opentelemetry/instrumentation-fs"].enabled).toBe(false);
             expect(options.scrubbing.extraPatterns).toEqual(["content", "embedding", "access_token", "refresh_token"]);
             expect(options.serviceVersion).toBeString();
             expect(options.codeSource.repository).toBe("https://github.com/timescale/memory-engine");
@@ -58,6 +63,11 @@ for (const serviceName of ["memory-engine", "memory-engine-worker"]) {
       `;
       const child = Bun.spawn([process.execPath, "-e", script], {
         cwd: new URL("../..", import.meta.url).pathname,
+        env: {
+          ...process.env,
+          LOGFIRE_TELEMETRY_PROFILE: "lean",
+          LOGFIRE_RUNTIME_SAMPLE_INTERVAL_MS: "60000",
+        },
         stdout: "pipe",
         stderr: "pipe",
       });

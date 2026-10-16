@@ -163,7 +163,8 @@ input text, queries, or credentials are added by this instrumentation, and it
 does not serialize payloads or allocate byte-buffer copies to measure them.
 
 `getTokenizerPoolStats()` (exported by the embedding package) provides a
-constant-time, numeric-only snapshot for the runtime metrics sampler:
+constant-time, numeric-only snapshot for the runtime sampler (sparse logs by
+default; gauges only in the diagnostic profile):
 
 | Field | Meaning |
 | --- | --- |

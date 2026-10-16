@@ -1,4 +1,4 @@
-import { error, info } from "@pydantic/logfire-node";
+import { error } from "@pydantic/logfire-node";
 import type { Sql } from "postgres";
 import { json, text } from "../util/response";
 
@@ -8,7 +8,6 @@ import { json, text } from "../util/response";
  * No database check — fast and cheap.
  */
 export function healthHandler(_request: Request): Response {
-  info("Health check");
   return text("ok");
 }
 

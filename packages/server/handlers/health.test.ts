@@ -19,10 +19,14 @@ afterEach(() => {
 });
 
 describe("healthHandler", () => {
-  test("returns 200 ok without touching the database", async () => {
+  test("returns 200 ok without touching the database or emitting a heartbeat log", async () => {
+    const infoSpy = spyOn(logfire, "info").mockImplementation(() => {});
+    const debugSpy = spyOn(logfire, "debug").mockImplementation(() => {});
     const response = healthHandler(new Request("http://localhost/health"));
     expect(response.status).toBe(200);
     expect(await response.text()).toBe("ok");
+    expect(infoSpy).not.toHaveBeenCalled();
+    expect(debugSpy).not.toHaveBeenCalled();
   });
 });
 

@@ -259,11 +259,6 @@ async function authenticateSpaceInner(
     apiKeyId,
   );
 
-  debug("space auth succeeded", {
-    slug,
-    principalId,
-    byApiKey: apiKeyId !== null,
-  });
   return {
     ok: true,
     context: {

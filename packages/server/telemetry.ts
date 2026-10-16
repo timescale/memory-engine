@@ -5,11 +5,13 @@ import {
   prepareRuntimeTelemetryEnvironment,
   startRuntimeSampler,
 } from "./runtime-telemetry";
+import { resolveTelemetrySettings } from "./telemetry-settings";
 
 /** Process-only setup, shared by API and standalone worker entrypoints. */
 export function configureTelemetry(serviceName: string): {
   stop(): Promise<void>;
 } {
+  const settings = resolveTelemetrySettings();
   // Resource identity and exporter defaults must precede Logfire's env detector.
   try {
     prepareRuntimeTelemetryEnvironment();
@@ -35,6 +37,13 @@ export function configureTelemetry(serviceName: string): {
       console: process.env.LOGFIRE_CONSOLE === "true",
       serviceName,
       serviceVersion: SERVER_VERSION,
+      metrics: settings.metricsEnabled ? { additionalReaders: [] } : false,
+      nodeAutoInstrumentations: {
+        "@opentelemetry/instrumentation-fs": { enabled: false },
+        // Bun is not V8; Kubernetes owns infrastructure monitoring. Even the
+        // diagnostic profile exports only our explicitly chosen app metrics.
+        "@opentelemetry/instrumentation-runtime-node": { enabled: false },
+      },
       codeSource: {
         repository: "https://github.com/timescale/memory-engine",
         revision,
@@ -60,7 +69,11 @@ export function configureTelemetry(serviceName: string): {
   let sampler: ReturnType<typeof startRuntimeSampler> | undefined;
   try {
     // Start before bootstrap, including migrations and standalone worker startup.
-    sampler = startRuntimeSampler({ tokenizerStats: getTokenizerPoolStats });
+    sampler = startRuntimeSampler({
+      tokenizerStats: getTokenizerPoolStats,
+      intervalMs: settings.snapshotIntervalMs,
+      metricsEnabled: settings.metricsEnabled,
+    });
   } catch {
     /* fail open */
   }
@@ -70,7 +83,8 @@ export function configureTelemetry(serviceName: string): {
     stop() {
       stopping ??= (async () => {
         try {
-          // Keep sampling through application drain; flush before removing gauges.
+          // Stop snapshots after application drain; SDK shutdown below performs
+          // the only explicit flush, including the last buffered sample.
           await sampler?.stop();
         } catch {
           /* SDK shutdown must still run if the final sample fails. */

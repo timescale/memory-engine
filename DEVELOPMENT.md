@@ -2,11 +2,59 @@
 
 ## Server observability
 
-The production server emits process/cgroup memory gauges, per-process identity,
-search/JSON-response sizes, and tokenizer-pressure diagnostics through its
-existing Logfire setup. See [Runtime and OOM observability](design/runtime-observability.md)
-for metric names, sampling/export behavior, Logfire queries, and the external
-Kubernetes monitoring still needed to confirm `OOMKilled` terminations.
+The API and standalone embedding worker default to a lean, trace-first Logfire
+profile. RPC spans retain search/JSON-response sizes, authenticated principal
+identity, and mutation attributes. A single numeric `Runtime memory sample` log
+at startup and every 60 seconds adds process RSS, JS heap used, external memory,
+uptime, and tokenizer pressure with service/pod/process resource identity.
+Kubernetes/Prometheus monitoring in `timescale/tiger-agents-deploy`, under
+`charts/memory-engine`, owns working set/limits, container RSS/CPU, restarts, and
+OOM alerts for both roles. Correlate sparse Logfire application state with those
+signals by pod, environment, and time; container RSS is not JS heap.
+
+See [Runtime and OOM observability](design/runtime-observability.md) for field and
+metric names, query examples, privacy boundaries, and shutdown tradeoffs.
+
+### Operational telemetry profile recipe
+
+1. **Normal operation:** leave `LOGFIRE_TELEMETRY_PROFILE` unset or set it to
+   `lean`. SDK metrics are disabled and implicit NodeSDK metric exporters are
+   suppressed: existing HTTP instruments export no points. Unknown profile values
+   also fail lean.
+2. **During an incident:** set `LOGFIRE_TELEMETRY_PROFILE=diagnostic` in the
+   deployment environment of the affected API and/or worker. This opts into
+   application HTTP metrics plus nine process/tokenizer snapshot gauges using the
+   SDK-native **60-second** reader, and speeds sample logs to **10 seconds**.
+   On an image with profile support already deployed, this is an environment-only
+   change: restart/redeploy the affected processes; no new image release is
+   required. Configuration is read at startup, not hot-reloaded.
+3. **Optional sampling override:** set `LOGFIRE_RUNTIME_SAMPLE_INTERVAL_MS` for
+   sample logs only. Positive safe integers through `2147483647` ms are accepted
+   and clamped to a minimum of `10000` ms. Invalid, nonpositive, unsafe, or
+   out-of-timer-range values fall back to `60000` ms in lean or `10000` ms in
+   diagnostic. This does not change metric-reader cadence;
+   `OTEL_METRIC_EXPORT_INTERVAL` no longer controls this application.
+4. **Explicitly opt back out after the incident:** restore
+   `LOGFIRE_TELEMETRY_PROFILE=lean` (or remove it), remove any temporary sampling
+   override, and restart/redeploy affected API/worker processes again. Confirm
+   fresh process identity and allow in-flight exports from old pods to drain
+   before evaluating the new profile's volume.
+
+For a local diagnostic run with the existing project token/environment:
+
+```bash
+LOGFIRE_TELEMETRY_PROFILE=diagnostic ./bun run server
+# Or, for a standalone embedding consumer:
+LOGFIRE_TELEMETRY_PROFILE=diagnostic ./bun run worker
+```
+
+Both profiles disable automatic runtime-node/V8 instrumentation, cgroup filesystem
+sampling/metrics, and provider-wide periodic `forceFlush()`. Diagnostic does not
+restore removed cgroup metrics: use Prometheus for infrastructure pressure and
+OOM evidence. Normal SDK batching and bounded SDK shutdown remain. Samples and
+spans may be sampled/dropped and can miss short spikes or the final moments before
+SIGKILL. Routine `Health check` info and `space auth succeeded` debug logs are
+removed, but failure logs and health/readiness HTTP spans remain.
 
 ## Prerequisites
 
@@ -167,9 +215,11 @@ GOOGLE_CLIENT_SECRET=...
 GITHUB_CLIENT_ID=...
 GITHUB_CLIENT_SECRET=...
 
-# Telemetry (optional) — omit to disable
+# Telemetry (optional) — omit token to disable export
 # LOGFIRE_TOKEN=...
 # LOGFIRE_ENVIRONMENT=dev
+# LOGFIRE_TELEMETRY_PROFILE=lean
+# LOGFIRE_RUNTIME_SAMPLE_INTERVAL_MS=60000
 ```
 
 Optional runtime database timeout knobs are listed in `.env.sample`. They are
