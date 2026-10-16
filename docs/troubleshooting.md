@@ -12,6 +12,28 @@
 
 See [Joining a Space](joining-a-space.md) for the full invitee walkthrough.
 
+### "Login expired or revoked"
+
+Run `me login` again (or `me --server <url> login` for a specific server). In a
+headless environment, use `me login --device`. Once the server definitively
+rejects the saved refresh credential, the CLI stops retrying it and asks you to
+sign in again. Repeated commands will not repair that credential. If your local
+credential store is read-only or failing, fix that too: the rejected-login state
+may not survive a client restart until it can be saved.
+
+The CLI still recovers when another local process has already saved a newer
+login, and temporary network failures remain retryable. If a long-running
+client continues to fail after you sign in, restart it. Login, logout and
+background refresh coordinate so a rejected older login cannot overwrite a new
+one; background failures also leave your default server unchanged. A generic
+authentication failure does not automatically delete a newer saved login.
+`me serve` reports a terminal login rejection as an authentication failure,
+not a retryable connection failure.
+
+An injected
+`ME_SESSION_TOKEN` is not automatically refreshed: replace or remove that
+override, or fix `ME_API_KEY` if you are using key-based authentication.
+
 ### Search returns no results
 
 1. **Check embedding status** -- semantic search requires embeddings. New memories take ~10-30 seconds to get embeddings. Use `me memory get <id>` and check `hasEmbedding`.

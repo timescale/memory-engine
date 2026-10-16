@@ -25,7 +25,8 @@ import type {
 import { Command } from "commander";
 import { CLIENT_VERSION, MIN_SERVER_VERSION } from "../../../version";
 import { checkServerVersion, createUserClient, RpcError } from "../client.ts";
-import { resolveServer, setActiveSpace, storeTokens } from "../credentials.ts";
+import { persistLoginTokens } from "../credential-mutation.ts";
+import { resolveServer, setActiveSpace } from "../credentials.ts";
 import { pollDeviceToken, startDeviceAuthorization } from "../device.ts";
 import { formatSpaceLabel } from "../identity.ts";
 import {
@@ -168,7 +169,7 @@ export async function authenticateLogin(
         openBrowser: options.browser,
       });
 
-  storeTokens(options.server, {
+  await persistLoginTokens(options.server, {
     access_token: tokens.accessToken,
     refresh_token: tokens.refreshToken,
     expires_at:

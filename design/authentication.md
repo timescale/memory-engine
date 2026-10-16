@@ -55,6 +55,55 @@ processes sharing a credential store, preventing concurrent reuse of a rotated
 refresh token. An injected `ME_SESSION_TOKEN` is treated as a static bearer and
 is never refreshed.
 
+A definite `invalid_grant` first re-reads the shared credential store under the
+refresh lock. A newer peer token is recovered (and refreshed if necessary). If
+there is no newer token, the CLI removes the rejected raw refresh token and
+persists a SHA-256 rejection tombstone in the same token record. Proactive,
+reactive, subsequent, and separate-process calls then raise an actionable
+`ReLoginRequiredError` without replaying that token. A fresh login or successful
+rotation replaces the record and clears the tombstone. This state is per server
+origin and is never sent to the server. If persistence fails, a bounded local
+hash-only guard still makes the rejection terminal for the running client, and
+the error remains an auth error rather than a retryable storage/transport error.
+Durable rejection across processes is best effort when credential storage is
+unwritable; a different fresh login token bypasses the token-specific guard.
+Network/transient failures remain retryable; injected bearers and API keys bypass OAuth refresh.
+
+All production login persistence, explicit logout, refresh and rejection writes
+share the mutation boundary in `credential-mutation.ts`. Interactive login and
+network authorization happen outside the lock; final persistence happens under
+it. Keychain-backed credentials share a stable home-relative lock across XDG
+config directories, while file-only stores remain isolated by config directory.
+Detailed credential reads distinguish found, confirmed missing and unavailable
+storage (including platform keychain exit statuses). After a successful exchange,
+confirmed removal or a newer token set still wins. A transient lookup failure,
+however, does not discard the server's already-rotated pair: it is saved under
+the same lock using the normal keychain/file fallback. Credential writes refuse
+to overwrite an unreadable/corrupt fallback file. If all persistence fails after
+a rotation, the running process remembers that the old token was consumed and
+raises re-login guidance rather than replaying it. Durable recovery still needs
+writable storage; an in-memory guard cannot preserve a new login across a crash.
+A process waiting on the lock can recover a changed, fresh access-only/device
+login, not just a peer's rotated refresh-token pair. Every definite rejection is
+remembered locally before re-reading storage, since an empty keychain lookup can
+be temporary unavailability rather than logout. A durable tombstone is written
+only if the stored refresh token still matches. Older clients that ignore these
+locks cannot be fully coordinated by a newer process. Keychain-backed clients
+require a writable `~/.config/me` for this shared lock even when XDG points
+elsewhere; silently falling back to different XDG lock roots would reopen the
+race. A file-only sandbox can explicitly use `ME_NO_KEYCHAIN=1` with a writable
+XDG directory and sign in again. Login's final persistence and logout wait at
+most 45 seconds for a live lock holder, then fail closed with a busy-store error.
+A slow/hung refresh can therefore require retrying login after authorization;
+additional exchange-timeout/recovery hardening is a follow-up.
+
+Background rotation and rejection writes do not change the default server;
+explicit login still selects it. A generic RPC 401 no longer automatically
+clears stored credentials: without the failing request's credential identity,
+that could erase a newer login. It still prompts re-login, and explicit logout
+clears under the shared lock. `me serve` preserves terminal local auth failures
+as HTTP 401/UNAUTHORIZED, not retryable proxy 502s.
+
 OAuth credentials are user-bound. Client-credentials tokens without a user do
 not authenticate the RPC APIs; independently managed automation uses a service
 account API key instead.

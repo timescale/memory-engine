@@ -19,6 +19,7 @@
  * RPC methods work without backend changes here.
  */
 import { SPACE_HEADER } from "@memory.build/protocol/headers";
+import { RpcError } from "../client.ts";
 import type { BearerSource } from "../session.ts";
 import { resolveAssetResponse } from "./web-assets.ts";
 
@@ -144,9 +145,9 @@ function methodNotAllowed(allow: string): Response {
  * `space` is sent as `X-Me-Space` for the memory endpoint; the user endpoint is
  * space-agnostic and passes `undefined`.
  *
- * Errors talking to the remote engine surface as a JSON-RPC-shaped 502 so
- * the web UI can render them through the same error path as normal RPC
- * failures.
+ * Terminal local auth failures remain HTTP 401 / UNAUTHORIZED, so the browser
+ * prompts for login rather than retrying them as proxy/network failures. Actual
+ * errors talking to the remote engine surface as a JSON-RPC-shaped 502.
  */
 async function proxyJsonRpc(
   req: Request,
@@ -196,6 +197,20 @@ async function proxyJsonRpc(
       headers: respHeaders,
     });
   } catch (err) {
+    if (err instanceof RpcError && err.data?.code === "UNAUTHORIZED") {
+      return Response.json(
+        {
+          jsonrpc: "2.0",
+          id: null,
+          error: {
+            code: err.code,
+            message: err.message,
+            data: { code: "UNAUTHORIZED" },
+          },
+        },
+        { status: 401 },
+      );
+    }
     const message = err instanceof Error ? err.message : String(err);
     console.error(`[me serve] proxy failure for ${path}: ${message}`);
     return Response.json(

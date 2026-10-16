@@ -215,6 +215,50 @@ see [Field projection](field-projection-and-format-selection.md).
 Embedding batch spans and tokenizer accounting are described in
 [Embedding queue and worker](embedding-queue-and-worker.md).
 
+## OAuth grant diagnostics and expected rejections
+
+The existing token-endpoint HTTP span records a fixed `oauth.grant.type` enum,
+`oauth.client_id=me-cli` for the known first-party client, or `other` plus a
+domain-separated SHA-256 `oauth.client_id_hash` for a bounded, well-shaped unknown
+client ID (`sha256("oauth.client_id:" + clientId)`), distinct from token lookup
+hashes. These
+are unauthenticated caller hints, not verified client/user identity. The client
+ID is taken from POST form/JSON fields only, not Authorization headers. Known
+CLI user-agent/process/mode headers retain their existing validation.
+
+Optional request diagnostics use a concurrent body clone capped at 8 KiB and
+250 ms. Oversized, stalled, malformed, unsupported or already-consumed bodies
+omit metadata; the original body still goes to the auth handler. Token-endpoint
+URL query parameters are excluded from the root URL attribute. Successful grant
+responses are never parsed; error responses use the same bounded clone reader.
+No access/refresh tokens, secrets, authorization codes, verifiers, raw request
+bodies, or raw error descriptions are exported.
+
+`oauth.grant.outcome` is a fixed OAuth code (or `unknown_error`). Expected
+rejections additionally carry an allowlisted `oauth.grant.rejection_reason`,
+such as `refresh_token_not_found`, `refresh_token_invalid`, `missing_client_id`,
+or `other`. The provider uses the same description for some expired and revoked
+tokens: `refresh_token_invalid` does not distinguish those causes.
+
+`OAuthClientErrorSpanProcessor` narrowly adapts the public `recordException` and
+`setStatus` methods of matching live Better Auth token-handler/POST spans during
+`onStart`, before any processor can export them. Only actual Better Auth
+`APIError` instances or the pinned provider's genuine `better-call` base-class
+instances, the exact `/oauth2/token` route, and allowlisted OAuth
+client-error codes with HTTP 400/401/403 qualify. They remain info level with
+UNSET status, `error.expected=true`, safe outcome/reason/status attributes, and no
+exception event. The wire response is unchanged. Unknown codes, arbitrary
+APIError-shaped objects, other routes/scopes, database failures, and 5xx errors
+retain their original exception/error behavior. A later unrelated failure on the
+same span is not suppressed. The adapter is tested against the pinned Better
+Auth/provider implementation and must be revalidated on dependency upgrades.
+Real endpoint tests cover missing refresh tokens, disabled clients, bad client
+secrets, disallowed grants, invalid scopes and malformed Basic credentials.
+
+These fields/classification add no spans, log events or metric series and apply
+in both telemetry profiles. Expected OAuth rejection counts remain queryable;
+they are not automatically application defects or evidence of user error.
+
 ## Request rates and memory-operation volume
 
 The same RPC spans support per-space/per-principal request and mutation-volume

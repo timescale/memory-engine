@@ -10,6 +10,7 @@ import {
   type UserClient,
 } from "@memory.build/client";
 import type { ResolvedCredentials } from "./credentials.ts";
+import { ReLoginRequiredError } from "./session.ts";
 
 // Dynamic import to avoid pulling in @clack/prompts at top level (it touches
 // process.stdin).
@@ -253,6 +254,15 @@ const creds = (
 });
 
 describe("describeAuthError", () => {
+  test("terminal refresh rejection is actionable in either scope and preserves the tombstone", () => {
+    const error = new ReLoginRequiredError();
+    for (const scope of ["account", "space"] as const) {
+      const result = describeAuthError(error, creds(), scope);
+      expect(result).toEqual({ message: error.message, clearSession: false });
+      expect(result?.message).toContain("me login");
+      expect(result?.message).not.toContain("active space");
+    }
+  });
   test("returns null for a non-UNAUTHORIZED error (falls back to raw message)", () => {
     const notFound = new RpcError(-32000, "Nope", { code: "NOT_FOUND" });
     expect(
@@ -288,13 +298,13 @@ describe("describeAuthError", () => {
     expect(r?.message).not.toContain("me login");
   });
 
-  test("session, account scope: genuine expiry — clears the token, prompts login", () => {
+  test("session, account scope: prompts login without clearing a possibly newer token", () => {
     const r = describeAuthError(
       unauthorized(),
       creds({ loggedIn: true }),
       "account",
     );
-    expect(r?.clearSession).toBe(true);
+    expect(r?.clearSession).toBe(false);
     expect(r?.message).toBe(
       "Session expired. Run 'me login' to sign in again.",
     );

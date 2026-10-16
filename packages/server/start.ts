@@ -26,6 +26,7 @@ import postgres, { type Sql } from "postgres";
 import { MIN_CLIENT_VERSION, SERVER_VERSION } from "../../version";
 import { createBetterAuth } from "./auth/betterauth";
 import { cleanupExpiredAuth } from "./auth/cleanup";
+import { tokenRequestTelemetryAttributes } from "./auth/oauth-request-metadata";
 import type { ServerContext } from "./context";
 import { buildEmbeddingConfig, parseIntEnv } from "./embedding-config";
 import { checkSizeLimit } from "./middleware";
@@ -456,9 +457,15 @@ export async function startServer(
             return await span("http.request", {
               attributes: httpRequestTelemetryAttributes(request),
               callback: async (activeSpan) => {
+                const sizeError = checkSizeLimit(request);
+                // Read a bounded clone concurrently; the auth handler always
+                // receives the original body and telemetry emits no new spans.
+                const tokenMetadata = sizeError
+                  ? Promise.resolve({})
+                  : tokenRequestTelemetryAttributes(request);
                 const response =
-                  checkSizeLimit(request) ??
-                  (await router.handleRequest(request));
+                  sizeError ?? (await router.handleRequest(request));
+                setTelemetryAttributes(activeSpan, await tokenMetadata);
                 setTelemetryAttributes(
                   activeSpan,
                   httpResponseTelemetryAttributes(response),

@@ -6,6 +6,8 @@
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { SPACE_HEADER } from "@memory.build/protocol/headers";
+import { rpcCall } from "../../client/transport.ts";
+import { ReLoginRequiredError } from "../session.ts";
 import {
   findAvailablePort,
   MEMORY_RPC_PATH,
@@ -297,6 +299,95 @@ describe("startHttpServer — 401 refresh", () => {
       upstream.stop(true);
     }
   });
+});
+
+describe("startHttpServer — terminal login rejection", () => {
+  for (const failure of ["proactive", "reactive"] as const) {
+    for (const path of ["/rpc", USER_RPC_PATH]) {
+      test(`${failure} refresh rejection stays 401/UNAUTHORIZED on ${path}, without transport retries`, async () => {
+        let upstreamCalls = 0;
+        let tokenCalls = 0;
+        let refreshCalls = 0;
+        const upstream = Bun.serve({
+          hostname: "127.0.0.1",
+          port: 0,
+          async fetch(request) {
+            upstreamCalls++;
+            await request.text();
+            return Response.json(
+              {
+                jsonrpc: "2.0",
+                id: 1,
+                error: {
+                  code: -32000,
+                  message: "expired",
+                  data: { code: "UNAUTHORIZED" },
+                },
+              },
+              { status: 401 },
+            );
+          },
+        });
+        const running = startHttpServer({
+          server: `http://127.0.0.1:${upstream.port}`,
+          host: "127.0.0.1",
+          port: 0,
+          space: "abc123def456",
+          bearer: {
+            async getToken() {
+              tokenCalls++;
+              if (failure === "proactive") throw new ReLoginRequiredError();
+              return "stale";
+            },
+            async onUnauthorized() {
+              refreshCalls++;
+              throw new ReLoginRequiredError();
+            },
+          },
+        });
+        try {
+          const response = await fetch(`${running.url}${path}`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              jsonrpc: "2.0",
+              id: 1,
+              method: "whoami",
+              params: {},
+            }),
+          });
+          expect(response.status).toBe(401);
+          expect(await response.json()).toMatchObject({
+            error: {
+              code: -32000,
+              message: expect.stringContaining("me login"),
+              data: { code: "UNAUTHORIZED" },
+            },
+          });
+          expect(tokenCalls).toBe(1);
+          expect(upstreamCalls).toBe(failure === "proactive" ? 0 : 1);
+          expect(refreshCalls).toBe(failure === "proactive" ? 0 : 1);
+          tokenCalls = upstreamCalls = refreshCalls = 0;
+          await expect(
+            rpcCall(
+              { url: running.url, path, timeout: 1000, retries: 3 },
+              "whoami",
+              {},
+            ),
+          ).rejects.toMatchObject({
+            data: { code: "UNAUTHORIZED" },
+            message: expect.stringContaining("me login"),
+          });
+          expect(tokenCalls).toBe(1);
+          expect(upstreamCalls).toBe(failure === "proactive" ? 0 : 1);
+          expect(refreshCalls).toBe(failure === "proactive" ? 0 : 1);
+        } finally {
+          await running.server.stop(true);
+          await upstream.stop(true);
+        }
+      });
+    }
+  }
 });
 
 describe("findAvailablePort", () => {

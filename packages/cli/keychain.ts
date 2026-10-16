@@ -13,10 +13,10 @@
  * unavailable and the caller uses the file. Set `ME_NO_KEYCHAIN=1` to force the
  * file fallback everywhere (CI, debugging, sandboxes).
  *
- * Detection + operations are best-effort and defensive: a missing tool, a
- * non-running secret service, a locked store, or a spawn error is treated as
- * "not stored / not found" so the file fallback transparently kicks in. The
- * `account` is the (normalized) server origin; the secret is the session token.
+ * Reads distinguish confirmed absence from a temporarily inaccessible store,
+ * so callers do not mistake a locked store or spawn failure for logout.
+ * Disabled / absent backends allow file fallback. The `account` is the
+ * (normalized) server origin; the secret is the session token.
  */
 
 /** Keychain service name — how the entries appear in Keychain Access / seahorse. */
@@ -25,8 +25,14 @@ const SERVICE = "memory.build";
 /** A spawn timeout so a prompting/locked secret store can't hang the CLI. */
 const SPAWN_TIMEOUT_MS = 5_000;
 
+/** A failed lookup is not evidence that a credential was removed. */
+export type KeychainRead =
+  | { status: "found"; value: string }
+  | { status: "missing" }
+  | { status: "unavailable" };
+
 interface Backend {
-  get(account: string): string | undefined;
+  get(account: string): KeychainRead;
   set(account: string, secret: string): boolean;
   del(account: string): void;
 }
@@ -36,11 +42,11 @@ function keychainDisabled(): boolean {
   return v === "1" || v === "true";
 }
 
-/** Run a command, capturing stdout; returns null on spawn failure. */
+/** Capture output internally; never expose command diagnostics to callers. */
 function run(
   cmd: string[],
   stdin?: string,
-): { exitCode: number; stdout: string } | null {
+): { exitCode: number; stdout: string; stderr: string } | null {
   try {
     const r = Bun.spawnSync({
       cmd,
@@ -49,7 +55,14 @@ function run(
       stderr: "pipe",
       timeout: SPAWN_TIMEOUT_MS,
     });
-    return { exitCode: r.exitCode ?? 1, stdout: r.stdout.toString() };
+    if (r.exitedDueToTimeout || r.exitedDueToMaxBuffer || r.signalCode) {
+      return null;
+    }
+    return {
+      exitCode: r.exitCode ?? -1,
+      stdout: r.stdout.toString(),
+      stderr: r.stderr.toString(),
+    };
   } catch {
     return null;
   }
@@ -69,9 +82,14 @@ const darwinBackend: Backend = {
       account,
       "-w",
     ]);
-    if (!r || r.exitCode !== 0) return undefined;
+    if (!r) return { status: "unavailable" };
+    // errSecItemNotFound (-25300), modulo the shell's 8-bit exit status.
+    if (r.exitCode === 44) return { status: "missing" };
+    if (r.exitCode !== 0) return { status: "unavailable" };
     const out = r.stdout.replace(/\n$/, "");
-    return out.length > 0 ? out : undefined;
+    return out.length > 0
+      ? { status: "found", value: out }
+      : { status: "missing" };
   },
   set(account, secret) {
     const r = run([
@@ -104,8 +122,13 @@ const linuxBackend: Backend = {
       "account",
       account,
     ]);
-    if (!r || r.exitCode !== 0) return undefined;
-    return r.stdout.length > 0 ? r.stdout : undefined;
+    if (!r) return { status: "unavailable" };
+    // secret-tool reports a missing item as exit 1 without diagnostics.
+    if (r.exitCode === 1 && r.stderr.length === 0) return { status: "missing" };
+    if (r.exitCode !== 0) return { status: "unavailable" };
+    return r.stdout.length > 0
+      ? { status: "found", value: r.stdout }
+      : { status: "missing" };
   },
   set(account, secret) {
     const r = run(
@@ -155,15 +178,20 @@ export function keychainAvailable(): boolean {
   return backend() !== null;
 }
 
-/** Read the secret for `account`, or undefined if absent / unavailable. */
-export function keychainGet(account: string): string | undefined {
-  const b = backend();
-  if (!b) return undefined;
+/** Read a secret without conflating confirmed absence with lookup failure. */
+export function keychainRead(account: string): KeychainRead {
   try {
-    return b.get(account);
+    const b = backend();
+    return b ? b.get(account) : { status: "missing" };
   } catch {
-    return undefined;
+    return { status: "unavailable" };
   }
+}
+
+/** Compatibility wrapper: undefined if absent / unavailable. */
+export function keychainGet(account: string): string | undefined {
+  const result = keychainRead(account);
+  return result.status === "found" ? result.value : undefined;
 }
 
 /** Store the secret for `account`. Returns true iff it landed in the keychain. */
