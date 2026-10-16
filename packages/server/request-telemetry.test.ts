@@ -113,7 +113,59 @@ describe("httpRequestTelemetryAttributes", () => {
       "oauth.grant.http_status": "400",
       "oauth.grant.outcome": "invalid_grant",
       "error.expected": true,
+      "oauth.grant.rejection_reason": "refresh_token_not_found",
     });
+  });
+
+  test("never copies token-endpoint URL query credentials into root attributes", () => {
+    const attributes = httpRequestTelemetryAttributes(
+      new Request(
+        "https://api.memory.build/api/v1/auth/oauth2/token?refresh_token=secret",
+      ),
+    );
+    expect(attributes["http.url"]).toBe(
+      "https://api.memory.build/api/v1/auth/oauth2/token",
+    );
+    expect(JSON.stringify(attributes)).not.toContain("secret");
+  });
+
+  test("unknown errors and raw descriptions are bounded; server failures remain unexpected", async () => {
+    const request = new Request(
+      "https://api.memory.build/api/v1/auth/oauth2/token",
+    );
+    const unknown = await tokenResponseTelemetryAttributes(
+      request,
+      Response.json(
+        { error: "private-error", error_description: "private-description" },
+        { status: 400 },
+      ),
+    );
+    expect(unknown).toEqual({
+      "oauth.grant.http_status": "400",
+      "oauth.grant.outcome": "unknown_error",
+    });
+    const known = await tokenResponseTelemetryAttributes(
+      request,
+      Response.json(
+        { error: "invalid_grant", error_description: "private-description" },
+        { status: 400 },
+      ),
+    );
+    expect(known["oauth.grant.rejection_reason"]).toBe("other");
+    expect(JSON.stringify(known)).not.toContain("private");
+    const serverFailure = await tokenResponseTelemetryAttributes(
+      request,
+      Response.json({ error: "invalid_grant" }, { status: 500 }),
+    );
+    expect(serverFailure["error.expected"]).toBeUndefined();
+    const response = Response.json(
+      { error: "invalid_grant", error_description: "session not found" },
+      { status: 400 },
+    );
+    await tokenResponseTelemetryAttributes(request, response);
+    expect(((await response.json()) as { error: string }).error).toBe(
+      "invalid_grant",
+    );
   });
 
   test("classifies successful token grants without parsing their body", async () => {

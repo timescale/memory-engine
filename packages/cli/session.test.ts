@@ -6,7 +6,7 @@
  * proactive/reactive refresh + rotation persistence are exercised end-to-end
  * without network or keychain.
  */
-import { afterEach, beforeEach, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, expect, mock, spyOn, test } from "bun:test";
 import {
   existsSync,
   mkdirSync,
@@ -470,7 +470,7 @@ test("invalid_grant refreshes with a peer's newer token when its access token is
   expect(refreshCalls).toBe(2);
 });
 
-test("invalid_grant with no fresher stored token gives up", async () => {
+test("proactive invalid_grant is terminal for reactive and future normalized-origin calls", async () => {
   creds.storeTokens(SERVER, {
     access_token: "old",
     refresh_token: "r1",
@@ -479,26 +479,38 @@ test("invalid_grant with no fresher stored token gives up", async () => {
   refreshImpl = async () => {
     throw new OAuthError("session not found", "invalid_grant");
   };
-  expect(await session.refreshAccessToken(SERVER)).toBeUndefined();
-  // getAccessToken still falls back to the stale token (the 401 path is backstop).
-  expect(await session.getAccessToken(SERVER)).toBe("old");
+  await expect(session.getAccessToken(SERVER)).rejects.toThrow(
+    session.ReLoginRequiredError,
+  );
+  for (const origin of [
+    SERVER,
+    `${SERVER}/`,
+    "https://api.example.com:443/path",
+  ]) {
+    await expect(session.refreshAccessToken(origin)).rejects.toThrow(
+      "me login",
+    );
+    await expect(session.getAccessToken(origin)).rejects.toThrow("me login");
+  }
+  expect(refreshCalls).toBe(1);
+  const stored = creds.getStoredTokens(SERVER);
+  expect(stored?.refresh_token).toBeUndefined();
+  expect(stored?.refresh_rejected).toMatch(/^[a-f0-9]{64}$/);
+  expect(
+    readFileSync(join(configDir, "me", "credentials.yaml"), "utf-8"),
+  ).not.toContain("r1");
 });
 
-test("refreshFromStore uses the fallback refresh_token when the store is empty", async () => {
-  // Contrived but reachable: another flow cleared the store between our
-  // earlier read and the re-read (e.g. a concurrent `me logout`). The fallback
-  // still carries our refresh_token, and refreshing with it must be possible.
-  refreshImpl = async ({ refreshToken }) => {
-    expect(refreshToken).toBe("r-fallback");
-    return { accessToken: "new", refreshToken: "r-next", expiresIn: 3600 };
-  };
+test("refreshFromStore never resurrects a cleared fallback refresh_token", async () => {
+  // A concurrent logout cleared the snapshot; never restore it from fallback.
   const result = await session.refreshFromStore(SERVER, {
     access_token: "old",
     refresh_token: "r-fallback",
     expires_at: Date.now() - 1_000,
   });
-  expect(result?.access_token).toBe("new");
-  expect(refreshCalls).toBe(1);
+  expect(result).toBeUndefined();
+  expect(refreshCalls).toBe(0);
+  expect(creds.getStoredTokens(SERVER)).toBeUndefined();
 });
 
 test("refreshFromStore refreshes with peer's refresh_token when peer's set is stale", async () => {
@@ -542,4 +554,274 @@ test("a failed refresh clears the in-flight entry so a retry makes a fresh call"
   // Second call: must re-run refresh (not stuck on the prior failed in-flight).
   expect(await session.getAccessToken(SERVER)).toBe("new");
   expect(calls).toBe(2);
+});
+
+test("persisted rejection blocks a separate process without network/keychain access", async () => {
+  creds.storeTokens(SERVER, {
+    access_token: "old",
+    refresh_token: "dead-refresh",
+    expires_at: 0,
+  });
+  refreshImpl = async () => {
+    throw new OAuthError("untrusted token endpoint text", "invalid_grant");
+  };
+  await expect(session.getAccessToken(SERVER)).rejects.toThrow("me login");
+  const childPath = join(configDir, "rejected-child.ts");
+  writeFileSync(
+    childPath,
+    `
+import { getAccessToken, refreshAccessToken } from ${JSON.stringify(join(import.meta.dir, "session.ts"))};
+globalThis.fetch = () => { throw new Error("network must not be called"); };
+for (const get of [getAccessToken, refreshAccessToken]) {
+  try { await get(${JSON.stringify(`${SERVER}:443/`)}); process.exit(2); }
+  catch (e) { console.log(e.message); }
+}
+`,
+  );
+  const child = Bun.spawn([process.execPath, childPath], {
+    env: { ...process.env, ME_NO_KEYCHAIN: "1", XDG_CONFIG_HOME: configDir },
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  const [out, err, exit] = await Promise.all([
+    new Response(child.stdout).text(),
+    new Response(child.stderr).text(),
+    child.exited,
+  ]);
+  expect(exit, err).toBe(0);
+  expect(out.match(/me login/g)?.length).toBe(2);
+  expect(out).not.toContain("dead-refresh");
+  expect(out).not.toContain("untrusted");
+  expect(refreshCalls).toBe(1);
+});
+
+test("re-login replaces rejection and a new origin is unaffected", async () => {
+  creds.storeTokens(SERVER, {
+    access_token: "old",
+    refresh_token: "dead",
+    expires_at: 0,
+  });
+  refreshImpl = async () => {
+    throw new OAuthError("rejected", "invalid_grant");
+  };
+  await expect(session.getAccessToken(SERVER)).rejects.toThrow("me login");
+  const other = "https://other.example.com";
+  creds.storeTokens(other, {
+    access_token: "other",
+    refresh_token: "other-refresh",
+    expires_at: 0,
+  });
+  refreshImpl = async () => ({
+    accessToken: "other-new",
+    refreshToken: "other-next",
+    expiresIn: 3600,
+  });
+  expect(await session.getAccessToken(other)).toBe("other-new");
+  creds.storeTokens(`${SERVER}/`, {
+    access_token: "login",
+    refresh_token: "login-refresh",
+    expires_at: 0,
+  });
+  expect(creds.getStoredTokens(SERVER)?.refresh_rejected).toBeUndefined();
+  refreshImpl = async ({ refreshToken }) => {
+    expect(refreshToken).toBe("login-refresh");
+    return {
+      accessToken: "recovered",
+      refreshToken: "rotated",
+      expiresIn: 3600,
+    };
+  };
+  expect(await session.getAccessToken(SERVER)).toBe("recovered");
+  expect(refreshCalls).toBe(3);
+});
+
+test("rejection does not defeat injected session/API key overrides", async () => {
+  creds.storeTokens(SERVER, {
+    access_token: "old",
+    refresh_token: "dead",
+    expires_at: 0,
+  });
+  refreshImpl = async () => {
+    throw new OAuthError("rejected", "invalid_grant");
+  };
+  await expect(session.refreshAccessToken(SERVER)).rejects.toThrow("me login");
+  process.env.ME_SESSION_TOKEN = "injected";
+  expect(await session.getAccessToken(SERVER)).toBe("injected");
+  expect(await session.refreshAccessToken(SERVER)).toBeUndefined();
+  delete process.env.ME_SESSION_TOKEN;
+  for (const bearer of [
+    session.userBearer(SERVER, "api-key"),
+    session.memoryBearer(SERVER, "api-key"),
+  ]) {
+    expect(await bearer.getToken()).toBe("api-key");
+    expect(await bearer.onUnauthorized()).toBeUndefined();
+  }
+  expect(refreshCalls).toBe(1);
+});
+
+test("concurrent proactive/reactive rejections share a lock and one exchange", async () => {
+  creds.storeTokens(SERVER, {
+    access_token: "old",
+    refresh_token: "dead",
+    expires_at: 0,
+  });
+  refreshImpl = async () => {
+    throw new OAuthError("rejected", "invalid_grant");
+  };
+  const results = await Promise.allSettled([
+    session.getAccessToken(SERVER),
+    session.getAccessToken(`${SERVER}/`),
+    session.refreshAccessToken(SERVER),
+  ]);
+  expect(
+    results.every(
+      (r) =>
+        r.status === "rejected" &&
+        r.reason instanceof session.ReLoginRequiredError,
+    ),
+  ).toBe(true);
+  expect(refreshCalls).toBe(1);
+  expect(await session.withRefreshLock(SERVER, async () => "released")).toBe(
+    "released",
+  );
+  await expect(
+    session.refreshFromStore(SERVER, {
+      access_token: "snapshot",
+      refresh_token: "dead",
+    }),
+  ).rejects.toThrow("me login");
+  expect(refreshCalls).toBe(1);
+});
+
+test("transient OAuth errors retain credentials and retry through reactive path", async () => {
+  const tokens = { access_token: "old", refresh_token: "live", expires_at: 0 };
+  creds.storeTokens(SERVER, tokens);
+  refreshImpl = async () => {
+    throw new OAuthError("temporarily unavailable", "server_error");
+  };
+  expect(await session.getAccessToken(SERVER)).toBe("old");
+  expect(await session.refreshAccessToken(SERVER)).toBeUndefined();
+  expect(creds.getStoredTokens(SERVER)).toEqual(tokens);
+  refreshImpl = async () => ({
+    accessToken: "new",
+    refreshToken: "next",
+    expiresIn: 3600,
+  });
+  expect(await session.refreshAccessToken(SERVER)).toBe("new");
+  expect(refreshCalls).toBe(3);
+});
+
+test("a successful exchange cannot overwrite a peer login or resurrect logout", async () => {
+  for (const peer of [
+    undefined,
+    { access_token: "peer", refresh_token: "peer-refresh" },
+  ]) {
+    creds.storeTokens(SERVER, {
+      access_token: "old",
+      refresh_token: "old-refresh",
+      expires_at: 0,
+    });
+    refreshImpl = async () => {
+      if (peer) creds.storeTokens(SERVER, peer);
+      else creds.clearTokens(SERVER);
+      return {
+        accessToken: "late",
+        refreshToken: "late-refresh",
+        expiresIn: 3600,
+      };
+    };
+    expect(await session.getAccessToken(SERVER)).toBe(peer?.access_token);
+    expect(creds.getStoredTokens(SERVER)).toEqual(peer);
+  }
+});
+
+test("reactive rejection crosses the real transport without network retries or losing the re-login error", async () => {
+  const { createUserClient } = await import("./client.ts");
+  creds.storeTokens(SERVER, {
+    access_token: "initially-fresh",
+    refresh_token: "dead",
+    expires_at: Date.now() + 3_600_000,
+  });
+  const originalFetch = globalThis.fetch;
+  let rpcCalls = 0;
+  globalThis.fetch = (async () => {
+    rpcCalls++;
+    return new Response("{}", { status: 401 });
+  }) as unknown as typeof fetch;
+  refreshImpl = async () => {
+    throw new OAuthError("untrusted secret text", "invalid_grant");
+  };
+  try {
+    const client = createUserClient({
+      url: SERVER,
+      ...session.userBearer(SERVER),
+      retries: 2,
+    });
+    await expect(client.whoami()).rejects.toThrow(session.ReLoginRequiredError);
+    // The proactive layer of the next RPC throws from persisted state, too.
+    await expect(client.whoami()).rejects.toThrow("me login");
+    expect(rpcCalls).toBe(1);
+    expect(refreshCalls).toBe(1);
+    expect(creds.getStoredTokens(SERVER)?.refresh_rejected).toBeDefined();
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+for (const mode of ["before", "after"] as const) {
+  test(`invalid_grant remains terminal when credential persistence fails ${mode} writing`, async () => {
+    creds.storeTokens(SERVER, {
+      access_token: "old",
+      refresh_token: "rejected-r1",
+      expires_at: Date.now() - 1000,
+    });
+    const originalStore = creds.storeTokens;
+    const write = spyOn(creds, "storeTokens").mockImplementation(
+      (server, tokens) => {
+        if (mode === "after") originalStore(server, tokens);
+        throw new Error("credential persistence unavailable");
+      },
+    );
+    refreshImpl = async () => {
+      throw new OAuthError("session not found", "invalid_grant");
+    };
+    try {
+      await expect(session.getAccessToken(SERVER)).rejects.toBeInstanceOf(
+        session.ReLoginRequiredError,
+      );
+      await expect(
+        session.refreshAccessToken(`${SERVER}/`),
+      ).rejects.toBeInstanceOf(session.ReLoginRequiredError);
+      await expect(session.getAccessToken(SERVER)).rejects.toBeInstanceOf(
+        session.ReLoginRequiredError,
+      );
+      expect(refreshCalls).toBe(1);
+    } finally {
+      write.mockRestore();
+    }
+    // The local fallback is token-specific, not an origin-wide login ban.
+    creds.storeTokens(SERVER, {
+      access_token: "new-login",
+      refresh_token: "new-r2",
+      expires_at: Date.now() + 3600000,
+    });
+    expect(await session.getAccessToken(SERVER)).toBe("new-login");
+    expect(refreshCalls).toBe(1);
+  });
+}
+
+test("logout during invalid_grant does not resurrect the rejected snapshot", async () => {
+  creds.storeTokens(SERVER, {
+    access_token: "old",
+    refresh_token: "dead",
+    expires_at: 0,
+  });
+  refreshImpl = async () => {
+    creds.clearTokens(SERVER);
+    throw new OAuthError("rejected", "invalid_grant");
+  };
+  await expect(session.getAccessToken(SERVER)).rejects.toThrow("me login");
+  expect(creds.getStoredTokens(SERVER)).toBeUndefined();
+  expect(await session.getAccessToken(SERVER)).toBeUndefined();
+  expect(refreshCalls).toBe(1);
 });

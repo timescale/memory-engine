@@ -40,8 +40,10 @@ import {
   writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
+import { RpcError } from "./client.ts";
 import {
   getConfigLockPath,
+  getGlobalConfigPath,
   getStoredTokens,
   normalizeOrigin,
   type OAuthTokenSet,
@@ -53,10 +55,60 @@ import { OAuthError, refreshTokens } from "./oauth.ts";
 const REFRESH_SKEW_MS = 60_000;
 
 /**
+ * Safe for CLI/MCP rendering; RpcError makes the transport treat a reactive
+ * rejection as definitive rather than retrying it as a network failure.
+ */
+export class ReLoginRequiredError extends RpcError {
+  constructor() {
+    super(
+      -32000,
+      "Login expired or revoked. Run 'me login' to sign in again.",
+      {
+        code: "UNAUTHORIZED",
+      },
+    );
+    this.name = "ReLoginRequiredError";
+  }
+}
+
+// Durable tombstones are the cross-process authority. This bounded, hash-only
+// fallback prevents a long-running client replaying a rejection if disk/keychain
+// persistence fails. Scope by credential store as well as normalized origin.
+const localRejections = new Map<string, string>();
+const MAX_LOCAL_REJECTIONS = 64;
+const rejectionScope = (server: string) =>
+  JSON.stringify([getGlobalConfigPath(), normalizeOrigin(server)]);
+const tokenHash = (token: string) =>
+  createHash("sha256").update(token).digest("hex");
+
+function rememberRejected(server: string, token: string): void {
+  const scope = rejectionScope(server);
+  localRejections.delete(scope);
+  localRejections.set(scope, tokenHash(token));
+  if (localRejections.size > MAX_LOCAL_REJECTIONS) {
+    const oldest = localRejections.keys().next().value;
+    if (oldest !== undefined) localRejections.delete(oldest);
+  }
+}
+
+function assertNotRejected(
+  tokens: OAuthTokenSet | undefined,
+  server: string,
+): void {
+  if (tokens?.refresh_rejected) throw new ReLoginRequiredError();
+  if (tokens?.refresh_token && localRejections.size > 0) {
+    const rejected = localRejections.get(rejectionScope(server));
+    if (rejected && rejected === tokenHash(tokens.refresh_token))
+      throw new ReLoginRequiredError();
+  }
+}
+
+/**
  * A live access token for `server`, refreshing by expiry. Returns undefined when
  * the user is not logged in (no stored token set and no override). On a failed
- * refresh it falls back to the current (possibly still-valid) access token —
- * the reactive 401 path is the backstop.
+ * transient refresh it falls back to the current (possibly still-valid) access
+ * token — the reactive 401 path is the backstop. A definite invalid_grant is
+ * terminal and throws an actionable re-login error instead.
  */
 export async function getAccessToken(
   server: string,
@@ -66,23 +118,29 @@ export async function getAccessToken(
 
   const tokens = getStoredTokens(server);
   if (!tokens) return undefined;
+  assertNotRejected(tokens, server);
   if (!isExpiring(tokens)) return tokens.access_token;
 
   const refreshed = await refreshOnce(server, tokens);
-  return (refreshed ?? tokens).access_token;
+  // Re-read on transient failure too: logout/rejection must not revive our
+  // stale snapshot, and a peer's newer credentials must win.
+  const usable = refreshed ?? getStoredTokens(server);
+  assertNotRejected(usable, server);
+  return usable?.access_token;
 }
 
 /**
  * Force a refresh after a 401 and return the new access token. Returns undefined
  * when there is nothing to refresh with (an injected ME_SESSION_TOKEN, no stored
- * refresh token, or a refresh that failed) — the caller then surfaces the 401,
- * prompting a re-login.
+ * refresh token, or a transient refresh failure). Definite/persisted rejection
+ * throws ReLoginRequiredError instead of retrying the rejected credential.
  */
 export async function refreshAccessToken(
   server: string,
 ): Promise<string | undefined> {
   if (process.env.ME_SESSION_TOKEN) return undefined; // injected token: can't refresh
   const tokens = getStoredTokens(server);
+  assertNotRejected(tokens, server);
   if (!tokens?.refresh_token) return undefined;
   const refreshed = await refreshOnce(server, tokens);
   return refreshed?.access_token;
@@ -102,7 +160,8 @@ const inFlight = new Map<string, Promise<OAuthTokenSet | undefined>>();
 
 /**
  * Run (or join) a single refresh for `server`, persisting the rotated token set.
- * Returns undefined when there is no refresh token or the exchange fails.
+ * Returns undefined when there is no refresh token or a transient exchange
+ * failure. A persisted/definite invalid_grant throws ReLoginRequiredError.
  *
  * The in-process `inFlight` map is the fast path (same-process concurrency never
  * touches the file lock); {@link lockedRefresh} handles the cross-process case.
@@ -147,6 +206,7 @@ async function lockedRefresh(
   // A peer may have finished immediately after our final acquire attempt. Use
   // its rotated set if present, but never send our stale refresh token unlocked.
   const current = getStoredTokens(server);
+  assertNotRejected(current, server);
   if (current?.refresh_token !== tokens.refresh_token) return current;
   return undefined;
 }
@@ -165,7 +225,10 @@ export async function refreshFromStore(
   server: string,
   fallback: OAuthTokenSet,
 ): Promise<OAuthTokenSet | undefined> {
-  const current = getStoredTokens(server) ?? fallback;
+  // An absent store means logout/clear, not permission to resurrect fallback.
+  const current = getStoredTokens(server);
+  if (!current) return undefined;
+  assertNotRejected(current, server);
   if (
     current.refresh_token &&
     current.refresh_token !== fallback.refresh_token
@@ -178,7 +241,7 @@ export async function refreshFromStore(
     if (!isExpiring(current)) return current;
     return doRefresh(server, current.refresh_token, current);
   }
-  const refreshToken = current.refresh_token ?? fallback.refresh_token;
+  const refreshToken = current.refresh_token;
   if (!refreshToken) return undefined;
   return doRefresh(server, refreshToken, current);
 }
@@ -198,6 +261,11 @@ async function doRefresh(
         r.expiresIn !== undefined ? Date.now() + r.expiresIn * 1000 : undefined,
       scope: r.scope ?? prev.scope,
     };
+    // Login/logout may write outside this lock while the exchange is in flight.
+    // Never overwrite a newer set or resurrect credentials cleared meanwhile.
+    const current = getStoredTokens(server);
+    assertNotRejected(current, server);
+    if (!current || current.refresh_token !== refreshToken) return current;
     storeTokens(server, next);
     return next;
   } catch (error) {
@@ -207,6 +275,7 @@ async function doRefresh(
     // already persisted a fresh set we can use instead of forcing a re-login.
     if (error instanceof OAuthError && error.code === "invalid_grant") {
       const current = getStoredTokens(server);
+      assertNotRejected(current, server);
       if (current?.refresh_token !== refreshToken) {
         if (current && !isExpiring(current)) return current;
         // A peer's newer access token may itself have expired while we waited;
@@ -215,10 +284,27 @@ async function doRefresh(
         if (current?.refresh_token) {
           return doRefresh(server, current.refresh_token, current);
         }
+      } else if (current) {
+        // Still our rejected token. Persist one bounded, nonsecret tombstone in
+        // the existing credential record, under the same refresh lock. Dropping
+        // the raw refresh token prevents any subsequent layer/process replay.
+        rememberRejected(server, refreshToken);
+        const { refresh_token: _rejected, ...rest } = current;
+        try {
+          storeTokens(server, {
+            ...rest,
+            refresh_rejected: tokenHash(refreshToken),
+          });
+        } catch {
+          // Credential writes can fail, or a later non-secret config write can
+          // fail after the tombstone was saved. Neither turns invalid_grant into
+          // a retryable transport error; the local guard remains in both cases.
+        }
       }
+      throw new ReLoginRequiredError();
     }
-    // Expired / revoked refresh token (or transient failure) → give up; the
-    // caller surfaces the auth error and the user re-runs `me login`.
+    if (error instanceof ReLoginRequiredError) throw error;
+    // Network/protocol failures other than definite invalid_grant are retryable.
     return undefined;
   }
 }

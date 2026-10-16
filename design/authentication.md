@@ -55,6 +55,22 @@ processes sharing a credential store, preventing concurrent reuse of a rotated
 refresh token. An injected `ME_SESSION_TOKEN` is treated as a static bearer and
 is never refreshed.
 
+A definite `invalid_grant` first re-reads the shared credential store under the
+refresh lock. A newer peer token is recovered (and refreshed if necessary). If
+there is no newer token, the CLI removes the rejected raw refresh token and
+persists a SHA-256 rejection tombstone in the same token record. Proactive,
+reactive, subsequent, and separate-process calls then raise an actionable
+`ReLoginRequiredError` without replaying that token. A fresh login or successful
+rotation replaces the record and clears the tombstone. This state is per server
+origin and is never sent to the server. If persistence fails, a bounded local
+hash-only guard still makes the rejection terminal for the running client, and
+the error remains an auth error rather than a retryable storage/transport error.
+Durable rejection across processes is best effort when credential storage is
+unwritable; a different fresh login token bypasses the token-specific guard.
+Network/transient failures remain retryable; injected bearers and API keys bypass OAuth refresh. Login/logout may
+write outside the refresh lock, so completion re-reads before persistence and
+does not intentionally overwrite a newer token set or resurrect a cleared one.
+
 OAuth credentials are user-bound. Client-credentials tokens without a user do
 not authenticate the RPC APIs; independently managed automation uses a service
 account API key instead.

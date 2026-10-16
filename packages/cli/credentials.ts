@@ -84,6 +84,12 @@ export interface OAuthTokenSet {
   expires_at?: number;
   /** Granted scope string, informational. */
   scope?: string;
+  /**
+   * Terminal invalid_grant tombstone: SHA-256 of the rejected refresh token.
+   * Written under the per-origin refresh lock; the raw refresh token is removed.
+   * Kept in the same keychain/file record so a new login replaces it naturally.
+   */
+  refresh_rejected?: string;
 }
 
 /** Per-server secrets — the keychain-free fallback. */

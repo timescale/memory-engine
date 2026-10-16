@@ -15,7 +15,7 @@ import type { MemoryClient, UserClient } from "./client.ts";
 import { createMemoryClient, createUserClient, RpcError } from "./client.ts";
 import { clearTokens, type ResolvedCredentials } from "./credentials.ts";
 import type { OutputFormat } from "./output.ts";
-import { memoryBearer, userBearer } from "./session.ts";
+import { memoryBearer, ReLoginRequiredError, userBearer } from "./session.ts";
 
 const UUIDV7_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -382,6 +382,12 @@ export function describeAuthError(
   creds: ResolvedCredentials,
   scope: AuthScope,
 ): { message: string; clearSession: boolean } | null {
+  // A local OAuth rejection is definitive even for space-scoped calls. Keep
+  // its persisted tombstone: clearing here could discard a peer's new login,
+  // and must not turn terminal refresh rejection back into an ambiguous 401.
+  if (error instanceof ReLoginRequiredError) {
+    return { message: error.message, clearSession: false };
+  }
   if (!isUnauthorized(error)) return null;
 
   const space = creds.activeSpace ? ` '${creds.activeSpace}'` : "";

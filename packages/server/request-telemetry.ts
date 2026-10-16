@@ -10,6 +10,8 @@
  * process for race attribution; this validation does not authenticate callers.
  */
 import { type Counter, metrics, type UpDownCounter } from "@opentelemetry/api";
+import { oauthErrorTelemetryAttributes } from "./auth/oauth-errors";
+import { readTelemetryBody } from "./auth/oauth-request-metadata";
 import { jsonResponseTelemetry } from "./util/response";
 
 const TOKEN_ENDPOINT_PATH = "/api/v1/auth/oauth2/token";
@@ -166,7 +168,12 @@ export function httpRequestTelemetryAttributes(
   const path = new URL(request.url).pathname;
   const attributes: Record<string, string> = {
     "http.method": request.method,
-    "http.url": request.url,
+    // OAuth credentials belong in the POST body, but never copy unexpected
+    // token-endpoint query parameters into telemetry either.
+    "http.url":
+      path === TOKEN_ENDPOINT_PATH
+        ? `${new URL(request.url).origin}${path}`
+        : request.url,
     "http.path": path,
   };
   if (path !== TOKEN_ENDPOINT_PATH) return attributes;
@@ -181,10 +188,9 @@ export function httpRequestTelemetryAttributes(
 }
 
 /**
- * Classify OAuth token-endpoint responses on the root HTTP span. Better Auth
- * owns the nested handler span and records its thrown APIError, but this lets
- * dashboards/alerts distinguish expected client-side `invalid_grant` outcomes
- * from server failures without consuming the response body.
+ * Classify the root token span using fixed outcomes and rejection reasons.
+ * The matching nested Better Auth APIError is normalized by the OAuth span
+ * processor. Neither path logs raw error descriptions or credential payloads.
  */
 export async function tokenResponseTelemetryAttributes(
   request: Request,
@@ -200,10 +206,20 @@ export async function tokenResponseTelemetryAttributes(
     return attributes;
   }
   try {
-    const body = (await response.clone().json()) as { error?: unknown };
-    if (typeof body.error === "string") {
-      attributes["oauth.grant.outcome"] = body.error;
-      if (body.error === "invalid_grant") attributes["error.expected"] = true;
+    const text = await readTelemetryBody(response);
+    if (text === undefined) return attributes;
+    const body: unknown = JSON.parse(text);
+    if (body && typeof body === "object" && !Array.isArray(body)) {
+      const { error, error_description } = body as Record<string, unknown>;
+      if (typeof error === "string")
+        Object.assign(
+          attributes,
+          oauthErrorTelemetryAttributes(
+            response.status,
+            error,
+            error_description,
+          ),
+        );
     }
   } catch {
     // A non-JSON error response has no OAuth error code to classify.
