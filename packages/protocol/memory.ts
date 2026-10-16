@@ -65,7 +65,7 @@ export const memoryBatchCreateParams = z.object({
       }),
     )
     .min(1, "at least one memory required")
-    .max(1000, "maximum 1000 memories per batch"),
+    .max(200, "maximum 200 memories per batch"),
   onConflict: onConflictSchema.optional().nullable(),
 });
 
@@ -172,7 +172,7 @@ export const memorySearchParams = z.object({
     .optional()
     .nullable(),
   temporal: temporalFilterSchema.optional().nullable(),
-  limit: z.number().int().min(1).max(1000).optional(),
+  limit: z.number().int().min(1).max(200).optional(),
   candidateLimit: z.number().int().min(1).max(1000).optional(),
   semanticThreshold: z.number().min(0).max(1).optional().nullable(),
   weights: searchWeightsSchema.optional().nullable(),

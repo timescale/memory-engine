@@ -121,6 +121,20 @@ Updates use the current `version_hash`. Any change to tree, name, metadata,
 temporal value, or content increments `version` and computes a new hash. A patch
 with an old hash fails rather than silently overwriting a concurrent edit.
 
+## Ingest bounds
+
+The public `memory.batchCreate` protocol accepts 1–200 memories per request;
+requests above 200 are rejected, not truncated. This count bound limits per-row
+write, index, trigger, and embedding-queue work within one request independently
+of the default 1 MiB request-body ceiling.
+
+CLI importers, MCP imports, and pack installation share the byte-aware batch
+chunker: at most 200 memories and a soft 768 KiB serialized-memory budget per
+chunk. Larger imports are split into sequential requests. An individual memory
+above the byte budget is attempted as a singleton and may still be rejected by
+the server body limit. The count cap does not impose a total import-size limit
+or change embedding-worker concurrency.
+
 ## Embedding lifecycle
 
 Embeddings are derived data, not the memory's source of truth. A content change

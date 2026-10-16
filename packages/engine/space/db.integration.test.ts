@@ -63,6 +63,54 @@ async function mustCreate(
   return created.id;
 }
 
+test("search results cap at 200 while hybrid candidates can exceed 200", async () => {
+  const tree = "work.result_cap";
+  await sql.unsafe(
+    `insert into ${schema}.memory (tree, content, embedding)
+     select $1::ltree, 'captesttoken', '[1,0,0,0]'::halfvec
+     from generate_series(1, 205)`,
+    [tree],
+  );
+  try {
+    expect(await db.search(FULL, { ltree: tree })).toHaveLength(10);
+    expect(await db.search(FULL, { ltree: tree, limit: 1000 })).toHaveLength(
+      200,
+    );
+    expect(
+      await db.hybridSearch(FULL, {
+        ltree: tree,
+        bm25: "captesttoken",
+        vec: [1, 0, 0, 0],
+        limit: 1000,
+        candidateLimit: 1000,
+      }),
+    ).toHaveLength(200);
+    // The shared SQL helper is also hybrid's candidate source, not the public
+    // result boundary: it must still be able to retrieve more than 200 rows.
+    const candidates = await sql`
+      select id from ${sql(schema)}.search_memory(
+        _tree_access => ${sql.json(FULL)}::jsonb,
+        _ltree => ${tree}::ltree,
+        _limit => 1000)
+    `;
+    expect(candidates).toHaveLength(205);
+    const fused = await sql`
+      select id from ${sql(schema)}.hybrid_search_memory(
+        _tree_access => ${sql.json(FULL)}::jsonb,
+        _bm25 => to_bm25query('captesttoken', ${`${schema}.memory_content_bm25_idx`}),
+        _vec => '[1,0,0,0]'::halfvec,
+        _ltree => ${tree}::ltree,
+        _candidate_limit => 1000,
+        _limit => 1000)
+    `;
+    expect(fused).toHaveLength(200);
+  } finally {
+    await sql.unsafe(`delete from ${schema}.memory where tree = $1::ltree`, [
+      tree,
+    ]);
+  }
+});
+
 test("createMemory + getMemory round-trips", async () => {
   const id = await mustCreate(FULL, {
     tree: "work.note",

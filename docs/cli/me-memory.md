@@ -94,7 +94,7 @@ me memory search [query] [options]
 | `--tree <filter>` | Tree path filter. Supports exact match, wildcards, negation, and label search. See [Tree filter syntax](../concepts.md#tree-filter-syntax). |
 | `--meta <json>` | Metadata filter as JSON. |
 | `--meta-predicate <jsonpath>` | PostgreSQL JSONPath Boolean predicate evaluated against metadata. |
-| `--limit <n>` | Max results (default: 10). |
+| `--limit <n>` | Max results (default: 10, max 200). |
 | `--candidate-limit <n>` | Pre-RRF candidate pool size. |
 | `--semantic-threshold <n>` | Minimum semantic similarity score, 0-1. |
 | `--temporal-before <ts>` | Memory must be strictly before this point in time. |
@@ -480,7 +480,7 @@ me memory export [file] [options]
 | `--format <fmt>` | Output format: `json`, `yaml`, `md` (default: `json`). |
 | `--meta <json>` | Metadata filter as JSON. |
 | `--meta-predicate <jsonpath>` | PostgreSQL JSONPath Boolean predicate evaluated against metadata. |
-| `--limit <n>` | Max memories to export (default: 1000). |
+| `--limit <n>` | Max memories to export (default: 200, max 200). |
 | `--temporal-before <ts>` | Memory must be strictly before this point in time. |
 | `--temporal-after <ts>` | Memory must be strictly after this point in time. |
 | `--temporal-contains <ts>` | Memory must contain this point in time. |

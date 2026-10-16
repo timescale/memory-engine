@@ -60,7 +60,8 @@ begin
       using errcode = 'invalid_parameter_value';
   end if;
 
-  -- min 1, max 1000, default 10
+  -- Internal candidate retrieval: min 1, max 1000, default 10.
+  -- The store caps public results at 200; hybrid fusion may retrieve more candidates.
   _limit = greatest(least(coalesce(_limit, 10), 1000), 1);
 
   -- bm25 or semantic
@@ -364,7 +365,7 @@ begin
   end if;
 
   _k = greatest(coalesce(_k, 60.0), 0.0);
-  _limit = greatest(least(coalesce(_limit, 10), 1000), 1);
+  _limit = greatest(least(coalesce(_limit, 10), 200), 1);
   _candidate_limit = greatest
     ( least(coalesce(_candidate_limit, 30), 1000)
     , _limit

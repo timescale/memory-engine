@@ -39,7 +39,7 @@ describe("normalizeSearchParams", () => {
     expect(normalizeSearchParams({ metaPredicate: "$.priority >= 3" })).toEqual(
       {
         metaPredicate: "$.priority >= 3",
-        limit: 1000,
+        limit: 200,
       },
     );
   });
@@ -47,7 +47,7 @@ describe("normalizeSearchParams", () => {
   test("drops an empty metaPredicate and falls back to list-all", () => {
     expect(normalizeSearchParams({ metaPredicate: "" })).toEqual({
       tree: "*",
-      limit: 1000,
+      limit: 200,
     });
   });
 });

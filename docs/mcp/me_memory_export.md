@@ -14,7 +14,7 @@ Prefer `path` to write directly to a file instead of returning content through t
 | `metaPredicate` | `string \| null` | no | PostgreSQL JSONPath Boolean predicate evaluated against metadata with `@@`. Omit or pass `null` to skip. |
 | `temporal` | `object \| null` | no | Temporal filter. Omit or pass `null` to skip. |
 | `format` | `string` | yes | Output format: `"json"`, `"yaml"`, or `"md"`. |
-| `limit` | `integer \| null` | no | Maximum memories to export. Omit or pass `null` for default (1000). |
+| `limit` | `integer \| null` | no | Maximum memories to export. Omit or pass `null` for default (200), maximum 200. |
 | `path` | `string \| null` | no | File or directory path. Relative paths resolve from the MCP server's working directory. For `md` format, use a directory path to write one `.md` file per memory. Omit or pass `null` to return content inline. |
 
 ### temporal

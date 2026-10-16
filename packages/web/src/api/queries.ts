@@ -20,7 +20,7 @@ import {
 import { ROOT_PATH } from "../lib/tree-build.ts";
 import { memoryClient } from "./client.ts";
 
-const SEARCH_LIMIT = 1000;
+const SEARCH_LIMIT = 200;
 
 // The RPC wire speaks canonical slash paths (`/share/auth`, `~/a/b`, root `/`);
 // the navigation/tree logic in this app is ltree-dot-native (sentinels, lquery

@@ -6,6 +6,7 @@ import {
   temporalFilterSchema,
 } from "./fields.ts";
 import {
+  memoryBatchCreateParams,
   memoryCreateParams,
   memoryGetByPathParams,
   memorySearchParams,
@@ -125,6 +126,26 @@ describe("temporalFilterSchema", () => {
 });
 
 describe("memorySearchParams", () => {
+  test("accepts result limits up to 200 and rejects larger limits", () => {
+    for (const limit of [1, 200]) {
+      expect(memorySearchParams.safeParse({ limit }).success).toBe(true);
+    }
+    for (const limit of [0, 201, 1000, 1.5]) {
+      expect(memorySearchParams.safeParse({ limit }).success).toBe(false);
+    }
+    expect(memorySearchParams.parse({}).limit).toBeUndefined();
+  });
+
+  test("keeps the hybrid candidate limit independent of the result cap", () => {
+    expect(
+      memorySearchParams.safeParse({ limit: 200, candidateLimit: 1000 })
+        .success,
+    ).toBe(true);
+    expect(memorySearchParams.safeParse({ candidateLimit: 1001 }).success).toBe(
+      false,
+    );
+  });
+
   test("accepts a non-empty metaPredicate and preserves its text", () => {
     const predicate = '  $.allowList[*] == "tom"  ';
     const parsed = memorySearchParams.parse({ metaPredicate: predicate });
@@ -138,6 +159,30 @@ describe("memorySearchParams", () => {
     expect(memorySearchParams.safeParse({ metaPredicate: "   " }).success).toBe(
       false,
     );
+  });
+});
+
+describe("memoryBatchCreateParams", () => {
+  const memory = { content: "x", tree: "share" };
+
+  test("accepts batches of 1 through 200 memories", () => {
+    for (const count of [1, 200]) {
+      expect(
+        memoryBatchCreateParams.safeParse({
+          memories: Array.from({ length: count }, () => memory),
+        }).success,
+      ).toBe(true);
+    }
+  });
+
+  test("rejects empty batches and batches larger than 200", () => {
+    for (const count of [0, 201, 1000]) {
+      expect(
+        memoryBatchCreateParams.safeParse({
+          memories: Array.from({ length: count }, () => memory),
+        }).success,
+      ).toBe(false);
+    }
   });
 });
 

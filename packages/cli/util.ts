@@ -121,7 +121,7 @@ export function buildMemoryClient(
     url: creds.server,
     ...memoryBearer(creds.server, creds.apiKey),
     space: creds.activeSpace,
-    // Bulk imports send 1000-memory batchCreate chunks that the server
+    // Bulk imports send up to 200-memory batchCreate chunks that the server
     // processes row-by-row; on a loaded server (or one far from its
     // database) a chunk can legitimately exceed the client's 30s default.
     timeout: 120_000,

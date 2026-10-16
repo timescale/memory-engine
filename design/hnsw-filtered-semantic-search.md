@@ -33,6 +33,7 @@ The call is made inside the vector branch of the search function. Its third argu
 - Direct semantic search and the semantic arm of hybrid search share the same recall behavior.
 - Candidates preserve strict distance order, which keeps hybrid rank assignment deterministic for a given candidate set.
 - Iterative scanning can inspect more graph tuples and increase query latency when filters are selective.
+- Public searches return at most 200 results (default 10). The protocol rejects larger limits and the space store clamps direct callers. The SQL search helper retains a 1,000-row bound for hybrid candidate retrieval; hybrid fusion caps its final output at 200 while retaining a candidateLimit cap of 1,000 per arm.
 - Search remains bounded by the requested result limit and pgvector's scan limits. It improves filtered recall but does not make approximate nearest-neighbor search exhaustive.
 - The parameter is set at query time because a function-level `SET` clause can fail migration when pgvector has not registered its custom parameters on that connection.
 - `hnsw.ef_search`, `hnsw.max_scan_tuples`, and `hnsw.scan_mem_multiplier` retain their configured defaults until workload-specific benchmarks justify tuning them.

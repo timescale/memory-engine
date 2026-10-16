@@ -40,7 +40,7 @@ export interface AdvancedFilter {
     start: string;
     end: string;
   };
-  /** Empty string means "use default (1000, or 50 for semantic-only)". */
+  /** Empty string means "use default (200, or 50 for semantic-only)". */
   limit: string;
   candidateLimit: string;
   /** Minimum vector similarity score (0-1) for semantic candidates. */

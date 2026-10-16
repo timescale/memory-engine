@@ -5,7 +5,7 @@
  * tool, `me pack install`) need to slice large insert sets into chunks
  * small enough to fit under the server's request-body limit. A count-only
  * cap is not enough: a single assistant turn with a large code block or
- * tool result routinely exceeds 1 KB on its own, so a 1000-item chunk can
+ * tool result can be large on its own, so even a 200-item chunk can
  * easily blow past the server's 1 MiB cap and get rejected with HTTP 413.
  *
  * This module provides the generic plumbing (`chunkByBytes`) plus the
@@ -23,15 +23,15 @@ import type {
  * Hard cap on memories per `memory.batchCreate` call. Matches the protocol
  * limit; sessions or imports with more than this get split into chunks.
  */
-export const BATCH_CREATE_CHUNK = 1000;
+export const BATCH_CREATE_CHUNK = 200;
 
 /**
  * Soft byte budget per `memory.batchCreate` request body, in UTF-8 bytes.
  *
  * The server caps request bodies at 1 MiB by default
  * (`packages/server/middleware/size-limit.ts`). With a count-only cap of
- * 1000, a single chunk of moderately-sized assistant messages routinely
- * exceeds 1 MiB and the request is rejected with HTTP 413 — taking the
+ * 200, a single chunk of large assistant messages can still
+ * exceed 1 MiB and the request is rejected with HTTP 413 — taking the
  * entire chunk down with it. We instead cut chunks early when their
  * estimated UTF-8 wire size approaches a budget that leaves room for the
  * JSON-RPC envelope plus headers.
@@ -94,7 +94,7 @@ export function* chunkByBytes<T>(
 
 /**
  * Convenience wrapper: chunk a `MemoryCreateParams[]` for `batchCreate`
- * using the importer-shaped defaults — 1 MiB-aware byte budget, 1000-item
+ * using the importer-shaped defaults — 1 MiB-aware byte budget, 200-item
  * count cap, JSON-stringify size estimate. Use this unless you have a
  * specific reason to override the defaults.
  */

@@ -136,7 +136,7 @@ function createPackInstallCommand(): Command {
         // Step 3: Search for existing memories with same pack name
         const existing = await client.memory.search({
           meta: { pack: { name: packName } },
-          limit: 1000,
+          limit: 200,
         });
 
         // Step 4: Identify stale memories (different version)
@@ -379,7 +379,7 @@ function createPackListCommand(): Command {
         // Search for all memories with meta.pack
         const result = await client.memory.search({
           meta: { pack: {} },
-          limit: 1000,
+          limit: 200,
         });
 
         // Group by pack name

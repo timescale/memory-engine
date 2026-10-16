@@ -430,7 +430,7 @@ Docs: ${docUrl("me_memory_search")}`,
             .int()
             .optional()
             .nullable()
-            .describe("Maximum results (0 = default 10, max: 1000)"),
+            .describe("Maximum results (0 = default 10, max: 200)"),
           order_by: z
             .string()
             .optional()
@@ -1482,7 +1482,7 @@ Docs: ${docUrl("me_memory_export")}`,
             .optional()
             .nullable()
             .describe(
-              "Maximum memories to export (omit or null for default 1000)",
+              "Maximum memories to export (omit or null for default 200, max 200)",
             ),
           path: z
             .string()
@@ -1503,7 +1503,7 @@ Docs: ${docUrl("me_memory_export")}`,
     },
     async (args) => {
       const searchParams: Record<string, unknown> = {
-        limit: args.limit && args.limit > 0 ? args.limit : 1000,
+        limit: args.limit && args.limit > 0 ? args.limit : 200,
         orderBy: "asc",
       };
       if (args.tree) searchParams.tree = args.tree;

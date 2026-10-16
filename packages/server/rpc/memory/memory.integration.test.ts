@@ -425,6 +425,33 @@ test("get / delete unknown id → NOT_FOUND", async () => {
   await expectAppError(call("memory.delete", { id: ghost }), "NOT_FOUND");
 });
 
+test("batchCreate accepts 200 memories and its registered schema rejects 201", async () => {
+  const tree = "share.batchcap";
+  // call() invokes handlers directly, so exercise the registered RPC validation
+  // boundary explicitly before dispatching the valid batch.
+  const registered = memoryDataMethods.get("memory.batchCreate");
+  expect(
+    registered?.schema.safeParse({
+      memories: Array.from({ length: 201 }, () => ({ content: "x", tree })),
+    }).success,
+  ).toBe(false);
+  expect(
+    (await call<{ count: number }>("memory.countTree", { tree })).count,
+  ).toBe(0);
+
+  const res = await call<{ results: { id: string; status: string }[] }>(
+    "memory.batchCreate",
+    {
+      memories: Array.from({ length: 200 }, () => ({ content: "x", tree })),
+    },
+  );
+  expect(res.results).toHaveLength(200);
+  expect(res.results.every((r) => r.status === "inserted")).toBe(true);
+  expect(
+    (await call<{ count: number }>("memory.countTree", { tree })).count,
+  ).toBe(200);
+});
+
 test("batchCreate inserts all and is retrievable", async () => {
   const res = await call<{ results: { id: string; status: string }[] }>(
     "memory.batchCreate",
@@ -994,7 +1021,7 @@ test("search: temporal before/after are strict at the cutoff", async () => {
 
   const before = await call<{ results: { content: string }[] }>(
     "memory.search",
-    { temporal: { before: cutoff }, limit: 1000 },
+    { temporal: { before: cutoff }, limit: 200 },
   );
   expect(before.results.map((r) => r.content).sort()).toEqual([
     "ended at cutoff",
@@ -1003,7 +1030,7 @@ test("search: temporal before/after are strict at the cutoff", async () => {
 
   const after = await call<{ results: { content: string }[] }>(
     "memory.search",
-    { temporal: { after: cutoff }, limit: 1000 },
+    { temporal: { after: cutoff }, limit: 200 },
   );
   expect(after.results.map((r) => r.content)).toEqual(["future"]);
 });
@@ -1045,7 +1072,7 @@ test("search: combines all temporal predicates with AND", async () => {
         end: "2026-02-01T00:00:00Z",
       },
     },
-    limit: 1000,
+    limit: 200,
   });
   expect(res.results.map((r) => r.content)).toEqual(["temporal target"]);
 });
@@ -1094,7 +1121,7 @@ test("search: metaPredicate adds JSONPath predicates to metadata containment", a
   const contents = async (params: Record<string, unknown>) => {
     const result = await call<{ results: { content: string }[] }>(
       "memory.search",
-      { ...params, limit: 1000 },
+      { ...params, limit: 200 },
     );
     return result.results.map((row) => row.content).sort();
   };
@@ -1203,14 +1230,14 @@ test("search: `~.*{0,0}` pins to the root of the caller's home (TNT-248)", async
 
   const atHomeRoot = await call<{ results: { content: string }[] }>(
     "memory.search",
-    { tree: "~.*{0,0}", limit: 1000 },
+    { tree: "~.*{0,0}", limit: 200 },
   );
   expect(atHomeRoot.results.map((r) => r.content)).toEqual(["at home root"]);
 
   // The same form one level down resolves the sub-path exactly.
   const underHome = await call<{ results: { content: string }[] }>(
     "memory.search",
-    { tree: "~.notes.*{0,0}", limit: 1000 },
+    { tree: "~.notes.*{0,0}", limit: 200 },
   );
   expect(underHome.results.map((r) => r.content)).toEqual(["under home"]);
 });

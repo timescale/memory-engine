@@ -476,7 +476,7 @@ test("memory search and export forward every temporal filter", async () => {
               end: "2026-08-09T00:00:00Z",
             },
           },
-          limit: 1000,
+          limit: 200,
           orderBy: "asc",
         },
       },
@@ -512,7 +512,7 @@ test("memory search and export forward metaPredicate", async () => {
         method: "memory.search",
         params: {
           metaPredicate: "$.priority >= 3",
-          limit: 1000,
+          limit: 200,
           orderBy: "asc",
         },
       },

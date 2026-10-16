@@ -177,9 +177,9 @@ export function AdvancedSearchPanel({ onSearch }: { onSearch: () => void }) {
           <NumberInput
             value={advanced.limit}
             onChange={(v) => setAdvanced({ limit: v })}
-            placeholder="50 semantic-only; otherwise 1000"
+            placeholder="50 semantic-only; otherwise 200"
             min={1}
-            max={1000}
+            max={200}
           />
         </Field>
 

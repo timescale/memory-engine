@@ -407,7 +407,7 @@ function createMemorySearchCommand(): Command {
       "PostgreSQL JSONPath predicate evaluated against metadata",
       parseMetaPredicate,
     )
-    .option("--limit <n>", "max results", "10")
+    .option("--limit <n>", "max results (max 200)", "10")
     .option("--candidate-limit <n>", "pre-RRF candidate pool size")
     .option(
       "--semantic-threshold <n>",
@@ -1223,7 +1223,7 @@ function createMemoryExportCommand(): Command {
       "PostgreSQL JSONPath predicate evaluated against metadata",
       parseMetaPredicate,
     )
-    .option("--limit <n>", "max memories to export", "1000")
+    .option("--limit <n>", "max memories to export (max 200)", "200")
     .option(
       "--temporal-before <ts>",
       "memory must be strictly before this point",

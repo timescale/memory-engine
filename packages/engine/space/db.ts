@@ -436,7 +436,7 @@ export function spaceStore(sql: Sql, schema: string): SpaceStore {
           ${o.temporalBefore ?? null}::timestamptz,
           ${o.temporalAfter ?? null}::timestamptz,
            ${o.regexp ?? null},
-           ${o.limit ?? 10},
+           ${Math.min(o.limit ?? 10, 200)},
            ${o.order ?? "desc"},
            ${o.metaPredicate ?? null}::jsonpath,
            ${o.temporalContains ?? null}::timestamptz
@@ -467,7 +467,7 @@ export function spaceStore(sql: Sql, schema: string): SpaceStore {
           ${o.candidateLimit ?? 30},
           ${o.fulltextWeight ?? 1.0},
            ${o.semanticWeight ?? 1.0},
-           ${o.limit ?? 10},
+           ${Math.min(o.limit ?? 10, 200)},
            ${o.metaPredicate ?? null}::jsonpath,
            ${o.temporalContains ?? null}::timestamptz
         )`;

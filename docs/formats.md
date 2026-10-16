@@ -200,7 +200,7 @@ An explicit `--format` (CLI) or `format` parameter (MCP) always takes precedence
 
 | Limit | Value | Applies to |
 |-------|-------|------------|
-| Batch size | 1,000 memories | Per import request |
+| Batch size | 200 memories | Per API batch request; CLI/MCP imports automatically split larger sets |
 | Request body | 1 MB | API request size (import via `content` / MCP inline) |
 
 When importing from a file path, the file is read server-side and the 1 MB request limit does not apply. Use `path` instead of `content` for large imports.

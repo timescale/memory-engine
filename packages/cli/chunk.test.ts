@@ -6,6 +6,7 @@ import type {
   MemoryCreateParams,
   MemoryWriteResult,
 } from "@memory.build/protocol/memory";
+import { memoryBatchCreateParams } from "@memory.build/protocol/memory";
 import {
   approxMemoryBytes,
   type BatchCreateClient,
@@ -127,6 +128,31 @@ describe("batchCreateChunked", () => {
   /** Build inserted results for a chunk, keyed on each memory's id. */
   const inserted = (memories: MemoryCreateParams[]): MemoryWriteResult[] =>
     memories.map((m) => ({ id: m.id ?? "auto", status: "inserted" as const }));
+
+  test("splits small memories into API-valid batches of at most 200", async () => {
+    const calls: number[] = [];
+    const memories = Array.from({ length: 401 }, (_, i) => ({
+      content: `memory ${i}`,
+      tree: "share",
+    }));
+    let nextId = 0;
+    const client = stubClient(async (chunk) => {
+      expect(
+        memoryBatchCreateParams.safeParse({ memories: chunk }).success,
+      ).toBe(true);
+      calls.push(chunk.length);
+      return {
+        results: chunk.map(() => ({
+          id: String(nextId++),
+          status: "inserted" as const,
+        })),
+      };
+    });
+    const result = await batchCreateChunked(client, memories);
+    expect(calls).toEqual([200, 200, 1]);
+    expect(result.results).toHaveLength(401);
+    expect(result.errors).toEqual([]);
+  });
 
   test("single chunk, all succeed", async () => {
     const calls: number[] = [];

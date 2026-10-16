@@ -82,7 +82,7 @@ const memory = await me.memory.create({
 
 ### batchCreate
 
-Create up to 1,000 memories in a single call. Each memory requires a `tree`. A batch-level `onConflict` applies to every row (importers pass `"replace"` or `"ignore"`).
+Create up to 200 memories in a single call. Split larger sets into multiple calls; batches above 200 are rejected. Each memory requires a `tree`. A batch-level `onConflict` applies to every row (importers pass `"replace"` or `"ignore"`).
 
 ```typescript
 const { results } = await me.memory.batchCreate({
@@ -184,7 +184,7 @@ const { results } = await me.memory.search({
   },
 
   // Tuning
-  limit: 10,                           // max results (1-1000)
+  limit: 10,                           // max results (1-200)
   candidateLimit: 30,                  // candidates per mode before RRF fusion
   semanticThreshold: 0.7,              // optional min cosine similarity in [0,1] (higher = stricter; rejected if out of range)
   weights: { semantic: 0.7, fulltext: 0.3 },

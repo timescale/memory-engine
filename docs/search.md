@@ -50,7 +50,7 @@ memories wholly between two cutoffs.
 - **`--semantic-threshold <n>` (`semanticThreshold`)** — minimum cosine similarity, in `[0, 1]`. Higher is stricter (`0.8` ≈ strong matches; `0.5` ≈ loosely related). Values outside `[0, 1]` are rejected, not clamped. Applies only to the semantic/vector match.
 - **`--weight-semantic` / `--weight-fulltext` (`weights`)** — in hybrid mode, bias the fusion toward one mode or the other (each `0`–`1`).
 - **`--candidate-limit <n>` (`candidateLimit`)** — how many candidates each mode contributes to hybrid fusion before ranking. Larger widens the pool at some cost.
-- **`--limit <n>` (`limit`)** — maximum results to return. Range `1`–`1000` (see the cap below).
+- **`--limit <n>` (`limit`)** — maximum results to return. Range `1`–`200` (see the cap below).
 
 There is intentionally **no fulltext or RRF score threshold**. A BM25 score has no corpus- and query-independent meaning, and an RRF score measures rank agreement rather than relevance — so neither offers a value you could set by intuition. Instead, fulltext already returns *only* genuine term matches, and you can bound quality on the semantic side with `--semantic-threshold`.
 
@@ -58,14 +58,14 @@ There is intentionally **no fulltext or RRF score threshold**. A BM25 score has 
 
 If you want "all the good matches," not just the top handful, raise `--limit` and lean on a **single-mode** search with a quality bar:
 
-- **Semantic:** `--semantic "…" --semantic-threshold 0.7 --limit 1000`. Search automatically keeps scanning the vector index when filters or the threshold prune matches, so a high limit returns everything above your similarity bar (up to the cap), not just an initial window.
-- **Fulltext:** `--fulltext "…" --limit 1000`. Only genuine term matches are ever returned, so a high limit gets them all (up to the cap).
+- **Semantic:** `--semantic "…" --semantic-threshold 0.7 --limit 200`. Search automatically keeps scanning the vector index when filters or the threshold prune matches, so a high limit returns everything above your similarity bar (up to the cap), not just an initial window.
+- **Fulltext:** `--fulltext "…" --limit 200`. Only genuine term matches are ever returned, so a high limit gets them all (up to the cap).
 
 **Hybrid returns a fused top-k, not an exhaustive set** — it's the wrong tool for "give me everything above a bar." For that, prefer a single-mode search with a threshold as above.
 
 ### The result cap
 
-A single search returns at most **1000** results. This is a safety bound, not a relevance judgment: thresholds and filters trim *within* the results a query retrieves — they don't turn search into an exhaustive scan of the whole space. Truly exhaustive retrieval (fetch *every* match, paginated) is not part of search today; for now, tighten your filters/threshold and tree scope to bring the set under the cap.
+A single search returns at most **200** results. This is a safety bound, not a relevance judgment: thresholds and filters trim *within* the results a query retrieves — they don't turn search into an exhaustive scan of the whole space. Truly exhaustive retrieval (fetch *every* match, paginated) is not part of search today; for now, tighten your filters/threshold and tree scope to bring the set under the cap.
 
 ## Ordering
 

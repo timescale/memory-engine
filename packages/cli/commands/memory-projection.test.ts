@@ -154,7 +154,7 @@ test("search and export preserve every temporal filter", async () => {
     { method: "memory.search", params: { temporal, limit: 10 } },
     {
       method: "memory.search",
-      params: { temporal, limit: 1000, orderBy: "asc" },
+      params: { temporal, limit: 200, orderBy: "asc" },
     },
   ]);
 });
