@@ -46,6 +46,7 @@ export {
 import {
   getStoredTokens,
   type OAuthTokenSet,
+  readStoredTokens,
   storeTokens,
 } from "./credentials.ts";
 import { OAuthError, refreshTokens } from "./oauth.ts";
@@ -267,12 +268,29 @@ async function doRefresh(
         r.expiresIn !== undefined ? Date.now() + r.expiresIn * 1000 : undefined,
       scope: r.scope ?? prev.scope,
     };
-    // All production mutations share this lock. Also defend against a missing
-    // keychain read or a writer from an older CLI that does not take the lock.
-    const current = getStoredTokens(server);
+    // All production mutations share this lock. Confirmed removal or a newer
+    // credential wins, but an unavailable keychain is not evidence of logout.
+    // The server has already rotated: retain the new pair through the normal
+    // keychain/file-fallback write rather than replaying the old token later.
+    const stored = readStoredTokens(server);
+    const current = stored.status === "found" ? stored.tokens : undefined;
     assertNotRejected(current, server);
-    if (!current || current.refresh_token !== refreshToken) return current;
-    storeTokens(server, next, { setDefault: false });
+    const rotated = next.refresh_token !== refreshToken;
+    if (rotated) rememberRejected(server, refreshToken);
+    if (
+      stored.status === "missing" ||
+      (current && current.refresh_token !== refreshToken)
+    )
+      return current;
+    try {
+      storeTokens(server, next, { setDefault: false });
+    } catch (error) {
+      // If all persistence is unwritable, a consumed refresh token must not be
+      // replayed even in this process. Other processes need durable storage to
+      // recover; fail with re-login guidance rather than a retryable RPC error.
+      if (rotated) throw new ReLoginRequiredError();
+      throw error;
+    }
     return next;
   } catch (error) {
     // A genuinely dead refresh token (`invalid_grant`) can be the losing side of

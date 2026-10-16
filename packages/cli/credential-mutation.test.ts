@@ -23,45 +23,46 @@ async function waitFor(path: string): Promise<void> {
   }
 }
 
-for (const mutation of ["login", "logout"] as const) {
-  test(`a concurrent ${mutation} cannot be overwritten by rejection persistence`, async () => {
-    const dir = mkdtempSync(join(tmpdir(), "me-credential-race-"));
-    const ready = join(dir, "rejection-ready");
-    const release = join(dir, "release-rejection");
-    const requested = join(dir, "mutation-requested");
-    const completed = join(dir, "mutation-completed");
-    const env = {
-      ...process.env,
-      XDG_CONFIG_HOME: dir,
-      ME_NO_KEYCHAIN: "1",
-      ME_SESSION_TOKEN: "",
-    };
-    const children: ReturnType<typeof Bun.spawn>[] = [];
-    const spawn = (source: string) => {
-      const child = Bun.spawn([process.execPath, "-e", source], {
-        env,
-        stdout: "pipe",
-        stderr: "pipe",
-      });
-      children.push(child);
-      return child;
-    };
-    try {
-      // Stop exactly after the rejection's token check and before its write.
-      // An unlocked login/logout would complete now and be overwritten on release.
-      const rejecter = spawn(`
+for (const exchange of ["rejection", "rotation"] as const) {
+  for (const mutation of ["login", "logout"] as const) {
+    test(`a concurrent ${mutation} cannot be overwritten by ${exchange} persistence`, async () => {
+      const dir = mkdtempSync(join(tmpdir(), "me-credential-race-"));
+      const ready = join(dir, "rejection-ready");
+      const release = join(dir, "release-rejection");
+      const requested = join(dir, "mutation-requested");
+      const completed = join(dir, "mutation-completed");
+      const env = {
+        ...process.env,
+        XDG_CONFIG_HOME: dir,
+        ME_NO_KEYCHAIN: "1",
+        ME_SESSION_TOKEN: "",
+      };
+      const children: ReturnType<typeof Bun.spawn>[] = [];
+      const spawn = (source: string) => {
+        const child = Bun.spawn([process.execPath, "-e", source], {
+          env,
+          stdout: "pipe",
+          stderr: "pipe",
+        });
+        children.push(child);
+        return child;
+      };
+      try {
+        // Stop exactly after the exchange's token check and before its write.
+        // An unlocked login/logout would complete now and be overwritten on release.
+        const rejecter = spawn(`
         import { mock, spyOn } from "bun:test";
         import { existsSync, writeFileSync } from "node:fs";
         const { OAuthError } = await import(${JSON.stringify(modulePath("./oauth.ts"))});
         mock.module(${JSON.stringify(modulePath("./oauth.ts"))}, () => ({
           OAuthError,
-          refreshTokens: async () => { throw new OAuthError("revoked", "invalid_grant"); },
+          refreshTokens: async () => { ${exchange === "rejection" ? 'throw new OAuthError("revoked", "invalid_grant");' : 'return { accessToken: "rotated-access", refreshToken: "rotated-refresh", expiresIn: 3600 };'} },
         }));
         const creds = await import(${JSON.stringify(modulePath("./credentials.ts"))});
         creds.storeTokens(${JSON.stringify(SERVER)}, { access_token: "old", refresh_token: "dead", expires_at: 0 });
         const original = creds.storeTokens;
         spyOn(creds, "storeTokens").mockImplementation((server, tokens, options) => {
-          if (tokens.refresh_rejected) {
+          if (tokens.refresh_rejected || tokens.refresh_token === "rotated-refresh") {
             writeFileSync(${JSON.stringify(ready)}, "ready");
             const deadline = Date.now() + 8000;
             while (!existsSync(${JSON.stringify(release)})) {
@@ -72,11 +73,15 @@ for (const mutation of ["login", "logout"] as const) {
           original(server, tokens, options);
         });
         const { getAccessToken, ReLoginRequiredError } = await import(${JSON.stringify(modulePath("./session.ts"))});
-        try { await getAccessToken(${JSON.stringify(SERVER)}); throw new Error("expected rejection"); }
-        catch (error) { if (!(error instanceof ReLoginRequiredError)) throw error; }
+        ${
+          exchange === "rejection"
+            ? `try { await getAccessToken(${JSON.stringify(SERVER)}); throw new Error("expected rejection"); }
+        catch (error) { if (!(error instanceof ReLoginRequiredError)) throw error; }`
+            : `if (await getAccessToken(${JSON.stringify(SERVER)}) !== "rotated-access") throw new Error("rotation lost");`
+        }
       `);
-      await waitFor(ready);
-      const writer = spawn(`
+        await waitFor(ready);
+        const writer = spawn(`
         import { writeFileSync } from "node:fs";
         const { persistLoginTokens, logoutCredentials } = await import(${JSON.stringify(modulePath("./credential-mutation.ts"))});
         writeFileSync(${JSON.stringify(requested)}, "requested");
@@ -87,35 +92,36 @@ for (const mutation of ["login", "logout"] as const) {
         }
         writeFileSync(${JSON.stringify(completed)}, "completed");
       `);
-      await waitFor(requested);
-      await Bun.sleep(100);
-      expect(existsSync(completed)).toBe(false);
-      writeFileSync(release, "release");
-      for (const child of [rejecter, writer]) {
-        const exitCode = await child.exited;
-        expect({
-          exitCode,
-          stderr: await new Response(child.stderr).text(),
-        }).toEqual({ exitCode: 0, stderr: "" });
-      }
-      // Read through a third process, avoiding the parent's credential env.
-      const reader = spawn(`
+        await waitFor(requested);
+        await Bun.sleep(100);
+        expect(existsSync(completed)).toBe(false);
+        writeFileSync(release, "release");
+        for (const child of [rejecter, writer]) {
+          const exitCode = await child.exited;
+          expect({
+            exitCode,
+            stderr: await new Response(child.stderr).text(),
+          }).toEqual({ exitCode: 0, stderr: "" });
+        }
+        // Read through a third process, avoiding the parent's credential env.
+        const reader = spawn(`
         import { getStoredTokens } from ${JSON.stringify(modulePath("./credentials.ts"))};
         console.log(JSON.stringify(getStoredTokens(${JSON.stringify(SERVER)}) ?? null));
       `);
-      expect(await reader.exited).toBe(0);
-      const stored = JSON.parse(await new Response(reader.stdout).text());
-      expect(stored).toEqual(
-        mutation === "login"
-          ? { access_token: "new-login", refresh_token: "new-refresh" }
-          : null,
-      );
-    } finally {
-      for (const child of children) child.kill();
-      await Promise.all(children.map((child) => child.exited));
-      rmSync(dir, { recursive: true, force: true });
-    }
-  }, 15000);
+        expect(await reader.exited).toBe(0);
+        const stored = JSON.parse(await new Response(reader.stdout).text());
+        expect(stored).toEqual(
+          mutation === "login"
+            ? { access_token: "new-login", refresh_token: "new-refresh" }
+            : null,
+        );
+      } finally {
+        for (const child of children) child.kill();
+        await Promise.all(children.map((child) => child.exited));
+        rmSync(dir, { recursive: true, force: true });
+      }
+    }, 15000);
+  }
 }
 
 test("keychain lock identity is independent of XDG; file-only lock identity remains isolated", () => {

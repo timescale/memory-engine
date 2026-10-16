@@ -20,6 +20,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { OAuthTokenSet } from "./credentials.ts";
 
 const SERVER = "https://api.example.com";
 
@@ -711,6 +712,82 @@ test("transient OAuth errors retain credentials and retry through reactive path"
   expect(refreshCalls).toBe(3);
 });
 
+for (const destination of ["keychain", "file"] as const) {
+  test(`successful rotation survives unavailable keychain reread via ${destination} persistence`, async () => {
+    const keychain = await import("./keychain.ts");
+    let tokens: OAuthTokenSet = {
+      access_token: "old",
+      refresh_token: "spent-r1",
+      expires_at: 0,
+    };
+    let unavailable = false;
+    const read = spyOn(keychain, "keychainRead").mockImplementation(() =>
+      unavailable
+        ? { status: "unavailable" }
+        : { status: "found", value: JSON.stringify(tokens) },
+    );
+    const write = spyOn(keychain, "keychainSet").mockImplementation(
+      (_origin, raw) => {
+        if (destination === "file") return false;
+        tokens = JSON.parse(raw) as OAuthTokenSet;
+        return true;
+      },
+    );
+    refreshImpl = async ({ refreshToken }) => {
+      expect(refreshToken).toBe("spent-r1");
+      unavailable = true;
+      return {
+        accessToken: "new-access",
+        refreshToken: "rotated-r2",
+        expiresIn: 3600,
+      };
+    };
+    try {
+      expect(await session.getAccessToken(SERVER)).toBe("new-access");
+      unavailable = false;
+      expect(creds.readStoredTokens(SERVER)).toMatchObject({
+        status: "found",
+        tokens: { access_token: "new-access", refresh_token: "rotated-r2" },
+      });
+      expect(await session.getAccessToken(SERVER)).toBe("new-access");
+      expect(refreshCalls).toBe(1);
+    } finally {
+      write.mockRestore();
+      read.mockRestore();
+    }
+  });
+}
+
+test("successful rotation with unwritable persistence fails terminally instead of replaying its consumed token", async () => {
+  creds.storeTokens(SERVER, {
+    access_token: "old",
+    refresh_token: "spent-r1",
+    expires_at: 0,
+  });
+  const write = spyOn(creds, "storeTokens").mockImplementation(() => {
+    throw new Error("storage unavailable");
+  });
+  refreshImpl = async () => ({
+    accessToken: "new-access",
+    refreshToken: "rotated-r2",
+    expiresIn: 3600,
+  });
+  try {
+    await expect(session.getAccessToken(SERVER)).rejects.toBeInstanceOf(
+      session.ReLoginRequiredError,
+    );
+    await expect(session.refreshAccessToken(SERVER)).rejects.toBeInstanceOf(
+      session.ReLoginRequiredError,
+    );
+    await expect(session.getAccessToken(SERVER)).rejects.toBeInstanceOf(
+      session.ReLoginRequiredError,
+    );
+    expect(refreshCalls).toBe(1);
+  } finally {
+    write.mockRestore();
+  }
+});
+
 test("a successful exchange cannot overwrite a peer login or resurrect logout", async () => {
   for (const peer of [
     undefined,
@@ -718,7 +795,7 @@ test("a successful exchange cannot overwrite a peer login or resurrect logout", 
   ]) {
     creds.storeTokens(SERVER, {
       access_token: "old",
-      refresh_token: "old-refresh",
+      refresh_token: peer ? "old-refresh-login" : "old-refresh-logout",
       expires_at: 0,
     });
     refreshImpl = async () => {
@@ -834,8 +911,10 @@ test("keychain empty reread after invalid_grant still guards the rejected token 
     expires_at: 0,
   };
   let unavailable = false;
-  const lookup = spyOn(keychain, "keychainGet").mockImplementation(() =>
-    unavailable ? undefined : JSON.stringify(tokens),
+  const lookup = spyOn(keychain, "keychainRead").mockImplementation(() =>
+    unavailable
+      ? { status: "unavailable" }
+      : { status: "found", value: JSON.stringify(tokens) },
   );
   refreshImpl = async () => {
     unavailable = true;

@@ -79,6 +79,24 @@ test("store + read an OAuth token set (file fallback)", () => {
   expect(creds.getServerSecrets(SERVER).tokens?.access_token).toBe("tok-123");
 });
 
+test("detailed token reads distinguish confirmed absence from inaccessible/corrupt storage", () => {
+  expect(creds.readStoredTokens(SERVER)).toEqual({ status: "missing" });
+  creds.storeTokens(SERVER, TOKENS);
+  expect(creds.readStoredTokens(SERVER)).toEqual({
+    status: "found",
+    tokens: TOKENS,
+  });
+  creds.clearTokens(SERVER);
+  expect(creds.readStoredTokens(SERVER)).toEqual({ status: "missing" });
+  const file = join(configDir, "me", "credentials.yaml");
+  const corrupt = "servers: [unterminated";
+  writeFileSync(file, corrupt);
+  expect(creds.readStoredTokens(SERVER)).toEqual({ status: "unavailable" });
+  expect(creds.getStoredTokens(SERVER)).toBeUndefined();
+  expect(() => creds.storeTokens(SERVER, TOKENS)).toThrow("cannot be read");
+  expect(readFileSync(file, "utf-8")).toBe(corrupt);
+});
+
 test("the credentials file is written 0600", () => {
   creds.storeTokens(SERVER, TOKENS);
   const file = join(configDir, "me", "credentials.yaml");

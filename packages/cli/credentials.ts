@@ -49,7 +49,7 @@ import { parse, stringify } from "yaml";
 import {
   keychainAvailable,
   keychainDelete,
-  keychainGet,
+  keychainRead,
   keychainSet,
 } from "./keychain.ts";
 
@@ -275,19 +275,44 @@ function writeConfig(config: ConfigFile): void {
   );
 }
 
-/** Read credentials.yaml (secrets). Empty structure if absent / unparseable. */
-function readSecrets(): CredentialsFile {
-  migrateLegacyIfNeeded();
-  const path = getCredentialsPath();
-  if (!existsSync(path)) return { servers: {} };
+type SecretsRead =
+  | { status: "found"; value: CredentialsFile }
+  | { status: "missing" }
+  | { status: "unavailable" };
+
+/** Unlike absence, unreadable/corrupt storage is not evidence of logout. */
+function readSecretsState(): SecretsRead {
   try {
-    const data = parse(
-      readFileSync(path, "utf-8"),
-    ) as Partial<CredentialsFile> | null;
-    return { servers: data?.servers ?? {} };
+    migrateLegacyIfNeeded();
   } catch {
-    return { servers: {} };
+    return { status: "unavailable" };
   }
+  try {
+    const data: unknown = parse(readFileSync(getCredentialsPath(), "utf-8"));
+    if (data == null) return { status: "found", value: { servers: {} } };
+    if (typeof data !== "object" || Array.isArray(data))
+      return { status: "unavailable" };
+    const servers = (data as Partial<CredentialsFile>).servers;
+    if (
+      servers != null &&
+      (typeof servers !== "object" || Array.isArray(servers))
+    )
+      return { status: "unavailable" };
+    return { status: "found", value: { servers: servers ?? {} } };
+  } catch (error) {
+    return {
+      status:
+        (error as NodeJS.ErrnoException).code === "ENOENT"
+          ? "missing"
+          : "unavailable",
+    };
+  }
+}
+
+/** Compatibility view for config readers; mutation/read decisions use state. */
+function readSecrets(): CredentialsFile {
+  const result = readSecretsState();
+  return result.status === "found" ? result.value : { servers: {} };
 }
 
 /** Write credentials.yaml with 0600 (owner read/write only). */
@@ -381,7 +406,12 @@ export function storeTokens(
 ): void {
   const origin = normalizeOrigin(server);
 
-  const secrets = readSecrets();
+  const stored = readSecretsState();
+  if (stored.status === "unavailable")
+    throw new Error(
+      "Credential store cannot be read; no credentials were changed.",
+    );
+  const secrets = stored.status === "found" ? stored.value : { servers: {} };
   if (keychainSet(origin, JSON.stringify(tokens))) {
     if (secrets.servers[origin]) {
       delete secrets.servers[origin]; // keychain is the source of truth
@@ -404,24 +434,50 @@ export function storeTokens(
  * fallback). Returns undefined when absent or unparseable (e.g. a pre-OAuth
  * plaintext value in the keychain) — the caller then prompts a re-login.
  */
-export function getStoredTokens(server: string): OAuthTokenSet | undefined {
+export type StoredTokensRead =
+  | { status: "found"; tokens: OAuthTokenSet }
+  | { status: "missing" }
+  | { status: "unavailable" };
+
+/** Preserve unavailable vs missing so an already-successful rotation is not lost. */
+export function readStoredTokens(server: string): StoredTokensRead {
   const origin = normalizeOrigin(server);
-
-  // File fallback (keychain-free hosts) is checked first: the token lives in
-  // exactly one of file/keychain, so this avoids a keychain lookup there.
-  const fromFile = getServerSecrets(server).tokens;
-  if (fromFile?.access_token) return fromFile;
-
-  const raw = keychainGet(origin);
-  if (!raw) return undefined;
-  try {
-    const parsed = JSON.parse(raw) as OAuthTokenSet;
-    return parsed && typeof parsed.access_token === "string"
-      ? parsed
-      : undefined;
-  } catch {
-    return undefined; // legacy plaintext token or corrupt entry → re-login
+  const file = readSecretsState();
+  const fromFile =
+    file.status === "found" ? file.value.servers[origin]?.tokens : undefined;
+  if (
+    fromFile &&
+    typeof fromFile.access_token === "string" &&
+    fromFile.access_token
+  )
+    return { status: "found", tokens: fromFile };
+  const result = keychainRead(origin);
+  if (result.status === "found") {
+    try {
+      const parsed = JSON.parse(result.value) as OAuthTokenSet;
+      if (
+        parsed &&
+        typeof parsed.access_token === "string" &&
+        parsed.access_token
+      )
+        return { status: "found", tokens: parsed };
+    } catch {
+      /* Corruption is unavailable storage, not confirmed removal. */
+    }
+    return { status: "unavailable" };
   }
+  if (
+    result.status === "unavailable" ||
+    file.status === "unavailable" ||
+    fromFile != null
+  )
+    return { status: "unavailable" };
+  return { status: "missing" };
+}
+
+export function getStoredTokens(server: string): OAuthTokenSet | undefined {
+  const result = readStoredTokens(server);
+  return result.status === "found" ? result.tokens : undefined;
 }
 
 /** True iff a usable stored token set exists for the server. */

@@ -74,6 +74,15 @@ share the mutation boundary in `credential-mutation.ts`. Interactive login and
 network authorization happen outside the lock; final persistence happens under
 it. Keychain-backed credentials share a stable home-relative lock across XDG
 config directories, while file-only stores remain isolated by config directory.
+Detailed credential reads distinguish found, confirmed missing and unavailable
+storage (including platform keychain exit statuses). After a successful exchange,
+confirmed removal or a newer token set still wins. A transient lookup failure,
+however, does not discard the server's already-rotated pair: it is saved under
+the same lock using the normal keychain/file fallback. Credential writes refuse
+to overwrite an unreadable/corrupt fallback file. If all persistence fails after
+a rotation, the running process remembers that the old token was consumed and
+raises re-login guidance rather than replaying it. Durable recovery still needs
+writable storage; an in-memory guard cannot preserve a new login across a crash.
 A process waiting on the lock can recover a changed, fresh access-only/device
 login, not just a peer's rotated refresh-token pair. Every definite rejection is
 remembered locally before re-reading storage, since an empty keychain lookup can
