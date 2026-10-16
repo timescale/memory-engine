@@ -199,6 +199,23 @@ export interface KeepSlot {
 }
 
 /** The walked slot set, as the delete-orphans keep-list. */
+/**
+ * Source paths of the docs a walk produced, for the structured result.
+ *
+ * Reads back the `meta.repo_path` each payload already carries rather than
+ * re-deriving it, so the reported list cannot drift from what was built.
+ * Takes the post-dedup list, so it is exactly the set that gets submitted.
+ * Sorted for a stable diff between runs.
+ */
+export function buildImportedPaths(
+  planned: Array<{ payload: MemoryCreateParams }>,
+): string[] {
+  return planned
+    .map((p) => p.payload.meta?.repo_path)
+    .filter((v): v is string => typeof v === "string")
+    .sort();
+}
+
 export function buildKeepList(
   planned: Array<{ payload: MemoryCreateParams }>,
 ): KeepSlot[] {
@@ -248,6 +265,15 @@ interface DocsImportResult {
   pruned: number;
   /** Display paths of the pruned rows. */
   prunedPaths: string[];
+  /**
+   * Source paths of the docs this walk produced, relative to the import root
+   * (posix separators) and sorted — the same value each memory carries as
+   * `meta.repo_path`. Present only under `--json`/`--yaml`, where it lets a
+   * caller act on exactly the file set the importer discovered instead of
+   * reimplementing the include/exclude matching. The text renderer keeps its
+   * existing `--verbose` per-file lines, which print tree paths, not sources.
+   */
+  importedPaths: string[];
   /** Set when --prune was requested but refused; the reason. */
   pruneRefused?: string;
   failed: number;
@@ -377,6 +403,7 @@ export async function runDocsImport(
       skipped: 0,
       pruned: 0,
       prunedPaths: [],
+      importedPaths: [],
       failed: 0,
       errors: [],
     };
@@ -454,6 +481,8 @@ export async function runDocsImport(
     (p) => `${p.payload.tree}\u0000${p.payload.name}`,
   );
 
+  const importedPaths = buildImportedPaths(unique);
+
   let inserted = 0;
   let updated = 0;
   let skipped = 0;
@@ -530,6 +559,7 @@ export async function runDocsImport(
     skipped,
     pruned: prunedPaths.length,
     prunedPaths,
+    importedPaths,
     ...(pruneRefused !== undefined ? { pruneRefused } : {}),
     failed,
     errors,
