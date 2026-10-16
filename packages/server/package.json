@@ -2,7 +2,7 @@
   "name": "memory-engine-server",
   "version": "0.8.0",
   "dependencies": {
-    "@better-auth/oauth-provider": "1.7.10",
+    "@better-auth/oauth-provider": "1.6.20",
     "@memory.build/database": "workspace:*",
     "@memory.build/embedding": "workspace:*",
     "@memory.build/engine": "workspace:*",
@@ -24,7 +24,7 @@
     "@opentelemetry/sdk-trace-base": "^2.12.0",
     "@opentelemetry/semantic-conventions": "^1.43.0",
     "@pydantic/logfire-node": "^0.18.29",
-    "better-auth": "1.7.10",
+    "better-auth": "1.6.20",
     "pg": "^8.22.0",
     "postgres": "^3.4.9",
     "zod": "^4.0.0"

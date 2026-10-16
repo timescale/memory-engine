@@ -21,7 +21,7 @@
 // UPGRADING better-auth: the versions here are pinned EXACTLY (no `^`) because
 // better-auth owns DB tables — a bump can change the schema it expects and drift
 // from our hand-maintained migrations + the field mapping below. Follow the
-// source→diff→migrate checklist in design/authentication.md ("Upgrading Better Auth")
+// regenerate→diff→migrate checklist in AUTH_DESIGN.md ("Upgrading better-auth")
 // before bumping; the auth migration test is the drift guard.
 //
 // Design notes (see the migration discussion / CLAUDE.md):
@@ -41,7 +41,7 @@
 import { createHash } from "node:crypto";
 import { oauthProvider } from "@better-auth/oauth-provider";
 import { betterAuth } from "better-auth";
-import { APIError, createAuthMiddleware } from "better-auth/api";
+import { APIError } from "better-auth/api";
 import { bearer, deviceAuthorization, jwt } from "better-auth/plugins";
 import { Pool } from "pg";
 
@@ -145,25 +145,6 @@ export function createBetterAuth(opts: BetterAuthOptions) {
         },
       },
     },
-    hooks: {
-      before: createAuthMiddleware(async (ctx) => {
-        if (
-          ctx.path === "/oauth2/token" &&
-          typeof ctx.body?.grant_type === "string" &&
-          ctx.body.grant_type.trim() === "refresh_token" &&
-          typeof ctx.body.refresh_token === "string"
-        ) {
-          // Upstream copies the stored sessionId on refresh without checking
-          // session expiry. Atomically detach this offline grant (or revoke an
-          // ended online-only grant) BEFORE its lookup/rotation, not afterward.
-          // No token prefix/encryption is configured; hash identically to the
-          // provider. This also covers direct auth.api token calls.
-          await pool.query("select prepare_oauth_refresh($1)", [
-            hashOAuthToken(ctx.body.refresh_token),
-          ]);
-        }
-      }),
-    },
     databaseHooks: {
       session: {
         create: {
@@ -175,7 +156,8 @@ export function createBetterAuth(opts: BetterAuthOptions) {
           // `email_verified`
           // is the provider's claim (GitHub/Google only release a verified
           // email), re-read on every login. Throwing an APIError makes the
-          // social callback redirect to the error URL rather than 500.
+          // social callback redirect to the error URL (see AUTH_DESIGN flows
+          // A/B) rather than 500.
           before: async (session) => {
             if (!(await getUserEmailVerified(session.userId))) {
               throw new APIError("FORBIDDEN", {
@@ -236,14 +218,6 @@ export function createBetterAuth(opts: BetterAuthOptions) {
         loginPage: `${opts.baseURL}/login`,
         consentPage: `${opts.baseURL}/consent`,
         cachedTrustedClients: new Set([CLI_CLIENT_ID]),
-        // 1.7 replaces validAudiences with persisted resources + client links.
-        // We never configured validAudiences: the CLI intentionally requests
-        // unbound opaque tokens. Do not invent resource grants on upgrade or
-        // enable JWT access tokens (our resource server validates opaque rows).
-        // No RPC resource grants are enabled; even a protocol userinfo audience
-        // must not make its token valid for our RPC APIs.
-        resources: [],
-        enforcePerClientResources: true,
         // Control the at-rest hash so verifyOAuthAccessToken can look tokens up.
         storeTokens: { hash: (token) => hashOAuthToken(token) },
         schema: {
@@ -252,14 +226,6 @@ export function createBetterAuth(opts: BetterAuthOptions) {
             fields: {
               clientId: "client_id",
               clientSecret: "client_secret",
-              clientDiscoveryId: "client_discovery_id",
-              clientCredentialsScopes: "client_credentials_scopes",
-              applicationType: "application_type",
-              backchannelLogoutUri: "backchannel_logout_uri",
-              backchannelLogoutSessionRequired:
-                "backchannel_logout_session_required",
-              jwksUri: "jwks_uri",
-              dpopBoundAccessTokens: "dpop_bound_access_tokens",
               skipConsent: "skip_consent",
               enableEndSession: "enable_end_session",
               subjectType: "subject_type",
@@ -286,8 +252,6 @@ export function createBetterAuth(opts: BetterAuthOptions) {
               userId: "user_id",
               referenceId: "reference_id",
               refreshId: "refresh_id",
-              authorizationCodeId: "authorization_code_id",
-              requestedUserInfoClaims: "requested_user_info_claims",
               expiresAt: "expires_at",
               createdAt: "created_at",
             },
@@ -302,40 +266,7 @@ export function createBetterAuth(opts: BetterAuthOptions) {
               expiresAt: "expires_at",
               createdAt: "created_at",
               authTime: "auth_time",
-              authorizationCodeId: "authorization_code_id",
-              requestedUserInfoClaims: "requested_user_info_claims",
-              rotatedAt: "rotated_at",
-              rotationReplayResponse: "rotation_replay_response",
-              rotationReplayExpiresAt: "rotation_replay_expires_at",
             },
-          },
-          oauthResource: {
-            modelName: "oauth_resource",
-            fields: {
-              accessTokenTtl: "access_token_ttl",
-              refreshTokenTtl: "refresh_token_ttl",
-              signingAlgorithm: "signing_algorithm",
-              signingKeyId: "signing_key_id",
-              allowedScopes: "allowed_scopes",
-              customClaims: "custom_claims",
-              dpopBoundAccessTokensRequired:
-                "dpop_bound_access_tokens_required",
-              createdAt: "created_at",
-              updatedAt: "updated_at",
-              policyVersion: "policy_version",
-            },
-          },
-          oauthClientResource: {
-            modelName: "oauth_client_resource",
-            fields: {
-              clientId: "client_id",
-              resourceId: "resource_id",
-              createdAt: "created_at",
-            },
-          },
-          oauthClientAssertion: {
-            modelName: "oauth_client_assertion",
-            fields: { expiresAt: "expires_at" },
           },
           oauthConsent: {
             modelName: "oauth_consent",
@@ -345,7 +276,6 @@ export function createBetterAuth(opts: BetterAuthOptions) {
               referenceId: "reference_id",
               createdAt: "created_at",
               updatedAt: "updated_at",
-              requestedUserInfoClaims: "requested_user_info_claims",
             },
           },
         },
@@ -461,10 +391,8 @@ export function createBetterAuth(opts: BetterAuthOptions) {
    * Resource-server validation for an OAuth access token (the CLI/MCP bearer).
    * Hash it the same way it was stored and look it up in oauth_access_token on
    * the auth pool (search_path=auth). Returns the bound user + granted scopes,
-   * or null if inactive. 1.7 also revokes access tokens in-place on sign-out
-   * and authorization-code replay. Match those revocation/session semantics,
-   * and never accept a sender-constrained or resource-bound token as an
-   * unbound bearer. Resource/JWT/DPoP support is a separate protocol change.
+   * or null if unknown/expired. Access tokens are revoked by row deletion, so a
+   * missing row == invalid — no extra revocation check needed.
    */
   async function verifyOAuthAccessToken(token: string): Promise<{
     userId: string;
@@ -481,13 +409,7 @@ export function createBetterAuth(opts: BetterAuthOptions) {
       `select t.user_id, u.email, u.name, u.email_verified, t.scopes
          from oauth_access_token t
          join users u on u.id = t.user_id
-         join oauth_client c on c.client_id = t.client_id
-         left join sessions s on s.id = t.session_id
         where t.token = $1 and t.expires_at > now()
-          and t.revoked is null and c.disabled is not true
-          and (t.session_id is null or s.expires_at > now())
-          and t.confirmation is null
-          and (t.resources is null or t.resources = '[]'::jsonb)
         limit 1`,
       [hashOAuthToken(token)],
     );
