@@ -5,6 +5,7 @@ import type {
   SpanProcessor,
 } from "@opentelemetry/sdk-trace-base";
 import { APIError } from "better-auth/api";
+import { APIError as BetterCallAPIError } from "better-call";
 import {
   isExpectedOAuthError,
   oauthErrorTelemetryAttributes,
@@ -76,7 +77,11 @@ export class OAuthClientErrorSpanProcessor implements SpanProcessor {
           span.isRecording() &&
           span.status.code === SpanStatusCode.UNSET &&
           !span.events.some((event) => event.name === "exception") &&
-          exception instanceof APIError &&
+          // Provider credential validation throws the better-call base class;
+          // token grant handlers throw Better Auth's subclass. Accept only
+          // those concrete dependency identities, never APIError-shaped values.
+          (exception instanceof APIError ||
+            exception instanceof BetterCallAPIError) &&
           isExpectedOAuthError(exception.statusCode, exception.body?.error)
         ) {
           classified = true;

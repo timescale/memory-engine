@@ -298,13 +298,13 @@ describe("describeAuthError", () => {
     expect(r?.message).not.toContain("me login");
   });
 
-  test("session, account scope: genuine expiry — clears the token, prompts login", () => {
+  test("session, account scope: prompts login without clearing a possibly newer token", () => {
     const r = describeAuthError(
       unauthorized(),
       creds({ loggedIn: true }),
       "account",
     );
-    expect(r?.clearSession).toBe(true);
+    expect(r?.clearSession).toBe(false);
     expect(r?.message).toBe(
       "Session expired. Run 'me login' to sign in again.",
     );

@@ -102,7 +102,7 @@ export async function tokenRequestTelemetryAttributes(
       attributes["oauth.client_id"] = client === "me-cli" ? "me-cli" : "other";
       if (client !== "me-cli")
         attributes["oauth.client_id_hash"] = createHash("sha256")
-          .update(client)
+          .update(`oauth.client_id:${client}`)
           .digest("hex");
     }
     return attributes;

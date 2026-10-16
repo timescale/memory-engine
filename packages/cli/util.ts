@@ -13,7 +13,7 @@ import * as clack from "@clack/prompts";
 import { stringify as yamlStringify } from "yaml";
 import type { MemoryClient, UserClient } from "./client.ts";
 import { createMemoryClient, createUserClient, RpcError } from "./client.ts";
-import { clearTokens, type ResolvedCredentials } from "./credentials.ts";
+import type { ResolvedCredentials } from "./credentials.ts";
 import type { OutputFormat } from "./output.ts";
 import { memoryBearer, ReLoginRequiredError, userBearer } from "./session.ts";
 
@@ -373,9 +373,9 @@ export type AuthScope = "account" | "space";
  * *command scope* instead:
  *   - api key (ME_API_KEY): never a session, so never "run me login" and never
  *     clear a token. Point at ME_API_KEY (and, for space commands, the space).
- *   - session: only the account-scoped 401 is a true session expiry (clear the
- *     token, prompt re-login). A space-scoped 401 is ambiguous — keep the token
- *     and mention both the space and a possible re-login.
+ *   - session: an account-scoped 401 prompts re-login. A space-scoped 401 is
+ *     ambiguous and mentions both the space and a possible re-login. Neither
+ *     clears credentials: the failing request may predate a newer login.
  */
 export function describeAuthError(
   error: unknown,
@@ -410,10 +410,13 @@ export function describeAuthError(
     };
   }
 
-  // Account-scoped session call — a genuine session expiry.
+  // No request-token snapshot is available here. Even an account-scoped 401
+  // may belong to an older login, so never clear newer stored credentials.
+  // Definite refresh rejection is handled durably by session.ts; explicit
+  // logout clears under the credential mutation lock.
   return {
     message: "Session expired. Run 'me login' to sign in again.",
-    clearSession: true,
+    clearSession: false,
   };
 }
 
@@ -448,10 +451,9 @@ export function forbiddenTreeHint(
  *
  * Pass `opts.creds` for commands that authenticate (every RPC command). On an
  * `UNAUTHORIZED` the message is tailored by credential type and `opts.scope`
- * (default `account`) — see {@link describeAuthError}. A genuine session expiry
- * (account-scoped, session auth) clears the stored token so the next command
- * says "Not logged in"; api-key auth and ambiguous space-scoped 401s leave it
- * intact.
+ * (default `account`) — see {@link describeAuthError}. Automatic cleanup is
+ * conservative: without the failed request's token identity a stale 401 must
+ * not erase a newer login. Explicit logout remains the clearing boundary.
  *
  * Pass `opts.tree` (the raw tree-path argv value(s)) for commands whose server
  * call denies access at a bad path: on a `FORBIDDEN` error a shell-expanded `~`
@@ -477,7 +479,6 @@ export function handleError(
   if (opts?.creds) {
     const auth = describeAuthError(error, opts.creds, opts.scope ?? "account");
     if (auth) {
-      if (auth.clearSession) clearTokens(opts.creds.server);
       msg = auth.message;
       code = "UNAUTHORIZED";
     }

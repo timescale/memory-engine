@@ -16,7 +16,8 @@
  *   - Cross-process: a filesystem lock ({@link withRefreshLock}) serializes the
  *     read-refresh-persist across separate `me` processes on one host (CLI +
  *     `me mcp` / `me serve`, parallel invocations), which share one credential
- *     store. Inside the lock we RE-READ the stored token, so a process that was
+ *     store. Login persistence and explicit logout take this same lock. Inside
+ *     the lock we RE-READ the stored token, so a process that was
  *     waiting sees the peer's freshly-rotated token and returns it instead of
  *     replaying the now-revoked one — which would otherwise trip the server's
  *     refresh-token reuse detection and invalidate the whole token family.
@@ -27,25 +28,23 @@
  *
  */
 
-import { createHash, randomUUID } from "node:crypto";
-import {
-  mkdirSync,
-  readFileSync,
-  renameSync,
-  rmdirSync,
-  rmSync,
-  statSync,
-  unlinkSync,
-  utimesSync,
-  writeFileSync,
-} from "node:fs";
-import { join } from "node:path";
+import { createHash } from "node:crypto";
 import { RpcError } from "./client.ts";
 import {
-  getConfigLockPath,
-  getGlobalConfigPath,
+  LOCK_TIMEOUT,
+  lockPath,
+  withRefreshLock,
+} from "./credential-mutation.ts";
+
+export {
+  LOCK_TIMEOUT,
+  type LockOptions,
+  lockPath,
+  withRefreshLock,
+} from "./credential-mutation.ts";
+
+import {
   getStoredTokens,
-  normalizeOrigin,
   type OAuthTokenSet,
   storeTokens,
 } from "./credentials.ts";
@@ -76,8 +75,8 @@ export class ReLoginRequiredError extends RpcError {
 // persistence fails. Scope by credential store as well as normalized origin.
 const localRejections = new Map<string, string>();
 const MAX_LOCAL_REJECTIONS = 64;
-const rejectionScope = (server: string) =>
-  JSON.stringify([getGlobalConfigPath(), normalizeOrigin(server)]);
+// Scope calculation must not write to a credential store that may be failing.
+const rejectionScope = (server: string) => lockPath(server, false);
 const tokenHash = (token: string) =>
   createHash("sha256").update(token).digest("hex");
 
@@ -152,8 +151,8 @@ function isExpiring(t: OAuthTokenSet): boolean {
   return Date.now() + REFRESH_SKEW_MS >= t.expires_at;
 }
 
-/** In-flight refresh per server origin — concurrent callers share one round-trip.
- * Keyed on the NORMALIZED origin so `https://api.example.com` and
+/** In-flight refresh per credential store + server origin.
+ * Keyed on the same lock identity (including NORMALIZED origin) so `https://api.example.com` and
  * `https://api.example.com/` collapse to one entry (otherwise callers with the
  * same server-but-different-string would each pay the file-lock round-trip). */
 const inFlight = new Map<string, Promise<OAuthTokenSet | undefined>>();
@@ -172,7 +171,7 @@ function refreshOnce(
 ): Promise<OAuthTokenSet | undefined> {
   if (!tokens.refresh_token) return Promise.resolve(undefined);
 
-  const key = normalizeOrigin(server);
+  const key = rejectionScope(server);
   const existing = inFlight.get(key);
   if (existing) return existing;
 
@@ -242,7 +241,14 @@ export async function refreshFromStore(
     return doRefresh(server, current.refresh_token, current);
   }
   const refreshToken = current.refresh_token;
-  if (!refreshToken) return undefined;
+  if (!refreshToken) {
+    // A device/access-only login may have completed while we waited. It has no
+    // refresh token to exchange, but its changed, fresh bearer is usable.
+    return current.access_token !== fallback.access_token &&
+      !isExpiring(current)
+      ? current
+      : undefined;
+  }
   return doRefresh(server, refreshToken, current);
 }
 
@@ -261,12 +267,12 @@ async function doRefresh(
         r.expiresIn !== undefined ? Date.now() + r.expiresIn * 1000 : undefined,
       scope: r.scope ?? prev.scope,
     };
-    // Login/logout may write outside this lock while the exchange is in flight.
-    // Never overwrite a newer set or resurrect credentials cleared meanwhile.
+    // All production mutations share this lock. Also defend against a missing
+    // keychain read or a writer from an older CLI that does not take the lock.
     const current = getStoredTokens(server);
     assertNotRejected(current, server);
     if (!current || current.refresh_token !== refreshToken) return current;
-    storeTokens(server, next);
+    storeTokens(server, next, { setDefault: false });
     return next;
   } catch (error) {
     // A genuinely dead refresh token (`invalid_grant`) can be the losing side of
@@ -274,9 +280,15 @@ async function doRefresh(
     // giving up, re-read the store once: a concurrent/previous refresh may have
     // already persisted a fresh set we can use instead of forcing a re-login.
     if (error instanceof OAuthError && error.code === "invalid_grant") {
+      // Even an empty reread can be a temporary keychain failure, not logout.
+      // Record every definite rejection locally before attempting recovery.
+      rememberRejected(server, refreshToken);
       const current = getStoredTokens(server);
-      assertNotRejected(current, server);
+      // The matching token is now locally rejected; inspect peers/tombstones
+      // without applying that just-recorded guard to our own token.
+      if (current?.refresh_rejected) throw new ReLoginRequiredError();
       if (current?.refresh_token !== refreshToken) {
+        assertNotRejected(current, server);
         if (current && !isExpiring(current)) return current;
         // A peer's newer access token may itself have expired while we waited;
         // its refresh token is still the only safe one to use. Never replay the
@@ -288,17 +300,17 @@ async function doRefresh(
         // Still our rejected token. Persist one bounded, nonsecret tombstone in
         // the existing credential record, under the same refresh lock. Dropping
         // the raw refresh token prevents any subsequent layer/process replay.
-        rememberRejected(server, refreshToken);
         const { refresh_token: _rejected, ...rest } = current;
         try {
-          storeTokens(server, {
-            ...rest,
-            refresh_rejected: tokenHash(refreshToken),
-          });
+          storeTokens(
+            server,
+            { ...rest, refresh_rejected: tokenHash(refreshToken) },
+            { setDefault: false },
+          );
         } catch {
-          // Credential writes can fail, or a later non-secret config write can
-          // fail after the tombstone was saved. Neither turns invalid_grant into
-          // a retryable transport error; the local guard remains in both cases.
+          // Credential writes can fail before or after persistence. Neither
+          // turns invalid_grant into a retryable transport error; the local
+          // guard remains in both cases.
         }
       }
       throw new ReLoginRequiredError();
@@ -306,144 +318,6 @@ async function doRefresh(
     if (error instanceof ReLoginRequiredError) throw error;
     // Network/protocol failures other than definite invalid_grant are retryable.
     return undefined;
-  }
-}
-
-// =============================================================================
-// Cross-process refresh lock — a directory used as a filesystem mutex, keyed by
-// server origin, so separate `me` processes serialize their token refreshes.
-// =============================================================================
-
-/** Sentinel: the lock could not be acquired within the deadline. */
-export const LOCK_TIMEOUT = Symbol("refresh-lock-timeout");
-
-/** Reclaim a lock older than this with no heartbeat — its holder likely crashed. */
-const LOCK_STALE_MS = 30_000;
-/** Give up acquiring the lock after this long. Deliberately >= LOCK_STALE_MS so
- * a waiter always reaches the stale
- * threshold before giving up: a live holder either releases (we acquire) or
- * keeps its heartbeat fresh; we never fall through to an unlocked refresh. */
-const LOCK_ACQUIRE_TIMEOUT_MS = 45_000;
-/** Poll interval while waiting for a held lock. */
-const LOCK_POLL_MS = 25;
-/** Keep a live lock's mtime fresh while the network request is in flight. */
-const LOCK_HEARTBEAT_MS = 5_000;
-
-/** @internal Optional overrides for {@link withRefreshLock}; test-only knobs. */
-export interface LockOptions {
-  acquireTimeoutMs?: number;
-  staleMs?: number;
-  pollMs?: number;
-  heartbeatMs?: number;
-}
-
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-
-/**
- * @internal Exported for tests.
- * A filesystem-safe, per-origin lock name (origins contain `://` and `/`).
- */
-export function lockPath(server: string): string {
-  const key = createHash("sha256")
-    .update(normalizeOrigin(server))
-    .digest("hex")
-    .slice(0, 16);
-  return getConfigLockPath(`refresh.${key}.lock`);
-}
-
-/** @internal Exported for tests. Serializes `action` on the per-server lock. */
-export async function withRefreshLock<T>(
-  server: string,
-  action: () => Promise<T>,
-  options?: LockOptions,
-): Promise<T | typeof LOCK_TIMEOUT> {
-  const acquireTimeoutMs = options?.acquireTimeoutMs ?? LOCK_ACQUIRE_TIMEOUT_MS;
-  const staleMs = options?.staleMs ?? LOCK_STALE_MS;
-  const pollMs = options?.pollMs ?? LOCK_POLL_MS;
-  const heartbeatMs = options?.heartbeatMs ?? LOCK_HEARTBEAT_MS;
-  const lock = lockPath(server);
-  const deadline = Date.now() + acquireTimeoutMs;
-  for (;;) {
-    try {
-      mkdirSync(lock, { mode: 0o700 }); // atomic create — EEXIST means held
-      const owner = randomUUID();
-      try {
-        writeFileSync(join(lock, "owner"), owner, { flag: "wx", mode: 0o600 });
-      } catch (error) {
-        // The directory is ours and empty until this write. Clean it up rather
-        // than stranding a lock when the marker write itself fails.
-        try {
-          rmdirSync(lock);
-        } catch {
-          // Best effort; report the original marker-write failure below.
-        }
-        throw error;
-      }
-      return await runWithRefreshLock(lock, owner, heartbeatMs, action);
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
-      // Held by someone else. Check its age to reclaim a crashed holder's lock.
-      let mtimeMs: number | undefined;
-      try {
-        mtimeMs = statSync(lock).mtimeMs;
-      } catch (statError) {
-        // Vanished between mkdir and stat → retry immediately; any other stat
-        // error falls through to the bounded wait (never a tight spin).
-        if ((statError as NodeJS.ErrnoException).code === "ENOENT") continue;
-      }
-      if (mtimeMs !== undefined && Date.now() - mtimeMs > staleMs) {
-        try {
-          // Atomically move the old directory away before deleting it. A live
-          // owner only releases a lock whose owner marker still matches, so it
-          // can never remove the successor's directory after this handoff.
-          const stalePath = `${lock}.${randomUUID()}.stale`;
-          renameSync(lock, stalePath);
-          rmSync(stalePath, { recursive: true, force: true });
-        } catch {
-          // Raced with another reclaimer; retry.
-        }
-        continue;
-      }
-      if (Date.now() >= deadline) return LOCK_TIMEOUT;
-      await sleep(pollMs);
-    }
-  }
-}
-
-async function runWithRefreshLock<T>(
-  lock: string,
-  owner: string,
-  heartbeatMs: number,
-  action: () => Promise<T>,
-): Promise<T> {
-  // A refresh is normally short, but keep the mtime alive while awaiting a slow
-  // network/keychain operation so stale recovery means a crashed (not merely
-  // slow) owner. Verify ownership before touching the directory after a stale
-  // handoff.
-  const heartbeat = setInterval(() => {
-    try {
-      if (readFileSync(join(lock, "owner"), "utf-8") === owner) {
-        const now = new Date();
-        utimesSync(lock, now, now);
-      }
-    } catch {
-      // Ownership was reclaimed or the lock is gone; the action's result is
-      // still handled normally, but we must not mutate a successor's lock.
-    }
-  }, heartbeatMs);
-  try {
-    return await action();
-  } finally {
-    clearInterval(heartbeat);
-    try {
-      const ownerPath = join(lock, "owner");
-      if (readFileSync(ownerPath, "utf-8") === owner) {
-        unlinkSync(ownerPath);
-        rmdirSync(lock);
-      }
-    } catch {
-      // A reclaimer may already own the path; never remove its lock.
-    }
   }
 }
 

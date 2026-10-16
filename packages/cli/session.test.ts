@@ -825,3 +825,117 @@ test("logout during invalid_grant does not resurrect the rejected snapshot", asy
   expect(await session.getAccessToken(SERVER)).toBeUndefined();
   expect(refreshCalls).toBe(1);
 });
+
+test("keychain empty reread after invalid_grant still guards the rejected token when lookup recovers", async () => {
+  const keychain = await import("./keychain.ts");
+  const tokens = {
+    access_token: "old-keychain",
+    refresh_token: "dead-keychain",
+    expires_at: 0,
+  };
+  let unavailable = false;
+  const lookup = spyOn(keychain, "keychainGet").mockImplementation(() =>
+    unavailable ? undefined : JSON.stringify(tokens),
+  );
+  refreshImpl = async () => {
+    unavailable = true;
+    throw new OAuthError("revoked", "invalid_grant");
+  };
+  try {
+    await expect(session.getAccessToken(SERVER)).rejects.toThrow("me login");
+    unavailable = false;
+    await expect(session.getAccessToken(SERVER)).rejects.toThrow("me login");
+    await expect(session.refreshAccessToken(SERVER)).rejects.toThrow(
+      "me login",
+    );
+    expect(refreshCalls).toBe(1);
+    // No matching stored record at rejection time: never persist a snapshot.
+    expect(creds.getServerSecrets(SERVER).tokens).toBeUndefined();
+  } finally {
+    lookup.mockRestore();
+  }
+});
+
+for (const rejected of [false, true]) {
+  test(`background ${rejected ? "rejection" : "rotation"} does not change default server`, async () => {
+    creds.storeTokens(SERVER, {
+      access_token: "old",
+      refresh_token: "r1",
+      expires_at: 0,
+    });
+    const selected = "https://selected.example.com";
+    creds.setDefaultServer(selected);
+    refreshImpl = async () => {
+      if (rejected) throw new OAuthError("revoked", "invalid_grant");
+      return { accessToken: "rotated", refreshToken: "r2", expiresIn: 3600 };
+    };
+    if (rejected)
+      await expect(session.getAccessToken(SERVER)).rejects.toThrow("me login");
+    else expect(await session.getAccessToken(SERVER)).toBe("rotated");
+    expect(creds.resolveServer()).toBe(selected);
+  });
+}
+
+test("reactive transport recovers a fresh access-only login completed while waiting for the lock", async () => {
+  const { createUserClient } = await import("./client.ts");
+  creds.storeTokens(SERVER, {
+    access_token: "old",
+    refresh_token: "old-refresh",
+  });
+  let unlock!: () => void;
+  let held!: () => void;
+  const acquired = new Promise<void>((resolve) => {
+    held = resolve;
+  });
+  const release = new Promise<void>((resolve) => {
+    unlock = resolve;
+  });
+  const holder = session.withRefreshLock(SERVER, async () => {
+    held();
+    await release;
+    creds.storeTokens(SERVER, { access_token: "fresh-device" });
+  });
+  await acquired;
+  const originalRead = creds.getStoredTokens;
+  let reactiveRead!: () => void;
+  const waiting = new Promise<void>((resolve) => {
+    reactiveRead = resolve;
+  });
+  let reads = 0;
+  const read = spyOn(creds, "getStoredTokens").mockImplementation((server) => {
+    if (++reads === 2) reactiveRead(); // proactive read, then reactive snapshot
+    return originalRead(server);
+  });
+  const identity = {
+    id: "device-user",
+    kind: "u" as const,
+    email: null,
+    name: "Device user",
+  };
+  const originalFetch = globalThis.fetch;
+  const bearers: (string | null)[] = [];
+  globalThis.fetch = (async (_url, init) => {
+    bearers.push(new Headers(init?.headers).get("Authorization"));
+    if (bearers.length === 1) return new Response("{}", { status: 401 });
+    return Response.json({ jsonrpc: "2.0", id: 1, result: identity });
+  }) as typeof fetch;
+  try {
+    const client = createUserClient({
+      url: SERVER,
+      ...session.userBearer(SERVER),
+      retries: 0,
+    });
+    const result = client.whoami();
+    await waiting;
+    unlock();
+    await holder;
+    await expect(result).resolves.toEqual(identity);
+    expect(bearers).toEqual(["Bearer old", "Bearer fresh-device"]);
+    expect(refreshCalls).toBe(0); // never replay old-refresh
+  } finally {
+    unlock();
+    await holder;
+    read.mockRestore();
+    globalThis.fetch = originalFetch;
+  }
+});

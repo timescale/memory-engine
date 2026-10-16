@@ -23,7 +23,14 @@ may not survive a client restart until it can be saved.
 
 The CLI still recovers when another local process has already saved a newer
 login, and temporary network failures remain retryable. If a long-running
-client continues to fail after you sign in, restart it. An injected
+client continues to fail after you sign in, restart it. Login, logout and
+background refresh coordinate so a rejected older login cannot overwrite a new
+one; background failures also leave your default server unchanged. A generic
+authentication failure does not automatically delete a newer saved login.
+`me serve` reports a terminal login rejection as an authentication failure,
+not a retryable connection failure.
+
+An injected
 `ME_SESSION_TOKEN` is not automatically refreshed: replace or remove that
 override, or fix `ME_API_KEY` if you are using key-based authentication.
 

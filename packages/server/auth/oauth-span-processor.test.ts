@@ -27,6 +27,7 @@ import assert from "node:assert/strict";
 import { trace, context, SpanStatusCode } from "@opentelemetry/api";
 import { BasicTracerProvider, SimpleSpanProcessor, InMemorySpanExporter } from "@opentelemetry/sdk-trace-base";
 import { APIError } from "better-auth/api";
+import { APIError as BetterCallAPIError } from "better-call";
 import { OAuthClientErrorSpanProcessor } from "./oauth-span-processor.ts";
 const exporter = new InMemorySpanExporter();
 const processor = new OAuthClientErrorSpanProcessor();
@@ -68,6 +69,10 @@ function finish(error, name, attrs, scope) {
 describe("OAuth client rejection span processor (isolated real SDK)", () => {
   test("only typed allowlisted token endpoint rejections are info/UNSET without exception events", async () => {
     await isolated(`${providerSetup}
+      assert.ok(new APIError(400) instanceof BetterCallAPIError);
+      assert.ok(!(new BetterCallAPIError(400) instanceof APIError));
+      for (const ErrorClass of [APIError, BetterCallAPIError]) {
+      const rejection = (status = 400, error = "invalid_grant", description = "session not found") => new ErrorClass(status, { error, error_description: description });
       for (const status of [400, 401, 403]) {
         for (const code of ["invalid_request", "invalid_client", "invalid_grant", "unauthorized_client", "unsupported_grant_type", "invalid_scope"]) {
           for (const name of ["handler " + route, "POST " + route]) expected(finish(rejection(status, code), name), status, code);
@@ -85,7 +90,7 @@ describe("OAuth client rejection span processor (isolated real SDK)", () => {
         const error = rejection(status); failed(finish(error), error.message);
       }
       for (const code of ["unknown", "server_error", "temporarily_unavailable", "INVALID_GRANT", "invalid_grant ", undefined, 400]) {
-        const error = new APIError(400, { error: code }); failed(finish(error), error.message);
+        const error = new ErrorClass(400, { error: code }); failed(finish(error), error.message);
       }
       for (const name of ["handler /oauth2/authorize", "handler /oauth2/token/", "GET " + route, "hook before " + route, "db findOne oauthRefreshToken"]) {
         const error = rejection(); failed(finish(error, name), error.message);
@@ -96,7 +101,8 @@ describe("OAuth client rejection span processor (isolated real SDK)", () => {
       for (const scope of ["other", "better-auth-extra", "memory-engine"]) {
         const error = rejection(); failed(finish(error, undefined, undefined, scope), error.message);
       }
-      for (const error of [new Error("database unavailable"), Object.assign(new Error("forged"), { name: "APIError", statusCode: 400, body: { error: "invalid_grant" } })]) failed(finish(error), error.message);
+      for (const error of [new Error("database unavailable"), Object.assign(new Error("forged"), { name: "APIError", statusCode: 400, body: { error: "invalid_grant" } }), { name: "APIError", message: "forged object", statusCode: 400, body: { error: "invalid_grant" } }]) failed(finish(error), error.message);
+      }
       await provider.shutdown();
     `);
   });
@@ -119,6 +125,8 @@ describe("OAuth client rejection span processor (isolated real SDK)", () => {
         const exported = exporter.getFinishedSpans().find(s => s.spanContext().spanId === span.spanContext().spanId);
         if (i % 2) failed(exported, error.message); else expected(exported);
       }));
+      for (const ErrorClass of [APIError, BetterCallAPIError]) {
+      const rejection = () => new ErrorClass(400, { error: "invalid_grant", error_description: "session not found" });
       for (const order of ["before", "after"]) {
         const span = start(); const error = new Error("real failure " + order);
         if (order === "before") report(span, error);
@@ -137,6 +145,7 @@ describe("OAuth client rejection span processor (isolated real SDK)", () => {
       mismatch.setStatus({ code: SpanStatusCode.ERROR, message: "unrelated status" }); mismatch.end();
       assert.equal(exporter.getFinishedSpans().at(-1).status.message, "unrelated status");
       assert.equal(exporter.getFinishedSpans().at(-1).attributes["error.expected"], false);
+      }
       await processor.forceFlush(); await processor.shutdown(); await provider.shutdown();
     `);
   });
@@ -167,12 +176,32 @@ describe("OAuth client rejection span processor (isolated real SDK)", () => {
       import { betterAuth } from "better-auth";
       import { memoryAdapter } from "better-auth/adapters/memory";
       import { oauthProvider } from "@better-auth/oauth-provider";
+      let endpointError;
+      let classificationEnabled = true;
+      const endpointProcessor = new class extends OAuthClientErrorSpanProcessor {
+        onStart(span, parent) {
+          if (classificationEnabled) super.onStart(span, parent);
+        }
+      };
+      // Observe the real exception before forwarding to the adapted method;
+      // Better Auth handles these errors before its onAPIError callback.
+      const observeErrors = {
+        onStart(span) {
+          if (span.name !== "handler " + route) return;
+          const recordException = span.recordException;
+          span.recordException = (error, time) => {
+            endpointError = error;
+            recordException.call(span, error, time);
+          };
+        },
+        onEnd() {}, async forceFlush() {}, async shutdown() {},
+      };
       configure({ sendToLogfire: false, console: false, metrics: false,
         nodeAutoInstrumentations: {
           "@opentelemetry/instrumentation-fs": { enabled: false },
           "@opentelemetry/instrumentation-runtime-node": { enabled: false },
         },
-        additionalSpanProcessors: [new SimpleSpanProcessor(exporter), processor],
+        additionalSpanProcessors: [new SimpleSpanProcessor(exporter), endpointProcessor, observeErrors],
         scrubbing: { extraPatterns: ["content", "embedding", "access_token", "refresh_token"] },
       });
       // Check the final Logfire-exported failure details against an unadapted
@@ -233,6 +262,73 @@ describe("OAuth client rejection span processor (isolated real SDK)", () => {
       assert.ok(parent); assert.equal(handler.parentSpanContext.spanId, parent.spanContext().spanId);
       assert.notEqual(parent.status.code, SpanStatusCode.ERROR);
       assert.ok(!JSON.stringify(spans.map(s => ({ attrs: s.attributes, events: s.events, status: s.status }))).includes("test-secret-not-a-real-token"));
+      assert.ok(endpointError instanceof APIError);
+
+      // A valid stored refresh token gets past the grant's early checks and
+      // reaches the pinned provider's real better-call credential validation.
+      const { createHash } = await import("node:crypto");
+      const hash = value => createHash("sha256").update(value).digest("base64url");
+      const refreshToken = "test-only-valid-refresh-token";
+      const clientSecret = "test-only-correct-client-secret";
+      const { symmetricEncrypt } = await import("better-auth/crypto");
+      const storedClientSecret = await symmetricEncrypt({ key: (await auth.$context).secretConfig, data: clientSecret });
+      db.oauthRefreshToken.push({ id: "refresh-id", token: hash(refreshToken), clientId: "test-client",
+        userId: "unused-user", scopes: ["read"], expiresAt: new Date(Date.now() + 60_000), revoked: false });
+      const cases = [
+        { client: { disabled: true }, status: 400, error: "invalid_client", description: "client is disabled" },
+        { client: { public: false, clientSecret: storedClientSecret }, fields: { client_secret: "test-only-wrong-client-secret" }, status: 401, error: "invalid_client", description: "invalid client_secret" },
+        { client: { grantTypes: ["client_credentials"] }, status: 400, error: "unauthorized_client", description: "client is not authorized to use grant type refresh_token" },
+        { client: { scopes: [] }, status: 400, error: "invalid_scope", description: "client does not allow scope read" },
+        { headers: { authorization: "Basic " + btoa("malformed-test-only-header") }, status: 400, error: "invalid_client", description: "invalid authorization header format" },
+      ];
+      for (const scenario of cases) {
+        exporter.reset(); endpointError = undefined;
+        db.oauthClient.splice(0, db.oauthClient.length, { id: "client-id", clientId: "test-client",
+          public: true, disabled: false, grantTypes: ["authorization_code"], scopes: ["read"], ...scenario.client });
+        const request = new Request("http://localhost:3210/api/v1/auth/oauth2/token", {
+          method: "POST", headers: { "content-type": "application/x-www-form-urlencoded", ...scenario.headers },
+          body: new URLSearchParams({ grant_type: "refresh_token", client_id: "test-client", refresh_token: refreshToken, ...scenario.fields }),
+        });
+        // Compare each real HTTP response with classification disabled. This
+        // also proves the fixture originally produced ERROR + an exception.
+        classificationEnabled = false;
+        const baseline = await auth.handler(request.clone());
+        const baselineBody = await baseline.text();
+        const baselineHandler = exporter.getFinishedSpans().find(s => s.name === "handler " + route);
+        assert.ok(baselineHandler); failed(baselineHandler, endpointError.message);
+        classificationEnabled = true;
+        exporter.reset(); endpointError = undefined;
+        const response = await logfireSpan("http.request", {
+          attributes: httpRequestTelemetryAttributes(request),
+          callback: async active => {
+            const response = await auth.handler(request);
+            active.setAttributes(await tokenResponseTelemetryAttributes(request, response));
+            return response;
+          },
+        });
+        assert.equal(response.status, baseline.status);
+        assert.deepEqual([...response.headers], [...baseline.headers]);
+        assert.equal(await response.clone().text(), baselineBody);
+        assert.equal(response.status, scenario.status);
+        assert.deepEqual(await response.json(), { error: scenario.error, error_description: scenario.description });
+        // Prove these regressions exercise the distinct class the old gate missed.
+        assert.ok(endpointError instanceof BetterCallAPIError);
+        assert.ok(!(endpointError instanceof APIError));
+        const spans = exporter.getFinishedSpans();
+        const handler = spans.find(s => s.name === "handler /oauth2/token");
+        assert.ok(handler); expected(handler, scenario.status, scenario.error);
+        const root = spans.find(s => s.name === "http.request");
+        assert.ok(root);
+        assert.equal(root.attributes["error.expected"], true);
+        assert.equal(root.attributes["oauth.grant.outcome"], scenario.error);
+        assert.notEqual(root.status.code, SpanStatusCode.ERROR);
+        const parent = spans.find(s => s.name === "POST /oauth2/token");
+        assert.ok(parent); assert.equal(handler.parentSpanContext.spanId, parent.spanContext().spanId);
+        assert.notEqual(parent.status.code, SpanStatusCode.ERROR);
+        assert.deepEqual(parent.events, []);
+        const exported = JSON.stringify(spans.map(s => ({ attrs: s.attributes, events: s.events, status: s.status })));
+        for (const secret of [refreshToken, clientSecret, "test-only-wrong-client-secret", "malformed-test-only-header"]) assert.ok(!exported.includes(secret));
+      }
       await shutdown({ timeoutMillis: 1000 });
     `);
   });

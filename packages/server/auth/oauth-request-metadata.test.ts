@@ -34,9 +34,14 @@ describe("safe token request diagnostics", () => {
     expect(attributes).toEqual({
       "oauth.grant.type": "refresh_token",
       "oauth.client_id": "other",
-      "oauth.client_id_hash": createHash("sha256").update(client).digest("hex"),
+      "oauth.client_id_hash": createHash("sha256")
+        .update(`oauth.client_id:${client}`)
+        .digest("hex"),
     });
     expect(JSON.stringify(attributes)).not.toContain(client);
+    expect(attributes["oauth.client_id_hash"]).not.toBe(
+      createHash("sha256").update(client).digest("hex"),
+    );
   });
 
   test("JSON requests ignore credential fields, nonscalar fields and hostile values", async () => {

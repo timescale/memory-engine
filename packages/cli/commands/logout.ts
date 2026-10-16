@@ -3,7 +3,8 @@
  */
 import * as clack from "@clack/prompts";
 import { Command } from "commander";
-import { clearServerCredentials, resolveServer } from "../credentials.ts";
+import { logoutCredentials } from "../credential-mutation.ts";
+import { resolveServer } from "../credentials.ts";
 import { getOutputFormat, output } from "../output.ts";
 
 export function createLogoutCommand(): Command {
@@ -14,7 +15,7 @@ export function createLogoutCommand(): Command {
       const server = resolveServer(globalOpts.server);
       const fmt = getOutputFormat(globalOpts);
 
-      clearServerCredentials(server);
+      await logoutCredentials(server);
 
       await output({ server, loggedOut: true }, fmt, () => {
         clack.log.success(`Logged out from ${server}`);

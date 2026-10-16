@@ -46,7 +46,12 @@ import {
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { parse, stringify } from "yaml";
-import { keychainDelete, keychainGet, keychainSet } from "./keychain.ts";
+import {
+  keychainAvailable,
+  keychainDelete,
+  keychainGet,
+  keychainSet,
+} from "./keychain.ts";
 
 // =============================================================================
 // Constants & types
@@ -186,6 +191,27 @@ function ensureDir(): void {
 export function getConfigLockPath(name: string): string {
   ensureDir();
   return join(getConfigDir(), name);
+}
+
+/**
+ * Credential mutations must share a lock even across different XDG config dirs:
+ * those dirs still address the same per-user OS keychain record. When a backend
+ * exists (even temporarily unavailable), use a stable home-relative lock root.
+ * File-only stores retain XDG isolation, including ME_NO_KEYCHAIN test stores.
+ */
+export function getCredentialLockPath(
+  name: string,
+  createDirectory = true,
+): string {
+  if (!keychainAvailable())
+    return createDirectory
+      ? getConfigLockPath(name)
+      : join(getConfigDir(), name);
+  // Retain the legacy default-store location so older clients using the
+  // default config directory still coordinate with upgraded keychain clients.
+  const dir = join(homedir(), ".config", "me");
+  if (createDirectory) mkdirSync(dir, { recursive: true, mode: 0o700 });
+  return join(dir, name);
 }
 
 /**
@@ -340,13 +366,19 @@ export function getServerSecrets(server: string): ServerSecrets {
 // =============================================================================
 
 /**
- * Store an OAuth token set for a server, and record it as the default server.
+ * Low-level synchronous write: production callers must hold the per-origin
+ * credential mutation lock (credential-mutation.ts). By default selects this
+ * server; background rotation/rejection writes must pass setDefault: false.
  * Prefers the OS keychain (the token set is serialized to JSON under the server
  * origin); only when that's unavailable does it land in the 0600 credentials
  * file (and any stale file copy is dropped once the keychain has it). The
  * default server is non-secret config (config.yaml).
  */
-export function storeTokens(server: string, tokens: OAuthTokenSet): void {
+export function storeTokens(
+  server: string,
+  tokens: OAuthTokenSet,
+  options?: { setDefault?: boolean },
+): void {
   const origin = normalizeOrigin(server);
 
   const secrets = readSecrets();
@@ -360,9 +392,11 @@ export function storeTokens(server: string, tokens: OAuthTokenSet): void {
     writeSecrets(secrets);
   }
 
-  const config = readConfig();
-  config.default_server = origin;
-  writeConfig(config);
+  if (options?.setDefault !== false) {
+    const config = readConfig();
+    config.default_server = origin;
+    writeConfig(config);
+  }
 }
 
 /**
@@ -396,7 +430,8 @@ export function hasStoredTokens(server: string): boolean {
 }
 
 /**
- * Clear a server's token set from both the keychain and the file. Keeps
+ * Low-level synchronous clear: production callers must hold the per-origin
+ * credential mutation lock. Clear from both the keychain and the file. Keeps
  * non-secret config (active space, default server). No-op for tokens injected
  * via $ME_SESSION_TOKEN (we can't unset an env var the user controls).
  */
