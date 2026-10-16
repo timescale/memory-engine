@@ -5,7 +5,14 @@ import { describe, expect, test } from "bun:test";
 async function isolated(script: string): Promise<void> {
   const child = Bun.spawn([process.execPath, "-e", script], {
     cwd: import.meta.dir,
-    env: { ...process.env, LOGFIRE_SEND_TO_LOGFIRE: "false" },
+    env: {
+      ...process.env,
+      LOGFIRE_SEND_TO_LOGFIRE: "false",
+      // NodeSDK 0.223 falls back to localhost OTLP if Logfire omits a signal
+      // (e.g. metrics:false). Hermetic tests never use implicit exporters.
+      OTEL_METRICS_EXPORTER: "none",
+      OTEL_LOGS_EXPORTER: "none",
+    },
     stdout: "pipe",
     stderr: "pipe",
   });
@@ -257,7 +264,7 @@ describe("request OOM observability (isolated real OTel SDK, no network)", () =>
     await isolated(`
       import assert from "node:assert/strict";
       import { dirname } from "node:path";
-      import { configure, info } from "@pydantic/logfire-node";
+      import { configure, info, shutdown } from "@pydantic/logfire-node";
       const logfireDir = dirname(Bun.resolveSync("@pydantic/logfire-node", process.cwd()));
       const sdk = await import(Bun.resolveSync("@opentelemetry/sdk-trace-base", logfireDir));
       const exporter = new sdk.InMemorySpanExporter();
@@ -285,7 +292,7 @@ describe("request OOM observability (isolated real OTel SDK, no network)", () =>
       assert.equal(sample.tokenizerActiveJobs, 2);
       assert.equal(sample.tokenizerQueuedInputBytes, 800);
       assert.ok(!JSON.stringify(exporter.getFinishedSpans().map(s => s.attributes)).includes("private🙂"));
-      process.exit(0);
+      await shutdown({ timeoutMillis: 1000 });
     `);
   });
 

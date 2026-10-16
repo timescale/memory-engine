@@ -7,7 +7,7 @@
   "dependencies": {
     "@memory.build/database": "workspace:*",
     "@memory.build/embedding": "workspace:*",
-    "@pydantic/logfire-node": "^0.13.1",
+    "@pydantic/logfire-node": "^0.18.29",
     "postgres": "^3.4.9"
   }
 }

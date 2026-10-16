@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { posix } from "node:path";
 import { type Meter, metrics } from "@opentelemetry/api";
-import { info, logfireConfig } from "@pydantic/logfire-node";
+import { forceFlush, info } from "@pydantic/logfire-node";
 
 type Environment = Record<string, string | undefined>;
 
@@ -42,6 +42,11 @@ export function prepareRuntimeTelemetryEnvironment(
     .map(([key, value]) => `${key}=${encodeURIComponent(String(value))}`);
   env.OTEL_RESOURCE_ATTRIBUTES = [supplied, ...attrs].filter(Boolean).join(",");
   env.OTEL_METRIC_EXPORT_INTERVAL ??= "10000";
+  // NodeSDK 0.223 otherwise creates localhost OTLP exporters for signals that
+  // Logfire does not configure (no-token logs, or metrics:false). Logfire's
+  // explicit readers/processors still take precedence when export is enabled.
+  env.OTEL_LOGS_EXPORTER ??= "none";
+  env.OTEL_METRICS_EXPORTER ??= "none";
 }
 
 export type MemorySample = Partial<Record<MetricKey, number>>;
@@ -349,19 +354,11 @@ export function startRuntimeSampler(options: RuntimeSamplerOptions = {}): {
   const readProcess =
     options.readProcess ??
     (() => ({ ...process.memoryUsage(), uptime: process.uptime() }));
-  // Logfire 0.13's default reader does NOT consume OTEL_METRIC_EXPORT_INTERVAL.
-  // Force-flush its existing provider at the requested cadence instead of adding
-  // a second exporter/provider or relying on a silently ignored env variable.
-  const flush =
-    options.flush ??
-    (async () => {
-      // Logfire's no-token NoopMetricExporter does not complete export callbacks.
-      if (!logfireConfig.sendToLogfire) return;
-      const provider = metrics.getMeterProvider() as ReturnType<
-        typeof metrics.getMeterProvider
-      > & { forceFlush?: () => Promise<void> };
-      await provider.forceFlush?.();
-    });
+  // Logfire 0.18 / OTel 2.12's default reader still has a fixed 60s timer.
+  // The public SDK flush reaches its registered readers AND pending spans/logs,
+  // including additional readers in no-token configurations (now safe to flush).
+  // Never create a second provider/exporter or probe private provider methods.
+  const flush = options.flush ?? (() => forceFlush());
   try {
     const meter = options.meter ?? metrics.getMeter("memory-engine.runtime");
     for (const [key, [name, unit]] of Object.entries(RUNTIME_METRICS)) {

@@ -7,7 +7,11 @@
 
 import { reportError } from "@memory.build/database/telemetry";
 import { getTokenizerPoolStats } from "@memory.build/embedding";
-import { configure, info } from "@pydantic/logfire-node";
+import {
+  configure,
+  info,
+  shutdown as shutdownTelemetry,
+} from "@pydantic/logfire-node";
 import { SERVER_VERSION } from "../../version";
 import {
   prepareRuntimeTelemetryEnvironment,
@@ -60,6 +64,17 @@ const runtimeSampler = startRuntimeSampler({
   tokenizerStats: getTokenizerPoolStats,
 });
 
+async function stopTelemetry() {
+  await runtimeSampler.stop();
+  try {
+    // Explicitly close all SDK signals even on SIGINT/process.exit(), where
+    // beforeExit does not run. Export failure must not block application exit.
+    await shutdownTelemetry({ timeoutMillis: 1_000 });
+  } catch {
+    /* best effort */
+  }
+}
+
 // Boot the full stack. All env parsing / pools / migrate / worker / Bun.serve
 // happen inside startServer(); see start.ts for the documented environment
 // variables.
@@ -72,7 +87,7 @@ try {
   srv = await startServer();
 } catch (error) {
   reportError("Server failed to start", error as Error);
-  await runtimeSampler.stop();
+  await stopTelemetry();
   process.exit(1);
 }
 
@@ -92,7 +107,7 @@ async function shutdown() {
   }
   // Keep sampling while HTTP/worker work drains, then export the final snapshot
   // with a bounded wait (including SIGINT, which exits before SDK beforeExit).
-  await runtimeSampler.stop();
+  await stopTelemetry();
   process.exit(0);
 }
 

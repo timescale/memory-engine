@@ -403,6 +403,38 @@ The dev environment is redeployed automatically by
 `.github/workflows/deploy-dev.yaml` on every push to `main` that touches a
 server path — no tag required.
 
+### Better Auth 1.7 cutover (auth schema 0.0.3)
+
+This dependency upgrade is **not a normal rolling deployment**, including in dev.
+The server applies migration `008_betterauth_1_7` at startup. New OAuth issuance
+and in-place revocation are incompatible with old servers, and old binaries
+cannot migrate a database already marked auth schema `0.0.3`.
+
+Before merging/deploying this upgrade:
+
+1. Back up the auth schema and rehearse the upgrade against a restored copy.
+   Review existing `auth.oauth_client` registrations: every legacy `type` must
+   be explicitly `web` or `native`, with `public` consistent with
+   `token_endpoint_auth_method`. Null/unknown types and conflicting settings
+   abort the migration atomically. Classify ambiguous clients deliberately;
+   do not infer native application type from public-client status alone.
+2. Arrange a maintenance window and stop **all old server instances** before
+   starting the new image. The standard chart has multiple replicas and uses
+   rolling updates; changing the image tag alone is insufficient. Coordinate
+   the automatic dev deployment before merging, too.
+3. Deploy the new image with the new mappings and migration together. Confirm
+   startup migration success, then test web sign-in, existing CLI refresh,
+   new CLI PKCE login, device login, and revocation before reopening traffic.
+4. Monitor memory and authentication errors. An old-image redeploy is **not** a
+   rollback plan after migration: restoring the pre-cutover database backup
+   requires another full stop and loses intervening auth changes. Prefer a
+   forward fix; prepare and approve any restore separately.
+
+The migration preserves user/account IDs, token hashes, secrets, redirect URIs,
+consents, and encrypted signing keys. See
+[`design/authentication.md`](design/authentication.md#upgrading-better-auth) for
+schema details, offline-grant policy, and the local upgrade-path regressions.
+
 ### Usage
 
 ```bash

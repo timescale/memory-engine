@@ -5,9 +5,9 @@
   "type": "module",
   "main": "index.ts",
   "dependencies": {
-    "ai": "^6.0.0",
-    "@ai-sdk/openai": "^3.0.0",
-    "@pydantic/logfire-node": "^0.13.1",
+    "ai": "^6.0.308",
+    "@ai-sdk/openai": "^3.0.129",
+    "@pydantic/logfire-node": "^0.18.29",
     "gpt-tokenizer": "^3.4.0"
   }
 }

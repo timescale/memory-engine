@@ -1,9 +1,11 @@
 import { describe, expect, test } from "bun:test";
+import { dirname, resolve } from "node:path";
 import type {
   Meter,
   ObservableCallback,
   ObservableGauge,
 } from "@opentelemetry/api";
+import { satisfies } from "semver";
 import {
   createCgroupReader,
   discoverCgroups,
@@ -60,6 +62,52 @@ function capturedMeter() {
   return { meter, units, collect, callbacks };
 }
 
+test("installed Logfire OTel peers satisfy upstream ranges and share one SDK across runtime workspaces", async () => {
+  async function installedPackage(name: string, base: string) {
+    let directory = dirname(Bun.resolveSync(name, base));
+    while (directory !== dirname(directory)) {
+      const file = Bun.file(resolve(directory, "package.json"));
+      if (await file.exists()) {
+        const manifest = (await file.json()) as {
+          name: string;
+          version: string;
+          peerDependencies?: Record<string, string>;
+        };
+        if (manifest.name === name) return { directory, manifest };
+      }
+      directory = dirname(directory);
+    }
+    throw new Error(`No installed manifest for ${name}`);
+  }
+  for (const workspace of [
+    "database",
+    "embedding",
+    "engine",
+    "server",
+    "worker",
+  ]) {
+    const logfire = await installedPackage(
+      "@pydantic/logfire-node",
+      resolve(import.meta.dir, "..", workspace),
+    );
+    const api = await installedPackage("logfire", logfire.directory);
+    for (const owner of [logfire, api]) {
+      for (const [name, range] of Object.entries(
+        owner.manifest.peerDependencies ?? {},
+      )) {
+        if (!name.startsWith("@opentelemetry/")) continue;
+        const peer = await installedPackage(name, owner.directory);
+        expect(satisfies(peer.manifest.version, range)).toBe(true);
+        // The installed entrypoint, not just its version, must be shared with
+        // our instruments: duplicate SDK copies can silently split providers.
+        expect(Bun.resolveSync(name, owner.directory)).toBe(
+          Bun.resolveSync(name, import.meta.dir),
+        );
+      }
+    }
+  }
+});
+
 test("real Logfire configure exports generated resource identity and runtime gauges (isolated, no network)", async () => {
   const child = Bun.spawn(
     [
@@ -68,7 +116,7 @@ test("real Logfire configure exports generated resource identity and runtime gau
       `
     import assert from "node:assert/strict";
     import { dirname } from "node:path";
-    import { configure } from "@pydantic/logfire-node";
+    import { configure, shutdown } from "@pydantic/logfire-node";
     import { prepareRuntimeTelemetryEnvironment, startRuntimeSampler, RUNTIME_METRICS } from "./runtime-telemetry.ts";
     const logfireDir = dirname(Bun.resolveSync("@pydantic/logfire-node", process.cwd()));
     const sdk = await import(Bun.resolveSync("@opentelemetry/sdk-metrics", logfireDir));
@@ -85,7 +133,8 @@ test("real Logfire configure exports generated resource identity and runtime gau
       readCgroup: async () => ({ cgroupUsage: 100, cgroupEffectiveLimit: 500, cgroupLimitingUsage: 400, cgroupLimitingOom: 2 }),
       tokenizerStats: () => ({ threads: 2, activeJobs: 1, queuedJobs: 3, activeInputBytes: 40, queuedInputBytes: 50 }),
       schedule: () => () => {}, log: () => {},
-      flush: () => reader.forceFlush(),
+      // Exercise the default public Logfire flush, including its no-token
+      // reader, instead of bypassing provider wiring by flushing only reader.
     });
     await sampler.stop();
     const batch = exporter.getMetrics().at(-1);
@@ -106,10 +155,8 @@ test("real Logfire configure exports generated resource identity and runtime gau
       assert.equal(gauge.dataPoints[0].value, value);
       assert.deepEqual(gauge.dataPoints[0].attributes, {});
     }
-    await reader.shutdown();
-    // Logfire's extra no-token reader never completes export callbacks; avoid
-    // its beforeExit shutdown in this isolated process, not a network exporter.
-    process.exit(0);
+    await shutdown({ timeoutMillis: 1000 });
+    await shutdown({ timeoutMillis: 1000 }); // idempotent; natural exit below
   `,
     ],
     {
@@ -127,16 +174,31 @@ test("real Logfire configure exports generated resource identity and runtime gau
   expect({ code, stdout, stderr }).toEqual({ code: 0, stdout: "", stderr: "" });
 });
 
-test("default Logfire provider flush reaches a loopback OTLP collector before first export", async () => {
+test("default Logfire provider cadence, final flush and SDK shutdown export metrics and spans to loopback", async () => {
   const child = Bun.spawn(
     [
       process.execPath,
       "-e",
       `
       import assert from "node:assert/strict";
-      import { configure } from "@pydantic/logfire-node";
+      import { metrics as otelMetrics } from "@opentelemetry/api";
+      import { MeterProvider } from "@opentelemetry/sdk-metrics";
+      import { configure, info, shutdown } from "@pydantic/logfire-node";
       import { prepareRuntimeTelemetryEnvironment, startRuntimeSampler } from "./runtime-telemetry.ts";
       const batches = [];
+      const intervals = [];
+      const realSetInterval = globalThis.setInterval;
+      globalThis.setInterval = (callback, ms, ...args) => {
+        intervals.push(ms);
+        return realSetInterval(callback, ms, ...args);
+      };
+      async function until(predicate) {
+        const deadline = Date.now() + 2000;
+        while (!predicate()) {
+          assert.ok(Date.now() < deadline, "loopback export timed out");
+          await Bun.sleep(5);
+        }
+      }
       const collector = Bun.serve({
         hostname: "127.0.0.1", port: 0,
         async fetch(request) {
@@ -150,19 +212,48 @@ test("default Logfire provider flush reaches a loopback OTLP collector before fi
         sendToLogfire: true, token: "local-test-token", console: false,
         advanced: { baseUrl: "http://127.0.0.1:" + collector.port },
       });
+      globalThis.setInterval = realSetInterval;
+      // Logfire's default reader does not consume the env interval even on OTel
+      // 2.12. Supplementary flushes must reach that SAME provider at 10s ticks.
+      assert.equal(process.env.OTEL_METRIC_EXPORT_INTERVAL, "10000");
+      assert.ok(intervals.includes(60000), "default SDK reader must retain its 60s timer");
+      assert.ok(otelMetrics.getMeterProvider() instanceof MeterProvider, "one shared SDK-metrics instance");
+      let clock = 0, tick, samples = 0;
       const sampler = startRuntimeSampler({
         readProcess: () => ({ rss: 123456, heapUsed: 65432 }),
         readCgroup: async () => ({}),
-        schedule: () => () => {}, log: () => {},
+        now: () => clock,
+        schedule: (callback, interval) => {
+          assert.equal(interval, 10000);
+          tick = callback;
+          return () => {};
+        },
+        log(message, attrs) { samples++; info(message, attrs); },
       });
-      await sampler.stop();
+      await until(() => samples === 1);
+      assert.equal(batches.filter(b => b.path === "/v1/metrics").length, 0);
+      clock = 9999; tick();
+      await until(() => samples === 2);
+      assert.equal(batches.filter(b => b.path === "/v1/metrics").length, 0);
+      info("Before cadence flush");
+      clock = 10000; tick();
+      await until(() => batches.some(b => b.path === "/v1/metrics") && batches.some(b => b.path === "/v1/traces"));
       const metrics = batches.find(batch => batch.path === "/v1/metrics");
-      assert.ok(metrics, "default global-provider forceFlush must export before callbacks are removed");
+      assert.ok(metrics, "default SDK forceFlush must export on the sampling cadence, before stop");
       for (const key of ["memory_engine.process.memory.rss", "memory_engine.process.memory.heap_used", "service.instance.id", "process.runtime.version"]) {
         assert.ok(metrics.bytes.includes(Buffer.from(key)), key);
       }
-      collector.stop(true);
-      process.exit(0);
+      assert.ok(batches.some(b => b.path === "/v1/traces" && b.bytes.includes(Buffer.from("Before cadence flush"))));
+      const exportsBeforeStop = batches.filter(b => b.path === "/v1/metrics").length;
+      info("Before final sampler flush");
+      await sampler.stop();
+      assert.ok(batches.filter(b => b.path === "/v1/metrics").length > exportsBeforeStop, "final flush before callback removal");
+      assert.ok(batches.some(b => b.path === "/v1/traces" && b.bytes.includes(Buffer.from("Before final sampler flush"))));
+      info("Before SDK shutdown");
+      await shutdown({ timeoutMillis: 1000 });
+      assert.ok(batches.some(b => b.path === "/v1/traces" && b.bytes.includes(Buffer.from("Before SDK shutdown"))));
+      await shutdown({ timeoutMillis: 1000 });
+      collector.stop(true); // natural child exit proves SDK timers/listeners stop
       `,
     ],
     {
@@ -171,6 +262,7 @@ test("default Logfire provider flush reaches a loopback OTLP collector before fi
         ...process.env,
         LOGFIRE_TOKEN: "",
         LOGFIRE_SEND_TO_LOGFIRE: "false",
+        OTEL_METRIC_EXPORT_INTERVAL: "10000",
       },
       stdout: "pipe",
       stderr: "pipe",
@@ -207,6 +299,19 @@ describe("runtime resource identity", () => {
       "process.runtime.version=1.3.13",
     );
     expect(env.OTEL_METRIC_EXPORT_INTERVAL).toBe("34567");
+  });
+  test("disables implicit NodeSDK exporters but preserves explicit operator choices", () => {
+    const defaults: Record<string, string | undefined> = {};
+    prepareRuntimeTelemetryEnvironment(defaults, identity);
+    expect(defaults.OTEL_LOGS_EXPORTER).toBe("none");
+    expect(defaults.OTEL_METRICS_EXPORTER).toBe("none");
+    const explicit = {
+      OTEL_LOGS_EXPORTER: "console",
+      OTEL_METRICS_EXPORTER: "otlp",
+    };
+    prepareRuntimeTelemetryEnvironment(explicit, identity);
+    expect(explicit.OTEL_LOGS_EXPORTER).toBe("console");
+    expect(explicit.OTEL_METRICS_EXPORTER).toBe("otlp");
   });
   test("creates unique startup identity and only uses HOSTNAME in Kubernetes", () => {
     const a: Record<string, string> = { HOSTNAME: "local-machine" };

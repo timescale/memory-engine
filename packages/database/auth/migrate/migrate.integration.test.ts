@@ -35,6 +35,9 @@ const EXPECTED_TABLES = [
   "oauth_client",
   "oauth_consent",
   "oauth_refresh_token",
+  "oauth_resource",
+  "oauth_client_resource",
+  "oauth_client_assertion",
   "sessions",
   "users",
   "verifications",
@@ -45,7 +48,7 @@ const EXPECTED_TABLES = [
 // names are dictated by the library's adapter (and the @better-auth/oauth-provider
 // plugin) — drift breaks at runtime (a missing/renamed field the adapter reads),
 // invisibly to the table-name check above. Freezing the full set turns any
-// unmigrated change red and forces the AUTH_DESIGN "Upgrading better-auth"
+// unmigrated change red and forces the design/authentication.md upgrade
 // checklist to be run. Listed in definition order; the assertion sorts both sides.
 // (The `migration` + `version` tables are our own infra, not better-auth's, so
 // they're intentionally excluded.)
@@ -93,7 +96,15 @@ const EXPECTED_COLUMNS: Record<string, string[]> = {
     "created_at",
     "updated_at",
   ],
-  jwks: ["id", "public_key", "private_key", "created_at", "expires_at"],
+  jwks: [
+    "id",
+    "public_key",
+    "private_key",
+    "created_at",
+    "expires_at",
+    "alg",
+    "crv",
+  ],
   // better-auth device-authorization plugin's `deviceCode` model (007).
   device_code: [
     "id",
@@ -138,7 +149,40 @@ const EXPECTED_COLUMNS: Record<string, string[]> = {
     "require_pkce",
     "reference_id",
     "metadata",
+    "application_type",
+    "client_discovery_id",
+    "client_credentials_scopes",
+    "backchannel_logout_uri",
+    "backchannel_logout_session_required",
+    "jwks",
+    "jwks_uri",
+    "dpop_bound_access_tokens",
   ],
+  oauth_resource: [
+    "id",
+    "identifier",
+    "name",
+    "access_token_ttl",
+    "refresh_token_ttl",
+    "signing_algorithm",
+    "signing_key_id",
+    "allowed_scopes",
+    "custom_claims",
+    "dpop_bound_access_tokens_required",
+    "disabled",
+    "created_at",
+    "updated_at",
+    "policy_version",
+    "metadata",
+  ],
+  oauth_client_resource: [
+    "id",
+    "client_id",
+    "resource_id",
+    "metadata",
+    "created_at",
+  ],
+  oauth_client_assertion: ["id", "expires_at"],
   oauth_refresh_token: [
     "id",
     "token",
@@ -150,6 +194,13 @@ const EXPECTED_COLUMNS: Record<string, string[]> = {
     "created_at",
     "revoked",
     "auth_time",
+    "authorization_code_id",
+    "resources",
+    "requested_user_info_claims",
+    "rotated_at",
+    "rotation_replay_response",
+    "rotation_replay_expires_at",
+    "confirmation",
     "scopes",
   ],
   oauth_access_token: [
@@ -163,8 +214,15 @@ const EXPECTED_COLUMNS: Record<string, string[]> = {
     "expires_at",
     "created_at",
     "scopes",
+    "authorization_code_id",
+    "resources",
+    "requested_user_info_claims",
+    "revoked",
+    "confirmation",
   ],
   oauth_consent: [
+    "resources",
+    "requested_user_info_claims",
     "id",
     "client_id",
     "user_id",
@@ -187,6 +245,7 @@ const EXPECTED_MIGRATIONS = [
   "005_verifications",
   "006_betterauth",
   "007_device_code",
+  "008_betterauth_1_7",
 ];
 
 // The functions the schema still owns after 006/007: the updated_at trigger fn,
@@ -202,6 +261,7 @@ const EXPECTED_FUNCTIONS = [
   "upsert_account",
   "get_account_by_provider",
   "cleanup_expired_sessions",
+  "prepare_oauth_refresh",
   "cleanup_expired_verifications",
   "cleanup_expired_oauth_tokens",
   "cleanup_expired_device_codes",
@@ -381,12 +441,12 @@ describe("schema constraints enforce", () => {
 
   test("the me-cli OAuth client is seeded (public PKCE client, consent skipped)", async () => {
     const [cli] = await sql.unsafe(
-      `select public, type, require_pkce, skip_consent
+      `select application_type, token_endpoint_auth_method, require_pkce, skip_consent
          from ${canonical.schema}.oauth_client where client_id = 'me-cli'`,
     );
     expect(cli).toBeDefined();
-    expect(cli?.public).toBe(true);
-    expect(cli?.type).toBe("native");
+    expect(cli?.token_endpoint_auth_method).toBe("none");
+    expect(cli?.application_type).toBe("native");
     expect(cli?.require_pkce).toBe(true);
     expect(cli?.skip_consent).toBe(true);
   });

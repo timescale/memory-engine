@@ -16,6 +16,25 @@ There is no second exporter, HTTP listener, telemetry endpoint, heap snapshot,
 production database query, or payload logging. A telemetry failure must not turn
 an otherwise successful request into a failure.
 
+## SDK compatibility
+
+The server explicitly supplies **all** Logfire peers, rather than relying on Bun
+retaining previously installed auto-peers outside Logfire's supported ranges.
+The installed stack is `@pydantic/logfire-node` 0.18.29 (`logfire` 0.23.0), OTel API
+1.9.1, stable SDK/core/resources/context packages 2.12.0, experimental
+SDK/exporters/instrumentation/API-logs 0.223.0, node auto-instrumentations 0.81.1,
+and semantic conventions 1.43.0. Runtime gauges, HTTP instruments, SDK readers,
+and public SDK flushes use the same provider. Tests check installed peer ranges
+and identical resolved module paths across database/embedding/engine/server/worker.
+
+OTel's 0.223 transformer uses upstream custom protobuf serialization rather than
+`protobufjs`. The remaining protobuf runtime is in NodeSDK's optional gRPC
+exporter branch: `@grpc/grpc-js` 1.14.6 → `@grpc/proto-loader` 0.8.0 → `protobufjs`
+7.6.6 (`@protobufjs/utf8` 1.1.2). These are compatible updates within upstream
+dependency ranges, not forced major-version overrides. The lockfile updates
+remove the known protobuf/gRPC audit findings; this is not a claim that the
+whole workspace audit is clean.
+
 ## Identity
 
 Before Logfire's environment resource detector runs, the entrypoint adds missing
@@ -110,15 +129,33 @@ main-thread JS heap usage.
 
 ### Export cadence and structured samples
 
-The installed Logfire 0.13 reader has its own 60-second export timer and does not
-consume `OTEL_METRIC_EXPORT_INTERVAL`. The sampler supplements it with
-`forceFlush()` calls on the existing global meter provider. It defaults the env
-setting to `10000` milliseconds only when absent; explicit values are preserved.
-Supplementary flushes occur on sampling ticks, are clamped to a minimum of one
-sampling interval, and round up to that resolution. Invalid/nonpositive values
-fall back to the sampling interval. Longer settings do not disable the SDK's
-60-second timer. Only one supplementary flush runs at a time, without blocking
-memory sampling; no-token/no-export configurations skip the default flush.
+The installed Logfire 0.18 / OTel 2.12 reader still has its own 60-second export
+timer and does not consume `OTEL_METRIC_EXPORT_INTERVAL`. The sampler supplements
+it with Logfire's public `forceFlush()` API, reaching the SDK's existing readers
+and pending spans/logs without probing private global-provider methods. It
+defaults the env setting to `10000` milliseconds only when absent; explicit values
+are preserved. Supplementary flushes occur on sampling ticks, are clamped to a
+minimum of one sampling interval, and round up to that resolution.
+Invalid/nonpositive values fall back to the greater of 10 seconds and the sample
+interval. Longer settings do not disable the SDK's 60-second timer. Only one
+supplementary flush runs at a time, without blocking memory sampling. No-token
+export callbacks now complete, so public flush/shutdown also support in-memory
+additional readers in no-export configurations.
+
+Before configuration, the entrypoint defaults `OTEL_LOGS_EXPORTER` and
+`OTEL_METRICS_EXPORTER` to `none`, preserving explicit operator settings. NodeSDK
+0.223 otherwise creates implicit localhost OTLP exporters when Logfire omits a
+signal (no-token log processors, or `metrics: false`). These defaults do **not**
+disable Logfire's explicitly configured readers/processors when a token is
+present. There is still no second metrics provider or exporter.
+
+On boot failure and graceful shutdown, the sampler first flushes its final
+snapshot before removing gauge callbacks (one-second budget), then the entrypoint
+calls public `shutdown({ timeoutMillis: 1000 })` to close every SDK signal. This
+also covers SIGINT/explicit exit, where `beforeExit` is not emitted. Isolated
+real-SDK tests exercise no-token in-memory readers and a loopback OTLP collector:
+default 60-second reader registration, supplementary cadence, metric/resource and
+span export, final flush, idempotent shutdown, and natural process exit.
 
 A `Runtime memory sample` structured Logfire event accompanies each completed
 sample. Its attributes are the numeric keys from `RUNTIME_METRICS` in
