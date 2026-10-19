@@ -166,7 +166,9 @@ export async function refreshFromStore(
   server: string,
   fallback: OAuthTokenSet,
 ): Promise<OAuthTokenSet | undefined> {
-  const current = getStoredTokens(server) ?? fallback;
+  const current = getStoredTokens(server);
+  // Cleared (rejected or logged out) while we waited: never resurrect our stale copy.
+  if (!current) return undefined;
   if (
     current.refresh_token &&
     current.refresh_token !== fallback.refresh_token
@@ -179,9 +181,8 @@ export async function refreshFromStore(
     if (!isExpiring(current)) return current;
     return doRefresh(server, current.refresh_token, current);
   }
-  const refreshToken = current.refresh_token ?? fallback.refresh_token;
-  if (!refreshToken) return undefined;
-  return doRefresh(server, refreshToken, current);
+  if (!current.refresh_token) return undefined;
+  return doRefresh(server, current.refresh_token, current);
 }
 
 async function doRefresh(

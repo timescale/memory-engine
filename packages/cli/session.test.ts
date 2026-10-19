@@ -500,21 +500,17 @@ test("transient refresh failure keeps the stored token", async () => {
   expect(creds.getStoredTokens(SERVER)?.refresh_token).toBe("r1");
 });
 
-test("refreshFromStore uses the fallback refresh_token when the store is empty", async () => {
-  // Contrived but reachable: another flow cleared the store between our
-  // earlier read and the re-read (e.g. a concurrent `me logout`). The fallback
-  // still carries our refresh_token, and refreshing with it must be possible.
-  refreshImpl = async ({ refreshToken }) => {
-    expect(refreshToken).toBe("r-fallback");
-    return { accessToken: "new", refreshToken: "r-next", expiresIn: 3600 };
-  };
+test("refreshFromStore does not replay its stale token when the store was cleared", async () => {
+  // A peer cleared the store while we waited on the lock (it got invalid_grant
+  // for this token, or the user ran `me logout`). Our copy must not be sent.
   const result = await session.refreshFromStore(SERVER, {
     access_token: "old",
     refresh_token: "r-fallback",
     expires_at: Date.now() - 1_000,
   });
-  expect(result?.access_token).toBe("new");
-  expect(refreshCalls).toBe(1);
+  expect(result).toBeUndefined();
+  expect(refreshCalls).toBe(0);
+  expect(creds.getStoredTokens(SERVER)).toBeUndefined();
 });
 
 test("refreshFromStore refreshes with peer's refresh_token when peer's set is stale", async () => {
