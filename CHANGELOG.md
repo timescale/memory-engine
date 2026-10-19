@@ -38,6 +38,12 @@ search and batch-insert sizes have a tighter safety cap.
   This applies to `--limit` / `limit` on search and to memories per batch
   insert. The CLI importers, MCP tools, and the web UI now split work into
   200-item chunks. Hybrid `candidateLimit` still accepts up to 1000.
+- **The server now requires client >= 0.9.0 (`MIN_CLIENT_VERSION`).** Older
+  clients send `limit: 1000` (`me pack install`, `me pack list`, the default
+  `me memory export`) and 1000-item batches, which the new caps reject. With
+  this bump they get a clear upgrade error instead of "invalid params".
+- `me memory export` and `me_memory_export` now return at most 200 memories.
+  Paging is tracked in #228.
 - **Telemetry defaults to a `lean` profile.** SDK metrics are off, and one
   runtime memory sample is logged at startup and every 60s.
   `LOGFIRE_TELEMETRY_PROFILE=diagnostic` turns on application HTTP metrics,
