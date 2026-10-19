@@ -31,7 +31,9 @@
  * ```
  *
  * A pre-split credentials.yaml (which once held default_server + active_space
- * next to the token) is migrated to this layout on first read.
+ * next to the token) has its non-secret config salvaged on first config read.
+ * Retired session_token values are ignored, and replaced at the next login;
+ * synchronous readers never rewrite a whole shared credentials file unlocked.
  */
 
 import { randomUUID } from "node:crypto";
@@ -43,9 +45,17 @@ import {
   unlinkSync,
   writeFileSync,
 } from "node:fs";
-import { homedir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { parse, stringify } from "yaml";
+import {
+  type CredentialAuthority,
+  canonicalCredentialPath,
+  credentialCoordinationDir,
+  credentialHomeDir,
+  inaccessibleCredentialFile,
+  publishCredentialAuthority,
+  readCredentialAuthority,
+} from "./credential-authority.ts";
 import {
   keychainAvailable,
   keychainDelete,
@@ -129,7 +139,7 @@ export interface ResolvedCredentials {
 /** Config directory — respects $XDG_CONFIG_HOME, defaults to ~/.config/me. */
 function getConfigDir(): string {
   const xdg = process.env.XDG_CONFIG_HOME;
-  const base = xdg || join(homedir(), ".config");
+  const base = xdg || join(credentialHomeDir(), ".config");
   return join(base, "me");
 }
 
@@ -142,8 +152,9 @@ export function getGlobalConfigPath(): string {
   return getConfigPath();
 }
 
-function getCredentialsPath(): string {
-  return join(getConfigDir(), "credentials.yaml");
+/** Canonical physical fallback pathname, also the whole-file lock identity. */
+export function getCredentialsPath(): string {
+  return canonicalCredentialPath(join(getConfigDir(), "credentials.yaml"));
 }
 
 /**
@@ -209,7 +220,7 @@ export function getCredentialLockPath(
       : join(getConfigDir(), name);
   // Retain the legacy default-store location so older clients using the
   // default config directory still coordinate with upgraded keychain clients.
-  const dir = join(homedir(), ".config", "me");
+  const dir = credentialCoordinationDir();
   if (createDirectory) mkdirSync(dir, { recursive: true, mode: 0o700 });
   return join(dir, name);
 }
@@ -281,14 +292,9 @@ type SecretsRead =
   | { status: "unavailable" };
 
 /** Unlike absence, unreadable/corrupt storage is not evidence of logout. */
-function readSecretsState(): SecretsRead {
+function readSecretsState(path = getCredentialsPath()): SecretsRead {
   try {
-    migrateLegacyIfNeeded();
-  } catch {
-    return { status: "unavailable" };
-  }
-  try {
-    const data: unknown = parse(readFileSync(getCredentialsPath(), "utf-8"));
+    const data: unknown = parse(readFileSync(path, "utf-8"));
     if (data == null) return { status: "found", value: { servers: {} } };
     if (typeof data !== "object" || Array.isArray(data))
       return { status: "unavailable" };
@@ -316,20 +322,19 @@ function readSecrets(): CredentialsFile {
 }
 
 /** Write credentials.yaml with 0600 (owner read/write only). */
-function writeSecrets(secrets: CredentialsFile): void {
-  ensureDir();
-  writeFileAtomic(
-    getCredentialsPath(),
-    stringify(secrets, { lineWidth: 0 }),
-    0o600,
-  );
+function writeSecrets(
+  secrets: CredentialsFile,
+  path = getCredentialsPath(),
+): void {
+  mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
+  writeFileAtomic(path, stringify(secrets, { lineWidth: 0 }), 0o600);
 }
 
 /**
- * One-time split of a pre-split credentials.yaml — which used to hold
- * default_server + per-server active_space alongside the token — into config.yaml
- * (non-secret) + a secret-only credentials.yaml. A no-op once config.yaml exists,
- * and when there's nothing legacy to move.
+ * Salvage non-secret config from a pre-split credentials.yaml. Do not rewrite
+ * the shared secret file from a synchronous read: a writer in another process
+ * may have just committed a login/rotation. Retired session_token fields are
+ * ignored by token readers and replaced on explicit login under the file lock.
  */
 function migrateLegacyIfNeeded(): void {
   if (existsSync(getConfigPath()) || !existsSync(getCredentialsPath())) return;
@@ -338,7 +343,7 @@ function migrateLegacyIfNeeded(): void {
     default_server?: unknown;
     servers?: Record<
       string,
-      { session_token?: unknown; active_space?: unknown }
+      { session_token?: unknown; active_space?: unknown; tokens?: unknown }
     >;
   } | null;
   try {
@@ -364,12 +369,7 @@ function migrateLegacyIfNeeded(): void {
   }
   if (!sawLegacy) return; // already secret-only — nothing to migrate
 
-  // Salvage only the non-secret config. Any legacy `session_token` was a
-  // device-flow session, retired by the OAuth cutover — drop it (writing an
-  // empty secrets file scrubs the dead token from disk); the user re-runs
-  // `me login` to mint an OAuth token set.
   writeConfig(config);
-  writeSecrets({ servers: {} });
 }
 
 // =============================================================================
@@ -390,89 +390,99 @@ export function getServerSecrets(server: string): ServerSecrets {
 // OAuth token set
 // =============================================================================
 
-/**
- * Low-level synchronous write: production callers must hold the per-origin
- * credential mutation lock (credential-mutation.ts). By default selects this
- * server; background rotation/rejection writes must pass setDefault: false.
- * Prefers the OS keychain (the token set is serialized to JSON under the server
- * origin); only when that's unavailable does it land in the 0600 credentials
- * file (and any stale file copy is dropped once the keychain has it). The
- * default server is non-secret config (config.yaml).
- */
-export function storeTokens(
-  server: string,
-  tokens: OAuthTokenSet,
-  options?: { setDefault?: boolean },
-): void {
-  const origin = normalizeOrigin(server);
-
-  const stored = readSecretsState();
-  if (stored.status === "unavailable")
-    throw new Error(
-      "Credential store cannot be read; no credentials were changed.",
-    );
-  const secrets = stored.status === "found" ? stored.value : { servers: {} };
-  if (keychainSet(origin, JSON.stringify(tokens))) {
-    if (secrets.servers[origin]) {
-      delete secrets.servers[origin]; // keychain is the source of truth
-      writeSecrets(secrets);
-    }
-  } else {
-    secrets.servers[origin] = { tokens };
-    writeSecrets(secrets);
-  }
-
-  if (options?.setDefault !== false) {
-    const config = readConfig();
-    config.default_server = origin;
-    writeConfig(config);
-  }
-}
-
-/**
- * Read the stored OAuth token set for a server (keychain first, else the file
- * fallback). Returns undefined when absent or unparseable (e.g. a pre-OAuth
- * plaintext value in the keychain) — the caller then prompts a re-login.
- */
+/** Preserve unavailable vs missing, especially after a successful exchange. */
 export type StoredTokensRead =
   | { status: "found"; tokens: OAuthTokenSet }
   | { status: "missing" }
   | { status: "unavailable" };
 
-/** Preserve unavailable vs missing so an already-successful rotation is not lost. */
-export function readStoredTokens(server: string): StoredTokensRead {
-  const origin = normalizeOrigin(server);
-  const file = readSecretsState();
-  const fromFile =
-    file.status === "found" ? file.value.servers[origin]?.tokens : undefined;
+function validatedTokens(value: unknown): StoredTokensRead {
   if (
-    fromFile &&
-    typeof fromFile.access_token === "string" &&
-    fromFile.access_token
+    value &&
+    typeof value === "object" &&
+    typeof (value as OAuthTokenSet).access_token === "string" &&
+    (value as OAuthTokenSet).access_token
   )
-    return { status: "found", tokens: fromFile };
+    return { status: "found", tokens: value as OAuthTokenSet };
+  return { status: "unavailable" };
+}
+
+/** Backend primitives; mutation callers must hold the corresponding resources. */
+export function readFileTokens(origin: string, path: string): StoredTokensRead {
+  const file = readSecretsState(path);
+  if (file.status !== "found") return file;
+  const entry = file.value.servers[origin];
+  if (entry == null) return { status: "missing" };
+  if (typeof entry !== "object" || Array.isArray(entry))
+    return { status: "unavailable" };
+  return entry.tokens == null
+    ? { status: "missing" }
+    : validatedTokens(entry.tokens);
+}
+
+export function readKeychainTokens(origin: string): StoredTokensRead {
   const result = keychainRead(origin);
-  if (result.status === "found") {
-    try {
-      const parsed = JSON.parse(result.value) as OAuthTokenSet;
-      if (
-        parsed &&
-        typeof parsed.access_token === "string" &&
-        parsed.access_token
-      )
-        return { status: "found", tokens: parsed };
-    } catch {
-      /* Corruption is unavailable storage, not confirmed removal. */
-    }
+  if (result.status !== "found") return result;
+  try {
+    return validatedTokens(JSON.parse(result.value));
+  } catch {
     return { status: "unavailable" };
   }
-  if (
-    result.status === "unavailable" ||
-    file.status === "unavailable" ||
-    fromFile != null
-  )
+}
+
+export function readTokensFromAuthority(
+  origin: string,
+  authority: CredentialAuthority,
+): StoredTokensRead {
+  switch (authority.source) {
+    case "keychain":
+      return readKeychainTokens(origin);
+    case "file":
+      return readFileTokens(origin, authority.path);
+    case "logged_out":
+      return { status: "missing" };
+  }
+}
+
+/** Only the current legacy XDG path is considered; never scan other directories. */
+export function readLegacyCredentialSource(
+  origin: string,
+  fallbackPath: string,
+): { result: StoredTokensRead; authority?: CredentialAuthority } {
+  const file = readFileTokens(origin, fallbackPath);
+  // Released clients selected the current XDG file before consulting keychain:
+  // a failed keychain write legitimately leaves an older keychain record behind.
+  // Preserve that precedence on adoption, without inferring wall-clock ordering.
+  if (file.status === "unavailable") return { result: file };
+  if (file.status === "found")
+    return {
+      result: file,
+      authority: { version: 1, source: "file", path: fallbackPath },
+    };
+  const keychain = readKeychainTokens(origin);
+  if (keychain.status === "unavailable") return { result: keychain };
+  if (keychain.status === "found")
+    return { result: keychain, authority: { version: 1, source: "keychain" } };
+  return {
+    result: { status: "missing" },
+    authority: { version: 1, source: "logged_out" },
+  };
+}
+
+/** Readers follow published authority ONLY, even when its backend is missing. */
+export function readStoredTokens(server: string): StoredTokensRead {
+  try {
+    const origin = normalizeOrigin(server);
+    if (!keychainAvailable())
+      return readFileTokens(origin, getCredentialsPath());
+    const published = readCredentialAuthority(origin);
+    if (published.status === "unavailable") return { status: "unavailable" };
+    if (published.status === "found")
+      return readTokensFromAuthority(origin, published.authority);
+    return readLegacyCredentialSource(origin, getCredentialsPath()).result;
+  } catch {
     return { status: "unavailable" };
-  return { status: "missing" };
+  }
 }
 
 export function getStoredTokens(server: string): OAuthTokenSet | undefined {
@@ -485,28 +495,216 @@ export function hasStoredTokens(server: string): boolean {
   return getStoredTokens(server) !== undefined;
 }
 
-/**
- * Low-level synchronous clear: production callers must hold the per-origin
- * credential mutation lock. Clear from both the keychain and the file. Keeps
- * non-secret config (active space, default server). No-op for tokens injected
- * via $ME_SESSION_TOKEN (we can't unset an env var the user controls).
- */
-export function clearTokens(server: string): void {
-  const origin = normalizeOrigin(server);
-  keychainDelete(origin);
+/** Refuse destructive read/modify/write of an unreadable or corrupt file. */
+function writableSecrets(path: string): CredentialsFile {
+  const stored = readSecretsState(path);
+  if (stored.status === "unavailable")
+    throw new Error(
+      "Credential store cannot be read; no credentials were changed.",
+    );
+  return stored.status === "found" ? stored.value : { servers: {} };
+}
 
-  const secrets = readSecrets();
+function writeFileTokens(
+  origin: string,
+  path: string,
+  tokens: OAuthTokenSet,
+): void {
+  const secrets = writableSecrets(path);
+  secrets.servers[origin] = { tokens };
+  writeSecrets(secrets, path);
+}
+
+export function retireFileTokens(origin: string, path: string): void {
+  const secrets = writableSecrets(path);
   if (secrets.servers[origin]) {
     delete secrets.servers[origin];
-    writeSecrets(secrets);
+    writeSecrets(secrets, path);
   }
 }
 
+/** @internal A destination pinned BEFORE exchange, while all resources are held. */
+export interface CredentialWriteTarget {
+  keychain: boolean;
+  authority: CredentialAuthority;
+  fallbackPath: string;
+  retirePaths: string[];
+  /** Only paths whose resource lock was actually acquired may be written. */
+  lockedPaths: string[];
+  /** Explicit keychain login/logout may leave unreadable private files alone. */
+  recoverUnreadableFiles?: boolean;
+}
+
 /**
- * Log out of a server: clear its token set (keychain + file) but keep the
- * non-secret config (active space, default server) so a re-login resumes where
- * you left off.
+ * Background writes never promote an active file to keychain. Keychain failure
+ * may demote to the already-locked fallback, publishing only after it is saved.
+ * Publication failure is a write failure, even if the destination write worked.
  */
+export function writeCurrentTokens(
+  server: string,
+  tokens: OAuthTokenSet,
+  target: CredentialWriteTarget,
+): void {
+  const origin = normalizeOrigin(server);
+  if (target.authority.source === "logged_out")
+    throw new Error(
+      "Credentials were removed. Run 'me login' to sign in again.",
+    );
+  if (target.authority.source === "file") {
+    writeFileTokens(origin, target.authority.path, tokens);
+    return;
+  }
+  if (keychainSet(origin, JSON.stringify(tokens))) return;
+  if (!target.lockedPaths.includes(target.fallbackPath))
+    throw new Error("Credential fallback is not locked; no file was changed.");
+  const existingFile = readSecretsState(target.fallbackPath);
+  const existing = readFileTokens(origin, target.fallbackPath);
+  const hasEntry =
+    existingFile.status === "found" &&
+    Object.hasOwn(existingFile.value.servers, origin);
+  // This XDG may contain a separate file-only login, or an unpublished rotation
+  // saved before a failed authority publication. Neither may be overwritten by
+  // a background rotation or an old-token rejection tombstone.
+  if (
+    existingFile.status === "unavailable" ||
+    existing.status === "unavailable" ||
+    (hasEntry &&
+      (existing.status !== "found" ||
+        !sameTokenRecord(existing.tokens, tokens)))
+  )
+    throw new Error(
+      "Credential fallback contains different or unreadable credentials; no file was changed.",
+    );
+  writeFileTokens(origin, target.fallbackPath, tokens);
+  const next: CredentialAuthority = {
+    version: 1,
+    source: "file",
+    path: target.fallbackPath,
+  };
+  publishCredentialAuthority(origin, next);
+  target.authority = next;
+}
+
+function sameTokenRecord(left: OAuthTokenSet, right: OAuthTokenSet): boolean {
+  const keys = new Set([...Object.keys(left), ...Object.keys(right)]);
+  return [...keys].every(
+    (key) =>
+      (left as unknown as Record<string, unknown>)[key] ===
+      (right as unknown as Record<string, unknown>)[key],
+  );
+}
+
+/**
+ * Select only readable files for explicit keychain retirement. Corrupt or
+ * inaccessible private files cannot be safely rewritten; canonical authority
+ * publication retires them for global keychain readers, NOT file-only clients.
+ */
+function retirementPaths(target: CredentialWriteTarget): string[] {
+  return target.retirePaths.filter((path) => {
+    if (target.recoverUnreadableFiles && target.keychain)
+      return readSecretsState(path).status !== "unavailable";
+    writableSecrets(path);
+    return true;
+  });
+}
+
+/**
+ * Low-level explicit login. Production uses persistLoginTokens, which supplies
+ * a pinned target and holds the canonical origin + whole-file resource locks.
+ * API keys are never passed here. Healthy keychain writes create no token file.
+ */
+export function storeTokens(
+  server: string,
+  tokens: OAuthTokenSet,
+  options?: { setDefault?: boolean; target?: CredentialWriteTarget },
+): void {
+  const origin = normalizeOrigin(server);
+  const target = options?.target ?? unlockedWriteTarget(origin);
+  // Readable active files MUST be retired before publication. Unreadable files
+  // may be left untouched only for explicit canonical keychain recovery.
+  const retirePaths = retirementPaths(target);
+  let next: CredentialAuthority;
+  if (target.keychain && keychainSet(origin, JSON.stringify(tokens))) {
+    for (const path of retirePaths) retireFileTokens(origin, path);
+    next = { version: 1, source: "keychain" };
+  } else {
+    if (!target.lockedPaths.includes(target.fallbackPath))
+      throw new Error(
+        "Credential fallback cannot be locked. Restore access to its directory or unlock the OS keychain, then retry.",
+      );
+    writeFileTokens(origin, target.fallbackPath, tokens);
+    for (const path of retirePaths)
+      if (path !== target.fallbackPath) retireFileTokens(origin, path);
+    next = { version: 1, source: "file", path: target.fallbackPath };
+  }
+  if (target.keychain) publishCredentialAuthority(origin, next);
+  target.authority = next;
+  if (options?.setDefault !== false) {
+    try {
+      setDefaultServer(origin);
+    } catch (error) {
+      if (
+        !target.recoverUnreadableFiles ||
+        next.source !== "keychain" ||
+        !inaccessibleCredentialFile(error)
+      )
+        throw error;
+      // The global keychain login has safely committed. An inaccessible private
+      // XDG must not prevent recovery just because its non-secret config cannot
+      // be updated. Do not invent another config path or claim it was saved.
+      console.warn(
+        "Credentials saved, but the default server could not be updated. Restore access to XDG_CONFIG_HOME; use --server to select this login meanwhile.",
+      );
+    }
+  }
+}
+
+/** Synchronous compatibility primitives require the SAME locks as production. */
+function unlockedWriteTarget(origin: string): CredentialWriteTarget {
+  const fallbackPath = getCredentialsPath();
+  const keychain = keychainAvailable();
+  const published = keychain ? readCredentialAuthority(origin) : undefined;
+  if (published?.status === "unavailable")
+    throw new Error(
+      "Credential authority cannot be read. Restore access to ~/.config/me, then retry login or logout.",
+    );
+  const authority =
+    published?.status === "found"
+      ? published.authority
+      : { version: 1 as const, source: "file" as const, path: fallbackPath };
+  const paths = [
+    ...new Set([
+      fallbackPath,
+      ...(authority.source === "file" ? [authority.path] : []),
+    ]),
+  ].sort();
+  return {
+    keychain,
+    authority,
+    fallbackPath,
+    retirePaths: paths,
+    // Compatibility callers are responsible for holding these same locks.
+    lockedPaths: paths,
+  };
+}
+
+/** Retire shared files, then publish durable logout BEFORE keychain deletion. */
+export function clearTokens(
+  server: string,
+  pinned?: CredentialWriteTarget,
+): void {
+  const origin = normalizeOrigin(server);
+  const target = pinned ?? unlockedWriteTarget(origin);
+  for (const path of retirementPaths(target)) retireFileTokens(origin, path);
+  const next: CredentialAuthority = { version: 1, source: "logged_out" };
+  if (target.keychain) {
+    publishCredentialAuthority(origin, next);
+    keychainDelete(origin); // best effort: surviving secrets are now unreachable
+  }
+  target.authority = next;
+}
+
+/** Keep non-secret config (active space/default server) on explicit logout. */
 export function clearServerCredentials(server: string): void {
   clearTokens(server);
 }

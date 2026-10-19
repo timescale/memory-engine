@@ -69,17 +69,65 @@ Durable rejection across processes is best effort when credential storage is
 unwritable; a different fresh login token bypasses the token-specific guard.
 Network/transient failures remain retryable; injected bearers and API keys bypass OAuth refresh.
 
+### Credential authority and resource locks
+
 All production login persistence, explicit logout, refresh and rejection writes
 share the mutation boundary in `credential-mutation.ts`. Interactive login and
-network authorization happen outside the lock; final persistence happens under
-it. Keychain-backed credentials share a stable home-relative lock across XDG
-config directories, while file-only stores remain isolated by config directory.
+network authorization happen outside it; final persistence happens inside it.
+Keychain-enabled processes first acquire the canonical per-origin lock, then
+sorted, deduplicated whole-file locks for their current XDG fallback and any
+published active fallback. File-only processes use their private XDG origin lock
+and the same physical file lock. Whole-file exclusion protects read/modify/write
+across distinct origins too. One 45-second acquisition deadline covers all
+resources; ownership and heartbeat checks prevent writes after a lock handoff.
+Symlinks are resolved to canonical pathnames for both file I/O and lock identity,
+including dangling relative leaves under symlinked parents. Atomic replacement
+changes inodes, so locks are not keyed by inode.
+
+Keychain-enabled readers share a non-secret authority file at
+`$HOME/.config/me/authority.<origin-hash>.json` (0600, owner-only directory),
+independent of XDG. Version 1 selects exactly one source: `keychain`, `file` with
+its canonical absolute pathname, or durable `logged_out`. It contains no token
+values. Readers follow only that published source: a missing/corrupt/unavailable
+target never licenses discovery of an older keychain or private-XDG record.
+A fallback rejection in XDG A therefore cannot hide a later shared login from B.
+
+With no authority yet, legacy current-XDG file-first precedence is preserved:
+a valid file record wins even if the keychain differs or is unavailable. The
+keychain is read only when no file record exists. Background mutation adopts
+that source under lock before exchanging tokens. Existing valid OAuth records
+are not rewritten from unlocked config migration; only non-secret legacy config
+is salvaged, and retired session_token values remain ignored.
+
+The mutation context pins the selected source through exchange and persistence.
+Background writes keep an authoritative file even if the keychain recovers,
+so keychain and file-only readers still share its rotated token. A keychain
+write failure may publish the already-locked fallback, but cannot overwrite a
+different private file-only login or a newer unpublished rotation there. An
+identical retry is allowed; otherwise the save fails safely.
+
+Explicit keychain login may select a new source and retires readable active
+fallback entries under their locks before publication. Explicit logout retires
+accessible files and publishes `logged_out` before best-effort keychain deletion;
+surviving keychain data cannot resurrect the shared login. Explicit operations
+can replace damaged/unknown authority metadata or an unreachable selected path,
+provided the canonical coordination directory is writable. They do not rewrite
+unreadable/corrupt private files: global keychain readers use the new authority,
+but file-only clients must clear inaccessible old stores in their own environment.
+No fallback is written unless its lock was acquired. Publication failure is not
+reported as success, and known-readable retirement failures remain failures.
+A healthy keychain operation does not create another plaintext token copy.
+
+File-only mode intentionally has no HOME coordination dependency: it owns only
+its selected XDG file. It participates in the shared fallback while that exact
+file is published, but cannot invalidate unrelated keychain credentials or
+publish a different private store globally.
 Detailed credential reads distinguish found, confirmed missing and unavailable
 storage (including platform keychain exit statuses). After a successful exchange,
 confirmed removal or a newer token set still wins. A transient lookup failure,
 however, does not discard the server's already-rotated pair: it is saved under
-the same lock using the normal keychain/file fallback. Credential writes refuse
-to overwrite an unreadable/corrupt fallback file. If all persistence fails after
+the pinned mutation context using the normal keychain/file fallback. Credential
+writes refuse to overwrite an unreadable/corrupt fallback file. If all persistence fails after
 a rotation, the running process remembers that the old token was consumed and
 raises re-login guidance rather than replaying it. Durable recovery still needs
 writable storage; an in-memory guard cannot preserve a new login across a crash.
@@ -98,7 +146,9 @@ A slow/hung refresh can therefore require retrying login after authorization;
 additional exchange-timeout/recovery hardening is a follow-up.
 
 Background rotation and rejection writes do not change the default server;
-explicit login still selects it. A generic RPC 401 no longer automatically
+explicit login still selects it. If a recovered keychain login is safely saved
+but private XDG config is inaccessible, the CLI warns that default-server
+selection was not saved and advises `--server`; the committed login remains usable. A generic RPC 401 no longer automatically
 clears stored credentials: without the failing request's credential identity,
 that could erase a newer login. It still prompts re-login, and explicit logout
 clears under the shared lock. `me serve` preserves terminal local auth failures

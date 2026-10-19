@@ -49,7 +49,12 @@ const creds = await import("./credentials.ts");
 const session = await import("./session.ts");
 const { resetKeychainForTests } = await import("./keychain.ts");
 
-const ENV_KEYS = ["ME_SESSION_TOKEN", "XDG_CONFIG_HOME", "ME_NO_KEYCHAIN"];
+const ENV_KEYS = [
+  "ME_SESSION_TOKEN",
+  "XDG_CONFIG_HOME",
+  "ME_NO_KEYCHAIN",
+  "HOME",
+];
 let configDir: string;
 let savedEnv: Record<string, string | undefined>;
 
@@ -58,6 +63,7 @@ beforeEach(() => {
   for (const k of ENV_KEYS) savedEnv[k] = process.env[k];
   configDir = mkdtempSync(join(tmpdir(), "me-session-"));
   process.env.XDG_CONFIG_HOME = configDir;
+  process.env.HOME = join(configDir, "home");
   process.env.ME_NO_KEYCHAIN = "1";
   delete process.env.ME_SESSION_TOKEN;
   resetKeychainForTests();
@@ -178,7 +184,8 @@ test("concurrent expiring reads share a single refresh round-trip", async () => 
 
   const a = session.getAccessToken(SERVER);
   const b = session.getAccessToken(SERVER);
-  // Both in-flight against one refresh; release it.
+  // Both in-flight against one refresh; wait for resource-lock acquisition.
+  while (refreshCalls === 0) await Bun.sleep(1);
   resolve({ accessToken: "new", refreshToken: "r2", expiresIn: 3600 });
   expect(await a).toBe("new");
   expect(await b).toBe("new");
@@ -715,6 +722,9 @@ test("transient OAuth errors retain credentials and retry through reactive path"
 for (const destination of ["keychain", "file"] as const) {
   test(`successful rotation survives unavailable keychain reread via ${destination} persistence`, async () => {
     const keychain = await import("./keychain.ts");
+    const available = spyOn(keychain, "keychainAvailable").mockReturnValue(
+      true,
+    );
     let tokens: OAuthTokenSet = {
       access_token: "old",
       refresh_token: "spent-r1",
@@ -754,6 +764,90 @@ for (const destination of ["keychain", "file"] as const) {
     } finally {
       write.mockRestore();
       read.mockRestore();
+      available.mockRestore();
+    }
+  });
+}
+
+for (const existing of ["private-login", "unpublished-rotation"] as const) {
+  test(`failed keychain rotation preserves ${existing} and the consumed-token guard prevents replay`, async () => {
+    const keychain = await import("./keychain.ts");
+    const authority = await import("./credential-authority.ts");
+    const available = spyOn(keychain, "keychainAvailable").mockReturnValue(
+      true,
+    );
+    const old = {
+      access_token: "old-keychain",
+      refresh_token: "spent-keychain",
+      expires_at: 0,
+    };
+    const read = spyOn(keychain, "keychainRead").mockReturnValue({
+      status: "found",
+      value: JSON.stringify(old),
+    });
+    const write = spyOn(keychain, "keychainSet").mockReturnValue(false);
+    authority.publishCredentialAuthority(SERVER, {
+      version: 1,
+      source: "keychain",
+    });
+    const file = creds.getCredentialsPath();
+    const privateContents = JSON.stringify({
+      servers: {
+        [SERVER]: {
+          tokens: {
+            access_token: "private-login",
+            refresh_token: "private-refresh",
+          },
+        },
+      },
+    });
+    if (existing === "private-login") {
+      mkdirSync(join(configDir, "me"), { recursive: true });
+      writeFileSync(file, privateContents);
+    }
+    const publish = authority.publishCredentialAuthority;
+    const publication = spyOn(
+      authority,
+      "publishCredentialAuthority",
+    ).mockImplementation((origin, next) => {
+      if (next.source === "file")
+        throw new Error("authority publication unavailable");
+      publish(origin, next);
+    });
+    refreshImpl = async () => ({
+      accessToken: "new-access",
+      refreshToken: "new-refresh",
+      expiresIn: 3600,
+    });
+    try {
+      await expect(session.getAccessToken(SERVER)).rejects.toBeInstanceOf(
+        session.ReLoginRequiredError,
+      );
+      await expect(session.refreshAccessToken(SERVER)).rejects.toBeInstanceOf(
+        session.ReLoginRequiredError,
+      );
+      await expect(session.getAccessToken(SERVER)).rejects.toBeInstanceOf(
+        session.ReLoginRequiredError,
+      );
+      expect(refreshCalls).toBe(1);
+      if (existing === "private-login")
+        expect(readFileSync(file, "utf8")).toBe(privateContents);
+      else {
+        expect(creds.readFileTokens(SERVER, file)).toMatchObject({
+          status: "found",
+          tokens: { access_token: "new-access", refresh_token: "new-refresh" },
+        });
+        expect(readFileSync(file, "utf8")).not.toContain("refresh_rejected");
+      }
+      expect(authority.readCredentialAuthority(SERVER)).toEqual({
+        status: "found",
+        authority: { version: 1, source: "keychain" },
+      });
+    } finally {
+      publication.mockRestore();
+      write.mockRestore();
+      read.mockRestore();
+      available.mockRestore();
     }
   });
 }
@@ -764,7 +858,7 @@ test("successful rotation with unwritable persistence fails terminally instead o
     refresh_token: "spent-r1",
     expires_at: 0,
   });
-  const write = spyOn(creds, "storeTokens").mockImplementation(() => {
+  const write = spyOn(creds, "writeCurrentTokens").mockImplementation(() => {
     throw new Error("storage unavailable");
   });
   refreshImpl = async () => ({
@@ -852,10 +946,10 @@ for (const mode of ["before", "after"] as const) {
       refresh_token: "rejected-r1",
       expires_at: Date.now() - 1000,
     });
-    const originalStore = creds.storeTokens;
-    const write = spyOn(creds, "storeTokens").mockImplementation(
-      (server, tokens) => {
-        if (mode === "after") originalStore(server, tokens);
+    const originalStore = creds.writeCurrentTokens;
+    const write = spyOn(creds, "writeCurrentTokens").mockImplementation(
+      (server, tokens, target) => {
+        if (mode === "after") originalStore(server, tokens, target);
         throw new Error("credential persistence unavailable");
       },
     );
@@ -905,6 +999,7 @@ test("logout during invalid_grant does not resurrect the rejected snapshot", asy
 
 test("keychain empty reread after invalid_grant still guards the rejected token when lookup recovers", async () => {
   const keychain = await import("./keychain.ts");
+  const available = spyOn(keychain, "keychainAvailable").mockReturnValue(true);
   const tokens = {
     access_token: "old-keychain",
     refresh_token: "dead-keychain",
@@ -932,6 +1027,7 @@ test("keychain empty reread after invalid_grant still guards the rejected token 
     expect(creds.getServerSecrets(SERVER).tokens).toBeUndefined();
   } finally {
     lookup.mockRestore();
+    available.mockRestore();
   }
 });
 

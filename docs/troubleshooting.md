@@ -30,8 +30,18 @@ authentication failure does not automatically delete a newer saved login.
 `me serve` reports a terminal login rejection as an authentication failure,
 not a retryable connection failure.
 
-An injected
-`ME_SESSION_TOKEN` is not automatically refreshed: replace or remove that
+On keychain-enabled hosts, updated clients share the selected credential store
+across different `XDG_CONFIG_HOME` settings. A temporary keychain outage does not
+move an active fallback out from under file-only clients, and a later explicit
+login can replace stale shared rejection state. If shared credential metadata is
+damaged, retry an explicit login or logout after checking that your home config
+directory is writable. Unmounted or unreadable private fallback stores may need
+to be cleared in the environment that owns them.
+
+For a sandbox with a read-only home, use `ME_NO_KEYCHAIN=1` with a writable
+`XDG_CONFIG_HOME` and sign in there; that mode uses only its private file store.
+
+An injected `ME_SESSION_TOKEN` is not automatically refreshed: replace or remove that
 override, or fix `ME_API_KEY` if you are using key-based authentication.
 
 ### Search returns no results

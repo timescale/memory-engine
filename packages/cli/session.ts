@@ -31,9 +31,10 @@
 import { createHash } from "node:crypto";
 import { RpcError } from "./client.ts";
 import {
+  type CredentialMutationContext,
+  credentialScope,
   LOCK_TIMEOUT,
-  lockPath,
-  withRefreshLock,
+  withCredentialMutation,
 } from "./credential-mutation.ts";
 
 export {
@@ -43,12 +44,7 @@ export {
   withRefreshLock,
 } from "./credential-mutation.ts";
 
-import {
-  getStoredTokens,
-  type OAuthTokenSet,
-  readStoredTokens,
-  storeTokens,
-} from "./credentials.ts";
+import { getStoredTokens, type OAuthTokenSet } from "./credentials.ts";
 import { OAuthError, refreshTokens } from "./oauth.ts";
 
 /** Refresh once the access token is within this window of expiring. */
@@ -77,12 +73,15 @@ export class ReLoginRequiredError extends RpcError {
 const localRejections = new Map<string, string>();
 const MAX_LOCAL_REJECTIONS = 64;
 // Scope calculation must not write to a credential store that may be failing.
-const rejectionScope = (server: string) => lockPath(server, false);
+const rejectionScope = credentialScope;
 const tokenHash = (token: string) =>
   createHash("sha256").update(token).digest("hex");
 
-function rememberRejected(server: string, token: string): void {
-  const scope = rejectionScope(server);
+function rememberRejected(
+  server: string,
+  token: string,
+  scope = rejectionScope(server),
+): void {
   localRejections.delete(scope);
   localRejections.set(scope, tokenHash(token));
   if (localRejections.size > MAX_LOCAL_REJECTIONS) {
@@ -94,10 +93,11 @@ function rememberRejected(server: string, token: string): void {
 function assertNotRejected(
   tokens: OAuthTokenSet | undefined,
   server: string,
+  scope = rejectionScope(server),
 ): void {
   if (tokens?.refresh_rejected) throw new ReLoginRequiredError();
   if (tokens?.refresh_token && localRejections.size > 0) {
-    const rejected = localRejections.get(rejectionScope(server));
+    const rejected = localRejections.get(scope);
     if (rejected && rejected === tokenHash(tokens.refresh_token))
       throw new ReLoginRequiredError();
   }
@@ -198,8 +198,8 @@ async function lockedRefresh(
   server: string,
   tokens: OAuthTokenSet,
 ): Promise<OAuthTokenSet | undefined> {
-  const locked = await withRefreshLock(server, () =>
-    refreshFromStore(server, tokens),
+  const locked = await withCredentialMutation(server, (context) =>
+    refreshFromContext(server, tokens, context),
   );
   if (locked !== LOCK_TIMEOUT) return locked;
 
@@ -225,10 +225,19 @@ export async function refreshFromStore(
   server: string,
   fallback: OAuthTokenSet,
 ): Promise<OAuthTokenSet | undefined> {
+  return lockedRefresh(server, fallback);
+}
+
+async function refreshFromContext(
+  server: string,
+  fallback: OAuthTokenSet,
+  context: CredentialMutationContext,
+): Promise<OAuthTokenSet | undefined> {
   // An absent store means logout/clear, not permission to resurrect fallback.
-  const current = getStoredTokens(server);
+  const stored = context.read();
+  const current = stored.status === "found" ? stored.tokens : undefined;
   if (!current) return undefined;
-  assertNotRejected(current, server);
+  assertNotRejected(current, server, context.scope);
   if (
     current.refresh_token &&
     current.refresh_token !== fallback.refresh_token
@@ -239,7 +248,7 @@ export async function refreshFromStore(
     // that its access token is now expiring, refresh with PEER's refresh_token
     // (the current, valid one), not ours. Mirrors the invalid_grant catch below.
     if (!isExpiring(current)) return current;
-    return doRefresh(server, current.refresh_token, current);
+    return doRefresh(server, current.refresh_token, current, context);
   }
   const refreshToken = current.refresh_token;
   if (!refreshToken) {
@@ -250,13 +259,14 @@ export async function refreshFromStore(
       ? current
       : undefined;
   }
-  return doRefresh(server, refreshToken, current);
+  return doRefresh(server, refreshToken, current, context);
 }
 
 async function doRefresh(
   server: string,
   refreshToken: string,
   prev: OAuthTokenSet,
+  context: CredentialMutationContext,
 ): Promise<OAuthTokenSet | undefined> {
   try {
     const r = await refreshTokens({ server, refreshToken });
@@ -272,23 +282,47 @@ async function doRefresh(
     // credential wins, but an unavailable keychain is not evidence of logout.
     // The server has already rotated: retain the new pair through the normal
     // keychain/file-fallback write rather than replaying the old token later.
-    const stored = readStoredTokens(server);
-    const current = stored.status === "found" ? stored.tokens : undefined;
-    assertNotRejected(current, server);
     const rotated = next.refresh_token !== refreshToken;
-    if (rotated) rememberRejected(server, refreshToken);
+    if (rotated) rememberRejected(server, refreshToken, context.scope);
+    const stored = context.read();
+    const current = stored.status === "found" ? stored.tokens : undefined;
+    // Our consumed token was just guarded locally. It may still be the stored
+    // value until this write; only a tombstone or DIFFERENT peer token is tested
+    // against rejection state here.
+    if (current?.refresh_rejected || current?.refresh_token !== refreshToken)
+      assertNotRejected(current, server, context.scope);
     if (
       stored.status === "missing" ||
       (current && current.refresh_token !== refreshToken)
     )
       return current;
     try {
-      storeTokens(server, next, { setDefault: false });
+      context.writeCurrent(next);
     } catch (error) {
       // If all persistence is unwritable, a consumed refresh token must not be
       // replayed even in this process. Other processes need durable storage to
       // recover; fail with re-login guidance rather than a retryable RPC error.
-      if (rotated) throw new ReLoginRequiredError();
+      if (rotated) {
+        // Best-effort durable protection if saving/publication failed while the
+        // authoritative record still contains the consumed token. Never replace
+        // an already-saved rotation or peer login with our old snapshot.
+        try {
+          const remaining = context.read();
+          if (
+            remaining.status === "found" &&
+            remaining.tokens.refresh_token === refreshToken
+          ) {
+            const { refresh_token: _consumed, ...rest } = remaining.tokens;
+            context.writeCurrent({
+              ...rest,
+              refresh_rejected: tokenHash(refreshToken),
+            });
+          }
+        } catch {
+          // All durable writes may be unavailable; the local hash guard remains.
+        }
+        throw new ReLoginRequiredError();
+      }
       throw error;
     }
     return next;
@@ -300,19 +334,20 @@ async function doRefresh(
     if (error instanceof OAuthError && error.code === "invalid_grant") {
       // Even an empty reread can be a temporary keychain failure, not logout.
       // Record every definite rejection locally before attempting recovery.
-      rememberRejected(server, refreshToken);
-      const current = getStoredTokens(server);
+      rememberRejected(server, refreshToken, context.scope);
+      const stored = context.read();
+      const current = stored.status === "found" ? stored.tokens : undefined;
       // The matching token is now locally rejected; inspect peers/tombstones
       // without applying that just-recorded guard to our own token.
       if (current?.refresh_rejected) throw new ReLoginRequiredError();
       if (current?.refresh_token !== refreshToken) {
-        assertNotRejected(current, server);
+        assertNotRejected(current, server, context.scope);
         if (current && !isExpiring(current)) return current;
         // A peer's newer access token may itself have expired while we waited;
         // its refresh token is still the only safe one to use. Never replay the
         // rejected token that triggered this invalid_grant.
         if (current?.refresh_token) {
-          return doRefresh(server, current.refresh_token, current);
+          return doRefresh(server, current.refresh_token, current, context);
         }
       } else if (current) {
         // Still our rejected token. Persist one bounded, nonsecret tombstone in
@@ -320,11 +355,10 @@ async function doRefresh(
         // the raw refresh token prevents any subsequent layer/process replay.
         const { refresh_token: _rejected, ...rest } = current;
         try {
-          storeTokens(
-            server,
-            { ...rest, refresh_rejected: tokenHash(refreshToken) },
-            { setDefault: false },
-          );
+          context.writeCurrent({
+            ...rest,
+            refresh_rejected: tokenHash(refreshToken),
+          });
         } catch {
           // Credential writes can fail before or after persistence. Neither
           // turns invalid_grant into a retryable transport error; the local

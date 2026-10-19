@@ -5,21 +5,27 @@
  * so the behavior is deterministic across platforms. The OS keychain backend is
  * exercised separately in keychain.test.ts.
  */
-import { afterEach, beforeEach, expect, test } from "bun:test";
+import { afterEach, beforeEach, expect, spyOn, test } from "bun:test";
 import {
   existsSync,
+  lstatSync,
   mkdirSync,
   mkdtempSync,
   readdirSync,
   readFileSync,
+  realpathSync,
   rmSync,
   statSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { canonicalCredentialPath } from "./credential-authority.ts";
+import { withCredentialMutation } from "./credential-mutation.ts";
 import type { OAuthTokenSet } from "./credentials.ts";
 import * as creds from "./credentials.ts";
+import * as keychain from "./keychain.ts";
 import { resetKeychainForTests } from "./keychain.ts";
 
 const SERVER = "https://api.example.com";
@@ -31,7 +37,7 @@ const TOKENS: OAuthTokenSet = {
 const TOKEN_ENVS = ["ME_SESSION_TOKEN", "ME_SPACE", "ME_SERVER", "ME_API_KEY"];
 // Every env key these tests touch — snapshotted and restored so the ambient
 // environment (and other test files in the same process) is left untouched.
-const ENV_KEYS = [...TOKEN_ENVS, "XDG_CONFIG_HOME", "ME_NO_KEYCHAIN"];
+const ENV_KEYS = [...TOKEN_ENVS, "XDG_CONFIG_HOME", "ME_NO_KEYCHAIN", "HOME"];
 
 let configDir: string;
 let savedEnv: Record<string, string | undefined>;
@@ -42,6 +48,7 @@ beforeEach(() => {
 
   configDir = mkdtempSync(join(tmpdir(), "me-creds-"));
   process.env.XDG_CONFIG_HOME = configDir;
+  process.env.HOME = join(configDir, "home");
   process.env.ME_NO_KEYCHAIN = "1"; // force the file fallback
   for (const k of TOKEN_ENVS) delete process.env[k];
   creds.setServerFlagOverride(undefined);
@@ -96,6 +103,82 @@ test("detailed token reads distinguish confirmed absence from inaccessible/corru
   expect(() => creds.storeTokens(SERVER, TOKENS)).toThrow("cannot be read");
   expect(readFileSync(file, "utf-8")).toBe(corrupt);
 });
+
+test("low-level token reads do not create storage or coordination directories", () => {
+  expect(creds.readStoredTokens(SERVER)).toEqual({ status: "missing" });
+  expect(existsSync(join(configDir, "me"))).toBe(false);
+});
+
+test("atomic fallback writes follow the physical symlink target rather than replacing the link", () => {
+  const dir = join(configDir, "me");
+  const physical = join(configDir, "physical");
+  mkdirSync(dir);
+  mkdirSync(physical);
+  const target = join(physical, "credentials.yaml");
+  const alias = join(dir, "credentials.yaml");
+  // A dangling leaf is canonicalized through its existing parent as well.
+  symlinkSync(target, alias);
+  creds.storeTokens(SERVER, TOKENS);
+  expect(lstatSync(alias).isSymbolicLink()).toBe(true);
+  expect(creds.getCredentialsPath()).toBe(realpathSync(target));
+  expect(readFileSync(target, "utf-8")).toContain("ref-456");
+  creds.clearTokens(SERVER);
+  expect(lstatSync(alias).isSymbolicLink()).toBe(true);
+  expect(creds.readStoredTokens(SERVER)).toEqual({ status: "missing" });
+});
+
+test("a dangling relative file symlink resolves against its canonical parent", () => {
+  const physical = join(configDir, "real", "me");
+  mkdirSync(physical, { recursive: true });
+  symlinkSync(join(configDir, "real", "me"), join(configDir, "me"));
+  const alias = join(configDir, "me", "credentials.yaml");
+  symlinkSync("../shared/credentials.yaml", alias);
+  const target = canonicalCredentialPath(
+    join(configDir, "real", "shared", "credentials.yaml"),
+  );
+  expect(creds.getCredentialsPath()).toBe(target);
+  creds.storeTokens(SERVER, TOKENS);
+  expect(lstatSync(alias).isSymbolicLink()).toBe(true);
+  expect(realpathSync(alias)).toBe(target);
+  expect(readFileSync(target, "utf8")).toContain("ref-456");
+  expect(existsSync(join(configDir, "shared", "credentials.yaml"))).toBe(false);
+});
+
+for (const keychainState of ["different", "unavailable"] as const) {
+  test(`legacy current-XDG credentials win over ${keychainState} keychain and are adopted`, async () => {
+    creds.storeTokens(SERVER, TOKENS);
+    const available = spyOn(keychain, "keychainAvailable").mockReturnValue(
+      true,
+    );
+    const read = spyOn(keychain, "keychainRead").mockReturnValue(
+      keychainState === "unavailable"
+        ? { status: "unavailable" }
+        : {
+            status: "found",
+            value: JSON.stringify({ access_token: "stale-keychain" }),
+          },
+    );
+    try {
+      expect(creds.readStoredTokens(SERVER)).toEqual({
+        status: "found",
+        tokens: TOKENS,
+      });
+      expect(creds.resolveCredentials(SERVER).loggedIn).toBe(true);
+      await withCredentialMutation(SERVER, async (context) => {
+        expect(context.read()).toEqual({ status: "found", tokens: TOKENS });
+      });
+      expect(creds.readStoredTokens(SERVER)).toEqual({
+        status: "found",
+        tokens: TOKENS,
+      });
+      // A valid legacy file does not even require a keychain lookup.
+      expect(read).not.toHaveBeenCalled();
+    } finally {
+      available.mockRestore();
+      read.mockRestore();
+    }
+  });
+}
 
 test("the credentials file is written 0600", () => {
   creds.storeTokens(SERVER, TOKENS);
@@ -250,7 +333,29 @@ test("secrets and config live in separate files", () => {
   expect(credsFile).not.toContain("abc123def456");
 });
 
-test("migrates a legacy credentials.yaml: salvages config, scrubs the dead token", () => {
+test("legacy config salvage preserves valid OAuth credentials without rewriting the shared file", () => {
+  const dir = join(configDir, "me");
+  mkdirSync(dir);
+  const file = join(dir, "credentials.yaml");
+  const original = [
+    `default_server: ${SERVER}`,
+    "servers:",
+    `  ${SERVER}:`,
+    "    active_space: legacyspace1",
+    "    tokens:",
+    "      access_token: valid-access",
+    "      refresh_token: valid-refresh",
+  ].join("\n");
+  writeFileSync(file, original);
+  expect(creds.resolveCredentials().loggedIn).toBe(true);
+  expect(creds.getStoredTokens(SERVER)).toEqual({
+    access_token: "valid-access",
+    refresh_token: "valid-refresh",
+  });
+  expect(readFileSync(file, "utf-8")).toBe(original);
+});
+
+test("legacy config is salvaged without an unlocked secret rewrite; login replaces the dead token", () => {
   // a pre-split credentials.yaml that bundled a (now-retired) device-flow
   // session_token together with the non-secret config
   const dir = join(configDir, "me");
@@ -267,15 +372,20 @@ test("migrates a legacy credentials.yaml: salvages config, scrubs the dead token
     { mode: 0o600 },
   );
 
-  // reading salvages the non-secret bits; the dead device token is dropped
+  // Reading salvages the non-secret bits; the dead device token is ignored.
   const r = creds.resolveCredentials();
   expect(r.server).toBe(SERVER);
   expect(r.activeSpace).toBe("legacyspace1");
   expect(r.loggedIn).toBe(false); // the retired session_token is not honored
 
-  // config.yaml now holds the non-secret bits; credentials.yaml is scrubbed
+  // A synchronous read must not replace a whole shared secret file without its
+  // resource lock. The next explicit login replaces that retired origin entry.
   const configFile = readFileSync(join(dir, "config.yaml"), "utf-8");
   expect(configFile).toContain("legacyspace1");
+  expect(readFileSync(join(dir, "credentials.yaml"), "utf-8")).toContain(
+    "legacy-tok",
+  );
+  creds.storeTokens(SERVER, TOKENS);
   const credsFile = readFileSync(join(dir, "credentials.yaml"), "utf-8");
   expect(credsFile).not.toContain("legacy-tok"); // scrubbed from disk
   expect(credsFile).not.toContain("legacyspace1");
