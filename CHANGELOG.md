@@ -4,6 +4,66 @@ All notable changes to the memory engine are documented here. The client
 (`v<x.y.z>`) and server (`server/v<x.y.z>`) release independently but are
 versioned in lockstep for coordinated breaking changes.
 
+## 0.9.0
+
+Server `server/v0.9.0` · Client `v0.9.0`.
+
+An operations release: embedding workers can run as their own processes,
+server telemetry is leaner and more useful for diagnosing memory pressure, and
+search and batch-insert sizes have a tighter safety cap.
+
+### Added
+- **Standalone embedding workers.** New `./bun run worker` entry point
+  (`packages/server/worker.ts`, also usable as a command override on the
+  existing server image) runs embedding-queue consumers without an HTTP
+  listener or migrations. Set `WORKER_COUNT=0` on the API server for API-only
+  mode. Workers discover spaces through `DATABASE_URL`, can process queues
+  through an optional `WORKER_DATABASE_URL`, and are tuned with the
+  `WORKER_DB_*` pool/timeout settings. SIGTERM drains in-flight batches, and
+  workers that were only partly started are cancelled cleanly on shutdown.
+  Compose and Kubernetes defaults are unchanged.
+- **`me import docs` reports `importedPaths`.** The `--json`/`--yaml` result
+  now lists the source path of every discovered doc (relative to the import
+  root, sorted, the same as `meta.repo_path`). With `--dry-run`, a caller can
+  get the exact file set without reimplementing `--include`/`--exclude`.
+- **Web UI copy buttons** on the frontmatter and metadata headings in the
+  memory reading view.
+- **Server observability for OOMs and per-principal operations:** process
+  memory samples, per-process identity, search and JSON-response sizes,
+  tokenizer-pressure diagnostics, and per-principal RPC operation attributes.
+  See `design/runtime-observability.md`.
+
+### Changed
+- **Search results and `memory.batchCreate` are capped at 200** (was 1000).
+  This applies to `--limit` / `limit` on search and to memories per batch
+  insert. The CLI importers, MCP tools, and the web UI now split work into
+  200-item chunks. Hybrid `candidateLimit` still accepts up to 1000.
+- **Telemetry defaults to a `lean` profile.** SDK metrics are off, and one
+  runtime memory sample is logged at startup and every 60s.
+  `LOGFIRE_TELEMETRY_PROFILE=diagnostic` turns on application HTTP metrics,
+  snapshot gauges, and 10s samples. `LOGFIRE_RUNTIME_SAMPLE_INTERVAL_MS`
+  overrides the sample interval (minimum 10000). `OTEL_METRIC_EXPORT_INTERVAL`
+  no longer has any effect.
+- Bun upgraded to 1.4.3. `@pydantic/logfire-node` 0.13 → 0.18, plus
+  security and memory-related dependency upgrades (`ai`, `@ai-sdk/openai`,
+  `next`). The Better Auth upgrade is deferred, so there is no auth schema
+  change.
+
+### Fixed
+- `me` CLI: a refresh token the server rejects is now cleared instead of
+  being sent again on every command, and a process never refreshes with a
+  stale token after another process cleared the store. `me login` saves its
+  tokens under the refresh lock, so a concurrent clear can't wipe a new login.
+- Expected Better Auth 4xx responses no longer show up as errors in telemetry.
+- `memory.history` by path and `memory.revert` no longer fail on
+  TimescaleDB 2.30+. `has_tree_access` now uses a schema-qualified `ltree`
+  operator.
+
+### Database
+- No schema version changes. The `has_tree_access` fix and the search limit
+  change are in idempotent migrations, which are re-applied on every server
+  boot.
+
 ## 0.8.0
 
 Server `server/v0.8.0` · Client `v0.8.0`.
