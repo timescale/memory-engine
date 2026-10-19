@@ -23,9 +23,11 @@ search and batch-insert sizes have a tighter safety cap.
   workers that were only partly started are cancelled cleanly on shutdown.
   Compose and Kubernetes defaults are unchanged.
 - **`me import docs` reports `importedPaths`.** The `--json`/`--yaml` result
-  now lists the source path of every discovered doc (relative to the import
-  root, sorted, the same as `meta.repo_path`). With `--dry-run`, a caller can
-  get the exact file set without reimplementing `--include`/`--exclude`.
+  now lists the source path of every doc that will be imported (relative to
+  the import root, sorted, the same as `meta.repo_path`). Unreadable files and
+  files left empty after frontmatter/MDX stripping are left out. With
+  `--dry-run`, a caller can get the exact import set without reimplementing
+  `--include`/`--exclude`.
 - **Web UI copy buttons** on the frontmatter and metadata headings in the
   memory reading view.
 - **Server observability for OOMs and per-principal operations:** process
@@ -36,8 +38,11 @@ search and batch-insert sizes have a tighter safety cap.
 ### Changed
 - **Search results and `memory.batchCreate` are capped at 200** (was 1000).
   This applies to `--limit` / `limit` on search and to memories per batch
-  insert. The CLI importers, MCP tools, and the web UI now split work into
-  200-item chunks. Hybrid `candidateLimit` still accepts up to 1000.
+  insert. The CLI and MCP importers now split batch inserts into 200-item
+  chunks. The web UI and CLI/MCP search lower their limits to 200; they make a
+  single request and don't page. Hybrid `candidateLimit` still accepts up to
+  1000. Direct API callers must keep search `limit` and batch sizes at or below
+  200.
 - **The server now requires client >= 0.9.0 (`MIN_CLIENT_VERSION`).** Older
   clients send `limit: 1000` (`me pack install`, `me pack list`, the default
   `me memory export`) and 1000-item batches, which the new caps reject. With
