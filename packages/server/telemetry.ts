@@ -1,6 +1,7 @@
 import { getTokenizerPoolStats } from "@memory.build/embedding";
 import { configure, shutdown } from "@pydantic/logfire-node";
 import { SERVER_VERSION } from "../../version";
+import { betterAuthClientErrors } from "./auth/client-error-spans";
 import {
   prepareRuntimeTelemetryEnvironment,
   startRuntimeSampler,
@@ -37,6 +38,7 @@ export function configureTelemetry(serviceName: string): {
       console: process.env.LOGFIRE_CONSOLE === "true",
       serviceName,
       serviceVersion: SERVER_VERSION,
+      additionalSpanProcessors: [betterAuthClientErrors],
       metrics: settings.metricsEnabled ? { additionalReaders: [] } : false,
       nodeAutoInstrumentations: {
         "@opentelemetry/instrumentation-fs": { enabled: false },

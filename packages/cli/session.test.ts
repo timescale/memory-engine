@@ -470,7 +470,7 @@ test("invalid_grant refreshes with a peer's newer token when its access token is
   expect(refreshCalls).toBe(2);
 });
 
-test("invalid_grant with no fresher stored token gives up", async () => {
+test("invalid_grant with no fresher stored token clears it so it is never replayed", async () => {
   creds.storeTokens(SERVER, {
     access_token: "old",
     refresh_token: "r1",
@@ -480,8 +480,24 @@ test("invalid_grant with no fresher stored token gives up", async () => {
     throw new OAuthError("session not found", "invalid_grant");
   };
   expect(await session.refreshAccessToken(SERVER)).toBeUndefined();
-  // getAccessToken still falls back to the stale token (the 401 path is backstop).
-  expect(await session.getAccessToken(SERVER)).toBe("old");
+  expect(creds.getStoredTokens(SERVER)).toBeUndefined();
+  // Later calls (proactive and reactive) send nothing to the server.
+  expect(await session.getAccessToken(SERVER)).toBeUndefined();
+  expect(await session.refreshAccessToken(SERVER)).toBeUndefined();
+  expect(refreshCalls).toBe(1);
+});
+
+test("transient refresh failure keeps the stored token", async () => {
+  creds.storeTokens(SERVER, {
+    access_token: "old",
+    refresh_token: "r1",
+    expires_at: Date.now() - 1_000,
+  });
+  refreshImpl = async () => {
+    throw new Error("network down");
+  };
+  expect(await session.refreshAccessToken(SERVER)).toBeUndefined();
+  expect(creds.getStoredTokens(SERVER)?.refresh_token).toBe("r1");
 });
 
 test("refreshFromStore uses the fallback refresh_token when the store is empty", async () => {

@@ -41,6 +41,7 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 import {
+  clearTokens,
   getConfigLockPath,
   getStoredTokens,
   normalizeOrigin,
@@ -215,6 +216,10 @@ async function doRefresh(
         if (current?.refresh_token) {
           return doRefresh(server, current.refresh_token, current);
         }
+      } else {
+        // Still our rejected token: drop it so no process keeps replaying it.
+        // shortcut: a failed keychain read skips this; the next refresh retries once and clears then.
+        clearTokens(server);
       }
     }
     // Expired / revoked refresh token (or transient failure) → give up; the

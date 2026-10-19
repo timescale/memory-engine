@@ -38,6 +38,7 @@ import {
 } from "../oauth.ts";
 import { LoopbackError, runLoopbackAuth } from "../oauth-loopback.ts";
 import { getOutputFormat, type OutputFormat, output } from "../output.ts";
+import { LOCK_TIMEOUT, withRefreshLock } from "../session.ts";
 
 /**
  * Attempt to open a URL in the user's default browser.
@@ -168,15 +169,20 @@ export async function authenticateLogin(
         openBrowser: options.browser,
       });
 
-  storeTokens(options.server, {
-    access_token: tokens.accessToken,
-    refresh_token: tokens.refreshToken,
-    expires_at:
-      tokens.expiresIn !== undefined
-        ? Date.now() + tokens.expiresIn * 1000
-        : undefined,
-    scope: tokens.scope,
-  });
+  // Under the refresh lock, so a peer clearing a rejected token can't wipe this login.
+  const stored = await withRefreshLock(options.server, async () =>
+    storeTokens(options.server, {
+      access_token: tokens.accessToken,
+      refresh_token: tokens.refreshToken,
+      expires_at:
+        tokens.expiresIn !== undefined
+          ? Date.now() + tokens.expiresIn * 1000
+          : undefined,
+      scope: tokens.scope,
+    }),
+  );
+  if (stored === LOCK_TIMEOUT)
+    throw new Error("Credential store is busy. Try again.");
 
   return {
     server: options.server,
