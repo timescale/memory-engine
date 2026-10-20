@@ -41,6 +41,34 @@ the ambient cookie must also pass the server's allowed-origin check. A supplied
 Bearer credential is never allowed to fall back to a cookie session, so an
 invalid bearer cannot bypass that CSRF boundary.
 
+## New-user signup restriction
+
+`SIGNUP_EMAIL_DOMAIN` optionally restricts new human accounts to a single email
+domain. Unset preserves unrestricted self-hosted signup; the hosted Helm chart
+sets `tigerdata.com`. Explicit values are validated at startup and normalized
+for case and surrounding whitespace; empty or malformed values fail startup.
+
+The `user.create.before` database hook in `packages/server/auth/betterauth.ts`
+requires an exact domain match and a provider-verified email before any user or
+linked account is saved. It uses the email the provider already selects, not
+all addresses attached to a GitHub account. Subdomains and lookalike suffixes
+are not matches. Invitation links still require this same signup step.
+
+Existing means an `auth.users` record, even without a core principal or space.
+Existing-user sign-in and safe provider-account linking do not create users and
+remain unchanged. The restriction does not run during session creation, token
+refresh, API-key validation, or core provisioning. Service accounts are not
+human signups and are unaffected. No cutoff timestamp or backfill is needed.
+
+The pinned Better Auth OAuth callback forwards a user-creation error's message
+as `error` rather than preserving its code/description. The hook therefore uses
+the message token `SIGNUP_RESTRICTED:<domain>` (or `EMAIL_NOT_VERIFIED`), which
+the shared web sign-in card translates into a human-readable error.
+
+Deploy the supporting application image and chart setting to every API replica
+to close signup consistently. Removing the setting reopens signup without
+changing existing accounts.
+
 ## OAuth for CLI and MCP
 
 `me login` uses OAuth 2.1 authorization code with PKCE and an RFC 8252 loopback

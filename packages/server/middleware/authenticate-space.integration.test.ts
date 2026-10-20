@@ -161,6 +161,7 @@ beforeAll(async () => {
     baseURL: "http://localhost:3000",
     secret: "test-secret-betterauth-0123456789",
     trustedOrigins: ["https://test.example.com"],
+    signupEmailDomain: "tigerdata.com", // Existing example.com users remain admitted.
   });
 });
 

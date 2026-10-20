@@ -24,7 +24,10 @@ import { type CoreStore, coreStore } from "@memory.build/engine/core";
 import { info, span } from "@pydantic/logfire-node";
 import postgres, { type Sql } from "postgres";
 import { MIN_CLIENT_VERSION, SERVER_VERSION } from "../../version";
-import { createBetterAuth } from "./auth/betterauth";
+import {
+  createBetterAuth,
+  normalizeSignupEmailDomain,
+} from "./auth/betterauth";
 import { cleanupExpiredAuth } from "./auth/cleanup";
 import type { ServerContext } from "./context";
 import { buildEmbeddingConfig, parseIntEnv } from "./embedding-config";
@@ -70,6 +73,8 @@ export interface StartServerOptions {
   apiBaseUrl?: string;
   /** better-auth signing secret. Default BETTER_AUTH_SECRET. */
   betterAuthSecret?: string;
+  /** Restrict new-user emails to this domain. Default SIGNUP_EMAIL_DOMAIN; unset is unrestricted. */
+  signupEmailDomain?: string;
   /** Auth schema name. Default AUTH_SCHEMA ?? "auth". */
   authSchema?: string;
   /** Core control-plane schema name. Default CORE_SCHEMA ?? "core". */
@@ -175,6 +180,10 @@ export async function startServer(
   if (!apiBaseUrl) {
     throw new Error("API_BASE_URL environment variable is required");
   }
+
+  const signupEmailDomain = normalizeSignupEmailDomain(
+    opts.signupEmailDomain ?? process.env.SIGNUP_EMAIL_DOMAIN,
+  );
 
   // Static web UI: the directory to serve, and the origins allowed to make
   // cookie-authenticated requests (CSRF gate). The public origin (derived from
@@ -346,6 +355,7 @@ export async function startServer(
       baseURL: apiBaseUrl,
       secret: betterAuthSecret,
       trustedOrigins: webAllowedOrigins,
+      signupEmailDomain,
       github:
         process.env.GITHUB_CLIENT_ID && process.env.GITHUB_CLIENT_SECRET
           ? {

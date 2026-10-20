@@ -82,7 +82,7 @@ async function run(entry: "worker" | "index", later: boolean, failure = false) {
         return [{ slug: "test" }];
       }
     }) }));
-    mock.module("./packages/server/auth/betterauth.ts", () => ({ createBetterAuth: () => ({
+    mock.module("./packages/server/auth/betterauth.ts", () => ({ normalizeSignupEmailDomain: value => value, createBetterAuth: () => ({
       auth: {}, pool: { end: async () => { events.push("auth-close"); } }
     }) }));
     mock.module("./packages/server/router.ts", () => ({ createRouter: () => ({}) }));

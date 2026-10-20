@@ -16,6 +16,11 @@ This installs the `me` binary to `~/.local/bin`. Make sure it's on your PATH.
 
 ## Sign up and log in
 
+New accounts on the hosted service require a verified **@tigerdata.com** email
+address. Existing users with any email domain can still sign in. If GitHub
+returns your personal email, use Google with your TigerData account instead.
+Self-hosted servers may have a different signup policy.
+
 ```bash
 me login
 ```

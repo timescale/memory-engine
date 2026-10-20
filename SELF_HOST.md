@@ -87,6 +87,18 @@ Set the required values:
     ([guide](https://developers.google.com/identity/protocols/oauth2/web-server#creatingcred)).
     Callback: `http://localhost:3000/api/v1/auth/callback/google`
 
+### Optional signup restriction
+
+Self-hosted signup is unrestricted by default. To limit **new accounts** to one
+email domain, set `SIGNUP_EMAIL_DOMAIN=example.com` in `.env`. The email returned
+by GitHub or Google must be verified and use that exact domain (case-insensitive;
+subdomains are not included). Existing users can still sign in regardless of
+their domain, and their sessions, CLI credentials, and API keys are unchanged.
+Invitations do not bypass the restriction for new users.
+
+Remove the variable to reopen signup; an explicitly empty or malformed value
+fails startup. Restart the server after changing it.
+
 ## 2. Start the backend
 
 ```bash

@@ -104,7 +104,7 @@ test("startServer shares stop until HTTP, workers, tokenizer, and both pools dra
       shutdownTokenizerPool: async () => { events.push("tokenizer"); await tokenizerDrain; }
     }));
     mock.module("@memory.build/engine/core", () => ({ coreStore: () => ({}) }));
-    mock.module("./packages/server/auth/betterauth.ts", () => ({ createBetterAuth: () => ({
+    mock.module("./packages/server/auth/betterauth.ts", () => ({ normalizeSignupEmailDomain: value => value, createBetterAuth: () => ({
       auth: {}, pool: { end: async () => { events.push("auth"); } }
     }) }));
     mock.module("./packages/server/router.ts", () => ({ createRouter: () => ({

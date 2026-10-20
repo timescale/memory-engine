@@ -10,23 +10,8 @@
  */
 import type { ReactNode } from "react";
 import { type SocialProvider, signInWithProvider } from "../api/auth-client.ts";
+import { readSignInError } from "../lib/sign-in-error.ts";
 import { Logo } from "./icons.tsx";
-
-/**
- * A failed social sign-in redirects back here with `?error[&error_description]`
- * (see `auth-client.ts`). Surface the human message — notably the server's
- * verified-email login gate (`EMAIL_NOT_VERIFIED`).
- */
-function readSignInError(): string | null {
-  const params = new URLSearchParams(window.location.search);
-  const description = params.get("error_description");
-  if (description) return description;
-  const code = params.get("error");
-  if (!code) return null;
-  return code === "EMAIL_NOT_VERIFIED"
-    ? "Your email is not verified with your identity provider. Verify it with GitHub or Google, then sign in again."
-    : "Sign-in failed. Please try again.";
-}
 
 export function SignInCard({
   title = "Memory Engine",
@@ -54,7 +39,7 @@ export function SignInCard({
     );
   };
 
-  const signInError = readSignInError();
+  const signInError = readSignInError(window.location.search);
 
   return (
     <div className="flex h-full items-center justify-center p-6">

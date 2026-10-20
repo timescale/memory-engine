@@ -102,6 +102,8 @@ export interface BetterAuthOptions {
   github?: OAuthProviderCredentials;
   /** Google OAuth app credentials, if configured. */
   google?: OAuthProviderCredentials;
+  /** Restrict new users to a verified email at this exact domain; unset allows any domain. */
+  signupEmailDomain?: string;
   /** Max connections for the dedicated auth pool. Default 5 (lookups are cheap). */
   poolMax?: number;
   /**
@@ -111,6 +113,23 @@ export interface BetterAuthOptions {
   rateLimitEnabled?: boolean;
 }
 
+/** Validate explicit configuration rather than silently disabling the signup gate. */
+export function normalizeSignupEmailDomain(
+  value: string | undefined,
+): string | undefined {
+  if (value === undefined) return undefined;
+  const domain = value.trim().toLowerCase();
+  if (
+    domain.length > 253 ||
+    !/^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(
+      domain,
+    )
+  ) {
+    throw new Error("SIGNUP_EMAIL_DOMAIN must be a single valid email domain");
+  }
+  return domain;
+}
+
 /**
  * Build the better-auth instance + its dedicated, schema-pinned pool.
  *
@@ -118,6 +137,7 @@ export interface BetterAuthOptions {
  * alongside the other pools.
  */
 export function createBetterAuth(opts: BetterAuthOptions) {
+  const signupEmailDomain = normalizeSignupEmailDomain(opts.signupEmailDomain);
   const secure = new URL(opts.baseURL).protocol === "https:";
 
   // Dedicated auth pool, pinned to the auth schema via the libpq `options`
@@ -146,6 +166,31 @@ export function createBetterAuth(opts: BetterAuthOptions) {
       },
     },
     databaseHooks: {
+      user: {
+        create: {
+          before: async (user) => {
+            if (signupEmailDomain === undefined) return;
+            const emailParts = user.email.split("@");
+            if (
+              emailParts.length !== 2 ||
+              !emailParts[0] ||
+              emailParts[1]?.toLowerCase() !== signupEmailDomain
+            ) {
+              // better-auth's OAuth callback forwards message, not body.code.
+              throw new APIError("FORBIDDEN", {
+                code: "SIGNUP_RESTRICTED",
+                message: `SIGNUP_RESTRICTED:${signupEmailDomain}`,
+              });
+            }
+            if (user.emailVerified !== true) {
+              throw new APIError("FORBIDDEN", {
+                code: "EMAIL_NOT_VERIFIED",
+                message: "EMAIL_NOT_VERIFIED",
+              });
+            }
+          },
+        },
+      },
       session: {
         create: {
           // Gate login on a provider-verified email — the single front-door

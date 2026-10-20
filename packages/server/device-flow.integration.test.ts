@@ -128,6 +128,7 @@ beforeAll(async () => {
     baseURL: BASE,
     secret: BETTER_AUTH_SECRET,
     trustedOrigins: ALLOWED,
+    signupEmailDomain: "tigerdata.com", // Existing example.com users remain admitted.
   });
 });
 

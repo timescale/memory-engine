@@ -4,6 +4,29 @@ All notable changes to the memory engine are documented here. The client
 (`v<x.y.z>`) and server (`server/v<x.y.z>`) release independently but are
 versioned in lockstep for coordinated breaking changes.
 
+## 0.9.1
+
+Server `server/v0.9.1` · Client unchanged (`v0.9.0`).
+
+### Added
+- **Deployment-configurable signup restriction.** Set `SIGNUP_EMAIL_DOMAIN` to
+  require new accounts to have a provider-verified email at that exact domain
+  (case-insensitive). The hosted service uses `tigerdata.com`; invitations do
+  not bypass the restriction. Existing users of any domain can still sign in,
+  link verified providers, and use their sessions, refresh tokens, and API keys.
+  Self-hosted signup remains unrestricted when the setting is unset. Empty or
+  malformed values fail startup. Blocked signups leave no user or linked account
+  behind, and the sign-in page explains the restriction.
+
+### Fixed
+- CLI browser login preserves its authorization request after a failed social
+  sign-in, allowing a user rejected with a personal GitHub email to retry with
+  their TigerData Google account and finish logging in.
+
+### Compatibility and database
+- No CLI release, compatibility minimum changes, or schema migrations required.
+  To reopen signup, unset `SIGNUP_EMAIL_DOMAIN` and restart all API replicas.
+
 ## 0.9.0
 
 Server `server/v0.9.0` · Client `v0.9.0`.
